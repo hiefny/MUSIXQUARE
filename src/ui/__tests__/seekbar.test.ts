@@ -337,6 +337,9 @@ describe('initSeekBar playback mode gates', () => {
 
     const slider = document.getElementById('seek-slider') as HTMLInputElement;
     expect(slider.getAttribute('aria-disabled')).toBe('true');
+    // The tooltip keeps the toast's sentence line break, which replaces a period.
+    expect(slider.title).toBe(t('toast.sync_not_ready'));
+    expect(slider.title).toContain('\n');
 
     slider.value = '55';
     slider.dispatchEvent(new Event('input'));

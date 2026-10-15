@@ -45,8 +45,8 @@ const fil: Record<I18nKey, string> = {
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Mag-sign in',
-  'account.login_cancelled': 'Kinansela ang pag-sign in.',
-  'account.login_failed': 'Hindi makapag-sign in. Pakisubukan muli.',
+  'account.login_cancelled': 'Kinansela ang pag-sign in',
+  'account.login_failed': 'Hindi makapag-sign in\nPakisubukan muli',
   'account.welcome_back': 'Maligayang pagbabalik\n{{name}}',
   'account.login_message':
     'Mag-sign in gamit ang Google para magamit ang parehong palayaw sa iba’t ibang kuwarto. Maaari kang magpatuloy nang hindi nagsa-sign in.',
@@ -73,14 +73,14 @@ const fil: Record<I18nKey, string> = {
   'account.nickname_required': 'Maglagay ng palayaw.',
   'account.nickname_whitespace':
     'Hindi maaaring magkaroon ng espasyo o hindi nakikitang character ang palayaw.',
-  'account.nickname_taken': 'Ginagamit na ang palayaw na iyon.',
-  'account.nickname_saved': 'Ang bago mong palayaw ay {{name}}.',
-  'account.action_failed': 'Hindi ma-update ang account mo. Pakisubukan muli.',
+  'account.nickname_taken': 'Ginagamit na ang palayaw na iyon',
+  'account.nickname_saved': 'Ang bago mong palayaw ay {{name}}',
+  'account.action_failed': 'Hindi ma-update ang account mo\nPakisubukan muli',
   'account.delete_confirm_title': 'I-delete ang account mo?',
   'account.delete_confirm_message':
     'Made-delete ang palayaw mo, mga session sa pag-sign in, at mga pahintulot sa kuwarto na naka-link sa account. Ang content na ibinahagi sa isang kuwarto ay sumusunod sa patakaran sa pagpapanatili ng kuwartong iyon.',
   'account.delete_pending':
-    'Dine-delete na ang account mo. Ligtas na nililinis ang mga pahintulot sa PRO at awtomatikong matatapos ang pag-delete.',
+    'Dine-delete na ang account mo\nLigtas na nililinis ang mga pahintulot sa PRO at awtomatikong matatapos ang pag-delete',
   'common.previous': 'Nakaraan',
   'common.next_desc': 'Susunod',
   'common.volume_percent': 'Volume: {{val}}%',
@@ -148,7 +148,7 @@ const fil: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Naka-off ang repeat',
   'playlist.shuffle_on': 'Naka-on ang shuffle',
   'playlist.shuffle_off': 'Naka-off ang shuffle',
-  'playlist.empty_hint': 'Wala pang media.',
+  'playlist.empty_hint': 'Wala pang media',
   'playlist.loading_info': 'Nilo-load ang impormasyon ng track...',
   'playlist.sub_load_failed': 'Hindi ma-load ang impormasyon ng video',
   'playlist.remove_title': 'Alisin sa playlist',
@@ -160,10 +160,10 @@ const fil: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Nilo-load...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'I-play para i-load ang buong listahan ng track',
-  'playlist.host_update_required': 'Paki-update ang device na namamahala sa kuwartong ito.',
-  'playlist.queue_full': 'Puno na ang playlist.',
-  'playlist.mutation_retry': 'Nagbago ang playlist. Pakisubukan muli.',
-  'transfer.host_busy': 'May ibang file na pinoproseso ang host. Subukan muli maya-maya.',
+  'playlist.host_update_required': 'Paki-update ang device na namamahala sa kuwartong ito',
+  'playlist.queue_full': 'Puno na ang playlist',
+  'playlist.mutation_retry': 'Nagbago ang playlist\nPakisubukan muli',
+  'transfer.host_busy': 'May ibang file na pinoproseso ang host\nSubukan muli maya-maya',
 
   // ─── Gampanin ────────────────────────────────────────────────────
   'role.center': 'Gitna',
@@ -298,7 +298,7 @@ const fil: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Maglagay ng 8 digit',
   'connect.room_password_disabled': 'Hindi na kailangan ng mga kalahok ang password ng kuwarto',
   'connect.room_password_apply_pending':
-    'Malalapat ang bagong password kapag bumalik na ang koneksyon.',
+    'Malalapat ang bagong password kapag bumalik na ang koneksyon',
   'connect.pin_enabled_removed_message':
     'Nagtakda ang host ng password para sa kuwarto. Ilagay ito para makasali ulit.',
   'connect.pin_changed_removed_message':
@@ -326,7 +326,7 @@ const fil: Record<I18nKey, string> = {
   'demo.prompt_message': 'Maligayang pagdating! Handa ka na ba sa mabilis na gabay sa mga feature?',
   'demo.prompt_cta': 'Simulan ang Gabay',
   'demo.prompt_later': 'Mamaya',
-  'demo.try_later_toast': 'Maaari mo itong subukan anumang oras mula sa tab na Tulong.',
+  'demo.try_later_toast': 'Maaari mo itong subukan anumang oras mula sa tab na Tulong',
   'demo.track_info': 'Impormasyon ng track',
   'demo.exit': 'Lumabas sa Demo',
   'demo.credit': 'Track ng demo',
@@ -355,9 +355,9 @@ const fil: Record<I18nKey, string> = {
   'demo.finish_step_title': 'Handa na ang lahat!',
   'demo.finish_step_subtitle': 'Magsimula na at sabay-sabay na mag-play.',
   'demo.track_list_label': 'Listahan ng demo track',
-  'demo.host_only_exit': 'Host lang ang maaaring pumindot nito.',
+  'demo.host_only_exit': 'Host lang ang maaaring pumindot nito',
   'demo.external_playback_stopped':
-    'Itinigil ng demo mode ang kasalukuyang pag-play ng YouTube o system audio.',
+    'Itinigil ng demo mode ang kasalukuyang pag-play ng YouTube o system audio',
   'setup.how_to_connect': 'Paano kumonekta',
   'setup.set_role': 'Itakda ang gampanin ng device na ito',
   'setup.what_sound': 'Ano ang dapat i-play ng device na ito?',
@@ -376,7 +376,7 @@ const fil: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Walang makitang camera na magagamit',
   'setup.camera_unavailable': 'Hindi ma-on ang camera',
   'setup.camera_stream_stalled':
-    'Hindi nagsimula ang preview ng camera.\nBuksan sa browser o ilagay ang code.',
+    'Hindi nagsimula ang preview ng camera\nBuksan sa browser o ilagay ang code',
   'setup.connect_devices': 'Ikonekta ang iba mo pang device para magsimula.',
   'setup.enter_code_connect': 'Code ng imbitasyon',
   'setup.last_step': 'Magsimula na tayo!',
@@ -439,19 +439,19 @@ const fil: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Hindi ma-play ng device na ito ang kasalukuyang track.',
   'chat.update_available_tab_system_message':
-    'May bagong bersyon ng MUSIXQUARE.\nI-refresh ang page para magamit ito.',
+    'May bagong bersyon ng MUSIXQUARE\nI-refresh ang page para magamit ito',
   'chat.update_available_app_system_message':
-    'May bagong bersyon ng MUSIXQUARE.\nBuksan muli ang app para magamit ito.',
+    'May bagong bersyon ng MUSIXQUARE\nBuksan muli ang app para magamit ito',
   'chat.system_audio_started_system_message':
     'Nagsimula na ang pagbabahagi ng system audio. Normal ang kaunting latency sa pagitan ng host at mga bisitang device. Inirerekomenda naming hinaan ang volume ng host device para maiwasan ang echo.',
   'chat.system_audio_stopped_system_message':
     'Natapos na ang pagbabahagi ng system audio. Host, maaari mo nang lakasan ulit ang volume para magamit muli ang device na ito bilang speaker.',
   'chat.remote_upload_limited_system_message':
-    'Naabot ang limitasyon sa pag-upload ng file.\nDapat subukan muli mamaya ng mga kalahok na nakakonekta sa malayo.',
+    'Naabot ang limitasyon sa pag-upload ng file\nDapat subukan muli mamaya ng mga kalahok na nakakonekta sa malayo',
   'chat.remote_storage_quota_system_message':
     'Naabot ang limitasyon sa malayuang pagbabahagi.\nAvailable pa rin ang lokal na pagbabahagi ng file.',
   'chat.remote_upload_failed_system_message':
-    'Hindi na-upload ang file para sa malayuang pagbabahagi.\nDapat subukan muli maya-maya ng mga kalahok na nakakonekta sa malayo.',
+    'Hindi na-upload ang file para sa malayuang pagbabahagi\nDapat subukan muli maya-maya ng mga kalahok na nakakonekta sa malayo',
   'chat.pinned_close': 'Isara ang abiso',
   'chat.cmd_whisper_from': 'Pribadong mensahe mula kay {{name}}',
   'chat.cmd_whisper_to': 'Pribadong mensahe para kay {{name}}',
@@ -503,7 +503,7 @@ const fil: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Impormasyon sa pag-debug ng system',
   'chat.debug_copied':
-    'Nakopya ang impormasyon sa pag-debug.\nIpadala ito sa developer kung may nakita kang bug.',
+    'Nakopya ang impormasyon sa pag-debug\nIpadala ito sa developer kung may nakita kang bug',
   'chat.seek_to': 'Pumunta sa {{time}}',
   'chat.copied': 'Nakopya ang chat',
   'chat.copy_hint': 'Pindutin ang Enter para kopyahin ang mensaheng ito',
@@ -514,14 +514,14 @@ const fil: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Maglagay ng link sa YouTube o ng hahanapin',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Sabay-sabay na manood sa YouTube',
-  'youtube.ready': 'Handa na ang YouTube!\nPindutin ang I-play.',
+  'youtube.ready': 'Handa na ang YouTube!\nPindutin ang I-play',
   'youtube.thumbnail': 'Thumbnail ng preview sa YouTube',
-  'youtube.load_fail': 'Hindi ma-load ang YouTube API.\nSuriin ang koneksyon mo!',
+  'youtube.load_fail': 'Hindi ma-load ang YouTube API\nSuriin ang koneksyon mo!',
   'youtube.video_unavailable': 'Hindi available ang video, lilipat sa susunod na track',
-  'youtube.load_timeout': 'Nag-timeout ang pag-load ng YouTube.\nPakisubukan muli.',
+  'youtube.load_timeout': 'Nag-timeout ang pag-load ng YouTube\nPakisubukan muli',
   'youtube.invalid_link': 'Hindi valid ang link sa YouTube',
   'youtube.effects_disabled':
-    'Sabay-sabay na manood sa YouTube.\nNaka-off ang mga advanced na audio effect.',
+    'Sabay-sabay na manood sa YouTube\nNaka-off ang mga advanced na audio effect',
   'youtube.enter_link_placeholder': 'Maglagay ng link ng video o playlist',
   'youtube.enter_source_toast': 'Maglagay ng link sa YouTube o ng hahanapin',
   'youtube.fetching_info': 'Nilo-load ang impormasyon ng video...',
@@ -539,7 +539,7 @@ const fil: Record<I18nKey, string> = {
   'youtube.search_failed': 'Hindi available ang paghahanap sa YouTube',
   'youtube.search_selected': 'Handa nang idagdag ang napiling video',
   'youtube.search_results': 'Mga resulta ng paghahanap sa YouTube',
-  'youtube.live_sync_warning': 'Mahirap i-sync nang eksakto ang mga live stream.',
+  'youtube.live_sync_warning': 'Mahirap i-sync nang eksakto ang mga live stream',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Nadiskonekta',
@@ -547,8 +547,8 @@ const fil: Record<I18nKey, string> = {
   'network.session_full': 'Puno na ang kuwarto',
   'network.session_full_detail':
     'Nasa maximum na 100 nakakonektang device na ang kuwartong ito, kasama ang host.',
-  'network.op_granted': 'Ibinigay ang pahintulot ng administrator.',
-  'network.op_revoked': 'Binawi ang pahintulot ng administrator.',
+  'network.op_granted': 'Ibinigay ang pahintulot ng administrator',
+  'network.op_revoked': 'Binawi ang pahintulot ng administrator',
 
   // ─── Dynamic na notification ─────────────────────────────────────
   'toast.device_connected': 'Nakakonekta si {{name}}',
@@ -556,7 +556,7 @@ const fil: Record<I18nKey, string> = {
   'toast.device_conn_error': 'May error sa koneksyon ni {{name}}',
   'toast.device_kicked': 'Inalis si {{name}}',
   'toast.remote_decode_device_wait':
-    'Hindi na-decode ng isang device ang track na ito. Nagpapatuloy ang pag-play sa lahat ng iba pang device.',
+    'Hindi na-decode ng isang device ang track na ito\nNagpapatuloy ang pag-play sa lahat ng iba pang device',
   'toast.invite_code': 'Code ng imbitasyon: {{code}}',
   'toast.invite_code_info': '{{count}} nakakonekta | Code {{code}}',
   'toast.added_tracks': '{{count}} track ang idinagdag',
@@ -569,14 +569,14 @@ const fil: Record<I18nKey, string> = {
   'toast.op_status': 'Pahintulot na {{label}}: {{status}}',
   'toast.file_read_error': 'Hindi mabasa ang file: {{name}}',
   'toast.host_ended_connection': 'Tinapos ng host ang koneksyon',
-  'toast.announcement_available': 'May bagong abiso.\nTingnan ang chat panel.',
+  'toast.announcement_available': 'May bagong abiso\nTingnan ang chat panel',
 
   // ─── Static na notification ──────────────────────────────────────
   'toast.copy_failed': 'Hindi makopya',
   'toast.email_copied': 'Nakopya ang email address!',
   'toast.settings_sync_enabled': 'Naka-on ang pag-sync ng mga setting',
   'toast.settings_sync_admin_required':
-    'Naka-on ang pag-sync ng mga setting.\nMga administrator lang ng kuwarto ang makakapagbago ng mga audio setting.',
+    'Naka-on ang pag-sync ng mga setting\nMga administrator lang ng kuwarto ang makakapagbago ng mga audio setting',
   'toast.virtual_bass_on': 'Naka-on ang virtual bass',
   'toast.virtual_bass_off': 'Naka-off ang virtual bass',
   'toast.virtual_treble_on': 'Naka-on ang virtual treble',
@@ -584,27 +584,27 @@ const fil: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Naka-on ang virtual surround',
   'toast.virtual_surround_off': 'Naka-off ang virtual surround',
   'toast.virtual_effects_off': 'Naka-off ang lahat ng virtual effect',
-  'toast.host_only': 'Host lang ang makakagawa nito.',
-  'toast.host_only_media': 'Host lang ang makakapagdagdag ng media.',
-  'toast.media_management_required': 'Kailangan ang pahintulot na mamahala ng media.',
-  'toast.playback_control_required': 'Kailangan ang pahintulot na kontrolin ang pag-play.',
-  'toast.member_management_required': 'Kailangan ang pahintulot na mag-alis ng mga miyembro.',
-  'toast.chat_notice_required': 'Kailangan ang pahintulot na mag-post ng mga abiso sa chat.',
-  'toast.room_owner_required': 'May-ari lang ng kuwarto ang makakapagbago nito.',
+  'toast.host_only': 'Host lang ang makakagawa nito',
+  'toast.host_only_media': 'Host lang ang makakapagdagdag ng media',
+  'toast.media_management_required': 'Kailangan ang pahintulot na mamahala ng media',
+  'toast.playback_control_required': 'Kailangan ang pahintulot na kontrolin ang pag-play',
+  'toast.member_management_required': 'Kailangan ang pahintulot na mag-alis ng mga miyembro',
+  'toast.chat_notice_required': 'Kailangan ang pahintulot na mag-post ng mga abiso sa chat',
+  'toast.room_owner_required': 'May-ari lang ng kuwarto ang makakapagbago nito',
   'toast.system_audio_owner_required':
-    'Maaari mo lang ibahagi ang audio mula sa tab na nagbukas ng kuwarto.',
-  'toast.host_only_youtube': 'Host lang ang makakapagdagdag ng mga link sa YouTube.',
+    'Maaari mo lang ibahagi ang audio mula sa tab na nagbukas ng kuwarto',
+  'toast.host_only_youtube': 'Host lang ang makakapagdagdag ng mga link sa YouTube',
   'toast.host_only_control': 'Host lang ang makakakontrol nito',
   'toast.host_setting_required': 'Host lang ang makakapagbago ng setting na ito',
   'toast.host_only_file': 'Host lang ang makakapagdagdag ng mga file',
   'toast.no_tracks': 'Walang track na ipe-play',
   'toast.add_media_to_play': 'Magdagdag ng media',
   'toast.no_invite_code': 'Wala pang code ng imbitasyon',
-  'toast.invite_code_settings': 'Ibahagi ang link ng imbitasyon mula sa tab na Kumonekta.',
+  'toast.invite_code_settings': 'Ibahagi ang link ng imbitasyon mula sa tab na Kumonekta',
   'toast.click_copy_invite': 'I-click para kopyahin ang code ng imbitasyon',
   'toast.cant_select_file': 'Hindi makapili ng file',
   'toast.unsupported_files_excluded': 'Nilaktawan ang mga file na hindi sinusuportahan: {{count}}',
-  'toast.no_supported_audio_files': 'Walang sinusuportahang audio file na maidaragdag.',
+  'toast.no_supported_audio_files': 'Walang sinusuportahang audio file na maidaragdag',
   'dialog.large_room_file.title': 'Pagbabahagi ng file sa malaking kuwarto',
   'dialog.large_room_file.message':
     'Sa iisang network, maaasahan ang direktang paglilipat ng file para sa hanggang 8 bisitang device, hindi kasama ang host. Sa mas malalaking lokal na kuwarto, maaaring ipamahagi ang mga file sa pamamagitan ng Cloudflare R2.\n\nMagpatuloy?',
@@ -612,35 +612,35 @@ const fil: Record<I18nKey, string> = {
   'toast.sync_reset': 'Na-reset ang sync offset',
   'toast.stop_sent': 'Ipinadala ang hiling na huminto',
   'toast.hprecision_sync': 'High-precision sync: inihahanda ang audio…',
-  'toast.file_ready': 'Handa na ang file mo!\nPindutin ang I-play.',
+  'toast.file_ready': 'Handa na ang file mo!\nPindutin ang I-play',
   'toast.host_sync_not_recommended': 'Ayusin ang sync sa bisitang device',
   'toast.host_sync_requested':
-    'Hiniling ang precision sync.\nAyusin ang manual sync sa bisitang device.',
+    'Hiniling ang precision sync\nAyusin ang manual sync sa bisitang device',
   'toast.sync_not_in_system_audio':
     'Hindi available ang sync sa mode ng pagbabahagi ng system audio',
-  'toast.sync_not_ready': 'Hindi pa handa.\nSubukan muli maya-maya',
-  'toast.sync_no_media': 'Walang media na isi-sync.\nPumili muna ng ipe-play',
+  'toast.sync_not_ready': 'Hindi pa handa\nSubukan muli maya-maya',
+  'toast.sync_no_media': 'Walang media na isi-sync\nPumili muna ng ipe-play',
   'toast.host_ad': 'Mukhang nanonood ng ad ang host',
   'toast.yt_sync_start': 'Sini-sync...',
   'toast.yt_sync_done': 'Tapos na ang pag-sync',
   'toast.yt_rendezvous_start': 'Itinutugma sa host...',
   'toast.yt_rendezvous_done': 'Tapos na ang pag-sync',
   'toast.yt_rendezvous_host_paused': 'Naka-pause ang host, kaya posisyon lang ang itinugma',
-  'toast.yt_rendezvous_no_data': 'Wala pang data ng pag-play mula sa host, subukan muli maya-maya',
-  'toast.yt_rendezvous_timeout': 'Hindi na-sync, pakisubukan muli maya-maya',
+  'toast.yt_rendezvous_no_data': 'Wala pang data ng pag-play mula sa host\nSubukan muli maya-maya',
+  'toast.yt_rendezvous_timeout': 'Hindi na-sync\nPakisubukan muli maya-maya',
   'toast.yt_host_sync_sent': 'Ipinadala sa mga kalahok ang signal ng auto-sync',
   'toast.yt_manual_sync_prompt':
-    'Kakasubok lang ng awtomatikong pag-sync.\nKung may delay pa rin, ayusin ang value ngayon',
+    'Kakasubok lang ng awtomatikong pag-sync\nKung may delay pa rin, ayusin ang value ngayon',
   'toast.playlist_ended': 'Natapos na ang huling media item',
   'toast.operator_required': 'Mga administrator lang ang makakapagbago ng global settings',
   'toast.connection_closing': 'Nawala ang koneksyon, hindi na-sync ang setting',
   'toast.host_changed_setting': 'Binago ang mga setting',
-  'toast.session_mismatch': 'Hindi tugma ang session.\nSusubukan muli ang paglilipat ng file.',
+  'toast.session_mismatch': 'Hindi tugma ang session\nSusubukan muli ang paglilipat ng file',
   'toast.receiving_pct': 'Tumatanggap... {{pct}}%',
 
   // ─── Paglilipat ──────────────────────────────────────────────────
   'transfer.demo_loading': 'Nilo-load ang demo track mula sa server...',
-  'transfer.demo_loaded': 'Handa na ang demo track.',
+  'transfer.demo_loaded': 'Handa na ang demo track',
   'transfer.demo_load_fail': 'Hindi ma-load ang demo:',
   'transfer.demo_loading_short': 'Nilo-load ang demo track...',
   'transfer.file_requesting': 'Hinihingi ang file...',
@@ -659,13 +659,12 @@ const fil: Record<I18nKey, string> = {
   'share.remote.too_large': 'Masyadong malaki ang file (maximum na 200 MB)',
   'share.remote.network_error': 'Nagkaroon ng network error habang nagbabahagi sa malayo',
   'share.remote.rate_limited':
-    'Masyadong maraming file ang ina-upload para sa malayuang pagbabahagi.\nPakisubukan muli maya-maya',
+    'Masyadong maraming file ang ina-upload para sa malayuang pagbabahagi\nPakisubukan muli maya-maya',
   'share.remote.quota_reached': 'Naabot ang limitasyon sa storage ng malayuang pagbabahagi',
   'share.remote.auth_failed':
-    'Hindi napahintulutan ang malayuang pagbabahagi.\nPakisuri ang mga setting ng Worker',
-  'share.remote.expired': 'Nag-expire na ang link ng malayuang file.\nPakibahagi itong muli.',
-  'share.remote.unavailable':
-    'Hindi gumana ang malayuang pagbabahagi.\nPakisubukan muli maya-maya.',
+    'Hindi napahintulutan ang malayuang pagbabahagi\nPakisuri ang mga setting ng Worker',
+  'share.remote.expired': 'Nag-expire na ang link ng malayuang file\nPakibahagi itong muli',
+  'share.remote.unavailable': 'Hindi gumana ang malayuang pagbabahagi\nPakisubukan muli maya-maya',
   'transfer.preload_fail': 'Hindi nag-play ang na-preload na file, kaya muli itong nilo-load',
   'transfer.download_finishing': 'Tinatapos ang pag-download...',
   'transfer.preparation_delayed': 'Naantala ang paghahanda...\nHumihiling ng recovery mula sa host',
@@ -674,15 +673,15 @@ const fil: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Hinihintay ang preload: {{name}}',
   'transfer.waiting_recovery': 'Naghihintay ng recovery: {{name}}',
   'transfer.preparing_name': 'Inihahanda: {{name}}',
-  'transfer.recovery_failed': 'Hindi na-recover ang file.\nPakisubukan muli.',
+  'transfer.recovery_failed': 'Hindi na-recover ang file\nPakisubukan muli',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'Kailangan ang HTTPS: gumagana lang sa ligtas na koneksyon.',
+  'error.https_required': 'Kailangan ang HTTPS: gumagana lang sa ligtas na koneksyon',
   'error.browser_update': 'Paki-update ang browser mo sa pinakabagong bersyon.',
   'error.load_failed': 'Hindi Ma-load: {{msg}}',
   'error.audio_decode_fail': 'Hindi na-decode ang audio!',
   'error.audio_memory': 'Nilo-load ang audio sa memory...',
-  'error.all_tracks_failed': 'Walang mape-play na track sa playlist.',
+  'error.all_tracks_failed': 'Walang mape-play na track sa playlist',
   'error.audio_engine_prepare': 'Hindi maihanda ang audio engine',
   'error.session_create_fail': 'Hindi makagawa ng session',
   'error.network_generic': 'Nagkaroon ng network error',
@@ -700,20 +699,19 @@ const fil: Record<I18nKey, string> = {
   'error.peer_not_ready': 'Hindi pa handa ang peer connection',
   'error.network_init_failed': 'Hindi masimulan ang network',
   'error.no_host_id': 'Walang nakitang host ID',
-  'error.peer_unavailable': 'Hindi makita ang session.\nPakisuri muli ang code.',
+  'error.peer_unavailable': 'Hindi makita ang session\nPakisuri muli ang code',
   'error.host_left': 'Mukhang umalis na ang host sa session',
-  'error.network_issue': 'May problema sa network.\nSuriin ang koneksyon mo sa internet.',
-  'error.signal_server_fail': 'Hindi maabot ang signaling server.\nPakisubukan muli maya-maya.',
-  'error.server_disconnected': 'Nadiskonekta sa server.',
-  'error.session_id_unavailable': 'Hindi available ang session ID.\nPakisubukan muli.',
-  'error.webrtc_failed': 'Hindi makakonekta sa WebRTC.\nSuriin ang mga setting ng browser.',
+  'error.network_issue': 'May problema sa network\nSuriin ang koneksyon mo sa internet',
+  'error.signal_server_fail': 'Hindi maabot ang signaling server\nPakisubukan muli maya-maya',
+  'error.server_disconnected': 'Nadiskonekta sa server',
+  'error.session_id_unavailable': 'Hindi available ang session ID\nPakisubukan muli',
+  'error.webrtc_failed': 'Hindi makakonekta sa WebRTC\nSuriin ang mga setting ng browser',
   'error.browser_unsupported':
-    'Hindi makagawa ng real-time na koneksyon ang browser na ito.\nSubukan ang Chrome o Safari.',
-  'error.ssl_required': 'Kailangan ang ligtas na koneksyon (HTTPS).',
+    'Hindi makagawa ng real-time na koneksyon ang browser na ito\nSubukan ang Chrome o Safari',
+  'error.ssl_required': 'Kailangan ang ligtas na koneksyon (HTTPS)',
   'error.room_password_required': 'Kailangan ng password sa kuwartong ito.',
   'error.room_password_invalid': 'Hindi tugma ang password ng kuwarto.',
-  'error.room_password_auth_timeout':
-    'Hindi stable ang network.\nSubukang ilagay muli ang password.',
+  'error.room_password_auth_timeout': 'Hindi stable ang network\nSubukang ilagay muli ang password',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Magdagdag ng mga lokal na file',
@@ -815,9 +813,9 @@ const fil: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'Hindi tama ang password. Subukan muli.',
   'pro.pin_change_title': 'Palitan ang password ng kuwarto',
   'pro.pin_change_message': 'Magtakda ng bagong 8-digit na password.',
-  'pro.pin_changed': 'Pinalitan ang password ng kuwarto.',
+  'pro.pin_changed': 'Pinalitan ang password ng kuwarto',
   'pro.pin_enable_title': 'Magtakda ng password ng kuwarto',
-  'pro.pin_enabled': 'Naitakda na ang password ng kuwarto.',
+  'pro.pin_enabled': 'Naitakda na ang password ng kuwarto',
   'pro.pin_members_title': 'Ano ang gagawin sa mga kasalukuyang kalahok?',
   'pro.pin_members_keep': 'Panatilihin ang lahat',
   'pro.pin_members_keep_detail':
@@ -838,8 +836,8 @@ const fil: Record<I18nKey, string> = {
     'Inalis ka sa kuwartong ito ng may-ari ng kuwarto o ng isang administrator.',
   'pro.device_removed_message':
     'Diniskonekta ng isa pang device na naka-sign in sa account mo ang device na ito mula sa kuwarto.',
-  'pro.owner_only': 'May-ari lang ng kuwarto ang makakagawa nito.',
-  'pro.connect_failed': 'Hindi makakonekta sa PRO room.',
+  'pro.owner_only': 'May-ari lang ng kuwarto ang makakagawa nito',
+  'pro.connect_failed': 'Hindi makakonekta sa PRO room',
   'pro.room_full': 'Puno na ang PRO room na ito',
   'pro.room_full_detail':
     'Hanggang 100 device ang kasya sa isang PRO room, kasama ang sa may-ari. Laging may isang puwestong nakalaan para sa may-ari.',
@@ -857,8 +855,8 @@ const fil: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Kanselahin ang pag-upload ng {{name}}',
   'pro.upload.confirming_file': 'Tinatapos ang pag-upload ng {{name}}',
   'pro.downloading': 'Nilo-load ang file...',
-  'pro.quota_exceeded': 'Naabot na ng PRO room na ito ang 1 GB na limitasyon sa storage.',
-  'pro.file_too_large': 'Lumampas ang file na ito sa 200 MB na limitasyon bawat file.',
+  'pro.quota_exceeded': 'Naabot na ng PRO room na ito ang 1 GB na limitasyon sa storage',
+  'pro.file_too_large': 'Lumampas ang file na ito sa 200 MB na limitasyon bawat file',
 
   // ─── Mga HTML Block (ginagamit sa data-i18n-html) ────────────────
   'help.install_app_html':
@@ -899,37 +897,37 @@ const fil: Record<I18nKey, string> = {
   'system_audio.button': 'System Audio',
   'system_audio.sharing': 'Nagbabahagi ng System Audio',
   'system_audio.receiving': 'Tumatanggap ng System Audio',
-  'system_audio.owner_active': 'Ibinabahagi ni {{name}} ang system audio.',
-  'system_audio.owner_preparing': 'Naghahanda si {{name}} na ibahagi ang system audio.',
-  'system_audio.pro_preparing': 'Naghahandang ibahagi ang system audio.',
-  'system_audio.pro_publish_failed': 'Hindi masimulan ang pagbabahagi ng system audio.',
+  'system_audio.owner_active': 'Ibinabahagi ni {{name}} ang system audio',
+  'system_audio.owner_preparing': 'Naghahanda si {{name}} na ibahagi ang system audio',
+  'system_audio.pro_preparing': 'Naghahandang ibahagi ang system audio',
+  'system_audio.pro_publish_failed': 'Hindi masimulan ang pagbabahagi ng system audio',
   'system_audio.coordinator_update_required':
-    'I-update ang device na namamahala sa kuwartong ito para magbahagi ng system audio.',
+    'I-update ang device na namamahala sa kuwartong ito para magbahagi ng system audio',
   'system_audio.connection_unstable':
-    'Hindi stable ang koneksyon sa system audio ni {{name}}.\nSinusubukang kumonekta muli.',
-  'system_audio.capture_denied': 'Kinansela ang pagbabahagi ng audio.',
-  'system_audio.no_audio_track': 'Hindi naka-on ang “Ibahagi ang audio.”\nPakisubukan muli.',
+    'Hindi stable ang koneksyon sa system audio ni {{name}}\nSinusubukang kumonekta muli',
+  'system_audio.capture_denied': 'Kinansela ang pagbabahagi ng audio',
+  'system_audio.no_audio_track': 'Hindi naka-on ang “Ibahagi ang audio”\nPakisubukan muli',
   'system_audio.stop': 'Ihinto ang Pagbabahagi',
   'system_audio.stop_compact': 'Ihinto',
   'system_audio.started':
-    'Maaaring magkaroon ng kaunting latency ang system audio.\nHinaan ang source volume kung maaari.',
-  'system_audio.stopped': 'Natapos ang pagbabahagi ng system audio.\nIpinagpapatuloy ang playlist.',
+    'Maaaring magkaroon ng kaunting latency ang system audio\nHinaan ang source volume kung maaari',
+  'system_audio.stopped': 'Natapos ang pagbabahagi ng system audio\nIpinagpapatuloy ang playlist',
   'system_audio.host_channel_locked':
-    'Hindi mapapalitan ang mga gampanin habang ibinabahagi ang system audio.',
+    'Hindi mapapalitan ang mga gampanin habang ibinabahagi ang system audio',
   'system_audio.effects_guest_only':
-    'Aktibo ang system audio.\nSa mga bisitang device lang nalalapat ang mga audio effect.',
+    'Aktibo ang system audio\nSa mga bisitang device lang nalalapat ang mga audio effect',
   'system_audio.desktop_only':
-    'Available lang sa mga computer na gumagamit ng Chromium-based na browser (Chrome, Edge, atbp.).',
+    'Available lang sa mga computer na gumagamit ng Chromium-based na browser (Chrome, Edge, atbp.)',
   'system_audio.receive_failed':
-    'Hindi matanggap ang system audio.\nHilingin sa host na magsimulang magbahagi muli.',
+    'Hindi matanggap ang system audio\nHilingin sa host na magsimulang magbahagi muli',
   'system_audio.remote_receive_limit':
-    'Natapos ang pagtanggap ng system audio pagkalipas ng 2 oras.\nSumali muli sa kuwarto para magpatuloy sa pakikinig.',
+    'Natapos ang pagtanggap ng system audio pagkalipas ng 2 oras\nSumali muli sa kuwarto para magpatuloy sa pakikinig',
   'system_audio.device_limit':
-    'Hanggang {{count}} device ang sinusuportahan ng system audio.\nKasama rito ang host.',
+    'Hanggang {{count}} device ang sinusuportahan ng system audio\nKasama rito ang host',
   'system_audio.device_limit_stopped':
-    'Itinigil ang pagbabahagi ng system audio.\nHigit sa {{count}} device ang nakakonekta.',
+    'Itinigil ang pagbabahagi ng system audio\nHigit sa {{count}} device ang nakakonekta',
   'system_audio.duration_limit_stopped':
-    'Awtomatikong natapos ang pagbabahagi ng system audio\npagkalipas ng 2 oras.',
+    'Awtomatikong natapos ang pagbabahagi ng system audio\npagkalipas ng 2 oras',
 
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'Mga tala tungkol sa serbisyo',

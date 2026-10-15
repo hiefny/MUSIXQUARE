@@ -45,8 +45,8 @@ const bg: Record<I18nKey, string> = {
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Вход',
-  'account.login_cancelled': 'Входът бе отменен.',
-  'account.login_failed': 'Входът не бе успешен. Опитай отново.',
+  'account.login_cancelled': 'Входът бе отменен',
+  'account.login_failed': 'Входът не бе успешен\nОпитай отново',
   'account.welcome_back': 'Радваме се да те видим отново\n{{name}}',
   'account.login_message':
     'Влез с Google, за да използваш един и същ псевдоним във всички стаи. Можеш да продължиш и без вход.',
@@ -71,14 +71,14 @@ const bg: Record<I18nKey, string> = {
   'account.nickname_hint': 'Използвай до 12 знака.',
   'account.nickname_required': 'Въведи псевдоним.',
   'account.nickname_whitespace': 'Псевдонимът не може да съдържа интервали или невидими знаци.',
-  'account.nickname_taken': 'Този псевдоним вече се използва.',
-  'account.nickname_saved': 'Псевдонимът е променен на {{name}}.',
-  'account.action_failed': 'Профилът не бе актуализиран. Опитай отново.',
+  'account.nickname_taken': 'Този псевдоним вече се използва',
+  'account.nickname_saved': 'Псевдонимът е променен на {{name}}',
+  'account.action_failed': 'Профилът не бе актуализиран\nОпитай отново',
   'account.delete_confirm_title': 'Да изтрием ли профила ти?',
   'account.delete_confirm_message':
     'Псевдонимът, сесиите за вход и свързаните с профила разрешения за стаи ще бъдат изтрити. Споделеното в дадена стая съдържание се пази според правилата на тази стая.',
   'account.delete_pending':
-    'Профилът ти се изтрива. Разрешенията за PRO се премахват по сигурен начин и изтриването ще завърши автоматично.',
+    'Профилът ти се изтрива\nРазрешенията за PRO се премахват по сигурен начин и изтриването ще завърши автоматично',
   'common.previous': 'Назад',
   'common.next_desc': 'Напред',
   'common.volume_percent': 'Сила на звука: {{val}}%',
@@ -145,7 +145,7 @@ const bg: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Повторението е изключено',
   'playlist.shuffle_on': 'Разбъркването е включено',
   'playlist.shuffle_off': 'Разбъркването е изключено',
-  'playlist.empty_hint': 'Все още няма медия.',
+  'playlist.empty_hint': 'Все още няма медия',
   'playlist.loading_info': 'Зареждане на информацията за песента...',
   'playlist.sub_load_failed': 'Информацията за видеоклипа не бе заредена',
   'playlist.remove_title': 'Премахване от плейлиста',
@@ -157,10 +157,10 @@ const bg: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Зареждане...',
   'playlist.track_fallback': 'Песен {{idx}}',
   'playlist.deferred_load_hint': 'Пусни, за да заредиш целия списък с песни',
-  'playlist.host_update_required': 'Актуализирай устройството, което управлява тази стая.',
-  'playlist.queue_full': 'Плейлистът е пълен.',
-  'playlist.mutation_retry': 'Плейлистът се промени. Опитай отново.',
-  'transfer.host_busy': 'Хостът обработва друг файл. Опитай отново след малко.',
+  'playlist.host_update_required': 'Актуализирай устройството, което управлява тази стая',
+  'playlist.queue_full': 'Плейлистът е пълен',
+  'playlist.mutation_retry': 'Плейлистът се промени\nОпитай отново',
+  'transfer.host_busy': 'Хостът обработва друг файл\nОпитай отново след малко',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Централна',
@@ -289,7 +289,7 @@ const bg: Record<I18nKey, string> = {
   'connect.room_password_on': 'Паролата е приложена',
   'connect.room_password_invalid': 'Въведи 8 цифри',
   'connect.room_password_disabled': 'Участниците вече не се нуждаят от паролата за стаята',
-  'connect.room_password_apply_pending': 'Новата парола ще се приложи, щом връзката се възстанови.',
+  'connect.room_password_apply_pending': 'Новата парола ще се приложи, щом връзката се възстанови',
   'connect.pin_enabled_removed_message':
     'Хостът зададе парола за стаята. Въведи я, за да влезеш пак.',
   'connect.pin_changed_removed_message':
@@ -318,7 +318,7 @@ const bg: Record<I18nKey, string> = {
   'demo.prompt_message': 'Здравей! Искаш ли кратка обиколка на функциите?',
   'demo.prompt_cta': 'Начало на обиколката',
   'demo.prompt_later': 'По-късно',
-  'demo.try_later_toast': 'Можеш да я стартираш по всяко време от раздела „Помощ“.',
+  'demo.try_later_toast': 'Можеш да я стартираш по всяко време от раздела „Помощ“',
   'demo.track_info': 'Информация за песента',
   'demo.exit': 'Изход от демото',
   'demo.credit': 'Демонстрационна песен',
@@ -347,9 +347,9 @@ const bg: Record<I18nKey, string> = {
   'demo.finish_step_title': 'Всичко е готово!',
   'demo.finish_step_subtitle': 'Започни веднага със съвместното възпроизвеждане.',
   'demo.track_list_label': 'Списък с демонстрационни песни',
-  'demo.host_only_exit': 'Само хостът може да натисне това.',
+  'demo.host_only_exit': 'Само хостът може да натисне това',
   'demo.external_playback_stopped':
-    'Демонстрационният режим спря текущото възпроизвеждане от YouTube или на системен звук.',
+    'Демонстрационният режим спря текущото възпроизвеждане от YouTube или на системен звук',
   'setup.how_to_connect': 'Как се свързва',
   'setup.set_role': 'Задай роля на това устройство',
   'setup.what_sound': 'Какво да възпроизвежда това устройство?',
@@ -368,7 +368,7 @@ const bg: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Не е открита подходяща камера',
   'setup.camera_unavailable': 'Камерата не може да се стартира',
   'setup.camera_stream_stalled':
-    'Визуализацията от камерата не се стартира.\nОтвори в браузър или въведи кода.',
+    'Визуализацията от камерата не се стартира\nОтвори в браузър или въведи кода',
   'setup.connect_devices': 'Свържи останалите си устройства, за да започнеш.',
   'setup.enter_code_connect': 'Код за покана',
   'setup.last_step': 'Да започваме!',
@@ -430,19 +430,19 @@ const bg: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Това устройство не може да възпроизведе текущата песен.',
   'chat.update_available_tab_system_message':
-    'Има нова версия на MUSIXQUARE.\nЩе се приложи, когато опресниш страницата.',
+    'Има нова версия на MUSIXQUARE\nЩе се приложи, когато опресниш страницата',
   'chat.update_available_app_system_message':
-    'Има нова версия на MUSIXQUARE.\nЩе се приложи, когато отвориш приложението отново.',
+    'Има нова версия на MUSIXQUARE\nЩе се приложи, когато отвориш приложението отново',
   'chat.system_audio_started_system_message':
     'Споделянето на системен звук започна. Леко закъснение между устройствата на хоста и гостите е нормално. Препоръчваме да намалиш звука на устройството на хоста, за да избегнеш ехо.',
   'chat.system_audio_stopped_system_message':
     'Споделянето на системен звук приключи. Хостът може отново да увеличи звука, за да използва това устройство като тонколона.',
   'chat.remote_upload_limited_system_message':
-    'Лимитът за качване на файлове е достигнат.\nОтдалечените участници трябва да опитат по-късно.',
+    'Лимитът за качване на файлове е достигнат\nОтдалечените участници трябва да опитат по-късно',
   'chat.remote_storage_quota_system_message':
     'Лимитът за отдалечено споделяне е достигнат.\nСподелянето на локални файлове остава достъпно.',
   'chat.remote_upload_failed_system_message':
-    'Качването на отдалечения файл е неуспешно.\nОтдалечените участници трябва да опитат отново след малко.',
+    'Качването на отдалечения файл е неуспешно\nОтдалечените участници трябва да опитат отново след малко',
   'chat.pinned_close': 'Скриване на известието',
   'chat.cmd_whisper_from': 'Лично съобщение от {{name}}',
   'chat.cmd_whisper_to': 'Лично съобщение до {{name}}',
@@ -493,7 +493,7 @@ const bg: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Системна диагностична информация',
   'chat.debug_copied':
-    'Диагностичната информация е копирана.\nАко откриеш грешка, изпрати я на разработчика.',
+    'Диагностичната информация е копирана\nАко откриеш грешка, изпрати я на разработчика',
   'chat.seek_to': 'Превъртане до {{time}}',
   'chat.copied': 'Чатът е копиран',
   'chat.copy_hint': 'Натисни Enter, за да копираш това съобщение',
@@ -504,13 +504,13 @@ const bg: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Въведи връзка към YouTube или дума за търсене',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Гледайте YouTube заедно',
-  'youtube.ready': 'YouTube е готов!\nНатисни „Пускане“.',
+  'youtube.ready': 'YouTube е готов!\nНатисни „Пускане“',
   'youtube.thumbnail': 'Миниатюра за преглед в YouTube',
-  'youtube.load_fail': 'YouTube API не бе зареден.\nПровери връзката си!',
+  'youtube.load_fail': 'YouTube API не бе зареден\nПровери връзката си!',
   'youtube.video_unavailable': 'Видеоклипът не е достъпен; преминава се към следващата песен',
-  'youtube.load_timeout': 'Времето за зареждане от YouTube изтече.\nОпитай отново.',
+  'youtube.load_timeout': 'Времето за зареждане от YouTube изтече\nОпитай отново',
   'youtube.invalid_link': 'Невалидна връзка към YouTube',
-  'youtube.effects_disabled': 'Гледайте YouTube заедно.\nРазширените звукови ефекти са изключени.',
+  'youtube.effects_disabled': 'Гледайте YouTube заедно\nРазширените звукови ефекти са изключени',
   'youtube.enter_link_placeholder': 'Въведи връзка към видеоклип или плейлист',
   'youtube.enter_source_toast': 'Въведи връзка към YouTube или дума за търсене',
   'youtube.fetching_info': 'Зареждане на информацията за видеоклипа...',
@@ -528,7 +528,7 @@ const bg: Record<I18nKey, string> = {
   'youtube.search_failed': 'Търсенето в YouTube не е достъпно',
   'youtube.search_selected': 'Избраният видеоклип е готов за добавяне',
   'youtube.search_results': 'Резултати от търсенето в YouTube',
-  'youtube.live_sync_warning': 'Предаванията на живо се синхронизират трудно с висока точност.',
+  'youtube.live_sync_warning': 'Предаванията на живо се синхронизират трудно с висока точност',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Връзката е прекъсната',
@@ -536,8 +536,8 @@ const bg: Record<I18nKey, string> = {
   'network.session_full': 'Стаята е пълна',
   'network.session_full_detail':
     'Към тази стая вече са свързани 100 устройства: максималният разрешен брой заедно с хоста.',
-  'network.op_granted': 'Предоставени са администраторски права.',
-  'network.op_revoked': 'Администраторските права са отнети.',
+  'network.op_granted': 'Предоставени са администраторски права',
+  'network.op_revoked': 'Администраторските права са отнети',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_connected': '{{name}} се свърза',
@@ -545,7 +545,7 @@ const bg: Record<I18nKey, string> = {
   'toast.device_conn_error': 'Грешка във връзката с {{name}}',
   'toast.device_kicked': '{{name}} е премахнат',
   'toast.remote_decode_device_wait':
-    'Едно устройство не успя да декодира песента. Възпроизвеждането продължава за останалите.',
+    'Едно устройство не успя да декодира песента\nВъзпроизвеждането продължава за останалите',
   'toast.invite_code': 'Код за покана: {{code}}',
   'toast.invite_code_info': 'Свързани: {{count}} | Код {{code}}',
   'toast.added_tracks': 'Добавени песни: {{count}}',
@@ -558,14 +558,14 @@ const bg: Record<I18nKey, string> = {
   'toast.op_status': 'Разрешението „{{label}}“ е {{status}}',
   'toast.file_read_error': 'Грешка при четенето на файла: {{name}}',
   'toast.host_ended_connection': 'Хостът прекрати връзката',
-  'toast.announcement_available': 'Ново известие.\nПровери панела за чат.',
+  'toast.announcement_available': 'Ново известие\nПровери панела за чат',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Копирането е неуспешно',
   'toast.email_copied': 'Имейл адресът е копиран!',
   'toast.settings_sync_enabled': 'Синхронизирането на настройките е включено',
   'toast.settings_sync_admin_required':
-    'Синхронизирането на настройките е включено.\nСамо администраторите на стаята могат да променят звуковите настройки.',
+    'Синхронизирането на настройките е включено\nСамо администраторите на стаята могат да променят звуковите настройки',
   'toast.virtual_bass_on': 'Виртуалният бас е включен',
   'toast.virtual_bass_off': 'Виртуалният бас е изключен',
   'toast.virtual_treble_on': 'Виртуалните високи честоти са включени',
@@ -573,27 +573,27 @@ const bg: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Виртуалният съраунд е включен',
   'toast.virtual_surround_off': 'Виртуалният съраунд е изключен',
   'toast.virtual_effects_off': 'Всички виртуални ефекти са изключени',
-  'toast.host_only': 'Само хостът може да извърши това.',
-  'toast.host_only_media': 'Само хостът може да добавя медия.',
-  'toast.media_management_required': 'Необходимо е разрешение за управление на медията.',
-  'toast.playback_control_required': 'Необходимо е разрешение за управление на възпроизвеждането.',
-  'toast.member_management_required': 'Необходимо е разрешение за премахване на участници.',
-  'toast.chat_notice_required': 'Необходимо е разрешение за публикуване на известия в чата.',
-  'toast.room_owner_required': 'Само собственикът на стаята може да промени това.',
+  'toast.host_only': 'Само хостът може да извърши това',
+  'toast.host_only_media': 'Само хостът може да добавя медия',
+  'toast.media_management_required': 'Необходимо е разрешение за управление на медията',
+  'toast.playback_control_required': 'Необходимо е разрешение за управление на възпроизвеждането',
+  'toast.member_management_required': 'Необходимо е разрешение за премахване на участници',
+  'toast.chat_notice_required': 'Необходимо е разрешение за публикуване на известия в чата',
+  'toast.room_owner_required': 'Само собственикът на стаята може да промени това',
   'toast.system_audio_owner_required':
-    'Можеш да споделяш звук само от раздела, в който е отворена стаята.',
-  'toast.host_only_youtube': 'Само хостът може да добавя връзки към YouTube.',
+    'Можеш да споделяш звук само от раздела, в който е отворена стаята',
+  'toast.host_only_youtube': 'Само хостът може да добавя връзки към YouTube',
   'toast.host_only_control': 'Само хостът може да управлява това',
   'toast.host_setting_required': 'Само хостът може да промени тази настройка',
   'toast.host_only_file': 'Само хостът може да добавя файлове',
   'toast.no_tracks': 'Няма песни за възпроизвеждане',
   'toast.add_media_to_play': 'Добави медия',
   'toast.no_invite_code': 'Все още няма код за покана',
-  'toast.invite_code_settings': 'Сподели връзката за покана от раздела „Свързване“.',
+  'toast.invite_code_settings': 'Сподели връзката за покана от раздела „Свързване“',
   'toast.click_copy_invite': 'Щракни, за да копираш кода за покана',
   'toast.cant_select_file': 'Файлът не може да бъде избран',
   'toast.unsupported_files_excluded': 'Пропуснати неподдържани файлове: {{count}}',
-  'toast.no_supported_audio_files': 'Няма поддържани аудиофайлове за добавяне.',
+  'toast.no_supported_audio_files': 'Няма поддържани аудиофайлове за добавяне',
   'dialog.large_room_file.title': 'Споделяне на файлове в голяма стая',
   'dialog.large_room_file.message':
     'В една и съща мрежа директното прехвърляне на файлове е стабилно за до 8 гостуващи устройства, без да се брои хостът. В по-големи локални стаи файловете може да се разпространяват чрез Cloudflare R2.\n\nДа продължим ли?',
@@ -601,13 +601,13 @@ const bg: Record<I18nKey, string> = {
   'toast.sync_reset': 'Отместването за синхрон е нулирано',
   'toast.stop_sent': 'Заявката за спиране е изпратена',
   'toast.hprecision_sync': 'Високоточен синхрон: подготовка на звука…',
-  'toast.file_ready': 'Файлът е готов!\nНатисни „Пускане“.',
+  'toast.file_ready': 'Файлът е готов!\nНатисни „Пускане“',
   'toast.host_sync_not_recommended': 'Настрой синхрона на устройство на гост',
   'toast.host_sync_requested':
-    'Заявен е прецизен синхрон.\nНастрой ръчния синхрон на устройство на гост.',
+    'Заявен е прецизен синхрон\nНастрой ръчния синхрон на устройство на гост',
   'toast.sync_not_in_system_audio': 'Синхронизирането не е достъпно при споделяне на системен звук',
-  'toast.sync_not_ready': 'Все още не е готово.\nОпитай след малко',
-  'toast.sync_no_media': 'Няма медия за синхронизиране.\nПърво избери какво да се възпроизведе',
+  'toast.sync_not_ready': 'Все още не е готово\nОпитай след малко',
+  'toast.sync_no_media': 'Няма медия за синхронизиране\nПърво избери какво да се възпроизведе',
   'toast.host_ad': 'Изглежда, че хостът гледа реклама',
   'toast.yt_sync_start': 'Синхронизиране...',
   'toast.yt_sync_done': 'Синхронизирането завърши',
@@ -615,21 +615,21 @@ const bg: Record<I18nKey, string> = {
   'toast.yt_rendezvous_done': 'Синхронизирането завърши',
   'toast.yt_rendezvous_host_paused': 'Хостът е на пауза; изравнена е само позицията',
   'toast.yt_rendezvous_no_data':
-    'Все още няма данни за възпроизвеждането от хоста; опитай след малко',
-  'toast.yt_rendezvous_timeout': 'Синхронизирането е неуспешно; опитай отново след малко',
+    'Все още няма данни за възпроизвеждането от хоста\nОпитай след малко',
+  'toast.yt_rendezvous_timeout': 'Синхронизирането е неуспешно\nОпитай отново след малко',
   'toast.yt_host_sync_sent': 'Сигналът за автоматичен синхрон е изпратен до участниците',
   'toast.yt_manual_sync_prompt':
-    'Току-що бе направен опит за автоматичен синхрон.\nАко все още усещаш закъснение, настрой стойността сега',
+    'Току-що бе направен опит за автоматичен синхрон\nАко все още усещаш закъснение, настрой стойността сега',
   'toast.playlist_ended': 'Последният медиен елемент приключи',
   'toast.operator_required': 'Само администраторите могат да променят глобалните настройки',
   'toast.connection_closing': 'Връзката е прекъсната; настройката не е синхронизирана',
   'toast.host_changed_setting': 'Настройките бяха променени',
-  'toast.session_mismatch': 'Сесиите не съвпадат.\nПрехвърлянето на файла ще се повтори.',
+  'toast.session_mismatch': 'Сесиите не съвпадат\nПрехвърлянето на файла ще се повтори',
   'toast.receiving_pct': 'Получаване... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': 'Зареждане на демонстрационната песен от сървъра...',
-  'transfer.demo_loaded': 'Демонстрационната песен е готова.',
+  'transfer.demo_loaded': 'Демонстрационната песен е готова',
   'transfer.demo_load_fail': 'Демонстрацията не бе заредена:',
   'transfer.demo_loading_short': 'Зареждане на демонстрационната песен...',
   'transfer.file_requesting': 'Заявяване на файла...',
@@ -648,12 +648,12 @@ const bg: Record<I18nKey, string> = {
   'share.remote.too_large': 'Файлът е твърде голям (максимум 200 MB)',
   'share.remote.network_error': 'Мрежова грешка при отдалеченото споделяне',
   'share.remote.rate_limited':
-    'Твърде много качвания за отдалечено споделяне.\nОпитай отново след малко',
+    'Твърде много качвания за отдалечено споделяне\nОпитай отново след малко',
   'share.remote.quota_reached': 'Лимитът за съхранение при отдалечено споделяне е достигнат',
   'share.remote.auth_failed':
-    'Удостоверяването за отдалечено споделяне е неуспешно.\nПровери настройките на Worker',
-  'share.remote.expired': 'Връзката към отдалечения файл е изтекла.\nСподели го отново.',
-  'share.remote.unavailable': 'Отдалеченото споделяне е неуспешно.\nОпитай отново след малко.',
+    'Удостоверяването за отдалечено споделяне е неуспешно\nПровери настройките на Worker',
+  'share.remote.expired': 'Връзката към отдалечения файл е изтекла\nСподели го отново',
+  'share.remote.unavailable': 'Отдалеченото споделяне е неуспешно\nОпитай отново след малко',
   'transfer.preload_fail':
     'Възпроизвеждането от предварително заредения файл е неуспешно; презареждане',
   'transfer.download_finishing': 'Завършване на изтеглянето...',
@@ -663,15 +663,15 @@ const bg: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Изчакване на предварителното зареждане: {{name}}',
   'transfer.waiting_recovery': 'Изчакване на възстановяването: {{name}}',
   'transfer.preparing_name': 'Подготовка: {{name}}',
-  'transfer.recovery_failed': 'Възстановяването на файла е неуспешно.\nОпитай отново.',
+  'transfer.recovery_failed': 'Възстановяването на файла е неуспешно\nОпитай отново',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'Необходим е HTTPS: работи само през защитена връзка.',
+  'error.https_required': 'Необходим е HTTPS: работи само през защитена връзка',
   'error.browser_update': 'Актуализирай браузъра си до скорошна версия.',
   'error.load_failed': 'Зареждането е неуспешно: {{msg}}',
   'error.audio_decode_fail': 'Декодирането на звука е неуспешно!',
   'error.audio_memory': 'Зареждане на звука в паметта...',
-  'error.all_tracks_failed': 'В плейлиста няма песни, които могат да се възпроизведат.',
+  'error.all_tracks_failed': 'В плейлиста няма песни, които могат да се възпроизведат',
   'error.audio_engine_prepare': 'Звуковият модул не може да бъде подготвен',
   'error.session_create_fail': 'Сесията не може да бъде създадена',
   'error.network_generic': 'Възникна мрежова грешка',
@@ -688,19 +688,19 @@ const bg: Record<I18nKey, string> = {
   'error.peer_not_ready': 'Връзката с участника още не е готова',
   'error.network_init_failed': 'Инициализирането на мрежата е неуспешно',
   'error.no_host_id': 'Не е намерен идентификатор на хоста',
-  'error.peer_unavailable': 'Сесията не бе намерена.\nПровери кода отново.',
+  'error.peer_unavailable': 'Сесията не бе намерена\nПровери кода отново',
   'error.host_left': 'Изглежда, че хостът е напуснал сесията',
-  'error.network_issue': 'Има проблем с мрежата.\nПровери интернет връзката си.',
-  'error.signal_server_fail': 'Сървърът за сигнализация е недостъпен.\nОпитай отново след малко.',
-  'error.server_disconnected': 'Връзката със сървъра е прекъсната.',
-  'error.session_id_unavailable': 'Идентификаторът на сесията не е достъпен.\nОпитай отново.',
-  'error.webrtc_failed': 'WebRTC връзката е неуспешна.\nПровери настройките на браузъра.',
+  'error.network_issue': 'Има проблем с мрежата\nПровери интернет връзката си',
+  'error.signal_server_fail': 'Сървърът за сигнализация е недостъпен\nОпитай отново след малко',
+  'error.server_disconnected': 'Връзката със сървъра е прекъсната',
+  'error.session_id_unavailable': 'Идентификаторът на сесията не е достъпен\nОпитай отново',
+  'error.webrtc_failed': 'WebRTC връзката е неуспешна\nПровери настройките на браузъра',
   'error.browser_unsupported':
-    'Този браузър не може да установява връзки в реално време.\nОпитай с Chrome или Safari.',
-  'error.ssl_required': 'Необходима е защитена връзка (HTTPS).',
+    'Този браузър не може да установява връзки в реално време\nОпитай с Chrome или Safari',
+  'error.ssl_required': 'Необходима е защитена връзка (HTTPS)',
   'error.room_password_required': 'Тази стая изисква парола.',
   'error.room_password_invalid': 'Паролата за стаята не съвпада.',
-  'error.room_password_auth_timeout': 'Мрежата е нестабилна.\nВъведи паролата отново.',
+  'error.room_password_auth_timeout': 'Мрежата е нестабилна\nВъведи паролата отново',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Добавяне на локални файлове',
@@ -802,9 +802,9 @@ const bg: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'Паролата е неправилна. Опитай отново.',
   'pro.pin_change_title': 'Промяна на паролата за стаята',
   'pro.pin_change_message': 'Задай нова 8-цифрена парола.',
-  'pro.pin_changed': 'Паролата за стаята е променена.',
+  'pro.pin_changed': 'Паролата за стаята е променена',
   'pro.pin_enable_title': 'Задаване на парола за стаята',
-  'pro.pin_enabled': 'Паролата за стаята е зададена.',
+  'pro.pin_enabled': 'Паролата за стаята е зададена',
   'pro.pin_members_title': 'Какво да стане с текущите участници?',
   'pro.pin_members_keep': 'Всички остават',
   'pro.pin_members_keep_detail':
@@ -824,8 +824,8 @@ const bg: Record<I18nKey, string> = {
   'pro.removed_message': 'Собственикът на стаята или администратор те премахна от тази стая.',
   'pro.device_removed_message':
     'Друго устройство, влязло в профила ти, прекъсна връзката на това устройство със стаята.',
-  'pro.owner_only': 'Само собственикът на стаята може да направи това.',
-  'pro.connect_failed': 'Свързването с PRO стаята е неуспешно.',
+  'pro.owner_only': 'Само собственикът на стаята може да направи това',
+  'pro.connect_failed': 'Свързването с PRO стаята е неуспешно',
   'pro.room_full': 'Тази PRO стая е пълна',
   'pro.room_full_detail':
     'В PRO стая може да има до 100 устройства, включително това на собственика. Едно място винаги е запазено за собственика.',
@@ -842,8 +842,8 @@ const bg: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Отмяна на качването на {{name}}',
   'pro.upload.confirming_file': 'Завършване на качването на {{name}}',
   'pro.downloading': 'Зареждане на файла...',
-  'pro.quota_exceeded': 'Тази PRO стая е достигнала лимита си за съхранение от 1 GB.',
-  'pro.file_too_large': 'Файлът надвишава лимита от 200 MB за един файл.',
+  'pro.quota_exceeded': 'Тази PRO стая е достигнала лимита си за съхранение от 1 GB',
+  'pro.file_too_large': 'Файлът надвишава лимита от 200 MB за един файл',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
@@ -884,37 +884,37 @@ const bg: Record<I18nKey, string> = {
   'system_audio.button': 'Системен звук',
   'system_audio.sharing': 'Споделяне на системен звук',
   'system_audio.receiving': 'Получаване на системен звук',
-  'system_audio.owner_active': '{{name}} споделя системен звук.',
-  'system_audio.owner_preparing': '{{name}} подготвя споделянето на системен звук.',
-  'system_audio.pro_preparing': 'Подготовка за споделяне на системен звук.',
-  'system_audio.pro_publish_failed': 'Споделянето на системен звук не може да се стартира.',
+  'system_audio.owner_active': '{{name}} споделя системен звук',
+  'system_audio.owner_preparing': '{{name}} подготвя споделянето на системен звук',
+  'system_audio.pro_preparing': 'Подготовка за споделяне на системен звук',
+  'system_audio.pro_publish_failed': 'Споделянето на системен звук не може да се стартира',
   'system_audio.coordinator_update_required':
-    'Актуализирай устройството, което управлява тази стая, за да споделиш системен звук.',
+    'Актуализирай устройството, което управлява тази стая, за да споделиш системен звук',
   'system_audio.connection_unstable':
-    'Връзката за системен звук на {{name}} е нестабилна.\nИзвършва се повторно свързване.',
-  'system_audio.capture_denied': 'Споделянето на звук бе отменено.',
-  'system_audio.no_audio_track': 'Опцията „Споделяне на звук“ не е включена.\nОпитай отново.',
+    'Връзката за системен звук на {{name}} е нестабилна\nИзвършва се повторно свързване',
+  'system_audio.capture_denied': 'Споделянето на звук бе отменено',
+  'system_audio.no_audio_track': 'Опцията „Споделяне на звук“ не е включена\nОпитай отново',
   'system_audio.stop': 'Спиране на споделянето',
   'system_audio.stop_compact': 'Спиране',
   'system_audio.started':
-    'Системният звук може да има леко закъснение.\nАко е възможно, намали звука на източника.',
-  'system_audio.stopped': 'Споделянето на системен звук приключи.\nПлейлистът продължава.',
+    'Системният звук може да има леко закъснение\nАко е възможно, намали звука на източника',
+  'system_audio.stopped': 'Споделянето на системен звук приключи\nПлейлистът продължава',
   'system_audio.host_channel_locked':
-    'Ролите не могат да се променят при споделяне на системен звук.',
+    'Ролите не могат да се променят при споделяне на системен звук',
   'system_audio.effects_guest_only':
-    'Системният звук е активен.\nЗвуковите ефекти се прилагат само към устройствата на гостите.',
+    'Системният звук е активен\nЗвуковите ефекти се прилагат само към устройствата на гостите',
   'system_audio.desktop_only':
-    'Достъпно е само на компютри с браузър, базиран на Chromium (Chrome, Edge и др.).',
+    'Достъпно е само на компютри с браузър, базиран на Chromium (Chrome, Edge и др.)',
   'system_audio.receive_failed':
-    'Системният звук не може да бъде получен.\nПомоли хоста да стартира споделянето отново.',
+    'Системният звук не може да бъде получен\nПомоли хоста да стартира споделянето отново',
   'system_audio.remote_receive_limit':
-    'Получаването на системен звук приключи след 2 часа.\nПрисъедини се отново към стаята, за да продължиш да слушаш.',
+    'Получаването на системен звук приключи след 2 часа\nПрисъедини се отново към стаята, за да продължиш да слушаш',
   'system_audio.device_limit':
-    'Максимален брой устройства за системен звук: {{count}}.\nХостът е включен в този брой.',
+    'Максимален брой устройства за системен звук: {{count}}\nХостът е включен в този брой',
   'system_audio.device_limit_stopped':
-    'Споделянето на системен звук спря.\nБроят на свързаните устройства надвишава {{count}}.',
+    'Споделянето на системен звук спря\nБроят на свързаните устройства надвишава {{count}}',
   'system_audio.duration_limit_stopped':
-    'Споделянето на системен звук приключи автоматично\nслед 2 часа.',
+    'Споделянето на системен звук приключи автоматично\nслед 2 часа',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Бележки за услугата',

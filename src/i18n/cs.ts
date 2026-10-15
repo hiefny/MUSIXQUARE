@@ -45,8 +45,8 @@ const cs: Record<I18nKey, string> = {
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Přihlášení',
-  'account.login_cancelled': 'Přihlášení bylo zrušeno.',
-  'account.login_failed': 'Přihlášení se nezdařilo. Zkuste to znovu.',
+  'account.login_cancelled': 'Přihlášení bylo zrušeno',
+  'account.login_failed': 'Přihlášení se nezdařilo\nZkuste to znovu',
   'account.welcome_back': 'Vítejte zpět,\n{{name}}',
   'account.login_message':
     'Přihlaste se přes Google a zachovejte si přezdívku ve všech místnostech. Pokračovat můžete i bez přihlášení.',
@@ -71,14 +71,14 @@ const cs: Record<I18nKey, string> = {
   'account.nickname_hint': 'Použijte nejvýše 12 znaků.',
   'account.nickname_required': 'Zadejte přezdívku.',
   'account.nickname_whitespace': 'Přezdívka nesmí obsahovat mezery ani neviditelné znaky.',
-  'account.nickname_taken': 'Tato přezdívka se už používá.',
-  'account.nickname_saved': 'Přezdívka byla změněna na {{name}}.',
-  'account.action_failed': 'Účet se nepodařilo aktualizovat. Zkuste to znovu.',
+  'account.nickname_taken': 'Tato přezdívka se už používá',
+  'account.nickname_saved': 'Přezdívka byla změněna na {{name}}',
+  'account.action_failed': 'Účet se nepodařilo aktualizovat\nZkuste to znovu',
   'account.delete_confirm_title': 'Smazat účet?',
   'account.delete_confirm_message':
     'Přezdívka, relace přihlášení a oprávnění k místnostem propojená s účtem budou smazána. Na obsah sdílený v místnosti se vztahují její pravidla uchovávání.',
   'account.delete_pending':
-    'Účet se maže. Oprávnění PRO se bezpečně odebírají a odstranění se dokončí automaticky.',
+    'Účet se maže\nOprávnění PRO se bezpečně odebírají a odstranění se dokončí automaticky',
   'common.previous': 'Předchozí',
   'common.next_desc': 'Další',
   'common.volume_percent': 'Hlasitost: {{val}} %',
@@ -146,7 +146,7 @@ const cs: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Opakování je vypnuto',
   'playlist.shuffle_on': 'Náhodné přehrávání je zapnuto',
   'playlist.shuffle_off': 'Náhodné přehrávání je vypnuto',
-  'playlist.empty_hint': 'Zatím tu nejsou žádná média.',
+  'playlist.empty_hint': 'Zatím tu nejsou žádná média',
   'playlist.loading_info': 'Načítají se informace o skladbě...',
   'playlist.sub_load_failed': 'Informace o videu se nepodařilo načíst',
   'playlist.remove_title': 'Odebrat ze seznamu skladeb',
@@ -158,10 +158,10 @@ const cs: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Načítání...',
   'playlist.track_fallback': 'Skladba {{idx}}',
   'playlist.deferred_load_hint': 'Spuštěním přehrávání načtete celý seznam skladeb',
-  'playlist.host_update_required': 'Aktualizujte zařízení, které spravuje tuto místnost.',
-  'playlist.queue_full': 'Seznam skladeb je plný.',
-  'playlist.mutation_retry': 'Seznam skladeb se změnil. Zkuste to znovu.',
-  'transfer.host_busy': 'Hostitel zpracovává jiný soubor. Zkuste to za chvíli.',
+  'playlist.host_update_required': 'Aktualizujte zařízení, které spravuje tuto místnost',
+  'playlist.queue_full': 'Seznam skladeb je plný',
+  'playlist.mutation_retry': 'Seznam skladeb se změnil\nZkuste to znovu',
+  'transfer.host_busy': 'Hostitel zpracovává jiný soubor\nZkuste to za chvíli',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Středový',
@@ -290,7 +290,7 @@ const cs: Record<I18nKey, string> = {
   'connect.room_password_on': 'Heslo je nastaveno',
   'connect.room_password_invalid': 'Zadejte 8 číslic',
   'connect.room_password_disabled': 'Účastníci už heslo místnosti nepotřebují',
-  'connect.room_password_apply_pending': 'Nové heslo začne platit, jakmile se obnoví připojení.',
+  'connect.room_password_apply_pending': 'Nové heslo začne platit, jakmile se obnoví připojení',
   'connect.pin_enabled_removed_message':
     'Hostitel nastavil heslo místnosti. Zadejte ho a připojte se znovu.',
   'connect.pin_changed_removed_message':
@@ -319,7 +319,7 @@ const cs: Record<I18nKey, string> = {
   'demo.prompt_message': 'Vítejte! Chcete si rychle prohlédnout hlavní funkce?',
   'demo.prompt_cta': 'Spustit prohlídku',
   'demo.prompt_later': 'Později',
-  'demo.try_later_toast': 'Prohlídku můžete kdykoli spustit na kartě Nápověda.',
+  'demo.try_later_toast': 'Prohlídku můžete kdykoli spustit na kartě Nápověda',
   'demo.track_info': 'Informace o skladbě',
   'demo.exit': 'Ukončit ukázku',
   'demo.credit': 'Ukázková skladba',
@@ -347,9 +347,9 @@ const cs: Record<I18nKey, string> = {
   'demo.finish_step_title': 'Všechno je připraveno!',
   'demo.finish_step_subtitle': 'Pusťte se do toho a začněte přehrávat společně.',
   'demo.track_list_label': 'Seznam ukázkových skladeb',
-  'demo.host_only_exit': 'Toto může stisknout pouze hostitel.',
+  'demo.host_only_exit': 'Toto může stisknout pouze hostitel',
   'demo.external_playback_stopped':
-    'Režim ukázky zastavil aktuální přehrávání z YouTube nebo systémového zvuku.',
+    'Režim ukázky zastavil aktuální přehrávání z YouTube nebo systémového zvuku',
   'setup.how_to_connect': 'Jak se připojit',
   'setup.set_role': 'Nastavte roli tohoto zařízení',
   'setup.what_sound': 'Co má toto zařízení přehrávat?',
@@ -368,7 +368,7 @@ const cs: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Nebyla nalezena použitelná kamera',
   'setup.camera_unavailable': 'Kameru se nepodařilo spustit',
   'setup.camera_stream_stalled':
-    'Náhled kamery se nespustil.\nOtevřete aplikaci v prohlížeči nebo zadejte kód.',
+    'Náhled kamery se nespustil\nOtevřete aplikaci v prohlížeči nebo zadejte kód',
   'setup.connect_devices': 'Začněte připojením ostatních zařízení.',
   'setup.enter_code_connect': 'Zvací kód',
   'setup.last_step': 'Můžeme začít!',
@@ -428,19 +428,19 @@ const cs: Record<I18nKey, string> = {
     'Soubor této skladby je velmi velký a na některých zařízeních se nemusí přehrát.',
   'chat.device_track_unavailable_system_message': 'Toto zařízení nemůže přehrát aktuální skladbu.',
   'chat.update_available_tab_system_message':
-    'Je k dispozici nová verze MUSIXQUARE.\nProjeví se po opětovném načtení stránky.',
+    'Je k dispozici nová verze MUSIXQUARE\nProjeví se po opětovném načtení stránky',
   'chat.update_available_app_system_message':
-    'Je k dispozici nová verze MUSIXQUARE.\nProjeví se po opětovném otevření aplikace.',
+    'Je k dispozici nová verze MUSIXQUARE\nProjeví se po opětovném otevření aplikace',
   'chat.system_audio_started_system_message':
     'Sdílení systémového zvuku bylo spuštěno. Mírné zpoždění mezi zařízením hostitele a zařízeními účastníků je běžné. Doporučujeme snížit hlasitost zařízení hostitele, aby nevznikala ozvěna.',
   'chat.system_audio_stopped_system_message':
     'Sdílení systémového zvuku skončilo. Hostitel může znovu zvýšit hlasitost svého zařízení, aby mohlo opět fungovat jako reproduktor.',
   'chat.remote_upload_limited_system_message':
-    'Byl dosažen limit nahrávání souborů.\nVzdálení účastníci by to měli zkusit později.',
+    'Byl dosažen limit nahrávání souborů\nVzdálení účastníci by to měli zkusit později',
   'chat.remote_storage_quota_system_message':
     'Byl dosažen limit vzdáleného sdílení.\nSdílení místních souborů je stále dostupné.',
   'chat.remote_upload_failed_system_message':
-    'Nahrání vzdáleného souboru se nezdařilo.\nVzdálení účastníci by to měli za chvíli zkusit znovu.',
+    'Nahrání vzdáleného souboru se nezdařilo\nVzdálení účastníci by to měli za chvíli zkusit znovu',
   'chat.pinned_close': 'Zavřít oznámení',
   'chat.cmd_whisper_from': 'Soukromá zpráva od {{name}}',
   'chat.cmd_whisper_to': 'Soukromá zpráva pro {{name}}',
@@ -492,7 +492,7 @@ const cs: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Ladicí informace systému',
   'chat.debug_copied':
-    'Ladicí informace byly zkopírovány.\nPokud jste našli chybu, pošlete je vývojáři.',
+    'Ladicí informace byly zkopírovány\nPokud jste našli chybu, pošlete je vývojáři',
   'chat.seek_to': 'Přejít na {{time}}',
   'chat.copied': 'Chat byl zkopírován',
   'chat.copy_hint': 'Stisknutím klávesy Enter zkopírujete tuto zprávu',
@@ -503,13 +503,13 @@ const cs: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Zadejte odkaz YouTube nebo hledaný výraz',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Sledovat YouTube společně',
-  'youtube.ready': 'YouTube je připraven!\nStiskněte Přehrát.',
+  'youtube.ready': 'YouTube je připraven!\nStiskněte Přehrát',
   'youtube.thumbnail': 'Náhledový obrázek YouTube',
-  'youtube.load_fail': 'API YouTube se nepodařilo načíst.\nZkontrolujte připojení!',
+  'youtube.load_fail': 'API YouTube se nepodařilo načíst\nZkontrolujte připojení!',
   'youtube.video_unavailable': 'Video není dostupné, přechází se na další skladbu',
-  'youtube.load_timeout': 'Vypršel časový limit načítání YouTube.\nZkuste to znovu.',
+  'youtube.load_timeout': 'Vypršel časový limit načítání YouTube\nZkuste to znovu',
   'youtube.invalid_link': 'Neplatný odkaz YouTube',
-  'youtube.effects_disabled': 'Sledujte YouTube společně.\nPokročilé zvukové efekty jsou vypnuté.',
+  'youtube.effects_disabled': 'Sledujte YouTube společně\nPokročilé zvukové efekty jsou vypnuté',
   'youtube.enter_link_placeholder': 'Zadejte odkaz na video nebo seznam videí',
   'youtube.enter_source_toast': 'Zadejte odkaz YouTube nebo hledaný výraz',
   'youtube.fetching_info': 'Načítají se informace o videu...',
@@ -527,7 +527,7 @@ const cs: Record<I18nKey, string> = {
   'youtube.search_failed': 'Vyhledávání na YouTube není dostupné',
   'youtube.search_selected': 'Vybrané video je připravené k přidání',
   'youtube.search_results': 'Výsledky vyhledávání na YouTube',
-  'youtube.live_sync_warning': 'Živé přenosy je obtížné synchronizovat přesně.',
+  'youtube.live_sync_warning': 'Živé přenosy je obtížné synchronizovat přesně',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Odpojeno',
@@ -535,8 +535,8 @@ const cs: Record<I18nKey, string> = {
   'network.session_full': 'Místnost je plná',
   'network.session_full_detail':
     'V této místnosti už je připojen maximální počet 100 zařízení včetně hostitele.',
-  'network.op_granted': 'Oprávnění správce bylo uděleno.',
-  'network.op_revoked': 'Oprávnění správce bylo odebráno.',
+  'network.op_granted': 'Oprávnění správce bylo uděleno',
+  'network.op_revoked': 'Oprávnění správce bylo odebráno',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_connected': 'Připojeno: {{name}}',
@@ -544,7 +544,7 @@ const cs: Record<I18nKey, string> = {
   'toast.device_conn_error': 'Chyba připojení zařízení {{name}}',
   'toast.device_kicked': 'Odebráno: {{name}}',
   'toast.remote_decode_device_wait':
-    'Jednomu zařízení se nepodařilo tuto skladbu dekódovat. Na ostatních zařízeních přehrávání pokračuje.',
+    'Jednomu zařízení se nepodařilo tuto skladbu dekódovat\nNa ostatních zařízeních přehrávání pokračuje',
   'toast.invite_code': 'Zvací kód: {{code}}',
   'toast.invite_code_info': 'Připojeno: {{count}} | Kód {{code}}',
   'toast.added_tracks': 'Přidáno skladeb: {{count}}',
@@ -557,14 +557,14 @@ const cs: Record<I18nKey, string> = {
   'toast.op_status': 'Oprávnění {{label}}: {{status}}',
   'toast.file_read_error': 'Chyba při čtení souboru: {{name}}',
   'toast.host_ended_connection': 'Hostitel ukončil připojení',
-  'toast.announcement_available': 'Nové oznámení.\nPodívejte se do panelu chatu.',
+  'toast.announcement_available': 'Nové oznámení\nPodívejte se do panelu chatu',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Kopírování se nezdařilo',
   'toast.email_copied': 'E-mailová adresa byla zkopírována!',
   'toast.settings_sync_enabled': 'Synchronizace nastavení je zapnutá',
   'toast.settings_sync_admin_required':
-    'Synchronizace nastavení je zapnutá.\nZvukové nastavení mohou měnit jen správci místnosti.',
+    'Synchronizace nastavení je zapnutá\nZvukové nastavení mohou měnit jen správci místnosti',
   'toast.virtual_bass_on': 'Virtuální basy jsou zapnuté',
   'toast.virtual_bass_off': 'Virtuální basy jsou vypnuté',
   'toast.virtual_treble_on': 'Virtuální výšky jsou zapnuté',
@@ -572,26 +572,26 @@ const cs: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Virtuální surround je zapnutý',
   'toast.virtual_surround_off': 'Virtuální surround je vypnutý',
   'toast.virtual_effects_off': 'Všechny virtuální efekty jsou vypnuté',
-  'toast.host_only': 'Tuto akci může provést pouze hostitel.',
-  'toast.host_only_media': 'Média může přidávat pouze hostitel.',
-  'toast.media_management_required': 'Je vyžadováno oprávnění ke správě médií.',
-  'toast.playback_control_required': 'Je vyžadováno oprávnění k ovládání přehrávání.',
-  'toast.member_management_required': 'Je vyžadováno oprávnění k odebírání účastníků.',
-  'toast.chat_notice_required': 'Je vyžadováno oprávnění zveřejňovat oznámení v chatu.',
-  'toast.room_owner_required': 'Tuto volbu může změnit pouze vlastník místnosti.',
-  'toast.system_audio_owner_required': 'Zvuk můžete sdílet pouze z karty, která místnost otevřela.',
-  'toast.host_only_youtube': 'Odkazy YouTube může přidávat pouze hostitel.',
+  'toast.host_only': 'Tuto akci může provést pouze hostitel',
+  'toast.host_only_media': 'Média může přidávat pouze hostitel',
+  'toast.media_management_required': 'Je vyžadováno oprávnění ke správě médií',
+  'toast.playback_control_required': 'Je vyžadováno oprávnění k ovládání přehrávání',
+  'toast.member_management_required': 'Je vyžadováno oprávnění k odebírání účastníků',
+  'toast.chat_notice_required': 'Je vyžadováno oprávnění zveřejňovat oznámení v chatu',
+  'toast.room_owner_required': 'Tuto volbu může změnit pouze vlastník místnosti',
+  'toast.system_audio_owner_required': 'Zvuk můžete sdílet pouze z karty, která místnost otevřela',
+  'toast.host_only_youtube': 'Odkazy YouTube může přidávat pouze hostitel',
   'toast.host_only_control': 'Tuto volbu může ovládat pouze hostitel',
   'toast.host_setting_required': 'Toto nastavení může změnit pouze hostitel',
   'toast.host_only_file': 'Soubory může přidávat pouze hostitel',
   'toast.no_tracks': 'Nejsou k dispozici žádné skladby k přehrání',
   'toast.add_media_to_play': 'Přidejte média',
   'toast.no_invite_code': 'Zvací kód zatím není k dispozici',
-  'toast.invite_code_settings': 'Sdílejte zvací odkaz na kartě Připojení.',
+  'toast.invite_code_settings': 'Sdílejte zvací odkaz na kartě Připojení',
   'toast.click_copy_invite': 'Kliknutím zkopírujete zvací kód',
   'toast.cant_select_file': 'Soubor nelze vybrat',
   'toast.unsupported_files_excluded': 'Přeskočeno nepodporovaných souborů: {{count}}',
-  'toast.no_supported_audio_files': 'Nebyly nalezeny podporované zvukové soubory k přidání.',
+  'toast.no_supported_audio_files': 'Nebyly nalezeny podporované zvukové soubory k přidání',
   'dialog.large_room_file.title': 'Sdílení souborů ve velké místnosti',
   'dialog.large_room_file.message':
     'Ve stejné síti je přímý přenos souborů stabilní až pro 8 zařízení účastníků bez započtení hostitele. Ve větších místních místnostech mohou být soubory distribuovány přes Cloudflare R2.\n\nPokračovat?',
@@ -599,14 +599,14 @@ const cs: Record<I18nKey, string> = {
   'toast.sync_reset': 'Posun synchronizace byl vynulován',
   'toast.stop_sent': 'Požadavek na zastavení byl odeslán',
   'toast.hprecision_sync': 'Přesná synchronizace: připravuje se zvuk…',
-  'toast.file_ready': 'Soubor je připraven!\nStiskněte Přehrát.',
+  'toast.file_ready': 'Soubor je připraven!\nStiskněte Přehrát',
   'toast.host_sync_not_recommended': 'Upravte synchronizaci na zařízení účastníka',
   'toast.host_sync_requested':
-    'Byla vyžádána přesná synchronizace.\nUpravte ruční synchronizaci na zařízení účastníka.',
+    'Byla vyžádána přesná synchronizace\nUpravte ruční synchronizaci na zařízení účastníka',
   'toast.sync_not_in_system_audio': 'Synchronizace není při sdílení systémového zvuku dostupná',
-  'toast.sync_not_ready': 'Ještě není připraveno.\nZkuste to za chvíli',
+  'toast.sync_not_ready': 'Ještě není připraveno\nZkuste to za chvíli',
   'toast.sync_no_media':
-    'Nejsou k dispozici média k synchronizaci.\nNejprve vyberte obsah k přehrání',
+    'Nejsou k dispozici média k synchronizaci\nNejprve vyberte obsah k přehrání',
   'toast.host_ad': 'Hostitel pravděpodobně sleduje reklamu',
   'toast.yt_sync_start': 'Synchronizace...',
   'toast.yt_sync_done': 'Synchronizace dokončena',
@@ -615,21 +615,21 @@ const cs: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused':
     'Hostitel má přehrávání pozastavené, byla srovnána pouze pozice',
   'toast.yt_rendezvous_no_data':
-    'Data o přehrávání hostitele zatím nejsou dostupná, zkuste to za chvíli',
-  'toast.yt_rendezvous_timeout': 'Synchronizace se nezdařila, zkuste to za chvíli',
+    'Data o přehrávání hostitele zatím nejsou dostupná\nZkuste to za chvíli',
+  'toast.yt_rendezvous_timeout': 'Synchronizace se nezdařila\nZkuste to za chvíli',
   'toast.yt_host_sync_sent': 'Signál automatické synchronizace byl odeslán účastníkům',
   'toast.yt_manual_sync_prompt':
-    'Právě proběhl pokus o automatickou synchronizaci.\nPokud stále vnímáte zpoždění, upravte nyní hodnotu',
+    'Právě proběhl pokus o automatickou synchronizaci\nPokud stále vnímáte zpoždění, upravte nyní hodnotu',
   'toast.playlist_ended': 'Poslední položka médií skončila',
   'toast.operator_required': 'Globální nastavení mohou měnit pouze správci',
   'toast.connection_closing': 'Připojení bylo ztraceno, nastavení se nesynchronizovalo',
   'toast.host_changed_setting': 'Nastavení bylo změněno',
-  'toast.session_mismatch': 'Relace se neshodují.\nPřenos souboru se zopakuje.',
+  'toast.session_mismatch': 'Relace se neshodují\nPřenos souboru se zopakuje',
   'toast.receiving_pct': 'Příjem... {{pct}} %',
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': 'Načítá se ukázková skladba ze serveru...',
-  'transfer.demo_loaded': 'Ukázková skladba je připravena.',
+  'transfer.demo_loaded': 'Ukázková skladba je připravena',
   'transfer.demo_load_fail': 'Načtení ukázky se nezdařilo:',
   'transfer.demo_loading_short': 'Načítá se ukázková skladba...',
   'transfer.file_requesting': 'Vyžaduje se soubor...',
@@ -647,12 +647,12 @@ const cs: Record<I18nKey, string> = {
   'share.remote.timeout': 'Vypršel časový limit vzdáleného sdílení souboru',
   'share.remote.too_large': 'Soubor je příliš velký (max. 200 MB)',
   'share.remote.network_error': 'Chyba sítě při vzdáleném sdílení',
-  'share.remote.rate_limited': 'Příliš mnoho nahrávání pro vzdálené sdílení.\nZkuste to za chvíli',
+  'share.remote.rate_limited': 'Příliš mnoho nahrávání pro vzdálené sdílení\nZkuste to za chvíli',
   'share.remote.quota_reached': 'Byl dosažen limit úložiště vzdáleného sdílení',
   'share.remote.auth_failed':
-    'Autorizace vzdáleného sdílení se nezdařila.\nZkontrolujte nastavení Worker',
-  'share.remote.expired': 'Odkaz na vzdálený soubor vypršel.\nSdílejte soubor znovu.',
-  'share.remote.unavailable': 'Vzdálené sdílení se nezdařilo.\nZkuste to za chvíli.',
+    'Autorizace vzdáleného sdílení se nezdařila\nZkontrolujte nastavení Worker',
+  'share.remote.expired': 'Odkaz na vzdálený soubor vypršel\nSdílejte soubor znovu',
+  'share.remote.unavailable': 'Vzdálené sdílení se nezdařilo\nZkuste to za chvíli',
   'transfer.preload_fail': 'Přehrání předem načteného souboru se nezdařilo, načítá se znovu',
   'transfer.download_finishing': 'Dokončuje se stahování...',
   'transfer.preparation_delayed':
@@ -662,15 +662,15 @@ const cs: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Čeká se na předběžné načtení: {{name}}',
   'transfer.waiting_recovery': 'Čeká se na obnovení: {{name}}',
   'transfer.preparing_name': 'Připravuje se: {{name}}',
-  'transfer.recovery_failed': 'Obnovení souboru se nezdařilo.\nZkuste to znovu.',
+  'transfer.recovery_failed': 'Obnovení souboru se nezdařilo\nZkuste to znovu',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'Je vyžadováno HTTPS: funguje pouze přes zabezpečené připojení.',
+  'error.https_required': 'Je vyžadováno HTTPS: funguje pouze přes zabezpečené připojení',
   'error.browser_update': 'Aktualizujte prohlížeč na novější verzi.',
   'error.load_failed': 'Načtení se nezdařilo: {{msg}}',
   'error.audio_decode_fail': 'Dekódování zvuku se nezdařilo!',
   'error.audio_memory': 'Načítá se zvuk do paměti...',
-  'error.all_tracks_failed': 'Seznam skladeb neobsahuje žádné přehratelné skladby.',
+  'error.all_tracks_failed': 'Seznam skladeb neobsahuje žádné přehratelné skladby',
   'error.audio_engine_prepare': 'Zvukový modul se nepodařilo připravit',
   'error.session_create_fail': 'Relaci se nepodařilo vytvořit',
   'error.network_generic': 'Došlo k chybě sítě',
@@ -688,19 +688,19 @@ const cs: Record<I18nKey, string> = {
   'error.peer_not_ready': 'Připojení peer-to-peer zatím není připraveno',
   'error.network_init_failed': 'Inicializace sítě se nezdařila',
   'error.no_host_id': 'ID hostitele nebylo nalezeno',
-  'error.peer_unavailable': 'Relaci se nepodařilo najít.\nZnovu zkontrolujte kód.',
+  'error.peer_unavailable': 'Relaci se nepodařilo najít\nZnovu zkontrolujte kód',
   'error.host_left': 'Hostitel pravděpodobně opustil relaci',
-  'error.network_issue': 'Došlo k problému se sítí.\nZkontrolujte připojení k internetu.',
-  'error.signal_server_fail': 'Signalizační server není dostupný.\nZkuste to za chvíli znovu.',
-  'error.server_disconnected': 'Připojení k serveru bylo přerušeno.',
-  'error.session_id_unavailable': 'ID relace není dostupné.\nZkuste to znovu.',
-  'error.webrtc_failed': 'Připojení WebRTC se nezdařilo.\nZkontrolujte nastavení prohlížeče.',
+  'error.network_issue': 'Došlo k problému se sítí\nZkontrolujte připojení k internetu',
+  'error.signal_server_fail': 'Signalizační server není dostupný\nZkuste to za chvíli znovu',
+  'error.server_disconnected': 'Připojení k serveru bylo přerušeno',
+  'error.session_id_unavailable': 'ID relace není dostupné\nZkuste to znovu',
+  'error.webrtc_failed': 'Připojení WebRTC se nezdařilo\nZkontrolujte nastavení prohlížeče',
   'error.browser_unsupported':
-    'Tento prohlížeč neumí vytvářet připojení v reálném čase.\nZkuste Chrome nebo Safari.',
-  'error.ssl_required': 'Je vyžadováno zabezpečené připojení (HTTPS).',
+    'Tento prohlížeč neumí vytvářet připojení v reálném čase\nZkuste Chrome nebo Safari',
+  'error.ssl_required': 'Je vyžadováno zabezpečené připojení (HTTPS)',
   'error.room_password_required': 'Tato místnost vyžaduje heslo.',
   'error.room_password_invalid': 'Heslo místnosti nesouhlasí.',
-  'error.room_password_auth_timeout': 'Síť je nestabilní.\nZkuste heslo zadat znovu.',
+  'error.room_password_auth_timeout': 'Síť je nestabilní\nZkuste heslo zadat znovu',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Přidat místní soubory',
@@ -799,9 +799,9 @@ const cs: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'Heslo není správné. Zkuste to znovu.',
   'pro.pin_change_title': 'Změnit heslo místnosti',
   'pro.pin_change_message': 'Nastavte nové osmimístné heslo.',
-  'pro.pin_changed': 'Heslo místnosti bylo změněno.',
+  'pro.pin_changed': 'Heslo místnosti bylo změněno',
   'pro.pin_enable_title': 'Nastavit heslo místnosti',
-  'pro.pin_enabled': 'Heslo místnosti bylo nastaveno.',
+  'pro.pin_enabled': 'Heslo místnosti bylo nastaveno',
   'pro.pin_members_title': 'Co udělat s aktuálními účastníky?',
   'pro.pin_members_keep': 'Ponechat všechny',
   'pro.pin_members_keep_detail':
@@ -821,8 +821,8 @@ const cs: Record<I18nKey, string> = {
   'pro.removed_message': 'Vlastník místnosti nebo správce vás odebral z této místnosti.',
   'pro.device_removed_message':
     'Jiné zařízení přihlášené k vašemu účtu odpojilo toto zařízení od místnosti.',
-  'pro.owner_only': 'Tuto akci může provést pouze vlastník místnosti.',
-  'pro.connect_failed': 'K místnosti PRO se nepodařilo připojit.',
+  'pro.owner_only': 'Tuto akci může provést pouze vlastník místnosti',
+  'pro.connect_failed': 'K místnosti PRO se nepodařilo připojit',
   'pro.room_full': 'Tato místnost PRO je plná',
   'pro.room_full_detail':
     'Místnost PRO pojme až 100 zařízení včetně zařízení vlastníka. Jedno místo je vždy vyhrazeno pro vlastníka.',
@@ -839,8 +839,8 @@ const cs: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Zrušit nahrávání souboru {{name}}',
   'pro.upload.confirming_file': 'Dokončuje se nahrávání souboru {{name}}',
   'pro.downloading': 'Načítá se soubor...',
-  'pro.quota_exceeded': 'Tato místnost PRO dosáhla limitu úložiště 1 GB.',
-  'pro.file_too_large': 'Tento soubor překračuje limit 200 MB na soubor.',
+  'pro.quota_exceeded': 'Tato místnost PRO dosáhla limitu úložiště 1 GB',
+  'pro.file_too_large': 'Tento soubor překračuje limit 200 MB na soubor',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
@@ -880,37 +880,37 @@ const cs: Record<I18nKey, string> = {
   'system_audio.button': 'Systémový zvuk',
   'system_audio.sharing': 'Sdílení systémového zvuku',
   'system_audio.receiving': 'Příjem systémového zvuku',
-  'system_audio.owner_active': '{{name}} sdílí systémový zvuk.',
-  'system_audio.owner_preparing': '{{name}} připravuje sdílení systémového zvuku.',
-  'system_audio.pro_preparing': 'Připravuje se sdílení systémového zvuku.',
-  'system_audio.pro_publish_failed': 'Sdílení systémového zvuku se nepodařilo spustit.',
+  'system_audio.owner_active': '{{name}} sdílí systémový zvuk',
+  'system_audio.owner_preparing': '{{name}} připravuje sdílení systémového zvuku',
+  'system_audio.pro_preparing': 'Připravuje se sdílení systémového zvuku',
+  'system_audio.pro_publish_failed': 'Sdílení systémového zvuku se nepodařilo spustit',
   'system_audio.coordinator_update_required':
-    'Chcete-li sdílet systémový zvuk, aktualizujte zařízení, které spravuje tuto místnost.',
+    'Chcete-li sdílet systémový zvuk, aktualizujte zařízení, které spravuje tuto místnost',
   'system_audio.connection_unstable':
-    'Připojení systémového zvuku zařízení {{name}} je nestabilní.\nProbíhá opětovné připojení.',
-  'system_audio.capture_denied': 'Sdílení zvuku bylo zrušeno.',
-  'system_audio.no_audio_track': 'Nebyla zapnuta volba „Sdílet zvuk“.\nZkuste to znovu.',
+    'Připojení systémového zvuku zařízení {{name}} je nestabilní\nProbíhá opětovné připojení',
+  'system_audio.capture_denied': 'Sdílení zvuku bylo zrušeno',
+  'system_audio.no_audio_track': 'Nebyla zapnuta volba „Sdílet zvuk“\nZkuste to znovu',
   'system_audio.stop': 'Ukončit sdílení',
   'system_audio.stop_compact': 'Zastavit',
   'system_audio.started':
-    'Systémový zvuk může mít mírné zpoždění.\nPokud je to možné, snižte hlasitost zdroje.',
+    'Systémový zvuk může mít mírné zpoždění\nPokud je to možné, snižte hlasitost zdroje',
   'system_audio.stopped':
-    'Sdílení systémového zvuku skončilo.\nObnovuje se přehrávání seznamu skladeb.',
-  'system_audio.host_channel_locked': 'Během sdílení systémového zvuku nelze měnit role.',
+    'Sdílení systémového zvuku skončilo\nObnovuje se přehrávání seznamu skladeb',
+  'system_audio.host_channel_locked': 'Během sdílení systémového zvuku nelze měnit role',
   'system_audio.effects_guest_only':
-    'Systémový zvuk je aktivní.\nZvukové efekty se projeví pouze na zařízeních účastníků.',
+    'Systémový zvuk je aktivní\nZvukové efekty se projeví pouze na zařízeních účastníků',
   'system_audio.desktop_only':
-    'Dostupné pouze na počítačích s prohlížečem založeným na platformě Chromium (Chrome, Edge apod.).',
+    'Dostupné pouze na počítačích s prohlížečem založeným na platformě Chromium (Chrome, Edge apod.)',
   'system_audio.receive_failed':
-    'Systémový zvuk se nepodařilo přijmout.\nPožádejte hostitele, aby sdílení spustil znovu.',
+    'Systémový zvuk se nepodařilo přijmout\nPožádejte hostitele, aby sdílení spustil znovu',
   'system_audio.remote_receive_limit':
-    'Příjem systémového zvuku skončil po 2 hodinách.\nChcete-li pokračovat v poslechu, připojte se k místnosti znovu.',
+    'Příjem systémového zvuku skončil po 2 hodinách\nChcete-li pokračovat v poslechu, připojte se k místnosti znovu',
   'system_audio.device_limit':
-    'Systémový zvuk podporuje nejvýše {{count}} zařízení.\nDo tohoto počtu se zahrnuje hostitel.',
+    'Systémový zvuk podporuje nejvýše {{count}} zařízení\nDo tohoto počtu se zahrnuje hostitel',
   'system_audio.device_limit_stopped':
-    'Sdílení systémového zvuku bylo zastaveno.\nJe připojeno více než {{count}} zařízení.',
+    'Sdílení systémového zvuku bylo zastaveno\nJe připojeno více než {{count}} zařízení',
   'system_audio.duration_limit_stopped':
-    'Sdílení systémového zvuku bylo automaticky ukončeno\npo 2 hodinách.',
+    'Sdílení systémového zvuku bylo automaticky ukončeno\npo 2 hodinách',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Informace o službě',

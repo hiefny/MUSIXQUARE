@@ -3050,7 +3050,7 @@ describe('connect host-owned room password controls', () => {
     expect(options.inputField).toEqual(
       expect.objectContaining({ maxLength: 8, inputMode: 'numeric' }),
     );
-    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('방 암호를 변경했어요.'));
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('방 암호를 변경했어요'));
   });
 });
 

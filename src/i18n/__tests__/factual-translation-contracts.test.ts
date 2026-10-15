@@ -299,12 +299,12 @@ describe('completed translation factual contracts', () => {
     }
 
     expect([APP_DICTIONARIES.ko[tabKey], APP_DICTIONARIES.ko[appKey]]).toEqual([
-      'MUSIXQUARE의 새 버전이 있어요.\n페이지를 새로고침하면 적용돼요.',
-      'MUSIXQUARE의 새 버전이 있어요.\n앱을 다시 열면 적용돼요.',
+      'MUSIXQUARE의 새 버전이 있어요\n페이지를 새로고침하면 적용돼요',
+      'MUSIXQUARE의 새 버전이 있어요\n앱을 다시 열면 적용돼요',
     ]);
     expect([english[tabKey], english[appKey]]).toEqual([
-      'A new version of MUSIXQUARE is available.\nRefresh the page to apply it.',
-      'A new version of MUSIXQUARE is available.\nReopen the app to apply it.',
+      'A new version of MUSIXQUARE is available\nRefresh the page to apply it',
+      'A new version of MUSIXQUARE is available\nReopen the app to apply it',
     ]);
   });
 

@@ -586,6 +586,7 @@ html[data-theme='light'] .google-button {
   font-weight: 650;
   line-height: 1.35;
   text-align: center;
+  white-space: pre-line;
   word-break: keep-all;
   opacity: 0;
   visibility: hidden;

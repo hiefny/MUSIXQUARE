@@ -46,8 +46,8 @@ const nb: Record<I18nKey, string> = {
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Logg inn',
-  'account.login_cancelled': 'Innloggingen ble avbrutt.',
-  'account.login_failed': 'Kunne ikke logge inn. Prøv igjen.',
+  'account.login_cancelled': 'Innloggingen ble avbrutt',
+  'account.login_failed': 'Kunne ikke logge inn\nPrøv igjen',
   'account.welcome_back': 'Velkommen tilbake\n{{name}}',
   'account.login_message':
     'Logg inn med Google for å beholde kallenavnet ditt på tvers av rom. Du kan fortsette uten å logge inn.',
@@ -73,14 +73,14 @@ const nb: Record<I18nKey, string> = {
   'account.nickname_hint': 'Bruk opptil 12 tegn.',
   'account.nickname_required': 'Skriv inn et kallenavn.',
   'account.nickname_whitespace': 'Kallenavn kan ikke inneholde mellomrom eller usynlige tegn.',
-  'account.nickname_taken': 'Dette kallenavnet er allerede i bruk.',
-  'account.nickname_saved': 'Kallenavnet er endret til {{name}}.',
-  'account.action_failed': 'Kunne ikke oppdatere kontoen din. Prøv igjen.',
+  'account.nickname_taken': 'Dette kallenavnet er allerede i bruk',
+  'account.nickname_saved': 'Kallenavnet er endret til {{name}}',
+  'account.action_failed': 'Kunne ikke oppdatere kontoen din\nPrøv igjen',
   'account.delete_confirm_title': 'Vil du slette kontoen din?',
   'account.delete_confirm_message':
     'Kallenavnet ditt, innloggingsøktene og romtillatelsene som er knyttet til kontoen, blir slettet. Innhold som er delt i et rom, følger rommets retningslinjer for oppbevaring.',
   'account.delete_pending':
-    'Kontoen din blir slettet. PRO-tillatelsene fjernes på en sikker måte, og slettingen fullføres automatisk.',
+    'Kontoen din blir slettet\nPRO-tillatelsene fjernes på en sikker måte, og slettingen fullføres automatisk',
   'common.previous': 'Forrige',
   'common.next_desc': 'Neste',
   'common.volume_percent': 'Volum: {{val}} %',
@@ -147,7 +147,7 @@ const nb: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Gjentakelse er slått av',
   'playlist.shuffle_on': 'Tilfeldig rekkefølge er slått på',
   'playlist.shuffle_off': 'Tilfeldig rekkefølge er slått av',
-  'playlist.empty_hint': 'Ingen medier ennå.',
+  'playlist.empty_hint': 'Ingen medier ennå',
   'playlist.loading_info': 'Laster inn sporinformasjon…',
   'playlist.sub_load_failed': 'Kunne ikke laste inn videoinformasjon',
   'playlist.remove_title': 'Fjern fra spillelisten',
@@ -159,10 +159,10 @@ const nb: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Laster inn…',
   'playlist.track_fallback': 'Spor {{idx}}',
   'playlist.deferred_load_hint': 'Spill av for å laste inn hele sporlisten',
-  'playlist.host_update_required': 'Oppdater enheten som administrerer dette rommet.',
-  'playlist.queue_full': 'Spillelisten er full.',
-  'playlist.mutation_retry': 'Spillelisten er endret. Prøv igjen.',
-  'transfer.host_busy': 'Verten behandler en annen fil. Prøv igjen snart.',
+  'playlist.host_update_required': 'Oppdater enheten som administrerer dette rommet',
+  'playlist.queue_full': 'Spillelisten er full',
+  'playlist.mutation_retry': 'Spillelisten er endret\nPrøv igjen',
+  'transfer.host_busy': 'Verten behandler en annen fil\nPrøv igjen snart',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Senter',
@@ -293,7 +293,7 @@ const nb: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Skriv inn 8 sifre',
   'connect.room_password_disabled': 'Deltakere trenger ikke lenger rompassordet',
   'connect.room_password_apply_pending':
-    'Det nye passordet gjelder når tilkoblingen er gjenopprettet.',
+    'Det nye passordet gjelder når tilkoblingen er gjenopprettet',
   'connect.pin_enabled_removed_message':
     'Verten har angitt et passord for rommet. Skriv det inn for å bli med igjen.',
   'connect.pin_changed_removed_message':
@@ -320,7 +320,7 @@ const nb: Record<I18nKey, string> = {
   'demo.prompt_message': 'Velkommen! Er du klar for en rask omvisning i funksjonene?',
   'demo.prompt_cta': 'Start omvisningen',
   'demo.prompt_later': 'Senere',
-  'demo.try_later_toast': 'Du kan prøve den når som helst fra Hjelp-fanen.',
+  'demo.try_later_toast': 'Du kan prøve den når som helst fra Hjelp-fanen',
   'demo.track_info': 'Sporinformasjon',
   'demo.exit': 'Avslutt demo',
   'demo.credit': 'Demospor',
@@ -348,9 +348,9 @@ const nb: Record<I18nKey, string> = {
   'demo.finish_step_title': 'Alt er klart!',
   'demo.finish_step_subtitle': 'Kom i gang med en gang, og begynn å spille av sammen.',
   'demo.track_list_label': 'Liste over demospor',
-  'demo.host_only_exit': 'Bare verten kan trykke her.',
+  'demo.host_only_exit': 'Bare verten kan trykke her',
   'demo.external_playback_stopped':
-    'Demomodusen stoppet gjeldende avspilling fra YouTube eller systemlyd.',
+    'Demomodusen stoppet gjeldende avspilling fra YouTube eller systemlyd',
   'setup.how_to_connect': 'Slik kobler du til',
   'setup.set_role': 'Angi rollen til denne enheten',
   'setup.what_sound': 'Hva skal denne enheten spille av?',
@@ -369,7 +369,7 @@ const nb: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Fant ikke noe kamera som kan brukes',
   'setup.camera_unavailable': 'Kunne ikke starte kameraet',
   'setup.camera_stream_stalled':
-    'Forhåndsvisningen fra kameraet startet ikke.\nÅpne siden i nettleseren, eller skriv inn koden.',
+    'Forhåndsvisningen fra kameraet startet ikke\nÅpne siden i nettleseren, eller skriv inn koden',
   'setup.connect_devices': 'Koble til de andre enhetene dine for å begynne.',
   'setup.enter_code_connect': 'Invitasjonskode',
   'setup.last_step': 'La oss komme i gang!',
@@ -428,19 +428,19 @@ const nb: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Denne enheten kan ikke spille av gjeldende spor.',
   'chat.update_available_tab_system_message':
-    'Det finnes en ny versjon av MUSIXQUARE.\nOppdater siden for å ta den i bruk.',
+    'Det finnes en ny versjon av MUSIXQUARE\nOppdater siden for å ta den i bruk',
   'chat.update_available_app_system_message':
-    'Det finnes en ny versjon av MUSIXQUARE.\nÅpne appen på nytt for å ta den i bruk.',
+    'Det finnes en ny versjon av MUSIXQUARE\nÅpne appen på nytt for å ta den i bruk',
   'chat.system_audio_started_system_message':
     'Deling av systemlyd er startet. En liten forsinkelse mellom vertens og gjestenes enheter er normal. Vi anbefaler å senke volumet på vertsenheten for å unngå ekko.',
   'chat.system_audio_stopped_system_message':
     'Deling av systemlyd er avsluttet. Verten kan skru opp volumet igjen, slik at vertsenheten kan fungere som høyttaler.',
   'chat.remote_upload_limited_system_message':
-    'Grensen for filopplastinger er nådd.\nFjerndeltakere bør prøve igjen senere.',
+    'Grensen for filopplastinger er nådd\nFjerndeltakere bør prøve igjen senere',
   'chat.remote_storage_quota_system_message':
     'Grensen for fjerndeling er nådd.\nLokal fildeling er fortsatt tilgjengelig.',
   'chat.remote_upload_failed_system_message':
-    'Opplasting av fjernfilen mislyktes.\nFjerndeltakere bør prøve igjen snart.',
+    'Opplasting av fjernfilen mislyktes\nFjerndeltakere bør prøve igjen snart',
   'chat.pinned_close': 'Lukk varselet',
   'chat.cmd_whisper_from': 'Privat melding fra {{name}}',
   'chat.cmd_whisper_to': 'Privat melding til {{name}}',
@@ -491,7 +491,7 @@ const nb: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Informasjon for systemfeilsøking',
   'chat.debug_copied':
-    'Feilsøkingsinformasjonen er kopiert.\nSend den til utvikleren hvis du har funnet en feil.',
+    'Feilsøkingsinformasjonen er kopiert\nSend den til utvikleren hvis du har funnet en feil',
   'chat.seek_to': 'Spol til {{time}}',
   'chat.copied': 'Chatmelding kopiert',
   'chat.copy_hint': 'Trykk på Enter for å kopiere denne chatmeldingen',
@@ -502,13 +502,13 @@ const nb: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Skriv inn en YouTube-lenke eller et søkeord',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Se YouTube sammen',
-  'youtube.ready': 'YouTube er klar!\nTrykk på Spill av.',
+  'youtube.ready': 'YouTube er klar!\nTrykk på Spill av',
   'youtube.thumbnail': 'Forhåndsvisningsbilde fra YouTube',
-  'youtube.load_fail': 'Kunne ikke laste inn API-et til YouTube.\nSjekk tilkoblingen!',
+  'youtube.load_fail': 'Kunne ikke laste inn API-et til YouTube\nSjekk tilkoblingen!',
   'youtube.video_unavailable': 'Videoen er utilgjengelig, går videre til neste spor',
-  'youtube.load_timeout': 'Innlastingen av YouTube fikk tidsavbrudd.\nPrøv igjen.',
+  'youtube.load_timeout': 'Innlastingen av YouTube fikk tidsavbrudd\nPrøv igjen',
   'youtube.invalid_link': 'Ugyldig YouTube-lenke',
-  'youtube.effects_disabled': 'Se YouTube sammen.\nAvanserte lydeffekter er slått av.',
+  'youtube.effects_disabled': 'Se YouTube sammen\nAvanserte lydeffekter er slått av',
   'youtube.enter_link_placeholder': 'Skriv inn en lenke til en video eller spilleliste',
   'youtube.enter_source_toast': 'Skriv inn en YouTube-lenke eller et søkeord',
   'youtube.fetching_info': 'Laster inn videoinformasjon…',
@@ -526,7 +526,7 @@ const nb: Record<I18nKey, string> = {
   'youtube.search_failed': 'YouTube-søk er utilgjengelig',
   'youtube.search_selected': 'Den valgte videoen er klar til å legges til',
   'youtube.search_results': 'Søkeresultater fra YouTube',
-  'youtube.live_sync_warning': 'Direktesendinger er vanskelige å synkronisere nøyaktig.',
+  'youtube.live_sync_warning': 'Direktesendinger er vanskelige å synkronisere nøyaktig',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Frakoblet',
@@ -534,8 +534,8 @@ const nb: Record<I18nKey, string> = {
   'network.session_full': 'Rommet er fullt',
   'network.session_full_detail':
     'Rommet har allerede maksimalt 100 tilkoblede enheter, inkludert verten.',
-  'network.op_granted': 'Administratorrettigheter er gitt.',
-  'network.op_revoked': 'Administratorrettigheter er trukket tilbake.',
+  'network.op_granted': 'Administratorrettigheter er gitt',
+  'network.op_revoked': 'Administratorrettigheter er trukket tilbake',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_connected': '{{name}} koblet til',
@@ -543,7 +543,7 @@ const nb: Record<I18nKey, string> = {
   'toast.device_conn_error': 'Tilkoblingsfeil for {{name}}',
   'toast.device_kicked': '{{name}} er fjernet',
   'toast.remote_decode_device_wait':
-    'En enhet kunne ikke dekode dette sporet. Avspillingen fortsetter for alle andre.',
+    'En enhet kunne ikke dekode dette sporet\nAvspillingen fortsetter for alle andre',
   'toast.invite_code': 'Invitasjonskode: {{code}}',
   'toast.invite_code_info': '{{count}} tilkoblet | Kode {{code}}',
   'toast.added_tracks': '{{count}} spor ble lagt til',
@@ -556,14 +556,14 @@ const nb: Record<I18nKey, string> = {
   'toast.op_status': 'Tillatelse {{label}}: {{status}}',
   'toast.file_read_error': 'Kunne ikke lese filen: {{name}}',
   'toast.host_ended_connection': 'Verten har avsluttet tilkoblingen',
-  'toast.announcement_available': 'Nytt varsel.\nSe chatpanelet.',
+  'toast.announcement_available': 'Nytt varsel\nSe chatpanelet',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Kunne ikke kopiere',
   'toast.email_copied': 'E-postadressen er kopiert!',
   'toast.settings_sync_enabled': 'Synkronisering av innstillinger er slått på',
   'toast.settings_sync_admin_required':
-    'Synkronisering av innstillinger er slått på.\nBare romadministratorer kan endre lydinnstillingene.',
+    'Synkronisering av innstillinger er slått på\nBare romadministratorer kan endre lydinnstillingene',
   'toast.virtual_bass_on': 'Virtuell bass er slått på',
   'toast.virtual_bass_off': 'Virtuell bass er slått av',
   'toast.virtual_treble_on': 'Virtuell diskant er slått på',
@@ -571,26 +571,26 @@ const nb: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Virtuell surroundlyd er slått på',
   'toast.virtual_surround_off': 'Virtuell surroundlyd er slått av',
   'toast.virtual_effects_off': 'Alle virtuelle effekter er slått av',
-  'toast.host_only': 'Bare verten kan gjøre dette.',
-  'toast.host_only_media': 'Bare verten kan legge til medier.',
-  'toast.media_management_required': 'Tillatelse til å administrere medier kreves.',
-  'toast.playback_control_required': 'Tillatelse til å styre avspillingen kreves.',
-  'toast.member_management_required': 'Tillatelse til å fjerne medlemmer kreves.',
-  'toast.chat_notice_required': 'Tillatelse til å legge ut chatvarsler kreves.',
-  'toast.room_owner_required': 'Bare rommets eier kan endre dette.',
-  'toast.system_audio_owner_required': 'Du kan bare dele lyd fra fanen som åpnet rommet.',
-  'toast.host_only_youtube': 'Bare verten kan legge til YouTube-lenker.',
+  'toast.host_only': 'Bare verten kan gjøre dette',
+  'toast.host_only_media': 'Bare verten kan legge til medier',
+  'toast.media_management_required': 'Tillatelse til å administrere medier kreves',
+  'toast.playback_control_required': 'Tillatelse til å styre avspillingen kreves',
+  'toast.member_management_required': 'Tillatelse til å fjerne medlemmer kreves',
+  'toast.chat_notice_required': 'Tillatelse til å legge ut chatvarsler kreves',
+  'toast.room_owner_required': 'Bare rommets eier kan endre dette',
+  'toast.system_audio_owner_required': 'Du kan bare dele lyd fra fanen som åpnet rommet',
+  'toast.host_only_youtube': 'Bare verten kan legge til YouTube-lenker',
   'toast.host_only_control': 'Bare verten kan styre dette',
   'toast.host_setting_required': 'Bare verten kan endre denne innstillingen',
   'toast.host_only_file': 'Bare verten kan legge til filer',
   'toast.no_tracks': 'Det finnes ingen spor å spille av',
   'toast.add_media_to_play': 'Legg til medier',
   'toast.no_invite_code': 'Det finnes ingen invitasjonskode ennå',
-  'toast.invite_code_settings': 'Del invitasjonslenken fra Koble til-fanen.',
+  'toast.invite_code_settings': 'Del invitasjonslenken fra Koble til-fanen',
   'toast.click_copy_invite': 'Klikk for å kopiere invitasjonskoden',
   'toast.cant_select_file': 'Kan ikke velge en fil',
   'toast.unsupported_files_excluded': 'Filer som ikke støttes, ble hoppet over: {{count}}',
-  'toast.no_supported_audio_files': 'Det finnes ingen støttede lydfiler å legge til.',
+  'toast.no_supported_audio_files': 'Det finnes ingen støttede lydfiler å legge til',
   'dialog.large_room_file.title': 'Fildeling i et stort rom',
   'dialog.large_room_file.message':
     'På samme nettverk er direkte filoverføring stabil for opptil 8 gjesteenheter, utenom verten. I større lokale rom kan filer distribueres via Cloudflare R2.\n\nVil du fortsette?',
@@ -598,14 +598,14 @@ const nb: Record<I18nKey, string> = {
   'toast.sync_reset': 'Synkroniseringsforskyvningen er tilbakestilt',
   'toast.stop_sent': 'Forespørselen om å stoppe er sendt',
   'toast.hprecision_sync': 'Høypresisjonssynkronisering: forbereder lyd…',
-  'toast.file_ready': 'Filen din er klar!\nTrykk på Spill av.',
+  'toast.file_ready': 'Filen din er klar!\nTrykk på Spill av',
   'toast.host_sync_not_recommended': 'Juster synkroniseringen på en gjesteenhet',
   'toast.host_sync_requested':
-    'Presisjonssynkronisering er forespurt.\nJuster den manuelle synkroniseringen på en gjesteenhet.',
+    'Presisjonssynkronisering er forespurt\nJuster den manuelle synkroniseringen på en gjesteenhet',
   'toast.sync_not_in_system_audio': 'Synkronisering er utilgjengelig mens systemlyd deles',
-  'toast.sync_not_ready': 'Ikke klar ennå.\nPrøv igjen om litt',
+  'toast.sync_not_ready': 'Ikke klar ennå\nPrøv igjen om litt',
   'toast.sync_no_media':
-    'Det finnes ingen medier å synkronisere.\nVelg først noe som skal spilles av',
+    'Det finnes ingen medier å synkronisere\nVelg først noe som skal spilles av',
   'toast.host_ad': 'Verten ser ut til å se på en annonse',
   'toast.yt_sync_start': 'Synkroniserer…',
   'toast.yt_sync_done': 'Synkroniseringen er fullført',
@@ -613,21 +613,21 @@ const nb: Record<I18nKey, string> = {
   'toast.yt_rendezvous_done': 'Synkroniseringen er fullført',
   'toast.yt_rendezvous_host_paused': 'Verten har satt på pause; bare posisjonen ble justert',
   'toast.yt_rendezvous_no_data':
-    'Det finnes ingen avspillingsdata fra verten ennå. Prøv igjen om litt',
-  'toast.yt_rendezvous_timeout': 'Synkroniseringen mislyktes. Prøv igjen om litt',
+    'Det finnes ingen avspillingsdata fra verten ennå\nPrøv igjen om litt',
+  'toast.yt_rendezvous_timeout': 'Synkroniseringen mislyktes\nPrøv igjen om litt',
   'toast.yt_host_sync_sent': 'Signalet for automatisk synkronisering er sendt til deltakerne',
   'toast.yt_manual_sync_prompt':
-    'Automatisk synkronisering ble nettopp forsøkt.\nHvis det fortsatt føles forsinket, kan du justere verdien nå',
+    'Automatisk synkronisering ble nettopp forsøkt\nHvis det fortsatt føles forsinket, kan du justere verdien nå',
   'toast.playlist_ended': 'Det siste medieelementet er ferdig avspilt',
   'toast.operator_required': 'Bare administratorer kan endre globale innstillinger',
   'toast.connection_closing': 'Tilkoblingen ble brutt; innstillingen ble ikke synkronisert',
   'toast.host_changed_setting': 'Innstillingene er endret',
-  'toast.session_mismatch': 'Økten samsvarer ikke.\nFiloverføringen prøver på nytt.',
+  'toast.session_mismatch': 'Økten samsvarer ikke\nFiloverføringen prøver på nytt',
   'toast.receiving_pct': 'Mottar… {{pct}} %',
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': 'Laster inn demosporet fra serveren…',
-  'transfer.demo_loaded': 'Demosporet er klart.',
+  'transfer.demo_loaded': 'Demosporet er klart',
   'transfer.demo_load_fail': 'Kunne ikke laste inn demoen:',
   'transfer.demo_loading_short': 'Laster inn demospor…',
   'transfer.file_requesting': 'Ber om filen…',
@@ -645,12 +645,12 @@ const nb: Record<I18nKey, string> = {
   'share.remote.timeout': 'Fjerndelingen fikk tidsavbrudd',
   'share.remote.too_large': 'Filen er for stor (maks. 200 MB)',
   'share.remote.network_error': 'Nettverksfeil under fjerndeling',
-  'share.remote.rate_limited': 'For mange opplastinger til fjerndeling.\nPrøv igjen om et øyeblikk',
+  'share.remote.rate_limited': 'For mange opplastinger til fjerndeling\nPrøv igjen om et øyeblikk',
   'share.remote.quota_reached': 'Lagringsgrensen for fjerndeling er nådd',
   'share.remote.auth_failed':
-    'Autorisasjonen for fjerndeling mislyktes.\nSjekk Worker-innstillingene',
-  'share.remote.expired': 'Lenken til fjernfilen er utløpt.\nDel filen på nytt.',
-  'share.remote.unavailable': 'Fjerndeling mislyktes.\nPrøv igjen om et øyeblikk.',
+    'Autorisasjonen for fjerndeling mislyktes\nSjekk Worker-innstillingene',
+  'share.remote.expired': 'Lenken til fjernfilen er utløpt\nDel filen på nytt',
+  'share.remote.unavailable': 'Fjerndeling mislyktes\nPrøv igjen om et øyeblikk',
   'transfer.preload_fail': 'Avspilling av den forhåndslastede filen mislyktes; laster inn på nytt',
   'transfer.download_finishing': 'Fullfører nedlastingen…',
   'transfer.preparation_delayed': 'Forberedelsen er forsinket…\nBer verten om gjenoppretting',
@@ -659,15 +659,15 @@ const nb: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Venter på forhåndslasting: {{name}}',
   'transfer.waiting_recovery': 'Venter på gjenoppretting: {{name}}',
   'transfer.preparing_name': 'Forbereder: {{name}}',
-  'transfer.recovery_failed': 'Filgjenopprettingen mislyktes.\nPrøv igjen.',
+  'transfer.recovery_failed': 'Filgjenopprettingen mislyktes\nPrøv igjen',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'HTTPS kreves: Fungerer bare med en sikker tilkobling.',
+  'error.https_required': 'HTTPS kreves: Fungerer bare med en sikker tilkobling',
   'error.browser_update': 'Oppdater nettleseren til en nyere versjon.',
   'error.load_failed': 'Innlastingen mislyktes: {{msg}}',
   'error.audio_decode_fail': 'Lyddekodingen mislyktes!',
   'error.audio_memory': 'Laster inn lyd i minnet…',
-  'error.all_tracks_failed': 'Det finnes ingen spillbare spor i spillelisten.',
+  'error.all_tracks_failed': 'Det finnes ingen spillbare spor i spillelisten',
   'error.audio_engine_prepare': 'Kunne ikke klargjøre lydmotoren',
   'error.session_create_fail': 'Kunne ikke opprette økten',
   'error.network_generic': 'Det oppstod en nettverksfeil',
@@ -684,19 +684,19 @@ const nb: Record<I18nKey, string> = {
   'error.peer_not_ready': 'Tilkoblingen til den andre enheten er ikke klar ennå',
   'error.network_init_failed': 'Kunne ikke initialisere nettverket',
   'error.no_host_id': 'Fant ingen verts-ID',
-  'error.peer_unavailable': 'Kunne ikke finne økten.\nSjekk koden på nytt.',
+  'error.peer_unavailable': 'Kunne ikke finne økten\nSjekk koden på nytt',
   'error.host_left': 'Verten ser ut til å ha forlatt økten',
-  'error.network_issue': 'Det er et nettverksproblem.\nSjekk internettilkoblingen.',
-  'error.signal_server_fail': 'Kan ikke nå signaleringsserveren.\nPrøv igjen om litt.',
-  'error.server_disconnected': 'Tilkoblingen til serveren ble brutt.',
-  'error.session_id_unavailable': 'Økt-ID-en er utilgjengelig.\nPrøv igjen.',
-  'error.webrtc_failed': 'WebRTC-tilkoblingen mislyktes.\nSjekk nettleserinnstillingene.',
+  'error.network_issue': 'Det er et nettverksproblem\nSjekk internettilkoblingen',
+  'error.signal_server_fail': 'Kan ikke nå signaleringsserveren\nPrøv igjen om litt',
+  'error.server_disconnected': 'Tilkoblingen til serveren ble brutt',
+  'error.session_id_unavailable': 'Økt-ID-en er utilgjengelig\nPrøv igjen',
+  'error.webrtc_failed': 'WebRTC-tilkoblingen mislyktes\nSjekk nettleserinnstillingene',
   'error.browser_unsupported':
-    'Denne nettleseren kan ikke opprette sanntidstilkoblinger.\nPrøv Chrome eller Safari.',
-  'error.ssl_required': 'En sikker tilkobling (HTTPS) kreves.',
+    'Denne nettleseren kan ikke opprette sanntidstilkoblinger\nPrøv Chrome eller Safari',
+  'error.ssl_required': 'En sikker tilkobling (HTTPS) kreves',
   'error.room_password_required': 'Dette rommet krever et passord.',
   'error.room_password_invalid': 'Feil rompassord.',
-  'error.room_password_auth_timeout': 'Nettverket er ustabilt.\nPrøv å skrive inn passordet igjen.',
+  'error.room_password_auth_timeout': 'Nettverket er ustabilt\nPrøv å skrive inn passordet igjen',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Legg til lokale filer',
@@ -795,9 +795,9 @@ const nb: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'Passordet er ikke riktig. Prøv igjen.',
   'pro.pin_change_title': 'Endre rompassord',
   'pro.pin_change_message': 'Angi et nytt 8-sifret passord.',
-  'pro.pin_changed': 'Rompassordet er endret.',
+  'pro.pin_changed': 'Rompassordet er endret',
   'pro.pin_enable_title': 'Angi rompassord',
-  'pro.pin_enabled': 'Rompassordet er angitt.',
+  'pro.pin_enabled': 'Rompassordet er angitt',
   'pro.pin_members_title': 'Hva skal skje med de nåværende deltakerne?',
   'pro.pin_members_keep': 'Behold alle',
   'pro.pin_members_keep_detail':
@@ -817,8 +817,8 @@ const nb: Record<I18nKey, string> = {
   'pro.removed_message': 'Rommets eier eller en administrator har fjernet deg fra rommet.',
   'pro.device_removed_message':
     'En annen enhet som er logget på kontoen din, har koblet denne enheten fra rommet.',
-  'pro.owner_only': 'Bare rommets eier kan gjøre dette.',
-  'pro.connect_failed': 'Kunne ikke koble til PRO-rommet.',
+  'pro.owner_only': 'Bare rommets eier kan gjøre dette',
+  'pro.connect_failed': 'Kunne ikke koble til PRO-rommet',
   'pro.room_full': 'Dette PRO-rommet er fullt',
   'pro.room_full_detail':
     'Et PRO-rom har plass til opptil 100 enheter, inkludert eierens. Én plass er alltid holdt av til eieren.',
@@ -835,8 +835,8 @@ const nb: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Avbryt opplasting av {{name}}',
   'pro.upload.confirming_file': 'Fullfører opplasting av {{name}}',
   'pro.downloading': 'Laster inn filen…',
-  'pro.quota_exceeded': 'Dette PRO-rommet har nådd lagringsgrensen på 1 GB.',
-  'pro.file_too_large': 'Denne filen er større enn grensen på 200 MB per fil.',
+  'pro.quota_exceeded': 'Dette PRO-rommet har nådd lagringsgrensen på 1 GB',
+  'pro.file_too_large': 'Denne filen er større enn grensen på 200 MB per fil',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
@@ -877,35 +877,34 @@ const nb: Record<I18nKey, string> = {
   'system_audio.button': 'Systemlyd',
   'system_audio.sharing': 'Deler systemlyd',
   'system_audio.receiving': 'Mottar systemlyd',
-  'system_audio.owner_active': '{{name}} deler systemlyd.',
-  'system_audio.owner_preparing': '{{name}} forbereder deling av systemlyd.',
-  'system_audio.pro_preparing': 'Forbereder deling av systemlyd.',
-  'system_audio.pro_publish_failed': 'Kunne ikke starte deling av systemlyd.',
+  'system_audio.owner_active': '{{name}} deler systemlyd',
+  'system_audio.owner_preparing': '{{name}} forbereder deling av systemlyd',
+  'system_audio.pro_preparing': 'Forbereder deling av systemlyd',
+  'system_audio.pro_publish_failed': 'Kunne ikke starte deling av systemlyd',
   'system_audio.coordinator_update_required':
-    'Oppdater enheten som administrerer dette rommet, for å dele systemlyd.',
+    'Oppdater enheten som administrerer dette rommet, for å dele systemlyd',
   'system_audio.connection_unstable':
-    'Systemlydtilkoblingen til {{name}} er ustabil.\nPrøver å koble til på nytt.',
-  'system_audio.capture_denied': 'Lyddelingen ble avbrutt.',
-  'system_audio.no_audio_track': '«Del lyd» var ikke slått på.\nPrøv igjen.',
+    'Systemlydtilkoblingen til {{name}} er ustabil\nPrøver å koble til på nytt',
+  'system_audio.capture_denied': 'Lyddelingen ble avbrutt',
+  'system_audio.no_audio_track': '«Del lyd» var ikke slått på\nPrøv igjen',
   'system_audio.stop': 'Stopp deling',
   'system_audio.stop_compact': 'Stopp',
   'system_audio.started':
-    'Systemlyd kan ha en liten forsinkelse.\nSenk kildevolumet hvis det er mulig.',
-  'system_audio.stopped': 'Delingen av systemlyd er avsluttet.\nGjenopptar spillelisten.',
-  'system_audio.host_channel_locked': 'Roller kan ikke endres mens systemlyd deles.',
-  'system_audio.effects_guest_only':
-    'Systemlyd er aktiv.\nLydeffekter brukes bare på gjesteenheter.',
+    'Systemlyd kan ha en liten forsinkelse\nSenk kildevolumet hvis det er mulig',
+  'system_audio.stopped': 'Delingen av systemlyd er avsluttet\nGjenopptar spillelisten',
+  'system_audio.host_channel_locked': 'Roller kan ikke endres mens systemlyd deles',
+  'system_audio.effects_guest_only': 'Systemlyd er aktiv\nLydeffekter brukes bare på gjesteenheter',
   'system_audio.desktop_only':
-    'Bare tilgjengelig på datamaskiner med en Chromium-basert nettleser (Chrome, Edge osv.).',
+    'Bare tilgjengelig på datamaskiner med en Chromium-basert nettleser (Chrome, Edge osv.)',
   'system_audio.receive_failed':
-    'Kunne ikke motta systemlyd.\nBe verten om å starte delingen på nytt.',
+    'Kunne ikke motta systemlyd\nBe verten om å starte delingen på nytt',
   'system_audio.remote_receive_limit':
-    'Mottaket av systemlyd ble avsluttet etter 2 timer.\nBli med i rommet på nytt for å fortsette å lytte.',
-  'system_audio.device_limit': 'Systemlyd støtter opptil {{count}} enheter.\nVerten teller med.',
+    'Mottaket av systemlyd ble avsluttet etter 2 timer\nBli med i rommet på nytt for å fortsette å lytte',
+  'system_audio.device_limit': 'Systemlyd støtter opptil {{count}} enheter\nVerten teller med',
   'system_audio.device_limit_stopped':
-    'Delingen av systemlyd ble stoppet.\nFlere enn {{count}} enheter er tilkoblet.',
+    'Delingen av systemlyd ble stoppet\nFlere enn {{count}} enheter er tilkoblet',
   'system_audio.duration_limit_stopped':
-    'Delingen av systemlyd ble avsluttet automatisk\netter 2 timer.',
+    'Delingen av systemlyd ble avsluttet automatisk\netter 2 timer',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Informasjon om tjenesten',

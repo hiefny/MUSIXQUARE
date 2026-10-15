@@ -43,8 +43,8 @@ const pl: Record<I18nKey, string> = {
   'common.on': 'Wł.',
   'common.off': 'Wył.',
   'account.login_title': 'Zaloguj się',
-  'account.login_cancelled': 'Logowanie anulowano.',
-  'account.login_failed': 'Nie udało się zalogować. Spróbuj ponownie.',
+  'account.login_cancelled': 'Logowanie anulowano',
+  'account.login_failed': 'Nie udało się zalogować\nSpróbuj ponownie',
   'account.welcome_back': 'Miło Cię znowu widzieć\n{{name}}',
   'account.login_message':
     'Zaloguj się przez Google, aby zachować pseudonim we wszystkich pokojach. Możesz nadal korzystać z MUSIXQUARE bez logowania.',
@@ -69,14 +69,14 @@ const pl: Record<I18nKey, string> = {
   'account.nickname_hint': 'Maksymalnie 12 znaków.',
   'account.nickname_required': 'Wpisz pseudonim.',
   'account.nickname_whitespace': 'Pseudonim nie może zawierać spacji ani niewidocznych znaków.',
-  'account.nickname_taken': 'Ten pseudonim jest już zajęty.',
-  'account.nickname_saved': 'Pseudonim zmieniono na {{name}}.',
-  'account.action_failed': 'Nie udało się zaktualizować konta. Spróbuj ponownie.',
+  'account.nickname_taken': 'Ten pseudonim jest już zajęty',
+  'account.nickname_saved': 'Pseudonim zmieniono na {{name}}',
+  'account.action_failed': 'Nie udało się zaktualizować konta\nSpróbuj ponownie',
   'account.delete_confirm_title': 'Usunąć konto?',
   'account.delete_confirm_message':
     'Twój pseudonim, sesje logowania i powiązane z kontem uprawnienia w pokojach zostaną usunięte. Treści udostępnione w pokoju podlegają zasadom przechowywania tego pokoju.',
   'account.delete_pending':
-    'Twoje konto jest usuwane. Uprawnienia PRO są bezpiecznie porządkowane, a cały proces zakończy się automatycznie.',
+    'Twoje konto jest usuwane\nUprawnienia PRO są bezpiecznie porządkowane, a cały proces zakończy się automatycznie',
   'common.previous': 'Poprzedni',
   'common.next_desc': 'Następny',
   'common.volume_percent': 'Głośność: {{val}}%',
@@ -144,7 +144,7 @@ const pl: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Powtarzanie wyłączone',
   'playlist.shuffle_on': 'Odtwarzanie losowe włączone',
   'playlist.shuffle_off': 'Odtwarzanie losowe wyłączone',
-  'playlist.empty_hint': 'Nie ma jeszcze multimediów.',
+  'playlist.empty_hint': 'Nie ma jeszcze multimediów',
   'playlist.loading_info': 'Ładowanie informacji o materiale…',
   'playlist.sub_load_failed': 'Nie udało się załadować informacji o wideo',
   'playlist.remove_title': 'Usuń z playlisty',
@@ -157,10 +157,10 @@ const pl: Record<I18nKey, string> = {
   'playlist.track_fallback': 'Materiał {{idx}}',
   'playlist.deferred_load_hint':
     'Uruchom odtwarzanie, aby załadować informacje o wszystkich materiałach',
-  'playlist.host_update_required': 'Zaktualizuj urządzenie zarządzające tym pokojem.',
-  'playlist.queue_full': 'Playlista jest pełna.',
-  'playlist.mutation_retry': 'Playlista uległa zmianie. Spróbuj ponownie.',
-  'transfer.host_busy': 'Host przetwarza inny plik. Spróbuj ponownie za chwilę.',
+  'playlist.host_update_required': 'Zaktualizuj urządzenie zarządzające tym pokojem',
+  'playlist.queue_full': 'Playlista jest pełna',
+  'playlist.mutation_retry': 'Playlista uległa zmianie\nSpróbuj ponownie',
+  'transfer.host_busy': 'Host przetwarza inny plik\nSpróbuj ponownie za chwilę',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Środkowy',
@@ -293,7 +293,7 @@ const pl: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Wpisz 8-cyfrowe hasło',
   'connect.room_password_disabled': 'Wejście do tego pokoju nie wymaga już hasła',
   'connect.room_password_apply_pending':
-    'Nowe hasło zacznie obowiązywać, gdy połączenie zostanie przywrócone.',
+    'Nowe hasło zacznie obowiązywać, gdy połączenie zostanie przywrócone',
   'connect.pin_enabled_removed_message':
     'Host ustawił hasło do pokoju. Wpisz je, aby znowu dołączyć.',
   'connect.pin_changed_removed_message':
@@ -321,7 +321,7 @@ const pl: Record<I18nKey, string> = {
   'demo.prompt_message': 'Witaj! Chcesz szybko poznać najważniejsze funkcje?',
   'demo.prompt_cta': 'Rozpocznij przewodnik',
   'demo.prompt_later': 'Później',
-  'demo.try_later_toast': 'Możesz rozpocząć przewodnik w dowolnej chwili w zakładce Pomoc.',
+  'demo.try_later_toast': 'Możesz rozpocząć przewodnik w dowolnej chwili w zakładce Pomoc',
   'demo.track_info': 'Informacje o utworze',
   'demo.exit': 'Zakończ przewodnik',
   'demo.credit': 'Utwór demo',
@@ -349,9 +349,9 @@ const pl: Record<I18nKey, string> = {
   'demo.finish_step_title': 'Wszystko gotowe!',
   'demo.finish_step_subtitle': 'Zacznij od razu i słuchaj razem z innymi!',
   'demo.track_list_label': 'Lista utworów demo',
-  'demo.host_only_exit': 'Tylko host może wykonać tę operację.',
+  'demo.host_only_exit': 'Tylko host może wykonać tę operację',
   'demo.external_playback_stopped':
-    'Przewodnik demo zatrzymał bieżące odtwarzanie YouTube lub dźwięku systemowego.',
+    'Przewodnik demo zatrzymał bieżące odtwarzanie YouTube lub dźwięku systemowego',
   'setup.how_to_connect': 'Jak się połączyć',
   'setup.set_role': 'Ustaw rolę tego urządzenia',
   'setup.what_sound': 'Co ma odtwarzać to urządzenie?',
@@ -370,7 +370,7 @@ const pl: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Nie znaleziono dostępnej kamery',
   'setup.camera_unavailable': 'Nie można uruchomić kamery',
   'setup.camera_stream_stalled':
-    'Podgląd kamery nie uruchomił się.\nOtwórz w przeglądarce lub wpisz kod.',
+    'Podgląd kamery nie uruchomił się\nOtwórz w przeglądarce lub wpisz kod',
   'setup.connect_devices': 'Teraz połącz pozostałe urządzenia.',
   'setup.enter_code_connect': 'Kod zaproszenia',
   'setup.last_step': 'Zaczynamy!',
@@ -433,19 +433,19 @@ const pl: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'To urządzenie nie może odtworzyć bieżącego materiału.',
   'chat.update_available_tab_system_message':
-    'Dostępna jest nowa wersja MUSIXQUARE.\nOdśwież stronę, aby ją zastosować.',
+    'Dostępna jest nowa wersja MUSIXQUARE\nOdśwież stronę, aby ją zastosować',
   'chat.update_available_app_system_message':
-    'Dostępna jest nowa wersja MUSIXQUARE.\nOtwórz ponownie aplikację, aby ją zastosować.',
+    'Dostępna jest nowa wersja MUSIXQUARE\nOtwórz ponownie aplikację, aby ją zastosować',
   'chat.system_audio_started_system_message':
     'Rozpoczęto udostępnianie dźwięku systemowego. Niewielkie opóźnienie między urządzeniem hosta a urządzeniami uczestników jest normalne. Zalecamy zmniejszenie głośności urządzenia hosta, aby uniknąć echa.',
   'chat.system_audio_stopped_system_message':
     'Udostępnianie dźwięku systemowego zostało zakończone. Host może ponownie zwiększyć głośność swojego urządzenia, aby znów pełniło rolę głośnika.',
   'chat.remote_upload_limited_system_message':
-    'Osiągnięto limit przesyłania plików.\nZdalni uczestnicy mogą spróbować ponownie później.',
+    'Osiągnięto limit przesyłania plików\nZdalni uczestnicy mogą spróbować ponownie później',
   'chat.remote_storage_quota_system_message':
     'Osiągnięto limit udostępniania zdalnego.\nNadal możesz udostępniać pliki lokalnie.',
   'chat.remote_upload_failed_system_message':
-    'Nie udało się przesłać pliku zdalnego.\nZdalni uczestnicy mogą spróbować ponownie za chwilę.',
+    'Nie udało się przesłać pliku zdalnego\nZdalni uczestnicy mogą spróbować ponownie za chwilę',
   'chat.pinned_close': 'Ukryj ogłoszenie',
   'chat.cmd_whisper_from': 'Wiadomość prywatna od {{name}}',
   'chat.cmd_whisper_to': 'Wiadomość prywatna do {{name}}',
@@ -496,7 +496,7 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Wyświetl systemowe informacje diagnostyczne',
   'chat.debug_copied':
-    'Informacje diagnostyczne zostały skopiowane do schowka.\nJeśli wystąpił błąd, prześlij te informacje deweloperowi.',
+    'Informacje diagnostyczne zostały skopiowane do schowka\nJeśli wystąpił błąd, prześlij te informacje deweloperowi',
   'chat.seek_to': 'Przejdź do {{time}}',
   'chat.copied': 'Wiadomość skopiowana',
   'chat.copy_hint': 'Naciśnij Enter, aby skopiować tę wiadomość',
@@ -507,14 +507,14 @@ const pl: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Wpisz link z YouTube lub hasło wyszukiwania',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Wspólne oglądanie YouTube',
-  'youtube.ready': 'YouTube jest gotowy!\nNaciśnij Odtwórz, aby rozpocząć.',
+  'youtube.ready': 'YouTube jest gotowy!\nNaciśnij Odtwórz, aby rozpocząć',
   'youtube.thumbnail': 'Miniatura podglądu wideo z YouTube',
-  'youtube.load_fail': 'Nie udało się załadować API YouTube.\nSprawdź połączenie z internetem!',
-  'youtube.video_unavailable': 'Wideo niedostępne. Przejście do kolejnego materiału…',
-  'youtube.load_timeout': 'Przekroczono limit czasu ładowania YouTube.\nSpróbuj ponownie.',
+  'youtube.load_fail': 'Nie udało się załadować API YouTube\nSprawdź połączenie z internetem!',
+  'youtube.video_unavailable': 'Wideo niedostępne, przejście do kolejnego materiału…',
+  'youtube.load_timeout': 'Przekroczono limit czasu ładowania YouTube\nSpróbuj ponownie',
   'youtube.invalid_link': 'Niepoprawny link z YouTube',
   'youtube.effects_disabled':
-    'Wspólne oglądanie YouTube.\nZaawansowane efekty dźwiękowe są wyłączone.',
+    'Wspólne oglądanie YouTube\nZaawansowane efekty dźwiękowe są wyłączone',
   'youtube.enter_link_placeholder': 'Wklej link do wideo lub playlisty',
   'youtube.enter_source_toast': 'Wpisz hasło wyszukiwania lub link z YouTube',
   'youtube.fetching_info': 'Pobieranie informacji o wideo…',
@@ -532,7 +532,7 @@ const pl: Record<I18nKey, string> = {
   'youtube.search_failed': 'Wyszukiwanie w YouTube jest obecnie niedostępne',
   'youtube.search_selected': 'Wybrane wideo gotowe do dodania do playlisty',
   'youtube.search_results': 'Wyniki wyszukiwania w YouTube',
-  'youtube.live_sync_warning': 'Precyzyjna synchronizacja transmisji na żywo jest trudna.',
+  'youtube.live_sync_warning': 'Precyzyjna synchronizacja transmisji na żywo jest trudna',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Połączenie przerwane',
@@ -540,8 +540,8 @@ const pl: Record<I18nKey, string> = {
   'network.session_full': 'Pokój jest pełny',
   'network.session_full_detail':
     'Ten pokój osiągnął limit 100 połączonych urządzeń, wliczając hosta.',
-  'network.op_granted': 'Nadano Ci uprawnienia administratora.',
-  'network.op_revoked': 'Odebrano Ci uprawnienia administratora.',
+  'network.op_granted': 'Nadano Ci uprawnienia administratora',
+  'network.op_revoked': 'Odebrano Ci uprawnienia administratora',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_connected': 'Połączono: {{name}}',
@@ -549,7 +549,7 @@ const pl: Record<I18nKey, string> = {
   'toast.device_conn_error': 'Błąd połączenia z {{name}}',
   'toast.device_kicked': 'Wyrzucono z pokoju: {{name}}',
   'toast.remote_decode_device_wait':
-    'Dekodowanie materiału nie powiodło się na jednym z urządzeń. Odtwarzanie jest kontynuowane na pozostałych.',
+    'Dekodowanie materiału nie powiodło się na jednym z urządzeń\nOdtwarzanie jest kontynuowane na pozostałych',
   'toast.invite_code': 'Kod zaproszenia: {{code}}',
   'toast.invite_code_info': 'Urządzenia: {{count}} | Kod: {{code}}',
   'toast.added_tracks': 'Dodane materiały: {{count}}',
@@ -562,42 +562,42 @@ const pl: Record<I18nKey, string> = {
   'toast.op_status': 'Uprawnienia dla {{label}} zostały {{status}}',
   'toast.file_read_error': 'Błąd odczytu pliku: {{name}}',
   'toast.host_ended_connection': 'Host zamknął połączenie',
-  'toast.announcement_available': 'Nowe ogłoszenie.\nSprawdź panel czatu.',
+  'toast.announcement_available': 'Nowe ogłoszenie\nSprawdź panel czatu',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Kopiowanie nie powiodło się',
   'toast.email_copied': 'Adres e-mail skopiowany do schowka!',
-  'toast.settings_sync_enabled': 'Synchronizacja ustawień jest włączona.',
+  'toast.settings_sync_enabled': 'Synchronizacja ustawień jest włączona',
   'toast.settings_sync_admin_required':
-    'Synchronizacja ustawień jest włączona.\nTylko administratorzy pokoju mogą je zmieniać.',
-  'toast.virtual_bass_on': 'Wirtualny bas jest włączony.',
-  'toast.virtual_bass_off': 'Wirtualny bas jest wyłączony.',
-  'toast.virtual_treble_on': 'Wirtualne wysokie tony są włączone.',
-  'toast.virtual_treble_off': 'Wirtualne wysokie tony są wyłączone.',
-  'toast.virtual_surround_on': 'Wirtualny dźwięk przestrzenny jest włączony.',
-  'toast.virtual_surround_off': 'Wirtualny dźwięk przestrzenny jest wyłączony.',
-  'toast.virtual_effects_off': 'Wszystkie efekty wirtualne są wyłączone.',
-  'toast.host_only': 'Tylko host może wykonać tę operację.',
-  'toast.host_only_media': 'Tylko host może dodawać materiały.',
-  'toast.media_management_required': 'Wymagane jest uprawnienie do zarządzania multimediami.',
-  'toast.playback_control_required': 'Wymagane jest uprawnienie do sterowania odtwarzaniem.',
-  'toast.member_management_required': 'Wymagane jest uprawnienie do wyrzucania uczestników.',
-  'toast.chat_notice_required': 'Wymagane jest uprawnienie do publikowania ogłoszeń na czacie.',
-  'toast.room_owner_required': 'Tylko właściciel pokoju może to zmienić.',
+    'Synchronizacja ustawień jest włączona\nTylko administratorzy pokoju mogą je zmieniać',
+  'toast.virtual_bass_on': 'Wirtualny bas jest włączony',
+  'toast.virtual_bass_off': 'Wirtualny bas jest wyłączony',
+  'toast.virtual_treble_on': 'Wirtualne wysokie tony są włączone',
+  'toast.virtual_treble_off': 'Wirtualne wysokie tony są wyłączone',
+  'toast.virtual_surround_on': 'Wirtualny dźwięk przestrzenny jest włączony',
+  'toast.virtual_surround_off': 'Wirtualny dźwięk przestrzenny jest wyłączony',
+  'toast.virtual_effects_off': 'Wszystkie efekty wirtualne są wyłączone',
+  'toast.host_only': 'Tylko host może wykonać tę operację',
+  'toast.host_only_media': 'Tylko host może dodawać materiały',
+  'toast.media_management_required': 'Wymagane jest uprawnienie do zarządzania multimediami',
+  'toast.playback_control_required': 'Wymagane jest uprawnienie do sterowania odtwarzaniem',
+  'toast.member_management_required': 'Wymagane jest uprawnienie do wyrzucania uczestników',
+  'toast.chat_notice_required': 'Wymagane jest uprawnienie do publikowania ogłoszeń na czacie',
+  'toast.room_owner_required': 'Tylko właściciel pokoju może to zmienić',
   'toast.system_audio_owner_required':
-    'Możesz udostępniać dźwięk tylko z karty, w której utworzono pokój.',
-  'toast.host_only_youtube': 'Tylko host może dodawać linki z YouTube.',
-  'toast.host_only_control': 'Tylko host może sterować odtwarzaniem.',
+    'Możesz udostępniać dźwięk tylko z karty, w której utworzono pokój',
+  'toast.host_only_youtube': 'Tylko host może dodawać linki z YouTube',
+  'toast.host_only_control': 'Tylko host może sterować odtwarzaniem',
   'toast.host_setting_required': 'Tylko host może zmienić to ustawienie',
-  'toast.host_only_file': 'Tylko host może dodawać pliki.',
+  'toast.host_only_file': 'Tylko host może dodawać pliki',
   'toast.no_tracks': 'Brak materiałów do odtworzenia',
   'toast.add_media_to_play': 'Dodaj multimedia do odtworzenia',
   'toast.no_invite_code': 'Kod zaproszenia nie został jeszcze wygenerowany',
-  'toast.invite_code_settings': 'Możesz udostępnić link zaproszenia z zakładki Połączenie.',
+  'toast.invite_code_settings': 'Możesz udostępnić link zaproszenia z zakładki Połączenie',
   'toast.click_copy_invite': 'Kliknij, aby skopiować kod zaproszenia',
   'toast.cant_select_file': 'Nie można wybrać pliku',
   'toast.unsupported_files_excluded': 'Pominięte nieobsługiwane pliki: {{count}}',
-  'toast.no_supported_audio_files': 'Brak obsługiwanych plików dźwiękowych do dodania.',
+  'toast.no_supported_audio_files': 'Brak obsługiwanych plików dźwiękowych do dodania',
   'dialog.large_room_file.title': 'Udostępnianie plików w dużym pokoju',
   'dialog.large_room_file.message':
     'W tej samej sieci bezpośrednie przesyłanie plików działa stabilnie dla maksymalnie 8 urządzeń uczestników, nie licząc hosta. W większych pokojach lokalnych pliki mogą być rozsyłane przez Cloudflare R2.\n\nCzy chcesz kontynuować?',
@@ -605,37 +605,37 @@ const pl: Record<I18nKey, string> = {
   'toast.sync_reset': 'Przesunięcie synchronizacji zostało wyzerowane',
   'toast.stop_sent': 'Wysłano polecenie zatrzymania odtwarzania',
   'toast.hprecision_sync': 'Synchronizacja o wysokiej precyzji: przygotowywanie dźwięku…',
-  'toast.file_ready': 'Plik jest gotowy!\nNaciśnij przycisk Odtwórz.',
+  'toast.file_ready': 'Plik jest gotowy!\nNaciśnij przycisk Odtwórz',
   'toast.host_sync_not_recommended':
     'Dostosuj synchronizację bezpośrednio na urządzeniu uczestnika',
   'toast.host_sync_requested':
-    'Wysłano prośbę o precyzyjną synchronizację.\nSkonfiguruj ręczną synchronizację na urządzeniu uczestnika.',
+    'Wysłano prośbę o precyzyjną synchronizację\nSkonfiguruj ręczną synchronizację na urządzeniu uczestnika',
   'toast.sync_not_in_system_audio':
     'Synchronizacja nie jest obsługiwana w trybie udostępniania dźwięku systemowego',
-  'toast.sync_not_ready': 'Synchronizacja nie jest jeszcze gotowa.\nSpróbuj ponownie za chwilę',
+  'toast.sync_not_ready': 'Synchronizacja nie jest jeszcze gotowa\nSpróbuj ponownie za chwilę',
   'toast.sync_no_media':
-    'Brak materiału do synchronizacji.\nNajpierw wybierz materiał do odtworzenia',
+    'Brak materiału do synchronizacji\nNajpierw wybierz materiał do odtworzenia',
   'toast.host_ad': 'Host prawdopodobnie ogląda teraz reklamę',
   'toast.yt_sync_start': 'Synchronizowanie…',
   'toast.yt_sync_done': 'Synchronizacja zakończona',
   'toast.yt_rendezvous_start': 'Synchronizacja z hostem…',
   'toast.yt_rendezvous_done': 'Synchronizacja zakończona',
   'toast.yt_rendezvous_host_paused': 'Host wstrzymał odtwarzanie: wyrównano tylko aktualną pozycję',
-  'toast.yt_rendezvous_no_data': 'Brak danych odtwarzania od hosta. Spróbuj ponownie za chwilę',
-  'toast.yt_rendezvous_timeout': 'Synchronizacja nie powiodła się. Spróbuj ponownie za chwilę',
+  'toast.yt_rendezvous_no_data': 'Brak danych odtwarzania od hosta\nSpróbuj ponownie za chwilę',
+  'toast.yt_rendezvous_timeout': 'Synchronizacja nie powiodła się\nSpróbuj ponownie za chwilę',
   'toast.yt_host_sync_sent': 'Wysłano sygnał automatycznej synchronizacji do uczestników',
   'toast.yt_manual_sync_prompt':
-    'Właśnie wykonano automatyczną synchronizację.\nJeśli wciąż słyszysz opóźnienie, dostosuj wartość ręcznie.',
+    'Właśnie wykonano automatyczną synchronizację\nJeśli wciąż słyszysz opóźnienie, dostosuj wartość ręcznie',
   'toast.playlist_ended': 'Playlista dobiegła końca',
   'toast.operator_required': 'Tylko administratorzy mogą zmieniać ustawienia globalne',
-  'toast.connection_closing': 'Połączenie przerwane. Ustawienie nie zostało zsynchronizowane',
+  'toast.connection_closing': 'Połączenie przerwane, ustawienie nie zostało zsynchronizowane',
   'toast.host_changed_setting': 'Ustawienia zostały zmienione',
-  'toast.session_mismatch': 'Niezgodność pokoju.\nPrzesyłanie pliku zostanie ponowione.',
+  'toast.session_mismatch': 'Niezgodność pokoju\nPrzesyłanie pliku zostanie ponowione',
   'toast.receiving_pct': 'Odbieranie… {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': 'Wczytywanie utworu demo z serwera…',
-  'transfer.demo_loaded': 'Utwór demo gotowy.',
+  'transfer.demo_loaded': 'Utwór demo gotowy',
   'transfer.demo_load_fail': 'Nie udało się wczytać utworu demo:',
   'transfer.demo_loading_short': 'Wczytywanie utworu demo…',
   'transfer.file_requesting': 'Pobieranie pliku…',
@@ -654,31 +654,31 @@ const pl: Record<I18nKey, string> = {
   'share.remote.too_large': 'Plik jest zbyt duży (maks. 200 MB)',
   'share.remote.network_error': 'Błąd sieci podczas udostępniania zdalnego',
   'share.remote.rate_limited':
-    'Zbyt wiele żądań udostępniania zdalnego.\nSpróbuj ponownie za chwilę',
+    'Zbyt wiele żądań udostępniania zdalnego\nSpróbuj ponownie za chwilę',
   'share.remote.quota_reached': 'Osiągnięto limit miejsca na udostępnianie zdalne',
   'share.remote.auth_failed':
-    'Autoryzacja udostępniania zdalnego nie powiodła się.\nSprawdź ustawienia usługi Worker.',
-  'share.remote.expired': 'Link do pliku zdalnego wygasł.\nUdostępnij go ponownie.',
-  'share.remote.unavailable': 'Udostępnianie zdalne niedostępne.\nSpróbuj ponownie za chwilę.',
+    'Autoryzacja udostępniania zdalnego nie powiodła się\nSprawdź ustawienia usługi Worker',
+  'share.remote.expired': 'Link do pliku zdalnego wygasł\nUdostępnij go ponownie',
+  'share.remote.unavailable': 'Udostępnianie zdalne niedostępne\nSpróbuj ponownie za chwilę',
   'transfer.preload_fail':
-    'Nie udało się odtworzyć wstępnie wczytanego pliku. Ponowne wczytywanie…',
+    'Nie udało się odtworzyć wstępnie wczytanego pliku, ponowne wczytywanie…',
   'transfer.download_finishing': 'Kończenie pobierania…',
   'transfer.preparation_delayed':
-    'Przygotowanie się opóźnia…\nWysłano do hosta prośbę o przywrócenie.',
+    'Przygotowanie się opóźnia…\nWysłano do hosta prośbę o przywrócenie',
   'transfer.receiving_0pct': 'Odbieranie… 0%',
   'transfer.check_conn_type': 'Sprawdzanie typu połączenia…',
   'transfer.preload_pending': 'Oczekiwanie na wstępne wczytanie: {{name}}',
   'transfer.waiting_recovery': 'Oczekiwanie na przywrócenie: {{name}}',
   'transfer.preparing_name': 'Przygotowanie: {{name}}',
-  'transfer.recovery_failed': 'Odzyskanie pliku nie powiodło się.\nSpróbuj ponownie.',
+  'transfer.recovery_failed': 'Odzyskanie pliku nie powiodło się\nSpróbuj ponownie',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'Wymagany protokół HTTPS: ta funkcja wymaga bezpiecznego połączenia.',
+  'error.https_required': 'Wymagany protokół HTTPS: ta funkcja wymaga bezpiecznego połączenia',
   'error.browser_update': 'Zaktualizuj przeglądarkę do nowszej wersji.',
   'error.load_failed': 'Wczytywanie nie powiodło się: {{msg}}',
   'error.audio_decode_fail': 'Dekodowanie dźwięku nie powiodło się!',
   'error.audio_memory': 'Wczytywanie dźwięku do pamięci…',
-  'error.all_tracks_failed': 'Brak odtwarzalnych materiałów na playliście.',
+  'error.all_tracks_failed': 'Brak odtwarzalnych materiałów na playliście',
   'error.audio_engine_prepare': 'Nie można uruchomić silnika audio',
   'error.session_create_fail': 'Nie udało się utworzyć pokoju',
   'error.network_generic': 'Wystąpił błąd sieci',
@@ -695,20 +695,20 @@ const pl: Record<I18nKey, string> = {
   'error.peer_not_ready': 'Połączenie z drugim urządzeniem nie jest jeszcze gotowe',
   'error.network_init_failed': 'Inicjalizacja sieci nie powiodła się',
   'error.no_host_id': 'Nie znaleziono identyfikatora hosta',
-  'error.peer_unavailable': 'Pokój nie został znaleziony.\nSprawdź wprowadzony kod.',
+  'error.peer_unavailable': 'Pokój nie został znaleziony\nSprawdź wprowadzony kod',
   'error.host_left': 'Wygląda na to, że host opuścił pokój',
-  'error.network_issue': 'Wykryto problem z siecią.\nSprawdź połączenie internetowe.',
+  'error.network_issue': 'Wykryto problem z siecią\nSprawdź połączenie internetowe',
   'error.signal_server_fail':
-    'Nie można połączyć się z serwerem sygnalizacyjnym.\nSpróbuj ponownie za chwilę.',
-  'error.server_disconnected': 'Odłączono od serwera.',
-  'error.session_id_unavailable': 'Identyfikator pokoju jest niedostępny.\nSpróbuj ponownie.',
-  'error.webrtc_failed': 'Połączenie WebRTC nie powiodło się.\nSprawdź ustawienia przeglądarki.',
+    'Nie można połączyć się z serwerem sygnalizacyjnym\nSpróbuj ponownie za chwilę',
+  'error.server_disconnected': 'Odłączono od serwera',
+  'error.session_id_unavailable': 'Identyfikator pokoju jest niedostępny\nSpróbuj ponownie',
+  'error.webrtc_failed': 'Połączenie WebRTC nie powiodło się\nSprawdź ustawienia przeglądarki',
   'error.browser_unsupported':
-    'Ta przeglądarka nie obsługuje połączeń w czasie rzeczywistym.\nSpróbuj użyć Chrome lub Safari.',
-  'error.ssl_required': 'Wymagane jest bezpieczne połączenie (HTTPS).',
+    'Ta przeglądarka nie obsługuje połączeń w czasie rzeczywistym\nSpróbuj użyć Chrome lub Safari',
+  'error.ssl_required': 'Wymagane jest bezpieczne połączenie (HTTPS)',
   'error.room_password_required': 'Ten pokój wymaga hasła przy wejściu.',
   'error.room_password_invalid': 'Hasło do pokoju jest nieprawidłowe.',
-  'error.room_password_auth_timeout': 'Niestabilna sieć.\nSpróbuj ponownie wpisać hasło.',
+  'error.room_password_auth_timeout': 'Niestabilna sieć\nSpróbuj ponownie wpisać hasło',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Dodaj pliki lokalne',
@@ -808,9 +808,9 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'Hasło jest nieprawidłowe. Spróbuj ponownie.',
   'pro.pin_change_title': 'Zmień hasło pokoju',
   'pro.pin_change_message': 'Ustaw nowe 8-cyfrowe hasło.',
-  'pro.pin_changed': 'Hasło pokoju zostało zmienione.',
+  'pro.pin_changed': 'Hasło pokoju zostało zmienione',
   'pro.pin_enable_title': 'Ustaw hasło pokoju',
-  'pro.pin_enabled': 'Hasło pokoju zostało ustawione.',
+  'pro.pin_enabled': 'Hasło pokoju zostało ustawione',
   'pro.pin_members_title': 'Co zrobić z obecnymi uczestnikami?',
   'pro.pin_members_keep': 'Zostaw wszystkich',
   'pro.pin_members_keep_detail':
@@ -830,8 +830,8 @@ const pl: Record<I18nKey, string> = {
   'pro.removed_message': 'Właściciel pokoju lub administrator usunął Cię z tego pokoju.',
   'pro.device_removed_message':
     'Inne urządzenie zalogowane na Twoje konto odłączyło to urządzenie od pokoju.',
-  'pro.owner_only': 'Tylko właściciel pokoju może to zrobić.',
-  'pro.connect_failed': 'Nie udało się połączyć z pokojem PRO.',
+  'pro.owner_only': 'Tylko właściciel pokoju może to zrobić',
+  'pro.connect_failed': 'Nie udało się połączyć z pokojem PRO',
   'pro.room_full': 'Ten pokój PRO jest pełny',
   'pro.room_full_detail':
     'Pokój PRO mieści do 100 urządzeń, wliczając urządzenie właściciela. Jedno miejsce jest zawsze zarezerwowane dla właściciela.',
@@ -848,8 +848,8 @@ const pl: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Anuluj przesyłanie {{name}}',
   'pro.upload.confirming_file': 'Kończenie przesyłania {{name}}',
   'pro.downloading': 'Ładowanie pliku…',
-  'pro.quota_exceeded': 'Ten pokój PRO osiągnął limit 1 GB miejsca.',
-  'pro.file_too_large': 'Ten plik przekracza limit 200 MB na plik.',
+  'pro.quota_exceeded': 'Ten pokój PRO osiągnął limit 1 GB miejsca',
+  'pro.file_too_large': 'Ten plik przekracza limit 200 MB na plik',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
@@ -889,38 +889,37 @@ const pl: Record<I18nKey, string> = {
   'system_audio.button': 'Dźwięk systemowy',
   'system_audio.sharing': 'Udostępnianie dźwięku systemowego',
   'system_audio.receiving': 'Odbieranie dźwięku systemowego',
-  'system_audio.owner_active': '{{name}} udostępnia dźwięk systemowy.',
-  'system_audio.owner_preparing': '{{name}} przygotowuje udostępnianie dźwięku systemowego.',
-  'system_audio.pro_preparing': 'Przygotowywanie udostępniania dźwięku systemowego.',
-  'system_audio.pro_publish_failed': 'Nie udało się rozpocząć udostępniania dźwięku systemowego.',
+  'system_audio.owner_active': '{{name}} udostępnia dźwięk systemowy',
+  'system_audio.owner_preparing': '{{name}} przygotowuje udostępnianie dźwięku systemowego',
+  'system_audio.pro_preparing': 'Przygotowywanie udostępniania dźwięku systemowego',
+  'system_audio.pro_publish_failed': 'Nie udało się rozpocząć udostępniania dźwięku systemowego',
   'system_audio.coordinator_update_required':
-    'Zaktualizuj urządzenie zarządzające tym pokojem, aby udostępnić dźwięk systemowy.',
+    'Zaktualizuj urządzenie zarządzające tym pokojem, aby udostępnić dźwięk systemowy',
   'system_audio.connection_unstable':
-    'Połączenie z dźwiękiem systemowym użytkownika {{name}} jest niestabilne.\nTrwa próba przywrócenia.',
-  'system_audio.capture_denied': 'Udostępnianie dźwięku zostało anulowane.',
-  'system_audio.no_audio_track':
-    'Opcja „Udostępnij dźwięk” nie została włączona.\nSpróbuj ponownie.',
+    'Połączenie z dźwiękiem systemowym użytkownika {{name}} jest niestabilne\nTrwa próba przywrócenia',
+  'system_audio.capture_denied': 'Udostępnianie dźwięku zostało anulowane',
+  'system_audio.no_audio_track': 'Opcja „Udostępnij dźwięk” nie została włączona\nSpróbuj ponownie',
   'system_audio.stop': 'Zatrzymaj udostępnianie',
   'system_audio.stop_compact': 'Stop',
   'system_audio.started':
-    'Dźwięk systemowy może mieć niewielkie opóźnienie.\nW miarę możliwości zmniejsz głośność urządzenia źródłowego.',
+    'Dźwięk systemowy może mieć niewielkie opóźnienie\nW miarę możliwości zmniejsz głośność urządzenia źródłowego',
   'system_audio.stopped':
-    'Udostępnianie dźwięku systemowego zostało zakończone.\nWznawianie playlisty.',
+    'Udostępnianie dźwięku systemowego zostało zakończone\nWznawianie playlisty',
   'system_audio.host_channel_locked':
-    'Nie można zmienić ról głośników podczas udostępniania dźwięku systemowego.',
+    'Nie można zmienić ról głośników podczas udostępniania dźwięku systemowego',
   'system_audio.effects_guest_only':
-    'Udostępnianie dźwięku systemowego aktywne.\nEfekty dźwiękowe są stosowane wyłącznie na urządzeniach uczestników.',
+    'Udostępnianie dźwięku systemowego aktywne\nEfekty dźwiękowe są stosowane wyłącznie na urządzeniach uczestników',
   'system_audio.desktop_only':
-    'Dostępne tylko na komputerze w przeglądarce opartej na Chromium (Chrome, Edge itp.).',
+    'Dostępne tylko na komputerze w przeglądarce opartej na Chromium (Chrome, Edge itp.)',
   'system_audio.receive_failed':
-    'Nie udało się odebrać dźwięku systemowego.\nPoproś hosta o ponowne uruchomienie udostępniania.',
+    'Nie udało się odebrać dźwięku systemowego\nPoproś hosta o ponowne uruchomienie udostępniania',
   'system_audio.remote_receive_limit':
-    'Odbiór dźwięku systemowego został automatycznie zakończony po 2 godzinach.\nDołącz ponownie do pokoju, aby kontynuować słuchanie.',
+    'Odbiór dźwięku systemowego został automatycznie zakończony po 2 godzinach\nDołącz ponownie do pokoju, aby kontynuować słuchanie',
   'system_audio.device_limit':
-    'Limit urządzeń podczas udostępniania dźwięku systemowego: {{count}}.\nHost jest wliczony.',
+    'Limit urządzeń podczas udostępniania dźwięku systemowego: {{count}}\nHost jest wliczony',
   'system_audio.device_limit_stopped':
-    'Udostępnianie dźwięku systemowego zatrzymano.\nLiczba połączonych urządzeń przekracza limit {{count}}.',
-  'system_audio.duration_limit_stopped': 'Udostępnianie zakończono automatycznie\npo 2 godzinach.',
+    'Udostępnianie dźwięku systemowego zatrzymano\nLiczba połączonych urządzeń przekracza limit {{count}}',
+  'system_audio.duration_limit_stopped': 'Udostępnianie zakończono automatycznie\npo 2 godzinach',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Informacje o usłudze',

@@ -342,7 +342,7 @@ describe('optional account UI', () => {
       if (action === 'rename') expect(await requestAccountNicknameChange()).toBe('error');
       else document.getElementById('btn-account-delete')!.click();
       await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Second'));
-      expect(showToast).toHaveBeenCalledWith('Could not update your account. Please try again.');
+      expect(showToast).toHaveBeenCalledWith('Could not update your account\nPlease try again');
       expect(
         fetchMock.mock.calls.filter(([input]) => String(input) !== '/api/auth/session'),
       ).toHaveLength(1);
@@ -785,7 +785,7 @@ describe('optional account UI', () => {
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
     expect(sessionStorage.getItem('mxqr-account-welcome-intent-v1')).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
-    expect(showToast).toHaveBeenCalledWith('Could not sign in. Please try again.');
+    expect(showToast).toHaveBeenCalledWith('Could not sign in\nPlease try again');
   });
 
   it('keeps an active room in place when opening the login popup throws', async () => {
@@ -808,7 +808,7 @@ describe('optional account UI', () => {
     expect(isIntentionalNav()).toBe(false);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
-    expect(showToast).toHaveBeenCalledWith('Could not sign in. Please try again.');
+    expect(showToast).toHaveBeenCalledWith('Could not sign in\nPlease try again');
   });
 
   it('closes a failed popup bootstrap without replacing an active room', async () => {
@@ -842,7 +842,7 @@ describe('optional account UI', () => {
     expect(isIntentionalNav()).toBe(false);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
-    expect(showToast).toHaveBeenCalledWith('Could not sign in. Please try again.');
+    expect(showToast).toHaveBeenCalledWith('Could not sign in\nPlease try again');
   });
 
   it('preserves the PRO route in a PWA even before room context projection is ready', async () => {
@@ -1036,7 +1036,7 @@ describe('optional account UI', () => {
     expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
       true,
     );
-    expect(showToast).toHaveBeenCalledWith('Sign-in was cancelled.');
+    expect(showToast).toHaveBeenCalledWith('Sign-in was cancelled');
   });
 
   it('deduplicates popup auth errors delivered over multiple completion channels', async () => {
@@ -1079,7 +1079,7 @@ describe('optional account UI', () => {
     window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, data }));
 
     expect(showToast).toHaveBeenCalledTimes(1);
-    expect(showToast).toHaveBeenCalledWith('Could not sign in. Please try again.');
+    expect(showToast).toHaveBeenCalledWith('Could not sign in\nPlease try again');
     expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
       true,
     );
@@ -2065,7 +2065,7 @@ describe('optional account UI', () => {
 
     await vi.waitFor(() =>
       expect(showToast).toHaveBeenCalledWith(
-        'Your account is being deleted. PRO permissions are being safely cleaned up, and deletion will finish automatically.',
+        'Your account is being deleted\nPRO permissions are being safely cleaned up, and deletion will finish automatically',
       ),
     );
     expect(deleted).not.toHaveBeenCalled();
@@ -2302,7 +2302,7 @@ describe('optional account UI', () => {
 
     await requestAccountNicknameChange();
 
-    expect(showToast).toHaveBeenCalledWith('That nickname is already in use.');
+    expect(showToast).toHaveBeenCalledWith('That nickname is already in use');
     expect(showDialog).toHaveBeenCalledTimes(2);
     expect(vi.mocked(showDialog).mock.calls[1]?.[0]).toEqual(
       expect.objectContaining({
@@ -2316,7 +2316,7 @@ describe('optional account UI', () => {
     const retryOptions = vi.mocked(showDialog).mock.calls[1]?.[0];
     const retryHint = typeof retryOptions === 'object' ? retryOptions.inputField?.hint : undefined;
     expect(typeof retryHint === 'function' ? retryHint() : retryHint).toBe(
-      'That nickname is already in use.',
+      'That nickname is already in use',
     );
   });
 
@@ -2338,7 +2338,7 @@ describe('optional account UI', () => {
     initAccount();
 
     await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(2));
-    expect(showToast).toHaveBeenCalledWith('That nickname is already in use.');
+    expect(showToast).toHaveBeenCalledWith('That nickname is already in use');
   });
 
   it('prompts once for an incomplete first-login profile without blocking the app', async () => {

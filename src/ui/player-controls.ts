@@ -958,7 +958,9 @@ function syncMainSyncButtonState(): void {
   button.setAttribute('aria-disabled', String(reason !== null));
   button.setAttribute('aria-busy', String(_mainSyncPending));
   if (reason) {
-    button.title = getMainSyncUnavailableMessage(reason).replace(/\n/g, ' ');
+    // Toast copy separates sentences with line breaks instead of periods; the
+    // tooltip keeps those breaks.
+    button.title = getMainSyncUnavailableMessage(reason);
   } else {
     button.removeAttribute('title');
   }

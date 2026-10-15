@@ -45,8 +45,8 @@ const es: Record<I18nKey, string> = {
   'common.on': 'Activado',
   'common.off': 'Desactivado',
   'account.login_title': 'Iniciar sesión',
-  'account.login_cancelled': 'Se canceló el inicio de sesión.',
-  'account.login_failed': 'No se pudo iniciar sesión. Inténtalo de nuevo.',
+  'account.login_cancelled': 'Se canceló el inicio de sesión',
+  'account.login_failed': 'No se pudo iniciar sesión\nInténtalo de nuevo',
   'account.welcome_back': 'Qué bueno verte de nuevo\n{{name}}',
   'account.login_message':
     'Inicia sesión con Google para conservar tu apodo entre salas. Puedes continuar sin iniciar sesión.',
@@ -72,14 +72,14 @@ const es: Record<I18nKey, string> = {
   'account.nickname_hint': 'Usa hasta 12 caracteres.',
   'account.nickname_required': 'Ingresa un apodo.',
   'account.nickname_whitespace': 'El apodo no puede contener espacios ni caracteres invisibles.',
-  'account.nickname_taken': 'Ese apodo ya está en uso.',
-  'account.nickname_saved': 'Apodo cambiado a {{name}}.',
-  'account.action_failed': 'No se pudo actualizar la cuenta. Inténtalo de nuevo.',
+  'account.nickname_taken': 'Ese apodo ya está en uso',
+  'account.nickname_saved': 'Apodo cambiado a {{name}}',
+  'account.action_failed': 'No se pudo actualizar la cuenta\nInténtalo de nuevo',
   'account.delete_confirm_title': '¿Eliminar tu cuenta?',
   'account.delete_confirm_message':
     'Se eliminarán tu apodo, tus sesiones de inicio de sesión y los permisos de sala vinculados a tu cuenta. El contenido compartido en una sala seguirá la política de conservación de esa sala.',
   'account.delete_pending':
-    'Tu cuenta se está eliminando. Los permisos PRO se están retirando de forma segura y la eliminación finalizará automáticamente.',
+    'Tu cuenta se está eliminando\nLos permisos PRO se están retirando de forma segura y la eliminación finalizará automáticamente',
   'common.previous': 'Anterior',
   'common.next_desc': 'Siguiente',
   'common.volume_percent': 'Volumen: {{val}}%',
@@ -239,7 +239,7 @@ const es: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Repetición desactivada',
   'playlist.shuffle_on': 'Aleatorio activado',
   'playlist.shuffle_off': 'Aleatorio desactivado',
-  'playlist.empty_hint': 'Aún no hay contenido.',
+  'playlist.empty_hint': 'Aún no hay contenido',
   'playlist.loading_info': 'Cargando información de la pista...',
   'playlist.sub_load_failed': 'No se pudo cargar la información del video',
   'playlist.remove_title': 'Eliminar de la lista de reproducción',
@@ -251,11 +251,11 @@ const es: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Cargando...',
   'playlist.track_fallback': 'Pista {{idx}}',
   'playlist.deferred_load_hint': 'Reproduce para cargar la lista completa de pistas',
-  'playlist.host_update_required': 'Actualiza el dispositivo que administra esta sala.',
-  'playlist.queue_full': 'La lista de reproducción está llena.',
-  'playlist.mutation_retry': 'La lista de reproducción cambió. Inténtalo de nuevo.',
+  'playlist.host_update_required': 'Actualiza el dispositivo que administra esta sala',
+  'playlist.queue_full': 'La lista de reproducción está llena',
+  'playlist.mutation_retry': 'La lista de reproducción cambió\nInténtalo de nuevo',
   'transfer.host_busy':
-    'El anfitrión está procesando otro archivo. Inténtalo de nuevo en un momento.',
+    'El anfitrión está procesando otro archivo\nInténtalo de nuevo en un momento',
 
   // Connect
   'connect.qr_title': 'Invitar por QR o enlace',
@@ -294,7 +294,7 @@ const es: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Ingresa 8 dígitos',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
   'connect.room_password_apply_pending':
-    'La nueva contraseña se aplicará cuando se recupere la conexión.',
+    'La nueva contraseña se aplicará cuando se recupere la conexión',
   'connect.pin_enabled_removed_message':
     'El anfitrión definió una contraseña para la sala. Ingrésala para volver a unirte.',
   'connect.pin_changed_removed_message':
@@ -323,7 +323,7 @@ const es: Record<I18nKey, string> = {
     '¡Te damos la bienvenida! ¿Quieres hacer un recorrido rápido por nuestras funciones?',
   'demo.prompt_cta': 'Iniciar recorrido',
   'demo.prompt_later': 'Más tarde',
-  'demo.try_later_toast': 'Puedes comenzar el recorrido cuando quieras desde la pestaña Ayuda.',
+  'demo.try_later_toast': 'Puedes comenzar el recorrido cuando quieras desde la pestaña Ayuda',
   'demo.track_info': 'Info de la pista',
   'demo.exit': 'Salir de la demo',
   'demo.credit': 'Pista demo',
@@ -352,9 +352,9 @@ const es: Record<I18nKey, string> = {
   'demo.finish_step_title': '¡Todo listo!',
   'demo.finish_step_subtitle': 'Ya puedes empezar a reproducir en sincronía.',
   'demo.track_list_label': 'Lista de pistas demo',
-  'demo.host_only_exit': 'Solo el anfitrión puede tocar esto.',
+  'demo.host_only_exit': 'Solo el anfitrión puede tocar esto',
   'demo.external_playback_stopped':
-    'El modo demo detuvo la reproducción actual de YouTube o audio del sistema.',
+    'El modo demo detuvo la reproducción actual de YouTube o audio del sistema',
   'setup.how_to_connect': 'Cómo conectar',
   'setup.set_role': 'Rol del dispositivo',
   'setup.what_sound': '¿Qué debe sonar aquí?',
@@ -373,7 +373,7 @@ const es: Record<I18nKey, string> = {
   'setup.camera_not_found': 'No se encontró una cámara disponible',
   'setup.camera_unavailable': 'No se pudo iniciar la cámara',
   'setup.camera_stream_stalled':
-    'La vista de la cámara no se inició.\nAbre la app en el navegador o introduce el código.',
+    'La vista de la cámara no se inició\nAbre la app en el navegador o introduce el código',
   'setup.connect_devices': 'Conecta tus otros dispositivos para comenzar.',
   'setup.enter_code_connect': 'Código de invitación',
   'setup.last_step': '¡Empecemos!',
@@ -399,14 +399,14 @@ const es: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Ingresa un enlace de YouTube o una búsqueda',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Ver YouTube juntos',
-  'youtube.ready': '¡YouTube está listo!\nToca Reproducir.',
+  'youtube.ready': '¡YouTube está listo!\nToca Reproducir',
   'youtube.thumbnail': 'Miniatura de vista previa de YouTube',
-  'youtube.load_fail': 'No se pudo cargar la API de YouTube.\n¡Revisa tu conexión!',
+  'youtube.load_fail': 'No se pudo cargar la API de YouTube\n¡Revisa tu conexión!',
   'youtube.video_unavailable': 'Vídeo no disponible, saltando a la siguiente pista',
-  'youtube.load_timeout': 'Se agotó el tiempo de carga de YouTube.\nInténtalo de nuevo.',
+  'youtube.load_timeout': 'Se agotó el tiempo de carga de YouTube\nInténtalo de nuevo',
   'youtube.invalid_link': 'Enlace de YouTube no válido',
   'youtube.effects_disabled':
-    'Ver YouTube juntos.\nLos efectos de audio avanzados están desactivados.',
+    'Ver YouTube juntos\nLos efectos de audio avanzados están desactivados',
   'youtube.enter_link_placeholder': 'Ingresa un enlace de video o lista de reproducción',
   'youtube.enter_source_toast': 'Ingresa un enlace de YouTube o una búsqueda',
   'youtube.fetching_info': 'Cargando información del video...',
@@ -425,7 +425,7 @@ const es: Record<I18nKey, string> = {
   'youtube.search_selected': 'El video seleccionado está listo para añadir',
   'youtube.search_results': 'Resultados de búsqueda de YouTube',
   'youtube.live_sync_warning':
-    'Las emisiones en directo son difíciles de sincronizar con precisión.',
+    'Las emisiones en directo son difíciles de sincronizar con precisión',
 
   // Network
   'network.disconnected': 'Sin conexión',
@@ -433,12 +433,12 @@ const es: Record<I18nKey, string> = {
   'network.session_full': 'La sala está llena',
   'network.session_full_detail':
     'Esta sala ya tiene el máximo de 100 dispositivos conectados, incluido el anfitrión.',
-  'network.op_granted': 'Permiso de administrador concedido.',
-  'network.op_revoked': 'Permiso de administrador revocado.',
+  'network.op_granted': 'Permiso de administrador concedido',
+  'network.op_revoked': 'Permiso de administrador revocado',
 
   // Transfer
   'transfer.demo_loading': 'Cargando pista demo desde el servidor...',
-  'transfer.demo_loaded': 'Pista demo lista.',
+  'transfer.demo_loaded': 'Pista demo lista',
   'transfer.demo_load_fail': 'Error al cargar la demo:',
   'transfer.demo_loading_short': 'Cargando pista demo...',
   'transfer.file_requesting': 'Solicitando archivo...',
@@ -455,13 +455,13 @@ const es: Record<I18nKey, string> = {
   'share.remote.timeout': 'Se agotó el tiempo para compartir el archivo remoto',
   'share.remote.too_large': 'Archivo demasiado grande (máximo 200 MB)',
   'share.remote.network_error': 'Error de red al compartir de forma remota',
-  'share.remote.rate_limited': 'Demasiadas subidas remotas.\nInténtalo de nuevo en un momento',
+  'share.remote.rate_limited': 'Demasiadas subidas remotas\nInténtalo de nuevo en un momento',
   'share.remote.quota_reached': 'Se alcanzó el límite de almacenamiento remoto',
   'share.remote.auth_failed':
-    'Falló la autorización para compartir de forma remota.\nRevisa la configuración del Worker',
-  'share.remote.expired': 'El enlace del archivo remoto expiró.\nCompártelo de nuevo.',
+    'Falló la autorización para compartir de forma remota\nRevisa la configuración del Worker',
+  'share.remote.expired': 'El enlace del archivo remoto expiró\nCompártelo de nuevo',
   'share.remote.unavailable':
-    'No se pudo compartir de forma remota.\nInténtalo de nuevo en un momento.',
+    'No se pudo compartir de forma remota\nInténtalo de nuevo en un momento',
   'transfer.preload_fail': 'Falló la reproducción precargada, recargando',
   'transfer.download_finishing': 'Finalizando descarga...',
   'transfer.preparation_delayed':
@@ -471,45 +471,44 @@ const es: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Esperando precarga: {{name}}',
   'transfer.waiting_recovery': 'Recuperación pendiente: {{name}}',
   'transfer.preparing_name': 'Preparando: {{name}}',
-  'transfer.recovery_failed': 'Falló la recuperación del archivo.\nInténtalo de nuevo.',
+  'transfer.recovery_failed': 'Falló la recuperación del archivo\nInténtalo de nuevo',
 
   // System Audio Sharing
   'system_audio.button': 'Audio del sistema',
   'system_audio.sharing': 'Compartiendo audio del sistema',
   'system_audio.receiving': 'Recibiendo audio del sistema',
-  'system_audio.owner_active': '{{name}} está compartiendo el audio del sistema.',
-  'system_audio.owner_preparing':
-    '{{name}} se está preparando para compartir el audio del sistema.',
-  'system_audio.pro_preparing': 'Preparando el audio del sistema para compartir.',
-  'system_audio.pro_publish_failed': 'No se pudo empezar a compartir el audio del sistema.',
+  'system_audio.owner_active': '{{name}} está compartiendo el audio del sistema',
+  'system_audio.owner_preparing': '{{name}} se está preparando para compartir el audio del sistema',
+  'system_audio.pro_preparing': 'Preparando el audio del sistema para compartir',
+  'system_audio.pro_publish_failed': 'No se pudo empezar a compartir el audio del sistema',
   'system_audio.coordinator_update_required':
-    'Actualiza el dispositivo que administra esta sala para compartir el audio del sistema.',
+    'Actualiza el dispositivo que administra esta sala para compartir el audio del sistema',
   'system_audio.connection_unstable':
-    'La conexión de audio del sistema de {{name}} es inestable.\nIntentando restablecerla.',
-  'system_audio.capture_denied': 'Se canceló el uso compartido de audio.',
-  'system_audio.no_audio_track': 'No se activó "Compartir audio".\nInténtalo de nuevo.',
+    'La conexión de audio del sistema de {{name}} es inestable\nIntentando restablecerla',
+  'system_audio.capture_denied': 'Se canceló el uso compartido de audio',
+  'system_audio.no_audio_track': 'No se activó "Compartir audio"\nInténtalo de nuevo',
   'system_audio.stop': 'Dejar de compartir',
   'system_audio.stop_compact': 'Detener',
   'system_audio.started':
-    'El audio del sistema puede tener algo de latencia.\nBaja el volumen de origen si es posible.',
+    'El audio del sistema puede tener algo de latencia\nBaja el volumen de origen si es posible',
   'system_audio.stopped':
-    'Se dejó de compartir el audio del sistema.\nReanudando la lista de reproducción.',
+    'Se dejó de compartir el audio del sistema\nReanudando la lista de reproducción',
   'system_audio.host_channel_locked':
-    'No se pueden cambiar roles mientras se comparte el audio del sistema.',
+    'No se pueden cambiar roles mientras se comparte el audio del sistema',
   'system_audio.effects_guest_only':
-    'Audio del sistema activo.\nLos efectos solo se aplican a los dispositivos de los participantes.',
+    'Audio del sistema activo\nLos efectos solo se aplican a los dispositivos de los participantes',
   'system_audio.desktop_only':
-    'Solo está disponible en computadoras con navegadores basados en Chromium (Chrome, Edge, etc.).',
+    'Solo está disponible en computadoras con navegadores basados en Chromium (Chrome, Edge, etc.)',
   'system_audio.receive_failed':
-    'No se pudo recibir el audio del sistema.\nPide al anfitrión que vuelva a compartirlo.',
+    'No se pudo recibir el audio del sistema\nPide al anfitrión que vuelva a compartirlo',
   'system_audio.remote_receive_limit':
-    'La recepción del audio del sistema terminó después de 2 horas.\nVuelve a entrar a la sala para seguir escuchando.',
+    'La recepción del audio del sistema terminó después de 2 horas\nVuelve a entrar a la sala para seguir escuchando',
   'system_audio.device_limit':
-    'El audio del sistema admite hasta {{count}} dispositivos.\nSe incluye el anfitrión.',
+    'El audio del sistema admite hasta {{count}} dispositivos\nSe incluye el anfitrión',
   'system_audio.device_limit_stopped':
-    'Se dejó de compartir el audio del sistema.\nHay más de {{count}} dispositivos conectados.',
+    'Se dejó de compartir el audio del sistema\nHay más de {{count}} dispositivos conectados',
   'system_audio.duration_limit_stopped':
-    'Se dejó de compartir el audio del sistema automáticamente\ndespués de 2 horas.',
+    'Se dejó de compartir el audio del sistema automáticamente\ndespués de 2 horas',
 
   // Toast
   'toast.device_connected': '{{name}} se conectó',
@@ -517,7 +516,7 @@ const es: Record<I18nKey, string> = {
   'toast.device_conn_error': 'Error de conexión de {{name}}',
   'toast.device_kicked': 'Se expulsó a {{name}}',
   'toast.remote_decode_device_wait':
-    'Un dispositivo no pudo decodificar esta pista. La reproducción continúa para los demás.',
+    'Un dispositivo no pudo decodificar esta pista\nLa reproducción continúa para los demás',
   'toast.invite_code': 'Código de invitación: {{code}}',
   'toast.invite_code_info': '{{count}} conectados | Código {{code}}',
   'toast.added_tracks': '{{count}} pistas añadidas',
@@ -530,52 +529,52 @@ const es: Record<I18nKey, string> = {
   'toast.op_status': 'Permiso de {{label}} {{status}}',
   'toast.file_read_error': 'Error al leer archivo: {{name}}',
   'toast.host_ended_connection': 'El anfitrión finalizó la conexión',
-  'toast.announcement_available': 'Hay un nuevo aviso.\nRevisa el chat.',
+  'toast.announcement_available': 'Hay un nuevo aviso\nRevisa el chat',
   'toast.copy_failed': 'No se pudo copiar',
   'toast.email_copied': '¡Dirección de correo copiada!',
-  'toast.settings_sync_enabled': 'La sincronización de ajustes está activada.',
+  'toast.settings_sync_enabled': 'La sincronización de ajustes está activada',
   'toast.settings_sync_admin_required':
-    'La sincronización de ajustes está activada.\nSolo admins de la sala pueden cambiarlos.',
-  'toast.virtual_bass_on': 'Los graves virtuales están activados.',
-  'toast.virtual_bass_off': 'Los graves virtuales están desactivados.',
-  'toast.virtual_treble_on': 'Los agudos virtuales están activados.',
-  'toast.virtual_treble_off': 'Los agudos virtuales están desactivados.',
-  'toast.virtual_surround_on': 'El sonido envolvente virtual está activado.',
-  'toast.virtual_surround_off': 'El sonido envolvente virtual está desactivado.',
-  'toast.virtual_effects_off': 'Todos los efectos virtuales están desactivados.',
-  'toast.host_only': 'Solo el anfitrión puede hacer esto.',
-  'toast.host_only_media': 'Solo el anfitrión puede añadir contenido.',
-  'toast.media_management_required': 'Se necesita permiso para gestionar contenido.',
-  'toast.playback_control_required': 'Se necesita permiso para controlar la reproducción.',
-  'toast.member_management_required': 'Se necesita permiso para expulsar miembros.',
-  'toast.chat_notice_required': 'Se necesita permiso para publicar avisos en el chat.',
-  'toast.room_owner_required': 'Solo el propietario de la sala puede cambiar esto.',
+    'La sincronización de ajustes está activada\nSolo admins de la sala pueden cambiarlos',
+  'toast.virtual_bass_on': 'Los graves virtuales están activados',
+  'toast.virtual_bass_off': 'Los graves virtuales están desactivados',
+  'toast.virtual_treble_on': 'Los agudos virtuales están activados',
+  'toast.virtual_treble_off': 'Los agudos virtuales están desactivados',
+  'toast.virtual_surround_on': 'El sonido envolvente virtual está activado',
+  'toast.virtual_surround_off': 'El sonido envolvente virtual está desactivado',
+  'toast.virtual_effects_off': 'Todos los efectos virtuales están desactivados',
+  'toast.host_only': 'Solo el anfitrión puede hacer esto',
+  'toast.host_only_media': 'Solo el anfitrión puede añadir contenido',
+  'toast.media_management_required': 'Se necesita permiso para gestionar contenido',
+  'toast.playback_control_required': 'Se necesita permiso para controlar la reproducción',
+  'toast.member_management_required': 'Se necesita permiso para expulsar miembros',
+  'toast.chat_notice_required': 'Se necesita permiso para publicar avisos en el chat',
+  'toast.room_owner_required': 'Solo el propietario de la sala puede cambiar esto',
   'toast.system_audio_owner_required':
-    'Solo puedes compartir audio desde la pestaña que abrió la sala.',
-  'toast.host_only_youtube': 'Solo el anfitrión puede añadir enlaces de YouTube.',
+    'Solo puedes compartir audio desde la pestaña que abrió la sala',
+  'toast.host_only_youtube': 'Solo el anfitrión puede añadir enlaces de YouTube',
   'toast.host_only_control': 'Solo el anfitrión puede controlar esto',
   'toast.host_setting_required': 'Solo el anfitrión puede cambiar este ajuste',
   'toast.host_only_file': 'Solo el anfitrión puede añadir archivos',
   'toast.no_tracks': 'No hay pistas para reproducir',
   'toast.add_media_to_play': 'Añade contenido para reproducir',
   'toast.no_invite_code': 'Aún no hay código de invitación',
-  'toast.invite_code_settings': 'Comparte el enlace de invitación desde la pestaña Conectar.',
+  'toast.invite_code_settings': 'Comparte el enlace de invitación desde la pestaña Conectar',
   'toast.click_copy_invite': 'Haz clic para copiar el código de invitación',
   'toast.cant_select_file': 'No se puede seleccionar un archivo',
   'toast.unsupported_files_excluded': 'Archivos no compatibles omitidos: {{count}}',
-  'toast.no_supported_audio_files': 'No hay archivos de audio compatibles para añadir.',
+  'toast.no_supported_audio_files': 'No hay archivos de audio compatibles para añadir',
   'toast.sync_reset': 'Desfase de sincronización restablecido',
   'toast.stop_sent': 'Solicitud de detención enviada',
   'toast.hprecision_sync': 'Sincronización de alta precisión: preparando audio...',
-  'toast.file_ready': '¡Tu archivo está listo!\nToca Reproducir.',
+  'toast.file_ready': '¡Tu archivo está listo!\nToca Reproducir',
   'toast.host_sync_not_recommended': 'Ajusta la sincronización en un dispositivo participante',
   'toast.host_sync_requested':
-    'Sincronización precisa solicitada.\nAjusta la sincronización manual en un dispositivo participante.',
+    'Sincronización precisa solicitada\nAjusta la sincronización manual en un dispositivo participante',
   'toast.sync_not_in_system_audio':
     'La sincronización no está disponible en modo de audio del sistema',
-  'toast.sync_not_ready': 'Aún no está listo.\nInténtalo de nuevo en un momento',
+  'toast.sync_not_ready': 'Aún no está listo\nInténtalo de nuevo en un momento',
   'toast.sync_no_media':
-    'No hay contenido multimedia para sincronizar.\nPrimero selecciona algo para reproducir',
+    'No hay contenido multimedia para sincronizar\nPrimero selecciona algo para reproducir',
   'toast.host_ad': 'Parece que el anfitrión está viendo un anuncio',
   'toast.yt_sync_start': 'Sincronizando...',
   'toast.yt_sync_done': 'Sincronización completa',
@@ -583,25 +582,25 @@ const es: Record<I18nKey, string> = {
   'toast.yt_rendezvous_done': 'Sincronización completa',
   'toast.yt_rendezvous_host_paused': 'El anfitrión está en pausa; solo se igualó la posición',
   'toast.yt_rendezvous_no_data':
-    'Aún no hay datos de reproducción del anfitrión; inténtalo en un momento',
-  'toast.yt_rendezvous_timeout': 'Falló la sincronización, inténtalo en un momento',
+    'Aún no hay datos de reproducción del anfitrión\nInténtalo en un momento',
+  'toast.yt_rendezvous_timeout': 'Falló la sincronización\nInténtalo en un momento',
   'toast.yt_host_sync_sent': 'Señal de sincronización automática enviada a los participantes',
   'toast.yt_manual_sync_prompt':
-    'Se acaba de intentar la sincronización automática.\nSi aún notas retraso, ajusta el valor ahora',
+    'Se acaba de intentar la sincronización automática\nSi aún notas retraso, ajusta el valor ahora',
   'toast.playlist_ended': 'Terminó la reproducción del último contenido',
   'toast.operator_required': 'Solo los administradores pueden cambiar los ajustes globales',
   'toast.connection_closing': 'Conexión perdida, ajuste no sincronizado',
   'toast.host_changed_setting': 'Los ajustes cambiaron',
-  'toast.session_mismatch': 'La sesión no coincide.\nSe reintentará la transferencia de archivo.',
+  'toast.session_mismatch': 'La sesión no coincide\nSe reintentará la transferencia de archivo',
   'toast.receiving_pct': 'Recibiendo... {{pct}}%',
 
   // Error
-  'error.https_required': 'HTTPS requerido: solo funciona con una conexión segura.',
+  'error.https_required': 'HTTPS requerido: solo funciona con una conexión segura',
   'error.browser_update': 'Actualiza el navegador a una versión reciente.',
   'error.load_failed': 'Error de carga: {{msg}}',
   'error.audio_decode_fail': '¡Falló la decodificación de audio!',
   'error.audio_memory': 'Cargando audio en memoria...',
-  'error.all_tracks_failed': 'No hay pistas reproducibles en la lista de reproducción.',
+  'error.all_tracks_failed': 'No hay pistas reproducibles en la lista de reproducción',
   'error.audio_engine_prepare': 'No se pudo preparar el motor de audio',
   'error.session_create_fail': 'No se pudo crear la sala',
   'error.network_generic': 'Ocurrió un error de red',
@@ -618,20 +617,20 @@ const es: Record<I18nKey, string> = {
   'error.peer_not_ready': 'La conexión entre dispositivos aún no está lista',
   'error.network_init_failed': 'Falló la inicialización de red',
   'error.no_host_id': 'No se encontró el ID del anfitrión',
-  'error.peer_unavailable': 'No se encontró la sala.\nRevisa el código de nuevo.',
+  'error.peer_unavailable': 'No se encontró la sala\nRevisa el código de nuevo',
   'error.host_left': 'Parece que el anfitrión salió de la sala',
-  'error.network_issue': 'Hay un problema de red.\nRevisa tu conexión a internet.',
+  'error.network_issue': 'Hay un problema de red\nRevisa tu conexión a internet',
   'error.signal_server_fail':
-    'No se puede acceder al servidor de señalización.\nInténtalo de nuevo dentro de poco.',
-  'error.server_disconnected': 'Desconectado del servidor.',
-  'error.session_id_unavailable': 'El ID de sala no está disponible.\nInténtalo de nuevo.',
-  'error.webrtc_failed': 'Falló la conexión WebRTC.\nRevisa la configuración del navegador.',
+    'No se puede acceder al servidor de señalización\nInténtalo de nuevo dentro de poco',
+  'error.server_disconnected': 'Desconectado del servidor',
+  'error.session_id_unavailable': 'El ID de sala no está disponible\nInténtalo de nuevo',
+  'error.webrtc_failed': 'Falló la conexión WebRTC\nRevisa la configuración del navegador',
   'error.browser_unsupported':
-    'Este navegador no admite conexiones en tiempo real.\nPrueba Chrome o Safari.',
-  'error.ssl_required': 'Se requiere una conexión segura (HTTPS).',
+    'Este navegador no admite conexiones en tiempo real\nPrueba Chrome o Safari',
+  'error.ssl_required': 'Se requiere una conexión segura (HTTPS)',
   'error.room_password_required': 'Esta sala requiere contraseña.',
   'error.room_password_invalid': 'La contraseña de la sala no coincide.',
-  'error.room_password_auth_timeout': 'La red es inestable.\nVuelve a introducir la contraseña.',
+  'error.room_password_auth_timeout': 'La red es inestable\nVuelve a introducir la contraseña',
 
   // Dialog
   'dialog.large_room_file.title': 'Compartir archivos en una sala grande',
@@ -735,9 +734,9 @@ const es: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'La contraseña no es correcta. Inténtalo de nuevo.',
   'pro.pin_change_title': 'Cambiar contraseña',
   'pro.pin_change_message': 'Define una nueva contraseña de 8 dígitos.',
-  'pro.pin_changed': 'Contraseña de la sala actualizada.',
+  'pro.pin_changed': 'Contraseña de la sala actualizada',
   'pro.pin_enable_title': 'Definir contraseña',
-  'pro.pin_enabled': 'Contraseña de la sala definida.',
+  'pro.pin_enabled': 'Contraseña de la sala definida',
   'pro.pin_members_title': '¿Qué quieres hacer con los participantes actuales?',
   'pro.pin_members_keep': 'Mantener a todos',
   'pro.pin_members_keep_detail':
@@ -757,8 +756,8 @@ const es: Record<I18nKey, string> = {
   'pro.removed_message': 'El propietario de la sala o un administrador te expulsó de esta sala.',
   'pro.device_removed_message':
     'Otro dispositivo con tu cuenta iniciada desconectó este dispositivo de la sala.',
-  'pro.owner_only': 'Solo el propietario puede hacer eso.',
-  'pro.connect_failed': 'No se pudo conectar con la sala PRO.',
+  'pro.owner_only': 'Solo el propietario puede hacer eso',
+  'pro.connect_failed': 'No se pudo conectar con la sala PRO',
   'pro.room_full': 'Esta sala PRO está llena',
   'pro.room_full_detail':
     'Una sala PRO admite hasta 100 dispositivos, incluido el del propietario. Siempre se reserva un lugar para el propietario.',
@@ -776,8 +775,8 @@ const es: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Cancelar la subida de {{name}}',
   'pro.upload.confirming_file': 'Finalizando la subida de {{name}}',
   'pro.downloading': 'Cargando archivo...',
-  'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de almacenamiento de 1 GB.',
-  'pro.file_too_large': 'Este archivo supera el límite de 200 MB por archivo.',
+  'pro.quota_exceeded': 'Esta sala PRO alcanzó su límite de almacenamiento de 1 GB',
+  'pro.file_too_large': 'Este archivo supera el límite de 200 MB por archivo',
 
   // Chat
   'chat.title': 'Chat',
@@ -818,19 +817,19 @@ const es: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Este dispositivo no puede reproducir la pista actual.',
   'chat.update_available_tab_system_message':
-    'Hay una nueva versión de MUSIXQUARE.\nActualiza la página para empezar a usarla.',
+    'Hay una nueva versión de MUSIXQUARE\nActualiza la página para empezar a usarla',
   'chat.update_available_app_system_message':
-    'Hay una nueva versión de MUSIXQUARE.\nVuelve a abrir la app para empezar a usarla.',
+    'Hay una nueva versión de MUSIXQUARE\nVuelve a abrir la app para empezar a usarla',
   'chat.system_audio_started_system_message':
     'Se empezó a compartir el audio del sistema. Es normal que haya una leve latencia entre el anfitrión y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo del anfitrión para evitar ecos.',
   'chat.system_audio_stopped_system_message':
     'Se dejó de compartir el audio del sistema. Anfitrión, vuelve a subir el volumen para que este dispositivo funcione de nuevo como altavoz.',
   'chat.remote_upload_limited_system_message':
-    'Se alcanzó el límite de subida de archivos.\nLos participantes remotos deberían intentarlo más tarde.',
+    'Se alcanzó el límite de subida de archivos\nLos participantes remotos deberían intentarlo más tarde',
   'chat.remote_storage_quota_system_message':
     'Se alcanzó el límite de uso compartido remoto.\nAún puedes compartir archivos localmente.',
   'chat.remote_upload_failed_system_message':
-    'Falló la subida del archivo remoto.\nLos participantes remotos deberían intentarlo dentro de poco.',
+    'Falló la subida del archivo remoto\nLos participantes remotos deberían intentarlo dentro de poco',
   'chat.pinned_close': 'Descartar aviso',
   'chat.cmd_whisper_from': 'Mensaje privado de {{name}}',
   'chat.cmd_whisper_to': 'Mensaje privado para {{name}}',
@@ -879,7 +878,7 @@ const es: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Información de depuración del sistema',
   'chat.debug_copied':
-    'Información de depuración copiada.\nEnvíala al desarrollador si has encontrado un error.',
+    'Información de depuración copiada\nEnvíala al desarrollador si has encontrado un error',
   'chat.seek_to': 'Ir a {{time}}',
   'chat.copied': 'Mensaje de chat copiado',
   'chat.copy_hint': 'Presiona Enter para copiar este mensaje de chat',

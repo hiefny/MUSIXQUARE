@@ -198,7 +198,7 @@ test.describe('Linelight demo mode', () => {
     await expect(page.locator('.demo-track-row')).toHaveCount(4);
     await expect(page.locator('[data-demo-next]')).toHaveClass(/is-final/);
     await expect(page.locator('[data-demo-next] svg')).toBeHidden();
-    await expect(page.locator('[data-demo-next]')).toContainText('4. Quit demo');
+    await expect(page.locator('[data-demo-next]')).toContainText('4. Finish tour');
     await expect(page.locator('[data-demo-track-index="0"]')).toHaveClass(/active/);
     await expect(page.locator('[data-demo-track-index="0"] strong')).toHaveText(
       'Linelight OST - Adventure',
@@ -725,7 +725,7 @@ test.describe('Linelight demo mode', () => {
 
     await page.locator('[data-demo-next]').click();
     await expect(page.locator('#demo-overlay')).toHaveClass(/exiting/);
-    await waitForToast(page, 'You can try it anytime from the Help tab.');
+    await waitForToast(page, 'You can try it anytime from the Help tab');
     await expect(page.locator('body')).not.toHaveClass(/mode-demo/);
     await expect.poll(() => readState(page, 'player.currentTrackMeta')).toBeNull();
     await expect(page.locator('#track-title')).toHaveText('No media playing');

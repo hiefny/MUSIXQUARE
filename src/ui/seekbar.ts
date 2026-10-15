@@ -182,7 +182,9 @@ function syncSeekAvailability(
   const reason = getSeekUnavailableReason();
   slider.setAttribute('aria-disabled', String(reason !== null));
   if (reason) {
-    slider.title = getSeekUnavailableMessage(reason).replace(/\n/g, ' ');
+    // Toast copy separates sentences with line breaks instead of periods; the
+    // tooltip keeps those breaks.
+    slider.title = getSeekUnavailableMessage(reason);
   } else {
     slider.removeAttribute('title');
   }

@@ -46,8 +46,8 @@ const te: Record<I18nKey, string> = {
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'సైన్ ఇన్',
-  'account.login_cancelled': 'సైన్-ఇన్ రద్దు చేయబడింది.',
-  'account.login_failed': 'సైన్ ఇన్ చేయడం సాధ్యపడలేదు. మళ్లీ ప్రయత్నించండి.',
+  'account.login_cancelled': 'సైన్-ఇన్ రద్దు చేయబడింది',
+  'account.login_failed': 'సైన్ ఇన్ చేయడం సాధ్యపడలేదు\nమళ్లీ ప్రయత్నించండి',
   'account.welcome_back': 'మళ్లీ స్వాగతం\n{{name}}',
   'account.login_message':
     'అన్ని గదుల్లో మీ మారుపేరు అలాగే ఉంచుకోవడానికి Googleతో సైన్ ఇన్ చేయండి. సైన్ ఇన్ చేయకుండానే కొనసాగవచ్చు.',
@@ -72,14 +72,14 @@ const te: Record<I18nKey, string> = {
   'account.nickname_hint': 'గరిష్ఠంగా 12 అక్షరాలు ఉపయోగించండి.',
   'account.nickname_required': 'మారుపేరు నమోదు చేయండి.',
   'account.nickname_whitespace': 'మారుపేరులో ఖాళీలు లేదా కనిపించని అక్షరాలు ఉండకూడదు.',
-  'account.nickname_taken': 'ఆ మారుపేరు ఇప్పటికే వాడుకలో ఉంది.',
-  'account.nickname_saved': 'మారుపేరు {{name}}గా మార్చబడింది.',
-  'account.action_failed': 'మీ ఖాతాను అప్‌డేట్ చేయడం సాధ్యపడలేదు. మళ్లీ ప్రయత్నించండి.',
+  'account.nickname_taken': 'ఆ మారుపేరు ఇప్పటికే వాడుకలో ఉంది',
+  'account.nickname_saved': 'మారుపేరు {{name}}గా మార్చబడింది',
+  'account.action_failed': 'మీ ఖాతాను అప్‌డేట్ చేయడం సాధ్యపడలేదు\nమళ్లీ ప్రయత్నించండి',
   'account.delete_confirm_title': 'ఖాతాను తొలగించాలా?',
   'account.delete_confirm_message':
     'మీ మారుపేరు, సైన్-ఇన్ సెషన్‌లు, ఖాతాతో అనుసంధానమైన గది అనుమతులు తొలగించబడతాయి. గదిలో షేర్ చేసిన కంటెంట్ ఆ గది నిల్వ విధానానికి లోబడి ఉంటుంది.',
   'account.delete_pending':
-    'మీ ఖాతా తొలగించబడుతోంది. PRO అనుమతులు సురక్షితంగా తీసివేయబడుతున్నాయి; తొలగింపు ఆటోమేటిక్‌గా పూర్తవుతుంది.',
+    'మీ ఖాతా తొలగించబడుతోంది\nPRO అనుమతులు సురక్షితంగా తీసివేయబడుతున్నాయి; తొలగింపు ఆటోమేటిక్‌గా పూర్తవుతుంది',
   'common.previous': 'మునుపటి',
   'common.next_desc': 'తదుపరి',
   'common.volume_percent': 'వాల్యూమ్: {{val}}%',
@@ -147,7 +147,7 @@ const te: Record<I18nKey, string> = {
   'playlist.repeat_off': 'రిపీట్ ఆఫ్‌లో ఉంది',
   'playlist.shuffle_on': 'షఫుల్ ఆన్‌లో ఉంది',
   'playlist.shuffle_off': 'షఫుల్ ఆఫ్‌లో ఉంది',
-  'playlist.empty_hint': 'ఇంకా మీడియా ఏదీ లేదు.',
+  'playlist.empty_hint': 'ఇంకా మీడియా ఏదీ లేదు',
   'playlist.loading_info': 'ట్రాక్ సమాచారం లోడ్ అవుతోంది...',
   'playlist.sub_load_failed': 'వీడియో సమాచారం లోడ్ కాలేదు',
   'playlist.remove_title': 'ప్లేలిస్ట్ నుండి తీసివేయి',
@@ -159,10 +159,10 @@ const te: Record<I18nKey, string> = {
   'playlist.video_fallback': 'లోడ్ అవుతోంది...',
   'playlist.track_fallback': 'ట్రాక్ {{idx}}',
   'playlist.deferred_load_hint': 'పూర్తి ట్రాక్ జాబితాను లోడ్ చేయడానికి ప్లే చేయండి',
-  'playlist.host_update_required': 'ఈ గదిని నిర్వహిస్తున్న పరికరాన్ని అప్‌డేట్ చేయండి.',
-  'playlist.queue_full': 'ప్లేలిస్ట్ నిండిపోయింది.',
-  'playlist.mutation_retry': 'ప్లేలిస్ట్ మారింది. మళ్లీ ప్రయత్నించండి.',
-  'transfer.host_busy': 'హోస్ట్ మరో ఫైల్‌ను ప్రాసెస్ చేస్తున్నారు. కాసేపట్లో మళ్లీ ప్రయత్నించండి.',
+  'playlist.host_update_required': 'ఈ గదిని నిర్వహిస్తున్న పరికరాన్ని అప్‌డేట్ చేయండి',
+  'playlist.queue_full': 'ప్లేలిస్ట్ నిండిపోయింది',
+  'playlist.mutation_retry': 'ప్లేలిస్ట్ మారింది\nమళ్లీ ప్రయత్నించండి',
+  'transfer.host_busy': 'హోస్ట్ మరో ఫైల్‌ను ప్రాసెస్ చేస్తున్నారు\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'సెంటర్ స్పీకర్',
@@ -289,7 +289,7 @@ const te: Record<I18nKey, string> = {
   'connect.room_password_on': 'పాస్‌వర్డ్ వర్తింపజేయబడింది',
   'connect.room_password_invalid': '8 అంకెలను నమోదు చేయండి',
   'connect.room_password_disabled': 'చేరేవారికి ఇక గది పాస్‌వర్డ్ అవసరం లేదు',
-  'connect.room_password_apply_pending': 'కనెక్షన్ తిరిగి వచ్చాక కొత్త పాస్‌వర్డ్ వర్తిస్తుంది.',
+  'connect.room_password_apply_pending': 'కనెక్షన్ తిరిగి వచ్చాక కొత్త పాస్‌వర్డ్ వర్తిస్తుంది',
   'connect.pin_enabled_removed_message':
     'హోస్ట్ గది పాస్‌వర్డ్ సెట్ చేశారు. మళ్లీ చేరడానికి దాన్ని నమోదు చేయండి.',
   'connect.pin_changed_removed_message':
@@ -316,7 +316,7 @@ const te: Record<I18nKey, string> = {
   'demo.prompt_message': 'స్వాగతం! మా ఫీచర్లను త్వరగా చూసేందుకు సిద్ధంగా ఉన్నారా?',
   'demo.prompt_cta': 'టూర్ ప్రారంభించు',
   'demo.prompt_later': 'తర్వాత',
-  'demo.try_later_toast': 'సహాయం ట్యాబ్ నుండి ఎప్పుడైనా ప్రయత్నించవచ్చు.',
+  'demo.try_later_toast': 'సహాయం ట్యాబ్ నుండి ఎప్పుడైనా ప్రయత్నించవచ్చు',
   'demo.track_info': 'ట్రాక్ సమాచారం',
   'demo.exit': 'డెమో నుండి బయటకు వెళ్లు',
   'demo.credit': 'డెమో ట్రాక్',
@@ -345,9 +345,9 @@ const te: Record<I18nKey, string> = {
   'demo.finish_step_title': 'అంతా సిద్ధం!',
   'demo.finish_step_subtitle': 'ఇప్పుడే ప్రారంభించి కలిసి ప్లే చేయండి.',
   'demo.track_list_label': 'డెమో ట్రాక్ జాబితా',
-  'demo.host_only_exit': 'హోస్ట్ మాత్రమే దీన్ని నొక్కగలరు.',
+  'demo.host_only_exit': 'హోస్ట్ మాత్రమే దీన్ని నొక్కగలరు',
   'demo.external_playback_stopped':
-    'డెమో మోడ్ ప్రస్తుత YouTube లేదా సిస్టమ్-ఆడియో ప్లేబ్యాక్‌ను ఆపింది.',
+    'డెమో మోడ్ ప్రస్తుత YouTube లేదా సిస్టమ్-ఆడియో ప్లేబ్యాక్‌ను ఆపింది',
   'setup.how_to_connect': 'ఎలా కనెక్ట్ చేయాలి',
   'setup.set_role': 'ఈ పరికరం పాత్రను సెట్ చేయి',
   'setup.what_sound': 'ఈ పరికరం ఏమి ప్లే చేయాలి?',
@@ -366,7 +366,7 @@ const te: Record<I18nKey, string> = {
   'setup.camera_not_found': 'ఉపయోగించగల కెమెరా కనిపించలేదు',
   'setup.camera_unavailable': 'కెమెరాను ప్రారంభించలేకపోయాం',
   'setup.camera_stream_stalled':
-    'కెమెరా ప్రివ్యూ ప్రారంభం కాలేదు.\nబ్రౌజర్‌లో తెరవండి లేదా కోడ్‌ను నమోదు చేయండి.',
+    'కెమెరా ప్రివ్యూ ప్రారంభం కాలేదు\nబ్రౌజర్‌లో తెరవండి లేదా కోడ్‌ను నమోదు చేయండి',
   'setup.connect_devices': 'ప్రారంభించడానికి మీ ఇతర పరికరాలను కనెక్ట్ చేయండి.',
   'setup.enter_code_connect': 'ఆహ్వాన కోడ్',
   'setup.last_step': 'ప్రారంభిద్దాం!',
@@ -428,19 +428,19 @@ const te: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది.\nదీన్ని వర్తింపజేయడానికి పేజీని రిఫ్రెష్ చేయండి.',
+    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది\nదీన్ని వర్తింపజేయడానికి పేజీని రిఫ్రెష్ చేయండి',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది.\nదీన్ని వర్తింపజేయడానికి యాప్‌ను మళ్లీ తెరవండి.',
+    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది\nదీన్ని వర్తింపజేయడానికి యాప్‌ను మళ్లీ తెరవండి',
   'chat.system_audio_started_system_message':
     'సిస్టమ్ ఆడియో షేరింగ్ ప్రారంభమైంది. హోస్ట్, అతిథి పరికరాల మధ్య కొద్దిపాటి ఆలస్యం సాధారణం. ప్రతిధ్వనిని నివారించడానికి హోస్ట్ పరికరం వాల్యూమ్‌ను తగ్గించాలని సిఫార్సు చేస్తున్నాం.',
   'chat.system_audio_stopped_system_message':
     'సిస్టమ్ ఆడియో షేరింగ్ ముగిసింది. ఈ పరికరం మళ్లీ స్పీకర్‌గా పనిచేయడానికి హోస్ట్ ఇప్పుడు వాల్యూమ్‌ను పెంచవచ్చు.',
   'chat.remote_upload_limited_system_message':
-    'ఫైల్ అప్‌లోడ్ పరిమితి చేరుకుంది.\nరిమోట్‌గా చేరినవారు తర్వాత మళ్లీ ప్రయత్నించండి.',
+    'ఫైల్ అప్‌లోడ్ పరిమితి చేరుకుంది\nరిమోట్‌గా చేరినవారు తర్వాత మళ్లీ ప్రయత్నించండి',
   'chat.remote_storage_quota_system_message':
     'రిమోట్ షేరింగ్ పరిమితి చేరుకుంది.\nలోకల్ ఫైల్ షేరింగ్ ఇంకా అందుబాటులో ఉంది.',
   'chat.remote_upload_failed_system_message':
-    'రిమోట్ ఫైల్ అప్‌లోడ్ విఫలమైంది.\nరిమోట్‌గా చేరినవారు కాసేపట్లో మళ్లీ ప్రయత్నించండి.',
+    'రిమోట్ ఫైల్ అప్‌లోడ్ విఫలమైంది\nరిమోట్‌గా చేరినవారు కాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'chat.pinned_close': 'నోటీస్‌ను తీసివేయి',
   'chat.cmd_whisper_from': '{{name}} నుండి ప్రైవేట్ సందేశం',
   'chat.cmd_whisper_to': '{{name}}కు ప్రైవేట్ సందేశం',
@@ -490,7 +490,7 @@ const te: Record<I18nKey, string> = {
   'chat.cmd_d_unmute': 'పరికరం చాట్‌ను పునరుద్ధరించు',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'సిస్టమ్ డీబగ్ సమాచారం',
-  'chat.debug_copied': 'డీబగ్ సమాచారం కాపీ అయింది.\nబగ్ కనిపిస్తే డెవలపర్‌కు పంపండి.',
+  'chat.debug_copied': 'డీబగ్ సమాచారం కాపీ అయింది\nబగ్ కనిపిస్తే డెవలపర్‌కు పంపండి',
   'chat.seek_to': '{{time}}కు వెళ్లు',
   'chat.copied': 'చాట్ కాపీ అయింది',
   'chat.copy_hint': 'ఈ చాట్ సందేశాన్ని కాపీ చేయడానికి Enter నొక్కండి',
@@ -501,13 +501,13 @@ const te: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'YouTube లింక్ లేదా సెర్చ్ పదాన్ని నమోదు చేయండి',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'కలిసి YouTube చూడండి',
-  'youtube.ready': 'YouTube సిద్ధంగా ఉంది!\nప్లే నొక్కండి.',
+  'youtube.ready': 'YouTube సిద్ధంగా ఉంది!\nప్లే నొక్కండి',
   'youtube.thumbnail': 'YouTube ప్రివ్యూ థంబ్‌నెయిల్',
-  'youtube.load_fail': 'YouTube API లోడ్ కాలేదు.\nమీ కనెక్షన్‌ను తనిఖీ చేయండి!',
+  'youtube.load_fail': 'YouTube API లోడ్ కాలేదు\nమీ కనెక్షన్‌ను తనిఖీ చేయండి!',
   'youtube.video_unavailable': 'వీడియో అందుబాటులో లేదు, తదుపరి ట్రాక్‌కు వెళుతోంది',
-  'youtube.load_timeout': 'YouTube లోడ్ సమయం ముగిసింది.\nమళ్లీ ప్రయత్నించండి.',
+  'youtube.load_timeout': 'YouTube లోడ్ సమయం ముగిసింది\nమళ్లీ ప్రయత్నించండి',
   'youtube.invalid_link': 'చెల్లని YouTube లింక్',
-  'youtube.effects_disabled': 'కలిసి YouTube చూడండి.\nఅధునాతన ఆడియో ఎఫెక్ట్‌లు ఆఫ్‌లో ఉంటాయి.',
+  'youtube.effects_disabled': 'కలిసి YouTube చూడండి\nఅధునాతన ఆడియో ఎఫెక్ట్‌లు ఆఫ్‌లో ఉంటాయి',
   'youtube.enter_link_placeholder': 'వీడియో లేదా ప్లేలిస్ట్ లింక్‌ను నమోదు చేయి',
   'youtube.enter_source_toast': 'YouTube లింక్ లేదా సెర్చ్ పదాన్ని నమోదు చేయండి',
   'youtube.fetching_info': 'వీడియో సమాచారం లోడ్ అవుతోంది...',
@@ -525,7 +525,7 @@ const te: Record<I18nKey, string> = {
   'youtube.search_failed': 'YouTube సెర్చ్ అందుబాటులో లేదు',
   'youtube.search_selected': 'ఎంచుకున్న వీడియో జోడించడానికి సిద్ధంగా ఉంది',
   'youtube.search_results': 'YouTube సెర్చ్ ఫలితాలు',
-  'youtube.live_sync_warning': 'లైవ్ స్ట్రీమ్‌లను ఖచ్చితంగా సింక్ చేయడం కష్టం.',
+  'youtube.live_sync_warning': 'లైవ్ స్ట్రీమ్‌లను ఖచ్చితంగా సింక్ చేయడం కష్టం',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'డిస్‌కనెక్ట్ అయింది',
@@ -533,8 +533,8 @@ const te: Record<I18nKey, string> = {
   'network.session_full': 'గది నిండిపోయింది',
   'network.session_full_detail':
     'హోస్ట్‌తో కలిపి గరిష్ఠంగా 100 పరికరాలు ఇప్పటికే ఈ గదిలో కనెక్ట్ అయ్యాయి.',
-  'network.op_granted': 'అడ్మిన్ అనుమతి మంజూరు చేయబడింది.',
-  'network.op_revoked': 'అడ్మిన్ అనుమతి ఉపసంహరించబడింది.',
+  'network.op_granted': 'అడ్మిన్ అనుమతి మంజూరు చేయబడింది',
+  'network.op_revoked': 'అడ్మిన్ అనుమతి ఉపసంహరించబడింది',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
   'toast.device_connected': '{{name}} కనెక్ట్ అయ్యారు',
@@ -542,7 +542,7 @@ const te: Record<I18nKey, string> = {
   'toast.device_conn_error': '{{name}} కనెక్షన్ లోపం',
   'toast.device_kicked': '{{name}} తొలగించబడ్డారు',
   'toast.remote_decode_device_wait':
-    'ఒక పరికరం ఈ ట్రాక్‌ను డీకోడ్ చేయలేకపోయింది. మిగతావారికి ప్లేబ్యాక్ కొనసాగుతోంది.',
+    'ఒక పరికరం ఈ ట్రాక్‌ను డీకోడ్ చేయలేకపోయింది\nమిగతావారికి ప్లేబ్యాక్ కొనసాగుతోంది',
   'toast.invite_code': 'ఆహ్వాన కోడ్: {{code}}',
   'toast.invite_code_info': '{{count}} కనెక్ట్ అయ్యాయి | కోడ్ {{code}}',
   'toast.added_tracks': '{{count}} ట్రాక్‌లు జోడించబడ్డాయి',
@@ -555,14 +555,14 @@ const te: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} అనుమతి {{status}}',
   'toast.file_read_error': 'ఫైల్ రీడ్ లోపం: {{name}}',
   'toast.host_ended_connection': 'హోస్ట్ కనెక్షన్‌ను ముగించారు',
-  'toast.announcement_available': 'కొత్త నోటీస్.\nచాట్ ప్యానెల్‌ను చూడండి.',
+  'toast.announcement_available': 'కొత్త నోటీస్\nచాట్ ప్యానెల్‌ను చూడండి',
 
   // ─── Toast (static) ──────────────────────────────────────────────
   'toast.copy_failed': 'కాపీ చేయడం సాధ్యపడలేదు',
   'toast.email_copied': 'ఈమెయిల్ చిరునామా కాపీ అయింది!',
   'toast.settings_sync_enabled': 'సెట్టింగ్‌ల సింక్ ఆన్‌లో ఉంది',
   'toast.settings_sync_admin_required':
-    'సెట్టింగ్‌ల సింక్ ఆన్‌లో ఉంది.\nగది అడ్మిన్‌లు మాత్రమే ఆడియో సెట్టింగ్‌లను మార్చగలరు.',
+    'సెట్టింగ్‌ల సింక్ ఆన్‌లో ఉంది\nగది అడ్మిన్‌లు మాత్రమే ఆడియో సెట్టింగ్‌లను మార్చగలరు',
   'toast.virtual_bass_on': 'వర్చువల్ బేస్ ఆన్‌లో ఉంది',
   'toast.virtual_bass_off': 'వర్చువల్ బేస్ ఆఫ్‌లో ఉంది',
   'toast.virtual_treble_on': 'వర్చువల్ ట్రెబుల్ ఆన్‌లో ఉంది',
@@ -570,27 +570,27 @@ const te: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'వర్చువల్ సరౌండ్ ఆన్‌లో ఉంది',
   'toast.virtual_surround_off': 'వర్చువల్ సరౌండ్ ఆఫ్‌లో ఉంది',
   'toast.virtual_effects_off': 'అన్ని వర్చువల్ ఎఫెక్ట్‌లు ఆఫ్‌లో ఉన్నాయి',
-  'toast.host_only': 'హోస్ట్ మాత్రమే దీన్ని అమలు చేయగలరు.',
-  'toast.host_only_media': 'హోస్ట్ మాత్రమే మీడియాను జోడించగలరు.',
-  'toast.media_management_required': 'మీడియా నిర్వహణ అనుమతి అవసరం.',
-  'toast.playback_control_required': 'ప్లేబ్యాక్ నియంత్రణ అనుమతి అవసరం.',
-  'toast.member_management_required': 'సభ్యులను తొలగించే అనుమతి అవసరం.',
-  'toast.chat_notice_required': 'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతి అవసరం.',
-  'toast.room_owner_required': 'గది యజమాని మాత్రమే దీన్ని మార్చగలరు.',
+  'toast.host_only': 'హోస్ట్ మాత్రమే దీన్ని అమలు చేయగలరు',
+  'toast.host_only_media': 'హోస్ట్ మాత్రమే మీడియాను జోడించగలరు',
+  'toast.media_management_required': 'మీడియా నిర్వహణ అనుమతి అవసరం',
+  'toast.playback_control_required': 'ప్లేబ్యాక్ నియంత్రణ అనుమతి అవసరం',
+  'toast.member_management_required': 'సభ్యులను తొలగించే అనుమతి అవసరం',
+  'toast.chat_notice_required': 'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతి అవసరం',
+  'toast.room_owner_required': 'గది యజమాని మాత్రమే దీన్ని మార్చగలరు',
   'toast.system_audio_owner_required':
-    'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను షేర్ చేయగలరు.',
-  'toast.host_only_youtube': 'హోస్ట్ మాత్రమే YouTube లింక్‌లను జోడించగలరు.',
+    'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను షేర్ చేయగలరు',
+  'toast.host_only_youtube': 'హోస్ట్ మాత్రమే YouTube లింక్‌లను జోడించగలరు',
   'toast.host_only_control': 'హోస్ట్ మాత్రమే దీన్ని నియంత్రించగలరు',
   'toast.host_setting_required': 'హోస్ట్ మాత్రమే ఈ సెట్టింగ్‌ను మార్చగలరు',
   'toast.host_only_file': 'హోస్ట్ మాత్రమే ఫైల్‌లను జోడించగలరు',
   'toast.no_tracks': 'ప్లే చేయడానికి ట్రాక్‌లు లేవు',
   'toast.add_media_to_play': 'మీడియాను జోడించండి',
   'toast.no_invite_code': 'ఇంకా ఆహ్వాన కోడ్ లేదు',
-  'toast.invite_code_settings': 'కనెక్ట్ ట్యాబ్ నుండి ఆహ్వాన లింక్‌ను షేర్ చేయండి.',
+  'toast.invite_code_settings': 'కనెక్ట్ ట్యాబ్ నుండి ఆహ్వాన లింక్‌ను షేర్ చేయండి',
   'toast.click_copy_invite': 'ఆహ్వాన కోడ్‌ను కాపీ చేయడానికి క్లిక్ చేయండి',
   'toast.cant_select_file': 'ఫైల్‌ను ఎంచుకోలేరు',
   'toast.unsupported_files_excluded': 'మద్దతు లేని ఫైల్‌లు దాటవేయబడ్డాయి: {{count}}',
-  'toast.no_supported_audio_files': 'జోడించడానికి మద్దతు ఉన్న ఆడియో ఫైల్‌లు లేవు.',
+  'toast.no_supported_audio_files': 'జోడించడానికి మద్దతు ఉన్న ఆడియో ఫైల్‌లు లేవు',
   'dialog.large_room_file.title': 'పెద్ద గదిలో ఫైల్ షేరింగ్',
   'dialog.large_room_file.message':
     'ఒకే నెట్‌వర్క్‌లో హోస్ట్‌ను మినహాయించి 8 అతిథి పరికరాల వరకు నేరుగా ఫైల్ బదిలీ స్థిరంగా ఉంటుంది. అంతకంటే పెద్ద లోకల్ గదుల్లో Cloudflare R2 ద్వారా ఫైల్‌లు పంపిణీ చేయబడవచ్చు.\n\nకొనసాగించాలా?',
@@ -598,34 +598,34 @@ const te: Record<I18nKey, string> = {
   'toast.sync_reset': 'సింక్ ఆఫ్‌సెట్ రీసెట్ అయింది',
   'toast.stop_sent': 'ఆపే అభ్యర్థన పంపబడింది',
   'toast.hprecision_sync': 'అత్యంత ఖచ్చితమైన సింక్: ఆడియో సిద్ధమవుతోంది\u2026',
-  'toast.file_ready': 'మీ ఫైల్ సిద్ధంగా ఉంది!\nప్లే నొక్కండి.',
+  'toast.file_ready': 'మీ ఫైల్ సిద్ధంగా ఉంది!\nప్లే నొక్కండి',
   'toast.host_sync_not_recommended': 'అతిథి పరికరంలో సింక్‌ను సర్దుబాటు చేయండి',
   'toast.host_sync_requested':
-    'ఖచ్చితమైన సింక్ అభ్యర్థించబడింది.\nఅతిథి పరికరంలో మాన్యువల్ సింక్‌ను సర్దుబాటు చేయండి.',
+    'ఖచ్చితమైన సింక్ అభ్యర్థించబడింది\nఅతిథి పరికరంలో మాన్యువల్ సింక్‌ను సర్దుబాటు చేయండి',
   'toast.sync_not_in_system_audio': 'సిస్టమ్ ఆడియో షేరింగ్ మోడ్‌లో సింక్ అందుబాటులో ఉండదు',
-  'toast.sync_not_ready': 'ఇంకా సిద్ధంగా లేదు.\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
-  'toast.sync_no_media': 'సింక్ చేయడానికి మీడియా లేదు.\nముందుగా ప్లే చేయడానికి ఏదైనా ఎంచుకోండి',
+  'toast.sync_not_ready': 'ఇంకా సిద్ధంగా లేదు\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.sync_no_media': 'సింక్ చేయడానికి మీడియా లేదు\nముందుగా ప్లే చేయడానికి ఏదైనా ఎంచుకోండి',
   'toast.host_ad': 'హోస్ట్ ప్రకటన చూస్తున్నట్లు అనిపిస్తోంది',
   'toast.yt_sync_start': 'సింక్ అవుతోంది...',
   'toast.yt_sync_done': 'సింక్ పూర్తయింది',
   'toast.yt_rendezvous_start': 'హోస్ట్‌తో సరిపోలుతోంది...',
   'toast.yt_rendezvous_done': 'సింక్ పూర్తయింది',
   'toast.yt_rendezvous_host_paused': 'హోస్ట్ పాజ్ చేశారు, ప్లేబ్యాక్ స్థానం మాత్రమే సరిచేయబడింది',
-  'toast.yt_rendezvous_no_data': 'హోస్ట్ ప్లేబ్యాక్ డేటా ఇంకా లేదు, కాసేపట్లో మళ్లీ ప్రయత్నించండి',
-  'toast.yt_rendezvous_timeout': 'సింక్ విఫలమైంది, కాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.yt_rendezvous_no_data': 'హోస్ట్ ప్లేబ్యాక్ డేటా ఇంకా లేదు\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.yt_rendezvous_timeout': 'సింక్ విఫలమైంది\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'toast.yt_host_sync_sent': 'పాల్గొనేవారికి ఆటో-సింక్ సిగ్నల్ పంపబడింది',
   'toast.yt_manual_sync_prompt':
-    'ఇప్పుడే ఆటోమేటిక్ సింక్ ప్రయత్నించబడింది.\nఇంకా ఆలస్యంగా అనిపిస్తే విలువను సర్దుబాటు చేయండి',
+    'ఇప్పుడే ఆటోమేటిక్ సింక్ ప్రయత్నించబడింది\nఇంకా ఆలస్యంగా అనిపిస్తే విలువను సర్దుబాటు చేయండి',
   'toast.playlist_ended': 'చివరి మీడియా అంశం ముగిసింది',
   'toast.operator_required': 'అడ్మిన్‌లు మాత్రమే గ్లోబల్ సెట్టింగ్‌లను మార్చగలరు',
   'toast.connection_closing': 'కనెక్షన్ పోయింది, సెట్టింగ్ సింక్ కాలేదు',
   'toast.host_changed_setting': 'సెట్టింగ్‌లు మార్చబడ్డాయి',
-  'toast.session_mismatch': 'సెషన్ సరిపోలలేదు.\nఫైల్ బదిలీ మళ్లీ ప్రయత్నిస్తుంది.',
+  'toast.session_mismatch': 'సెషన్ సరిపోలలేదు\nఫైల్ బదిలీ మళ్లీ ప్రయత్నిస్తుంది',
   'toast.receiving_pct': 'స్వీకరిస్తోంది... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': 'సర్వర్ నుండి డెమో ట్రాక్ లోడ్ అవుతోంది...',
-  'transfer.demo_loaded': 'డెమో ట్రాక్ సిద్ధంగా ఉంది.',
+  'transfer.demo_loaded': 'డెమో ట్రాక్ సిద్ధంగా ఉంది',
   'transfer.demo_load_fail': 'డెమో లోడ్ విఫలమైంది:',
   'transfer.demo_loading_short': 'డెమో ట్రాక్ లోడ్ అవుతోంది...',
   'transfer.file_requesting': 'ఫైల్ అభ్యర్థించబడుతోంది...',
@@ -643,11 +643,11 @@ const te: Record<I18nKey, string> = {
   'share.remote.too_large': 'ఫైల్ చాలా పెద్దది (గరిష్ఠంగా 200 MB)',
   'share.remote.network_error': 'రిమోట్ షేర్ సమయంలో నెట్‌వర్క్ లోపం',
   'share.remote.rate_limited':
-    'చాలా రిమోట్ షేర్ అప్‌లోడ్‌లు జరిగాయి.\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+    'చాలా రిమోట్ షేర్ అప్‌లోడ్‌లు జరిగాయి\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'share.remote.quota_reached': 'రిమోట్ షేరింగ్ స్టోరేజ్ పరిమితి చేరుకుంది',
-  'share.remote.auth_failed': 'రిమోట్ షేర్ అధీకరణ విఫలమైంది.\nWorker సెట్టింగ్‌లను తనిఖీ చేయండి',
-  'share.remote.expired': 'రిమోట్ ఫైల్ లింక్ గడువు ముగిసింది.\nమళ్లీ షేర్ చేయండి.',
-  'share.remote.unavailable': 'రిమోట్ షేరింగ్ విఫలమైంది.\nకాసేపట్లో మళ్లీ ప్రయత్నించండి.',
+  'share.remote.auth_failed': 'రిమోట్ షేర్ అధీకరణ విఫలమైంది\nWorker సెట్టింగ్‌లను తనిఖీ చేయండి',
+  'share.remote.expired': 'రిమోట్ ఫైల్ లింక్ గడువు ముగిసింది\nమళ్లీ షేర్ చేయండి',
+  'share.remote.unavailable': 'రిమోట్ షేరింగ్ విఫలమైంది\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'transfer.preload_fail': 'ప్రీలోడ్ ప్లేబ్యాక్ విఫలమైంది, మళ్లీ లోడ్ అవుతోంది',
   'transfer.download_finishing': 'డౌన్‌లోడ్ పూర్తవుతోంది...',
   'transfer.preparation_delayed':
@@ -657,15 +657,15 @@ const te: Record<I18nKey, string> = {
   'transfer.preload_pending': 'ప్రీలోడ్ కోసం వేచి ఉంది: {{name}}',
   'transfer.waiting_recovery': 'రికవరీ కోసం వేచి ఉంది: {{name}}',
   'transfer.preparing_name': 'సిద్ధమవుతోంది: {{name}}',
-  'transfer.recovery_failed': 'ఫైల్‌ను తిరిగి పొందలేకపోయాం.\nమళ్లీ ప్రయత్నించండి.',
+  'transfer.recovery_failed': 'ఫైల్‌ను తిరిగి పొందలేకపోయాం\nమళ్లీ ప్రయత్నించండి',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'HTTPS అవసరం: సురక్షిత కనెక్షన్‌లో మాత్రమే పనిచేస్తుంది.',
+  'error.https_required': 'HTTPS అవసరం: సురక్షిత కనెక్షన్‌లో మాత్రమే పనిచేస్తుంది',
   'error.browser_update': 'మీ బ్రౌజర్‌ను తాజా వెర్షన్‌కు అప్‌డేట్ చేయండి.',
   'error.load_failed': 'లోడ్ విఫలమైంది: {{msg}}',
   'error.audio_decode_fail': 'ఆడియో డీకోడ్ విఫలమైంది!',
   'error.audio_memory': 'ఆడియో మెమరీలోకి లోడ్ అవుతోంది...',
-  'error.all_tracks_failed': 'ప్లేలిస్ట్‌లో ప్లే చేయగల ట్రాక్‌లు లేవు.',
+  'error.all_tracks_failed': 'ప్లేలిస్ట్‌లో ప్లే చేయగల ట్రాక్‌లు లేవు',
   'error.audio_engine_prepare': 'ఆడియో ఇంజిన్‌ను సిద్ధం చేయలేకపోయాం',
   'error.session_create_fail': 'సెషన్‌ను సృష్టించలేకపోయాం',
   'error.network_generic': 'నెట్‌వర్క్ లోపం సంభవించింది',
@@ -682,21 +682,19 @@ const te: Record<I18nKey, string> = {
   'error.peer_not_ready': 'పీర్ కనెక్షన్ ఇంకా సిద్ధంగా లేదు',
   'error.network_init_failed': 'నెట్‌వర్క్‌ను ప్రారంభించలేకపోయాం',
   'error.no_host_id': 'హోస్ట్ ID కనిపించలేదు',
-  'error.peer_unavailable': 'సెషన్ కనిపించలేదు.\nకోడ్‌ను మళ్లీ తనిఖీ చేయండి.',
+  'error.peer_unavailable': 'సెషన్ కనిపించలేదు\nకోడ్‌ను మళ్లీ తనిఖీ చేయండి',
   'error.host_left': 'హోస్ట్ సెషన్ నుండి వెళ్లిపోయినట్లు అనిపిస్తోంది',
-  'error.network_issue': 'నెట్‌వర్క్ సమస్య ఉంది.\nమీ ఇంటర్నెట్ కనెక్షన్‌ను తనిఖీ చేయండి.',
-  'error.signal_server_fail':
-    'సిగ్నలింగ్ సర్వర్‌ను చేరుకోలేకపోయాం.\nకాసేపట్లో మళ్లీ ప్రయత్నించండి.',
-  'error.server_disconnected': 'సర్వర్ నుండి డిస్‌కనెక్ట్ అయ్యారు.',
-  'error.session_id_unavailable': 'సెషన్ ID అందుబాటులో లేదు.\nమళ్లీ ప్రయత్నించండి.',
-  'error.webrtc_failed': 'WebRTC కనెక్షన్ విఫలమైంది.\nమీ బ్రౌజర్ సెట్టింగ్‌లను తనిఖీ చేయండి.',
+  'error.network_issue': 'నెట్‌వర్క్ సమస్య ఉంది\nమీ ఇంటర్నెట్ కనెక్షన్‌ను తనిఖీ చేయండి',
+  'error.signal_server_fail': 'సిగ్నలింగ్ సర్వర్‌ను చేరుకోలేకపోయాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'error.server_disconnected': 'సర్వర్ నుండి డిస్‌కనెక్ట్ అయ్యారు',
+  'error.session_id_unavailable': 'సెషన్ ID అందుబాటులో లేదు\nమళ్లీ ప్రయత్నించండి',
+  'error.webrtc_failed': 'WebRTC కనెక్షన్ విఫలమైంది\nమీ బ్రౌజర్ సెట్టింగ్‌లను తనిఖీ చేయండి',
   'error.browser_unsupported':
-    'ఈ బ్రౌజర్‌తో రియల్-టైమ్ కనెక్షన్‌లు చేయడం సాధ్యం కాదు.\nChrome లేదా Safari ప్రయత్నించండి.',
-  'error.ssl_required': 'సురక్షిత కనెక్షన్ (HTTPS) అవసరం.',
+    'ఈ బ్రౌజర్‌తో రియల్-టైమ్ కనెక్షన్‌లు చేయడం సాధ్యం కాదు\nChrome లేదా Safari ప్రయత్నించండి',
+  'error.ssl_required': 'సురక్షిత కనెక్షన్ (HTTPS) అవసరం',
   'error.room_password_required': 'ఈ గదికి పాస్‌వర్డ్ అవసరం.',
   'error.room_password_invalid': 'గది పాస్‌వర్డ్ సరిపోలలేదు.',
-  'error.room_password_auth_timeout':
-    'నెట్‌వర్క్ అస్థిరంగా ఉంది.\nపాస్‌వర్డ్‌ను మళ్లీ నమోదు చేయండి.',
+  'error.room_password_auth_timeout': 'నెట్‌వర్క్ అస్థిరంగా ఉంది\nపాస్‌వర్డ్‌ను మళ్లీ నమోదు చేయండి',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'లోకల్ ఫైల్‌లను జోడించు',
@@ -796,9 +794,9 @@ const te: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'ఆ పాస్‌వర్డ్ సరైనది కాదు. మళ్లీ ప్రయత్నించండి.',
   'pro.pin_change_title': 'గది పాస్‌వర్డ్‌ను మార్చు',
   'pro.pin_change_message': 'కొత్త 8 అంకెల పాస్‌వర్డ్‌ను సెట్ చేయండి.',
-  'pro.pin_changed': 'గది పాస్‌వర్డ్ మార్చబడింది.',
+  'pro.pin_changed': 'గది పాస్‌వర్డ్ మార్చబడింది',
   'pro.pin_enable_title': 'గది పాస్‌వర్డ్‌ను సెట్ చేయి',
-  'pro.pin_enabled': 'గది పాస్‌వర్డ్ సెట్ చేయబడింది.',
+  'pro.pin_enabled': 'గది పాస్‌వర్డ్ సెట్ చేయబడింది',
   'pro.pin_members_title': 'ప్రస్తుత పాల్గొనేవారిని ఏం చేయాలి?',
   'pro.pin_members_keep': 'అందరినీ ఉండనివ్వు',
   'pro.pin_members_keep_detail':
@@ -818,8 +816,8 @@ const te: Record<I18nKey, string> = {
   'pro.removed_message': 'గది యజమాని లేదా ఒక అడ్మిన్ మిమ్మల్ని ఈ గది నుండి తొలగించారు.',
   'pro.device_removed_message':
     'మీ ఖాతాకు సైన్ ఇన్ అయిన మరో పరికరం ఈ పరికరాన్ని గది నుండి డిస్‌కనెక్ట్ చేసింది.',
-  'pro.owner_only': 'గది యజమాని మాత్రమే దీన్ని చేయగలరు.',
-  'pro.connect_failed': 'PRO గదికి కనెక్ట్ కాలేకపోయాం.',
+  'pro.owner_only': 'గది యజమాని మాత్రమే దీన్ని చేయగలరు',
+  'pro.connect_failed': 'PRO గదికి కనెక్ట్ కాలేకపోయాం',
   'pro.room_full': 'ఈ PRO గది నిండిపోయింది',
   'pro.room_full_detail':
     'ఒక PRO గదిలో యజమానితో కలిపి గరిష్ఠంగా 100 పరికరాలు ఉండవచ్చు. యజమాని కోసం ఎల్లప్పుడూ ఒక స్థానం ప్రత్యేకంగా ఉంచబడుతుంది.',
@@ -838,8 +836,8 @@ const te: Record<I18nKey, string> = {
   'pro.upload.cancel_file': '{{name}} అప్‌లోడ్‌ను రద్దు చేయి',
   'pro.upload.confirming_file': '{{name}} అప్‌లోడ్ పూర్తవుతోంది',
   'pro.downloading': 'ఫైల్ లోడ్ అవుతోంది...',
-  'pro.quota_exceeded': 'ఈ PRO గది 1 GB స్టోరేజ్ పరిమితిని చేరుకుంది.',
-  'pro.file_too_large': 'ఈ ఫైల్ ఒక్కో ఫైల్‌కు ఉన్న 200 MB పరిమితి కంటే పెద్దది.',
+  'pro.quota_exceeded': 'ఈ PRO గది 1 GB స్టోరేజ్ పరిమితిని చేరుకుంది',
+  'pro.file_too_large': 'ఈ ఫైల్ ఒక్కో ఫైల్‌కు ఉన్న 200 MB పరిమితి కంటే పెద్దది',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':
@@ -879,36 +877,36 @@ const te: Record<I18nKey, string> = {
   'system_audio.button': 'సిస్టమ్ ఆడియో',
   'system_audio.sharing': 'సిస్టమ్ ఆడియో షేర్ అవుతోంది',
   'system_audio.receiving': 'సిస్టమ్ ఆడియో స్వీకరించబడుతోంది',
-  'system_audio.owner_active': '{{name}} సిస్టమ్ ఆడియోను షేర్ చేస్తున్నారు.',
-  'system_audio.owner_preparing': '{{name}} సిస్టమ్ ఆడియోను షేర్ చేయడానికి సిద్ధమవుతున్నారు.',
-  'system_audio.pro_preparing': 'సిస్టమ్ ఆడియోను షేర్ చేయడానికి సిద్ధమవుతోంది.',
-  'system_audio.pro_publish_failed': 'సిస్టమ్ ఆడియో షేరింగ్‌ను ప్రారంభించలేకపోయాం.',
+  'system_audio.owner_active': '{{name}} సిస్టమ్ ఆడియోను షేర్ చేస్తున్నారు',
+  'system_audio.owner_preparing': '{{name}} సిస్టమ్ ఆడియోను షేర్ చేయడానికి సిద్ధమవుతున్నారు',
+  'system_audio.pro_preparing': 'సిస్టమ్ ఆడియోను షేర్ చేయడానికి సిద్ధమవుతోంది',
+  'system_audio.pro_publish_failed': 'సిస్టమ్ ఆడియో షేరింగ్‌ను ప్రారంభించలేకపోయాం',
   'system_audio.coordinator_update_required':
-    'సిస్టమ్ ఆడియోను షేర్ చేయడానికి ఈ గదిని నిర్వహిస్తున్న పరికరాన్ని అప్‌డేట్ చేయండి.',
+    'సిస్టమ్ ఆడియోను షేర్ చేయడానికి ఈ గదిని నిర్వహిస్తున్న పరికరాన్ని అప్‌డేట్ చేయండి',
   'system_audio.connection_unstable':
-    '{{name}} సిస్టమ్ ఆడియో కనెక్షన్ అస్థిరంగా ఉంది.\nమళ్లీ కనెక్ట్ చేయడానికి ప్రయత్నిస్తోంది.',
-  'system_audio.capture_denied': 'ఆడియో షేరింగ్ రద్దు చేయబడింది.',
-  'system_audio.no_audio_track': '“ఆడియోను షేర్ చేయి” ఆన్ చేయలేదు.\nమళ్లీ ప్రయత్నించండి.',
+    '{{name}} సిస్టమ్ ఆడియో కనెక్షన్ అస్థిరంగా ఉంది\nమళ్లీ కనెక్ట్ చేయడానికి ప్రయత్నిస్తోంది',
+  'system_audio.capture_denied': 'ఆడియో షేరింగ్ రద్దు చేయబడింది',
+  'system_audio.no_audio_track': '“ఆడియోను షేర్ చేయి” ఆన్ చేయలేదు\nమళ్లీ ప్రయత్నించండి',
   'system_audio.stop': 'షేరింగ్‌ను ఆపు',
   'system_audio.stop_compact': 'ఆపు',
   'system_audio.started':
-    'సిస్టమ్ ఆడియోలో కొద్దిగా ఆలస్యం ఉండవచ్చు.\nవీలైతే సోర్స్ వాల్యూమ్‌ను తగ్గించండి.',
-  'system_audio.stopped': 'సిస్టమ్ ఆడియో షేరింగ్ ముగిసింది.\nప్లేలిస్ట్ మళ్లీ ప్రారంభమవుతోంది.',
-  'system_audio.host_channel_locked': 'సిస్టమ్ ఆడియో షేరింగ్ సమయంలో పాత్రలను మార్చలేరు.',
+    'సిస్టమ్ ఆడియోలో కొద్దిగా ఆలస్యం ఉండవచ్చు\nవీలైతే సోర్స్ వాల్యూమ్‌ను తగ్గించండి',
+  'system_audio.stopped': 'సిస్టమ్ ఆడియో షేరింగ్ ముగిసింది\nప్లేలిస్ట్ మళ్లీ ప్రారంభమవుతోంది',
+  'system_audio.host_channel_locked': 'సిస్టమ్ ఆడియో షేరింగ్ సమయంలో పాత్రలను మార్చలేరు',
   'system_audio.effects_guest_only':
-    'సిస్టమ్ ఆడియో యాక్టివ్‌గా ఉంది.\nసౌండ్ ఎఫెక్ట్‌లు అతిథి పరికరాలకు మాత్రమే వర్తిస్తాయి.',
+    'సిస్టమ్ ఆడియో యాక్టివ్‌గా ఉంది\nసౌండ్ ఎఫెక్ట్‌లు అతిథి పరికరాలకు మాత్రమే వర్తిస్తాయి',
   'system_audio.desktop_only':
-    'Chromium ఆధారిత బ్రౌజర్‌ను (Chrome, Edge మొదలైనవి) ఉపయోగించే కంప్యూటర్లలో మాత్రమే అందుబాటులో ఉంటుంది.',
+    'Chromium ఆధారిత బ్రౌజర్‌ను (Chrome, Edge మొదలైనవి) ఉపయోగించే కంప్యూటర్లలో మాత్రమే అందుబాటులో ఉంటుంది',
   'system_audio.receive_failed':
-    'సిస్టమ్ ఆడియోను స్వీకరించలేకపోయాం.\nషేరింగ్‌ను మళ్లీ ప్రారంభించమని హోస్ట్‌ను అడగండి.',
+    'సిస్టమ్ ఆడియోను స్వీకరించలేకపోయాం\nషేరింగ్‌ను మళ్లీ ప్రారంభించమని హోస్ట్‌ను అడగండి',
   'system_audio.remote_receive_limit':
-    '2 గంటల తర్వాత సిస్టమ్ ఆడియో స్వీకరణ ముగిసింది.\nవినడం కొనసాగించడానికి గదిలో మళ్లీ చేరండి.',
+    '2 గంటల తర్వాత సిస్టమ్ ఆడియో స్వీకరణ ముగిసింది\nవినడం కొనసాగించడానికి గదిలో మళ్లీ చేరండి',
   'system_audio.device_limit':
-    'సిస్టమ్ ఆడియో గరిష్ఠంగా {{count}} పరికరాలకు మద్దతు ఇస్తుంది.\nఇందులో హోస్ట్ కూడా ఉంటారు.',
+    'సిస్టమ్ ఆడియో గరిష్ఠంగా {{count}} పరికరాలకు మద్దతు ఇస్తుంది\nఇందులో హోస్ట్ కూడా ఉంటారు',
   'system_audio.device_limit_stopped':
-    'సిస్టమ్ ఆడియో షేరింగ్ ఆగిపోయింది.\n{{count}} కంటే ఎక్కువ పరికరాలు కనెక్ట్ అయ్యాయి.',
+    'సిస్టమ్ ఆడియో షేరింగ్ ఆగిపోయింది\n{{count}} కంటే ఎక్కువ పరికరాలు కనెక్ట్ అయ్యాయి',
   'system_audio.duration_limit_stopped':
-    '2 గంటల తర్వాత సిస్టమ్ ఆడియో షేరింగ్\nఆటోమేటిక్‌గా ముగిసింది.',
+    '2 గంటల తర్వాత సిస్టమ్ ఆడియో షేరింగ్\nఆటోమేటిక్‌గా ముగిసింది',
 
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'సేవా గమనికలు',

@@ -348,7 +348,7 @@ describe('count-sensitive translations', () => {
         'Alex menambahkan 2 media, termasuk Pertama',
       ],
       ['toast.added_tracks', { count: 2 }, '2 media ditambahkan'],
-      ['toast.unsupported_files_excluded', { count: 2 }, '2 file yang tidak didukung dilewati.'],
+      ['toast.unsupported_files_excluded', { count: 2 }, '2 file yang tidak didukung dilewati'],
       ['dialog.file_drop.message', { count: 2 }, 'Tambahkan 2 file?'],
       [
         'dialog.file_drop.unsupported_notice',
@@ -381,7 +381,7 @@ describe('count-sensitive translations', () => {
         'Alex 2 medya öğesi ekledi; bunlardan biri İlk',
       ],
       ['toast.added_tracks', { count: 2 }, '2 medya öğesi eklendi'],
-      ['toast.unsupported_files_excluded', { count: 2 }, 'Desteklenmeyen 2 dosya atlanacak.'],
+      ['toast.unsupported_files_excluded', { count: 2 }, 'Desteklenmeyen 2 dosya atlanacak'],
       ['dialog.file_drop.message', { count: 2 }, '2 dosya eklensin mi?'],
       ['dialog.file_drop.unsupported_notice', { count: 2 }, 'Desteklenmeyen 2 dosya eklenmeyecek.'],
     ] as const;

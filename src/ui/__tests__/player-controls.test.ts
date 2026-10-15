@@ -3494,11 +3494,14 @@ describe('initPlayerControls sync button', () => {
 
     initPlayerControls();
     expect(document.getElementById('btn-sync')?.getAttribute('aria-disabled')).toBe('true');
-    expect(document.getElementById('btn-sync')?.title).toContain("There's no media to sync");
+    // The tooltip keeps the toast's sentence line break, which replaces a period.
+    expect(document.getElementById('btn-sync')?.title).toBe(
+      "There's no media to sync\nSelect something to play first",
+    );
     document.getElementById('btn-sync')?.click();
 
     expect(showToast).toHaveBeenCalledWith(
-      "There's no media to sync.\nSelect something to play first",
+      "There's no media to sync\nSelect something to play first",
     );
   });
 
@@ -3547,7 +3550,7 @@ describe('initPlayerControls sync button', () => {
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
-    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
 
   it('runs guest YouTube rendezvous before opening the manual sync panel', async () => {
@@ -3575,7 +3578,7 @@ describe('initPlayerControls sync button', () => {
       '+250',
     );
     expect(showToast).toHaveBeenCalledWith(
-      'Automatic sync was just attempted.\nIf it still feels delayed, adjust the value now',
+      'Automatic sync was just attempted\nIf it still feels delayed, adjust the value now',
     );
   });
 
@@ -3787,7 +3790,7 @@ describe('initPlayerControls sync button', () => {
 
     expect(guestRendezvousSync).not.toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
 
   it('blocks external recovery through acknowledgement and enables Sync when it retires', async () => {
@@ -3869,7 +3872,7 @@ describe('initPlayerControls sync button', () => {
 
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
 
   it('does not report a host sync success while zero-start is active', () => {
@@ -3883,7 +3886,7 @@ describe('initPlayerControls sync button', () => {
     document.getElementById('btn-sync')?.click();
 
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
 
   it('keeps host Sync fenced through calibration, then repaints at protocol idle', async () => {
@@ -4020,7 +4023,7 @@ describe('initPlayerControls sync button', () => {
     document.getElementById('btn-sync')?.click();
 
     await vi.waitFor(() => {
-      expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+      expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
     });
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
   });
@@ -4162,7 +4165,7 @@ describe('initPlayerControls sync button', () => {
     document.getElementById('btn-sync')?.click();
 
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
 
   it('does not treat a closed YouTube host connection as either host or guest sync', () => {
@@ -4176,7 +4179,7 @@ describe('initPlayerControls sync button', () => {
 
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
     expect(guestRendezvousSync).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
 
   it('opens a local-file nudge panel without broadcasting when the playing host presses sync', async () => {
@@ -4213,7 +4216,7 @@ describe('initPlayerControls sync button', () => {
     button.click();
 
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
 
   it('reconciles a PRO file endpoint before opening its local nudge panel', async () => {
@@ -4332,7 +4335,7 @@ describe('initPlayerControls sync button', () => {
 
     expect(forceResyncSpy).not.toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+    expect(showToast).toHaveBeenCalledWith('Not ready yet\nTry again in a moment');
   });
 
   it('closes the local-file manual panel if the decoded buffer is cleared', async () => {

@@ -739,14 +739,14 @@
       });
       if (!isCurrent()) return;
       closeNicknameDialog();
-      showToast('닉네임을 설정했어요.');
+      showToast('닉네임을 설정했어요');
       await loadSession({ keepView: true });
     } catch (error) {
       if (!isCurrent()) return;
       const apiError = isApiError(error) ? error : makeApiError('NETWORK_ERROR', 0);
       if (apiError.code === 'ACCOUNT_SESSION_CHANGED') {
         closeNicknameDialog();
-        showToast('로그인 상태를 다시 확인해 주세요.');
+        showToast('로그인 상태를 다시 확인해 주세요');
         await loadSession({ keepView: true });
       } else if (apiError.code === 'NICKNAME_TAKEN') {
         showNicknameError('이미 사용 중인 닉네임이에요.');
@@ -852,7 +852,7 @@
       }
       if (apiError.code === 'ACCOUNT_SESSION_CHANGED') {
         resetRedeemForm();
-        showToast('로그인 상태를 다시 확인해 주세요.');
+        showToast('로그인 상태를 다시 확인해 주세요');
         await loadSession();
       } else if (
         apiError.code === 'INVALID_REDEEM_CODE' ||
@@ -1003,9 +1003,9 @@
       document.documentElement.dataset.view === 'success';
     try {
       await copyText(roomCode);
-      if (isCurrent()) showToast(roomCode + '을 복사했어요.');
+      if (isCurrent()) showToast(roomCode + '을 복사했어요');
     } catch (_error) {
-      if (isCurrent()) showToast('방 번호는 ' + roomCode + '이에요.');
+      if (isCurrent()) showToast('방 번호는 ' + roomCode + '이에요');
     }
   });
 
@@ -1044,12 +1044,12 @@
       if (!isCurrent()) return;
       const apiError = isApiError(error) ? error : makeApiError('NETWORK_ERROR', 0);
       if (apiError.code === 'ACCOUNT_SESSION_REQUIRED' || apiError.status === 401) {
-        showToast('로그인 상태를 다시 확인해 주세요.');
+        showToast('로그인 상태를 다시 확인해 주세요');
         await loadSession();
       } else if (apiError.code === 'ACCOUNT_PROFILE_REQUIRED') {
         await loadSession();
       } else {
-        showToast('방 설정 링크를 불러오지 못했어요. 다시 시도해 주세요.');
+        showToast('방 설정 링크를 불러오지 못했어요\n다시 시도해 주세요');
       }
     } finally {
       if (isCurrent()) {

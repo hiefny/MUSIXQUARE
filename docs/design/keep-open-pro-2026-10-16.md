@@ -57,5 +57,42 @@ exact-main release candidate.
 
 ## Release and recovery
 
-App-only release (`target=app`). Recovery is the ordinary Production Release
-rollback to the 8.10.25 checkpoint, which only stops the dialog in PRO rooms.
+App **8.10.26/v692** shipped through
+[Production Release 38806931867](https://github.com/hiefny/MUSIXQUARE/actions/runs/38806931867),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-16 06:06:19 KST** using the immutable
+candidate from exact-main CI `38805172538` for
+`476e42b11aa504a935b38e318e9c0ea328cd4345`. No rollback was needed; the recovery job was skipped.
+
+- Exact-main CI ran 11 jobs: 567 unit files, 12,767 passed / 0 failed / 1
+  skipped (the Windows-only cross-drive path check on Linux), 17 candidate
+  browser and 29 critical browser tests passed, and every coverage, static and
+  build gate passed. On the pull request, the lint and types jobs hung while
+  installing dependencies on the runner; they were cancelled and passed on a
+  rerun (attempt 2). The Codex review completed with no findings.
+- App version `b85d4314-a21e-4614-83e0-16d2f2443b29` became
+  `a4b4004f-5be3-47fd-a048-836085fb177b`. Final deployment ownership was
+  verified at 06:06:13.268 KST, and the coherent production marker records the
+  exact SHA and target `app`.
+- The partial-release compatibility recheck at 06:05:24.816 KST was
+  compatible. The five unselected Workers were not deployed and keep the
+  `d9364cd9` identities in `docs/release-record.md` §1; the PRO smoke re-read
+  pro-room `8d5d44c0`. The new App deployment identity is in the 90-day run
+  artifact `production-deployments-476e42b11aa504a935b38e318e9c0ea328cd4345-38806931867-1`.
+- App generation (`main-DWmHTJR9.js`, 27 assets converged), anonymous App
+  account boundary, current PRO public boundary and Standard HTTPS signaling
+  smokes passed. Out-of-scope Worker smokes were skipped, not counted as passes.
+- Public checks at 06:07 KST returned HTTP 200 for `/`, the v692 service worker,
+  `bootstrap.js?cache=v692`, `main-DWmHTJR9.js` and `main-B0bF4u0B.css`. The
+  public main bundle carries `dialog.keep_open_message_pro`.
+- [Operations Drift Audit 38807376083](https://github.com/hiefny/MUSIXQUARE/actions/runs/38807376083)
+  succeeded. Its 06:07:35.304 KST report records **31 pass / 0 fail / 5
+  manual-only**; manual checks are not treated as completed.
+
+The immutable recovery checkpoint captured at 06:04:48.841 KST
+(`production-recovery-checkpoint-476e42b11aa504a935b38e318e9c0ea328cd4345-38806931867-1`)
+preserves the previous App `45850f44f74a4ab3a4094d22bd22dc3637e30fec`,
+8.10.25/v691, version `b85d4314-a21e-4614-83e0-16d2f2443b29`. Rolling back to
+it only stops the dialog in PRO rooms. Mixed versions are safe. The checkpoint
+is not a user-data backup; no data migration is needed and existing recovery
+floors remain binding.

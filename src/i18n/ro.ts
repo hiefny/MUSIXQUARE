@@ -542,18 +542,15 @@ const ro: Record<I18nKey, string> = {
   'network.op_revoked': 'Drepturile de administrator au fost retrase',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': '{{name}} s-a conectat',
   'toast.device_disconnected': '{{name}} s-a deconectat',
   'toast.device_conn_error': 'Eroare de conexiune pentru {{name}}',
   'toast.device_kicked': '{{name}} a fost eliminat',
   'toast.remote_decode_device_wait':
     'Un dispozitiv nu a putut decoda această pistă\nRedarea continuă pe celelalte dispozitive',
-  'toast.invite_code': 'Cod de invitație: {{code}}',
   'toast.invite_code_info': 'Dispozitive conectate: {{count}} | Cod {{code}}',
   'toast.added_tracks': '{{count}} piste adăugate',
   'toast.preparing': 'Se pregătește: {{name}}',
   'toast.file_save_error': 'Eroare la salvarea fișierului: {{name}}',
-  'toast.distortion_warn': 'Poate cauza distorsiuni',
   'toast.decoding_audio': 'Se decodează sunetul...',
   'toast.preparing_next': 'Se pregătește pista următoare... ({{name}})',
   'toast.preparing_next_pct': 'Se pregătește pista următoare... {{pct}}%',
@@ -575,8 +572,6 @@ const ro: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Surroundul virtual este activat',
   'toast.virtual_surround_off': 'Surroundul virtual este dezactivat',
   'toast.virtual_effects_off': 'Toate efectele virtuale sunt dezactivate',
-  'toast.host_only': 'Numai gazda poate face acest lucru',
-  'toast.host_only_media': 'Numai gazda poate adăuga conținut media',
   'toast.media_management_required': 'Este necesară permisiunea de gestionare media',
   'toast.playback_control_required': 'Este necesară permisiunea de control al redării',
   'toast.member_management_required': 'Este necesară permisiunea de eliminare a membrilor',
@@ -584,10 +579,7 @@ const ro: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Doar proprietarul camerei poate modifica asta',
   'toast.system_audio_owner_required':
     'Poți partaja conținut audio doar din fila care a deschis camera',
-  'toast.host_only_youtube': 'Numai gazda poate adăuga linkuri YouTube',
-  'toast.host_only_control': 'Numai gazda poate controla această opțiune',
   'toast.host_setting_required': 'Numai gazda poate schimba această setare',
-  'toast.host_only_file': 'Numai gazda poate adăuga fișiere',
   'toast.no_tracks': 'Nu există piste de redat',
   'toast.add_media_to_play': 'Adaugă conținut media',
   'toast.no_invite_code': 'Nu există încă un cod de invitație',
@@ -604,9 +596,6 @@ const ro: Record<I18nKey, string> = {
   'toast.stop_sent': 'Cererea de oprire a fost trimisă',
   'toast.hprecision_sync': 'Sincronizare de înaltă precizie: se pregătește sunetul…',
   'toast.file_ready': 'Fișierul este gata!\nApasă Redare',
-  'toast.host_sync_not_recommended': 'Reglează sincronizarea pe un dispozitiv invitat',
-  'toast.host_sync_requested':
-    'S-a solicitat sincronizarea de precizie\nReglează sincronizarea manuală pe un dispozitiv invitat',
   'toast.sync_not_in_system_audio':
     'Sincronizarea nu e disponibilă la partajarea sunetului sistemului',
   'toast.sync_not_ready': 'Încă nu este gata\nÎncearcă din nou peste câteva momente',
@@ -622,11 +611,9 @@ const ro: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Nu există încă date de redare de la gazdă\nÎncearcă din nou peste câteva momente',
   'toast.yt_rendezvous_timeout': 'Sincronizarea a eșuat\nÎncearcă din nou peste câteva momente',
-  'toast.yt_host_sync_sent': 'Semnalul de sincronizare automată a fost trimis participanților',
   'toast.yt_manual_sync_prompt':
     'Tocmai s-a încercat sincronizarea automată\nDacă întârzierea persistă, reglează acum valoarea',
   'toast.playlist_ended': 'Ultimul element media s-a încheiat',
-  'toast.operator_required': 'Numai administratorii pot schimba setările globale',
   'toast.connection_closing': 'Conexiune pierdută; setarea nu a fost sincronizată',
   'toast.host_changed_setting': 'Setările au fost modificate',
   'toast.session_mismatch': 'Sesiunile nu corespund\nTransferul fișierului va fi reluat',

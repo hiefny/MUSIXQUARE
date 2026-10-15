@@ -545,18 +545,15 @@ const it: Record<I18nKey, string> = {
   'network.op_revoked': 'I permessi di amministratore sono stati revocati',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': '{{name}} è connesso',
   'toast.device_disconnected': '{{name}} si è disconnesso',
   'toast.device_conn_error': 'Errore di connessione con {{name}}',
   'toast.device_kicked': '{{name}} è stato rimosso',
   'toast.remote_decode_device_wait':
     'Un dispositivo non è riuscito a decodificare questa traccia\nLa riproduzione continua sugli altri',
-  'toast.invite_code': 'Codice d’invito: {{code}}',
   'toast.invite_code_info': '{{count}} dispositivi | Codice: {{code}}',
   'toast.added_tracks': '{{count}} tracce aggiunte',
   'toast.preparing': 'Preparazione: {{name}}',
   'toast.file_save_error': 'Errore di salvataggio del file: {{name}}',
-  'toast.distortion_warn': 'Il suono potrebbe presentare distorsioni',
   'toast.decoding_audio': 'Decodifica audio in corso...',
   'toast.preparing_next': 'Preparazione traccia successiva... ({{name}})',
   'toast.preparing_next_pct': 'Preparazione traccia successiva... {{pct}}%',
@@ -578,8 +575,6 @@ const it: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Il surround virtuale è attivo',
   'toast.virtual_surround_off': 'Il surround virtuale è disattivato',
   'toast.virtual_effects_off': 'Tutti gli effetti virtuali sono disattivati',
-  'toast.host_only': 'Solo l’host può eseguire questa operazione',
-  'toast.host_only_media': 'Solo l’host può aggiungere contenuti',
   'toast.media_management_required': 'È richiesto il permesso per gestire i contenuti',
   'toast.playback_control_required': 'È richiesto il permesso per controllare la riproduzione',
   'toast.member_management_required': 'È richiesto il permesso per rimuovere i partecipanti',
@@ -587,10 +582,7 @@ const it: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Solo il proprietario della stanza può modificarlo',
   'toast.system_audio_owner_required':
     'Puoi condividere l’audio solo dalla scheda che ha aperto la stanza',
-  'toast.host_only_youtube': 'Solo l’host può aggiungere link di YouTube',
-  'toast.host_only_control': 'Solo l’host può controllare questa funzione',
   'toast.host_setting_required': 'Solo l’host può modificare questa impostazione',
-  'toast.host_only_file': 'Solo l’host può aggiungere file',
   'toast.no_tracks': 'Nessuna traccia da riprodurre',
   'toast.add_media_to_play': 'Aggiungi contenuti da riprodurre',
   'toast.no_invite_code': 'Codice d’invito non ancora generato',
@@ -607,10 +599,6 @@ const it: Record<I18nKey, string> = {
   'toast.stop_sent': 'Richiesta di arresto inviata',
   'toast.hprecision_sync': 'Sincronizzazione ad alta precisione: preparazione dell’audio…',
   'toast.file_ready': 'Il file è pronto!\nPremi il pulsante Riproduci',
-  'toast.host_sync_not_recommended':
-    'Consigliamo di regolare la sincronizzazione direttamente dal dispositivo di un partecipante',
-  'toast.host_sync_requested':
-    'Sincronizzazione di precisione richiesta\nRegola la sincronizzazione manuale sul dispositivo di un partecipante',
   'toast.sync_not_in_system_audio': 'Sincronizzazione non disponibile con l’audio di sistema',
   'toast.sync_not_ready': 'Non ancora pronto\nRiprova tra qualche istante',
   'toast.sync_no_media':
@@ -623,11 +611,9 @@ const it: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'L’host è in pausa, allineata solo la posizione',
   'toast.yt_rendezvous_no_data': 'Nessun dato di riproduzione dall’host\nRiprova tra poco',
   'toast.yt_rendezvous_timeout': 'Sincronizzazione non riuscita\nRiprova tra qualche istante',
-  'toast.yt_host_sync_sent': 'Segnale di sincronizzazione automatica inviato ai partecipanti',
   'toast.yt_manual_sync_prompt':
     'È appena stata tentata la sincronizzazione automatica\nSe noti ancora latenza, regola il valore manualmente',
   'toast.playlist_ended': 'La riproduzione dell’ultimo contenuto è terminata',
-  'toast.operator_required': 'Solo gli amministratori possono modificare le impostazioni globali',
   'toast.connection_closing': 'Connessione interrotta, impostazioni non sincronizzate',
   'toast.host_changed_setting': 'Le impostazioni sono state modificate',
   'toast.session_mismatch':

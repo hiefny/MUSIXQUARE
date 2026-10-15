@@ -502,18 +502,15 @@ const id: Record<I18nKey, string> = {
   'system_audio.duration_limit_stopped': 'Berbagi audio sistem berakhir otomatis\nsetelah 2 jam',
 
   // Toast
-  'toast.device_connected': '{{name}} tersambung',
   'toast.device_disconnected': '{{name}} terputus',
   'toast.device_conn_error': 'Kesalahan koneksi {{name}}',
   'toast.device_kicked': '{{name}} telah dikeluarkan',
   'toast.remote_decode_device_wait':
     'Sebuah perangkat gagal mendekode media ini\nPemutaran berlanjut untuk perangkat lain',
-  'toast.invite_code': 'Kode undangan: {{code}}',
   'toast.invite_code_info': '{{count}} perangkat tersambung | Kode {{code}}',
   'toast.added_tracks': '{{count}} media ditambahkan',
   'toast.preparing': 'Menyiapkan: {{name}}',
   'toast.file_save_error': 'Kesalahan menyimpan file: {{name}}',
-  'toast.distortion_warn': 'Dapat menyebabkan distorsi',
   'toast.decoding_audio': 'Mendekode audio...',
   'toast.preparing_next': 'Menyiapkan media berikutnya... ({{name}})',
   'toast.preparing_next_pct': 'Menyiapkan media berikutnya... {{pct}}%',
@@ -533,8 +530,6 @@ const id: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Surround virtual aktif',
   'toast.virtual_surround_off': 'Surround virtual nonaktif',
   'toast.virtual_effects_off': 'Semua efek virtual nonaktif',
-  'toast.host_only': 'Hanya host yang dapat menjalankan ini',
-  'toast.host_only_media': 'Hanya host yang dapat menambahkan media',
   'toast.media_management_required': 'Izin untuk mengelola media diperlukan',
   'toast.playback_control_required': 'Izin kontrol pemutaran diperlukan',
   'toast.member_management_required': 'Izin mengeluarkan anggota diperlukan',
@@ -542,10 +537,7 @@ const id: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Hanya pemilik ruang yang dapat mengubah ini',
   'toast.system_audio_owner_required':
     'Anda hanya dapat membagikan audio dari tab yang membuka ruang',
-  'toast.host_only_youtube': 'Hanya host yang dapat menambahkan tautan YouTube',
-  'toast.host_only_control': 'Hanya host yang dapat mengontrol ini',
   'toast.host_setting_required': 'Hanya host yang dapat mengubah pengaturan ini',
-  'toast.host_only_file': 'Hanya host yang dapat menambahkan file',
   'toast.no_tracks': 'Tidak ada media untuk diputar',
   'toast.add_media_to_play': 'Silakan tambahkan media untuk diputar',
   'toast.no_invite_code': 'Belum ada kode undangan',
@@ -558,9 +550,6 @@ const id: Record<I18nKey, string> = {
   'toast.stop_sent': 'Permintaan menghentikan pemutaran dikirim',
   'toast.hprecision_sync': 'Sinkronisasi presisi tinggi: menyiapkan audio…',
   'toast.file_ready': 'File Anda siap!\nTekan Putar',
-  'toast.host_sync_not_recommended': 'Atur sinkronisasi di perangkat peserta',
-  'toast.host_sync_requested':
-    'Sinkronisasi presisi diminta\nAtur sinkronisasi manual di perangkat peserta',
   'toast.sync_not_in_system_audio': 'Sinkronisasi tidak tersedia dalam mode berbagi audio sistem',
   'toast.sync_not_ready': 'Belum siap\nCoba lagi sebentar lagi',
   'toast.sync_no_media':
@@ -573,11 +562,9 @@ const id: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Pemutaran host sedang dijeda; hanya posisi yang disamakan',
   'toast.yt_rendezvous_no_data': 'Belum ada data pemutaran host\nCoba lagi sebentar lagi',
   'toast.yt_rendezvous_timeout': 'Sinkronisasi gagal\nCoba lagi sebentar lagi',
-  'toast.yt_host_sync_sent': 'Sinyal sinkronisasi otomatis dikirim ke peserta',
   'toast.yt_manual_sync_prompt':
     'Sinkronisasi otomatis baru saja dicoba\nJika masih terasa terlambat, atur nilainya sekarang',
   'toast.playlist_ended': 'Media terakhir selesai diputar',
-  'toast.operator_required': 'Hanya admin yang dapat mengubah pengaturan global',
   'toast.connection_closing': 'Koneksi hilang, pengaturan tidak disinkronkan',
   'toast.host_changed_setting': 'Pengaturan telah diubah',
   'toast.session_mismatch': 'Sesi tidak cocok\nTransfer file akan dicoba ulang',

@@ -544,18 +544,15 @@ const ms: Record<I18nKey, string> = {
   'network.op_revoked': 'Kebenaran pentadbir ditarik balik',
 
   // ─── Pemberitahuan dinamik ───────────────────────────────────────
-  'toast.device_connected': '{{name}} disambungkan',
   'toast.device_disconnected': '{{name}} terputus',
   'toast.device_conn_error': 'Ralat sambungan {{name}}',
   'toast.device_kicked': '{{name}} telah dikeluarkan',
   'toast.remote_decode_device_wait':
     'Sebuah peranti gagal menyahkod trek ini\nMain balik diteruskan untuk peranti lain',
-  'toast.invite_code': 'Kod jemputan: {{code}}',
   'toast.invite_code_info': '{{count}} disambungkan | Kod {{code}}',
   'toast.added_tracks': '{{count}} trek ditambah',
   'toast.preparing': 'Menyediakan: {{name}}',
   'toast.file_save_error': 'Ralat menyimpan fail: {{name}}',
-  'toast.distortion_warn': 'Mungkin menyebabkan herotan',
   'toast.decoding_audio': 'Menyahkod audio...',
   'toast.preparing_next': 'Menyediakan trek seterusnya... ({{name}})',
   'toast.preparing_next_pct': 'Menyediakan trek seterusnya... {{pct}}%',
@@ -577,8 +574,6 @@ const ms: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Keliling maya dihidupkan',
   'toast.virtual_surround_off': 'Keliling maya dimatikan',
   'toast.virtual_effects_off': 'Semua kesan maya dimatikan',
-  'toast.host_only': 'Hanya hos boleh melakukan tindakan ini',
-  'toast.host_only_media': 'Hanya hos boleh menambah media',
   'toast.media_management_required': 'Kebenaran mengurus media diperlukan',
   'toast.playback_control_required': 'Kebenaran mengawal main balik diperlukan',
   'toast.member_management_required': 'Kebenaran untuk mengeluarkan ahli diperlukan',
@@ -586,10 +581,7 @@ const ms: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Hanya pemilik bilik boleh mengubah tetapan ini',
   'toast.system_audio_owner_required':
     'Anda hanya boleh berkongsi audio daripada tab yang membuka bilik',
-  'toast.host_only_youtube': 'Hanya hos boleh menambah pautan YouTube',
-  'toast.host_only_control': 'Hanya hos boleh mengawal tindakan ini',
   'toast.host_setting_required': 'Hanya hos boleh mengubah tetapan ini',
-  'toast.host_only_file': 'Hanya hos boleh menambah fail',
   'toast.no_tracks': 'Tiada trek untuk dimainkan',
   'toast.add_media_to_play': 'Sila tambah media',
   'toast.no_invite_code': 'Belum ada kod jemputan',
@@ -606,9 +598,6 @@ const ms: Record<I18nKey, string> = {
   'toast.stop_sent': 'Permintaan berhenti dihantar',
   'toast.hprecision_sync': 'Penyegerakan berketepatan tinggi: menyediakan audio…',
   'toast.file_ready': 'Fail anda sudah sedia!\nTekan Main',
-  'toast.host_sync_not_recommended': 'Laraskan penyegerakan pada peranti tetamu',
-  'toast.host_sync_requested':
-    'Penyegerakan tepat diminta\nLaraskan penyegerakan manual pada peranti tetamu',
   'toast.sync_not_in_system_audio':
     'Penyegerakan tidak tersedia dalam mod perkongsian audio sistem',
   'toast.sync_not_ready': 'Belum sedia\nCuba lagi sebentar nanti',
@@ -622,11 +611,9 @@ const ms: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Hos dijeda, hanya kedudukan diselaraskan',
   'toast.yt_rendezvous_no_data': 'Belum ada data main balik hos\nCuba lagi sebentar nanti',
   'toast.yt_rendezvous_timeout': 'Penyegerakan gagal\nSila cuba lagi sebentar nanti',
-  'toast.yt_host_sync_sent': 'Isyarat penyegerakan automatik dihantar kepada peserta',
   'toast.yt_manual_sync_prompt':
     'Penyegerakan automatik baru sahaja dicuba\nJika masih terasa lewat, laraskan nilainya sekarang',
   'toast.playlist_ended': 'Item media terakhir telah tamat',
-  'toast.operator_required': 'Hanya pentadbir boleh mengubah tetapan global',
   'toast.connection_closing': 'Sambungan terputus, tetapan tidak disegerakkan',
   'toast.host_changed_setting': 'Tetapan telah diubah',
   'toast.session_mismatch': 'Sesi tidak sepadan\nPemindahan fail akan dicuba semula',

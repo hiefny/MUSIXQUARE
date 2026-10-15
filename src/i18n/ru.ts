@@ -541,18 +541,15 @@ const ru: Record<I18nKey, string> = {
   'network.op_revoked': 'Права администратора были отозваны',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': '{{name}} подключился',
   'toast.device_disconnected': '{{name}} отключился',
   'toast.device_conn_error': 'Ошибка подключения к {{name}}',
   'toast.device_kicked': '{{name}} исключён из комнаты',
   'toast.remote_decode_device_wait':
     'Не удалось декодировать материал на одном из устройств\nВоспроизведение на остальных продолжается',
-  'toast.invite_code': 'Код приглашения: {{code}}',
   'toast.invite_code_info': 'Устройств: {{count}} | Код: {{code}}',
   'toast.added_tracks': 'Добавлено материалов: {{count}}',
   'toast.preparing': 'Готовится: {{name}}',
   'toast.file_save_error': 'Ошибка сохранения файла: {{name}}',
-  'toast.distortion_warn': 'Звук может искажаться',
   'toast.decoding_audio': 'Декодирование аудио...',
   'toast.preparing_next': 'Подготовка следующего материала... ({{name}})',
   'toast.preparing_next_pct': 'Подготовка следующего материала... {{pct}}%',
@@ -574,8 +571,6 @@ const ru: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Виртуальный объёмный звук включён',
   'toast.virtual_surround_off': 'Виртуальный объёмный звук выключен',
   'toast.virtual_effects_off': 'Все виртуальные эффекты выключены',
-  'toast.host_only': 'Только хост комнаты может это запустить',
-  'toast.host_only_media': 'Только хост комнаты может добавлять материалы',
   'toast.media_management_required': 'Требуется право на управление медиа',
   'toast.playback_control_required': 'Требуется право на управление воспроизведением',
   'toast.member_management_required': 'Требуется право на исключение участников',
@@ -583,10 +578,7 @@ const ru: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Изменить это может только владелец комнаты',
   'toast.system_audio_owner_required':
     'Транслировать аудио можно только из вкладки, в которой была создана комната',
-  'toast.host_only_youtube': 'Только хост комнаты может добавлять ссылки на YouTube',
-  'toast.host_only_control': 'Только хост комнаты может этим управлять',
   'toast.host_setting_required': 'Изменять эту настройку может только хост комнаты',
-  'toast.host_only_file': 'Только хост комнаты может добавлять файлы',
   'toast.no_tracks': 'Нет материалов для воспроизведения',
   'toast.add_media_to_play': 'Добавьте медиа для воспроизведения',
   'toast.no_invite_code': 'Код приглашения ещё не создан',
@@ -603,9 +595,6 @@ const ru: Record<I18nKey, string> = {
   'toast.stop_sent': 'Запрос на остановку воспроизведения отправлен',
   'toast.hprecision_sync': 'Высокоточная синхронизация: подготовка аудио…',
   'toast.file_ready': 'Файл готов!\nНажмите кнопку «Воспроизвести»',
-  'toast.host_sync_not_recommended': 'Настройте синхронизацию на устройстве участника',
-  'toast.host_sync_requested':
-    'Запрошена точная синхронизация\nНастройте ручную синхронизацию на устройстве участника',
   'toast.sync_not_in_system_audio':
     'Синхронизация не поддерживается в режиме трансляции системного звука',
   'toast.sync_not_ready': 'Ещё не готово\nПопробуйте ещё раз через минуту',
@@ -619,11 +608,9 @@ const ru: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Нет данных воспроизведения от хоста\nПопробуйте ещё раз через минуту',
   'toast.yt_rendezvous_timeout': 'Синхронизация не удалась\nПопробуйте ещё раз через минуту',
-  'toast.yt_host_sync_sent': 'Отправлен сигнал автоматической синхронизации',
   'toast.yt_manual_sync_prompt':
     'Только что была выполнена автосинхронизация\nЕсли задержка сохраняется, настройте значение вручную',
   'toast.playlist_ended': 'Последний материал завершился',
-  'toast.operator_required': 'Только администраторы могут изменять глобальные настройки',
   'toast.connection_closing': 'Соединение прервано, настройки не синхронизированы',
   'toast.host_changed_setting': 'Настройки были изменены',
   'toast.session_mismatch': 'Комната не совпадает\nПередача файла будет повторена',

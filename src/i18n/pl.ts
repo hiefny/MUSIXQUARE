@@ -544,18 +544,15 @@ const pl: Record<I18nKey, string> = {
   'network.op_revoked': 'Odebrano Ci uprawnienia administratora',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': 'Połączono: {{name}}',
   'toast.device_disconnected': 'Rozłączono: {{name}}',
   'toast.device_conn_error': 'Błąd połączenia z {{name}}',
   'toast.device_kicked': 'Wyrzucono z pokoju: {{name}}',
   'toast.remote_decode_device_wait':
     'Dekodowanie materiału nie powiodło się na jednym z urządzeń\nOdtwarzanie jest kontynuowane na pozostałych',
-  'toast.invite_code': 'Kod zaproszenia: {{code}}',
   'toast.invite_code_info': 'Urządzenia: {{count}} | Kod: {{code}}',
   'toast.added_tracks': 'Dodane materiały: {{count}}',
   'toast.preparing': 'Przygotowanie: {{name}}',
   'toast.file_save_error': 'Błąd zapisu pliku: {{name}}',
-  'toast.distortion_warn': 'Dźwięk może ulec zniekształceniu',
   'toast.decoding_audio': 'Dekodowanie dźwięku w toku…',
   'toast.preparing_next': 'Przygotowanie kolejnego materiału… ({{name}})',
   'toast.preparing_next_pct': 'Przygotowanie kolejnego materiału… {{pct}}%',
@@ -577,8 +574,6 @@ const pl: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Wirtualny dźwięk przestrzenny jest włączony',
   'toast.virtual_surround_off': 'Wirtualny dźwięk przestrzenny jest wyłączony',
   'toast.virtual_effects_off': 'Wszystkie efekty wirtualne są wyłączone',
-  'toast.host_only': 'Tylko host może wykonać tę operację',
-  'toast.host_only_media': 'Tylko host może dodawać materiały',
   'toast.media_management_required': 'Wymagane jest uprawnienie do zarządzania multimediami',
   'toast.playback_control_required': 'Wymagane jest uprawnienie do sterowania odtwarzaniem',
   'toast.member_management_required': 'Wymagane jest uprawnienie do wyrzucania uczestników',
@@ -586,10 +581,7 @@ const pl: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Tylko właściciel pokoju może to zmienić',
   'toast.system_audio_owner_required':
     'Możesz udostępniać dźwięk tylko z karty, w której utworzono pokój',
-  'toast.host_only_youtube': 'Tylko host może dodawać linki z YouTube',
-  'toast.host_only_control': 'Tylko host może sterować odtwarzaniem',
   'toast.host_setting_required': 'Tylko host może zmienić to ustawienie',
-  'toast.host_only_file': 'Tylko host może dodawać pliki',
   'toast.no_tracks': 'Brak materiałów do odtworzenia',
   'toast.add_media_to_play': 'Dodaj multimedia do odtworzenia',
   'toast.no_invite_code': 'Kod zaproszenia nie został jeszcze wygenerowany',
@@ -606,10 +598,6 @@ const pl: Record<I18nKey, string> = {
   'toast.stop_sent': 'Wysłano polecenie zatrzymania odtwarzania',
   'toast.hprecision_sync': 'Synchronizacja o wysokiej precyzji: przygotowywanie dźwięku…',
   'toast.file_ready': 'Plik jest gotowy!\nNaciśnij przycisk Odtwórz',
-  'toast.host_sync_not_recommended':
-    'Dostosuj synchronizację bezpośrednio na urządzeniu uczestnika',
-  'toast.host_sync_requested':
-    'Wysłano prośbę o precyzyjną synchronizację\nSkonfiguruj ręczną synchronizację na urządzeniu uczestnika',
   'toast.sync_not_in_system_audio':
     'Synchronizacja niedostępna podczas udostępniania dźwięku systemowego',
   'toast.sync_not_ready': 'Synchronizacja nie jest jeszcze gotowa\nSpróbuj ponownie za chwilę',
@@ -623,11 +611,9 @@ const pl: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused': 'Host wstrzymał odtwarzanie: wyrównano tylko aktualną pozycję',
   'toast.yt_rendezvous_no_data': 'Brak danych odtwarzania od hosta\nSpróbuj ponownie za chwilę',
   'toast.yt_rendezvous_timeout': 'Synchronizacja nie powiodła się\nSpróbuj ponownie za chwilę',
-  'toast.yt_host_sync_sent': 'Wysłano sygnał automatycznej synchronizacji do uczestników',
   'toast.yt_manual_sync_prompt':
     'Właśnie wykonano automatyczną synchronizację\nJeśli wciąż słyszysz opóźnienie, dostosuj wartość ręcznie',
   'toast.playlist_ended': 'Playlista dobiegła końca',
-  'toast.operator_required': 'Tylko administratorzy mogą zmieniać ustawienia globalne',
   'toast.connection_closing': 'Połączenie przerwane, ustawienie niezsynchronizowane',
   'toast.host_changed_setting': 'Ustawienia zostały zmienione',
   'toast.session_mismatch': 'Niezgodność pokoju\nPrzesyłanie pliku zostanie ponowione',

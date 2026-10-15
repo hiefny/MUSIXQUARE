@@ -532,18 +532,15 @@ const bn: Record<I18nKey, string> = {
   'network.op_revoked': 'অ্যাডমিন অনুমতি প্রত্যাহার করা হয়েছে',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
-  'toast.device_connected': '{{name}} সংযুক্ত হয়েছেন',
   'toast.device_disconnected': '{{name}}-এর সংযোগ বিচ্ছিন্ন হয়েছে',
   'toast.device_conn_error': '{{name}}-এর সংযোগে সমস্যা',
   'toast.device_kicked': '{{name}}-কে সরিয়ে দেওয়া হয়েছে',
   'toast.remote_decode_device_wait':
     'একটি ডিভাইস এই ট্র্যাকটি ডিকোড করতে পারেনি\nঅন্য সবার জন্য প্লেব্যাক চলতে থাকবে',
-  'toast.invite_code': 'আমন্ত্রণ কোড: {{code}}',
   'toast.invite_code_info': '{{count}}টি সংযুক্ত | কোড {{code}}',
   'toast.added_tracks': '{{count}}টি ট্র্যাক যোগ করা হয়েছে',
   'toast.preparing': 'প্রস্তুত হচ্ছে: {{name}}',
   'toast.file_save_error': 'ফাইল সেভ করতে সমস্যা: {{name}}',
-  'toast.distortion_warn': 'শব্দ বিকৃত হতে পারে',
   'toast.decoding_audio': 'অডিও ডিকোড হচ্ছে...',
   'toast.preparing_next': 'পরের ট্র্যাক প্রস্তুত হচ্ছে... ({{name}})',
   'toast.preparing_next_pct': 'পরের ট্র্যাক প্রস্তুত হচ্ছে... {{pct}}%',
@@ -565,8 +562,6 @@ const bn: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'ভার্চুয়াল সারাউন্ড চালু আছে',
   'toast.virtual_surround_off': 'ভার্চুয়াল সারাউন্ড বন্ধ আছে',
   'toast.virtual_effects_off': 'সব ভার্চুয়াল ইফেক্ট বন্ধ আছে',
-  'toast.host_only': 'শুধু হোস্ট এটি চালাতে পারবেন',
-  'toast.host_only_media': 'শুধু হোস্ট মিডিয়া যোগ করতে পারবেন',
   'toast.media_management_required': 'মিডিয়া পরিচালনার অনুমতি প্রয়োজন',
   'toast.playback_control_required': 'প্লেব্যাক নিয়ন্ত্রণের অনুমতি প্রয়োজন',
   'toast.member_management_required': 'সদস্য সরানোর অনুমতি প্রয়োজন',
@@ -574,10 +569,7 @@ const bn: Record<I18nKey, string> = {
   'toast.room_owner_required': 'শুধু রুমের মালিক এটি পরিবর্তন করতে পারবেন',
   'toast.system_audio_owner_required':
     'যে ট্যাবে রুমটি খোলা হয়েছিল, শুধু সেই ট্যাব থেকেই অডিও শেয়ার করতে পারবেন',
-  'toast.host_only_youtube': 'শুধু হোস্ট YouTube লিংক যোগ করতে পারবেন',
-  'toast.host_only_control': 'শুধু হোস্ট এটি নিয়ন্ত্রণ করতে পারবেন',
   'toast.host_setting_required': 'শুধু হোস্ট এই সেটিং পরিবর্তন করতে পারবেন',
-  'toast.host_only_file': 'শুধু হোস্ট ফাইল যোগ করতে পারবেন',
   'toast.no_tracks': 'চালানোর মতো কোনো ট্র্যাক নেই',
   'toast.add_media_to_play': 'মিডিয়া যোগ করুন',
   'toast.no_invite_code': 'এখনো কোনো আমন্ত্রণ কোড নেই',
@@ -594,9 +586,6 @@ const bn: Record<I18nKey, string> = {
   'toast.stop_sent': 'থামানোর অনুরোধ পাঠানো হয়েছে',
   'toast.hprecision_sync': 'উচ্চ-নির্ভুলতার সিঙ্ক: অডিও প্রস্তুত হচ্ছে\u2026',
   'toast.file_ready': 'আপনার ফাইল প্রস্তুত!\nচালানোর বোতাম চাপুন',
-  'toast.host_sync_not_recommended': 'অতিথি ডিভাইসে সিঙ্ক সামঞ্জস্য করুন',
-  'toast.host_sync_requested':
-    'নির্ভুল সিঙ্কের অনুরোধ পাঠানো হয়েছে\nঅতিথি ডিভাইসে ম্যানুয়াল সিঙ্ক সামঞ্জস্য করুন',
   'toast.sync_not_in_system_audio': 'সিস্টেম অডিও শেয়ারিং মোডে সিঙ্ক পাওয়া যায় না',
   'toast.sync_not_ready': 'এখনো প্রস্তুত নয়\nএকটু পর আবার চেষ্টা করুন',
   'toast.sync_no_media': 'সিঙ্ক করার মতো কোনো মিডিয়া নেই\nআগে চালানোর জন্য কিছু বেছে নিন',
@@ -609,11 +598,9 @@ const bn: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'হোস্টের প্লেব্যাক তথ্য এখনো পাওয়া যায়নি\nএকটু পর আবার চেষ্টা করুন',
   'toast.yt_rendezvous_timeout': 'সিঙ্ক ব্যর্থ হয়েছে\nএকটু পর আবার চেষ্টা করুন',
-  'toast.yt_host_sync_sent': 'অংশগ্রহণকারীদের কাছে অটো-সিঙ্ক সংকেত পাঠানো হয়েছে',
   'toast.yt_manual_sync_prompt':
     'এইমাত্র স্বয়ংক্রিয় সিঙ্কের চেষ্টা করা হয়েছে\nএখনো দেরি মনে হলে মানটি সামঞ্জস্য করুন',
   'toast.playlist_ended': 'শেষ মিডিয়া আইটেমটির প্লেব্যাক শেষ হয়েছে',
-  'toast.operator_required': 'শুধু অ্যাডমিনরা গ্লোবাল সেটিংস পরিবর্তন করতে পারবেন',
   'toast.connection_closing': 'সংযোগ বিচ্ছিন্ন হয়েছে, সেটিং সিঙ্ক হয়নি',
   'toast.host_changed_setting': 'সেটিংস পরিবর্তন করা হয়েছে',
   'toast.session_mismatch': 'সেশন মিলছে না\nফাইল পাঠানোর চেষ্টা আবার করা হবে',

@@ -543,18 +543,15 @@ const ml: Record<I18nKey, string> = {
   'network.op_revoked': 'അഡ്മിൻ അനുമതി പിൻവലിച്ചു',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
-  'toast.device_connected': '{{name}} ബന്ധിപ്പിച്ചു',
   'toast.device_disconnected': '{{name}}-ന്റെ ബന്ധം വിച്ഛേദിച്ചു',
   'toast.device_conn_error': '{{name}}-ന്റെ ബന്ധത്തിൽ പിശക്',
   'toast.device_kicked': '{{name}}-നെ പുറത്താക്കി',
   'toast.remote_decode_device_wait':
     'ഒരു ഡിവൈസിന് ഈ ട്രാക്ക് ഡീകോഡ് ചെയ്യാനായില്ല\nമറ്റെല്ലാവർക്കും പ്ലേബാക്ക് തുടരുന്നു',
-  'toast.invite_code': 'ക്ഷണ കോഡ്: {{code}}',
   'toast.invite_code_info': '{{count}} ബന്ധിപ്പിച്ചു | കോഡ് {{code}}',
   'toast.added_tracks': '{{count}} ട്രാക്കുകൾ ചേർത്തു',
   'toast.preparing': 'തയ്യാറാക്കുന്നു: {{name}}',
   'toast.file_save_error': 'ഫയൽ സേവ് ചെയ്യുന്നതിൽ പിശക്: {{name}}',
-  'toast.distortion_warn': 'ശബ്ദവികലത ഉണ്ടാകാം',
   'toast.decoding_audio': 'ഓഡിയോ ഡീകോഡ് ചെയ്യുന്നു...',
   'toast.preparing_next': 'അടുത്ത ട്രാക്ക് തയ്യാറാക്കുന്നു... ({{name}})',
   'toast.preparing_next_pct': 'അടുത്ത ട്രാക്ക് തയ്യാറാക്കുന്നു... {{pct}}%',
@@ -576,8 +573,6 @@ const ml: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'വിർച്വൽ സറൗണ്ട് ഓണാണ്',
   'toast.virtual_surround_off': 'വിർച്വൽ സറൗണ്ട് ഓഫാണ്',
   'toast.virtual_effects_off': 'എല്ലാ വിർച്വൽ ഇഫക്റ്റുകളും ഓഫാണ്',
-  'toast.host_only': 'ഹോസ്റ്റിന് മാത്രമേ ഇത് പ്രവർത്തിപ്പിക്കാനാകൂ',
-  'toast.host_only_media': 'ഹോസ്റ്റിന് മാത്രമേ മീഡിയ ചേർക്കാനാകൂ',
   'toast.media_management_required': 'മീഡിയ കൈകാര്യം ചെയ്യാനുള്ള അനുമതി ആവശ്യമാണ്',
   'toast.playback_control_required': 'പ്ലേബാക്ക് നിയന്ത്രണ അനുമതി ആവശ്യമാണ്',
   'toast.member_management_required': 'അംഗങ്ങളെ പുറത്താക്കാനുള്ള അനുമതി ആവശ്യമാണ്',
@@ -585,10 +580,7 @@ const ml: Record<I18nKey, string> = {
   'toast.room_owner_required': 'റൂം ഉടമയ്ക്ക് മാത്രമേ ഇത് മാറ്റാനാകൂ',
   'toast.system_audio_owner_required':
     'റൂം തുറന്ന ടാബിൽ നിന്ന് മാത്രമേ നിങ്ങൾക്ക് ഓഡിയോ പങ്കിടാനാകൂ',
-  'toast.host_only_youtube': 'ഹോസ്റ്റിന് മാത്രമേ YouTube ലിങ്കുകൾ ചേർക്കാനാകൂ',
-  'toast.host_only_control': 'ഹോസ്റ്റിന് മാത്രമേ ഇത് നിയന്ത്രിക്കാനാകൂ',
   'toast.host_setting_required': 'ഹോസ്റ്റിന് മാത്രമേ ഈ ക്രമീകരണം മാറ്റാനാകൂ',
-  'toast.host_only_file': 'ഹോസ്റ്റിന് മാത്രമേ ഫയലുകൾ ചേർക്കാനാകൂ',
   'toast.no_tracks': 'പ്ലേ ചെയ്യാൻ ട്രാക്കുകളില്ല',
   'toast.add_media_to_play': 'മീഡിയ ചേർക്കുക',
   'toast.no_invite_code': 'ക്ഷണ കോഡ് ഇതുവരെ ലഭ്യമല്ല',
@@ -605,9 +597,6 @@ const ml: Record<I18nKey, string> = {
   'toast.stop_sent': 'നിർത്താനുള്ള അഭ്യർത്ഥന അയച്ചു',
   'toast.hprecision_sync': 'ഉയർന്ന കൃത്യതയുള്ള സിങ്ക്: ഓഡിയോ തയ്യാറാക്കുന്നു…',
   'toast.file_ready': 'നിങ്ങളുടെ ഫയൽ തയ്യാറാണ്!\nപ്ലേ അമർത്തുക',
-  'toast.host_sync_not_recommended': 'അതിഥി ഡിവൈസിൽ സിങ്ക് ക്രമീകരിക്കുക',
-  'toast.host_sync_requested':
-    'കൃത്യതയുള്ള സിങ്ക് അഭ്യർത്ഥിച്ചു\nഅതിഥി ഡിവൈസിൽ മാനുവൽ സിങ്ക് ക്രമീകരിക്കുക',
   'toast.sync_not_in_system_audio': 'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ മോഡിൽ സിങ്ക് ലഭ്യമല്ല',
   'toast.sync_not_ready': 'ഇതുവരെ തയ്യാറായിട്ടില്ല\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'toast.sync_no_media':
@@ -622,11 +611,9 @@ const ml: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'ഹോസ്റ്റിന്റെ പ്ലേബാക്ക് ഡാറ്റ ഇതുവരെ ലഭ്യമല്ല\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
   'toast.yt_rendezvous_timeout': 'സിങ്ക് പരാജയപ്പെട്ടു\nഅൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക',
-  'toast.yt_host_sync_sent': 'പങ്കാളികൾക്ക് സ്വയമേവ സിങ്ക് ചെയ്യാനുള്ള സിഗ്നൽ അയച്ചു',
   'toast.yt_manual_sync_prompt':
     'സ്വയമേവ സിങ്ക് ചെയ്യാൻ ഇപ്പോൾ ശ്രമിച്ചു\nഇപ്പോഴും കാലതാമസം തോന്നുന്നെങ്കിൽ മൂല്യം ക്രമീകരിക്കുക',
   'toast.playlist_ended': 'അവസാന മീഡിയ ഇനം അവസാനിച്ചു',
-  'toast.operator_required': 'അഡ്മിനുകൾക്ക് മാത്രമേ എല്ലാവർക്കും ബാധകമായ ക്രമീകരണങ്ങൾ മാറ്റാനാകൂ',
   'toast.connection_closing': 'ബന്ധം നഷ്ടപ്പെട്ടു; ക്രമീകരണം സിങ്ക് ചെയ്തില്ല',
   'toast.host_changed_setting': 'ക്രമീകരണങ്ങൾ മാറ്റി',
   'toast.session_mismatch': 'സെഷൻ പൊരുത്തപ്പെടുന്നില്ല\nഫയൽ കൈമാറ്റം വീണ്ടും ശ്രമിക്കും',

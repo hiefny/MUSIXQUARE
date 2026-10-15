@@ -547,18 +547,15 @@ const nl: Record<I18nKey, string> = {
   'network.op_revoked': 'Beheerdersrechten ingetrokken',
 
   // Toast
-  'toast.device_connected': '{{name}} verbonden',
   'toast.device_disconnected': 'Verbinding met {{name}} verbroken',
   'toast.device_conn_error': 'Verbindingsfout met {{name}}',
   'toast.device_kicked': '{{name}} is verwijderd',
   'toast.remote_decode_device_wait':
     'Een apparaat kon deze track niet decoderen\nAfspelen gaat door voor de anderen',
-  'toast.invite_code': 'Uitnodigingscode: {{code}}',
   'toast.invite_code_info': '{{count}} verbonden | Code {{code}}',
   'toast.added_tracks': '{{count}} tracks toegevoegd',
   'toast.preparing': 'Voorbereiden: {{name}}',
   'toast.file_save_error': 'Bestand opslaan mislukt: {{name}}',
-  'toast.distortion_warn': 'Kan vervorming veroorzaken',
   'toast.decoding_audio': 'Audio decoderen...',
   'toast.preparing_next': 'Volgende track voorbereiden... ({{name}})',
   'toast.preparing_next_pct': 'Volgende track voorbereiden... {{pct}}%',
@@ -578,8 +575,6 @@ const nl: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Virtuele surround staat aan',
   'toast.virtual_surround_off': 'Virtuele surround staat uit',
   'toast.virtual_effects_off': 'Alle virtuele effecten staan uit',
-  'toast.host_only': 'Alleen de host kan dit doen',
-  'toast.host_only_media': 'Alleen de host kan media toevoegen',
   'toast.media_management_required': 'Toestemming voor mediabeheer vereist',
   'toast.playback_control_required': 'Toestemming voor afspeelbediening vereist',
   'toast.member_management_required': 'Toestemming voor het verwijderen van leden vereist',
@@ -587,10 +582,7 @@ const nl: Record<I18nKey, string> = {
   'toast.room_owner_required': 'Alleen de kamereigenaar kan dit wijzigen',
   'toast.system_audio_owner_required':
     'Je kunt alleen audio delen vanuit het tabblad dat de kamer heeft geopend',
-  'toast.host_only_youtube': 'Alleen de host kan YouTube-links toevoegen',
-  'toast.host_only_control': 'Alleen de host kan dit bedienen',
   'toast.host_setting_required': 'Alleen de host kan deze instelling wijzigen',
-  'toast.host_only_file': 'Alleen de host kan bestanden toevoegen',
   'toast.no_tracks': 'Geen tracks om af te spelen',
   'toast.add_media_to_play': 'Voeg media toe om af te spelen',
   'toast.no_invite_code': 'Nog geen uitnodigingscode',
@@ -603,9 +595,6 @@ const nl: Record<I18nKey, string> = {
   'toast.stop_sent': 'Stopverzoek verzonden',
   'toast.hprecision_sync': 'Nauwkeurige synchronisatie: audio voorbereiden…',
   'toast.file_ready': 'Je bestand is klaar!\nDruk op Afspelen',
-  'toast.host_sync_not_recommended': 'Pas synchronisatie aan op een deelnemersapparaat',
-  'toast.host_sync_requested':
-    'Nauwkeurige synchronisatie aangevraagd\nPas de handmatige synchronisatie aan op een deelnemersapparaat',
   'toast.sync_not_in_system_audio':
     'Synchronisatie is niet beschikbaar tijdens het delen van systeemaudio',
   'toast.sync_not_ready': 'Nog niet klaar\nProbeer het zo opnieuw',
@@ -619,11 +608,9 @@ const nl: Record<I18nKey, string> = {
   'toast.yt_rendezvous_no_data':
     'Er zijn nog geen afspeelgegevens van de host\nProbeer het zo opnieuw',
   'toast.yt_rendezvous_timeout': 'Synchronisatie mislukt\nProbeer het zo opnieuw',
-  'toast.yt_host_sync_sent': 'Signaal voor automatische synchronisatie naar deelnemers gestuurd',
   'toast.yt_manual_sync_prompt':
     'Automatische synchronisatie is zojuist geprobeerd\nPas de waarde nu aan als je nog vertraging merkt',
   'toast.playlist_ended': 'Het laatste item is afgelopen',
-  'toast.operator_required': 'Alleen beheerders kunnen globale instellingen wijzigen',
   'toast.connection_closing': 'Verbinding verloren, instelling niet gesynchroniseerd',
   'toast.host_changed_setting': 'Instellingen zijn gewijzigd',
   'toast.session_mismatch':

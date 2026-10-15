@@ -659,10 +659,10 @@ const de: Record<I18nKey, string> = {
   'dialog.continue_using': 'Weiter',
   'dialog.leave_session': 'Verlassen',
   'dialog.sw_update_title': 'Update',
-  'dialog.sw_update_msg': 'Eine neue Version ist bereit. Lade die Seite neu, um sie anzuwenden.',
+  'dialog.sw_update_msg': 'Eine neue Version ist bereit.\nLade die Seite neu, um sie anzuwenden.',
   'dialog.feature_refresh_title': 'Neu laden erforderlich',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE wurde aktualisiert. Lade die Seite neu, um es wie gewohnt weiter zu nutzen.',
+    'MUSIXQUARE wurde aktualisiert.\nLade die Seite neu, um es wie gewohnt weiter zu nutzen.',
   'dialog.reconnect_ask': 'Möchtest du dich erneut verbinden?',
   'dialog.reconnect': 'Neu verbinden',
   'dialog.go_back': 'Zurück',
@@ -817,9 +817,9 @@ const de: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Dieses Gerät kann den aktuellen Titel nicht abspielen.',
   'chat.update_available_tab_system_message':
-    'Eine neue Version von MUSIXQUARE ist verfügbar. Lade die Seite neu, um sie anzuwenden.',
+    'Eine neue Version von MUSIXQUARE ist verfügbar.\nLade die Seite neu, um sie anzuwenden.',
   'chat.update_available_app_system_message':
-    'Eine neue Version von MUSIXQUARE ist verfügbar. Öffne die App erneut, um sie anzuwenden.',
+    'Eine neue Version von MUSIXQUARE ist verfügbar.\nÖffne die App erneut, um sie anzuwenden.',
   'chat.system_audio_started_system_message':
     'Systemaudio-Freigabe gestartet. Eine leichte Verzögerung zwischen dem Host-Gerät und den Geräten der Teilnehmer ist normal. Um Echos zu vermeiden, sollte der Host die Lautstärke seines Geräts möglichst weit senken.',
   'chat.system_audio_stopped_system_message':

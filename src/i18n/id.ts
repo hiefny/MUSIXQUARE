@@ -648,10 +648,10 @@ const id: Record<I18nKey, string> = {
   'dialog.continue_using': 'Lanjut',
   'dialog.leave_session': 'Keluar',
   'dialog.sw_update_title': 'Pembaruan',
-  'dialog.sw_update_msg': 'Versi baru siap. Muat ulang untuk memperbarui.',
+  'dialog.sw_update_msg': 'Versi baru siap.\nMuat ulang untuk memperbarui.',
   'dialog.feature_refresh_title': 'Perlu dimuat ulang',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE telah diperbarui. Muat ulang agar tetap bisa digunakan dengan normal.',
+    'MUSIXQUARE telah diperbarui.\nMuat ulang agar tetap bisa digunakan dengan normal.',
   'dialog.reconnect_ask': 'Ingin menyambung ulang?',
   'dialog.reconnect': 'Sambung ulang',
   'dialog.go_back': 'Kembali',
@@ -804,9 +804,9 @@ const id: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Perangkat ini tidak dapat memutar media saat ini.',
   'chat.update_available_tab_system_message':
-    'Versi baru MUSIXQUARE tersedia. Muat ulang halaman untuk menerapkannya.',
+    'Versi baru MUSIXQUARE tersedia.\nMuat ulang halaman untuk menerapkannya.',
   'chat.update_available_app_system_message':
-    'Versi baru MUSIXQUARE tersedia. Buka ulang aplikasi untuk menerapkannya.',
+    'Versi baru MUSIXQUARE tersedia.\nBuka ulang aplikasi untuk menerapkannya.',
   'chat.system_audio_started_system_message':
     'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi sebaiknya turunkan volume perangkat host sebisa mungkin agar tidak bergema.',
   'chat.system_audio_stopped_system_message':

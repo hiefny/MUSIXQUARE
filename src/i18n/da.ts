@@ -429,9 +429,9 @@ const da: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Denne enhed kan ikke afspille det aktuelle nummer.',
   'chat.update_available_tab_system_message':
-    'Der er en ny version af MUSIXQUARE. Opdater siden for at tage den i brug.',
+    'Der er en ny version af MUSIXQUARE.\nOpdater siden for at tage den i brug.',
   'chat.update_available_app_system_message':
-    'Der er en ny version af MUSIXQUARE. Åbn appen igen for at tage den i brug.',
+    'Der er en ny version af MUSIXQUARE.\nÅbn appen igen for at tage den i brug.',
   'chat.system_audio_started_system_message':
     'Deling af systemlyd er startet. En lille forsinkelse mellem værtens og gæsternes enheder er normal. Vi anbefaler at sænke værtens lydstyrke for at undgå ekko.',
   'chat.system_audio_stopped_system_message':
@@ -722,10 +722,10 @@ const da: Record<I18nKey, string> = {
   'dialog.continue_using': 'Fortsæt',
   'dialog.leave_session': 'Forlad',
   'dialog.sw_update_title': 'Opdatering',
-  'dialog.sw_update_msg': 'En ny version er klar. Opdater siden for at installere den.',
+  'dialog.sw_update_msg': 'En ny version er klar.\nOpdater siden for at installere den.',
   'dialog.feature_refresh_title': 'Siden skal opdateres',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE er blevet opdateret. Opdater siden for at fortsætte med at bruge det som normalt.',
+    'MUSIXQUARE er blevet opdateret.\nOpdater siden for at fortsætte med at bruge det som normalt.',
   'dialog.reconnect_ask': 'Vil du oprette forbindelse igen?',
   'dialog.reconnect': 'Forbind igen',
   'dialog.go_back': 'Gå tilbage',

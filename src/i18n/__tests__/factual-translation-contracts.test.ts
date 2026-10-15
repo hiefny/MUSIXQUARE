@@ -268,6 +268,16 @@ describe('completed translation factual contracts', () => {
         // placeholders, markup, or numbers.
         expect(text, `${language}.${key}`).toContain('MUSIXQUARE');
         expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]/u);
+        // Owner decision 2026-10-15: one sentence per line, so a toast never
+        // truncates the notice at its per-line limit.
+        expect(text.split('\n'), `${language}.${key} lines`).toHaveLength(2);
+        for (const line of text.split('\n')) {
+          expect(line.trim(), `${language}.${key} line`).toBe(line);
+          expect(line, `${language}.${key} line`).not.toBe('');
+          // Outside a room the notice is a toast, which truncates a line
+          // beyond 50 characters.
+          expect(Array.from(line).length, `${language}.${key} line length`).toBeLessThanOrEqual(50);
+        }
       }
       // Both say the same news ("a new MUSIXQUARE version is available") and
       // differ only in how it applies: reload the tab, or reopen the app.
@@ -289,12 +299,12 @@ describe('completed translation factual contracts', () => {
     }
 
     expect([APP_DICTIONARIES.ko[tabKey], APP_DICTIONARIES.ko[appKey]]).toEqual([
-      'MUSIXQUARE의 새 버전이 있어요. 페이지를 새로고침하면 적용돼요.',
-      'MUSIXQUARE의 새 버전이 있어요. 앱을 다시 열면 적용돼요.',
+      'MUSIXQUARE의 새 버전이 있어요.\n페이지를 새로고침하면 적용돼요.',
+      'MUSIXQUARE의 새 버전이 있어요.\n앱을 다시 열면 적용돼요.',
     ]);
     expect([english[tabKey], english[appKey]]).toEqual([
-      'A new version of MUSIXQUARE is available. Refresh the page to apply it.',
-      'A new version of MUSIXQUARE is available. Reopen the app to apply it.',
+      'A new version of MUSIXQUARE is available.\nRefresh the page to apply it.',
+      'A new version of MUSIXQUARE is available.\nReopen the app to apply it.',
     ]);
   });
 
@@ -311,10 +321,14 @@ describe('completed translation factual contracts', () => {
         [titleKey, title],
         [messageKey, message],
       ] as const) {
-        // Plain dialog text: no placeholders, markup, numbers, or line breaks.
-        expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]|\n/u);
+        // Plain dialog text: no placeholders, markup, or numbers.
+        expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]/u);
         expect(text.trim(), `${language}.${key}`).toBe(text);
       }
+      // The short title is one line; the message puts each of its two
+      // sentences on its own line (owner decision 2026-10-15).
+      expect(title, `${language}.${titleKey}`).not.toContain('\n');
+      expect(message.split('\n'), `${language}.${messageKey} lines`).toHaveLength(2);
       // The message names the brand exactly once (it was updated); the short
       // title does not.
       expect(message.split('MUSIXQUARE'), `${language}.${messageKey}`).toHaveLength(2);
@@ -341,17 +355,23 @@ describe('completed translation factual contracts', () => {
     // needs a refresh to keep working normally; it names no single feature.
     expect([APP_DICTIONARIES.ko[titleKey], APP_DICTIONARIES.ko[messageKey]]).toEqual([
       '새로고침이 필요해요',
-      'MUSIXQUARE가 업데이트되었어요. 정상적으로 사용하려면 새로고침이 필요해요.',
+      'MUSIXQUARE가 업데이트되었어요.\n정상적으로 사용하려면 새로고침이 필요해요.',
     ]);
     expect([english[titleKey], english[messageKey]]).toEqual([
       'Refresh needed',
-      'MUSIXQUARE has been updated. Refresh to keep using it normally.',
+      'MUSIXQUARE has been updated.\nRefresh to keep using it normally.',
     ]);
-    // The regular update dialog keeps its copy.
+    // The regular update dialog keeps its copy, one sentence per line.
     expect([
       APP_DICTIONARIES.ko['dialog.sw_update_title'],
       APP_DICTIONARIES.ko['dialog.sw_update_msg'],
-    ]).toEqual(['업데이트', '새 버전이 준비되었어요. 새로고침하면 업데이트가 적용돼요.']);
+    ]).toEqual(['업데이트', '새 버전이 준비되었어요.\n새로고침하면 업데이트가 적용돼요.']);
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
+      expect(
+        dictionary['dialog.sw_update_msg'].split('\n'),
+        `${language} update lines`,
+      ).toHaveLength(2);
+    }
   });
 
   it('keeps supported-browser, synchronization, and system-audio claims factual', async () => {

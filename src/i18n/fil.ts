@@ -439,9 +439,9 @@ const fil: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Hindi ma-play ng device na ito ang kasalukuyang track.',
   'chat.update_available_tab_system_message':
-    'May bagong bersyon ng MUSIXQUARE. I-refresh ang page para magamit ito.',
+    'May bagong bersyon ng MUSIXQUARE.\nI-refresh ang page para magamit ito.',
   'chat.update_available_app_system_message':
-    'May bagong bersyon ng MUSIXQUARE. Buksan muli ang app para magamit ito.',
+    'May bagong bersyon ng MUSIXQUARE.\nBuksan muli ang app para magamit ito.',
   'chat.system_audio_started_system_message':
     'Nagsimula na ang pagbabahagi ng system audio. Normal ang kaunting latency sa pagitan ng host at mga bisitang device. Inirerekomenda naming hinaan ang volume ng host device para maiwasan ang echo.',
   'chat.system_audio_stopped_system_message':
@@ -738,10 +738,10 @@ const fil: Record<I18nKey, string> = {
   'dialog.continue_using': 'Magpatuloy',
   'dialog.leave_session': 'Umalis',
   'dialog.sw_update_title': 'I-update',
-  'dialog.sw_update_msg': 'Handa na ang bagong bersyon. I-refresh para mag-update.',
+  'dialog.sw_update_msg': 'Handa na ang bagong bersyon.\nI-refresh para mag-update.',
   'dialog.feature_refresh_title': 'Kailangang mag-refresh',
   'dialog.feature_refresh_msg':
-    'Na-update ang MUSIXQUARE. I-refresh para patuloy itong magamit nang maayos.',
+    'Na-update ang MUSIXQUARE.\nI-refresh para patuloy itong magamit nang maayos.',
   'dialog.reconnect_ask': 'Gusto mo bang kumonekta muli?',
   'dialog.reconnect': 'Kumonekta muli',
   'dialog.go_back': 'Bumalik',

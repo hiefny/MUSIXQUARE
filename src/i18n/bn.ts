@@ -424,9 +424,9 @@ const bn: Record<I18nKey, string> = {
     'এই ট্র্যাকের ফাইল অনেক বড় এবং কিছু ডিভাইসে নাও চলতে পারে।',
   'chat.device_track_unavailable_system_message': 'এই ডিভাইসটি বর্তমান ট্র্যাক চালাতে পারছে না।',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ। প্রয়োগ করতে পেজটি রিফ্রেশ করুন।',
+    'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ।\nপ্রয়োগ করতে পেজটি রিফ্রেশ করুন।',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ। প্রয়োগ করতে অ্যাপটি আবার খুলুন।',
+    'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ।\nপ্রয়োগ করতে অ্যাপটি আবার খুলুন।',
   'chat.system_audio_started_system_message':
     'সিস্টেম অডিও শেয়ার করা শুরু হয়েছে। হোস্ট ও অতিথি ডিভাইসের মাঝে সামান্য বিলম্ব স্বাভাবিক। প্রতিধ্বনি এড়াতে হোস্ট ডিভাইসের ভলিউম কমিয়ে রাখুন।',
   'chat.system_audio_stopped_system_message':
@@ -715,10 +715,10 @@ const bn: Record<I18nKey, string> = {
   'dialog.continue_using': 'চালিয়ে যান',
   'dialog.leave_session': 'ছেড়ে যান',
   'dialog.sw_update_title': 'আপডেট',
-  'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত। আপডেট করতে রিফ্রেশ করুন।',
+  'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত।\nআপডেট করতে রিফ্রেশ করুন।',
   'dialog.feature_refresh_title': 'রিফ্রেশ করা প্রয়োজন',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE আপডেট হয়েছে। স্বাভাবিকভাবে ব্যবহার চালিয়ে যেতে রিফ্রেশ করুন।',
+    'MUSIXQUARE আপডেট হয়েছে।\nস্বাভাবিকভাবে ব্যবহার চালিয়ে যেতে রিফ্রেশ করুন।',
   'dialog.reconnect_ask': 'আবার সংযোগ করতে চান?',
   'dialog.reconnect': 'আবার সংযোগ করুন',
   'dialog.go_back': 'ফিরে যান',

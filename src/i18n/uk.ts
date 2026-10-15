@@ -427,9 +427,9 @@ const uk: Record<I18nKey, string> = {
     'Цей файл дуже великий і може не відтворюватися на деяких пристроях.',
   'chat.device_track_unavailable_system_message': 'Цей пристрій не може відтворити поточний трек.',
   'chat.update_available_tab_system_message':
-    'Доступна нова версія MUSIXQUARE. Вона почне діяти після оновлення сторінки.',
+    'Доступна нова версія MUSIXQUARE.\nВона почне діяти після оновлення сторінки.',
   'chat.update_available_app_system_message':
-    'Доступна нова версія MUSIXQUARE. Вона почне діяти після повторного відкриття застосунку.',
+    'Доступна нова версія MUSIXQUARE.\nВона почне діяти після перезапуску застосунку.',
   'chat.system_audio_started_system_message':
     'Розпочато трансляцію системного аудіо. Невелика затримка між пристроями хоста й гостей є нормальною. Щоб уникнути відлуння, радимо зменшити гучність пристрою хоста.',
   'chat.system_audio_stopped_system_message':
@@ -724,10 +724,10 @@ const uk: Record<I18nKey, string> = {
   'dialog.continue_using': 'Продовжити',
   'dialog.leave_session': 'Вийти',
   'dialog.sw_update_title': 'Оновлення',
-  'dialog.sw_update_msg': 'Нова версія готова. Оновіть сторінку, щоб застосувати її.',
+  'dialog.sw_update_msg': 'Нова версія готова.\nОновіть сторінку, щоб застосувати її.',
   'dialog.feature_refresh_title': 'Потрібно оновити сторінку',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE оновлено. Щоб і далі нормально ним користуватися, оновіть сторінку.',
+    'MUSIXQUARE оновлено.\nЩоб і далі нормально ним користуватися, оновіть сторінку.',
   'dialog.reconnect_ask': 'Підключитися знову?',
   'dialog.reconnect': 'Перепідключити',
   'dialog.go_back': 'Назад',

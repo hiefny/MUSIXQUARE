@@ -420,9 +420,9 @@ const ur: Record<I18nKey, string> = {
     'اس ٹریک کی فائل بہت بڑی ہے اور شاید کچھ آلات پر نہ چلے۔',
   'chat.device_track_unavailable_system_message': 'یہ آلہ موجودہ ٹریک نہیں چلا سکتا۔',
   'chat.update_available_tab_system_message':
-    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے۔ لاگو کرنے کے لیے صفحہ ریفریش کریں۔',
+    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے۔\nلاگو کرنے کے لیے صفحہ ریفریش کریں۔',
   'chat.update_available_app_system_message':
-    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے۔ لاگو کرنے کے لیے ایپ دوبارہ کھولیں۔',
+    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے۔\nلاگو کرنے کے لیے ایپ دوبارہ کھولیں۔',
   'chat.system_audio_started_system_message':
     'سسٹم آڈیو شیئر ہونا شروع ہو گیا ہے۔ میزبان اور مہمان آلات کے درمیان معمولی تاخیر عام ہے۔ بازگشت سے بچنے کے لیے میزبان آلے کی آواز کم رکھنے کا مشورہ ہے۔',
   'chat.system_audio_stopped_system_message':
@@ -709,10 +709,10 @@ const ur: Record<I18nKey, string> = {
   'dialog.continue_using': 'جاری رکھیں',
   'dialog.leave_session': 'سیشن چھوڑیں',
   'dialog.sw_update_title': 'اپ ڈیٹ',
-  'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔ اپ ڈیٹ کے لیے ریفریش کریں۔',
+  'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔\nاپ ڈیٹ کے لیے ریفریش کریں۔',
   'dialog.feature_refresh_title': 'ریفریش کرنا ضروری ہے',
   'dialog.feature_refresh_msg':
-    'اب MUSIXQUARE اپ ڈیٹ ہو چکا ہے۔ معمول کے مطابق استعمال جاری رکھنے کے لیے ریفریش کریں۔',
+    'اب MUSIXQUARE اپ ڈیٹ ہو چکا ہے۔\nمعمول کے مطابق استعمال جاری رکھنے کے لیے ریفریش کریں۔',
   'dialog.reconnect_ask': 'دوبارہ منسلک ہونا چاہتے ہیں؟',
   'dialog.reconnect': 'دوبارہ جوڑیں',
   'dialog.go_back': 'واپس جائیں',

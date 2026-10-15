@@ -428,9 +428,9 @@ const fi: Record<I18nKey, string> = {
     'Tiedosto on erittäin suuri, eikä kappale välttämättä toistu kaikilla laitteilla.',
   'chat.device_track_unavailable_system_message': 'Tämä laite ei voi toistaa nykyistä kappaletta.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUAREsta on saatavilla uusi versio. Päivitä sivu ottaaksesi sen käyttöön.',
+    'MUSIXQUAREsta on saatavilla uusi versio.\nPäivitä sivu ottaaksesi sen käyttöön.',
   'chat.update_available_app_system_message':
-    'MUSIXQUAREsta on saatavilla uusi versio. Avaa sovellus uudelleen ottaaksesi sen käyttöön.',
+    'MUSIXQUAREsta on saatavilla uusi versio.\nAvaa sovellus uudelleen ottaaksesi sen käyttöön.',
   'chat.system_audio_started_system_message':
     'Järjestelmän äänen jakaminen aloitettiin. Pieni viive isäntä- ja vieraslaitteiden välillä on normaalia. Kaikumisen välttämiseksi isäntälaitteen äänenvoimakkuutta kannattaa pienentää.',
   'chat.system_audio_stopped_system_message':
@@ -720,10 +720,10 @@ const fi: Record<I18nKey, string> = {
   'dialog.continue_using': 'Jatka',
   'dialog.leave_session': 'Poistu',
   'dialog.sw_update_title': 'Päivitys',
-  'dialog.sw_update_msg': 'Uusi versio on valmis. Päivitä sivu ottaaksesi sen käyttöön.',
+  'dialog.sw_update_msg': 'Uusi versio on valmis.\nPäivitä sivu ottaaksesi sen käyttöön.',
   'dialog.feature_refresh_title': 'Sivu on päivitettävä',
   'dialog.feature_refresh_msg':
-    'MUSIXQUARE on päivittynyt. Päivitä sivu, jotta voit jatkaa sen käyttöä normaalisti.',
+    'MUSIXQUARE on päivittynyt.\nPäivitä sivu, jotta voit jatkaa sen käyttöä normaalisti.',
   'dialog.reconnect_ask': 'Haluatko muodostaa yhteyden uudelleen?',
   'dialog.reconnect': 'Yhdistä taas',
   'dialog.go_back': 'Palaa takaisin',

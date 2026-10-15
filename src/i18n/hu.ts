@@ -429,9 +429,9 @@ const hu: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Ez az eszköz nem tudja lejátszani az aktuális számot.',
   'chat.update_available_tab_system_message':
-    'Elérhető a MUSIXQUARE új verziója. Az oldal újratöltése után lép életbe.',
+    'Elérhető a MUSIXQUARE új verziója.\nAz oldal újratöltése után lép életbe.',
   'chat.update_available_app_system_message':
-    'Elérhető a MUSIXQUARE új verziója. Az alkalmazás újbóli megnyitása után lép életbe.',
+    'Elérhető a MUSIXQUARE új verziója.\nAz alkalmazás újbóli megnyitása után lép életbe.',
   'chat.system_audio_started_system_message':
     'Elindult a rendszerhang megosztása. A házigazda és a résztvevők eszközei közötti kis késés normális. A visszhang elkerüléséhez csökkentsd a házigazda eszközének hangerejét.',
   'chat.system_audio_stopped_system_message':
@@ -725,10 +725,10 @@ const hu: Record<I18nKey, string> = {
   'dialog.continue_using': 'Folytatás',
   'dialog.leave_session': 'Kilépés',
   'dialog.sw_update_title': 'Frissítés',
-  'dialog.sw_update_msg': 'Új verzió érhető el. A frissítéshez töltsd újra az oldalt.',
+  'dialog.sw_update_msg': 'Új verzió érhető el.\nA frissítéshez töltsd újra az oldalt.',
   'dialog.feature_refresh_title': 'Újratöltés szükséges',
   'dialog.feature_refresh_msg':
-    'A MUSIXQUARE frissült. A zavartalan használathoz töltsd újra az oldalt.',
+    'A MUSIXQUARE frissült.\nA zavartalan használathoz töltsd újra az oldalt.',
   'dialog.reconnect_ask': 'Újracsatlakozol?',
   'dialog.reconnect': 'Újrakapcsolás',
   'dialog.go_back': 'Vissza',

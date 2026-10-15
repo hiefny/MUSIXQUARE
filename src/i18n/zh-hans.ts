@@ -605,9 +605,9 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.continue_using': '继续',
   'dialog.leave_session': '离开',
   'dialog.sw_update_title': '更新',
-  'dialog.sw_update_msg': '新版本已准备好。刷新即可更新。',
+  'dialog.sw_update_msg': '新版本已准备好。\n刷新即可更新。',
   'dialog.feature_refresh_title': '需要刷新',
-  'dialog.feature_refresh_msg': 'MUSIXQUARE 已更新。请刷新页面以继续正常使用。',
+  'dialog.feature_refresh_msg': 'MUSIXQUARE 已更新。\n请刷新页面以继续正常使用。',
   'dialog.reconnect_ask': '要重新连接吗？',
   'dialog.reconnect': '重新连接',
   'dialog.go_back': '返回',
@@ -739,8 +739,8 @@ const zhHans: Record<I18nKey, string> = {
   'chat.large_track_playback_system_message': '此媒体文件非常大，使用时可能会出现延迟。',
   'chat.large_local_track_system_message': '当前媒体文件很大，部分设备可能无法播放。',
   'chat.device_track_unavailable_system_message': '此设备无法播放当前媒体。',
-  'chat.update_available_tab_system_message': 'MUSIXQUARE 有新版本。刷新页面后即可生效。',
-  'chat.update_available_app_system_message': 'MUSIXQUARE 有新版本。重新打开应用后即可生效。',
+  'chat.update_available_tab_system_message': 'MUSIXQUARE 有新版本。\n刷新页面后即可生效。',
+  'chat.update_available_app_system_message': 'MUSIXQUARE 有新版本。\n重新打开应用后即可生效。',
   'chat.system_audio_started_system_message':
     '系统音频共享已开始。房主设备与参与者设备之间出现轻微延迟属于正常现象。为避免回声，建议尽量调低房主设备的音量。',
   'chat.system_audio_stopped_system_message':

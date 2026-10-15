@@ -45,8 +45,8 @@ const ms: Record<I18nKey, string> = {
 
   // ─── Akaun ───────────────────────────────────────────────────────
   'account.login_title': 'Log masuk',
-  'account.login_cancelled': 'Log masuk dibatalkan.',
-  'account.login_failed': 'Tidak dapat log masuk. Sila cuba lagi.',
+  'account.login_cancelled': 'Log masuk dibatalkan',
+  'account.login_failed': 'Tidak dapat log masuk\nSila cuba lagi',
   'account.welcome_back': 'Selamat kembali\n{{name}}',
   'account.login_message':
     'Log masuk dengan Google untuk mengekalkan nama panggilan anda di semua bilik. Anda boleh meneruskan tanpa log masuk.',
@@ -73,14 +73,14 @@ const ms: Record<I18nKey, string> = {
   'account.nickname_required': 'Masukkan nama panggilan.',
   'account.nickname_whitespace':
     'Nama panggilan tidak boleh mengandungi ruang atau aksara halimunan.',
-  'account.nickname_taken': 'Nama panggilan itu sudah digunakan.',
-  'account.nickname_saved': 'Nama panggilan ditukar kepada {{name}}.',
-  'account.action_failed': 'Tidak dapat mengemas kini akaun anda. Sila cuba lagi.',
+  'account.nickname_taken': 'Nama panggilan itu sudah digunakan',
+  'account.nickname_saved': 'Nama panggilan ditukar kepada {{name}}',
+  'account.action_failed': 'Tidak dapat mengemas kini akaun anda\nSila cuba lagi',
   'account.delete_confirm_title': 'Padam akaun anda?',
   'account.delete_confirm_message':
     'Nama panggilan, sesi log masuk dan kebenaran bilik yang dipautkan dengan akaun anda akan dipadamkan. Kandungan yang dikongsi dalam bilik tertakluk pada dasar penyimpanan bilik tersebut.',
   'account.delete_pending':
-    'Akaun anda sedang dipadamkan. Kebenaran PRO sedang dibersihkan dengan selamat dan pemadaman akan selesai secara automatik.',
+    'Akaun anda sedang dipadamkan\nKebenaran PRO sedang dibersihkan dengan selamat dan pemadaman akan selesai secara automatik',
   'common.previous': 'Sebelumnya',
   'common.next_desc': 'Seterusnya',
   'common.volume_percent': 'Kelantangan: {{val}}%',
@@ -148,7 +148,7 @@ const ms: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Ulang dimatikan',
   'playlist.shuffle_on': 'Rawak dihidupkan',
   'playlist.shuffle_off': 'Rawak dimatikan',
-  'playlist.empty_hint': 'Belum ada media.',
+  'playlist.empty_hint': 'Belum ada media',
   'playlist.loading_info': 'Memuatkan maklumat trek...',
   'playlist.sub_load_failed': 'Tidak dapat memuatkan maklumat video',
   'playlist.remove_title': 'Alih keluar daripada senarai main',
@@ -160,10 +160,10 @@ const ms: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Memuatkan...',
   'playlist.track_fallback': 'Trek {{idx}}',
   'playlist.deferred_load_hint': 'Mainkan untuk memuatkan senarai penuh trek',
-  'playlist.host_update_required': 'Sila kemas kini peranti yang menguruskan bilik ini.',
-  'playlist.queue_full': 'Senarai main sudah penuh.',
-  'playlist.mutation_retry': 'Senarai main telah berubah. Sila cuba lagi.',
-  'transfer.host_busy': 'Hos sedang memproses fail lain. Cuba lagi sebentar nanti.',
+  'playlist.host_update_required': 'Sila kemas kini peranti yang menguruskan bilik ini',
+  'playlist.queue_full': 'Senarai main sudah penuh',
+  'playlist.mutation_retry': 'Senarai main telah berubah\nSila cuba lagi',
+  'transfer.host_busy': 'Hos sedang memproses fail lain\nCuba lagi sebentar nanti',
 
   // ─── Peranan ─────────────────────────────────────────────────────
   'role.center': 'Tengah',
@@ -296,7 +296,7 @@ const ms: Record<I18nKey, string> = {
   'connect.room_password_invalid': 'Masukkan 8 digit',
   'connect.room_password_disabled': 'Peserta tidak lagi memerlukan kata laluan bilik',
   'connect.room_password_apply_pending':
-    'Kata laluan baharu akan berkuat kuasa sebaik sahaja sambungan pulih.',
+    'Kata laluan baharu akan berkuat kuasa sebaik sahaja sambungan pulih',
   'connect.pin_enabled_removed_message':
     'Hos telah menetapkan kata laluan bilik. Masukkan kata laluan untuk menyertai semula.',
   'connect.pin_changed_removed_message':
@@ -324,7 +324,7 @@ const ms: Record<I18nKey, string> = {
   'demo.prompt_message': 'Selamat datang! Bersedia untuk jelajah ringkas ciri-ciri kami?',
   'demo.prompt_cta': 'Mulakan Jelajah',
   'demo.prompt_later': 'Nanti',
-  'demo.try_later_toast': 'Anda boleh mencubanya pada bila-bila masa melalui tab Bantuan.',
+  'demo.try_later_toast': 'Anda boleh mencubanya pada bila-bila masa melalui tab Bantuan',
   'demo.track_info': 'Maklumat trek',
   'demo.exit': 'Keluar daripada Demo',
   'demo.credit': 'Trek demo',
@@ -353,9 +353,9 @@ const ms: Record<I18nKey, string> = {
   'demo.finish_step_title': 'Semua sudah siap!',
   'demo.finish_step_subtitle': 'Teruskan dan mula memainkan audio bersama-sama.',
   'demo.track_list_label': 'Senarai trek demo',
-  'demo.host_only_exit': 'Hanya hos boleh menekan butang ini.',
+  'demo.host_only_exit': 'Hanya hos boleh menekan butang ini',
   'demo.external_playback_stopped':
-    'Mod demo menghentikan main balik YouTube atau audio sistem semasa.',
+    'Mod demo menghentikan main balik YouTube atau audio sistem semasa',
   'setup.how_to_connect': 'Cara menyambung',
   'setup.set_role': 'Tetapkan peranan peranti ini',
   'setup.what_sound': 'Apakah yang patut dimainkan oleh peranti ini?',
@@ -374,7 +374,7 @@ const ms: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Tiada kamera yang boleh digunakan ditemui',
   'setup.camera_unavailable': 'Tidak dapat memulakan kamera',
   'setup.camera_stream_stalled':
-    'Pratonton kamera tidak bermula.\nBuka dalam pelayar atau masukkan kod.',
+    'Pratonton kamera tidak bermula\nBuka dalam pelayar atau masukkan kod',
   'setup.connect_devices': 'Sambungkan peranti anda yang lain untuk bermula.',
   'setup.enter_code_connect': 'Kod jemputan',
   'setup.last_step': 'Mari kita mulakan!',
@@ -433,19 +433,19 @@ const ms: Record<I18nKey, string> = {
     'Saiz fail trek ini sangat besar dan mungkin tidak dapat dimainkan pada sesetengah peranti.',
   'chat.device_track_unavailable_system_message': 'Peranti ini tidak dapat memainkan trek semasa.',
   'chat.update_available_tab_system_message':
-    'Versi baharu MUSIXQUARE tersedia.\nMuat semula halaman untuk menggunakannya.',
+    'Versi baharu MUSIXQUARE tersedia\nMuat semula halaman untuk menggunakannya',
   'chat.update_available_app_system_message':
-    'Versi baharu MUSIXQUARE tersedia.\nBuka semula aplikasi untuk menggunakannya.',
+    'Versi baharu MUSIXQUARE tersedia\nBuka semula aplikasi untuk menggunakannya',
   'chat.system_audio_started_system_message':
     'Perkongsian audio sistem telah bermula. Sedikit kependaman antara peranti hos dan tetamu adalah perkara biasa. Kami mengesyorkan agar kelantangan peranti hos dikecilkan untuk mengelakkan gema.',
   'chat.system_audio_stopped_system_message':
     'Perkongsian audio sistem telah tamat. Hos boleh menaikkan semula kelantangan supaya peranti ini boleh berfungsi sebagai pembesar suara semula.',
   'chat.remote_upload_limited_system_message':
-    'Had muat naik fail dicapai.\nPeserta jarak jauh perlu cuba lagi kemudian.',
+    'Had muat naik fail dicapai\nPeserta jarak jauh perlu cuba lagi kemudian',
   'chat.remote_storage_quota_system_message':
     'Had perkongsian jarak jauh dicapai.\nPerkongsian fail setempat masih tersedia.',
   'chat.remote_upload_failed_system_message':
-    'Muat naik fail jarak jauh gagal.\nPeserta jarak jauh perlu cuba lagi sebentar nanti.',
+    'Muat naik fail jarak jauh gagal\nPeserta jarak jauh perlu cuba lagi sebentar nanti',
   'chat.pinned_close': 'Tutup notis',
   'chat.cmd_whisper_from': 'Bisikan daripada {{name}}',
   'chat.cmd_whisper_to': 'Bisikan kepada {{name}}',
@@ -497,7 +497,7 @@ const ms: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Maklumat nyahpepijat sistem',
   'chat.debug_copied':
-    'Maklumat nyahpepijat disalin.\nHantarkannya kepada pembangun jika anda menemui pepijat.',
+    'Maklumat nyahpepijat disalin\nHantarkannya kepada pembangun jika anda menemui pepijat',
   'chat.seek_to': 'Lompat ke {{time}}',
   'chat.copied': 'Sembang disalin',
   'chat.copy_hint': 'Tekan Enter untuk menyalin mesej sembang ini',
@@ -508,13 +508,13 @@ const ms: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Masukkan pautan YouTube atau istilah carian',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Tonton YouTube bersama',
-  'youtube.ready': 'YouTube sudah sedia!\nTekan Main.',
+  'youtube.ready': 'YouTube sudah sedia!\nTekan Main',
   'youtube.thumbnail': 'Imej kecil pratonton YouTube',
-  'youtube.load_fail': 'Gagal memuatkan API YouTube.\nPeriksa sambungan anda!',
+  'youtube.load_fail': 'Gagal memuatkan API YouTube\nPeriksa sambungan anda!',
   'youtube.video_unavailable': 'Video tidak tersedia, melangkau ke trek seterusnya',
-  'youtube.load_timeout': 'Masa memuatkan YouTube tamat.\nSila cuba lagi.',
+  'youtube.load_timeout': 'Masa memuatkan YouTube tamat\nSila cuba lagi',
   'youtube.invalid_link': 'Pautan YouTube tidak sah',
-  'youtube.effects_disabled': 'Tonton YouTube bersama.\nKesan audio lanjutan dimatikan.',
+  'youtube.effects_disabled': 'Tonton YouTube bersama\nKesan audio lanjutan dimatikan',
   'youtube.enter_link_placeholder': 'Masukkan pautan video atau senarai main',
   'youtube.enter_source_toast': 'Masukkan pautan YouTube atau istilah carian',
   'youtube.fetching_info': 'Memuatkan maklumat video...',
@@ -532,7 +532,7 @@ const ms: Record<I18nKey, string> = {
   'youtube.search_failed': 'Carian YouTube tidak tersedia',
   'youtube.search_selected': 'Video yang dipilih sedia untuk ditambah',
   'youtube.search_results': 'Hasil carian YouTube',
-  'youtube.live_sync_warning': 'Strim langsung sukar disegerakkan dengan tepat.',
+  'youtube.live_sync_warning': 'Strim langsung sukar disegerakkan dengan tepat',
 
   // ─── Rangkaian ───────────────────────────────────────────────────
   'network.disconnected': 'Terputus',
@@ -540,8 +540,8 @@ const ms: Record<I18nKey, string> = {
   'network.session_full': 'Bilik sudah penuh',
   'network.session_full_detail':
     'Bilik ini sudah mencapai had maksimum 100 peranti yang disambungkan, termasuk hos.',
-  'network.op_granted': 'Kebenaran pentadbir diberikan.',
-  'network.op_revoked': 'Kebenaran pentadbir ditarik balik.',
+  'network.op_granted': 'Kebenaran pentadbir diberikan',
+  'network.op_revoked': 'Kebenaran pentadbir ditarik balik',
 
   // ─── Pemberitahuan dinamik ───────────────────────────────────────
   'toast.device_connected': '{{name}} disambungkan',
@@ -549,7 +549,7 @@ const ms: Record<I18nKey, string> = {
   'toast.device_conn_error': 'Ralat sambungan {{name}}',
   'toast.device_kicked': '{{name}} telah dikeluarkan',
   'toast.remote_decode_device_wait':
-    'Sebuah peranti gagal menyahkod trek ini. Main balik diteruskan untuk peranti lain.',
+    'Sebuah peranti gagal menyahkod trek ini\nMain balik diteruskan untuk peranti lain',
   'toast.invite_code': 'Kod jemputan: {{code}}',
   'toast.invite_code_info': '{{count}} disambungkan | Kod {{code}}',
   'toast.added_tracks': '{{count}} trek ditambah',
@@ -562,14 +562,14 @@ const ms: Record<I18nKey, string> = {
   'toast.op_status': 'Kebenaran {{label}} {{status}}',
   'toast.file_read_error': 'Ralat membaca fail: {{name}}',
   'toast.host_ended_connection': 'Hos telah menamatkan sambungan',
-  'toast.announcement_available': 'Notis baharu.\nSemak panel sembang.',
+  'toast.announcement_available': 'Notis baharu\nSemak panel sembang',
 
   // ─── Pemberitahuan statik ────────────────────────────────────────
   'toast.copy_failed': 'Tidak dapat menyalin',
   'toast.email_copied': 'Alamat e-mel disalin!',
   'toast.settings_sync_enabled': 'Penyegerakan tetapan dihidupkan',
   'toast.settings_sync_admin_required':
-    'Penyegerakan tetapan dihidupkan.\nHanya pentadbir bilik boleh menukar tetapan audio.',
+    'Penyegerakan tetapan dihidupkan\nHanya pentadbir bilik boleh menukar tetapan audio',
   'toast.virtual_bass_on': 'Bass maya dihidupkan',
   'toast.virtual_bass_off': 'Bass maya dimatikan',
   'toast.virtual_treble_on': 'Trebel maya dihidupkan',
@@ -577,27 +577,27 @@ const ms: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Keliling maya dihidupkan',
   'toast.virtual_surround_off': 'Keliling maya dimatikan',
   'toast.virtual_effects_off': 'Semua kesan maya dimatikan',
-  'toast.host_only': 'Hanya hos boleh melakukan tindakan ini.',
-  'toast.host_only_media': 'Hanya hos boleh menambah media.',
-  'toast.media_management_required': 'Kebenaran mengurus media diperlukan.',
-  'toast.playback_control_required': 'Kebenaran mengawal main balik diperlukan.',
-  'toast.member_management_required': 'Kebenaran untuk mengeluarkan ahli diperlukan.',
-  'toast.chat_notice_required': 'Kebenaran untuk menyiarkan notis sembang diperlukan.',
-  'toast.room_owner_required': 'Hanya pemilik bilik boleh mengubah tetapan ini.',
+  'toast.host_only': 'Hanya hos boleh melakukan tindakan ini',
+  'toast.host_only_media': 'Hanya hos boleh menambah media',
+  'toast.media_management_required': 'Kebenaran mengurus media diperlukan',
+  'toast.playback_control_required': 'Kebenaran mengawal main balik diperlukan',
+  'toast.member_management_required': 'Kebenaran untuk mengeluarkan ahli diperlukan',
+  'toast.chat_notice_required': 'Kebenaran untuk menyiarkan notis sembang diperlukan',
+  'toast.room_owner_required': 'Hanya pemilik bilik boleh mengubah tetapan ini',
   'toast.system_audio_owner_required':
-    'Anda hanya boleh berkongsi audio daripada tab yang membuka bilik.',
-  'toast.host_only_youtube': 'Hanya hos boleh menambah pautan YouTube.',
+    'Anda hanya boleh berkongsi audio daripada tab yang membuka bilik',
+  'toast.host_only_youtube': 'Hanya hos boleh menambah pautan YouTube',
   'toast.host_only_control': 'Hanya hos boleh mengawal tindakan ini',
   'toast.host_setting_required': 'Hanya hos boleh mengubah tetapan ini',
   'toast.host_only_file': 'Hanya hos boleh menambah fail',
   'toast.no_tracks': 'Tiada trek untuk dimainkan',
   'toast.add_media_to_play': 'Sila tambah media',
   'toast.no_invite_code': 'Belum ada kod jemputan',
-  'toast.invite_code_settings': 'Kongsi pautan jemputan melalui tab Sambung.',
+  'toast.invite_code_settings': 'Kongsi pautan jemputan melalui tab Sambung',
   'toast.click_copy_invite': 'Klik untuk menyalin kod jemputan',
   'toast.cant_select_file': 'Tidak dapat memilih fail',
   'toast.unsupported_files_excluded': 'Fail yang tidak disokong dilangkau: {{count}}',
-  'toast.no_supported_audio_files': 'Tiada fail audio yang disokong untuk ditambah.',
+  'toast.no_supported_audio_files': 'Tiada fail audio yang disokong untuk ditambah',
   'dialog.large_room_file.title': 'Perkongsian fail dalam bilik besar',
   'dialog.large_room_file.message':
     'Pada rangkaian yang sama, pemindahan fail terus stabil untuk sehingga 8 peranti tetamu, tidak termasuk hos. Dalam bilik setempat yang lebih besar, fail mungkin diedarkan melalui Cloudflare R2.\n\nTeruskan?',
@@ -605,36 +605,36 @@ const ms: Record<I18nKey, string> = {
   'toast.sync_reset': 'Ofset penyegerakan ditetapkan semula',
   'toast.stop_sent': 'Permintaan berhenti dihantar',
   'toast.hprecision_sync': 'Penyegerakan berketepatan tinggi: menyediakan audio…',
-  'toast.file_ready': 'Fail anda sudah sedia!\nTekan Main.',
+  'toast.file_ready': 'Fail anda sudah sedia!\nTekan Main',
   'toast.host_sync_not_recommended': 'Laraskan penyegerakan pada peranti tetamu',
   'toast.host_sync_requested':
-    'Penyegerakan tepat diminta.\nLaraskan penyegerakan manual pada peranti tetamu.',
+    'Penyegerakan tepat diminta\nLaraskan penyegerakan manual pada peranti tetamu',
   'toast.sync_not_in_system_audio':
     'Penyegerakan tidak tersedia dalam mod perkongsian audio sistem',
-  'toast.sync_not_ready': 'Belum sedia.\nCuba lagi sebentar nanti',
+  'toast.sync_not_ready': 'Belum sedia\nCuba lagi sebentar nanti',
   'toast.sync_no_media':
-    'Tiada media untuk disegerakkan.\nPilih sesuatu untuk dimainkan terlebih dahulu',
+    'Tiada media untuk disegerakkan\nPilih sesuatu untuk dimainkan terlebih dahulu',
   'toast.host_ad': 'Hos nampaknya sedang menonton iklan',
   'toast.yt_sync_start': 'Menyegerak...',
   'toast.yt_sync_done': 'Penyegerakan selesai',
   'toast.yt_rendezvous_start': 'Menyelaraskan dengan hos...',
   'toast.yt_rendezvous_done': 'Penyegerakan selesai',
   'toast.yt_rendezvous_host_paused': 'Hos dijeda, hanya kedudukan diselaraskan',
-  'toast.yt_rendezvous_no_data': 'Belum ada data main balik hos, cuba lagi sebentar nanti',
-  'toast.yt_rendezvous_timeout': 'Penyegerakan gagal, sila cuba lagi sebentar nanti',
+  'toast.yt_rendezvous_no_data': 'Belum ada data main balik hos\nCuba lagi sebentar nanti',
+  'toast.yt_rendezvous_timeout': 'Penyegerakan gagal\nSila cuba lagi sebentar nanti',
   'toast.yt_host_sync_sent': 'Isyarat penyegerakan automatik dihantar kepada peserta',
   'toast.yt_manual_sync_prompt':
-    'Penyegerakan automatik baru sahaja dicuba.\nJika masih terasa lewat, laraskan nilainya sekarang',
+    'Penyegerakan automatik baru sahaja dicuba\nJika masih terasa lewat, laraskan nilainya sekarang',
   'toast.playlist_ended': 'Item media terakhir telah tamat',
   'toast.operator_required': 'Hanya pentadbir boleh mengubah tetapan global',
   'toast.connection_closing': 'Sambungan terputus, tetapan tidak disegerakkan',
   'toast.host_changed_setting': 'Tetapan telah diubah',
-  'toast.session_mismatch': 'Sesi tidak sepadan.\nPemindahan fail akan dicuba semula.',
+  'toast.session_mismatch': 'Sesi tidak sepadan\nPemindahan fail akan dicuba semula',
   'toast.receiving_pct': 'Menerima... {{pct}}%',
 
   // ─── Pemindahan ──────────────────────────────────────────────────
   'transfer.demo_loading': 'Memuatkan trek demo daripada pelayan...',
-  'transfer.demo_loaded': 'Trek demo sudah sedia.',
+  'transfer.demo_loaded': 'Trek demo sudah sedia',
   'transfer.demo_load_fail': 'Gagal memuatkan demo:',
   'transfer.demo_loading_short': 'Memuatkan trek demo...',
   'transfer.file_requesting': 'Meminta fail...',
@@ -653,12 +653,12 @@ const ms: Record<I18nKey, string> = {
   'share.remote.too_large': 'Fail terlalu besar (maksimum 200 MB)',
   'share.remote.network_error': 'Ralat rangkaian semasa perkongsian jarak jauh',
   'share.remote.rate_limited':
-    'Terlalu banyak muat naik perkongsian jarak jauh.\nSila cuba lagi sebentar nanti',
+    'Terlalu banyak muat naik perkongsian jarak jauh\nSila cuba lagi sebentar nanti',
   'share.remote.quota_reached': 'Had storan perkongsian jarak jauh dicapai',
   'share.remote.auth_failed':
-    'Pengesahan perkongsian jarak jauh gagal.\nSila periksa tetapan Worker',
-  'share.remote.expired': 'Pautan fail jarak jauh telah tamat tempoh.\nSila kongsi semula.',
-  'share.remote.unavailable': 'Perkongsian jarak jauh gagal.\nSila cuba lagi sebentar nanti.',
+    'Pengesahan perkongsian jarak jauh gagal\nSila periksa tetapan Worker',
+  'share.remote.expired': 'Pautan fail jarak jauh telah tamat tempoh\nSila kongsi semula',
+  'share.remote.unavailable': 'Perkongsian jarak jauh gagal\nSila cuba lagi sebentar nanti',
   'transfer.preload_fail': 'Main balik pramuat gagal, memuatkan semula',
   'transfer.download_finishing': 'Menyelesaikan muat turun...',
   'transfer.preparation_delayed': 'Penyediaan tertangguh...\nMeminta pemulihan daripada hos',
@@ -667,15 +667,15 @@ const ms: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Menunggu pramuat: {{name}}',
   'transfer.waiting_recovery': 'Menunggu pemulihan: {{name}}',
   'transfer.preparing_name': 'Menyediakan: {{name}}',
-  'transfer.recovery_failed': 'Pemulihan fail gagal.\nSila cuba lagi.',
+  'transfer.recovery_failed': 'Pemulihan fail gagal\nSila cuba lagi',
 
   // ─── Ralat ───────────────────────────────────────────────────────
-  'error.https_required': 'HTTPS diperlukan: hanya berfungsi pada sambungan selamat.',
+  'error.https_required': 'HTTPS diperlukan: hanya berfungsi pada sambungan selamat',
   'error.browser_update': 'Sila kemas kini pelayar anda kepada versi terkini.',
   'error.load_failed': 'Gagal Dimuatkan: {{msg}}',
   'error.audio_decode_fail': 'Gagal menyahkod audio!',
   'error.audio_memory': 'Memuatkan audio ke dalam memori...',
-  'error.all_tracks_failed': 'Tiada trek yang boleh dimainkan dalam senarai main.',
+  'error.all_tracks_failed': 'Tiada trek yang boleh dimainkan dalam senarai main',
   'error.audio_engine_prepare': 'Tidak dapat menyediakan enjin audio',
   'error.session_create_fail': 'Tidak dapat mencipta sesi',
   'error.network_generic': 'Ralat rangkaian berlaku',
@@ -693,21 +693,20 @@ const ms: Record<I18nKey, string> = {
   'error.peer_not_ready': 'Sambungan peranti belum sedia',
   'error.network_init_failed': 'Rangkaian gagal dimulakan',
   'error.no_host_id': 'ID hos tidak ditemui',
-  'error.peer_unavailable': 'Tidak dapat menemui sesi.\nSila semak kod sekali lagi.',
+  'error.peer_unavailable': 'Tidak dapat menemui sesi\nSila semak kod sekali lagi',
   'error.host_left': 'Hos nampaknya telah meninggalkan sesi',
-  'error.network_issue': 'Terdapat masalah rangkaian.\nSila periksa sambungan internet anda.',
-  'error.signal_server_fail':
-    'Tidak dapat mencapai pelayan isyarat.\nSila cuba lagi sebentar nanti.',
-  'error.server_disconnected': 'Terputus daripada pelayan.',
-  'error.session_id_unavailable': 'ID sesi tidak tersedia.\nSila cuba lagi.',
-  'error.webrtc_failed': 'Sambungan WebRTC gagal.\nPeriksa tetapan pelayar anda.',
+  'error.network_issue': 'Terdapat masalah rangkaian\nSila periksa sambungan internet anda',
+  'error.signal_server_fail': 'Tidak dapat mencapai pelayan isyarat\nSila cuba lagi sebentar nanti',
+  'error.server_disconnected': 'Terputus daripada pelayan',
+  'error.session_id_unavailable': 'ID sesi tidak tersedia\nSila cuba lagi',
+  'error.webrtc_failed': 'Sambungan WebRTC gagal\nPeriksa tetapan pelayar anda',
   'error.browser_unsupported':
-    'Pelayar ini tidak boleh membuat sambungan masa nyata.\nCuba Chrome atau Safari.',
-  'error.ssl_required': 'Sambungan selamat (HTTPS) diperlukan.',
+    'Pelayar ini tidak boleh membuat sambungan masa nyata\nCuba Chrome atau Safari',
+  'error.ssl_required': 'Sambungan selamat (HTTPS) diperlukan',
   'error.room_password_required': 'Bilik ini memerlukan kata laluan.',
   'error.room_password_invalid': 'Kata laluan bilik tidak sepadan.',
   'error.room_password_auth_timeout':
-    'Rangkaian tidak stabil.\nCuba masukkan kata laluan sekali lagi.',
+    'Rangkaian tidak stabil\nCuba masukkan kata laluan sekali lagi',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Tambah fail setempat',
@@ -808,9 +807,9 @@ const ms: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'Kata laluan itu tidak betul. Cuba lagi.',
   'pro.pin_change_title': 'Tukar kata laluan bilik',
   'pro.pin_change_message': 'Tetapkan kata laluan 8 digit baharu.',
-  'pro.pin_changed': 'Kata laluan bilik ditukar.',
+  'pro.pin_changed': 'Kata laluan bilik ditukar',
   'pro.pin_enable_title': 'Tetapkan kata laluan bilik',
-  'pro.pin_enabled': 'Kata laluan bilik ditetapkan.',
+  'pro.pin_enabled': 'Kata laluan bilik ditetapkan',
   'pro.pin_members_title': 'Apakah yang perlu dilakukan kepada peserta semasa?',
   'pro.pin_members_keep': 'Kekalkan semua',
   'pro.pin_members_keep_detail':
@@ -830,8 +829,8 @@ const ms: Record<I18nKey, string> = {
   'pro.removed_message': 'Pemilik bilik atau pentadbir telah mengeluarkan anda daripada bilik ini.',
   'pro.device_removed_message':
     'Peranti lain yang log masuk ke akaun anda telah memutuskan sambungan peranti ini daripada bilik.',
-  'pro.owner_only': 'Hanya pemilik bilik boleh melakukan tindakan itu.',
-  'pro.connect_failed': 'Tidak dapat menyambung ke bilik PRO.',
+  'pro.owner_only': 'Hanya pemilik bilik boleh melakukan tindakan itu',
+  'pro.connect_failed': 'Tidak dapat menyambung ke bilik PRO',
   'pro.room_full': 'Bilik PRO ini sudah penuh',
   'pro.room_full_detail':
     'Bilik PRO boleh memuatkan sehingga 100 peranti, termasuk peranti pemilik. Satu tempat sentiasa dikhaskan untuk pemilik bilik.',
@@ -850,8 +849,8 @@ const ms: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Batalkan muat naik {{name}}',
   'pro.upload.confirming_file': 'Menyelesaikan muat naik {{name}}',
   'pro.downloading': 'Memuatkan fail...',
-  'pro.quota_exceeded': 'Bilik PRO ini telah mencapai had storan 1 GB.',
-  'pro.file_too_large': 'Fail ini melebihi had 200 MB bagi setiap fail.',
+  'pro.quota_exceeded': 'Bilik PRO ini telah mencapai had storan 1 GB',
+  'pro.file_too_large': 'Fail ini melebihi had 200 MB bagi setiap fail',
 
   // ─── Blok HTML (digunakan dengan data-i18n-html) ─────────────────
   'help.install_app_html':
@@ -892,36 +891,36 @@ const ms: Record<I18nKey, string> = {
   'system_audio.button': 'Audio Sistem',
   'system_audio.sharing': 'Berkongsi Audio Sistem',
   'system_audio.receiving': 'Menerima Audio Sistem',
-  'system_audio.owner_active': '{{name}} sedang berkongsi audio sistem.',
-  'system_audio.owner_preparing': '{{name}} sedang bersedia untuk berkongsi audio sistem.',
-  'system_audio.pro_preparing': 'Bersedia untuk berkongsi audio sistem.',
-  'system_audio.pro_publish_failed': 'Tidak dapat memulakan perkongsian audio sistem.',
+  'system_audio.owner_active': '{{name}} sedang berkongsi audio sistem',
+  'system_audio.owner_preparing': '{{name}} sedang bersedia untuk berkongsi audio sistem',
+  'system_audio.pro_preparing': 'Bersedia untuk berkongsi audio sistem',
+  'system_audio.pro_publish_failed': 'Tidak dapat memulakan perkongsian audio sistem',
   'system_audio.coordinator_update_required':
-    'Kemas kini peranti yang menguruskan bilik ini untuk berkongsi audio sistem.',
+    'Kemas kini peranti yang menguruskan bilik ini untuk berkongsi audio sistem',
   'system_audio.connection_unstable':
-    'Sambungan audio sistem {{name}} tidak stabil.\nSedang cuba menyambung semula.',
-  'system_audio.capture_denied': 'Perkongsian audio dibatalkan.',
-  'system_audio.no_audio_track': '“Kongsi audio” tidak dihidupkan.\nSila cuba lagi.',
+    'Sambungan audio sistem {{name}} tidak stabil\nSedang cuba menyambung semula',
+  'system_audio.capture_denied': 'Perkongsian audio dibatalkan',
+  'system_audio.no_audio_track': '“Kongsi audio” tidak dihidupkan\nSila cuba lagi',
   'system_audio.stop': 'Hentikan Perkongsian',
   'system_audio.stop_compact': 'Henti',
   'system_audio.started':
-    'Audio sistem mungkin mengalami sedikit kependaman.\nKecilkan kelantangan sumber jika boleh.',
-  'system_audio.stopped': 'Perkongsian audio sistem telah tamat.\nMenyambung semula senarai main.',
-  'system_audio.host_channel_locked': 'Peranan tidak boleh ditukar semasa audio sistem dikongsi.',
+    'Audio sistem mungkin mengalami sedikit kependaman\nKecilkan kelantangan sumber jika boleh',
+  'system_audio.stopped': 'Perkongsian audio sistem telah tamat\nMenyambung semula senarai main',
+  'system_audio.host_channel_locked': 'Peranan tidak boleh ditukar semasa audio sistem dikongsi',
   'system_audio.effects_guest_only':
-    'Audio sistem aktif.\nKesan audio hanya digunakan pada peranti tetamu.',
+    'Audio sistem aktif\nKesan audio hanya digunakan pada peranti tetamu',
   'system_audio.desktop_only':
-    'Hanya tersedia pada komputer yang menggunakan pelayar berasaskan Chromium (Chrome, Edge dan sebagainya).',
+    'Hanya tersedia pada komputer yang menggunakan pelayar berasaskan Chromium (Chrome, Edge dan sebagainya)',
   'system_audio.receive_failed':
-    'Tidak dapat menerima audio sistem.\nMinta hos memulakan perkongsian semula.',
+    'Tidak dapat menerima audio sistem\nMinta hos memulakan perkongsian semula',
   'system_audio.remote_receive_limit':
-    'Penerimaan audio sistem tamat selepas 2 jam.\nSertai semula bilik untuk terus mendengar.',
+    'Penerimaan audio sistem tamat selepas 2 jam\nSertai semula bilik untuk terus mendengar',
   'system_audio.device_limit':
-    'Audio sistem menyokong sehingga {{count}} peranti.\nIni termasuk hos.',
+    'Audio sistem menyokong sehingga {{count}} peranti\nIni termasuk hos',
   'system_audio.device_limit_stopped':
-    'Perkongsian audio sistem dihentikan.\nLebih daripada {{count}} peranti disambungkan.',
+    'Perkongsian audio sistem dihentikan\nLebih daripada {{count}} peranti disambungkan',
   'system_audio.duration_limit_stopped':
-    'Perkongsian audio sistem tamat secara automatik\nselepas 2 jam.',
+    'Perkongsian audio sistem tamat secara automatik\nselepas 2 jam',
 
   // ─── Perundangan ─────────────────────────────────────────────────
   'legal.title': 'Catatan perkhidmatan',

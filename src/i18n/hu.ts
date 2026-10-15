@@ -45,8 +45,8 @@ const hu: Record<I18nKey, string> = {
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Bejelentkezés',
-  'account.login_cancelled': 'A bejelentkezés megszakadt.',
-  'account.login_failed': 'Nem sikerült bejelentkezni. Próbáld újra.',
+  'account.login_cancelled': 'A bejelentkezés megszakadt',
+  'account.login_failed': 'Nem sikerült bejelentkezni\nPróbáld újra',
   'account.welcome_back': 'Üdv újra,\n{{name}}',
   'account.login_message':
     'Jelentkezz be Google-fiókkal, hogy minden szobában megtartsd a becenevedet. Bejelentkezés nélkül is folytathatod.',
@@ -71,14 +71,14 @@ const hu: Record<I18nKey, string> = {
   'account.nickname_hint': 'Legfeljebb 12 karaktert használj.',
   'account.nickname_required': 'Adj meg egy becenevet.',
   'account.nickname_whitespace': 'A becenév nem tartalmazhat szóközt vagy láthatatlan karaktert.',
-  'account.nickname_taken': 'Ez a becenév már használatban van.',
-  'account.nickname_saved': 'A becenév erre változott: {{name}}.',
-  'account.action_failed': 'Nem sikerült frissíteni a fiókot. Próbáld újra.',
+  'account.nickname_taken': 'Ez a becenév már használatban van',
+  'account.nickname_saved': 'A becenév erre változott: {{name}}',
+  'account.action_failed': 'Nem sikerült frissíteni a fiókot\nPróbáld újra',
   'account.delete_confirm_title': 'Törlöd a fiókot?',
   'account.delete_confirm_message':
     'A becenév, a bejelentkezési munkamenetek és a fiókhoz kapcsolódó szobajogosultságok törlődnek. A szobában megosztott tartalomra az adott szoba megőrzési szabályzata vonatkozik.',
   'account.delete_pending':
-    'A fiók törlése folyamatban van. A PRO-jogosultságokat biztonságosan eltávolítjuk, a törlés pedig automatikusan befejeződik.',
+    'A fiók törlése folyamatban van\nA PRO-jogosultságokat biztonságosan eltávolítjuk, a törlés pedig automatikusan befejeződik',
   'common.previous': 'Vissza',
   'common.next_desc': 'Tovább',
   'common.volume_percent': 'Hangerő: {{val}}%',
@@ -146,7 +146,7 @@ const hu: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Ismétlés kikapcsolva',
   'playlist.shuffle_on': 'Véletlenszerű lejátszás bekapcsolva',
   'playlist.shuffle_off': 'Véletlenszerű lejátszás kikapcsolva',
-  'playlist.empty_hint': 'Még nincs média.',
+  'playlist.empty_hint': 'Még nincs média',
   'playlist.loading_info': 'A szám adatainak betöltése...',
   'playlist.sub_load_failed': 'Nem sikerült betölteni a videó adatait',
   'playlist.remove_title': 'Eltávolítás a lejátszási listáról',
@@ -158,10 +158,10 @@ const hu: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Betöltés...',
   'playlist.track_fallback': '{{idx}}. szám',
   'playlist.deferred_load_hint': 'A teljes számlista betöltéséhez indítsd el a lejátszást',
-  'playlist.host_update_required': 'Frissítsd a szobát kezelő eszközt.',
-  'playlist.queue_full': 'A lejátszási lista megtelt.',
-  'playlist.mutation_retry': 'A lejátszási lista megváltozott. Próbáld újra.',
-  'transfer.host_busy': 'A házigazda másik fájlt dolgoz fel. Próbáld újra hamarosan.',
+  'playlist.host_update_required': 'Frissítsd a szobát kezelő eszközt',
+  'playlist.queue_full': 'A lejátszási lista megtelt',
+  'playlist.mutation_retry': 'A lejátszási lista megváltozott\nPróbáld újra',
+  'transfer.host_busy': 'A házigazda másik fájlt dolgoz fel\nPróbáld újra hamarosan',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'Középső',
@@ -290,7 +290,7 @@ const hu: Record<I18nKey, string> = {
   'connect.room_password_on': 'Jelszó alkalmazva',
   'connect.room_password_invalid': 'Adj meg 8 számjegyet',
   'connect.room_password_disabled': 'A résztvevőknek már nincs szükségük a szobajelszóra',
-  'connect.room_password_apply_pending': 'Az új jelszó a kapcsolat helyreállása után lép életbe.',
+  'connect.room_password_apply_pending': 'Az új jelszó a kapcsolat helyreállása után lép életbe',
   'connect.pin_enabled_removed_message':
     'A házigazda jelszót állított be a szobához. Add meg, és újra csatlakozhatsz.',
   'connect.pin_changed_removed_message':
@@ -318,7 +318,7 @@ const hu: Record<I18nKey, string> = {
   'demo.prompt_message': 'Üdv! Megnézed röviden a funkciókat?',
   'demo.prompt_cta': 'Bemutató indítása',
   'demo.prompt_later': 'Később',
-  'demo.try_later_toast': 'Bármikor kipróbálhatod a Súgó lapon.',
+  'demo.try_later_toast': 'Bármikor kipróbálhatod a Súgó lapon',
   'demo.track_info': 'Szám adatai',
   'demo.exit': 'Kilépés a bemutatóból',
   'demo.credit': 'Bemutatószám',
@@ -346,9 +346,9 @@ const hu: Record<I18nKey, string> = {
   'demo.finish_step_title': 'Minden készen áll!',
   'demo.finish_step_subtitle': 'Vágj bele a közös lejátszásba.',
   'demo.track_list_label': 'Bemutatószámok listája',
-  'demo.host_only_exit': 'Ezt csak a házigazda nyomhatja meg.',
+  'demo.host_only_exit': 'Ezt csak a házigazda nyomhatja meg',
   'demo.external_playback_stopped':
-    'A bemutató mód leállította a YouTube vagy a rendszerhang aktuális lejátszását.',
+    'A bemutató mód leállította a YouTube vagy a rendszerhang aktuális lejátszását',
   'setup.how_to_connect': 'Csatlakozás menete',
   'setup.set_role': 'Állítsd be az eszköz szerepét',
   'setup.what_sound': 'Mit játsszon le ez az eszköz?',
@@ -367,7 +367,7 @@ const hu: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Nem található használható kamera',
   'setup.camera_unavailable': 'Nem sikerült elindítani a kamerát',
   'setup.camera_stream_stalled':
-    'A kamera előnézete nem indult el.\nNyisd meg böngészőben, vagy add meg a kódot.',
+    'A kamera előnézete nem indult el\nNyisd meg böngészőben, vagy add meg a kódot',
   'setup.connect_devices': 'A kezdéshez csatlakoztasd a többi eszközödet.',
   'setup.enter_code_connect': 'Meghívókód',
   'setup.last_step': 'Kezdjünk bele!',
@@ -429,19 +429,19 @@ const hu: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'Ez az eszköz nem tudja lejátszani az aktuális számot.',
   'chat.update_available_tab_system_message':
-    'Elérhető a MUSIXQUARE új verziója.\nAz oldal újratöltése után lép életbe.',
+    'Elérhető a MUSIXQUARE új verziója\nAz oldal újratöltése után lép életbe',
   'chat.update_available_app_system_message':
-    'Elérhető a MUSIXQUARE új verziója.\nAz alkalmazás újbóli megnyitása után lép életbe.',
+    'Elérhető a MUSIXQUARE új verziója\nAz alkalmazás újbóli megnyitása után lép életbe',
   'chat.system_audio_started_system_message':
     'Elindult a rendszerhang megosztása. A házigazda és a résztvevők eszközei közötti kis késés normális. A visszhang elkerüléséhez csökkentsd a házigazda eszközének hangerejét.',
   'chat.system_audio_stopped_system_message':
     'A rendszerhang megosztása véget ért. A házigazda ismét felhangosíthatja az eszközét, hogy az újból hangszóróként működjön.',
   'chat.remote_upload_limited_system_message':
-    'Elérted a fájlfeltöltési korlátot.\nA távoli résztvevők próbálják újra később.',
+    'Elérted a fájlfeltöltési korlátot\nA távoli résztvevők próbálják újra később',
   'chat.remote_storage_quota_system_message':
     'Elérted a távoli megosztás korlátját.\nA helyi fájlmegosztás továbbra is elérhető.',
   'chat.remote_upload_failed_system_message':
-    'A távoli fájl feltöltése sikertelen.\nA távoli résztvevők próbálják újra hamarosan.',
+    'A távoli fájl feltöltése sikertelen\nA távoli résztvevők próbálják újra hamarosan',
   'chat.pinned_close': 'Közlemény bezárása',
   'chat.cmd_whisper_from': 'Privát üzenet tőle: {{name}}',
   'chat.cmd_whisper_to': 'Privát üzenet neki: {{name}}',
@@ -493,7 +493,7 @@ const hu: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Rendszer-hibakeresési adatok',
   'chat.debug_copied':
-    'A hibakeresési adatok kimásolva.\nHa hibát találtál, küldd el őket a fejlesztőnek.',
+    'A hibakeresési adatok kimásolva\nHa hibát találtál, küldd el őket a fejlesztőnek',
   'chat.seek_to': 'Ugrás ide: {{time}}',
   'chat.copied': 'Üzenet kimásolva',
   'chat.copy_hint': 'Az üzenet másolásához nyomd meg az Entert',
@@ -504,14 +504,13 @@ const hu: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Adj meg YouTube-hivatkozást vagy keresőkifejezést',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Közös YouTube-nézés',
-  'youtube.ready': 'A YouTube készen áll!\nNyomd meg a Lejátszás gombot.',
+  'youtube.ready': 'A YouTube készen áll!\nNyomd meg a Lejátszás gombot',
   'youtube.thumbnail': 'YouTube előnézeti kép',
-  'youtube.load_fail': 'Nem sikerült betölteni a YouTube API-t.\nEllenőrizd a kapcsolatot!',
+  'youtube.load_fail': 'Nem sikerült betölteni a YouTube API-t\nEllenőrizd a kapcsolatot!',
   'youtube.video_unavailable': 'A videó nem érhető el, ugrás a következő számra',
-  'youtube.load_timeout': 'A YouTube betöltése túllépte az időkorlátot.\nPróbáld újra.',
+  'youtube.load_timeout': 'A YouTube betöltése túllépte az időkorlátot\nPróbáld újra',
   'youtube.invalid_link': 'Érvénytelen YouTube-hivatkozás',
-  'youtube.effects_disabled':
-    'Közös YouTube-nézés.\nA speciális hangeffektusok ki vannak kapcsolva.',
+  'youtube.effects_disabled': 'Közös YouTube-nézés\nA speciális hangeffektusok ki vannak kapcsolva',
   'youtube.enter_link_placeholder': 'Adj meg videó- vagy lejátszásilista-hivatkozást',
   'youtube.enter_source_toast': 'Adj meg YouTube-hivatkozást vagy keresőkifejezést',
   'youtube.fetching_info': 'Videóadatok betöltése...',
@@ -529,7 +528,7 @@ const hu: Record<I18nKey, string> = {
   'youtube.search_failed': 'A YouTube-keresés nem érhető el',
   'youtube.search_selected': 'A kiválasztott videó hozzáadható',
   'youtube.search_results': 'YouTube-keresési eredmények',
-  'youtube.live_sync_warning': 'Az élő közvetítések nehezen szinkronizálhatók pontosan.',
+  'youtube.live_sync_warning': 'Az élő közvetítések nehezen szinkronizálhatók pontosan',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Leválasztva',
@@ -537,8 +536,8 @@ const hu: Record<I18nKey, string> = {
   'network.session_full': 'A szoba megtelt',
   'network.session_full_detail':
     'A szobához már a maximális 100 eszköz csatlakozik, a házigazdával együtt.',
-  'network.op_granted': 'Adminisztrátori jogosultság megadva.',
-  'network.op_revoked': 'Adminisztrátori jogosultság visszavonva.',
+  'network.op_granted': 'Adminisztrátori jogosultság megadva',
+  'network.op_revoked': 'Adminisztrátori jogosultság visszavonva',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
   'toast.device_connected': '{{name}} csatlakozott',
@@ -546,7 +545,7 @@ const hu: Record<I18nKey, string> = {
   'toast.device_conn_error': '{{name}} kapcsolati hibája',
   'toast.device_kicked': '{{name}} eltávolítva',
   'toast.remote_decode_device_wait':
-    'Egy eszköz nem tudta dekódolni ezt a számot. A többi eszközön folytatódik a lejátszás.',
+    'Egy eszköz nem tudta dekódolni ezt a számot\nA többi eszközön folytatódik a lejátszás',
   'toast.invite_code': 'Meghívókód: {{code}}',
   'toast.invite_code_info': '{{count}} csatlakoztatott eszköz | Kód: {{code}}',
   'toast.added_tracks': '{{count}} szám hozzáadva',
@@ -559,14 +558,14 @@ const hu: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} jogosultság: {{status}}',
   'toast.file_read_error': 'Fájlolvasási hiba: {{name}}',
   'toast.host_ended_connection': 'A házigazda megszakította a kapcsolatot',
-  'toast.announcement_available': 'Új közlemény.\nNézd meg a csevegőpanelt.',
+  'toast.announcement_available': 'Új közlemény\nNézd meg a csevegőpanelt',
 
   // ─── Toast (static) ─────────────────────────────────────────────
   'toast.copy_failed': 'Nem sikerült másolni',
   'toast.email_copied': 'E-mail-cím kimásolva!',
   'toast.settings_sync_enabled': 'Beállításszinkronizálás bekapcsolva',
   'toast.settings_sync_admin_required':
-    'Beállításszinkronizálás bekapcsolva.\nA hangbeállításokat csak a szoba adminisztrátorai módosíthatják.',
+    'Beállításszinkronizálás bekapcsolva\nA hangbeállításokat csak a szoba adminisztrátorai módosíthatják',
   'toast.virtual_bass_on': 'Virtuális mélyhang bekapcsolva',
   'toast.virtual_bass_off': 'Virtuális mélyhang kikapcsolva',
   'toast.virtual_treble_on': 'Virtuális magashang bekapcsolva',
@@ -574,27 +573,27 @@ const hu: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Virtuális térhangzás bekapcsolva',
   'toast.virtual_surround_off': 'Virtuális térhangzás kikapcsolva',
   'toast.virtual_effects_off': 'Minden virtuális effektus kikapcsolva',
-  'toast.host_only': 'Ezt csak a házigazda teheti meg.',
-  'toast.host_only_media': 'Médiát csak a házigazda adhat hozzá.',
-  'toast.media_management_required': 'Médiakezelési jogosultság szükséges.',
-  'toast.playback_control_required': 'Lejátszásvezérlési jogosultság szükséges.',
-  'toast.member_management_required': 'Résztvevő-eltávolítási jogosultság szükséges.',
-  'toast.chat_notice_required': 'Közlemény közzétételéhez jogosultság szükséges.',
-  'toast.room_owner_required': 'Ezt csak a szobatulajdonos módosíthatja.',
+  'toast.host_only': 'Ezt csak a házigazda teheti meg',
+  'toast.host_only_media': 'Médiát csak a házigazda adhat hozzá',
+  'toast.media_management_required': 'Médiakezelési jogosultság szükséges',
+  'toast.playback_control_required': 'Lejátszásvezérlési jogosultság szükséges',
+  'toast.member_management_required': 'Résztvevő-eltávolítási jogosultság szükséges',
+  'toast.chat_notice_required': 'Közlemény közzétételéhez jogosultság szükséges',
+  'toast.room_owner_required': 'Ezt csak a szobatulajdonos módosíthatja',
   'toast.system_audio_owner_required':
-    'Csak arról a lapról oszthatsz meg hangot, amelyik megnyitotta a szobát.',
-  'toast.host_only_youtube': 'YouTube-hivatkozást csak a házigazda adhat hozzá.',
+    'Csak arról a lapról oszthatsz meg hangot, amelyik megnyitotta a szobát',
+  'toast.host_only_youtube': 'YouTube-hivatkozást csak a házigazda adhat hozzá',
   'toast.host_only_control': 'Ezt csak a házigazda vezérelheti',
   'toast.host_setting_required': 'Ezt a beállítást csak a házigazda módosíthatja',
   'toast.host_only_file': 'Fájlt csak a házigazda adhat hozzá',
   'toast.no_tracks': 'Nincs lejátszható szám',
   'toast.add_media_to_play': 'Adj hozzá médiát',
   'toast.no_invite_code': 'Még nincs meghívókód',
-  'toast.invite_code_settings': 'Oszd meg a meghívóhivatkozást a Kapcsolódás lapon.',
+  'toast.invite_code_settings': 'Oszd meg a meghívóhivatkozást a Kapcsolódás lapon',
   'toast.click_copy_invite': 'Kattints a meghívókód másolásához',
   'toast.cant_select_file': 'Nem választható ki fájl',
   'toast.unsupported_files_excluded': '{{count}} nem támogatott fájl kihagyva',
-  'toast.no_supported_audio_files': 'Nincs hozzáadható támogatott hangfájl.',
+  'toast.no_supported_audio_files': 'Nincs hozzáadható támogatott hangfájl',
   'dialog.large_room_file.title': 'Fájlmegosztás nagy szobában',
   'dialog.large_room_file.message':
     'Azonos hálózaton a közvetlen fájlátvitel a házigazdán felül legfeljebb 8 résztvevői eszközig stabil. Nagyobb helyi szobákban a fájlok Cloudflare R2-n keresztül terjeszthetők.\n\nFolytatod?',
@@ -602,13 +601,13 @@ const hu: Record<I18nKey, string> = {
   'toast.sync_reset': 'Szinkronizálási eltolás nullázva',
   'toast.stop_sent': 'Leállítási kérés elküldve',
   'toast.hprecision_sync': 'Nagy pontosságú szinkronizálás: hang előkészítése…',
-  'toast.file_ready': 'A fájl készen áll!\nNyomd meg a Lejátszás gombot.',
+  'toast.file_ready': 'A fájl készen áll!\nNyomd meg a Lejátszás gombot',
   'toast.host_sync_not_recommended': 'A szinkronizálást résztvevői eszközön állítsd be',
   'toast.host_sync_requested':
-    'Pontos szinkronizálás kérve.\nA kézi szinkronizálást résztvevői eszközön állítsd be.',
+    'Pontos szinkronizálás kérve\nA kézi szinkronizálást résztvevői eszközön állítsd be',
   'toast.sync_not_in_system_audio': 'Rendszerhang megosztásakor a szinkronizálás nem érhető el',
-  'toast.sync_not_ready': 'Még nincs kész.\nPróbáld újra egy pillanat múlva',
-  'toast.sync_no_media': 'Nincs szinkronizálható média.\nElőbb válassz lejátszandó tartalmat',
+  'toast.sync_not_ready': 'Még nincs kész\nPróbáld újra egy pillanat múlva',
+  'toast.sync_no_media': 'Nincs szinkronizálható média\nElőbb válassz lejátszandó tartalmat',
   'toast.host_ad': 'Úgy tűnik, a házigazda reklámot néz',
   'toast.yt_sync_start': 'Szinkronizálás...',
   'toast.yt_sync_done': 'Szinkronizálás kész',
@@ -617,21 +616,21 @@ const hu: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused':
     'A házigazda szünetelteti a lejátszást, csak a pozíció lett egyeztetve',
   'toast.yt_rendezvous_no_data':
-    'Még nincs lejátszási adat a házigazdától, próbáld újra egy pillanat múlva',
-  'toast.yt_rendezvous_timeout': 'Nem sikerült szinkronizálni, próbáld újra egy pillanat múlva',
+    'Még nincs lejátszási adat a házigazdától\nPróbáld újra egy pillanat múlva',
+  'toast.yt_rendezvous_timeout': 'Nem sikerült szinkronizálni\nPróbáld újra egy pillanat múlva',
   'toast.yt_host_sync_sent': 'Automatikus szinkronizálási jel elküldve a résztvevőknek',
   'toast.yt_manual_sync_prompt':
-    'Az automatikus szinkronizálás most futott le.\nHa továbbra is késést észlelsz, állítsd be most az értéket',
+    'Az automatikus szinkronizálás most futott le\nHa továbbra is késést észlelsz, állítsd be most az értéket',
   'toast.playlist_ended': 'A lejátszási lista utolsó médiaeleme véget ért',
   'toast.operator_required': 'A globális beállításokat csak adminisztrátorok módosíthatják',
   'toast.connection_closing': 'A kapcsolat megszakadt, a beállítás nem szinkronizálódott',
   'toast.host_changed_setting': 'A beállítások módosultak',
-  'toast.session_mismatch': 'A munkamenetek nem egyeznek.\nA fájlátvitel újraindul.',
+  'toast.session_mismatch': 'A munkamenetek nem egyeznek\nA fájlátvitel újraindul',
   'toast.receiving_pct': 'Fogadás... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': 'Bemutatószám betöltése a kiszolgálóról...',
-  'transfer.demo_loaded': 'A bemutatószám készen áll.',
+  'transfer.demo_loaded': 'A bemutatószám készen áll',
   'transfer.demo_load_fail': 'A bemutató betöltése sikertelen:',
   'transfer.demo_loading_short': 'Bemutatószám betöltése...',
   'transfer.file_requesting': 'Fájl kérése...',
@@ -649,12 +648,12 @@ const hu: Record<I18nKey, string> = {
   'share.remote.timeout': 'A távoli fájlmegosztás túllépte az időkorlátot',
   'share.remote.too_large': 'A fájl túl nagy (legfeljebb 200 MB)',
   'share.remote.network_error': 'Hálózati hiba a távoli megosztás során',
-  'share.remote.rate_limited': 'Túl sok távoli feltöltés.\nPróbáld újra egy pillanat múlva',
+  'share.remote.rate_limited': 'Túl sok távoli feltöltés\nPróbáld újra egy pillanat múlva',
   'share.remote.quota_reached': 'A távoli megosztási tárhelykorlát betelt',
   'share.remote.auth_failed':
-    'A távoli megosztás engedélyezése sikertelen.\nEllenőrizd a Worker beállításait',
-  'share.remote.expired': 'A távoli fájl hivatkozása lejárt.\nOszd meg újra.',
-  'share.remote.unavailable': 'A távoli megosztás sikertelen.\nPróbáld újra egy pillanat múlva.',
+    'A távoli megosztás engedélyezése sikertelen\nEllenőrizd a Worker beállításait',
+  'share.remote.expired': 'A távoli fájl hivatkozása lejárt\nOszd meg újra',
+  'share.remote.unavailable': 'A távoli megosztás sikertelen\nPróbáld újra egy pillanat múlva',
   'transfer.preload_fail': 'Az előre betöltött fájl lejátszása sikertelen, újratöltés',
   'transfer.download_finishing': 'Letöltés befejezése...',
   'transfer.preparation_delayed': 'Az előkészítés késik...\nHelyreállítás kérése a házigazdától',
@@ -663,15 +662,15 @@ const hu: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Várakozás az előtöltésre: {{name}}',
   'transfer.waiting_recovery': 'Helyreállításra vár: {{name}}',
   'transfer.preparing_name': 'Előkészítés: {{name}}',
-  'transfer.recovery_failed': 'A fájl helyreállítása sikertelen.\nPróbáld újra.',
+  'transfer.recovery_failed': 'A fájl helyreállítása sikertelen\nPróbáld újra',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'HTTPS szükséges: csak biztonságos kapcsolaton működik.',
+  'error.https_required': 'HTTPS szükséges: csak biztonságos kapcsolaton működik',
   'error.browser_update': 'Frissítsd a böngészőt egy újabb verzióra.',
   'error.load_failed': 'A betöltés sikertelen: {{msg}}',
   'error.audio_decode_fail': 'A hang dekódolása sikertelen!',
   'error.audio_memory': 'Hang betöltése a memóriába...',
-  'error.all_tracks_failed': 'Nincs lejátszható szám a lejátszási listán.',
+  'error.all_tracks_failed': 'Nincs lejátszható szám a lejátszási listán',
   'error.audio_engine_prepare': 'Nem sikerült előkészíteni a hangmotort',
   'error.session_create_fail': 'Nem sikerült létrehozni a munkamenetet',
   'error.network_generic': 'Hálózati hiba történt',
@@ -689,19 +688,19 @@ const hu: Record<I18nKey, string> = {
   'error.peer_not_ready': 'Az eszközök közötti kapcsolat még nem áll készen',
   'error.network_init_failed': 'A hálózat inicializálása sikertelen',
   'error.no_host_id': 'Nem található házigazda-azonosító',
-  'error.peer_unavailable': 'A munkamenet nem található.\nEllenőrizd újra a kódot.',
+  'error.peer_unavailable': 'A munkamenet nem található\nEllenőrizd újra a kódot',
   'error.host_left': 'Úgy tűnik, a házigazda kilépett a munkamenetből',
-  'error.network_issue': 'Hálózati probléma van.\nEllenőrizd az internetkapcsolatot.',
-  'error.signal_server_fail': 'A jelzéskiszolgáló nem érhető el.\nPróbáld újra hamarosan.',
-  'error.server_disconnected': 'Megszakadt a kapcsolat a kiszolgálóval.',
-  'error.session_id_unavailable': 'A munkamenet-azonosító nem érhető el.\nPróbáld újra.',
-  'error.webrtc_failed': 'A WebRTC-kapcsolat sikertelen.\nEllenőrizd a böngésző beállításait.',
+  'error.network_issue': 'Hálózati probléma van\nEllenőrizd az internetkapcsolatot',
+  'error.signal_server_fail': 'A jelzéskiszolgáló nem érhető el\nPróbáld újra hamarosan',
+  'error.server_disconnected': 'Megszakadt a kapcsolat a kiszolgálóval',
+  'error.session_id_unavailable': 'A munkamenet-azonosító nem érhető el\nPróbáld újra',
+  'error.webrtc_failed': 'A WebRTC-kapcsolat sikertelen\nEllenőrizd a böngésző beállításait',
   'error.browser_unsupported':
-    'Ez a böngésző nem támogat valós idejű kapcsolatokat.\nPróbáld a Chrome-ot vagy a Safarit.',
-  'error.ssl_required': 'Biztonságos kapcsolat (HTTPS) szükséges.',
+    'Ez a böngésző nem támogat valós idejű kapcsolatokat\nPróbáld a Chrome-ot vagy a Safarit',
+  'error.ssl_required': 'Biztonságos kapcsolat (HTTPS) szükséges',
   'error.room_password_required': 'Ehhez a szobához jelszó szükséges.',
   'error.room_password_invalid': 'A szobajelszó nem egyezik.',
-  'error.room_password_auth_timeout': 'A hálózat instabil.\nPróbáld újra megadni a jelszót.',
+  'error.room_password_auth_timeout': 'A hálózat instabil\nPróbáld újra megadni a jelszót',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'Helyi fájlok hozzáadása',
@@ -802,9 +801,9 @@ const hu: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'A jelszó helytelen. Próbáld újra.',
   'pro.pin_change_title': 'Szobajelszó módosítása',
   'pro.pin_change_message': 'Állíts be új, nyolcjegyű jelszót.',
-  'pro.pin_changed': 'A szobajelszó megváltozott.',
+  'pro.pin_changed': 'A szobajelszó megváltozott',
   'pro.pin_enable_title': 'Szobajelszó beállítása',
-  'pro.pin_enabled': 'A szobajelszó be van állítva.',
+  'pro.pin_enabled': 'A szobajelszó be van állítva',
   'pro.pin_members_title': 'Mi legyen a jelenlegi résztvevőkkel?',
   'pro.pin_members_keep': 'Mindenki marad',
   'pro.pin_members_keep_detail':
@@ -824,8 +823,8 @@ const hu: Record<I18nKey, string> = {
   'pro.removed_message': 'A szobatulajdonos vagy egy adminisztrátor eltávolított ebből a szobából.',
   'pro.device_removed_message':
     'Egy másik, a fiókodba bejelentkezett eszköz leválasztotta ezt az eszközt a szobáról.',
-  'pro.owner_only': 'Ezt csak a szobatulajdonos teheti meg.',
-  'pro.connect_failed': 'Nem sikerült csatlakozni a PRO-szobához.',
+  'pro.owner_only': 'Ezt csak a szobatulajdonos teheti meg',
+  'pro.connect_failed': 'Nem sikerült csatlakozni a PRO-szobához',
   'pro.room_full': 'Ez a PRO-szoba megtelt',
   'pro.room_full_detail':
     'Egy PRO-szobához legfeljebb 100 eszköz csatlakozhat, a szobatulajdonosé is beleértve. Egy hely mindig a szobatulajdonosnak van fenntartva.',
@@ -842,8 +841,8 @@ const hu: Record<I18nKey, string> = {
   'pro.upload.cancel_file': '{{name}} feltöltésének megszakítása',
   'pro.upload.confirming_file': '{{name}} feltöltésének befejezése',
   'pro.downloading': 'Fájl betöltése...',
-  'pro.quota_exceeded': 'A PRO-szoba elérte az 1 GB-os tárhelykorlátot.',
-  'pro.file_too_large': 'Ez a fájl meghaladja a fájlonkénti 200 MB-os korlátot.',
+  'pro.quota_exceeded': 'A PRO-szoba elérte az 1 GB-os tárhelykorlátot',
+  'pro.file_too_large': 'Ez a fájl meghaladja a fájlonkénti 200 MB-os korlátot',
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
@@ -883,36 +882,36 @@ const hu: Record<I18nKey, string> = {
   'system_audio.button': 'Rendszerhang',
   'system_audio.sharing': 'Rendszerhang megosztása',
   'system_audio.receiving': 'Rendszerhang fogadása',
-  'system_audio.owner_active': '{{name}} rendszerhangot oszt meg.',
-  'system_audio.owner_preparing': '{{name}} előkészíti a rendszerhang megosztását.',
-  'system_audio.pro_preparing': 'Rendszerhang megosztásának előkészítése.',
-  'system_audio.pro_publish_failed': 'Nem sikerült elindítani a rendszerhang megosztását.',
+  'system_audio.owner_active': '{{name}} rendszerhangot oszt meg',
+  'system_audio.owner_preparing': '{{name}} előkészíti a rendszerhang megosztását',
+  'system_audio.pro_preparing': 'Rendszerhang megosztásának előkészítése',
+  'system_audio.pro_publish_failed': 'Nem sikerült elindítani a rendszerhang megosztását',
   'system_audio.coordinator_update_required':
-    'A rendszerhang megosztásához frissítsd a szobát kezelő eszközt.',
+    'A rendszerhang megosztásához frissítsd a szobát kezelő eszközt',
   'system_audio.connection_unstable':
-    '{{name}} rendszerhang-kapcsolata instabil.\nÚjracsatlakozás folyamatban.',
-  'system_audio.capture_denied': 'A hangmegosztás megszakadt.',
-  'system_audio.no_audio_track': 'A „Hang megosztása” nem volt bekapcsolva.\nPróbáld újra.',
+    '{{name}} rendszerhang-kapcsolata instabil\nÚjracsatlakozás folyamatban',
+  'system_audio.capture_denied': 'A hangmegosztás megszakadt',
+  'system_audio.no_audio_track': 'A „Hang megosztása” nem volt bekapcsolva\nPróbáld újra',
   'system_audio.stop': 'Megosztás leállítása',
   'system_audio.stop_compact': 'Leállítás',
   'system_audio.started':
-    'A rendszerhang kis késéssel érkezhet.\nHa lehet, csökkentsd a forrás hangerejét.',
-  'system_audio.stopped': 'A rendszerhang megosztása véget ért.\nA lejátszási lista folytatódik.',
-  'system_audio.host_channel_locked': 'Rendszerhang megosztása közben nem módosíthatók a szerepek.',
+    'A rendszerhang kis késéssel érkezhet\nHa lehet, csökkentsd a forrás hangerejét',
+  'system_audio.stopped': 'A rendszerhang megosztása véget ért\nA lejátszási lista folytatódik',
+  'system_audio.host_channel_locked': 'Rendszerhang megosztása közben nem módosíthatók a szerepek',
   'system_audio.effects_guest_only':
-    'A rendszerhang aktív.\nA hangeffektusok csak a résztvevők eszközeire érvényesek.',
+    'A rendszerhang aktív\nA hangeffektusok csak a résztvevők eszközeire érvényesek',
   'system_audio.desktop_only':
-    'Csak Chromium-alapú böngészőt (Chrome, Edge stb.) futtató számítógépeken érhető el.',
+    'Csak Chromium-alapú böngészőt (Chrome, Edge stb.) futtató számítógépeken érhető el',
   'system_audio.receive_failed':
-    'Nem sikerült fogadni a rendszerhangot.\nKérd meg a házigazdát, hogy indítsa újra a megosztást.',
+    'Nem sikerült fogadni a rendszerhangot\nKérd meg a házigazdát, hogy indítsa újra a megosztást',
   'system_audio.remote_receive_limit':
-    'A rendszerhang fogadása 2 óra után véget ért.\nA folytatáshoz csatlakozz újra a szobához.',
+    'A rendszerhang fogadása 2 óra után véget ért\nA folytatáshoz csatlakozz újra a szobához',
   'system_audio.device_limit':
-    'A rendszerhang legfeljebb {{count}} eszközt támogat.\nA házigazda is beleszámít.',
+    'A rendszerhang legfeljebb {{count}} eszközt támogat\nA házigazda is beleszámít',
   'system_audio.device_limit_stopped':
-    'A rendszerhang megosztása leállt.\n{{count}} eszköznél több csatlakozik.',
+    'A rendszerhang megosztása leállt\n{{count}} eszköznél több csatlakozik',
   'system_audio.duration_limit_stopped':
-    'A rendszerhang megosztása automatikusan véget ért\n2 óra után.',
+    'A rendszerhang megosztása automatikusan véget ért\n2 óra után',
 
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': 'Szolgáltatási tudnivalók',

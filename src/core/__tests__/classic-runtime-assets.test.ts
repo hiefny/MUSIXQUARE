@@ -1019,12 +1019,12 @@ describe('strict TypeScript classic browser runtimes', () => {
           expect(dialog.open).toBe(true);
           expect(input.value).toBe('SuccessorB');
           expect(dom.window.document.getElementById('toast')?.textContent).not.toBe(
-            '닉네임을 설정했어요.',
+            '닉네임을 설정했어요',
           );
         } else if (scenario === 'changed-cookie') {
           await vi.waitFor(() =>
             expect(dom.window.document.getElementById('toast')?.textContent).toBe(
-              '로그인 상태를 다시 확인해 주세요.',
+              '로그인 상태를 다시 확인해 주세요',
             ),
           );
           expect(profileComplete).toBe(false);
@@ -1036,7 +1036,7 @@ describe('strict TypeScript classic browser runtimes', () => {
           );
           expect(dialog.open).toBe(false);
           expect(dom.window.document.getElementById('toast')?.textContent).toBe(
-            '닉네임을 설정했어요.',
+            '닉네임을 설정했어요',
           );
         }
       } finally {
@@ -1115,9 +1115,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       button.click();
       if (scenario === 'changed-cookie') {
         await vi.waitFor(() =>
-          expect(doc.getElementById('toast')?.textContent).toBe(
-            '로그인 상태를 다시 확인해 주세요.',
-          ),
+          expect(doc.getElementById('toast')?.textContent).toBe('로그인 상태를 다시 확인해 주세요'),
         );
         await vi.waitFor(() => expect(input.disabled).toBe(false));
         expect(doc.documentElement.dataset.view).toBe('redeem');
@@ -1262,7 +1260,7 @@ describe('strict TypeScript classic browser runtimes', () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
         expect(navigation).toHaveBeenCalledTimes(scenario === 'current' ? 1 : 0);
         if (scenario === 'current')
-          expect(doc.getElementById('toast')?.textContent).toBe('000100을 복사했어요.');
+          expect(doc.getElementById('toast')?.textContent).toBe('000100을 복사했어요');
         else expect(doc.getElementById('toast')?.textContent).toBe('');
         expect((doc.getElementById('open-room') as HTMLButtonElement).disabled).toBe(false);
       } finally {

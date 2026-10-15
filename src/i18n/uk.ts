@@ -45,8 +45,8 @@ const uk: Record<I18nKey, string> = {
 
   // ─── Обліковий запис ─────────────────────────────────────────────
   'account.login_title': 'Увійти',
-  'account.login_cancelled': 'Вхід скасовано.',
-  'account.login_failed': 'Не вдалося ввійти. Спробуйте ще раз.',
+  'account.login_cancelled': 'Вхід скасовано',
+  'account.login_failed': 'Не вдалося ввійти\nСпробуйте ще раз',
   'account.welcome_back': 'З поверненням,\n{{name}}',
   'account.login_message':
     'Увійдіть через Google, щоб зберігати свій псевдонім у різних кімнатах. Можна продовжити без входу.',
@@ -71,14 +71,14 @@ const uk: Record<I18nKey, string> = {
   'account.nickname_hint': 'Не більше 12 символів.',
   'account.nickname_required': 'Введіть псевдонім.',
   'account.nickname_whitespace': 'Псевдонім не може містити пробіли або невидимі символи.',
-  'account.nickname_taken': 'Цей псевдонім уже використовується.',
-  'account.nickname_saved': 'Псевдонім змінено на {{name}}.',
-  'account.action_failed': 'Не вдалося оновити обліковий запис. Спробуйте ще раз.',
+  'account.nickname_taken': 'Цей псевдонім уже використовується',
+  'account.nickname_saved': 'Псевдонім змінено на {{name}}',
+  'account.action_failed': 'Не вдалося оновити обліковий запис\nСпробуйте ще раз',
   'account.delete_confirm_title': 'Видалити обліковий запис?',
   'account.delete_confirm_message':
     'Ваш псевдонім, сеанси входу та пов’язані з обліковим записом дозволи кімнат буде видалено. До вмісту, наданого в кімнаті, застосовується політика зберігання цієї кімнати.',
   'account.delete_pending':
-    'Обліковий запис видаляється. Дозволи PRO безпечно очищуються, а видалення завершиться автоматично.',
+    'Обліковий запис видаляється\nДозволи PRO безпечно очищуються, а видалення завершиться автоматично',
   'common.previous': 'Назад',
   'common.next_desc': 'Далі',
   'common.volume_percent': 'Гучність: {{val}}%',
@@ -146,7 +146,7 @@ const uk: Record<I18nKey, string> = {
   'playlist.repeat_off': 'Повтор вимкнено',
   'playlist.shuffle_on': 'Перемішування увімкнено',
   'playlist.shuffle_off': 'Перемішування вимкнено',
-  'playlist.empty_hint': 'Медіа ще немає.',
+  'playlist.empty_hint': 'Медіа ще немає',
   'playlist.loading_info': 'Завантаження інформації про трек...',
   'playlist.sub_load_failed': 'Не вдалося завантажити інформацію про відео',
   'playlist.remove_title': 'Видалити з плейліста',
@@ -158,10 +158,10 @@ const uk: Record<I18nKey, string> = {
   'playlist.video_fallback': 'Завантаження...',
   'playlist.track_fallback': 'Трек {{idx}}',
   'playlist.deferred_load_hint': 'Почніть відтворення, щоб завантажити весь список треків',
-  'playlist.host_update_required': 'Оновіть пристрій, який керує цією кімнатою.',
-  'playlist.queue_full': 'Плейліст заповнений.',
-  'playlist.mutation_retry': 'Плейліст змінився. Спробуйте ще раз.',
-  'transfer.host_busy': 'Хост обробляє інший файл. Спробуйте трохи пізніше.',
+  'playlist.host_update_required': 'Оновіть пристрій, який керує цією кімнатою',
+  'playlist.queue_full': 'Плейліст заповнений',
+  'playlist.mutation_retry': 'Плейліст змінився\nСпробуйте ще раз',
+  'transfer.host_busy': 'Хост обробляє інший файл\nСпробуйте трохи пізніше',
 
   // ─── Роль ────────────────────────────────────────────────────────
   'role.center': 'Центральний',
@@ -291,7 +291,7 @@ const uk: Record<I18nKey, string> = {
   'connect.room_password_on': 'Пароль застосовано',
   'connect.room_password_invalid': 'Введіть 8 цифр',
   'connect.room_password_disabled': 'Учасникам більше не потрібен пароль кімнати',
-  'connect.room_password_apply_pending': 'Новий пароль почне діяти, щойно з’єднання відновиться.',
+  'connect.room_password_apply_pending': 'Новий пароль почне діяти, щойно з’єднання відновиться',
   'connect.pin_enabled_removed_message':
     'Хост задав пароль для кімнати. Введіть його, щоб приєднатися знову.',
   'connect.pin_changed_removed_message':
@@ -319,7 +319,7 @@ const uk: Record<I18nKey, string> = {
   'demo.prompt_message': 'Вітаємо! Готові швидко ознайомитися з можливостями?',
   'demo.prompt_cta': 'Почати огляд',
   'demo.prompt_later': 'Пізніше',
-  'demo.try_later_toast': 'Огляд завжди можна запустити на вкладці «Довідка».',
+  'demo.try_later_toast': 'Огляд завжди можна запустити на вкладці «Довідка»',
   'demo.track_info': 'Інформація про трек',
   'demo.exit': 'Вийти з деморежиму',
   'demo.credit': 'Демонстраційний трек',
@@ -347,9 +347,9 @@ const uk: Record<I18nKey, string> = {
   'demo.finish_step_title': 'Усе готово!',
   'demo.finish_step_subtitle': 'Починайте й відтворюйте разом.',
   'demo.track_list_label': 'Список демонстраційних треків',
-  'demo.host_only_exit': 'Цю кнопку може натиснути лише хост.',
+  'demo.host_only_exit': 'Цю кнопку може натиснути лише хост',
   'demo.external_playback_stopped':
-    'Деморежим зупинив поточне відтворення YouTube або системного аудіо.',
+    'Деморежим зупинив поточне відтворення YouTube або системного аудіо',
   'setup.how_to_connect': 'Як підключитися',
   'setup.set_role': 'Задайте роль цього пристрою',
   'setup.what_sound': 'Що має відтворювати цей пристрій?',
@@ -368,7 +368,7 @@ const uk: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Не знайдено придатної камери',
   'setup.camera_unavailable': 'Не вдалося ввімкнути камеру',
   'setup.camera_stream_stalled':
-    'Попередній перегляд із камери не запустився.\nВідкрийте сторінку в браузері або введіть код.',
+    'Попередній перегляд із камери не запустився\nВідкрийте сторінку в браузері або введіть код',
   'setup.connect_devices': 'Підключіть інші пристрої, щоб почати.',
   'setup.enter_code_connect': 'Код запрошення',
   'setup.last_step': 'Почнімо!',
@@ -427,19 +427,19 @@ const uk: Record<I18nKey, string> = {
     'Цей файл дуже великий і може не відтворюватися на деяких пристроях.',
   'chat.device_track_unavailable_system_message': 'Цей пристрій не може відтворити поточний трек.',
   'chat.update_available_tab_system_message':
-    'Доступна нова версія MUSIXQUARE.\nВона почне діяти після оновлення сторінки.',
+    'Доступна нова версія MUSIXQUARE\nВона почне діяти після оновлення сторінки',
   'chat.update_available_app_system_message':
-    'Доступна нова версія MUSIXQUARE.\nВона почне діяти після перезапуску застосунку.',
+    'Доступна нова версія MUSIXQUARE\nВона почне діяти після перезапуску застосунку',
   'chat.system_audio_started_system_message':
     'Розпочато трансляцію системного аудіо. Невелика затримка між пристроями хоста й гостей є нормальною. Щоб уникнути відлуння, радимо зменшити гучність пристрою хоста.',
   'chat.system_audio_stopped_system_message':
     'Трансляцію системного аудіо завершено. Хост може повернути гучність, щоб цей пристрій знову працював як динамік.',
   'chat.remote_upload_limited_system_message':
-    'Досягнуто ліміту надсилань файлів.\nВіддаленим учасникам слід повторити спробу пізніше.',
+    'Досягнуто ліміту надсилань файлів\nВіддаленим учасникам слід повторити спробу пізніше',
   'chat.remote_storage_quota_system_message':
     'Досягнуто ліміту віддаленого обміну.\nЛокальний обмін файлами все ще доступний.',
   'chat.remote_upload_failed_system_message':
-    'Не вдалося надіслати файл віддаленим учасникам.\nЇм слід повторити спробу трохи пізніше.',
+    'Не вдалося надіслати файл віддаленим учасникам\nЇм слід повторити спробу трохи пізніше',
   'chat.pinned_close': 'Закрити оголошення',
   'chat.cmd_whisper_from': 'Приватне повідомлення від {{name}}',
   'chat.cmd_whisper_to': 'Приватне повідомлення для {{name}}',
@@ -491,7 +491,7 @@ const uk: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Діагностичні дані системи',
   'chat.debug_copied':
-    'Діагностичні дані скопійовано.\nЯкщо ви виявили помилку, надішліть їх розробнику.',
+    'Діагностичні дані скопійовано\nЯкщо ви виявили помилку, надішліть їх розробнику',
   'chat.seek_to': 'Перейти до {{time}}',
   'chat.copied': 'Повідомлення скопійовано',
   'chat.copy_hint': 'Натисніть Enter, щоб скопіювати це повідомлення',
@@ -502,13 +502,13 @@ const uk: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'Введіть посилання YouTube або пошуковий запит',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'Дивитися YouTube разом',
-  'youtube.ready': 'YouTube готовий!\nНатисніть «Відтворити».',
+  'youtube.ready': 'YouTube готовий!\nНатисніть «Відтворити»',
   'youtube.thumbnail': 'Мініатюра попереднього перегляду YouTube',
-  'youtube.load_fail': 'Не вдалося завантажити API YouTube.\nПеревірте підключення!',
+  'youtube.load_fail': 'Не вдалося завантажити API YouTube\nПеревірте підключення!',
   'youtube.video_unavailable': 'Відео недоступне, перехід до наступного треку',
-  'youtube.load_timeout': 'Час очікування YouTube минув.\nСпробуйте ще раз.',
+  'youtube.load_timeout': 'Час очікування YouTube минув\nСпробуйте ще раз',
   'youtube.invalid_link': 'Недійсне посилання YouTube',
-  'youtube.effects_disabled': 'Дивіться YouTube разом.\nРозширені звукові ефекти вимкнено.',
+  'youtube.effects_disabled': 'Дивіться YouTube разом\nРозширені звукові ефекти вимкнено',
   'youtube.enter_link_placeholder': 'Введіть посилання на відео або плейліст',
   'youtube.enter_source_toast': 'Введіть посилання YouTube або пошуковий запит',
   'youtube.fetching_info': 'Завантаження інформації про відео...',
@@ -526,7 +526,7 @@ const uk: Record<I18nKey, string> = {
   'youtube.search_failed': 'Пошук на YouTube недоступний',
   'youtube.search_selected': 'Вибране відео готове до додавання',
   'youtube.search_results': 'Результати пошуку на YouTube',
-  'youtube.live_sync_warning': 'Прямі трансляції складно синхронізувати точно.',
+  'youtube.live_sync_warning': 'Прямі трансляції складно синхронізувати точно',
 
   // ─── Мережа ──────────────────────────────────────────────────────
   'network.disconnected': 'Відключено',
@@ -534,8 +534,8 @@ const uk: Record<I18nKey, string> = {
   'network.session_full': 'Кімната заповнена',
   'network.session_full_detail':
     'У цій кімнаті вже підключено максимальну кількість пристроїв: 100 разом із хостом.',
-  'network.op_granted': 'Права адміністратора надано.',
-  'network.op_revoked': 'Права адміністратора відкликано.',
+  'network.op_granted': 'Права адміністратора надано',
+  'network.op_revoked': 'Права адміністратора відкликано',
 
   // ─── Динамічні сповіщення ────────────────────────────────────────
   'toast.device_connected': 'Підключено: {{name}}',
@@ -543,7 +543,7 @@ const uk: Record<I18nKey, string> = {
   'toast.device_conn_error': 'Помилка підключення: {{name}}',
   'toast.device_kicked': '{{name}} вилучено',
   'toast.remote_decode_device_wait':
-    'Один із пристроїв не зміг декодувати цей трек. На інших пристроях відтворення триває.',
+    'Один із пристроїв не зміг декодувати цей трек\nНа інших пристроях відтворення триває',
   'toast.invite_code': 'Код запрошення: {{code}}',
   'toast.invite_code_info': 'Підключено: {{count}} | Код {{code}}',
   'toast.added_tracks': 'Додано треків: {{count}}',
@@ -556,14 +556,14 @@ const uk: Record<I18nKey, string> = {
   'toast.op_status': 'Дозвіл «{{label}}» {{status}}',
   'toast.file_read_error': 'Помилка читання файла: {{name}}',
   'toast.host_ended_connection': 'Хост завершив підключення',
-  'toast.announcement_available': 'Нове оголошення.\nПерегляньте панель чату.',
+  'toast.announcement_available': 'Нове оголошення\nПерегляньте панель чату',
 
   // ─── Статичні сповіщення ─────────────────────────────────────────
   'toast.copy_failed': 'Не вдалося скопіювати',
   'toast.email_copied': 'Адресу електронної пошти скопійовано!',
   'toast.settings_sync_enabled': 'Синхронізацію налаштувань увімкнено',
   'toast.settings_sync_admin_required':
-    'Синхронізацію налаштувань увімкнено.\nЗмінювати звукові параметри можуть лише адміністратори кімнати.',
+    'Синхронізацію налаштувань увімкнено\nЗмінювати звукові параметри можуть лише адміністратори кімнати',
   'toast.virtual_bass_on': 'Віртуальний бас увімкнено',
   'toast.virtual_bass_off': 'Віртуальний бас вимкнено',
   'toast.virtual_treble_on': 'Віртуальні високі частоти увімкнено',
@@ -571,27 +571,27 @@ const uk: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'Віртуальний об’ємний звук увімкнено',
   'toast.virtual_surround_off': 'Віртуальний об’ємний звук вимкнено',
   'toast.virtual_effects_off': 'Усі віртуальні ефекти вимкнено',
-  'toast.host_only': 'Це може зробити лише хост.',
-  'toast.host_only_media': 'Додавати медіа може лише хост.',
-  'toast.media_management_required': 'Потрібен дозвіл на керування медіа.',
-  'toast.playback_control_required': 'Потрібен дозвіл на керування відтворенням.',
-  'toast.member_management_required': 'Потрібен дозвіл на вилучення учасників.',
-  'toast.chat_notice_required': 'Потрібен дозвіл на публікацію оголошень у чаті.',
-  'toast.room_owner_required': 'Змінити це може лише власник кімнати.',
+  'toast.host_only': 'Це може зробити лише хост',
+  'toast.host_only_media': 'Додавати медіа може лише хост',
+  'toast.media_management_required': 'Потрібен дозвіл на керування медіа',
+  'toast.playback_control_required': 'Потрібен дозвіл на керування відтворенням',
+  'toast.member_management_required': 'Потрібен дозвіл на вилучення учасників',
+  'toast.chat_notice_required': 'Потрібен дозвіл на публікацію оголошень у чаті',
+  'toast.room_owner_required': 'Змінити це може лише власник кімнати',
   'toast.system_audio_owner_required':
-    'Транслювати аудіо можна лише з вкладки, в якій було створено кімнату.',
-  'toast.host_only_youtube': 'Додавати посилання YouTube може лише хост.',
+    'Транслювати аудіо можна лише з вкладки, в якій було створено кімнату',
+  'toast.host_only_youtube': 'Додавати посилання YouTube може лише хост',
   'toast.host_only_control': 'Керувати цим може лише хост',
   'toast.host_setting_required': 'Змінити цей параметр може лише хост',
   'toast.host_only_file': 'Додавати файли може лише хост',
   'toast.no_tracks': 'Немає треків для відтворення',
   'toast.add_media_to_play': 'Додайте медіа',
   'toast.no_invite_code': 'Коду запрошення ще немає',
-  'toast.invite_code_settings': 'Поділіться посиланням на вкладці «Підключення».',
+  'toast.invite_code_settings': 'Поділіться посиланням на вкладці «Підключення»',
   'toast.click_copy_invite': 'Натисніть, щоб скопіювати код запрошення',
   'toast.cant_select_file': 'Не вдалося вибрати файл',
   'toast.unsupported_files_excluded': 'Непідтримувані файли пропущено: {{count}}',
-  'toast.no_supported_audio_files': 'Немає підтримуваних аудіофайлів для додавання.',
+  'toast.no_supported_audio_files': 'Немає підтримуваних аудіофайлів для додавання',
   'dialog.large_room_file.title': 'Обмін файлами у великій кімнаті',
   'dialog.large_room_file.message':
     'В одній мережі пряме передавання файлів стабільно працює щонайбільше з 8 гостьовими пристроями, не враховуючи хоста. У більших локальних кімнатах файли можуть поширюватися через Cloudflare R2.\n\nПродовжити?',
@@ -599,34 +599,34 @@ const uk: Record<I18nKey, string> = {
   'toast.sync_reset': 'Зміщення синхронізації скинуто',
   'toast.stop_sent': 'Запит на зупинку надіслано',
   'toast.hprecision_sync': 'Високоточна синхронізація: підготовка аудіо…',
-  'toast.file_ready': 'Файл готовий!\nНатисніть «Відтворити».',
+  'toast.file_ready': 'Файл готовий!\nНатисніть «Відтворити»',
   'toast.host_sync_not_recommended': 'Налаштуйте синхронізацію на гостьовому пристрої',
   'toast.host_sync_requested':
-    'Запит на точну синхронізацію надіслано.\nНалаштуйте її вручну на гостьовому пристрої.',
+    'Запит на точну синхронізацію надіслано\nНалаштуйте її вручну на гостьовому пристрої',
   'toast.sync_not_in_system_audio': 'Синхронізація недоступна в режимі трансляції системного аудіо',
-  'toast.sync_not_ready': 'Ще не готово.\nСпробуйте трохи пізніше',
-  'toast.sync_no_media': 'Немає медіа для синхронізації.\nСпочатку виберіть, що відтворити',
+  'toast.sync_not_ready': 'Ще не готово\nСпробуйте трохи пізніше',
+  'toast.sync_no_media': 'Немає медіа для синхронізації\nСпочатку виберіть, що відтворити',
   'toast.host_ad': 'Схоже, хост переглядає рекламу',
   'toast.yt_sync_start': 'Синхронізація...',
   'toast.yt_sync_done': 'Синхронізацію завершено',
   'toast.yt_rendezvous_start': 'Вирівнювання з хостом...',
   'toast.yt_rendezvous_done': 'Синхронізацію завершено',
   'toast.yt_rendezvous_host_paused': 'Хост призупинив відтворення, тому вирівняно лише позицію',
-  'toast.yt_rendezvous_no_data': 'Даних відтворення хоста ще немає, спробуйте трохи пізніше',
-  'toast.yt_rendezvous_timeout': 'Не вдалося синхронізувати, спробуйте трохи пізніше',
+  'toast.yt_rendezvous_no_data': 'Даних відтворення хоста ще немає\nСпробуйте трохи пізніше',
+  'toast.yt_rendezvous_timeout': 'Не вдалося синхронізувати\nСпробуйте трохи пізніше',
   'toast.yt_host_sync_sent': 'Учасникам надіслано сигнал автосинхронізації',
   'toast.yt_manual_sync_prompt':
-    'Щойно виконано автоматичну синхронізацію.\nЯкщо затримка досі відчувається, налаштуйте значення зараз',
+    'Щойно виконано автоматичну синхронізацію\nЯкщо затримка досі відчувається, налаштуйте значення зараз',
   'toast.playlist_ended': 'Відтворення останнього медіаелемента завершено',
   'toast.operator_required': 'Глобальні параметри можуть змінювати лише адміністратори',
   'toast.connection_closing': 'З’єднання втрачено, параметр не синхронізовано',
   'toast.host_changed_setting': 'Налаштування змінено',
-  'toast.session_mismatch': 'Сеанс не збігається.\nПередавання файла буде повторено.',
+  'toast.session_mismatch': 'Сеанс не збігається\nПередавання файла буде повторено',
   'toast.receiving_pct': 'Отримання... {{pct}}%',
 
   // ─── Передавання ─────────────────────────────────────────────────
   'transfer.demo_loading': 'Завантаження демонстраційного треку із сервера...',
-  'transfer.demo_loaded': 'Демонстраційний трек готовий.',
+  'transfer.demo_loaded': 'Демонстраційний трек готовий',
   'transfer.demo_load_fail': 'Не вдалося завантажити демонстрацію:',
   'transfer.demo_loading_short': 'Завантаження демонстраційного треку...',
   'transfer.file_requesting': 'Запит файла...',
@@ -644,14 +644,12 @@ const uk: Record<I18nKey, string> = {
   'share.remote.timeout': 'Час очікування віддаленого файла минув',
   'share.remote.too_large': 'Файл завеликий (щонайбільше 200 МБ)',
   'share.remote.network_error': 'Помилка мережі під час віддаленого обміну',
-  'share.remote.rate_limited':
-    'Забагато надсилань для віддаленого обміну.\nСпробуйте трохи пізніше',
+  'share.remote.rate_limited': 'Забагато надсилань для віддаленого обміну\nСпробуйте трохи пізніше',
   'share.remote.quota_reached': 'Досягнуто ліміту сховища для віддаленого обміну',
   'share.remote.auth_failed':
-    'Не вдалося авторизувати віддалений обмін.\nПеревірте налаштування Worker',
-  'share.remote.expired':
-    'Термін дії посилання на віддалений файл минув.\nПоділіться файлом ще раз.',
-  'share.remote.unavailable': 'Не вдалося виконати віддалений обмін.\nСпробуйте трохи пізніше.',
+    'Не вдалося авторизувати віддалений обмін\nПеревірте налаштування Worker',
+  'share.remote.expired': 'Термін дії посилання на віддалений файл минув\nПоділіться файлом ще раз',
+  'share.remote.unavailable': 'Не вдалося виконати віддалений обмін\nСпробуйте трохи пізніше',
   'transfer.preload_fail':
     'Не вдалося відтворити попередньо завантажений файл, повторне завантаження',
   'transfer.download_finishing': 'Завершення завантаження...',
@@ -661,15 +659,15 @@ const uk: Record<I18nKey, string> = {
   'transfer.preload_pending': 'Очікування попереднього завантаження: {{name}}',
   'transfer.waiting_recovery': 'Очікування відновлення: {{name}}',
   'transfer.preparing_name': 'Підготовка: {{name}}',
-  'transfer.recovery_failed': 'Не вдалося відновити файл.\nСпробуйте ще раз.',
+  'transfer.recovery_failed': 'Не вдалося відновити файл\nСпробуйте ще раз',
 
   // ─── Помилки ─────────────────────────────────────────────────────
-  'error.https_required': 'Потрібен HTTPS: працює лише через безпечне з’єднання.',
+  'error.https_required': 'Потрібен HTTPS: працює лише через безпечне з’єднання',
   'error.browser_update': 'Оновіть браузер до актуальної версії.',
   'error.load_failed': 'Не вдалося завантажити: {{msg}}',
   'error.audio_decode_fail': 'Не вдалося декодувати аудіо!',
   'error.audio_memory': 'Завантаження аудіо в пам’ять...',
-  'error.all_tracks_failed': 'У плейлісті немає треків, які можна відтворити.',
+  'error.all_tracks_failed': 'У плейлісті немає треків, які можна відтворити',
   'error.audio_engine_prepare': 'Не вдалося підготувати звуковий рушій',
   'error.session_create_fail': 'Не вдалося створити сеанс',
   'error.network_generic': 'Сталася помилка мережі',
@@ -687,20 +685,19 @@ const uk: Record<I18nKey, string> = {
   'error.peer_not_ready': 'Однорангове з’єднання ще не готове',
   'error.network_init_failed': 'Не вдалося ініціалізувати мережу',
   'error.no_host_id': 'Ідентифікатор хоста не знайдено',
-  'error.peer_unavailable': 'Не вдалося знайти сеанс.\nПеревірте код ще раз.',
+  'error.peer_unavailable': 'Не вдалося знайти сеанс\nПеревірте код ще раз',
   'error.host_left': 'Схоже, хост вийшов із сеансу',
-  'error.network_issue': 'Виникла проблема з мережею.\nПеревірте інтернет-з’єднання.',
-  'error.signal_server_fail': 'Немає зв’язку із сервером сигналізації.\nСпробуйте трохи пізніше.',
-  'error.server_disconnected': 'З’єднання із сервером втрачено.',
-  'error.session_id_unavailable': 'Ідентифікатор сеансу недоступний.\nСпробуйте ще раз.',
-  'error.webrtc_failed':
-    'Не вдалося встановити з’єднання WebRTC.\nПеревірте налаштування браузера.',
+  'error.network_issue': 'Виникла проблема з мережею\nПеревірте інтернет-з’єднання',
+  'error.signal_server_fail': 'Немає зв’язку із сервером сигналізації\nСпробуйте трохи пізніше',
+  'error.server_disconnected': 'З’єднання із сервером втрачено',
+  'error.session_id_unavailable': 'Ідентифікатор сеансу недоступний\nСпробуйте ще раз',
+  'error.webrtc_failed': 'Не вдалося встановити з’єднання WebRTC\nПеревірте налаштування браузера',
   'error.browser_unsupported':
-    'Цей браузер не підтримує з’єднання в реальному часі.\nСкористайтеся Chrome або Safari.',
-  'error.ssl_required': 'Потрібне безпечне з’єднання (HTTPS).',
+    'Цей браузер не підтримує з’єднання в реальному часі\nСкористайтеся Chrome або Safari',
+  'error.ssl_required': 'Потрібне безпечне з’єднання (HTTPS)',
   'error.room_password_required': 'Для цієї кімнати потрібен пароль.',
   'error.room_password_invalid': 'Пароль кімнати не збігається.',
-  'error.room_password_auth_timeout': 'Мережа нестабільна.\nСпробуйте ввести пароль ще раз.',
+  'error.room_password_auth_timeout': 'Мережа нестабільна\nСпробуйте ввести пароль ще раз',
 
   // ─── Діалогові вікна ─────────────────────────────────────────────
   'dialog.file_drop.title': 'Додати локальні файли',
@@ -801,9 +798,9 @@ const uk: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'Неправильний пароль. Спробуйте ще раз.',
   'pro.pin_change_title': 'Змінити пароль кімнати',
   'pro.pin_change_message': 'Задайте новий 8-значний пароль.',
-  'pro.pin_changed': 'Пароль кімнати змінено.',
+  'pro.pin_changed': 'Пароль кімнати змінено',
   'pro.pin_enable_title': 'Задати пароль кімнати',
-  'pro.pin_enabled': 'Пароль кімнати задано.',
+  'pro.pin_enabled': 'Пароль кімнати задано',
   'pro.pin_members_title': 'Що зробити з поточними учасниками?',
   'pro.pin_members_keep': 'Залишити всіх',
   'pro.pin_members_keep_detail':
@@ -823,8 +820,8 @@ const uk: Record<I18nKey, string> = {
   'pro.removed_message': 'Власник кімнати або адміністратор вилучив вас із цієї кімнати.',
   'pro.device_removed_message':
     'Інший пристрій, у якому виконано вхід у ваш обліковий запис, відключив цей пристрій від кімнати.',
-  'pro.owner_only': 'Це може зробити лише власник кімнати.',
-  'pro.connect_failed': 'Не вдалося підключитися до кімнати PRO.',
+  'pro.owner_only': 'Це може зробити лише власник кімнати',
+  'pro.connect_failed': 'Не вдалося підключитися до кімнати PRO',
   'pro.room_full': 'Ця кімната PRO заповнена',
   'pro.room_full_detail':
     'У кімнаті PRO може бути до 100 пристроїв, включно з пристроєм власника. Одне місце завжди залишається за власником.',
@@ -841,8 +838,8 @@ const uk: Record<I18nKey, string> = {
   'pro.upload.cancel_file': 'Скасувати надсилання {{name}}',
   'pro.upload.confirming_file': 'Завершення надсилання {{name}}',
   'pro.downloading': 'Завантаження файла...',
-  'pro.quota_exceeded': 'Ця кімната PRO досягла ліміту сховища в 1 ГБ.',
-  'pro.file_too_large': 'Цей файл перевищує ліміт у 200 МБ на один файл.',
+  'pro.quota_exceeded': 'Ця кімната PRO досягла ліміту сховища в 1 ГБ',
+  'pro.file_too_large': 'Цей файл перевищує ліміт у 200 МБ на один файл',
 
   // ─── HTML-блоки (для data-i18n-html) ─────────────────────────────
   'help.install_app_html':
@@ -882,38 +879,37 @@ const uk: Record<I18nKey, string> = {
   'system_audio.button': 'Системне аудіо',
   'system_audio.sharing': 'Трансляція системного аудіо',
   'system_audio.receiving': 'Отримання системного аудіо',
-  'system_audio.owner_active': '{{name}} транслює системне аудіо.',
-  'system_audio.owner_preparing': '{{name}} готується транслювати системне аудіо.',
-  'system_audio.pro_preparing': 'Підготовка до трансляції системного аудіо.',
-  'system_audio.pro_publish_failed': 'Не вдалося почати трансляцію системного аудіо.',
+  'system_audio.owner_active': '{{name}} транслює системне аудіо',
+  'system_audio.owner_preparing': '{{name}} готується транслювати системне аудіо',
+  'system_audio.pro_preparing': 'Підготовка до трансляції системного аудіо',
+  'system_audio.pro_publish_failed': 'Не вдалося почати трансляцію системного аудіо',
   'system_audio.coordinator_update_required':
-    'Оновіть пристрій, який керує цією кімнатою, щоб транслювати системне аудіо.',
+    'Оновіть пристрій, який керує цією кімнатою, щоб транслювати системне аудіо',
   'system_audio.connection_unstable':
-    'З’єднання системного аудіо користувача {{name}} нестабільне.\nТриває повторне підключення.',
-  'system_audio.capture_denied': 'Трансляцію аудіо скасовано.',
-  'system_audio.no_audio_track': 'Параметр «Поділитися аудіо» не ввімкнено.\nСпробуйте ще раз.',
+    'З’єднання системного аудіо користувача {{name}} нестабільне\nТриває повторне підключення',
+  'system_audio.capture_denied': 'Трансляцію аудіо скасовано',
+  'system_audio.no_audio_track': 'Параметр «Поділитися аудіо» не ввімкнено\nСпробуйте ще раз',
   'system_audio.stop': 'Зупинити трансляцію',
   'system_audio.stop_compact': 'Зупинити',
   'system_audio.started':
-    'Системне аудіо може мати невелику затримку.\nЯкщо можливо, зменште гучність джерела.',
+    'Системне аудіо може мати невелику затримку\nЯкщо можливо, зменште гучність джерела',
   'system_audio.stopped':
-    'Трансляцію системного аудіо завершено.\nВідтворення плейліста продовжується.',
-  'system_audio.host_channel_locked':
-    'Під час трансляції системного аудіо ролі змінювати не можна.',
+    'Трансляцію системного аудіо завершено\nВідтворення плейліста продовжується',
+  'system_audio.host_channel_locked': 'Під час трансляції системного аудіо ролі змінювати не можна',
   'system_audio.effects_guest_only':
-    'Системне аудіо активне.\nЗвукові ефекти застосовуються лише на гостьових пристроях.',
+    'Системне аудіо активне\nЗвукові ефекти застосовуються лише на гостьових пристроях',
   'system_audio.desktop_only':
-    'Доступно лише на комп’ютерах із браузером на основі Chromium (Chrome, Edge тощо).',
+    'Доступно лише на комп’ютерах із браузером на основі Chromium (Chrome, Edge тощо)',
   'system_audio.receive_failed':
-    'Не вдалося отримати системне аудіо.\nПопросіть хоста почати трансляцію ще раз.',
+    'Не вдалося отримати системне аудіо\nПопросіть хоста почати трансляцію ще раз',
   'system_audio.remote_receive_limit':
-    'Отримання системного аудіо завершилося через 2 години.\nПриєднайтеся до кімнати знову, щоб продовжити слухати.',
+    'Отримання системного аудіо завершилося через 2 години\nПриєднайтеся до кімнати знову, щоб продовжити слухати',
   'system_audio.device_limit':
-    'Системне аудіо підтримує до {{count}} пристроїв.\nХост також враховується.',
+    'Системне аудіо підтримує до {{count}} пристроїв\nХост також враховується',
   'system_audio.device_limit_stopped':
-    'Трансляцію системного аудіо зупинено.\nКількість підключених пристроїв перевищує {{count}}.',
+    'Трансляцію системного аудіо зупинено\nКількість підключених пристроїв перевищує {{count}}',
   'system_audio.duration_limit_stopped':
-    'Трансляцію системного аудіо автоматично завершено\nчерез 2 години.',
+    'Трансляцію системного аудіо автоматично завершено\nчерез 2 години',
 
   // ─── Правова інформація ──────────────────────────────────────────
   'legal.title': 'Примітки щодо сервісу',

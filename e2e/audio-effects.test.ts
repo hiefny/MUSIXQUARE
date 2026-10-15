@@ -480,7 +480,7 @@ test.describe('Audio Effects', () => {
     const volumeSlider = pair.guestPage.locator('#volume-slider');
     const muteButton = pair.guestPage.locator('#vol-icon-btn');
     const toast = pair.guestPage.locator('#toast');
-    const denial = 'Settings sync is on.\nOnly room admins can change audio settings.';
+    const denial = 'Settings sync is on\nOnly room admins can change audio settings';
     await expect(volumeGroup).toBeVisible();
     await expect(volumeGroup).toHaveAttribute('tabindex', '0');
     await expect(volumeGroup).toHaveAccessibleName(denial);

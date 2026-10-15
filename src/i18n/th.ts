@@ -43,7 +43,7 @@ const th: Record<I18nKey, string> = {
   'common.off': 'ปิด',
   'account.login_title': 'เข้าสู่ระบบ',
   'account.login_cancelled': 'ยกเลิกการเข้าสู่ระบบแล้ว',
-  'account.login_failed': 'เข้าสู่ระบบไม่ได้ ลองอีกครั้ง',
+  'account.login_failed': 'เข้าสู่ระบบไม่ได้\nลองอีกครั้ง',
   'account.welcome_back': 'ยินดีที่ได้พบกันอีก\n{{name}}',
   'account.login_message':
     'เข้าสู่ระบบด้วย Google เพื่อใช้ชื่อเล่นเดิมในทุกห้อง คุณยังใช้ MUSIXQUARE ต่อได้โดยไม่ต้องเข้าสู่ระบบ',
@@ -70,12 +70,12 @@ const th: Record<I18nKey, string> = {
   'account.nickname_whitespace': 'ชื่อเล่นต้องไม่มีช่องว่างหรืออักขระที่มองไม่เห็น',
   'account.nickname_taken': 'ชื่อเล่นนี้ถูกใช้แล้ว',
   'account.nickname_saved': 'เปลี่ยนชื่อเล่นเป็น {{name}} แล้ว',
-  'account.action_failed': 'อัปเดตบัญชีไม่ได้ ลองอีกครั้งภายหลัง',
+  'account.action_failed': 'อัปเดตบัญชีไม่ได้\nลองอีกครั้งภายหลัง',
   'account.delete_confirm_title': 'ลบบัญชีไหม?',
   'account.delete_confirm_message':
     'ชื่อเล่น เซสชันการเข้าสู่ระบบ และสิทธิ์ในห้องที่ผูกกับบัญชีของคุณจะถูกลบ เนื้อหาที่แชร์ในห้องจะเป็นไปตามนโยบายการเก็บรักษาของห้องนั้น',
   'account.delete_pending':
-    'กำลังลบบัญชีของคุณ ระบบกำลังจัดการสิทธิ์ PRO อย่างปลอดภัยและการลบจะเสร็จสิ้นโดยอัตโนมัติ',
+    'กำลังลบบัญชีของคุณ\nระบบกำลังจัดการสิทธิ์ PRO อย่างปลอดภัยและการลบจะเสร็จสิ้นโดยอัตโนมัติ',
   'common.previous': 'ก่อนหน้า',
   'common.next_desc': 'ถัดไป',
   'common.volume_percent': 'ระดับเสียง: {{val}}%',
@@ -156,8 +156,8 @@ const th: Record<I18nKey, string> = {
   'playlist.deferred_load_hint': 'กดเล่นเพื่อโหลดรายการทั้งหมด',
   'playlist.host_update_required': 'อัปเดตอุปกรณ์ที่จัดการห้องนี้',
   'playlist.queue_full': 'เพลย์ลิสต์เต็มแล้ว',
-  'playlist.mutation_retry': 'เพลย์ลิสต์มีการเปลี่ยนแปลง ลองอีกครั้ง',
-  'transfer.host_busy': 'เจ้าของห้องกำลังประมวลผลไฟล์อื่น ลองอีกครั้งในอีกสักครู่',
+  'playlist.mutation_retry': 'เพลย์ลิสต์มีการเปลี่ยนแปลง\nลองอีกครั้ง',
+  'transfer.host_busy': 'เจ้าของห้องกำลังประมวลผลไฟล์อื่น\nลองอีกครั้งในอีกสักครู่',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'ลำโพงกลาง',
@@ -530,7 +530,7 @@ const th: Record<I18nKey, string> = {
   'toast.device_conn_error': 'ข้อผิดพลาดการเชื่อมต่อของ {{name}}',
   'toast.device_kicked': '{{name}} ถูกนำออกแล้ว',
   'toast.remote_decode_device_wait':
-    'มีอุปกรณ์ที่ถอดรหัสรายการนี้ไม่ได้ การเล่นจะดำเนินต่อสำหรับอุปกรณ์อื่น',
+    'มีอุปกรณ์ที่ถอดรหัสรายการนี้ไม่ได้\nการเล่นจะดำเนินต่อสำหรับอุปกรณ์อื่น',
   'toast.invite_code': 'รหัสเชิญ: {{code}}',
   'toast.invite_code_info': 'เชื่อมต่อ {{count}} เครื่อง | รหัส {{code}}',
   'toast.added_tracks': 'เพิ่ม {{count}} รายการแล้ว',
@@ -597,8 +597,8 @@ const th: Record<I18nKey, string> = {
   'toast.yt_rendezvous_start': 'กำลังจัดให้ตรงกับเจ้าของห้อง...',
   'toast.yt_rendezvous_done': 'ซิงก์เสร็จแล้ว',
   'toast.yt_rendezvous_host_paused': 'เจ้าของห้องหยุดชั่วคราว จึงปรับเฉพาะตำแหน่ง',
-  'toast.yt_rendezvous_no_data': 'ยังไม่มีข้อมูลการเล่นจากเจ้าของห้อง ลองอีกครั้งภายหลัง',
-  'toast.yt_rendezvous_timeout': 'ซิงก์ไม่สำเร็จ ลองอีกครั้งภายหลัง',
+  'toast.yt_rendezvous_no_data': 'ยังไม่มีข้อมูลการเล่นจากเจ้าของห้อง\nลองอีกครั้งภายหลัง',
+  'toast.yt_rendezvous_timeout': 'ซิงก์ไม่สำเร็จ\nลองอีกครั้งภายหลัง',
   'toast.yt_host_sync_sent': 'ส่งสัญญาณซิงก์อัตโนมัติให้ผู้เข้าร่วมแล้ว',
   'toast.yt_manual_sync_prompt': 'เพิ่งลองซิงก์อัตโนมัติ\nถ้ายังรู้สึกหน่วง ให้ปรับค่าตอนนี้',
   'toast.playlist_ended': 'สื่อสุดท้ายจบแล้ว',

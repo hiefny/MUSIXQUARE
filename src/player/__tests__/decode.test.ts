@@ -336,7 +336,7 @@ describe('guest decode failure reports', () => {
 
     expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
     expect(mocks.showToast).toHaveBeenCalledWith(
-      'A device failed to decode this track. Playback is continuing for everyone else.',
+      'A device failed to decode this track\nPlayback is continuing for everyone else',
     );
     expect(getState('playback.failedTrackKeys').size).toBe(0);
   });
@@ -353,7 +353,7 @@ describe('guest decode failure reports', () => {
 
     expect(mocks.safeSend).toHaveBeenCalledWith(op.conn, {
       type: MSG.OPERATOR_TOAST,
-      text: 'A device failed to decode this track. Playback is continuing for everyone else.',
+      text: 'A device failed to decode this track\nPlayback is continuing for everyone else',
       i18nKey: 'toast.remote_decode_device_wait',
     });
     expect(mocks.safeSend).not.toHaveBeenCalledWith(guest.conn, expect.anything());

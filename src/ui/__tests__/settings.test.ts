@@ -402,9 +402,7 @@ describe('initSettings playback mode guards', () => {
       document.querySelector<HTMLElement>(selector)?.click();
 
       expect(setChannel).toHaveBeenCalledWith(mode);
-      expect(showToast).not.toHaveBeenCalledWith(
-        'Cannot change roles during system audio sharing.',
-      );
+      expect(showToast).not.toHaveBeenCalledWith('Cannot change roles during system audio sharing');
     } finally {
       restoreProbe();
     }
@@ -428,11 +426,11 @@ describe('initSettings playback mode guards', () => {
       expect(showToast).toHaveBeenCalledTimes(2);
       expect(showToast).toHaveBeenNthCalledWith(
         1,
-        'Cannot change roles during system audio sharing.',
+        'Cannot change roles during system audio sharing',
       );
       expect(showToast).toHaveBeenNthCalledWith(
         2,
-        'Cannot change roles during system audio sharing.',
+        'Cannot change roles during system audio sharing',
       );
     } finally {
       restoreProbe();
@@ -910,7 +908,7 @@ describe('initSettings effect slider fill sync', () => {
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
     expect(showToast).toHaveBeenCalledWith(
-      'Settings sync is on.\nOnly room admins can change audio settings.',
+      'Settings sync is on\nOnly room admins can change audio settings',
     );
     expect(
       document
@@ -940,7 +938,7 @@ describe('initSettings effect slider fill sync', () => {
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
     expect(showToast).toHaveBeenCalledWith(
-      'Settings sync is on.\nOnly room admins can change audio settings.',
+      'Settings sync is on\nOnly room admins can change audio settings',
     );
     expect(document.getElementById('grid-reverb')?.classList.contains('host-ctrl-locked')).toBe(
       true,
@@ -1009,7 +1007,7 @@ describe('initSettings effect slider fill sync', () => {
 
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
-    expect(showToast).not.toHaveBeenCalledWith('Only the room owner can change this.');
+    expect(showToast).not.toHaveBeenCalledWith('Only the room owner can change this');
     const arena = document.querySelector<HTMLElement>(
       '#grid-reverb .ch-opt[data-rvb-type="arena"]',
     );

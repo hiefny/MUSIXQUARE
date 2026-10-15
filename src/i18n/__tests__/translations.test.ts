@@ -522,24 +522,24 @@ describe('Translation key integrity', () => {
   it('explains synchronized audio authority explicitly in every locale without toast truncation', () => {
     const key = 'toast.settings_sync_admin_required' as const;
     const expected: Record<keyof typeof locales, string> = {
-      ko: '설정 동기화가 켜져 있어요.\n방 관리자만 음향 설정을 변경할 수 있어요.',
-      en: 'Settings sync is on.\nOnly room admins can change audio settings.',
-      de: 'Die Einstellungssynchronisierung ist aktiviert.\nNur Raumadmins können Audioeinstellungen ändern.',
-      es: 'La sincronización de ajustes está activada.\nSolo admins de la sala pueden cambiarlos.',
-      fr: 'La synchronisation des réglages est activée.\nSeuls les admins du salon peuvent les modifier.',
-      id: 'Sinkronisasi pengaturan aktif.\nHanya admin ruang dapat mengubah pengaturan audio.',
+      ko: '설정 동기화가 켜져 있어요\n방 관리자만 음향 설정을 변경할 수 있어요',
+      en: 'Settings sync is on\nOnly room admins can change audio settings',
+      de: 'Die Einstellungssynchronisierung ist aktiviert\nNur Raumadmins können Audioeinstellungen ändern',
+      es: 'La sincronización de ajustes está activada\nSolo admins de la sala pueden cambiarlos',
+      fr: 'La synchronisation des réglages est activée\nSeuls les admins du salon peuvent les modifier',
+      id: 'Sinkronisasi pengaturan aktif\nHanya admin ruang dapat mengubah pengaturan audio',
       italian:
-        'La sincronizzazione delle impostazioni è attiva.\nSolo gli admin della stanza possono cambiarle.',
-      ja: '設定の同期がオンです。\n音響設定を変更できるのはルーム管理者だけです。',
-      nl: 'Instellingensynchronisatie staat aan.\nAlleen kamerbeheerders kunnen dit wijzigen.',
-      pl: 'Synchronizacja ustawień jest włączona.\nTylko administratorzy pokoju mogą je zmieniać.',
-      ptBr: 'A sincronização de configurações está ativada.\nSó administradores da sala podem alterar o áudio.',
-      ru: 'Синхронизация настроек включена.\nТолько администраторы комнаты могут менять звук.',
+        'La sincronizzazione delle impostazioni è attiva\nSolo gli admin della stanza possono cambiarle',
+      ja: '設定の同期がオンです\n音響設定を変更できるのはルーム管理者だけです',
+      nl: 'Instellingensynchronisatie staat aan\nAlleen kamerbeheerders kunnen dit wijzigen',
+      pl: 'Synchronizacja ustawień jest włączona\nTylko administratorzy pokoju mogą je zmieniać',
+      ptBr: 'A sincronização de configurações está ativada\nSó administradores da sala podem alterar o áudio',
+      ru: 'Синхронизация настроек включена\nТолько администраторы комнаты могут менять звук',
       th: 'เปิดการซิงก์การตั้งค่าอยู่\nผู้ดูแลห้องเท่านั้นที่เปลี่ยนการตั้งค่าเสียงได้',
-      tr: 'Ayar senkronizasyonu açık.\nYalnızca oda yöneticileri değiştirebilir.',
-      vi: 'Đồng bộ cài đặt đang bật.\nChỉ quản trị viên phòng được đổi cài đặt âm thanh.',
-      zhHans: '设置同步已开启。\n只有房间管理员可以更改音频设置。',
-      zhHant: '設定同步已開啟。\n只有房間管理員可以變更音訊設定。',
+      tr: 'Ayar senkronizasyonu açık\nYalnızca oda yöneticileri değiştirebilir',
+      vi: 'Đồng bộ cài đặt đang bật\nChỉ quản trị viên phòng được đổi cài đặt âm thanh',
+      zhHans: '设置同步已开启\n只有房间管理员可以更改音频设置',
+      zhHant: '設定同步已開啟\n只有房間管理員可以變更音訊設定',
     };
 
     for (const locale of Object.keys(locales) as Array<keyof typeof locales>) {
@@ -728,10 +728,10 @@ describe('Translation key integrity', () => {
       }
     }
     expect(en['system_audio.desktop_only']).toBe(
-      'Only available on computers using a Chromium-based browser (Chrome, Edge, etc.).',
+      'Only available on computers using a Chromium-based browser (Chrome, Edge, etc.)',
     );
     expect(ko['system_audio.desktop_only']).toBe(
-      '컴퓨터의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요.',
+      '컴퓨터의 Chrome 계열 브라우저(Chrome, Edge 등)에서만 사용할 수 있어요',
     );
   });
 
@@ -1011,7 +1011,7 @@ describe('PRO PIN membership and removal copy', () => {
     expect(NEW_KEYS.map((key) => en[key])).toEqual([
       'Set room password',
       'Set a new 8-digit password.',
-      'Room password set.',
+      'Room password set',
       'What should happen to current participants?',
       'Keep everyone',
       'Only devices that rejoin or join for the first time need to enter the password.',
@@ -1029,7 +1029,7 @@ describe('PRO PIN membership and removal copy', () => {
     expect(NEW_KEYS.map((key) => ko[key])).toEqual([
       '방 암호 설정',
       '새 8자리 암호를 설정해 주세요.',
-      '방 암호를 설정했어요.',
+      '방 암호를 설정했어요',
       '현재 참여자를 어떻게 할까요?',
       '그대로 두기',
       '다시 입장하거나, 새로 참여하는 기기만 암호를 입력하면 돼요.',
@@ -1131,12 +1131,12 @@ describe('Standard-room owner PIN copy', () => {
     expect(STANDARD_KEYS.map((key) => ko[key])).toEqual([
       '방장이 방 암호를 설정했어요. 암호를 입력하면 다시 들어올 수 있어요.',
       '방장이 방 암호를 바꿨어요. 새 암호를 입력하면 다시 들어올 수 있어요.',
-      '연결이 회복되면 새 암호가 적용돼요.',
+      '연결이 회복되면 새 암호가 적용돼요',
     ]);
     expect(STANDARD_KEYS.map((key) => en[key])).toEqual([
       'The host set a room password. Enter it to join again.',
       'The host changed the room password. Enter the new password to join again.',
-      'The new password will apply once the connection recovers.',
+      'The new password will apply once the connection recovers',
     ]);
     expect(ko['connect.pin_enabled_removed_message']).not.toMatch(/소유자|강제퇴장/);
     expect(ko['connect.pin_changed_removed_message']).not.toMatch(/소유자|강제퇴장/);

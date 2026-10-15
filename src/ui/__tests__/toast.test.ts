@@ -206,7 +206,7 @@ describe('standard operator file uplink feedback', () => {
       code: 'operator-revoked',
     });
     expect(document.getElementById('toast-msg')!.innerText).toBe(
-      'Media management permission required.',
+      'Media management permission required',
     );
 
     const invalid = uplinkProgress();
@@ -215,9 +215,7 @@ describe('standard operator file uplink feedback', () => {
       phase: 'error',
       code: 'invalid-file',
     });
-    expect(document.getElementById('toast-msg')!.innerText).toBe(
-      'No supported audio files to add.',
-    );
+    expect(document.getElementById('toast-msg')!.innerText).toBe('No supported audio files to add');
 
     const tooLarge = uplinkProgress();
     bus.emit('standard-room:operator-file-uplink-progress', {
@@ -234,7 +232,7 @@ describe('standard operator file uplink feedback', () => {
       code: 'host-busy',
     });
     expect(document.getElementById('toast-msg')!.innerText).toBe(
-      'Host is processing another file. Try again soon.',
+      'Host is processing another file\nTry again soon',
     );
 
     const full = uplinkProgress();
@@ -243,7 +241,7 @@ describe('standard operator file uplink feedback', () => {
       phase: 'error',
       code: 'queue-full',
     });
-    expect(document.getElementById('toast-msg')!.innerText).toBe('The playlist is full.');
+    expect(document.getElementById('toast-msg')!.innerText).toBe('The playlist is full');
 
     const network = uplinkProgress();
     const terminal: StandardOperatorFileUplinkProgress = {
@@ -299,20 +297,20 @@ describe('standard queue mutation feedback', () => {
   it('distinguishes legacy hosts, queue conflicts, and capacity', () => {
     bus.emit('standard-room:queue-mutation-failed', 'accept-timeout', null);
     expect(document.getElementById('toast-msg')!.innerText).toBe(
-      'Please update the device managing this room.',
+      'Please update the device managing this room',
     );
 
     bus.emit('standard-room:queue-mutation-failed', 'rejected', 'invalid-target');
     expect(document.getElementById('toast-msg')!.innerText).toBe(
-      'The playlist changed. Please try again.',
+      'The playlist changed\nPlease try again',
     );
 
     bus.emit('standard-room:queue-mutation-failed', 'rejected', 'queue-full');
-    expect(document.getElementById('toast-msg')!.innerText).toBe('The playlist is full.');
+    expect(document.getElementById('toast-msg')!.innerText).toBe('The playlist is full');
 
     bus.emit('standard-room:queue-mutation-failed', 'rejected', 'unauthorized');
     expect(document.getElementById('toast-msg')!.innerText).toBe(
-      'Media management permission required.',
+      'Media management permission required',
     );
   });
 });

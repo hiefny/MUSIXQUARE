@@ -446,7 +446,7 @@ test.describe('Chat Commands', () => {
     await openChatDrawer(pair.guestPage);
 
     await sendChat(pair.guestPage, '/kick #0');
-    await waitForChatMessage(pair.guestPage, 'Permission to kick members is required.');
+    await waitForChatMessage(pair.guestPage, 'Permission to kick members is required');
   });
 
   test('unknown command shows error message', async () => {

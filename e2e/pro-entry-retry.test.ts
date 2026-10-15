@@ -137,7 +137,7 @@ async function verifyRetry(page: Page, entry: 'code' | 'invite') {
   await start.click();
   const error = page.locator(entry === 'code' ? '#setup-guest-error' : '#setup-auto-join-error');
   await expect(error).toBeVisible();
-  await expect(error).toContainText('Could not connect to the PRO room.');
+  await expect(error).toContainText('Could not connect to the PRO room');
   await expect(start).toHaveText('Retry');
   await expect(start).toBeEnabled();
   expect(fixture.admissions()).toBe(1);

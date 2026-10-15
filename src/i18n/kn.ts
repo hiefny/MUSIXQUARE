@@ -46,8 +46,8 @@ const kn: Record<I18nKey, string> = {
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ಸೈನ್ ಇನ್ ಮಾಡಿ',
-  'account.login_cancelled': 'ಸೈನ್ ಇನ್ ರದ್ದಾಗಿದೆ.',
-  'account.login_failed': 'ಸೈನ್ ಇನ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'account.login_cancelled': 'ಸೈನ್ ಇನ್ ರದ್ದಾಗಿದೆ',
+  'account.login_failed': 'ಸೈನ್ ಇನ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'account.welcome_back': 'ಮತ್ತೆ ಸ್ವಾಗತ\n{{name}}',
   'account.login_message':
     'ವಿವಿಧ ರೂಮ್‌ಗಳಲ್ಲಿ ನಿಮ್ಮ ಅಡ್ಡಹೆಸರನ್ನು ಉಳಿಸಿಕೊಳ್ಳಲು Google ಮೂಲಕ ಸೈನ್ ಇನ್ ಮಾಡಿ. ಸೈನ್ ಇನ್ ಮಾಡದೆಯೂ ಮುಂದುವರಿಯಬಹುದು.',
@@ -72,14 +72,14 @@ const kn: Record<I18nKey, string> = {
   'account.nickname_hint': 'ಗರಿಷ್ಠ 12 ಅಕ್ಷರಗಳನ್ನು ಬಳಸಿ.',
   'account.nickname_required': 'ಅಡ್ಡಹೆಸರನ್ನು ನಮೂದಿಸಿ.',
   'account.nickname_whitespace': 'ಅಡ್ಡಹೆಸರಿನಲ್ಲಿ ಖಾಲಿ ಜಾಗ ಅಥವಾ ಗೋಚರಿಸದ ಅಕ್ಷರಗಳು ಇರಬಾರದು.',
-  'account.nickname_taken': 'ಈ ಅಡ್ಡಹೆಸರು ಈಗಾಗಲೇ ಬಳಕೆಯಲ್ಲಿದೆ.',
-  'account.nickname_saved': 'ಅಡ್ಡಹೆಸರನ್ನು {{name}} ಎಂದು ಬದಲಿಸಲಾಗಿದೆ.',
-  'account.action_failed': 'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ನವೀಕರಿಸಲಾಗಲಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'account.nickname_taken': 'ಈ ಅಡ್ಡಹೆಸರು ಈಗಾಗಲೇ ಬಳಕೆಯಲ್ಲಿದೆ',
+  'account.nickname_saved': 'ಅಡ್ಡಹೆಸರನ್ನು {{name}} ಎಂದು ಬದಲಿಸಲಾಗಿದೆ',
+  'account.action_failed': 'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ನವೀಕರಿಸಲಾಗಲಿಲ್ಲ\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'account.delete_confirm_title': 'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ಅಳಿಸಬೇಕೆ?',
   'account.delete_confirm_message':
     'ನಿಮ್ಮ ಅಡ್ಡಹೆಸರು, ಸೈನ್-ಇನ್ ಸೆಷನ್‌ಗಳು ಮತ್ತು ಖಾತೆಗೆ ಸಂಬಂಧಿಸಿದ ರೂಮ್ ಅನುಮತಿಗಳನ್ನು ಅಳಿಸಲಾಗುತ್ತದೆ. ರೂಮ್‌ನಲ್ಲಿ ಹಂಚಿದ ವಿಷಯಕ್ಕೆ ಆ ರೂಮ್‌ನ ಸಂಗ್ರಹಣಾ ನೀತಿ ಅನ್ವಯಿಸುತ್ತದೆ.',
   'account.delete_pending':
-    'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ಅಳಿಸಲಾಗುತ್ತಿದೆ. PRO ಅನುಮತಿಗಳನ್ನು ಸುರಕ್ಷಿತವಾಗಿ ತೆರವುಗೊಳಿಸಲಾಗುತ್ತಿದ್ದು, ಅಳಿಸುವಿಕೆ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಪೂರ್ಣಗೊಳ್ಳುತ್ತದೆ.',
+    'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ಅಳಿಸಲಾಗುತ್ತಿದೆ\nPRO ಅನುಮತಿಗಳನ್ನು ಸುರಕ್ಷಿತವಾಗಿ ತೆರವುಗೊಳಿಸಲಾಗುತ್ತಿದ್ದು, ಅಳಿಸುವಿಕೆ ಸ್ವಯಂಚಾಲಿತವಾಗಿ ಪೂರ್ಣಗೊಳ್ಳುತ್ತದೆ',
   'common.previous': 'ಹಿಂದೆ',
   'common.next_desc': 'ಮುಂದೆ',
   'common.volume_percent': 'ಧ್ವನಿಮಟ್ಟ: {{val}}%',
@@ -147,7 +147,7 @@ const kn: Record<I18nKey, string> = {
   'playlist.repeat_off': 'ಪುನರಾವರ್ತನೆ ಆಫ್ ಆಗಿದೆ',
   'playlist.shuffle_on': 'ಷಫಲ್ ಆನ್ ಆಗಿದೆ',
   'playlist.shuffle_off': 'ಷಫಲ್ ಆಫ್ ಆಗಿದೆ',
-  'playlist.empty_hint': 'ಇನ್ನೂ ಯಾವುದೇ ಮೀಡಿಯಾ ಇಲ್ಲ.',
+  'playlist.empty_hint': 'ಇನ್ನೂ ಯಾವುದೇ ಮೀಡಿಯಾ ಇಲ್ಲ',
   'playlist.loading_info': 'ಟ್ರ್ಯಾಕ್ ಮಾಹಿತಿ ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   'playlist.sub_load_failed': 'ವೀಡಿಯೊ ಮಾಹಿತಿ ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ',
   'playlist.remove_title': 'ಪ್ಲೇಲಿಸ್ಟ್‌ನಿಂದ ತೆಗೆದುಹಾಕಿ',
@@ -159,11 +159,11 @@ const kn: Record<I18nKey, string> = {
   'playlist.video_fallback': 'ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   'playlist.track_fallback': 'ಟ್ರ್ಯಾಕ್ {{idx}}',
   'playlist.deferred_load_hint': 'ಪೂರ್ಣ ಟ್ರ್ಯಾಕ್ ಪಟ್ಟಿಯನ್ನು ಲೋಡ್ ಮಾಡಲು ಪ್ಲೇ ಮಾಡಿ',
-  'playlist.host_update_required': 'ಈ ರೂಮ್ ನಿರ್ವಹಿಸುತ್ತಿರುವ ಸಾಧನವನ್ನು ನವೀಕರಿಸಿ.',
-  'playlist.queue_full': 'ಪ್ಲೇಲಿಸ್ಟ್ ತುಂಬಿದೆ.',
-  'playlist.mutation_retry': 'ಪ್ಲೇಲಿಸ್ಟ್ ಬದಲಾಗಿದೆ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'playlist.host_update_required': 'ಈ ರೂಮ್ ನಿರ್ವಹಿಸುತ್ತಿರುವ ಸಾಧನವನ್ನು ನವೀಕರಿಸಿ',
+  'playlist.queue_full': 'ಪ್ಲೇಲಿಸ್ಟ್ ತುಂಬಿದೆ',
+  'playlist.mutation_retry': 'ಪ್ಲೇಲಿಸ್ಟ್ ಬದಲಾಗಿದೆ\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'transfer.host_busy':
-    'ಹೋಸ್ಟ್ ಮತ್ತೊಂದು ಫೈಲ್ ಅನ್ನು ಪ್ರಕ್ರಿಯೆಗೊಳಿಸುತ್ತಿದ್ದಾರೆ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    'ಹೋಸ್ಟ್ ಮತ್ತೊಂದು ಫೈಲ್ ಅನ್ನು ಪ್ರಕ್ರಿಯೆಗೊಳಿಸುತ್ತಿದ್ದಾರೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
 
   // ─── Role ────────────────────────────────────────────────────────
   'role.center': 'ಮಧ್ಯದ ಸ್ಪೀಕರ್',
@@ -294,7 +294,7 @@ const kn: Record<I18nKey, string> = {
   'connect.room_password_on': 'ಪಾಸ್‌ವರ್ಡ್ ಅನ್ವಯಿಸಲಾಗಿದೆ',
   'connect.room_password_invalid': '8 ಅಂಕಿಗಳನ್ನು ನಮೂದಿಸಿ',
   'connect.room_password_disabled': 'ಭಾಗವಹಿಸುವವರಿಗೆ ಇನ್ನು ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಅಗತ್ಯವಿಲ್ಲ',
-  'connect.room_password_apply_pending': 'ಸಂಪರ್ಕ ಮರಳಿದಾಗ ಹೊಸ ಪಾಸ್‌ವರ್ಡ್ ಅನ್ವಯವಾಗುತ್ತದೆ.',
+  'connect.room_password_apply_pending': 'ಸಂಪರ್ಕ ಮರಳಿದಾಗ ಹೊಸ ಪಾಸ್‌ವರ್ಡ್ ಅನ್ವಯವಾಗುತ್ತದೆ',
   'connect.pin_enabled_removed_message':
     'ಹೋಸ್ಟ್ ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಿದ್ದಾರೆ. ಮತ್ತೆ ಸೇರಲು ಅದನ್ನು ನಮೂದಿಸಿ.',
   'connect.pin_changed_removed_message':
@@ -322,7 +322,7 @@ const kn: Record<I18nKey, string> = {
   'demo.prompt_message': 'ಸ್ವಾಗತ! ನಮ್ಮ ವೈಶಿಷ್ಟ್ಯಗಳ ಕಿರು ಪರಿಚಯಕ್ಕೆ ಸಿದ್ಧರಿದ್ದೀರಾ?',
   'demo.prompt_cta': 'ಪರಿಚಯ ಪ್ರಾರಂಭಿಸಿ',
   'demo.prompt_later': 'ನಂತರ',
-  'demo.try_later_toast': 'ಸಹಾಯ ಟ್ಯಾಬ್‌ನಿಂದ ಯಾವಾಗ ಬೇಕಾದರೂ ಇದನ್ನು ಪ್ರಯತ್ನಿಸಬಹುದು.',
+  'demo.try_later_toast': 'ಸಹಾಯ ಟ್ಯಾಬ್‌ನಿಂದ ಯಾವಾಗ ಬೇಕಾದರೂ ಇದನ್ನು ಪ್ರಯತ್ನಿಸಬಹುದು',
   'demo.track_info': 'ಟ್ರ್ಯಾಕ್ ಮಾಹಿತಿ',
   'demo.exit': 'ಡೆಮೊದಿಂದ ಹೊರಡಿ',
   'demo.credit': 'ಡೆಮೊ ಟ್ರ್ಯಾಕ್',
@@ -351,9 +351,9 @@ const kn: Record<I18nKey, string> = {
   'demo.finish_step_title': 'ಎಲ್ಲವೂ ಸಿದ್ಧವಾಗಿದೆ!',
   'demo.finish_step_subtitle': 'ಈಗಲೇ ಪ್ರಾರಂಭಿಸಿ ಮತ್ತು ಒಟ್ಟಿಗೆ ಪ್ಲೇ ಮಾಡಿ.',
   'demo.track_list_label': 'ಡೆಮೊ ಟ್ರ್ಯಾಕ್ ಪಟ್ಟಿ',
-  'demo.host_only_exit': 'ಇದನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ಒತ್ತಬಹುದು.',
+  'demo.host_only_exit': 'ಇದನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ಒತ್ತಬಹುದು',
   'demo.external_playback_stopped':
-    'ಡೆಮೊ ಮೋಡ್ ಪ್ರಸ್ತುತ YouTube ಅಥವಾ ಸಿಸ್ಟಮ್-ಆಡಿಯೊ ಪ್ಲೇಬ್ಯಾಕ್ ಅನ್ನು ನಿಲ್ಲಿಸಿದೆ.',
+    'ಡೆಮೊ ಮೋಡ್ ಪ್ರಸ್ತುತ YouTube ಅಥವಾ ಸಿಸ್ಟಮ್-ಆಡಿಯೊ ಪ್ಲೇಬ್ಯಾಕ್ ಅನ್ನು ನಿಲ್ಲಿಸಿದೆ',
   'setup.how_to_connect': 'ಸಂಪರ್ಕಿಸುವುದು ಹೇಗೆ',
   'setup.set_role': 'ಈ ಸಾಧನದ ಪಾತ್ರ ಹೊಂದಿಸಿ',
   'setup.what_sound': 'ಈ ಸಾಧನ ಏನನ್ನು ಪ್ಲೇ ಮಾಡಬೇಕು?',
@@ -372,7 +372,7 @@ const kn: Record<I18nKey, string> = {
   'setup.camera_not_found': 'ಬಳಸಬಹುದಾದ ಕ್ಯಾಮೆರಾ ಕಂಡುಬಂದಿಲ್ಲ',
   'setup.camera_unavailable': 'ಕ್ಯಾಮೆರಾ ಪ್ರಾರಂಭಿಸಲಾಗಲಿಲ್ಲ',
   'setup.camera_stream_stalled':
-    'ಕ್ಯಾಮೆರಾ ಮುನ್ನೋಟ ಪ್ರಾರಂಭವಾಗಲಿಲ್ಲ.\nಬ್ರೌಸರ್‌ನಲ್ಲಿ ತೆರೆಯಿರಿ ಅಥವಾ ಕೋಡ್ ನಮೂದಿಸಿ.',
+    'ಕ್ಯಾಮೆರಾ ಮುನ್ನೋಟ ಪ್ರಾರಂಭವಾಗಲಿಲ್ಲ\nಬ್ರೌಸರ್‌ನಲ್ಲಿ ತೆರೆಯಿರಿ ಅಥವಾ ಕೋಡ್ ನಮೂದಿಸಿ',
   'setup.connect_devices': 'ಪ್ರಾರಂಭಿಸಲು ನಿಮ್ಮ ಇತರ ಸಾಧನಗಳನ್ನು ಸಂಪರ್ಕಿಸಿ.',
   'setup.enter_code_connect': 'ಆಮಂತ್ರಣ ಕೋಡ್',
   'setup.last_step': 'ಪ್ರಾರಂಭಿಸೋಣ!',
@@ -433,19 +433,19 @@ const kn: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'ಈ ಸಾಧನವು ಪ್ರಸ್ತುತ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಪ್ಲೇ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ.',
   'chat.update_available_tab_system_message':
-    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ.\nಅನ್ವಯಿಸಲು ಪುಟವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
+    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ\nಅನ್ವಯಿಸಲು ಪುಟವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ',
   'chat.update_available_app_system_message':
-    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ.\nಅನ್ವಯಿಸಲು ಆ್ಯಪ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆಯಿರಿ.',
+    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ\nಅನ್ವಯಿಸಲು ಆ್ಯಪ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆಯಿರಿ',
   'chat.system_audio_started_system_message':
     'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಪ್ರಾರಂಭವಾಗಿದೆ. ಹೋಸ್ಟ್ ಮತ್ತು ಅತಿಥಿ ಸಾಧನಗಳ ನಡುವೆ ಸ್ವಲ್ಪ ವಿಳಂಬ ಸಹಜ. ಪ್ರತಿಧ್ವನಿ ತಪ್ಪಿಸಲು ಹೋಸ್ಟ್ ಸಾಧನದ ಧ್ವನಿಮಟ್ಟ ಕಡಿಮೆ ಮಾಡುವಂತೆ ಶಿಫಾರಸು ಮಾಡುತ್ತೇವೆ.',
   'chat.system_audio_stopped_system_message':
     'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಮುಗಿದಿದೆ. ಈ ಸಾಧನವನ್ನು ಮತ್ತೆ ಸ್ಪೀಕರ್ ಆಗಿ ಬಳಸಲು ಹೋಸ್ಟ್ ಈಗ ಧ್ವನಿಮಟ್ಟ ಹೆಚ್ಚಿಸಬಹುದು.',
   'chat.remote_upload_limited_system_message':
-    'ಫೈಲ್ ಅಪ್‌ಲೋಡ್ ಮಿತಿ ತಲುಪಿದೆ.\nದೂರಸ್ಥ ಭಾಗವಹಿಸುವವರು ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಬೇಕು.',
+    'ಫೈಲ್ ಅಪ್‌ಲೋಡ್ ಮಿತಿ ತಲುಪಿದೆ\nದೂರಸ್ಥ ಭಾಗವಹಿಸುವವರು ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಬೇಕು',
   'chat.remote_storage_quota_system_message':
     'ದೂರಸ್ಥ ಹಂಚಿಕೆ ಮಿತಿ ತಲುಪಿದೆ.\nಸ್ಥಳೀಯ ಫೈಲ್ ಹಂಚಿಕೆ ಇನ್ನೂ ಲಭ್ಯವಿದೆ.',
   'chat.remote_upload_failed_system_message':
-    'ದೂರಸ್ಥ ಫೈಲ್ ಅಪ್‌ಲೋಡ್ ವಿಫಲವಾಗಿದೆ.\nದೂರಸ್ಥ ಭಾಗವಹಿಸುವವರು ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಬೇಕು.',
+    'ದೂರಸ್ಥ ಫೈಲ್ ಅಪ್‌ಲೋಡ್ ವಿಫಲವಾಗಿದೆ\nದೂರಸ್ಥ ಭಾಗವಹಿಸುವವರು ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಬೇಕು',
   'chat.pinned_close': 'ಸೂಚನೆಯನ್ನು ಮುಚ್ಚಿ',
   'chat.cmd_whisper_from': '{{name}} ಅವರಿಂದ ಖಾಸಗಿ ಸಂದೇಶ',
   'chat.cmd_whisper_to': '{{name}} ಅವರಿಗೆ ಖಾಸಗಿ ಸಂದೇಶ',
@@ -493,7 +493,7 @@ const kn: Record<I18nKey, string> = {
   'chat.cmd_d_unmute': 'ಸಾಧನದ ಚಾಟ್ ಮರುಸ್ಥಾಪಿಸಿ',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'ಸಿಸ್ಟಮ್ ಡೀಬಗ್ ಮಾಹಿತಿ',
-  'chat.debug_copied': 'ಡೀಬಗ್ ಮಾಹಿತಿ ನಕಲಿಸಲಾಗಿದೆ.\nದೋಷ ಕಂಡುಬಂದರೆ ಅದನ್ನು ಡೆವಲಪರ್‌ಗೆ ಕಳುಹಿಸಿ.',
+  'chat.debug_copied': 'ಡೀಬಗ್ ಮಾಹಿತಿ ನಕಲಿಸಲಾಗಿದೆ\nದೋಷ ಕಂಡುಬಂದರೆ ಅದನ್ನು ಡೆವಲಪರ್‌ಗೆ ಕಳುಹಿಸಿ',
   'chat.seek_to': '{{time}} ಗೆ ಹೋಗಿ',
   'chat.copied': 'ಚಾಟ್ ನಕಲಿಸಲಾಗಿದೆ',
   'chat.copy_hint': 'ಈ ಚಾಟ್ ಸಂದೇಶವನ್ನು ನಕಲಿಸಲು Enter ಒತ್ತಿರಿ',
@@ -504,13 +504,13 @@ const kn: Record<I18nKey, string> = {
   'youtube.enter_link_prompt': 'YouTube ಲಿಂಕ್ ಅಥವಾ ಹುಡುಕಾಟ ಪದ ನಮೂದಿಸಿ',
   'youtube.enter_source_placeholder': 'https://youtube.com/…',
   'youtube.watch_together': 'ಒಟ್ಟಿಗೆ YouTube ವೀಕ್ಷಿಸಿ',
-  'youtube.ready': 'YouTube ಸಿದ್ಧವಾಗಿದೆ!\nಪ್ಲೇ ಬಟನ್ ಒತ್ತಿರಿ.',
+  'youtube.ready': 'YouTube ಸಿದ್ಧವಾಗಿದೆ!\nಪ್ಲೇ ಬಟನ್ ಒತ್ತಿರಿ',
   'youtube.thumbnail': 'YouTube ಮುನ್ನೋಟ ಥಂಬ್‌ನೇಲ್',
-  'youtube.load_fail': 'YouTube API ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ.\nನಿಮ್ಮ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ!',
+  'youtube.load_fail': 'YouTube API ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ\nನಿಮ್ಮ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ!',
   'youtube.video_unavailable': 'ವೀಡಿಯೊ ಲಭ್ಯವಿಲ್ಲ; ಮುಂದಿನ ಟ್ರ್ಯಾಕ್‌ಗೆ ಹೋಗಲಾಗುತ್ತಿದೆ',
-  'youtube.load_timeout': 'YouTube ಲೋಡ್ ಸಮಯ ಮೀರಿದೆ.\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'youtube.load_timeout': 'YouTube ಲೋಡ್ ಸಮಯ ಮೀರಿದೆ\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'youtube.invalid_link': 'ಅಮಾನ್ಯ YouTube ಲಿಂಕ್',
-  'youtube.effects_disabled': 'ಒಟ್ಟಿಗೆ YouTube ವೀಕ್ಷಿಸಿ.\nಸುಧಾರಿತ ಆಡಿಯೊ ಪರಿಣಾಮಗಳು ನಿಷ್ಕ್ರಿಯವಾಗಿವೆ.',
+  'youtube.effects_disabled': 'ಒಟ್ಟಿಗೆ YouTube ವೀಕ್ಷಿಸಿ\nಸುಧಾರಿತ ಆಡಿಯೊ ಪರಿಣಾಮಗಳು ನಿಷ್ಕ್ರಿಯವಾಗಿವೆ',
   'youtube.enter_link_placeholder': 'ವೀಡಿಯೊ ಅಥವಾ ಪ್ಲೇಲಿಸ್ಟ್ ಲಿಂಕ್ ನಮೂದಿಸಿ',
   'youtube.enter_source_toast': 'YouTube ಲಿಂಕ್ ಅಥವಾ ಹುಡುಕಾಟ ಪದ ನಮೂದಿಸಿ',
   'youtube.fetching_info': 'ವೀಡಿಯೊ ಮಾಹಿತಿ ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
@@ -528,7 +528,7 @@ const kn: Record<I18nKey, string> = {
   'youtube.search_failed': 'YouTube ಹುಡುಕಾಟ ಲಭ್ಯವಿಲ್ಲ',
   'youtube.search_selected': 'ಆರಿಸಿದ ವೀಡಿಯೊ ಸೇರಿಸಲು ಸಿದ್ಧವಾಗಿದೆ',
   'youtube.search_results': 'YouTube ಹುಡುಕಾಟ ಫಲಿತಾಂಶಗಳು',
-  'youtube.live_sync_warning': 'ನೇರ ಪ್ರಸಾರಗಳನ್ನು ನಿಖರವಾಗಿ ಸಿಂಕ್ ಮಾಡುವುದು ಕಷ್ಟ.',
+  'youtube.live_sync_warning': 'ನೇರ ಪ್ರಸಾರಗಳನ್ನು ನಿಖರವಾಗಿ ಸಿಂಕ್ ಮಾಡುವುದು ಕಷ್ಟ',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'ಸಂಪರ್ಕ ಕಡಿತಗೊಂಡಿದೆ',
@@ -536,8 +536,8 @@ const kn: Record<I18nKey, string> = {
   'network.session_full': 'ರೂಮ್ ತುಂಬಿದೆ',
   'network.session_full_detail':
     'ಈ ರೂಮ್‌ನಲ್ಲಿ ಹೋಸ್ಟ್ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು ಈಗಾಗಲೇ ಸಂಪರ್ಕಗೊಂಡಿವೆ.',
-  'network.op_granted': 'ನಿರ್ವಾಹಕ ಅನುಮತಿ ನೀಡಲಾಗಿದೆ.',
-  'network.op_revoked': 'ನಿರ್ವಾಹಕ ಅನುಮತಿ ಹಿಂಪಡೆಯಲಾಗಿದೆ.',
+  'network.op_granted': 'ನಿರ್ವಾಹಕ ಅನುಮತಿ ನೀಡಲಾಗಿದೆ',
+  'network.op_revoked': 'ನಿರ್ವಾಹಕ ಅನುಮತಿ ಹಿಂಪಡೆಯಲಾಗಿದೆ',
 
   // ─── Toasts ──────────────────────────────────────────────────────
   'toast.device_connected': '{{name}} ಸಂಪರ್ಕಗೊಂಡಿದ್ದಾರೆ',
@@ -545,7 +545,7 @@ const kn: Record<I18nKey, string> = {
   'toast.device_conn_error': '{{name}} ಅವರ ಸಂಪರ್ಕದಲ್ಲಿ ದೋಷ',
   'toast.device_kicked': '{{name}} ಅವರನ್ನು ಹೊರಹಾಕಲಾಗಿದೆ',
   'toast.remote_decode_device_wait':
-    'ಒಂದು ಸಾಧನವು ಈ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಡಿಕೋಡ್ ಮಾಡಲು ವಿಫಲವಾಗಿದೆ. ಉಳಿದ ಎಲ್ಲರಿಗೂ ಪ್ಲೇಬ್ಯಾಕ್ ಮುಂದುವರಿಯುತ್ತಿದೆ.',
+    'ಒಂದು ಸಾಧನವು ಈ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಡಿಕೋಡ್ ಮಾಡಲು ವಿಫಲವಾಗಿದೆ\nಉಳಿದ ಎಲ್ಲರಿಗೂ ಪ್ಲೇಬ್ಯಾಕ್ ಮುಂದುವರಿಯುತ್ತಿದೆ',
   'toast.invite_code': 'ಆಮಂತ್ರಣ ಕೋಡ್: {{code}}',
   'toast.invite_code_info': '{{count}} ಸಂಪರ್ಕಗೊಂಡಿವೆ | ಕೋಡ್ {{code}}',
   'toast.added_tracks': '{{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಸೇರಿಸಲಾಗಿದೆ',
@@ -558,12 +558,12 @@ const kn: Record<I18nKey, string> = {
   'toast.op_status': '{{label}} ಅನುಮತಿ {{status}}',
   'toast.file_read_error': 'ಫೈಲ್ ಓದುವಲ್ಲಿ ದೋಷ: {{name}}',
   'toast.host_ended_connection': 'ಹೋಸ್ಟ್ ಸಂಪರ್ಕವನ್ನು ಕೊನೆಗೊಳಿಸಿದ್ದಾರೆ',
-  'toast.announcement_available': 'ಹೊಸ ಸೂಚನೆ ಇದೆ.\nಚಾಟ್ ಫಲಕ ಪರಿಶೀಲಿಸಿ.',
+  'toast.announcement_available': 'ಹೊಸ ಸೂಚನೆ ಇದೆ\nಚಾಟ್ ಫಲಕ ಪರಿಶೀಲಿಸಿ',
   'toast.copy_failed': 'ನಕಲಿಸಲಾಗಲಿಲ್ಲ',
   'toast.email_copied': 'ಇಮೇಲ್ ವಿಳಾಸ ನಕಲಿಸಲಾಗಿದೆ!',
   'toast.settings_sync_enabled': 'ಸೆಟ್ಟಿಂಗ್‌ಗಳ ಸಿಂಕ್ ಆನ್ ಆಗಿದೆ',
   'toast.settings_sync_admin_required':
-    'ಸೆಟ್ಟಿಂಗ್‌ಗಳ ಸಿಂಕ್ ಆನ್ ಆಗಿದೆ.\nರೂಮ್ ನಿರ್ವಾಹಕರು ಮಾತ್ರ ಆಡಿಯೊ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಬದಲಿಸಬಹುದು.',
+    'ಸೆಟ್ಟಿಂಗ್‌ಗಳ ಸಿಂಕ್ ಆನ್ ಆಗಿದೆ\nರೂಮ್ ನಿರ್ವಾಹಕರು ಮಾತ್ರ ಆಡಿಯೊ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಬದಲಿಸಬಹುದು',
   'toast.virtual_bass_on': 'ವರ್ಚುವಲ್ ಬೇಸ್ ಆನ್ ಆಗಿದೆ',
   'toast.virtual_bass_off': 'ವರ್ಚುವಲ್ ಬೇಸ್ ಆಫ್ ಆಗಿದೆ',
   'toast.virtual_treble_on': 'ವರ್ಚುವಲ್ ಟ್ರೆಬಲ್ ಆನ್ ಆಗಿದೆ',
@@ -571,26 +571,26 @@ const kn: Record<I18nKey, string> = {
   'toast.virtual_surround_on': 'ವರ್ಚುವಲ್ ಸರೌಂಡ್ ಆನ್ ಆಗಿದೆ',
   'toast.virtual_surround_off': 'ವರ್ಚುವಲ್ ಸರೌಂಡ್ ಆಫ್ ಆಗಿದೆ',
   'toast.virtual_effects_off': 'ಎಲ್ಲಾ ವರ್ಚುವಲ್ ಪರಿಣಾಮಗಳು ಆಫ್ ಆಗಿವೆ',
-  'toast.host_only': 'ಇದನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ಮಾಡಬಹುದು.',
-  'toast.host_only_media': 'ಹೋಸ್ಟ್ ಮಾತ್ರ ಮೀಡಿಯಾ ಸೇರಿಸಬಹುದು.',
-  'toast.media_management_required': 'ಮೀಡಿಯಾ ನಿರ್ವಹಣೆಯ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ.',
-  'toast.playback_control_required': 'ಪ್ಲೇಬ್ಯಾಕ್ ನಿಯಂತ್ರಣದ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ.',
-  'toast.member_management_required': 'ಸದಸ್ಯರನ್ನು ಹೊರಹಾಕುವ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ.',
-  'toast.chat_notice_required': 'ಚಾಟ್ ಸೂಚನೆಗಳನ್ನು ಪೋಸ್ಟ್ ಮಾಡುವ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ.',
-  'toast.room_owner_required': 'ಇದನ್ನು ರೂಮ್ ಮಾಲೀಕರು ಮಾತ್ರ ಬದಲಿಸಬಹುದು.',
-  'toast.system_audio_owner_required': 'ರೂಮ್ ತೆರೆದ ಟ್ಯಾಬ್‌ನಿಂದ ಮಾತ್ರ ನೀವು ಆಡಿಯೊ ಹಂಚಿಕೊಳ್ಳಬಹುದು.',
-  'toast.host_only_youtube': 'ಹೋಸ್ಟ್ ಮಾತ್ರ YouTube ಲಿಂಕ್‌ಗಳನ್ನು ಸೇರಿಸಬಹುದು.',
+  'toast.host_only': 'ಇದನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ಮಾಡಬಹುದು',
+  'toast.host_only_media': 'ಹೋಸ್ಟ್ ಮಾತ್ರ ಮೀಡಿಯಾ ಸೇರಿಸಬಹುದು',
+  'toast.media_management_required': 'ಮೀಡಿಯಾ ನಿರ್ವಹಣೆಯ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ',
+  'toast.playback_control_required': 'ಪ್ಲೇಬ್ಯಾಕ್ ನಿಯಂತ್ರಣದ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ',
+  'toast.member_management_required': 'ಸದಸ್ಯರನ್ನು ಹೊರಹಾಕುವ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ',
+  'toast.chat_notice_required': 'ಚಾಟ್ ಸೂಚನೆಗಳನ್ನು ಪೋಸ್ಟ್ ಮಾಡುವ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ',
+  'toast.room_owner_required': 'ಇದನ್ನು ರೂಮ್ ಮಾಲೀಕರು ಮಾತ್ರ ಬದಲಿಸಬಹುದು',
+  'toast.system_audio_owner_required': 'ರೂಮ್ ತೆರೆದ ಟ್ಯಾಬ್‌ನಿಂದ ಮಾತ್ರ ನೀವು ಆಡಿಯೊ ಹಂಚಿಕೊಳ್ಳಬಹುದು',
+  'toast.host_only_youtube': 'ಹೋಸ್ಟ್ ಮಾತ್ರ YouTube ಲಿಂಕ್‌ಗಳನ್ನು ಸೇರಿಸಬಹುದು',
   'toast.host_only_control': 'ಇದನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ನಿಯಂತ್ರಿಸಬಹುದು',
   'toast.host_setting_required': 'ಈ ಸೆಟ್ಟಿಂಗ್ ಅನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ಬದಲಿಸಬಹುದು',
   'toast.host_only_file': 'ಹೋಸ್ಟ್ ಮಾತ್ರ ಫೈಲ್‌ಗಳನ್ನು ಸೇರಿಸಬಹುದು',
   'toast.no_tracks': 'ಪ್ಲೇ ಮಾಡಲು ಯಾವುದೇ ಟ್ರ್ಯಾಕ್‌ಗಳಿಲ್ಲ',
   'toast.add_media_to_play': 'ದಯವಿಟ್ಟು ಮೀಡಿಯಾ ಸೇರಿಸಿ',
   'toast.no_invite_code': 'ಇನ್ನೂ ಆಮಂತ್ರಣ ಕೋಡ್ ಇಲ್ಲ',
-  'toast.invite_code_settings': 'ಸಂಪರ್ಕ ಟ್ಯಾಬ್‌ನಿಂದ ಆಮಂತ್ರಣ ಲಿಂಕ್ ಹಂಚಿಕೊಳ್ಳಿ.',
+  'toast.invite_code_settings': 'ಸಂಪರ್ಕ ಟ್ಯಾಬ್‌ನಿಂದ ಆಮಂತ್ರಣ ಲಿಂಕ್ ಹಂಚಿಕೊಳ್ಳಿ',
   'toast.click_copy_invite': 'ಆಮಂತ್ರಣ ಕೋಡ್ ನಕಲಿಸಲು ಕ್ಲಿಕ್ ಮಾಡಿ',
   'toast.cant_select_file': 'ಫೈಲ್ ಆರಿಸಲಾಗುವುದಿಲ್ಲ',
   'toast.unsupported_files_excluded': 'ಬೆಂಬಲಿಸದ ಫೈಲ್‌ಗಳನ್ನು ಬಿಟ್ಟುಬಿಡಲಾಗಿದೆ: {{count}}',
-  'toast.no_supported_audio_files': 'ಸೇರಿಸಲು ಬೆಂಬಲಿತ ಆಡಿಯೊ ಫೈಲ್‌ಗಳಿಲ್ಲ.',
+  'toast.no_supported_audio_files': 'ಸೇರಿಸಲು ಬೆಂಬಲಿತ ಆಡಿಯೊ ಫೈಲ್‌ಗಳಿಲ್ಲ',
   'dialog.large_room_file.title': 'ದೊಡ್ಡ ರೂಮ್‌ನಲ್ಲಿ ಫೈಲ್ ಹಂಚಿಕೆ',
   'dialog.large_room_file.message':
     'ಒಂದೇ ನೆಟ್‌ವರ್ಕ್‌ನಲ್ಲಿ, ಹೋಸ್ಟ್ ಹೊರತುಪಡಿಸಿ ಗರಿಷ್ಠ 8 ಅತಿಥಿ ಸಾಧನಗಳಿಗೆ ನೇರ ಫೈಲ್ ವರ್ಗಾವಣೆ ಸ್ಥಿರವಾಗಿರುತ್ತದೆ. ದೊಡ್ಡ ಸ್ಥಳೀಯ ರೂಮ್‌ಗಳಲ್ಲಿ ಫೈಲ್‌ಗಳನ್ನು Cloudflare R2 ಮೂಲಕ ವಿತರಿಸಬಹುದು.\n\nಮುಂದುವರಿಸಬೇಕೆ?',
@@ -598,13 +598,12 @@ const kn: Record<I18nKey, string> = {
   'toast.sync_reset': 'ಸಿಂಕ್ ಆಫ್‌ಸೆಟ್ ಮರುಹೊಂದಿಸಲಾಗಿದೆ',
   'toast.stop_sent': 'ನಿಲ್ಲಿಸುವ ವಿನಂತಿ ಕಳುಹಿಸಲಾಗಿದೆ',
   'toast.hprecision_sync': 'ಹೆಚ್ಚಿನ ನಿಖರತೆಯ ಸಿಂಕ್: ಆಡಿಯೊ ಸಿದ್ಧವಾಗುತ್ತಿದೆ…',
-  'toast.file_ready': 'ನಿಮ್ಮ ಫೈಲ್ ಸಿದ್ಧವಾಗಿದೆ!\nಪ್ಲೇ ಬಟನ್ ಒತ್ತಿರಿ.',
+  'toast.file_ready': 'ನಿಮ್ಮ ಫೈಲ್ ಸಿದ್ಧವಾಗಿದೆ!\nಪ್ಲೇ ಬಟನ್ ಒತ್ತಿರಿ',
   'toast.host_sync_not_recommended': 'ಅತಿಥಿ ಸಾಧನದಲ್ಲಿ ಸಿಂಕ್ ಹೊಂದಿಸಿ',
-  'toast.host_sync_requested':
-    'ನಿಖರ ಸಿಂಕ್ ವಿನಂತಿಸಲಾಗಿದೆ.\nಅತಿಥಿ ಸಾಧನದಲ್ಲಿ ಹಸ್ತಚಾಲಿತ ಸಿಂಕ್ ಹೊಂದಿಸಿ.',
+  'toast.host_sync_requested': 'ನಿಖರ ಸಿಂಕ್ ವಿನಂತಿಸಲಾಗಿದೆ\nಅತಿಥಿ ಸಾಧನದಲ್ಲಿ ಹಸ್ತಚಾಲಿತ ಸಿಂಕ್ ಹೊಂದಿಸಿ',
   'toast.sync_not_in_system_audio': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಮೋಡ್‌ನಲ್ಲಿ ಸಿಂಕ್ ಲಭ್ಯವಿಲ್ಲ',
-  'toast.sync_not_ready': 'ಇನ್ನೂ ಸಿದ್ಧವಾಗಿಲ್ಲ.\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
-  'toast.sync_no_media': 'ಸಿಂಕ್ ಮಾಡಲು ಯಾವುದೇ ಮೀಡಿಯಾ ಇಲ್ಲ.\nಮೊದಲು ಪ್ಲೇ ಮಾಡಲು ಏನಾದರೂ ಆರಿಸಿ',
+  'toast.sync_not_ready': 'ಇನ್ನೂ ಸಿದ್ಧವಾಗಿಲ್ಲ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'toast.sync_no_media': 'ಸಿಂಕ್ ಮಾಡಲು ಯಾವುದೇ ಮೀಡಿಯಾ ಇಲ್ಲ\nಮೊದಲು ಪ್ಲೇ ಮಾಡಲು ಏನಾದರೂ ಆರಿಸಿ',
   'toast.host_ad': 'ಹೋಸ್ಟ್ ಜಾಹೀರಾತು ನೋಡುತ್ತಿರುವಂತೆ ತೋರುತ್ತಿದೆ',
   'toast.yt_sync_start': 'ಸಿಂಕ್ ಆಗುತ್ತಿದೆ...',
   'toast.yt_sync_done': 'ಸಿಂಕ್ ಪೂರ್ಣಗೊಂಡಿದೆ',
@@ -613,22 +612,21 @@ const kn: Record<I18nKey, string> = {
   'toast.yt_rendezvous_host_paused':
     'ಹೋಸ್ಟ್‌ನ ಪ್ಲೇಬ್ಯಾಕ್ ವಿರಾಮದಲ್ಲಿದೆ; ಪ್ಲೇಬ್ಯಾಕ್ ಸ್ಥಾನವನ್ನು ಮಾತ್ರ ಹೊಂದಿಸಲಾಗಿದೆ',
   'toast.yt_rendezvous_no_data':
-    'ಹೋಸ್ಟ್ ಪ್ಲೇಬ್ಯಾಕ್ ಡೇಟಾ ಇನ್ನೂ ಇಲ್ಲ; ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
-  'toast.yt_rendezvous_timeout': 'ಸಿಂಕ್ ವಿಫಲವಾಗಿದೆ; ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+    'ಹೋಸ್ಟ್ ಪ್ಲೇಬ್ಯಾಕ್ ಡೇಟಾ ಇನ್ನೂ ಇಲ್ಲ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'toast.yt_rendezvous_timeout': 'ಸಿಂಕ್ ವಿಫಲವಾಗಿದೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'toast.yt_host_sync_sent': 'ಭಾಗವಹಿಸುವವರಿಗೆ ಸ್ವಯಂ-ಸಿಂಕ್ ಸಂಕೇತ ಕಳುಹಿಸಲಾಗಿದೆ',
   'toast.yt_manual_sync_prompt':
-    'ಇದೀಗ ಸ್ವಯಂಚಾಲಿತ ಸಿಂಕ್ ಪ್ರಯತ್ನಿಸಲಾಗಿದೆ.\nಇನ್ನೂ ವಿಳಂಬ ಅನಿಸಿದರೆ ಈಗಲೇ ಮೌಲ್ಯವನ್ನು ಹೊಂದಿಸಿ',
+    'ಇದೀಗ ಸ್ವಯಂಚಾಲಿತ ಸಿಂಕ್ ಪ್ರಯತ್ನಿಸಲಾಗಿದೆ\nಇನ್ನೂ ವಿಳಂಬ ಅನಿಸಿದರೆ ಈಗಲೇ ಮೌಲ್ಯವನ್ನು ಹೊಂದಿಸಿ',
   'toast.playlist_ended': 'ಪ್ಲೇಲಿಸ್ಟ್‌ನ ಕೊನೆಯ ಮೀಡಿಯಾ ಐಟಂ ಮುಗಿದಿದೆ',
   'toast.operator_required': 'ನಿರ್ವಾಹಕರು ಮಾತ್ರ ಎಲ್ಲರಿಗೂ ಅನ್ವಯಿಸುವ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಬದಲಿಸಬಹುದು',
   'toast.connection_closing': 'ಸಂಪರ್ಕ ಕಳೆದುಹೋಗಿದೆ; ಸೆಟ್ಟಿಂಗ್ ಸಿಂಕ್ ಆಗಿಲ್ಲ',
   'toast.host_changed_setting': 'ಸೆಟ್ಟಿಂಗ್‌ಗಳು ಬದಲಾಗಿವೆ',
-  'toast.session_mismatch':
-    'ಸೆಷನ್ ಹೊಂದಿಕೆಯಾಗುತ್ತಿಲ್ಲ.\nಫೈಲ್ ವರ್ಗಾವಣೆಯನ್ನು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲಾಗುತ್ತದೆ.',
+  'toast.session_mismatch': 'ಸೆಷನ್ ಹೊಂದಿಕೆಯಾಗುತ್ತಿಲ್ಲ\nಫೈಲ್ ವರ್ಗಾವಣೆಯನ್ನು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಲಾಗುತ್ತದೆ',
   'toast.receiving_pct': 'ಸ್ವೀಕರಿಸಲಾಗುತ್ತಿದೆ... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
   'transfer.demo_loading': 'ಸರ್ವರ್‌ನಿಂದ ಡೆಮೊ ಟ್ರ್ಯಾಕ್ ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
-  'transfer.demo_loaded': 'ಡೆಮೊ ಟ್ರ್ಯಾಕ್ ಸಿದ್ಧವಾಗಿದೆ.',
+  'transfer.demo_loaded': 'ಡೆಮೊ ಟ್ರ್ಯಾಕ್ ಸಿದ್ಧವಾಗಿದೆ',
   'transfer.demo_load_fail': 'ಡೆಮೊ ಲೋಡ್ ವಿಫಲ:',
   'transfer.demo_loading_short': 'ಡೆಮೊ ಟ್ರ್ಯಾಕ್ ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   'transfer.file_requesting': 'ಫೈಲ್ ವಿನಂತಿಸಲಾಗುತ್ತಿದೆ...',
@@ -648,12 +646,12 @@ const kn: Record<I18nKey, string> = {
   'share.remote.too_large': 'ಫೈಲ್ ತುಂಬಾ ದೊಡ್ಡದಾಗಿದೆ (ಗರಿಷ್ಠ 200 MB)',
   'share.remote.network_error': 'ದೂರಸ್ಥ ಹಂಚಿಕೆಯ ವೇಳೆ ನೆಟ್‌ವರ್ಕ್ ದೋಷ',
   'share.remote.rate_limited':
-    'ಹಲವಾರು ದೂರಸ್ಥ ಹಂಚಿಕೆ ಅಪ್‌ಲೋಡ್‌ಗಳಾಗಿವೆ.\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+    'ಹಲವಾರು ದೂರಸ್ಥ ಹಂಚಿಕೆ ಅಪ್‌ಲೋಡ್‌ಗಳಾಗಿವೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'share.remote.quota_reached': 'ದೂರಸ್ಥ ಹಂಚಿಕೆಯ ಸಂಗ್ರಹ ಮಿತಿ ತಲುಪಿದೆ',
   'share.remote.auth_failed':
-    'ದೂರಸ್ಥ ಹಂಚಿಕೆಯ ಅನುಮತಿ ಪರಿಶೀಲನೆ ವಿಫಲವಾಗಿದೆ.\nWorker ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಪರಿಶೀಲಿಸಿ',
-  'share.remote.expired': 'ದೂರಸ್ಥ ಫೈಲ್ ಲಿಂಕ್ ಅವಧಿ ಮುಗಿದಿದೆ.\nದಯವಿಟ್ಟು ಮತ್ತೆ ಹಂಚಿಕೊಳ್ಳಿ.',
-  'share.remote.unavailable': 'ದೂರಸ್ಥ ಹಂಚಿಕೆ ವಿಫಲವಾಗಿದೆ.\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    'ದೂರಸ್ಥ ಹಂಚಿಕೆಯ ಅನುಮತಿ ಪರಿಶೀಲನೆ ವಿಫಲವಾಗಿದೆ\nWorker ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಪರಿಶೀಲಿಸಿ',
+  'share.remote.expired': 'ದೂರಸ್ಥ ಫೈಲ್ ಲಿಂಕ್ ಅವಧಿ ಮುಗಿದಿದೆ\nದಯವಿಟ್ಟು ಮತ್ತೆ ಹಂಚಿಕೊಳ್ಳಿ',
+  'share.remote.unavailable': 'ದೂರಸ್ಥ ಹಂಚಿಕೆ ವಿಫಲವಾಗಿದೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'transfer.preload_fail': 'ಪೂರ್ವಲೋಡ್ ಪ್ಲೇಬ್ಯಾಕ್ ವಿಫಲವಾಗಿದೆ; ಮತ್ತೆ ಲೋಡ್ ಮಾಡಲಾಗುತ್ತಿದೆ',
   'transfer.download_finishing': 'ಡೌನ್‌ಲೋಡ್ ಪೂರ್ಣಗೊಳಿಸಲಾಗುತ್ತಿದೆ...',
   'transfer.preparation_delayed':
@@ -663,15 +661,15 @@ const kn: Record<I18nKey, string> = {
   'transfer.preload_pending': 'ಪೂರ್ವಲೋಡ್‌ಗಾಗಿ ನಿರೀಕ್ಷೆ: {{name}}',
   'transfer.waiting_recovery': 'ಮರುಪಡೆಯುವಿಕೆ ಬಾಕಿಯಿದೆ: {{name}}',
   'transfer.preparing_name': 'ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ: {{name}}',
-  'transfer.recovery_failed': 'ಫೈಲ್ ಮರುಪಡೆಯುವಿಕೆ ವಿಫಲವಾಗಿದೆ.\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'transfer.recovery_failed': 'ಫೈಲ್ ಮರುಪಡೆಯುವಿಕೆ ವಿಫಲವಾಗಿದೆ\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
 
   // ─── Error ───────────────────────────────────────────────────────
-  'error.https_required': 'HTTPS ಅಗತ್ಯವಿದೆ: ಸುರಕ್ಷಿತ ಸಂಪರ್ಕದಲ್ಲಿ ಮಾತ್ರ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತದೆ.',
+  'error.https_required': 'HTTPS ಅಗತ್ಯವಿದೆ: ಸುರಕ್ಷಿತ ಸಂಪರ್ಕದಲ್ಲಿ ಮಾತ್ರ ಕಾರ್ಯನಿರ್ವಹಿಸುತ್ತದೆ',
   'error.browser_update': 'ನಿಮ್ಮ ಬ್ರೌಸರ್ ಅನ್ನು ಇತ್ತೀಚಿನ ಆವೃತ್ತಿಗೆ ನವೀಕರಿಸಿ.',
   'error.load_failed': 'ಲೋಡ್ ವಿಫಲವಾಗಿದೆ: {{msg}}',
   'error.audio_decode_fail': 'ಆಡಿಯೊ ಡಿಕೋಡ್ ವಿಫಲವಾಗಿದೆ!',
   'error.audio_memory': 'ಆಡಿಯೊವನ್ನು ಮೆಮೊರಿಗೆ ಲೋಡ್ ಮಾಡಲಾಗುತ್ತಿದೆ...',
-  'error.all_tracks_failed': 'ಪ್ಲೇಲಿಸ್ಟ್‌ನಲ್ಲಿ ಪ್ಲೇ ಮಾಡಬಹುದಾದ ಟ್ರ್ಯಾಕ್‌ಗಳಿಲ್ಲ.',
+  'error.all_tracks_failed': 'ಪ್ಲೇಲಿಸ್ಟ್‌ನಲ್ಲಿ ಪ್ಲೇ ಮಾಡಬಹುದಾದ ಟ್ರ್ಯಾಕ್‌ಗಳಿಲ್ಲ',
   'error.audio_engine_prepare': 'ಆಡಿಯೊ ಎಂಜಿನ್ ಸಿದ್ಧಪಡಿಸಲಾಗಲಿಲ್ಲ',
   'error.session_create_fail': 'ಸೆಷನ್ ರಚಿಸಲಾಗಲಿಲ್ಲ',
   'error.network_generic': 'ನೆಟ್‌ವರ್ಕ್ ದೋಷ ಸಂಭವಿಸಿದೆ',
@@ -688,20 +686,20 @@ const kn: Record<I18nKey, string> = {
   'error.peer_not_ready': 'ಪೀರ್ ಸಂಪರ್ಕ ಇನ್ನೂ ಸಿದ್ಧವಾಗಿಲ್ಲ',
   'error.network_init_failed': 'ನೆಟ್‌ವರ್ಕ್ ಆರಂಭಿಸುವಿಕೆ ವಿಫಲವಾಗಿದೆ',
   'error.no_host_id': 'ಹೋಸ್ಟ್ ID ಕಂಡುಬಂದಿಲ್ಲ',
-  'error.peer_unavailable': 'ಸೆಷನ್ ಕಂಡುಬಂದಿಲ್ಲ.\nಕೋಡ್ ಅನ್ನು ಮತ್ತೆ ಪರಿಶೀಲಿಸಿ.',
+  'error.peer_unavailable': 'ಸೆಷನ್ ಕಂಡುಬಂದಿಲ್ಲ\nಕೋಡ್ ಅನ್ನು ಮತ್ತೆ ಪರಿಶೀಲಿಸಿ',
   'error.host_left': 'ಹೋಸ್ಟ್ ಸೆಷನ್‌ನಿಂದ ಹೊರಟಿರುವಂತೆ ತೋರುತ್ತಿದೆ',
-  'error.network_issue': 'ನೆಟ್‌ವರ್ಕ್ ಸಮಸ್ಯೆ ಇದೆ.\nನಿಮ್ಮ ಇಂಟರ್ನೆಟ್ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ.',
+  'error.network_issue': 'ನೆಟ್‌ವರ್ಕ್ ಸಮಸ್ಯೆ ಇದೆ\nನಿಮ್ಮ ಇಂಟರ್ನೆಟ್ ಸಂಪರ್ಕ ಪರಿಶೀಲಿಸಿ',
   'error.signal_server_fail':
-    'ಸಿಗ್ನಲಿಂಗ್ ಸರ್ವರ್ ತಲುಪಲಾಗುತ್ತಿಲ್ಲ.\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
-  'error.server_disconnected': 'ಸರ್ವರ್‌ನಿಂದ ಸಂಪರ್ಕ ಕಡಿತಗೊಂಡಿದೆ.',
-  'error.session_id_unavailable': 'ಸೆಷನ್ ID ಲಭ್ಯವಿಲ್ಲ.\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
-  'error.webrtc_failed': 'WebRTC ಸಂಪರ್ಕ ವಿಫಲವಾಗಿದೆ.\nನಿಮ್ಮ ಬ್ರೌಸರ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಪರಿಶೀಲಿಸಿ.',
+    'ಸಿಗ್ನಲಿಂಗ್ ಸರ್ವರ್ ತಲುಪಲಾಗುತ್ತಿಲ್ಲ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'error.server_disconnected': 'ಸರ್ವರ್‌ನಿಂದ ಸಂಪರ್ಕ ಕಡಿತಗೊಂಡಿದೆ',
+  'error.session_id_unavailable': 'ಸೆಷನ್ ID ಲಭ್ಯವಿಲ್ಲ\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'error.webrtc_failed': 'WebRTC ಸಂಪರ್ಕ ವಿಫಲವಾಗಿದೆ\nನಿಮ್ಮ ಬ್ರೌಸರ್ ಸೆಟ್ಟಿಂಗ್‌ಗಳನ್ನು ಪರಿಶೀಲಿಸಿ',
   'error.browser_unsupported':
-    'ಈ ಬ್ರೌಸರ್ ರಿಯಲ್-ಟೈಮ್ ಸಂಪರ್ಕಗಳನ್ನು ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ.\nChrome ಅಥವಾ Safari ಪ್ರಯತ್ನಿಸಿ.',
-  'error.ssl_required': 'ಸುರಕ್ಷಿತ ಸಂಪರ್ಕ (HTTPS) ಅಗತ್ಯವಿದೆ.',
+    'ಈ ಬ್ರೌಸರ್ ರಿಯಲ್-ಟೈಮ್ ಸಂಪರ್ಕಗಳನ್ನು ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ\nChrome ಅಥವಾ Safari ಪ್ರಯತ್ನಿಸಿ',
+  'error.ssl_required': 'ಸುರಕ್ಷಿತ ಸಂಪರ್ಕ (HTTPS) ಅಗತ್ಯವಿದೆ',
   'error.room_password_required': 'ಈ ರೂಮ್‌ಗೆ ಪಾಸ್‌ವರ್ಡ್ ಅಗತ್ಯವಿದೆ.',
   'error.room_password_invalid': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಕೆಯಾಗುತ್ತಿಲ್ಲ.',
-  'error.room_password_auth_timeout': 'ನೆಟ್‌ವರ್ಕ್ ಅಸ್ಥಿರವಾಗಿದೆ.\nಪಾಸ್‌ವರ್ಡ್ ಅನ್ನು ಮತ್ತೆ ನಮೂದಿಸಿ.',
+  'error.room_password_auth_timeout': 'ನೆಟ್‌ವರ್ಕ್ ಅಸ್ಥಿರವಾಗಿದೆ\nಪಾಸ್‌ವರ್ಡ್ ಅನ್ನು ಮತ್ತೆ ನಮೂದಿಸಿ',
 
   // ─── Dialog ──────────────────────────────────────────────────────
   'dialog.file_drop.title': 'ಸ್ಥಳೀಯ ಫೈಲ್‌ಗಳನ್ನು ಸೇರಿಸಿ',
@@ -802,9 +800,9 @@ const kn: Record<I18nKey, string> = {
   'pro.pin_retry_message': 'ಆ ಪಾಸ್‌ವರ್ಡ್ ಸರಿಯಾಗಿಲ್ಲ. ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
   'pro.pin_change_title': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಬದಲಿಸಿ',
   'pro.pin_change_message': 'ಹೊಸ 8-ಅಂಕಿಯ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಿ.',
-  'pro.pin_changed': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಬದಲಾಗಿದೆ.',
+  'pro.pin_changed': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಬದಲಾಗಿದೆ',
   'pro.pin_enable_title': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಿ',
-  'pro.pin_enabled': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಲಾಗಿದೆ.',
+  'pro.pin_enabled': 'ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಲಾಗಿದೆ',
   'pro.pin_members_title': 'ಈಗಿನ ಭಾಗವಹಿಸುವವರನ್ನು ಏನು ಮಾಡಬೇಕು?',
   'pro.pin_members_keep': 'ಎಲ್ಲರನ್ನೂ ಉಳಿಸಿಕೊಳ್ಳಿ',
   'pro.pin_members_keep_detail':
@@ -824,8 +822,8 @@ const kn: Record<I18nKey, string> = {
   'pro.removed_message': 'ರೂಮ್ ಮಾಲೀಕರು ಅಥವಾ ನಿರ್ವಾಹಕರು ನಿಮ್ಮನ್ನು ಈ ರೂಮ್‌ನಿಂದ ತೆಗೆದುಹಾಕಿದ್ದಾರೆ.',
   'pro.device_removed_message':
     'ನಿಮ್ಮ ಖಾತೆಗೆ ಸೈನ್ ಇನ್ ಮಾಡಿದ ಇನ್ನೊಂದು ಸಾಧನವು ಈ ಸಾಧನದ ರೂಮ್ ಸಂಪರ್ಕವನ್ನು ಕಡಿತಗೊಳಿಸಿದೆ.',
-  'pro.owner_only': 'ಇದನ್ನು ರೂಮ್ ಮಾಲೀಕರು ಮಾತ್ರ ಮಾಡಬಹುದು.',
-  'pro.connect_failed': 'PRO ರೂಮ್‌ಗೆ ಸಂಪರ್ಕಿಸಲಾಗಲಿಲ್ಲ.',
+  'pro.owner_only': 'ಇದನ್ನು ರೂಮ್ ಮಾಲೀಕರು ಮಾತ್ರ ಮಾಡಬಹುದು',
+  'pro.connect_failed': 'PRO ರೂಮ್‌ಗೆ ಸಂಪರ್ಕಿಸಲಾಗಲಿಲ್ಲ',
   'pro.room_full': 'ಈ PRO ರೂಮ್ ತುಂಬಿದೆ',
   'pro.room_full_detail':
     'PRO ರೂಮ್‌ನಲ್ಲಿ ಮಾಲೀಕರೂ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು ಇರಬಹುದು. ಮಾಲೀಕರಿಗಾಗಿ ಯಾವಾಗಲೂ ಒಂದು ಸ್ಥಾನವನ್ನು ಮೀಸಲಿಡಲಾಗುತ್ತದೆ.',
@@ -844,8 +842,8 @@ const kn: Record<I18nKey, string> = {
   'pro.upload.cancel_file': '{{name}} ಅಪ್‌ಲೋಡ್ ರದ್ದುಮಾಡಿ',
   'pro.upload.confirming_file': '{{name}} ಅಪ್‌ಲೋಡ್ ಪೂರ್ಣಗೊಳಿಸಲಾಗುತ್ತಿದೆ',
   'pro.downloading': 'ಫೈಲ್ ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
-  'pro.quota_exceeded': 'ಈ PRO ರೂಮ್ 1 GB ಸಂಗ್ರಹ ಮಿತಿಯನ್ನು ತಲುಪಿದೆ.',
-  'pro.file_too_large': 'ಈ ಫೈಲ್ ಪ್ರತಿ ಫೈಲ್‌ಗೆ ಇರುವ 200 MB ಮಿತಿಗಿಂತ ದೊಡ್ಡದಾಗಿದೆ.',
+  'pro.quota_exceeded': 'ಈ PRO ರೂಮ್ 1 GB ಸಂಗ್ರಹ ಮಿತಿಯನ್ನು ತಲುಪಿದೆ',
+  'pro.file_too_large': 'ಈ ಫೈಲ್ ಪ್ರತಿ ಫೈಲ್‌ಗೆ ಇರುವ 200 MB ಮಿತಿಗಿಂತ ದೊಡ್ಡದಾಗಿದೆ',
 
   // ─── HTML Blocks (used with data-i18n-html) ──────────────────────
   'help.install_app_html':
@@ -886,36 +884,36 @@ const kn: Record<I18nKey, string> = {
   'system_audio.button': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ',
   'system_audio.sharing': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಲಾಗುತ್ತಿದೆ',
   'system_audio.receiving': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸ್ವೀಕರಿಸಲಾಗುತ್ತಿದೆ',
-  'system_audio.owner_active': '{{name}} ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚುತ್ತಿದ್ದಾರೆ.',
-  'system_audio.owner_preparing': '{{name}} ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಲು ಸಿದ್ಧಪಡಿಸುತ್ತಿದ್ದಾರೆ.',
-  'system_audio.pro_preparing': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಲು ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ.',
-  'system_audio.pro_publish_failed': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಪ್ರಾರಂಭಿಸಲಾಗಲಿಲ್ಲ.',
+  'system_audio.owner_active': '{{name}} ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚುತ್ತಿದ್ದಾರೆ',
+  'system_audio.owner_preparing': '{{name}} ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಲು ಸಿದ್ಧಪಡಿಸುತ್ತಿದ್ದಾರೆ',
+  'system_audio.pro_preparing': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಲು ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ',
+  'system_audio.pro_publish_failed': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಪ್ರಾರಂಭಿಸಲಾಗಲಿಲ್ಲ',
   'system_audio.coordinator_update_required':
-    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಲು ಈ ರೂಮ್ ನಿರ್ವಹಿಸುತ್ತಿರುವ ಸಾಧನವನ್ನು ನವೀಕರಿಸಿ.',
+    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಲು ಈ ರೂಮ್ ನಿರ್ವಹಿಸುತ್ತಿರುವ ಸಾಧನವನ್ನು ನವೀಕರಿಸಿ',
   'system_audio.connection_unstable':
-    '{{name}} ಅವರ ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸಂಪರ್ಕ ಅಸ್ಥಿರವಾಗಿದೆ.\nಮರುಸಂಪರ್ಕಿಸಲು ಪ್ರಯತ್ನಿಸಲಾಗುತ್ತಿದೆ.',
-  'system_audio.capture_denied': 'ಆಡಿಯೊ ಹಂಚಿಕೆ ರದ್ದಾಗಿದೆ.',
-  'system_audio.no_audio_track': '“ಆಡಿಯೊ ಹಂಚಿಕೊಳ್ಳಿ” ಆನ್ ಮಾಡಿರಲಿಲ್ಲ.\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    '{{name}} ಅವರ ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸಂಪರ್ಕ ಅಸ್ಥಿರವಾಗಿದೆ\nಮರುಸಂಪರ್ಕಿಸಲು ಪ್ರಯತ್ನಿಸಲಾಗುತ್ತಿದೆ',
+  'system_audio.capture_denied': 'ಆಡಿಯೊ ಹಂಚಿಕೆ ರದ್ದಾಗಿದೆ',
+  'system_audio.no_audio_track': '“ಆಡಿಯೊ ಹಂಚಿಕೊಳ್ಳಿ” ಆನ್ ಮಾಡಿರಲಿಲ್ಲ\nಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'system_audio.stop': 'ಹಂಚಿಕೆ ನಿಲ್ಲಿಸಿ',
   'system_audio.stop_compact': 'ನಿಲ್ಲಿಸಿ',
   'system_audio.started':
-    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊದಲ್ಲಿ ಸ್ವಲ್ಪ ವಿಳಂಬ ಇರಬಹುದು.\nಸಾಧ್ಯವಾದರೆ ಮೂಲದ ಧ್ವನಿಮಟ್ಟ ಕಡಿಮೆ ಮಾಡಿ.',
-  'system_audio.stopped': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಮುಗಿದಿದೆ.\nಪ್ಲೇಲಿಸ್ಟ್ ಪುನರಾರಂಭವಾಗುತ್ತಿದೆ.',
-  'system_audio.host_channel_locked': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚುತ್ತಿರುವಾಗ ಪಾತ್ರಗಳನ್ನು ಬದಲಿಸಲಾಗುವುದಿಲ್ಲ.',
+    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊದಲ್ಲಿ ಸ್ವಲ್ಪ ವಿಳಂಬ ಇರಬಹುದು\nಸಾಧ್ಯವಾದರೆ ಮೂಲದ ಧ್ವನಿಮಟ್ಟ ಕಡಿಮೆ ಮಾಡಿ',
+  'system_audio.stopped': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಮುಗಿದಿದೆ\nಪ್ಲೇಲಿಸ್ಟ್ ಪುನರಾರಂಭವಾಗುತ್ತಿದೆ',
+  'system_audio.host_channel_locked': 'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚುತ್ತಿರುವಾಗ ಪಾತ್ರಗಳನ್ನು ಬದಲಿಸಲಾಗುವುದಿಲ್ಲ',
   'system_audio.effects_guest_only':
-    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸಕ್ರಿಯವಾಗಿದೆ.\nಧ್ವನಿ ಪರಿಣಾಮಗಳು ಅತಿಥಿ ಸಾಧನಗಳಿಗೆ ಮಾತ್ರ ಅನ್ವಯಿಸುತ್ತವೆ.',
+    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸಕ್ರಿಯವಾಗಿದೆ\nಧ್ವನಿ ಪರಿಣಾಮಗಳು ಅತಿಥಿ ಸಾಧನಗಳಿಗೆ ಮಾತ್ರ ಅನ್ವಯಿಸುತ್ತವೆ',
   'system_audio.desktop_only':
-    'Chromium-ಆಧಾರಿತ ಬ್ರೌಸರ್ (Chrome, Edge ಮುಂತಾದವು) ಬಳಸುವ ಕಂಪ್ಯೂಟರ್‌ಗಳಲ್ಲಿ ಮಾತ್ರ ಲಭ್ಯವಿದೆ.',
+    'Chromium-ಆಧಾರಿತ ಬ್ರೌಸರ್ (Chrome, Edge ಮುಂತಾದವು) ಬಳಸುವ ಕಂಪ್ಯೂಟರ್‌ಗಳಲ್ಲಿ ಮಾತ್ರ ಲಭ್ಯವಿದೆ',
   'system_audio.receive_failed':
-    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸ್ವೀಕರಿಸಲಾಗಲಿಲ್ಲ.\nಮತ್ತೆ ಹಂಚಿಕೆ ಪ್ರಾರಂಭಿಸಲು ಹೋಸ್ಟ್‌ಗೆ ತಿಳಿಸಿ.',
+    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸ್ವೀಕರಿಸಲಾಗಲಿಲ್ಲ\nಮತ್ತೆ ಹಂಚಿಕೆ ಪ್ರಾರಂಭಿಸಲು ಹೋಸ್ಟ್‌ಗೆ ತಿಳಿಸಿ',
   'system_audio.remote_receive_limit':
-    '2 ಗಂಟೆಗಳ ನಂತರ ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸ್ವೀಕಾರ ಮುಗಿದಿದೆ.\nಆಲಿಸುವುದನ್ನು ಮುಂದುವರಿಸಲು ರೂಮ್‌ಗೆ ಮತ್ತೆ ಸೇರಿ.',
+    '2 ಗಂಟೆಗಳ ನಂತರ ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಸ್ವೀಕಾರ ಮುಗಿದಿದೆ\nಆಲಿಸುವುದನ್ನು ಮುಂದುವರಿಸಲು ರೂಮ್‌ಗೆ ಮತ್ತೆ ಸೇರಿ',
   'system_audio.device_limit':
-    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಗರಿಷ್ಠ {{count}} ಸಾಧನಗಳನ್ನು ಬೆಂಬಲಿಸುತ್ತದೆ.\nಇದರಲ್ಲಿ ಹೋಸ್ಟ್ ಸಾಧನವೂ ಸೇರಿದೆ.',
+    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಗರಿಷ್ಠ {{count}} ಸಾಧನಗಳನ್ನು ಬೆಂಬಲಿಸುತ್ತದೆ\nಇದರಲ್ಲಿ ಹೋಸ್ಟ್ ಸಾಧನವೂ ಸೇರಿದೆ',
   'system_audio.device_limit_stopped':
-    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ನಿಂತಿದೆ.\n{{count}} ಕ್ಕಿಂತ ಹೆಚ್ಚು ಸಾಧನಗಳು ಸಂಪರ್ಕಗೊಂಡಿವೆ.',
+    'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ನಿಂತಿದೆ\n{{count}} ಕ್ಕಿಂತ ಹೆಚ್ಚು ಸಾಧನಗಳು ಸಂಪರ್ಕಗೊಂಡಿವೆ',
   'system_audio.duration_limit_stopped':
-    '2 ಗಂಟೆಗಳ ನಂತರ ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ\nಸ್ವಯಂಚಾಲಿತವಾಗಿ ಮುಗಿದಿದೆ.',
+    '2 ಗಂಟೆಗಳ ನಂತರ ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ\nಸ್ವಯಂಚಾಲಿತವಾಗಿ ಮುಗಿದಿದೆ',
 
   // ─── Legal ───────────────────────────────────────────────────────
   'legal.title': 'ಸೇವೆಯ ಕುರಿತು ಸೂಚನೆಗಳು',

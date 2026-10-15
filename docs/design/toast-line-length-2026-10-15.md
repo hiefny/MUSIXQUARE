@@ -180,7 +180,9 @@ Not verified:
 - long toasts on physical devices or in WebKit;
 - right-to-left layout of long toasts in a real browser;
 - the full serial browser suite;
-- production behavior.
+- production behavior through a real user flow. After release, the deployed
+  toast function was checked directly on the production page (see Release and
+  recovery), not through an in-app action.
 
 ## Limits
 
@@ -195,6 +197,48 @@ Not verified:
 
 ## Release and recovery
 
-App-only release (`target=app`). Recovery is the ordinary Production Release
-rollback to the 8.10.22 checkpoint. It restores the 50-character cut, the
-fixed 2 s display and the previous translations.
+App **8.10.23/v689** shipped through
+[Production Release 38715714880](https://github.com/hiefny/MUSIXQUARE/actions/runs/38715714880),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-15 18:50:51 KST** using the immutable candidate
+from exact-main CI `38715121084` for `5903ed41205e2a165c4bcbce5f7c2d6590abf0b5`.
+No rollback was needed; the recovery job was skipped.
+
+- Exact-main CI ran 11 jobs: 564 unit files, 12,733 passed / 0 failed / 1 skipped
+  (the Windows-only cross-drive path check on Linux), 17 candidate browser and
+  29 critical browser tests passed, and every coverage, static and build gate
+  passed. The Codex re-review of pull request #350 completed with no findings.
+- App version `603d3285-365b-46f1-b64a-a9c3faa0c1df` became
+  `62e7e692-4ad6-4b6d-8992-4b079285c161`. Final deployment ownership was verified
+  at 18:50:46.326 KST, and the coherent production marker records the exact SHA
+  and target `app`.
+- The partial-release compatibility recheck at 18:50:21.476 KST was compatible.
+  The five unselected Workers were not deployed and keep the `d9364cd9`
+  identities in `docs/release-record.md` §1; the PRO smoke re-read pro-room
+  `8d5d44c0`. The new App deployment identity is in the 90-day run artifact
+  `production-deployments-5903ed41205e2a165c4bcbce5f7c2d6590abf0b5-38715714880-1`.
+- App generation (`main-7n-Y_z5W.js`, 27 assets converged), anonymous App account
+  boundary, current PRO public boundary and Standard HTTPS signaling smokes
+  passed. Out-of-scope Worker smokes were skipped, not counted as passes.
+- Public checks at 18:51 KST returned HTTP 200 for `/`, the v689 service worker,
+  `bootstrap.js?cache=v689`, `main-7n-Y_z5W.js` and `main-BNiplmKU.css`. The
+  deployed chunk carries the colon pattern with the full-width colon.
+- On the production page, the toast function was imported from the deployed
+  chunk and given the long Spanish `account.delete_pending` text.
+  - The whole text showed, with no ellipsis.
+  - It was still visible at 5.8 s and gone by 6.5 s (the expected time is
+    6.15 s).
+  - A short toast was gone by 2.3 s.
+- [Operations Drift Audit 38715976010](https://github.com/hiefny/MUSIXQUARE/actions/runs/38715976010)
+  succeeded. Its 18:51:24.415 KST report records **31 pass / 0 fail / 5 manual-only**;
+  manual checks are not treated as completed.
+- The toasts were not checked on physical devices after release.
+
+The immutable recovery checkpoint captured at 18:49:52.702 KST
+(`production-recovery-checkpoint-5903ed41205e2a165c4bcbce5f7c2d6590abf0b5-38715714880-1`)
+preserves the previous App `2e05b070fec91c19b3ebbe40e902a7f18dba0e7b`, 8.10.22/v688,
+version `603d3285-365b-46f1-b64a-a9c3faa0c1df`. Rolling back to it restores the
+50-character cut, the fixed 2 s display and the previous translations. Mixed
+versions are safe because only the local display changed. The checkpoint is not
+a user-data backup; no data migration is needed and existing recovery floors
+remain binding.

@@ -655,7 +655,7 @@ const nl: Record<I18nKey, string> = {
     'Autorisatie voor delen op afstand mislukt\nControleer de Worker-instellingen',
   'share.remote.expired': 'De link naar het gedeelde bestand is verlopen\nDeel het opnieuw',
   'share.remote.unavailable': 'Delen op afstand mislukt\nProbeer het zo opnieuw',
-  'transfer.preload_fail': 'Afspelen van het vooraf geladen bestand mislukt; opnieuw laden',
+  'transfer.preload_fail': 'Vooraf laden mislukt; opnieuw laden',
   'transfer.download_finishing': 'Download afronden...',
   'transfer.preparation_delayed': 'De voorbereiding duurt langer...\nHerstel aanvragen bij de host',
   'transfer.receiving_0pct': 'Ontvangen... 0%',
@@ -827,7 +827,7 @@ const nl: Record<I18nKey, string> = {
   'pro.device_removed_message':
     'Een ander apparaat dat met je account is ingelogd, heeft dit apparaat losgekoppeld van de kamer.',
   'pro.owner_only': 'Alleen de kamereigenaar kan dit doen',
-  'pro.connect_failed': 'Er kon geen verbinding worden gemaakt met de PRO-kamer',
+  'pro.connect_failed': 'Kan geen verbinding maken met de PRO-kamer',
   'pro.room_full': 'Deze PRO-kamer is vol',
   'pro.room_full_detail':
     'Een PRO-kamer biedt plaats aan maximaal 100 apparaten, inclusief dat van de kamereigenaar. Er is altijd één plek gereserveerd voor de kamereigenaar.',

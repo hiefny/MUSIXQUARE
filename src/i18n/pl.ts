@@ -496,7 +496,7 @@ const pl: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Wyświetl systemowe informacje diagnostyczne',
   'chat.debug_copied':
-    'Informacje diagnostyczne zostały skopiowane do schowka\nJeśli wystąpił błąd, prześlij te informacje deweloperowi',
+    'Skopiowano informacje diagnostyczne\nJeśli wystąpił błąd, wyślij je deweloperowi',
   'chat.seek_to': 'Przejdź do {{time}}',
   'chat.copied': 'Wiadomość skopiowana',
   'chat.copy_hint': 'Naciśnij Enter, aby skopiować tę wiadomość',
@@ -611,7 +611,7 @@ const pl: Record<I18nKey, string> = {
   'toast.host_sync_requested':
     'Wysłano prośbę o precyzyjną synchronizację\nSkonfiguruj ręczną synchronizację na urządzeniu uczestnika',
   'toast.sync_not_in_system_audio':
-    'Synchronizacja nie jest obsługiwana w trybie udostępniania dźwięku systemowego',
+    'Synchronizacja niedostępna podczas udostępniania dźwięku systemowego',
   'toast.sync_not_ready': 'Synchronizacja nie jest jeszcze gotowa\nSpróbuj ponownie za chwilę',
   'toast.sync_no_media':
     'Brak materiału do synchronizacji\nNajpierw wybierz materiał do odtworzenia',
@@ -628,7 +628,7 @@ const pl: Record<I18nKey, string> = {
     'Właśnie wykonano automatyczną synchronizację\nJeśli wciąż słyszysz opóźnienie, dostosuj wartość ręcznie',
   'toast.playlist_ended': 'Playlista dobiegła końca',
   'toast.operator_required': 'Tylko administratorzy mogą zmieniać ustawienia globalne',
-  'toast.connection_closing': 'Połączenie przerwane, ustawienie nie zostało zsynchronizowane',
+  'toast.connection_closing': 'Połączenie przerwane, ustawienie niezsynchronizowane',
   'toast.host_changed_setting': 'Ustawienia zostały zmienione',
   'toast.session_mismatch': 'Niezgodność pokoju\nPrzesyłanie pliku zostanie ponowione',
   'toast.receiving_pct': 'Odbieranie… {{pct}}%',
@@ -660,8 +660,7 @@ const pl: Record<I18nKey, string> = {
     'Autoryzacja udostępniania zdalnego nie powiodła się\nSprawdź ustawienia usługi Worker',
   'share.remote.expired': 'Link do pliku zdalnego wygasł\nUdostępnij go ponownie',
   'share.remote.unavailable': 'Udostępnianie zdalne niedostępne\nSpróbuj ponownie za chwilę',
-  'transfer.preload_fail':
-    'Nie udało się odtworzyć wstępnie wczytanego pliku, ponowne wczytywanie…',
+  'transfer.preload_fail': 'Błąd wstępnego wczytania, ponowne wczytywanie…',
   'transfer.download_finishing': 'Kończenie pobierania…',
   'transfer.preparation_delayed':
     'Przygotowanie się opóźnia…\nWysłano do hosta prośbę o przywrócenie',
@@ -692,7 +691,7 @@ const pl: Record<I18nKey, string> = {
   'error.host_disconnected': 'Połączenie z hostem zostało przerwane',
   'error.host_conn_error': 'Błąd połączenia z hostem',
   'error.connect_failed': 'Połączenie nie powiodło się',
-  'error.peer_not_ready': 'Połączenie z drugim urządzeniem nie jest jeszcze gotowe',
+  'error.peer_not_ready': 'Połączenie z urządzeniem nie jest jeszcze gotowe',
   'error.network_init_failed': 'Inicjalizacja sieci nie powiodła się',
   'error.no_host_id': 'Nie znaleziono identyfikatora hosta',
   'error.peer_unavailable': 'Pokój nie został znaleziony\nSprawdź wprowadzony kod',
@@ -903,12 +902,11 @@ const pl: Record<I18nKey, string> = {
   'system_audio.stop_compact': 'Stop',
   'system_audio.started':
     'Dźwięk systemowy może mieć niewielkie opóźnienie\nW miarę możliwości zmniejsz głośność urządzenia źródłowego',
-  'system_audio.stopped':
-    'Udostępnianie dźwięku systemowego zostało zakończone\nWznawianie playlisty',
+  'system_audio.stopped': 'Udostępnianie dźwięku systemowego zakończone\nWznawianie playlisty',
   'system_audio.host_channel_locked':
     'Nie można zmienić ról głośników podczas udostępniania dźwięku systemowego',
   'system_audio.effects_guest_only':
-    'Udostępnianie dźwięku systemowego aktywne\nEfekty dźwiękowe są stosowane wyłącznie na urządzeniach uczestników',
+    'Dźwięk systemowy aktywny\nEfekty działają tylko na urządzeniach uczestników',
   'system_audio.desktop_only':
     'Dostępne tylko na komputerze w przeglądarce opartej na Chromium (Chrome, Edge itp.)',
   'system_audio.receive_failed':

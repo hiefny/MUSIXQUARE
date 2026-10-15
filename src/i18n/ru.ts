@@ -493,7 +493,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Показывает системную информацию об отладке',
   'chat.debug_copied':
-    'Информация об отладке скопирована в буфер обмена\nЕсли вы обнаружили ошибку, отправьте её разработчику',
+    'Отладочная информация скопирована\nЕсли нашли ошибку, отправьте её разработчику',
   'chat.seek_to': 'Перейти к {{time}}',
   'chat.copied': 'Сообщение скопировано',
   'chat.copy_hint': 'Нажмите Enter, чтобы скопировать это сообщение',
@@ -590,8 +590,7 @@ const ru: Record<I18nKey, string> = {
   'toast.no_tracks': 'Нет материалов для воспроизведения',
   'toast.add_media_to_play': 'Добавьте медиа для воспроизведения',
   'toast.no_invite_code': 'Код приглашения ещё не создан',
-  'toast.invite_code_settings':
-    'Вы можете поделиться ссылкой для приглашения на вкладке «Подключение»',
+  'toast.invite_code_settings': 'Поделитесь ссылкой-приглашением на вкладке «Подключение»',
   'toast.click_copy_invite': 'Нажмите для копирования кода приглашения',
   'toast.cant_select_file': 'Не удаётся выбрать файл',
   'toast.unsupported_files_excluded': 'Пропущено неподдерживаемых файлов: {{count}}',
@@ -673,7 +672,7 @@ const ru: Record<I18nKey, string> = {
   'error.load_failed': 'Загрузка не удалась: {{msg}}',
   'error.audio_decode_fail': 'Не удалось декодировать аудио!',
   'error.audio_memory': 'Загрузка звука в память...',
-  'error.all_tracks_failed': 'В плейлисте нет материалов, доступных для воспроизведения',
+  'error.all_tracks_failed': 'В плейлисте нет воспроизводимых материалов',
   'error.audio_engine_prepare': 'Не удалось запустить звуковой движок',
   'error.session_create_fail': 'Не удалось создать комнату',
   'error.network_generic': 'Произошла ошибка сети',

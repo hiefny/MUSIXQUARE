@@ -641,7 +641,7 @@ const tr: Record<I18nKey, string> = {
   'share.remote.expired': 'Uzak dosya bağlantısının süresi doldu\nTekrar paylaş',
   'share.remote.unavailable':
     'Uzaktan paylaşım şu anda kullanılamıyor\nKısa süre sonra tekrar dene',
-  'transfer.preload_fail': 'Ön yüklemeli oynatma başarısız oldu, yeniden yükleniyor...',
+  'transfer.preload_fail': 'Ön yükleme başarısız, yeniden yükleniyor...',
   'transfer.download_finishing': 'İndirme tamamlanıyor...',
   'transfer.preparation_delayed': 'Hazırlık gecikiyor...\nOda sahibinden kurtarma talep ediliyor',
   'transfer.receiving_0pct': 'Alınıyor... %0',

@@ -207,7 +207,7 @@ const ptBr: Record<I18nKey, string> = {
   'player.visualizer': 'Visualizador de áudio',
   'player.seek': 'Ajustar posição de reprodução',
   'player.seek_unavailable_system_audio':
-    'Não é possível mudar a posição de reprodução durante o compartilhamento do áudio do sistema',
+    'Não é possível mudar a posição enquanto o áudio do sistema é compartilhado',
   'player.volume': 'Ajustar volume',
   'player.toggle_mute': 'Ativar/desativar som',
   'player.fullscreen': 'Ativar/desativar tela cheia',
@@ -454,12 +454,12 @@ const ptBr: Record<I18nKey, string> = {
   'share.remote.network_error': 'Erro de rede durante o compartilhamento remoto',
   'share.remote.rate_limited':
     'Muitos envios para compartilhamento remoto\nTente novamente em instantes',
-  'share.remote.quota_reached': 'Limite de armazenamento para compartilhamento remoto atingido',
+  'share.remote.quota_reached': 'Limite de armazenamento remoto atingido',
   'share.remote.auth_failed':
     'Falha na autorização do compartilhamento remoto\nVerifique as configurações do Worker',
   'share.remote.expired': 'O link do arquivo remoto expirou\nCompartilhe novamente',
   'share.remote.unavailable': 'Falha no compartilhamento remoto\nTente novamente em instantes',
-  'transfer.preload_fail': 'Falha ao reproduzir o arquivo pré-carregado, recarregando...',
+  'transfer.preload_fail': 'Falha no pré-carregamento, recarregando...',
   'transfer.download_finishing': 'Concluindo o download...',
   'transfer.preparation_delayed':
     'A preparação está demorando...\nSolicitando recuperação ao anfitrião',
@@ -478,8 +478,7 @@ const ptBr: Record<I18nKey, string> = {
   'system_audio.owner_preparing':
     '{{name}} está se preparando para compartilhar o áudio do sistema',
   'system_audio.pro_preparing': 'Preparando o compartilhamento do áudio do sistema',
-  'system_audio.pro_publish_failed':
-    'Não foi possível iniciar o compartilhamento do áudio do sistema',
+  'system_audio.pro_publish_failed': 'Falha ao compartilhar o áudio do sistema',
   'system_audio.coordinator_update_required':
     'Atualize o dispositivo que gerencia esta sala para compartilhar o áudio do sistema',
   'system_audio.connection_unstable':
@@ -492,9 +491,9 @@ const ptBr: Record<I18nKey, string> = {
     'O áudio do sistema pode ter um pouco de latência\nReduza o volume da origem, se possível',
   'system_audio.stopped': 'Compartilhamento de áudio do sistema encerrado\nRetomando a playlist',
   'system_audio.host_channel_locked':
-    'Não é possível mudar as funções durante o compartilhamento de áudio do sistema',
+    'Funções bloqueadas durante o compartilhamento do áudio do sistema',
   'system_audio.effects_guest_only':
-    'Compartilhando áudio do sistema\nOs efeitos de áudio se aplicam apenas aos dispositivos dos participantes',
+    'Áudio do sistema ativo\nOs efeitos valem só para os participantes',
   'system_audio.desktop_only':
     'Disponível apenas em computadores com navegador baseado no Chromium (Chrome, Edge etc.)',
   'system_audio.receive_failed':

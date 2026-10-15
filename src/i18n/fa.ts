@@ -640,7 +640,7 @@ const fa: Record<I18nKey, string> = {
   'share.remote.auth_failed': 'مجوز اشتراک‌گذاری راه دور تأیید نشد\nتنظیمات Worker را بررسی کنید',
   'share.remote.expired': 'مهلت پیوند فایل راه دور تمام شد\nدوباره آن را به اشتراک بگذارید',
   'share.remote.unavailable': 'اشتراک‌گذاری راه دور انجام نشد\nکمی بعد دوباره تلاش کنید',
-  'transfer.preload_fail': 'پخش فایل ازپیش‌بارگیری‌شده انجام نشد؛ دوباره بارگیری می‌شود',
+  'transfer.preload_fail': 'پیش‌بارگیری انجام نشد؛ دوباره بارگیری می‌شود',
   'transfer.download_finishing': 'در حال تکمیل دریافت...',
   'transfer.preparation_delayed':
     'آماده‌سازی به تأخیر افتاده است...\nدرخواست بازیابی برای میزبان فرستاده می‌شود',

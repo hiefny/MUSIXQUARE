@@ -113,7 +113,7 @@ const it: Record<I18nKey, string> = {
   'player.visualizer': 'Visualizzatore audio',
   'player.seek': 'Regola la posizione di riproduzione',
   'player.seek_unavailable_system_audio':
-    'Non puoi cambiare la posizione di riproduzione durante la condivisione dell’audio di sistema',
+    'Non puoi cambiare posizione durante la condivisione dell’audio di sistema',
   'player.volume': 'Regola il volume',
   'player.toggle_mute': 'Attiva/disattiva audio',
   'player.fullscreen': 'Schermo intero',
@@ -352,7 +352,7 @@ const it: Record<I18nKey, string> = {
   'demo.track_list_label': 'Elenco brani demo',
   'demo.host_only_exit': 'Solo l’host può farlo',
   'demo.external_playback_stopped':
-    'Il tour demo ha interrotto la riproduzione corrente di YouTube o dell’audio di sistema',
+    'La demo ha interrotto la riproduzione di YouTube o dell’audio di sistema',
   'setup.how_to_connect': 'Come connettersi',
   'setup.set_role': 'Imposta il ruolo di questo dispositivo',
   'setup.what_sound': 'Cosa deve riprodurre questo dispositivo?',
@@ -524,7 +524,7 @@ const it: Record<I18nKey, string> = {
   'youtube.open_link': 'Apri link di YouTube',
   'youtube.tap_to_play': 'TOCCA PER RIPRODURRE',
   'youtube.added_to_playlist': 'Aggiunto alla playlist',
-  'youtube.loading_large_playlist': 'Caricamento di una playlist di grandi dimensioni...',
+  'youtube.loading_large_playlist': 'Caricamento di una playlist lunga...',
   'youtube.indexing_playlist': 'Analisi della playlist in corso...',
   'youtube.search_button': 'Cerca',
   'youtube.search_prompt': 'Premi Invio o “Cerca” per trovare un video',
@@ -533,8 +533,7 @@ const it: Record<I18nKey, string> = {
   'youtube.search_failed': 'La ricerca su YouTube non è disponibile',
   'youtube.search_selected': 'Puoi aggiungere il video selezionato alla coda',
   'youtube.search_results': 'Risultati di ricerca su YouTube',
-  'youtube.live_sync_warning':
-    'La sincronizzazione precisa delle trasmissioni live potrebbe essere instabile',
+  'youtube.live_sync_warning': 'Le dirette sono difficili da sincronizzare con precisione',
 
   // ─── Network ─────────────────────────────────────────────────────
   'network.disconnected': 'Connessione interrotta',
@@ -585,7 +584,7 @@ const it: Record<I18nKey, string> = {
   'toast.playback_control_required': 'È richiesto il permesso per controllare la riproduzione',
   'toast.member_management_required': 'È richiesto il permesso per rimuovere i partecipanti',
   'toast.chat_notice_required': 'È richiesto il permesso per pubblicare avvisi in chat',
-  'toast.room_owner_required': 'Solo il proprietario della stanza può modificare questa opzione',
+  'toast.room_owner_required': 'Solo il proprietario della stanza può modificarlo',
   'toast.system_audio_owner_required':
     'Puoi condividere l’audio solo dalla scheda che ha aperto la stanza',
   'toast.host_only_youtube': 'Solo l’host può aggiungere link di YouTube',
@@ -612,8 +611,7 @@ const it: Record<I18nKey, string> = {
     'Consigliamo di regolare la sincronizzazione direttamente dal dispositivo di un partecipante',
   'toast.host_sync_requested':
     'Sincronizzazione di precisione richiesta\nRegola la sincronizzazione manuale sul dispositivo di un partecipante',
-  'toast.sync_not_in_system_audio':
-    'La sincronizzazione non è supportata in modalità condivisione audio di sistema',
+  'toast.sync_not_in_system_audio': 'Sincronizzazione non disponibile con l’audio di sistema',
   'toast.sync_not_ready': 'Non ancora pronto\nRiprova tra qualche istante',
   'toast.sync_no_media':
     'Non ci sono contenuti da sincronizzare\nPrima seleziona un contenuto da riprodurre',
@@ -622,10 +620,8 @@ const it: Record<I18nKey, string> = {
   'toast.yt_sync_done': 'Sincronizzazione completata',
   'toast.yt_rendezvous_start': 'Sincronizzazione con l’host...',
   'toast.yt_rendezvous_done': 'Sincronizzazione completata',
-  'toast.yt_rendezvous_host_paused':
-    'La riproduzione dell’host è in pausa: è stata allineata solo la posizione corrente',
-  'toast.yt_rendezvous_no_data':
-    'Non sono ancora disponibili dati di riproduzione dall’host\nRiprova tra poco',
+  'toast.yt_rendezvous_host_paused': 'L’host è in pausa, allineata solo la posizione',
+  'toast.yt_rendezvous_no_data': 'Nessun dato di riproduzione dall’host\nRiprova tra poco',
   'toast.yt_rendezvous_timeout': 'Sincronizzazione non riuscita\nRiprova tra qualche istante',
   'toast.yt_host_sync_sent': 'Segnale di sincronizzazione automatica inviato ai partecipanti',
   'toast.yt_manual_sync_prompt':
@@ -660,12 +656,12 @@ const it: Record<I18nKey, string> = {
   'share.remote.network_error': 'Errore di rete durante la condivisione remota',
   'share.remote.rate_limited':
     'Troppe richieste di condivisione remota\nRiprova tra qualche istante',
-  'share.remote.quota_reached': 'Limite di archiviazione per la condivisione remota raggiunto',
+  'share.remote.quota_reached': 'Spazio per la condivisione remota esaurito',
   'share.remote.auth_failed':
     'Autorizzazione della condivisione remota non riuscita\nVerifica le impostazioni del Worker',
   'share.remote.expired': 'Il link del file remoto è scaduto\nCondividilo di nuovo',
   'share.remote.unavailable': 'Condivisione remota non riuscita\nRiprova tra qualche istante',
-  'transfer.preload_fail': 'Riproduzione del file precaricato non riuscita, ricaricamento...',
+  'transfer.preload_fail': 'Precaricamento non riuscito, ricaricamento...',
   'transfer.download_finishing': 'Completamento del download...',
   'transfer.preparation_delayed':
     'La preparazione sta richiedendo più tempo...\nRichiesta di ripristino all’host',
@@ -912,9 +908,9 @@ const it: Record<I18nKey, string> = {
   'system_audio.stopped':
     'La condivisione dell’audio di sistema è terminata\nRipresa della playlist',
   'system_audio.host_channel_locked':
-    'Non è possibile modificare i ruoli durante la condivisione dell’audio di sistema',
+    'Ruoli bloccati durante la condivisione dell’audio di sistema',
   'system_audio.effects_guest_only':
-    'Condivisione dell’audio di sistema attiva\nGli effetti audio si applicano solo ai dispositivi dei partecipanti',
+    'Audio di sistema attivo\nGli effetti valgono solo per i partecipanti',
   'system_audio.desktop_only':
     'Disponibile solo su computer con browser basati su Chromium (Chrome, Edge, ecc.)',
   'system_audio.receive_failed':

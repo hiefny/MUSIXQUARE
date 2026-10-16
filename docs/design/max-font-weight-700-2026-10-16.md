@@ -142,7 +142,7 @@ The immutable recovery checkpoint captured at 17:48:40.762 KST
 (`production-recovery-checkpoint-0041d5be4bffdbc6db10de5923b6a83bfcf0cca1-38876050306-1`)
 preserves the previous App `c6ccfa03b2f0aa4b549ad24ed38bff899aa876a6`,
 8.11.2/v699, version `26de6257-dadf-4cae-ac3e-872d67bd4ee3`. Rolling back to it
-restores the previous weights (750, 800 and 900), the previous OG cards and the
-ExtraBold font. Mixed versions are safe because only CSS and static images
+restores the previous weights (750, 780, 800, 820 and 900), the previous OG
+cards and the ExtraBold font. Mixed versions are safe because only CSS and static images
 changed. The checkpoint is not a user-data backup; no data migration is needed
 and existing recovery floors remain binding.

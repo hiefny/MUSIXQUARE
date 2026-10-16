@@ -233,7 +233,7 @@ The preserved standalone HTML was rehashed after deployment and still matches
 External evidence files are `release-38829782253-evidence.json`,
 `production-smoke-results.json`, `ci-38829164350-summary.json` and
 `ci-38829164350-candidate-evidence.json` in the task's
-`musixquare-screensaver` evidence directory; release/candidate/Drift artifacts
+screensaver evidence directory; release/candidate/Drift artifacts
 are attached to the linked workflow runs. This closes only the initial
 8.11.0/v696 deployment-readiness item.
 
@@ -265,6 +265,95 @@ temporary placement of higher-priority centered dialogs in that visible subtree.
 The existing iframe permissions suffice; no additional header, dependency,
 protocol, schema, secret, binding or recovery floor is added.
 
-Implementation, source-specific QA, review, exact-main candidate and deployment
-evidence will be recorded here when completed. The successful 8.11.0 deployment
-above does not establish completion of this follow-up.
+The source and local verification are recorded below. The successful 8.11.0
+deployment above does not establish completion of this follow-up; exact-main
+candidate and production evidence remain separate release requirements.
+
+Host lifecycle evidence was collected for product source
+`bd7a5757056d4952c7906a511c522b801b5b1960` on local Windows with Node
+24.13.1 and npm 11.8.0. The focused screensaver, chat and extended DOM suites
+passed **218/218** tests. Application and test TypeScript checks, targeted ESLint
+and whitespace checks passed. These results do not claim completion of the
+separate whole-repository gates, browser suite, exact-main candidate or release.
+
+The host tests cover requesting fullscreen during synchronous command dispatch
+before the lazy import, no-session/YouTube rejection, duplicate commands, API
+rejection and absence, preserving existing fullscreen, closing before a pending
+request succeeds, user fullscreen exit, and another command during the closing
+fade. They also cover bounded fade teardown, reduced-motion immediate close,
+immediate YouTube removal during an exit fade, and restoration of modal focus
+and listeners. Nested-fullscreen cases cover ancestor inert ownership, a
+higher-priority dialog's visible portal and original parent/sibling restoration,
+fullscreen exit after the screensaver has already closed, explicitly removed
+dialogs remaining removed, and dialogs recovered from a removed fullscreen
+container. Obsolete music preference/toggle behavior is no longer asserted.
+
+Two initial timer assertions incorrectly expected the entire jsdom fake-timer
+queue to be empty after iframe removal. They were narrowed to verify that the
+screensaver's named managed close timer is absent after bounded or forced
+teardown; unrelated platform work is not treated as a screensaver leak. The
+final 218-pass result follows that correction and the portal lifecycle tests.
+
+A separate Chromium probe executed the actual entry helper without user
+activation. The native standard Fullscreen API rejected the request with its
+expected user-gesture warning, produced no page error, kept the entry usable,
+and permitted release and a new entry. The first probe measured activation from
+Playwright evaluation, which itself supplied activation; the corrected probe
+captures it inside the initial document script before requesting fullscreen.
+Both records are retained as `controls-v697/fullscreen-rejection-initial-probe.json`
+and `controls-v697/fullscreen-rejection-report.json` in the external evidence
+directory. The probe did not create a room or write backend state.
+
+This implementation uses the standard Fullscreen API. Vendor-prefixed APIs
+and physical Safari/iOS behavior are not established by these local
+unit tests or the Chromium rejection probe; real-browser entry/exit and nested
+portal validation are recorded separately when completed.
+
+The whole-repository typecheck, lint and format gates passed for this product
+source. The first full local unit run, concurrent with other analysis, completed
+570 files with 12,825 pass / 8 fail / 0 skip in 274.29 seconds. Failures were seven
+timeouts across App CORS cleanup, dead-export analysis, release-deployment and
+SW-cache guards, plus one localhost workerd socket closure in the 99-guest PRO
+burst. All five affected files were rerun with the original timeouts and
+`--maxWorkers=1`: **427 pass / 0 fail / 0 skip**, 171.64 seconds. This covers all
+12,833 cases across the full run and isolated rerun; it is not a claim of a single
+clean full-suite run. No implementation or timeout change was used to obtain the
+rerun result.
+
+Committed-source `build:checked` passed, including Chromium 79 compatibility,
+release identity, production security, font ownership and 97 SW app-shell assets.
+The first attempts stopped on the report's lowercase scratch-folder spelling;
+correcting that prose resolved the brand guard. The output renderer is
+`/assets/screensaver-runtime-1c8b7f5e.js`; main is `main-DqocsVjQ.js` (432.38 kB
+raw). The eager-transfer gate passed at 2,011.0 KiB raw / 537.7 KiB gzip; renderer,
+background and Google Fonts remain lazy.
+
+The built child component passed real Google Sans 500/700 checks at 160×160,
+320×240 and 1920×1080 with zero page errors. Root reviewed the 320px and 1920px
+captures: the small two-line footer fits, all chrome backgrounds are transparent,
+and Back/location controls plus their descendants and pseudo-elements have no
+black shadows in normal, hover and keyboard-focus states. The passive footer has
+no text/box/drop shadow, and no toggle or music scene remains. Existing canvas
+glow is unchanged. Independent source review of `bd7a5757` found no remaining
+blocker after the lifecycle and portal fixes.
+
+Actual Canvas measurements with Google Sans covered 48 weather combinations:
+four viewports, four temperatures and three descriptions, all fitting without
+numeral/degree overlap. At 1920×1080 with `24°` and `Mostly clear`, the numeral-to-
+description gap is 62.2px (0.12em), 0.171em less than the deployed layout. The
+measurement uses the product layout functions; it is separate from live weather
+or a physical-device test.
+
+The final local Chromium screensaver suite passed **11/11** in 1.2 minutes using
+the unchanged product source with follow-up test corrections. It covers connected
+file playback, synthetic system audio, immediate YouTube interruption during a
+fade, the two-line footer and five-scene sequence, idle hide/reveal, real native
+fullscreen with active user gesture, sampled entry/exit opacity, existing root
+and nested fullscreen preservation, visible higher-dialog placement/restoration,
+delayed font loading and 160/320/1920px layouts. Page-error assertions passed.
+The first run had five test-assumption failures: initial `Clock` casing and four
+attempts to resize a native-fullscreen Windows Chromium window through CDP.
+The initial label assertion is now case-insensitive. Only the four viewport
+cases disable the API to exercise the documented fallback; the three dedicated
+fullscreen cases retain the native API. This does not claim physical-device or
+live YouTube/weather/capture-provider verification.

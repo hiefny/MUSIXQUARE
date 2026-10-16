@@ -49,8 +49,9 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       날씨의 온도·우측 설명 간격을 줄인다. 전체 화면 API 미지원·거절 시에도 화면
       보호기는 표시하고 시계·정보 본문의 기존 글로우는 유지한다.
       App 전용, Developer API D1=false. 새 번역 키·의존성·스키마·비밀·바인딩·프로토콜·
-      복구 floor는 없고 기존 fullscreen 위임을 사용한다. 해당 소스 QA, PR 리뷰,
-      exact-main CI, 릴리스·운영 smoke·배포 소유권 확인이 남아 있다.
+      복구 floor는 없고 기존 fullscreen 위임을 사용한다. 제품 소스 `bd7a5757`의
+      타입·린트·포맷·빌드, 로컬 전체+실패 파일 재검증, Chromium 11 cases와 독립 리뷰가
+      통과했다. PR/정확한 main CI, 릴리스·운영 smoke·배포 소유권 확인이 남아 있다.
       [후속 범위·검증](design/screensaver-integration-2026-10-16.md#control-shadow-follow-up).
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거

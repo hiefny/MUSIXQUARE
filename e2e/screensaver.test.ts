@@ -98,6 +98,15 @@ async function seedMusic(page: Page, title: string): Promise<void> {
   }, title);
 }
 
+async function disableFullscreenForLayoutProbe(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      value: undefined,
+    });
+  });
+}
+
 test('loads only on the local command and keeps connected file playback running', async ({
   browser,
 }) => {
@@ -148,7 +157,7 @@ test('loads only on the local command and keeps connected file playback running'
   }
 });
 
-test('allows system audio, then closes and blocks both commands when YouTube is selected', async ({
+test('allows system audio, interrupts an exit fade for YouTube, and blocks both commands', async ({
   page,
 }) => {
   await installSyntheticSystemAudio(page);
@@ -160,14 +169,30 @@ test('allows system audio, then closes and blocks both commands when YouTube is 
   await expect(child.locator('#musicTitle')).toHaveText('System audio');
   expect((await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
 
-  // This checks the production state-event guard, not a live YouTube provider.
-  await page.evaluate(() =>
-    (window as unknown as ScreensaverTestWindow).__MUSIXQUARE_SET_STATE__(
-      'playback.mode',
-      'youtube',
-    ),
-  );
+  await expect(page.locator('#screensaver-overlay')).toHaveCSS('opacity', '1');
+  // Trigger the provider-state guard in the first microtask of the normal exit fade.
+  await page.evaluate(() => {
+    const overlay = document.getElementById('screensaver-overlay')!;
+    const observer = new MutationObserver(() => {
+      if (overlay.style.opacity !== '0') return;
+      observer.disconnect();
+      (window as unknown as ScreensaverTestWindow).__MUSIXQUARE_SET_STATE__(
+        'playback.mode',
+        'youtube',
+      );
+      Object.assign(window, { __screensaverYouTubeRemovedImmediately: !overlay.isConnected });
+    });
+    observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
+  });
+  await child.locator('#displayBack').click();
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __screensaverYouTubeRemovedImmediately: boolean })
+          .__screensaverYouTubeRemovedImmediately,
+    ),
+  ).toBe(true);
   await expect(page.locator('#toast')).toContainText(
     'Screensaver is unavailable during YouTube playback',
   );
@@ -193,7 +218,7 @@ test('shows two-line track details with idle chrome without adding a music scene
   await page.evaluate(() => localStorage.setItem('mxqr:screensaver:music', 'off'));
   await page.clock.install();
   const child = await openScreensaver(page);
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'clock');
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^clock$/iu);
   await expect(child.locator('#displayMusicInfo')).toBeVisible();
   await expect(child.locator('#musicTitle')).toHaveText(title);
   await expect(child.locator('#musicSubtitle')).toHaveText('MP3 · 320 kbps');
@@ -313,7 +338,12 @@ for (const existing of ['root', 'nested'] as const) {
           zIndex: '999999',
         });
         button.addEventListener('click', () => {
-          target.requestFullscreen().then(() => button.remove());
+          target.requestFullscreen().then(
+            () => button.remove(),
+            () => {
+              button.textContent = 'Fullscreen request rejected';
+            },
+          );
         });
         document.body.append(button);
       }, existing);
@@ -467,6 +497,7 @@ test('keeps denied-location controls separate in a 160×160 weather scene', asyn
     });
   });
   await page.clock.install();
+  await disableFullscreenForLayoutProbe(page);
   const child = await openScreensaver(page);
   await page.setViewportSize({ width: 160, height: 160 });
   await expect(child.locator('#displayMusicInfo')).toBeVisible();
@@ -513,6 +544,7 @@ for (const viewport of [
   }, testInfo) => {
     await openHost(page);
     await seedMusic(page, 'Ambient');
+    await disableFullscreenForLayoutProbe(page);
     const child = await openScreensaver(page);
     await page.setViewportSize(viewport);
     await page.mouse.move(viewport.width / 2, viewport.height / 2);

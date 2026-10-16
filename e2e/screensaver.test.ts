@@ -78,7 +78,7 @@ async function openScreensaver(page: Page, command = '/screensaver'): Promise<Fr
   await expect(page.locator('#screensaver-overlay iframe')).toHaveCount(1);
   const child = page.frameLocator('#screensaver-overlay iframe');
   await expect(child.locator('#displayBack')).toHaveAttribute('aria-label', 'Back to MUSIXQUARE');
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^(clock|music)$/iu);
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^clock$/iu);
   return child;
 }
 
@@ -96,6 +96,21 @@ async function seedMusic(page: Page, title: string): Promise<void> {
     const subtitle = document.getElementById('track-artist');
     if (subtitle) subtitle.textContent = 'MP3 · 320 kbps';
   }, title);
+}
+
+async function disableFullscreenForLayoutProbe(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    for (const method of [
+      'requestFullscreen',
+      'webkitRequestFullscreen',
+      'webkitRequestFullScreen',
+    ]) {
+      Object.defineProperty(document.documentElement, method, {
+        configurable: true,
+        value: undefined,
+      });
+    }
+  });
 }
 
 test('loads only on the local command and keeps connected file playback running', async ({
@@ -148,7 +163,7 @@ test('loads only on the local command and keeps connected file playback running'
   }
 });
 
-test('allows system audio, then closes and blocks both commands when YouTube is selected', async ({
+test('allows system audio, interrupts an exit fade for YouTube, and blocks both commands', async ({
   page,
 }) => {
   await installSyntheticSystemAudio(page);
@@ -160,14 +175,30 @@ test('allows system audio, then closes and blocks both commands when YouTube is 
   await expect(child.locator('#musicTitle')).toHaveText('System audio');
   expect((await readSyntheticSystemAudio(page)).activeCaptures).toBe(1);
 
-  // This checks the production state-event guard, not a live YouTube provider.
-  await page.evaluate(() =>
-    (window as unknown as ScreensaverTestWindow).__MUSIXQUARE_SET_STATE__(
-      'playback.mode',
-      'youtube',
-    ),
-  );
+  await expect(page.locator('#screensaver-overlay')).toHaveCSS('opacity', '1');
+  // Trigger the provider-state guard in the first microtask of the normal exit fade.
+  await page.evaluate(() => {
+    const overlay = document.getElementById('screensaver-overlay')!;
+    const observer = new MutationObserver(() => {
+      if (overlay.style.opacity !== '0') return;
+      observer.disconnect();
+      (window as unknown as ScreensaverTestWindow).__MUSIXQUARE_SET_STATE__(
+        'playback.mode',
+        'youtube',
+      );
+      Object.assign(window, { __screensaverYouTubeRemovedImmediately: !overlay.isConnected });
+    });
+    observer.observe(overlay, { attributes: true, attributeFilter: ['style'] });
+  });
+  await child.locator('#displayBack').click();
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as unknown as { __screensaverYouTubeRemovedImmediately: boolean })
+          .__screensaverYouTubeRemovedImmediately,
+    ),
+  ).toBe(true);
   await expect(page.locator('#toast')).toContainText(
     'Screensaver is unavailable during YouTube playback',
   );
@@ -184,57 +215,184 @@ test('allows system audio, then closes and blocks both commands when YouTube is 
   );
 });
 
-test('shows music before the clock, hides idle chrome, and restores persisted music preferences', async ({
+test('shows two-line track details with idle chrome without adding a music scene', async ({
   page,
 }) => {
   await openHost(page);
-  const title =
-    'A very long music title that scrolls across the screensaver without truncating its contents';
+  const title = 'A very long music title that stays in the small bottom information area';
   await seedMusic(page, title);
+  await page.evaluate(() => localStorage.setItem('mxqr:screensaver:music', 'off'));
   await page.clock.install();
-  let child = await openScreensaver(page);
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'music');
+  const child = await openScreensaver(page);
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^clock$/iu);
+  await expect(child.locator('#displayMusicInfo')).toBeVisible();
   await expect(child.locator('#musicTitle')).toHaveText(title);
   await expect(child.locator('#musicSubtitle')).toHaveText('MP3 · 320 kbps');
-  await expect(child.locator('#displayMusicToggle')).toHaveAttribute('aria-checked', 'true');
-  await expect(child.locator('#musicTitle')).not.toHaveCSS('text-shadow', 'none');
+  await expect(child.locator('#displayMusicToggle, #musicToggleLabel, #musicScene')).toHaveCount(0);
+  await expect(child.locator('#musicTitle')).toHaveCSS('text-shadow', 'none');
+  await expect(child.locator('#musicTitle')).toHaveCSS('text-overflow', 'ellipsis');
 
   await page.mouse.move(600, 350);
   await page.clock.fastForward(4_500);
   await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
   await page.clock.fastForward(600);
   await expect(child.locator('body')).toHaveClass(/chrome-hidden/u);
-  await expect(child.locator('#musicTitle')).not.toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, 0)');
   await page.mouse.move(620, 350);
   await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
   await page.clock.fastForward(5_200);
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^clock$/iu);
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+  await seedMusic(page, 'Second track');
+  await expect(child.locator('#musicTitle')).toHaveText('Second track');
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
   await page.mouse.click(620, 350);
   await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
-  await child.locator('#displayMusicToggle').click();
-  await expect(child.locator('#displayMusicToggle')).toHaveAttribute('aria-checked', 'false');
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('mxqr:screensaver:music')))
-    .toBe('off');
-  await child.locator('#displayBack').click();
-  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
-
-  child = await openScreensaver(page);
-  await expect(child.locator('#displayMusicToggle')).toHaveAttribute('aria-checked', 'false');
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^clock$/iu);
-  await child.locator('#displayMusicToggle').click();
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('mxqr:screensaver:music')))
-    .toBe('on');
+  for (const scene of ['weather', 'air', 'moon', 'clock']) {
+    await page.clock.fastForward(10_000);
+    await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', scene);
+  }
+  expect(await page.evaluate(() => localStorage.getItem('mxqr:screensaver:music'))).toBe('off');
+  await page.mouse.move(640, 350);
   await child.locator('#displayBack').click();
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 });
+
+test('requests fullscreen before the cold import and fades into and out of the screensaver', async ({
+  page,
+}) => {
+  await openHost(page);
+  await page.evaluate(() => {
+    const probe = {
+      activation: [] as boolean[],
+      samples: [] as { target: string; opacity: number }[],
+    };
+    Object.assign(window, { __screensaverMotionProbe: probe });
+    const request = document.documentElement.requestFullscreen;
+    document.documentElement.requestFullscreen = function (options?: FullscreenOptions) {
+      probe.activation.push(navigator.userActivation.isActive);
+      return request.call(this, options);
+    };
+    const observer = new MutationObserver(() => {
+      const overlay = document.getElementById('screensaver-overlay');
+      if (!overlay) return;
+      observer.disconnect();
+      const sample = () => {
+        if (!overlay.isConnected) return;
+        probe.samples.push({
+          target: overlay.style.opacity,
+          opacity: Number(getComputedStyle(overlay).opacity),
+        });
+        requestAnimationFrame(sample);
+      };
+      sample();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+  const child = await openScreensaver(page);
+  const overlay = page.locator('#screensaver-overlay');
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName)).toBe('HTML');
+  await expect(overlay).toHaveCSS('opacity', '1');
+  await child.locator('#displayBack').click();
+  await expect(overlay).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+  const probe = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __screensaverMotionProbe: {
+            activation: boolean[];
+            samples: { target: string; opacity: number }[];
+          };
+        }
+      ).__screensaverMotionProbe,
+  );
+  expect(probe.activation).toEqual([true]);
+  expect(probe.samples.some((sample) => sample.opacity === 0)).toBe(true);
+  for (const target of ['0', '1']) {
+    expect(
+      probe.samples.some(
+        (sample) => sample.target === target && sample.opacity > 0 && sample.opacity < 1,
+      ),
+    ).toBe(true);
+  }
+});
+
+for (const existing of ['root', 'nested'] as const) {
+  test(
+    'preserves existing ' + existing + ' fullscreen and keeps screensaver controls usable',
+    async ({ page }) => {
+      await openHost(page);
+      await seedMusic(page, 'Ambient');
+      await page.evaluate((existing) => {
+        let target: HTMLElement = document.documentElement;
+        if (existing === 'nested') {
+          const wrapper = document.createElement('div');
+          wrapper.id = 'fullscreen-fixture';
+          Object.assign(wrapper.style, { width: '100%', height: '100%', overflow: 'auto' });
+          for (const child of Array.from(document.body.children)) {
+            if (child.id !== 'dialog-overlay') wrapper.append(child);
+          }
+          document.body.append(wrapper);
+          target = wrapper;
+        }
+        const button = document.createElement('button');
+        button.id = 'fullscreen-fixture-enter';
+        button.textContent = 'Enter fullscreen';
+        Object.assign(button.style, {
+          position: 'fixed',
+          top: '0',
+          left: '0',
+          zIndex: '999999',
+        });
+        button.addEventListener('click', () => {
+          target.requestFullscreen().then(
+            () => button.remove(),
+            () => {
+              button.textContent = 'Fullscreen request rejected';
+            },
+          );
+        });
+        document.body.append(button);
+      }, existing);
+      await page.locator('#fullscreen-fixture-enter').click();
+      const expectedFullscreen = existing === 'root' ? 'HTML' : 'fullscreen-fixture';
+      const fullscreen = () =>
+        page.evaluate(() => document.fullscreenElement?.id || document.fullscreenElement?.tagName);
+      await expect.poll(fullscreen).toBe(expectedFullscreen);
+      const child = await openScreensaver(page);
+      await expect(child.locator('#displayMusicInfo')).toBeVisible();
+      await expect(child.locator('#displayBack')).toBeVisible();
+      if (existing === 'nested') {
+        await expect(page.locator('#fullscreen-fixture > #screensaver-overlay')).toHaveCount(1);
+        await page.evaluate(() => {
+          const dialog = document.getElementById('dialog-overlay')!;
+          document.getElementById('dialog-message')!.textContent = 'Screensaver dialog fixture';
+          const action = document.getElementById('btn-dialog-ok')!;
+          action.textContent = 'Close fixture';
+          action.addEventListener('click', () => dialog.classList.remove('show'), { once: true });
+          dialog.classList.add('show');
+        });
+        const dialog = page.locator('#fullscreen-fixture > #dialog-overlay');
+        await expect(dialog).toBeVisible();
+        await expect(page.locator('#screensaver-overlay')).toHaveAttribute('inert', '');
+        await page.locator('#btn-dialog-ok').click();
+        await expect(page.locator('#dialog-overlay')).toBeHidden();
+        await expect(page.locator('#screensaver-overlay')).not.toHaveAttribute('inert', '');
+        expect(
+          await page.locator('#dialog-overlay').evaluate((node) => node.parentElement?.tagName),
+        ).toBe('BODY');
+      }
+      await child.locator('#displayBack').click();
+      await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+      await expect.poll(fullscreen).toBe(expectedFullscreen);
+      await page.evaluate(() => document.exitFullscreen());
+    },
+  );
+}
 
 test('renders while the font stylesheet is delayed, then refits the clock after fonts arrive', async ({
   page,
 }) => {
   await openHost(page);
-  await page.evaluate(() => localStorage.setItem('mxqr:screensaver:music', 'off'));
   await page.addInitScript(() => {
     const measureText = CanvasRenderingContext2D.prototype.measureText;
     CanvasRenderingContext2D.prototype.measureText = function (text: string): TextMetrics {
@@ -328,6 +486,7 @@ test('keeps denied-location controls separate in a 160×160 weather scene', asyn
   page,
 }, testInfo) => {
   const requests = await openHost(page);
+  await seedMusic(page, 'Ambient');
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'geolocation', {
       configurable: true,
@@ -343,11 +502,11 @@ test('keeps denied-location controls separate in a 160×160 weather scene', asyn
       },
     });
   });
-  await page.evaluate(() => localStorage.setItem('mxqr:screensaver:music', 'off'));
   await page.clock.install();
+  await disableFullscreenForLayoutProbe(page);
   const child = await openScreensaver(page);
   await page.setViewportSize({ width: 160, height: 160 });
-  await expect(child.locator('#displayMusicToggle')).toHaveAttribute('aria-checked', 'false');
+  await expect(child.locator('#displayMusicInfo')).toBeVisible();
   await expect(child.locator('#opticalClockCanvas')).toHaveAttribute('aria-hidden', 'false');
   await page.clock.fastForward(22_000);
   await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
@@ -361,7 +520,7 @@ test('keeps denied-location controls separate in a 160×160 weather scene', asyn
   await expect(retry).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
   const boxes = await Promise.all(
-    ['displayBack', 'weatherRetry', 'displayMusicToggle'].map((id) =>
+    ['displayBack', 'weatherRetry', 'displayMusicInfo'].map((id) =>
       child.locator(`#${id}`).boundingBox(),
     ),
   );
@@ -391,14 +550,19 @@ for (const viewport of [
   }, testInfo) => {
     await openHost(page);
     await seedMusic(page, 'Ambient');
+    await disableFullscreenForLayoutProbe(page);
     const child = await openScreensaver(page);
     await page.setViewportSize(viewport);
     await page.mouse.move(viewport.width / 2, viewport.height / 2);
-    for (const id of ['displayBack', 'displayMusicToggle']) {
+    for (const id of ['displayBack', 'displayMusicInfo']) {
       const control = child.locator(`#${id}`);
       await expect(control).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-      await control.hover();
-      await expect(control).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await expect(control).toHaveCSS('text-shadow', 'none');
+      await expect(control).toHaveCSS('box-shadow', 'none');
+      if (id === 'displayBack') {
+        await control.hover();
+        await expect(control).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      }
       const box = await control.boundingBox();
       expect(box).not.toBeNull();
       expect(box!.x).toBeGreaterThanOrEqual(0);
@@ -407,6 +571,13 @@ for (const viewport of [
       expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
     }
     await expect(child.locator('#musicTitle')).toHaveText('Ambient');
+    const titleBox = await child.locator('#musicTitle').boundingBox();
+    const subtitleBox = await child.locator('#musicSubtitle').boundingBox();
+    expect(titleBox).not.toBeNull();
+    expect(subtitleBox).not.toBeNull();
+    expect(titleBox!.y + titleBox!.height).toBeLessThanOrEqual(subtitleBox!.y);
+    expect(titleBox!.height).toBeLessThan(25);
+    expect(subtitleBox!.height).toBeLessThan(22);
     expect(await child.locator('body').evaluate((body) => body.scrollWidth)).toBeLessThanOrEqual(
       viewport.width,
     );

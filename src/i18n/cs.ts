@@ -44,7 +44,6 @@ const cs: Record<I18nKey, string> = {
   'common.off': 'Vypnuto',
 
   'screensaver.back': 'Zpět do MUSIXQUARE',
-  'screensaver.show_music': 'Zobrazit informace o skladbě',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Přihlášení',

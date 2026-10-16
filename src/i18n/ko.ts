@@ -43,7 +43,6 @@ const ko = {
   'common.off': '끄기',
 
   'screensaver.back': 'MUSIXQUARE로 돌아가기',
-  'screensaver.show_music': '음악 정보 표시',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': '로그인',

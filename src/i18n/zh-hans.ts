@@ -45,7 +45,6 @@ const zhHans: Record<I18nKey, string> = {
   'common.off': '关闭',
 
   'screensaver.back': '返回 MUSIXQUARE',
-  'screensaver.show_music': '显示音乐信息',
   'account.login_title': '登录',
   'account.login_cancelled': '已取消登录',
   'account.login_failed': '登录失败\n请重试',

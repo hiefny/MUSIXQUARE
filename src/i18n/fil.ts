@@ -44,7 +44,6 @@ const fil: Record<I18nKey, string> = {
   'common.off': 'Naka-off',
 
   'screensaver.back': 'Bumalik sa MUSIXQUARE',
-  'screensaver.show_music': 'Ipakita ang impormasyon ng kanta',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Mag-sign in',

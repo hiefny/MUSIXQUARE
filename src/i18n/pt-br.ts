@@ -46,7 +46,6 @@ const ptBr: Record<I18nKey, string> = {
   'common.off': 'Desligado',
 
   'screensaver.back': 'Voltar ao MUSIXQUARE',
-  'screensaver.show_music': 'Mostrar informações da música',
   'account.login_title': 'Entrar',
   'account.login_cancelled': 'O login foi cancelado',
   'account.login_failed': 'Não foi possível entrar\nTente novamente',

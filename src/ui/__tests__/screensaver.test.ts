@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { __resetModalStackForTests, isAnyOverlayShown, syncOverlayState } from '../dom.ts';
 import { openScreensaver } from '../screensaver.ts';
+import { beginScreensaverEntry } from '../screensaver-entry.ts';
+import { getFullscreenElement } from '../fullscreen.ts';
 
 const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
@@ -19,6 +21,20 @@ vi.mock('../../i18n/index.ts', () => ({
 }));
 
 const MUSIC_PREFERENCE_KEY = 'mxqr:screensaver:music';
+const originalFullscreen = Object.getOwnPropertyDescriptor(document, 'fullscreenElement');
+const originalExitFullscreen = Object.getOwnPropertyDescriptor(document, 'exitFullscreen');
+const prefixedDocumentProperties = [
+  'webkitFullscreenElement',
+  'webkitCurrentFullScreenElement',
+  'webkitExitFullscreen',
+  'webkitCancelFullScreen',
+] as const;
+const originalPrefixedProperties = new Map(
+  prefixedDocumentProperties.map((property) => [
+    property,
+    Object.getOwnPropertyDescriptor(document, property),
+  ]),
+);
 
 function overlay(): HTMLElement | null {
   return document.getElementById('screensaver-overlay');
@@ -53,6 +69,68 @@ function escape(options: KeyboardEventInit = {}): KeyboardEvent {
   return event;
 }
 
+function fullscreenFixture(initial: Element | null = null, pending?: Promise<void>) {
+  let current = initial;
+  const change = (element: Element | null): void => {
+    current = element;
+    document.dispatchEvent(new Event('fullscreenchange'));
+  };
+  const request = vi.fn(() => {
+    if (pending) return pending;
+    change(document.documentElement);
+    return Promise.resolve();
+  });
+  const exit = vi.fn(async () => change(null));
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => current });
+  Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
+  Object.defineProperty(document.documentElement, 'requestFullscreen', {
+    configurable: true,
+    value: request,
+  });
+  return { request, exit, change };
+}
+
+function enableMotion(): void {
+  vi.useFakeTimers();
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  );
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>
+    setTimeout(() => callback(performance.now()), 16),
+  );
+  vi.stubGlobal('cancelAnimationFrame', (handle: number) => clearTimeout(handle));
+}
+
+function prefixedFullscreenFixture(
+  initial: Element | null = null,
+  stateProperty:
+    'webkitFullscreenElement' | 'webkitCurrentFullScreenElement' = 'webkitFullscreenElement',
+  requestProperty:
+    'webkitRequestFullscreen' | 'webkitRequestFullScreen' = 'webkitRequestFullscreen',
+  exitProperty: 'webkitExitFullscreen' | 'webkitCancelFullScreen' = 'webkitExitFullscreen',
+) {
+  let current = initial;
+  const change = (element: Element | null): void => {
+    current = element;
+    document.dispatchEvent(new Event('webkitfullscreenchange'));
+  };
+  const request = vi.fn<() => Promise<void> | void>(() => change(document.documentElement));
+  const exit = vi.fn<() => Promise<void> | void>(() => change(null));
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
+  Object.defineProperty(document, stateProperty, { configurable: true, get: () => current });
+  Object.defineProperty(document, exitProperty, { configurable: true, value: exit });
+  Object.defineProperty(document.documentElement, requestProperty, {
+    configurable: true,
+    value: request,
+  });
+  return { request, exit, change };
+}
+
 beforeEach(() => {
   bus.clear();
   resetState();
@@ -60,6 +138,10 @@ beforeEach(() => {
   localStorage.clear();
   mocks.showToast.mockReset();
   mocks.language = 'en';
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  );
   document.body.className = '';
   document.body.innerHTML = `
     <main id="app-shell">
@@ -75,14 +157,32 @@ beforeEach(() => {
   document.getElementById('chat-input')!.focus();
 });
 
-afterEach(() => {
+afterEach(async () => {
   if (overlay()) {
     setState('setup.sessionStarted', false);
   }
+  document.dispatchEvent(new Event('webkitfullscreenerror'));
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
   __resetModalStackForTests();
   clearAllManagedTimers();
   bus.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+  Reflect.deleteProperty(document.documentElement, 'requestFullscreen');
+  Reflect.deleteProperty(document.documentElement, 'webkitRequestFullscreen');
+  Reflect.deleteProperty(document.documentElement, 'webkitRequestFullScreen');
+  for (const [property, descriptor] of originalPrefixedProperties) {
+    if (descriptor) Object.defineProperty(document, property, descriptor);
+    else Reflect.deleteProperty(document, property);
+  }
+  if (originalFullscreen) Object.defineProperty(document, 'fullscreenElement', originalFullscreen);
+  else Reflect.deleteProperty(document, 'fullscreenElement');
+  if (originalExitFullscreen)
+    Object.defineProperty(document, 'exitFullscreen', originalExitFullscreen);
+  else Reflect.deleteProperty(document, 'exitFullscreen');
   document.body.innerHTML = '';
 });
 
@@ -190,8 +290,6 @@ describe('screensaver frame bridge', () => {
         type: 'mxqr:screensaver:update',
         payload: {
           backLabel: 'en:screensaver.back',
-          musicLabel: 'en:screensaver.show_music',
-          showMusic: true,
           title: 'Midnight',
           subtitle: 'MP3 · 320 kbps',
           lang: 'en',
@@ -297,7 +395,6 @@ describe('screensaver frame bridge', () => {
         type: 'mxqr:screensaver:update',
         payload: expect.objectContaining({
           backLabel: 'ar:screensaver.back',
-          musicLabel: 'ar:screensaver.show_music',
           title: 'Midnight',
           subtitle: 'MP3 · 320 kbps',
           lang: 'ar',
@@ -307,59 +404,336 @@ describe('screensaver frame bridge', () => {
       window.location.origin,
     );
   });
-
-  it('persists a valid music toggle across closing and reopening', () => {
-    const frame = openFrame();
-    ready(frame);
-    fromFrame(frame, { type: 'mxqr:screensaver:music-toggle', enabled: false });
-    expect(localStorage.getItem(MUSIC_PREFERENCE_KEY)).toBe('off');
-    escape();
-
-    const reopened = openFrame();
-    const postMessage = vi.spyOn(reopened.contentWindow!, 'postMessage');
-    ready(reopened);
-    expect(postMessage).toHaveBeenLastCalledWith(
-      {
-        type: 'mxqr:screensaver:update',
-        payload: expect.objectContaining({ showMusic: false }),
-      },
-      window.location.origin,
-    );
-    fromFrame(reopened, { type: 'mxqr:screensaver:music-toggle', enabled: true });
-    expect(localStorage.getItem(MUSIC_PREFERENCE_KEY)).toBe('on');
-  });
-
-  it('works when preference storage is blocked', () => {
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
-      throw new DOMException('Blocked', 'SecurityError');
-    });
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
-      throw new DOMException('Blocked', 'SecurityError');
-    });
-    const frame = openFrame();
-    const postMessage = vi.spyOn(frame.contentWindow!, 'postMessage');
-    ready(frame);
-    expect(postMessage).toHaveBeenLastCalledWith(
-      {
-        type: 'mxqr:screensaver:update',
-        payload: expect.objectContaining({ showMusic: true }),
-      },
-      window.location.origin,
-    );
-    expect(() =>
-      fromFrame(frame, { type: 'mxqr:screensaver:music-toggle', enabled: false }),
-    ).not.toThrow();
-    expect(postMessage).toHaveBeenLastCalledWith(
-      {
-        type: 'mxqr:screensaver:update',
-        payload: expect.objectContaining({ showMusic: false }),
-      },
-      window.location.origin,
-    );
-  });
 });
 
 describe('screensaver lifecycle', () => {
+  it.each(['webkitFullscreenElement', 'webkitCurrentFullScreenElement'] as const)(
+    'preserves an existing prefixed root fullscreen from %s',
+    (property) => {
+      const fullscreen = prefixedFullscreenFixture(document.documentElement, property);
+      openFrame();
+      escape();
+      expect(fullscreen.request).not.toHaveBeenCalled();
+      expect(fullscreen.exit).not.toHaveBeenCalled();
+      expect(getFullscreenElement()).toBe(document.documentElement);
+    },
+  );
+
+  it.each([
+    ['webkitFullscreenElement', 'webkitRequestFullscreen', 'webkitExitFullscreen'],
+    ['webkitCurrentFullScreenElement', 'webkitRequestFullScreen', 'webkitCancelFullScreen'],
+  ] as const)('enters and restores prefixed fullscreen with %s', (state, request, exit) => {
+    const fullscreen = prefixedFullscreenFixture(null, state, request, exit);
+    openFrame();
+    expect(fullscreen.request).toHaveBeenCalledOnce();
+    expect(getFullscreenElement()).toBe(document.documentElement);
+    escape();
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+    expect(getFullscreenElement()).toBeNull();
+  });
+
+  it('preserves a prefixed fullscreen subtree and restores its centered dialog on WebKit exit', () => {
+    const shell = document.getElementById('app-shell')!;
+    const fullscreen = prefixedFullscreenFixture(shell, 'webkitCurrentFullScreenElement');
+    openFrame();
+    expect(overlay()?.parentElement).toBe(shell);
+    expect(overlay()?.closest('[inert]')).toBeNull();
+    const dialog = document.getElementById('dialog-overlay')!;
+    dialog.classList.add('show');
+    syncOverlayState('dialog-overlay');
+    expect(dialog.parentElement).toBe(shell);
+    fullscreen.change(null);
+    expect(overlay()).toBeNull();
+    expect(dialog.parentElement).toBe(document.body);
+    expect(fullscreen.request).not.toHaveBeenCalled();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+  });
+
+  it('restores a void WebKit request that completes asynchronously after close', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    openFrame();
+    escape();
+    await Promise.resolve();
+    expect(overlay()).toBeNull();
+    expect(beginScreensaverEntry()).toBeNull();
+    fullscreen.change(document.documentElement);
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+    expect(getFullscreenElement()).toBeNull();
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+  });
+
+  it('waits for a void WebKit exit event before releasing the entry lock', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.exit.mockImplementationOnce(() => {});
+    openFrame();
+    escape();
+    await Promise.resolve();
+    expect(beginScreensaverEntry()).toBeNull();
+    fullscreen.change(null);
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+  });
+
+  it('bounds silent WebKit failure and cleans its pending timers on cancellation', async () => {
+    vi.useFakeTimers();
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    const removeListener = vi.spyOn(document, 'removeEventListener');
+    openFrame();
+    escape();
+    expect(beginScreensaverEntry()).toBeNull();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(removeListener).toHaveBeenCalledWith('webkitfullscreenchange', expect.any(Function));
+    expect(removeListener).toHaveBeenCalledWith('webkitfullscreenerror', expect.any(Function));
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+  });
+
+  it('recovers from a prefixed request rejection without closing the overlay', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'));
+    openFrame();
+    await Promise.resolve();
+    expect(overlay()).not.toBeNull();
+    escape();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+    expect(overlay()).toBeNull();
+  });
+
+  it('falls through a rejected standard request to an available prefixed API', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    const standard = vi
+      .fn()
+      .mockRejectedValue(new DOMException('Unavailable', 'NotSupportedError'));
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      value: standard,
+    });
+    openFrame();
+    await Promise.resolve();
+    expect(standard).toHaveBeenCalledOnce();
+    expect(fullscreen.request).toHaveBeenCalledOnce();
+    escape();
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+  });
+
+  it('clears a cancelled pending WebKit request on its native error event', () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    openFrame();
+    escape();
+    document.dispatchEvent(new Event('webkitfullscreenerror'));
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+  });
+
+  it('ignores a queued standard error while the WebKit fallback or its exit is pending', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    fullscreen.exit.mockImplementationOnce(() => {});
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      value: vi.fn().mockRejectedValue(new DOMException('Unavailable', 'NotSupportedError')),
+    });
+    openFrame();
+    await Promise.resolve();
+    expect(fullscreen.request).toHaveBeenCalledOnce();
+    escape();
+    document.dispatchEvent(new Event('fullscreenerror'));
+    expect(beginScreensaverEntry()).toBeNull();
+    fullscreen.change(document.documentElement);
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+    document.dispatchEvent(new Event('fullscreenerror'));
+    expect(beginScreensaverEntry()).toBeNull();
+    fullscreen.change(null);
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+    await Promise.resolve();
+  });
+
+  it('requests fullscreen immediately and exits only the state it acquired', async () => {
+    const fullscreen = fullscreenFixture();
+    openFrame();
+    expect(fullscreen.request).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    escape();
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+  });
+
+  it('preserves fullscreen that was already active', () => {
+    const fullscreen = fullscreenFixture(document.documentElement);
+    openFrame();
+    escape();
+    expect(fullscreen.request).not.toHaveBeenCalled();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+    expect(document.fullscreenElement).toBe(document.documentElement);
+  });
+
+  it('restores a late fullscreen success after the screensaver was already closed', async () => {
+    let resolveRequest: () => void = () => {};
+    const pending = new Promise<void>((resolve) => {
+      resolveRequest = resolve;
+    });
+    const fullscreen = fullscreenFixture(null, pending);
+    openFrame();
+    escape();
+    expect(overlay()).toBeNull();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+    openScreensaver();
+    expect(fullscreen.request).toHaveBeenCalledOnce();
+    fullscreen.change(document.documentElement);
+    resolveRequest();
+    await vi.waitFor(() => expect(fullscreen.exit).toHaveBeenCalledOnce());
+    expect(document.fullscreenElement).toBeNull();
+  });
+
+  it('keeps a functional overlay when the fullscreen request is rejected', async () => {
+    const fullscreen = fullscreenFixture();
+    fullscreen.request.mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'));
+    openFrame();
+    await Promise.resolve();
+    expect(overlay()).not.toBeNull();
+    escape();
+    expect(overlay()).toBeNull();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+  });
+
+  it('closes after the user leaves fullscreen without issuing another exit', () => {
+    const fullscreen = fullscreenFixture();
+    openFrame();
+    fullscreen.change(null);
+    expect(overlay()).toBeNull();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+  });
+
+  it('mounts inside existing fullscreen and restores nested inert ownership after higher dialogs', () => {
+    const shell = document.getElementById('app-shell')!;
+    const fullscreen = fullscreenFixture(shell);
+    const frame = openFrame();
+    expect(overlay()?.parentElement).toBe(shell);
+    expect(shell.hasAttribute('inert')).toBe(false);
+    expect(document.getElementById('chat-input')?.hasAttribute('inert')).toBe(true);
+    const dialog = document.getElementById('dialog-overlay')!;
+    const action = document.getElementById('dialog-action')!;
+    dialog.classList.add('show');
+    syncOverlayState('dialog-overlay');
+    expect(dialog.parentElement).toBe(shell);
+    action.focus();
+    ready(frame);
+    expect(document.activeElement).toBe(action);
+    expect(escape().defaultPrevented).toBe(false);
+    expect(overlay()).not.toBeNull();
+    dialog.classList.remove('show');
+    syncOverlayState();
+    expect(dialog.parentElement).toBe(document.body);
+    escape();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+    expect(document.querySelector('[inert]')).toBeNull();
+    expect(document.activeElement?.id).toBe('chat-input');
+  });
+
+  it('restores a portaled dialog after fullscreen ends even if the screensaver already closed', () => {
+    const shell = document.getElementById('app-shell')!;
+    const fullscreen = fullscreenFixture(shell);
+    openFrame();
+    const dialog = document.getElementById('dialog-overlay')!;
+    const marker = document.createElement('aside');
+    dialog.after(marker);
+    dialog.classList.add('show');
+    syncOverlayState('dialog-overlay');
+    expect(dialog.parentElement).toBe(shell);
+    setState('playback.mode', 'youtube');
+    expect(overlay()).toBeNull();
+    expect(dialog.parentElement).toBe(shell);
+    fullscreen.change(null);
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.nextSibling).toBe(marker);
+    expect(dialog.closest('[inert]')).toBeNull();
+  });
+
+  it('does not resurrect a portaled dialog that its own cleanup removed', () => {
+    const shell = document.getElementById('app-shell')!;
+    fullscreenFixture(shell);
+    openFrame();
+    const dialog = document.getElementById('dialog-overlay')!;
+    dialog.classList.add('show');
+    syncOverlayState('dialog-overlay');
+    expect(dialog.parentElement).toBe(shell);
+    dialog.remove();
+    syncOverlayState();
+    expect(document.getElementById('dialog-overlay')).toBeNull();
+    expect(overlay()?.closest('[inert]')).toBeNull();
+  });
+
+  it('restores a dialog stranded in a fullscreen container that was removed', () => {
+    const shell = document.getElementById('app-shell')!;
+    const fullscreen = fullscreenFixture(shell);
+    openFrame();
+    const dialog = document.getElementById('dialog-overlay')!;
+    dialog.classList.add('show');
+    syncOverlayState('dialog-overlay');
+    shell.remove();
+    fullscreen.change(null);
+    expect(dialog.parentElement).toBe(document.body);
+    expect(dialog.isConnected).toBe(true);
+    dialog.classList.remove('show');
+    syncOverlayState();
+  });
+
+  it('releases a second fullscreen entry attempted while a manual-exit fade is still closing', async () => {
+    enableMotion();
+    const fullscreen = fullscreenFixture();
+    openFrame();
+    await vi.advanceTimersByTimeAsync(16);
+    fullscreen.change(null);
+    expect(overlay()).not.toBeNull();
+    const second = beginScreensaverEntry();
+    expect(second).not.toBeNull();
+    openScreensaver(second!);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(overlay()).toBeNull();
+    expect(document.fullscreenElement).toBeNull();
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+    expect(second!.closed).toBe(true);
+  });
+
+  it('fades in and keeps its modal until the bounded exit transition completes', async () => {
+    enableMotion();
+    const frame = openFrame();
+    expect(overlay()?.style.opacity).toBe('0');
+    await vi.advanceTimersByTimeAsync(16);
+    expect(overlay()?.style.opacity).toBe('1');
+    ready(frame);
+    fromFrame(frame, { type: 'mxqr:screensaver:close' });
+    expect(overlay()?.style.opacity).toBe('0');
+    expect(document.getElementById('app-shell')?.hasAttribute('inert')).toBe(true);
+    await vi.advanceTimersByTimeAsync(499);
+    expect(overlay()).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(overlay()).toBeNull();
+    expect(getManagedTimer('screensaver-close')).toBeNull();
+  });
+
+  it('removes the covering frame immediately if YouTube takes over during the exit fade', async () => {
+    enableMotion();
+    openFrame();
+    await vi.advanceTimersByTimeAsync(16);
+    escape();
+    expect(overlay()).not.toBeNull();
+    setState('playback.mode', 'youtube');
+    expect(overlay()).toBeNull();
+    expect(getManagedTimer('screensaver-close')).toBeNull();
+    expect(mocks.showToast).toHaveBeenCalledExactlyOnceWith('en:toast.screensaver_youtube');
+  });
+
   it.each(['escape', 'back', 'bridge', 'session'] as const)(
     'cleans up listeners, the frame, and modal focus after closing through %s',
     async (method) => {
@@ -421,33 +795,5 @@ describe('screensaver lifecycle', () => {
     expect(overlay()).toBeNull();
     expect(document.activeElement).toBe(action);
     expect(mocks.showToast).toHaveBeenCalledExactlyOnceWith('en:toast.screensaver_youtube');
-  });
-
-  it('exits only fullscreen owned by the screensaver when removing its iframe', () => {
-    const frame = openFrame();
-    const exitFullscreen = vi.fn().mockResolvedValue(undefined);
-    const previousFullscreen = Object.getOwnPropertyDescriptor(document, 'fullscreenElement');
-    const previousExit = Object.getOwnPropertyDescriptor(document, 'exitFullscreen');
-    const fullscreen = vi.fn((): Element => frame);
-    Object.defineProperty(document, 'exitFullscreen', {
-      configurable: true,
-      value: exitFullscreen,
-    });
-    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: fullscreen });
-    try {
-      escape();
-      expect(exitFullscreen).toHaveBeenCalledOnce();
-
-      fullscreen.mockReturnValue(document.documentElement);
-      openFrame();
-      escape();
-      expect(exitFullscreen).toHaveBeenCalledOnce();
-    } finally {
-      if (previousFullscreen)
-        Object.defineProperty(document, 'fullscreenElement', previousFullscreen);
-      else Reflect.deleteProperty(document, 'fullscreenElement');
-      if (previousExit) Object.defineProperty(document, 'exitFullscreen', previousExit);
-      else Reflect.deleteProperty(document, 'exitFullscreen');
-    }
   });
 });

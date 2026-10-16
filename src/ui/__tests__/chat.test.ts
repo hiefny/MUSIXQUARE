@@ -9,6 +9,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { sendToHost } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { showToast } from '../toast.ts';
+import type { ScreensaverEntry } from '../screensaver-entry.ts';
 
 interface ProRealtimeTestPayload {
   kind?: string;
@@ -108,6 +109,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  screensaverMocks.open.mockImplementation((entry: ScreensaverEntry) => entry.release());
   requestActiveProRoomBotCommand.mockReset();
   proRealtimeMocks.send.mockReset();
   proRealtimeMocks.send.mockReturnValue(true);
@@ -121,6 +123,49 @@ afterEach(() => {
 });
 
 describe('Chat Module', () => {
+  it('requests fullscreen within command dispatch before the lazy host resolves', async () => {
+    setState('setup.sessionStarted', true);
+    const request = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      value: request,
+    });
+    try {
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      bus.emit('ui:open-screensaver');
+      bus.emit('ui:open-screensaver');
+      expect(request).toHaveBeenCalledOnce();
+      expect(screensaverMocks.open).not.toHaveBeenCalled();
+      await vi.dynamicImportSettled();
+      expect(screensaverMocks.open).toHaveBeenCalledOnce();
+    } finally {
+      Reflect.deleteProperty(document.documentElement, 'requestFullscreen');
+    }
+  });
+
+  it.each(['no-session', 'youtube'] as const)(
+    'does not request fullscreen for %s',
+    async (reason) => {
+      setState('setup.sessionStarted', reason !== 'no-session');
+      if (reason === 'youtube') setState('playback.mode', 'youtube');
+      const request = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(document.documentElement, 'requestFullscreen', {
+        configurable: true,
+        value: request,
+      });
+      try {
+        const { initChat } = await import('../chat.ts');
+        initChat();
+        bus.emit('ui:open-screensaver');
+        await vi.dynamicImportSettled();
+        expect(request).not.toHaveBeenCalled();
+        expect(screensaverMocks.open).not.toHaveBeenCalled();
+      } finally {
+        Reflect.deleteProperty(document.documentElement, 'requestFullscreen');
+      }
+    },
+  );
   it('lazily opens the screensaver only after its local command intent', async () => {
     setState('setup.sessionStarted', true);
     const { initChat } = await import('../chat.ts');

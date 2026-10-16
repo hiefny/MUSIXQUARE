@@ -45,7 +45,6 @@ const vi: Record<I18nKey, string> = {
   'common.off': 'Tắt',
 
   'screensaver.back': 'Quay lại MUSIXQUARE',
-  'screensaver.show_music': 'Hiện thông tin nhạc',
   'account.login_title': 'Đăng nhập',
   'account.login_cancelled': 'Đã hủy đăng nhập',
   'account.login_failed': 'Không thể đăng nhập\nVui lòng thử lại',

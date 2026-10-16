@@ -277,12 +277,12 @@
 
 .spec .s28 {
   font-size: 28px;
-  font-weight: 800;
+  font-weight: var(--font-weight-display);
   letter-spacing: -0.03em;
 }
 .spec .s24 {
   font-size: 24px;
-  font-weight: 800;
+  font-weight: var(--font-weight-display);
   letter-spacing: -0.03em;
 }
 .spec .s20 {
@@ -307,7 +307,7 @@
 .display-glyph {
   color: var(--text-main);
   font-size: 160px;
-  font-weight: 800;
+  font-weight: var(--font-weight-display);
   letter-spacing: -0.05em;
   line-height: 0.9;
 }
@@ -2588,7 +2588,7 @@
 
 .dialog-title {
   font-size: 20px;
-  font-weight: 800;
+  font-weight: var(--font-weight-display);
   letter-spacing: -0.02em;
 }
 

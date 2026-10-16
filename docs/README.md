@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Display title weight 700 — 2026-10-16](design/display-weight-700-2026-10-16.md) —
+  Every display use (titles, dialog titles, invite code and the rest) moves
+  from 800 to 700 in all locales, and the design system documents the same
+  weight. Local unit/E2E and browser evidence; production checks remain.
+
 - [Lazy ambient screensaver — 2026-10-16](design/screensaver-integration-2026-10-16.md) —
   local command, YouTube exclusion, fullscreen restoration, fading track details, scoped
   permissions, and release evidence.

@@ -53,6 +53,16 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
+### 제목 굵기 700 통일 배포 준비
+
+- [ ] 큰 제목 굵기(`--font-weight-display`)를 모든 언어에서 800에서 700으로 맞추는
+      App 8.11.2/v699 준비(오너 결정 2026-10-16). 중국어·일본어의 700 예외는 지우고
+      디자인 시스템도 같은 굵기로 맞춘다. 화면 보호기는 범위 밖. target=app,
+      Developer API D1=false. 의존성·스키마·비밀·바인딩·프로토콜 변경 없음, 혼합
+      버전 호환. 롤백하면 800과 중국어·일본어 예외로 돌아간다. 로컬 검사·PR 검토·
+      exact-main CI 후보·운영 배포 확인 후 닫는다.
+      [수정·검증 근거](design/display-weight-700-2026-10-16.md).
+
 ### 최근 해결 근거
 
 App 8.11.1/v698 화면 보호기 후속은 PR [#361](https://github.com/hiefny/MUSIXQUARE/pull/361),

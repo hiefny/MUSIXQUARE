@@ -547,9 +547,7 @@ window.addEventListener('pageshow', (event) => {
   secondsLastFrame = null;
   currentInfoScene = null;
   currentInfoLayout = null;
-  infoRenderKey = '';
-  musicRenderKey = '';
-  lastViewportW = 0;
+  invalidateFontLayouts();
   weatherInitialized = false;
   initializeWeather();
   showControls();
@@ -4411,6 +4409,51 @@ window.addEventListener('resize', () => {
   lastViewportW = 0;
 });
 
+function loadGoogleSansStylesheet(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const stylesheet = document.createElement('link');
+    stylesheet.id = 'googleSansStylesheet';
+    stylesheet.rel = 'stylesheet';
+    stylesheet.media = 'print';
+    stylesheet.href =
+      'https://fonts.googleapis.com/css2?family=Google+Sans:wght@500;700&display=swap';
+    const finish = (loaded: boolean) => {
+      stylesheet.removeEventListener('load', onLoad);
+      stylesheet.removeEventListener('error', onError);
+      if (loaded) stylesheet.media = 'all';
+      resolve(loaded);
+    };
+    const onLoad = () => finish(true);
+    const onError = () => finish(false);
+    stylesheet.addEventListener('load', onLoad);
+    stylesheet.addEventListener('error', onError);
+    document.head.append(stylesheet);
+    if (stylesheet.sheet) finish(true);
+  });
+}
+
+async function warmGoogleSansFonts() {
+  try {
+    if (!(await loadGoogleSansStylesheet())) {
+      console.warn('Google Sans is unavailable; the clock will use a fallback font.');
+      return;
+    }
+    if (!document.fonts?.load) return;
+    const [faces] = await Promise.all([
+      document.fonts.load('700 100px "Google Sans"', '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
+      document.fonts.load(
+        '500 100px "Google Sans"',
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789°',
+      ),
+    ]);
+    if (!faces.length)
+      console.warn('Google Sans is unavailable; the clock will use a fallback font.');
+    if (!disposed) invalidateFontLayouts();
+  } catch (error) {
+    console.warn('Google Sans could not load; the clock will use a fallback font.', error);
+  }
+}
+
 async function initializeScreensaver() {
   const generation = lifecycleGeneration;
   initializeDisplayControls();
@@ -4418,32 +4461,15 @@ async function initializeScreensaver() {
   createFilmGrainTile();
   resizeSpeckleCanvas();
 
-  if (document.fonts && document.fonts.load) {
-    try {
-      const fonts = Promise.all([
-        document.fonts.load('700 100px "Google Sans"', '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
-        document.fonts.load(
-          '500 100px "Google Sans"',
-          'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789°',
-        ),
-      ]).then(([faces]) => {
-        if (!faces.length)
-          console.warn('Google Sans is unavailable; the clock will use a fallback font.');
-        if (!disposed) invalidateFontLayouts();
-      });
-      await Promise.race([
-        fonts,
-        new Promise<void>((resolve) => {
-          fontWarmupTimer = setTimeout(resolve, 3000);
-        }),
-      ]);
-    } catch (error) {
-      console.warn('Google Sans could not load; the clock will use a fallback font.', error);
-    }
-    if (fontWarmupTimer !== null) {
-      clearTimeout(fontWarmupTimer);
-      fontWarmupTimer = null;
-    }
+  await Promise.race([
+    warmGoogleSansFonts(),
+    new Promise<void>((resolve) => {
+      fontWarmupTimer = setTimeout(resolve, 3000);
+    }),
+  ]);
+  if (fontWarmupTimer !== null) {
+    clearTimeout(fontWarmupTimer);
+    fontWarmupTimer = null;
   }
 
   if (disposed || generation !== lifecycleGeneration) return;

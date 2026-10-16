@@ -8,6 +8,7 @@
     ".workshop/promo/render.ts",
     ".workshop/translate/dev/**/*.ts",
     "scripts/async-connect-middleware.ts",
+    "scripts/browser-target.ts",
     "scripts/translation-catalog.ts",
     "scripts/translation-catalog-assets.ts",
     "scripts/locale-recovery-assets.ts",

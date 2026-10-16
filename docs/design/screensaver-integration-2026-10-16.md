@@ -4,7 +4,7 @@
 | --- | --- |
 | Status | Implementation and local verification; production evidence pending |
 | Source baseline | `60148998acca59295963764a5286a155e0aa4256`, temporary branch `agent/screensaver` |
-| Product / cache | `8.11.0` / `v695` |
+| Product / cache | `8.11.0` / `v696` |
 | Release scope | App only; Developer API D1 application disabled |
 | Authorization | Owner requested implementation and production deployment on 2026-10-16 |
 
@@ -39,6 +39,8 @@ when a usable title exists; its secondary text comes from the existing App
 track subtitle (codec, bitrate, or system capture profile). Long titles scroll.
 Back, toggle, and YouTube refusal have 42 locale translations; information scenes
 remain English and use Google Sans. The original third-party notices are retained.
+The owner's follow-up removes the dark backplates behind Back, the music toggle,
+and the location action in both normal and hover states.
 
 ## Security and compatibility
 
@@ -121,6 +123,16 @@ the old sitemap privacy-date expectation; that fixture is corrected in this
 final source. Its passing jobs are not substituted for the final CI run.
 Committed `build:checked` also passed on `5a8e028f`, including the production
 security, no-test-hook, initial-transfer, font, and service-worker asset gates.
+
+PR CI `38826637947` on documentation follow-up `b356a05e` passed all 11 jobs.
+Independent review then found that the auxiliary compiler's ES2022 target was
+newer than the App's supported Chrome 79 baseline. The shared browser target now
+also applies to production auxiliary outputs; the local report viewer retains
+its modern target. A syntax-tree regression verifies that optional chaining and
+nullish operators are transformed. Remote Codex review separately identified a
+blocking Google Fonts stylesheet, which delayed the renderer before its bounded
+font fallback could start. These corrective changes and the transparent controls
+require a new final CI candidate; the earlier successful run is not substituted.
 
 Real phone
 hardware, live YouTube playback, live system capture, and all 42 locales' visual

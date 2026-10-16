@@ -1,6 +1,7 @@
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { LEGACY_APP_BROWSER_TARGET } from './browser-target.ts';
 
 import { build } from 'esbuild';
 import type { Plugin } from 'vite';
@@ -218,7 +219,7 @@ export async function compileAuxiliaryBrowserAsset(
     write: false,
     format: asset.scriptType === 'module' ? 'esm' : 'iife',
     platform: 'browser',
-    target: 'es2022',
+    target: asset.emitForProduction ? LEGACY_APP_BROWSER_TARGET : 'es2022',
     sourcemap: false,
     minify: false,
     legalComments: 'inline',

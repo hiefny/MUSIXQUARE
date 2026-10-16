@@ -1,4 +1,5 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 import {
   cleanupContexts,
   createHostGuestContexts,
@@ -229,6 +230,100 @@ test('shows music before the clock, hides idle chrome, and restores persisted mu
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 });
 
+test('renders while the font stylesheet is delayed, then refits the clock after fonts arrive', async ({
+  page,
+}) => {
+  await openHost(page);
+  await page.evaluate(() => localStorage.setItem('mxqr:screensaver:music', 'off'));
+  await page.addInitScript(() => {
+    const measureText = CanvasRenderingContext2D.prototype.measureText;
+    CanvasRenderingContext2D.prototype.measureText = function (text: string): TextMetrics {
+      if (this.canvas.id === 'opticalClockCanvas' && text === '88') {
+        this.canvas.dataset.fontFits = String(Number(this.canvas.dataset.fontFits || 0) + 1);
+      }
+      return measureText.call(this, text);
+    };
+  });
+
+  let releaseStylesheet: () => void = () => {};
+  const stylesheetReady = new Promise<void>((resolve) => {
+    releaseStylesheet = resolve;
+  });
+  let stylesheetRequested = false;
+  await page.route('https://fonts.googleapis.com/**', async (route) => {
+    stylesheetRequested = true;
+    await stylesheetReady;
+    await route.fulfill({
+      contentType: 'text/css',
+      body: `@font-face {
+        font-family: 'Google Sans';
+        font-style: normal;
+        font-weight: 100 900;
+        font-display: swap;
+        src: url('https://fonts.gstatic.com/screensaver-delayed.woff2') format('woff2');
+      }`,
+    });
+  });
+  // A local fixture makes late font metrics deterministic without relying on Google.
+  await page.route('https://fonts.gstatic.com/screensaver-delayed.woff2', (route) =>
+    route.fulfill({
+      path: fileURLToPath(
+        new URL('../public/designsystem/fonts/PretendardVariable.woff2', import.meta.url),
+      ),
+      contentType: 'font/woff2',
+      headers: { 'access-control-allow-origin': '*' },
+    }),
+  );
+
+  try {
+    const child = await openScreensaver(page);
+    await expect.poll(() => stylesheetRequested).toBe(true);
+    await expect(child.locator('#googleSansStylesheet')).toHaveAttribute('media', 'print');
+    await expect(child.locator('#displayBack')).toBeVisible();
+    const canvas = child.locator('#opticalClockCanvas');
+    await expect(canvas).toHaveAttribute('aria-label', /^\d{2}:\d{2}:\d{2}$/u, {
+      timeout: 6_000,
+    });
+    expect(
+      await canvas.evaluate((element: HTMLCanvasElement) => {
+        const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height);
+        return pixels.data.some((value, index) => index % 4 === 3 && value > 0);
+      }),
+    ).toBe(true);
+    const initialFits = Number(await canvas.getAttribute('data-font-fits'));
+    expect(initialFits).toBeGreaterThan(0);
+
+    releaseStylesheet();
+    await expect(child.locator('#googleSansStylesheet')).toHaveAttribute('media', 'all');
+    await expect
+      .poll(() =>
+        canvas.evaluate(() =>
+          Array.from(document.fonts).some(
+            (font) => font.family.includes('Google Sans') && font.status === 'loaded',
+          ),
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(async () => Number(await canvas.getAttribute('data-font-fits')))
+      .toBeGreaterThan(initialFits);
+    await child.locator('#displayBack').click();
+    await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+
+    await page.route('https://fonts.googleapis.com/**', (route) => route.abort());
+    const fallback = await openScreensaver(page);
+    await expect(fallback.locator('#opticalClockCanvas')).toHaveAttribute(
+      'aria-label',
+      /^\d{2}:\d{2}:\d{2}$/u,
+    );
+    await fallback.locator('#displayBack').click();
+    await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+  } finally {
+    releaseStylesheet();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
+});
+
 test('keeps denied-location controls separate in a 160×160 weather scene', async ({
   page,
 }, testInfo) => {
@@ -261,6 +356,9 @@ test('keeps denied-location controls separate in a 160×160 weather scene', asyn
   const retry = child.locator('#weatherRetry');
   await expect(retry).toBeVisible();
   await expect(retry).toHaveText('Use current location');
+  await expect(retry).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+  await retry.hover();
+  await expect(retry).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
 
   const boxes = await Promise.all(
     ['displayBack', 'weatherRetry', 'displayMusicToggle'].map((id) =>
@@ -297,7 +395,11 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.mouse.move(viewport.width / 2, viewport.height / 2);
     for (const id of ['displayBack', 'displayMusicToggle']) {
-      const box = await child.locator(`#${id}`).boundingBox();
+      const control = child.locator(`#${id}`);
+      await expect(control).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      await control.hover();
+      await expect(control).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+      const box = await control.boundingBox();
       expect(box).not.toBeNull();
       expect(box!.x).toBeGreaterThanOrEqual(0);
       expect(box!.y).toBeGreaterThanOrEqual(0);

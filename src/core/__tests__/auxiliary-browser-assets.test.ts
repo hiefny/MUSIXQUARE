@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 import { JSDOM } from 'jsdom';
+import ts from 'typescript';
 import { build as buildVite } from 'vite';
 import { describe, expect, it } from 'vitest';
 
@@ -23,6 +24,22 @@ import {
 import { startViteMiddlewareTestServer } from './helpers/vite-middleware-test-server.ts';
 
 const REPOSITORY = resolve(process.cwd());
+
+function newerThanChrome79Syntax(source: string): string[] {
+  const parsed = ts.createSourceFile('runtime.js', source, ts.ScriptTarget.Latest, true);
+  const unsupported: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      node.kind === ts.SyntaxKind.QuestionDotToken ||
+      node.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      node.kind === ts.SyntaxKind.QuestionQuestionEqualsToken
+    )
+      unsupported.push(ts.SyntaxKind[node.kind]);
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return unsupported;
+}
 
 async function startAuxiliaryDevServer(): Promise<{
   readonly origin: string;
@@ -167,6 +184,21 @@ describe('strict TypeScript auxiliary browser assets', () => {
             !chunk.imports.includes(runtimePath) && !chunk.dynamicImports.includes(runtimePath),
         ),
     ).toBe(true);
+  });
+
+  it('lowers production renderer syntax to the App browser floor while retaining modern local tooling', async () => {
+    const descriptor = AUXILIARY_BROWSER_ASSETS.find(
+      (asset) => asset.outputPath === 'screensaver.js',
+    );
+    if (!descriptor) throw new Error('Missing screensaver descriptor.');
+    const [production, localOnly] = await Promise.all([
+      compileAuxiliaryBrowserAsset(REPOSITORY, descriptor),
+      compileAuxiliaryBrowserAsset(REPOSITORY, { ...descriptor, emitForProduction: false }),
+    ]);
+    expect(newerThanChrome79Syntax(localOnly.code)).toEqual(
+      expect.arrayContaining(['QuestionDotToken', 'QuestionQuestionToken']),
+    );
+    expect(newerThanChrome79Syntax(production.code)).toEqual([]);
   });
 
   it('binds the public HTML copy to the exact renderer bytes in a written production build', async () => {

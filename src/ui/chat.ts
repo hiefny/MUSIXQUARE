@@ -47,6 +47,7 @@ import {
   cycleFocusWithin,
   getUiElement,
   normalizeEmptyContentEditable,
+  onWindowBack,
   setElementInertForOwner,
 } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
@@ -1379,7 +1380,19 @@ export function initChat(): void {
   initChatTouchContainment();
   initChatCopyGestures();
   const chatDrawer = getUiElement('chat-drawer');
-  if (chatDrawer) syncChatDrawerModalAccessibility(chatDrawer, isChatDrawerOpen());
+  if (chatDrawer) {
+    syncChatDrawerModalAccessibility(chatDrawer, isChatDrawerOpen());
+    // History Back closes the modal sheet; the desktop panel is not a window.
+    onWindowBack(
+      chatDrawer,
+      () => {
+        if (!isChatDrawerOpen() || !isMobileChatDrawer()) return false;
+        toggleChatDrawer();
+        return true;
+      },
+      uiSignal,
+    );
+  }
   document.addEventListener('keydown', handleChatDrawerKeyboard, { signal: uiSignal });
 
   // Backdrop tap to close

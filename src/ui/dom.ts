@@ -304,6 +304,7 @@ export function updateOverlayOpenClass(): void {
 // Module-scoped so successive open/close events preserve stack order
 // without re-deriving it from the DOM.
 const _modalStack: OverlayId[] = [];
+const _overlayStackListeners = new Set<() => void>();
 const CENTERED_OVERLAY_Z_INDEX_BASE = 6000;
 const CENTERED_OVERLAY_Z_INDEX_STEP = 10;
 const OVERLAY_INERT_OWNER = 'overlay-stack';
@@ -585,6 +586,13 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
   }
   const activeElement = document.activeElement;
   if (activeElement instanceof HTMLElement && activeElement.closest('[inert]')) focusTopModal();
+  for (const listener of _overlayStackListeners) {
+    try {
+      listener();
+    } catch (e) {
+      log.warn('[DOM] Overlay stack listener failed:', e);
+    }
+  }
 }
 
 export function syncOverlayState(preferredTopOverlayId?: OverlayId): void {
@@ -600,6 +608,92 @@ export function syncOverlayState(preferredTopOverlayId?: OverlayId): void {
       bus.emit('ui:scrollbar-reveal', overlay);
     }
   }
+}
+
+/** Run `listener` after every modal stack change. Returns an unsubscribe. */
+export function onOverlayStackChange(listener: () => void): () => void {
+  _overlayStackListeners.add(listener);
+  return () => {
+    _overlayStackListeners.delete(listener);
+  };
+}
+
+// ─── History Back ────────────────────────────────────────────────
+// Back closes the topmost window first, as in a native app. Each window's
+// owner decides what Back does there: close, step back, or keep a window
+// that needs an explicit answer. A layer inside a window, such as a
+// disclosure, gets the first chance. A Back that no window uses falls through
+// to the session guard or the browser.
+
+const WINDOW_BACK_EVENT = 'mxqr:window-back';
+const WINDOW_BACK_LAYER_ATTRIBUTE = 'data-window-back';
+// The setup screens are the page itself outside a room, not a window over it.
+const BASE_SCREEN_ID: OverlayId = 'setup-overlay';
+
+/**
+ * Handle history Back while `element`, a window or a layer inside one, is on
+ * top. `handler` returns whether it used the Back. A handler that throws
+ * still uses it, so a failing window never lets Back leave the page.
+ */
+export function onWindowBack(
+  element: HTMLElement,
+  handler: () => boolean,
+  signal?: AbortSignal,
+): void {
+  element.setAttribute(WINDOW_BACK_LAYER_ATTRIBUTE, '');
+  element.addEventListener(
+    WINDOW_BACK_EVENT,
+    (event) => {
+      try {
+        if (handler()) event.preventDefault();
+      } catch (e) {
+        event.preventDefault();
+        log.warn('[DOM] Window Back handler failed:', e);
+      }
+    },
+    signal ? { signal } : undefined,
+  );
+}
+
+/** The video player while it fills the screen, natively or with the iOS shell. */
+function fullscreenVideoElement(): HTMLElement | null {
+  const wrapper = document.querySelector<HTMLElement>('.video-wrapper');
+  if (!wrapper) return null;
+  if (wrapper.classList.contains('fake-fullscreen')) return wrapper;
+  const fullscreen = getFullscreenElement();
+  return fullscreen && (fullscreen === wrapper || wrapper.contains(fullscreen)) ? wrapper : null;
+}
+
+function topWindowElement(): HTMLElement | null {
+  const top = _topModalId && _topModalId !== BASE_SCREEN_ID ? getUiElement(_topModalId) : null;
+  return (
+    top ??
+    fullscreenVideoElement() ??
+    // The chat drawer is a modal sheet only on narrow layouts.
+    document.querySelector<HTMLElement>('#chat-drawer.open[aria-modal="true"]')
+  );
+}
+
+/** Whether a window that history Back should reach first is open. */
+export function hasOpenWindow(): boolean {
+  return topWindowElement() !== null;
+}
+
+/** Offer history Back to the topmost window. Returns whether it was used. */
+export function offerBackToTopWindow(): boolean {
+  syncModalStack();
+  const root = topWindowElement();
+  if (!root) return false;
+  // Later layers in document order sit above earlier ones.
+  const layers = Array.from(
+    root.querySelectorAll<HTMLElement>(`[${WINDOW_BACK_LAYER_ATTRIBUTE}]`),
+  ).reverse();
+  for (const target of [...layers, root]) {
+    const event = new Event(WINDOW_BACK_EVENT, { cancelable: true });
+    target.dispatchEvent(event);
+    if (event.defaultPrevented) return true;
+  }
+  return false;
 }
 
 // ─── Observer (single watcher, both effects) ─────────────────────

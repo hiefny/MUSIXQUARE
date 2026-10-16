@@ -126,6 +126,34 @@ export function assertLegacyCss(css: string): void {
   }
 }
 
+const UNSUPPORTED_RUNTIME_CALLS = [
+  '.replaceAll(',
+  '.at(',
+  '.findLast(',
+  '.findLastIndex(',
+  '.toReversed(',
+  '.toSorted(',
+  '.toSpliced(',
+  'Object.hasOwn(',
+  'Promise.any(',
+] as const;
+
+/**
+ * Return the first runtime call the legacy TV engines lack, or null.
+ *
+ * A method pattern needs a receiver. Minified output can spread the result of
+ * a function the minifier named `at` (`{...at(r)}`), so a method pattern whose
+ * dot is the last dot of a spread is not a method call.
+ */
+export function findUnpolyfilledRuntimeCall(source: string): string | null {
+  for (const call of UNSUPPORTED_RUNTIME_CALLS) {
+    for (let index = source.indexOf(call); index !== -1; index = source.indexOf(call, index + 1)) {
+      if (!call.startsWith('.') || source[index - 1] !== '.') return call;
+    }
+  }
+  return null;
+}
+
 async function assertLegacyJavaScript(mainPath: string): Promise<void> {
   const assetsDirectory = path.dirname(mainPath);
   const javaScriptFiles = (await readdir(assetsDirectory))
@@ -141,23 +169,11 @@ async function assertLegacyJavaScript(mainPath: string): Promise<void> {
   );
 
   for (const file of javaScriptFiles) {
-    const source = await readFile(file, 'utf8');
-    for (const unsupportedRuntimeCall of [
-      '.replaceAll(',
-      '.at(',
-      '.findLast(',
-      '.findLastIndex(',
-      '.toReversed(',
-      '.toSorted(',
-      '.toSpliced(',
-      'Object.hasOwn(',
-      'Promise.any(',
-    ]) {
-      if (source.includes(unsupportedRuntimeCall)) {
-        throw new Error(
-          `${path.relative(repoRoot, file)} contains unpolyfilled ${unsupportedRuntimeCall}`,
-        );
-      }
+    const unsupportedRuntimeCall = findUnpolyfilledRuntimeCall(await readFile(file, 'utf8'));
+    if (unsupportedRuntimeCall) {
+      throw new Error(
+        `${path.relative(repoRoot, file)} contains unpolyfilled ${unsupportedRuntimeCall}`,
+      );
     }
   }
 

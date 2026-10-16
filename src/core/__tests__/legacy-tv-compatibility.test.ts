@@ -7,7 +7,10 @@ import {
   CLASSIC_RUNTIME_ASSETS,
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
-import { assertLegacyCss } from '../../../scripts/check-legacy-tv-build.mts';
+import {
+  assertLegacyCss,
+  findUnpolyfilledRuntimeCall,
+} from '../../../scripts/check-legacy-tv-build.mts';
 import {
   createViteConfig,
   LEGACY_APP_BROWSER_TARGET,
@@ -33,6 +36,19 @@ describe('legacy smart-TV app compatibility', () => {
     expect(() => assertLegacyCss(css.replace('top:0;bottom:0;left:0;right:0', 'inset:0'))).toThrow(
       'physical fullscreen overlay edges',
     );
+  });
+
+  it('flags runtime calls the TV engines lack, not a spread of a minifier-named function', () => {
+    expect(findUnpolyfilledRuntimeCall('const last = items.at(-1);')).toBe('.at(');
+    expect(findUnpolyfilledRuntimeCall('value?.at(0)')).toBe('.at(');
+    expect(findUnpolyfilledRuntimeCall('const copy = [...items.at(0)];')).toBe('.at(');
+    // `at` is a minified function name here; its result is spread.
+    expect(findUnpolyfilledRuntimeCall('return {...at(r), queueItemId: e};')).toBeNull();
+    expect(findUnpolyfilledRuntimeCall('f(...at(r)); s.replaceAll("a", "b");')).toBe(
+      '.replaceAll(',
+    );
+    expect(findUnpolyfilledRuntimeCall('Object.hasOwn(a, b)')).toBe('Object.hasOwn(');
+    expect(findUnpolyfilledRuntimeCall('const x = list.slice(-1)[0];')).toBeNull();
   });
 
   it('finds legacy boot and overlay guards after layer-specificity lowering', async () => {

@@ -11,7 +11,7 @@ import { getState, setState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { showToast } from './toast.ts';
-import { copyTextToClipboard, getUiElement, syncOverlayState } from './dom.ts';
+import { copyTextToClipboard, getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import {
@@ -442,6 +442,12 @@ function initSignalingRecoveryDialog(): void {
   overlay.dataset.bound = 'true';
 
   confirm.addEventListener('click', () => closeSignalingRecoveryDialog());
+  // Back is the plain close button, without a retry.
+  onWindowBack(overlay, () => {
+    if (!overlay.classList.contains('show')) return false;
+    closeSignalingRecoveryDialog();
+    return true;
+  });
   retry.addEventListener('click', () => {
     beginManualSignalingRecovery().catch((error) => {
       log.warn('[Connect] Manual signaling recovery failed', error);
@@ -1642,6 +1648,11 @@ function initAdministratorPermissionsDialog(): void {
   });
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) closeAdministratorPermissionsDialog();
+  });
+  onWindowBack(overlay, () => {
+    if (!overlay.classList.contains('show')) return false;
+    closeAdministratorPermissionsDialog();
+    return true;
   });
   overlay.addEventListener('keydown', (event) => {
     if (!overlay.classList.contains('show')) return;

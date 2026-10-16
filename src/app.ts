@@ -33,7 +33,7 @@ import {
   markIntentionalNav,
   isIntentionalNav,
 } from './core/page-lifecycle.ts';
-import { createBackButtonGuardController } from './core/back-button-guard.ts';
+import { createBackButtonGuardController, isGuardedSession } from './core/back-button-guard.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { runBackgroundResumeRecovery } from './core/background-resume-recovery.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
@@ -118,7 +118,13 @@ import { initYouTube } from './youtube/player.ts';
 import { guestRendezvousSync, initYouTubeSync } from './youtube/sync.ts';
 
 // ── UI ──
-import { initOverlayObservers, isAnyOverlayShown } from './ui/dom.ts';
+import {
+  hasOpenWindow,
+  initOverlayObservers,
+  isAnyOverlayShown,
+  offerBackToTopWindow,
+  onOverlayStackChange,
+} from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
 import { initDialog, showDialog } from './ui/dialog.ts';
@@ -467,6 +473,8 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
     message: t('dialog.audio_recovery_message'),
     buttonText: t('dialog.audio_recovery_action'),
     dismissible: false,
+    // Only this tap can restart the audio; Back keeps the dialog.
+    closeOnBack: false,
     defaultFocus: 'primary',
     signal: abortController.signal,
     onPrimaryActivation: () => {
@@ -889,24 +897,34 @@ window.addEventListener('unhandledrejection', (e) => {
 // page (the data channel / RTCPeerConnection gets pulled out from under
 // us, and even if the user picks "stay", the session is unrecoverable).
 //
-// History API trick: when a session goes active, push one guard entry onto
-// the stack. When the user presses back the browser pops that entry and
-// fires `popstate` — NOT a real page unload — so the page stays intact and
-// we show a custom dialog instead. On dialog confirm we call leaveSession()
-// explicitly; on cancel we re-push the guard entry so the next back press
-// re-fires popstate rather than escaping to the real previous page.
+// History API trick: while a session runs or a window is open, keep one
+// guard entry on the stack. When the user presses back the browser pops that
+// entry and fires `popstate` — NOT a real page unload — so the page stays
+// intact. Back then closes the topmost window, like a native app. With no
+// window open, a session shows a custom leave dialog instead: on confirm we
+// call leaveSession() explicitly; on cancel we re-push the guard entry so the
+// next back press re-fires popstate rather than escaping to the real previous
+// page. Outside a room, a Back with no window continues to the previous page.
 //
-// Arming is event-driven (idle → non-idle) rather than seeded at bootstrap:
-// seeding at bootstrap would make the back button in the landing/idle view
-// silently consume the guard entry on first press, which looks broken.
+// Arming is event-driven (a session start or a window opening) rather than
+// seeded at bootstrap: a guard on the bare landing view would only add a
+// history entry for Back to pass through.
 //
 // Complements (does not replace) `beforeunload`: tab close, refresh, and
 // direct URL changes still route through the beforeunload confirmation.
 function initBackButtonGuard(): void {
   const controller = createBackButtonGuardController({
     isSessionActive: () =>
-      getState('setup.sessionStarted') && getState('network.appRole') !== 'idle',
+      isGuardedSession({
+        sessionStarted: getState('setup.sessionStarted'),
+        role: getState('network.appRole'),
+        roomId: getRoomContext().roomId,
+      }),
+    hasOpenWindow,
+    closeTopWindow: offerBackToTopWindow,
+    isNavigationPending: isSessionResetPending,
     pushGuard: () => history.pushState({ mxqrGuard: true }, '', location.href),
+    navigateBack: () => history.back(),
     requestLeaveConfirmation: async () => {
       const result = await showDialog({
         // Browser history may lead to the landing page, another site, or a
@@ -948,9 +966,12 @@ function initBackButtonGuard(): void {
 
   // Arm only after setup actually succeeds. Provisional host/guest roles are
   // soft-cancellable and must not leave a duplicate landing history entry.
-  bus.on('state:network.appRole', controller.handleSessionStateChange);
-  bus.on('state:setup.sessionStarted', controller.handleSessionStateChange);
+  bus.on('state:network.appRole', controller.handleStateChange);
+  bus.on('state:setup.sessionStarted', controller.handleStateChange);
+  onOverlayStackChange(controller.handleStateChange);
   window.addEventListener('popstate', controller.handlePopState);
+  // A window may already be open before this guard starts.
+  controller.handleStateChange();
 }
 
 // ── Bootstrap ──

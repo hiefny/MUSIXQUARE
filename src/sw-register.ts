@@ -774,6 +774,8 @@ export function registerServiceWorker(): void {
         activePromptIdentity = null;
         activePromptDeferredByRoom = false;
         updateLedger.releasePrompt(generation);
+        // History Back on the prompt is the same choice as Later.
+        const dismissedByUser = result?.action === 'secondary' || result?.action === 'back';
 
         if (promptAbort.signal.aborted) {
           // Losing a best-effort legacy election is not a user dismissal and
@@ -819,7 +821,7 @@ export function registerServiceWorker(): void {
             const replacementGeneration = await generationResolver.resolve(replacement);
             if (reg.waiting === replacement && replacement.state === 'installed') {
               handledWaitingWorker = replacement;
-              if (result?.action === 'secondary') {
+              if (dismissedByUser) {
                 updateLedger.rememberDismissal(replacementGeneration);
                 forgetToastNotice(replacementGeneration.promptIdentity);
               } else {
@@ -850,7 +852,7 @@ export function registerServiceWorker(): void {
         }
 
         activationState = 'passive';
-        if (result?.action === 'secondary') {
+        if (dismissedByUser) {
           updateLedger.rememberDismissal(generation);
           forgetToastNotice(generation.promptIdentity);
         } else {

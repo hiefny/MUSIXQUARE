@@ -46,7 +46,7 @@ import { getState } from '../core/state.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { showDialog } from './dialog.ts';
-import { syncOverlayState } from './dom.ts';
+import { onWindowBack, syncOverlayState } from './dom.ts';
 import { showToast } from './toast.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 
@@ -1322,6 +1322,11 @@ function bindAccountDialog(): void {
   });
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) closeAccountDialog();
+  });
+  onWindowBack(overlay, () => {
+    if (!overlay.classList.contains('show')) return false;
+    closeAccountDialog();
+    return true;
   });
   overlay.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {

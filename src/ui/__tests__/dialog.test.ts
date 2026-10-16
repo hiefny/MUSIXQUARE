@@ -1524,3 +1524,110 @@ describe('Dialog System', () => {
     });
   });
 });
+
+describe('history Back on dialogs', () => {
+  const ok = () => document.getElementById('btn-dialog-ok') as HTMLButtonElement;
+  const secondary = () => document.getElementById('btn-dialog-secondary') as HTMLButtonElement;
+
+  beforeEach(async () => {
+    const { __resetModalStackForTests } = await import('../dom.ts');
+    __resetModalStackForTests();
+  });
+
+  it('closes a confirmation as a cancel without running either activation hook', async () => {
+    const { offerBackToTopWindow } = await import('../dom.ts');
+    const { showDialog } = await import('../dialog.ts');
+    const onPrimaryActivation = vi.fn();
+    const onSecondaryActivation = vi.fn();
+    const promise = showDialog({
+      title: 'Leave?',
+      buttonText: 'Leave',
+      secondaryText: 'Stay',
+      onPrimaryActivation,
+      onSecondaryActivation,
+    });
+    vi.advanceTimersByTime(10);
+
+    expect(offerBackToTopWindow()).toBe(true);
+
+    expect(await promise).toMatchObject({ action: 'back' });
+    expect(onPrimaryActivation).not.toHaveBeenCalled();
+    expect(onSecondaryActivation).not.toHaveBeenCalled();
+    expect(document.getElementById('dialog-overlay')!.classList.contains('show')).toBe(false);
+    vi.advanceTimersByTime(10);
+  });
+
+  it('closes a one-button notice that Escape would keep', async () => {
+    const { offerBackToTopWindow } = await import('../dom.ts');
+    const { showDialog } = await import('../dialog.ts');
+    const promise = showDialog({ title: 'Notice', message: 'Read me', dismissible: false });
+    vi.advanceTimersByTime(10);
+
+    expect(offerBackToTopWindow()).toBe(true);
+    expect(await promise).toMatchObject({ action: 'back' });
+    vi.advanceTimersByTime(10);
+  });
+
+  it('keeps a dialog whose tap is required and still uses the Back', async () => {
+    const { offerBackToTopWindow } = await import('../dom.ts');
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    let resolved = false;
+    const promise = showDialog({ title: 'Tap to resume', closeOnBack: false });
+    const observed = promise.then(() => {
+      resolved = true;
+    });
+    vi.advanceTimersByTime(10);
+
+    expect(offerBackToTopWindow()).toBe(true);
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    expect(document.getElementById('dialog-overlay')!.classList.contains('show')).toBe(true);
+
+    closeDialog('ok');
+    vi.advanceTimersByTime(10);
+    await observed;
+  });
+
+  it('steps back from the choice page first, then closes with the input kept', async () => {
+    const { offerBackToTopWindow } = await import('../dom.ts');
+    const { showDialog } = await import('../dialog.ts');
+    const promise = showDialog({
+      title: 'PIN',
+      inputField: {
+        maxLength: 8,
+        splitEvery: 4,
+        inputMode: 'numeric',
+        validator: (value: string) => (value.length === 8 ? null : 'invalid PIN'),
+      },
+      buttonText: 'Next',
+      secondaryText: 'Cancel',
+      choiceStep: {
+        title: 'Who stays?',
+        name: 'back-membership',
+        defaultValue: 'keep',
+        options: [
+          { value: 'keep', label: 'Keep everyone' },
+          { value: 'reenter', label: 'Everyone rejoins' },
+        ],
+        buttonText: 'OK',
+        backText: 'Back',
+      },
+    });
+    vi.advanceTimersByTime(10);
+    const segments = [...document.querySelectorAll<HTMLInputElement>('.dialog-input-segment')];
+    segments[0]!.value = '1234';
+    segments[1]!.value = '5678';
+    ok().click();
+    const frame = document.querySelector<HTMLElement>('.dialog-choice-frame')!;
+    expect(frame.hidden).toBe(false);
+    expect(secondary().textContent).toBe('Back');
+
+    expect(offerBackToTopWindow()).toBe(true);
+    expect(frame.hidden).toBe(true);
+    expect(secondary().textContent).toBe('Cancel');
+
+    expect(offerBackToTopWindow()).toBe(true);
+    expect(await promise).toMatchObject({ action: 'back', inputValue: '12345678' });
+    vi.advanceTimersByTime(10);
+  });
+});

@@ -1,5 +1,6 @@
 import { getState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
+import { onWindowBack } from './dom.ts';
 
 interface DemoInlineControlsOptions {
   signal: AbortSignal;
@@ -76,6 +77,16 @@ export function bindDemoInlineControls({
       setExpanded(false, true);
     },
     { signal },
+  );
+  // History Back collapses an open disclosure before it reaches the demo.
+  onWindowBack(
+    header,
+    () => {
+      if (!expanded) return false;
+      setExpanded(false, true);
+      return true;
+    },
+    signal,
   );
   const dismissOutside = (event: Event) => {
     if (!expanded || syncIsOpen() || !(event.target instanceof Node)) return;

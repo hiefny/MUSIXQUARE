@@ -35,7 +35,7 @@ import { showToast } from './toast.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
-import { getUiElement, syncOverlayState } from './dom.ts';
+import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
@@ -995,6 +995,13 @@ export function initSettings(): void {
     e.preventDefault();
     closeLanguageDialog();
   });
+  if (languageOverlay) {
+    onWindowBack(languageOverlay, () => {
+      if (!languageOverlay.classList.contains('show')) return false;
+      closeLanguageDialog();
+      return true;
+    });
+  }
   refreshLanguageControls();
 
   // Channel grid (standard)

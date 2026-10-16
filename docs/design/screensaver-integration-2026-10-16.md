@@ -2,17 +2,17 @@
 
 | Field | Value |
 | --- | --- |
-| Status | 8.11.0/v696 deployed and verified; 8.11.1/v698 controls/fullscreen follow-up pending |
-| Deployed source | `4934720117e6a14c65ddf10bf268fe473527eb11`, PR #360, Release 38829782253 |
+| Status | 8.11.1/v698 deployed and verified; initial 8.11.0 evidence retained below |
+| Deployed source | `cedc0b04707ed619647a3897f54bc1c3bcfd64e2`, PR #361, Release 38836510116 |
 | Source baseline | `60148998acca59295963764a5286a155e0aa4256`, temporary branch `agent/screensaver` |
-| Product / cache | `8.11.0` / `v696` |
+| Product / cache | `8.11.1` / `v698` |
 | Release scope | App only; Developer API D1 application disabled |
 | Authorization | Owner requested implementation and production deployment on 2026-10-16 |
 
 ## Behavior and boundaries
 
-This section through the initial release/recovery evidence records the deployed
-8.11.0/v696 behavior. The final follow-up is described under
+This section through the initial release/recovery evidence records the initial
+8.11.0/v696 deployment. The final follow-up is described under
 [Control shadow follow-up](#control-shadow-follow-up).
 
 `/screensaver` (also `/스크린세이버`) is a local command available to room members.
@@ -269,9 +269,10 @@ temporary placement of higher-priority centered dialogs in that visible subtree.
 The existing iframe permissions suffice; no additional header, dependency,
 protocol, schema, secret, binding or recovery floor is added.
 
-The source and local verification are recorded below. The successful 8.11.0
-deployment above does not establish completion of this follow-up; exact-main
-candidate and production evidence remain separate release requirements.
+The source and local verification are recorded below. The initial 8.11.0
+deployment above and the completed 8.11.1 exact-main candidate/production evidence
+under [Follow-up release and recovery](#follow-up-release-and-recovery) are
+separate release records.
 
 Host lifecycle evidence was collected for product source
 `bd7a5757056d4952c7906a511c522b801b5b1960` on local Windows with Node
@@ -416,6 +417,79 @@ security, fonts and 97 SW app-shell assets. Eager transfer is 2,012.3 KiB raw /
 bytes); the child renderer remains `screensaver-runtime-1c8b7f5e.js` with SHA-256
 `1c8b7f5e606c9788a10bc94e3bfd3572522723f85a0bc88913eafa572eb1b0d9`.
 
-Final PR/exact-main CI and production evidence remain pending. The prefixed-API
+Final PR/exact-main CI and production evidence are recorded below. The prefixed-API
 tests use controlled DOM fixtures and do not establish behavior on physical
 Safari/iOS devices or replace the separate native Chromium browser checks.
+
+### Follow-up release and recovery
+
+The earlier 8.11.1/v697 preparation was not deployed. PR CI
+[38833870743](https://github.com/hiefny/MUSIXQUARE/actions/runs/38833870743) passed all
+11 jobs at `fc81e8be7647f8ffcfea64e84b5440fa00ec088c` before the remote P2 review
+identified missing prefixed WebKit fullscreen support. Its implementation, local
+unit/browser/font/weather results and CI success remain historical evidence.
+Final source `f207dde636b967802bba459bdd93cbfc41dee2a4` incorporates the compatibility repair.
+Verification: 230/230 focused unit tests; app/test TypeScript, touched ESLint/Prettier, corrected-fixture Chromium 11/11 and committed build:checked passed. Review result: independent review of the exact product source: remote P2 addressed, no remaining source blocker.
+Physical Safari/iOS behavior must not be inferred from synthetic prefixed-API tests.
+
+PR [#361](https://github.com/hiefny/MUSIXQUARE/pull/361) merged as
+`cedc0b04707ed619647a3897f54bc1c3bcfd64e2`. Final PR CI [38835405515](https://github.com/hiefny/MUSIXQUARE/actions/runs/38835405515)
+passed all 11 jobs. Exact-main CI [38835888083](https://github.com/hiefny/MUSIXQUARE/actions/runs/38835888083)
+attempt 1 passed 11 jobs, with 570 unit files /
+12,844 pass / 0 fail / 1 skip (Windows-only cross-drive path case on the Ubuntu runner),
+candidate browser 17 and critical browser 40 pass.
+Candidate artifact `12018813302` contains 794 files.
+Its actual manifest toolchain is Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0; installation used Corepack with the repository-pinned npm 12.0.2 (`corepack npm ci`).
+The selected main/renderer/HTML/SW hashes match the locally checked final product inputs and the artifact manifest. These
+results are distinct from the earlier local full-run-plus-isolated-rerun evidence.
+
+App-only [Production Release 38836510116](https://github.com/hiefny/MUSIXQUARE/actions/runs/38836510116)
+attempt 1 succeeded with Developer API D1=false. The seven existing
+App D1 baseline apply/verify steps succeeded idempotently; Developer API D1 steps
+were skipped. This change adds no D1 contract. Dispatch was
+10:41:54 KST and the deploy job completed **10:43:49 KST on 2026-10-16**.
+App version `065ead32-e74a-4e47-b3ad-d5643ae20744`, deployment `c9f13516-65a3-4c86-96be-e44798d17dd2`, carries the exact main SHA.
+Final ownership verification completed 10:43:44.595 KST; the coherent
+SHA/app marker was committed/persisted 10:43:44–45 KST. The five unselected
+Workers retain their recorded version/deployment IDs and `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance; compatibility recheck completed
+10:43:17.396 KST with status `compatible`.
+
+Workflow smoke: all four passed: App generation, anonymous App account boundary, current PRO public boundary, and Standard HTTPS signaling. App generation converged for
+3 reads of `/assets/main-qPp9zuuJ.js` (433142 bytes), 29 assets.
+Deployment/coherent artifacts: `production-deployments-cedc0b04707ed619647a3897f54bc1c3bcfd64e2-38836510116-1` (`12018934083`); `production-commit-cedc0b04707ed619647a3897f54bc1c3bcfd64e2-38836510116-1` (`12019497908`).
+Public-production component evidence: 8 checks passed from 10:44:25.685 to 10:44:36.410 KST, including scoped CSP/permissions and immutable runtime headers, genuine Google Sans 500/700, translated back/close bridge, transparent shadow-free controls and passive footer, shared idle fade/pointer reveal, zero page errors and zero backend writes. Layouts at 160×160, 320×240, 1280×720 and 1920×1080 passed; the root reviewer visually inspected the 320×240 and 1920×1080 production captures.
+Candidate identity comparison: all six public responses (index, main, service worker, bootstrap, child HTML and renderer) exactly match artifact `12018813302` from the successful exact-main CI, including byte counts and SHA-256 values. Actual renderer:
+`/assets/screensaver-runtime-1c8b7f5e.js`, SHA-256 `1c8b7f5e606c9788a10bc94e3bfd3572522723f85a0bc88913eafa572eb1b0d9`.
+This production check used public assets in an isolated synthetic same-origin parent with browser service workers blocked; public SW bytes, cache epoch and routes were checked by read-only fetch. It does not establish behavior in a live room, live weather/YouTube, real system-audio sharing, physical Safari/iOS, or other physical devices. Parent command/playback guards and native Chromium fullscreen are supported by the separate automated tests above, not by this production component check.
+
+Post-release [Operations Drift Audit 38836731860](https://github.com/hiefny/MUSIXQUARE/actions/runs/38836731860)
+attempt 2 concluded **success**. Report 10:46:54.558 KST:
+31 pass / 0 fail / 5 manual-only; job completed 10:47:09 KST.
+Published report artifact: `12019408760`. Attempt 1 had already completed the same
+31/0/5 audit successfully, but its workflow failed when `Upload drift report`
+received `FinalizeArtifact ECONNRESET` at 10:45:11.605 KST, so that attempt published
+no report artifact. The safe failure summary and workflow log are preserved under
+the external screensaver evidence directory's `drift-38836731860-attempt-1/`; the verified published
+report is under `drift-38836731860-attempt-2/report.json`. The upload failure is not
+a failed live configuration check.
+Manual-only items and unrelated open work remain open.
+
+Checkpoint `production-recovery-checkpoint-cedc0b04707ed619647a3897f54bc1c3bcfd64e2-38836510116-1`, artifact `12019706238`,
+started 10:42:46.318 KST and completed 10:42:47.293 KST.
+It preserves `4934720117e6a14c65ddf10bf268fe473527eb11` (8.11.0/v696),
+App version `16724e7d-ce3a-477a-9fc5-8f476fa02133`, deployment `b3051793-e58d-4014-ad26-9d0d59ee4fd7`.
+No rollback was needed or performed; the independent recovery job was skipped.
+Captured floors and awareness:
+ready at 10:42:48.727 KST, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true; captured App provenance `verified-release-ancestor` with generation/entitlement/Developer API authority awareness all true. No new floor is added. Rollback to the preserved
+8.11.0/v696 baseline restores its toggle/music scene and prior controls/entry behavior;
+it does not remove the screensaver or its existing permission/CSP surface.
+Old music preference values may be used again by that restored version. Ownership
+and floor rechecks remain mandatory; the checkpoint is not a user-data backup.
+
+Evidence in the external screensaver evidence directory:
+`production-evidence-38836510116-1-with-drift-attempt2.json`,
+`controls-v698/production-smoke-results.json`, `ci-38835888083-summary.json`,
+`ci-38835888083-candidate-evidence.json`, `controls-v698/release-final-facts.json`,
+and the artifacts attached to the linked workflow runs. Standalone HTML preservation:
+`ambient-display-v5.html` was rehashed after deployment and remains unchanged, SHA-256 `7e07e0eddb767f89e891ed3473595a52f3b049b70a912cce1cc2ab7adff0c3f0`. This closes only the 8.11.1/v698
+screensaver follow-up deployment-readiness item.

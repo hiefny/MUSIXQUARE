@@ -473,6 +473,11 @@ describe('service-worker cache-retirement client handshake', () => {
       openInviteLinkPage();
       await registerWithHarness(harness);
 
+      // The cooldown does not skip the quiet wait: this request may reload.
+      await waitMs(STARTUP_APPLY_QUIET_WAIT_MS / 2);
+      expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({
+        type: 'SKIP_WAITING',
+      });
       await vi.waitFor(
         () =>
           expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({
@@ -488,6 +493,56 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(moduleMocks.showDialog).not.toHaveBeenCalled();
     },
   );
+
+  describe('a startup worker found within the update-reload cooldown', () => {
+    // reloadForServiceWorkerUpdate() wrote both markers a moment ago.
+    const markUpdateReload = () => {
+      const at = String(Date.now() - 1_000);
+      sessionStorage.setItem('sw-updated-at', at);
+      sessionStorage.setItem('sw-controller-confirmed-at', at);
+    };
+
+    it('still activates at once in a room, without a reload', async () => {
+      markUpdateReload();
+      setAppState({ role: 'host', sessionStarted: true });
+      mountChatSurface();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'reload', true);
+      await registerWithHarness(harness);
+
+      await vi.waitFor(() =>
+        expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+      );
+      harness.setController(harness.waitingWorker!, true, 'v494');
+      harness.emit('controllerchange');
+      await vi.waitFor(() =>
+        expect(moduleMocks.announceSystemMessageLocally).toHaveBeenCalledWith(TAB_NOTICE),
+      );
+      await flushAsyncControllerChange();
+      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+    });
+
+    it('activates silently without a reload when a room begins during the quiet wait', async () => {
+      markUpdateReload();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'reload', true);
+      await registerWithHarness(harness);
+      setAppState({ role: 'host' });
+
+      await vi.waitFor(
+        () =>
+          expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({
+            type: 'SKIP_WAITING',
+          }),
+        STARTUP_APPLY_WAIT,
+      );
+      harness.setController(harness.waitingWorker!, true, 'v494');
+      harness.emit('controllerchange');
+      await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledWith(TAB_NOTICE));
+      await flushAsyncControllerChange();
+      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+    });
+  });
 
   it('applies a waiting generation the user dismissed with Later once the app reopens', async () => {
     const first = installServiceWorkerHarness({ postMessage: vi.fn() });

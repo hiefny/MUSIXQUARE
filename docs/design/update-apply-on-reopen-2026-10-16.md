@@ -53,10 +53,14 @@ opens outside a room, including an invite link before the Start tap.
   page does not reload and shows the existing notice instead
   (`startupApplyRequested` is consumed by the first passive controller
   change).
-- The 30-second cooldown path already activated a startup worker silently,
-  but its controller change then used the room check, so an invite page
-  waiting for Start would have shown the toast instead of reloading. A
-  startup worker found in cooldown now sets the same flag.
+- The 30-second cooldown after an update reload no longer bypasses this. A
+  startup worker found in it takes the same quiet wait, rechecks, and flag,
+  so an invite page waiting for Start reloads instead of showing the toast,
+  and no request is sent during the first loads (review finding on PR #371:
+  sending at once would have reloaded such a page tens of seconds later). If
+  the page is already in a room or the demo, or one begins during the wait,
+  the worker is activated silently as the cooldown always did, without a
+  reload.
 - Unchanged: an update found while the page is open (the dialog on the idle
   setup screen, the toast on create/join screens, the chat notice in rooms),
   the dialog after leaving a room in place, the same-generation path, and the
@@ -68,8 +72,8 @@ for one moment only. An invite-link screen that is still waiting for Start
 when the page loads now applies a waiting update instead of showing the
 toast. An update found later on that screen still gets the toast.
 
-App 8.11.6 / service-worker cache v703. App only; Developer API D1 stays
-disabled. There are no new dependencies, protocols, schema, secrets,
+App 8.11.6 / service-worker cache v704 (v703 was the first PR revision and was
+never released). App only; Developer API D1 stays disabled. There are no new dependencies, protocols, schema, secrets,
 bindings, permissions, CSP, or copy changes.
 
 ## Verification

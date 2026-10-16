@@ -665,10 +665,11 @@ export function registerServiceWorker(): void {
 
         const lastUpdate = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
         const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
-        if (inCooldown) {
+        // A startup worker that may reload this page takes the quiet path
+        // below, even right after an update reload.
+        const applyAtStartup = foundAtStartup && !isStartupUpdateBlocked();
+        if (inCooldown && !applyAtStartup) {
           log.debug('[SW] Update found during cooldown. Silently activating');
-          // An invite page still waiting for Start reloads, as below.
-          if (foundAtStartup) startupApplyRequested = true;
           worker.postMessage({ type: 'SKIP_WAITING' });
           return;
         }
@@ -702,7 +703,7 @@ export function registerServiceWorker(): void {
         // origin still has a client, so asking again here would make the user
         // reload twice. This also covers a generation dismissed with "Later":
         // the dialog said a reload would apply it.
-        if (foundAtStartup && !isStartupUpdateBlocked()) {
+        if (applyAtStartup) {
           await waitForQuietPageLoad();
           if (navigator.serviceWorker.controller !== activeController) return;
           if (!waitingWorkerIsCurrent()) {
@@ -713,6 +714,13 @@ export function registerServiceWorker(): void {
           if (!isStartupUpdateBlocked()) {
             log.info('[SW] Update was waiting when this page opened. Applying it without a prompt');
             startupApplyRequested = true;
+            worker.postMessage({ type: 'SKIP_WAITING' });
+            return;
+          }
+          if (inCooldown) {
+            // A room or the demo began right after an update reload. Activate
+            // silently as the cooldown always has; no reload follows.
+            log.debug('[SW] Update found during cooldown. Silently activating');
             worker.postMessage({ type: 'SKIP_WAITING' });
             return;
           }

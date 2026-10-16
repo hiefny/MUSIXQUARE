@@ -55,9 +55,31 @@ fillText reference pixel-for-pixel; other cases differ at antialiased edges
 The fixture records one static group and at most three transition groups.
 Evidence is retained in `caption-group-regression/{chromium,webkit}/results.json`.
 
-Final tested source and integrated checks are recorded below before release.
-The retained user screenshot is not a claim of automated reproduction, and
-automated browser checks do not replace physical-device QA.
+The tested runtime source is `a705cccdc26667c9802df2cc5587f0970742c9d3`.
+Local Windows checks used Node 24.13.1 and npm 11.8.0; CI uses the repository's
+pinned toolchain. Typecheck, full lint, formatting, Worker syntax, Developer API
+boundaries, D1 migration contracts, and operations source guards passed. The
+full unit run passed 572 files / 12,848 tests, with zero failures or skips.
+
+Chromium screensaver E2E covers 16 cases. The first run passed all 14 existing
+cases but failed both new caption cases because the test fixture incorrectly
+accepted only uppercase letters while the product displays `Mostly clear`.
+After allowing lowercase ink and normalizing only semantic matching, the two
+affected cases passed in 27.1 seconds. This is a 14-case initial pass plus a
+2-case corrected rerun, not an additional full 16-case run. The runtime was
+unchanged; the test helper correction is committed separately. Across 12
+caption samples at 390px/DPR 2 and 1280px/DPR 1.25, including a 320x240 resize
+and scene revisits, the reference-alpha comparison found zero missing, stale,
+or clipped pixels. The app E2E uses its existing fallback-font fixture; the
+isolated comparison above separately uses real Google Sans.
+
+Evidence is retained under `caption-rendering-v702/`: `unit.log`, static-check
+logs, `screensaver-e2e.log/json` (including the two initial fixture failures),
+and `caption-e2e-corrected.log/json`. Independent code and regression-test
+review found no P1/P2 issue. The retained user screenshot is not a claim of
+automated reproduction, and automated browser checks do not replace
+physical-device QA. Physical iPhone, actual weather-provider data, audible
+sync, and the complete serial E2E suite remain outside this change's local QA.
 
 ## Release and recovery
 

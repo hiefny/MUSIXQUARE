@@ -71,7 +71,9 @@ export async function installCaptionInkProbe(page: Page): Promise<void> {
           const paints = records.get(canvas);
           if (
             !paints?.length ||
-            !paints.every((paint) => paint.font.startsWith('500 ') && /^[A-Z]$/u.test(paint.text))
+            !paints.every(
+              (paint) => paint.font.startsWith('500 ') && /^[A-Za-z]$/u.test(paint.text),
+            )
           )
             continue;
           let visible = true;
@@ -140,7 +142,13 @@ export async function installCaptionInkProbe(page: Page): Promise<void> {
             clippedPixels,
           });
         }
-        return { text: samples.map((sample) => sample.text).join(''), samples };
+        return {
+          text: samples
+            .map((sample) => sample.text)
+            .join('')
+            .toUpperCase(),
+          samples,
+        };
       },
     });
   });

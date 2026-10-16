@@ -72,11 +72,26 @@ bindings, permissions, CSP, or copy changes.
 
 ## Verification
 
-Base `106304b0` (main after #372). Tested runtime source: TESTED_SHA.
+Base `106304b0` (main after #372). Tested runtime source: `eab71520`.
 Local Windows checks used Node 24.13.1 / npm 11.8.0. These are local branch
 results, not the exact-main release candidate.
 
-RESULTS
+On `eab71520`, `format:check`, `lint`, `typecheck`, and `build:checked`
+passed. `build:checked` includes the room-authority boundary,
+service-worker cache version (v705 covers every committed runtime change),
+and app-shell (97 assets) guards. The bus-pairing, import-graph,
+lifecycle-writes, dead-exports (self-only bindings stay at the baseline of 78),
+chunk-pump, standard-room hot-path, Developer API boundary, D1 migration, and
+operations drift contract guards also passed. The full unit run passed 573
+files / 12,869 tests, with zero failures or skips. E2E was not run.
+
+The first full run, on a draft that exported a `LongBackgroundWarning`
+interface, failed in two places. The dead-export ratchet counted 79
+self-only bindings against its baseline of 78; the interface was removed and
+the factory's return type is now inferred. The real-workerd
+`pro-room-burst.test.ts` lost its socket under full-suite load ("other side
+closed"). It passed 7/7 when run alone and in the second full run, and this
+change does not touch PRO admission.
 
 ### Unit tests
 

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | 8.11.0/v696 deployed and verified; 8.11.1/v697 control-shadow follow-up pending |
+| Status | 8.11.0/v696 deployed and verified; 8.11.1/v698 controls/fullscreen follow-up pending |
 | Deployed source | `4934720117e6a14c65ddf10bf268fe473527eb11`, PR #360, Release 38829782253 |
 | Source baseline | `60148998acca59295963764a5286a155e0aa4256`, temporary branch `agent/screensaver` |
 | Product / cache | `8.11.0` / `v696` |
@@ -10,6 +10,10 @@
 | Authorization | Owner requested implementation and production deployment on 2026-10-16 |
 
 ## Behavior and boundaries
+
+This section through the initial release/recovery evidence records the deployed
+8.11.0/v696 behavior. The final follow-up is described under
+[Control shadow follow-up](#control-shadow-follow-up).
 
 `/screensaver` (also `/스크린세이버`) is a local command available to room members.
 The chat command emits a local UI intent; the chat UI dynamically imports the
@@ -240,7 +244,7 @@ are attached to the linked workflow runs. This closes only the initial
 ## Control shadow follow-up
 
 The owner authorized another App-only production deployment on 2026-10-16,
-**8.11.1/v697**, Developer API D1=false. The final scope removes black control
+**8.11.1/v698**, Developer API D1=false. The final scope removes black control
 shadows, adds smooth entry/exit fades and automatic fullscreen with prior-state
 restoration, replaces the music toggle with a small two-line track footer, removes
 the music slide, and reduces the gap between weather temperature and description.
@@ -304,7 +308,7 @@ Both records are retained as `controls-v697/fullscreen-rejection-initial-probe.j
 and `controls-v697/fullscreen-rejection-report.json` in the external evidence
 directory. The probe did not create a room or write backend state.
 
-This implementation uses the standard Fullscreen API. Vendor-prefixed APIs
+The pre-review v697 implementation used the standard Fullscreen API. Vendor-prefixed APIs
 and physical Safari/iOS behavior are not established by these local
 unit tests or the Chromium rejection probe; real-browser entry/exit and nested
 portal validation are recorded separately when completed.
@@ -357,3 +361,61 @@ The initial label assertion is now case-insensitive. Only the four viewport
 cases disable the API to exercise the documented fallback; the three dedicated
 fullscreen cases retain the native API. This does not claim physical-device or
 live YouTube/weather/capture-provider verification.
+
+
+The pre-WebKit PR head `fc81e8be7647f8ffcfea64e84b5440fa00ec088c` passed
+[CI 38833870743](https://github.com/hiefny/MUSIXQUARE/actions/runs/38833870743):
+all 11 jobs, 570 unit files / 12,832 pass / 0 fail / 1 Linux skip, candidate
+browser 17 pass and critical browser 40 pass. The remote review identified
+a P2 prefixed-WebKit fullscreen gap. The compatibility correction and its
+final-source verification follow; this earlier CI is not the final candidate.
+
+### Prefixed WebKit correction — source f207dde6
+
+Committed source `f207dde636b967802bba459bdd93cbfc41dee2a4` adds the prefixed
+WebKit compatibility correction for **8.11.1/v698**. On local Windows with Node
+24.13.1 and npm 11.8.0, the focused screensaver, chat and extended DOM suites
+passed **230/230** tests. Application/test TypeScript, touched-file ESLint and
+Prettier checks passed. The earlier v697 results above remain evidence for their
+own source; they are not substituted for this corrected source's release gates.
+
+A shared fullscreen helper reads standard and both prefixed WebKit fullscreen
+element properties, selects the matching exit method, and observes standard and
+WebKit change/error events. Root and nested fullscreen states are preserved on
+close, and centered-dialog placement/restoration uses the same fullscreen
+identity. The standard request is preferred, with the prefixed request available
+when it is absent or rejects. Unsupported or rejected fullscreen still permits
+the normal-viewport screensaver. The child footer, five-scene cycle and weather
+layout are unchanged by this compatibility correction.
+
+Legacy WebKit methods can return no promise. Their pending request or exit is
+settled by the matching native event or a bounded **1.5-second** timer, so a silent
+failure cannot indefinitely retain the entry lock. Cancellation keeps the needed
+listeners until settlement, restores a late successful request within that
+window, and clears the managed timers/listeners when cleanup completes. Attempt
+generations and matching error-event types prevent a queued standard
+`fullscreenerror` from prematurely settling an active WebKit fallback or exit.
+Focused regressions cover these asynchronous void-return paths, cancellation,
+silent failure, both prefixed property spellings, and root/subtree restoration.
+
+The first v698 Chromium run had 7 pass / 4 fail. Its four viewport fixtures
+disabled only the standard request method; Chromium correctly used its WebKit
+fallback, after which Windows CDP refused to resize the fullscreen window.
+The fixtures now disable all three request-method names only in those four
+fallback-layout cases. The dedicated native-fullscreen cases passed; product
+source `f207dde6` is unchanged. The initial log is `controls-v698/e2e-final.log`,
+and the corrected-fixture rerun passed **11/11** in 1.2 minutes, recorded in
+`controls-v698/e2e-corrected-fixture.log`.
+
+The corrected fixture passed E2E TypeScript and tooling ESLint; the dead-export
+guard also passed. Independent review of the exact product source found the
+remote P2 addressed and no remaining source blocker. Committed-source
+`build:checked` passed all gates, including legacy Chromium 79, production
+security, fonts and 97 SW app-shell assets. Eager transfer is 2,012.3 KiB raw /
+538.2 KiB gzip, with zero eager font bytes. Main is `main-qPp9zuuJ.js` (433,142
+bytes); the child renderer remains `screensaver-runtime-1c8b7f5e.js` with SHA-256
+`1c8b7f5e606c9788a10bc94e3bfd3572522723f85a0bc88913eafa572eb1b0d9`.
+
+Final PR/exact-main CI and production evidence remain pending. The prefixed-API
+tests use controlled DOM fixtures and do not establish behavior on physical
+Safari/iOS devices or replace the separate native Chromium browser checks.

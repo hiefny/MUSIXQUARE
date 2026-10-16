@@ -40,7 +40,7 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
 
 ## 2. 열린 확인 항목
 
-### 화면 보호기 제어·전환·전체 화면 App 8.11.1/v697 배포 준비
+### 화면 보호기 제어·전환·전체 화면 App 8.11.1/v698 배포 준비
 
 - [ ] 2026-10-16 오너가 제어의 검은 그림자 제거, 부드러운 진입·종료 페이드, 자동
       전체 화면 진입과 종료 시 기존 전체 화면 상태 복원 및 프로덕션 재배포를 승인했다.
@@ -51,7 +51,9 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       App 전용, Developer API D1=false. 새 번역 키·의존성·스키마·비밀·바인딩·프로토콜·
       복구 floor는 없고 기존 fullscreen 위임을 사용한다. 제품 소스 `bd7a5757`의
       타입·린트·포맷·빌드, 로컬 전체+실패 파일 재검증, Chromium 11 cases와 독립 리뷰가
-      통과했다. PR/정확한 main CI, 릴리스·운영 smoke·배포 소유권 확인이 남아 있다.
+      통과했다. 최종 제품 소스 `f207dde6`는 PR 리뷰의 접두사 WebKit 전체 화면 문제를
+      보완했고 focused unit 230·Chromium 11·타입·린트·포맷·committed build 및 독립 리뷰를
+      통과했다. 정확한 main CI, 릴리스·운영 smoke·배포 소유권 확인이 남아 있다.
       [후속 범위·검증](design/screensaver-integration-2026-10-16.md#control-shadow-follow-up).
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거

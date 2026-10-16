@@ -100,10 +100,16 @@ async function seedMusic(page: Page, title: string): Promise<void> {
 
 async function disableFullscreenForLayoutProbe(page: Page): Promise<void> {
   await page.evaluate(() => {
-    Object.defineProperty(document.documentElement, 'requestFullscreen', {
-      configurable: true,
-      value: undefined,
-    });
+    for (const method of [
+      'requestFullscreen',
+      'webkitRequestFullscreen',
+      'webkitRequestFullScreen',
+    ]) {
+      Object.defineProperty(document.documentElement, method, {
+        configurable: true,
+        value: undefined,
+      });
+    }
   });
 }
 

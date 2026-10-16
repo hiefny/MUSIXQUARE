@@ -743,13 +743,31 @@ const blurEngine = (() => {
   };
 })();
 
-interface CompositorText {
-  canvas: HTMLCanvasElement;
-  width: number;
-  height: number;
+interface CompositorText extends Pick<
+  CanvasContext,
+  'font' | 'textAlign' | 'textBaseline' | 'fontKerning' | 'direction' | 'fillStyle' | 'globalAlpha'
+> {
+  value: string;
+  x: number;
+  y: number;
+  blur: number;
+  transform: DOMMatrix;
   left: number;
   top: number;
-  used: number;
+  right: number;
+  bottom: number;
+}
+interface CompositorTextLayer {
+  canvas: HTMLCanvasElement;
+}
+interface CompositorTextGroup {
+  texts: CompositorText[];
+  transform: DOMMatrix;
+  blur: number;
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
 }
 interface CompositorEntry {
   state: CompositorState;
@@ -769,7 +787,8 @@ interface CompositorState {
   entries: Set<CompositorEntry>;
   bySource: WeakMap<HTMLCanvasElement, CompositorEntry[]>;
   uses: WeakMap<HTMLCanvasElement, number>;
-  texts: Map<string, CompositorText>;
+  texts: CompositorText[];
+  textLayers: CompositorTextLayer[];
   ratioX: number;
   ratioY: number;
   defaultOpacity: string;
@@ -818,7 +837,8 @@ const compositor = (() => {
       entries: new Set(),
       bySource: new WeakMap(),
       uses: new WeakMap(),
-      texts: new Map(),
+      texts: [],
+      textLayers: [],
       ratioX: 1,
       ratioY: 1,
       defaultOpacity: computed.opacity,
@@ -846,6 +866,7 @@ const compositor = (() => {
     state.frame++;
     state.order = 0;
     state.uses = new WeakMap();
+    state.texts.length = 0;
     state.ratioX = canvas.width / Math.max(0.001, rect.width);
     state.ratioY = canvas.height / Math.max(0.001, rect.height);
     assign(root.style, 'left', canvas.offsetLeft + 'px');
@@ -946,57 +967,82 @@ const compositor = (() => {
     assign(style, 'zIndex', String(++state.order));
   }
   function text(target: CanvasContext, value: string, x: number, y: number, blur = 0) {
-    const state = stateFor(target),
-      transform = target.getTransform();
-    const scale = Math.max(0.1, Math.hypot(transform.a, transform.b));
-    const key = JSON.stringify([
+    if (!(target.globalAlpha > 0)) return;
+    const measure = target.measureText(value);
+    stateFor(target).texts.push({
       value,
-      target.font,
-      target.textAlign,
-      target.textBaseline,
-      target.fontKerning,
-      target.direction,
-      target.fillStyle,
-      scale,
-    ]);
-    let tile = state.texts.get(key);
-    if (!tile) {
-      const measure = target.measureText(value),
-        padding = 4;
-      const left = Math.ceil(measure.actualBoundingBoxLeft || 0) + padding;
-      const top = Math.ceil(measure.actualBoundingBoxAscent || 0) + padding;
-      const width = Math.max(
-        1,
-        Math.ceil(left + (measure.actualBoundingBoxRight || measure.width) + padding),
-      );
-      const height = Math.max(
-        1,
-        Math.ceil(top + (measure.actualBoundingBoxDescent || 0) + padding),
-      );
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(width * scale);
-      canvas.height = Math.ceil(height * scale);
-      const ctx = context(canvas);
-      ctx.setTransform(scale, 0, 0, scale, 0, 0);
-      ctx.font = target.font;
-      ctx.textAlign = target.textAlign;
-      ctx.textBaseline = target.textBaseline;
-      ctx.fontKerning = target.fontKerning;
-      ctx.direction = target.direction;
-      ctx.fillStyle = target.fillStyle;
-      ctx.fillText(value, left, top);
-      tile = {
-        canvas,
-        width: canvas.width / scale,
-        height: canvas.height / scale,
-        left,
-        top,
-        used: state.frame,
-      };
-      state.texts.set(key, tile);
+      x,
+      y,
+      blur,
+      transform: target.getTransform(),
+      font: target.font,
+      textAlign: target.textAlign,
+      textBaseline: target.textBaseline,
+      fontKerning: target.fontKerning,
+      direction: target.direction,
+      fillStyle: target.fillStyle,
+      globalAlpha: target.globalAlpha,
+      left: x - (measure.actualBoundingBoxLeft || 0),
+      top: y - (measure.actualBoundingBoxAscent || 0),
+      right: x + (measure.actualBoundingBoxRight || measure.width),
+      bottom: y + (measure.actualBoundingBoxDescent || 0),
+    });
+  }
+  function flushText(target: CanvasContext, state: CompositorState) {
+    const groups = new Map<string, CompositorTextGroup>();
+    for (const command of state.texts) {
+      const { a, b, c, d, e, f } = command.transform;
+      const key = JSON.stringify([command.blur, a, b, c, d, e, f]);
+      let group = groups.get(key);
+      if (!group) {
+        group = { ...command, texts: [] };
+        groups.set(key, group);
+      }
+      group.texts.push(command);
+      group.left = Math.min(group.left, command.left);
+      group.top = Math.min(group.top, command.top);
+      group.right = Math.max(group.right, command.right);
+      group.bottom = Math.max(group.bottom, command.bottom);
     }
-    tile.used = state.frame;
-    draw(target, tile.canvas, x - tile.left, y - tile.top, tile.width, tile.height, blur);
+    let index = 0;
+    for (const group of groups.values()) {
+      const layer = (state.textLayers[index++] ??= { canvas: document.createElement('canvas') });
+      const { canvas } = layer;
+      const scale = Math.max(0.1, Math.hypot(group.transform.a, group.transform.b));
+      const padding = Math.max(16, (group.bottom - group.top) * 0.25);
+      const left = Math.floor((group.left - padding) * scale) / scale;
+      const top = Math.floor((group.top - padding) * scale) / scale;
+      const width = Math.max(1, Math.ceil((group.right + padding - left) * scale));
+      const height = Math.max(1, Math.ceil((group.bottom + padding - top) * scale));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      const ctx = context(canvas);
+      ctx.resetTransform();
+      ctx.clearRect(0, 0, width, height);
+      ctx.setTransform(scale, 0, 0, scale, -left * scale, -top * scale);
+      for (const command of group.texts) {
+        ctx.font = command.font;
+        ctx.textAlign = command.textAlign;
+        ctx.textBaseline = command.textBaseline;
+        ctx.fontKerning = command.fontKerning;
+        ctx.direction = command.direction;
+        ctx.fillStyle = command.fillStyle;
+        ctx.globalAlpha = command.globalAlpha;
+        ctx.fillText(command.value, command.x, command.y);
+      }
+      target.save();
+      target.setTransform(group.transform);
+      target.globalAlpha = 1;
+      draw(target, canvas, left, top, width / scale, height / scale, group.blur);
+      target.restore();
+    }
+    for (const layer of state.textLayers.splice(index)) {
+      forget(layer.canvas);
+      layer.canvas.width = layer.canvas.height = 0;
+    }
+    state.texts.length = 0;
   }
   function forget(source: HTMLCanvasElement) {
     const entries = sourceEntries.get(source);
@@ -1005,24 +1051,20 @@ const compositor = (() => {
   }
   function end(target: CanvasContext) {
     const state = stateFor(target);
+    flushText(target, state);
     for (const entry of state.entries) {
       if (!entry.source.width || !entry.source.height || entry.lastFrame < state.frame - 2)
         remove(entry);
       else if (entry.lastFrame !== state.frame) assign(entry.node.style, 'display', 'none');
-    }
-    for (const [key, tile] of state.texts) {
-      if (tile.used >= state.frame - 2) continue;
-      forget(tile.canvas);
-      tile.canvas.width = tile.canvas.height = 0;
-      state.texts.delete(key);
     }
     sync(target);
   }
   function dispose() {
     for (const state of states) {
       for (const entry of state.entries) remove(entry);
-      for (const tile of state.texts.values()) tile.canvas.width = tile.canvas.height = 0;
-      state.texts.clear();
+      for (const layer of state.textLayers) layer.canvas.width = layer.canvas.height = 0;
+      state.textLayers.length = 0;
+      state.texts.length = 0;
       state.root.remove();
     }
     states.clear();

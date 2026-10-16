@@ -9,6 +9,11 @@ import { uploadFixture } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import {
+  installCaptionInkProbe,
+  readCaptionInk,
+  type CaptionInkEvidence,
+} from './helpers/screensaver-caption-probe.ts';
+import {
   installSyntheticSystemAudio,
   readSyntheticSystemAudio,
 } from './helpers/system-audio-source.ts';
@@ -667,6 +672,83 @@ test('renders glow without Canvas filter and recreates bounded layers after page
   await page.keyboard.press('Escape');
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 });
+
+for (const display of [
+  { width: 390, height: 844, dpr: 2 },
+  { width: 1280, height: 720, dpr: 1.25 },
+]) {
+  test.describe(`caption integrity at ${display.width}px DPR ${display.dpr}`, () => {
+    test.use({
+      viewport: { width: display.width, height: display.height },
+      deviceScaleFactor: display.dpr,
+    });
+    test('preserves narrow caption strokes through scene changes, revisits, and resize', async ({
+      page,
+    }, testInfo) => {
+      await openHost(page);
+      await disableFullscreenForLayoutProbe(page);
+      await page.context().grantPermissions(['geolocation']);
+      await page.context().setGeolocation({ latitude: 37.566, longitude: 126.978 });
+      await page.route('https://api.open-meteo.com/**', (route) =>
+        route.fulfill({
+          json: {
+            current: { temperature_2m: 18, weather_code: 1, is_day: 1 },
+            current_units: { temperature_2m: '°C' },
+          },
+        }),
+      );
+      await page.route('https://air-quality-api.open-meteo.com/**', (route) =>
+        route.fulfill({ json: { current: { us_aqi: 42 }, current_units: { us_aqi: 'USAQI' } } }),
+      );
+      await installCaptionInkProbe(page);
+      await page.clock.install({ time: new Date('2026-10-16T12:00:00Z') });
+      const child = await openScreensaver(page);
+      await expect(child.locator('#opticalClockCanvas')).toHaveAttribute(
+        'aria-label',
+        /^\d{2}:\d{2}:\d{2}$/u,
+      );
+      const evidence: (CaptionInkEvidence & { label: string })[] = [];
+      const verifyCaption = async (text: string, label: string) => {
+        await expect.poll(async () => (await readCaptionInk(child)).text).toBe(text);
+        const result = await readCaptionInk(child);
+        expect(
+          result.samples.reduce((total, sample) => total + sample.expectedPixels, 0),
+        ).toBeGreaterThan(5);
+        for (const sample of result.samples) {
+          expect(sample.missingPixels, `${label}: ${sample.text} missing ink`).toBe(0);
+          expect(sample.unexpectedPixels, `${label}: ${sample.text} stale ink`).toBe(0);
+          expect(sample.clippedPixels, `${label}: ${sample.text} clipped ink`).toBe(0);
+        }
+        evidence.push({ label, ...result });
+        await page.screenshot({ path: testInfo.outputPath(`caption-${label}.png`) });
+      };
+      await page.clock.fastForward(12_000);
+      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+      await verifyCaption('FRI', 'date');
+      await page.clock.fastForward(10_000);
+      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
+      await verifyCaption('MOSTLYCLEAR', 'weather');
+      await page.clock.fastForward(10_000);
+      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'air');
+      await verifyCaption('AQI', 'air');
+      await page.setViewportSize({ width: 320, height: 240 });
+      await page.clock.fastForward(1_500);
+      await verifyCaption('AQI', 'air-resized');
+      await page.clock.fastForward(30_000);
+      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+      await verifyCaption('FRI', 'date-revisited');
+      await page.clock.fastForward(10_000);
+      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
+      await verifyCaption('MOSTLYCLEAR', 'weather-revisited');
+      await testInfo.attach('caption-ink-reference', {
+        body: JSON.stringify(evidence, null, 2),
+        contentType: 'application/json',
+      });
+      await page.keyboard.press('Escape');
+      await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+    });
+  });
+}
 
 test('keeps denied-location controls separate in a 160×160 weather scene', async ({
   page,

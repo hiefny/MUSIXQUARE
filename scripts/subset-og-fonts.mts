@@ -2,15 +2,15 @@
 /**
  * Pretendard Subsetter for Invite OG Cards
  *
- * Takes the full Pretendard-Bold.ttf / Pretendard-ExtraBold.ttf from
- * fonts/ and produces tiny subsets covering only the glyphs
- * used in the invite OG card template.
+ * Takes the full Pretendard-Bold.ttf from fonts/ and produces a tiny
+ * subset covering only the glyphs used in the invite OG card template.
+ * Text never goes above weight 700, so Bold is the only OG weight.
  *
- * Output: public/fonts/og-pretendard-{bold,extrabold}.ttf
+ * Output: public/fonts/og-pretendard-bold.ttf
  *
  * Subset target text — any character that appears in the rendered
  * invite card must be here. Update this string and re-run if you add
- * new copy. The final TTFs should land well under 50 KB each.
+ * new copy. The final TTF should land well under 50 KB.
  *
  * Usage: node scripts/subset-og-fonts.mts
  */
@@ -37,15 +37,9 @@ const TARGET_TEXT = [
 ].join('');
 
 // ─── Input / Output ───────────────────────────────────────────────
-const INPUT = {
-  bold: path.join(repoRoot, 'fonts/Pretendard-Bold.ttf'),
-  extrabold: path.join(repoRoot, 'fonts/Pretendard-ExtraBold.ttf'),
-};
+const INPUT = path.join(repoRoot, 'fonts/Pretendard-Bold.ttf');
 const OUTPUT_DIR = path.join(repoRoot, 'public/fonts');
-const OUTPUT = {
-  bold: path.join(OUTPUT_DIR, 'og-pretendard-bold.ttf'),
-  extrabold: path.join(OUTPUT_DIR, 'og-pretendard-extrabold.ttf'),
-};
+const OUTPUT = path.join(OUTPUT_DIR, 'og-pretendard-bold.ttf');
 
 export async function createOgFontSubset(source: Uint8Array): Promise<Uint8Array> {
   const subset = await subsetFont(source, TARGET_TEXT, { targetFormat: 'truetype' });
@@ -75,17 +69,13 @@ function fmtKB(bytes: number): string {
 }
 
 async function main(): Promise<void> {
-  // Verify inputs
-  for (const [name, p] of Object.entries(INPUT)) {
-    try {
-      await stat(p);
-    } catch {
-      console.error(`\n❌ Missing input: ${p}`);
-      console.error(
-        `   Place Pretendard-${name === 'bold' ? 'Bold' : 'ExtraBold'}.ttf under fonts/`,
-      );
-      process.exit(1);
-    }
+  // Verify input
+  try {
+    await stat(INPUT);
+  } catch {
+    console.error(`\n❌ Missing input: ${INPUT}`);
+    console.error('   Place Pretendard-Bold.ttf under fonts/');
+    process.exit(1);
   }
 
   await mkdir(OUTPUT_DIR, { recursive: true });
@@ -95,10 +85,9 @@ async function main(): Promise<void> {
   console.log(`  ${'weight'.padEnd(10)} ${'full'.padStart(8)}     ${'subset'.padStart(8)}`);
   console.log(`  ${'-'.repeat(10)} ${'-'.repeat(8)}     ${'-'.repeat(8)}`);
 
-  await subsetOne('Bold', INPUT.bold, OUTPUT.bold);
-  await subsetOne('ExtraBold', INPUT.extrabold, OUTPUT.extrabold);
+  await subsetOne('Bold', INPUT, OUTPUT);
 
-  console.log(`\n✓ Wrote subsets to public/fonts/\n`);
+  console.log(`\n✓ Wrote the subset to public/fonts/\n`);
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(path.resolve(process.argv[1])).href : '';

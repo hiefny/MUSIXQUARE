@@ -102,6 +102,8 @@ and Cyrillic use locale-specific self-hosted Noto fallback shards where
 Pretendard lacks coverage.
 
 - Use the existing variable-weight range instead of separate font files.
+- Keep every text weight at 700 or below, including titles, codes and badges.
+  Heavier weights lose legibility on low-resolution screens.
 - Use tabular numerals for clocks, invite codes, counters, and latency.
 - Keep compact labels legible; do not rely on extreme tracking or uppercase
   for hierarchy.

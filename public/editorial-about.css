@@ -239,7 +239,7 @@ main {
 
 .lp-dev figcaption {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.16em;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -375,7 +375,7 @@ main {
 .lp-code em {
   font-style: normal;
   font-size: clamp(48px, 8.5vw, 112px);
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
   color: var(--text-main);
   transition: color 280ms var(--ease-out);
@@ -406,7 +406,7 @@ main {
 
 .lp-sync__label {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -449,7 +449,7 @@ main {
 
 .lp-sync__rows dt {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -513,7 +513,7 @@ main {
 
 .lp-specs dt {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--text-muted);
@@ -585,7 +585,7 @@ main {
 .lp-standin__caption {
   font-family: inherit;
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.18em;
   text-anchor: middle;
   fill: var(--primary);
@@ -612,7 +612,7 @@ main {
   font-size: clamp(56px, 9vw, 128px);
   line-height: 0.95;
   letter-spacing: -0.03em;
-  font-weight: 800;
+  font-weight: 700;
   margin: 0 0 40px 0;
 }
 
@@ -883,7 +883,7 @@ main {
 
 .lp-chat-pin__label {
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.1em;
   margin-bottom: 2px;
 }
@@ -906,7 +906,7 @@ main {
 
 .lp-chat-yt__label {
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.2px;
 }
 

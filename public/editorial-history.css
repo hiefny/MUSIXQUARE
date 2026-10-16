@@ -41,7 +41,7 @@
 .history-stat-value {
   color: var(--text-main);
   font-size: clamp(24px, 3vw, 40px);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.04em;
   line-height: 1;
   font-variant-numeric: tabular-nums;

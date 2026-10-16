@@ -123,12 +123,11 @@
   --fs-24: 24px;
   --fs-28: 28px;
 
-  /* Weights (Pretendard variable 45→920) */
+  /* Weights (Pretendard variable 45→920; text never goes above 700) */
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-semibold: 600;
   --fw-bold: 700;
-  --fw-extrabold: 800;
 
   /* Letter spacing */
   --ls-tight: -0.03em; /* tab-title */

@@ -71,6 +71,13 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Text never goes above 700. The browser default `bolder` turns a <strong>
+   inside semibold (600) text into 900, so pin it for dynamic values. */
+strong,
+b {
+  font-weight: 700;
+}
+
 button,
 a {
   touch-action: manipulation;
@@ -224,7 +231,7 @@ a:focus-visible {
 
 .stage-copy h1 {
   font-size: clamp(26px, 8vw, 34px);
-  font-weight: 820;
+  font-weight: 700;
   line-height: 1.28;
 }
 
@@ -308,7 +315,7 @@ a:focus-visible {
 
 .redeem-input {
   font-size: clamp(17px, 5.2vw, 21px);
-  font-weight: 780;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.055em;
   text-align: center;
@@ -338,7 +345,7 @@ a:focus-visible {
 .success-guide h2 {
   margin-bottom: 14px;
   font-size: 15px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .guide-list {
@@ -366,7 +373,7 @@ a:focus-visible {
   content: counter(guide);
   color: var(--text-muted);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1.68;
   font-variant-numeric: tabular-nums;
 }
@@ -535,7 +542,7 @@ html[data-theme='light'] .google-button {
 
 .nickname-form h2 {
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.35;
 }
 

@@ -48,7 +48,7 @@
   margin: 0 0 14px;
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -152,7 +152,7 @@
   margin: 0;
   color: var(--palette-main);
   font-size: clamp(18px, 1.8vw, 24px);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.1;
 }
@@ -197,7 +197,7 @@
 .palette-background strong {
   color: var(--palette-main);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .palette-background code {
@@ -226,7 +226,7 @@
 .palette-text code {
   color: inherit;
   font-size: inherit;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 
@@ -255,7 +255,7 @@
 .palette-band strong {
   color: inherit;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
 }
@@ -270,7 +270,7 @@
 .spec .tag {
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -400,7 +400,7 @@
   border-bottom: 1px solid var(--divider);
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -436,7 +436,7 @@
   margin-bottom: 4px;
   color: var(--text-sub);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -609,7 +609,7 @@
   margin-bottom: 20px;
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -629,7 +629,7 @@
   margin-bottom: 12px;
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -832,7 +832,7 @@
   background: rgba(255, 255, 255, 0.08);
   color: var(--text-sub);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .choice-grid {
@@ -1238,7 +1238,7 @@
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -2075,7 +2075,7 @@
   position: absolute;
   left: 24px;
   z-index: 1;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.04em;
 }
 
@@ -2719,7 +2719,7 @@
 .embed h3 {
   margin: 0 0 10px;
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.02em;
 }
 

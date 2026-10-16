@@ -12,11 +12,15 @@
  * Usage: node scripts/generate-static-og.mts
  */
 import { readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import satori from 'satori';
 import { Resvg, initWasm } from '@resvg/resvg-wasm';
+
+// satori's ESM bundle reads `__dirname` while loading Yoga and throws under
+// Node ESM. Its CommonJS build defines `__dirname`, so load that one.
+const { default: satori } = createRequire(import.meta.url)('satori') as typeof import('satori');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -44,7 +48,6 @@ interface StaticCardDefinition {
 
 export interface StaticOgInputs {
   readonly bold: Buffer;
-  readonly extrabold: Buffer;
   readonly wasm: Buffer;
   readonly wordmarkRaw: string;
 }
@@ -89,7 +92,7 @@ function card({ wordmarkDataUrl, headline, tagline, theme = 'blue' }: CardProps)
           props: {
             style: {
               fontSize: 132,
-              fontWeight: 800,
+              fontWeight: 700,
               marginTop: 24,
               letterSpacing: -3,
             },
@@ -203,7 +206,6 @@ const CARDS: readonly StaticCardDefinition[] = [
 
 export async function renderStaticOgCards({
   bold,
-  extrabold,
   wasm,
   wordmarkRaw,
 }: StaticOgInputs): Promise<RenderedStaticOgCard[]> {
@@ -219,10 +221,7 @@ export async function renderStaticOgCards({
     const svg = await satori(card({ wordmarkDataUrl, ...props }), {
       width: 1200,
       height: 630,
-      fonts: [
-        { name: 'Pretendard', data: bold, weight: 700, style: 'normal' },
-        { name: 'Pretendard', data: extrabold, weight: 800, style: 'normal' },
-      ],
+      fonts: [{ name: 'Pretendard', data: bold, weight: 700, style: 'normal' }],
     });
     const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: 1200 } });
     const png = resvg.render().asPng();
@@ -232,14 +231,13 @@ export async function renderStaticOgCards({
 }
 
 async function main(): Promise<void> {
-  const [bold, extrabold, wasm, wordmarkRaw] = await Promise.all([
+  const [bold, wasm, wordmarkRaw] = await Promise.all([
     readFile(path.join(repoRoot, 'public/fonts/og-pretendard-bold.ttf')),
-    readFile(path.join(repoRoot, 'public/fonts/og-pretendard-extrabold.ttf')),
     readFile(path.join(repoRoot, 'node_modules/@resvg/resvg-wasm/index_bg.wasm')),
     readFile(path.join(repoRoot, 'public/designsystem/assets/logo-wordmark.svg'), 'utf8'),
   ]);
 
-  const renderedCards = await renderStaticOgCards({ bold, extrabold, wasm, wordmarkRaw });
+  const renderedCards = await renderStaticOgCards({ bold, wasm, wordmarkRaw });
   for (const { outFile, png, elapsedMs } of renderedCards) {
     await writeFile(path.join(repoRoot, outFile), png);
     console.log(

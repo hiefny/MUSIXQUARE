@@ -57,6 +57,13 @@ textarea {
   font: inherit;
 }
 
+/* Text never goes above 700. The browser default `bolder` turns a <strong>
+   inside semibold (600) text into 900, so pin it for dynamic values. */
+strong,
+b {
+  font-weight: 700;
+}
+
 button {
   border: 0;
   color: inherit;
@@ -107,7 +114,7 @@ p {
 .login-panel h1 {
   margin-top: 18px;
   font-size: 24px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0;
   line-height: 1.1;
 }
@@ -211,7 +218,7 @@ p {
 .dashboard-header h1 {
   margin-top: 10px;
   font-size: 22px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0;
   line-height: 1;
 }
@@ -293,7 +300,7 @@ p {
   background: transparent;
   color: var(--text-muted);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
   transition:
     color 0.2s,
@@ -427,7 +434,7 @@ p {
 
 .metric-card strong {
   font-size: 30px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
@@ -451,7 +458,7 @@ p {
 
 .panel-head h2 {
   font-size: 15px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .panel-head span {
@@ -518,7 +525,7 @@ p {
   background: var(--primary);
   color: #fff;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -572,7 +579,7 @@ p {
 .pro-grant-form-heading h3,
 .pro-grant-detail-head h3 {
   font-size: 15px;
-  font-weight: 850;
+  font-weight: 700;
 }
 
 .pro-grant-form-heading p,
@@ -758,7 +765,7 @@ p {
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   text-transform: capitalize;
 }
 
@@ -919,7 +926,7 @@ p {
 .pro-room-field > span {
   color: var(--text-sub);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .pro-room-field input,
@@ -943,7 +950,7 @@ p {
 .pro-room-code-field input {
   font-size: 18px;
   font-variant-numeric: tabular-nums;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.08em;
 }
 
@@ -983,7 +990,7 @@ p {
   background: var(--primary);
   color: #fff;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -1032,7 +1039,7 @@ p {
 
 .pro-room-claim-copy strong {
   font-size: 14px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .pro-room-claim-copy span {
@@ -1076,7 +1083,7 @@ p {
 
 .pro-room-list-head h2 {
   font-size: 15px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .pro-room-search-field {
@@ -1088,7 +1095,7 @@ p {
 .pro-room-search-field > span {
   color: var(--text-sub);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .pro-room-search-field input {
@@ -1200,7 +1207,7 @@ p {
 .pro-room-identity strong {
   color: var(--text-main);
   font-size: 20px;
-  font-weight: 900;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.08em;
 }
@@ -1221,7 +1228,7 @@ p {
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .pro-room-state.is-active {
@@ -1282,7 +1289,7 @@ p {
 .pro-room-label-field > span {
   color: var(--text-sub);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .pro-room-label-form button {
@@ -1329,7 +1336,7 @@ p {
 .pro-room-controls > strong,
 .pro-room-api-head strong {
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .pro-room-danger-zone,
@@ -1353,7 +1360,7 @@ p {
 .pro-room-owner-repair strong {
   color: var(--fail);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .pro-room-danger-zone p,
@@ -1375,7 +1382,7 @@ p {
   border-radius: var(--radius-pill);
   padding: 0 15px;
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -1423,7 +1430,7 @@ p {
 .pro-room-destroy-eyebrow {
   color: var(--fail);
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1431,7 +1438,7 @@ p {
 .pro-room-destroy-copy h2 {
   margin: 0;
   font-size: 20px;
-  font-weight: 900;
+  font-weight: 700;
   line-height: 1.2;
 }
 
@@ -1449,7 +1456,7 @@ p {
 .pro-room-destroy-field span {
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .pro-room-destroy-field input {
@@ -1463,7 +1470,7 @@ p {
   outline: none;
   font-size: 18px;
   font-variant-numeric: tabular-nums;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.08em;
 }
 
@@ -1550,7 +1557,7 @@ p {
 .pro-room-owner-detach-eyebrow {
   color: var(--accent, var(--primary));
   font-size: 11px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -1559,7 +1566,7 @@ p {
 .pro-room-owner-detach-form h2 {
   margin: -7px 0 0;
   font-size: 20px;
-  font-weight: 900;
+  font-weight: 700;
   line-height: 1.2;
 }
 
@@ -1581,7 +1588,7 @@ p {
 .pro-room-owner-detach-field span {
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .pro-room-transfer-field input,
@@ -1701,7 +1708,7 @@ p {
 .pro-room-api-field > span {
   color: var(--text-muted);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .pro-room-api-field input,
@@ -1800,7 +1807,7 @@ p {
 .pro-room-api-key-identity strong {
   overflow: hidden;
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1821,7 +1828,7 @@ p {
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .pro-room-api-key-state.is-active {
@@ -1873,7 +1880,7 @@ p {
 
 .pro-room-api-secret-copy strong {
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .pro-room-api-secret-row {
@@ -1958,7 +1965,7 @@ p {
 .article-body strong {
   color: var(--text-main);
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .article-body span {
@@ -1984,7 +1991,7 @@ p {
   background: var(--surface-3);
   color: var(--text-main);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
   text-decoration: none;
 }
 
@@ -2041,7 +2048,7 @@ p {
 .service-status-preview > span {
   color: var(--text-muted);
   font-size: 10px;
-  font-weight: 900;
+  font-weight: 700;
   letter-spacing: 0.08em;
 }
 
@@ -2068,7 +2075,7 @@ p {
 [data-service-status-state] {
   color: var(--pass);
   font-size: 15px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 [data-service-status-panel][data-state='maintenance'] [data-service-status-state] {
@@ -2148,7 +2155,7 @@ p {
   background: var(--surface-2);
   color: var(--text-main);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .service-status-actions button:hover,
@@ -2289,7 +2296,7 @@ p {
   gap: 10px;
   color: var(--text-main);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -2347,7 +2354,7 @@ p {
 .announcement-field span {
   color: var(--text-muted);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .announcement-field textarea,
@@ -2384,7 +2391,7 @@ p {
   background: var(--surface-2);
   color: var(--text-main);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .announcement-actions button:first-child {
@@ -2411,7 +2418,7 @@ p {
 .announcement-preview span {
   color: var(--text-muted);
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .announcement-preview p {
@@ -2436,7 +2443,7 @@ p {
 .announcement-history-head span {
   color: var(--text-main);
   font-size: 13px;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .announcement-history-head small,
@@ -3256,7 +3263,7 @@ p {
 .translation-review-card-head > strong {
   min-width: 0;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .translation-review-list {

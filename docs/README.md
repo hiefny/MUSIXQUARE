@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Maximum text weight 700 — 2026-10-16](design/max-font-weight-700-2026-10-16.md) —
+  Every text weight in the project is capped at 700, including badges, code
+  fields, public pages, the admin console and the static OG cards, with a
+  unit test that keeps it there. Local unit/E2E and computed-weight browser
+  evidence; production checks remain.
+
 - [Display title weight 700 — 2026-10-16](design/display-weight-700-2026-10-16.md) —
   Every display use (titles, dialog titles, invite code and the rest) moves
   from 800 to 700 in all locales, and the design system documents the same

@@ -92,7 +92,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [Apply a waiting update on reopen — 2026-10-16](design/update-apply-on-reopen-2026-10-16.md) —
   A reload or reopen outside a room, including an invite link before Start, now applies
-  a waiting update without asking again. Records the cause, the room guard, and test limits.
+  a waiting update without asking again. Records the cause, the room guard, test limits, and the 8.11.6 release evidence.
 - [Screensaver caption rendering regression — 2026-10-16](design/screensaver-caption-rendering-2026-10-16.md) —
   restores whole-caption rendering after missing small-letter strokes were reported;
   records the source regression and browser-reproduction limits.

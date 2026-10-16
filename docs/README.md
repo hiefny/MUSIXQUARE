@@ -92,7 +92,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [One dialog when returning from the background — 2026-10-17](design/resume-dialog-dedup-2026-10-17.md) —
   A return from the background shows at most one dialog: a warning answered late no longer
-  repeats, and the audio recovery dialog replaces the generic warning. Records both paths.
+  repeats, and the audio recovery dialog replaces the generic warning. Records both paths and the 8.11.7 release evidence.
 - [Apply a waiting update on reopen — 2026-10-16](design/update-apply-on-reopen-2026-10-16.md) —
   A reload or reopen outside a room, including an invite link before Start, now applies
   a waiting update without asking again. Records the cause, the room guard, test limits, and the 8.11.6 release evidence.

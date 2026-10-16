@@ -58,7 +58,8 @@ the raw index bootstrap cache URL still used v700, and a Git-fixture SW guard
 timed out at 15 seconds under full load. The URL was corrected to v701 and both
 affected files passed all 76 tests when rerun with one worker. The original
 205-second failing run is retained; the focused rerun is not described as a new
-full-suite pass. Asset contract tests verify all 139 file sizes/content hashes
+full-suite pass. The focused rerun's result is recorded in the task command
+output; a separate rerun log file was not retained. Asset contract tests verify all 139 file sizes/content hashes
 and the actual routing function across 200 weather day/night combinations,
 seasons in both hemispheres, moon, and AQI boundaries.
 
@@ -85,8 +86,8 @@ heap-memory measurement.
 
 Native Windows WebKit appearance checks passed **7/7** against the frozen
 production artifact and approved prototype. Canvas.filter was unavailable.
-Clock, minute transition, and moon screenshots matched pixel-for-pixel at the
-tested portrait/landscape sizes, with nonempty foreground layers. Weather keeps
+Clock and moon screenshots in both orientations, and the landscape minute
+transition screenshot, matched pixel-for-pixel with nonempty foreground layers. Weather keeps
 the existing MUSIXQUARE temperature/description spacing; matching only that
 layout in the reference produced identical foreground pixels/styles. The
 portrait weather difference was limited to the existing attribution link's
@@ -103,6 +104,15 @@ including both unit shards, candidate browser 17 checks, and critical browser
 `813a02203274d52986eeeae5a901f9070a0362b4`. PR CI is separate from the required
 exact-main deployment candidate.
 
+The exact-main push CI
+[38909124622](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909124622)
+passed all 11 jobs for `813a02203274d52986eeeae5a901f9070a0362b4` using pinned
+Node 24.20.0 / npm 12.0.2. Both unit shards and merged coverage report 572 files,
+12,847 tests passed, zero failed, and one Linux skip for the Windows-only
+different-drive-path test. Candidate browser checks passed 17/17 and critical
+browser checks passed 43/43. The full CI log is retained as
+`production-image-v701/main-ci-38909124622.log`.
+
 Evidence is retained in the operator's `production-image-v701/` directory:
 `typecheck.log`, `lint.log`, `format.log`, `worker-guards.log`, `unit.log`,
 `build-checked.log`, `production-asset-summary.json`, the frozen
@@ -110,8 +120,9 @@ Evidence is retained in the operator's `production-image-v701/` directory:
 not establish physical iPhone Safari behavior, real weather observations,
 or audible multi-device synchronization.
 
-The earlier prototype benchmark compared static background phase zero in an
-ABBA sequence with unchanged foreground transitions. Windows WebKit landscape
+The earlier prototype benchmark compared CSS-gradient backgrounds with baked
+image backgrounds at static phase zero in an ABBA sequence with unchanged
+foreground transitions. Windows WebKit landscape
 median frame intervals changed from 158 to 120 ms (clock), 174 to 79 ms (weather),
 and 202 to 116 ms (clock/weather crossfade). Chromium was about 16.7 ms for both
 variants. These are prototype comparison results, not measurements of the
@@ -119,12 +130,48 @@ integrated production application or a physical iPhone.
 
 ## Release and recovery
 
-Production uses a reviewed PR, successful exact-main push CI candidate, and the
-normal `Production Release` workflow with `target=app` and
-`apply_developer_api_d1=false`. The deployment identifiers, public asset checks,
-and recovery checkpoint will be recorded after that workflow completes.
+Production Release
+[38909891395](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909891395)
+attempt 1 succeeded on 2026-10-16, with the deploy job completing at 22:44:29 KST.
+It deployed App 8.11.4 / v701 from exact-main
+`813a02203274d52986eeeae5a901f9070a0362b4`, reusing CI candidate
+`38909124622` attempt 1 with `target=app` and `apply_developer_api_d1=false`.
+No rebuild or local/PR candidate substituted for the immutable main artifact.
 
-An authorized rollback restores the previous screensaver renderer/background
-approach. No stored data or wire contract changes; existing release ownership and
-compatibility floors still apply. Original local comparison files and the primary
-checkout's uncommitted diagnostic documentation are preserved.
+The App version is `001c91c1-11a4-4613-8b9d-b3a9fc6ef641`, deployment
+`2f61749a-6c20-439f-b16c-6926744a961b`. Final ownership verification completed
+at 22:44:25.556 KST with the expected `git:813a0220...` provenance; the exact
+SHA/App coherent marker was recorded. All four selected live smokes passed:
+App generation convergence, anonymous account boundary, current PRO public
+boundary, and Standard HTTPS signaling. Unselected Worker smokes were skipped;
+the five unchanged Workers passed the partial-release compatibility recheck.
+Existing App D1 baselines were applied/verified idempotently; Developer API D1
+steps were skipped. No new compatibility floor was introduced.
+
+Read-only public verification passed **20/20** at 22:45:35–22:45:54 KST.
+All 144 HTTPS requests returned 200 and matched the exact-main candidate's
+bytes and SHA-256: index, service worker, `bootstrap.js?cache=v701`, screensaver
+HTML, compiled child runtime, and all 139 images (2,422,698 bytes). Screensaver
+HTML/runtime/images also match the frozen local production artifact used for
+browser QA. Immutable image/runtime caching, HTML revalidation/CDN no-store,
+the scoped CSP and Permissions-Policy, and v701 were verified. The image bank
+is absent from the SW precache; no old embedded photos or production test globals
+were found. This check used no browser or backend mutation and does not extend
+the earlier physical-device limits. Full evidence is
+`production-image-v701/public-verification-report.json`.
+
+The immutable checkpoint captured at 22:43:14.020 KST preserves the preceding
+App 8.11.3 / v700, source `0041d5be4bffdbc6db10de5923b6a83bfcf0cca1`, version
+`06eb268d-b6c8-4126-82a1-0f0d0736590f`, deployment
+`0166ba6d-2197-41ab-8d0a-3da26db86b2b`. Rollback was unnecessary and not run;
+the independent recovery job was skipped. An authorized rollback restores the
+previous screensaver renderer/background approach, subject to the existing
+ownership and compatibility-floor checks. It does not restore user data because
+this checkpoint is not a user-data backup. There are no stored-data or wire
+contract changes.
+
+Release logs, workflow results, deployment IDs, coherent marker, and checkpoint
+are retained under `production-image-v701/release-38909891395/`; corresponding
+GitHub deployment/checkpoint artifacts have 90-day retention. Original local
+comparison files and the primary checkout's uncommitted diagnostic documentation
+are preserved.

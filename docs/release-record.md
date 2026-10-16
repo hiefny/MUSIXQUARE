@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-16 (배포 SHA `0041d5be`, Release `38876050306` attempt 1 성공) |
+| Last source review | 2026-10-16 (배포 SHA `813a0220`, Release `38909891395` attempt 1 성공) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -27,32 +27,22 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
 
 | 항목 | 값 |
 | --- | --- |
-| App 버전 / SW 캐시 | `8.11.3` / `v700` |
-| 마지막 프로덕션 변경 | 2026-10-16 17:49:53 KST deploy job 완료, Release [38876050306](https://github.com/hiefny/MUSIXQUARE/actions/runs/38876050306) attempt 1 성공, target=app, Developer API D1=false. 프로젝트의 모든 글자 굵기를 700 이하로 맞췄다(오너 결정 2026-10-16, 저해상도 가독성). 700을 넘던 104개 선언(750·780·800·820·900)을 700으로: 앱의 방 암호 점 표시·초대 코드 숫자(900)·BETA 배지(800)·750 라벨 4종, 관리자 콘솔, 소개·블로그·히스토리·이벤트·법적 고지·언어·사이트맵 페이지, Soro 글 페이지, 디자인 시스템, UI 키트. 공유 이미지(OG) 16장을 700으로 다시 만들고 ExtraBold 글꼴 2개를 지웠다. 관리자·이벤트 페이지는 `strong`/`b`를 700으로 고정했고, 새 단위 테스트가 700 초과 선언을 막는다. 서버·프로토콜·스키마·권한 변경 없음 |
-| 배포 main SHA | `0041d5be4bffdbc6db10de5923b6a83bfcf0cca1` (PR [#365](https://github.com/hiefny/MUSIXQUARE/pull/365)). Exact-main CI [38875238552](https://github.com/hiefny/MUSIXQUARE/actions/runs/38875238552)의 성공 후보를 사용했다(후보는 attempt 1에서 만들어졌고, 러너 의존성 설치가 rolldown 바이너리를 빠뜨려 실패한 Release tooling coverage 작업만 attempt 2로 재실행해 11 jobs 모두 성공). 로컬·PR CI 및 후속 기록 커밋은 배포 SHA/후보를 대신하지 않는다 |
-| Worker | App version `06eb268d-b6c8-4126-82a1-0f0d0736590f`(이전 `26de6257-dadf-4cae-ac3e-872d67bd4ee3`). 17:49:46.396 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker를 기록했다. 미선택 5 Worker는 이번 릴리스에서 배포하지 않아 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance를 유지한다. **version ID / deployment ID**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 17:49:18.304 KST 부분 릴리스 호환성 recheck compatible, PRO smoke가 pro-room version `8d5d44c0`을 다시 확인했다. 새 App deployment 식별자와 recheck 원본은 run artifact `production-deployments-0041d5be4bffdbc6db10de5923b6a83bfcf0cca1-38876050306-1`(90일 보존)에 있다. 운영 smoke 4종 pass(App generation `main-DvoHE21b.js` 3회 연속·29 asset 수렴, 익명 App 계정 경계, 현재 PRO 공개 경계, Standard HTTPS signaling), 범위 밖 Worker smoke skip. 17:51 KST 공개 /·SW(v700)·`bootstrap.js?cache=v700`·`main-DvoHE21b.js`·`main-DXflvPG_.css` HTTP 200. 공개 main CSS와 관리자·소개·디자인·히스토리·이벤트·법적 고지·언어·계정 완료 CSS, 디자인 시스템 토큰·굵기 미리보기, 블로그 페이지에 700 초과 선언 0건, 관리자·이벤트 CSS의 `strong,b` 700 고정 확인. 공개 OG 이미지(invite·designsystem·admin) 해시가 저장소와 같고, 지운 `og-pretendard-extrabold.ttf`는 404. [증거](design/max-font-weight-700-2026-10-16.md#release-and-recovery) |
-| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 17:48:40.762 KST captured checkpoint `production-recovery-checkpoint-0041d5be4bffdbc6db10de5923b6a83bfcf0cca1-38876050306-1`는 직전 App `c6ccfa03b2f0aa4b549ad24ed38bff899aa876a6`(8.11.2/v699), version `26de6257-dadf-4cae-ac3e-872d67bd4ee3`를 보존한다. 이 기준선으로 복구하면 이전 굵기(750·780·800·820·900)와 이전 OG 이미지로 돌아가고, 지운 ExtraBold 글꼴도 다시 올라간다. CSS·정적 이미지만 바뀌어 혼합 버전이 안전하다. 복구는 소유권/floor 재검증을 따르며 checkpoint는 사용자 데이터 백업이 아니다 |
-| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지, 신규 floor 없음. 이번 릴리스의 Worker compatibility floor 캡처 단계 성공. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs 성공: unit 571 files / 12,845 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 40 pass, coverage·정적·빌드 gate 통과(Release tooling coverage는 attempt 2에서 483 packages 설치 후 13 files pass). PR [#365](https://github.com/hiefny/MUSIXQUARE/pull/365) CI 11 jobs 통과. Codex 리뷰 P2 1건(새 가드가 Playwright 리포트 뷰어를 검사하지 않음)을 머지 전에 고쳤다. 로컬 `05fe7443` 클린 트리 unit 571 files / 12,846 pass / 0 fail / 0 skip, 타입·린트·포맷·정적·글꼴 가드, committed `build:checked`(97 app-shell asset), critical browser 40 pass. Chromium에서 앱 화면과 다른 35개 페이지의 모든 요소·가상 요소 계산 굵기가 700 이하, 다시 만든 OG 16장을 시각 확인. 관리자 콘솔·Soro 글 페이지 브라우저 렌더링, 실기기, 전체 serial E2E는 미검증. [범위·한계](design/max-font-weight-700-2026-10-16.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 SHA 후속 [38876397208](https://github.com/hiefny/MUSIXQUARE/actions/runs/38876397208) attempt 1 success. 2026-10-16 17:51:02.483 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에서 유지하며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 이번 글자 굵기 최대 700 변경의 전체 serial suite는 재실행하지 않았다(critical browser 40은 로컬·CI 결과). 최신 기록된 전체 결과는 이전 소스의 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201): Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 진단 후속 `85414247` 로컬 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail 이력은 별도 보존한다. 이번 배포의 전체 통과나 실기 검증으로 간주하지 않는다 |
+| App 버전 / SW 캐시 | `8.11.4` / `v701` |
+| 마지막 프로덕션 변경 | 2026-10-16 22:44:29 KST deploy job 완료, Release [38909891395](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909891395) attempt 1 성공, target=app, Developer API D1=false. 오너가 승인한 화면 보호기 이미지 배경을 적용했다. 시계·날짜·날씨·공기질·달의 배경 23종/139개 WebP(2,422,698바이트)를 필요한 크기만 지연 로딩하고, 기존 배경 블러·색·veil을 이미지에 미리 반영했다. 시계 배경의 빛은 시작 위치에 고정되며 전경의 글로우·숫자 전환·그레인과 화면 크로스페이드는 유지한다. Canvas.filter에 의존하던 전경을 호환 렌더러로 바꿨고 초기 시계 배경은 폰트 대기 없이 디코딩 직후 표시한다. 서버·프로토콜·스키마·권한 변경 없음 |
+| 배포 main SHA | `813a02203274d52986eeeae5a901f9070a0362b4` (PR [#367](https://github.com/hiefny/MUSIXQUARE/pull/367)). Exact-main push [CI 38909124622](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909124622) attempt 1의 11 jobs 성공 후보를 사용했다. 로컬·PR CI와 후속 기록 PR [#368](https://github.com/hiefny/MUSIXQUARE/pull/368)은 배포 SHA/후보를 대신하지 않는다 |
+| Worker | App **version** `001c91c1-11a4-4613-8b9d-b3a9fc6ef641` / **deployment** `2f61749a-6c20-439f-b16c-6926744a961b`. 22:44:25.556 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker를 기록했다. 22:43:55.015 KST 부분 릴리스 호환성 recheck compatible. 미선택 5 Worker는 배포하지 않아 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance를 유지한다. **version ID / deployment ID**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 운영 smoke 4종 pass(App generation `main-CSylNkiM.js` 3회 연속·29 asset 수렴, 익명 App 계정 경계, 현재 PRO 공개 경계, Standard HTTPS signaling), 범위 밖 Worker smoke skip. PRO smoke는 기존 `8d5d44c0` version을 확인했다. 배포 원본은 [artifact 12050450338](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909891395/artifacts/12050450338), coherent marker는 [12050161779](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909891395/artifacts/12050161779)에 90일 보존한다 |
+| 공개 자산 확인 | 2026-10-16 22:45:35–54 KST, 공개 검증 20/20 pass. /·SW·bootstrap?v701·screensaver HTML·해시 renderer·139개 이미지, 총 144 GET 모두 HTTP 200이며 exact-main 후보의 바이트 수·SHA-256과 일치했다. renderer `screensaver-runtime-49a3cd62.js`(228,911바이트), HTML(19,033바이트), 이미지는 보존된 로컬 산출물과도 같다. renderer/이미지 immutable 캐시, HTML 재검증·CDN no-store, 화면 보호기 전용 CSP·권한, 이미지 bank의 SW 사전 캐시 제외, 내장 사진·테스트 전역 없음 확인. [증거](design/screensaver-image-backgrounds-2026-10-16.md#release-and-recovery) |
+| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 22:43:14.020 KST captured checkpoint `production-recovery-checkpoint-813a02203274d52986eeeae5a901f9070a0362b4-38909891395-1`([artifact 12049154241](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909891395/artifacts/12049154241))는 직전 App `0041d5be4bffdbc6db10de5923b6a83bfcf0cca1`(8.11.3/v700), version `06eb268d-b6c8-4126-82a1-0f0d0736590f` / deployment `0166ba6d-2197-41ab-8d0a-3da26db86b2b`를 보존한다. 복구 시 이전 화면 보호기 배경·Canvas.filter 렌더링으로 돌아가며 글자 굵기 700 제한은 유지된다. 저장 데이터·wire 계약은 바뀌지 않았고 복구 시 소유권/floor 재검증이 필요하다. Checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 22:43:16.071 KST 캡처에서 ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor이며 generation·entitlement·Developer API authority aware이다. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 PRO/App marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | Exact-main CI 11 jobs 성공: unit 572 files / 12,847 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 43 pass, coverage·타입·린트·정적·빌드 gate 통과. PR [#367](https://github.com/hiefny/MUSIXQUARE/pull/367) CI 11 jobs 성공. 로컬 `6e862e01`에서 타입·린트·포맷·Worker 가드·committed build:checked(97 app-shell asset), Chromium 화면 보호기 14/14, Windows WebKit 외형 비교 7/7 통과. 최초 로컬 unit는 570 files/12,846 pass와 2 fail(bootstrap 캐시 URL·부하 중 Git-fixture timeout); 수정 후 해당 2파일 76개 재검사 통과이며 전체 로컬 재실행 통과로 세지 않는다. 최초 배경이 폰트 대기를 따르던 P2 수정 뒤 독립 코드 리뷰 P1/P2 없음. 원격 리뷰의 QA SHA/결과 문서 누락은 후속 기록 PR에서 보완한다. 물리 iPhone, 실제 날씨·가청 동기화, 전체 serial E2E는 이번 검증 범위 밖이다. [범위·한계](design/screensaver-image-backgrounds-2026-10-16.md#verification) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 이번 기록을 위한 읽기 전용 조회의 최신 성공은 이전 배포 SHA `0041d5be`의 [38876397208](https://github.com/hiefny/MUSIXQUARE/actions/runs/38876397208) attempt 1이다. 2026-10-16 17:51:02.483 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 새 `813a0220` 배포 후 Drift 결과는 아직 없으며 이전 결과를 새 SHA 검증으로 간주하지 않는다. 수동 항목은 §3에 유지한다 |
+| Full E2E | 매주 월 18:17 UTC. 이번 화면 보호기 변경의 전체 serial suite는 재실행하지 않았다(위 Chromium 14·Windows WebKit 7 및 CI candidate 17·critical 43은 부분 검증). 최신 보존된 전체 성공 결과는 이전 소스 `749f0a6a`의 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201): Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 진단 후속 `85414247` 로컬 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail 이력은 별도 보존한다. 이번 배포의 전체 통과나 실기 검증으로 간주하지 않는다 |
 | 의존성 | 신규 npm 의존성·API 프로토콜·스키마·비밀·바인딩·권한·CSP 변경 없음. 기존 App D1 baseline apply/verify 7단계는 멱등 실행 성공, Developer API D1 단계는 skip. 화면 보호기의 기존 Google Fonts·Open-Meteo 접근과 브라우저 위치 동의 유지. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 기준 유지, [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 별도 작업으로 제외. 설치 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [기존 의존성 근거](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
-
-### 화면 보호기 이미지 배경과 호환 렌더링
-
-- [ ] 오너가 승인한 이미지 배경 버전을 App 8.11.4/v701로 적용한다.
-      시계·계절·날씨·공기질·달의 배경을 139개 WebP 변형 중 필요한 이미지만
-      불러오는 방식으로 통일하고, 호환 글로우·전환을 이식한다. 추가 이미지
-      총량은 2,422,698바이트이며 앱 초기 shell에 포함하지 않는다. App만 배포하고
-      새 schema·secret·binding·CSP·권한·npm 의존성은 없다. 로컬 통합 검증,
-      reviewed PR, exact-main CI, 정식 App release와 공개 자산 확인 뒤 닫는다.
-      아이폰 실기 검증은 이 배포만으로 완료 처리하지 않는다.
-      [범위·검증·복구](design/screensaver-image-backgrounds-2026-10-16.md).
 
 ### YouTube 목록·관리자 iframe 조작
 
@@ -65,6 +55,16 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
 ### 최근 해결 근거
+
+App 8.11.4/v701의 화면 보호기 이미지 배경·호환 전경은 PR
+[#367](https://github.com/hiefny/MUSIXQUARE/pull/367), exact-main `813a0220`의
+[CI 38909124622](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909124622),
+[Release 38909891395](https://github.com/hiefny/MUSIXQUARE/actions/runs/38909891395)
+attempt 1의 운영 smoke 4종·최종 소유권·미선택 5 Worker 호환성·coherent marker와
+공개 144개 자산의 exact-main 후보 해시 일치(20/20 검사)로 배포 준비 항목을 닫았다.
+139개 배경 이미지는 지연 로딩되며 앱 초기 shell에 들어가지 않는다.
+Windows WebKit 외형 비교는 아이폰 실기 검증을 대신하지 않아 아래 실기기 항목에 남긴다.
+[수정·검증·배포·복구](design/screensaver-image-backgrounds-2026-10-16.md#release-and-recovery).
 
 App 8.11.3/v700의 글자 굵기 최대 700(오너 결정 2026-10-16)은 PR
 [#365](https://github.com/hiefny/MUSIXQUARE/pull/365), exact-main `0041d5be`의
@@ -307,6 +307,11 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 ### 실기기 확인
 
 사용자의 실제 기기가 필요하다. 브라우저 자동화 결과로 대신하지 않는다.
+
+- [ ] 8.11.4 화면 보호기: 실제 iPhone Safari/PWA에서 글로우·디렉셔널 블러·숫자
+      전환과 가로·세로 회전, 진입·종료·전체화면 복원, 재생 유지·장시간 메모리 추세를
+      확인한다. Windows WebKit 7개 외형 비교와 합성 lifecycle 검사는 실기 검증이 아니다.
+      [범위·한계](design/screensaver-image-backgrounds-2026-10-16.md#verification)
 
 - [ ] 8.10.4 공지: 새 클라이언트가 적용된 운영 일반방·PRO에서 게시 후 철회와 5분/
       foreground 반영, 실제 iPhone Safari/PWA·VoiceOver 및 Android/TalkBack의 전체보기/

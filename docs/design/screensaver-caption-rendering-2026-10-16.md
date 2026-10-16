@@ -81,6 +81,13 @@ automated reproduction, and automated browser checks do not replace
 physical-device QA. Physical iPhone, actual weather-provider data, audible
 sync, and the complete serial E2E suite remain outside this change's local QA.
 
+Committed `build:checked` at `3a47dc6a` passed all source/build/security/cache
+guards, including 97 verified app-shell assets and the initial-transfer budget.
+This commit adds only the corrected helper and QA record above to the tested
+runtime source. The production build contains no E2E hooks. Subsequent local
+record-only commits do not change the tested runtime identity; neither this
+local build nor PR CI substitutes for the successful exact-main candidate.
+
 ## Release and recovery
 
 Publication follows reviewed PR, successful exact-main CI, and the normal App

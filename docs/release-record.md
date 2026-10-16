@@ -44,6 +44,14 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 시계 배경 diffusion 01 배포 준비
+
+- [ ] 오너가 2026-10-17 승인한 어둡게 하기 전 diffusion 01을 시계에 적용한다.
+      8.11.8/v707, App 단독 릴리스이며 Developer API D1은 비활성화한다.
+      다른 화면과 권한·계약은 유지한다. 이전 해시 이미지도 보존한다.
+      exact-main CI 후보·Production Release·공개 자산 해시 확인 뒤 완료한다.
+      [변경·검증·복구 근거](design/screensaver-diffusion-clock-2026-10-17.md).
+
 ### YouTube 목록·관리자 iframe 조작
 
 - [ ] 실제 공급자·실기 확인: 원래 사용자 제보의 자연 반복/정지 경로는 캡처가

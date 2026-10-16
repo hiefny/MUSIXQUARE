@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Approved diffusion clock background — 2026-10-17](design/screensaver-diffusion-clock-2026-10-17.md) —
+  Uses the selected lighter artwork for the clock, preserves other scenes and
+  previous immutable image URLs, and records validation and release evidence.
 - [One dialog when returning from the background — 2026-10-17](design/resume-dialog-dedup-2026-10-17.md) —
   A return from the background shows at most one dialog: a warning answered late no longer
   repeats, and the audio recovery dialog replaces the generic warning. Records both paths and the 8.11.7 release evidence.

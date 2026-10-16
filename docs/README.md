@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Image backgrounds and compatible screensaver effects — 2026-10-16](design/screensaver-image-backgrounds-2026-10-16.md) —
+  The approved all-image background version, lazy immutable assets, and compatible
+  foreground effects, with integration verification and release evidence.
+
 - [Maximum text weight 700 — 2026-10-16](design/max-font-weight-700-2026-10-16.md) —
   Every text weight in the project is capped at 700, including badges, code
   fields, public pages, the admin console and the static OG cards, with a

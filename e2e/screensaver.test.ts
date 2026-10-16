@@ -113,6 +113,32 @@ async function disableFullscreenForLayoutProbe(page: Page): Promise<void> {
   });
 }
 
+async function visibleForegroundSources(child: FrameLocator, canvasId: string): Promise<number> {
+  return child.locator(`[data-compat-compositor="${canvasId}"] canvas`).evaluateAll((canvases) => {
+    const sample = document.createElement('canvas');
+    sample.width = sample.height = 128;
+    const context = sample.getContext('2d', { willReadFrequently: true })!;
+    let nonempty = 0;
+    for (const node of canvases) {
+      if (!(node instanceof HTMLCanvasElement)) continue;
+      let visible = true;
+      for (let parent: Element | null = node; parent; parent = parent.parentElement) {
+        const style = getComputedStyle(parent);
+        if (style.display === 'none' || style.visibility === 'hidden' || +style.opacity === 0) {
+          visible = false;
+          break;
+        }
+      }
+      if (!visible || !node.width || !node.height) continue;
+      context.clearRect(0, 0, 128, 128);
+      context.drawImage(node, 0, 0, 128, 128);
+      const pixels = context.getImageData(0, 0, 128, 128).data;
+      if (pixels.some((value, index) => index % 4 === 3 && value > 0)) nonempty++;
+    }
+    return nonempty;
+  });
+}
+
 test('loads only on the local command and keeps connected file playback running', async ({
   browser,
 }) => {
@@ -144,6 +170,13 @@ test('loads only on the local command and keeps connected file playback running'
       ),
     ).toBe(true);
     expect(hostRequests.some((url) => new URL(url).pathname === '/screensaver.js')).toBe(false);
+    await expect
+      .poll(() =>
+        hostRequests.some((url) =>
+          new URL(url).pathname.startsWith('/assets/screensaver/backgrounds/clock/'),
+        ),
+      )
+      .toBe(true);
     expect(hostRequests.some((url) => url.includes('open-meteo.com'))).toBe(false);
     expect(await readState(host, 'playback.activity')).toBe('playing');
     expect(await readState(guest, 'playback.activity')).toBe('playing');
@@ -438,16 +471,21 @@ test('renders while the font stylesheet is delayed, then refits the clock after 
     await expect.poll(() => stylesheetRequested).toBe(true);
     await expect(child.locator('#googleSansStylesheet')).toHaveAttribute('media', 'print');
     await expect(child.locator('#displayBack')).toBeVisible();
+    const background = child.locator('#imageBackgroundRoot .image-background-layer img');
+    await expect(background).toHaveCount(1, { timeout: 1_500 });
+    await expect(background).toHaveAttribute('src', /\/clock\/.*\.webp$/u);
+    expect(
+      await background.evaluate(
+        (image: HTMLImageElement) => image.complete && image.naturalWidth > 0,
+      ),
+    ).toBe(true);
     const canvas = child.locator('#opticalClockCanvas');
     await expect(canvas).toHaveAttribute('aria-label', /^\d{2}:\d{2}:\d{2}$/u, {
       timeout: 6_000,
     });
-    expect(
-      await canvas.evaluate((element: HTMLCanvasElement) => {
-        const pixels = element.getContext('2d')!.getImageData(0, 0, element.width, element.height);
-        return pixels.data.some((value, index) => index % 4 === 3 && value > 0);
-      }),
-    ).toBe(true);
+    await expect
+      .poll(() => visibleForegroundSources(child, 'opticalClockCanvas'))
+      .toBeGreaterThan(0);
     const initialFits = Number(await canvas.getAttribute('data-font-fits'));
     expect(initialFits).toBeGreaterThan(0);
 
@@ -480,6 +518,154 @@ test('renders while the font stylesheet is delayed, then refits the clock after 
     releaseStylesheet();
     await page.unrouteAll({ behavior: 'wait' });
   }
+});
+
+test('holds the decoded background while the next image loads, then crossfades only two layers', async ({
+  page,
+}) => {
+  const requests = await openHost(page);
+  await page.clock.install({ time: new Date('2026-10-16T12:00:00Z') });
+  let releaseImage: () => void = () => {};
+  const imageReady = new Promise<void>((resolve) => {
+    releaseImage = resolve;
+  });
+  const autumn = '**/assets/screensaver/backgrounds/photo-autumn-7800/**';
+  await page.route(autumn, async (route) => {
+    await imageReady;
+    await route.continue();
+  });
+  try {
+    expect(requests).toEqual([]);
+    const child = await openScreensaver(page);
+    const images = child.locator('#imageBackgroundRoot .image-background-layer img');
+    await expect(images).toHaveCount(1);
+    await expect(images).toHaveAttribute('src', /\/clock\/.*\.webp$/u);
+    expect(
+      await images.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0),
+    ).toBe(true);
+    await expect.poll(() => requests.some((url) => url.includes('/photo-autumn-7800/'))).toBe(true);
+    await page.clock.fastForward(10_100);
+    await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+    await expect(images).toHaveCount(1);
+    await expect(images).toHaveAttribute('src', /\/clock\/.*\.webp$/u);
+
+    releaseImage();
+    await expect(images).toHaveCount(2);
+    await expect
+      .poll(() =>
+        images.evaluateAll((nodes) =>
+          nodes.every((node) => {
+            const image = node as HTMLImageElement;
+            return image.complete && image.naturalWidth > 0;
+          }),
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        child
+          .locator('#imageBackgroundRoot .image-background-layer')
+          .evaluateAll((layers) =>
+            layers.every((layer) => Number(getComputedStyle(layer).opacity) > 0),
+          ),
+      )
+      .toBe(true);
+    await expect(images).toHaveCount(1);
+    await expect(images).toHaveAttribute('src', /\/photo-autumn-7800\/.*\.webp$/u);
+    expect(
+      await child
+        .locator('body')
+        .evaluate(() =>
+          Array.from(
+            document.querySelectorAll('#imageBackgroundRoot, #imageBackgroundRoot *'),
+          ).some((node) => getComputedStyle(node).filter !== 'none'),
+        ),
+    ).toBe(false);
+    await expect.poll(() => visibleForegroundSources(child, 'weatherCanvas')).toBeGreaterThan(0);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+  } finally {
+    releaseImage();
+    await page.unroute(autumn);
+  }
+});
+
+test('keeps the previous image after a failed background request and recovers on reopening', async ({
+  page,
+}) => {
+  await openHost(page);
+  await page.clock.install({ time: new Date('2026-10-16T12:00:00Z') });
+  const autumn = '**/assets/screensaver/backgrounds/photo-autumn-7800/**';
+  await page.route(autumn, (route) => route.abort());
+  let child = await openScreensaver(page);
+  await expect(child.locator('#imageBackgroundRoot img')).toHaveCount(1);
+  await page.clock.fastForward(12_000);
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+  await expect(child.locator('#imageBackgroundRoot img')).toHaveCount(1);
+  await expect(child.locator('#imageBackgroundRoot img')).toHaveAttribute(
+    'src',
+    /\/clock\/.*\.webp$/u,
+  );
+  await expect.poll(() => visibleForegroundSources(child, 'weatherCanvas')).toBeGreaterThan(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+
+  await page.unroute(autumn);
+  child = await openScreensaver(page);
+  await page.clock.fastForward(12_000);
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+  await expect(child.locator('#imageBackgroundRoot img')).toHaveCount(1);
+  await expect(child.locator('#imageBackgroundRoot img')).toHaveAttribute(
+    'src',
+    /\/photo-autumn-7800\/.*\.webp$/u,
+  );
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+});
+
+test('renders glow without Canvas filter and recreates bounded layers after page lifecycle cleanup', async ({
+  page,
+}, testInfo) => {
+  await openHost(page);
+  await page.clock.install({ time: new Date('2026-10-16T12:58:30Z') });
+  await page.addInitScript(() => {
+    Reflect.deleteProperty(CanvasRenderingContext2D.prototype, 'filter');
+  });
+  const child = await openScreensaver(page);
+  const compositor = child.locator('[data-compat-compositor="opticalClockCanvas"]');
+  await expect(compositor).toHaveCount(1);
+  await expect.poll(() => visibleForegroundSources(child, 'opticalClockCanvas')).toBeGreaterThan(0);
+  expect(
+    await child
+      .locator('body')
+      .evaluate(() => Reflect.has(CanvasRenderingContext2D.prototype, 'filter')),
+  ).toBe(false);
+  await page.clock.setFixedTime(new Date('2026-10-16T13:59:30Z'));
+  await expect
+    .poll(() =>
+      compositor
+        .locator('*')
+        .evaluateAll((nodes) =>
+          nodes.some((node) => /blur\((?!0px)/u.test(getComputedStyle(node).filter)),
+        ),
+    )
+    .toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('screensaver-canvas-filter-unavailable.png') });
+  await child.locator('body').evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+  });
+  await expect(child.locator('#imageBackgroundRoot')).toHaveCount(0);
+  await expect(child.locator('[data-compat-compositor]')).toHaveCount(0);
+  await child.locator('body').evaluate(() => {
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+  });
+  await expect(child.locator('#imageBackgroundRoot')).toHaveCount(1);
+  await expect(child.locator('#imageBackgroundRoot .image-background-layer')).toHaveCount(2);
+  await expect(child.locator('#imageBackgroundRoot img')).toHaveCount(1);
+  await expect(compositor).toHaveCount(1);
+  await expect.poll(() => visibleForegroundSources(child, 'opticalClockCanvas')).toBeGreaterThan(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 });
 
 test('keeps denied-location controls separate in a 160×160 weather scene', async ({

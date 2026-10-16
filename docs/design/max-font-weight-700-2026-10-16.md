@@ -37,12 +37,15 @@ legibility on low-resolution screens.
   `public/events/event.css`. Those pages render dynamic `<strong>` values, and
   the browser default `bolder` turns a `<strong>` inside 600 text into 900.
 - New unit test `src/ui/__tests__/max-font-weight.test.ts` scans the served
-  sources (`index.html`, `css`, `public`, `.workshop`, `browser`, `cloudflare`,
-  `src` and `scripts`, without tests or `src_ref`) for declared text weights
-  above 700 (`font-weight`, SVG attributes, style objects, the `font`
-  shorthand, canvas and FontFaceSet strings, `wght` settings) and for `bolder`.
-  `@font-face` weight ranges are ignored. A probe file with `font-weight: 800`
-  and `font: 900 12px` made it fail, and a `100 900` range did not.
+  sources (`index.html`, `e2e/report-viewer.html`, `css`, `public`,
+  `.workshop`, `browser`, `cloudflare`, `src` and `scripts`, without tests or
+  `src_ref`) for declared text weights above 700 (`font-weight`, SVG
+  attributes, style objects, the `font` shorthand, canvas and FontFaceSet
+  strings, `wght` settings) and for `bolder`. `@font-face` weight ranges are
+  ignored. A probe file with `font-weight: 800` and `font: 900 12px` made it
+  fail, and a `100 900` range did not. The report viewer joined the scan after
+  the Codex review (P2) noted it was changed but not covered; restoring 800
+  there made the test fail.
 - Unchanged: the screensaver already tops out at 700 (Google Sans 500 and 700),
   the main `og-image.png` tagline is below 700, and landing photos are images.
 - Release identity: App only, **8.11.3 / v700** (the App Worker's inline Soro

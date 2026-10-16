@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 const MAX_TEXT_WEIGHT = 700;
 const ROOTS = [
   'index.html',
+  'e2e/report-viewer.html',
   'css',
   'public',
   '.workshop',

@@ -108,7 +108,7 @@
     var(--font-primary), 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
     sans-serif;
   --font-sans: var(--font-sans-ko);
-  --font-weight-display: 800;
+  --font-weight-display: 700;
 
   /* Size scale */
   --fs-9: 9px;
@@ -318,14 +318,14 @@ body {
 .tab-title,
 .type-display {
   font-size: var(--fs-28);
-  font-weight: var(--fw-extrabold);
+  font-weight: var(--font-weight-display);
   color: var(--text-main);
   letter-spacing: var(--ls-tight);
 }
 
 .type-h2 {
   font-size: var(--fs-24);
-  font-weight: var(--fw-extrabold);
+  font-weight: var(--font-weight-display);
   color: var(--text-main);
   letter-spacing: var(--ls-tight);
 }
@@ -380,7 +380,7 @@ body {
 
 .type-code {
   font-size: var(--fs-16);
-  font-weight: var(--fw-extrabold);
+  font-weight: var(--font-weight-display);
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--ls-wide);
 }

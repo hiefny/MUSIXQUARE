@@ -82,7 +82,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       'Noto Sans', var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       sans-serif;
     --font-sans: var(--font-sans-ko);
-    --font-weight-display: 800;
+    --font-weight-display: 700;
 
     --glass-bg: var(--surface-1);
     --glass-border: transparent;
@@ -543,12 +543,6 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   html:lang(el-GR) {
     --font-sans: var(--font-sans-greek);
-  }
-
-  html:lang(ja),
-  html:lang(zh-Hans),
-  html:lang(zh-Hant) {
-    --font-weight-display: 700;
   }
 
   @keyframes fadeIn {

@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Back closes the topmost window — 2026-10-17](design/back-closes-top-window-2026-10-17.md) —
+  History Back closes only the topmost window, in rooms and on the setup screens; with no window
+  open it asks before leaving a room or moves to the previous page. Also closes the PRO re-entry
+  gap. Records the window table, local browser checks, and limits.
 - [Approved diffusion clock background — 2026-10-17](design/screensaver-diffusion-clock-2026-10-17.md) —
   Uses the selected lighter artwork for the clock, preserves other scenes and
   previous immutable image URLs, and records validation and release evidence.

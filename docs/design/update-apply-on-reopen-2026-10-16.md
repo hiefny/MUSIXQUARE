@@ -74,10 +74,26 @@ bindings, permissions, CSP, or copy changes.
 
 ## Verification
 
-Base `a8b37386` (main after #369). Tested runtime source: TESTED_SHA.
-Local Windows checks used Node 24.13.1 / npm 11.8.0.
+Base `a8b37386` (main after #369). Tested runtime source: `18ab8363`. It was
+then rebased onto #370 as `484c1409`; #370 changed only documents, so the
+runtime tree is identical, and the cache-version and release-identity guards
+passed again there. Local Windows checks used Node 24.13.1 / npm 11.8.0.
+These are local branch results, not the exact-main release candidate.
 
-RESULTS
+On `18ab8363`, `format:check`, `lint`, `typecheck`, and `build:checked`
+passed. `build:checked` includes the room-authority boundary,
+service-worker cache version (v703 covers the change), and app-shell (97
+assets) guards. The bus-pairing, import-graph, lifecycle-writes,
+dead-exports, chunk-pump, standard-room hot-path, Developer API boundary, D1
+migration, and operations drift contract guards also passed. The full unit
+run passed 572 files / 12,857 tests, with zero failures or skips. E2E was not
+run.
+
+An earlier local run caught two problems that are fixed in `18ab8363`. The
+room-authority guard rejected a new direct `network.appRole` read, which now
+goes through `isStandardRoomRole()`. The cache-version guard rejected runtime
+edits committed after the cache bump, so the branch was squashed into one
+commit.
 
 ### Unit tests
 
@@ -99,8 +115,8 @@ RESULTS
 Against the previous `src/sw-register.ts` (base `a8b37386`) nine of the ten
 fail. The Join-during-the-wait case passes there too, because the old code
 already showed the toast; it guards the new path. Against the first version
-of this change (`2cb2c5f8`), which asked at once and did not block Join on
-the home screen, the four cases about those two points fail. The cooldown case also fails with only its cooldown line removed.
+of this change, which asked at once and did not block Join on the home
+screen, the four cases about those two points fail. The cooldown case also fails with only its cooldown line removed.
 Existing cases that used a startup waiting worker to reach the dialog now
 install the update after registration. Guest-room cases now model a real
 joined guest (`setup.sessionStarted`) or a join under way
@@ -124,8 +140,10 @@ is no backend in this setup, so `/api/*` answered 503 throughout.
 | Home screen | final version (v715 → v716) | Dialog left open, browser reload | Applied 1.2 s after the reload, reopened at 1.4 s, controller v716, no dialog or toast. |
 
 The console of the reopened pages showed `[SW] Update was waiting when this
-page opened. Applying it without a prompt`. The temporary preview entries,
-builds, and browser storage were removed afterwards.
+page opened. Applying it without a prompt`. The final-version builds came
+from the working tree before a comment-only edit and a test type fix, so
+their runtime logic matches `18ab8363`. The temporary preview entries and
+browser storage were removed afterwards.
 
 ### Not covered
 

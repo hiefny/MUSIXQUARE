@@ -90,6 +90,93 @@ local build nor PR CI substitutes for the successful exact-main candidate.
 
 ## Release and recovery
 
-Publication follows reviewed PR, successful exact-main CI, and the normal App
-release. Deployment identifiers, public asset checks, and checkpoint evidence
-will be recorded after completion.
+PR [#369](https://github.com/hiefny/MUSIXQUARE/pull/369) had no review findings
+and passed all 11 jobs in [PR CI 38915494397](https://github.com/hiefny/MUSIXQUARE/actions/runs/38915494397).
+It merged as `a8b37386e6dbe9424cb1d335da00e2871196a526`.
+The exact-main push [CI 38916351290](https://github.com/hiefny/MUSIXQUARE/actions/runs/38916351290),
+attempt 1, passed all 11 jobs: 572 unit files, 12,847 tests passed and one
+Linux skip for a Windows-only cross-drive path test; production candidate
+browser 17 and critical browser 45 passed. Coverage, type, lint, static,
+build, security, and dependency-signature gates passed. This candidate, not
+the earlier local or PR checks, supplied the production artifact.
+
+[Release 38917295260](https://github.com/hiefny/MUSIXQUARE/actions/runs/38917295260),
+attempt 1, succeeded for App 8.11.5/v702, target=app and Developer API D1=false.
+The deployment job completed on 2026-10-16 at 23:40:04 KST. App version is
+`ab062331-b593-43ca-a4d8-b88e17887719`; deployment is
+`61327e0a-cfdc-4181-8264-801f91f7cd8b`. Final ownership was verified at
+23:39:58.663 KST and the exact SHA/app coherent marker was recorded.
+The partial-release compatibility recheck completed compatible at
+23:39:29.245 KST. The five unselected Workers were not redeployed and retain
+`d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance:
+
+| Worker | Version ID | Deployment ID |
+| --- | --- | --- |
+| signaling | `c25e8be3-bb42-465f-a66b-77360b3a5f1a` | `052c9597-cc96-44ea-91cb-40469840d760` |
+| pro-room | `8d5d44c0-c925-4495-86d7-29bf11a0958e` | `e5049949-cbcf-4210-b736-92541dfadddf` |
+| remote-share | `b7150b48-2e77-4db0-a908-718fe341bd5f` | `8b306664-f898-463a-aeb3-f4a083ae0d5a` |
+| developer-api | `c4069dcd-524d-4752-baa0-364aba94679a` | `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d` |
+| developer-api-facade | `d4b348cd-3323-4f48-8bbb-4f49a3680110` | `44f54bd6-1af9-4da3-9829-48d28d4c7037` |
+
+All four operational smokes passed: App generation converged for three
+consecutive reads on `/assets/main-n3EFoT23.js` with 29 assets verified;
+anonymous App account boundaries, the existing PRO public boundary, and
+Standard HTTPS signaling passed. Other Worker smokes were outside the App
+release scope. The seven existing App D1 baseline apply/verify steps passed
+idempotently; Developer API D1 was skipped.
+
+Public verification at 23:41:01–21 KST passed 16/16 checks. All 144 GETs
+(index, SW, v702 bootstrap, screensaver HTML/runtime, and 139 backgrounds)
+returned HTTP 200 with exact-main candidate byte counts and SHA-256 hashes.
+The 139 images total 2,422,698 bytes and are byte-identical to verified v701.
+The delivered caption runtime is `screensaver-runtime-879e9d3b.js`,
+230,298 bytes, SHA-256
+`879e9d3b79aa7a2165c221579d5e846509234c7425aab0be760a729091727c48`;
+the HTML is 19,033 bytes, SHA-256
+`16a6b7a666be7b60b3ca37400276dacb039681fc8fbf88e7d2fffdf5a4e73f44`.
+The check confirmed immutable runtime/image caching, revalidated HTML with
+CDN no-store, SW no-cache, scoped CSP/permissions, same-origin framing and
+geolocation delegation, noindex, no initial screensaver/background precache,
+and no embedded original photos or test globals.
+
+The recovery checkpoint was captured at 23:38:50.573 KST and preserves the
+prior App `813a02203274d52986eeeae5a901f9070a0362b4` (8.11.4/v701),
+version `001c91c1-11a4-4613-8b9d-b3a9fc6ef641`, deployment
+`2f61749a-6c20-439f-b16c-6926744a961b`. Rollback was unnecessary and not
+performed; the separate recovery job was skipped. Restoring that version
+also restores its narrow per-character caption composition, so the reported
+failure can return. The checkpoint is not a user-data backup.
+
+The 23:38:52.929 KST floor capture was ready, with release floor
+`d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` and generation floor
+`4c5612d5fc4c5548781eb7d5b26d6904969c051c`; generation/entitlement were
+true. The preserved App is a verified release ancestor and is generation,
+entitlement, and Developer API authority aware. No floor or compatibility
+contract changed. Recovery still requires ownership and floor checks.
+
+Deployment records are retained in
+[artifact 12053935058](https://github.com/hiefny/MUSIXQUARE/actions/runs/38917295260/artifacts/12053935058),
+the coherent marker in
+[12053605997](https://github.com/hiefny/MUSIXQUARE/actions/runs/38917295260/artifacts/12053605997),
+and the checkpoint in
+[12052911696](https://github.com/hiefny/MUSIXQUARE/actions/runs/38917295260/artifacts/12052911696),
+with 90-day retention. External evidence is under
+`caption-rendering-v702/release-artifacts/`, `release.log`,
+`main-ci.log`, and `public-verification-report.json`.
+
+At the record's read-only recheck, the latest main Drift Audit remained
+[38876397208](https://github.com/hiefny/MUSIXQUARE/actions/runs/38876397208)
+on the older `0041d5be`: 31 pass / 0 fail / 5 manual-only. There is no
+post-release Drift result for `a8b37386`.
+Complete serial E2E was not rerun for this repair. The latest main run
+[38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)
+is the scheduled `4854e392` run and failed. The preserved successful
+[38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201)
+was a workflow_dispatch on `agent/component-cascade-refactor` at
+`749f0a6a`, not a main-branch release check.
+
+The owner's repaired Windows preview confirmation, the exact-main CI, and
+the completed release/public checks close this repair's deployment readiness.
+They do not claim automated reproduction of the original GPU failure,
+coverage of every browser/GPU, or physical iPhone QA. The existing
+physical-device limits remain open.

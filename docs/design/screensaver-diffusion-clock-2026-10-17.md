@@ -67,7 +67,12 @@ The pinned CI environment remains authoritative for the production candidate.
 - Browser checks use saved Google Sans responses and block other external
   requests. They do not test live weather, a full-stack room or a physical
   iPhone. The full serial browser suite was not run for this image change.
-- Local evidence: `musixquare-screensaver/diffusion-clock/built-clock-report.json`
+- Focused Chromium screensaver integration checks passed 16/16, including lazy
+  loading, YouTube restrictions, fullscreen, caption integrity and scene changes.
+- Initial PR CI `38948718087` rejected a lowercase brand token in the local
+  evidence path below. The documentation path was shortened; product code was
+  unchanged. The corrected head requires its own successful CI result.
+- Local evidence: `diffusion-clock/built-clock-report.json`
   and its four screenshots under this task's visualization evidence directory;
   ignored `scratch/` logs hold the local checks and original timeout output.
 

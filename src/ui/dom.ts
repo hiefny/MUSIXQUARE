@@ -8,6 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
+import { FULLSCREEN_CHANGE_EVENTS, getFullscreenElement } from './fullscreen.ts';
 
 /** Look up replaceable UI elements when each operation runs; never cache nodes. */
 export function getUiElement<T extends HTMLElement = HTMLElement>(id: string): T | null {
@@ -325,7 +326,7 @@ function onPortalFullscreenChange(): void {
 }
 
 function syncFullscreenModalPortal(top: OverlayId | null): void {
-  const fullscreen = document.fullscreenElement;
+  const fullscreen = getFullscreenElement();
   const container =
     fullscreen instanceof HTMLElement &&
     fullscreen.isConnected &&
@@ -348,10 +349,12 @@ function syncFullscreenModalPortal(top: OverlayId | null): void {
     container.appendChild(element);
   }
   if (_fullscreenModalPortals.size && !_portalFullscreenListenerInstalled) {
-    document.addEventListener('fullscreenchange', onPortalFullscreenChange);
+    for (const event of FULLSCREEN_CHANGE_EVENTS)
+      document.addEventListener(event, onPortalFullscreenChange);
     _portalFullscreenListenerInstalled = true;
   } else if (!_fullscreenModalPortals.size && _portalFullscreenListenerInstalled) {
-    document.removeEventListener('fullscreenchange', onPortalFullscreenChange);
+    for (const event of FULLSCREEN_CHANGE_EVENTS)
+      document.removeEventListener(event, onPortalFullscreenChange);
     _portalFullscreenListenerInstalled = false;
   }
 }
@@ -485,7 +488,8 @@ export function __resetModalStackForTests(): void {
   _modalStack.length = 0;
   _topModalId = null;
   for (const element of _fullscreenModalPortals.keys()) restoreFullscreenModal(element);
-  document.removeEventListener('fullscreenchange', onPortalFullscreenChange);
+  for (const event of FULLSCREEN_CHANGE_EVENTS)
+    document.removeEventListener(event, onPortalFullscreenChange);
   _portalFullscreenListenerInstalled = false;
   for (const element of _overlayInertElements)
     setElementInertForOwner(element, OVERLAY_INERT_OWNER, false);

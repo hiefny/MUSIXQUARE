@@ -1,3 +1,12 @@
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import {
+  FULLSCREEN_CHANGE_EVENTS,
+  FULLSCREEN_ERROR_EVENTS,
+  getFullscreenElement,
+  getFullscreenExit,
+  type FullscreenTarget,
+} from './fullscreen.ts';
+
 export interface ScreensaverEntry {
   readonly container: HTMLElement;
   readonly closed: boolean;
@@ -6,55 +15,108 @@ export interface ScreensaverEntry {
 }
 
 let currentEntry: ScreensaverEntry | null = null;
+let entrySequence = 0;
+const LEGACY_SETTLEMENT_MS = 1500;
 
 /** Keep the gesture-bound fullscreen request ahead of the lazy renderer import. */
 export function beginScreensaverEntry(): ScreensaverEntry | null {
   if (currentEntry) return null;
-  const previousFullscreen = document.fullscreenElement;
-  const target = document.documentElement;
+  const previousFullscreen = getFullscreenElement();
+  const target = document.documentElement as FullscreenTarget;
   const listeners = new Set<() => void>();
+  const timerPrefix = `screensaver-fullscreen-${++entrySequence}`;
+  const requestTimer = `${timerPrefix}-request`;
+  const exitTimer = `${timerPrefix}-exit`;
   let closed = false;
-  let settled = true;
-  let exiting = false;
+  let requestPending = false;
+  let exitPending = false;
   let sawFullscreen = Boolean(previousFullscreen);
   let requested = false;
-  const unlock = (): void => {
-    if (closed && settled && !exiting && currentEntry === entry) currentEntry = null;
+  let requestGeneration = 0;
+  let exitGeneration = 0;
+  let requestErrorEvent: string | null = null;
+  let exitErrorEvent: string | null = null;
+  let rejectActiveRequest: (() => void) | null = null;
+
+  const finish = (): void => {
+    if (!closed || requestPending || exitPending) return;
+    for (const event of FULLSCREEN_CHANGE_EVENTS)
+      document.removeEventListener(event, onFullscreenChange);
+    for (const event of FULLSCREEN_ERROR_EVENTS)
+      document.removeEventListener(event, onFullscreenError);
+    clearManagedTimer(requestTimer);
+    clearManagedTimer(exitTimer);
+    if (currentEntry === entry) currentEntry = null;
+  };
+  const settleExit = (generation: number): void => {
+    if (generation !== exitGeneration) return;
+    exitGeneration++;
+    exitPending = false;
+    exitErrorEvent = null;
+    clearManagedTimer(exitTimer);
+    finish();
   };
   const restore = (): void => {
-    if (!requested || previousFullscreen || document.fullscreenElement !== target || exiting) {
-      unlock();
+    if (!requested || previousFullscreen || getFullscreenElement() !== target || exitPending) {
+      finish();
       return;
     }
-    exiting = true;
+    const exit = getFullscreenExit();
+    if (!exit) {
+      finish();
+      return;
+    }
+    exitPending = true;
+    exitErrorEvent = exit.errorEvent;
+    const generation = ++exitGeneration;
     try {
-      Promise.resolve(document.exitFullscreen?.())
-        .catch(() => {})
-        .finally(() => {
-          exiting = false;
-          unlock();
-        });
+      const result = exit.invoke();
+      if (result && typeof result.then === 'function') {
+        Promise.resolve(result)
+          .catch(() => {})
+          .finally(() => settleExit(generation));
+      } else if (getFullscreenElement() !== target) settleExit(generation);
+      else if (generation === exitGeneration) {
+        setManagedTimer(exitTimer, () => settleExit(generation), LEGACY_SETTLEMENT_MS);
+      }
     } catch {
-      exiting = false;
-      unlock();
+      settleExit(generation);
     }
   };
   const release = (): void => {
     if (closed) return;
     closed = true;
     listeners.clear();
-    document.removeEventListener('fullscreenchange', onFullscreenChange);
     restore();
   };
+  const settleRequest = (): void => {
+    requestGeneration++;
+    requestPending = false;
+    requestErrorEvent = null;
+    rejectActiveRequest = null;
+    clearManagedTimer(requestTimer);
+    if (closed) restore();
+  };
   const onFullscreenChange = (): void => {
+    const fullscreen = getFullscreenElement();
     const expected = previousFullscreen || (requested ? target : null);
-    if (expected && document.fullscreenElement === expected) {
+    if (expected && fullscreen === expected) {
       sawFullscreen = true;
-    } else if (sawFullscreen) {
-      const callbacks = [...listeners];
-      release();
-      for (const listener of callbacks) listener();
+      if (requestPending) settleRequest();
+      else if (closed) restore();
+    } else {
+      if (exitPending) settleExit(exitGeneration);
+      if (sawFullscreen && !closed) {
+        const callbacks = [...listeners];
+        release();
+        for (const listener of callbacks) listener();
+      } else finish();
     }
+  };
+  const onFullscreenError = (event: Event): void => {
+    if (event.target !== document && event.target !== target) return;
+    if (exitPending && event.type === exitErrorEvent) settleExit(exitGeneration);
+    else if (requestPending && event.type === requestErrorEvent) rejectActiveRequest?.();
   };
   const entry: ScreensaverEntry = {
     container:
@@ -71,24 +133,55 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
     release,
   };
   currentEntry = entry;
-  document.addEventListener('fullscreenchange', onFullscreenChange);
-  if (!previousFullscreen && typeof target.requestFullscreen === 'function') {
-    requested = true;
-    settled = false;
-    try {
-      Promise.resolve(target.requestFullscreen())
-        .then(() => {
-          if (document.fullscreenElement === target) sawFullscreen = true;
-        })
-        .catch(() => {})
-        .finally(() => {
-          settled = true;
-          if (closed) restore();
-        });
-    } catch {
-      settled = true;
-      requested = false;
+  for (const event of FULLSCREEN_CHANGE_EVENTS)
+    document.addEventListener(event, onFullscreenChange);
+  for (const event of FULLSCREEN_ERROR_EVENTS) document.addEventListener(event, onFullscreenError);
+
+  const requests = [
+    { invoke: target.requestFullscreen, errorEvent: 'fullscreenerror' },
+    {
+      invoke: target.webkitRequestFullscreen || target.webkitRequestFullScreen,
+      errorEvent: 'webkitfullscreenerror',
+    },
+  ].filter(
+    (request): request is { invoke: () => Promise<void> | void; errorEvent: string } =>
+      typeof request.invoke === 'function',
+  );
+  const requestAt = (index: number): void => {
+    const request = requests[index];
+    if (!request || closed || getFullscreenElement()) {
+      settleRequest();
+      return;
     }
-  }
+    requested = true;
+    requestPending = true;
+    requestErrorEvent = request.errorEvent;
+    const generation = ++requestGeneration;
+    const rejected = (): void => {
+      if (generation !== requestGeneration) return;
+      requested = false;
+      if (!closed && requests[index + 1]) requestAt(index + 1);
+      else settleRequest();
+    };
+    rejectActiveRequest = rejected;
+    try {
+      const result = request.invoke.call(target);
+      if (result && typeof result.then === 'function') {
+        Promise.resolve(result).then(() => {
+          if (generation !== requestGeneration) return;
+          if (getFullscreenElement() === target) sawFullscreen = true;
+          settleRequest();
+        }, rejected);
+      } else if (getFullscreenElement() === target) {
+        sawFullscreen = true;
+        settleRequest();
+      } else if (generation === requestGeneration) {
+        setManagedTimer(requestTimer, settleRequest, LEGACY_SETTLEMENT_MS);
+      }
+    } catch {
+      rejected();
+    }
+  };
+  if (!previousFullscreen) requestAt(0);
   return entry;
 }

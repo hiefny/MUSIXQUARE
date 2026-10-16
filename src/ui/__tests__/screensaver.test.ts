@@ -7,6 +7,7 @@ import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { __resetModalStackForTests, isAnyOverlayShown, syncOverlayState } from '../dom.ts';
 import { openScreensaver } from '../screensaver.ts';
 import { beginScreensaverEntry } from '../screensaver-entry.ts';
+import { getFullscreenElement } from '../fullscreen.ts';
 
 const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
@@ -22,6 +23,18 @@ vi.mock('../../i18n/index.ts', () => ({
 const MUSIC_PREFERENCE_KEY = 'mxqr:screensaver:music';
 const originalFullscreen = Object.getOwnPropertyDescriptor(document, 'fullscreenElement');
 const originalExitFullscreen = Object.getOwnPropertyDescriptor(document, 'exitFullscreen');
+const prefixedDocumentProperties = [
+  'webkitFullscreenElement',
+  'webkitCurrentFullScreenElement',
+  'webkitExitFullscreen',
+  'webkitCancelFullScreen',
+] as const;
+const originalPrefixedProperties = new Map(
+  prefixedDocumentProperties.map((property) => [
+    property,
+    Object.getOwnPropertyDescriptor(document, property),
+  ]),
+);
 
 function overlay(): HTMLElement | null {
   return document.getElementById('screensaver-overlay');
@@ -93,6 +106,31 @@ function enableMotion(): void {
   vi.stubGlobal('cancelAnimationFrame', (handle: number) => clearTimeout(handle));
 }
 
+function prefixedFullscreenFixture(
+  initial: Element | null = null,
+  stateProperty:
+    'webkitFullscreenElement' | 'webkitCurrentFullScreenElement' = 'webkitFullscreenElement',
+  requestProperty:
+    'webkitRequestFullscreen' | 'webkitRequestFullScreen' = 'webkitRequestFullscreen',
+  exitProperty: 'webkitExitFullscreen' | 'webkitCancelFullScreen' = 'webkitExitFullscreen',
+) {
+  let current = initial;
+  const change = (element: Element | null): void => {
+    current = element;
+    document.dispatchEvent(new Event('webkitfullscreenchange'));
+  };
+  const request = vi.fn<() => Promise<void> | void>(() => change(document.documentElement));
+  const exit = vi.fn<() => Promise<void> | void>(() => change(null));
+  Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
+  Object.defineProperty(document, stateProperty, { configurable: true, get: () => current });
+  Object.defineProperty(document, exitProperty, { configurable: true, value: exit });
+  Object.defineProperty(document.documentElement, requestProperty, {
+    configurable: true,
+    value: request,
+  });
+  return { request, exit, change };
+}
+
 beforeEach(() => {
   bus.clear();
   resetState();
@@ -123,6 +161,7 @@ afterEach(async () => {
   if (overlay()) {
     setState('setup.sessionStarted', false);
   }
+  document.dispatchEvent(new Event('webkitfullscreenerror'));
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
@@ -133,6 +172,12 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   Reflect.deleteProperty(document.documentElement, 'requestFullscreen');
+  Reflect.deleteProperty(document.documentElement, 'webkitRequestFullscreen');
+  Reflect.deleteProperty(document.documentElement, 'webkitRequestFullScreen');
+  for (const [property, descriptor] of originalPrefixedProperties) {
+    if (descriptor) Object.defineProperty(document, property, descriptor);
+    else Reflect.deleteProperty(document, property);
+  }
   if (originalFullscreen) Object.defineProperty(document, 'fullscreenElement', originalFullscreen);
   else Reflect.deleteProperty(document, 'fullscreenElement');
   if (originalExitFullscreen)
@@ -362,6 +407,158 @@ describe('screensaver frame bridge', () => {
 });
 
 describe('screensaver lifecycle', () => {
+  it.each(['webkitFullscreenElement', 'webkitCurrentFullScreenElement'] as const)(
+    'preserves an existing prefixed root fullscreen from %s',
+    (property) => {
+      const fullscreen = prefixedFullscreenFixture(document.documentElement, property);
+      openFrame();
+      escape();
+      expect(fullscreen.request).not.toHaveBeenCalled();
+      expect(fullscreen.exit).not.toHaveBeenCalled();
+      expect(getFullscreenElement()).toBe(document.documentElement);
+    },
+  );
+
+  it.each([
+    ['webkitFullscreenElement', 'webkitRequestFullscreen', 'webkitExitFullscreen'],
+    ['webkitCurrentFullScreenElement', 'webkitRequestFullScreen', 'webkitCancelFullScreen'],
+  ] as const)('enters and restores prefixed fullscreen with %s', (state, request, exit) => {
+    const fullscreen = prefixedFullscreenFixture(null, state, request, exit);
+    openFrame();
+    expect(fullscreen.request).toHaveBeenCalledOnce();
+    expect(getFullscreenElement()).toBe(document.documentElement);
+    escape();
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+    expect(getFullscreenElement()).toBeNull();
+  });
+
+  it('preserves a prefixed fullscreen subtree and restores its centered dialog on WebKit exit', () => {
+    const shell = document.getElementById('app-shell')!;
+    const fullscreen = prefixedFullscreenFixture(shell, 'webkitCurrentFullScreenElement');
+    openFrame();
+    expect(overlay()?.parentElement).toBe(shell);
+    expect(overlay()?.closest('[inert]')).toBeNull();
+    const dialog = document.getElementById('dialog-overlay')!;
+    dialog.classList.add('show');
+    syncOverlayState('dialog-overlay');
+    expect(dialog.parentElement).toBe(shell);
+    fullscreen.change(null);
+    expect(overlay()).toBeNull();
+    expect(dialog.parentElement).toBe(document.body);
+    expect(fullscreen.request).not.toHaveBeenCalled();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+  });
+
+  it('restores a void WebKit request that completes asynchronously after close', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    openFrame();
+    escape();
+    await Promise.resolve();
+    expect(overlay()).toBeNull();
+    expect(beginScreensaverEntry()).toBeNull();
+    fullscreen.change(document.documentElement);
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+    expect(getFullscreenElement()).toBeNull();
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+  });
+
+  it('waits for a void WebKit exit event before releasing the entry lock', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.exit.mockImplementationOnce(() => {});
+    openFrame();
+    escape();
+    await Promise.resolve();
+    expect(beginScreensaverEntry()).toBeNull();
+    fullscreen.change(null);
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+  });
+
+  it('bounds silent WebKit failure and cleans its pending timers on cancellation', async () => {
+    vi.useFakeTimers();
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    const removeListener = vi.spyOn(document, 'removeEventListener');
+    openFrame();
+    escape();
+    expect(beginScreensaverEntry()).toBeNull();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(removeListener).toHaveBeenCalledWith('webkitfullscreenchange', expect.any(Function));
+    expect(removeListener).toHaveBeenCalledWith('webkitfullscreenerror', expect.any(Function));
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+  });
+
+  it('recovers from a prefixed request rejection without closing the overlay', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockRejectedValueOnce(new DOMException('Denied', 'NotAllowedError'));
+    openFrame();
+    await Promise.resolve();
+    expect(overlay()).not.toBeNull();
+    escape();
+    expect(fullscreen.exit).not.toHaveBeenCalled();
+    expect(overlay()).toBeNull();
+  });
+
+  it('falls through a rejected standard request to an available prefixed API', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    const standard = vi
+      .fn()
+      .mockRejectedValue(new DOMException('Unavailable', 'NotSupportedError'));
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      value: standard,
+    });
+    openFrame();
+    await Promise.resolve();
+    expect(standard).toHaveBeenCalledOnce();
+    expect(fullscreen.request).toHaveBeenCalledOnce();
+    escape();
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+  });
+
+  it('clears a cancelled pending WebKit request on its native error event', () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    openFrame();
+    escape();
+    document.dispatchEvent(new Event('webkitfullscreenerror'));
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+  });
+
+  it('ignores a queued standard error while the WebKit fallback or its exit is pending', async () => {
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    fullscreen.exit.mockImplementationOnce(() => {});
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {
+      configurable: true,
+      value: vi.fn().mockRejectedValue(new DOMException('Unavailable', 'NotSupportedError')),
+    });
+    openFrame();
+    await Promise.resolve();
+    expect(fullscreen.request).toHaveBeenCalledOnce();
+    escape();
+    document.dispatchEvent(new Event('fullscreenerror'));
+    expect(beginScreensaverEntry()).toBeNull();
+    fullscreen.change(document.documentElement);
+    expect(fullscreen.exit).toHaveBeenCalledOnce();
+    document.dispatchEvent(new Event('fullscreenerror'));
+    expect(beginScreensaverEntry()).toBeNull();
+    fullscreen.change(null);
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
+    await Promise.resolve();
+  });
+
   it('requests fullscreen immediately and exits only the state it acquired', async () => {
     const fullscreen = fullscreenFixture();
     openFrame();

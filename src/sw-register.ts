@@ -15,7 +15,11 @@ import { setManagedTimer } from './core/timers.ts';
 import { isStandaloneDisplayMode } from './core/platform.ts';
 import { isSessionResetPending, scheduleDocumentReload } from './core/session-reset.ts';
 import { announceSystemMessageLocally } from './chat/protocol.ts';
-import { getRoomContext, subscribeRoomAuthorityLifecycle } from './rooms/authority.ts';
+import {
+  getRoomContext,
+  isStandardRoomRole,
+  subscribeRoomAuthorityLifecycle,
+} from './rooms/authority.ts';
 import {
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
@@ -29,6 +33,14 @@ const SW_COOLDOWN_MS = 30_000;
 // before a prompt that a room or the demo deferred is offered on setup.
 // Native timer: leaveSession() clears managed timers.
 const DEFERRED_PROMPT_SETTLE_MS = 1_000;
+// Measured in Chromium (2026-10-17): SKIP_WAITING sent while the active worker
+// still served the page's first loads took 43-66 s to activate, and sending it
+// again did not shorten that; sent once those loads had settled, it took under
+// 1.5 s. A startup apply therefore asks once the page's own requests have been
+// quiet for a moment.
+const STARTUP_APPLY_QUIET_MS = 1_000;
+const STARTUP_APPLY_MAX_WAIT_MS = 6_000;
+const STARTUP_APPLY_POLL_MS = 250;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
@@ -149,6 +161,74 @@ function isUpdatePromptDeferred(): boolean {
   return isRoomSessionActive() || isDemoStateActive() || isDemoSurfaceVisible();
 }
 
+/** An invite link (/CODE), which setup opens on its Start screen. */
+function isInviteLinkPage(): boolean {
+  try {
+    return /^\/\d{6}\/?$/.test(window.location.pathname ?? '');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether this tab has entered, or begun entering, a room. Unlike
+ * isRoomSessionActive(), the guest role on an invite link does not count:
+ * setup projects it while it waits for the Start tap, and a reload keeps that
+ * URL, so nothing is lost. Elsewhere a setup role is a step the user took
+ * (Join, with a code being typed, or Host, whose code guests can already
+ * join). A PRO room projects the host role while entering, when isConnecting
+ * already counts, and has a room context ID once it is in.
+ */
+function hasEnteredRoom(): boolean {
+  return (
+    getState('setup.sessionStarted') ||
+    getRoomContext().roomId !== null ||
+    getState('network.isConnecting') === true ||
+    Boolean(getState('network.hostConn')) ||
+    isStandardRoomRole('host') ||
+    (isStandardRoomRole('guest') && !isInviteLinkPage())
+  );
+}
+
+/** Resolve once no page resource has finished for a moment, or at the cap. */
+function waitForQuietPageLoad(): Promise<void> {
+  return new Promise((resolve) => {
+    const startedAt = performance.now();
+    const check = () => {
+      const now = performance.now();
+      let lastResponseEnd = startedAt;
+      try {
+        for (const entry of performance.getEntriesByType('resource')) {
+          lastResponseEnd = Math.max(
+            lastResponseEnd,
+            (entry as PerformanceResourceTiming).responseEnd || 0,
+          );
+        }
+      } catch {
+        // Without resource timing the quiet period starts with the wait.
+      }
+      if (
+        now - lastResponseEnd >= STARTUP_APPLY_QUIET_MS ||
+        now - startedAt >= STARTUP_APPLY_MAX_WAIT_MS
+      ) {
+        resolve();
+        return;
+      }
+      globalThis.setTimeout(check, STARTUP_APPLY_POLL_MS);
+    };
+    check();
+  });
+}
+
+/**
+ * A waiting update found when this document starts is applied without the
+ * dialog: the room notice and the dialog both say a reload or reopen applies
+ * it. Only a room or the demo already under way keeps it waiting.
+ */
+function isStartupUpdateBlocked(): boolean {
+  return hasEnteredRoom() || isDemoStateActive() || isDemoSurfaceVisible();
+}
+
 /** A deferral that only waits for a transient leave/exit to finish. */
 function isDeferralTransient(): boolean {
   return !isRoomSessionActive() && !isDemoStateActive();
@@ -246,6 +326,9 @@ export function registerServiceWorker(): void {
     // was stored, so returning to setup offers it once.
     let deferredPromptWorker: ServiceWorker | null = null;
     let deferredPromptTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
+    // This document asked the waiting worker found at startup to activate.
+    // Its controllerchange reloads unless a room or the demo began meanwhile.
+    let startupApplyRequested = false;
 
     const probeCacheStatus = () => {
       navigator.serviceWorker.controller?.postMessage({ type: CACHE_STATUS_PROBE });
@@ -361,8 +444,11 @@ export function registerServiceWorker(): void {
       // clients). Do not auto-reload another tab that is hosting or joined
       // to a live room, or running the demo; markIntentionalNav would also
       // suppress its leave prompt. It gets the same local notice as a
-      // waiting update, once per generation.
-      if (isUpdatePromptDeferred()) {
+      // waiting update, once per generation. A startup apply was requested
+      // by this tab before any room began, so only an entered room keeps it.
+      const startupApply = startupApplyRequested;
+      startupApplyRequested = false;
+      if (startupApply ? isStartupUpdateBlocked() : isUpdatePromptDeferred()) {
         if (!notifyActiveRoom) return false;
         log.info('[SW] Update activated elsewhere. Deferring reload (room or demo active)');
         announceActivatedUpdate(controllerIdentity);
@@ -547,7 +633,10 @@ export function registerServiceWorker(): void {
       // Reconcile the current identity after subscribing so that change is not lost.
       if (navigator.serviceWorker.controller !== pageController) handleControllerChange();
 
-      const handleWaitingWorker = async (worker: ServiceWorker): Promise<void> => {
+      const handleWaitingWorker = async (
+        worker: ServiceWorker,
+        foundAtStartup = false,
+      ): Promise<void> => {
         if (!navigator.serviceWorker.controller || handledWaitingWorker === worker) return;
         if (activationState !== 'passive') return;
         handledWaitingWorker = worker;
@@ -576,7 +665,10 @@ export function registerServiceWorker(): void {
 
         const lastUpdate = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
         const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
-        if (inCooldown) {
+        // A startup worker that may reload this page takes the quiet path
+        // below, even right after an update reload.
+        const applyAtStartup = foundAtStartup && !isStartupUpdateBlocked();
+        if (inCooldown && !applyAtStartup) {
           log.debug('[SW] Update found during cooldown. Silently activating');
           worker.postMessage({ type: 'SKIP_WAITING' });
           return;
@@ -606,6 +698,33 @@ export function registerServiceWorker(): void {
           log.warn('[SW] Waiting worker reused the active cache generation; activating silently');
           worker.postMessage({ type: 'SKIP_WAITING' });
           return;
+        }
+        // A reload or reopen does not activate a waiting worker while this
+        // origin still has a client, so asking again here would make the user
+        // reload twice. This also covers a generation dismissed with "Later":
+        // the dialog said a reload would apply it.
+        if (applyAtStartup) {
+          await waitForQuietPageLoad();
+          if (navigator.serviceWorker.controller !== activeController) return;
+          if (!waitingWorkerIsCurrent()) {
+            continueWithReplacement();
+            return;
+          }
+          if (_swReloading || activationState !== 'passive') return;
+          if (!isStartupUpdateBlocked()) {
+            log.info('[SW] Update was waiting when this page opened. Applying it without a prompt');
+            startupApplyRequested = true;
+            worker.postMessage({ type: 'SKIP_WAITING' });
+            return;
+          }
+          if (inCooldown) {
+            // A room or the demo began right after an update reload. Activate
+            // silently as the cooldown always has; no reload follows.
+            log.debug('[SW] Update found during cooldown. Silently activating');
+            worker.postMessage({ type: 'SKIP_WAITING' });
+            return;
+          }
+          // A room or the demo began while the page loaded: the usual notice.
         }
         if (updateLedger.isDismissed(generation)) {
           log.debug('[SW] Waiting worker prompt already dismissed for this generation');
@@ -807,7 +926,7 @@ export function registerServiceWorker(): void {
       // updatefound only reports future installations. A worker can already
       // be waiting after a prior "Later" choice or a background-tab update.
       if (reg.waiting && navigator.serviceWorker.controller) {
-        handleWaitingWorker(reg.waiting).catch((error) => {
+        handleWaitingWorker(reg.waiting, true).catch((error) => {
           log.warn('[SW] Existing waiting worker prompt failed', error);
         });
       }

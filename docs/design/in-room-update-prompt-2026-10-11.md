@@ -65,6 +65,10 @@ this behaviour after the review (decision 6 below).
 
 6. The create and join screens, including an invite-link join, keep the
    toast (then the chat notice once the room starts), not the dialog.
+   Since 2026-10-16, a worker that is already waiting when the page opens
+   outside a room, including an invite link before Start, is applied without
+   the dialog or the toast; see
+   [apply a waiting update on reopen](update-apply-on-reopen-2026-10-16.md).
 7. The lazy-feature recovery dialog keeps its behaviour: it still opens in a
    room, is not dismissible, and its only action is 새로고침. It gets its own
    copy instead of the update dialog's: "새로고침이 필요해요" / "MUSIXQUARE가

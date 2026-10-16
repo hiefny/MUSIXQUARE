@@ -189,3 +189,67 @@ backend, so its 503 responses are expected and unrelated.
   gesture completes.
 - A Back during a PRO re-entry now shows the leave confirmation; the
   re-entry itself is unchanged.
+
+## Release and recovery
+
+The owner approved the 8.11.9 production deploy on 2026-10-17 together with
+the change. PR #377 was squash-merged as
+`5cbfaadf709c25bd66f9bf45e23e532e0955ca09` after PR CI 38962941387 (11 jobs)
+passed on head `1b16f9c2`; the Codex review had no findings. Exact-main push
+CI 38977359502 attempt 1 passed all 11 jobs: unit 575 files / 12,897 pass / 0
+fail / 1 skip (a Windows-only path check on Linux), candidate browser 17 and
+critical browser 45 pass.
+
+Production Release 38978044549 attempt 1 (target `app`, Developer API D1
+disabled) succeeded. Its deploy job finished at 07:51:53 KST.
+
+- App version `c9afffa3-34b8-4d7e-aee7-66b96da95622` / deployment
+  `537f7c48-0aa0-4321-b50f-8bab3a142e40`, message
+  `git:5cbfaadf709c25bd66f9bf45e23e532e0955ca09`. Final ownership was
+  verified at 07:51:49.306 KST. The partial-release compatibility recheck was
+  compatible at 07:51:13.616 KST, and the five unselected Workers stayed on
+  `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`.
+- The seven existing App D1 baseline steps applied and verified
+  idempotently. The Developer API D1 and other target-specific steps were
+  skipped.
+- Smokes passed: App generation converged on `/assets/main-Dg5EftL5.js`
+  (3 consecutive reads, 29 assets), the anonymous account boundary, the PRO
+  public boundary on the existing `8d5d44c0`, and Standard HTTPS signaling
+  (host and guest admission, offer and answer relay).
+- Artifacts: deployments 12079986563, coherent marker 12080141370, and
+  recovery checkpoint 12079642927.
+
+Public assets at 07:52:34–36 KST: `/` (140,676 bytes),
+`/service-worker.js` (39,149 bytes, `CACHE_VERSION = "v708"`),
+`/bootstrap.js?cache=v708` (10,196 bytes), the entry
+`/assets/main-Dg5EftL5.js` (435,676 bytes), and
+`/assets/system-audio-profile-eMKgmVHb.js` (12,691 bytes, the shared chunk
+that holds the window Back code) all returned 200. Each matched the
+exact-main candidate artifact byte for byte (SHA-256).
+
+Operations Drift Audit 38978419041 on `5cbfaadf` reported
+automated-checks-passed: 31 pass / 0 fail / 5 manual-only (report at
+07:54:07 KST).
+
+Not verified after the deploy: Back on a real device (the Android system
+Back in Chrome and the installed app, predictive Back, iPhone Safari's
+swipe), a PRO room, and a guest device. Open tabs pick up 8.11.9 through the
+update path recorded in [the reopen report](update-apply-on-reopen-2026-10-16.md),
+so the new behaviour reaches a device only after it loads the new page code.
+
+No rollback was needed, and the independent recovery job was skipped.
+Checkpoint
+`production-recovery-checkpoint-5cbfaadf709c25bd66f9bf45e23e532e0955ca09-38978044549-1`,
+captured at 07:50:44.478 KST, keeps the previous App
+`e0d717314c496feed645ed9c0c7848ffdc85472d` (8.11.8/v707), version
+`1257c8a7-24cd-494f-9ef6-17b21c4fe0ac` / deployment
+`6de2f7cb-71c6-4075-a625-2feaeeb2fff6`. The floors captured at
+07:50:47.196 KST were ready, with release floor `d9364cd9`, generation floor
+`4c5612d5`, and the generation and entitlement floors true. The retained App
+is a verified release ancestor.
+
+A normal authorized rollback to 8.11.8/v707 restores the previous behaviour:
+Back does not close windows (in a room it opens "세션 나가기" above them;
+outside a room it leaves the page with them open), and a Back during a PRO
+re-entry consumes the guard silently. No stored data or wire contract
+changes.

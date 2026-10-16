@@ -63,28 +63,40 @@ export function initBackgroundResumeGuard(
   // (the dialog blocks until tap), so guard against stacking another
   // recover/warn pair on top from a second visibility flip mid-dialog.
   let inFlight = false;
-  let pendingResume: BackgroundResumeEvent | null = null;
+  // The flight's warning has been asked for and is not answered yet.
+  let warningOpen = false;
+  // hiddenMs drives recovery; uncoveredHiddenMs is the longest absence that
+  // ended before any warning of the current flight was shown.
+  let pendingResume: { hiddenMs: number; uncoveredHiddenMs: number } | null = null;
   let disposed = false;
 
   const reportDetachedResumeFailure = (error: unknown): void => {
     deps.log?.warn?.('[BackgroundResume] Detached resume task failed', error);
   };
 
-  const handleResume = async (event: BackgroundResumeEvent): Promise<void> => {
+  const handleResume = async (
+    event: BackgroundResumeEvent,
+    warnHiddenMs = event.hiddenMs,
+  ): Promise<void> => {
     if (disposed) return;
     if (deps.shouldHandle && !deps.shouldHandle(event)) return;
     if (inFlight) {
       // Do not drop a second real resume while a warning dialog owns the first
       // flight. One follow-up is sufficient; retain the longest absence so its
-      // warning policy cannot be weakened by later shorter tab flips.
+      // recovery cannot be weakened by later shorter tab flips. An absence
+      // that ends while the warning is on screen is covered by that warning,
+      // so its follow-up only recovers (owner decision 2026-10-17).
       pendingResume = {
         hiddenMs: Math.max(pendingResume?.hiddenMs ?? 0, event.hiddenMs),
+        uncoveredHiddenMs: warningOpen
+          ? (pendingResume?.uncoveredHiddenMs ?? 0)
+          : Math.max(pendingResume?.uncoveredHiddenMs ?? 0, warnHiddenMs),
       };
       return;
     }
 
     const shouldRecover = event.hiddenMs >= recoverThresholdMs;
-    const shouldWarn = event.hiddenMs >= warnThresholdMs;
+    const shouldWarn = warnHiddenMs >= warnThresholdMs;
     if (!shouldRecover && !shouldWarn) return;
 
     inFlight = true;
@@ -104,17 +116,27 @@ export function initBackgroundResumeGuard(
       // Recovery can await AudioContext/RTC work while the user leaves the
       // room. Re-check ownership so an obsolete resume never opens a dialog.
       if (shouldWarn && (!deps.shouldHandle || deps.shouldHandle(event))) {
+        // This warning appears after every absence queued so far, so it
+        // covers them as well as the ones that end while it is open.
+        warningOpen = true;
+        if (pendingResume) pendingResume.uncoveredHiddenMs = 0;
         try {
           await deps.warn(event);
         } catch (error) {
           deps.log?.warn?.('[BackgroundResume] Warning dialog failed', error);
+        } finally {
+          warningOpen = false;
         }
       }
     } finally {
       inFlight = false;
       const followUp = pendingResume;
       pendingResume = null;
-      if (followUp && !disposed) handleResume(followUp).catch(reportDetachedResumeFailure);
+      if (followUp && !disposed) {
+        handleResume({ hiddenMs: followUp.hiddenMs }, followUp.uncoveredHiddenMs).catch(
+          reportDetachedResumeFailure,
+        );
+      }
     }
   };
 

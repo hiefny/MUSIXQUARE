@@ -166,7 +166,7 @@ describe('initBackgroundResumeGuard', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('coalesces a resume that arrives while the previous warning is still open', async () => {
+  it('only recovers for a resume that arrives while the previous warning is still open', async () => {
     let dismissWarning!: () => void;
     warn.mockImplementationOnce(
       () =>
@@ -187,10 +187,102 @@ describe('initBackgroundResumeGuard', () => {
     await flushPromises();
     await flushPromises();
 
+    // The open warning already covered that absence (owner decision
+    // 2026-10-17): recover again, but do not show the same warning twice.
     expect(recover).toHaveBeenCalledTimes(2);
     expect(recover).toHaveBeenLastCalledWith({
       hiddenMs: DEFAULT_WARN_THRESHOLD_MS + 5_000,
     });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces every absence that ends while the warning is open into one recovery', async () => {
+    let dismissWarning!: () => void;
+    warn.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          dismissWarning = resolve;
+        }),
+    );
+    init();
+
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS * 3);
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS * 2);
+    dismissWarning();
+    await flushPromises();
+    await flushPromises();
+
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(recover).toHaveBeenLastCalledWith({ hiddenMs: DEFAULT_WARN_THRESHOLD_MS * 3 });
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats an absence that ends before the warning opens as covered by it', async () => {
+    let finishRecovery!: () => void;
+    recover.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRecovery = resolve;
+        }),
+    );
+    let dismissWarning!: () => void;
+    warn.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          dismissWarning = resolve;
+        }),
+    );
+    init();
+
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+    // Leave again while the first recovery is still awaiting browser APIs.
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS + 5_000);
+    finishRecovery();
+    await flushPromises();
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    dismissWarning();
+    await flushPromises();
+    await flushPromises();
+
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('still warns for a long follow-up absence that no warning covered', async () => {
+    let finishRecovery!: () => void;
+    recover.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishRecovery = resolve;
+        }),
+    );
+    init();
+
+    // A short absence recovers without a warning; a long one ends meanwhile.
+    await visibilityCycle(5_000);
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS + 5_000);
+    expect(warn).not.toHaveBeenCalled();
+
+    finishRecovery();
+    await flushPromises();
+    await flushPromises();
+
+    expect(recover).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith({ hiddenMs: DEFAULT_WARN_THRESHOLD_MS + 5_000 });
+  });
+
+  it('warns again for a later absence after the warning was answered', async () => {
+    init();
+
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+    await flushPromises();
+    await visibilityCycle(DEFAULT_WARN_THRESHOLD_MS);
+    await flushPromises();
+
+    expect(recover).toHaveBeenCalledTimes(2);
     expect(warn).toHaveBeenCalledTimes(2);
   });
 

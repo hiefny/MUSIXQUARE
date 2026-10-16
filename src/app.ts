@@ -122,6 +122,7 @@ import { initOverlayObservers, isAnyOverlayShown } from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
 import { initDialog, showDialog } from './ui/dialog.ts';
+import { createLongBackgroundWarning } from './ui/long-background-warning.ts';
 import { initTabs } from './ui/tabs.ts';
 import { initI18n } from './i18n/index.ts';
 import { t } from './i18n/index.ts';
@@ -259,7 +260,9 @@ let activeAudioRecoveryIdentity: AudioRecoveryIdentity | null = null;
 let activeAudioRecoveryAbortController: AbortController | null = null;
 let activeAudioRecoveryGestureActivated = false;
 let pendingAudioRecoveryRequest: AudioRecoveryRequest | null = null;
-let suppressLongBackgroundWarningForIncident = false;
+const longBackgroundWarning = createLongBackgroundWarning({
+  hasAudioRecoveryPrompt: () => audioRecoveryPrompt !== null,
+});
 
 function captureAudioRecoveryIdentity(
   intent: AudioRecoveryIdentity['intent'],
@@ -456,6 +459,9 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   let gestureFlight: Promise<GestureRecoveryFlightResult> | null = null;
   let gestureSemanticAttemptToken: object | null = null;
   let gestureForegroundAttemptToken: object | null = null;
+  // Whatever asked for it, this dialog explains the return from the
+  // background itself, so the generic warning steps aside for this return.
+  longBackgroundWarning.yieldToAudioRecovery();
   const operation = showDialog({
     title: t('dialog.audio_recovery_title'),
     message: t('dialog.audio_recovery_message'),
@@ -728,13 +734,13 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
     // proof and any recovery prompt. Suppress the generic long-background
     // dialog while that owner is pending so the two dialogs cannot race.
     if (getPendingAudioContextRecoveryAttemptForHealth()) {
-      suppressLongBackgroundWarningForIncident = true;
+      longBackgroundWarning.yieldToAudioRecovery();
     }
     return;
   }
   if (output.status === 'needs-gesture') {
     const reason = output.reason === 'clock-stalled' ? 'clock-stalled' : 'context-not-running';
-    suppressLongBackgroundWarningForIncident = true;
+    longBackgroundWarning.yieldToAudioRecovery();
     const queueItemId = captureLocalFileOutputIdentity()?.queueItemId ?? null;
     bus.emit('audio:output-recovery-needed', {
       reason,
@@ -772,7 +778,7 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
 async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
   log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s): attempting recovery`);
 
-  suppressLongBackgroundWarningForIncident = false;
+  longBackgroundWarning.beginIncident();
   await runBackgroundResumeRecovery(hiddenMs, {
     // Reconcile suspended RTC state before awaiting audio recovery. Mobile
     // WebKit can dispatch the queued connection-state event immediately after
@@ -834,7 +840,7 @@ function initAudioOutputRecovery(): void {
   bus.on('state:setup.sessionStarted', abortSupersededRecovery);
   bus.on('audio:output-recovery-needed', (event) => {
     if (event.source === 'background-resume') {
-      suppressLongBackgroundWarningForIncident = true;
+      longBackgroundWarning.yieldToAudioRecovery();
     }
     observeAudioRecoveryOperation(
       requestAudioOutputRecovery(
@@ -848,16 +854,6 @@ function initAudioOutputRecovery(): void {
       ),
       'event-triggered recovery',
     );
-  });
-}
-
-async function warnLongBackgroundResume(): Promise<void> {
-  if (suppressLongBackgroundWarningForIncident) return;
-  await showDialog({
-    title: t('dialog.background_resume_title'),
-    message: t('dialog.background_resume_message'),
-    buttonText: t('dialog.got_it'),
-    defaultFocus: 'primary',
   });
 }
 
@@ -1258,7 +1254,7 @@ async function bootstrap(): Promise<void> {
   safeInit('BackgroundResumeGuard', () =>
     initBackgroundResumeGuard({
       recover: ({ hiddenMs }) => recoverLongBackgroundResume(hiddenMs),
-      warn: () => warnLongBackgroundResume(),
+      warn: () => longBackgroundWarning.warn(),
       shouldHandle: () => hasActiveBackgroundResumeSession(),
       log,
     }),

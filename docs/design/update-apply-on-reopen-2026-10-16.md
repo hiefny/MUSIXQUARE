@@ -78,37 +78,41 @@ bindings, permissions, CSP, or copy changes.
 
 ## Verification
 
-Base `a8b37386` (main after #369). Tested runtime source: `18ab8363`. It was
-then rebased onto #370 as `484c1409`; #370 changed only documents, so the
-runtime tree is identical, and the cache-version and release-identity guards
-passed again there. Local Windows checks used Node 24.13.1 / npm 11.8.0.
-These are local branch results, not the exact-main release candidate.
+Base `a8b37386` (main after #369), rebased onto #370 (documents only).
+Tested runtime source: `99bc8572`, the PR head runtime after the review fix.
+Local Windows checks used Node 24.13.1 / npm 11.8.0. These are local branch
+results, not the exact-main release candidate.
 
-On `18ab8363`, `format:check`, `lint`, `typecheck`, and `build:checked`
+On `99bc8572`, `format:check`, `lint`, `typecheck`, and `build:checked`
 passed. `build:checked` includes the room-authority boundary,
-service-worker cache version (v703 covers the change), and app-shell (97
-assets) guards. The bus-pairing, import-graph, lifecycle-writes,
-dead-exports, chunk-pump, standard-room hot-path, Developer API boundary, D1
-migration, and operations drift contract guards also passed. The full unit
-run passed 572 files / 12,857 tests, with zero failures or skips. E2E was not
-run.
+service-worker cache version (v704 covers every committed runtime change),
+and app-shell (97 assets) guards. The bus-pairing, import-graph,
+lifecycle-writes, dead-exports, chunk-pump, standard-room hot-path, Developer
+API boundary, D1 migration, and operations drift contract guards also
+passed. The full unit run passed 572 files / 12,859 tests, with zero failures
+or skips. E2E was not run. The first PR revision (`18ab8363`, rebased as
+`484c1409`) had passed the same set with 12,857 tests.
 
-An earlier local run caught two problems that are fixed in `18ab8363`. The
+Earlier local runs caught two problems before the PR opened. The
 room-authority guard rejected a new direct `network.appRole` read, which now
 goes through `isStandardRoomRole()`. The cache-version guard rejected runtime
-edits committed after the cache bump, so the branch was squashed into one
-commit.
+edits committed after the cache bump, so the pre-PR commits were squashed.
+The review fix carries its own bump to v704 instead of rewriting the pushed
+branch.
 
 ### Unit tests
 
-`src/core/__tests__/sw-register.test.ts` adds ten cases:
+`src/core/__tests__/sw-register.test.ts` adds twelve cases:
 
 - a worker waiting at startup gets `SKIP_WAITING` only after the quiet
   wait, with no dialog, toast, or notice, and the reload follows the new
   controller;
 - the request waits while page resources keep finishing;
-- the invite-link screen before Start applies the update, both on open and
-  right after an update reload (the cooldown path);
+- the invite-link screen before Start applies the update after the quiet
+  wait, both on open and right after an update reload (the cooldown path);
+- within the cooldown, a page already in a room is activated at once without
+  a reload, and a room that begins during the wait gets the same silent
+  activation with the notice;
 - a generation dismissed with "나중에" applies on reopen;
 - Join tapped on the home screen during the wait keeps the toast and sends
   nothing;
@@ -116,11 +120,14 @@ commit.
   on the home screen that began before activation do not reload, and they
   show the toast.
 
-Against the previous `src/sw-register.ts` (base `a8b37386`) nine of the ten
-fail. The Join-during-the-wait case passes there too, because the old code
-already showed the toast; it guards the new path. Against the first version
-of this change, which asked at once and did not block Join on the home
-screen, the four cases about those two points fail. The cooldown case also fails with only its cooldown line removed.
+Against the previous `src/sw-register.ts` (base `a8b37386`), nine of the
+first ten fail. The Join-during-the-wait case passes there too, because the
+old code already showed the toast; it guards the new path. Against a draft
+made before the PR opened, which asked at once and did not block Join on the
+home screen, the four cases about those two points fail. Against the first
+PR revision (`484c1409`), the invite case in the cooldown fails because the
+request went out at once. The two cooldown room cases pin behaviour that the
+earlier code already had.
 Existing cases that used a startup waiting worker to reach the dialog now
 install the update after registration. Guest-room cases now model a real
 joined guest (`setup.sessionStarted`) or a join under way
@@ -143,11 +150,15 @@ is no backend in this setup, so `/api/*` answered 503 throughout.
 | Invite link | final version (v714 → v715) | Same as the slow invite runs | Applied 1.4 s after opening, reopened at 1.6 s on `/123456`, controller v715, no dialog or toast. |
 | Home screen | final version (v715 → v716) | Dialog left open, browser reload | Applied 1.2 s after the reload, reopened at 1.4 s, controller v716, no dialog or toast. |
 
-The console of the reopened pages showed `[SW] Update was waiting when this
-page opened. Applying it without a prompt`. The final-version builds came
-from the working tree before a comment-only edit and a test type fix, so
-their runtime logic matches `18ab8363`. The temporary preview entries and
-browser storage were removed afterwards.
+Version labels in the table are local test builds, not releases. "First
+version" is the draft made before the PR opened. The console of the
+reopened pages showed `[SW] Update was waiting when this page opened.
+Applying it without a prompt`. The final-version builds came from the
+working tree before a comment-only edit and a test type fix, so their
+runtime logic matches the first PR revision (`18ab8363`, rebased as
+`484c1409`). The review fix in `99bc8572` changes only the cooldown branch,
+which no browser run reached because each run waited out the cooldown. The
+temporary preview entries and browser storage were removed afterwards.
 
 ### Not covered
 
@@ -159,8 +170,8 @@ browser storage were removed afterwards.
 - Whether an installed iOS app reopens to a new document or resumes the old
   one depends on the OS. A resumed page keeps the old code until its next
   real launch, and this change does not affect that case.
-- Pressing Start in the short time between the request and activation is
-  covered by unit tests only.
+- Pressing Start in the short time between the request and activation, and
+  the cooldown branch after the review fix, are covered by unit tests only.
 
 ## Recovery
 

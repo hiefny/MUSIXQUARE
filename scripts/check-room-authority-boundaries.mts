@@ -181,10 +181,10 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
     'src/app.ts',
     [
       'event:appRole @ callback-call:safeInit("Connect")#1 :: bus.on("state:network.appRole", (role) => { if (role === \'host\' || role === \'guest\') load(); })',
-      'event:appRole @ function:initBackButtonGuard :: bus.on("state:network.appRole", controller.handleSessionStateChange)',
+      'event:appRole @ function:initBackButtonGuard :: bus.on("state:network.appRole", controller.handleStateChange)',
       "read:appRole @ callback-call:safeInit(\"Connect\")#1 :: variable role = getState('network.appRole') => consumers [role -> if (role === 'host' || role === 'guest')]",
       "read:appRole @ callback-property:getRole :: concise-return getState('network.appRole')",
-      "read:appRole @ callback-property:isSessionActive :: concise-return getState('setup.sessionStarted') && getState('network.appRole') !== 'idle'",
+      "read:appRole @ callback-property:isSessionActive :: property role = getState('network.appRole')",
       "read:appRole @ function:hasActiveBackgroundResumeSession :: return (getState('setup.sessionStarted') && getState('network.appRole') !== 'idle' && getState('network.sessionCode').trim().length > 0)",
     ],
   ],

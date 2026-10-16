@@ -46,7 +46,7 @@ import { registerHandlers } from '../network/protocol.ts';
 import { hideSetupOverlay } from '../ui/setup-shared.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
-import { updateOverlayOpenClass } from '../ui/dom.ts';
+import { onWindowBack, updateOverlayOpenClass } from '../ui/dom.ts';
 import { syncExclusivePressedState } from '../core/aria-state.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from '../ui/theme-chrome.ts';
 import type { FileMeta, QueueItemId, ResidentFile, TrackMeta } from '../types/index.ts';
@@ -1600,10 +1600,31 @@ function openDemoInfo(): void {
   window.open(getCurrentDemoTrack().infoUrl, '_blank', 'noopener');
 }
 
+/** Whether this device may end the demo: the host, or a guest with room control. */
+function canRequestDemoExit(): boolean {
+  const hostConn = getState('network.hostConn');
+  return !hostConn || (hasRoomCapability('room.configure') && hostConn.open);
+}
+
+/**
+ * History Back ends the demo for whoever its exit button would end it for.
+ * A guest who cannot end it is not trapped behind it: Back passes on to the
+ * room's leave confirmation instead.
+ */
+function handleDemoBack(overlay: HTMLElement): boolean {
+  if (!getState('demo.active') && !getState('demo.loading')) {
+    // The exit curtain is still running; let it finish.
+    return overlay.classList.contains('exiting');
+  }
+  if (!canRequestDemoExit()) return false;
+  requestDemoExit();
+  return true;
+}
+
 function requestDemoExit(): void {
   const hostConn = getState('network.hostConn');
   if (hostConn) {
-    if (hasRoomCapability('room.configure') && hostConn.open) {
+    if (canRequestDemoExit()) {
       // A held request already explained itself with a toast.
       if (safeSend(hostConn, { type: MSG.REQUEST_DEMO_EXIT })) showToast(t('demo.try_later_toast'));
       return;
@@ -1837,6 +1858,9 @@ function handleDemoExitMessage(_data: Record<string, unknown>, conn?: DataConnec
 function bindDemoDom(): void {
   if (document.body.dataset.demoBound === '1') return;
   document.body.dataset.demoBound = '1';
+
+  const overlay = document.getElementById('demo-overlay');
+  if (overlay) onWindowBack(overlay, () => handleDemoBack(overlay));
 
   document.querySelectorAll<HTMLElement>('[data-demo-role]').forEach((btn) => {
     btn.addEventListener('click', () => bus.emit('demo:set-role', Number(btn.dataset.demoRole)));

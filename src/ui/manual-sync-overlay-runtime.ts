@@ -23,7 +23,7 @@ import { isFilePipelineBusyForPlay } from '../player/transport.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
-import { normalizeEmptyContentEditable, syncOverlayState } from './dom.ts';
+import { normalizeEmptyContentEditable, onWindowBack, syncOverlayState } from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
 
@@ -290,6 +290,11 @@ function bindOverlay(): void {
   if (overlay && !boundOverlays.has(overlay)) {
     boundOverlays.add(overlay);
     overlay.addEventListener('keydown', handleOverlayKeydown);
+    onWindowBack(overlay, () => {
+      if (!overlay.classList.contains('show')) return false;
+      close();
+      return true;
+    });
   }
   const editor = document.getElementById('manual-sync-value');
   if (editor?.getAttribute('contenteditable') === 'true') bindEditor(editor);

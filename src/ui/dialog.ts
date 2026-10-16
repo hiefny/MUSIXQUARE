@@ -9,7 +9,7 @@ import { bus } from '../core/events.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
-import { syncOverlayState, normalizeEmptyContentEditable } from './dom.ts';
+import { syncOverlayState, normalizeEmptyContentEditable, onWindowBack } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { destroyCustomScrollbar, initCustomScrollbar } from './custom-scrollbar.ts';
 
@@ -25,6 +25,11 @@ interface DialogOptions {
   secondaryText?: DialogText;
   cancelText?: DialogText;
   dismissible?: boolean;
+  /**
+   * History Back closes the dialog as `back`, a cancel, by default. Set false
+   * for a dialog whose primary tap is required; Back then leaves it open.
+   */
+  closeOnBack?: boolean;
   defaultFocus?: 'primary' | 'secondary';
   /** Places primary then secondary on separate full-width rows. */
   actionLayout?: 'stacked';
@@ -852,6 +857,21 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
     done('secondary');
   };
+
+  // History Back is a cancel, never a button: no activation hook runs, and
+  // callers see `back`. The choice page steps back to the first page first.
+  const backListener = new AbortController();
+  cleanup.push(() => backListener.abort());
+  onWindowBack(
+    overlay,
+    () => {
+      if (o.closeOnBack === false) return true;
+      if (choicePageShown) showInputPage();
+      else done('back');
+      return true;
+    },
+    backListener.signal,
+  );
 
   on(overlay, 'click', (e) => {
     if (!dismissible || !_dialogActive) return;

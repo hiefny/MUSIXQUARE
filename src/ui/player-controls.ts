@@ -27,12 +27,14 @@ import {
   copyTextToClipboard,
   updateTitleWithMarquee,
   normalizeEmptyContentEditable,
+  onWindowBack,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { exitYouTubeFullscreen } from '../player/video.ts';
+import { getFullscreenElement } from './fullscreen.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import {
@@ -1239,9 +1241,30 @@ export function initPlayerControls(): void {
     overlay.addEventListener('keydown', (event) => {
       handleFullscreenOverlayKeydown(overlay, event, close);
     });
+    onWindowBack(overlay, () => {
+      if (!overlay.classList.contains('active')) return false;
+      close();
+      return true;
+    });
   };
   bindOverlayKeyboard('media-source-overlay', closeMediaSourcePopup);
   bindOverlayKeyboard('youtube-url-overlay', closeYouTubePopup);
+  // Back leaves a fullscreen video first, as Android already does natively.
+  const videoWrapper = document.querySelector<HTMLElement>('.video-wrapper');
+  if (videoWrapper) {
+    onWindowBack(
+      videoWrapper,
+      () => {
+        const filling =
+          videoWrapper.classList.contains('fake-fullscreen') ||
+          Boolean(getFullscreenElement()?.closest('.video-wrapper'));
+        if (!filling) return false;
+        exitYouTubeFullscreen();
+        return true;
+      },
+      domSignal,
+    );
+  }
 
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));

@@ -5,7 +5,7 @@ import { formatSystemAudioProfileLabel } from '../core/system-audio-profile.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { languageDirection } from '../i18n/locales.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
-import { getUiElement, syncOverlayState } from './dom.ts';
+import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { showToast } from './toast.ts';
 import { beginScreensaverEntry, type ScreensaverEntry } from './screensaver-entry.ts';
 
@@ -217,6 +217,11 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
     }
   };
   fallbackBack.addEventListener('click', () => cleanup());
+  // The overlay leaves the DOM when it closes, and its listener with it.
+  onWindowBack(overlay, () => {
+    cleanup();
+    return true;
+  });
   scope.on('state:playback.mode', enforcePlayback);
   scope.on('state:player.currentTrackMeta', enforcePlayback);
   scope.on('state:files.current', () => sendUpdate());

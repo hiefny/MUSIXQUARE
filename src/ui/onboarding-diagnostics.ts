@@ -10,7 +10,7 @@ import { getCapturedLogs } from '../core/log-capture.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { getRoomContext } from '../rooms/authority.ts';
-import { syncOverlayState } from './dom.ts';
+import { onWindowBack, syncOverlayState } from './dom.ts';
 
 const OVERLAY_ID = 'onboarding-diagnostics-overlay';
 const TIMELINE_STORAGE_KEY = 'mxqr:diagnostics:lifecycle-v1';
@@ -682,6 +682,10 @@ export function openOnboardingDiagnostics(): void {
   });
   refreshButton.addEventListener('click', renderSnapshot);
   closeButton.addEventListener('click', cleanup);
+  onWindowBack(overlay, () => {
+    cleanup();
+    return true;
+  });
   document.addEventListener('keydown', onKey);
 
   activeOverlayCleanup = cleanup;

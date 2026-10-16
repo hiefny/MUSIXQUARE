@@ -187,7 +187,7 @@ async function installLayoutProbe(
 
 async function waitForLayoutFonts(page: Page): Promise<void> {
   const fontState = await page.evaluate(async () => {
-    const primaryFaces = await document.fonts.load('750 15px "Pretendard"', 'MUSIXQUARE');
+    const primaryFaces = await document.fonts.load('700 15px "Pretendard"', 'MUSIXQUARE');
     // Flush styles after inserting locale probes before awaiting new glyph requests.
     document.body.getBoundingClientRect();
     await document.fonts.ready;

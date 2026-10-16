@@ -212,7 +212,7 @@ function preloadLocaleFontGlyphs(code: LocaleFontCode, text: string): Promise<bo
         const fontSet = typeof document === 'undefined' ? undefined : document.fonts;
         if (fontSet && typeof fontSet.load === 'function') {
           const faces = await fontSet.load(
-            `750 15px "${FONT_ASSET_BY_LOCALE[code].family}"`,
+            `700 15px "${FONT_ASSET_BY_LOCALE[code].family}"`,
             freshSample,
           );
           if (faces.length === 0) return false;

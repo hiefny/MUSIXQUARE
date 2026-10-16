@@ -53,7 +53,7 @@ test('a failed optional font CSS retries its immutable URL at a later render', a
   await expect.poll(() => requests).toBeGreaterThan(0);
   expect(
     await page.evaluate(
-      async () => (await document.fonts.load('750 15px "Noto Sans Arabic"', 'العربية')).length,
+      async () => (await document.fonts.load('700 15px "Noto Sans Arabic"', 'العربية')).length,
     ),
   ).toBe(0);
   const failedRequests = requests;
@@ -67,7 +67,7 @@ test('a failed optional font CSS retries its immutable URL at a later render', a
   await expect
     .poll(() =>
       page.evaluate(
-        async () => (await document.fonts.load('750 15px "Noto Sans Arabic"', 'العربية')).length,
+        async () => (await document.fonts.load('700 15px "Noto Sans Arabic"', 'العربية')).length,
       ),
     )
     .toBeGreaterThan(0);

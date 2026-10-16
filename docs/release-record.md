@@ -53,6 +53,16 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
+### 글자 굵기 최대 700 배포 준비
+
+- [ ] 프로젝트의 모든 글자 굵기를 700 이하로 맞추는 App 8.11.3/v700 준비(오너 결정
+      2026-10-16). 앱 숫자칸·BETA 배지 등 7곳, 관리자 콘솔, 소개·블로그·히스토리·
+      이벤트·법적 고지·사이트맵 페이지, Soro 글 페이지, 디자인 시스템, 공유 이미지(OG)
+      16장. target=app, Developer API D1=false. 의존성·스키마·비밀·바인딩·프로토콜
+      변경 없음, 혼합 버전 호환. 롤백하면 이전 굵기와 OG 이미지로 돌아간다. 로컬 검사·
+      PR 검토·exact-main CI 후보·운영 배포 확인 후 닫는다.
+      [수정·검증 근거](design/max-font-weight-700-2026-10-16.md).
+
 ### 최근 해결 근거
 
 App 8.11.2/v699의 제목 굵기 700 통일(오너 결정 2026-10-16)은 PR

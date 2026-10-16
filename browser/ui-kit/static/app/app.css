@@ -136,7 +136,7 @@
 .mq-title {
   margin: 18px 0 8px;
   font-size: 28px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.03em;
 }
 
@@ -233,7 +233,7 @@
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.08em;
 }
 
@@ -772,7 +772,7 @@ svg.stroke-icon {
 .mq-invite .lbl {
   color: var(--text-sub);
   font-size: 9px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -780,7 +780,7 @@ svg.stroke-icon {
 .mq-invite .code {
   font-size: 52px;
   font-variant-numeric: tabular-nums;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.12em;
 }
 
@@ -812,7 +812,7 @@ svg.stroke-icon {
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.08em;
 }
 

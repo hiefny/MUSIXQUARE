@@ -83,18 +83,18 @@ describe('locale font glyph preloading', () => {
     await expect(preload).resolves.toBe(true);
 
     expect(glyphLoader).toHaveBeenCalledOnce();
-    expect(glyphLoader).toHaveBeenCalledWith('750 15px "Noto Sans JP"', '日本語');
+    expect(glyphLoader).toHaveBeenCalledWith('700 15px "Noto Sans JP"', '日本語');
   });
 
   it.each([
-    ['ru', 'Русский', '750 15px "Noto Sans"'],
-    ['th', 'ไทย', '750 15px "Noto Sans Thai"'],
-    ['gu', 'ગુજરાતી', '750 15px "Noto Sans Gujarati"'],
-    ['kn', 'ಕನ್ನಡ', '750 15px "Noto Sans Kannada"'],
-    ['ml', 'മലയാളം', '750 15px "Noto Sans Malayalam"'],
-    ['pa', 'ਪੰਜਾਬੀ', '750 15px "Noto Sans Gurmukhi"'],
-    ['zh-hans', '简体中文', '750 15px "Noto Sans SC"'],
-    ['zh-hant', '繁體中文', '750 15px "Noto Sans TC"'],
+    ['ru', 'Русский', '700 15px "Noto Sans"'],
+    ['th', 'ไทย', '700 15px "Noto Sans Thai"'],
+    ['gu', 'ગુજરાતી', '700 15px "Noto Sans Gujarati"'],
+    ['kn', 'ಕನ್ನಡ', '700 15px "Noto Sans Kannada"'],
+    ['ml', 'മലയാളം', '700 15px "Noto Sans Malayalam"'],
+    ['pa', 'ਪੰਜਾਬੀ', '700 15px "Noto Sans Gurmukhi"'],
+    ['zh-hans', '简体中文', '700 15px "Noto Sans SC"'],
+    ['zh-hant', '繁體中文', '700 15px "Noto Sans TC"'],
   ] as const)('uses the matching %s family', async (code, sample, font) => {
     const glyphLoader = installFontSet();
     __setLocaleFontLoaderForTests(
@@ -151,8 +151,8 @@ describe('locale font glyph preloading', () => {
     await expect(preloadLocaleFontGlyphs('ru', 'вет')).resolves.toBe(true);
 
     expect(glyphLoader.mock.calls).toEqual([
-      ['750 15px "Noto Sans"', 'При'],
-      ['750 15px "Noto Sans"', 'вет'],
+      ['700 15px "Noto Sans"', 'При'],
+      ['700 15px "Noto Sans"', 'вет'],
     ]);
   });
 
@@ -175,8 +175,8 @@ describe('locale font glyph preloading', () => {
     await vi.waitFor(() => expect(glyphLoader).toHaveBeenCalledTimes(2));
 
     expect(glyphLoader.mock.calls).toEqual([
-      ['750 15px "Noto Sans JP"', 'かな'],
-      ['750 15px "Noto Sans JP"', 'カ'],
+      ['700 15px "Noto Sans JP"', 'かな'],
+      ['700 15px "Noto Sans JP"', 'カ'],
     ]);
     resolveFirstGlyphLoad([{} as FontFace]);
     await expect(first).resolves.toBe(true);

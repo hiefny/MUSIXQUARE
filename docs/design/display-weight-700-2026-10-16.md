@@ -79,6 +79,48 @@ desktop app's Chromium browser:
 
 ## Release and recovery
 
-App-only release (`target=app`). Recovery is the ordinary Production Release
-rollback to the 8.11.1 checkpoint, which restores the 800 display weight and
-the Japanese/Chinese 700 exception.
+App **8.11.2/v699** shipped through
+[Production Release 38866744699](https://github.com/hiefny/MUSIXQUARE/actions/runs/38866744699),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-16 16:24:23 KST** using the immutable
+candidate from exact-main CI
+[38866050515](https://github.com/hiefny/MUSIXQUARE/actions/runs/38866050515) for
+`c6ccfa03b2f0aa4b549ad24ed38bff899aa876a6`. No rollback was needed; the recovery job was skipped.
+
+- Exact-main CI ran 11 jobs: 570 unit files, 12,844 passed / 0 failed / 1
+  skipped (the Windows-only cross-drive path check on Linux), 17 candidate
+  browser and 40 critical browser tests passed, and every coverage, static and
+  build gate passed. Pull request CI passed all 11 jobs and the Codex review
+  completed with no findings.
+- App version `065ead32-e74a-4e47-b3ad-d5643ae20744` became
+  `26de6257-dadf-4cae-ac3e-872d67bd4ee3`. Final deployment ownership was
+  verified at 16:24:18.408 KST, and the coherent production marker records the
+  exact SHA and target `app`.
+- The partial-release compatibility recheck at 16:23:50.840 KST was
+  compatible. The five unselected Workers were not deployed and keep the
+  `d9364cd9` identities in `docs/release-record.md` §1; the PRO smoke re-read
+  pro-room `8d5d44c0`. The new App deployment identity is in the 90-day run
+  artifact `production-deployments-c6ccfa03b2f0aa4b549ad24ed38bff899aa876a6-38866744699-1`.
+- App generation (`main-DpdM8Dpu.js`, three consecutive reads, 29 assets
+  converged), anonymous App account boundary, current PRO public boundary and
+  Standard HTTPS signaling smokes passed. Out-of-scope Worker smokes were
+  skipped, not counted as passes. The seven existing App D1 baselines were
+  applied and verified idempotently; Developer API D1 steps were skipped.
+- Public checks at 16:26 KST returned HTTP 200 for `/`, the v699 service worker,
+  `bootstrap.js?cache=v699`, `main-DpdM8Dpu.js` and `main-C5ULjsC0.css`. The
+  public stylesheet defines `--font-weight-display` once, as 700, with no
+  Japanese/Chinese override. The public design system token is 700, the design
+  page reads `28 / 700` and `24 / 700`, and the type-scale preview uses the
+  token.
+- [Operations Drift Audit 38867088682](https://github.com/hiefny/MUSIXQUARE/actions/runs/38867088682)
+  succeeded. Its 16:25:30.358 KST report records **31 pass / 0 fail / 5
+  manual-only**; manual checks are not treated as completed.
+
+The immutable recovery checkpoint captured at 16:23:03.832 KST
+(`production-recovery-checkpoint-c6ccfa03b2f0aa4b549ad24ed38bff899aa876a6-38866744699-1`)
+preserves the previous App `cedc0b04707ed619647a3897f54bc1c3bcfd64e2`,
+8.11.1/v698, version `065ead32-e74a-4e47-b3ad-d5643ae20744`, deployment
+`c9f13516-65a3-4c86-96be-e44798d17dd2`. Rolling back to it restores the 800
+display weight and the Japanese/Chinese 700 exception. Mixed versions are safe
+because only CSS changed. The checkpoint is not a user-data backup; no data
+migration is needed and existing recovery floors remain binding.

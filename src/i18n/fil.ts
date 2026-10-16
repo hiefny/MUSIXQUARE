@@ -43,6 +43,9 @@ const fil: Record<I18nKey, string> = {
   'common.on': 'Naka-on',
   'common.off': 'Naka-off',
 
+  'screensaver.back': 'Bumalik sa MUSIXQUARE',
+  'screensaver.show_music': 'Ipakita ang impormasyon ng kanta',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Mag-sign in',
   'account.login_cancelled': 'Kinansela ang pag-sign in',
@@ -473,6 +476,7 @@ const fil: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [hiling]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [segundo]',
@@ -489,6 +493,7 @@ const fil: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Tingnan ang mga nakakonektang user',
   'chat.cmd_d_bot': 'Hilingin sa AI na pamahalaan ang playlist',
   'chat.cmd_d_clear': 'Burahin ang history ng chat',
+  'chat.cmd_d_screensaver': 'Buksan ang screensaver',
   'chat.cmd_d_filter': 'Filter ng masasamang salita',
   'chat.cmd_d_freeze': 'I-freeze ang chat',
   'chat.cmd_d_slowmode': 'Slow mode',
@@ -552,6 +557,7 @@ const fil: Record<I18nKey, string> = {
   'network.host_waiting': 'Hinihintay ang host...',
 
   // ─── Dynamic na notification ─────────────────────────────────────
+  'toast.screensaver_youtube': 'Hindi magagamit ang screensaver habang nagpe-play ang YouTube',
   'toast.device_disconnected': 'Nadiskonekta si {{name}}',
   'toast.device_conn_error': 'May error sa koneksyon ni {{name}}',
   'toast.device_kicked': 'Inalis si {{name}}',

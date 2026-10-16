@@ -44,6 +44,9 @@ const pa: Record<I18nKey, string> = {
   'common.on': 'ਚਾਲੂ',
   'common.off': 'ਬੰਦ',
 
+  'screensaver.back': 'MUSIXQUARE ’ਤੇ ਵਾਪਸ ਜਾਓ',
+  'screensaver.show_music': 'ਗੀਤ ਦੀ ਜਾਣਕਾਰੀ ਦਿਖਾਓ',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ਸਾਈਨ ਇਨ ਕਰੋ',
   'account.login_cancelled': 'ਸਾਈਨ ਇਨ ਰੱਦ ਹੋ ਗਿਆ',
@@ -457,6 +460,7 @@ const pa: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [ਬੇਨਤੀ]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [ਸਕਿੰਟ]',
@@ -473,6 +477,7 @@ const pa: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'ਜੁੜੇ ਵਰਤੋਂਕਾਰ ਵੇਖੋ',
   'chat.cmd_d_bot': 'ਪਲੇਲਿਸਟ ਸੰਭਾਲਣ ਲਈ AI ਨੂੰ ਕਹੋ',
   'chat.cmd_d_clear': 'ਚੈਟ ਦਾ ਇਤਿਹਾਸ ਸਾਫ਼ ਕਰੋ',
+  'chat.cmd_d_screensaver': 'ਸਕ੍ਰੀਨਸੇਵਰ ਖੋਲ੍ਹੋ',
   'chat.cmd_d_filter': 'ਅਣਉਚਿਤ ਸ਼ਬਦਾਂ ਦਾ ਫ਼ਿਲਟਰ',
   'chat.cmd_d_freeze': 'ਚੈਟ ਰੋਕੋ',
   'chat.cmd_d_slowmode': 'ਹੌਲੀ ਮੋਡ',
@@ -534,6 +539,7 @@ const pa: Record<I18nKey, string> = {
   'network.host_waiting': 'ਹੋਸਟ ਦੀ ਉਡੀਕ ਹੈ...',
 
   // ─── Toasts ──────────────────────────────────────────────────────
+  'toast.screensaver_youtube': 'YouTube ਚੱਲਣ ਦੌਰਾਨ ਸਕ੍ਰੀਨਸੇਵਰ ਉਪਲਬਧ ਨਹੀਂ ਹੈ',
   'toast.device_disconnected': '{{name}} ਦਾ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਗਿਆ',
   'toast.device_conn_error': '{{name}} ਦੇ ਕਨੈਕਸ਼ਨ ਵਿੱਚ ਗੜਬੜ',
   'toast.device_kicked': '{{name}} ਨੂੰ ਕੱਢ ਦਿੱਤਾ ਗਿਆ',

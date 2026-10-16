@@ -41,6 +41,9 @@ const th: Record<I18nKey, string> = {
   'common.sync': 'ซิงก์',
   'common.on': 'เปิด',
   'common.off': 'ปิด',
+
+  'screensaver.back': 'กลับไปที่ MUSIXQUARE',
+  'screensaver.show_music': 'แสดงข้อมูลเพลง',
   'account.login_title': 'เข้าสู่ระบบ',
   'account.login_cancelled': 'ยกเลิกการเข้าสู่ระบบแล้ว',
   'account.login_failed': 'เข้าสู่ระบบไม่ได้\nลองอีกครั้ง',
@@ -449,6 +452,7 @@ const th: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [คำขอ]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [วินาที]',
@@ -465,6 +469,7 @@ const th: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'ดูผู้เข้าร่วมที่เชื่อมต่อ',
   'chat.cmd_d_bot': 'ขอให้ AI จัดการเพลย์ลิสต์',
   'chat.cmd_d_clear': 'ล้างประวัติแชต',
+  'chat.cmd_d_screensaver': 'เปิดโปรแกรมรักษาหน้าจอ',
   'chat.cmd_d_filter': 'ตัวกรองคำหยาบ',
   'chat.cmd_d_freeze': 'ล็อกแชต',
   'chat.cmd_d_slowmode': 'โหมดช้า',
@@ -526,6 +531,7 @@ const th: Record<I18nKey, string> = {
   'network.host_waiting': 'กำลังรอเจ้าของห้อง...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'ใช้โปรแกรมรักษาหน้าจอไม่ได้ขณะเล่น YouTube',
   'toast.device_disconnected': '{{name}} ตัดการเชื่อมต่อแล้ว',
   'toast.device_conn_error': 'ข้อผิดพลาดการเชื่อมต่อของ {{name}}',
   'toast.device_kicked': '{{name}} ถูกนำออกแล้ว',

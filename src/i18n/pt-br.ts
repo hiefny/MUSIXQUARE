@@ -44,6 +44,9 @@ const ptBr: Record<I18nKey, string> = {
   'common.sync': 'Sincronizar',
   'common.on': 'Ligado',
   'common.off': 'Desligado',
+
+  'screensaver.back': 'Voltar ao MUSIXQUARE',
+  'screensaver.show_music': 'Mostrar informações da música',
   'account.login_title': 'Entrar',
   'account.login_cancelled': 'O login foi cancelado',
   'account.login_failed': 'Não foi possível entrar\nTente novamente',
@@ -509,6 +512,8 @@ const ptBr: Record<I18nKey, string> = {
     'O compartilhamento de áudio do sistema terminou automaticamente\napós 2 horas',
 
   // Toast
+  'toast.screensaver_youtube':
+    'O protetor de tela não está disponível durante a reprodução do YouTube',
   'toast.device_disconnected': '{{name}} desconectado',
   'toast.device_conn_error': 'Erro de conexão de {{name}}',
   'toast.device_kicked': '{{name}} foi removido',
@@ -847,6 +852,7 @@ const ptBr: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [solicitação]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [segundos]',
@@ -863,6 +869,7 @@ const ptBr: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Ver participantes conectados',
   'chat.cmd_d_bot': 'Pedir à IA para gerenciar a playlist',
   'chat.cmd_d_clear': 'Limpar histórico do chat',
+  'chat.cmd_d_screensaver': 'Abrir protetor de tela',
   'chat.cmd_d_filter': 'Filtro de palavrões',
   'chat.cmd_d_freeze': 'Bloquear chat',
   'chat.cmd_d_slowmode': 'Modo lento',

@@ -43,6 +43,9 @@ const cs: Record<I18nKey, string> = {
   'common.on': 'Zapnuto',
   'common.off': 'Vypnuto',
 
+  'screensaver.back': 'Zpět do MUSIXQUARE',
+  'screensaver.show_music': 'Zobrazit informace o skladbě',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Přihlášení',
   'account.login_cancelled': 'Přihlášení bylo zrušeno',
@@ -462,6 +465,7 @@ const cs: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [požadavek]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [sekundy]',
@@ -478,6 +482,7 @@ const cs: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Zobrazit připojené uživatele',
   'chat.cmd_d_bot': 'Požádat AI o správu seznamu skladeb',
   'chat.cmd_d_clear': 'Vymazat historii chatu',
+  'chat.cmd_d_screensaver': 'Otevřít spořič obrazovky',
   'chat.cmd_d_filter': 'Filtr nevhodných slov',
   'chat.cmd_d_freeze': 'Uzamknout chat',
   'chat.cmd_d_slowmode': 'Pomalý režim',
@@ -540,6 +545,7 @@ const cs: Record<I18nKey, string> = {
   'network.host_waiting': 'Čeká se na hostitele...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'Spořič obrazovky není během přehrávání YouTube dostupný',
   'toast.device_disconnected': 'Odpojeno: {{name}}',
   'toast.device_conn_error': 'Chyba připojení zařízení {{name}}',
   'toast.device_kicked': 'Odebráno: {{name}}',

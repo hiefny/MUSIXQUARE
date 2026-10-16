@@ -249,6 +249,7 @@ const OVERLAYS = [
   { id: 'demo-overlay', cls: 'active', fullscreen: true },
   { id: 'media-source-overlay', cls: 'active', fullscreen: true },
   { id: 'youtube-url-overlay', cls: 'active', fullscreen: true },
+  { id: 'screensaver-overlay', cls: 'active', fullscreen: true },
   { id: 'dialog-overlay', cls: 'show', fullscreen: false },
   { id: 'signaling-recovery-overlay', cls: 'show', fullscreen: false },
   { id: 'account-dialog-overlay', cls: 'show', fullscreen: false },

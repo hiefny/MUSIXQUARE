@@ -268,7 +268,7 @@ describe('policy-page accordions', () => {
       ].map((path) => readFile(path, 'utf8')),
     );
 
-    expect(privacyText).toContain('Effective date: September 8, 2026');
+    expect(privacyText).toContain('Effective date: October 16, 2026');
     expect(termsText).toContain('Effective date: October 10, 2026');
     expect(faqText).toContain('Last updated: October 10, 2026');
     expect(faqText).toContain('New PRO rooms start without an entry password');
@@ -298,6 +298,10 @@ describe('policy-page accordions', () => {
       'paid-provider API access',
       'keyed digest of each one-time voucher code rather than the plaintext code',
       'grant audit and account-deletion fences are append-only',
+      'Google Sans from Google Fonts',
+      'coordinates rounded to three decimal places',
+      'Open-Meteo for local weather and air quality',
+      'Closing the screensaver stops its updates',
     ]) {
       expect(privacyText).toContain(phrase);
     }

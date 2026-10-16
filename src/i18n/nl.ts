@@ -45,6 +45,9 @@ const nl: Record<I18nKey, string> = {
   'common.sync': 'Synchroniseren',
   'common.on': 'Aan',
   'common.off': 'Uit',
+
+  'screensaver.back': 'Terug naar MUSIXQUARE',
+  'screensaver.show_music': 'Muziekinformatie tonen',
   'account.login_title': 'Inloggen',
   'account.login_cancelled': 'Het inloggen is geannuleerd',
   'account.login_failed': 'Inloggen mislukt\nProbeer het opnieuw',
@@ -460,6 +463,7 @@ const nl: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [verzoek]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [seconden]',
@@ -476,6 +480,7 @@ const nl: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Verbonden gebruikers bekijken',
   'chat.cmd_d_bot': 'AI vragen de afspeellijst te beheren',
   'chat.cmd_d_clear': 'Chatgeschiedenis wissen',
+  'chat.cmd_d_screensaver': 'Schermbeveiliging openen',
   'chat.cmd_d_filter': 'Scheldwoordenfilter',
   'chat.cmd_d_freeze': 'Chat vergrendelen',
   'chat.cmd_d_slowmode': 'Langzame modus',
@@ -548,6 +553,8 @@ const nl: Record<I18nKey, string> = {
   'network.host_waiting': 'Wachten op de host...',
 
   // Toast
+  'toast.screensaver_youtube':
+    'De schermbeveiliging is niet beschikbaar tijdens het afspelen van YouTube',
   'toast.device_disconnected': 'Verbinding met {{name}} verbroken',
   'toast.device_conn_error': 'Verbindingsfout met {{name}}',
   'toast.device_kicked': '{{name}} is verwijderd',

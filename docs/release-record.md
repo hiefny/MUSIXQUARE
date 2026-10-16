@@ -40,6 +40,14 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
 
 ## 2. 열린 확인 항목
 
+### 화면 보호기 App 8.11.0/v696 배포 준비
+
+- [ ] 2026-10-16 오너가 `/screensaver` 통합과 프로덕션 배포를 승인했다. App 문서의
+      self 위치 권한·iframe 및 화면 보호기 전용 CSP가 추가된다. 새 의존성·스키마·비밀·
+      바인딩·프로토콜·복구 floor는 없다. App 전용 릴리스, Developer API D1=false.
+      로컬 검증을 완료한 뒤 PR, exact-main CI 후보, 운영 릴리스·smoke·최종 배포 소유권을
+      확인해야 한다. [범위·검증·복구](design/screensaver-integration-2026-10-16.md).
+
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 

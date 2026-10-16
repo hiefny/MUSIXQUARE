@@ -353,7 +353,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.10.27';
+const ADMIN_ASSET_VERSION = '8.11.0';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -527,6 +527,29 @@ const SECURITY_HEADERS = {
     'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
   'Content-Security-Policy':
     "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://afocirmbqdxnkyescnev.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://share.musixquare.com https://signal.musixquare.com https://signal-alt.musixquare.com wss://signal.musixquare.com wss://signal-alt.musixquare.com https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com; frame-src https://www.youtube.com https://challenges.cloudflare.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+};
+
+const APP_DOCUMENT_SECURITY_HEADERS = {
+  'Permissions-Policy': SECURITY_HEADERS['Permissions-Policy'].replace(
+    'geolocation=()',
+    'geolocation=(self)',
+  ),
+  'Content-Security-Policy': SECURITY_HEADERS['Content-Security-Policy'].replace(
+    'frame-src ',
+    "frame-src 'self' ",
+  ),
+};
+
+const SCREENSAVER_SECURITY_HEADERS = {
+  'Cache-Control': 'public, max-age=0, must-revalidate',
+  'CDN-Cache-Control': 'no-store',
+  'Cloudflare-CDN-Cache-Control': 'no-store',
+  'X-Frame-Options': 'SAMEORIGIN',
+  'X-Robots-Tag': 'noindex, nofollow',
+  'Permissions-Policy':
+    'camera=(), microphone=(), display-capture=(), geolocation=(self), payment=()',
+  'Content-Security-Policy':
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://air-quality-api.open-meteo.com; frame-src 'none'; worker-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
 };
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {
@@ -15338,6 +15361,7 @@ async function serveInvitePage(request: Request, env: AppEnv, code: string) {
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/html')) return withSecurityHeaders(response);
   const inviteHeaders = {
+    ...APP_DOCUMENT_SECURITY_HEADERS,
     'Content-Type': 'text/html; charset=utf-8',
     ...APP_SHELL_FRESH_CACHE_HEADERS,
     // Invite URLs can expose a live or persistent room code when shared in a
@@ -15707,17 +15731,26 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
   }
 
   if (url.pathname === '/' && (request.method === 'GET' || request.method === 'HEAD')) {
-    return withSecurityHeaders(
-      await fetchAsset(env, request, '/index.html'),
-      APP_SHELL_FRESH_CACHE_HEADERS,
-    );
+    return withSecurityHeaders(await fetchAsset(env, request, '/index.html'), {
+      ...APP_SHELL_FRESH_CACHE_HEADERS,
+      ...APP_DOCUMENT_SECURITY_HEADERS,
+    });
   }
 
   if (url.pathname === '/index.html' && (request.method === 'GET' || request.method === 'HEAD')) {
-    return withSecurityHeaders(
-      await fetchAsset(env, request, '/index.html'),
-      APP_SHELL_FRESH_CACHE_HEADERS,
-    );
+    return withSecurityHeaders(await fetchAsset(env, request, '/index.html'), {
+      ...APP_SHELL_FRESH_CACHE_HEADERS,
+      ...APP_DOCUMENT_SECURITY_HEADERS,
+    });
+  }
+
+  if (
+    url.pathname === '/screensaver.html' &&
+    (request.method === 'GET' || request.method === 'HEAD')
+  ) {
+    return withSecurityHeaders(await fetchAsset(env, request, '/screensaver.html'), {
+      ...SCREENSAVER_SECURITY_HEADERS,
+    });
   }
 
   // Locale entry points are finite, generated assets rather than SPA fallbacks.
@@ -15735,10 +15768,13 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
           statusText: response.statusText,
           headers: response.headers,
         }),
-        APP_SHELL_FRESH_CACHE_HEADERS,
+        { ...APP_SHELL_FRESH_CACHE_HEADERS, ...APP_DOCUMENT_SECURITY_HEADERS },
       );
     }
-    return withSecurityHeaders(response, APP_SHELL_FRESH_CACHE_HEADERS);
+    return withSecurityHeaders(response, {
+      ...APP_SHELL_FRESH_CACHE_HEADERS,
+      ...APP_DOCUMENT_SECURITY_HEADERS,
+    });
   }
 
   const inviteMatch = url.pathname.match(/^\/(\d{6})$/);

@@ -44,6 +44,9 @@ const ta: Record<I18nKey, string> = {
   'common.on': 'இயக்கு',
   'common.off': 'முடக்கு',
 
+  'screensaver.back': 'MUSIXQUARE-க்குத் திரும்பு',
+  'screensaver.show_music': 'பாடல் விவரங்களைக் காட்டு',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'உள்நுழை',
   'account.login_cancelled': 'உள்நுழைவு ரத்துசெய்யப்பட்டது',
@@ -471,6 +474,7 @@ const ta: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [கோரிக்கை]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [வினாடிகள்]',
@@ -487,6 +491,7 @@ const ta: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'இணைக்கப்பட்ட பயனர்களைப் பார்',
   'chat.cmd_d_bot': 'பிளேலிஸ்ட்டை நிர்வகிக்க AI-யிடம் கேள்',
   'chat.cmd_d_clear': 'அரட்டை வரலாற்றை அழி',
+  'chat.cmd_d_screensaver': 'திரைக்காப்பானைத் திற',
   'chat.cmd_d_filter': 'தகாத சொல் வடிகட்டி',
   'chat.cmd_d_freeze': 'அரட்டையை உறையவை',
   'chat.cmd_d_slowmode': 'மெதுவான பயன்முறை',
@@ -550,6 +555,7 @@ const ta: Record<I18nKey, string> = {
   'network.host_waiting': 'ஹோஸ்டுக்காகக் காத்திருக்கிறது...',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
+  'toast.screensaver_youtube': 'YouTube இயங்கும்போது திரைக்காப்பானைப் பயன்படுத்த முடியாது',
   'toast.device_disconnected': '{{name}}-இன் இணைப்பு துண்டிக்கப்பட்டது',
   'toast.device_conn_error': '{{name}} இணைப்பில் பிழை',
   'toast.device_kicked': '{{name}} நீக்கப்பட்டார்',

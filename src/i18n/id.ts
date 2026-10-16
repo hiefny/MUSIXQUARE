@@ -43,6 +43,9 @@ const id: Record<I18nKey, string> = {
   'common.sync': 'Sinkron',
   'common.on': 'Nyala',
   'common.off': 'Mati',
+
+  'screensaver.back': 'Kembali ke MUSIXQUARE',
+  'screensaver.show_music': 'Tampilkan info musik',
   'account.login_title': 'Masuk',
   'account.login_cancelled': 'Proses masuk dibatalkan',
   'account.login_failed': 'Tidak dapat masuk\nCoba lagi',
@@ -503,6 +506,7 @@ const id: Record<I18nKey, string> = {
   'system_audio.duration_limit_stopped': 'Berbagi audio sistem berakhir otomatis\nsetelah 2 jam',
 
   // Toast
+  'toast.screensaver_youtube': 'Screensaver tidak tersedia saat memutar YouTube',
   'toast.device_disconnected': '{{name}} terputus',
   'toast.device_conn_error': 'Kesalahan koneksi {{name}}',
   'toast.device_kicked': '{{name}} telah dikeluarkan',
@@ -837,6 +841,7 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [permintaan]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [detik]',
@@ -853,6 +858,7 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Lihat pengguna yang tersambung',
   'chat.cmd_d_bot': 'Minta AI mengelola daftar putar',
   'chat.cmd_d_clear': 'Bersihkan riwayat chat',
+  'chat.cmd_d_screensaver': 'Buka screensaver',
   'chat.cmd_d_filter': 'Filter kata kasar',
   'chat.cmd_d_freeze': 'Kunci chat',
   'chat.cmd_d_slowmode': 'Mode lambat',

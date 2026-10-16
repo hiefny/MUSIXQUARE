@@ -42,6 +42,9 @@ const it: Record<I18nKey, string> = {
   'common.sync': 'Sincronizza',
   'common.on': 'Attivo',
   'common.off': 'Disattivo',
+
+  'screensaver.back': 'Torna a MUSIXQUARE',
+  'screensaver.show_music': 'Mostra info sul brano',
   'account.login_title': 'Accedi',
   'account.login_cancelled': 'Accesso annullato',
   'account.login_failed': 'Accesso non riuscito\nRiprova',
@@ -467,6 +470,7 @@ const it: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [richiesta]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [secondi]',
@@ -483,6 +487,7 @@ const it: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Visualizza i partecipanti connessi',
   'chat.cmd_d_bot': 'Chiedi all’IA di gestire la playlist',
   'chat.cmd_d_clear': 'Svuota la cronologia della chat',
+  'chat.cmd_d_screensaver': 'Apri salvaschermo',
   'chat.cmd_d_filter': 'Filtra parole inappropriate',
   'chat.cmd_d_freeze': 'Blocca la chat',
   'chat.cmd_d_slowmode': 'Modalità lenta',
@@ -546,6 +551,8 @@ const it: Record<I18nKey, string> = {
   'network.host_waiting': 'In attesa dell’host...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube':
+    'Il salvaschermo non è disponibile durante la riproduzione di YouTube',
   'toast.device_disconnected': '{{name}} si è disconnesso',
   'toast.device_conn_error': 'Errore di connessione con {{name}}',
   'toast.device_kicked': '{{name}} è stato rimosso',

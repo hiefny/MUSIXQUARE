@@ -33,6 +33,7 @@ import {
 import { playAnnouncementSound } from '../audio/ui-sounds.ts';
 import { extractBotPrompt } from './bot-syntax.ts';
 import { isAccountAuthenticated } from '../account/state.ts';
+import { showToast } from '../ui/toast.ts';
 import {
   accountNicknameMutationErrorMessage,
   normalizeAccountNickname,
@@ -723,6 +724,17 @@ async function cmdDebugLazy(args: string[], _rawArgs: string): Promise<void> {
   }
 }
 
+function cmdScreensaver(): void {
+  if (
+    getState('playback.mode') === 'youtube' ||
+    getState('player.currentTrackMeta')?.type === 'youtube'
+  ) {
+    showToast(t('toast.screensaver_youtube'));
+    return;
+  }
+  bus.emit('ui:open-screensaver');
+}
+
 function cmdDebugCommand(args: string[], rawArgs: string): void {
   cmdDebugLazy(args, rawArgs).catch((error) => {
     log.error('[Chat] Debug command failed outside its lazy-load boundary', error);
@@ -839,6 +851,12 @@ const COMMANDS_DEF: Record<
     usageKey: 'chat.cmd_u_debug',
     descKey: 'chat.cmd_d_debug',
   },
+  screensaver: {
+    permission: 'all',
+    execute: cmdScreensaver,
+    usageKey: 'chat.cmd_u_screensaver',
+    descKey: 'chat.cmd_d_screensaver',
+  },
 };
 
 // Resolve i18n at access time
@@ -875,7 +893,8 @@ export function parseCommand(input: string): ParsedCommand | null {
     return { name: 'bot', args, rawArgs };
   }
   const spaceIdx = input.indexOf(' ');
-  const name = (spaceIdx === -1 ? input.slice(1) : input.slice(1, spaceIdx)).toLowerCase();
+  const inputName = (spaceIdx === -1 ? input.slice(1) : input.slice(1, spaceIdx)).toLowerCase();
+  const name = inputName === '스크린세이버' ? 'screensaver' : inputName;
   const rawArgs = spaceIdx === -1 ? '' : input.slice(spaceIdx + 1);
   const args = rawArgs ? rawArgs.split(/\s+/) : [];
   return { name, args, rawArgs };

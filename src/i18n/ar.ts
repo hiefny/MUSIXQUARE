@@ -43,6 +43,9 @@ const ar: Record<I18nKey, string> = {
   'common.on': 'تفعيل',
   'common.off': 'تعطيل',
 
+  'screensaver.back': 'العودة إلى MUSIXQUARE',
+  'screensaver.show_music': 'إظهار معلومات الموسيقى',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'تسجيل الدخول',
   'account.login_cancelled': 'أُلغي تسجيل الدخول',
@@ -445,6 +448,7 @@ const ar: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [request]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [seconds]',
@@ -461,6 +465,7 @@ const ar: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'عرض المستخدمين المتصلين',
   'chat.cmd_d_bot': 'اطلب من الذكاء الاصطناعي إدارة قائمة التشغيل',
   'chat.cmd_d_clear': 'مسح سجل الدردشة',
+  'chat.cmd_d_screensaver': 'فتح شاشة التوقف',
   'chat.cmd_d_filter': 'فلتر الألفاظ المسيئة',
   'chat.cmd_d_freeze': 'تجميد الدردشة',
   'chat.cmd_d_slowmode': 'الوضع البطيء',
@@ -522,6 +527,7 @@ const ar: Record<I18nKey, string> = {
   'network.host_waiting': 'جارٍ انتظار المضيف...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'لا يمكن استخدام شاشة التوقف أثناء تشغيل YouTube',
   'toast.device_disconnected': 'انقطع اتصال {{name}}',
   'toast.device_conn_error': 'خطأ في اتصال {{name}}',
   'toast.device_kicked': 'تمت إزالة {{name}}',

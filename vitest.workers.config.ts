@@ -11,6 +11,7 @@ export default defineConfig({
     include: [
       'src/core/__tests__/{about-lifetime-room-count-worker,account-assertion,account-auth,account-auth-request-lifetime,account-auth-sqlite,account-nickname-policy,app-maintenance-admin,app-worker-cors,auxiliary-service-maintenance,designsystem-preview-indexing,display-name-policy,event-campaign-route,pro-bot-worker,service-maintenance,standard-room-account-assertion,standard-room-pin-membership}.test.ts',
       'src/core/__tests__/account-cookie-ordering.test.ts',
+      'src/core/__tests__/screensaver-security.test.ts',
       'src/core/__tests__/announcement-expiry.test.ts',
       'src/core/__tests__/cloudflare-signaling-http-bridge.test.ts',
       'src/core/__tests__/signaling-diagnostics.test.ts',

@@ -1,5 +1,7 @@
 import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { LEGACY_APP_BROWSER_TARGET } from './browser-target.ts';
 
 import { build } from 'esbuild';
 import type { Plugin } from 'vite';
@@ -15,6 +17,7 @@ export interface AuxiliaryBrowserAsset {
   readonly htmlPath: string;
   readonly scriptType: 'classic' | 'module';
   readonly materializeForFileUrl?: boolean;
+  readonly emitForProduction?: boolean;
 }
 
 export interface CompiledAuxiliaryBrowserAsset extends AuxiliaryBrowserAsset {
@@ -28,6 +31,13 @@ export const AUXILIARY_BROWSER_ASSETS = [
     htmlPath: 'e2e/report-viewer.html',
     scriptType: 'classic',
     materializeForFileUrl: true,
+  },
+  {
+    sourcePath: 'browser/auxiliary-runtime/screensaver.ts',
+    outputPath: 'screensaver.js',
+    htmlPath: 'public/screensaver.html',
+    scriptType: 'classic',
+    emitForProduction: true,
   },
 ] as const satisfies readonly AuxiliaryBrowserAsset[];
 
@@ -125,6 +135,9 @@ export function assertAuxiliaryBrowserManifest(
     assertRelativePath(entry.sourcePath, '.ts');
     assertRelativePath(entry.outputPath, '.js');
     assertRelativePath(entry.htmlPath, '.html');
+    if (entry.emitForProduction && !entry.htmlPath.startsWith('public/')) {
+      throw new Error(`Production auxiliary HTML must be owned by public/: ${entry.htmlPath}`);
+    }
     if (!entry.sourcePath.startsWith(`${AUXILIARY_BROWSER_SOURCE_DIRECTORY}/`)) {
       throw new Error(
         `Auxiliary-browser source is outside its owned directory: ${entry.sourcePath}`,
@@ -206,7 +219,7 @@ export async function compileAuxiliaryBrowserAsset(
     write: false,
     format: asset.scriptType === 'module' ? 'esm' : 'iife',
     platform: 'browser',
-    target: 'es2022',
+    target: asset.emitForProduction ? LEGACY_APP_BROWSER_TARGET : 'es2022',
     sourcemap: false,
     minify: false,
     legalComments: 'inline',
@@ -245,6 +258,25 @@ export function auxiliaryBrowserAssetForRequestUrl(
   return entries.find((entry) => pathname === `/${entry.outputPath}`) ?? null;
 }
 
+export function auxiliaryBrowserProductionPath(asset: CompiledAuxiliaryBrowserAsset): string {
+  const digest = createHash('sha256').update(asset.code).digest('hex').slice(0, 8);
+  return `assets/${path.posix.basename(asset.outputPath, '.js')}-runtime-${digest}.js`;
+}
+
+export function bindAuxiliaryBrowserProductionHtml(
+  asset: CompiledAuxiliaryBrowserAsset,
+  html: string,
+): string {
+  assertAuxiliaryBrowserHtmlContract(asset, html);
+  const source = expectedScriptSource(asset);
+  const runtimePath = auxiliaryBrowserProductionPath(asset);
+  return html.replace(
+    /(<script\b[^>]*\bsrc=)(['"])(.*?)\2/giu,
+    (match, prefix: string, quote: string, value: string) =>
+      value === source ? `${prefix}${quote}/${runtimePath}${quote}` : match,
+  );
+}
+
 export async function materializeFileUrlAuxiliaryAssets(repoRoot: string): Promise<string[]> {
   const assets = AUXILIARY_BROWSER_ASSETS.filter(
     (asset) => 'materializeForFileUrl' in asset && asset.materializeForFileUrl,
@@ -263,6 +295,7 @@ export async function materializeFileUrlAuxiliaryAssets(repoRoot: string): Promi
 
 export function auxiliaryBrowserAssets(): Plugin {
   let repoRoot = '';
+  let compiledAssets: CompiledAuxiliaryBrowserAsset[] = [];
   return {
     name: 'musixquare-auxiliary-browser-assets', // brand-capitalization: allow-technical
     enforce: 'pre',
@@ -293,7 +326,23 @@ export function auxiliaryBrowserAssets(): Plugin {
       });
     },
     async buildStart() {
-      await compileAuxiliaryBrowserAssets(repoRoot);
+      compiledAssets = await compileAuxiliaryBrowserAssets(repoRoot);
+    },
+    async generateBundle() {
+      for (const asset of compiledAssets) {
+        if (!asset.emitForProduction) continue;
+        const html = await readFile(path.resolve(repoRoot, asset.htmlPath), 'utf8');
+        this.emitFile({
+          type: 'asset',
+          fileName: auxiliaryBrowserProductionPath(asset),
+          source: asset.code,
+        });
+        this.emitFile({
+          type: 'asset',
+          fileName: asset.htmlPath.slice('public/'.length),
+          source: bindAuxiliaryBrowserProductionHtml(asset, html),
+        });
+      }
     },
   };
 }

@@ -31,6 +31,8 @@ const userTextFontMocks = vi.hoisted(() => ({
 const playerTransportMocks = vi.hoisted(() => ({
   seekTo: vi.fn(),
 }));
+const screensaverMocks = vi.hoisted(() => ({ open: vi.fn() }));
+vi.mock('../screensaver.ts', () => ({ openScreensaver: screensaverMocks.open }));
 
 window.matchMedia =
   window.matchMedia ||
@@ -119,6 +121,25 @@ afterEach(() => {
 });
 
 describe('Chat Module', () => {
+  it('lazily opens the screensaver only after its local command intent', async () => {
+    setState('setup.sessionStarted', true);
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    expect(screensaverMocks.open).not.toHaveBeenCalled();
+    bus.emit('ui:open-screensaver');
+    await vi.dynamicImportSettled();
+    expect(screensaverMocks.open).toHaveBeenCalledOnce();
+  });
+
+  it('does not open a late-loaded screensaver after the session ends', async () => {
+    setState('setup.sessionStarted', true);
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    bus.emit('ui:open-screensaver');
+    setState('setup.sessionStarted', false);
+    await vi.dynamicImportSettled();
+    expect(screensaverMocks.open).not.toHaveBeenCalled();
+  });
   it.each([0, 1, 2])(
     'handles command suggestion mouse button %s without losing draft intent',
     async (button) => {

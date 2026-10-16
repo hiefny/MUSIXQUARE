@@ -42,6 +42,9 @@ const ko = {
   'common.on': '켜기',
   'common.off': '끄기',
 
+  'screensaver.back': 'MUSIXQUARE로 돌아가기',
+  'screensaver.show_music': '음악 정보 표시',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': '로그인',
   'account.login_cancelled': '로그인이 취소됐어요',
@@ -450,6 +453,7 @@ const ko = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [요청]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [초]',
@@ -466,6 +470,7 @@ const ko = {
   'chat.cmd_d_users': '접속자 목록 보기',
   'chat.cmd_d_bot': 'AI에게 재생목록 요청',
   'chat.cmd_d_clear': '채팅 내역 삭제',
+  'chat.cmd_d_screensaver': '화면 보호기 열기',
   'chat.cmd_d_filter': '비속어 필터링',
   'chat.cmd_d_freeze': '채팅 동결',
   'chat.cmd_d_slowmode': '슬로우 모드',
@@ -526,6 +531,7 @@ const ko = {
   'network.host_waiting': '방장 응답 대기 중...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': '유튜브 재생 중에는 화면 보호기를 사용할 수 없어요',
   'toast.device_disconnected': '{{name}} 연결이 끊겼어요',
   'toast.device_conn_error': '{{name}} 연결 오류',
   'toast.device_kicked': '{{name}}을(를) 내보냈어요',

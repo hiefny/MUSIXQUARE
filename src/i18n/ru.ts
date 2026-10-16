@@ -42,6 +42,9 @@ const ru: Record<I18nKey, string> = {
   'common.sync': 'Синхронизация',
   'common.on': 'Вкл.',
   'common.off': 'Выкл.',
+
+  'screensaver.back': 'Вернуться в MUSIXQUARE',
+  'screensaver.show_music': 'Показывать информацию о треке',
   'account.login_title': 'Войти',
   'account.login_cancelled': 'Вход отменён',
   'account.login_failed': 'Не удалось войти\nПопробуйте ещё раз',
@@ -463,6 +466,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [запрос]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [секунды]',
@@ -479,6 +483,7 @@ const ru: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Показывает список подключённых пользователей',
   'chat.cmd_d_bot': 'Поручает ИИ управление плейлистом',
   'chat.cmd_d_clear': 'Очищает историю чата',
+  'chat.cmd_d_screensaver': 'Открыть заставку',
   'chat.cmd_d_filter': 'Включает/выключает фильтр ненормативной лексики',
   'chat.cmd_d_freeze': 'Блокирует или разблокирует чат',
   'chat.cmd_d_slowmode': 'Устанавливает интервал между сообщениями',
@@ -542,6 +547,7 @@ const ru: Record<I18nKey, string> = {
   'network.host_waiting': 'Ожидание хоста...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'Заставка недоступна во время воспроизведения YouTube',
   'toast.device_disconnected': '{{name}} отключился',
   'toast.device_conn_error': 'Ошибка подключения к {{name}}',
   'toast.device_kicked': '{{name}} исключён из комнаты',

@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ambient Display</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <style>
+      :root {
+        --grain-opacity: 0.25;
+        --font-sans: 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: #02081b;
+        color: #ffffff;
+        font-family: var(--font-sans);
+        cursor: default;
+      }
+
+      .ambient-background-base {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        overflow: hidden;
+        background:
+          radial-gradient(
+            circle at 86% 14%,
+            rgba(235, 248, 255, 0.9) 0%,
+            rgba(96, 178, 255, 0.52) 22%,
+            rgba(0, 88, 255, 0) 54%
+          ),
+          radial-gradient(
+            circle at 18% 20%,
+            rgba(0, 108, 255, 0.92) 0%,
+            rgba(0, 62, 210, 0.56) 40%,
+            rgba(2, 10, 34, 0) 74%
+          ),
+          radial-gradient(
+            circle at 74% 52%,
+            rgba(0, 118, 255, 0.78) 0%,
+            rgba(0, 48, 175, 0.34) 48%,
+            rgba(2, 8, 28, 0) 78%
+          ),
+          radial-gradient(circle at 22% 88%, #010513 0%, #030c26 48%, rgba(4, 18, 56, 0) 84%),
+          linear-gradient(135deg, #0058f0 0%, #03257e 48%, #020718 100%);
+      }
+
+      .mesh-orb {
+        position: absolute;
+        border-radius: 9999px;
+        pointer-events: none;
+        will-change: transform, opacity;
+      }
+
+      .scene-background {
+        position: fixed;
+        inset: 0;
+        z-index: 1;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .scene-backdrop-layer {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        overflow: hidden;
+      }
+      .scene-photo {
+        position: absolute;
+        inset: -15%;
+        background-position: center;
+        background-size: cover;
+        background-repeat: no-repeat;
+        filter: blur(clamp(12px, 2.7vmin, 72px)) brightness(var(--photo-brightness, 0.78))
+          saturate(0.88);
+        transform: scale(1.03);
+      }
+      .scene-backdrop-layer::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        opacity: var(--veil-opacity, 1);
+        background:
+          radial-gradient(
+            ellipse at 50% 52%,
+            rgba(2, 7, 17, 0.42) 0%,
+            rgba(2, 7, 17, 0.14) 65%,
+            rgba(2, 7, 17, 0.3) 100%
+          ),
+          linear-gradient(180deg, rgba(3, 8, 20, 0.16), rgba(3, 8, 20, 0.32));
+      }
+      .background-grain {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        pointer-events: none;
+        background-repeat: repeat;
+        background-size: 190px 190px;
+        mix-blend-mode: soft-light;
+        opacity: 0;
+      }
+
+      .orb-ice-flare {
+        width: 68vw;
+        height: 68vw;
+        max-width: 980px;
+        max-height: 980px;
+        top: -22%;
+        right: -12%;
+        background: radial-gradient(
+          circle,
+          rgba(255, 255, 255, 0.92) 0%,
+          rgba(135, 205, 255, 0.58) 32%,
+          rgba(0, 106, 255, 0) 70%
+        );
+        filter: blur(78px);
+        mix-blend-mode: screen;
+        animation: floatIce 20s ease-in-out infinite alternate;
+      }
+
+      .orb-cobalt-core {
+        width: 76vw;
+        height: 76vw;
+        max-width: 1120px;
+        max-height: 1120px;
+        top: -12%;
+        left: -14%;
+        background: radial-gradient(
+          circle,
+          rgba(16, 128, 255, 0.86) 0%,
+          rgba(0, 64, 215, 0.46) 48%,
+          rgba(0, 20, 82, 0) 74%
+        );
+        filter: blur(92px);
+        animation: floatCobalt 25s ease-in-out infinite alternate;
+      }
+
+      .orb-abyss-navy {
+        width: 86vw;
+        height: 76vw;
+        max-width: 1280px;
+        max-height: 1080px;
+        bottom: -26%;
+        left: -12%;
+        background: radial-gradient(
+          circle,
+          rgba(1, 4, 15, 0.97) 0%,
+          rgba(2, 10, 32, 0.86) 52%,
+          rgba(2, 12, 38, 0) 78%
+        );
+        filter: blur(84px);
+      }
+
+      @keyframes floatIce {
+        0% {
+          transform: translate3d(0, 0, 0) scale(1);
+        }
+        100% {
+          transform: translate3d(-3.5%, 4%, 0) scale(1.06);
+        }
+      }
+
+      @keyframes floatCobalt {
+        0% {
+          transform: translate3d(0, 0, 0) scale(1);
+        }
+        100% {
+          transform: translate3d(4%, -3%, 0) scale(1.05);
+        }
+      }
+
+      .film-grain-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 30;
+        pointer-events: none;
+        opacity: var(--grain-opacity);
+        mix-blend-mode: overlay;
+        background-repeat: repeat;
+        background-size: 190px 190px;
+      }
+
+      .clock-stage {
+        position: relative;
+        z-index: 15;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+
+      #opticalClockCanvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 16;
+      }
+
+      #speckleFieldCanvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 20;
+      }
+
+      #weatherCanvas {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 18;
+        opacity: 0;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      .location-retry {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 24;
+        max-width: 85vw;
+        min-height: min(38px, 18vh);
+        padding: clamp(5px, 1.5vmin, 10px) clamp(12px, 3vmin, 22px);
+        border: 1px solid rgba(221, 240, 255, 0.28);
+        border-radius: 999px;
+        background: rgba(8, 32, 83, 0.25);
+        color: #edf6ff;
+        font: 500 clamp(10px, 2.8vmin, 14px) var(--font-sans);
+        cursor: pointer;
+        opacity: 0;
+      }
+      .location-retry:hover {
+        background: rgba(166, 213, 255, 0.15);
+      }
+      .location-retry:focus-visible,
+      .data-attribution:focus-visible {
+        outline: 2px solid #d5ecff;
+        outline-offset: 5px;
+      }
+      .data-attribution {
+        position: absolute;
+        right: max(12px, env(safe-area-inset-right));
+        bottom: max(9px, env(safe-area-inset-bottom));
+        z-index: 24;
+        max-width: 85vw;
+        color: rgba(224, 241, 255, 0.53);
+        opacity: 0;
+        font: 500 clamp(8px, 1.8vmin, 11px) var(--font-sans);
+        text-decoration: none;
+        text-align: right;
+      }
+      .data-attribution:hover {
+        color: #e0f1ff;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .mesh-orb {
+          animation: none;
+        }
+        .scene-backdrop-layer,
+        .background-grain {
+          transition: none;
+        }
+      }
+
+      .location-retry {
+        border: 0;
+        width: max-content;
+        border-radius: 12px;
+        background: transparent;
+        color: #eee;
+        min-height: 40px;
+        padding: 10px 18px;
+      }
+      .location-retry:hover {
+        background: transparent;
+        color: #fff;
+      }
+      .display-chrome {
+        position: fixed;
+        z-index: 40;
+        inset: 0;
+        pointer-events: none;
+        opacity: 1;
+        transition: opacity 0.45s ease;
+      }
+      .display-chrome button {
+        pointer-events: auto;
+        border: 0;
+        color: #eee;
+        font: 500 clamp(11px, 2.4vmin, 15px) var(--font-sans);
+        cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .display-back {
+        position: absolute;
+        top: max(16px, env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 9px;
+        width: max-content;
+        max-width: 94vw;
+        min-height: 44px;
+        padding: 10px 16px;
+        border-radius: 12px;
+        background: transparent;
+        text-shadow: 0 1px 10px #000;
+      }
+      .display-back:hover,
+      .display-music-toggle:hover {
+        background: transparent;
+        color: #fff;
+      }
+      .back-chevron {
+        width: 7px;
+        height: 7px;
+        flex: none;
+        border-left: 1.6px solid currentColor;
+        border-bottom: 1.6px solid currentColor;
+        transform: rotate(45deg);
+        margin-inline-end: 2px;
+      }
+      [dir='rtl'] .back-chevron {
+        transform: rotate(225deg);
+      }
+      .back-copy {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+      .brand-wordmark {
+        width: clamp(84px, 20vmin, 134px);
+        height: auto;
+        overflow: visible;
+        flex: none;
+      }
+      #backBefore,
+      #backAfter,
+      #musicToggleLabel {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .display-music-toggle {
+        position: absolute;
+        bottom: max(20px, env(safe-area-inset-bottom));
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        max-width: 90vw;
+        width: max-content;
+        min-height: 44px;
+        padding: 10px 14px;
+        background: transparent;
+        border-radius: 12px;
+        text-align: start;
+      }
+      .music-switch {
+        width: 42px;
+        height: 24px;
+        flex: 0 0 42px;
+        border-radius: 999px;
+        position: relative;
+        background: #202020;
+        transition: background 0.18s ease;
+        direction: ltr;
+      }
+      .music-switch::after {
+        content: '';
+        position: absolute;
+        top: 3px;
+        left: 3px;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: #71717a;
+        transition:
+          transform 0.18s ease,
+          background 0.18s ease;
+      }
+      [aria-checked='true'] .music-switch {
+        background: rgba(59, 130, 246, 0.24);
+      }
+      [aria-checked='true'] .music-switch::after {
+        transform: translateX(18px);
+        background: #3b82f6;
+      }
+      .display-chrome button:focus-visible {
+        outline: 2px solid #d5ecff;
+        outline-offset: 4px;
+      }
+      .chrome-hidden .display-chrome {
+        opacity: 0;
+      }
+      .chrome-hidden .display-chrome button {
+        pointer-events: none;
+      }
+      .chrome-hidden {
+        cursor: none;
+      }
+      .music-scene {
+        position: absolute;
+        inset: 0;
+        z-index: 19;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: clamp(14px, 3vmin, 42px);
+        pointer-events: none;
+        opacity: 0;
+        padding: 14vh 0;
+      }
+      .music-title-window {
+        position: relative;
+        width: 84vw;
+        padding: 5vmin 2vw;
+        box-sizing: content-box;
+        overflow: hidden;
+        mask-image: linear-gradient(to right, transparent, #000 3%, #000 97%, transparent);
+      }
+      .music-title {
+        width: max-content;
+        min-width: 100%;
+        white-space: pre;
+        text-align: center;
+        font: 700 clamp(28px, 10vmin, 160px)/1.2 var(--font-sans);
+        color: #fff;
+        text-shadow:
+          0 0 5px rgba(255, 255, 255, 0.28),
+          0 0 20px rgba(115, 195, 255, 0.3),
+          8px -7px 16px rgba(255, 255, 255, 0.2),
+          18px -15px 30px rgba(128, 200, 255, 0.15);
+        will-change: transform;
+      }
+      .music-subtitle {
+        width: 80vw;
+        text-align: center;
+        text-wrap: balance;
+        overflow-wrap: anywhere;
+        font: 500 clamp(12px, 2.5vmin, 32px)/1.5 var(--font-sans);
+        color: rgba(255, 255, 255, 0.76);
+      }
+      @media (max-height: 280px) {
+        .location-retry {
+          min-height: 28px;
+          padding: 6px 10px;
+        }
+        .display-back {
+          top: max(2px, env(safe-area-inset-top));
+          padding: 4px 8px;
+          min-height: 32px;
+        }
+        .display-music-toggle {
+          bottom: max(2px, env(safe-area-inset-bottom));
+          min-height: 32px;
+          padding: 4px 8px;
+          gap: 8px;
+        }
+      }
+      @media (max-width: 480px) {
+        .data-attribution {
+          bottom: max(76px, calc(env(safe-area-inset-bottom) + 60px));
+        }
+      }
+      @media (max-width: 480px) and (max-height: 280px) {
+        .data-attribution {
+          bottom: max(46px, calc(env(safe-area-inset-bottom) + 44px));
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .display-chrome,
+        .music-switch,
+        .music-switch::after {
+          transition: none;
+        }
+        .music-title {
+          width: auto;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          transform: none !important;
+          font-size: clamp(20px, 7vmin, 100px);
+        }
+        .music-title-window {
+          overflow: visible;
+          mask-image: none;
+          padding-block: 3vmin;
+        }
+      }
+      @media (forced-colors: active) {
+        .music-switch {
+          background: Canvas;
+          outline: 1px solid ButtonText;
+        }
+        .music-switch::after {
+          background: ButtonText;
+        }
+        [aria-checked='true'] .music-switch {
+          background: Highlight;
+        }
+        [aria-checked='true'] .music-switch::after {
+          background: HighlightText;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="ambient-background-base" aria-hidden="true">
+      <div class="mesh-orb orb-cobalt-core"></div>
+      <div class="mesh-orb orb-ice-flare"></div>
+      <div class="mesh-orb orb-abyss-navy"></div>
+    </div>
+
+    <div class="scene-background" aria-hidden="true">
+      <div id="sceneBackgroundA" class="scene-backdrop-layer">
+        <div id="sceneImageA" class="scene-photo"></div>
+      </div>
+      <div id="sceneBackgroundB" class="scene-backdrop-layer">
+        <div id="sceneImageB" class="scene-photo"></div>
+      </div>
+    </div>
+    <div id="backgroundGrain" class="background-grain" aria-hidden="true"></div>
+
+    <div id="grainLayer" class="film-grain-overlay" aria-hidden="true"></div>
+
+    <main id="mainStage" class="clock-stage" aria-label="Clock">
+      <canvas id="opticalClockCanvas" role="img" aria-label="Current time"></canvas>
+      <canvas id="speckleFieldCanvas" aria-hidden="true"></canvas>
+      <canvas id="weatherCanvas" role="img" aria-hidden="true"></canvas>
+      <button id="weatherRetry" class="location-retry" type="button" hidden tabindex="-1">
+        Use current location
+      </button>
+      <a
+        id="weatherAttribution"
+        class="data-attribution"
+        href="https://open-meteo.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        hidden
+        tabindex="-1"
+        >Open-Meteo</a
+      >
+      <section id="musicScene" class="music-scene" aria-hidden="true" aria-label="Music">
+        <div id="musicTitleWindow" class="music-title-window">
+          <div id="musicTitle" class="music-title" dir="auto"></div>
+        </div>
+        <div id="musicSubtitle" class="music-subtitle" dir="auto"></div>
+      </section>
+    </main>
+    <div id="displayChrome" class="display-chrome">
+      <button id="displayBack" class="display-back" type="button" aria-label="Back to MUSIXQUARE">
+        <span class="back-chevron" aria-hidden="true"></span
+        ><span class="back-copy"
+          ><span id="backBefore">Back to</span
+          ><svg
+            class="brand-wordmark"
+            aria-hidden="true"
+            focusable="false"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="43 12 214 26"
+            fill="currentColor"
+          >
+            <polygon
+              points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"
+            ></polygon>
+            <polygon
+              points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"
+            ></polygon>
+            <polygon
+              points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"
+            ></polygon>
+            <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5"></rect>
+            <polygon
+              points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"
+            ></polygon>
+            <path
+              d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"
+            ></path>
+            <polygon
+              points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"
+            ></polygon>
+            <path
+              d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"
+            ></path>
+            <path
+              d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"
+            ></path>
+            <rect x="237.2284599" y="12.7587935" width="18" height="4.5"></rect>
+            <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"></rect>
+            <rect x="237.2337931" y="30.7587928" width="18" height="4.5"></rect></svg
+          ><span id="backAfter"></span
+        ></span>
+      </button>
+      <button
+        id="displayMusicToggle"
+        class="display-music-toggle"
+        type="button"
+        role="switch"
+        aria-checked="true"
+      >
+        <span id="musicToggleLabel">Show music info</span
+        ><span class="music-switch" aria-hidden="true"></span>
+      </button>
+    </div>
+
+    <template id="third-party-notices">
+      <pre>
+Third-party notices
+===================
+
+Moon illumination adapted from SunCalc 1.9.0:
+https://github.com/mourner/suncalc/tree/v1.9.0
+Based on Jean Meeus, Astronomical Algorithms, Chapter 48.
+
+Copyright (c) 2014, Vladimir Agafonkin
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are
+permitted provided that the following conditions are met:
+
+   1. Redistributions of source code must retain the above copyright notice, this list of
+      conditions and the following disclaimer.
+   2. Redistributions in binary form must reproduce the above copyright notice, this list
+      of conditions and the following disclaimer in the documentation and/or other materials
+      provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
+EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
+TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+Embedded numeral outlines: Google Sans, weight 700.
+       Source: https://fonts.gstatic.com/s/googlesans/v71/4Ua_rENHsxJlGDuGo1OIlJfC6l_24rlCK1Yo_Iqcsih3SAyH6cAwhX9RFD48TE63OOYKtrzjJ6li.ttf
+       Copyright 2025 The Google Sans Project Authors (github.com/googlefonts/googlesans)
+       The embedded outlines are distributed under the SIL Open Font License:
+Copyright 2022 The Google Sans Flex Project Authors (github.com/googlefonts/googlesans-flex)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+https://openfontlicense.org
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION &amp; CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+</pre>
+    </template>
+    <script src="./screensaver.js"></script>
+  </body>
+</html>

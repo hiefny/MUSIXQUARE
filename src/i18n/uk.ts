@@ -43,6 +43,9 @@ const uk: Record<I18nKey, string> = {
   'common.on': 'Увімкнено',
   'common.off': 'Вимкнено',
 
+  'screensaver.back': 'Повернутися до MUSIXQUARE',
+  'screensaver.show_music': 'Показувати інформацію про трек',
+
   // ─── Обліковий запис ─────────────────────────────────────────────
   'account.login_title': 'Увійти',
   'account.login_cancelled': 'Вхід скасовано',
@@ -461,6 +464,7 @@ const uk: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [запит]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [секунди]',
@@ -477,6 +481,7 @@ const uk: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Переглянути підключених користувачів',
   'chat.cmd_d_bot': 'Попросити ШІ керувати плейлістом',
   'chat.cmd_d_clear': 'Очистити історію чату',
+  'chat.cmd_d_screensaver': 'Відкрити заставку',
   'chat.cmd_d_filter': 'Фільтр ненормативної лексики',
   'chat.cmd_d_freeze': 'Заморозити чат',
   'chat.cmd_d_slowmode': 'Повільний режим',
@@ -539,6 +544,7 @@ const uk: Record<I18nKey, string> = {
   'network.host_waiting': 'Очікування хоста...',
 
   // ─── Динамічні сповіщення ────────────────────────────────────────
+  'toast.screensaver_youtube': 'Заставка недоступна під час відтворення YouTube',
   'toast.device_disconnected': 'Відключено: {{name}}',
   'toast.device_conn_error': 'Помилка підключення: {{name}}',
   'toast.device_kicked': '{{name}} вилучено',

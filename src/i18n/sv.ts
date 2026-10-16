@@ -44,6 +44,9 @@ const sv: Record<I18nKey, string> = {
   'common.on': 'På',
   'common.off': 'Av',
 
+  'screensaver.back': 'Tillbaka till MUSIXQUARE',
+  'screensaver.show_music': 'Visa låtinformation',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Logga in',
   'account.login_cancelled': 'Inloggningen avbröts',
@@ -463,6 +466,7 @@ const sv: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [begäran]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [sekunder]',
@@ -479,6 +483,7 @@ const sv: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Visa anslutna användare',
   'chat.cmd_d_bot': 'Be AI att hantera spellistan',
   'chat.cmd_d_clear': 'Rensa chatthistoriken',
+  'chat.cmd_d_screensaver': 'Öppna skärmsläckaren',
   'chat.cmd_d_filter': 'Svordomsfilter',
   'chat.cmd_d_freeze': 'Frys chatten',
   'chat.cmd_d_slowmode': 'Långsamt läge',
@@ -541,6 +546,7 @@ const sv: Record<I18nKey, string> = {
   'network.host_waiting': 'Väntar på värden…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'Skärmsläckaren är inte tillgänglig när YouTube spelas upp',
   'toast.device_disconnected': '{{name}} kopplades från',
   'toast.device_conn_error': 'Anslutningsfel för {{name}}',
   'toast.device_kicked': '{{name}} har tagits bort',

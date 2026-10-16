@@ -44,6 +44,9 @@ const te: Record<I18nKey, string> = {
   'common.on': 'ఆన్',
   'common.off': 'ఆఫ్',
 
+  'screensaver.back': 'MUSIXQUAREకి తిరిగి వెళ్లండి',
+  'screensaver.show_music': 'పాట వివరాలను చూపించు',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'సైన్ ఇన్',
   'account.login_cancelled': 'సైన్-ఇన్ రద్దు చేయబడింది',
@@ -461,6 +464,7 @@ const te: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [అభ్యర్థన]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [సెకన్లు]',
@@ -477,6 +481,7 @@ const te: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'కనెక్ట్ అయిన వినియోగదారులను చూడు',
   'chat.cmd_d_bot': 'ప్లేలిస్ట్‌ను నిర్వహించమని AIని అడుగు',
   'chat.cmd_d_clear': 'చాట్ చరిత్రను క్లియర్ చేయి',
+  'chat.cmd_d_screensaver': 'స్క్రీన్‌సేవర్ తెరవండి',
   'chat.cmd_d_filter': 'అనుచిత పదాల ఫిల్టర్',
   'chat.cmd_d_freeze': 'చాట్‌ను నిలిపివేయి',
   'chat.cmd_d_slowmode': 'స్లో మోడ్',
@@ -538,6 +543,7 @@ const te: Record<I18nKey, string> = {
   'network.host_waiting': 'హోస్ట్ కోసం వేచి ఉంది...',
 
   // ─── Toast (dynamic) ─────────────────────────────────────────────
+  'toast.screensaver_youtube': 'YouTube ప్లే అవుతున్నప్పుడు స్క్రీన్‌సేవర్ అందుబాటులో ఉండదు',
   'toast.device_disconnected': '{{name}} డిస్‌కనెక్ట్ అయ్యారు',
   'toast.device_conn_error': '{{name}} కనెక్షన్ లోపం',
   'toast.device_kicked': '{{name}} తొలగించబడ్డారు',

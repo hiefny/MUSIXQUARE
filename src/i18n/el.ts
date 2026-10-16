@@ -43,6 +43,9 @@ const el: Record<I18nKey, string> = {
   'common.on': 'Ενεργό',
   'common.off': 'Ανενεργό',
 
+  'screensaver.back': 'Επιστροφή στο MUSIXQUARE',
+  'screensaver.show_music': 'Εμφάνιση πληροφοριών κομματιού',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Σύνδεση',
   'account.login_cancelled': 'Η σύνδεση ακυρώθηκε',
@@ -469,6 +472,7 @@ const el: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [αίτημα]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [δευτερόλεπτα]',
@@ -485,6 +489,7 @@ const el: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Προβολή συνδεδεμένων χρηστών',
   'chat.cmd_d_bot': 'Αίτημα στην AI για διαχείριση της λίστας αναπαραγωγής',
   'chat.cmd_d_clear': 'Εκκαθάριση ιστορικού συνομιλίας',
+  'chat.cmd_d_screensaver': 'Άνοιγμα προφύλαξης οθόνης',
   'chat.cmd_d_filter': 'Φίλτρο ακατάλληλων λέξεων',
   'chat.cmd_d_freeze': 'Κλείδωμα συνομιλίας',
   'chat.cmd_d_slowmode': 'Αργή λειτουργία',
@@ -548,6 +553,8 @@ const el: Record<I18nKey, string> = {
   'network.host_waiting': 'Αναμονή για τον οικοδεσπότη...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube':
+    'Η προφύλαξη οθόνης δεν είναι διαθέσιμη κατά την αναπαραγωγή YouTube',
   'toast.device_disconnected': 'Αποσυνδέθηκε: {{name}}',
   'toast.device_conn_error': 'Σφάλμα σύνδεσης για {{name}}',
   'toast.device_kicked': 'Αφαιρέθηκε: {{name}}',

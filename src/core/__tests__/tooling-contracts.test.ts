@@ -58,6 +58,7 @@ describe('tooling reproducibility contracts', () => {
         'eslint.tooling.config.ts',
         'scripts/async-connect-middleware.ts',
         'scripts/auxiliary-browser-assets.ts',
+        'scripts/browser-target.ts',
         'scripts/classic-runtime-assets.ts',
         'scripts/live-app-session-smoke.ts',
         'scripts/live-remote-share-smoke.ts',

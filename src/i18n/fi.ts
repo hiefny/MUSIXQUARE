@@ -44,6 +44,9 @@ const fi: Record<I18nKey, string> = {
   'common.on': 'Käytössä',
   'common.off': 'Pois käytöstä',
 
+  'screensaver.back': 'Takaisin MUSIXQUAREen',
+  'screensaver.show_music': 'Näytä kappaleen tiedot',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Kirjaudu sisään',
   'account.login_cancelled': 'Kirjautuminen peruutettiin',
@@ -461,6 +464,7 @@ const fi: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [pyyntö]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [sekuntia]',
@@ -477,6 +481,7 @@ const fi: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'Näytä yhdistetyt käyttäjät',
   'chat.cmd_d_bot': 'Pyydä tekoälyä hallitsemaan soittolistaa',
   'chat.cmd_d_clear': 'Tyhjennä chat-historia',
+  'chat.cmd_d_screensaver': 'Avaa näytönsäästäjä',
   'chat.cmd_d_filter': 'Kirosanasuodatin',
   'chat.cmd_d_freeze': 'Jäädytä chat',
   'chat.cmd_d_slowmode': 'Hidas tila',
@@ -538,6 +543,7 @@ const fi: Record<I18nKey, string> = {
   'network.host_waiting': 'Odotetaan isäntää…',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'Näytönsäästäjä ei ole käytettävissä YouTuben toiston aikana',
   'toast.device_disconnected': 'Laitteen {{name}} yhteys katkesi',
   'toast.device_conn_error': 'Laitteen {{name}} yhteysvirhe',
   'toast.device_kicked': 'Laite {{name}} poistettiin',

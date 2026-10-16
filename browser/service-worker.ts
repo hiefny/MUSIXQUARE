@@ -770,9 +770,10 @@ function canonicalNavigationShell(request: Request): string {
   const url = new URL(request.url);
   if (
     url.origin === serviceWorker.location.origin &&
-    /^\/(?:translate|sitemap)(?:\.html)?\/*$/iu.test(url.pathname)
+    /^\/(?:translate|sitemap|screensaver)(?:\.html)?\/*$/iu.test(url.pathname)
   ) {
     // Reuse the visited document, or fail offline; never substitute the room App UI.
+    if (/^\/screensaver/iu.test(url.pathname)) return './screensaver.html';
     return /^\/sitemap/iu.test(url.pathname) ? './sitemap.html' : './translate.html';
   }
   return url.origin === serviceWorker.location.origin && url.pathname === ACCOUNT_COMPLETION_PATH

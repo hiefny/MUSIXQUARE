@@ -62,6 +62,43 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe('local screensaver command', () => {
+  const openScreensaver = vi.fn();
+  beforeEach(() => {
+    bus.on('ui:open-screensaver', openScreensaver);
+  });
+  it.each(['/screensaver', '/SCREENSAVER', '/스크린세이버'])(
+    'opens lazily for %s without broadcasting',
+    async (input) => {
+      setState('network.appRole', 'guest');
+      const parsed = parseCommand(input)!;
+      expect(parsed.name).toBe('screensaver');
+      expect(shouldBroadcastCommand(parsed)).toBe(false);
+      executeCommand(parsed);
+      await vi.dynamicImportSettled();
+      expect(openScreensaver).toHaveBeenCalledOnce();
+      expect(mocks.sendToHost).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects YouTube before loading the overlay, including paused playback', async () => {
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'paused');
+    executeCommand(parseCommand('/screensaver')!);
+    await vi.dynamicImportSettled();
+    expect(openScreensaver).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('toast.screensaver_youtube'));
+  });
+
+  it('rejects a selected YouTube track before playback mode catches up', async () => {
+    setState('player.currentTrackMeta', { type: 'youtube', name: 'Video' });
+    executeCommand(parseCommand('/스크린세이버')!);
+    await vi.dynamicImportSettled();
+    expect(openScreensaver).not.toHaveBeenCalled();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('toast.screensaver_youtube'));
+  });
+});
+
 describe.each([
   {
     scenario: 'grouped public member number',

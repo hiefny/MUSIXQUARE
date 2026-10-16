@@ -1828,6 +1828,16 @@ export function initChat(): void {
     if (isChatDrawerOpen()) toggleChatDrawer();
   });
 
+  _busScope.on('ui:open-screensaver', async () => {
+    try {
+      const { openScreensaver } = await import('./screensaver.ts');
+      if (!uiSignal.aborted && getState('setup.sessionStarted')) openScreensaver();
+    } catch (error) {
+      log.error('[Chat] Failed to load screensaver', error);
+      if (!uiSignal.aborted) showToast(t('error.load_failed', { msg: 'Screensaver' }));
+    }
+  });
+
   // System messages from loader (avoids circular import with toast.ts)
   _busScope.on('chat:system-message', (text: string) => {
     addSystemChatMessage(text);

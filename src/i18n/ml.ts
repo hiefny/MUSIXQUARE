@@ -44,6 +44,9 @@ const ml: Record<I18nKey, string> = {
   'common.on': 'ഓൺ',
   'common.off': 'ഓഫ്',
 
+  'screensaver.back': 'MUSIXQUARE-ലേക്ക് മടങ്ങുക',
+  'screensaver.show_music': 'പാട്ടിന്റെ വിവരങ്ങൾ കാണിക്കുക',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'സൈൻ ഇൻ ചെയ്യുക',
   'account.login_cancelled': 'സൈൻ ഇൻ റദ്ദാക്കി',
@@ -466,6 +469,7 @@ const ml: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [അഭ്യർത്ഥന]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [സെക്കൻഡ്]',
@@ -482,6 +486,7 @@ const ml: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'ബന്ധിപ്പിച്ച ഉപയോക്താക്കളെ കാണുക',
   'chat.cmd_d_bot': 'പ്ലേലിസ്റ്റ് നിയന്ത്രിക്കാൻ AI-യോട് ആവശ്യപ്പെടുക',
   'chat.cmd_d_clear': 'ചാറ്റ് ചരിത്രം മായ്ക്കുക',
+  'chat.cmd_d_screensaver': 'സ്ക്രീൻസേവർ തുറക്കുക',
   'chat.cmd_d_filter': 'അശ്ലീലവാക്ക് ഫിൽട്ടർ',
   'chat.cmd_d_freeze': 'ചാറ്റ് മരവിപ്പിക്കുക',
   'chat.cmd_d_slowmode': 'സ്ലോ മോഡ്',
@@ -544,6 +549,7 @@ const ml: Record<I18nKey, string> = {
   'network.host_waiting': 'ഹോസ്റ്റിനായി കാത്തിരിക്കുന്നു...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'YouTube പ്ലേ ചെയ്യുമ്പോൾ സ്ക്രീൻസേവർ ഉപയോഗിക്കാനാകില്ല',
   'toast.device_disconnected': '{{name}}-ന്റെ ബന്ധം വിച്ഛേദിച്ചു',
   'toast.device_conn_error': '{{name}}-ന്റെ ബന്ധത്തിൽ പിശക്',
   'toast.device_kicked': '{{name}}-നെ പുറത്താക്കി',

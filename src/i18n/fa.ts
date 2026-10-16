@@ -42,6 +42,9 @@ const fa: Record<I18nKey, string> = {
   'common.on': 'روشن',
   'common.off': 'خاموش',
 
+  'screensaver.back': 'بازگشت به MUSIXQUARE',
+  'screensaver.show_music': 'نمایش اطلاعات آهنگ',
+
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ورود',
   'account.login_cancelled': 'ورود لغو شد',
@@ -452,6 +455,7 @@ const fa: Record<I18nKey, string> = {
   'chat.cmd_u_users': '/users',
   'chat.cmd_u_bot': '/bot [request]',
   'chat.cmd_u_clear': '/clear',
+  'chat.cmd_u_screensaver': '/screensaver',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
   'chat.cmd_u_slowmode': '/slowmode [seconds]',
@@ -468,6 +472,7 @@ const fa: Record<I18nKey, string> = {
   'chat.cmd_d_users': 'نمایش کاربران متصل',
   'chat.cmd_d_bot': 'درخواست مدیریت فهرست پخش از هوش مصنوعی',
   'chat.cmd_d_clear': 'پاک کردن سابقهٔ گفت‌وگو',
+  'chat.cmd_d_screensaver': 'باز کردن محافظ صفحه',
   'chat.cmd_d_filter': 'پالایش واژه‌های نامناسب',
   'chat.cmd_d_freeze': 'قفل کردن گفت‌وگو',
   'chat.cmd_d_slowmode': 'حالت آهسته',
@@ -530,6 +535,7 @@ const fa: Record<I18nKey, string> = {
   'network.host_waiting': 'در انتظار میزبان...',
 
   // ─── Toast (dynamic) ────────────────────────────────────────────
+  'toast.screensaver_youtube': 'هنگام پخش YouTube نمی‌توان از محافظ صفحه استفاده کرد',
   'toast.device_disconnected': 'اتصال {{name}} قطع شد',
   'toast.device_conn_error': 'خطای اتصال {{name}}',
   'toast.device_kicked': '{{name}} حذف شد',

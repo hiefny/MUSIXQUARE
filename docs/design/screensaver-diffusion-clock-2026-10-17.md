@@ -8,7 +8,7 @@ existing baked output; it does not regenerate or darken the selected artwork.
 ## Scope and provenance
 
 - Product source: `802f5afc2bbf5b33fe6bb3af4f4c9a778dce3a25`, based on
-  `14022256` (current production App source `4d1e0011`).
+  `14022256` (pre-release production App source `4d1e0011`).
 - Release identity: `8.11.8` / `v707`; target `app`, Developer API D1 disabled.
 - Original PNG SHA-256:
   `47754a732400308aac7329a5d8d534bdff6b02d09f000213e4db2ccef8379b1e`.
@@ -71,21 +71,74 @@ The pinned CI environment remains authoritative for the production candidate.
   loading, YouTube restrictions, fullscreen, caption integrity and scene changes.
 - Initial PR CI `38948718087` rejected a lowercase brand token in the local
   evidence path below. The documentation path was shortened; product code was
-  unchanged. The corrected head requires its own successful CI result.
+  unchanged. Final PR head `271ae0aa` passed all 11 jobs in
+  [CI 38949092767](https://github.com/hiefny/MUSIXQUARE/actions/runs/38949092767).
 - Local evidence: `diffusion-clock/built-clock-report.json`
   and its four screenshots under this task's visualization evidence directory;
   ignored `scratch/` logs hold the local checks and original timeout output.
 
 ## Release and recovery
 
-The owner authorized the App deployment on 2026-10-17. The PR and successful
-exact-main-SHA CI candidate are required before Production Release. Production
-deployment and public asset verification are not yet claimed by this preparation.
+The owner authorized the App deployment on 2026-10-17. PR
+[#375](https://github.com/hiefny/MUSIXQUARE/pull/375) merged as
+`e0d717314c496feed645ed9c0c7848ffdc85472d`. Exact-main push
+[CI 38950054085](https://github.com/hiefny/MUSIXQUARE/actions/runs/38950054085)
+attempt 1 passed all 11 jobs: 573 unit files, 12,868 passed / 0 failed / 1 skipped,
+candidate browser 17 and critical browser 45 passed, with coverage, source,
+formatting, production build and security gates passed. The skip is the
+Windows-only other-drive path rejection test on Linux. Release used that run's
+[candidate artifact 12068086279](https://github.com/hiefny/MUSIXQUARE/actions/runs/38950054085/artifacts/12068086279),
+not a local build or the PR candidate.
 
-No API, schema, secrets, bindings, permissions, CSP or recovery-floor changes.
-Restoring the prior compatible App candidate restores the previous clock
-background; local original and darker previews are preserved separately. Existing
-provider, physical-device and other release-record limitations remain open.
+[Production Release 38950797624](https://github.com/hiefny/MUSIXQUARE/actions/runs/38950797624)
+attempt 1 completed successfully at 2026-10-17 03:55:42 KST, target `app`,
+Developer API D1 disabled, version `8.11.8` / cache `v707`. App version is
+`1257c8a7-24cd-494f-9ef6-17b21c4fe0ac`, deployment
+`6de2f7cb-71c6-4075-a625-2feaeeb2fff6`. Final ownership was verified at
+03:55:36.211 KST and the coherent production marker was persisted. The five
+unselected Workers retained their `d9364cd9` provenance; the compatibility
+recheck passed at 03:55:09.692 KST. All four App-target operating smokes passed:
+generation convergence (`/assets/main-ChYbIARs.js`, three consecutive reads,
+29 assets), anonymous App account boundary, existing PRO public boundary and
+Standard HTTPS signaling host/guest admission with offer/answer relay. The seven
+existing App D1 baseline apply/verify steps passed; Developer API D1 and
+out-of-scope Worker smokes were skipped. Deployment evidence is
+[artifact 12069365547](https://github.com/hiefny/MUSIXQUARE/actions/runs/38950797624/artifacts/12069365547)
+and the coherent marker is
+[artifact 12069200801](https://github.com/hiefny/MUSIXQUARE/actions/runs/38950797624/artifacts/12069200801).
+
+At 03:56:15–21 KST, public HTTPS GET verification passed 19/19: index, service
+worker, bootstrap, screensaver HTML, its runtime and all seven new plus seven
+legacy clock images returned HTTP 200 with bytes and SHA-256 matching the
+exact-main candidate. The new seven also match the approved diffusion 01 output.
+The deployed screensaver runtime is `/assets/screensaver-runtime-5e659d61.js`
+(230,301 bytes); service worker cache is v707. This read-only check is recorded
+in `diffusion-clock/live-assets.json`, with CI facts in
+`diffusion-clock/main-ci-facts.json` and `diffusion-clock/pr-ci-facts.json`.
+It does not constitute a live full-room browser or physical-screen test.
+
+Rollback was unnecessary and was not run; the independent recovery job was
+skipped. The checkpoint captured at 03:54:34.091 KST,
+[artifact 12068566888](https://github.com/hiefny/MUSIXQUARE/actions/runs/38950797624/artifacts/12068566888),
+preserves the preceding App `4d1e001105bb1a7a1aa52fa2ef1bf5df551b89d9`
+(`8.11.7` / `v705`), version `673f3697-c6ed-43cf-8963-88f71c302fc5`, deployment
+`5945bc86-b69e-4862-97b3-c79a968d63f7`. Its verified release ancestry and
+generation, entitlement and Developer API authority awareness passed the floor
+checkpoint at 03:54:35.800 KST. Release floor `d9364cd9` and generation floor
+`4c5612d5` remain active; this change introduces no new floor. Restoring that
+compatible App restores the previous gradient-based clock image and clock grain
+setting, subject to the normal ownership and floor rechecks. A checkpoint is not
+a user-data backup. Local original and darker previews remain preserved.
+
+No API, schema, secrets, bindings, permissions or CSP changed. No new Operations
+Drift Audit ran after this release: latest successful
+[38945544840](https://github.com/hiefny/MUSIXQUARE/actions/runs/38945544840)
+belongs to the earlier `4d1e0011` deployment (31 pass / 0 fail / 5 manual-only).
+The latest main Full E2E remains failed run
+[38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)
+at `4854e392`; the separate branch success `38405378201` at `749f0a6a` is not
+evidence for this release. Existing provider, physical-device and other
+release-record limitations remain open.
 
 Browser captures cannot prove the absence of banding on every physical display;
 the user's approved lighter source is used without further shadow adjustment.

@@ -119,7 +119,59 @@ again after `beginIncident()`; and leaving an answered warning alone.
   provide. iPhone Safari/PWA and Android behaviour remain for the device
   check.
 
-## Recovery
+## Release and recovery
+
+The owner approved the 8.11.7 production deploy on 2026-10-17. PR #373 was
+squash-merged as `4d1e001105bb1a7a1aa52fa2ef1bf5df551b89d9` after PR CI
+38943418521 (11 jobs) passed on head `024080c9`; the Codex review had no
+findings. Exact-main push CI 38944217887 attempt 1 passed all 11 jobs: unit
+573 files / 12,868 pass / 0 fail / 1 skip (a Windows-only path check on
+Linux), candidate browser 17 and critical browser 45 pass.
+
+Production Release 38945082862 attempt 1 (target `app`, Developer API D1
+disabled) succeeded. Its deploy job finished at 03:11:36 KST.
+
+- App version `673f3697-c6ed-43cf-8963-88f71c302fc5` / deployment
+  `5945bc86-b69e-4862-97b3-c79a968d63f7`, message
+  `git:4d1e001105bb1a7a1aa52fa2ef1bf5df551b89d9`. Final ownership was
+  verified at 03:11:30.126 KST. The partial-release compatibility recheck was
+  compatible at 03:10:36.506 KST, and the five unselected Workers stayed on
+  `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`.
+- The seven existing App D1 baseline steps applied and verified
+  idempotently. The Developer API D1 and other target-specific steps were
+  skipped.
+- Smokes passed: App generation converged on `/assets/main-DJvp5cYu.js`
+  (3 consecutive reads, 29 assets), the anonymous account boundary, the PRO
+  public boundary on the existing `8d5d44c0`, and Standard HTTPS signaling
+  (host and guest admission, offer and answer relay).
+- Artifacts: deployments 12066320538, coherent marker 12066245597, and
+  recovery checkpoint 12066290317.
+
+Public assets at 03:12:06–09 KST: `/` (140,676 bytes),
+`/service-worker.js` (39,149 bytes, `CACHE_VERSION = "v705"`),
+`/bootstrap.js?cache=v705` (10,196 bytes), and `/assets/main-DJvp5cYu.js`
+(434,764 bytes, the entry that holds this change) all returned 200. Each
+matched the exact-main candidate artifact byte for byte (SHA-256).
+
+Operations Drift Audit 38945544840 on `4d1e0011` reported
+automated-checks-passed: 31 pass / 0 fail / 5 manual-only (report at
+03:12:48 KST).
+
+Not verified after the deploy: a real return from the background in a room
+on a device. Open tabs pick up 8.11.7 through the update path recorded in
+[the reopen report](update-apply-on-reopen-2026-10-16.md), so the new
+behaviour reaches a device only after it loads the new page code.
+
+No rollback was needed, and the independent recovery job was skipped.
+Checkpoint
+`production-recovery-checkpoint-4d1e001105bb1a7a1aa52fa2ef1bf5df551b89d9-38945082862-1`,
+captured at 03:09:59.269 KST, keeps the previous App
+`1a2fb4423e25e758336e9f1215371a3766771d85` (8.11.6/v704), version
+`7a943c98-b30c-49ba-97b0-4c79d913adc0` / deployment
+`0cf1427e-1ba1-45a0-bdbe-3adc183ddf1c`. The floors captured at
+03:10:03.075 KST were ready, with release floor `d9364cd9`, generation floor
+`4c5612d5`, and the generation and entitlement floors true. The retained App
+is a verified release ancestor.
 
 A normal authorized rollback to 8.11.6/v704 restores the previous behaviour:
 a second identical warning after an absence during the first, and the warning

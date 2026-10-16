@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Screensaver caption rendering regression — 2026-10-16](design/screensaver-caption-rendering-2026-10-16.md) —
+  restores whole-caption rendering after missing small-letter strokes were reported;
+  records the source regression and browser-reproduction limits.
 - [Image backgrounds and compatible screensaver effects — 2026-10-16](design/screensaver-image-backgrounds-2026-10-16.md) —
   The approved all-image background version, lazy immutable assets, and compatible
   foreground effects, with integration verification and release evidence.

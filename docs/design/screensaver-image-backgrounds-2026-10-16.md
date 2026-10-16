@@ -46,9 +46,68 @@ for compatible transitions, retaining the approved blue appearance.
 
 ## Verification
 
-Final committed-source checks and integration evidence are recorded here before
-release. Local browser checks are automated desktop Chromium/WebKit checks and
-do not establish physical iPhone Safari behavior, real weather observations,
+Runtime source `6e862e01c51f15a3301224540f298c76556f1d56` was verified on Windows
+with Node 24.13.1 and npm 11.8.0. Full typecheck, ESLint, formatting, Worker syntax,
+Developer API boundaries, D1 contracts, and source-only operations contracts
+passed. The final startup-background correction also passed focused strict
+TypeScript and lint. Independent source review found no remaining P1/P2 after
+fixing the initial image waiting behind font warmup.
+
+The full local unit run passed 570 files / 12,846 tests and failed two tests:
+the raw index bootstrap cache URL still used v700, and a Git-fixture SW guard
+timed out at 15 seconds under full load. The URL was corrected to v701 and both
+affected files passed all 76 tests when rerun with one worker. The original
+205-second failing run is retained; the focused rerun is not described as a new
+full-suite pass. Asset contract tests verify all 139 file sizes/content hashes
+and the actual routing function across 200 weather day/night combinations,
+seasons in both hemispheres, moon, and AQI boundaries.
+
+Committed-source `build:checked` passed all gates, including Chromium 79 syntax,
+production security/test-hook checks, font checks, and 97 app-shell assets.
+Eager transfer remains 2,012.2 KiB raw / 538.1 KiB gzip, with no eager font bytes.
+The image bank is absent from the built service worker. The compiled child
+renderer is `/assets/screensaver-runtime-49a3cd62.js`: 228,911 bytes / 46,902 bytes
+gzip, SHA-256 `49a3cd626a774007cd9dd1a441ce38a8dc58b866aa2bf6e035e50c4b1c318e04`.
+Child HTML is 19,033 bytes. The production artifact was retained before building
+the separate E2E artifact.
+
+Focused Chromium screensaver E2E passed **14/14** in 1.7 minutes, with no page
+errors. It covers connected file playback, synthetic system audio, YouTube
+blocking/forced exit, lazy entry, fullscreen ownership/restoration, host-message
+boundaries, controls/music footer, small/large layouts, and location denial.
+New checks require a decoded clock background before a blocked font stylesheet
+is released (within 1.5 seconds), retain the previous image while its successor
+is delayed or fails, verify two images during a crossfade and one afterward,
+recover after reopening, render nonempty glyphs without Canvas.filter, and
+dispose/recreate compositor/image roots across synthetic pagehide/pageshow.
+The five-record decoded-image cache bound was reviewed in source; this is not a
+heap-memory measurement.
+
+Native Windows WebKit appearance checks passed **7/7** against the frozen
+production artifact and approved prototype. Canvas.filter was unavailable.
+Clock, minute transition, and moon screenshots matched pixel-for-pixel at the
+tested portrait/landscape sizes, with nonempty foreground layers. Weather keeps
+the existing MUSIXQUARE temperature/description spacing; matching only that
+layout in the reference produced identical foreground pixels/styles. The
+portrait weather difference was limited to the existing attribution link's
+placement (370 pixels; mean full-image RGB difference 0.059/255). Backgrounds
+decoded with no runtime blur filter, and no page errors or unexpected external
+requests occurred. The test response alone added deterministic scene controls;
+the production files remained unchanged. Results and PNGs are retained in
+`production-port-webkit/results.json` and its adjacent screenshots.
+
+PR [#367](https://github.com/hiefny/MUSIXQUARE/pull/367) passed all 11 CI jobs in
+[38908079465](https://github.com/hiefny/MUSIXQUARE/actions/runs/38908079465),
+including both unit shards, candidate browser 17 checks, and critical browser
+43 checks. The reviewed change was squash-merged as
+`813a02203274d52986eeeae5a901f9070a0362b4`. PR CI is separate from the required
+exact-main deployment candidate.
+
+Evidence is retained in the operator's `production-image-v701/` directory:
+`typecheck.log`, `lint.log`, `format.log`, `worker-guards.log`, `unit.log`,
+`build-checked.log`, `production-asset-summary.json`, the frozen
+`dist-production/`, and `screensaver-chromium-report.json`. Browser checks do
+not establish physical iPhone Safari behavior, real weather observations,
 or audible multi-device synchronization.
 
 The earlier prototype benchmark compared static background phase zero in an

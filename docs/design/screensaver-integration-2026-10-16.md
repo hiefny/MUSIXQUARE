@@ -134,6 +134,20 @@ blocking Google Fonts stylesheet, which delayed the renderer before its bounded
 font fallback could start. These corrective changes and the transparent controls
 require a new final CI candidate; the earlier successful run is not substituted.
 
+Corrective source `b297e967` passed eight Chromium screensaver cases, including
+a held stylesheet with an actually painted fallback clock, late font metric
+refitting, failed stylesheet recovery, and transparent normal/hover controls.
+Auxiliary/legacy compiler tests passed 22/22; affected TypeScript projects,
+lint, ownership and release identity checks passed. Independent follow-up review
+found no further blocker in font failure, late-load, BFCache or CSP behavior.
+The stylesheet is now created by the external runtime after DOM readiness with
+listeners attached before insertion, and the three-second bound covers both CSS
+and font loading. Its final Chrome 79 renderer is
+`/assets/screensaver-runtime-27fec4a4.js`, SHA-256
+`27fec4a4ab5c04704e1c1d011d1e65d7f21b87bc5eafbf7ccc47f27dccf91e0f`.
+Committed `build:checked` passed on `b297e967`, including the legacy-browser,
+production-security, initial-transfer and service-worker gates.
+
 Real phone
 hardware, live YouTube playback, live system capture, and all 42 locales' visual
 layout have not been tested by these synthetic checks.

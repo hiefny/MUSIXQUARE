@@ -44,7 +44,6 @@ const uk: Record<I18nKey, string> = {
   'common.off': 'Вимкнено',
 
   'screensaver.back': 'Повернутися до MUSIXQUARE',
-  'screensaver.show_music': 'Показувати інформацію про трек',
 
   // ─── Обліковий запис ─────────────────────────────────────────────
   'account.login_title': 'Увійти',

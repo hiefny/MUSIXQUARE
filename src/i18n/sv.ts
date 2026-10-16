@@ -45,7 +45,6 @@ const sv: Record<I18nKey, string> = {
   'common.off': 'Av',
 
   'screensaver.back': 'Tillbaka till MUSIXQUARE',
-  'screensaver.show_music': 'Visa låtinformation',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Logga in',

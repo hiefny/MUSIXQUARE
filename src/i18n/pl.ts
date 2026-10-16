@@ -44,7 +44,6 @@ const pl: Record<I18nKey, string> = {
   'common.off': 'Wył.',
 
   'screensaver.back': 'Wróć do MUSIXQUARE',
-  'screensaver.show_music': 'Pokaż informacje o utworze',
   'account.login_title': 'Zaloguj się',
   'account.login_cancelled': 'Logowanie anulowano',
   'account.login_failed': 'Nie udało się zalogować\nSpróbuj ponownie',

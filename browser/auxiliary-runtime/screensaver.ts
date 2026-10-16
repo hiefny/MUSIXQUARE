@@ -97,9 +97,9 @@ interface LocalDataState {
   stale: boolean;
   message: string;
 }
-type SceneName = 'clock' | 'date' | 'weather' | 'air' | 'moon' | 'music';
+type SceneName = 'clock' | 'date' | 'weather' | 'air' | 'moon';
 interface InfoContent {
-  kind: 'date' | 'moon' | 'number' | 'status' | 'music';
+  kind: 'date' | 'moon' | 'number' | 'status';
   text: string;
   label: string;
   ready: boolean;
@@ -219,8 +219,6 @@ function context(canvas: HTMLCanvasElement): CanvasContext {
 }
 interface DisplayUpdate {
   backLabel: string;
-  musicLabel: string;
-  showMusic: boolean;
   title: string;
   subtitle: string;
   lang: string;
@@ -236,13 +234,10 @@ function finite(value: unknown): value is number {
 let disposed = false;
 let animationFrame = 0;
 let lifecycleGeneration = 0;
-let hostUpdateReceived = false;
 let controlsTimer: ReturnType<typeof setTimeout> | null = null;
 let keyboardInteraction = false;
 let displayState: DisplayUpdate = {
   backLabel: 'Back to MUSIXQUARE',
-  musicLabel: 'Show music info',
-  showMusic: true,
   title: '',
   subtitle: '',
   lang: 'en',
@@ -250,95 +245,13 @@ let displayState: DisplayUpdate = {
 };
 const displayChrome = element('displayChrome', 'div');
 const backButton = element('displayBack', 'button');
-const musicToggle = element('displayMusicToggle', 'button');
-const musicScene = element('musicScene', 'section');
+const musicInfo = element('displayMusicInfo', 'div');
 const musicTitle = element('musicTitle', 'div');
-const musicTitleWindow = element('musicTitleWindow', 'div');
 const musicSubtitle = element('musicSubtitle', 'div');
-let musicRenderKey = '';
-let musicOverflow = 0;
-let musicIsRtl = false;
 let fontWarmupTimer: ReturnType<typeof setTimeout> | null = null;
-const musicAnimations = new Set<Animation>();
-const musicGhosts = new Set<HTMLElement>();
-
-function settleMusicTransition() {
-  for (const animation of musicAnimations) animation.cancel();
-  musicAnimations.clear();
-  for (const ghost of musicGhosts) ghost.remove();
-  musicGhosts.clear();
-}
-
-function updateMusicText(node: HTMLElement, text: string) {
-  if (node.textContent === text) return;
-  const animate =
-    Boolean(node.textContent) &&
-    musicScene.getAttribute('aria-hidden') === 'false' &&
-    !reducedMotion.matches &&
-    !document.hidden;
-  if (animate) {
-    const ghost = node.cloneNode(true);
-    if (ghost instanceof HTMLElement) {
-      ghost.removeAttribute('id');
-      ghost.setAttribute('aria-hidden', 'true');
-      ghost.style.position = 'absolute';
-      ghost.style.left = node.offsetLeft + 'px';
-      ghost.style.top = node.offsetTop + 'px';
-      ghost.style.width = node.getBoundingClientRect().width + 'px';
-      ghost.style.minWidth = '0';
-      node.parentElement?.append(ghost);
-      musicGhosts.add(ghost);
-      const outgoing = ghost.animate(
-        Array.from({ length: 31 }, (_, index) => {
-          const t = smoothProgress(index / 30);
-          return {
-            offset: index / 30,
-            opacity: 1 - Math.min(1, t / 0.6),
-            filter: `blur(${12 * t}px)`,
-            translate: `${0.07 * t}em ${-0.07 * t}em`,
-          };
-        }),
-        { duration: INFO_TRANSITION_MS, fill: 'forwards' },
-      );
-      musicAnimations.add(outgoing);
-      outgoing.addEventListener('finish', () => {
-        ghost.remove();
-        musicGhosts.delete(ghost);
-        musicAnimations.delete(outgoing);
-      });
-    }
-  }
-  node.textContent = text;
-  if (animate) {
-    const incoming = node.animate(
-      Array.from({ length: 31 }, (_, index) => {
-        const entry = Math.max(0, (smoothProgress(index / 30) - 0.15) / 0.85);
-        return {
-          offset: index / 30,
-          opacity: entry,
-          filter: `blur(${8 * (1 - entry)}px)`,
-          translate: `${-0.045 * (1 - entry)}em ${0.045 * (1 - entry)}em`,
-        };
-      }),
-      { duration: INFO_TRANSITION_MS },
-    );
-    musicAnimations.add(incoming);
-    incoming.addEventListener('finish', () => musicAnimations.delete(incoming));
-  }
-}
-
-function getSceneNames(): SceneName[] {
-  return displayState.showMusic && displayState.title.trim()
-    ? ['music', ...SCENE_NAMES]
-    : SCENE_NAMES;
-}
-
-function postToHost(type: 'ready' | 'close' | 'music-toggle', enabled?: boolean) {
+function postToHost(type: 'ready' | 'close') {
   if (window.parent === window) return;
-  window.parent.postMessage(
-    { type: `mxqr:screensaver:${type}`, ...(enabled === undefined ? {} : { enabled }) },
-    location.origin,
-  );
+  window.parent.postMessage({ type: `mxqr:screensaver:${type}` }, location.origin);
 }
 
 function isDisplayUpdate(value: unknown): value is DisplayUpdate {
@@ -346,13 +259,10 @@ function isDisplayUpdate(value: unknown): value is DisplayUpdate {
     isRecord(value) &&
     typeof value.backLabel === 'string' &&
     value.backLabel.length <= 500 &&
-    typeof value.musicLabel === 'string' &&
-    value.musicLabel.length <= 500 &&
     typeof value.title === 'string' &&
     value.title.length <= 2000 &&
     typeof value.subtitle === 'string' &&
     value.subtitle.length <= 2000 &&
-    typeof value.showMusic === 'boolean' &&
     typeof value.lang === 'string' &&
     value.lang.length <= 35 &&
     (value.dir === 'ltr' || value.dir === 'rtl')
@@ -360,18 +270,7 @@ function isDisplayUpdate(value: unknown): value is DisplayUpdate {
 }
 
 function applyDisplayUpdate(update: DisplayUpdate) {
-  const previousNames = getSceneNames();
-  const previous = sceneStartedAt === null ? null : getSceneState(performance.now());
   displayState = { ...update, title: update.title.trim(), subtitle: update.subtitle.trim() };
-  const names = getSceneNames();
-  if (previous && previousNames.join() !== names.join()) {
-    const retainedIndex = names.indexOf(previous.name);
-    const clockIndex = names.indexOf('clock');
-    sceneStartedAt =
-      (sceneHiddenAt ?? performance.now()) -
-      ((retainedIndex >= 0 ? retainedIndex : clockIndex) * SCENE_DURATION_MS +
-        (retainedIndex >= 0 ? previous.phase : 0));
-  }
   displayChrome.lang = update.lang;
   displayChrome.dir = update.dir;
   backButton.setAttribute('aria-label', update.backLabel);
@@ -380,9 +279,10 @@ function applyDisplayUpdate(update: DisplayUpdate) {
     brandAt < 0 ? update.backLabel : update.backLabel.slice(0, brandAt).trim();
   element('backAfter', 'span').textContent =
     brandAt < 0 ? '' : update.backLabel.slice(brandAt + 'MUSIXQUARE'.length).trim();
-  element('musicToggleLabel', 'span').textContent = update.musicLabel;
-  musicToggle.setAttribute('aria-checked', String(update.showMusic));
-  musicRenderKey = '';
+  musicTitle.textContent = displayState.title;
+  musicSubtitle.textContent = displayState.subtitle;
+  musicSubtitle.hidden = !displayState.subtitle;
+  musicInfo.hidden = !displayState.title;
 }
 
 function showControls() {
@@ -397,50 +297,6 @@ function showControls() {
     }
     document.body.classList.add('chrome-hidden');
   }, 5000);
-}
-
-function renderMusicFrame(phase: number) {
-  const key = JSON.stringify([
-    displayState.title,
-    displayState.subtitle,
-    window.innerWidth,
-    window.innerHeight,
-    reducedMotion.matches,
-  ]);
-  if (key !== musicRenderKey) {
-    settleMusicTransition();
-    updateMusicText(musicTitle, displayState.title);
-    updateMusicText(musicSubtitle, displayState.subtitle);
-    musicTitle.style.fontSize = '';
-    if (reducedMotion.matches) {
-      const targetHeight = window.innerHeight * 0.4;
-      let fontSize = parseFloat(getComputedStyle(musicTitle).fontSize);
-      for (
-        let attempt = 0;
-        attempt < 10 && musicTitle.scrollHeight > targetHeight && fontSize > 8;
-        attempt++
-      ) {
-        fontSize = Math.max(
-          8,
-          fontSize * Math.min(0.9, Math.sqrt(targetHeight / musicTitle.scrollHeight)),
-        );
-        musicTitle.style.fontSize = fontSize + 'px';
-      }
-    }
-    musicSubtitle.hidden = !displayState.subtitle;
-    musicScene.setAttribute(
-      'aria-label',
-      [displayState.title, displayState.subtitle].filter(Boolean).join(' · '),
-    );
-    musicOverflow = Math.max(
-      0,
-      musicTitle.scrollWidth - musicTitleWindow.clientWidth + window.innerWidth * 0.04,
-    );
-    musicIsRtl = getComputedStyle(musicTitle).direction === 'rtl';
-    musicRenderKey = key;
-  }
-  const progress = reducedMotion.matches ? 0 : smoothProgress((phase - 1200) / 6500);
-  musicTitle.style.transform = `translateX(${-musicOverflow * (musicIsRtl ? 1 - progress : progress)}px)`;
 }
 
 function initializeDisplayControls() {
@@ -485,11 +341,6 @@ function initializeDisplayControls() {
     }
   });
   backButton.addEventListener('click', () => postToHost('close'));
-  musicToggle.addEventListener('click', () => {
-    const enabled = !displayState.showMusic;
-    applyDisplayUpdate({ ...displayState, showMusic: enabled });
-    postToHost('music-toggle', enabled);
-  });
   showControls();
   postToHost('ready');
 }
@@ -508,10 +359,6 @@ window.addEventListener('message', (event: MessageEvent<unknown>) => {
     !isDisplayUpdate(event.data.payload)
   )
     return;
-  if (!hostUpdateReceived) {
-    sceneStartedAt = null;
-    hostUpdateReceived = true;
-  }
   applyDisplayUpdate(event.data.payload);
 });
 
@@ -522,7 +369,6 @@ window.addEventListener('pagehide', () => {
   animationFrame = 0;
   if (controlsTimer !== null) clearTimeout(controlsTimer);
   if (fontWarmupTimer !== null) clearTimeout(fontWarmupTimer);
-  settleMusicTransition();
   if (weatherRefreshTimer !== null) clearInterval(weatherRefreshTimer);
   weatherGeneration++;
   for (const controller of weatherFetchControllers) controller.abort();
@@ -3060,7 +2906,7 @@ function getSceneState(now: number) {
   const elapsed = Math.max(0, (sceneHiddenAt === null ? now : sceneHiddenAt) - sceneStartedAt);
   const index = Math.floor(elapsed / SCENE_DURATION_MS);
   const phase = elapsed % SCENE_DURATION_MS;
-  const names = getSceneNames();
+  const names = SCENE_NAMES;
   const name = names[index % names.length];
   const opacity = reducedMotion.matches
     ? 1
@@ -3074,7 +2920,7 @@ function getSceneState(now: number) {
     elapsed,
     phase,
     clockOpacity: name === 'clock' ? opacity : 0,
-    weatherOpacity: name === 'clock' || name === 'music' ? 0 : opacity,
+    weatherOpacity: name === 'clock' ? 0 : opacity,
   };
 }
 
@@ -3333,6 +3179,7 @@ function buildInfoLayout(
     tailDescent = 0,
     tailHeight = 0,
     gap = 0,
+    tailOffset = 0,
     width = 0;
   let tailLines: string[] = [];
   function measure() {
@@ -3356,14 +3203,28 @@ function buildInfoLayout(
     tailDescent = weatherCtx.measureText('Ag').actualBoundingBoxDescent || tailSize * 0.2;
     tailHeight = tailLines.length * tailSize * 1.2;
     gap = tailText ? fontSize * SECONDS_GAP_SCALE : 0;
-    width = primaryWidth + gap + tailWidth;
+    tailOffset = primaryWidth + gap;
+    if (primaryUnit && tailText) {
+      const unitBottom =
+        -ascent +
+        (unitMetrics.actualBoundingBoxAscent || unitSize * 0.7) +
+        (unitMetrics.actualBoundingBoxDescent || 0);
+      const tailAscent = Math.max(
+        ...tailLines.map(
+          (line) => weatherCtx.measureText(line).actualBoundingBoxAscent || tailSize * 0.73,
+        ),
+      );
+      const tailTop = descent - tailDescent - (tailLines.length - 1) * tailSize * 1.2 - tailAscent;
+      if (unitBottom + fontSize * 0.06 <= tailTop) tailOffset = inkWidth(metrics) + fontSize * 0.12;
+    }
+    width = Math.max(primaryWidth, tailOffset + tailWidth);
   }
   measure();
   fontSize *= Math.min(1, maxWidth / Math.max(1, width));
   measure();
   const totalHeight = Math.max(mainHeight, tailHeight);
   const top = (h - totalHeight) / 2;
-  const opticalBias = (gap + tailWidth) * (1 - SECONDS_CENTER_WEIGHT) * 0.5;
+  const opticalBias = (width - primaryWidth) * (1 - SECONDS_CENTER_WEIGHT) * 0.5;
   const left = (w - width) / 2 + opticalBias;
   const bottom = top + totalHeight;
   const baseline = bottom - descent;
@@ -3388,7 +3249,7 @@ function buildInfoLayout(
     tailText,
     tailLines,
     tailSize,
-    tailX: left + primaryWidth + gap,
+    tailX: left + tailOffset,
     tailBaseline: bottom - tailDescent,
     primaryTop: bottom - mainHeight,
     primaryLeft: left,
@@ -4221,8 +4082,7 @@ function getAirPalette(value: number | null) {
 }
 
 function getBackgroundSpec(sceneName: SceneName, date = new Date()): BackgroundSpec {
-  if (sceneName === 'clock' || sceneName === 'music')
-    return { key: 'clock', asset: null, gradient: '', brightness: 1 };
+  if (sceneName === 'clock') return { key: 'clock', asset: null, gradient: '', brightness: 1 };
   if (sceneName === 'weather' && weatherState.status !== 'ready') {
     return { key: 'weather-pending', asset: null, gradient: '', brightness: 1, pending: true };
   }
@@ -4280,7 +4140,7 @@ function applySceneBackground(sceneName: SceneName, now = performance.now()) {
   const spec = getBackgroundSpec(sceneName);
   const asset = prepareBackgroundAsset(spec.asset);
 
-  const names = getSceneNames();
+  const names = SCENE_NAMES;
   const nextScene = names[(names.indexOf(sceneName) + 1) % names.length];
   prepareBackgroundAsset(getBackgroundSpec(nextScene).asset);
 
@@ -4331,9 +4191,7 @@ function applySceneState(scene: ReturnType<typeof getSceneState>, now = performa
   weatherCanvas.style.opacity = String(scene.weatherOpacity);
   weatherRetry.style.opacity = String(scene.weatherOpacity);
   weatherAttribution.style.opacity = String(scene.weatherOpacity);
-  musicScene.style.opacity = String(scene.name === 'music' ? scene.opacity : 0);
-  musicScene.setAttribute('aria-hidden', String(scene.name !== 'music'));
-  const infoActive = scene.name !== 'clock' && scene.name !== 'music' && scene.opacity > 0.5;
+  const infoActive = scene.name !== 'clock' && scene.opacity > 0.5;
   weatherRetry.style.pointerEvents = infoActive ? 'auto' : 'none';
   weatherAttribution.style.pointerEvents = infoActive ? 'auto' : 'none';
   weatherRetry.tabIndex = infoActive && !weatherRetry.hidden ? 0 : -1;
@@ -4341,12 +4199,9 @@ function applySceneState(scene: ReturnType<typeof getSceneState>, now = performa
   weatherRetry.setAttribute('aria-hidden', String(!infoActive));
   weatherAttribution.setAttribute('aria-hidden', String(!infoActive));
   clockCanvas.setAttribute('aria-hidden', String(scene.name !== 'clock'));
-  weatherCanvas.setAttribute(
-    'aria-hidden',
-    String(scene.name === 'clock' || scene.name === 'music'),
-  );
+  weatherCanvas.setAttribute('aria-hidden', String(scene.name === 'clock'));
   if (activeSceneName !== scene.name) {
-    if (scene.name === 'clock' || scene.name === 'music') {
+    if (scene.name === 'clock') {
       settleInfoTransition();
       releaseInfoScene(currentInfoScene);
       currentInfoScene = null;
@@ -4379,8 +4234,6 @@ function mainAnimationLoop(now: number) {
     if (scene.name === 'clock') {
       renderFrame(now);
       updateAndDrawSpeckles(now);
-    } else if (scene.name === 'music') {
-      renderMusicFrame(scene.phase);
     } else {
       renderWeatherFrame(now, scene.name);
     }
@@ -4484,7 +4337,6 @@ function invalidateFontLayouts() {
   fittedFont = null;
   lastViewportW = 0;
   infoRenderKey = '';
-  musicRenderKey = '';
 }
 
 document.fonts?.addEventListener('loadingdone', () => {
@@ -4492,8 +4344,7 @@ document.fonts?.addEventListener('loadingdone', () => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) settleMusicTransition();
-  else showControls();
+  if (!document.hidden) showControls();
 });
 
 document.addEventListener('DOMContentLoaded', () => {

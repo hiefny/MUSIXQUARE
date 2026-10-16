@@ -43,7 +43,6 @@ const tr: Record<I18nKey, string> = {
   'common.off': 'Kapalı',
 
   'screensaver.back': 'MUSIXQUARE’a dön',
-  'screensaver.show_music': 'Müzik bilgilerini göster',
   'account.login_title': 'Oturum aç',
   'account.login_cancelled': 'Oturum açma iptal edildi',
   'account.login_failed': 'Oturum açılamadı\nLütfen tekrar dene',

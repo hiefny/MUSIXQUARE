@@ -306,6 +306,55 @@ const _modalStack: OverlayId[] = [];
 const CENTERED_OVERLAY_Z_INDEX_BASE = 6000;
 const CENTERED_OVERLAY_Z_INDEX_STEP = 10;
 const OVERLAY_INERT_OWNER = 'overlay-stack';
+const _overlayInertElements = new Set<HTMLElement>();
+const _fullscreenModalPortals = new Map<HTMLElement, { parent: Node; next: Node | null }>();
+let _portalFullscreenListenerInstalled = false;
+
+function restoreFullscreenModal(element: HTMLElement): void {
+  const position = _fullscreenModalPortals.get(element);
+  if (!position) return;
+  if (element.parentNode) {
+    const parent = position.parent.isConnected ? position.parent : document.body;
+    parent.insertBefore(element, position.next?.parentNode === parent ? position.next : null);
+  }
+  _fullscreenModalPortals.delete(element);
+}
+
+function onPortalFullscreenChange(): void {
+  syncOverlayState();
+}
+
+function syncFullscreenModalPortal(top: OverlayId | null): void {
+  const fullscreen = document.fullscreenElement;
+  const container =
+    fullscreen instanceof HTMLElement &&
+    fullscreen.isConnected &&
+    fullscreen !== document.documentElement &&
+    fullscreen !== document.body
+      ? fullscreen
+      : null;
+  const definition = OVERLAYS.find((overlay) => overlay.id === top);
+  const element = definition && !definition.fullscreen ? getUiElement(definition.id) : null;
+  for (const portaled of _fullscreenModalPortals.keys()) {
+    if (portaled !== element || portaled.parentElement !== container)
+      restoreFullscreenModal(portaled);
+  }
+  if (container && element && !container.contains(element) && !element.contains(container)) {
+    if (element.parentNode)
+      _fullscreenModalPortals.set(element, {
+        parent: element.parentNode,
+        next: element.nextSibling,
+      });
+    container.appendChild(element);
+  }
+  if (_fullscreenModalPortals.size && !_portalFullscreenListenerInstalled) {
+    document.addEventListener('fullscreenchange', onPortalFullscreenChange);
+    _portalFullscreenListenerInstalled = true;
+  } else if (!_fullscreenModalPortals.size && _portalFullscreenListenerInstalled) {
+    document.removeEventListener('fullscreenchange', onPortalFullscreenChange);
+    _portalFullscreenListenerInstalled = false;
+  }
+}
 
 interface ManagedInertState {
   readonly owners: Set<string>;
@@ -435,11 +484,12 @@ function installLegacyInertInteractionGuard(): void {
 export function __resetModalStackForTests(): void {
   _modalStack.length = 0;
   _topModalId = null;
-  for (const child of Array.from(document.body?.children ?? [])) {
-    if (child instanceof HTMLElement) {
-      setElementInertForOwner(child, OVERLAY_INERT_OWNER, false);
-    }
-  }
+  for (const element of _fullscreenModalPortals.keys()) restoreFullscreenModal(element);
+  document.removeEventListener('fullscreenchange', onPortalFullscreenChange);
+  _portalFullscreenListenerInstalled = false;
+  for (const element of _overlayInertElements)
+    setElementInertForOwner(element, OVERLAY_INERT_OWNER, false);
+  _overlayInertElements.clear();
 }
 
 function promoteOverlayToTop(id: OverlayId | undefined): void {
@@ -497,17 +547,36 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
   _topModalId = top;
 
   applyCenteredOverlayZIndexes();
+  syncFullscreenModalPortal(top);
 
-  // 3. Apply inert to every body child except the top of the stack. With
-  //    the stack empty (no modals open), nothing is inert.
-  for (const child of Array.from(document.body.children)) {
-    if (!(child instanceof HTMLElement)) continue;
-    setElementInertForOwner(child, OVERLAY_INERT_OWNER, top !== null && child.id !== top);
-    // A covered overlay can open or close while inert. Its current visibility
-    // owns accessibility after release, not the hidden value captured earlier.
-    const overlay = OVERLAYS.find((candidate) => candidate.id === child.id);
-    if (overlay && !child.hasAttribute('inert')) {
-      child.setAttribute('aria-hidden', String(!isShown(overlay)));
+  const nextInert = new Set<HTMLElement>();
+  const topElement = top ? getUiElement(top) : null;
+  // A fullscreen subtree can contain the active overlay. Keep its ancestor
+  // path available while covering siblings at each level of that path.
+  if (topElement) {
+    let parent: HTMLElement | null = document.body;
+    while (parent && parent !== topElement) {
+      let nextParent: HTMLElement | null = null;
+      for (const child of Array.from(parent.children)) {
+        if (!(child instanceof HTMLElement)) continue;
+        if (child === topElement || child.contains(topElement)) nextParent = child;
+        else nextInert.add(child);
+      }
+      parent = nextParent;
+    }
+  }
+  for (const element of _overlayInertElements) {
+    if (!nextInert.has(element)) setElementInertForOwner(element, OVERLAY_INERT_OWNER, false);
+  }
+  _overlayInertElements.clear();
+  for (const element of nextInert) {
+    setElementInertForOwner(element, OVERLAY_INERT_OWNER, true);
+    _overlayInertElements.add(element);
+  }
+  for (const overlay of OVERLAYS) {
+    const element = getUiElement(overlay.id);
+    if (element && !element.closest('[inert]')) {
+      element.setAttribute('aria-hidden', String(!isShown(overlay)));
     }
   }
   const activeElement = document.activeElement;

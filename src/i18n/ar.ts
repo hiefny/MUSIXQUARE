@@ -44,7 +44,6 @@ const ar: Record<I18nKey, string> = {
   'common.off': 'تعطيل',
 
   'screensaver.back': 'العودة إلى MUSIXQUARE',
-  'screensaver.show_music': 'إظهار معلومات الموسيقى',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'تسجيل الدخول',

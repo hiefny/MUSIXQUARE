@@ -2,7 +2,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Implementation and local verification; production evidence pending |
+| Status | 8.11.0/v696 deployed and verified; 8.11.1/v697 control-shadow follow-up pending |
+| Deployed source | `4934720117e6a14c65ddf10bf268fe473527eb11`, PR #360, Release 38829782253 |
 | Source baseline | `60148998acca59295963764a5286a155e0aa4256`, temporary branch `agent/screensaver` |
 | Product / cache | `8.11.0` / `v696` |
 | Release scope | App only; Developer API D1 application disabled |
@@ -67,8 +68,10 @@ feature while the local toggle preference is harmless.
 ## Verification
 
 Local environment: Windows, Node 24.13.1, npm 11.8.0, repository test tooling.
-The configured CI toolchain is Node 24.20.0 / npm 12.0.2; local results do not
-replace that exact candidate. Initial focused
+The repository pins Node 24.20.0 and npm 12.0.2. The exact-main candidate
+manifest records Node 24.20.0, npm 11.19.0 and Wrangler 4.148.0; dependency
+installation used Corepack with the pinned npm 12.0.2. These are distinct
+observations, and local results do not replace that exact candidate. Initial focused
 checks on the baseline plus working changes: translation parity/token/toast
 policies 52 pass; command suite 52 pass; host lifecycle suite 21 pass; scoped CSP,
 SW caching and auxiliary compiler checks 150 pass. These are branch tests, not
@@ -115,7 +118,7 @@ weather API requests and verified no page errors or CSP violations. The app's
 integrated browser tests intentionally mock providers. This is component font
 evidence, not a live-room or live-weather claim.
 
-Final frozen source `5a8e028f1bab6b6f1035a914752cb588670fd3e0` passed all 570 unit
+The initial frozen source `5a8e028f1bab6b6f1035a914752cb588670fd3e0` passed all 570 unit
 files / 12,820 tests / zero failures or skips (340.28 seconds). The seven
 screensaver Chromium cases passed, including the denied-location 160px layout,
 with no page errors. The earlier PR CI `38825523032` at `7385be72` failed only
@@ -152,12 +155,116 @@ The follow-up remote review of `f9096c45` completed with no findings. CI
 needed the new shared browser-target file. The corrected tooling/compiler/legacy
 suites passed 27/27 with lint and formatting; product inputs are unchanged.
 
-Real phone
-hardware, live YouTube playback, live system capture, and all 42 locales' visual
+Real phone hardware, live YouTube playback, live system capture, and all 42 locales' visual
 layout have not been tested by these synthetic checks.
 
 ## Release and recovery
 
-Pending successful PR review, exact merged-main CI candidate, App Production
-Release, live smoke, and deployment identity verification. No production success
-is claimed by this implementation report.
+PR [#360](https://github.com/hiefny/MUSIXQUARE/pull/360) merged as
+`4934720117e6a14c65ddf10bf268fe473527eb11`. Final PR CI
+[38828527260](https://github.com/hiefny/MUSIXQUARE/actions/runs/38828527260)
+passed all 11 jobs. The review of `f9096c45` completed with no findings;
+`fddfc20b` changed only a test fixture and documentation compared with those
+reviewed product inputs. Exact-main CI
+[38829164350](https://github.com/hiefny/MUSIXQUARE/actions/runs/38829164350)
+attempt 1 passed all 11 jobs: 570 unit files / 12,820 pass / 0 fail / 1 skip
+(the Windows-only cross-drive rejection test on Linux), candidate browser 17
+and critical browser 37 pass, with coverage, static, security and build gates.
+Its candidate artifact `12016731046` contains 794 files. Selected main, CSS,
+screensaver, HTML and service-worker hashes matched the inspected local output.
+The actual toolchain distinction is recorded in Verification above.
+
+App-only [Production Release 38829782253](https://github.com/hiefny/MUSIXQUARE/actions/runs/38829782253)
+attempt 1 succeeded with Developer API D1=false. It was dispatched at
+09:29:40 KST; the deploy job completed at **09:32:19 KST on 2026-10-16**.
+App version `16724e7d-ce3a-477a-9fc5-8f476fa02133`, deployment
+`b3051793-e58d-4014-ad26-9d0d59ee4fd7`, carries the exact-main release message.
+Final ownership verification completed at 09:32:14.943 KST and the coherent
+SHA/app marker was committed and persisted at 09:32:14–15 KST.
+The five unselected Workers retain their `d9364cd9` provenance and the exact
+IDs listed in the current release record. Their compatibility recheck completed
+at 09:31:27.807 KST with every target compatible.
+
+All four workflow smoke checks passed: App generation, anonymous App account
+boundary, current PRO public boundary and Standard HTTPS signaling. Generation
+converged for three consecutive reads of `main-Bh2elkZ1.js` (430,614 bytes)
+and verified 29 assets. Checks outside the selected release scope were skipped.
+The deployment artifact is
+`production-deployments-4934720117e6a14c65ddf10bf268fe473527eb11-38829782253-1`
+(artifact `12017086097`); the coherent commit artifact is `12017210750`.
+
+At 09:33:30–39 KST, read-only public checks and an isolated same-origin
+component harness passed seven checks. Public root, SW, bootstrap, main,
+screensaver HTML and renderer were HTTP 200; index, main, SW, child and renderer
+hashes matched the exact-main candidate. The child used
+`/assets/screensaver-runtime-27fec4a4.js` with the SHA-256 recorded above.
+Scoped CSP, geolocation delegation and immutable renderer headers were checked.
+Genuine Google Sans 500/700 loaded, controls/CTA were transparent, idle fade and
+pointer reveal worked, and music toggle, Korean controls and close bridge passed.
+There were zero page errors, blocked requests or backend writes. Screenshots at
+160×160, 320×240, 1280×720 and 1920×1080 were visually reviewed; the title's
+horizontal clipping is its intended marquee window. Browser service workers
+were disabled in this component harness; public SW bytes/epoch/routes were
+checked separately. This does not claim live-room command/playback tests,
+live weather, real system capture or physical-device coverage.
+
+Post-release [Operations Drift Audit 38830140855](https://github.com/hiefny/MUSIXQUARE/actions/runs/38830140855)
+attempt 1 succeeded. Its 09:33:43.856 KST report recorded 31 pass / 0 fail /
+5 manual-only; the job completed at 09:33:53 KST. Those manual checks remain
+manual, and unrelated release-record open items remain unchanged.
+
+The recovery checkpoint completed at 09:30:48.265 KST after starting at
+09:30:46.876 KST. Artifact `12016851601`, named
+`production-recovery-checkpoint-4934720117e6a14c65ddf10bf268fe473527eb11-38829782253-1`,
+preserves App `0d08447cb1447edb3a32a49fb872da450db793bf` (8.10.27/v693),
+version `66b01d9f-4fa2-4441-9fd7-60c1b032aab0`, deployment
+`106ea65b-12c6-4800-bac0-926be3d6965b`. No recovery was needed and the
+independent recovery job was skipped. Captured floors were ready under
+`d9364cd9`; generation floor
+`4c5612d5fc4c5548781eb7d5b26d6904969c051c`, entitlement and existing
+Developer API authority awareness were verified. Existing service-control,
+Soro and optional PRO entry-password contracts remain; no new floor is added.
+An authorized App rollback removes the screensaver and its permission/CSP
+surface; the stored music toggle is harmless. Ownership/floor checks remain
+required and the checkpoint is not a user-data backup.
+
+The preserved standalone HTML was rehashed after deployment and still matches
+`7e07e0eddb767f89e891ed3473595a52f3b049b70a912cce1cc2ab7adff0c3f0`.
+External evidence files are `release-38829782253-evidence.json`,
+`production-smoke-results.json`, `ci-38829164350-summary.json` and
+`ci-38829164350-candidate-evidence.json` in the task's
+`musixquare-screensaver` evidence directory; release/candidate/Drift artifacts
+are attached to the linked workflow runs. This closes only the initial
+8.11.0/v696 deployment-readiness item.
+
+## Control shadow follow-up
+
+The owner authorized another App-only production deployment on 2026-10-16,
+**8.11.1/v697**, Developer API D1=false. The final scope removes black control
+shadows, adds smooth entry/exit fades and automatic fullscreen with prior-state
+restoration, replaces the music toggle with a small two-line track footer, removes
+the music slide, and reduces the gap between weather temperature and description.
+The owner explicitly chose to hide the footer after five idle seconds together
+with Back, revealing both again on input. The earlier light-toggle request is
+superseded by removing the toggle before this release.
+
+The footer uses the current track title and existing App `track-artist` text,
+including codec/bitrate or capture details. Long text stays within two single-line
+rows. The cycle contains only clock, date, weather, air quality and moon. Existing
+hero glow and directional text transitions remain. Music visibility preferences,
+toggle messages, unused translations and the privacy claim about storing that
+preference are removed; previous stored values are harmless and ignored.
+
+Entry requests fullscreen synchronously at the command boundary, before the lazy
+host import. If the API is unavailable or rejects the request, the screensaver
+still opens in the available viewport. Closing releases only fullscreen entered
+by this session; pre-existing fullscreen stays active. Entry/exit fades respect
+reduced motion. YouTube and session teardown close immediately. A pre-existing
+fullscreen subtree hosts the overlay, with ancestor-aware inert ownership and
+temporary placement of higher-priority centered dialogs in that visible subtree.
+The existing iframe permissions suffice; no additional header, dependency,
+protocol, schema, secret, binding or recovery floor is added.
+
+Implementation, source-specific QA, review, exact-main candidate and deployment
+evidence will be recorded here when completed. The successful 8.11.0 deployment
+above does not establish completion of this follow-up.

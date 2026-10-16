@@ -42,6 +42,7 @@ import {
 } from './chat-render.ts';
 import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
+import { beginScreensaverEntry } from './screensaver-entry.ts';
 import {
   cycleFocusWithin,
   getUiElement,
@@ -1829,12 +1830,46 @@ export function initChat(): void {
   });
 
   _busScope.on('ui:open-screensaver', async () => {
+    if (!getState('setup.sessionStarted') || uiSignal.aborted) return;
+    const youtubeSelected = (): boolean =>
+      getState('playback.mode') === 'youtube' ||
+      getState('player.currentTrackMeta')?.type === 'youtube';
+    if (youtubeSelected()) {
+      showToast(t('toast.screensaver_youtube'));
+      return;
+    }
+    const entry = beginScreensaverEntry();
+    if (!entry) return;
+    const pendingScope = createBusScope();
+    const cancel = (): void => entry.release();
+    const checkPendingState = (): void => {
+      if (entry.closed) return;
+      if (youtubeSelected()) {
+        cancel();
+        showToast(t('toast.screensaver_youtube'));
+      } else if (!getState('setup.sessionStarted')) cancel();
+    };
+    const cancelOnEscape = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && !event.isComposing) cancel();
+    };
+    pendingScope.on('state:setup.sessionStarted', checkPendingState);
+    pendingScope.on('state:playback.mode', checkPendingState);
+    pendingScope.on('state:player.currentTrackMeta', checkPendingState);
+    uiSignal.addEventListener('abort', cancel, { once: true });
+    document.addEventListener('keydown', cancelOnEscape, true);
     try {
       const { openScreensaver } = await import('./screensaver.ts');
-      if (!uiSignal.aborted && getState('setup.sessionStarted')) openScreensaver();
+      if (!entry.closed && !uiSignal.aborted && getState('setup.sessionStarted')) {
+        openScreensaver(entry);
+      } else entry.release();
     } catch (error) {
+      entry.release();
       log.error('[Chat] Failed to load screensaver', error);
       if (!uiSignal.aborted) showToast(t('error.load_failed', { msg: 'Screensaver' }));
+    } finally {
+      pendingScope.dispose();
+      uiSignal.removeEventListener('abort', cancel);
+      document.removeEventListener('keydown', cancelOnEscape, true);
     }
   });
 

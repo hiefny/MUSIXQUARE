@@ -46,7 +46,6 @@ const es: Record<I18nKey, string> = {
   'common.off': 'Desactivado',
 
   'screensaver.back': 'Volver a MUSIXQUARE',
-  'screensaver.show_music': 'Mostrar información musical',
   'account.login_title': 'Iniciar sesión',
   'account.login_cancelled': 'Se canceló el inicio de sesión',
   'account.login_failed': 'No se pudo iniciar sesión\nInténtalo de nuevo',

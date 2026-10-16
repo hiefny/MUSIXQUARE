@@ -1,14 +1,16 @@
 import { createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { formatSystemAudioProfileLabel } from '../core/system-audio-profile.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { languageDirection } from '../i18n/locales.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { getUiElement, syncOverlayState } from './dom.ts';
 import { showToast } from './toast.ts';
+import { beginScreensaverEntry, type ScreensaverEntry } from './screensaver-entry.ts';
 
 const OVERLAY_ID = 'screensaver-overlay';
-const MUSIC_PREFERENCE_KEY = 'mxqr:screensaver:music';
+const CLOSE_TIMER = 'screensaver-close';
 let activeCleanup: (() => void) | null = null;
 
 function youtubeIsSelected(): boolean {
@@ -16,22 +18,6 @@ function youtubeIsSelected(): boolean {
     getState('playback.mode') === 'youtube' ||
     getState('player.currentTrackMeta')?.type === 'youtube'
   );
-}
-
-function musicPreference(): boolean {
-  try {
-    return localStorage.getItem(MUSIC_PREFERENCE_KEY) !== 'off';
-  } catch {
-    return true;
-  }
-}
-
-function saveMusicPreference(enabled: boolean): void {
-  try {
-    localStorage.setItem(MUSIC_PREFERENCE_KEY, enabled ? 'on' : 'off');
-  } catch {
-    return;
-  }
 }
 
 function currentMusic(): { title: string; subtitle: string } {
@@ -52,12 +38,19 @@ function currentMusic(): { title: string; subtitle: string } {
   };
 }
 
-export function openScreensaver(): void {
+export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   if (youtubeIsSelected()) {
+    pendingEntry?.release();
     showToast(t('toast.screensaver_youtube'));
     return;
   }
-  if (activeCleanup) return;
+  if (activeCleanup) {
+    pendingEntry?.release();
+    return;
+  }
+  const entry = pendingEntry || beginScreensaverEntry();
+  if (!entry || entry.closed) return;
+  const motion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
 
   const previousFocus =
     document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -76,6 +69,8 @@ export function openScreensaver(): void {
     zIndex: '5500',
     background: '#02081b',
     overflow: 'hidden',
+    opacity: motion?.matches ? '1' : '0',
+    transition: motion?.matches ? 'none' : 'opacity 420ms cubic-bezier(.4, 0, .2, 1)',
   });
   const frame = document.createElement('iframe');
   frame.title = 'Screensaver';
@@ -101,21 +96,22 @@ export function openScreensaver(): void {
     padding: '12px 20px',
     font: 'inherit',
     cursor: 'pointer',
+    textShadow: 'none',
+    boxShadow: 'none',
   });
   overlay.append(frame, fallbackBack);
 
   const scope = createBusScope();
-  let showMusic = musicPreference();
   let ready = false;
   let disposed = false;
+  let closing = false;
+  let entryFrame: number | null = null;
   let lastPayload = '';
   const sendUpdate = (force = false): void => {
-    if (disposed || !ready) return;
+    if (disposed || closing || !ready) return;
     const lang = getResolvedLanguage();
     const payload = {
       backLabel: t('screensaver.back'),
-      musicLabel: t('screensaver.show_music'),
-      showMusic,
       ...currentMusic(),
       lang,
       dir: languageDirection(lang),
@@ -135,16 +131,20 @@ export function openScreensaver(): void {
   if (subtitle)
     subtitleObserver.observe(subtitle, { childList: true, characterData: true, subtree: true });
 
-  const cleanup = (): void => {
+  const finishClose = (): void => {
     if (disposed) return;
     disposed = true;
+    if (entryFrame !== null) cancelAnimationFrame(entryFrame);
+    clearManagedTimer(CLOSE_TIMER);
     scope.dispose();
     subtitleObserver.disconnect();
     window.removeEventListener('message', onMessage);
+    window.removeEventListener('pagehide', onPageHide);
     document.removeEventListener('keydown', onKey, true);
-    if (document.fullscreenElement && overlay.contains(document.fullscreenElement)) {
-      document.exitFullscreen().catch(() => {});
-    }
+    overlay.removeEventListener('transitionend', onTransitionEnd);
+    motion?.removeEventListener('change', onMotionChange);
+    removeExitListener();
+    entry.release();
     overlay.remove();
     syncOverlayState();
     if (activeCleanup === cleanup) activeCleanup = null;
@@ -152,14 +152,43 @@ export function openScreensaver(): void {
       previousFocus.focus({ preventScroll: true });
     }
   };
+  const cleanup = (immediate = false): void => {
+    if (disposed) return;
+    if (immediate || motion?.matches || overlay.style.opacity === '0') {
+      finishClose();
+      return;
+    }
+    if (closing) return;
+    closing = true;
+    if (entryFrame !== null) cancelAnimationFrame(entryFrame);
+    overlay.style.opacity = '0';
+    setManagedTimer(CLOSE_TIMER, finishClose, 500);
+  };
+  const onTransitionEnd = (event: TransitionEvent): void => {
+    if (closing && event.target === overlay && event.propertyName === 'opacity') finishClose();
+  };
+  const onMotionChange = (): void => {
+    if (!motion?.matches) return;
+    overlay.style.transition = 'none';
+    if (closing) finishClose();
+    else overlay.style.opacity = '1';
+  };
+  const onPageHide = (): void => cleanup(true);
+  const removeExitListener = entry.onExit(() => cleanup());
   const enforcePlayback = (): void => {
+    if (disposed) return;
     if (youtubeIsSelected()) {
-      cleanup();
+      cleanup(true);
       showToast(t('toast.screensaver_youtube'));
     } else sendUpdate();
   };
   const onMessage = (event: MessageEvent<unknown>): void => {
-    if (disposed || event.origin !== window.location.origin || event.source !== frame.contentWindow)
+    if (
+      disposed ||
+      closing ||
+      event.origin !== window.location.origin ||
+      event.source !== frame.contentWindow
+    )
       return;
     const data = event.data;
     if (typeof data !== 'object' || data === null || !('type' in data)) return;
@@ -171,22 +200,13 @@ export function openScreensaver(): void {
       ready = true;
       sendUpdate(true);
       fallbackBack.hidden = true;
-      if (!overlay.hasAttribute('inert')) frame.focus();
+      if (!overlay.closest('[inert]')) frame.focus();
     } else if (data.type === 'mxqr:screensaver:close') {
-      if (!overlay.hasAttribute('inert')) cleanup();
-    } else if (
-      data.type === 'mxqr:screensaver:music-toggle' &&
-      'enabled' in data &&
-      typeof data.enabled === 'boolean'
-    ) {
-      if (overlay.hasAttribute('inert')) return;
-      showMusic = data.enabled;
-      saveMusicPreference(showMusic);
-      sendUpdate();
+      if (!overlay.closest('[inert]')) cleanup();
     }
   };
   const onKey = (event: KeyboardEvent): void => {
-    if (event.isComposing || overlay.hasAttribute('inert')) return;
+    if (event.isComposing || overlay.closest('[inert]')) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -196,19 +216,29 @@ export function openScreensaver(): void {
       fallbackBack.focus();
     }
   };
-  fallbackBack.addEventListener('click', cleanup);
+  fallbackBack.addEventListener('click', () => cleanup());
   scope.on('state:playback.mode', enforcePlayback);
   scope.on('state:player.currentTrackMeta', enforcePlayback);
   scope.on('state:files.current', () => sendUpdate());
   scope.on('audio:ready', () => sendUpdate());
   scope.on('i18n:changed', () => sendUpdate());
   scope.on('state:setup.sessionStarted', (started) => {
-    if (!started) cleanup();
+    if (!started) cleanup(true);
   });
   window.addEventListener('message', onMessage);
+  window.addEventListener('pagehide', onPageHide);
   document.addEventListener('keydown', onKey, true);
+  overlay.addEventListener('transitionend', onTransitionEnd);
+  motion?.addEventListener('change', onMotionChange);
   activeCleanup = cleanup;
-  document.body.appendChild(overlay);
+  entry.container.appendChild(overlay);
   syncOverlayState(OVERLAY_ID);
   fallbackBack.focus({ preventScroll: true });
+  if (!motion?.matches) {
+    void overlay.offsetWidth;
+    entryFrame = requestAnimationFrame(() => {
+      entryFrame = null;
+      if (!disposed && !closing) overlay.style.opacity = '1';
+    });
+  }
 }

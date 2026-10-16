@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-16 (배포 SHA `0d08447c`, Release `38815146392` attempt 1 성공) |
+| Last source review | 2026-10-16 (배포 SHA `49347201`, Release `38829782253` attempt 1 성공) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -27,26 +27,31 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
 
 | 항목 | 값 |
 | --- | --- |
-| App 버전 / SW 캐시 | `8.10.27` / `v693` |
-| 마지막 프로덕션 변경 | 2026-10-16 07:11:59 KST deploy job 완료, Release [38815146392](https://github.com/hiefny/MUSIXQUARE/actions/runs/38815146392) attempt 1 성공, target=app, Developer API D1=false. 데스크톱 동기화·미디어 버튼의 중복 너비 제한을 제거해 1280px부터 기존 최대 너비 160px씩(행 332px·간격 12px)을 유지한다. 모바일·공유 모션·서버 동작·프로토콜·스키마·권한 변경 없음 |
-| 배포 main SHA | `0d08447cb1447edb3a32a49fb872da450db793bf` (PR [#358](https://github.com/hiefny/MUSIXQUARE/pull/358)). Exact-main CI [38814552948](https://github.com/hiefny/MUSIXQUARE/actions/runs/38814552948) attempt 1 성공 후보를 사용했다. 로컬·PR CI 또는 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
-| Worker | App version `66b01d9f-4fa2-4441-9fd7-60c1b032aab0`, deployment `106ea65b-12c6-4800-bac0-926be3d6965b`(이전 version `a4b4004f-5be3-47fd-a048-836085fb177b`, deployment `98c9ee44-0aaf-42d2-b338-31d0af8d65ec`). 07:11:52.258 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker를 기록했다. 미선택 5 Worker는 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance와 식별자를 유지한다. 다음 순서는 **version ID / deployment ID**다: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`, pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`, remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`, developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`, developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 07:11:15.065 KST 부분 릴리스 호환성 recheck compatible. 운영 smoke 4종 pass(App generation `main-V_6oR3WG.js`·27 asset 수렴, 익명 App 계정 경계, 현재 PRO 공개 경계, Standard HTTPS signaling), 범위 밖 Worker smoke skip. 배포 후 공개 `/`·`/service-worker.js`(v693)·`bootstrap.js?cache=v693`·`main-V_6oR3WG.js`·`main-DmP57Ip4.css` HTTP 200. 실제 운영 Standard 방의 Chromium 화면에서 CSS override 없이 1280·1360·1440px 모두 각 버튼 160×56px·행 332px를 측정하고 1280px 캡처를 시각 확인했다. 원본은 90일 보존 run artifact `production-deployments-0d08447cb1447edb3a32a49fb872da450db793bf-38815146392-1`과 [증거 보고서](design/desktop-action-width-2026-10-16.md#release-and-recovery)에 있다 |
-| 복구 | 성공 실행으로 rollback 불필요·독립 recovery job skip. 07:10:36.286 KST captured checkpoint(`production-recovery-checkpoint-0d08447cb1447edb3a32a49fb872da450db793bf-38815146392-1`)는 변경 전 App `476e42b1`(8.10.26/v692), version `a4b4004f-5be3-47fd-a048-836085fb177b`, deployment `98c9ee44-0aaf-42d2-b338-31d0af8d65ec`를 보존한다. 이 기준선으로 복구하면 좁은 데스크톱에서 이전 버튼 너비로 돌아간다. 혼합 버전이 안전하다. 복구에는 소유권/floor 재검증이 필요하며 checkpoint는 사용자 데이터 백업이 아니다 |
-| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지. 신규 floor 없음. 이번 checkpoint는 이전 App의 generation·entitlement·Developer API authority awareness를 확인했다. PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs 성공: 원격 unit 567 files / 12,767 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 29 pass, 모든 coverage·정적·빌드 gate 통과. PR CI [38813961353](https://github.com/hiefny/MUSIXQUARE/actions/runs/38813961353) 11 jobs 성공, Codex 리뷰 지적 없음. 로컬 `213ed1fb` 클린 트리 unit 567 files / 12,768 pass / 0 fail / 0 skip, critical browser 29·공유 모션 3·Chromium/WebKit 36개 geometry 관측·합성 공유 geometry 2개 통과. 타입은 `2384a09d`에서 검사했으며 이후 runtime 변경은 bootstrap 캐시 query 일치 수정뿐이다. 린트·포맷·정적 가드·build:checked 통과. 최초 병렬 실행의 11 timeout과 bootstrap mirror assertion 1건은 수정·직렬 재검증과 구분해 보존했다. 실기기·운영 공유 캡처는 미검증이며 WebKit은 연결된 방이 아닌 실제 CSS shell geometry 검사다. [범위·한계](design/desktop-action-width-2026-10-16.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 SHA의 후속 [38815569546](https://github.com/hiefny/MUSIXQUARE/actions/runs/38815569546) attempt 1 성공. 2026-10-16 07:13:27.343 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에서 관리하며 통과로 간주하지 않는다 |
-| Full E2E | 매주 월 18:17 UTC. 이번 데스크톱 버튼 너비 수정에서 전체 serial suite는 재실행하지 않았다(critical browser 29와 공유·geometry 검사는 위 이번 결과). 아래는 이번 소스의 전체 통과를 뜻하지 않는 이전 이력: 원격 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201) Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 제품 입력이 같은 진단 후속 `85414247` 로컬 전체 640 pass / 0 fail / 0 skip(55.6분), WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail은 별도 미확정 이력으로 보존. 운영 R2는 당시 배포를 검사한 결과다 |
-| 의존성 | 이번 8.10.27 신규 의존성·스키마·비밀·바인딩·프로토콜 변경 없음. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 유지. 2026-10-16 확인한 [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 OPEN이며 봇 브랜치를 보존하고 이번 배포에서 제외했다. 설치 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [상세](design/dependency-update-2026-10-11.md) |
+| App 버전 / SW 캐시 | `8.11.0` / `v696` |
+| 마지막 프로덕션 변경 | 2026-10-16 09:32:19 KST deploy job 완료, Release [38829782253](https://github.com/hiefny/MUSIXQUARE/actions/runs/38829782253) attempt 1 성공, target=app, Developer API D1=false. `/screensaver`·`/스크린세이버`로 실행하는 로컬 화면 보호기: 10초 순환, 음악 정보·마키, 5초 뒤 사라지는 복귀·토글, 42개 언어 제어·YouTube 제한 안내. YouTube 선택 중 진입 차단·전환 시 종료. App 문서에 self 위치 권한·iframe, 별도 화면 보호기 CSP와 개인정보 안내를 추가했다. 렌더러·배경·폰트·날씨는 명령 실행 시 불러온다 |
+| 배포 main SHA | `4934720117e6a14c65ddf10bf268fe473527eb11` (PR [#360](https://github.com/hiefny/MUSIXQUARE/pull/360)). Exact-main CI [38829164350](https://github.com/hiefny/MUSIXQUARE/actions/runs/38829164350) attempt 1의 성공 후보를 사용했다. 로컬·PR CI 및 후속 기록 커밋은 배포 SHA/후보를 대신하지 않는다 |
+| Worker | App version `16724e7d-ce3a-477a-9fc5-8f476fa02133`, deployment `b3051793-e58d-4014-ad26-9d0d59ee4fd7`. 09:32:14.943 KST 최종 배포 소유권 verified, exact SHA/app coherent marker 09:32:14–15 KST 기록 완료. 미선택 5 Worker는 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance를 유지한다. **version ID / deployment ID**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 09:31:27.807 KST 부분 릴리스 호환성 compatible. 운영 smoke 4종 pass(App generation 3회 연속·29 asset 수렴, 익명 App 계정 경계, 현재 PRO 공개 경계, Standard HTTPS signaling), 공개 자산·화면 보호기 CSP·v696 확인 pass(공개 index·main·SW·child·renderer가 exact-main candidate 해시와 일치, 별도 컴포넌트 7 checks pass). [배포 근거](design/screensaver-integration-2026-10-16.md#release-and-recovery) |
+| 복구 | 성공 실행으로 rollback 불필요·독립 recovery job skip. 09:30:48.265 KST checkpoint `production-recovery-checkpoint-4934720117e6a14c65ddf10bf268fe473527eb11-38829782253-1`는 직전 App `0d08447cb1447edb3a32a49fb872da450db793bf`(8.10.27/v693), version `66b01d9f-4fa2-4441-9fd7-60c1b032aab0`, deployment `106ea65b-12c6-4800-bac0-926be3d6965b`를 보존한다. App을 이전 기준선으로 복구하면 화면 보호기와 전용 권한·CSP가 제거되며 로컬 음악 정보 설정은 무해하게 남는다. 혼합 App 버전은 호환된다. 복구는 소유권/floor 재검증을 따르며 checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 기존 generation·entitlement·Developer API authority·service-control·Soro·PRO 선택형 입장 암호 계약 유지, 신규 floor 없음. checkpoint의 기존 authority awareness 확인 verified(generation·entitlement·Developer API authority). PRO/App marker `pro-room-optional-entry-password-v1`, generation floor SHA `4c5612d5fc4c5548781eb7d5b26d6904969c051c` 유지. 기존 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | Exact-main CI 11 jobs 성공: unit 570 files / 12,820 pass / 0 fail / 1 skip(Linux에서 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 37 pass, coverage·정적·빌드 gate 통과. PR CI [38828527260](https://github.com/hiefny/MUSIXQUARE/actions/runs/38828527260) 11 jobs 성공, 리뷰 `f9096c45` 원격 리뷰 지적 없음(최종 `fddfc20b`는 테스트 fixture·문서 후속으로 제품 입력 동일). 최종 수정 소스 검증 `b297e967` Chromium 화면 보호기 8 pass·컴파일러 22 pass·committed `build:checked` pass, 후속 fixture 수정의 tooling/compiler/legacy 27 pass. 최종 Google Sans 500/700 실제 로딩·160×160 CTA 배치·320×240·1920×1080 컴포넌트와 제어 normal/hover 투명성 확인. 선행 소스 `5a8e028f`의 570 files / 12,820 unit pass / 0 fail / 0 skip, 화면 보호기 Chromium 7 pass, `build:checked` pass. 앞선 `7385be72`의 critical Chromium 29 pass와 타입·린트·포맷 검증은 해당 SHA 근거로 구분한다. 실기기, live YouTube·시스템 캡처·날씨, 42개 언어 전체 시각 검증은 미실행. [실행별 결과·한계](design/screensaver-integration-2026-10-16.md#verification) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 배포 SHA 후속 [38830140855](https://github.com/hiefny/MUSIXQUARE/actions/runs/38830140855) attempt 1 성공. 2026-10-16 09:33:43.856 KST report automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에서 유지하며 통과로 간주하지 않는다 |
+| Full E2E | 매주 월 18:17 UTC. 이번 화면 보호기 변경의 전체 serial suite는 재실행하지 않았다. 최신 기록된 전체 결과는 이전 소스의 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201): Chromium 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 기존 플랫폼 3 skip, SW 1 pass, 운영 R2 1 pass. 당시 진단 후속 `85414247` 로컬 640 pass / 0 fail / 0 skip, WebKit UI 79 pass / 3 skip·SW 1 pass. 최초 로컬 639 pass / 1 fail 이력은 별도 보존한다. 이번 배포의 전체 통과나 실기 검증으로 간주하지 않는다 |
+| 의존성 | 신규 npm 의존성·API 프로토콜·스키마·비밀·바인딩 변경 없음. Google Fonts·Open-Meteo 접근은 화면 보호기에 한정하고 위치 권한은 브라우저 동의가 필요하다. 기존 그룹 [#288](https://github.com/hiefny/MUSIXQUARE/pull/288) 기준 유지, [#297](https://github.com/hiefny/MUSIXQUARE/pull/297)은 별도 의존성 작업으로 이번 변경에서 제외. 설치 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [기존 의존성 근거](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
-### 화면 보호기 App 8.11.0/v696 배포 준비
+### 화면 보호기 제어·전환·전체 화면 App 8.11.1/v697 배포 준비
 
-- [ ] 2026-10-16 오너가 `/screensaver` 통합과 프로덕션 배포를 승인했다. App 문서의
-      self 위치 권한·iframe 및 화면 보호기 전용 CSP가 추가된다. 새 의존성·스키마·비밀·
-      바인딩·프로토콜·복구 floor는 없다. App 전용 릴리스, Developer API D1=false.
-      로컬 검증을 완료한 뒤 PR, exact-main CI 후보, 운영 릴리스·smoke·최종 배포 소유권을
-      확인해야 한다. [범위·검증·복구](design/screensaver-integration-2026-10-16.md).
+- [ ] 2026-10-16 오너가 제어의 검은 그림자 제거, 부드러운 진입·종료 페이드, 자동
+      전체 화면 진입과 종료 시 기존 전체 화면 상태 복원 및 프로덕션 재배포를 승인했다.
+      최종 요청에 따라 음악 토글·음악 슬라이드는 제거하고 하단에 곡 제목·실제
+      track-artist를 작은 두 줄로 표시한다. 하단 정보는 복귀 버튼과 함께 5초 뒤 숨긴다.
+      날씨의 온도·우측 설명 간격을 줄인다. 전체 화면 API 미지원·거절 시에도 화면
+      보호기는 표시하고 시계·정보 본문의 기존 글로우는 유지한다.
+      App 전용, Developer API D1=false. 새 번역 키·의존성·스키마·비밀·바인딩·프로토콜·
+      복구 floor는 없고 기존 fullscreen 위임을 사용한다. 해당 소스 QA, PR 리뷰,
+      exact-main CI, 릴리스·운영 smoke·배포 소유권 확인이 남아 있다.
+      [후속 범위·검증](design/screensaver-integration-2026-10-16.md#control-shadow-follow-up).
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
@@ -62,6 +67,15 @@ Drift Audit, Full E2E, 의존성은 기록 시점의 값이다. 배포 전 실�
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
 ### 최근 해결 근거
+
+App 8.11.0/v696 화면 보호기는 PR [#360](https://github.com/hiefny/MUSIXQUARE/pull/360),
+exact-main `49347201`의 [CI 38829164350](https://github.com/hiefny/MUSIXQUARE/actions/runs/38829164350),
+[Release 38829782253](https://github.com/hiefny/MUSIXQUARE/actions/runs/38829782253)의
+운영 smoke 4종·최종 소유권·미선택 5 Worker 호환성·coherent marker와 공개 자산의
+candidate 해시 일치로 초기 배포 준비 항목을 닫았다. 운영 자산의 격리된 같은 출처
+컴포넌트 7 checks·160/320/1280/1920px 시각 확인과 Drift 31 pass / 0 fail / 5 manual-only를
+확인했다. 실제 방·live 날씨·실기 검증을 뜻하지 않으며 후속 제어·전환·전체 화면 조정은 위 항목이다.
+[배포·복구 근거](design/screensaver-integration-2026-10-16.md#release-and-recovery).
 
 App 8.10.27/v693의 데스크톱 동기화·미디어 버튼 너비 수정(오너 결정 2026-10-16)은
 PR [#358](https://github.com/hiefny/MUSIXQUARE/pull/358), exact-main `0d08447c`의

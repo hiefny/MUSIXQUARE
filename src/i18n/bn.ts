@@ -44,7 +44,6 @@ const bn: Record<I18nKey, string> = {
   'common.off': 'বন্ধ',
 
   'screensaver.back': 'MUSIXQUARE-এ ফিরে যান',
-  'screensaver.show_music': 'গানের তথ্য দেখান',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'সাইন ইন করুন',

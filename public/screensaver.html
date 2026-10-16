@@ -333,10 +333,8 @@
         padding: 10px 16px;
         border-radius: 12px;
         background: transparent;
-        text-shadow: 0 1px 10px #000;
       }
-      .display-back:hover,
-      .display-music-toggle:hover {
+      .display-back:hover {
         background: transparent;
         color: #fff;
       }
@@ -368,56 +366,36 @@
         flex: none;
       }
       #backBefore,
-      #backAfter,
-      #musicToggleLabel {
+      #backAfter {
         min-width: 0;
         overflow-wrap: anywhere;
       }
-      .display-music-toggle {
+      .display-music-info {
         position: absolute;
         bottom: max(20px, env(safe-area-inset-bottom));
         left: 50%;
         transform: translateX(-50%);
-        display: flex;
-        align-items: center;
-        gap: 14px;
-        max-width: 90vw;
+        max-width: 84vw;
         width: max-content;
-        min-height: 44px;
-        padding: 10px 14px;
-        background: transparent;
-        border-radius: 12px;
-        text-align: start;
+        text-align: center;
+        color: #eee;
       }
-      .music-switch {
-        width: 42px;
-        height: 24px;
-        flex: 0 0 42px;
-        border-radius: 999px;
-        position: relative;
-        background: #202020;
-        transition: background 0.18s ease;
-        direction: ltr;
+      .display-music-info[hidden] {
+        display: none;
       }
-      .music-switch::after {
-        content: '';
-        position: absolute;
-        top: 3px;
-        left: 3px;
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: #71717a;
-        transition:
-          transform 0.18s ease,
-          background 0.18s ease;
+      .music-title,
+      .music-subtitle {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
-      [aria-checked='true'] .music-switch {
-        background: rgba(59, 130, 246, 0.24);
+      .music-title {
+        font: 500 clamp(11px, 2.4vmin, 16px)/1.45 var(--font-sans);
       }
-      [aria-checked='true'] .music-switch::after {
-        transform: translateX(18px);
-        background: #3b82f6;
+      .music-subtitle {
+        margin-top: 3px;
+        font: 500 clamp(10px, 2vmin, 13px)/1.4 var(--font-sans);
+        color: rgba(255, 255, 255, 0.64);
       }
       .display-chrome button:focus-visible {
         outline: 2px solid #d5ecff;
@@ -432,49 +410,6 @@
       .chrome-hidden {
         cursor: none;
       }
-      .music-scene {
-        position: absolute;
-        inset: 0;
-        z-index: 19;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: clamp(14px, 3vmin, 42px);
-        pointer-events: none;
-        opacity: 0;
-        padding: 14vh 0;
-      }
-      .music-title-window {
-        position: relative;
-        width: 84vw;
-        padding: 5vmin 2vw;
-        box-sizing: content-box;
-        overflow: hidden;
-        mask-image: linear-gradient(to right, transparent, #000 3%, #000 97%, transparent);
-      }
-      .music-title {
-        width: max-content;
-        min-width: 100%;
-        white-space: pre;
-        text-align: center;
-        font: 700 clamp(28px, 10vmin, 160px)/1.2 var(--font-sans);
-        color: #fff;
-        text-shadow:
-          0 0 5px rgba(255, 255, 255, 0.28),
-          0 0 20px rgba(115, 195, 255, 0.3),
-          8px -7px 16px rgba(255, 255, 255, 0.2),
-          18px -15px 30px rgba(128, 200, 255, 0.15);
-        will-change: transform;
-      }
-      .music-subtitle {
-        width: 80vw;
-        text-align: center;
-        text-wrap: balance;
-        overflow-wrap: anywhere;
-        font: 500 clamp(12px, 2.5vmin, 32px)/1.5 var(--font-sans);
-        color: rgba(255, 255, 255, 0.76);
-      }
       @media (max-height: 280px) {
         .location-retry {
           min-height: 28px;
@@ -485,11 +420,8 @@
           padding: 4px 8px;
           min-height: 32px;
         }
-        .display-music-toggle {
-          bottom: max(2px, env(safe-area-inset-bottom));
-          min-height: 32px;
-          padding: 4px 8px;
-          gap: 8px;
+        .display-music-info {
+          bottom: max(4px, env(safe-area-inset-bottom));
         }
       }
       @media (max-width: 480px) {
@@ -503,37 +435,8 @@
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        .display-chrome,
-        .music-switch,
-        .music-switch::after {
+        .display-chrome {
           transition: none;
-        }
-        .music-title {
-          width: auto;
-          white-space: normal;
-          overflow-wrap: anywhere;
-          transform: none !important;
-          font-size: clamp(20px, 7vmin, 100px);
-        }
-        .music-title-window {
-          overflow: visible;
-          mask-image: none;
-          padding-block: 3vmin;
-        }
-      }
-      @media (forced-colors: active) {
-        .music-switch {
-          background: Canvas;
-          outline: 1px solid ButtonText;
-        }
-        .music-switch::after {
-          background: ButtonText;
-        }
-        [aria-checked='true'] .music-switch {
-          background: Highlight;
-        }
-        [aria-checked='true'] .music-switch::after {
-          background: HighlightText;
         }
       }
     </style>
@@ -574,12 +477,6 @@
         tabindex="-1"
         >Open-Meteo</a
       >
-      <section id="musicScene" class="music-scene" aria-hidden="true" aria-label="Music">
-        <div id="musicTitleWindow" class="music-title-window">
-          <div id="musicTitle" class="music-title" dir="auto"></div>
-        </div>
-        <div id="musicSubtitle" class="music-subtitle" dir="auto"></div>
-      </section>
     </main>
     <div id="displayChrome" class="display-chrome">
       <button id="displayBack" class="display-back" type="button" aria-label="Back to MUSIXQUARE">
@@ -625,16 +522,10 @@
           ><span id="backAfter"></span
         ></span>
       </button>
-      <button
-        id="displayMusicToggle"
-        class="display-music-toggle"
-        type="button"
-        role="switch"
-        aria-checked="true"
-      >
-        <span id="musicToggleLabel">Show music info</span
-        ><span class="music-switch" aria-hidden="true"></span>
-      </button>
+      <div id="displayMusicInfo" class="display-music-info" hidden>
+        <div id="musicTitle" class="music-title" dir="auto"></div>
+        <div id="musicSubtitle" class="music-subtitle" dir="auto"></div>
+      </div>
     </div>
 
     <template id="third-party-notices">

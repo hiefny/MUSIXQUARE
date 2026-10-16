@@ -45,7 +45,6 @@ const ro: Record<I18nKey, string> = {
   'common.off': 'Oprit',
 
   'screensaver.back': 'Înapoi la MUSIXQUARE',
-  'screensaver.show_music': 'Arată informațiile piesei',
 
   // ─── Cont ────────────────────────────────────────────────────────
   'account.login_title': 'Autentifică-te',

@@ -44,7 +44,6 @@ const it: Record<I18nKey, string> = {
   'common.off': 'Disattivo',
 
   'screensaver.back': 'Torna a MUSIXQUARE',
-  'screensaver.show_music': 'Mostra info sul brano',
   'account.login_title': 'Accedi',
   'account.login_cancelled': 'Accesso annullato',
   'account.login_failed': 'Accesso non riuscito\nRiprova',

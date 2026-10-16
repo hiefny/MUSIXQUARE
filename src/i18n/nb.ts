@@ -45,7 +45,6 @@ const nb: Record<I18nKey, string> = {
   'common.off': 'Av',
 
   'screensaver.back': 'Tilbake til MUSIXQUARE',
-  'screensaver.show_music': 'Vis musikkinformasjon',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Logg inn',

@@ -93,6 +93,56 @@ renders at 700 and the layouts are otherwise unchanged.
 
 ## Release and recovery
 
-App-only release (`target=app`). Recovery is the ordinary Production Release
-rollback to the 8.11.2 checkpoint, which restores the previous weights and OG
-cards.
+App **8.11.3/v700** shipped through
+[Production Release 38876050306](https://github.com/hiefny/MUSIXQUARE/actions/runs/38876050306),
+attempt 1, target `app`, Developer API D1 application `false`. The deploy job
+completed successfully at **2026-10-16 17:49:53 KST** using the immutable
+candidate from exact-main CI
+[38875238552](https://github.com/hiefny/MUSIXQUARE/actions/runs/38875238552) for
+`0041d5be4bffdbc6db10de5923b6a83bfcf0cca1`. No rollback was needed; the recovery job was skipped.
+
+- Exact-main CI ran 11 jobs. In attempt 1 the Release tooling coverage job
+  failed before running a test: the runner's `npm ci` installed 482 packages
+  instead of the 483 every other job installed and missed rolldown's native
+  binding, so Vitest could not start (`Cannot find native binding`). Only that
+  job was rerun (attempt 2); it installed 483 packages and its 13 files passed.
+  The candidate came from attempt 1. Overall: 571 unit files, 12,845 passed /
+  0 failed / 1 skipped (the Windows-only cross-drive path check on Linux), 17
+  candidate browser and 40 critical browser tests passed, and every coverage,
+  static and build gate passed. Pull request CI passed all 11 jobs; the one
+  Codex finding was fixed before merge.
+- App version `26de6257-dadf-4cae-ac3e-872d67bd4ee3` became
+  `06eb268d-b6c8-4126-82a1-0f0d0736590f`. Final deployment ownership was
+  verified at 17:49:46.396 KST, and the coherent production marker records the
+  exact SHA and target `app`.
+- The partial-release compatibility recheck at 17:49:18.304 KST was
+  compatible. The five unselected Workers were not deployed and keep the
+  `d9364cd9` identities in `docs/release-record.md` §1; the PRO smoke re-read
+  pro-room `8d5d44c0`. The new App deployment identity is in the 90-day run
+  artifact `production-deployments-0041d5be4bffdbc6db10de5923b6a83bfcf0cca1-38876050306-1`.
+- App generation (`main-DvoHE21b.js`, three consecutive reads, 29 assets
+  converged), anonymous App account boundary, current PRO public boundary and
+  Standard HTTPS signaling smokes passed. Out-of-scope Worker smokes were
+  skipped, not counted as passes. The seven existing App D1 baselines were
+  applied and verified idempotently; Developer API D1 steps were skipped.
+- Public checks at 17:51 KST returned HTTP 200 for `/`, the v700 service worker,
+  `bootstrap.js?cache=v700`, `main-DvoHE21b.js` and `main-DXflvPG_.css`. The
+  public main stylesheet and the admin, editorial (base, about, design,
+  history), events, legal, language and account-completion stylesheets, the
+  design system token file, the type-weights preview and the blog page contain
+  no weight above 700; the admin and events stylesheets pin `strong,b` to 700.
+  The public invite, design system and admin OG images match the regenerated
+  files byte for byte, and the removed `og-pretendard-extrabold.ttf` returns
+  404.
+- [Operations Drift Audit 38876397208](https://github.com/hiefny/MUSIXQUARE/actions/runs/38876397208)
+  succeeded. Its 17:51:02.483 KST report records **31 pass / 0 fail / 5
+  manual-only**; manual checks are not treated as completed.
+
+The immutable recovery checkpoint captured at 17:48:40.762 KST
+(`production-recovery-checkpoint-0041d5be4bffdbc6db10de5923b6a83bfcf0cca1-38876050306-1`)
+preserves the previous App `c6ccfa03b2f0aa4b549ad24ed38bff899aa876a6`,
+8.11.2/v699, version `26de6257-dadf-4cae-ac3e-872d67bd4ee3`. Rolling back to it
+restores the previous weights (750, 780, 800, 820 and 900), the previous OG
+cards and the ExtraBold font. Mixed versions are safe because only CSS and static images
+changed. The checkpoint is not a user-data backup; no data migration is needed
+and existing recovery floors remain binding.

@@ -66,11 +66,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ### 일반방 YouTube 지연 heartbeat 보정
 
-- [ ] App 8.11.14/v715 배포 준비: `ed6fe205`에서 큰 오차 보정·Android BUFFERING
+- [ ] App 8.11.14/v716 배포 준비: `ed6fe205`에서 큰 오차 보정·Android BUFFERING
       복구·작은 오차 관측의 목표 위치를 동일하게 현재 시각으로 투영했다. 기존
-      재현 21건을 유지하고 경계 26건을 추가해 새 파일 47/47, 관련 합계 360건
-      통과했다. 로컬 전체 단위 580 files / 13,028 pass / 0 fail / 0 skip,
-      Chromium YouTube E2E 6 pass, 타입·린트·포맷·checked build 통과.
+      재현 21건을 유지하고 경계를 추가했다. Codex P2 종료 구간 지적도 재현 후
+      `995c10d7`에서 수정해 새 파일 55/55, 관련 합계 368건 통과했다.
+      최종 로컬 전체 검사·브라우저·빌드 재검증과 배포 증거는 아래 보고서에 기록한다.
       PR 검토·exact-main CI·운영 배포 증거 확보 전이다.
       [수정·검증·배포 범위](design/youtube-heartbeat-delay-fix-2026-10-17.md).
 - [ ] 실제 Android 프리로드 사건의 원인: 파일 전송이 당시 지연·버퍼링을

@@ -3,9 +3,9 @@
 | Field | Value |
 | --- | --- |
 | Status | Local repair verified; PR / exact-main CI / production release pending |
-| Tested runtime SHA | `ed6fe2057acab9c29604934c49df5c8a2d99173b` |
+| Tested runtime SHA | Initial `ed6fe2057acab9c29604934c49df5c8a2d99173b`; review follow-up `995c10d7de1a5654ed68f5ee1af62359491cec56` |
 | Base | `600f60467e16e8e73610a35052f52965cd54d4ce`, including the separately deployed 8.11.13 QR fix |
-| Product / cache | 8.11.14 / v715 |
+| Product / cache | 8.11.14 / v716 (v715 was the unpublished first revision) |
 | Owner scope | Fix both reproduced correction paths, verify reproduction and existing tests, deploy |
 | Sources | [sync.ts](../../src/youtube/sync.ts), [regression tests](../../src/youtube/__tests__/sync-heartbeat-delay-repro.test.ts) |
 | Prior evidence | [Unmodified-runtime reproduction](youtube-heartbeat-delay-reproduction-2026-10-17.md) |
@@ -44,9 +44,10 @@ host pause/buffering/cued states, positive/negative manual offsets, missing and
 non-finite timestamps, future timestamps, uncalibrated clocks, nonzero true host
 clock offsets, and projected duration/end-hold boundaries.
 
-- Focused regression and related tests: **360 pass / 0 fail / 0 skip** across
+- Initial focused regression and related tests: **360 pass / 0 fail / 0 skip** across
   five files, including **47/47** in the new regression file.
-- Independent code and test review: no actionable findings in the scoped fix.
+- Independent code and test review initially found no actionable issues. GitHub
+  Codex subsequently found one valid P2 tail-hold boundary; see below.
 - Typecheck, full app/tooling lint and formatting passed. Worker syntax,
   Developer API/D1/operations contracts, import graph, dead exports, event
   pairing, source complexity, Standard-room hot path and storage guards passed.
@@ -63,12 +64,30 @@ clock offsets, and projected duration/end-hold boundaries.
 - An initial checked build stopped at the documentation brand guard because
   local report filenames used lowercase branding. Their Windows path spelling
   in the reproduction report was normalized; no runtime change was involved.
-- Final full unit suite at `ed6fe205`: **580 files / 13,028 pass / 0 fail /
+- First repaired full unit suite at `ed6fe205`: **580 files / 13,028 pass / 0 fail /
   0 skip**, 253.55 seconds, `--maxWorkers=4`. The preceding failing run used two
   workers and took 460.99 seconds; its single failed assertion is retained above.
 - `npm run build:checked` passed against the committed runtime, including v715
   history, production hooks/security, bundle budget and **97 app-shell assets**.
-  Subsequent edits in this PR are repository evidence only.
+  A later review follow-up changes the tail guard and advances the cache to v716.
+
+### GitHub review follow-up
+
+PR #387's Codex review found that an already ENDED Android guest fell out of the
+tail hold when a delayed final PLAYING heartbeat projected exactly to or past
+the duration. This was confirmed before changing the guard: **52 cases / 50
+pass / 2 fail / 0 skip**; 125 ms and 500 ms frame ages wrongly caused a
+pause/seek-to-end/play sequence. Removing only `rawManualTime < duration` keeps
+that completed occurrence held. The host retains authority over the next
+occurrence; the client does not advance the queue itself.
+
+Eight additional pins cover before/equal/past EOF, positive/negative manual
+offsets within the tail, a negative offset before the tail that must still
+recover, the same video in the next queue occurrence, and an explicit host
+play/seek command. At `995c10d7`, focused tests passed **368 / 0 / 0** across
+five files, including **55/55** in the reproduction file. Independent review
+confirmed the minimal guard change and ownership controls. Full-suite,
+browser and checked-build follow-up results are recorded after completion.
 
 Commands and local artifacts:
 

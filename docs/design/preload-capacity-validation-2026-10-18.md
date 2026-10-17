@@ -293,6 +293,7 @@ E2E 한계는 열린 상태로 남긴다. 로컬 검사·CI·배포·공개 GET�
 floor를 다시 확인해야 하며 checkpoint는 사용자 데이터 백업이 아니다.
 
 별도 [native RTC 원인 조사](preload-control-queue-root-cause-2026-10-18.md)는
-앱 없이 같은 PC의 초 단위 지연을 재현하고 별도 PC·수신 credit의 효과를 확인했다.
+앱 없이 공유 PeerConnection의 초 단위 지연을 재현하고 별도 PeerConnection·
+수신 credit의 효과를 확인했다.
 그 진단 프로토콜은 이번 배포에 들어가지 않았다. 후속 기록 PR만으로 추가
 Production Release를 실행하지 않는다.

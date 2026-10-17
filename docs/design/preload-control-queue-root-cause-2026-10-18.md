@@ -130,6 +130,8 @@ bulk에, 재생·동기화 등 나머지 메시지를 control에 보낸다. 별�
 [청크 크기](../../src/core/constants.ts)는 별도로 64 KiB다. A/B/C 모두 관측된
 최대값은 **send 직전 64 KiB, 직후 128 KiB**였다. 따라서 이번 64 KiB 변경은
 전송 대기 기준이며, 모든 계층의 미전달 바이트를 64 KiB로 제한하는 hard cap이 아니다.
+위 최대값은 진단 harness의 순수 payload 기준이다. 제품 binary frame에는 header가
+추가되므로 실제 제품의 send 직후 값이 정확히 128 KiB라는 뜻은 아니다.
 
 W3C의 [`bufferedAmount` 정의](https://www.w3.org/TR/webrtc/#dom-rtcdatachannel-bufferedamount)는
 하위 프로토콜 framing과 OS/네트워크 장비 buffering을 포함하지 않는다.

@@ -35,7 +35,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 | 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 07:30:21.538 KST captured [checkpoint 12117026048](https://github.com/hiefny/MUSIXQUARE/actions/runs/39075260878/artifacts/12117026048)는 App 8.11.18/v720, `06e2664538177e5ce2ff5c9b831aad6572dca37f`, version `8c72ce0e-4500-4a9f-9433-dec671458490` / deployment `fc8c0c4f-6d19-4606-9000-7c29c839beb0`를 보존한다. 복구하면 preload 송신 기준은 256 KiB로 돌아가고 이번 완화를 잃는다. 저장 데이터·wire 변경 없음. 복구 시 소유권/floor를 다시 검증하며 checkpoint는 사용자 데이터 백업이 아니다 |
 | 활성 복구 floor | 07:30:23.381 KST ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor, generation·entitlement·Developer API authority aware. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
 | 검증 범위 | Exact-main CI 11 jobs success: unit 584 files / 13,054 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 55 pass, coverage·타입·린트·정적·빌드·보안 통과. 최종 PR head `36a2cb19`의 [CI 39074385931](https://github.com/hiefny/MUSIXQUARE/actions/runs/39074385931) 11 jobs 통과, Codex 자동 리뷰 지적 0건. 로컬 Windows runtime SHA `f5ea1378` tree에서 unit 584 files / 13,055 pass / 0 fail / 0 skip, 타입·린트·포맷·build:checked 통과. Chromium preload/취소/late-join 19 pass, RTC 비교 6조건·38개 파일 무결성 통과. 신규 8개 수명 핀은 기존 256 주입 시 8개 모두 실패. 초기 cache URL 누락/covering-commit 실패와 수정 근거를 보존했다. 실제 Android 가청 싱크와 전체 serial E2E는 미검증. [범위·한계](design/preload-capacity-validation-2026-10-18.md) |
-| 잔여 성능 조사 | 느린 경로의 기존 병목은 열린 항목이다. 앱 없는 native RTC 9조건·54파일/24,121 control 검증에서 동일 PC 약4초 지연이 재현됐다. 별도 PC 또는 수신 확인 128 KiB credit이 이를 줄였고, shaped 2 Mbps에서는 credit으로 최대 하행 20.041초→0.980초·파일 수신96.663초→96.449초였다. 이는 제품 패치가 아닌 별도 실험이며 credit·연결 분리는 배포하지 않았다. 실제 Android 원인 전체나 지연 상한 보장은 아니다. [독립 조사](design/preload-control-queue-root-cause-2026-10-18.md) |
+| 잔여 성능 조사 | 느린 경로의 기존 병목은 열린 항목이다. 앱 없는 native RTC 9조건·54파일/24,121 control 검증에서 동일 PeerConnection 약4초 지연이 재현됐다. 별도 PeerConnection 또는 수신 확인 128 KiB credit이 이를 줄였고, shaped 2 Mbps에서는 credit으로 최대 하행 20.041초→0.980초·파일 수신96.663초→96.449초였다. 이는 제품 패치가 아닌 별도 실험이며 credit·연결 분리는 배포하지 않았다. 실제 Android 원인 전체나 지연 상한 보장은 아니다. [독립 조사](design/preload-control-queue-root-cause-2026-10-18.md) |
 | Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [39075446325](https://github.com/hiefny/MUSIXQUARE/actions/runs/39075446325) attempt 1, `eea5a842`, 07:32:21 KST 완료, automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에 유지한다 |
 | Full E2E | 매주 월 18:17 UTC. 이번 전체 serial suite는 재실행하지 않았다. 확인한 마지막 main 실행 [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)(`4854e392`)은 failure. 별도 브랜치 성공 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201)(`749f0a6a`, Chromium 640·WebKit UI 79 pass/플랫폼 3 skip·SW 1·운영 R2 1)은 이번 변경이나 main 최신 성공을 뜻하지 않는다 |
 | 의존성 | 신규 npm 의존성·프로토콜·스키마·비밀·바인딩·권한·CSP 변경 없음. 기존 App D1 계약 7단계 apply/verify 성공, Developer API D1 skip. 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override, TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [기존 근거](design/dependency-update-2026-10-11.md) |
@@ -94,8 +94,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       배포 성공으로 이 열린 항목을 닫지 않는다.
       [추가 검증·최소 완화 판단·잔여 병목](design/preload-capacity-validation-2026-10-18.md).
       후속 앱 없는 native RTC 9조건·54개 파일·24,121 control의 무결성과 매칭도
-      통과했다. 동일 PC에서 약4초 지연이 재현됐고 별도 PC는 하행 최대4/39ms,
-      동일 PC+진단용 수신 credit은14/24ms였다. 별도 PC의 echo 최대165/180ms는
+      통과했다. 동일 PeerConnection에서 약4초 지연이 재현됐고 별도 PeerConnection는 하행 최대4/39ms,
+      동일 PeerConnection+진단용 수신 credit은14/24ms였다. 별도 PeerConnection의 echo 최대165/180ms는
       남았다. shaped 2 Mbps의 수신 credit 비교는 하행 최대20.041초→0.980초,
       마지막 송신 뒤 대기19.503초→0.330초, 파일 수신96.663초→96.449초였다.
       브라우저 내부·하위 경로의 대기에 대한 조건부 근거이며 실제 Android 원인

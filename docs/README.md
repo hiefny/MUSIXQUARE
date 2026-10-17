@@ -92,7 +92,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [Screensaver caption glow and combined centering — 2026-10-17](design/screensaver-caption-glow-centering-2026-10-17.md) —
   Weak blue description glow, combined weather/AQI/moon alignment, and preserved
-  local Safari diagnosis; product validation and the 8.11.10 release are pending.
+  local Safari diagnosis; records the visual-test adjudication, local validation,
+  and 8.11.10 release, public-asset, and recovery evidence.
 - [Back closes the topmost window — 2026-10-17](design/back-closes-top-window-2026-10-17.md) —
   History Back closes only the topmost window, in rooms and on the setup screens; with no window
   open it asks before leaving a room or moves to the previous page. Also closes the PRO re-entry

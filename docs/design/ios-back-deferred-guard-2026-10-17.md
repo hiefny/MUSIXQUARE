@@ -10,8 +10,9 @@ for about three seconds before the leave confirmation appeared.
 The diagnostic separated initial history registration from registration after
 Back. Immediate re-registration (I) reproduced the delay; deferred R allowed
 windows to close one level at a time. E did not register another guard after
-Back: opening it directly appeared to disable swiping only because there was
-no preceding document. With the supplied preceding page, E could leave.
+Back: the owner reported that opening it directly appeared to disable swiping,
+consistent with having no preceding document. In the diagnostic, opening E
+through the supplied preceding page allowed Back to leave.
 The owner therefore chose one R policy for entry and subsequent Back actions.
 These reports are evidence about the standalone diagnostic, not the deployed
 application or every iOS version.

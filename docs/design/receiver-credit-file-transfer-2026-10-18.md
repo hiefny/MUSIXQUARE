@@ -104,6 +104,12 @@ Windows / Node 24.20.0 initial implementation validation:
 - A separate read-only review found no additional P1/P2 after the internal
   control-send failure repair. A race pin was requested for credit consumed by
   another lane between capacity wakeup and send.
+- Initial PR CI `39078104427` found one additional fixture mismatch in
+  `audio/effects`: its deliberately failing **first native send** now failed
+  the new hello instead of the intended settings publish, correctly closing
+  the connection. The test now asserts a successful hello before injecting the
+  application-send failure. No production change was needed. The failed unit
+  shard reported 6,872 pass / 1 fail / 1 platform skip; its logs are retained.
 
 The product A/B run uses a pinned baseline and source/asset manifests for the
 candidate, on an exclusive local CPU slot. It covers ordinary sends and preload,

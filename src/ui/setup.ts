@@ -49,7 +49,7 @@ import {
   setupShowWelcome,
   setupSetGuestJoinBusy,
   setupSetGuestJoinError,
-  setupRenderActions,
+  setupRenderActionsInTransition,
   initObCarousel,
   updateObSlider,
   handleSetupRolePreview,
@@ -119,7 +119,7 @@ function startSetupJoinWithRole(mode: number): void {
 // ─── Host / Guest Choice ─────────────────────────────────────────
 
 function showHostGuestSelection(): void {
-  setupRenderActions(
+  setupRenderActionsInTransition(
     [
       {
         id: 'btn-setup-host',

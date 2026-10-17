@@ -87,6 +87,9 @@ vi.mock('../setup-shared.ts', () => ({
   setupSetGuestJoinBusy: vi.fn(),
   setupSetGuestJoinError: vi.fn(),
   setupRenderActions: vi.fn(),
+  setupRenderActionsInTransition: vi.fn(
+    (_buttons: unknown, _layout?: unknown, onRendered?: () => void) => onRendered?.(),
+  ),
   initObCarousel: vi.fn(),
   notifyObCarouselGreetingReady: vi.fn(),
   updateObSlider: vi.fn(),
@@ -114,6 +117,7 @@ import { markProRoomTransportRecovered } from '../../pro-room/transport-recovery
 import { initSetup } from '../setup.ts';
 import { showDialog } from '../dialog.ts';
 import { setHostGoBack } from '../setup-host.ts';
+import { setupRenderActions, setupRenderActionsInTransition } from '../setup-shared.ts';
 import { restoreGuestJoinControlsAfterFailure } from '../setup-guest.ts';
 import { showToast } from '../toast.ts';
 import { scheduleDocumentReload, scheduleSessionReset } from '../../core/session-reset.ts';
@@ -314,6 +318,25 @@ describe('setup network error messages', () => {
     expect(cancelPendingSessionSetup).not.toHaveBeenCalled();
     expect(getState('network.appRole')).toBe('host');
     expect(getState('setup.sessionStarted')).toBe(true);
+  });
+
+  it('swaps back to the welcome actions inside the area transition', () => {
+    const goBack = vi.mocked(setHostGoBack).mock.calls.at(-1)?.[0];
+    vi.mocked(setupRenderActions).mockClear();
+    vi.mocked(setupRenderActionsInTransition).mockClear();
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', false);
+
+    goBack?.();
+
+    expect(setupRenderActions).not.toHaveBeenCalled();
+    expect(setupRenderActionsInTransition).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ id: 'btn-setup-host' }),
+        expect.objectContaining({ id: 'btn-setup-guest' }),
+      ],
+      'vertical',
+    );
   });
 });
 

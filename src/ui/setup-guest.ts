@@ -35,6 +35,7 @@ import {
   setupSetGuestJoinBusy,
   setupSetGuestJoinError,
   setupRenderActions,
+  setupRenderActionsInTransition,
   getSetupOverlayAbort,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
@@ -357,7 +358,7 @@ function proceedToGuestCode(mode: number): void {
     setupShowJoinArea(true);
   });
 
-  setupRenderActions(
+  setupRenderActionsInTransition(
     [
       {
         id: 'btn-setup-back',
@@ -374,6 +375,7 @@ function proceedToGuestCode(mode: number): void {
       },
     ],
     'horizontal-with-back',
+    prepareGuestStartControls,
   );
 
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
@@ -418,7 +420,6 @@ function proceedToGuestCode(mode: number): void {
     }
     input.focus();
   }
-  prepareGuestStartControls();
 }
 
 export async function handleSetupJoinWithRole(

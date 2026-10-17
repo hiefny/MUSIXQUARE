@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   actions: [] as Array<Record<string, unknown>>,
+  animateTransition: vi.fn((apply: () => void) => apply()),
   busEmit: vi.fn(),
   describeProRoomJoinFailure: vi.fn((_error: unknown) => 'pro.connect_failed'),
   enterProRoomFromSetup: vi.fn(),
@@ -71,7 +72,7 @@ vi.mock('../../network/peer.ts', () => ({
 }));
 
 vi.mock('../dom.ts', () => ({
-  animateTransition: vi.fn((apply: () => void) => apply()),
+  animateTransition: mocks.animateTransition,
 }));
 
 vi.mock('../../core/session-reset.ts', () => ({
@@ -135,6 +136,15 @@ vi.mock('../setup-shared.ts', () => ({
   setupSetGuestJoinBusy: vi.fn(),
   setupSetGuestJoinError: mocks.setupSetGuestJoinError,
   setupRenderActions: mocks.setupRenderActions,
+  setupRenderActionsInTransition: (
+    buttons: Array<Record<string, unknown>>,
+    _layout?: string,
+    onRendered?: () => void,
+  ) =>
+    mocks.animateTransition(() => {
+      mocks.setupRenderActions(buttons);
+      onRendered?.();
+    }),
 }));
 
 import {
@@ -193,6 +203,25 @@ describe('guest setup recovery', () => {
     expect(carousel.hidden).toBe(false);
     queued.forEach((apply) => apply());
     expect(carousel.hidden).toBe(true);
+  });
+
+  it('swaps the actions inside the setup transition so the outgoing snapshot keeps them', () => {
+    const queued: Array<() => void> = [];
+    vi.mocked(animateTransition).mockImplementation((apply: () => void) => {
+      queued.push(apply);
+    });
+    mocks.actions = [{ id: 'btn-setup-host' }, { id: 'btn-setup-guest' }];
+
+    startGuestFlow();
+
+    // Swapped before the capture, one row of buttons would re-center the
+    // outgoing carousel and change outside the crossfade.
+    const ids = () => mocks.actions.map((action) => action.id);
+    expect(ids()).toEqual(['btn-setup-host', 'btn-setup-guest']);
+    queued.forEach((apply) => apply());
+    expect(ids()).toEqual(['btn-setup-back', 'btn-setup-confirm']);
+    // The start gate binds to the new button once it exists.
+    expect(document.getElementById('btn-setup-confirm')?.textContent).toBe('common.start');
   });
 
   it.each([false, true])(

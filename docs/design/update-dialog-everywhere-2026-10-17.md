@@ -285,3 +285,70 @@ were removed afterwards.
   new dialog.
 - An iPhone home-screen app that resumes its previous page instead of
   starting a new document keeps the old code until its next real launch.
+
+## Release and recovery
+
+The owner approved the 8.11.11 production deploy on 2026-10-17 together with
+the change. PR #381 was squash-merged as
+`019d510118dbe04df40bc78d6fd4d183ce18bc56` after PR CI 39003423882 (11 jobs)
+passed on head `19df5867`. The Codex review's two findings were fixed in
+`d1a3995d`, and both threads were answered and resolved. Exact-main push CI
+39004078601 attempt 1 passed all 11 jobs: unit 575 files / 12,896 pass / 0
+fail / 1 skip (a Windows-only path check on Linux), candidate browser 17 and
+critical browser 45 pass.
+
+Production Release 39004520681 attempt 1 (target `app`, Developer API D1
+disabled) succeeded. Its deploy job finished at 14:00:09 KST.
+
+- App version `fc121774-ec25-43d0-a1aa-6a71f4cd327e` / deployment
+  `15842e2c-10e2-4e1b-8015-3abf93b6520f`, message
+  `git:019d510118dbe04df40bc78d6fd4d183ce18bc56`. Final ownership was
+  verified at 14:00:05.578 KST. The partial-release compatibility recheck was
+  compatible at 13:59:32.324 KST, and the five unselected Workers stayed on
+  `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`.
+- The seven existing App D1 baseline steps applied and verified
+  idempotently. The Developer API D1 and other target-specific steps were
+  skipped.
+- Smokes passed: App generation converged on `/assets/main-DGibSclZ.js`
+  (3 consecutive reads, 29 assets), the anonymous account boundary, the PRO
+  public boundary on the existing `8d5d44c0`, and Standard HTTPS signaling
+  (host and guest admission, offer and answer relay).
+- Artifacts: deployments 12090706150, coherent marker 12090820567, and
+  recovery checkpoint 12090536800.
+
+Public assets at 14:00:30–33 KST: `/` (140,676 bytes),
+`/service-worker.js` (39,149 bytes, `CACHE_VERSION = "v711"`),
+`/bootstrap.js?cache=v711` (10,196 bytes), the entry
+`/assets/main-DGibSclZ.js` (433,996 bytes, which holds the update dialog
+code), and `/assets/toast-B4jcGPlF.js` (99,562 bytes, the shared chunk with
+the Korean copy) all returned 200. Each matched the exact-main candidate
+artifact byte for byte (SHA-256).
+
+Operations Drift Audit 39004688709 on `019d5101` reported
+automated-checks-passed: 31 pass / 0 fail / 5 manual-only (report at
+14:01:05 KST).
+
+Not verified after the deploy: the dialog on a real device (iPhone Safari
+and the home-screen PWA, Android Chrome and the installed app), a PRO room,
+and an update that reaches a live room. Tabs that stay open keep the 8.11.10
+behaviour until they load the new page code. The first reload or reopen after
+this deploy loads it (navigations are network-first), and while the v711
+worker is still waiting there, that page already asks with the new dialog.
+
+No rollback was needed, and the independent recovery job was skipped.
+Checkpoint
+`production-recovery-checkpoint-019d510118dbe04df40bc78d6fd4d183ce18bc56-39004520681-1`,
+captured at 13:59:02.223 KST, keeps the previous App
+`68fb3f9cda90d566d99e60535f944ee1eb8e010b` (8.11.10/v709), version
+`af52bdca-f2ed-4b46-9c36-b2114f414d6c` / deployment
+`c6cdaf66-b028-42bc-b278-40386c25997f`. The floors captured at
+13:59:05.493 KST were ready, with release floor `d9364cd9`, generation floor
+`4c5612d5`, and the generation and entitlement floors true. The retained App
+is a verified release ancestor.
+
+A normal authorized rollback to 8.11.10/v709 restores the previous behaviour:
+rooms and the demo get the chat or toast notice instead of the dialog, a
+worker waiting when a page opens outside a room is applied without asking,
+and 나중에 is remembered for 24 hours. No stored data or wire contract
+changes. A dismissal record that 8.11.11 writes is only the 5-minute cooldown
+after a dialog that failed to open.

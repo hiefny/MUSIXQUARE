@@ -15,6 +15,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     /* Hover, Active */
     --play-action-surface: var(--surface-2);
     /* Play-tab actions remain visibly elevated from the dark canvas. */
+    --ob-icon-circle-bg: var(--surface-1);
+    /* The welcome carousel's icon circle only evens out the icons' optical
+       size, so dark keeps it as faint as it is in light. */
     --divider: #262626;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
@@ -147,6 +150,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     /* Interactions */
     --play-action-surface: var(--surface-1);
     /* White keeps available play actions from reading like disabled controls. */
+    --ob-icon-circle-bg: var(--surface-2);
+    /* Light keeps the circle one step below its canvas. */
     --divider: #d4d6d8;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
@@ -6311,7 +6316,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     justify-content: flex-start;
     /* Align to top instead of center to reduce gap */
     text-align: center;
-    gap: 16px;
+    /* Child margins set the visible gaps, scaled in the two-column panel:
+       28px from the icon circle to the title text, 20px from the title to the
+       description and 36px from the description to the dots. The title's line
+       box adds about 3.5px above and below its text, the description's about
+       5px above and 4.5px below. */
     padding: 0;
     height: auto;
   }
@@ -6339,7 +6348,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   .ob-slide .ob-title {
     font-size: 24px;
     font-weight: var(--font-weight-display);
-    margin-bottom: 8px;
+    margin-bottom: 11.5px;
     color: var(--text-main);
   }
 
@@ -6351,19 +6360,18 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .ob-slide .ob-icon-circle {
-    margin: 0 auto;
+    margin: 0 auto 24.5px;
   }
 
   .ob-icon-circle {
     width: 84px;
     height: 84px;
-    background: var(--surface-2);
+    background: var(--ob-icon-circle-bg);
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--primary);
-    margin-bottom: 4px;
   }
 
   .ob-icon-circle svg {
@@ -6419,7 +6427,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     gap: 10px;
     position: relative;
     width: 100%;
-    margin-top: 24px;
+    /* Collapses with the slider viewport's 4px bottom margin. */
+    margin-top: 31.5px;
     margin-bottom: 8px;
   }
 
@@ -10161,9 +10170,10 @@ Safety is declared first because important layer precedence is reversed; its acc
       --setup-icon-svg: clamp(28px, 6vh, 40px);
       --setup-slider-w: clamp(260px, 62vh, 500px);
       --setup-ob-title: clamp(20px, 4.5vh, 26px);
-      --setup-ob-title-mb: clamp(4px, 1vh, 8px);
       --setup-ob-desc: clamp(13px, 2.8vh, 15px);
-      --setup-nav-mt: clamp(12px, 3.5vh, 24px);
+      /* 1.5 × the title, less the viewport's 4px margin and the description's
+         line spacing; the flex column does not collapse the two margins. */
+      --setup-nav-mt: calc(var(--setup-ob-title) * 1.5 - 8px);
       --setup-nav-arrow: none;
       --setup-actions-top: 8px;
       --setup-actions-bottom: 16px;
@@ -11187,6 +11197,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     --surface-1: #0a0a0a;
     --surface-2: #1f1f1f;
     --surface-3: #4d4d4d;
+    --ob-icon-circle-bg: var(--surface-2);
+    /* More contrast keeps the stronger welcome icon circle. */
     --divider: #262626;
     --primary: #8ab4ff;
     --primary-rgb: 138, 180, 255;
@@ -11264,6 +11276,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       --surface-1: #0a0a0a;
       --surface-2: #1f1f1f;
       --surface-3: #4d4d4d;
+      --ob-icon-circle-bg: var(--surface-2);
       --divider: #262626;
       --primary: #8ab4ff;
       --primary-rgb: 138, 180, 255;
@@ -12124,6 +12137,9 @@ Safety is declared first because important layer precedence is reversed; its acc
       width: var(--setup-slider-w);
     }
 
+    /* The phone's visible 28 / 20 / 36px under a 24px title, scaled: about
+       7/6, 5/6 and 3/2 of the title size. The multipliers leave out the
+       space the title and description line boxes add around their text. */
     .desktop-diagram-area .ob-nav-row {
       margin-top: var(--setup-nav-mt);
     }
@@ -12131,7 +12147,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     .desktop-diagram-area .ob-icon-circle {
       width: var(--setup-icon);
       height: var(--setup-icon);
-      margin-bottom: 3px;
+      margin-bottom: var(--setup-ob-title);
     }
 
     .desktop-diagram-area .ob-icon-circle svg {
@@ -12141,7 +12157,7 @@ Safety is declared first because important layer precedence is reversed; its acc
 
     .desktop-diagram-area .ob-slide .ob-title {
       font-size: var(--setup-ob-title);
-      margin-bottom: var(--setup-ob-title-mb);
+      margin-bottom: calc(var(--setup-ob-title) * 0.54);
     }
 
     .desktop-diagram-area .ob-slide .ob-desc {

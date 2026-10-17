@@ -11,6 +11,7 @@ import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts'
 import {
   installCaptionInkProbe,
   readCaptionInk,
+  readForegroundInkBounds,
   type CaptionInkEvidence,
 } from './helpers/screensaver-caption-probe.ts';
 import {
@@ -708,6 +709,20 @@ for (const display of [
         /^\d{2}:\d{2}:\d{2}$/u,
       );
       const evidence: (CaptionInkEvidence & { label: string })[] = [];
+      const centered: {
+        label: string;
+        bounds: Awaited<ReturnType<typeof readForegroundInkBounds>>;
+      }[] = [];
+      const verifyCombinedCenter = async (label: string) => {
+        const bounds = await readForegroundInkBounds(child);
+        expect(
+          Math.abs(bounds.centerOffset),
+          `${label}: main and caption combined center`,
+        ).toBeLessThan(3);
+        expect(bounds.left).toBeGreaterThanOrEqual(0);
+        expect(bounds.right).toBeLessThanOrEqual(bounds.width);
+        centered.push({ label, bounds });
+      };
       const verifyCaption = async (text: string, label: string) => {
         await expect.poll(async () => (await readCaptionInk(child)).text).toBe(text);
         const result = await readCaptionInk(child);
@@ -718,6 +733,15 @@ for (const display of [
           expect(sample.missingPixels, `${label}: ${sample.text} missing ink`).toBe(0);
           expect(sample.unexpectedPixels, `${label}: ${sample.text} stale ink`).toBe(0);
           expect(sample.clippedPixels, `${label}: ${sample.text} clipped ink`).toBe(0);
+          expect(sample.halo, `${label}: ${sample.text} separate halo`).not.toBeNull();
+          expect(
+            sample.halo!.outsideInkPixels,
+            `${label}: glow extends beyond the strokes`,
+          ).toBeGreaterThan(5);
+          expect(sample.halo!.bluePixels).toBeGreaterThan(sample.halo!.pixels * 0.95);
+          expect(sample.halo!.edgePixels, `${label}: glow does not reach the texture edge`).toBe(0);
+          expect(sample.halo!.maxAlpha).toBeGreaterThan(2);
+          expect(sample.halo!.maxAlpha, `${label}: glow stays subtle`).toBeLessThanOrEqual(57);
         }
         evidence.push({ label, ...result });
         await page.screenshot({ path: testInfo.outputPath(`caption-${label}.png`) });
@@ -728,20 +752,29 @@ for (const display of [
       await page.clock.fastForward(10_000);
       await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
       await verifyCaption('MOSTLYCLEAR', 'weather');
+      await verifyCombinedCenter('weather');
       await page.clock.fastForward(10_000);
       await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'air');
       await verifyCaption('AQI', 'air');
+      await verifyCombinedCenter('air');
       await page.setViewportSize({ width: 320, height: 240 });
       await page.clock.fastForward(1_500);
       await verifyCaption('AQI', 'air-resized');
+      await verifyCombinedCenter('air-resized');
       await page.clock.fastForward(30_000);
       await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
       await verifyCaption('FRI', 'date-revisited');
       await page.clock.fastForward(10_000);
       await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
       await verifyCaption('MOSTLYCLEAR', 'weather-revisited');
+      await verifyCombinedCenter('weather-revisited');
+      await page.clock.setFixedTime(new Date('2026-10-26T12:00:00Z'));
+      await page.clock.fastForward(20_000);
+      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'moon');
+      await verifyCaption('FULLMOON', 'moon');
+      await verifyCombinedCenter('moon');
       await testInfo.attach('caption-ink-reference', {
-        body: JSON.stringify(evidence, null, 2),
+        body: JSON.stringify({ captions: evidence, centered }, null, 2),
         contentType: 'application/json',
       });
       await page.keyboard.press('Escape');
@@ -837,6 +870,12 @@ for (const viewport of [
       expect(box!.y).toBeGreaterThanOrEqual(0);
       expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
       expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
+    }
+    for (const id of ['displayBack', 'musicTitle', 'musicSubtitle', 'weatherRetry']) {
+      const control = child.locator(`#${id}`);
+      await expect(control).toHaveCSS('text-shadow', 'none');
+      await expect(control).toHaveCSS('box-shadow', 'none');
+      await expect(control).toHaveCSS('filter', 'none');
     }
     await expect(child.locator('#musicTitle')).toHaveText('Ambient');
     const titleBox = await child.locator('#musicTitle').boundingBox();

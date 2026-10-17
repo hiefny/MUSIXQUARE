@@ -6,6 +6,13 @@ interface CaptionInkSample {
   missingPixels: number;
   unexpectedPixels: number;
   clippedPixels: number;
+  halo: {
+    pixels: number;
+    bluePixels: number;
+    outsideInkPixels: number;
+    edgePixels: number;
+    maxAlpha: number;
+  } | null;
 }
 
 export interface CaptionInkEvidence {
@@ -134,12 +141,47 @@ export async function installCaptionInkProbe(page: Page): Promise<void> {
               if (observed - expected > 2) unexpectedPixels++;
             }
           }
+          const bounds = canvas.getBoundingClientRect();
+          const haloCanvas = [...canvases].find((candidate) => {
+            if (candidate === canvas || records.get(candidate)?.length) return false;
+            if (candidate.width !== canvas.width || candidate.height !== canvas.height)
+              return false;
+            const other = candidate.getBoundingClientRect();
+            return (
+              Math.abs(other.x - bounds.x) < 0.01 &&
+              Math.abs(other.y - bounds.y) < 0.01 &&
+              Math.abs(other.width - bounds.width) < 0.01 &&
+              Math.abs(other.height - bounds.height) < 0.01
+            );
+          });
+          let halo: CaptionInkSample['halo'] = null;
+          if (haloCanvas) {
+            halo = { pixels: 0, bluePixels: 0, outsideInkPixels: 0, edgePixels: 0, maxAlpha: 0 };
+            const pixels = haloCanvas
+              .getContext('2d')!
+              .getImageData(0, 0, haloCanvas.width, haloCanvas.height).data;
+            for (let y = 0; y < haloCanvas.height; y++) {
+              for (let x = 0; x < haloCanvas.width; x++) {
+                const index = (y * haloCanvas.width + x) * 4;
+                const alpha = pixels[index + 3]!;
+                halo.maxAlpha = Math.max(halo.maxAlpha, alpha);
+                if (alpha <= 2) continue;
+                halo.pixels++;
+                if (pixels[index + 2]! > pixels[index]! + 40 && pixels[index + 1]! > pixels[index]!)
+                  halo.bluePixels++;
+                if (actual[index + 3]! <= 2) halo.outsideInkPixels++;
+                if (x === 0 || y === 0 || x === haloCanvas.width - 1 || y === haloCanvas.height - 1)
+                  halo.edgePixels++;
+              }
+            }
+          }
           samples.push({
             text: paints.map((paint) => paint.text).join(''),
             expectedPixels,
             missingPixels,
             unexpectedPixels,
             clippedPixels,
+            halo,
           });
         }
         return {
@@ -158,4 +200,45 @@ export async function readCaptionInk(child: FrameLocator): Promise<CaptionInkEvi
   return child
     .locator('body')
     .evaluate(() => (window as unknown as CaptionProbeWindow).__mxqrCaptionInkProbe());
+}
+
+export async function readForegroundInkBounds(child: FrameLocator, canvasId = 'weatherCanvas') {
+  return child.locator(`[data-compat-compositor="${canvasId}"]`).evaluate((root) => {
+    const stage = root.getBoundingClientRect();
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    for (const canvas of root.querySelectorAll('canvas')) {
+      if (!canvas.width || !canvas.height) continue;
+      let visible = true;
+      for (let node: Element | null = canvas; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.display === 'none' || style.visibility === 'hidden' || +style.opacity === 0)
+          visible = false;
+      }
+      if (!visible) continue;
+      const rect = canvas.getBoundingClientRect();
+      const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+      for (let y = 0; y < canvas.height; y++) {
+        for (let x = 0; x < canvas.width; x++) {
+          // The faint halo does not contribute to the content's visual bounds.
+          if (pixels[(y * canvas.width + x) * 4 + 3]! < 160) continue;
+          left = Math.min(left, rect.left + (x * rect.width) / canvas.width);
+          right = Math.max(right, rect.left + ((x + 1) * rect.width) / canvas.width);
+          top = Math.min(top, rect.top + (y * rect.height) / canvas.height);
+          bottom = Math.max(bottom, rect.top + ((y + 1) * rect.height) / canvas.height);
+        }
+      }
+    }
+    return {
+      left,
+      right,
+      top,
+      bottom,
+      centerOffset: (left + right) / 2 - (stage.left + stage.width / 2),
+      width: stage.width,
+      height: stage.height,
+    };
+  });
 }

@@ -44,6 +44,7 @@ import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
 import { beginScreensaverEntry } from './screensaver-entry.ts';
 import {
+  beginBackSurfaceTransition,
   cycleFocusWithin,
   getUiElement,
   normalizeEmptyContentEditable,
@@ -152,6 +153,7 @@ let _pendingChatDrawerSnap: {
 let _pendingChatDrawerTransition: {
   drawer: HTMLElement;
   listener: (event: TransitionEvent) => void;
+  finishBackSurface: (() => void) | null;
 } | null = null;
 let _chatTouchContainmentAC: AbortController | null = null;
 let _chatTouchStartY = 0;
@@ -238,9 +240,10 @@ function clearPendingChatDrawerSnap(): void {
 function clearPendingChatDrawerTransition(): void {
   clearManagedTimer('chat-drawer-relayout');
   if (!_pendingChatDrawerTransition) return;
-  const { drawer, listener } = _pendingChatDrawerTransition;
+  const { drawer, listener, finishBackSurface } = _pendingChatDrawerTransition;
   drawer.removeEventListener('transitionend', listener);
   _pendingChatDrawerTransition = null;
+  finishBackSurface?.();
 }
 
 function getChatDrawerViewportHeight(): number {
@@ -659,7 +662,11 @@ export function toggleChatDrawer(
     if (e.target !== drawerEl || e.propertyName !== 'transform') return;
     settleOnce();
   };
-  _pendingChatDrawerTransition = { drawer: drawerEl, listener: onTransitionEnd };
+  _pendingChatDrawerTransition = {
+    drawer: drawerEl,
+    listener: onTransitionEnd,
+    finishBackSurface: !opening && isMobileChatDrawer() ? beginBackSurfaceTransition() : null,
+  };
   drawerEl.addEventListener('transitionend', onTransitionEnd);
   setManagedTimer('chat-drawer-relayout', settleOnce, CHAT_DRAWER_RELAYOUT_FALLBACK_MS);
 }
@@ -1371,6 +1378,10 @@ export function initChat(): void {
   stopChatDrawerBottomAnchor();
   _chatUiAC = new AbortController();
   const { signal: uiSignal } = _chatUiAC;
+  uiSignal.addEventListener('abort', clearPendingChatDrawerTransition, { once: true });
+  _busScope.on('state:setup.sessionStarted', (started) => {
+    if (!started) clearPendingChatDrawerTransition();
+  });
 
   registerChatProtocolHandlers();
 

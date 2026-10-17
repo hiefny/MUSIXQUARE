@@ -5,7 +5,7 @@ import { formatSystemAudioProfileLabel } from '../core/system-audio-profile.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { languageDirection } from '../i18n/locales.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
-import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
+import { beginBackSurfaceTransition, getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { showToast } from './toast.ts';
 import { beginScreensaverEntry, type ScreensaverEntry } from './screensaver-entry.ts';
 
@@ -105,6 +105,7 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   let ready = false;
   let disposed = false;
   let closing = false;
+  let finishBackSurface: (() => void) | null = null;
   let entryFrame: number | null = null;
   let lastPayload = '';
   const sendUpdate = (force = false): void => {
@@ -147,6 +148,8 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
     entry.release();
     overlay.remove();
     syncOverlayState();
+    finishBackSurface?.();
+    finishBackSurface = null;
     if (activeCleanup === cleanup) activeCleanup = null;
     if (previousFocus?.isConnected && !previousFocus.closest('[inert]')) {
       previousFocus.focus({ preventScroll: true });
@@ -154,12 +157,13 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   };
   const cleanup = (immediate = false): void => {
     if (disposed) return;
+    if (closing && !immediate && !motion?.matches) return;
     if (immediate || motion?.matches || overlay.style.opacity === '0') {
       finishClose();
       return;
     }
-    if (closing) return;
     closing = true;
+    finishBackSurface = beginBackSurfaceTransition();
     if (entryFrame !== null) cancelAnimationFrame(entryFrame);
     overlay.style.opacity = '0';
     setManagedTimer(CLOSE_TIMER, finishClose, 500);

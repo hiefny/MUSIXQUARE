@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Deferred Back guard (R policy) — 2026-10-17](design/ios-back-deferred-guard-2026-10-17.md) —
+  Owner-tested iPhone diagnostic, shared deferred history registration, actual
+  window-close completion, owned-history leave, browser regressions and native
+  swipe verification limits.
 - [One update dialog everywhere — 2026-10-17](design/update-dialog-everywhere-2026-10-17.md) —
   A waiting update gets the same dialog (적용하기 / 나중에) on every screen, rooms and the
   demo included, with copy that says what applying costs. 나중에 lasts for the page, and a

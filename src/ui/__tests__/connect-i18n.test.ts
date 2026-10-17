@@ -17,7 +17,7 @@ import {
 } from '../../pro-room/runtime.ts';
 import { showToast } from '../toast.ts';
 import { showDialog, type DialogResult } from '../dialog.ts';
-import { copyTextToClipboard } from '../dom.ts';
+import { copyTextToClipboard, offerBackToTopWindow, whenBackSurfaceSettled } from '../dom.ts';
 import { initConnect } from '../connect.ts';
 import { retryPeerSignalingConnection } from '../../network/peer.ts';
 import { changeStandardRoomPin } from '../../network/standard-room-pin.ts';
@@ -3672,6 +3672,28 @@ describe('administrator permission operation ownership', () => {
     open();
     return { context, administrators, open };
   }
+
+  it('waits for the permissions fade and cancels a superseded close on reopen', async () => {
+    const { open } = startPermissionDraft();
+    const overlay = document.getElementById('administrator-permissions-overlay')!;
+    overlay.style.transitionProperty = 'opacity, visibility';
+    overlay.style.transitionDuration = '0.2s, 0s';
+    overlay.style.transitionDelay = '0s, 0.2s';
+    const first = offerBackToTopWindow();
+    expect(first.handled).toBe(true);
+    const observed = vi.fn();
+    const pending = first.settled.then(observed);
+    await Promise.resolve();
+    expect(observed).not.toHaveBeenCalled();
+    open();
+    await pending;
+    document.getElementById('btn-administrator-permissions-cancel')!.click();
+    const settled = whenBackSurfaceSettled();
+    const end = new Event('transitionend');
+    Object.defineProperty(end, 'propertyName', { value: 'opacity' });
+    overlay.dispatchEvent(end);
+    await settled;
+  });
 
   it.each(['resolve', 'reject'])(
     'keeps a successor save owned when the retired save %s settles',

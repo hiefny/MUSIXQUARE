@@ -43,6 +43,80 @@ let _batchedTransitionCb: (() => void) | null = null;
 let _batchedTransitionPreservesHeader = false;
 let _headerTransitionGeneration = 0;
 let _immediateTransitionDepth = 0;
+let _backDispatchDepth = 0;
+const _backSurfaceTransitions = new Map<Promise<void>, () => void>();
+let _batchedBackSettlements: Array<() => void> = [];
+
+/** A closing surface owns its completion; no duration or CSS inference is needed. */
+export function beginBackSurfaceTransition(): () => void {
+  let resolve!: () => void;
+  const settled = new Promise<void>((done) => {
+    resolve = done;
+  });
+  const finish = () => {
+    if (!_backSurfaceTransitions.delete(settled)) return;
+    resolve();
+    notifyOverlayStackChange();
+  };
+  _backSurfaceTransitions.set(settled, finish);
+  notifyOverlayStackChange();
+  return finish;
+}
+
+/** Include a successor close that starts before the previous one settles. */
+export async function whenBackSurfaceSettled(): Promise<void> {
+  while (_backSurfaceTransitions.size > 0) {
+    await Promise.all(_backSurfaceTransitions.keys());
+  }
+}
+
+/** Track one closing surface after its visible class has been removed. */
+export function trackClosingCssTransition(element: HTMLElement): () => void {
+  const style = getComputedStyle(element);
+  const properties = style.transitionProperty.split(',').map((value) => value.trim());
+  const times = (values: string) =>
+    values.split(',').map((value) => {
+      const milliseconds = Number.parseFloat(value) * (value.trim().endsWith('ms') ? 1 : 1000);
+      return Number.isFinite(milliseconds) ? milliseconds : 0;
+    });
+  const durations = times(style.transitionDuration);
+  const delays = times(style.transitionDelay);
+  const endTimes = properties.map((property, index) => ({
+    property,
+    time:
+      property && property !== 'none'
+        ? (durations[index % durations.length] ?? 0) + (delays[index % delays.length] ?? 0)
+        : 0,
+  }));
+  const duration = Math.max(0, ...endTimes.map(({ time }) => time));
+  // Reduced motion or a stylesheet without transitions settles immediately.
+  if (duration <= 0) return () => {};
+
+  const finish = beginBackSurfaceTransition();
+  let timer: number | null = null;
+  const settle = () => {
+    element.removeEventListener('transitionend', onEnd);
+    if (timer !== null) window.clearTimeout(timer);
+    timer = null;
+    finish();
+  };
+  const onEnd = (event: TransitionEvent) => {
+    if (
+      event.target === element &&
+      endTimes.some(
+        ({ property, time }) =>
+          time === duration && (property === event.propertyName || property === 'all'),
+      )
+    )
+      settle();
+  };
+  element.addEventListener('transitionend', onEnd);
+  // Actual transition completion is primary; the CSS duration plus a small
+  // margin covers a dropped event without duplicating a stylesheet duration.
+  // Surface-owned: room-wide timer cleanup must not strand a visible dialog.
+  timer = window.setTimeout(settle, duration + 100);
+  return settle;
+}
 
 interface ViewTransitionLike {
   skipTransition?: () => void;
@@ -61,6 +135,8 @@ type DocumentWithViewTransition = Document & {
 interface TransitionOptions {
   /** Ordinary tab updates can keep the header live outside the root crossfade. */
   preserveHeader?: boolean;
+  /** Explicit close buttons share the same completion boundary as history Back. */
+  closingWindow?: boolean;
 }
 
 function canPreserveTransitionHeader(): boolean {
@@ -109,10 +185,18 @@ export function runWithoutViewTransitions(callback: () => void): void {
 
 export function animateTransition(callback: () => void, options: TransitionOptions = {}): void {
   const transitionDocument = document as DocumentWithViewTransition;
+  const finishBackSurface =
+    options.closingWindow || _backDispatchDepth > 0 ? beginBackSurfaceTransition() : null;
   if (_immediateTransitionDepth > 0 || !transitionDocument.startViewTransition) {
-    callback();
+    try {
+      callback();
+    } finally {
+      finishBackSurface?.();
+    }
     return;
   }
+
+  if (finishBackSurface) _batchedBackSettlements.push(finishBackSurface);
 
   if (_batchedTransitionCb !== null) {
     // A batched setup/mode update may open an overlay. Only isolate chrome
@@ -132,9 +216,15 @@ export function animateTransition(callback: () => void, options: TransitionOptio
     .then(() => {
       const cb = _batchedTransitionCb;
       const preserveHeader = _batchedTransitionPreservesHeader;
+      const backSettlements = _batchedBackSettlements;
+      _batchedBackSettlements = [];
+      const finishBackSurfaces = () => backSettlements.forEach((finish) => finish());
       _batchedTransitionCb = null;
       _batchedTransitionPreservesHeader = false;
-      if (!cb) return;
+      if (!cb) {
+        finishBackSurfaces();
+        return;
+      }
       const root = document.documentElement;
       const generation = ++_headerTransitionGeneration;
       root.classList.toggle(
@@ -167,6 +257,10 @@ export function animateTransition(callback: () => void, options: TransitionOptio
             root.classList.remove('tab-header-transition');
           }
         });
+        const surfaceFinished = vt?.finished ?? vt?.updateCallbackDone;
+        if (surfaceFinished !== undefined)
+          void surfaceFinished.then(finishBackSurfaces, finishBackSurfaces);
+        else finishBackSurfaces();
         if (root.classList.contains('tab-header-transition') && vt?.skipTransition) {
           // A network/session dialog can arrive after capture. Finish only the
           // obsolete tab effect so the live overlay regains its correct stack;
@@ -206,7 +300,11 @@ export function animateTransition(callback: () => void, options: TransitionOptio
         });
       } catch {
         releaseHeader();
-        if (!executed) cb();
+        try {
+          if (!executed) cb();
+        } finally {
+          finishBackSurfaces();
+        }
       }
     })
     .catch((error) => {
@@ -305,6 +403,17 @@ export function updateOverlayOpenClass(): void {
 // without re-deriving it from the DOM.
 const _modalStack: OverlayId[] = [];
 const _overlayStackListeners = new Set<() => void>();
+
+function notifyOverlayStackChange(): void {
+  for (const listener of _overlayStackListeners) {
+    try {
+      listener();
+    } catch (e) {
+      log.warn('[DOM] Overlay stack listener failed:', e);
+    }
+  }
+}
+
 const CENTERED_OVERLAY_Z_INDEX_BASE = 6000;
 const CENTERED_OVERLAY_Z_INDEX_STEP = 10;
 const OVERLAY_INERT_OWNER = 'overlay-stack';
@@ -486,6 +595,7 @@ function installLegacyInertInteractionGuard(): void {
 
 /** @internal Test-only helper to reset stack between cases. */
 export function __resetModalStackForTests(): void {
+  for (const finish of _backSurfaceTransitions.values()) finish();
   _modalStack.length = 0;
   _topModalId = null;
   for (const element of _fullscreenModalPortals.keys()) restoreFullscreenModal(element);
@@ -586,13 +696,7 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
   }
   const activeElement = document.activeElement;
   if (activeElement instanceof HTMLElement && activeElement.closest('[inert]')) focusTopModal();
-  for (const listener of _overlayStackListeners) {
-    try {
-      listener();
-    } catch (e) {
-      log.warn('[DOM] Overlay stack listener failed:', e);
-    }
-  }
+  notifyOverlayStackChange();
 }
 
 export function syncOverlayState(preferredTopOverlayId?: OverlayId): void {
@@ -627,6 +731,10 @@ export function onOverlayStackChange(listener: () => void): () => void {
 
 const WINDOW_BACK_EVENT = 'mxqr:window-back';
 const WINDOW_BACK_LAYER_ATTRIBUTE = 'data-window-back';
+interface WindowBackResult {
+  handled: boolean;
+  settled: Promise<void>;
+}
 // The setup screens are the page itself outside a room, not a window over it.
 const BASE_SCREEN_ID: OverlayId = 'setup-overlay';
 
@@ -679,21 +787,26 @@ export function hasOpenWindow(): boolean {
   return topWindowElement() !== null;
 }
 
-/** Offer history Back to the topmost window. Returns whether it was used. */
-export function offerBackToTopWindow(): boolean {
+/** Offer Back to one window, preserving that owner's actual closing boundary. */
+export function offerBackToTopWindow(): WindowBackResult {
   syncModalStack();
   const root = topWindowElement();
-  if (!root) return false;
+  if (!root) return { handled: false, settled: whenBackSurfaceSettled() };
   // Later layers in document order sit above earlier ones.
   const layers = Array.from(
     root.querySelectorAll<HTMLElement>(`[${WINDOW_BACK_LAYER_ATTRIBUTE}]`),
   ).reverse();
   for (const target of [...layers, root]) {
     const event = new Event(WINDOW_BACK_EVENT, { cancelable: true });
-    target.dispatchEvent(event);
-    if (event.defaultPrevented) return true;
+    _backDispatchDepth += 1;
+    try {
+      target.dispatchEvent(event);
+    } finally {
+      _backDispatchDepth -= 1;
+    }
+    if (event.defaultPrevented) return { handled: true, settled: whenBackSurfaceSettled() };
   }
-  return false;
+  return { handled: false, settled: whenBackSurfaceSettled() };
 }
 
 // ─── Observer (single watcher, both effects) ─────────────────────

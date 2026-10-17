@@ -1,6 +1,6 @@
 import { getState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
-import { onWindowBack } from './dom.ts';
+import { onWindowBack, trackClosingCssTransition } from './dom.ts';
 
 interface DemoInlineControlsOptions {
   signal: AbortSignal;
@@ -22,6 +22,7 @@ export function bindDemoInlineControls({
   if (!opener || !header || !controls) return () => {};
   const copy = header.querySelector<HTMLElement>('.demo-track-copy');
   let expanded = false;
+  let finishClose: (() => void) | null = null;
   const syncIsOpen = () =>
     document.getElementById('manual-sync-overlay')?.classList.contains('show');
 
@@ -34,6 +35,10 @@ export function bindDemoInlineControls({
       else if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     }
     header.classList.toggle('demo-controls-expanded', next);
+    if (changed) {
+      finishClose?.();
+      finishClose = !next && !signal.aborted ? trackClosingCssTransition(controls) : null;
+    }
     opener.setAttribute('aria-expanded', String(next));
     const label = next ? 'common.close' : 'nav.settings';
     opener.setAttribute('data-i18n-aria-label', label);
@@ -46,6 +51,7 @@ export function bindDemoInlineControls({
       else onClose();
     }
   };
+  signal.addEventListener('abort', () => finishClose?.(), { once: true });
   setExpanded(false);
   opener.addEventListener(
     'click',

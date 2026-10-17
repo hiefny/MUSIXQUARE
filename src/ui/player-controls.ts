@@ -28,6 +28,7 @@ import {
   updateTitleWithMarquee,
   normalizeEmptyContentEditable,
   onWindowBack,
+  beginBackSurfaceTransition,
 } from './dom.ts';
 import { showDialog } from './dialog.ts';
 import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
@@ -694,14 +695,17 @@ function closeMediaSourcePopup(restoreFocus = true): void {
   clearManagedTimer('media-source-focus');
   const returnFocus = _mediaSourcePreviousFocus;
   _mediaSourcePreviousFocus = null;
-  animateTransition(() => {
-    const overlay = getUiElement('media-source-overlay');
-    if (overlay) {
-      overlay.classList.remove('active');
-      syncOverlayState();
-      if (restoreFocus) restoreOverlayOpener(returnFocus, overlay);
-    }
-  });
+  animateTransition(
+    () => {
+      const overlay = getUiElement('media-source-overlay');
+      if (overlay) {
+        overlay.classList.remove('active');
+        syncOverlayState();
+        if (restoreFocus) restoreOverlayOpener(returnFocus, overlay);
+      }
+    },
+    { closingWindow: true },
+  );
 }
 
 function openYouTubePopup(returnFocus?: HTMLElement | null): void {
@@ -871,14 +875,17 @@ function closeYouTubePopup(): void {
   if (ytInput) ytInput.textContent = '';
   const returnFocus = _youtubePopupPreviousFocus;
   _youtubePopupPreviousFocus = null;
-  animateTransition(() => {
-    const overlay = getUiElement('youtube-url-overlay');
-    if (overlay) {
-      overlay.classList.remove('active');
-      syncOverlayState();
-      restoreOverlayOpener(returnFocus, overlay);
-    }
-  });
+  animateTransition(
+    () => {
+      const overlay = getUiElement('youtube-url-overlay');
+      if (overlay) {
+        overlay.classList.remove('active');
+        syncOverlayState();
+        restoreOverlayOpener(returnFocus, overlay);
+      }
+    },
+    { closingWindow: true },
+  );
 }
 
 // ─── File Selector ───────────────────────────────────────────────
@@ -1259,7 +1266,7 @@ export function initPlayerControls(): void {
           videoWrapper.classList.contains('fake-fullscreen') ||
           Boolean(getFullscreenElement()?.closest('.video-wrapper'));
         if (!filling) return false;
-        exitYouTubeFullscreen();
+        exitYouTubeFullscreen(beginBackSurfaceTransition());
         return true;
       },
       domSignal,
@@ -1324,14 +1331,8 @@ export function initPlayerControls(): void {
         } else {
           enterFake();
         }
-      } else if (isFakeFullscreen) {
-        exitFake();
-      } else if (document.exitFullscreen) {
-        document.exitFullscreen().catch((error) => {
-          log.warn('[Fullscreen] Native exit failed', error);
-        });
-      } else if (doc.webkitExitFullscreen) {
-        doc.webkitExitFullscreen();
+      } else {
+        exitYouTubeFullscreen(beginBackSurfaceTransition(), { scope: 'document' });
       }
     } catch {
       // Synchronous webkit call can throw — fall back to fake fullscreen toggle.

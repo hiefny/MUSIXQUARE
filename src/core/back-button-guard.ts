@@ -1,32 +1,25 @@
 interface BackButtonGuardControllerDeps {
-  /** A room session is running, so a Back with no window asks before leaving. */
   isSessionActive: () => boolean;
-  /** A window (dialog, sheet, or fullscreen layer) is open above the page. */
   hasOpenWindow: () => boolean;
-  /** Offer Back to the topmost window. Returns whether a window used it. */
-  closeTopWindow: () => boolean;
-  /** A reset is already navigating this document away. */
+  closeTopWindow: () => { handled: boolean; settled: Promise<void> };
+  /** Only app-owned closing transitions; not the room's decorative entrance. */
+  whenSurfaceSettled: () => Promise<void>;
+  /** A completed join must show the room before taking its history snapshot. */
+  isSurfaceReady: () => boolean;
+  isDocumentVisible: () => boolean;
   isNavigationPending: () => boolean;
+  currentHistoryPosition: () => 'base' | 'guard' | 'foreign';
   pushGuard: () => void;
-  /** Continue a Back that only consumed the guard entry. */
   navigateBack: () => void;
+  requestFrame: (callback: FrameRequestCallback) => number;
+  cancelFrame: (id: number) => void;
   requestLeaveConfirmation: () => Promise<boolean>;
   onLeaveConfirmed: () => void;
   onSeedError?: (error: unknown) => void;
   onConfirmationError?: (error: unknown) => void;
 }
 
-interface BackButtonGuardController {
-  /** Re-evaluate after a session or window change. */
-  handleStateChange: () => void;
-  handlePopState: () => void;
-}
-
-/**
- * Whether Back asks before leaving. A PRO room re-entering presence briefly
- * projects the idle role while its room context stays set; that is still the
- * same session, and a Back in that window must not leave silently.
- */
+/** PRO presence re-entry may briefly project idle while the room remains active. */
 export function isGuardedSession(state: {
   sessionStarted: boolean;
   role: string;
@@ -36,99 +29,141 @@ export function isGuardedSession(state: {
 }
 
 /**
- * Own the small history-guard state machine without importing UI or network
- * modules. The bootstrap layer supplies the browser and dialog side effects.
- *
- * One guard entry sits above the page while a session runs or a window is
- * open. Back pops it: the topmost window closes first, then a session asks
- * before leaving, and otherwise the Back continues to the previous page.
+ * One common rearm policy: apply the UI change, await its closing surface, then
+ * allow two animation frames before restoring one owned history guard. A frame
+ * is a rendering opportunity, not proof that Safari released its native swipe
+ * snapshot. Never push in the popstate task, including re-entrant modal events.
  */
-export function createBackButtonGuardController(
-  deps: BackButtonGuardControllerDeps,
-): BackButtonGuardController {
-  let confirmInFlight = false;
-  let guardActive = false;
+export function createBackButtonGuardController(deps: BackButtonGuardControllerDeps) {
+  let confirmationPending = false;
   let handlingBack = false;
   let leaving = false;
+  let suspended = false;
+  let epoch = 0;
+  let frame: number | null = null;
+  let lastPosition = deps.currentHistoryPosition();
 
-  const reportConfirmationError = (error: unknown): void => {
+  const report = (observer: ((error: unknown) => void) | undefined, error: unknown): void => {
     try {
-      deps.onConfirmationError?.(error);
+      observer?.(error);
     } catch {
-      // Error reporting is terminal and must never re-enter the callback or
-      // create a second unhandled rejection when the observer itself fails.
+      // Diagnostics cannot create an unhandled rejection or navigation loop.
     }
   };
-
-  const seedGuard = (): void => {
-    try {
-      deps.pushGuard();
-      guardActive = true;
-    } catch (error) {
-      deps.onSeedError?.(error);
-    }
+  const cancelArm = (): void => {
+    epoch += 1;
+    if (frame !== null) deps.cancelFrame(frame);
+    frame = null;
   };
-
   const needsGuard = (): boolean => deps.isSessionActive() || deps.hasOpenWindow();
+  const canArm = (): boolean =>
+    !suspended &&
+    !leaving &&
+    deps.isDocumentVisible() &&
+    !deps.isNavigationPending() &&
+    needsGuard();
+
+  const arm = (settled: Promise<void> = Promise.resolve()): void => {
+    cancelArm();
+    if (!canArm()) return;
+    if (deps.currentHistoryPosition() === 'guard') {
+      lastPosition = 'guard';
+      return;
+    }
+    const scheduledEpoch = epoch;
+    const current = (): boolean => scheduledEpoch === epoch && canArm();
+    void Promise.all([settled, deps.whenSurfaceSettled()])
+      .then(() => {
+        if (!current() || !deps.isSurfaceReady()) return;
+        frame = deps.requestFrame(() => {
+          frame = null;
+          if (!current() || !deps.isSurfaceReady()) return;
+          frame = deps.requestFrame(() => {
+            frame = null;
+            if (!current() || !deps.isSurfaceReady()) return;
+            try {
+              if (deps.currentHistoryPosition() !== 'guard') deps.pushGuard();
+              lastPosition = deps.currentHistoryPosition();
+            } catch (error) {
+              report(deps.onSeedError, error);
+            }
+          });
+        });
+      })
+      .catch((error: unknown) => report(deps.onSeedError, error));
+  };
 
   const handleStateChange = (): void => {
-    // A Back being handled decides the guard once its window has closed.
-    if (handlingBack || guardActive || deps.isNavigationPending()) return;
-    if (needsGuard()) seedGuard();
+    if (handlingBack) return;
+    arm();
   };
 
   const confirmLeave = (): void => {
-    confirmInFlight = true;
-    (async () => {
+    confirmationPending = true;
+    void (async () => {
       try {
         if (await deps.requestLeaveConfirmation()) {
+          if (suspended || deps.isNavigationPending()) return;
           leaving = true;
+          cancelArm();
           deps.onLeaveConfirmed();
         }
       } catch (error) {
-        reportConfirmationError(error);
+        leaving = false;
+        report(deps.onConfirmationError, error);
       } finally {
-        confirmInFlight = false;
+        confirmationPending = false;
+        if (!leaving) arm();
       }
-    })().catch(reportConfirmationError);
+    })().catch((error: unknown) => report(deps.onConfirmationError, error));
   };
 
   const handlePopState = (): void => {
-    // Every same-document Back consumes the current guard entry.
-    const consumedGuard = guardActive;
-    guardActive = false;
-    if (deps.isNavigationPending()) {
-      // A confirmed leave pops this guard and the page entry together.
-      // Re-seed so that count stays right; any other reset replaces the
-      // current entry and needs no guard.
-      if (leaving) seedGuard();
-      return;
-    }
+    const previous = lastPosition;
+    const destination = deps.currentHistoryPosition();
+    // An already-observed state must not cancel the only pending rearm.
+    if (previous === destination) return;
+    cancelArm();
+    lastPosition = destination;
+    if (suspended || leaving || deps.isNavigationPending()) return;
+    // Forward and foreign/duplicate events must not close another window.
+    if (previous !== 'guard' || destination !== 'base') return;
 
-    let windowUsedBack: boolean;
     handlingBack = true;
     try {
-      windowUsedBack = deps.closeTopWindow();
+      const result = deps.closeTopWindow();
+      if (result.handled) {
+        arm(result.settled);
+      } else if (deps.isSessionActive()) {
+        if (!confirmationPending) confirmLeave();
+        // The confirmation itself gets the same deferred guard. Back on it
+        // means Stay, without escaping to the previous document.
+        arm();
+      } else {
+        // A window closed by its own button left an unused guard behind.
+        deps.navigateBack();
+      }
     } finally {
       handlingBack = false;
     }
-    if (windowUsedBack) {
-      if (needsGuard()) seedGuard();
-      return;
-    }
-
-    if (deps.isSessionActive()) {
-      // Keep an active session fenced while its leave confirmation is open.
-      seedGuard();
-      if (!confirmInFlight) confirmLeave();
-      return;
-    }
-
-    // Outside a room with no window: this Back belongs to the page. When it
-    // only consumed a guard left by a window that closed another way, carry
-    // it on to the previous page.
-    if (consumedGuard) deps.navigateBack();
   };
 
-  return { handleStateChange, handlePopState };
+  return {
+    handleStateChange,
+    handlePopState,
+    suspend(): void {
+      suspended = true;
+      cancelArm();
+    },
+    resume(): void {
+      suspended = false;
+      lastPosition = deps.currentHistoryPosition();
+      arm();
+    },
+    recoverNavigation(): void {
+      leaving = false;
+      lastPosition = deps.currentHistoryPosition();
+      arm();
+    },
+  };
 }

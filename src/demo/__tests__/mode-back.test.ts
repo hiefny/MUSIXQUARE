@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   safeSend: vi.fn(() => true),
   loadDemoFile: vi.fn(),
   showToast: vi.fn(),
+  finishBackSurface: vi.fn(),
   backHandlers: [] as Array<{ element: HTMLElement; handler: () => boolean }>,
 }));
 
@@ -76,6 +77,7 @@ vi.mock('../../ui/toast.ts', () => ({
 }));
 
 vi.mock('../../ui/dom.ts', () => ({
+  beginBackSurfaceTransition: vi.fn(() => mocks.finishBackSurface),
   updateOverlayOpenClass: vi.fn(),
   onWindowBack: vi.fn((element: HTMLElement, handler: () => boolean) => {
     mocks.backHandlers.push({ element, handler });
@@ -131,6 +133,30 @@ function joinAsGuest(capabilities: string[]): DataConnection {
   return hostConn;
 }
 
+function hostExitCurtain() {
+  setState('network.appRole', 'host');
+  setState('setup.sessionStarted', true);
+  setState('demo.active', true);
+  document.getElementById('demo-overlay')!.classList.add('active');
+  const curtain = document.createElement('div');
+  curtain.id = 'demo-curtain';
+  curtain.style.opacity = '0';
+  document.body.appendChild(curtain);
+  const animations: Array<{
+    cancel: () => void;
+    onfinish: (() => void) | null;
+    oncancel: (() => void) | null;
+  }> = [];
+  Object.defineProperty(curtain, 'animate', {
+    value: () => {
+      const animation = { cancel: vi.fn(), onfinish: null, oncancel: null };
+      animations.push(animation);
+      return animation;
+    },
+  });
+  return { curtain, animations };
+}
+
 describe('history Back on the demo', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
@@ -164,6 +190,7 @@ describe('history Back on the demo', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     bus.emit('demo:authority-reset');
     setCurrentAudioBuffer(null);
     clearAllManagedTimers();
@@ -210,5 +237,60 @@ describe('history Back on the demo', () => {
 
     overlay.classList.remove('exiting');
     expect(demoBack()).toBe(false);
+  });
+
+  it('settles Back only after the exit curtain reveals the restored room', async () => {
+    const { animations } = hostExitCurtain();
+    expect(demoBack()).toBe(true);
+    expect(mocks.finishBackSurface).not.toHaveBeenCalled();
+    animations[0]!.onfinish?.();
+    expect(document.getElementById('demo-overlay')!.classList.contains('active')).toBe(false);
+    await flush(40);
+    expect(mocks.finishBackSurface).not.toHaveBeenCalled();
+    animations[1]!.onfinish?.();
+    expect(mocks.finishBackSurface).toHaveBeenCalledOnce();
+  });
+
+  it('settles Back when the existing exit fallback finishes a stalled curtain', async () => {
+    const { curtain } = hostExitCurtain();
+    expect(demoBack()).toBe(true);
+    await flush(919);
+    expect(mocks.finishBackSurface).not.toHaveBeenCalled();
+    await flush(1);
+    expect(curtain.style.opacity).toBe('0');
+    expect(mocks.finishBackSurface).toHaveBeenCalledOnce();
+  });
+
+  it('still reveals and settles the exit curtain after snapshot restoration throws', async () => {
+    const { animations } = hostExitCurtain();
+    expect(demoBack()).toBe(true);
+    vi.spyOn(bus, 'emit').mockImplementationOnce(() => {
+      throw new Error('snapshot restore failed');
+    });
+    expect(() => animations[0]!.onfinish?.()).toThrow('snapshot restore failed');
+    expect(document.getElementById('demo-overlay')!.classList.contains('active')).toBe(false);
+    expect(mocks.finishBackSurface).not.toHaveBeenCalled();
+    await flush(40);
+    animations[1]!.onfinish?.();
+    expect(mocks.finishBackSurface).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the fallback through a stalled reveal after snapshot restoration throws', async () => {
+    const { curtain, animations } = hostExitCurtain();
+    expect(demoBack()).toBe(true);
+    vi.spyOn(bus, 'emit').mockImplementationOnce(() => {
+      throw new Error('snapshot restore failed');
+    });
+    expect(() => animations[0]!.onfinish?.()).toThrow('snapshot restore failed');
+    await flush(920);
+    expect(curtain.style.opacity).toBe('0');
+    expect(mocks.finishBackSurface).toHaveBeenCalledOnce();
+  });
+
+  it('releases the old exit settlement when a fresh demo supersedes its curtain', () => {
+    hostExitCurtain();
+    expect(demoBack()).toBe(true);
+    bus.emit('demo:enter');
+    expect(mocks.finishBackSurface).toHaveBeenCalledOnce();
   });
 });

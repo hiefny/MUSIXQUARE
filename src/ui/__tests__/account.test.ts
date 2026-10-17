@@ -29,6 +29,7 @@ import {
 } from '../../account/login-return.ts';
 import { flushAccountActivityStatsForRead } from '../../account/activity-stats.ts';
 import { resetState, setState } from '../../core/state.ts';
+import { offerBackToTopWindow, whenBackSurfaceSettled } from '../dom.ts';
 
 const STATS_SCOPE = 's'.repeat(43);
 
@@ -135,6 +136,46 @@ afterEach(() => {
 });
 
 describe('optional account UI', () => {
+  it.each(['back', 'button'] as const)('waits for account fade-out after %s', async (source) => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    initAccount();
+    openAccountDialog();
+    const overlay = document.getElementById('account-dialog-overlay')!;
+    overlay.style.transitionProperty = 'opacity, visibility';
+    overlay.style.transitionDuration = '0.2s, 0s';
+    overlay.style.transitionDelay = '0s, 0.2s';
+    if (source === 'back') expect(offerBackToTopWindow().handled).toBe(true);
+    else document.getElementById('btn-account-login-close')!.click();
+    const observed = vi.fn();
+    const settled = whenBackSurfaceSettled().then(observed);
+    await Promise.resolve();
+    expect(overlay.classList.contains('show')).toBe(false);
+    expect(observed).not.toHaveBeenCalled();
+    const end = new Event('transitionend');
+    Object.defineProperty(end, 'propertyName', { value: 'opacity' });
+    overlay.dispatchEvent(end);
+    await settled;
+    expect(observed).toHaveBeenCalledOnce();
+  });
+
+  it('cancels the old account close when reopened', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({ configured: true, authenticated: false, account: null }),
+    );
+    initAccount();
+    openAccountDialog();
+    const overlay = document.getElementById('account-dialog-overlay')!;
+    overlay.style.transitionProperty = 'opacity';
+    overlay.style.transitionDuration = '0.2s';
+    document.getElementById('btn-account-login-close')!.click();
+    const settled = whenBackSurfaceSettled();
+    openAccountDialog();
+    await settled;
+    expect(overlay.classList.contains('show')).toBe(true);
+  });
+
   it('rejects cookie B statistics under snapshot A and reconciles the changed session', async () => {
     let cookieOwner = 'A';
     let resolveRefresh!: (response: Response) => void;

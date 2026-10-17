@@ -10,6 +10,7 @@ import { sendToHost } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { showToast } from '../toast.ts';
 import type { ScreensaverEntry } from '../screensaver-entry.ts';
+import { __resetModalStackForTests, offerBackToTopWindow, whenBackSurfaceSettled } from '../dom.ts';
 
 interface ProRealtimeTestPayload {
   kind?: string;
@@ -1019,6 +1020,113 @@ describe('Chat Module', () => {
       bus.emit('chat:clear-all');
       expect(badge.textContent).toBe('0');
       expect(badge.classList.contains('show')).toBe(false);
+    });
+
+    describe('history Back surface settlement', () => {
+      beforeEach(() => {
+        vi.useFakeTimers();
+        __resetModalStackForTests();
+        renderChatShell();
+        vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      });
+
+      afterEach(() => {
+        __resetModalStackForTests();
+        clearAllManagedTimers();
+        vi.useRealTimers();
+      });
+
+      function finishTransform(drawer: HTMLElement): void {
+        const event = new Event('transitionend');
+        Object.defineProperty(event, 'propertyName', { value: 'transform' });
+        drawer.dispatchEvent(event);
+      }
+
+      it.each(['back', 'button'] as const)(
+        'waits for the drawer transform after closing through %s',
+        async (source) => {
+          const { initChat, toggleChatDrawer } = await import('../chat.ts');
+          initChat();
+          const drawer = document.getElementById('chat-drawer')!;
+          toggleChatDrawer();
+          await whenBackSurfaceSettled(); // Opening is not a closing surface.
+          finishTransform(drawer);
+
+          if (source === 'back') expect(offerBackToTopWindow().handled).toBe(true);
+          else document.getElementById('btn-chat-close')!.click();
+          const observed = vi.fn();
+          const settled = whenBackSurfaceSettled().then(observed);
+          await Promise.resolve();
+          expect(drawer.classList.contains('open')).toBe(false);
+          expect(observed).not.toHaveBeenCalled();
+
+          const unrelated = new Event('transitionend', { bubbles: true });
+          Object.defineProperty(unrelated, 'propertyName', { value: 'opacity' });
+          drawer.dispatchEvent(unrelated);
+          await Promise.resolve();
+          expect(observed).not.toHaveBeenCalled();
+
+          finishTransform(drawer);
+          await settled;
+          expect(observed).toHaveBeenCalledOnce();
+        },
+      );
+
+      it('uses the existing drawer fallback when transform completion is missing', async () => {
+        const { initChat, toggleChatDrawer } = await import('../chat.ts');
+        initChat();
+        toggleChatDrawer();
+        toggleChatDrawer();
+        const observed = vi.fn();
+        const settled = whenBackSurfaceSettled().then(observed);
+
+        await vi.advanceTimersByTimeAsync(699);
+        expect(observed).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await settled;
+        expect(observed).toHaveBeenCalledOnce();
+      });
+
+      it('releases a superseded close when reopened and waits for a new close', async () => {
+        const { initChat, toggleChatDrawer } = await import('../chat.ts');
+        initChat();
+        const drawer = document.getElementById('chat-drawer')!;
+        toggleChatDrawer();
+        toggleChatDrawer();
+        const superseded = whenBackSurfaceSettled();
+        toggleChatDrawer();
+        await superseded;
+        expect(drawer.classList.contains('open')).toBe(true);
+
+        toggleChatDrawer();
+        const observed = vi.fn();
+        const settled = whenBackSurfaceSettled().then(observed);
+        await Promise.resolve();
+        expect(observed).not.toHaveBeenCalled();
+        finishTransform(drawer);
+        await settled;
+        expect(observed).toHaveBeenCalledOnce();
+      });
+
+      it.each(['reinit', 'session-end'] as const)(
+        'releases a pending drawer close on %s',
+        async (reason) => {
+          const { initChat, toggleChatDrawer } = await import('../chat.ts');
+          setState('setup.sessionStarted', true);
+          initChat();
+          toggleChatDrawer();
+          toggleChatDrawer();
+          const observed = vi.fn();
+          const settled = whenBackSurfaceSettled().then(observed);
+          await Promise.resolve();
+          expect(observed).not.toHaveBeenCalled();
+
+          if (reason === 'reinit') initChat();
+          else setState('setup.sessionStarted', false);
+          await settled;
+          expect(observed).toHaveBeenCalledOnce();
+        },
+      );
     });
 
     it('reveals the drawer scrollbar when the chat surface opens', async () => {

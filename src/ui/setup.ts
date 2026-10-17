@@ -524,7 +524,7 @@ export function initSetup(): void {
     setPendingAutoJoinCode(null);
     try {
       if (!isProRoom && /^\/\d{6}\/?$/.test(window.location.pathname)) {
-        window.history.replaceState({}, '', '/' + window.location.hash);
+        window.history.replaceState(window.history.state, '', '/' + window.location.hash);
         synchronizeCurrentLocalizedAppHead();
       }
     } catch {

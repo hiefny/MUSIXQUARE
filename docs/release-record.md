@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-18 (배포 SHA `d51eb367`, Release `39054268521` attempt 1 성공) |
+| Last source review | 2026-10-18 (배포 SHA `6a934577`, Release `39056678732` attempt 1 성공) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -23,19 +23,19 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ## 1. 현재 운영 상태
 
-아래는 2026-10-18 02:36 KST Drift Audit 완료까지의 상태다. Full E2E는 이전 실행이며 이번 배포의 검증으로 취급하지 않는다. 다음 배포 전 실제 Git·CI·Cloudflare 상태와 다시 확인하며, 후속 기록 PR은 배포된 코드 SHA나 후보를 대신하지 않는다.
+아래는 2026-10-18 03:10 KST Drift Audit 완료까지의 상태다. Full E2E는 이전 실행이며 이번 배포의 검증으로 취급하지 않는다. 다음 배포 전 실제 Git·CI·Cloudflare 상태와 다시 확인하며, 후속 기록 PR은 배포된 코드 SHA나 후보를 대신하지 않는다.
 
 | 항목 | 값 |
 | --- | --- |
-| App 버전 / SW 캐시 | `8.11.15` / `v717` |
-| 마지막 프로덕션 변경 | 2026-10-18 02:35:14 KST deploy job 완료, Release [39054268521](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521) attempt 1 성공, target=app, Developer API D1=false. 휴대폰 세로 시작 화면 세 개(첫 화면, 방 만들기, 방 참여하기)에서 가운데 덩어리(캐러셀, 초대 QR과 코드, QR 스캐너와 코드 입력칸)를 머리글과 버튼 사이 정중앙에 둔다(오너 요청 2026-10-18). 머리글 위와 버튼 아래 여백, 태블릿·가로·데스크톱 배치는 그대로다. 문구·재생·동기화·서버 프로토콜 변경 없음 |
-| 배포 main SHA | `d51eb3671299ca9d60775a0bf1a4bb79819de0eb` (PR [#389](https://github.com/hiefny/MUSIXQUARE/pull/389)). Exact-main push [CI 39053792906](https://github.com/hiefny/MUSIXQUARE/actions/runs/39053792906) attempt 1의 11 jobs success 후보 [artifact 12108553063](https://github.com/hiefny/MUSIXQUARE/actions/runs/39053792906/artifacts/12108553063)를 사용했다. 실제 후보 도구는 Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0이다. 로컬·PR CI와 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
-| Worker | App **version** `df193d32-1ba8-4316-8a1e-02f5b4daae04` / **deployment** `2876a31b-8882-463a-a379-d3ee5db61dd9`. 02:35:11.227 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker 기록 완료. 02:34:45.477 KST 부분 릴리스 호환성 recheck compatible. 미선택 5 Worker는 배포하지 않아 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance를 유지한다. **version ID / deployment ID**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 운영 smoke 4종 pass(App generation, 익명 App 계정 경계, 기존 PRO 공개 경계, Standard HTTPS signaling). 범위 밖 Worker smoke skip. 배포 원본 [artifact 12109026879](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521/artifacts/12109026879), coherent marker [12108937169](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521/artifacts/12108937169) |
-| 공개 자산 확인 | 2026-10-18 02:35:56 KST 완료, 공개 5 GET pass. `/`(140,676바이트), `/service-worker.js`(39,149바이트, v717), `/bootstrap.js?cache=v717`(10,196바이트), `/assets/main-DTBX4PSg.js`(437,531바이트), `/assets/main-J7B0zffU.css`(324,291바이트, 이번 변경) 모두 HTTP 200이며 exact-main 후보와 바이트 수·SHA-256이 일치했다. [증거](design/setup-mobile-centering-2026-10-18.md#release-and-recovery) |
-| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 02:34:12.585 KST captured checkpoint `production-recovery-checkpoint-d51eb3671299ca9d60775a0bf1a4bb79819de0eb-39054268521-1`([artifact 12108464246](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521/artifacts/12108464246))는 직전 App `e47d0bb5216c9d66bbbc7e28a0cc1cf52bb72c1b`(8.11.14/v716), version `0d55bd02-5802-47e4-97fe-491914594f08` / deployment `4ffedfd7-51a4-456c-9c7f-4ff126f13cd5`를 보존한다. 이 버전으로 복구하면 휴대폰 세로 시작 화면의 가운데 덩어리가 다시 머리글 바로 아래에 붙는다. 저장 데이터·wire 계약 변경은 없고 복구 시 소유권/floor 재검증이 필요하다. Checkpoint는 사용자 데이터 백업이 아니다 |
-| 활성 복구 floor | 02:34:14.400 KST 캡처에서 ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor이며 generation·entitlement·Developer API authority aware다. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 PRO/App marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs success: unit 581 files / 13,037 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 55 pass, coverage·타입·린트·정적·빌드·보안 gate 통과. 최종 PR head `3d523c49`의 [CI 39053254917](https://github.com/hiefny/MUSIXQUARE/actions/runs/39053254917) 11 jobs 성공, GitHub Codex 자동 리뷰 지적 0건. 로컬 Windows runtime SHA `bc384b20`: unit 581 files / 13,038 pass / 0 fail / 0 skip, 타입·린트·포맷·build:checked(v717, 97 app-shell assets) 통과, Chromium e2e(connection·carousel) 15 pass. 헤드리스 Chromium 측정에서 휴대폰 네 크기의 세 화면 모두 위아래 간격이 같고(390×844 첫 화면 153.5px, 코드 화면 156.9px), 320×568·태블릿·가로·데스크톱은 변경 전과 같다. 실제 기기와 전체 serial E2E는 검증 밖이다. [범위·한계](design/setup-mobile-centering-2026-10-18.md#verification) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 workflow_dispatch [39054472061](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054472061) attempt 1(2026-10-18 02:36:05 KST)이 `d51eb367`에서 automated-checks-passed, 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에 유지한다 |
+| App 버전 / SW 캐시 | `8.11.16` / `v718` |
+| 마지막 프로덕션 변경 | 2026-10-18 03:09:18 KST deploy job 완료, Release [39056678732](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056678732) attempt 1 성공, target=app, Developer API D1=false. 8.11.15의 휴대폰 세로 시작 화면 가운데 정렬을 보이는 가장자리 기준으로 보정했다(오너 지적 2026-10-18). 아래 padding이 머리글 행간, QR 여백·스캔 버튼 안쪽 8%, 코드 숫자 아래 공간을 상쇄해 위아래 보이는 간격이 휴대폰 네 크기에서 0.5px 안으로 같다. 문구·재생·동기화·서버 프로토콜 변경 없음 |
+| 배포 main SHA | `6a934577fb51961372242375e299edd3e153a411` (PR [#391](https://github.com/hiefny/MUSIXQUARE/pull/391)). Exact-main push [CI 39056172118](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056172118) attempt 1의 11 jobs success 후보 [artifact 12109237978](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056172118/artifacts/12109237978)를 사용했다. 실제 후보 도구는 Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0이다. 로컬·PR CI와 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
+| Worker | App **version** `f773c444-1410-4977-9b3a-7ddfe307076c` / **deployment** `f9d31731-9cb5-4341-bb5c-c537ca72b018`. 03:09:13.460 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker 기록 완료. 03:08:44.960 KST 부분 릴리스 호환성 recheck compatible. 미선택 5 Worker는 배포하지 않아 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance를 유지한다. **version ID / deployment ID**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 운영 smoke 4종 pass(App generation, 익명 App 계정 경계, 기존 PRO 공개 경계, Standard HTTPS signaling). 범위 밖 Worker smoke skip. 배포 원본 [artifact 12109343231](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056678732/artifacts/12109343231), coherent marker [12108969075](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056678732/artifacts/12108969075) |
+| 공개 자산 확인 | 2026-10-18 03:09:34 KST 완료, 공개 5 GET pass. `/`(140,676바이트), `/service-worker.js`(39,149바이트, v718), `/bootstrap.js?cache=v718`(10,196바이트), `/assets/main-BMcvuojB.js`(437,531바이트), `/assets/main-DAlgOhYt.css`(324,791바이트, 이번 변경) 모두 HTTP 200이며 exact-main 후보와 바이트 수·SHA-256이 일치했다. [증거](design/setup-mobile-visible-centering-2026-10-18.md#release-and-recovery) |
+| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 03:08:06.599 KST captured checkpoint `production-recovery-checkpoint-6a934577fb51961372242375e299edd3e153a411-39056678732-1`([artifact 12110095400](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056678732/artifacts/12110095400))는 직전 App `d51eb3671299ca9d60775a0bf1a4bb79819de0eb`(8.11.15/v717), version `df193d32-1ba8-4316-8a1e-02f5b4daae04` / deployment `2876a31b-8882-463a-a379-d3ee5db61dd9`를 보존한다. 이 버전으로 복구하면 가운데 덩어리가 상자 기준 가운데로 돌아가 방 참여하기에서 약 11px 아래로 보인다. 저장 데이터·wire 계약 변경은 없고 복구 시 소유권/floor 재검증이 필요하다. Checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 03:08:08.553 KST 캡처에서 ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor이며 generation·entitlement·Developer API authority aware다. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 PRO/App marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | Exact-main CI 11 jobs success: unit 581 files / 13,037 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 55 pass, coverage·타입·린트·정적·빌드·보안 gate 통과. 최종 PR head `510d4a24`의 [CI 39055717353](https://github.com/hiefny/MUSIXQUARE/actions/runs/39055717353) 11 jobs 성공, GitHub Codex 자동 리뷰 지적 0건. 로컬 Windows runtime SHA `b7d62107`(rebase 후 `05479264`, 같은 runtime 파일): unit 581 files / 13,038 pass / 0 fail / 0 skip, 타입·린트·포맷·build:checked(v718, 97 app-shell assets) 통과, Chromium e2e(connection·carousel) 15 pass. 스크린샷 픽셀로 잰 위아래 보이는 간격이 휴대폰 네 크기의 세 화면 모두 0.5px 안으로 같다(390×844 방 참여하기 179.5/157 → 168.5/168px). 실제 기기와 전체 serial E2E는 검증 밖이다. [범위·한계](design/setup-mobile-visible-centering-2026-10-18.md#verification) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 workflow_dispatch [39056880139](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056880139) attempt 1(2026-10-18 03:09:43 KST)이 `6a934577`에서 automated-checks-passed, 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에 유지한다 |
 | Full E2E | 매주 월 18:17 UTC. 이번 전체 serial suite는 재실행하지 않았다. 확인한 마지막 main 실행 [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)(`4854e392`)은 failure. 별도 브랜치 성공 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201)(`749f0a6a`, Chromium 640·WebKit UI 79 pass/플랫폼 3 skip·SW 1·운영 R2 1)은 이번 변경이나 main 최신 성공을 뜻하지 않는다 |
 | 의존성 | 신규 npm 의존성·API 프로토콜·스키마·비밀·바인딩·권한·CSP 변경 없음. 기존 App D1 계약 7단계 apply/verify 성공, Developer API D1 skip. 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override, TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [기존 근거](design/dependency-update-2026-10-11.md) |
 
@@ -44,15 +44,6 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
-
-### 휴대폰 세로 시작 화면 보이는 기준 가운데 정렬
-
-- [ ] 8.11.15의 가운데 정렬을 보이는 가장자리 기준으로 보정한 App 8.11.16/v718 후보를
-      배포한다(오너 지적 2026-10-18: 가운데 덩어리가 버튼 쪽으로 살짝 내려가 보임). 아래 padding이
-      머리글 행간, QR 여백·스캔 버튼 안쪽 8%, 코드 숫자 아래 공간을 상쇄해 위아래 보이는 간격을
-      맞춘다. App만 배포하고 새 schema·secret·binding·CSP·권한·npm 의존성·문구는 없다. 배포는
-      오너 확인 뒤 진행하고, reviewed PR, exact-main CI, 정식 App release와 공개 자산 확인 뒤 닫는다.
-      [원인·변경·검증·한계](design/setup-mobile-visible-centering-2026-10-18.md).
 
 ### YouTube 목록·관리자 iframe 조작
 
@@ -72,6 +63,16 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [재현 조건·검사·한계](design/youtube-heartbeat-delay-reproduction-2026-10-17.md).
 
 ### 최근 해결 근거
+
+App 8.11.16/v718의 휴대폰 세로 시작 화면 보이는 기준 가운데 정렬(오너 지적 2026-10-18)은 PR
+[#391](https://github.com/hiefny/MUSIXQUARE/pull/391), exact-main `6a934577`의
+[CI 39056172118](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056172118),
+[Release 39056678732](https://github.com/hiefny/MUSIXQUARE/actions/runs/39056678732)
+attempt 1의 운영 smoke 4종·최종 소유권·미선택 5 Worker 호환성·coherent marker, 공개 5 GET의
+후보 해시 일치와 Drift 31 pass / 0 fail / 5 manual-only로 배포 준비 항목을 닫았다. PR 자동 리뷰
+지적은 없었다. 스크린샷 픽셀 측정과 브라우저 테스트만 있으므로 실제 기기 확인은 아래 실기기 항목에
+남긴다.
+[원인·변경·검증·배포·복구](design/setup-mobile-visible-centering-2026-10-18.md#release-and-recovery).
 
 App 8.11.15/v717의 휴대폰 세로 시작 화면 가운데 정렬(오너 요청 2026-10-18)은 PR
 [#389](https://github.com/hiefny/MUSIXQUARE/pull/389), exact-main `d51eb367`의

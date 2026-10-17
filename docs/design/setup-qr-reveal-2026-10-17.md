@@ -148,3 +148,56 @@ after breakpoint changes.
   request, the QR follows the code by the remaining load time.
 - The setup buttons are replaced before the tap snapshot, as before, so they
   switch without a crossfade.
+
+## Release and recovery
+
+On 2026-10-17 the owner asked for the fix to go to production without a
+separate approval step. PR #385 was squash-merged as
+`600f60467e16e8e73610a35052f52965cd54d4ce` after PR CI 39032579176 (11 jobs)
+passed on head `3d9b5fc8`. The Codex review's finding was fixed in
+`f8548a9a`, and its thread was answered and resolved. Exact-main push CI
+39033815131 attempt 1 passed all 11 jobs: unit 579 files / 12,980 pass / 0
+fail / 1 skip (a Windows-only path check on Linux), candidate browser 17 and
+critical browser 55 pass. The local full unit run on `f8548a9a` passed 579
+of 579 files and 12,981 of 12,981 tests.
+
+Production Release 39034289195 attempt 1 (target `app`, Developer API D1
+disabled) deployed the exact-main candidate, artifact 12101925355 (Node
+24.20.0 / npm 11.19.0 / Wrangler 4.148.0):
+
+- Recovery checkpoint captured at 21:53:58.115 KST (artifact 12101197814). It
+  preserves App 8.11.12/v712, `336e80cd`, version `b57a7ba8` / deployment
+  `bc566df4`. The worker floor was ready at 21:54:00.052 KST (release floor
+  `d9364cd9`, generation floor `4c5612d5`).
+- Partial-release recheck compatible at 21:54:42.571 KST. The five
+  unselected Workers kept their `d9364cd9` provenance and IDs.
+- App version `cbc2d87f-ea98-42a5-b64b-a678d2de03c6` / deployment
+  `fb477d6d-ef0d-4234-a44b-a553707e080c`, verified by the final ownership
+  check at 21:55:10.423 KST, with the exact-SHA coherent marker recorded.
+- Operational smokes 4/4: App generation (`main-DSCCBf7E.js` converged over
+  three reads), anonymous App account boundary, PRO public boundary, and
+  Standard HTTPS signaling. The seven App D1 baseline steps verified. The
+  deploy job completed at 21:55:15 KST. No rollback was needed, and the
+  recovery job was skipped.
+
+Public assets at 21:55:26 KST matched the candidate byte for byte (HTTP 200,
+same size and SHA-256):
+
+| Path | Bytes |
+| --- | --- |
+| `/` | 140,676 |
+| `/service-worker.js` (v714) | 39,149 |
+| `/bootstrap.js?cache=v714` | 10,196 |
+| `/assets/main-DSCCBf7E.js` | 437,531 |
+| `/assets/browser-B8ehoFP8.js` (QR encoder) | 23,491 |
+
+Operations Drift Audit 39034478284 attempt 1 on `600f6046`:
+automated-checks-passed, 31 pass / 0 fail / 5 manual-only.
+
+Rolling back to the checkpoint restores 8.11.12, which brings back the empty
+frames at the tap, the desktop QR re-parenting, and the late encoder load. No
+stored data or wire contract changed. A rollback re-verifies ownership and the
+floors as the procedure requires.
+
+Real devices, WebKit, and the full serial E2E suite were not run after the
+deploy. The device check stays open in the release record.

@@ -557,9 +557,10 @@
       --setup-icon-svg: clamp(32px, 3.5vw, 44px);
       --setup-slider-w: clamp(320px, 60%, 560px);
       --setup-ob-title: clamp(22px, 2.2vw, 28px);
-      --setup-ob-title-mb: 8px;
       --setup-ob-desc: clamp(13px, 1.1vw, 15px);
-      --setup-nav-mt: 24px;
+      /* As in the compact layout, plus the 7px the 22px arrows center the
+         8px dots by and the larger description's extra line spacing. */
+      --setup-nav-mt: calc(var(--setup-ob-title) * 1.5 - 16px);
       --setup-nav-arrow: flex;
       --setup-actions-top: 16px;
       --setup-actions-bottom: 40px;

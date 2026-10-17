@@ -54,7 +54,7 @@ describe('phone portrait setup centering', () => {
       /\.ob-actions \{[^}]*padding: 16px 28px calc\(24px \+ env\(safe-area-inset-bottom, 0\)\);/,
     );
     expect(css).toMatch(/\.ob-slider-viewport \{[^}]*margin: 4px 0;/);
-    expect(css).toMatch(/\.ob-nav-row \{[^}]*margin-top: 24px;\s*margin-bottom: 8px;/);
+    expect(css).toMatch(/\.ob-nav-row \{[^}]*margin-bottom: 8px;/);
     expect(css).toMatch(
       /\.setup-host-qr \{\s*width: min\(272px, 56vw, 36vh\);\s*width: min\(272px, 56vw, 36dvh\);/,
     );

@@ -45,23 +45,37 @@ production-like timings (see Verification). Three things stacked up.
   again. Moving to another area and leaving the desktop layout work as before.
 - `preloadHostInviteQrEncoder()` starts the encoder import on the host tap,
   and again on Retry, alongside the room request. The reveal awaits the same
-  load. A failed load is forgotten, so the reveal retries it and reports its
-  own failure as before.
-- App 8.11.13 / service-worker cache v713. No dependency, protocol, schema,
+  load. A failed load is forgotten, so a later reveal starts a new one, and a
+  reveal that joined a load that then fails makes one attempt of its own. A
+  reveal that still cannot load the encoder reports it as before.
+- App 8.11.13 / service-worker cache v714. No dependency, protocol, schema,
   secret, binding, CSP, or copy change.
+
+### Review fix
+
+The Codex review (P2) of `1c17e9c8` found that a code arriving while the
+preload was still in flight made the reveal await that same load. If it then
+failed, the reveal never loaded the encoder again and the room had no invite
+QR, while before the preload the reveal always made its own attempt.
+`f8548a9a` gives such a reveal one fresh attempt, with a test that fails
+without it. The cache moved to v714 in the same commit, so the committed
+runtime stays covered without a force-push.
 
 ## Verification
 
-Base `97873950` (main after #384). Tested runtime source: `bf6e23f3`. Local
-Windows checks used Node 24.13.1 / npm 11.8.0. These are local branch
-results, not the exact-main release candidate.
+Base `97873950` (main after #384). Tested runtime source: `f8548a9a`, the PR
+head runtime after the review fix. Local Windows checks used Node 24.13.1 /
+npm 11.8.0. These are local branch results, not the exact-main release
+candidate.
 
-On `bf6e23f3`, `typecheck`, `typecheck:tests`, `lint`, `format:check`,
-`guard:dead-exports`, and `build:checked` passed. `build:checked` includes
-the service-worker cache version (v713 covers every committed runtime
-change), legacy TV build (Chromium 79), app-shell (97 assets), and
-room-authority boundary (84 grandfathered direct reads, unchanged) guards.
-The full unit run passed 579 of 579 files and 12,980 of 12,980 tests.
+On `f8548a9a`, `typecheck`, `typecheck:tests`, and `build:checked` passed.
+`build:checked` includes the service-worker cache version (v714 covers every
+committed runtime change), legacy TV build (Chromium 79), app-shell (97
+assets), and room-authority boundary (84 grandfathered direct reads,
+unchanged) guards. The full unit run passed 579 of 579 files and 12,980 of
+12,980 tests on `bf6e23f3`, the first runtime revision, where `lint`,
+`format:check`, and `guard:dead-exports` also passed. The review fix changed
+one module and its test file, and both pass ESLint and Prettier.
 
 ### Unit tests
 
@@ -76,12 +90,13 @@ The full unit run passed 579 of 579 files and 12,980 of 12,980 tests.
   area takes the panel, the stage returns to its place before `#setup-code`;
   leaving the desktop layout returns it and empties the panel.
 - `src/ui/__tests__/setup-host-invite.test.ts`: after a failed preload, the
-  reveal loads the encoder again and shows the QR.
+  reveal loads the encoder again and shows the QR; and when the preload fails
+  while the reveal is waiting for it, the reveal retries and shows the QR.
 - Mutation check: hiding the carousel outside the callback (host, then
   guest), always re-parenting the panel diagram, dropping the preload call,
-  and keeping a failed load each failed exactly its new test. A case for "one
-  shared load" was dropped because the module cache made it pass without the
-  shared load.
+  and a reveal without its own retry each failed exactly its new test.
+  Keeping a failed load failed both retry cases. A case for "one shared load"
+  was dropped because the module cache made it pass without the shared load.
 
 ### Frame check
 

@@ -325,6 +325,12 @@ export interface TransportAnswerOptions {
   sdpTransform?: TransportSdpTransform;
 }
 
+/** Optional receiver-confirmed capacity for this exact transport connection. */
+export interface TransportBulkFlowControl {
+  hasCapacity(nextPayloadBytes: number): boolean;
+  subscribe(listener: () => void): () => void;
+}
+
 export interface TransportDataConnection {
   peer: string;
   open: boolean;
@@ -339,6 +345,7 @@ export interface TransportDataConnection {
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
+  readonly bulkFlowControl?: TransportBulkFlowControl;
   /** Provider-owned, non-renewing deadline for this exact ICE interruption. */
   readonly iceRecoveryDeadline?: number;
 

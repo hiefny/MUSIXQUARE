@@ -75,6 +75,16 @@ function endpoint(id: string) {
   });
   const bulk = new Channel('musixquare-data'),
     control = new Channel('musixquare-control');
+  // Capture/replay fixtures exercise application ordering with a peer that
+  // does not answer negotiation. Assert the private hello separately, then
+  // keep application frame indexes independent of transport housekeeping.
+  transport.on('open', () => {
+    expect(JSON.parse(control.sent.shift() as string)).toMatchObject({
+      type: 'mxqr-bulk-flow',
+      version: 1,
+      kind: 'hello',
+    });
+  });
   transport.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
   transport.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
   return { transport, conn: transport as unknown as DataConnection, bulk, control };
@@ -134,6 +144,8 @@ async function capture(size: number, kind: 'main' | 'preload' = 'main', mime = '
   setState('playlist.currentQueueItemId', A);
   const sender = endpoint('guest');
   await vi.advanceTimersByTimeAsync(0);
+  // The receiver is created only after capture; let the real old-peer grace expire.
+  await vi.advanceTimersByTimeAsync(1000);
   const peer = {
     id: 'guest',
     conn: sender.conn,

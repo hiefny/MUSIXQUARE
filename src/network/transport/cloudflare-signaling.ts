@@ -5,6 +5,7 @@ import { withRequestDeadline } from '../../core/request-lifetime.ts';
 import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
+import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
 import {
   isStandardHttpSignalingSocket,
   StandardHttpSignalingSocket,
@@ -928,6 +929,14 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
+  readonly bulkFlowControl = new BulkFlowControl(
+    (frame) => {
+      const channel = this.controlChannel;
+      if (!this.open || channel?.readyState !== 'open') throw new Error('DATA_CHANNEL_NOT_OPEN');
+      channel.send(JSON.stringify(frame));
+    },
+    () => this.terminate(),
+  );
   private closed = false;
   private intentionalClosing = false;
   private pcListenersAttached = false;
@@ -983,6 +992,11 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     channel.addEventListener('message', (event) => {
       decodePayload(event.data)
         .then((payload) => {
+          if (this.closed || (isControl ? this.controlChannel : this.dataChannel) !== channel)
+            return;
+          if (this.bulkFlowControl.handleControl(payload, isControl)) return;
+          if (!isControl) this.bulkFlowControl.noteReceived(creditedFileChunkBytes(payload));
+          if (this.closed) return;
           // A connection that WebKit reports as connected/open can still be a
           // frozen SCTP association. Only the exact reply to our post-resume
           // challenge proves that this connection reaches the live host. Other
@@ -1069,8 +1083,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       throw createTransportError('webrtc', 'DATA_CHANNEL_NOT_OPEN');
     }
     const encoded = encodePayload(data);
+    const creditedBytes = bulk ? creditedFileChunkBytes(data) : 0;
+    if (creditedBytes > 0 && !this.bulkFlowControl.hasCapacity(creditedBytes)) {
+      throw createTransportError('webrtc', 'BULK_FLOW_CAPACITY_EXCEEDED');
+    }
     if (typeof encoded === 'string') channel.send(encoded);
     else channel.send(encoded);
+    this.bulkFlowControl.noteSent(creditedBytes);
   }
 
   close(): void {
@@ -1214,6 +1233,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private disposeResources(): void {
     if (this.resourcesDisposed) return;
     this.resourcesDisposed = true;
+    this.bulkFlowControl.dispose();
     this.selectedPairTransport?.removeEventListener(
       'selectedcandidatepairchange',
       this.onSelectedPairChange,
@@ -1260,6 +1280,8 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       return;
     }
     this.open = true;
+    this.bulkFlowControl.start();
+    if (this.closed) return;
     // An ICE restart may retain connected throughout while replacing its
     // selected pair. Reclassify from that actual path change, not from the SDP
     // answer (which can still describe the previously selected local path).

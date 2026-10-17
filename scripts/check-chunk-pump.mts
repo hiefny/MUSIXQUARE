@@ -46,8 +46,8 @@ const BUFFERED_AMOUNT_ALLOWLIST = new Map<string, BufferedAmountAllowance>([
   [
     'src/storage/transfer-backpressure.ts',
     {
-      max: 2,
-      reason: 'Shared RTC capacity waiter: initial fast path and event/fallback recheck',
+      max: 1,
+      reason: 'Shared RTC capacity predicate used by waits and synchronous pre-send rechecks',
     },
   ],
 ]);

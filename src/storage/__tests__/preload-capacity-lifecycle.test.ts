@@ -133,6 +133,13 @@ function frames(target: Connection, type: string, sessionId?: number): Frame[] {
 
 async function begin(sender: Sender, file: File, target: Connection) {
   await vi.advanceTimersByTimeAsync(0);
+  // This native-capacity fixture captures bytes before constructing its
+  // replay receiver. Assert negotiation, then exercise the real old-peer
+  // fallback; negotiated credit is covered by receiver-credit-lifecycle.
+  expect(frames(target, 'mxqr-bulk-flow').map(header)).toEqual([
+    expect.objectContaining({ type: 'mxqr-bulk-flow', version: 1, kind: 'hello' }),
+  ]);
+  await vi.advanceTimersByTimeAsync(1000);
   setState('network.connectedPeers', [target.peer]);
   setState('network.activeHostConnByPeerId', new Map([[target.peer.id, target.conn]]));
   setState('playlist.items', [item(CURRENT, new File(['old'], 'old.mp3')), item(NEXT, file)]);

@@ -1,5 +1,5 @@
 /** Event-driven capacity waits shared by direct file and preload senders. */
-import { DELAY } from '../core/constants.ts';
+import { CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 
 type CapacityResult = 'ready' | 'stopped' | 'timeout';
@@ -11,6 +11,21 @@ interface ChannelThresholdOwner {
 }
 
 const thresholdOwners = new WeakMap<RTCDataChannel, ChannelThresholdOwner>();
+
+/** Recheck synchronously immediately before send: another lane may have used
+ * the connection's credit while a read or capacity wait yielded. */
+export function hasTransferCapacity(
+  conn: DataConnection,
+  highWaterMark: number,
+  nextPayloadBytes = CHUNK_SIZE,
+): boolean {
+  return (
+    conn.open &&
+    (!conn.dataChannel?.readyState || conn.dataChannel.readyState === 'open') &&
+    (!conn.dataChannel || conn.dataChannel.bufferedAmount <= highWaterMark) &&
+    (conn.bulkFlowControl?.hasCapacity(nextPayloadBytes) ?? true)
+  );
+}
 
 function installThreshold(channel: RTCDataChannel, owner: ChannelThresholdOwner): void {
   // Preserve a newer external assignment when this helper next takes ownership.
@@ -66,35 +81,40 @@ export function waitForTransferCapacity(
   highWaterMark: number,
   timeoutMs: number,
   shouldContinue: () => boolean,
+  nextPayloadBytes = CHUNK_SIZE,
 ): Promise<CapacityResult> {
   const channel = conn.dataChannel;
+  const flow = conn.bulkFlowControl;
   const isCurrent = (): boolean =>
     shouldContinue() &&
     conn.open &&
     conn.dataChannel === channel &&
+    conn.bulkFlowControl === flow &&
     (!channel?.readyState || channel.readyState === 'open');
   if (!isCurrent()) return Promise.resolve('stopped');
-  if (!channel || channel.bufferedAmount <= highWaterMark) return Promise.resolve('ready');
+  if (hasTransferCapacity(conn, highWaterMark, nextPayloadBytes)) return Promise.resolve('ready');
 
   return new Promise((resolve) => {
     const startedAt = Date.now();
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let releaseThreshold: (() => void) | null = null;
+    let releaseCredit: (() => void) | null = null;
     const finish = (result: CapacityResult): void => {
       if (settled) return;
       settled = true;
       if (timer !== null) clearTimeout(timer);
-      channel.removeEventListener?.('bufferedamountlow', check);
-      channel.removeEventListener?.('close', stop);
-      channel.removeEventListener?.('error', stop);
+      channel?.removeEventListener?.('bufferedamountlow', check);
+      channel?.removeEventListener?.('close', stop);
+      channel?.removeEventListener?.('error', stop);
       releaseThreshold?.();
+      releaseCredit?.();
       resolve(result);
     };
     const stop = (): void => finish('stopped');
     const check = (): void => {
       if (!isCurrent()) finish('stopped');
-      else if (channel.bufferedAmount <= highWaterMark) finish('ready');
+      else if (hasTransferCapacity(conn, highWaterMark, nextPayloadBytes)) finish('ready');
       else if (Date.now() - startedAt >= timeoutMs) finish('timeout');
     };
     const poll = (): void => {
@@ -107,6 +127,7 @@ export function waitForTransferCapacity(
     };
 
     if (
+      channel &&
       typeof channel.addEventListener === 'function' &&
       typeof channel.removeEventListener === 'function'
     ) {
@@ -125,6 +146,9 @@ export function waitForTransferCapacity(
         releaseThreshold = null;
       }
     }
+    releaseCredit = flow?.subscribe(check) ?? null;
+    // A provider may synchronously signal while subscribing.
+    if (settled) releaseCredit?.();
     // Drain/closure can happen between the initial check and registration.
     poll();
   });

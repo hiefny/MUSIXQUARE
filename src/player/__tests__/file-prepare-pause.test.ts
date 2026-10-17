@@ -56,6 +56,16 @@ function connection(id: string) {
   });
   const bulk = new Channel('musixquare-data');
   const control = new Channel('musixquare-control');
+  // Capture/replay fixtures exercise application ordering with a peer that
+  // does not answer negotiation. Assert the private hello separately, then
+  // keep application frame indexes independent of transport housekeeping.
+  transport.on('open', () => {
+    expect(JSON.parse(control.sent.shift() as string)).toMatchObject({
+      type: 'mxqr-bulk-flow',
+      version: 1,
+      kind: 'hello',
+    });
+  });
   transport.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
   transport.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
   return { transport, conn: transport as unknown as DataConnection, bulk, control };
@@ -84,8 +94,9 @@ afterEach(async () => {
 });
 
 async function setupWire(senderMode: Sender, legacyControlEnd: boolean) {
-  // Four queued 64 KiB chunks fit the sender's bounded 256 KiB bulk tail.
-  // A healthy slow receiver can need longer than 10 s to receive that tail.
+  // Capture four 64 KiB chunks before replaying a slow legacy receiver.
+  // Its queued native/network tail can take longer than 10 s to arrive;
+  // this is not a claim that negotiated credit permits a 256 KiB window.
   const file = new File([new Uint8Array(4 * CHUNK_SIZE).fill(7)], 'next.mp3', {
     type: 'audio/mpeg',
   });
@@ -116,6 +127,8 @@ async function setupWire(senderMode: Sender, legacyControlEnd: boolean) {
   }
   const sender = connection('guest');
   await vi.advanceTimersByTimeAsync(0);
+  // The receiver is created only after capture; let the real old-peer grace expire.
+  await vi.advanceTimersByTimeAsync(1000);
   expect(sender.conn.open).toBe(true);
   const peer: ConnectedPeer = {
     id: 'guest',
@@ -393,6 +406,8 @@ async function setupDirectWire(bootstrapPaused = false) {
   setState('transfer.currentSessionId', SID);
   const sender = connection('guest');
   await pump();
+  // Capture precedes receiver creation; wait for the real old-peer grace.
+  await vi.advanceTimersByTimeAsync(1000);
   const cp = {
     id: 'guest',
     conn: sender.conn,

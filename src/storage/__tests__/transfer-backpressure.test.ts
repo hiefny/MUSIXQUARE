@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { waitForTransferCapacity } from '../transfer-backpressure.ts';
+import { hasTransferCapacity, waitForTransferCapacity } from '../transfer-backpressure.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 function fixture(bufferedAmount = 2048) {
@@ -188,6 +188,111 @@ describe('direct transfer capacity waits', () => {
     channel.bufferedAmount = 0;
     await vi.advanceTimersByTimeAsync(50);
     await expect(pending).resolves.toBe('ready');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('receiver credit and native capacity compose without a shared backlog', () => {
+  function credited(bufferedAmount = 0) {
+    const base = fixture(bufferedAmount);
+    const listeners = new Set<() => void>();
+    let remaining = 0;
+    const flow = {
+      hasCapacity: (bytes: number) => bytes <= remaining,
+      subscribe: (listener: () => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+    Object.defineProperty(base.conn, 'bulkFlowControl', { value: flow, configurable: true });
+    return {
+      ...base,
+      flow,
+      listeners,
+      grant(bytes: number) {
+        remaining = bytes;
+        for (const listener of listeners) listener();
+      },
+    };
+  }
+
+  it('waits with an empty native queue and wakes from receipt before the polling tick', async () => {
+    const target = credited();
+    const pending = waitForTransferCapacity(target.conn, 1024, 5000, () => true, 73);
+    expect(hasTransferCapacity(target.conn, 1024, 73)).toBe(false);
+    expect(target.listeners.size).toBe(1);
+    target.grant(72);
+    expect(target.listeners.size).toBe(1);
+    target.grant(73);
+    await expect(pending).resolves.toBe('ready');
+    expect(target.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('requires both native drain and receiver credit, in either arrival order', async () => {
+    for (const creditFirst of [true, false]) {
+      const target = credited(2048);
+      const pending = waitForTransferCapacity(target.conn, 1024, 5000, () => true, 73);
+      const drain = () => {
+        target.channel.bufferedAmount = 0;
+        target.channel.dispatchEvent(new Event('bufferedamountlow'));
+      };
+      if (creditFirst) target.grant(73);
+      else drain();
+      expect(target.listeners.size).toBe(1);
+      if (creditFirst) drain();
+      else target.grant(73);
+      await expect(pending).resolves.toBe('ready');
+      expect(target.listeners.size).toBe(0);
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('times out missing receipts without silently reverting to the native queue', async () => {
+    const target = credited();
+    const pending = waitForTransferCapacity(target.conn, 1024, 150, () => true, 73);
+    await vi.advanceTimersByTimeAsync(150);
+    await expect(pending).resolves.toBe('timeout');
+    expect(target.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('stops on cancellation and releases the receipt subscription even without new receipts', async () => {
+    const target = credited();
+    let current = true;
+    const pending = waitForTransferCapacity(target.conn, 1024, 5000, () => current, 73);
+    current = false;
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(pending).resolves.toBe('stopped');
+    expect(target.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not inherit a replaced credit authority on the same connection facade', async () => {
+    const target = credited();
+    const pending = waitForTransferCapacity(target.conn, 1024, 5000, () => true, 73);
+    Object.defineProperty(target.conn, 'bulkFlowControl', { value: credited().flow });
+    target.grant(73);
+    await expect(pending).resolves.toBe('stopped');
+    expect(target.listeners.size).toBe(0);
+  });
+
+  it('keeps receivers and differently sized final-chunk waiters independent', async () => {
+    const target = credited();
+    const other = credited();
+    const small = waitForTransferCapacity(target.conn, 1024, 5000, () => true, 7);
+    const large = waitForTransferCapacity(target.conn, 1024, 5000, () => true, 73);
+    const independent = waitForTransferCapacity(other.conn, 1024, 5000, () => true, 7);
+    target.grant(7);
+    await expect(small).resolves.toBe('ready');
+    expect(target.listeners.size).toBe(1);
+    expect(other.listeners.size).toBe(1);
+    target.grant(73);
+    other.grant(7);
+    await expect(large).resolves.toBe('ready');
+    await expect(independent).resolves.toBe('ready');
     expect(vi.getTimerCount()).toBe(0);
   });
 });

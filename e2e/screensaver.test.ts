@@ -10,8 +10,10 @@ import { injectPeerServer } from './helpers/peer-server.ts';
 import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import {
   installCaptionInkProbe,
+  installInfoGeometryProbe,
   readCaptionInk,
   readForegroundInkBounds,
+  readInfoGlyphBounds,
   type CaptionInkEvidence,
 } from './helpers/screensaver-caption-probe.ts';
 import {
@@ -702,6 +704,7 @@ for (const display of [
         route.fulfill({ json: { current: { us_aqi: 42 }, current_units: { us_aqi: 'USAQI' } } }),
       );
       await installCaptionInkProbe(page);
+      await installInfoGeometryProbe(page);
       await page.clock.install({ time: new Date('2026-10-16T12:00:00Z') });
       const child = await openScreensaver(page);
       await expect(child.locator('#opticalClockCanvas')).toHaveAttribute(
@@ -711,17 +714,27 @@ for (const display of [
       const evidence: (CaptionInkEvidence & { label: string })[] = [];
       const centered: {
         label: string;
-        bounds: Awaited<ReturnType<typeof readForegroundInkBounds>>;
+        bounds: Awaited<ReturnType<typeof readInfoGlyphBounds>>;
+        highAlphaBounds: Awaited<ReturnType<typeof readForegroundInkBounds>>;
       }[] = [];
       const verifyCombinedCenter = async (label: string) => {
-        const bounds = await readForegroundInkBounds(child);
+        const bounds = await readInfoGlyphBounds(child);
+        const highAlphaBounds = await readForegroundInkBounds(child);
+        expect(bounds.scene).toBe(label.split('-')[0]);
+        const roles = bounds.glyphs.map((glyph) => glyph.role);
+        expect(roles).toContain(label === 'moon' ? 'moon' : 'number');
+        expect(roles).toContain('tail');
+        if (label.startsWith('weather'))
+          expect(bounds.glyphs.some((glyph) => glyph.role === 'unit' && glyph.char === '°')).toBe(
+            true,
+          );
         expect(
           Math.abs(bounds.centerOffset),
-          `${label}: main and caption combined center`,
-        ).toBeLessThan(3);
+          `${label}: main and caption combined pre-effect ink center`,
+        ).toBeLessThan(1);
         expect(bounds.left).toBeGreaterThanOrEqual(0);
         expect(bounds.right).toBeLessThanOrEqual(bounds.width);
-        centered.push({ label, bounds });
+        centered.push({ label, bounds, highAlphaBounds });
       };
       const verifyCaption = async (text: string, label: string) => {
         await expect.poll(async () => (await readCaptionInk(child)).text).toBe(text);

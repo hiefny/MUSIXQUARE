@@ -20,9 +20,80 @@ export interface CaptionInkEvidence {
   samples: CaptionInkSample[];
 }
 
+interface InfoGlyphGeometry {
+  scene: string;
+  width: number;
+  height: number;
+  glyphs: {
+    char: string;
+    role: string;
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  }[];
+}
+
 type CaptionProbeWindow = Window & {
   __mxqrCaptionInkProbe(): CaptionInkEvidence;
+  __mxqrInfoGeometryProbe(): InfoGlyphGeometry | null;
 };
+
+export async function installInfoGeometryProbe(page: Page): Promise<void> {
+  // Append read-only instrumentation to the served build, never production
+  // source. The auxiliary build intentionally preserves names and its IIFE.
+  await page.route(/\/assets\/screensaver-runtime-[a-f0-9]+\.js(?:\?.*)?$/u, async (route) => {
+    const response = await route.fetch();
+    const source = await response.text();
+    const ending = /\}\)\(\);\s*$/u;
+    if (!/\b(?:var|let) currentInfoScene = null;/u.test(source) || !ending.test(source))
+      throw new Error('Screensaver build no longer supports test-only geometry instrumentation');
+    const probe = `
+      Object.defineProperty(window, '__mxqrInfoGeometryProbe', { value: () => {
+        if (!currentInfoScene) return null;
+        const { name, layout, glyphs } = currentInfoScene;
+        return {
+          scene: name,
+          width: layout.w,
+          height: layout.h,
+          glyphs: glyphs.map(({ char, role, x, y, metrics }) => ({
+            char, role,
+            left: x - metrics.actualBoundingBoxLeft,
+            right: x + metrics.actualBoundingBoxRight,
+            top: y - metrics.actualBoundingBoxAscent,
+            bottom: y + metrics.actualBoundingBoxDescent,
+          })),
+        };
+      }});
+    `;
+    await route.fulfill({ response, body: source.replace(ending, `${probe}\n})();`) });
+  });
+}
+
+export async function readInfoGlyphBounds(child: FrameLocator) {
+  return child.locator('body').evaluate(() => {
+    const geometry = (window as unknown as CaptionProbeWindow).__mxqrInfoGeometryProbe();
+    if (!geometry?.glyphs.length) throw new Error('Missing screensaver glyph geometry');
+    // Union the positioned glyphs independently of layout.bounds. Moon's
+    // synthetic glyph describes the full disc, irrespective of lunar phase.
+    for (const glyph of geometry.glyphs) {
+      if (![glyph.left, glyph.right, glyph.top, glyph.bottom].every(Number.isFinite))
+        throw new Error(`Invalid screensaver glyph geometry: ${glyph.role}/${glyph.char}`);
+    }
+    const left = Math.min(...geometry.glyphs.map((glyph) => glyph.left));
+    const right = Math.max(...geometry.glyphs.map((glyph) => glyph.right));
+    const top = Math.min(...geometry.glyphs.map((glyph) => glyph.top));
+    const bottom = Math.max(...geometry.glyphs.map((glyph) => glyph.bottom));
+    return {
+      ...geometry,
+      left,
+      right,
+      top,
+      bottom,
+      centerOffset: (left + right) / 2 - geometry.width / 2,
+    };
+  });
+}
 
 export async function installCaptionInkProbe(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -222,7 +293,8 @@ export async function readForegroundInkBounds(child: FrameLocator, canvasId = 'w
       const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
       for (let y = 0; y < canvas.height; y++) {
         for (let x = 0; x < canvas.width; x++) {
-          // The faint halo does not contribute to the content's visual bounds.
+          // Diagnostic high-alpha bounds: directional blur can remove unequal
+          // amounts from opposite edges, so these are not a centering invariant.
           if (pixels[(y * canvas.width + x) * 4 + 3]! < 160) continue;
           left = Math.min(left, rect.left + (x * rect.width) / canvas.width);
           right = Math.max(right, rect.left + ((x + 1) * rect.width) / canvas.width);

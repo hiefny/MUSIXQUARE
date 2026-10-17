@@ -98,6 +98,29 @@ The pinned CI environment remains authoritative for a production candidate.
   `2.9e-14px`. Instrumented and original saved-build raster bounds matched within
   `0.01px`, while preserving the `+6.9404px` thresholded raster result. No product
   code was changed in response to these diagnostic fixture observations.
+- PR review [comment 4300881590](https://github.com/hiefny/MUSIXQUARE/pull/379#discussion_r4300881590)
+  on `256557d5` proposed a runtime recentering fix for that WebKit raster offset.
+  Independent adjudication did not confirm a product defect: the pre-effect
+  `actualBoundingBox` ink union, including the degree symbol, spans
+  `281.6888–998.3112px` and centers at exactly `640px`. Alpha≥160 omits
+  approximately `17.81px` on the left and `3.92px` on the right because of the
+  existing directional effect. Moving the runtime to center that thresholded
+  subset would offset the requested combined content. The maintained E2E test's
+  alpha-threshold centering assertion was therefore corrected to measure
+  the pre-effect glyph union, without a wider tolerance or a runtime shift.
+  Both corrected focused caption tests passed in 15.9 seconds at 390px/DPR2 and
+  1280px/DPR1.25. E2E typecheck, targeted ESLint, Prettier, and diff checks passed;
+  independent reviews of the test correction found no remaining issue. The
+  original failures and the review finding remain in the evidence.
+- The corrected tests loaded the exact built runtime with SHA-256
+  `b77aac1a6020cd909e94c4854accab975ee727d99ff44f29ea3245f4c25f2227`,
+  matching the local production `dist`; instrumentation was added only to the
+  test-served response. The first scratch fixture was incomplete and returned
+  HTTP 404, causing setup to time out before test assertions. The complete
+  scratch E2E build then passed in 2.11 seconds, followed by the two passing
+  caption cases above. The initial and corrected logs are retained as
+  `local/centering-probe-e2e.log` and
+  `local/centering-probe-focused-e2e.log`. Product code remains `1214dfb9`.
 
 Evidence is retained under the operator's `caption-glow-centering/` directory:
 `visual-report.json`, `visual-report-webkit.json`, the two initial-attempt reports,
@@ -109,10 +132,11 @@ checks do not claim background-transition or performance coverage. Background
 assets are unchanged. Root review inspected Chromium weather and WebKit weather
 and FRI captures and found their visible text normal.
 
-PR [#379](https://github.com/hiefny/MUSIXQUARE/pull/379) and its checks are in
-progress. [CI 38994238332](https://github.com/hiefny/MUSIXQUARE/actions/runs/38994238332)
-on `256557d5` is not recorded as passed at this checkpoint; a successful
-exact-main CI candidate is still required. No production deployment success
+PR [#379](https://github.com/hiefny/MUSIXQUARE/pull/379)
+[CI 38994374726](https://github.com/hiefny/MUSIXQUARE/actions/runs/38994374726)
+on `fb3b119e` passed all 11 jobs. The final test-correction head still requires
+its own successful CI; the prior green run does not validate that later head.
+A successful exact-main CI candidate is also still required. No production deployment success
 is claimed here. Windows WebKit automation does not establish physical iPhone
 Safari behavior, and synthetic weather or room fixtures do not establish
 live-provider or audible multi-device behavior. The full serial E2E suite has

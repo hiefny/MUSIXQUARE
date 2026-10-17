@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Setup buttons swapped inside the screen transition — 2026-10-18](design/setup-actions-transition-2026-10-18.md) —
+  The setup actions changed before the transition captured the outgoing screen, so the
+  centered phone middle block jumped 36px and the buttons skipped the crossfade when entering
+  방 만들기 or 방 참여하기 and coming back. They now swap inside the same transition. Records
+  the transition frames and tests. App 8.11.18/v720.
 - [Welcome carousel spacing and a fainter dark icon circle — 2026-10-18](design/setup-carousel-spacing-2026-10-18.md) —
   The first screen's carousel shows 28px from the icon circle to the title, 20px to the
   description, and 36px to the dots on phones (owner decision); the two-column panel scales

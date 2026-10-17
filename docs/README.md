@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Native RTC control-queue root-cause investigation — 2026-10-18](design/preload-control-queue-root-cause-2026-10-18.md) —
+  Separates the app from transport behavior using shared/separate PeerConnections
+  and receiver-confirmed flow control. Records native file integrity, directional
+  timing, controlled slow-link limits, and the evidence needed before a protocol change.
 - [Preload capacity: slow links, multiple recipients, and lifecycle — 2026-10-18](design/preload-capacity-validation-2026-10-18.md) —
   Records 38 verified native RTC transfers, slow-link and eight-recipient comparisons,
   cancellation/channel-replacement/promotion pins, local release checks, and the remaining

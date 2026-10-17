@@ -42,8 +42,20 @@ export function preloadHostInviteQrEncoder(): void {
   });
 }
 
+// A reveal that joins an earlier load still gets its own attempt when that
+// load fails, as it did before the preload existed.
+async function loadQrEncoderForReveal(): ReturnType<typeof importQrEncoder> {
+  const joinedEarlierLoad = qrEncoderLoad !== null;
+  try {
+    return await loadQrEncoder();
+  } catch (error) {
+    if (!joinedEarlierLoad) throw error;
+    return loadQrEncoder();
+  }
+}
+
 async function encodeHostInviteQr(payload: string): Promise<string> {
-  const { default: QRCode } = await loadQrEncoder();
+  const { default: QRCode } = await loadQrEncoderForReveal();
   return QRCode.toString(payload, {
     type: 'svg',
     margin: 2,

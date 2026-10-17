@@ -190,4 +190,38 @@ describe('host setup invitation QR', () => {
       vi.doUnmock('qrcode');
     }
   });
+
+  it('retries the encoder when a pending preload fails under the reveal', async () => {
+    vi.resetModules();
+    let attempts = 0;
+    let failFirstLoad!: () => void;
+    const firstLoadSettles = new Promise<void>((resolve) => {
+      failFirstLoad = resolve;
+    });
+    vi.doMock('qrcode', async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        await firstLoadSettles;
+        throw new Error('chunk unavailable');
+      }
+      return { default: { toString: mocks.toString } };
+    });
+    try {
+      const invite = await import('../setup-host-invite.ts');
+      invite.resetHostInviteVisual();
+      mocks.toString.mockResolvedValueOnce('<svg><path d="M0 0h1v1z"/></svg>');
+
+      invite.preloadHostInviteQrEncoder();
+      await vi.waitFor(() => expect(attempts).toBe(1));
+      // The code arrives while the preload is still in flight.
+      const reveal = invite.revealHostInviteQr('123456', () => true);
+      failFirstLoad();
+
+      await expect(reveal).resolves.toBe(true);
+      expect(attempts).toBe(2);
+      expect(mocks.warn).not.toHaveBeenCalled();
+    } finally {
+      vi.doUnmock('qrcode');
+    }
+  });
 });

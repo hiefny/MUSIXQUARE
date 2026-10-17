@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phone portrait setup centered by its visible edges — 2026-10-18](design/setup-mobile-visible-centering-2026-10-18.md) —
+  Follows 8.11.15: the bottom paddings balance the empty space inside the header and the
+  middle block (the QR margin, the 84% scan button, text spacing), so the visible gaps above
+  and below match within 0.5px on four phones. Records the measurements and tests. App
+  8.11.16/v718.
 - [Phone portrait setup with a centered middle block — 2026-10-18](design/setup-mobile-centering-2026-10-18.md) —
   On phone portrait, the first screen's carousel, the invite QR with its code, and the QR
   scanner with the code field sit midway between the header and the actions, with equal

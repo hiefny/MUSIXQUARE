@@ -41,9 +41,10 @@ describe('Dead-export ratchet', () => {
       expect(summary).toContain('test-only: 20 ');
       // Typed namespace destructuring now resolves actual imports through
       // async wrappers and Promise callbacks; private decoder error branding
-      // no longer exposes a class used externally only by test fixtures.
-      expect(summary).toContain('baseline 20), self-only: 78 ');
-      expect(summary).toMatch(/self-only: 78 .*baseline 78\)$/u);
+      // no longer exposes a class used externally only by test fixtures. The
+      // update dialog helper now reads DialogResult from the dialog module.
+      expect(summary).toContain('baseline 20), self-only: 77 ');
+      expect(summary).toMatch(/self-only: 77 .*baseline 77\)$/u);
       expect(output).toContain('OK');
     },
     DEAD_EXPORT_TEST_TIMEOUT_MS,

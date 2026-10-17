@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-17 (배포 SHA `68fb3f9c`, Release `38995961690` attempt 1 성공) |
+| Last source review | 2026-10-17 (배포 SHA `019d5101`, Release `39004520681` attempt 1 성공) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -23,37 +23,26 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ## 1. 현재 운영 상태
 
-아래는 2026-10-17 11:45 KST 공개 자산 확인까지의 상태다. Drift Audit와 Full E2E는 이전 실행이며 이번 배포의 검증으로 취급하지 않는다. 다음 배포 전 실제 Git·CI·Cloudflare 상태와 다시 확인한다.
+아래는 2026-10-17 14:01 KST Drift Audit 완료까지의 상태다. Full E2E는 이전 실행이며 이번 배포의 검증으로 취급하지 않는다. 다음 배포 전 실제 Git·CI·Cloudflare 상태와 다시 확인한다.
 
 | 항목 | 값 |
 | --- | --- |
-| App 버전 / SW 캐시 | `8.11.10` / `v709` |
-| 마지막 프로덕션 변경 | 2026-10-17 11:44:26 KST deploy job 완료, Release [38995961690](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995961690) attempt 1 성공, target=app, Developer API D1=false. 설명에 초 숫자 수준의 약한 푸른 글로우를 추가하고 날씨·공기질·달의 큰 콘텐츠와 설명을 하나의 묶음으로 중앙 정렬했다(오너 결정 2026-10-17). 시계·달력의 기존 정렬, 숫자와 도 기호 간격, 큰 콘텐츠의 방향성 효과, 초 모핑, 배경 이미지, 그림자 없는 뒤로가기·하단 곡 정보·버튼은 유지한다. 오래된 로컬 Safari 진단은 원문·백업·stash를 보존하고 후속 수정 근거와 함께 문서에 합쳤다. 서버·프로토콜·스키마·권한·문구 변경 없음 |
-| 배포 main SHA | `68fb3f9cda90d566d99e60535f944ee1eb8e010b` (PR [#379](https://github.com/hiefny/MUSIXQUARE/pull/379)). Exact-main push [CI 38995509028](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995509028) attempt 1의 11 jobs success 후보 [artifact 12086918277](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995509028/artifacts/12086918277)를 사용했다. 실제 후보 도구는 Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0이다. 로컬·PR CI와 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
-| Worker | App **version** `af52bdca-f2ed-4b46-9c36-b2114f414d6c` / **deployment** `c6cdaf66-b028-42bc-b278-40386c25997f`. 11:44:22.663 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker 기록 완료. 11:43:54.063 KST 부분 릴리스 호환성 recheck compatible. 미선택 5 Worker는 배포하지 않아 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance를 유지한다. **version ID / deployment ID**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 운영 smoke 4종 pass(App generation, 익명 App 계정 경계, 기존 PRO 공개 경계, Standard HTTPS signaling). 범위 밖 Worker smoke skip. 배포 원본 [artifact 12087191609](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995961690/artifacts/12087191609), coherent marker [12087291334](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995961690/artifacts/12087291334) |
-| 공개 자산 확인 | 2026-10-17 11:45:01–05 KST 공개 19 GET pass. `/`, `/service-worker.js`(v709), `/bootstrap.js?cache=v709`, `/screensaver.html`, `/assets/screensaver-runtime-b77aac1a.js`(231,119바이트), 승인된 시계 이미지 7개와 이전 해시 이미지 7개 모두 HTTP 200이며 exact-main 후보의 바이트 수·SHA-256과 일치했다. 승인된 시계 7개는 원본 처리 결과와도 일치한다. 런타임 SHA-256 `b77aac1a6020cd909e94c4854accab975ee727d99ff44f29ea3245f4c25f2227`은 교정된 로컬 캡션 검사에 사용한 원본과 같다. [증거](design/screensaver-caption-glow-centering-2026-10-17.md#release-and-recovery) |
-| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 11:43:15.624 KST captured checkpoint `production-recovery-checkpoint-68fb3f9cda90d566d99e60535f944ee1eb8e010b-38995961690-1`([artifact 12087445286](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995961690/artifacts/12087445286))는 직전 App `5cbfaadf709c25bd66f9bf45e23e532e0955ca09`(8.11.9/v708), version `c9afffa3-34b8-4d7e-aee7-66b96da95622` / deployment `537f7c48-0aa0-4321-b50f-8bab3a142e40`를 보존한다. 이 버전으로 복구하면 설명의 새 글로우가 없어지고 날씨·공기질·달의 이전 광학 보정 위치로 돌아간다. 저장 데이터·wire 계약 변경은 없고 복구 시 소유권/floor 재검증이 필요하다. Checkpoint는 사용자 데이터 백업이 아니다 |
-| 활성 복구 floor | 11:43:17.681 KST 캡처에서 ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor이며 generation·entitlement·Developer API authority aware다. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 PRO/App marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs success: unit 575 files / 12,897 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 45 pass, coverage·타입·린트·정적·빌드·보안 gate 통과. 최종 PR head `3d175246`의 [CI 38995057681](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995057681) 11 jobs 성공. 자동 리뷰 P2 1건은 효과를 적용한 픽셀의 alpha≥160 경계를 중앙 정렬 기준으로 삼은 관찰이었다. 독립 검토에서 효과 전 글자 경계 합집합은 정확히 중앙임을 확인하고 제품 이동 없이 테스트 기준을 고쳤다. 로컬 Windows 제품 `1214dfb9`, 검사 `7bdbcb66`·교정 `3d175246`: unit 575 files / 12,898 pass / 0 fail / 0 skip, 전체 타입·린트·최종 포맷·committed build:checked(97 app-shell assets, v709)·Worker/계약 가드 통과, Chromium 통합 16 pass 및 교정 후 해당 2건 pass. 실제 폰트를 쓴 Chromium/WebKit 4개 엔진·화면 조합/20 captures, 캡션 16 samples 내부 획 누락·클리핑·halo 경계 픽셀 0. 초기 포맷·외부 raster 기준·불완전 scratch fixture의 404/setup timeout 이력 보존. 실제 iPhone·live 날씨·가청 다기기·전체 serial E2E·성능은 검증 밖이다. [범위·한계](design/screensaver-caption-glow-centering-2026-10-17.md#verification) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 후 새 실행은 하지 않았다. 마지막 확인 성공은 이전 배포 `5cbfaadf`의 workflow_dispatch [38978419041](https://github.com/hiefny/MUSIXQUARE/actions/runs/38978419041) attempt 1(2026-10-17 07:54:07.378 KST, 31 pass / 0 fail / 5 manual-only)이며 이번 SHA의 검증이 아니다. 수동 항목은 §3에 유지한다 |
-| Full E2E | 매주 월 18:17 UTC. 이번 화면 보호기 변경의 전체 serial suite는 재실행하지 않았다. 마지막 확인한 `main` 실행은 [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)(schedule, `4854e392`) failure다. 별도 성공 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201)은 `agent/component-cascade-refactor`의 `749f0a6a`에서 workflow_dispatch로 실행됐다(Chromium 640 pass, WebKit UI 79 pass/기존 플랫폼 3 skip, SW 1, 운영 R2 1 pass). 이를 main의 최신 성공이나 이번 배포의 전체 통과로 표현하지 않는다 |
+| App 버전 / SW 캐시 | `8.11.11` / `v711` |
+| 마지막 프로덕션 변경 | 2026-10-17 14:00:09 KST deploy job 완료, Release [39004520681](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004520681) attempt 1 성공, target=app, Developer API D1=false. 대기 중인 업데이트를 방·데모를 포함한 모든 화면에서 같은 대화상자("나중에"/"적용하기")로 묻는다(오너 결정 2026-10-17). 2026-10-11 방 안 채팅·토스트 안내와 8.11.6의 다시 열 때 자동 적용을 대체한다. "나중에"(또는 뒤로가기)는 그 페이지에서만 숨기고 다음에 열면 다시 묻는다. 문구는 방 밖 "적용하면 페이지를 새로고침해요", 일반방 방장 "적용하려면 방을 다시 열어야 해요", 그 밖의 방 참여자 "적용하려면 방에 다시 입장해야 해요"이며 대화상자가 열린 동안 입장 상태를 따라간다. 참여자가 적용하면 그 방의 시작 화면(`/CODE`)으로 돌아간다. 다른 탭이 적용하면 방·데모 탭은 새로고침 대신 같은 대화상자를 한 번 띄운다. 42개 언어 4키 추가·2키 삭제. 서버·프로토콜·스키마·권한 변경 없음 |
+| 배포 main SHA | `019d510118dbe04df40bc78d6fd4d183ce18bc56` (PR [#381](https://github.com/hiefny/MUSIXQUARE/pull/381)). Exact-main push [CI 39004078601](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004078601) attempt 1의 11 jobs success 후보 [artifact 12090605318](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004078601/artifacts/12090605318)를 사용했다. 실제 후보 도구는 Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0이다. 로컬·PR CI와 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
+| Worker | App **version** `fc121774-ec25-43d0-a1aa-6a71f4cd327e` / **deployment** `15842e2c-10e2-4e1b-8015-3abf93b6520f`. 14:00:05.578 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker 기록 완료. 13:59:32.324 KST 부분 릴리스 호환성 recheck compatible. 미선택 5 Worker는 배포하지 않아 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance를 유지한다. **version ID / deployment ID**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 운영 smoke 4종 pass(App generation, 익명 App 계정 경계, 기존 PRO 공개 경계, Standard HTTPS signaling). 범위 밖 Worker smoke skip. 배포 원본 [artifact 12090706150](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004520681/artifacts/12090706150), coherent marker [12090820567](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004520681/artifacts/12090820567) |
+| 공개 자산 확인 | 2026-10-17 14:00:30–33 KST 공개 5 GET pass. `/`(140,676바이트), `/service-worker.js`(39,149바이트, v711), `/bootstrap.js?cache=v711`(10,196바이트), 업데이트 대화상자 코드가 든 진입 `/assets/main-DGibSclZ.js`(433,996바이트), 한국어 문구가 든 `/assets/toast-B4jcGPlF.js`(99,562바이트) 모두 HTTP 200이며 exact-main 후보와 바이트 수·SHA-256이 일치했다. [증거](design/update-dialog-everywhere-2026-10-17.md#release-and-recovery) |
+| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 13:59:02.223 KST captured checkpoint `production-recovery-checkpoint-019d510118dbe04df40bc78d6fd4d183ce18bc56-39004520681-1`([artifact 12090536800](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004520681/artifacts/12090536800))는 직전 App `68fb3f9cda90d566d99e60535f944ee1eb8e010b`(8.11.10/v709), version `af52bdca-f2ed-4b46-9c36-b2114f414d6c` / deployment `c6cdaf66-b028-42bc-b278-40386c25997f`를 보존한다. 이 버전으로 복구하면 방·데모의 채팅·토스트 업데이트 안내, 방 밖에서 다시 열 때 자동 적용, 24시간 "나중에"가 돌아온다. 저장 데이터·wire 계약 변경은 없고 복구 시 소유권/floor 재검증이 필요하다. Checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 13:59:05.493 KST 캡처에서 ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor이며 generation·entitlement·Developer API authority aware다. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 PRO/App marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | Exact-main CI 11 jobs success: unit 575 files / 12,896 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 45 pass, coverage·타입·린트·정적·빌드·보안 gate 통과. 최종 PR head `19df5867`의 [CI 39003423882](https://github.com/hiefny/MUSIXQUARE/actions/runs/39003423882) 11 jobs 성공. Codex P2 2건(열린 대화상자 문구가 입장 완료를 따라가지 않음, 식별 안 되는 작업자의 "나중에" 키 불일치)은 `d1a3995d`에서 고치고 되돌리면 실패하는 회귀 테스트를 더했다. 로컬 Windows `d1a3995d`·`9803440f`: 타입·린트·포맷·build:checked(v711, 97 app-shell assets)·Worker/계약 가드 통과, unit 574/575 files(workerd "bad port" 환경 실패 1건, 단독 16/16). 첫 revision `f05b1949`의 로컬 Chromium 확인: 방 밖·방장 코드 화면·초대 링크 시작 전 문구, "나중에" 뒤 다시 열면 1.4초 뒤 다시 표시, 적용 0.41초, 방장 적용 시 게스트 탭은 새로고침 없이 게스트 문구, 게스트 적용 시 `/903307` 시작 화면과 방장 퇴장 안내. 실제 기기·PRO 방·전체 serial E2E는 검증 밖이다. [범위·한계](design/update-dialog-everywhere-2026-10-17.md#verification) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 workflow_dispatch [39004688709](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004688709) attempt 1(2026-10-17 14:01:05.765 KST)이 `019d5101`에서 automated-checks-passed, 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에 유지한다 |
+| Full E2E | 매주 월 18:17 UTC. 이번 업데이트 대화상자 변경의 전체 serial suite는 재실행하지 않았다. 마지막 확인한 `main` 실행은 [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)(schedule, `4854e392`) failure다. 별도 성공 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201)은 `agent/component-cascade-refactor`의 `749f0a6a`에서 workflow_dispatch로 실행됐다(Chromium 640 pass, WebKit UI 79 pass/기존 플랫폼 3 skip, SW 1, 운영 R2 1 pass). 이를 main의 최신 성공이나 이번 배포의 전체 통과로 표현하지 않는다 |
 | 의존성 | 신규 npm 의존성·API 프로토콜·스키마·비밀·바인딩·권한·CSP 변경 없음. 기존 App D1 baseline apply/verify 7단계 멱등 실행·검증 성공, Developer API D1 skip. npm 의존성은 직전 배포와 같으며 취약점·서명 검사는 exact-main CI 통과. sharp 0.35.5 override와 TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [기존 의존성 근거](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
-
-### 업데이트 대화상자 어디서나
-
-- [ ] 대기 중인 업데이트를 방·데모를 포함한 모든 화면에서 같은 대화상자("나중에"/"적용하기")로
-      묻는 App 8.11.11/v711 후보를 배포한다(오너 결정 2026-10-17). 2026-10-11 방 안 채팅·토스트
-      안내와 8.11.6의 다시 열 때 자동 적용을 대체한다. "나중에"는 그 페이지에서만 숨기고 다음에
-      열면 다시 묻는다. 방 참여자가 적용하면 그 방의 시작 화면(`/CODE`)으로 돌아간다. App만
-      배포하고 새 schema·secret·binding·CSP·권한·npm 의존성은 없다. 문구는 42개 언어에서 4키
-      추가·2키 삭제다. reviewed PR, exact-main CI, 정식 App release와 공개 자산 확인 뒤 닫는다.
-      실제 기기 확인은 아래 실기기 항목에서 본다.
-      [변경·범위·검증·한계](design/update-dialog-everywhere-2026-10-17.md).
 
 ### YouTube 목록·관리자 iframe 조작
 
@@ -66,6 +55,18 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
 ### 최근 해결 근거
+
+App 8.11.11/v711의 업데이트 대화상자 어디서나(오너 결정 2026-10-17)는 PR
+[#381](https://github.com/hiefny/MUSIXQUARE/pull/381), exact-main `019d5101`의
+[CI 39004078601](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004078601),
+[Release 39004520681](https://github.com/hiefny/MUSIXQUARE/actions/runs/39004520681)
+attempt 1의 운영 smoke 4종·최종 소유권·미선택 5 Worker 호환성·coherent marker, 공개 5 GET의
+후보 해시 일치와 Drift 31 pass / 0 fail / 5 manual-only로 배포 준비 항목을 닫았다.
+Codex P2 2건은 `d1a3995d`에서 고치고 회귀 테스트로 고정했다. 2026-10-11 방 안 안내와
+8.11.6 재접속 적용의 실기기 항목은 그 동작이 사라져 같은 PR에서 8.11.11 항목으로
+바꿨다. 로컬 데스크톱 Chromium 확인과 단위 테스트만 있으므로 실제 기기 확인은 아래
+실기기 항목에 남긴다.
+[변경·검증·배포·복구](design/update-dialog-everywhere-2026-10-17.md#release-and-recovery).
 
 App 8.11.10/v709의 설명 글로우·묶음 중앙 정렬(오너 결정 2026-10-17)은 PR
 [#379](https://github.com/hiefny/MUSIXQUARE/pull/379), exact-main `68fb3f9c`의

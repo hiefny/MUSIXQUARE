@@ -12,9 +12,11 @@ checkout with remote `main` without losing its older documentation work.
 - Implementation baseline: `82c3f11eef2d9b7bbcb6d6900fcbd2c403c13955`.
 - Production baseline: `5cbfaadf709c25bd66f9bf45e23e532e0955ca09`, App
   `8.11.9` / `v708`; this report does not replace its deployment evidence.
-- Prepared release identity: `8.11.10` / `v709`, target `app`, Developer API
-  D1 disabled. Product source `1214dfb9` and test checkpoint `7bdbcb66` are
-  identified below; the exact-main release candidate is still pending.
+- Released identity: `8.11.10` / `v709`, target `app`, Developer API
+  D1 disabled. Product source `1214dfb9`, initial test checkpoint `7bdbcb66`,
+  and corrected-test checkpoint `3d175246` are identified below. PR #379 merged
+  as `68fb3f9cda90d566d99e60535f944ee1eb8e010b`; its exact-main candidate passed
+  all 11 CI jobs and was deployed as recorded below.
 - The grouped caption layer receives a weak `rgb(140,205,255)` glow with the
   seconds effect's opacity and size-relative blur radius. The existing complete
   caption ink remains a separate sharp layer; the change does not restore the
@@ -50,6 +52,12 @@ superseded by those releases, rather than reopening an already shipped repair.
 Physical iPhone verification remains outside the historical evidence and stays
 in the current release record. The backup and stash remain available until the
 new integration and final local/remote synchronization have been verified.
+At this report's writing checkpoint, 11:46 KST after product deployment, the
+primary checkout had fast-forwarded to `68fb3f9c` and was clean and equal to
+`origin/main`. The operator will fast-forward and verify the final diff after
+this release-documentation PR merges, retaining that synchronization evidence
+outside the repository rather than creating a self-referential documentation
+commit. The preserved stash is retained.
 
 ## Verification
 
@@ -107,7 +115,7 @@ The pinned CI environment remains authoritative for a production candidate.
   existing directional effect. Moving the runtime to center that thresholded
   subset would offset the requested combined content. The maintained E2E test's
   alpha-threshold centering assertion was therefore corrected to measure
-  the pre-effect glyph union, without a wider tolerance or a runtime shift.
+  the pre-effect glyph union in `3d175246`, without a wider tolerance or a runtime shift.
   Both corrected focused caption tests passed in 15.9 seconds at 390px/DPR2 and
   1280px/DPR1.25. E2E typecheck, targeted ESLint, Prettier, and diff checks passed;
   independent reviews of the test correction found no remaining issue. The
@@ -132,25 +140,79 @@ checks do not claim background-transition or performance coverage. Background
 assets are unchanged. Root review inspected Chromium weather and WebKit weather
 and FRI captures and found their visible text normal.
 
-PR [#379](https://github.com/hiefny/MUSIXQUARE/pull/379)
+PR [#379](https://github.com/hiefny/MUSIXQUARE/pull/379)'s earlier
 [CI 38994374726](https://github.com/hiefny/MUSIXQUARE/actions/runs/38994374726)
-on `fb3b119e` passed all 11 jobs. The final test-correction head still requires
-its own successful CI; the prior green run does not validate that later head.
-A successful exact-main CI candidate is also still required. No production deployment success
-is claimed here. Windows WebKit automation does not establish physical iPhone
+on `fb3b119e` passed all 11 jobs. The final corrected-test head
+`3d17524612a39db4edfd73a4ae6ae64b500e86d5` then passed all 11 jobs in
+[CI 38995057681](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995057681)
+before merge. The automatic review raised the one P2 finding adjudicated above;
+it is not recorded as a review with zero findings. The PR merged as
+`68fb3f9cda90d566d99e60535f944ee1eb8e010b`, whose
+[exact-main CI 38995509028](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995509028)
+passed all 11 jobs on attempt 1: 575 unit files / 12,897 pass / 0 fail / one
+Linux skip for a Windows-only different-drive path rejection case, candidate
+browser 17 pass, and critical browser 45 pass. Coverage, type, lint, static,
+build, and security gates passed. The accepted manifest identifies Node
+24.20.0, npm 11.19.0, and Wrangler 4.148.0. Windows WebKit automation does not establish physical iPhone
 Safari behavior, and synthetic weather or room fixtures do not establish
 live-provider or audible multi-device behavior. The full serial E2E suite has
 not been run for this change.
 
 ## Release and recovery
 
-Not yet deployed. Merge review, PR checks, the successful exact-main-SHA CI
-candidate, Production Release, public artifact verification, and final local
-`main`/`origin/main` synchronization remain pending.
+Production Release [38995961690](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995961690)
+attempt 1 deployed exact main `68fb3f9cda90d566d99e60535f944ee1eb8e010b`,
+target `app`, with Developer API D1 disabled. The deploy job completed at
+2026-10-17 11:44:26 KST. It used the successful exact-main CI
+[candidate 12086918277](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995509028/artifacts/12086918277),
+whose manifest binds the SHA, CI run `38995509028` attempt 1, `main-ci`
+validation profile, and `8.11.10` / `v709` identity.
 
-The intended scope is App-only. Other Workers and the existing compatibility
-floor are unchanged. The release procedure must capture the actual prior App
-checkpoint and verify its ownership and compatibility before any recovery. A
-rollback to the production baseline restores the previous unlit captions and
-optical offsets on weather/AQI/moon; it does not restore user data. No rollback
-has been performed for this change.
+The new App version is `af52bdca-f2ed-4b46-9c36-b2114f414d6c`, deployment
+`c6cdaf66-b028-42bc-b278-40386c25997f`. Final release ownership was verified at
+11:44:22.663 KST, followed by the coherent production commit marker. The
+11:43:54.063 KST compatibility recheck confirmed the five unselected Workers
+still match their recorded deployments, all with `d9364cd9` provenance; none
+was redeployed. Deployment evidence is
+[artifact 12087191609](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995961690/artifacts/12087191609),
+and the coherent marker is
+[artifact 12087291334](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995961690/artifacts/12087291334).
+
+All four operating smoke steps passed: App generation, anonymous App account
+boundaries, the current PRO public boundary, and Standard HTTPS signaling.
+App generation converged over three consecutive reads to
+`/assets/main-YXqhdZl0.js` (435,676 bytes) and 29 verified assets. The existing
+seven App D1 baseline apply/verify steps passed idempotently; Developer API D1
+and out-of-scope Worker smoke steps were skipped. No new dependency, schema,
+secret, binding, permission, protocol, or compatibility floor was introduced.
+
+Read-only public verification at 11:45:01–05 KST passed 19/19 GET checks:
+index, service worker, `bootstrap.js?cache=v709`, screensaver HTML/runtime,
+the seven approved clock images, and seven retained legacy clock images.
+Every request returned HTTP 200 and matched the exact-main candidate's byte
+count and SHA-256; the approved clock set also matches its source processing
+output. The runtime is `/assets/screensaver-runtime-b77aac1a.js`, 231,119 bytes,
+SHA-256 `b77aac1a6020cd909e94c4854accab975ee727d99ff44f29ea3245f4c25f2227`,
+identical to the original built runtime used by the corrected local caption
+tests. HTML is 19,033 bytes and the service worker is 39,149 bytes with `v709`.
+Evidence is retained in `caption-glow-centering/live-assets.json`.
+
+The 11:43:15.624 KST recovery checkpoint
+[artifact 12087445286](https://github.com/hiefny/MUSIXQUARE/actions/runs/38995961690/artifacts/12087445286)
+preserves prior App `5cbfaadf709c25bd66f9bf45e23e532e0955ca09` (8.11.9/v708),
+version `c9afffa3-34b8-4d7e-aee7-66b96da95622`, deployment
+`537f7c48-0aa0-4321-b50f-8bab3a142e40`. At 11:43:17.681 KST, the captured
+floor was ready: release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`,
+generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation and
+entitlement enabled. The prior App is a verified release ancestor and is
+generation-, entitlement-, and Developer API authority-aware. Rollback was
+unnecessary and not run; the independent recovery job was skipped. Recovery
+would restore the previous unlit captions and weather/AQI/moon optical offsets,
+subject to fresh ownership and floor checks; this is not a user-data backup.
+
+No new Operations Drift Audit or full serial E2E run was performed after this
+deployment. The older Drift success `38978419041` belongs to `5cbfaadf` and
+is not evidence for this release; the existing full-suite and physical-device
+limits remain. Production and public verification are complete. The 11:46 KST
+local/remote checkpoint above precedes this document's merge; the final
+fast-forward and diff verification follow that merge and are recorded externally.

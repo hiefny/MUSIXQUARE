@@ -47,17 +47,6 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### 방 만들기 QR 배포 기록
-
-- [ ] App 8.11.13/v714는 `600f6046`의
-      [Release 39034289195](https://github.com/hiefny/MUSIXQUARE/actions/runs/39034289195)로
-      이미 배포됐으며, 이번 릴리스 직전 checkpoint도 이 App을 확인했다.
-      별도 기록 [PR #386](https://github.com/hiefny/MUSIXQUARE/pull/386)의 병합은
-      이 기록 작성 시점에 아직 남아 있다. 이는 제품 배포 대기가 아니라 이전 배포의
-      문서 병합 대기다. 다른 작업의 활성 브랜치를 이 변경에서 정리하지 않는다.
-      실제 기기 확인은 아래 실기기 항목에 유지한다.
-      [원인·변경·검증·한계](design/setup-qr-reveal-2026-10-17.md).
-
 ### YouTube 목록·관리자 iframe 조작
 
 - [ ] 실제 공급자·실기 확인: 원래 사용자 제보의 자연 반복/정지 경로는 캡처가
@@ -84,6 +73,17 @@ App 8.11.14/v716의 일반방 YouTube 지연 heartbeat 보정은 PR
 attempt 1 성공·운영 smoke 4종·공개 6 GET 후보 해시 일치·최종 소유권·Drift 31 pass로
 배포 준비 항목을 닫았다. 실제 Android 프리로드 사건의 인과관계는 위 항목에 남긴다.
 [수정·재현·배포 근거](design/youtube-heartbeat-delay-fix-2026-10-17.md).
+
+App 8.11.13/v714의 방 만들기 QR 깜빡임 수정(오너 요청 2026-10-17)은 PR
+[#385](https://github.com/hiefny/MUSIXQUARE/pull/385), exact-main `600f6046`의
+[CI 39033815131](https://github.com/hiefny/MUSIXQUARE/actions/runs/39033815131),
+[Release 39034289195](https://github.com/hiefny/MUSIXQUARE/actions/runs/39034289195)
+attempt 1의 운영 smoke 4종·최종 소유권·미선택 5 Worker 호환성·coherent marker, 공개 5 GET의
+후보 해시 일치와 Drift 31 pass / 0 fail / 5 manual-only로 배포 준비 항목을 닫았다.
+Codex P2 1건(앞선 QR 라이브러리 로드 실패 시 재시도 없음)은 `f8548a9a`에서 고치고 회귀
+테스트로 고정했다. 헤드리스 Chromium 프레임 확인과 단위·브라우저 테스트만 있으므로 실제 기기
+확인은 아래 실기기 항목에 남긴다.
+[변경·검증·배포·복구](design/setup-qr-reveal-2026-10-17.md#release-and-recovery).
 
 App 8.11.11/v711의 업데이트 대화상자 어디서나(오너 결정 2026-10-17)는 PR
 [#381](https://github.com/hiefny/MUSIXQUARE/pull/381), exact-main `019d5101`의

@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Welcome carousel spacing and a fainter dark icon circle — 2026-10-18](design/setup-carousel-spacing-2026-10-18.md) —
+  The first screen's carousel shows 28px from the icon circle to the title, 20px to the
+  description, and 36px to the dots on phones (owner decision); the two-column panel scales
+  the same ratio with its title size. Dark draws the icon circle on surface-1, as faint as in
+  light. Records the measurements and tests. App 8.11.17/v719.
 - [Phone portrait setup centered by its visible edges — 2026-10-18](design/setup-mobile-visible-centering-2026-10-18.md) —
   Follows 8.11.15: the bottom paddings balance the empty space inside the header and the
   middle block (the QR margin, the 84% scan button, text spacing), so the visible gaps above

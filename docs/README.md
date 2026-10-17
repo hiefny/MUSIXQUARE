@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phone portrait setup with a centered middle block — 2026-10-18](design/setup-mobile-centering-2026-10-18.md) —
+  On phone portrait, the first screen's carousel, the invite QR with its code, and the QR
+  scanner with the code field sit midway between the header and the actions, with equal
+  gaps. Records the layout measurements on five phones, tests, and limits. App 8.11.15/v717.
 - [Standard YouTube heartbeat correction — 2026-10-17](design/youtube-heartbeat-delay-fix-2026-10-17.md) —
   Uses one current host position for coarse seek, Android BUFFERING recovery,
   and small-drift observation. Preserves output/manual compensation and records

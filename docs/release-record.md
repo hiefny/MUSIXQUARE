@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-17 (배포 SHA `e47d0bb5`, Release `39039136092` attempt 1 성공, 배포 후 Drift 확인) |
+| Last source review | 2026-10-18 (배포 SHA `d51eb367`, Release `39054268521` attempt 1 성공) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -23,21 +23,19 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ## 1. 현재 운영 상태
 
-아래는 2026-10-17 23:06 KST 배포 후 Drift Audit까지 확인한 상태다. 실제 Android의
-프리로드와 지연 사이 인과관계는 §2에 남긴다. 다음 배포 전 Git·CI·Cloudflare 상태를
-다시 확인하며, 후속 기록 PR은 배포된 코드 SHA나 후보를 대신하지 않는다.
+아래는 2026-10-18 02:36 KST Drift Audit 완료까지의 상태다. Full E2E는 이전 실행이며 이번 배포의 검증으로 취급하지 않는다. 다음 배포 전 실제 Git·CI·Cloudflare 상태와 다시 확인하며, 후속 기록 PR은 배포된 코드 SHA나 후보를 대신하지 않는다.
 
 | 항목 | 값 |
 | --- | --- |
-| App 버전 / SW 캐시 | `8.11.14` / `v716` (v715는 이번 PR의 미배포 중간 revision) |
-| 마지막 프로덕션 변경 | 2026-10-17 23:05:49 KST deploy job 완료, Release [39039136092](https://github.com/hiefny/MUSIXQUARE/actions/runs/39039136092) attempt 1 성공, target=app, Developer API D1=false. 일반방 YouTube의 큰 오차 보정·Android BUFFERING 복구가 지연된 heartbeat의 원래 위치 대신 현재 호스트 시각으로 투영한 위치를 사용한다. 이미 ENDED인 Android의 마지막 프레임이 끝 이후로 투영돼도 재생을 재시도하지 않는다. 수동 오프셋·출력 보정·다음 항목과 명시적 호스트 명령 유지. 실제 파일 프리로드 사건의 원인 전체를 확정한 것은 아니다 |
-| 배포 main SHA | `e47d0bb5216c9d66bbbc7e28a0cc1cf52bb72c1b` (PR [#387](https://github.com/hiefny/MUSIXQUARE/pull/387)). Exact-main push [CI 39038651880](https://github.com/hiefny/MUSIXQUARE/actions/runs/39038651880) attempt 1의 11 jobs success 후보 [artifact 12103321355](https://github.com/hiefny/MUSIXQUARE/actions/runs/39038651880/artifacts/12103321355)를 그대로 사용했다. 후보 도구 Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0. 배포 직전 current main과 일치 확인 |
-| Worker | App **version** `0d55bd02-5802-47e4-97fe-491914594f08` / **deployment** `4ffedfd7-51a4-456c-9c7f-4ff126f13cd5`. 23:05:44.474 KST 최종 소유권 verified, exact SHA/app coherent marker 기록. 23:05:16.528 KST 부분 릴리스 호환성 recheck compatible. 미선택 5 Worker는 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance 유지. **version / deployment**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 운영 smoke 4종 pass(App generation, 익명 App 계정 경계, 기존 PRO 공개 경계, Standard HTTPS signaling). 범위 밖 Worker smoke skip. [배포 원본 12103496878](https://github.com/hiefny/MUSIXQUARE/actions/runs/39039136092/artifacts/12103496878), [coherent marker 12103626183](https://github.com/hiefny/MUSIXQUARE/actions/runs/39039136092/artifacts/12103626183) |
-| 공개 자산 확인 | 23:06:01.715 KST 공개 6 GET 모두 HTTP 200, exact-main 후보와 바이트 수·SHA-256 일치: `/`, `/service-worker.js`(v716), `/bootstrap.js?cache=v716`, main·sync·sync-flight-recorder JS. [경로·해시 증거](design/youtube-heartbeat-delay-fix-2026-10-17.md#release-scope-and-recovery) |
-| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 23:04:36.807 KST [checkpoint 12102834762](https://github.com/hiefny/MUSIXQUARE/actions/runs/39039136092/artifacts/12102834762)는 직전 App `600f60467e16e8e73610a35052f52965cd54d4ce`(8.11.13/v714), version `cbc2d87f-ea98-42a5-b64b-a678d2de03c6` / deployment `fb477d6d-ef0d-4234-a44b-a553707e080c`를 보존한다. 복구하면 기존 지연 heartbeat 보정 결함이 돌아온다. 실제 복구 전 소유권과 floor를 다시 검증해야 한다. Checkpoint는 사용자 데이터 백업이 아니다 |
-| 활성 복구 floor | 23:04:38.755 KST captured ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor, generation·entitlement·Developer API authority aware. 기존 service-control·Soro·PRO 선택형 입장 암호와 `pro-room-optional-entry-password-v1` 계약 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs success: unit 580 files / 13,035 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 검사), candidate browser 17 + critical browser 55 pass, coverage·타입·린트·정적·빌드·보안 gate 통과. 최종 PR head `e2e5798a`의 [CI 39038187701](https://github.com/hiefny/MUSIXQUARE/actions/runs/39038187701)도 11 jobs success. Codex P2 1건은 재현 후 `995c10d7`에서 수정, 독립 검토와 핀 테스트 확인. 로컬 Windows `995c10d7`: unit 580 files / 13,036 pass / 0 fail / 0 skip, 관련 368(새 파일 55 포함), Chromium YouTube 6 pass, 타입·린트·포맷·checked build(v716, 97 app-shell assets) 통과. 최초 cache URL 누락·문서 guard 실패와 P2 재현 실패 이력은 보고서에 보존. 실제 Android·가청 싱크·전체 serial E2E는 이번 검사 밖이다. [범위·한계](design/youtube-heartbeat-delay-fix-2026-10-17.md#verification) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 workflow_dispatch [39039325203](https://github.com/hiefny/MUSIXQUARE/actions/runs/39039325203) attempt 1, `e47d0bb5`, report 23:06:42.160 KST: automated-checks-passed, 31 pass / 0 fail / 5 manual-only. [artifact 12103840196](https://github.com/hiefny/MUSIXQUARE/actions/runs/39039325203/artifacts/12103840196). 수동 항목은 §3에 유지 |
+| App 버전 / SW 캐시 | `8.11.15` / `v717` |
+| 마지막 프로덕션 변경 | 2026-10-18 02:35:14 KST deploy job 완료, Release [39054268521](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521) attempt 1 성공, target=app, Developer API D1=false. 휴대폰 세로 시작 화면 세 개(첫 화면, 방 만들기, 방 참여하기)에서 가운데 덩어리(캐러셀, 초대 QR과 코드, QR 스캐너와 코드 입력칸)를 머리글과 버튼 사이 정중앙에 둔다(오너 요청 2026-10-18). 머리글 위와 버튼 아래 여백, 태블릿·가로·데스크톱 배치는 그대로다. 문구·재생·동기화·서버 프로토콜 변경 없음 |
+| 배포 main SHA | `d51eb3671299ca9d60775a0bf1a4bb79819de0eb` (PR [#389](https://github.com/hiefny/MUSIXQUARE/pull/389)). Exact-main push [CI 39053792906](https://github.com/hiefny/MUSIXQUARE/actions/runs/39053792906) attempt 1의 11 jobs success 후보 [artifact 12108553063](https://github.com/hiefny/MUSIXQUARE/actions/runs/39053792906/artifacts/12108553063)를 사용했다. 실제 후보 도구는 Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0이다. 로컬·PR CI와 후속 기록 PR은 배포 SHA/후보를 대신하지 않는다 |
+| Worker | App **version** `df193d32-1ba8-4316-8a1e-02f5b4daae04` / **deployment** `2876a31b-8882-463a-a379-d3ee5db61dd9`. 02:35:11.227 KST 최종 배포 소유권 verified 뒤 exact SHA/app coherent marker 기록 완료. 02:34:45.477 KST 부분 릴리스 호환성 recheck compatible. 미선택 5 Worker는 배포하지 않아 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance를 유지한다. **version ID / deployment ID**: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. 운영 smoke 4종 pass(App generation, 익명 App 계정 경계, 기존 PRO 공개 경계, Standard HTTPS signaling). 범위 밖 Worker smoke skip. 배포 원본 [artifact 12109026879](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521/artifacts/12109026879), coherent marker [12108937169](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521/artifacts/12108937169) |
+| 공개 자산 확인 | 2026-10-18 02:35:56 KST 완료, 공개 5 GET pass. `/`(140,676바이트), `/service-worker.js`(39,149바이트, v717), `/bootstrap.js?cache=v717`(10,196바이트), `/assets/main-DTBX4PSg.js`(437,531바이트), `/assets/main-J7B0zffU.css`(324,291바이트, 이번 변경) 모두 HTTP 200이며 exact-main 후보와 바이트 수·SHA-256이 일치했다. [증거](design/setup-mobile-centering-2026-10-18.md#release-and-recovery) |
+| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 02:34:12.585 KST captured checkpoint `production-recovery-checkpoint-d51eb3671299ca9d60775a0bf1a4bb79819de0eb-39054268521-1`([artifact 12108464246](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521/artifacts/12108464246))는 직전 App `e47d0bb5216c9d66bbbc7e28a0cc1cf52bb72c1b`(8.11.14/v716), version `0d55bd02-5802-47e4-97fe-491914594f08` / deployment `4ffedfd7-51a4-456c-9c7f-4ff126f13cd5`를 보존한다. 이 버전으로 복구하면 휴대폰 세로 시작 화면의 가운데 덩어리가 다시 머리글 바로 아래에 붙는다. 저장 데이터·wire 계약 변경은 없고 복구 시 소유권/floor 재검증이 필요하다. Checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 02:34:14.400 KST 캡처에서 ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor이며 generation·entitlement·Developer API authority aware다. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 PRO/App marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | Exact-main CI 11 jobs success: unit 581 files / 13,037 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 55 pass, coverage·타입·린트·정적·빌드·보안 gate 통과. 최종 PR head `3d523c49`의 [CI 39053254917](https://github.com/hiefny/MUSIXQUARE/actions/runs/39053254917) 11 jobs 성공, GitHub Codex 자동 리뷰 지적 0건. 로컬 Windows runtime SHA `bc384b20`: unit 581 files / 13,038 pass / 0 fail / 0 skip, 타입·린트·포맷·build:checked(v717, 97 app-shell assets) 통과, Chromium e2e(connection·carousel) 15 pass. 헤드리스 Chromium 측정에서 휴대폰 네 크기의 세 화면 모두 위아래 간격이 같고(390×844 첫 화면 153.5px, 코드 화면 156.9px), 320×568·태블릿·가로·데스크톱은 변경 전과 같다. 실제 기기와 전체 serial E2E는 검증 밖이다. [범위·한계](design/setup-mobile-centering-2026-10-18.md#verification) |
+| Operations Drift Audit | active, 매일 03:37 UTC. 이번 배포 뒤 workflow_dispatch [39054472061](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054472061) attempt 1(2026-10-18 02:36:05 KST)이 `d51eb367`에서 automated-checks-passed, 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에 유지한다 |
 | Full E2E | 매주 월 18:17 UTC. 이번 전체 serial suite는 재실행하지 않았다. 확인한 마지막 main 실행 [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)(`4854e392`)은 failure. 별도 브랜치 성공 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201)(`749f0a6a`, Chromium 640·WebKit UI 79 pass/플랫폼 3 skip·SW 1·운영 R2 1)은 이번 변경이나 main 최신 성공을 뜻하지 않는다 |
 | 의존성 | 신규 npm 의존성·API 프로토콜·스키마·비밀·바인딩·권한·CSP 변경 없음. 기존 App D1 계약 7단계 apply/verify 성공, Developer API D1 skip. 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override, TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [기존 근거](design/dependency-update-2026-10-11.md) |
 
@@ -46,16 +44,6 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
-
-### 휴대폰 세로 시작 화면 가운데 정렬
-
-- [ ] 휴대폰 세로 시작 화면 세 개(첫 화면, 방 만들기, 방 참여하기)에서 가운데 덩어리를
-      머리글과 버튼 사이 정중앙에 두는 App 8.11.15/v717 후보를 배포한다(오너 요청
-      2026-10-18). 머리글 위와 버튼 아래 여백, 태블릿·가로·데스크톱 배치는 그대로다. App만
-      배포하고 새 schema·secret·binding·CSP·권한·npm 의존성·문구는 없다. 배포는 오너 확인 뒤
-      진행하고, reviewed PR, exact-main CI, 정식 App release와 공개 자산 확인 뒤 닫는다. 실제
-      기기 확인은 아래 실기기 항목에서 본다.
-      [변경·검증·한계](design/setup-mobile-centering-2026-10-18.md).
 
 ### YouTube 목록·관리자 iframe 조작
 
@@ -75,6 +63,16 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [재현 조건·검사·한계](design/youtube-heartbeat-delay-reproduction-2026-10-17.md).
 
 ### 최근 해결 근거
+
+App 8.11.15/v717의 휴대폰 세로 시작 화면 가운데 정렬(오너 요청 2026-10-18)은 PR
+[#389](https://github.com/hiefny/MUSIXQUARE/pull/389), exact-main `d51eb367`의
+[CI 39053792906](https://github.com/hiefny/MUSIXQUARE/actions/runs/39053792906),
+[Release 39054268521](https://github.com/hiefny/MUSIXQUARE/actions/runs/39054268521)
+attempt 1의 운영 smoke 4종·최종 소유권·미선택 5 Worker 호환성·coherent marker, 공개 5 GET의
+후보 해시 일치와 Drift 31 pass / 0 fail / 5 manual-only로 배포 준비 항목을 닫았다. PR 자동 리뷰
+지적은 없었다. 헤드리스 Chromium 측정과 브라우저 테스트만 있으므로 실제 기기 확인은 아래 실기기
+항목에 남긴다.
+[변경·검증·배포·복구](design/setup-mobile-centering-2026-10-18.md#release-and-recovery).
 
 App 8.11.14/v716의 일반방 YouTube 지연 heartbeat 보정은 PR
 [#387](https://github.com/hiefny/MUSIXQUARE/pull/387), exact-main `e47d0bb5`의

@@ -119,3 +119,53 @@ nav row's 8px bottom margin, the one nav value its padding derives from.
   around its text (about 0.15 × T on each side) with the current fonts at
   20–28px. A font, size, or line-height change on the carousel needs a new
   measurement, as do the phone's fixed values.
+
+## Release and recovery
+
+The owner approved the deploy on 2026-10-18 once CI and the review passed.
+PR #393 was squash-merged as `ee9cd197d7d585dd954b0fa93e98008ccb57dbff` after
+PR CI 39063489083 (11 jobs) passed on head `2b1f3bb6`; the Codex review
+finished with no findings. Exact-main push CI 39063986797 attempt 1 passed
+all 11 jobs: unit 582 files / 13,040 pass / 0 fail / 1 skip (a Windows-only
+path check on Linux), candidate browser 17 and critical browser 55 pass.
+
+Production Release 39064457697 attempt 1 (target `app`, Developer API D1
+disabled) deployed the exact-main candidate, artifact 12112332288 (Node
+24.20.0 / npm 11.19.0 / Wrangler 4.148.0):
+
+- Recovery checkpoint captured at 04:55:23.860 KST (artifact 12112711985). It
+  preserves App 8.11.16/v718, `6a934577`, version `f773c444` / deployment
+  `f9d31731`. The worker floor was ready at 04:55:26.569 KST (release floor
+  `d9364cd9`, generation floor `4c5612d5`).
+- Partial-release recheck compatible at 04:55:52.049 KST. The five
+  unselected Workers kept their `d9364cd9` provenance and IDs.
+- App version `cec75670-3bd5-4684-9339-69fc527c63fe` / deployment
+  `1757c1ac-8e0f-4d9b-a5b6-c8bd3bdda4e3`, verified by the final ownership
+  check at 04:56:21.546 KST, with the exact-SHA coherent marker recorded.
+- Operational smokes 4/4: App generation (`main-DBLwCD4W.js` converged over
+  three reads), anonymous App account boundary, PRO public boundary, and
+  Standard HTTPS signaling. The seven App D1 baseline steps verified. The
+  deploy job completed at 04:56:27 KST. No rollback was needed, and the
+  recovery job was skipped.
+
+Public assets at 04:57:05 KST matched the candidate byte for byte (HTTP 200,
+same size and SHA-256):
+
+| Path | Bytes |
+| --- | --- |
+| `/` | 140,676 |
+| `/service-worker.js` (v719) | 39,149 |
+| `/bootstrap.js?cache=v719` | 10,196 |
+| `/assets/main-DBLwCD4W.js` | 437,531 |
+| `/assets/main-8_J0N3SU.css` (holds this change) | 324,945 |
+
+Operations Drift Audit 39064663301 attempt 1 on `ee9cd197`:
+automated-checks-passed, 31 pass / 0 fail / 5 manual-only.
+
+Rolling back to the checkpoint restores 8.11.16: the slide's 16px gap (on
+phones 19.7 / 32.5 / 28.5px visible) and the dark `--surface-2` circle. No
+stored data or wire contract changed. A rollback re-verifies ownership and
+the floors as the procedure requires.
+
+Real devices and the full serial E2E suite were not run after the deploy.
+The device check stays open in the release record.

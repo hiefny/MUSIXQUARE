@@ -93,7 +93,9 @@ runbooks. Neither belongs in a general setup document.
 - [Standard YouTube heartbeat correction — 2026-10-17](design/youtube-heartbeat-delay-fix-2026-10-17.md) —
   Uses one current host position for coarse seek, Android BUFFERING recovery,
   and small-drift observation. Preserves output/manual compensation and records
-  regression verification, App 8.11.14/v715 release scope, and device limits.
+  the reviewed tail-hold boundary, 13,036 local passing tests, exact-main CI,
+  App 8.11.14/v716 Release 39039136092, operational smokes, public asset hashes,
+  recovery checkpoint, successful automated drift checks, and device limits.
 - [Host QR reveal without the double flicker — 2026-10-17](design/setup-qr-reveal-2026-10-17.md) —
   The carousel stays in the tap transition's snapshot (no empty frames), the desktop left
   panel keeps an unchanged QR stage mounted, and the QR encoder loads from the host tap.

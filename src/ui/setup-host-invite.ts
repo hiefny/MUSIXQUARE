@@ -8,7 +8,10 @@ const HOST_INVITE_QR_ID = 'setup-host-qr';
 const INVITE_CODE_RE = /^\d{6}$/;
 const HOST_INVITE_ROOT = 'MUSIXQUARE.COM';
 
+const importQrEncoder = () => import('qrcode');
+
 let hostInviteRenderGeneration = 0;
+let qrEncoderLoad: ReturnType<typeof importQrEncoder> | null = null;
 
 function hostInviteElements(): {
   stage: HTMLElement;
@@ -22,8 +25,25 @@ function hostInviteElements(): {
   return { stage, placeholderQr, roomQr };
 }
 
+// The encoder is a lazy chunk outside the app shell. The host tap starts one
+// shared load so the QR is ready when the code arrives; a failed load is
+// forgotten so the reveal retries it.
+function loadQrEncoder(): ReturnType<typeof importQrEncoder> {
+  qrEncoderLoad ??= importQrEncoder().catch((error: unknown) => {
+    qrEncoderLoad = null;
+    throw error;
+  });
+  return qrEncoderLoad;
+}
+
+export function preloadHostInviteQrEncoder(): void {
+  loadQrEncoder().catch(() => {
+    /* revealHostInviteQr retries the load and reports its failure */
+  });
+}
+
 async function encodeHostInviteQr(payload: string): Promise<string> {
-  const { default: QRCode } = await import('qrcode');
+  const { default: QRCode } = await loadQrEncoder();
   return QRCode.toString(payload, {
     type: 'svg',
     margin: 2,

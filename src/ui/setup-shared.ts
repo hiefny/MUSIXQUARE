@@ -133,22 +133,6 @@ export function syncDesktopLeftPanel(): void {
     return;
   }
 
-  if (_desktopSyncedDiagram && _desktopSyncedDiagramParent) {
-    try {
-      _desktopSyncedDiagramParent.insertBefore(
-        _desktopSyncedDiagram,
-        _desktopSyncedDiagramNextSibling || null,
-      );
-    } catch {
-      /* ignore */
-    }
-    _desktopSyncedDiagram = null;
-    _desktopSyncedDiagramParent = null;
-    _desktopSyncedDiagramNextSibling = null;
-  }
-  diagramContainer.replaceChildren();
-  headerContainer.replaceChildren();
-
   const areas: Array<{ id: string; diagram: (el: HTMLElement) => HTMLElement | null }> = [
     { id: 'setup-welcome-area', diagram: () => document.getElementById('ob-slider-area') },
     {
@@ -166,26 +150,60 @@ export function syncDesktopLeftPanel(): void {
     },
   ];
 
+  let visibleArea: (typeof areas)[number] | null = null;
+  let areaEl: HTMLElement | null = null;
   for (const area of areas) {
-    const areaEl = document.getElementById(area.id) as HTMLElement | null;
-    if (!areaEl || areaEl.style.display === 'none') continue;
-
-    const headerSrc = areaEl.querySelector('.setup-header-text');
-    if (headerSrc) {
-      headerContainer.innerHTML = headerSrc.innerHTML;
-      // The copied wordmark needs its own mask ID and the existing reveal
-      // position. Reconcile synchronously before the new layout can paint.
-      document.dispatchEvent(new Event('mxqr:wordmark-refresh'));
-    }
-
-    const diagramEl = area.diagram(areaEl);
-    if (diagramEl) {
-      _desktopSyncedDiagramParent = diagramEl.parentElement as HTMLElement | null;
-      _desktopSyncedDiagramNextSibling = diagramEl.nextSibling;
-      _desktopSyncedDiagram = diagramEl;
-      diagramContainer.appendChild(diagramEl);
-    }
+    const el = document.getElementById(area.id) as HTMLElement | null;
+    if (!el || el.style.display === 'none') continue;
+    visibleArea = area;
+    areaEl = el;
     break;
+  }
+
+  // Moving a node out and back restarts its CSS animations and cancels its
+  // transitions, e.g. the host QR spinner and crossfade when the code
+  // arrives. While the same area stays visible, keep its diagram mounted.
+  const keepDiagram =
+    areaEl !== null &&
+    _desktopSyncedDiagram !== null &&
+    _desktopSyncedDiagramParent !== null &&
+    _desktopSyncedDiagram.parentElement === diagramContainer &&
+    areaEl.contains(_desktopSyncedDiagramParent);
+
+  if (!keepDiagram) {
+    if (_desktopSyncedDiagram && _desktopSyncedDiagramParent) {
+      try {
+        _desktopSyncedDiagramParent.insertBefore(
+          _desktopSyncedDiagram,
+          _desktopSyncedDiagramNextSibling || null,
+        );
+      } catch {
+        /* ignore */
+      }
+      _desktopSyncedDiagram = null;
+      _desktopSyncedDiagramParent = null;
+      _desktopSyncedDiagramNextSibling = null;
+    }
+    diagramContainer.replaceChildren();
+  }
+  headerContainer.replaceChildren();
+  if (!visibleArea || !areaEl) return;
+
+  const headerSrc = areaEl.querySelector('.setup-header-text');
+  if (headerSrc) {
+    headerContainer.innerHTML = headerSrc.innerHTML;
+    // The copied wordmark needs its own mask ID and the existing reveal
+    // position. Reconcile synchronously before the new layout can paint.
+    document.dispatchEvent(new Event('mxqr:wordmark-refresh'));
+  }
+
+  if (keepDiagram) return;
+  const diagramEl = visibleArea.diagram(areaEl);
+  if (diagramEl) {
+    _desktopSyncedDiagramParent = diagramEl.parentElement as HTMLElement | null;
+    _desktopSyncedDiagramNextSibling = diagramEl.nextSibling;
+    _desktopSyncedDiagram = diagramEl;
+    diagramContainer.appendChild(diagramEl);
   }
 }
 

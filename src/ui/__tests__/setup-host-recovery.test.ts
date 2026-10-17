@@ -4,8 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   actions: [] as Array<Record<string, unknown>>,
+  animateTransition: vi.fn((apply: () => void) => apply()),
   createSession: vi.fn(),
   flowId: 0,
+  preloadQrEncoder: vi.fn(),
+  revealQr: vi.fn(async () => true),
   scheduleDocumentReload: vi.fn(),
   setupRenderActions: vi.fn((buttons: Array<Record<string, unknown>>) => {
     mocks.actions = buttons;
@@ -46,7 +49,14 @@ vi.mock('../setup-start.ts', () => ({
 }));
 
 vi.mock('../dom.ts', () => ({
-  animateTransition: vi.fn((apply: () => void) => apply()),
+  animateTransition: mocks.animateTransition,
+}));
+
+vi.mock('../setup-host-invite.ts', () => ({
+  finishHostInviteLoading: vi.fn(),
+  preloadHostInviteQrEncoder: mocks.preloadQrEncoder,
+  resetHostInviteVisual: vi.fn(),
+  revealHostInviteQr: mocks.revealQr,
 }));
 
 vi.mock('../setup-shared.ts', () => ({
@@ -78,6 +88,7 @@ import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.animateTransition.mockImplementation((apply: () => void) => apply());
   mocks.createSession.mockReset();
   mocks.actions = [];
   mocks.flowId = 0;
@@ -110,6 +121,46 @@ describe('host setup recovery', () => {
 
     releaseCreation('654321');
     await vi.waitFor(() => expect(mocks.setupSetCode).toHaveBeenCalledWith('654321'));
+  });
+
+  it('hides the carousel inside the setup transition so the outgoing snapshot keeps it', () => {
+    const queued: Array<() => void> = [];
+    mocks.animateTransition.mockImplementation((apply: () => void) => {
+      queued.push(apply);
+    });
+    mocks.createSession.mockReturnValueOnce(new Promise<string>(() => {}));
+
+    startHostFlow();
+
+    // The browser captures the outgoing screen before it runs the callback.
+    const carousel = document.getElementById('ob-slider-area')!;
+    expect(carousel.hidden).toBe(false);
+    queued.forEach((apply) => apply());
+    expect(carousel.hidden).toBe(true);
+  });
+
+  it('starts loading the QR encoder with each room request, before its code arrives', async () => {
+    mocks.createSession
+      .mockRejectedValueOnce(new Error('signaling unavailable'))
+      .mockResolvedValueOnce('123456');
+
+    startHostFlow();
+
+    expect(mocks.preloadQrEncoder).toHaveBeenCalledOnce();
+    expect(mocks.preloadQrEncoder.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.createSession.mock.invocationCallOrder[0]!,
+    );
+    await vi.waitFor(() => {
+      expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.session_create_fail');
+    });
+
+    const retry = mocks.actions[1]?.onClick as (() => void) | undefined;
+    retry?.();
+
+    expect(mocks.preloadQrEncoder).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => {
+      expect(mocks.revealQr).toHaveBeenCalledWith('123456', expect.any(Function));
+    });
   });
 
   it('discards a late signaling result when Back wins the room-creation race', async () => {

@@ -146,11 +146,13 @@ import {
   promptForRoomPassword,
 } from '../setup-guest.ts';
 import { showDialog } from '../dialog.ts';
+import { animateTransition } from '../dom.ts';
 import { ProRoomApiError } from '../../pro-room/api.ts';
 
 beforeEach(() => {
   clearPendingRoomPasswordJoin();
   vi.clearAllMocks();
+  vi.mocked(animateTransition).mockImplementation((apply: () => void) => apply());
   mocks.primeReady = true;
   mocks.waitForPrimeReady.mockReset().mockResolvedValue(undefined);
   mocks.prepareFromGesture.mockReset().mockReturnValue(null);
@@ -178,6 +180,21 @@ beforeEach(() => {
 });
 
 describe('guest setup recovery', () => {
+  it('hides the carousel inside the setup transition so the outgoing snapshot keeps it', () => {
+    const queued: Array<() => void> = [];
+    vi.mocked(animateTransition).mockImplementation((apply: () => void) => {
+      queued.push(apply);
+    });
+
+    startGuestFlow();
+
+    // The browser captures the outgoing screen before it runs the callback.
+    const carousel = document.getElementById('ob-slider-area')!;
+    expect(carousel.hidden).toBe(false);
+    queued.forEach((apply) => apply());
+    expect(carousel.hidden).toBe(true);
+  });
+
   it.each([false, true])(
     'waits for a ready iframe before the real Start tap (invite=%s)',
     async (invite) => {

@@ -164,20 +164,19 @@ export function startGuestFlow(): void {
     log.warn('[Setup] set default guest role failed', e);
   }
 
+  // Hide the carousel inside the transition: hidden before the snapshot, its
+  // area would flash empty before the join screen fades in.
   animateTransition(() => {
     setupShowCodeArea(false);
     setupShowJoinArea(false);
     setupShowAutoJoinArea(false);
     setupShowWelcome(false);
     setupShowRoleArea(false);
+    const sliderArea = setupEl('ob-slider-area');
+    if (sliderArea) sliderArea.hidden = true;
   });
 
   setupSetGuestJoinBusy(false);
-
-  const sliderArea = setupEl('ob-slider-area');
-  if (sliderArea) {
-    sliderArea.hidden = true;
-  }
 
   setState('network.myDeviceLabel', t('common.guest'));
   updateRoleBadge();

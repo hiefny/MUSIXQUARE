@@ -42,6 +42,7 @@ import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
 import {
   finishHostInviteLoading,
+  preloadHostInviteQrEncoder,
   resetHostInviteVisual,
   revealHostInviteQr,
 } from './setup-host-invite.ts';
@@ -84,18 +85,17 @@ export function startHostFlow(): void {
   }
 
   // Apply the welcome-to-host-flow DOM changes in one transition snapshot.
+  // Hide the carousel inside it too: hidden before the snapshot, its area
+  // would flash empty before the invite QR fades in.
   animateTransition(() => {
     setupShowJoinArea(false);
     setupShowAutoJoinArea(false);
     setupShowCodeArea(false);
     setupShowWelcome(false);
     setupShowRoleArea(false);
+    const sliderArea = setupEl('ob-slider-area');
+    if (sliderArea) sliderArea.hidden = true;
   });
-
-  const sliderArea = setupEl('ob-slider-area');
-  if (sliderArea) {
-    sliderArea.hidden = true;
-  }
 
   startHostCodeFlow(DEFAULT_SETUP_ROLE);
 }
@@ -111,6 +111,9 @@ async function proceedToHostCode(mode: number): Promise<void> {
     !getState('setup.sessionStarted');
   setupSetHostError(null);
   resetHostInviteVisual();
+  // Fetch the QR encoder alongside the code, not after it: a late encoder
+  // splits the code and QR reveals into two steps.
+  preloadHostInviteQrEncoder();
 
   try {
     selectStandardChannelButton(mode);

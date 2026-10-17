@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Host QR reveal without the double flicker — 2026-10-17](design/setup-qr-reveal-2026-10-17.md) —
+  The carousel stays in the tap transition's snapshot (no empty frames), the desktop left
+  panel keeps an unchanged QR stage mounted, and the QR encoder loads from the host tap.
+  Records the frame captures, unit and browser tests, and limits. App 8.11.13/v714.
 - [Deferred Back guard (R policy) — 2026-10-17](design/ios-back-deferred-guard-2026-10-17.md) —
   Owner-tested iPhone diagnostic, shared deferred history registration, actual
   window-close completion and owned-history leave. Records App 8.11.12/v712,

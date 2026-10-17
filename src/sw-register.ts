@@ -8,10 +8,14 @@
 import { log } from './core/log.ts';
 import { t, type I18nKey } from './i18n/index.ts';
 import { getState } from './core/state.ts';
-import { showDialog } from './ui/dialog.ts';
+import { showDialog, type DialogResult } from './ui/dialog.ts';
 import { setManagedTimer } from './core/timers.ts';
 import { scheduleDocumentReload, scheduleSessionReset } from './core/session-reset.ts';
-import { getRoomContext, isStandardRoomRole } from './rooms/authority.ts';
+import {
+  getRoomContext,
+  isStandardRoomRole,
+  subscribeRoomAuthorityLifecycle,
+} from './rooms/authority.ts';
 import {
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
@@ -216,6 +220,22 @@ function updateDialogMessageKey(): I18nKey {
   return 'dialog.sw_update_apply_msg';
 }
 
+/**
+ * The update dialog. Its message is re-read whenever the room lifecycle
+ * changes: a join can finish while it is open, and 적용하기 then returns to
+ * that room's Start screen, so the copy must already say so.
+ */
+function showUpdateDialog(signal?: AbortSignal): Promise<DialogResult> {
+  return showDialog({
+    title: t('dialog.sw_update_title'),
+    message: () => t(updateDialogMessageKey()),
+    buttonText: t('dialog.sw_update_apply'),
+    secondaryText: t('common.later'),
+    refreshOn: subscribeRoomAuthorityLifecycle,
+    ...(signal ? { signal } : {}),
+  });
+}
+
 export function registerServiceWorker(): void {
   if (!('serviceWorker' in navigator)) {
     log.info('[SW] Service Worker not supported');
@@ -296,15 +316,15 @@ export function registerServiceWorker(): void {
      * same dialog instead of reloading out of the room. Later keeps the room;
      * the next open loads the new version.
      */
-    const offerActivatedUpdate = (identity: string): void => {
-      if (offeredActivatedUpdates.has(identity) || dismissedPromptIdentities.has(identity)) return;
-      offeredActivatedUpdates.add(identity);
-      showDialog({
-        title: t('dialog.sw_update_title'),
-        message: t(updateDialogMessageKey()),
-        buttonText: t('dialog.sw_update_apply'),
-        secondaryText: t('common.later'),
-      })
+    const offerActivatedUpdate = (promptIdentity: string): void => {
+      if (
+        offeredActivatedUpdates.has(promptIdentity) ||
+        dismissedPromptIdentities.has(promptIdentity)
+      ) {
+        return;
+      }
+      offeredActivatedUpdates.add(promptIdentity);
+      showUpdateDialog()
         .then((result) => {
           if (result.action === 'ok') scheduleControllerAlignedReload();
         })
@@ -313,34 +333,19 @@ export function registerServiceWorker(): void {
         });
     };
 
-    const offerActivatedControllerUpdate = (identity: string | null): void => {
-      if (identity) {
-        offerActivatedUpdate(identity);
-        return;
-      }
+    const offerActivatedControllerUpdate = (): void => {
       const controller = navigator.serviceWorker.controller;
-      if (!controller) {
-        offerActivatedUpdate('unknown-controller');
-        return;
-      }
-      // Cached per worker: an exact generation dedupes with the waiting
-      // worker's dialog for the same release.
+      if (!controller) return;
+      // Keyed as the waiting prompt is (an unidentified worker by its script
+      // URL), so a generation put off with 나중에 there is not offered again
+      // here. The resolution is cached per worker.
       generationResolver.resolve(controller).then(
-        (generation) => {
-          offerActivatedUpdate(
-            generation.cacheVersion ||
-              unknownControllerIdentities.get(controller) ||
-              'unknown-controller',
-          );
-        },
-        () => offerActivatedUpdate('unknown-controller'),
+        (generation) => offerActivatedUpdate(generation.promptIdentity),
+        (error) => log.warn('[SW] Activated update generation failed', error),
       );
     };
 
-    const handlePassiveControllerChange = (
-      notifyActiveRoom = true,
-      controllerIdentity: string | null = null,
-    ): boolean => {
+    const handlePassiveControllerChange = (notifyActiveRoom = true): boolean => {
       if (_swReloading || activationState === 'reload-scheduled') return false;
 
       // Transitional recovery for the version that introduced this fix:
@@ -364,7 +369,7 @@ export function registerServiceWorker(): void {
       if (isRoomOrDemoActive()) {
         if (!notifyActiveRoom) return false;
         log.info('[SW] Update activated elsewhere. Asking before reloading (room or demo active)');
-        offerActivatedControllerUpdate(controllerIdentity);
+        offerActivatedControllerUpdate();
         return true;
       }
 
@@ -483,7 +488,7 @@ export function registerServiceWorker(): void {
           scheduleControllerAlignedReload();
           return;
         }
-        handlePassiveControllerChange(true, actionIdentity);
+        handlePassiveControllerChange(true);
       };
 
       const handleControllerChange = () => {
@@ -635,13 +640,7 @@ export function registerServiceWorker(): void {
         controllerChangedWhilePrompting = false;
         let result: Awaited<ReturnType<typeof showDialog>> | undefined;
         try {
-          result = await showDialog({
-            title: t('dialog.sw_update_title'),
-            message: t(updateDialogMessageKey()),
-            buttonText: t('dialog.sw_update_apply'),
-            secondaryText: t('common.later'),
-            signal: promptAbort.signal,
-          });
+          result = await showUpdateDialog(promptAbort.signal);
         } catch {
           result = undefined;
         }

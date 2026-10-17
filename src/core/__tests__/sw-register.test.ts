@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const moduleMocks = vi.hoisted(() => ({
   getState: vi.fn((_key?: string): unknown => undefined),
+  roomLifecycleListeners: new Set<() => void>(),
   scheduleDocumentReload: vi.fn(),
   scheduleSessionReset: vi.fn(),
   showDialog: vi.fn(),
@@ -28,6 +29,10 @@ vi.mock('../../rooms/authority.ts', () => ({
   isStandardRoomRole: (role: string) =>
     (moduleMocks.getState('room.context') as { kind?: string } | undefined)?.kind !== 'pro' &&
     moduleMocks.getState('network.appRole') === role,
+  subscribeRoomAuthorityLifecycle: (listener: () => void) => {
+    moduleMocks.roomLifecycleListeners.add(listener);
+    return () => moduleMocks.roomLifecycleListeners.delete(listener);
+  },
 }));
 
 const DISMISSAL_KEY = 'mxqr-sw-update-dismissal-v1';
@@ -58,14 +63,52 @@ function setAppState(state: AppState): void {
   });
 }
 
+/** Setup or a room moved on: the room-authority lifecycle signal. */
+function emitRoomLifecycle(): void {
+  for (const listener of [...moduleMocks.roomLifecycleListeners]) listener();
+}
+
+/** Dialog copy given as text, or as a callback read now (as the dialog re-reads it). */
+function readsAs(text: string) {
+  return {
+    asymmetricMatch: (actual: unknown) =>
+      (typeof actual === 'function' ? (actual as () => unknown)() : actual) === text,
+    toString: () => `ReadsAs<${text}>`,
+    toAsymmetricMatcher: () => `ReadsAs<${text}>`,
+  };
+}
+
 /** The one update dialog, with the message for where this page is. */
 function updateDialog(message: string) {
   return expect.objectContaining({
     title: 'dialog.sw_update_title',
-    message,
+    message: readsAs(message),
     buttonText: 'dialog.sw_update_apply',
     secondaryText: 'common.later',
+    refreshOn: expect.any(Function),
   });
+}
+
+/**
+ * Stands in for the real dialog: it subscribes through `refreshOn`, records
+ * the message each time it renders it, and stays open until answered.
+ */
+function holdRenderingDialog() {
+  const rendered: string[] = [];
+  let answer!: (result: { action: string }) => void;
+  moduleMocks.showDialog.mockImplementationOnce(
+    (options: { message: () => string; refreshOn: (refresh: () => void) => () => void }) =>
+      new Promise((resolve) => {
+        const render = () => rendered.push(options.message());
+        render();
+        const unsubscribe = options.refreshOn(render);
+        answer = (result) => {
+          unsubscribe();
+          resolve(result);
+        };
+      }),
+  );
+  return { rendered, answer: (action: string) => answer({ action }) };
 }
 
 interface FakeWorker {
@@ -276,6 +319,7 @@ describe('service-worker cache-retirement client handshake', () => {
     localStorage.clear();
     delete document.documentElement.dataset.mxqrNavigationSource;
     document.body.classList.remove('mode-demo');
+    moduleMocks.roomLifecycleListeners.clear();
     setAppState({});
     moduleMocks.scheduleSessionReset.mockImplementation(() => createFakeResetHandle());
     moduleMocks.scheduleDocumentReload.mockImplementation(
@@ -1519,6 +1563,61 @@ describe('service-worker cache-retirement client handshake', () => {
       harness.setController({ postMessage: vi.fn() }, false, 'v495');
       harness.emit('controllerchange');
       await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledTimes(2));
+      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    });
+
+    it('keeps an open dialog in step with a join that finishes under it', async () => {
+      const dialog = holdRenderingDialog();
+      // The guest tapped Start on the invite page; the join is still connecting.
+      setAppState({ role: 'guest', joinCode: '123456' });
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      const update = harness.installUpdate('v494');
+      update.emitInstalled();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      expect(dialog.rendered).toEqual(['dialog.sw_update_apply_msg']);
+
+      // The join completes while the dialog is still open.
+      setAppState({ role: 'guest', sessionStarted: true, joinCode: '123456' });
+      emitRoomLifecycle();
+      expect(dialog.rendered).toEqual([
+        'dialog.sw_update_apply_msg',
+        'dialog.sw_update_room_guest_msg',
+      ]);
+
+      // 적용하기 then does what the dialog says: back to the room's Start screen.
+      dialog.answer('ok');
+      await vi.waitFor(() =>
+        expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+      );
+      expect(moduleMocks.roomLifecycleListeners.size).toBe(0);
+      harness.setController(update.waitingWorker, true, 'v494');
+      harness.emit('controllerchange');
+      await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+      expect(sessionStorage.getItem(RECONNECT_TARGET_KEY)).toBe('123456');
+    });
+
+    it('does not ask again when another tab applies an unidentified generation put off here', async () => {
+      setAppState({ role: 'host', sessionStarted: true });
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      const update = harness.installUpdate('v494');
+      // A worker that never answers the generation request (a pre-protocol
+      // build) is known by its script URL once the request times out.
+      update.waitingWorker.postMessage.mockImplementation(() => undefined);
+      update.emitInstalled();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce(), {
+        timeout: 3_000,
+      });
+      await flushAsyncControllerChange();
+
+      // Another tab applies it, and this tab still cannot identify it.
+      harness.setController(update.waitingWorker, true);
+      update.waitingWorker.postMessage.mockImplementation(() => undefined);
+      harness.emit('controllerchange');
+      await waitMs(PROMPT_ELECTION_SETTLE_MS);
+
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
       expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
     });
 

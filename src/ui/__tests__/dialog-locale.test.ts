@@ -90,6 +90,33 @@ describe('dialog locale lifetime', () => {
     await pending;
   });
 
+  it('re-reads callback copy when its refreshOn subscription fires, until it closes', async () => {
+    let roomEntered = false;
+    const refreshes = new Set<() => void>();
+    const pending = showDialog({
+      title: 'Update',
+      message: () => (roomEntered ? 'Enter the room again' : 'Reloads the page'),
+      buttonText: 'Apply',
+      refreshOn: (refresh) => {
+        refreshes.add(refresh);
+        return () => refreshes.delete(refresh);
+      },
+    });
+    const message = () => document.getElementById('dialog-message')?.firstChild?.textContent;
+    expect(message()).toBe('Reloads the page');
+    expect(refreshes.size).toBe(1);
+
+    roomEntered = true;
+    for (const refresh of [...refreshes]) refresh();
+    expect(message()).toBe('Enter the room again');
+    expect(document.getElementById('dialog-title')?.textContent).toBe('Update');
+    expect(document.getElementById('btn-dialog-ok')?.textContent).toBe('Apply');
+
+    closeDialog('ok');
+    expect(await pending).toMatchObject({ action: 'ok' });
+    expect(refreshes.size).toBe(0);
+  });
+
   it('relabels PIN segments without changing their entered digits and unsubscribes on abort', async () => {
     const controller = new AbortController();
     const pending = showDialog({

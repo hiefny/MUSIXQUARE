@@ -11363,10 +11363,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
   /* Phone portrait setup: center the middle block (carousel, invite QR, QR
-     scanner and code) between the header and the actions. Auto margins split
-     the free space. The bottom padding makes the lower minimum match the
-     header's 56px gap, counting the actions' own 16px top padding, so a
-     screen too short for the content still scrolls as before. */
+     scanner and code) between the header and the actions by what is visible.
+     Auto margins split the free space; the bottom padding balances the gaps
+     each box hides. Above the block: the header's 56px margin, about 5px of
+     line spacing under its last text line, and the 8% inset of the QR or
+     scanner square (or the carousel viewport's 4px margin). Below it: the
+     actions' 16px top padding, the carousel nav row's 8px margin, and on
+     방 만들기 about 17.5px under the code digits. A screen too short for the
+     content still scrolls as before. */
   @media (max-width: 719px) and (orientation: portrait) {
     #setup-code-area > .setup-host-invite-stage,
     #setup-join-area > .setup-guest-qr-stage {
@@ -11376,13 +11380,25 @@ Safety is declared first because important layer precedence is reversed; its acc
     #setup-code-area > .setup-code-area-bottom,
     #setup-join-area > .setup-code-area-bottom {
       margin-bottom: auto;
-      padding-bottom: 40px;
     }
 
+    /* 56 + 5 + 8% inset - 16 - 17.5 */
+    #setup-code-area > .setup-code-area-bottom {
+      padding-bottom: calc(27.5px + 0.08 * min(272px, 56vw, 36vh));
+      padding-bottom: calc(27.5px + 0.08 * min(272px, 56vw, 36dvh));
+    }
+
+    /* 56 + 5 + 8% inset - 16; the code field's underline is its visible edge. */
+    #setup-join-area > .setup-code-area-bottom {
+      padding-bottom: calc(45px + 0.08 * min(272px, 56vw, 36vh));
+      padding-bottom: calc(45px + 0.08 * min(272px, 56vw, 36dvh));
+    }
+
+    /* 56 + 5 + 4 - 8 - 16 */
     #setup-welcome-area > #ob-slider-area {
       flex: none;
       margin-block: auto;
-      padding-bottom: 36px;
+      padding-bottom: 41px;
     }
   }
   /* Compact sidebar geometry: 720–1279px, with independent short-height variants. Navigation/overlay visibility is owned by states below. */

@@ -92,8 +92,10 @@ runbooks. Neither belongs in a general setup document.
 
 - [Deferred Back guard (R policy) — 2026-10-17](design/ios-back-deferred-guard-2026-10-17.md) —
   Owner-tested iPhone diagnostic, shared deferred history registration, actual
-  window-close completion, owned-history leave, browser regressions and native
-  swipe verification limits.
+  window-close completion and owned-history leave. Records App 8.11.12/v712,
+  exact-main CI 39008608569, Release 39009031876, public asset hashes,
+  operational smokes, recovery checkpoint and successful drift audit.
+  Native iOS swipe verification remains open; browser coverage is targeted.
 - [One update dialog everywhere — 2026-10-17](design/update-dialog-everywhere-2026-10-17.md) —
   A waiting update gets the same dialog (적용하기 / 나중에) on every screen, rooms and the
   demo included, with copy that says what applying costs. 나중에 lasts for the page, and a

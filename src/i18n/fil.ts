@@ -440,10 +440,6 @@ const fil: Record<I18nKey, string> = {
     'Napakalaki ng file ng track na ito at maaaring hindi ito ma-play sa ilang device.',
   'chat.device_track_unavailable_system_message':
     'Hindi ma-play ng device na ito ang kasalukuyang track.',
-  'chat.update_available_tab_system_message':
-    'May bagong bersyon ng MUSIXQUARE\nI-refresh ang page para magamit ito',
-  'chat.update_available_app_system_message':
-    'May bagong bersyon ng MUSIXQUARE\nBuksan muli ang app para magamit ito',
   'chat.system_audio_started_system_message':
     'Nagsimula na ang pagbabahagi ng system audio. Normal ang kaunting latency sa pagitan ng host at mga bisitang device. Inirerekomenda naming hinaan ang volume ng host device para maiwasan ang echo.',
   'chat.system_audio_stopped_system_message':
@@ -743,6 +739,13 @@ const fil: Record<I18nKey, string> = {
     'Kapag lumipat ka sa ibang app o nag-off ang screen, maaaring huminto ang tunog o mawala sa sync.',
   'dialog.sw_update_title': 'I-update',
   'dialog.sw_update_msg': 'Handa na ang bagong bersyon.\nI-refresh para mag-update.',
+  'dialog.sw_update_apply': 'Ilapat',
+  'dialog.sw_update_apply_msg':
+    'Handa na ang bagong bersyon.\nMagre-refresh ang page kapag inilapat ito.',
+  'dialog.sw_update_room_host_msg':
+    'Handa na ang bagong bersyon.\nPara mailapat ito, kailangan mong buksan muli ang kuwarto.',
+  'dialog.sw_update_room_guest_msg':
+    'Handa na ang bagong bersyon.\nPara mailapat ito, kailangan mong sumali muli sa kuwarto.',
   'dialog.feature_refresh_title': 'Kailangang mag-refresh',
   'dialog.feature_refresh_msg':
     'Na-update ang MUSIXQUARE.\nI-refresh para patuloy itong magamit nang maayos.',

@@ -430,10 +430,6 @@ const nl: Record<I18nKey, string> = {
     'Deze track neemt erg veel ruimte in en kan mogelijk niet op alle apparaten worden afgespeeld.',
   'chat.device_track_unavailable_system_message':
     'Dit apparaat kan de huidige track niet afspelen.',
-  'chat.update_available_tab_system_message':
-    'Er is een nieuwe versie van MUSIXQUARE\nVernieuw de pagina om deze te gebruiken',
-  'chat.update_available_app_system_message':
-    'Er is een nieuwe versie van MUSIXQUARE\nOpen de app opnieuw om deze te gebruiken',
   'chat.system_audio_started_system_message':
     'Het delen van systeemaudio is gestart. Een kleine vertraging tussen de host en deelnemers is normaal. Zet het volume van het hostapparaat zo laag mogelijk om echo te voorkomen.',
   'chat.system_audio_stopped_system_message':
@@ -740,6 +736,13 @@ const nl: Record<I18nKey, string> = {
     'Als je naar een andere app overschakelt of het scherm uitgaat, kan het geluid stoppen of de synchronisatie niet meer kloppen.',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'Er staat een nieuwe versie klaar.\nVernieuw om deze bij te werken.',
+  'dialog.sw_update_apply': 'Toepassen',
+  'dialog.sw_update_apply_msg':
+    'Er staat een nieuwe versie klaar.\nToepassen laadt de pagina opnieuw.',
+  'dialog.sw_update_room_host_msg':
+    'Er staat een nieuwe versie klaar.\nOm deze toe te passen, moet je de kamer opnieuw openen.',
+  'dialog.sw_update_room_guest_msg':
+    'Er staat een nieuwe versie klaar.\nOm deze toe te passen, moet je opnieuw aan de kamer deelnemen.',
   'dialog.feature_refresh_title': 'Vernieuwen nodig',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE is bijgewerkt.\nVernieuw de pagina om het normaal te blijven gebruiken.',

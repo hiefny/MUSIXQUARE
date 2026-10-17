@@ -428,10 +428,6 @@ const uk: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Цей файл дуже великий і може не відтворюватися на деяких пристроях.',
   'chat.device_track_unavailable_system_message': 'Цей пристрій не може відтворити поточний трек.',
-  'chat.update_available_tab_system_message':
-    'Доступна нова версія MUSIXQUARE\nВона почне діяти після оновлення сторінки',
-  'chat.update_available_app_system_message':
-    'Доступна нова версія MUSIXQUARE\nВона почне діяти після перезапуску застосунку',
   'chat.system_audio_started_system_message':
     'Розпочато трансляцію системного аудіо. Невелика затримка між пристроями хоста й гостей є нормальною. Щоб уникнути відлуння, радимо зменшити гучність пристрою хоста.',
   'chat.system_audio_stopped_system_message':
@@ -728,6 +724,13 @@ const uk: Record<I18nKey, string> = {
     'Якщо перейти до іншого застосунку або вимкнути екран, може перерватися звук або порушитися синхронізація.',
   'dialog.sw_update_title': 'Оновлення',
   'dialog.sw_update_msg': 'Нова версія готова.\nОновіть сторінку, щоб застосувати її.',
+  'dialog.sw_update_apply': 'Застосувати',
+  'dialog.sw_update_apply_msg':
+    'Нова версія готова.\nПід час застосування сторінка перезавантажиться.',
+  'dialog.sw_update_room_host_msg':
+    'Нова версія готова.\nЩоб застосувати її, потрібно знову відкрити кімнату.',
+  'dialog.sw_update_room_guest_msg':
+    'Нова версія готова.\nЩоб застосувати її, потрібно знову приєднатися до кімнати.',
   'dialog.feature_refresh_title': 'Потрібно оновити сторінку',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE оновлено.\nЩоб і далі нормально ним користуватися, оновіть сторінку.',

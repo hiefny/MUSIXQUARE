@@ -429,10 +429,6 @@ const fi: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Tiedosto on erittäin suuri, eikä kappale välttämättä toistu kaikilla laitteilla.',
   'chat.device_track_unavailable_system_message': 'Tämä laite ei voi toistaa nykyistä kappaletta.',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUAREsta on saatavilla uusi versio\nPäivitä sivu ottaaksesi sen käyttöön',
-  'chat.update_available_app_system_message':
-    'MUSIXQUAREsta on saatavilla uusi versio\nAvaa sovellus uudelleen ottaaksesi sen käyttöön',
   'chat.system_audio_started_system_message':
     'Järjestelmän äänen jakaminen aloitettiin. Pieni viive isäntä- ja vieraslaitteiden välillä on normaalia. Kaikumisen välttämiseksi isäntälaitteen äänenvoimakkuutta kannattaa pienentää.',
   'chat.system_audio_stopped_system_message':
@@ -728,6 +724,12 @@ const fi: Record<I18nKey, string> = {
     'Jos vaihdat toiseen sovellukseen tai näyttö sammuu, ääni voi katketa tai synkronointi voi mennä sekaisin.',
   'dialog.sw_update_title': 'Päivitys',
   'dialog.sw_update_msg': 'Uusi versio on valmis.\nPäivitä sivu ottaaksesi sen käyttöön.',
+  'dialog.sw_update_apply': 'Ota käyttöön',
+  'dialog.sw_update_apply_msg': 'Uusi versio on valmis.\nKäyttöönotto lataa sivun uudelleen.',
+  'dialog.sw_update_room_host_msg':
+    'Uusi versio on valmis.\nKäyttöönottoa varten huone on avattava uudelleen.',
+  'dialog.sw_update_room_guest_msg':
+    'Uusi versio on valmis.\nKäyttöönottoa varten huoneeseen on liityttävä uudelleen.',
   'dialog.feature_refresh_title': 'Sivu on päivitettävä',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE on päivittynyt.\nPäivitä sivu, jotta voit jatkaa sen käyttöä normaalisti.',

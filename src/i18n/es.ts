@@ -667,6 +667,13 @@ const es: Record<I18nKey, string> = {
     'Si cambias de app o se apaga la pantalla, el sonido puede cortarse o perder la sincronización.',
   'dialog.sw_update_title': 'Actualización',
   'dialog.sw_update_msg': 'Hay una nueva versión lista.\nActualiza para aplicarla.',
+  'dialog.sw_update_apply': 'Aplicar',
+  'dialog.sw_update_apply_msg':
+    'Hay una nueva versión lista.\nAl aplicarla, la página se recargará.',
+  'dialog.sw_update_room_host_msg':
+    'Hay una nueva versión lista.\nPara aplicarla, tienes que volver a abrir la sala.',
+  'dialog.sw_update_room_guest_msg':
+    'Hay una nueva versión lista.\nPara aplicarla, tienes que volver a unirte a la sala.',
   'dialog.feature_refresh_title': 'Es necesario actualizar la página',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE se actualizó.\nActualiza la página para seguir usándolo con normalidad.',
@@ -824,10 +831,6 @@ const es: Record<I18nKey, string> = {
     'El archivo de esta pista es muy grande y puede que no se reproduzca en algunos dispositivos.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo no puede reproducir la pista actual.',
-  'chat.update_available_tab_system_message':
-    'Hay una nueva versión de MUSIXQUARE\nActualiza la página para empezar a usarla',
-  'chat.update_available_app_system_message':
-    'Hay una nueva versión de MUSIXQUARE\nVuelve a abrir la app para empezar a usarla',
   'chat.system_audio_started_system_message':
     'Se empezó a compartir el audio del sistema. Es normal que haya una leve latencia entre el anfitrión y los participantes. Recomendamos bajar al mínimo el volumen del dispositivo del anfitrión para evitar ecos.',
   'chat.system_audio_stopped_system_message':

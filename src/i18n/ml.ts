@@ -434,10 +434,6 @@ const ml: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'ഈ ട്രാക്കിന്റെ ഫയൽ വലുപ്പം വളരെ കൂടുതലാണ്; ചില ഡിവൈസുകളിൽ ഇത് പ്ലേ ചെയ്തേക്കില്ല.',
   'chat.device_track_unavailable_system_message': 'ഈ ഡിവൈസിന് നിലവിലെ ട്രാക്ക് പ്ലേ ചെയ്യാനാകില്ല.',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE-ന്റെ പുതിയ പതിപ്പ് ലഭ്യമാണ്\nഇത് ബാധകമാക്കാൻ പേജ് പുതുക്കുക',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE-ന്റെ പുതിയ പതിപ്പ് ലഭ്യമാണ്\nഇത് ബാധകമാക്കാൻ ആപ്പ് വീണ്ടും തുറക്കുക',
   'chat.system_audio_started_system_message':
     'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ ആരംഭിച്ചു. ഹോസ്റ്റിന്റെയും അതിഥി ഡിവൈസുകളുടെയും ഇടയിൽ നേരിയ കാലതാമസം സാധാരണമാണ്. എക്കോ ഒഴിവാക്കാൻ ഹോസ്റ്റ് ഡിവൈസിന്റെ ശബ്ദനില കുറയ്ക്കാൻ ശുപാർശ ചെയ്യുന്നു.',
   'chat.system_audio_stopped_system_message':
@@ -739,6 +735,10 @@ const ml: Record<I18nKey, string> = {
     'മറ്റൊരു ആപ്പിലേക്ക് മാറുകയോ സ്ക്രീൻ ഓഫാകുകയോ ചെയ്താൽ ശബ്ദം നിലയ്ക്കുകയോ സിങ്ക് തെറ്റുകയോ ചെയ്യാം.',
   'dialog.sw_update_title': 'അപ്‌ഡേറ്റ്',
   'dialog.sw_update_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്.\nഅപ്‌ഡേറ്റ് ചെയ്യാൻ പുതുക്കുക.',
+  'dialog.sw_update_apply': 'പ്രയോഗിക്കുക',
+  'dialog.sw_update_apply_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്.\nപ്രയോഗിച്ചാൽ പേജ് വീണ്ടും ലോഡ് ചെയ്യും.',
+  'dialog.sw_update_room_host_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്.\nപ്രയോഗിക്കാൻ റൂം വീണ്ടും തുറക്കണം.',
+  'dialog.sw_update_room_guest_msg': 'പുതിയ പതിപ്പ് തയ്യാറാണ്.\nപ്രയോഗിക്കാൻ റൂമിൽ വീണ്ടും ചേരണം.',
   'dialog.feature_refresh_title': 'പുതുക്കേണ്ടതുണ്ട്',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE അപ്‌ഡേറ്റ് ചെയ്തിട്ടുണ്ട്.\nസാധാരണ പോലെ ഉപയോഗിക്കുന്നത് തുടരാൻ പേജ് പുതുക്കുക.',

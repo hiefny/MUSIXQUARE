@@ -421,10 +421,6 @@ const tr: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Bu medyanın boyutu çok büyük, bu yüzden bazı cihazlarda oynatılamayabilir.',
   'chat.device_track_unavailable_system_message': 'Bu cihaz mevcut medyayı oynatamıyor.',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE’in yeni bir sürümü var\nGeçerli olması için sayfayı yenile',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE’in yeni bir sürümü var\nGeçerli olması için uygulamayı yeniden aç',
   'chat.system_audio_started_system_message':
     'Sistem sesi paylaşımı başladı. Oda sahibinin cihazıyla katılımcı cihazları arasında hafif gecikme olması normaldir. Yankıyı önlemek için oda sahibinin cihaz sesini kısması önerilir.',
   'chat.system_audio_stopped_system_message':
@@ -719,6 +715,12 @@ const tr: Record<I18nKey, string> = {
     'Başka bir uygulamaya geçersen veya ekranı kapatırsan ses durabilir ya da senkronizasyon bozulabilir.',
   'dialog.sw_update_title': 'Yeni Güncelleme',
   'dialog.sw_update_msg': 'Yeni bir sürüm hazır.\nGüncellemek için sayfayı yenile.',
+  'dialog.sw_update_apply': 'Uygula',
+  'dialog.sw_update_apply_msg': 'Yeni bir sürüm hazır.\nUygulandığında sayfa yeniden yüklenir.',
+  'dialog.sw_update_room_host_msg':
+    'Yeni bir sürüm hazır.\nUygulamak için odayı yeniden açman gerekir.',
+  'dialog.sw_update_room_guest_msg':
+    'Yeni bir sürüm hazır.\nUygulamak için odaya yeniden katılman gerekir.',
   'dialog.feature_refresh_title': 'Yenileme gerekli',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE güncellendi.\nNormal şekilde kullanmaya devam etmek için sayfayı yenile.',

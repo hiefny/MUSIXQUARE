@@ -413,10 +413,6 @@ const ar: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'حجم هذا المقطع كبير جدًا وقد يتعذّر تشغيله على بعض الأجهزة.',
   'chat.device_track_unavailable_system_message': 'لا يستطيع هذا الجهاز تشغيل المقطع الحالي.',
-  'chat.update_available_tab_system_message':
-    'يتوفر إصدار جديد من MUSIXQUARE\nحدّث الصفحة لاستخدامه',
-  'chat.update_available_app_system_message':
-    'يتوفر إصدار جديد من MUSIXQUARE\nأعد فتح التطبيق لاستخدامه',
   'chat.system_audio_started_system_message':
     'بدأت مشاركة صوت النظام. من الطبيعي وجود تأخير بسيط بين أجهزة المضيف والضيوف. ننصح بخفض صوت جهاز المضيف لتجنب الصدى.',
   'chat.system_audio_stopped_system_message':
@@ -708,6 +704,11 @@ const ar: Record<I18nKey, string> = {
     'قد يتوقف الصوت أو تختل المزامنة عند التبديل إلى تطبيق آخر أو إطفاء الشاشة.',
   'dialog.sw_update_title': 'تحديث',
   'dialog.sw_update_msg': 'يتوفر إصدار جديد.\nحدّث الصفحة لتثبيته.',
+  'dialog.sw_update_apply': 'تطبيق',
+  'dialog.sw_update_apply_msg': 'يتوفر إصدار جديد.\nسيؤدي التطبيق إلى إعادة تحميل الصفحة.',
+  'dialog.sw_update_room_host_msg': 'يتوفر إصدار جديد.\nلتطبيقه، يجب إعادة فتح الغرفة.',
+  'dialog.sw_update_room_guest_msg':
+    'يتوفر إصدار جديد.\nلتطبيقه، يجب الانضمام إلى الغرفة مرة أخرى.',
   'dialog.feature_refresh_title': 'يلزم تحديث الصفحة',
   'dialog.feature_refresh_msg': 'تم تحديث MUSIXQUARE.\nحدّث الصفحة لمواصلة استخدامه بشكل طبيعي.',
   'dialog.reconnect_ask': 'هل تريد إعادة الاتصال؟',

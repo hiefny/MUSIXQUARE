@@ -31,8 +31,6 @@ const SHARED_TOAST_KEYS = [
   'chat.muted_placeholder',
   'chat.remote_upload_failed_system_message',
   'chat.remote_upload_limited_system_message',
-  'chat.update_available_app_system_message',
-  'chat.update_available_tab_system_message',
   'common.granted',
   'common.muted',
   'common.pause',

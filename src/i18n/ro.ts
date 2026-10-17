@@ -431,10 +431,6 @@ const ro: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Fișierul acestei piste este foarte mare și este posibil să nu fie redat pe unele dispozitive.',
   'chat.device_track_unavailable_system_message': 'Acest dispozitiv nu poate reda pista curentă.',
-  'chat.update_available_tab_system_message':
-    'Este disponibilă o versiune nouă a MUSIXQUARE\nReîncarcă pagina pentru a o folosi',
-  'chat.update_available_app_system_message':
-    'Este disponibilă o versiune nouă a MUSIXQUARE\nRedeschide aplicația pentru a o folosi',
   'chat.system_audio_started_system_message':
     'Partajarea sunetului sistemului a început. O mică latență între dispozitivul gazdă și dispozitivele invitate este normală. Îți recomandăm să reduci volumul dispozitivului gazdă pentru a evita ecoul.',
   'chat.system_audio_stopped_system_message':
@@ -741,6 +737,12 @@ const ro: Record<I18nKey, string> = {
     'Dacă treci la altă aplicație sau ecranul se stinge, sunetul se poate întrerupe sau poate pierde sincronizarea.',
   'dialog.sw_update_title': 'Actualizare',
   'dialog.sw_update_msg': 'Este disponibilă o versiune nouă.\nReîncarcă pentru actualizare.',
+  'dialog.sw_update_apply': 'Aplică',
+  'dialog.sw_update_apply_msg': 'Este disponibilă o versiune nouă.\nAplicarea reîncarcă pagina.',
+  'dialog.sw_update_room_host_msg':
+    'Este disponibilă o versiune nouă.\nPentru a o aplica, trebuie să redeschizi camera.',
+  'dialog.sw_update_room_guest_msg':
+    'Este disponibilă o versiune nouă.\nPentru a o aplica, trebuie să intri din nou în cameră.',
   'dialog.feature_refresh_title': 'Este necesară reîncărcarea',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE a fost actualizat.\nReîncarcă pagina pentru a-l folosi în continuare normal.',

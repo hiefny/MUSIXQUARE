@@ -434,10 +434,6 @@ const pl: Record<I18nKey, string> = {
     'Plik tego materiału jest bardzo duży i może nie zostać odtworzony na niektórych urządzeniach.',
   'chat.device_track_unavailable_system_message':
     'To urządzenie nie może odtworzyć bieżącego materiału.',
-  'chat.update_available_tab_system_message':
-    'Dostępna jest nowa wersja MUSIXQUARE\nOdśwież stronę, aby ją zastosować',
-  'chat.update_available_app_system_message':
-    'Dostępna jest nowa wersja MUSIXQUARE\nOtwórz ponownie aplikację, aby ją zastosować',
   'chat.system_audio_started_system_message':
     'Rozpoczęto udostępnianie dźwięku systemowego. Niewielkie opóźnienie między urządzeniem hosta a urządzeniami uczestników jest normalne. Zalecamy zmniejszenie głośności urządzenia hosta, aby uniknąć echa.',
   'chat.system_audio_stopped_system_message':
@@ -739,6 +735,12 @@ const pl: Record<I18nKey, string> = {
     'Jeśli przełączysz się na inną aplikację lub ekran zgaśnie, dźwięk może zostać przerwany lub stracić synchronizację.',
   'dialog.sw_update_title': 'Aktualizacja',
   'dialog.sw_update_msg': 'Dostępna jest nowa wersja.\nOdśwież stronę, aby ją zastosować.',
+  'dialog.sw_update_apply': 'Zastosuj',
+  'dialog.sw_update_apply_msg': 'Dostępna jest nowa wersja.\nZastosowanie jej odświeży stronę.',
+  'dialog.sw_update_room_host_msg':
+    'Dostępna jest nowa wersja.\nAby ją zastosować, musisz ponownie otworzyć pokój.',
+  'dialog.sw_update_room_guest_msg':
+    'Dostępna jest nowa wersja.\nAby ją zastosować, musisz ponownie dołączyć do pokoju.',
   'dialog.feature_refresh_title': 'Wymagane odświeżenie',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE został zaktualizowany.\nOdśwież stronę, aby dalej normalnie z niego korzystać.',

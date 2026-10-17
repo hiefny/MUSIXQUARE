@@ -6,7 +6,7 @@
  * unrelated exports that happen to share a name no longer keep each other
  * alive. Value/type space and prod/test/self evidence are reported separately.
  *
- * The binding-aware 20/78 count baselines record the reviewed runtime and
+ * The binding-aware 20/77 count baselines record the reviewed runtime and
  * server-authority surfaces. Fully-dead exports remain forbidden, and both
  * counts are shrink-only.
  * Module reachability is report-only and includes static value imports,
@@ -157,8 +157,12 @@ const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 // notice, so that platform export is no longer self-only.
 // 2026-10-13: reading dialogs call destroyCustomScrollbar on close, so that
 // lifecycle export is no longer test-only.
+// 2026-10-17: the in-room update notice is gone and isStandaloneDisplayMode is
+// module-private again; its tests observe the root standalone classes. The
+// update dialog helper types its result with DialogResult, so that dialog type
+// export is no longer self-only.
 const TEST_ONLY_BASELINE_COUNT = 20;
-const SELF_ONLY_BASELINE_COUNT = 78;
+const SELF_ONLY_BASELINE_COUNT = 77;
 
 function kindCounts(entries: readonly ExportEntry[]): Record<ExportKind, number> {
   return entries.reduce(

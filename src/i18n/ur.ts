@@ -421,10 +421,6 @@ const ur: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'اس ٹریک کی فائل بہت بڑی ہے اور شاید کچھ آلات پر نہ چلے۔',
   'chat.device_track_unavailable_system_message': 'یہ آلہ موجودہ ٹریک نہیں چلا سکتا۔',
-  'chat.update_available_tab_system_message':
-    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے\nلاگو کرنے کے لیے صفحہ ریفریش کریں',
-  'chat.update_available_app_system_message':
-    'اب MUSIXQUARE کا نیا ورژن دستیاب ہے\nلاگو کرنے کے لیے ایپ دوبارہ کھولیں',
   'chat.system_audio_started_system_message':
     'سسٹم آڈیو شیئر ہونا شروع ہو گیا ہے۔ میزبان اور مہمان آلات کے درمیان معمولی تاخیر عام ہے۔ بازگشت سے بچنے کے لیے میزبان آلے کی آواز کم رکھنے کا مشورہ ہے۔',
   'chat.system_audio_stopped_system_message':
@@ -717,6 +713,11 @@ const ur: Record<I18nKey, string> = {
     'دوسری ایپ پر جانے یا اسکرین بند کرنے سے آواز رک سکتی ہے یا سنک بگڑ سکتا ہے۔',
   'dialog.sw_update_title': 'اپ ڈیٹ',
   'dialog.sw_update_msg': 'نیا ورژن تیار ہے۔\nاپ ڈیٹ کے لیے ریفریش کریں۔',
+  'dialog.sw_update_apply': 'لاگو کریں',
+  'dialog.sw_update_apply_msg': 'نیا ورژن تیار ہے۔\nلاگو کرنے پر صفحہ دوبارہ لوڈ ہوگا۔',
+  'dialog.sw_update_room_host_msg': 'نیا ورژن تیار ہے۔\nلاگو کرنے کے لیے کمرہ دوبارہ کھولنا ہوگا۔',
+  'dialog.sw_update_room_guest_msg':
+    'نیا ورژن تیار ہے۔\nلاگو کرنے کے لیے کمرے میں دوبارہ شامل ہونا ہوگا۔',
   'dialog.feature_refresh_title': 'ریفریش کرنا ضروری ہے',
   'dialog.feature_refresh_msg':
     'اب MUSIXQUARE اپ ڈیٹ ہو چکا ہے۔\nمعمول کے مطابق استعمال جاری رکھنے کے لیے ریفریش کریں۔',

@@ -425,10 +425,6 @@ const mr: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'या ट्रॅकची फाइल खूप मोठी आहे आणि काही डिव्हाइसवर तो कदाचित प्ले होणार नाही.',
   'chat.device_track_unavailable_system_message': 'हे डिव्हाइस सध्याचा ट्रॅक प्ले करू शकत नाही.',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे\nलागू करण्यासाठी पेज रीफ्रेश करा',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE ची नवीन आवृत्ती उपलब्ध आहे\nलागू करण्यासाठी अ‍ॅप पुन्हा उघडा',
   'chat.system_audio_started_system_message':
     'सिस्टम ऑडिओ शेअरिंग सुरू झाले आहे. होस्ट आणि अतिथी डिव्हाइसदरम्यान थोडा विलंब होणे सामान्य आहे. प्रतिध्वनी टाळण्यासाठी होस्ट डिव्हाइसचा आवाज कमी ठेवण्याची शिफारस केली जाते.',
   'chat.system_audio_stopped_system_message':
@@ -720,6 +716,12 @@ const mr: Record<I18nKey, string> = {
     'दुसऱ्या अ‍ॅपवर गेल्यास किंवा स्क्रीन बंद झाल्यास आवाज थांबू शकतो किंवा सिंक बिघडू शकते.',
   'dialog.sw_update_title': 'अद्ययावत करा',
   'dialog.sw_update_msg': 'नवीन आवृत्ती तयार आहे.\nअद्ययावत करण्यासाठी रीफ्रेश करा.',
+  'dialog.sw_update_apply': 'लागू करा',
+  'dialog.sw_update_apply_msg': 'नवीन आवृत्ती तयार आहे.\nलागू केल्यावर पेज पुन्हा लोड होईल.',
+  'dialog.sw_update_room_host_msg':
+    'नवीन आवृत्ती तयार आहे.\nलागू करण्यासाठी रूम पुन्हा उघडावी लागेल.',
+  'dialog.sw_update_room_guest_msg':
+    'नवीन आवृत्ती तयार आहे.\nलागू करण्यासाठी रूममध्ये पुन्हा सामील व्हावे लागेल.',
   'dialog.feature_refresh_title': 'रीफ्रेश करणे आवश्यक आहे',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE अद्ययावत झाले आहे.\nनेहमीप्रमाणे वापरणे सुरू ठेवण्यासाठी रीफ्रेश करा.',

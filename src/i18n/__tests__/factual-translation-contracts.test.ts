@@ -246,64 +246,51 @@ describe('completed translation factual contracts', () => {
     );
   });
 
-  it('gives the in-room update notice a browser-tab and a home-screen form in every locale', () => {
+  it('gives the update dialog an Apply action and one message per place in every locale', () => {
     const english = APP_DICTIONARIES.en;
-    const tabKey = 'chat.update_available_tab_system_message';
-    const appKey = 'chat.update_available_app_system_message';
-    const commonPrefix = (left: string, right: string): string => {
-      let index = 0;
-      while (index < left.length && left[index] === right[index]) index += 1;
-      return left.slice(0, index);
-    };
+    const messageKeys = [
+      'dialog.sw_update_apply_msg',
+      'dialog.sw_update_room_host_msg',
+      'dialog.sw_update_room_guest_msg',
+    ] as const;
     expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
 
     for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
-      const tab = dictionary[tabKey];
-      const app = dictionary[appKey];
-      for (const [key, text] of [
-        [tabKey, tab],
-        [appKey, app],
-      ] as const) {
-        // The brand stays exact; the notice is plain chat text with no
-        // placeholders, markup, or numbers.
-        expect(text, `${language}.${key}`).toContain('MUSIXQUARE');
-        expect(text, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]/u);
-        // Owner decision 2026-10-15: one sentence per line.
-        expect(text.split('\n'), `${language}.${key} lines`).toHaveLength(2);
-        for (const line of text.split('\n')) {
-          expect(line.trim(), `${language}.${key} line`).toBe(line);
-          expect(line, `${language}.${key} line`).not.toBe('');
-          // Outside a room the notice is a toast. Short lines keep it compact
-          // on a phone, where a longer line wraps.
-          expect(Array.from(line).length, `${language}.${key} line length`).toBeLessThanOrEqual(50);
+      // Owner decision 2026-10-17: the action names the result, not the reload.
+      const apply = dictionary['dialog.sw_update_apply'];
+      expect(apply.trim(), `${language} apply label`).toBe(apply);
+      expect(apply, `${language} apply label`).not.toBe('');
+      expect(apply, `${language} apply label`).not.toBe(dictionary['common.refresh']);
+      // Every message opens with the same news as the existing update copy,
+      // then says what applying does there: reload the page, reopen the room
+      // (a host), or enter the room again (anyone else in a room).
+      const ready = dictionary['dialog.sw_update_msg'].split('\n')[0];
+      const consequences = new Set<string>();
+      for (const key of messageKeys) {
+        const lines = dictionary[key].split('\n');
+        expect(lines, `${language}.${key} lines`).toHaveLength(2);
+        expect(lines[0], `${language}.${key} first line`).toBe(ready);
+        const consequence = lines[1] ?? '';
+        expect(consequence.trim(), `${language}.${key}`).toBe(consequence);
+        expect(consequence, `${language}.${key}`).not.toBe('');
+        expect(consequence, `${language}.${key}`).not.toMatch(/\{\{|<|[0-9]/u);
+        consequences.add(consequence);
+        if (language !== 'en') {
+          expect(dictionary[key], `${language}.${key} English copy`).not.toBe(english[key]);
         }
       }
-      // Both say the same news ("a new MUSIXQUARE version is available") and
-      // differ only in how it applies: reload the tab, or reopen the app.
-      expect(app, language).not.toBe(tab);
-      expect(commonPrefix(tab, app), language).toContain('MUSIXQUARE');
-      // Chat rows render with dir="auto", which takes the line direction from
-      // its first strong character. An RTL notice that opened with the Latin
-      // brand would be laid out left to right.
-      if (languageDirection(language as LanguageCode) === 'rtl') {
-        for (const text of [tab, app]) {
-          expect(text, `${language} opens with RTL script`).toMatch(
-            /^(?:\p{Script=Arabic}|\p{Script=Hebrew}|\u200F)/u,
-          );
-        }
-      }
-      if (language === 'en') continue;
-      expect(tab, `${language}.${tabKey} English copy`).not.toBe(english[tabKey]);
-      expect(app, `${language}.${appKey} English copy`).not.toBe(english[appKey]);
+      expect(consequences.size, `${language} distinct consequences`).toBe(messageKeys.length);
     }
 
-    expect([APP_DICTIONARIES.ko[tabKey], APP_DICTIONARIES.ko[appKey]]).toEqual([
-      'MUSIXQUARE의 새 버전이 있어요\n페이지를 새로고침하면 적용돼요',
-      'MUSIXQUARE의 새 버전이 있어요\n앱을 다시 열면 적용돼요',
-    ]);
-    expect([english[tabKey], english[appKey]]).toEqual([
-      'A new version of MUSIXQUARE is available\nRefresh the page to apply it',
-      'A new version of MUSIXQUARE is available\nReopen the app to apply it',
+    // Owner-approved copy, 2026-10-17.
+    expect([
+      APP_DICTIONARIES.ko['dialog.sw_update_apply'],
+      ...messageKeys.map((key) => APP_DICTIONARIES.ko[key]),
+    ]).toEqual([
+      '적용하기',
+      '새 버전이 준비되었어요.\n적용하면 페이지를 새로고침해요.',
+      '새 버전이 준비되었어요.\n적용하려면 방을 다시 열어야 해요.',
+      '새 버전이 준비되었어요.\n적용하려면 방에 다시 입장해야 해요.',
     ]);
   });
 

@@ -21,31 +21,30 @@ describe('service-worker update coordination', () => {
     vi.useRealTimers();
   });
 
-  it('persists Later for one exact known generation and immediately admits a replacement', () => {
+  it('cools down one exact generation briefly after a failed presentation', () => {
     const ledger = createServiceWorkerUpdateLedger();
     const v494 = generation('v494');
     const now = 1_000_000;
 
-    ledger.rememberDismissal(v494, now);
+    ledger.rememberPresentationFailure(v494, now);
 
-    expect(createServiceWorkerUpdateLedger().isDismissed(v494, now + 23 * 60 * 60 * 1000)).toBe(
-      true,
-    );
+    expect(createServiceWorkerUpdateLedger().isDismissed(v494, now + 4 * 60 * 1000)).toBe(true);
     expect(createServiceWorkerUpdateLedger().isDismissed(generation('v495'), now + 1)).toBe(false);
-    expect(createServiceWorkerUpdateLedger().isDismissed(v494, now + 24 * 60 * 60 * 1000)).toBe(
-      false,
-    );
+    expect(createServiceWorkerUpdateLedger().isDismissed(v494, now + 5 * 60 * 1000)).toBe(false);
   });
 
-  it('bounds an unknown mixed-version worker dismissal to thirty minutes', () => {
-    const ledger = createServiceWorkerUpdateLedger();
-    const unknown = generation(null, 'unknown:https://musixquare.com/service-worker.js');
+  it('drops a 24-hour Later that an older version stored', () => {
+    const key = 'mxqr-sw-update-dismissal-v1';
     const now = 2_000_000;
+    // Versions up to 8.11.10 stored this when the user chose Later. Later is now
+    // kept by the page only, so the next open asks again.
+    localStorage.setItem(
+      key,
+      JSON.stringify({ identity: 'v494', expiresAt: now + 24 * 60 * 60 * 1000 }),
+    );
 
-    ledger.rememberDismissal(unknown, now);
-
-    expect(ledger.isDismissed(unknown, now + 29 * 60 * 1000)).toBe(true);
-    expect(ledger.isDismissed(unknown, now + 30 * 60 * 1000)).toBe(false);
+    expect(createServiceWorkerUpdateLedger().isDismissed(generation('v494'), now)).toBe(false);
+    expect(localStorage.getItem(key)).toBeNull();
   });
 
   it('gives one client the prompt lease while allowing a newer generation to supersede it', () => {

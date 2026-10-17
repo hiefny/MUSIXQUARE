@@ -422,10 +422,6 @@ const gu: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'આ ટ્રૅકની ફાઇલ બહુ મોટી છે અને કેટલાક ડિવાઇસ પર કદાચ નહીં ચાલે.',
   'chat.device_track_unavailable_system_message': 'આ ડિવાઇસ હાલનો ટ્રૅક ચલાવી શકતું નથી.',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE ની નવી આવૃત્તિ ઉપલબ્ધ છે\nલાગુ કરવા પેજ રિફ્રેશ કરો',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE ની નવી આવૃત્તિ ઉપલબ્ધ છે\nલાગુ કરવા ઍપ ફરી ખોલો',
   'chat.system_audio_started_system_message':
     'સિસ્ટમ ઑડિયો શેરિંગ શરૂ થયું છે. હોસ્ટ અને મહેમાન ડિવાઇસ વચ્ચે થોડો વિલંબ સામાન્ય છે. પડઘો ટાળવા હોસ્ટ ડિવાઇસનો અવાજ ઘટાડવાની ભલામણ છે.',
   'chat.system_audio_stopped_system_message':
@@ -712,6 +708,11 @@ const gu: Record<I18nKey, string> = {
     'બીજી ઍપ પર જવાથી કે સ્ક્રીન બંધ થવાથી અવાજ અટકી શકે છે અથવા સિંક બગડી શકે છે.',
   'dialog.sw_update_title': 'અપડેટ',
   'dialog.sw_update_msg': 'નવી આવૃત્તિ તૈયાર છે.\nઅપડેટ કરવા રિફ્રેશ કરો.',
+  'dialog.sw_update_apply': 'લાગુ કરો',
+  'dialog.sw_update_apply_msg': 'નવી આવૃત્તિ તૈયાર છે.\nલાગુ કરવાથી પેજ ફરી લોડ થશે.',
+  'dialog.sw_update_room_host_msg': 'નવી આવૃત્તિ તૈયાર છે.\nલાગુ કરવા માટે રૂમ ફરીથી ખોલવો પડશે.',
+  'dialog.sw_update_room_guest_msg':
+    'નવી આવૃત્તિ તૈયાર છે.\nલાગુ કરવા માટે રૂમમાં ફરીથી જોડાવું પડશે.',
   'dialog.feature_refresh_title': 'રિફ્રેશ કરવું જરૂરી છે',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE અપડેટ થયું છે.\nસામાન્ય રીતે વાપરવાનું ચાલુ રાખવા રિફ્રેશ કરો.',

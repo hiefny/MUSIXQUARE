@@ -389,17 +389,33 @@ describe('Platform Detection', () => {
     });
   });
 
-  describe('isStandaloneDisplayMode', () => {
-    it('returns false in normal browser mode', async () => {
+  describe('standalone display mode', () => {
+    const stubDisplayModeQuery = (standalone: boolean) => {
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: vi.fn((query: string) => ({
+          matches: query === '(display-mode: standalone)' ? standalone : false,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        })),
+      });
+    };
+    const rootClasses = () => document.documentElement.classList;
+
+    it('leaves a normal browser tab unmarked', async () => {
       Object.defineProperty(navigator, 'userAgent', {
         value: 'Mozilla/5.0 (Windows NT 10.0)',
         configurable: true,
       });
-      const { isStandaloneDisplayMode } = await import('../platform.ts');
-      expect(isStandaloneDisplayMode()).toBe(false);
+      Object.defineProperty(navigator, 'standalone', { value: undefined, configurable: true });
+      stubDisplayModeQuery(false);
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+      expect(rootClasses().contains('standalone')).toBe(false);
+      expect(rootClasses().contains('ios-standalone')).toBe(false);
     });
 
-    it('returns true when navigator.standalone is set (iOS Safari)', async () => {
+    it('marks an iOS home-screen app from navigator.standalone', async () => {
       Object.defineProperty(navigator, 'userAgent', {
         value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)',
         configurable: true,
@@ -408,8 +424,24 @@ describe('Platform Detection', () => {
         value: true,
         configurable: true,
       });
-      const { isStandaloneDisplayMode } = await import('../platform.ts');
-      expect(isStandaloneDisplayMode()).toBe(true);
+      stubDisplayModeQuery(false);
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+      expect(rootClasses().contains('standalone')).toBe(true);
+      expect(rootClasses().contains('ios-standalone')).toBe(true);
+    });
+
+    it('marks an installed app from the display-mode query', async () => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (Windows NT 10.0)',
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'standalone', { value: undefined, configurable: true });
+      stubDisplayModeQuery(true);
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+      expect(rootClasses().contains('standalone')).toBe(true);
+      expect(rootClasses().contains('ios-standalone')).toBe(false);
     });
   });
 

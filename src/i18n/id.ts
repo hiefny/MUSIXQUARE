@@ -654,6 +654,12 @@ const id: Record<I18nKey, string> = {
     'Beralih ke aplikasi lain atau mematikan layar bisa membuat suara berhenti atau sinkronisasi meleset.',
   'dialog.sw_update_title': 'Pembaruan',
   'dialog.sw_update_msg': 'Versi baru siap.\nMuat ulang untuk memperbarui.',
+  'dialog.sw_update_apply': 'Terapkan',
+  'dialog.sw_update_apply_msg': 'Versi baru siap.\nMenerapkannya akan memuat ulang halaman.',
+  'dialog.sw_update_room_host_msg':
+    'Versi baru siap.\nUntuk menerapkannya, Anda perlu membuka ruang lagi.',
+  'dialog.sw_update_room_guest_msg':
+    'Versi baru siap.\nUntuk menerapkannya, Anda perlu bergabung ke ruang lagi.',
   'dialog.feature_refresh_title': 'Perlu dimuat ulang',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE telah diperbarui.\nMuat ulang agar tetap bisa digunakan dengan normal.',
@@ -808,10 +814,6 @@ const id: Record<I18nKey, string> = {
     'Ukuran media ini sangat besar dan mungkin tidak dapat diputar di sebagian perangkat.',
   'chat.device_track_unavailable_system_message':
     'Perangkat ini tidak dapat memutar media saat ini.',
-  'chat.update_available_tab_system_message':
-    'Versi baru MUSIXQUARE tersedia\nMuat ulang halaman untuk menerapkannya',
-  'chat.update_available_app_system_message':
-    'Versi baru MUSIXQUARE tersedia\nBuka ulang aplikasi untuk menerapkannya',
   'chat.system_audio_started_system_message':
     'Berbagi audio sistem dimulai. Sedikit jeda antara host dan peserta adalah wajar, jadi sebaiknya turunkan volume perangkat host sebisa mungkin agar tidak bergema.',
   'chat.system_audio_stopped_system_message':

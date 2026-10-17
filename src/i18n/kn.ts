@@ -434,10 +434,6 @@ const kn: Record<I18nKey, string> = {
     'ಈ ಟ್ರ್ಯಾಕ್‌ನ ಫೈಲ್ ಗಾತ್ರ ಬಹಳ ದೊಡ್ಡದಾಗಿದೆ ಮತ್ತು ಕೆಲವು ಸಾಧನಗಳಲ್ಲಿ ಪ್ಲೇ ಆಗದಿರಬಹುದು.',
   'chat.device_track_unavailable_system_message':
     'ಈ ಸಾಧನವು ಪ್ರಸ್ತುತ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಪ್ಲೇ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ.',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ\nಅನ್ವಯಿಸಲು ಪುಟವನ್ನು ರಿಫ್ರೆಶ್ ಮಾಡಿ',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE ನ ಹೊಸ ಆವೃತ್ತಿ ಲಭ್ಯವಿದೆ\nಅನ್ವಯಿಸಲು ಆ್ಯಪ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆಯಿರಿ',
   'chat.system_audio_started_system_message':
     'ಸಿಸ್ಟಮ್ ಆಡಿಯೊ ಹಂಚಿಕೆ ಪ್ರಾರಂಭವಾಗಿದೆ. ಹೋಸ್ಟ್ ಮತ್ತು ಅತಿಥಿ ಸಾಧನಗಳ ನಡುವೆ ಸ್ವಲ್ಪ ವಿಳಂಬ ಸಹಜ. ಪ್ರತಿಧ್ವನಿ ತಪ್ಪಿಸಲು ಹೋಸ್ಟ್ ಸಾಧನದ ಧ್ವನಿಮಟ್ಟ ಕಡಿಮೆ ಮಾಡುವಂತೆ ಶಿಫಾರಸು ಮಾಡುತ್ತೇವೆ.',
   'chat.system_audio_stopped_system_message':
@@ -732,6 +728,11 @@ const kn: Record<I18nKey, string> = {
     'ಬೇರೆ ಆ್ಯಪ್‌ಗೆ ಬದಲಾಯಿಸಿದರೆ ಅಥವಾ ಪರದೆ ಆಫ್ ಆದರೆ ಧ್ವನಿ ನಿಲ್ಲಬಹುದು ಅಥವಾ ಸಿಂಕ್ ತಪ್ಪಬಹುದು.',
   'dialog.sw_update_title': 'ನವೀಕರಿಸಿ',
   'dialog.sw_update_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ.\nನವೀಕರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',
+  'dialog.sw_update_apply': 'ಅನ್ವಯಿಸಿ',
+  'dialog.sw_update_apply_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ.\nಅನ್ವಯಿಸಿದರೆ ಪುಟ ಮರುಲೋಡ್ ಆಗುತ್ತದೆ.',
+  'dialog.sw_update_room_host_msg':
+    'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ.\nಅನ್ವಯಿಸಲು ರೂಮ್ ಅನ್ನು ಮತ್ತೆ ತೆರೆಯಬೇಕು.',
+  'dialog.sw_update_room_guest_msg': 'ಹೊಸ ಆವೃತ್ತಿ ಸಿದ್ಧವಾಗಿದೆ.\nಅನ್ವಯಿಸಲು ರೂಮ್‌ಗೆ ಮತ್ತೆ ಸೇರಬೇಕು.',
   'dialog.feature_refresh_title': 'ರಿಫ್ರೆಶ್ ಮಾಡಬೇಕಾಗಿದೆ',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE ನವೀಕರಿಸಲಾಗಿದೆ.\nಎಂದಿನಂತೆ ಬಳಸುವುದನ್ನು ಮುಂದುವರಿಸಲು ರಿಫ್ರೆಶ್ ಮಾಡಿ.',

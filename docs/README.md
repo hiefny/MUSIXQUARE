@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [One update dialog everywhere — 2026-10-17](design/update-dialog-everywhere-2026-10-17.md) —
+  A waiting update gets the same dialog (적용하기 / 나중에) on every screen, rooms and the
+  demo included, with copy that says what applying costs. 나중에 lasts for the page, and a
+  room guest returns to the room's Start screen. Replaces the in-room notice and the 8.11.6
+  apply on reopen. Records the tests, a local browser check, and limits.
 - [Screensaver caption glow and combined centering — 2026-10-17](design/screensaver-caption-glow-centering-2026-10-17.md) —
   Weak blue description glow, combined weather/AQI/moon alignment, and preserved
   local Safari diagnosis; records the visual-test adjudication, local validation,
@@ -107,6 +112,7 @@ runbooks. Neither belongs in a general setup document.
 - [Apply a waiting update on reopen — 2026-10-16](design/update-apply-on-reopen-2026-10-16.md) —
   A reload or reopen outside a room, including an invite link before Start, now applies
   a waiting update without asking again. Records the cause, the room guard, test limits, and the 8.11.6 release evidence.
+  Replaced on 2026-10-17 by [one update dialog everywhere](design/update-dialog-everywhere-2026-10-17.md).
 - [Screensaver caption rendering regression — 2026-10-16](design/screensaver-caption-rendering-2026-10-16.md) —
   restores whole-caption rendering after missing small-letter strokes were reported;
   records the source regression and browser-reproduction limits.
@@ -353,7 +359,8 @@ labeled portion still supports a current guard or operating interpretation:
   ("새로고침이 필요해요" / "MUSIXQUARE가 업데이트되었어요. 정상적으로
   사용하려면 새로고침이 필요해요.", 42 locales; v658 follow-up, v659 after
   merging App 8.9.6). Local unit, coverage, build, and Chromium browser checks
-  with screenshots; no real-device or native-speaker review.
+  with screenshots; no real-device or native-speaker review. The chat notice, toast, and
+  deferral were replaced on 2026-10-17 by [one update dialog everywhere](design/update-dialog-everywhere-2026-10-17.md).
 - [Standard-room owner PIN — 2026-10-11](design/standard-room-owner-pin-2026-10-11.md) —
   App 8.10.0 with the signaling Worker (released 2026-10-12, target `all`; tested at
   v655, ships as v659 with the in-room update prompt):

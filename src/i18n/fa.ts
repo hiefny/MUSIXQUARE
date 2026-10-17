@@ -420,10 +420,6 @@ const fa: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'حجم فایل این قطعه بسیار زیاد است و ممکن است در بعضی دستگاه‌ها پخش نشود.',
   'chat.device_track_unavailable_system_message': 'این دستگاه نمی‌تواند قطعهٔ فعلی را پخش کند.',
-  'chat.update_available_tab_system_message':
-    'نسخهٔ جدید MUSIXQUARE آماده است\nبرای اعمال آن، صفحه را تازه‌سازی کنید',
-  'chat.update_available_app_system_message':
-    'نسخهٔ جدید MUSIXQUARE آماده است\nبرای اعمال آن، برنامه را دوباره باز کنید',
   'chat.system_audio_started_system_message':
     'اشتراک‌گذاری صدای سیستم آغاز شد. کمی تأخیر میان دستگاه میزبان و مهمان‌ها طبیعی است. برای جلوگیری از پژواک، صدای دستگاه میزبان را کم کنید.',
   'chat.system_audio_stopped_system_message':
@@ -718,6 +714,12 @@ const fa: Record<I18nKey, string> = {
     'اگر به برنامهٔ دیگری بروید یا صفحه‌نمایش را خاموش کنید، ممکن است صدا قطع یا ناهمگام شود.',
   'dialog.sw_update_title': 'به‌روزرسانی',
   'dialog.sw_update_msg': 'نسخهٔ جدید آماده است.\nبرای به‌روزرسانی، تازه‌سازی کنید.',
+  'dialog.sw_update_apply': 'اعمال',
+  'dialog.sw_update_apply_msg': 'نسخهٔ جدید آماده است.\nبا اعمال آن، صفحه دوباره بارگیری می‌شود.',
+  'dialog.sw_update_room_host_msg':
+    'نسخهٔ جدید آماده است.\nبرای اعمال آن باید اتاق را دوباره باز کنید.',
+  'dialog.sw_update_room_guest_msg':
+    'نسخهٔ جدید آماده است.\nبرای اعمال آن باید دوباره به اتاق بپیوندید.',
   'dialog.feature_refresh_title': 'تازه‌سازی صفحه لازم است',
   'dialog.feature_refresh_msg':
     'برنامهٔ MUSIXQUARE به‌روزرسانی شده است.\nبرای ادامهٔ استفادهٔ عادی از آن، صفحه را تازه‌سازی کنید.',

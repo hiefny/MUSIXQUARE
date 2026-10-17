@@ -41,6 +41,12 @@ interface DialogOptions {
   onSecondaryActivation?: () => void;
   /** Cancels a queued or active dialog without disturbing another dialog. */
   signal?: AbortSignal;
+  /**
+   * Re-reads callback copy whenever this subscription fires, as a locale
+   * change does, so copy that depends on app state follows it while the
+   * dialog is open. Returns its unsubscribe, which runs when the dialog closes.
+   */
+  refreshOn?: (refresh: () => void) => () => void;
   inputField?: {
     placeholder?: DialogText;
     defaultValue?: string;
@@ -684,39 +690,39 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
     }
   };
 
-  cleanup.push(
-    bus.on('i18n:changed', () => {
-      applyPageCopy();
-      const inputTitle = dialogText(o.title) || t('common.info');
-      messageNode.textContent = dialogText(o.message);
-      applyUserTextFontFallback(msgEl, messageNode.textContent || '');
-      if (_dialogInput && inputCfg) {
-        const currentPlaceholder = dialogText(inputCfg.placeholder);
-        _dialogInput.setAttribute('aria-label', currentPlaceholder || inputTitle);
-        if (_dialogInput.classList.contains('dialog-input')) {
-          if (currentPlaceholder) _dialogInput.setAttribute('data-placeholder', currentPlaceholder);
-          else _dialogInput.removeAttribute('data-placeholder');
-        }
-        _dialogInput.querySelectorAll('.dialog-input-segment').forEach((input, index) => {
-          input.setAttribute('aria-label', `${currentPlaceholder || inputTitle} ${index + 1}`);
-        });
-        _dialogHintDefault = dialogText(inputCfg.hint);
-        if (_dialogHint) {
-          const rawValue = _dialogInputValueGetter?.() || '';
-          const value = _dialogPreserveWhitespace ? rawValue : rawValue.trim();
-          _dialogHint.textContent =
-            (_dialogHint.classList.contains('error') ? _dialogValidator?.(value) : null) ||
-            _dialogHintDefault;
-          applyUserTextFontFallback(_dialogHint, _dialogHint.textContent);
-        }
+  const refreshCopy = () => {
+    applyPageCopy();
+    const inputTitle = dialogText(o.title) || t('common.info');
+    messageNode.textContent = dialogText(o.message);
+    applyUserTextFontFallback(msgEl, messageNode.textContent || '');
+    if (_dialogInput && inputCfg) {
+      const currentPlaceholder = dialogText(inputCfg.placeholder);
+      _dialogInput.setAttribute('aria-label', currentPlaceholder || inputTitle);
+      if (_dialogInput.classList.contains('dialog-input')) {
+        if (currentPlaceholder) _dialogInput.setAttribute('data-placeholder', currentPlaceholder);
+        else _dialogInput.removeAttribute('data-placeholder');
       }
-      if (choice) {
-        choice.refresh();
-        resetStepOffset();
-        choice.updateEdges();
+      _dialogInput.querySelectorAll('.dialog-input-segment').forEach((input, index) => {
+        input.setAttribute('aria-label', `${currentPlaceholder || inputTitle} ${index + 1}`);
+      });
+      _dialogHintDefault = dialogText(inputCfg.hint);
+      if (_dialogHint) {
+        const rawValue = _dialogInputValueGetter?.() || '';
+        const value = _dialogPreserveWhitespace ? rawValue : rawValue.trim();
+        _dialogHint.textContent =
+          (_dialogHint.classList.contains('error') ? _dialogValidator?.(value) : null) ||
+          _dialogHintDefault;
+        applyUserTextFontFallback(_dialogHint, _dialogHint.textContent);
       }
-    }),
-  );
+    }
+    if (choice) {
+      choice.refresh();
+      resetStepOffset();
+      choice.updateEdges();
+    }
+  };
+  cleanup.push(bus.on('i18n:changed', refreshCopy));
+  if (o.refreshOn) cleanup.push(o.refreshOn(refreshCopy));
   if (o.signal) {
     on(o.signal, 'abort', () => {
       if (_dialogActive?.resolve === resolve) closeDialog('superseded');

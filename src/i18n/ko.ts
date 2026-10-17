@@ -418,10 +418,6 @@ const ko = {
   'chat.large_local_track_system_message':
     '현재 트랙의 용량이 매우 커 일부 기기에서는 재생되지 않을 수 있어요.',
   'chat.device_track_unavailable_system_message': '이 기기에서는 현재 트랙을 재생할 수 없어요.',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE의 새 버전이 있어요\n페이지를 새로고침하면 적용돼요',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE의 새 버전이 있어요\n앱을 다시 열면 적용돼요',
   'chat.system_audio_started_system_message':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연은 필연적으로 발생하기 때문에 방장 기기의 볼륨은 최대한 낮춰주세요.',
   'chat.system_audio_stopped_system_message':
@@ -712,6 +708,10 @@ const ko = {
     '다른 앱으로 넘어가거나 화면이 꺼지면 소리가 멈추거나 싱크가 어긋날 수 있어요.',
   'dialog.sw_update_title': '업데이트',
   'dialog.sw_update_msg': '새 버전이 준비되었어요.\n새로고침하면 업데이트가 적용돼요.',
+  'dialog.sw_update_apply': '적용하기',
+  'dialog.sw_update_apply_msg': '새 버전이 준비되었어요.\n적용하면 페이지를 새로고침해요.',
+  'dialog.sw_update_room_host_msg': '새 버전이 준비되었어요.\n적용하려면 방을 다시 열어야 해요.',
+  'dialog.sw_update_room_guest_msg': '새 버전이 준비되었어요.\n적용하려면 방에 다시 입장해야 해요.',
   'dialog.feature_refresh_title': '새로고침이 필요해요',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE가 업데이트되었어요.\n정상적으로 사용하려면 새로고침이 필요해요.',

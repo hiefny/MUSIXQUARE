@@ -114,10 +114,25 @@ Final local verification (runtime source fixed before this run):
   fullscreen completion, CSS owners and exception/cancellation cleanup; no
   remaining P1/P2 was identified.
 
+Final remote verification used the merged main SHA
+`336e80cdcad1ef35ce063540297a99e2e331d841` from
+[PR #383](https://github.com/hiefny/MUSIXQUARE/pull/383).
+[Exact-main CI 39008608569](https://github.com/hiefny/MUSIXQUARE/actions/runs/39008608569)
+passed all 11 jobs. Its unit shards total **578 files / 12,972 pass / 1 skip /
+0 fail**. The Linux skip is the Windows-only other-drive artifact-path test in
+`pro-grant-campaign-cli.test.ts`; that test passed in the local Windows suite.
+Production-candidate browser checks passed **17/17** (35.8s), and the blocking
+critical-browser selection, including the ten Back tests, passed **55/55**
+(3.2m). The final PR-head CI also passed, and GitHub Codex review of `16d25f3`
+reported no findings. The release used the exact-main candidate, not the PR
+build or local output.
+
 ## Limits and physical follow-up
 
 Two animation frames are rendering opportunities, not a WebKit snapshot-release
 API. Desktop Chromium/WebKit cannot prove native iOS edge-swipe rendering.
+Browser verification covered the blocking and targeted selections above; the
+complete browser E2E suite was not run for this release.
 The owner must verify the deployed app in Safari and installed PWA: room entry,
 media/notice nesting, Stay and repeated Back, required recovery dialogs,
 animated close, and a real preceding page.
@@ -132,5 +147,46 @@ are unchanged.
 
 ## Release and recovery
 
-Pending exact-main CI candidate and Production Release. No production change
-has been made by this task yet.
+[Production Release 39009031876](https://github.com/hiefny/MUSIXQUARE/actions/runs/39009031876)
+attempt 1 succeeded for `target=app`, `apply_developer_api_d1=false`. The deploy
+job completed at **2026-10-17 15:13:55 KST (06:13:55 UTC)**. App **8.11.12 /
+cache v712** was deployed from main `336e80cdcad1ef35ce063540297a99e2e331d841`,
+using [immutable candidate artifact 12092440097](https://github.com/hiefny/MUSIXQUARE/actions/runs/39008608569/artifacts/12092440097).
+Candidate tools were Node 24.20.0, npm 11.19.0 and Wrangler 4.148.0.
+
+- App Worker version: `b57a7ba8-75c6-4524-bf9a-a0e6146453eb`.
+- App deployment: `bc566df4-8229-4e17-b705-d5b1a781a24a`.
+- Final release ownership was verified at 06:13:50.886 UTC against that exact
+  version, deployment and Git SHA. The coherent production marker was saved.
+- All four applicable operational smokes passed: App generation, anonymous
+  App account boundary, current PRO public boundary, and Standard HTTPS
+  signaling fallback. Unselected Worker smokes were skipped; those Workers
+  were not redeployed and passed the partial-release compatibility recheck.
+- [Operations Drift Audit 39009160344](https://github.com/hiefny/MUSIXQUARE/actions/runs/39009160344)
+  succeeded: **31 pass / 0 fail / 5 manual-only** at 06:14:41.509 UTC;
+  its audit job completed at 06:14:51 UTC.
+- Evidence: [deployment/verification artifact 12092242363](https://github.com/hiefny/MUSIXQUARE/actions/runs/39009031876/artifacts/12092242363)
+  and [coherent marker artifact 12092356263](https://github.com/hiefny/MUSIXQUARE/actions/runs/39009031876/artifacts/12092356263).
+
+At 06:14:15.253 UTC, all four public asset GETs returned HTTP 200 and matched
+the immutable candidate in both byte length and SHA-256:
+
+| Asset | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `/` | 140,676 | `0fa8abcc441b396b8190abbcba6e8092450c419d7c2ff38f26252dfdbacc8c38` |
+| `/service-worker.js` | 39,149 | `419b7eb1d360796a0e08bc07c349114274a29c91fe8c77b5f2202cc7c89816e2` |
+| `/bootstrap.js?cache=v712` | 10,196 | `23c52fb5e68902dae1411a342209c381dc607f0e35ebec423fa2c098962cdf51` |
+| `/assets/main-B1mHvDXw.js` | 437,229 | `5d9387ddeaecac620ba719b2695119ea2121b080288580030628845c2100f38d` |
+
+Rollback was unnecessary and was not executed. The
+[immutable recovery checkpoint 12091219796](https://github.com/hiefny/MUSIXQUARE/actions/runs/39009031876/artifacts/12091219796)
+was captured at 06:13:00.566 UTC before deployment. It preserves prior App
+**8.11.11 / v711**, Git SHA `019d510118dbe04df40bc78d6fd4d183ce18bc56`, Worker
+version `fc121774-ec25-43d0-a1aa-6a71f4cd327e` and deployment
+`15842e2c-10e2-4e1b-8015-3abf93b6520f`. A rollback would restore immediate Back
+guard registration and the known iOS symptom, with no persisted-data rollback.
+The release procedure must revalidate ownership and compatibility before any
+recovery. The checkpoint is not a user-data backup.
+
+The deployed-app physical iOS follow-up above remains open. Successful CI,
+public asset checks, operational smokes and drift checks do not close it.

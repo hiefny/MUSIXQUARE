@@ -94,3 +94,56 @@ payload root and two-module margin.
   code digits needs the paddings updated together (the test lists them).
 - A longer invite payload would need a larger QR code with a smaller relative
   margin, and the 8% would then shift the block by about a pixel.
+
+## Release and recovery
+
+The owner approved the deploy on 2026-10-18 once CI and the review passed.
+PR #391 was squash-merged as `6a934577fb51961372242375e299edd3e153a411` after
+PR CI 39055717353 (11 jobs) passed on head `510d4a24`; the Codex review
+finished with no findings. Exact-main push CI 39056172118 attempt 1 passed
+all 11 jobs: unit 581 files / 13,037 pass / 0 fail / 1 skip (a Windows-only
+path check on Linux), candidate browser 17 and critical browser 55 pass.
+
+Production Release 39056678732 attempt 1 (target `app`, Developer API D1
+disabled) deployed the exact-main candidate, artifact 12109237978 (Node
+24.20.0 / npm 11.19.0 / Wrangler 4.148.0):
+
+- Recovery checkpoint captured at 03:08:06.599 KST (artifact 12110095400). It
+  preserves App 8.11.15/v717, `d51eb367`, version `df193d32` / deployment
+  `2876a31b`. The worker floor was ready at 03:08:08.553 KST (release floor
+  `d9364cd9`, generation floor `4c5612d5`).
+- Partial-release recheck compatible at 03:08:44.960 KST. The five
+  unselected Workers kept their `d9364cd9` provenance and IDs.
+- App version `f773c444-1410-4977-9b3a-7ddfe307076c` / deployment
+  `f9d31731-9cb5-4341-bb5c-c537ca72b018`, verified by the final ownership
+  check at 03:09:13.460 KST, with the exact-SHA coherent marker recorded.
+- Operational smokes 4/4: App generation (`main-BMcvuojB.js` converged over
+  three reads), anonymous App account boundary, PRO public boundary, and
+  Standard HTTPS signaling. The seven App D1 baseline steps verified. The
+  deploy job completed at 03:09:18 KST. No rollback was needed, and the
+  recovery job was skipped.
+
+Public assets at 03:09:34 KST matched the candidate byte for byte (HTTP 200,
+same size and SHA-256):
+
+| Path | Bytes |
+| --- | --- |
+| `/` | 140,676 |
+| `/service-worker.js` (v718) | 39,149 |
+| `/bootstrap.js?cache=v718` | 10,196 |
+| `/assets/main-BMcvuojB.js` | 437,531 |
+| `/assets/main-DAlgOhYt.css` (holds this change) | 324,791 |
+
+The minifier writes `0.08 * min(...)` as `min(...)/12.5`, the same value.
+
+Operations Drift Audit 39056880139 attempt 1 on `6a934577`:
+automated-checks-passed, 31 pass / 0 fail / 5 manual-only.
+
+Rolling back to the checkpoint restores 8.11.15, whose box-based centering
+shows the block about 11px low on 방 참여하기 and 2–3px low elsewhere. No
+stored data or wire contract changed. A rollback re-verifies ownership and the
+floors as the procedure requires.
+
+Real devices and the full serial E2E suite were not run after the deploy. The
+device check stays open in the release record.
+

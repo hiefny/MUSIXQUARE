@@ -751,6 +751,7 @@ interface CompositorText extends Pick<
   x: number;
   y: number;
   blur: number;
+  glow: number;
   transform: DOMMatrix;
   left: number;
   top: number;
@@ -759,11 +760,13 @@ interface CompositorText extends Pick<
 }
 interface CompositorTextLayer {
   canvas: HTMLCanvasElement;
+  glowCanvas: HTMLCanvasElement;
 }
 interface CompositorTextGroup {
   texts: CompositorText[];
   transform: DOMMatrix;
   blur: number;
+  glow: number;
   left: number;
   top: number;
   right: number;
@@ -966,7 +969,7 @@ const compositor = (() => {
     assign(style, 'filter', sigma > 0.005 ? `blur(${sigma}px)` : 'none');
     assign(style, 'zIndex', String(++state.order));
   }
-  function text(target: CanvasContext, value: string, x: number, y: number, blur = 0) {
+  function text(target: CanvasContext, value: string, x: number, y: number, blur = 0, glow = 0) {
     if (!(target.globalAlpha > 0)) return;
     const measure = target.measureText(value);
     stateFor(target).texts.push({
@@ -974,6 +977,7 @@ const compositor = (() => {
       x,
       y,
       blur,
+      glow,
       transform: target.getTransform(),
       font: target.font,
       textAlign: target.textAlign,
@@ -992,7 +996,7 @@ const compositor = (() => {
     const groups = new Map<string, CompositorTextGroup>();
     for (const command of state.texts) {
       const { a, b, c, d, e, f } = command.transform;
-      const key = JSON.stringify([command.blur, a, b, c, d, e, f]);
+      const key = JSON.stringify([command.blur, command.glow, a, b, c, d, e, f]);
       let group = groups.get(key);
       if (!group) {
         group = { ...command, texts: [] };
@@ -1006,10 +1010,13 @@ const compositor = (() => {
     }
     let index = 0;
     for (const group of groups.values()) {
-      const layer = (state.textLayers[index++] ??= { canvas: document.createElement('canvas') });
-      const { canvas } = layer;
+      const layer = (state.textLayers[index++] ??= {
+        canvas: document.createElement('canvas'),
+        glowCanvas: document.createElement('canvas'),
+      });
+      const { canvas, glowCanvas } = layer;
       const scale = Math.max(0.1, Math.hypot(group.transform.a, group.transform.b));
-      const padding = Math.max(16, (group.bottom - group.top) * 0.25);
+      const padding = Math.max(16, (group.bottom - group.top) * 0.25, group.glow * 4);
       const left = Math.floor((group.left - padding) * scale) / scale;
       const top = Math.floor((group.top - padding) * scale) / scale;
       const width = Math.max(1, Math.ceil((group.right + padding - left) * scale));
@@ -1035,12 +1042,26 @@ const compositor = (() => {
       target.save();
       target.setTransform(group.transform);
       target.globalAlpha = 1;
+      if (group.glow > 0) {
+        if (glowCanvas.width !== width || glowCanvas.height !== height) {
+          glowCanvas.width = width;
+          glowCanvas.height = height;
+        }
+        const glowCtx = context(glowCanvas);
+        glowCtx.clearRect(0, 0, width, height);
+        glowCtx.globalAlpha = 0.22;
+        glowCtx.drawImage(blurEngine.solid(canvas, group.glow * scale, 'rgb(140,205,255)'), 0, 0);
+        glowCtx.globalAlpha = 1;
+        draw(target, glowCanvas, left, top, width / scale, height / scale, group.blur);
+      }
       draw(target, canvas, left, top, width / scale, height / scale, group.blur);
       target.restore();
     }
     for (const layer of state.textLayers.splice(index)) {
       forget(layer.canvas);
+      forget(layer.glowCanvas);
       layer.canvas.width = layer.canvas.height = 0;
+      layer.glowCanvas.width = layer.glowCanvas.height = 0;
     }
     state.texts.length = 0;
   }
@@ -1062,7 +1083,10 @@ const compositor = (() => {
   function dispose() {
     for (const state of states) {
       for (const entry of state.entries) remove(entry);
-      for (const layer of state.textLayers) layer.canvas.width = layer.canvas.height = 0;
+      for (const layer of state.textLayers) {
+        layer.canvas.width = layer.canvas.height = 0;
+        layer.glowCanvas.width = layer.glowCanvas.height = 0;
+      }
       state.textLayers.length = 0;
       state.texts.length = 0;
       state.root.remove();
@@ -4107,8 +4131,7 @@ function buildInfoLayout(
     fontSize *= Math.min(1, maxWidth / Math.max(1, width));
     measureMoon();
     const top = (h - fontSize) / 2;
-    const opticalBias = (gap + tailWidth) * (1 - SECONDS_CENTER_WEIGHT) * 0.5;
-    const left = (w - width) / 2 + opticalBias;
+    const left = (w - width) / 2;
     const bottom = top + fontSize;
     return {
       ...defaults,
@@ -4203,7 +4226,7 @@ function buildInfoLayout(
   measure();
   const totalHeight = Math.max(mainHeight, tailHeight);
   const top = (h - totalHeight) / 2;
-  const opticalBias = (width - primaryWidth) * (1 - SECONDS_CENTER_WEIGHT) * 0.5;
+  const opticalBias = isDate ? (width - primaryWidth) * (1 - SECONDS_CENTER_WEIGHT) * 0.5 : 0;
   const left = (w - width) / 2 + opticalBias;
   const bottom = top + totalHeight;
   const baseline = bottom - descent;
@@ -4811,7 +4834,7 @@ function drawInfoGlyph(
   if (!glyph.optical) {
     useInfoFont(weatherCtx, size, glyph.weight);
     weatherCtx.fillStyle = '#ffffff';
-    compositor.text(weatherCtx, glyph.char, x, y, blur);
+    compositor.text(weatherCtx, glyph.char, x, y, blur, (7 * size) / 80);
   } else if (tile) {
     const ratio = size / tile.fontSize;
     drawCompatImage(

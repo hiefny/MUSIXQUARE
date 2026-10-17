@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Screensaver caption glow and combined centering — 2026-10-17](design/screensaver-caption-glow-centering-2026-10-17.md) —
+  Weak blue description glow, combined weather/AQI/moon alignment, and preserved
+  local Safari diagnosis; product validation and the 8.11.10 release are pending.
 - [Back closes the topmost window — 2026-10-17](design/back-closes-top-window-2026-10-17.md) —
   History Back closes only the topmost window, in rooms and on the setup screens; with no window
   open it asks before leaving a room or moves to the previous page. Also closes the PRO re-entry
@@ -109,6 +112,10 @@ runbooks. Neither belongs in a general setup document.
 - [Image backgrounds and compatible screensaver effects — 2026-10-16](design/screensaver-image-backgrounds-2026-10-16.md) —
   The approved all-image background version, lazy immutable assets, and compatible
   foreground effects, with integration verification and release evidence.
+- [Safari screensaver blur diagnosis — 2026-10-16](design/screensaver-safari-filter-diagnosis-2026-10-16.md) —
+  Historical Canvas filter failure reproduced in native Windows WebKit before the
+  8.11.4 compatibility repair; preserves the original probe and physical iPhone
+  verification limits, with links to the subsequent repair and release evidence.
 
 - [Maximum text weight 700 — 2026-10-16](design/max-font-weight-700-2026-10-16.md) —
   Every text weight in the project is capped at 700, including badges, code

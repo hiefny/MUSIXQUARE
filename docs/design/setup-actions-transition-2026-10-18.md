@@ -104,3 +104,53 @@ test files that mock `setup-shared.ts` gained the new helper.
 
 - A room code that arrives within about 0.3 s of the tap still supersedes the
   tap transition, as recorded for 8.11.13.
+
+## Release and recovery
+
+The owner approved the deploy on 2026-10-18 once CI and the review passed.
+PR #395 was squash-merged as `06e2664538177e5ce2ff5c9b831aad6572dca37f` after
+PR CI 39066988568 (11 jobs) passed on head `13135c3f`; the Codex review
+finished with no findings. Exact-main push CI 39067630261 attempt 1 passed
+all 11 jobs: unit 583 files / 13,046 pass / 0 fail / 1 skip (a Windows-only
+path check on Linux), candidate browser 17 and critical browser 55 pass.
+
+Production Release 39068051083 attempt 1 (target `app`, Developer API D1
+disabled) deployed the exact-main candidate, artifact 12113672398 (Node
+24.20.0 / npm 11.19.0 / Wrangler 4.148.0):
+
+- Recovery checkpoint captured at 05:46:10.462 KST (artifact 12114405146). It
+  preserves App 8.11.17/v719, `ee9cd197`, version `cec75670` / deployment
+  `1757c1ac`. The worker floor was ready at 05:46:13.022 KST (release floor
+  `d9364cd9`, generation floor `4c5612d5`).
+- Partial-release recheck compatible at 05:46:35.949 KST. The five
+  unselected Workers kept their `d9364cd9` provenance and IDs.
+- App version `8c72ce0e-4500-4a9f-9433-dec671458490` / deployment
+  `fc8c0c4f-6d19-4606-9000-7c29c839beb0`, verified by the final ownership
+  check at 05:47:04.607 KST, with the exact-SHA coherent marker recorded.
+- Operational smokes 4/4: App generation (`main-Cm7Rj9xb.js` converged over
+  three reads), anonymous App account boundary, PRO public boundary, and
+  Standard HTTPS signaling. The seven App D1 baseline steps verified. The
+  deploy job completed at 05:47:10 KST. No rollback was needed, and the
+  recovery job was skipped.
+
+Public assets at 05:47:48 KST matched the candidate byte for byte (HTTP 200,
+same size and SHA-256):
+
+| Path | Bytes |
+| --- | --- |
+| `/` | 140,676 |
+| `/service-worker.js` (v720) | 39,149 |
+| `/bootstrap.js?cache=v720` | 10,196 |
+| `/assets/main-Cm7Rj9xb.js` (holds this change) | 437,646 |
+| `/assets/main-8_J0N3SU.css` | 324,945 |
+
+Operations Drift Audit 39068239551 attempt 1 on `06e26645`:
+automated-checks-passed, 31 pass / 0 fail / 5 manual-only.
+
+Rolling back to the checkpoint restores 8.11.17, whose setup buttons change
+before the outgoing capture, so the phone middle block jumps 36px at the
+first transition frame. No stored data or wire contract changed. A rollback
+re-verifies ownership and the floors as the procedure requires.
+
+Real devices and the full serial E2E suite were not run after the deploy.
+The device check stays open in the release record.

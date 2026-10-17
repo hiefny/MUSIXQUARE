@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Preload capacity: slow links, multiple recipients, and lifecycle — 2026-10-18](design/preload-capacity-validation-2026-10-18.md) —
+  Records 38 verified native RTC transfers, slow-link and eight-recipient comparisons,
+  cancellation/channel-replacement/promotion pins, local release checks, and the remaining
+  slow-receiver/control-queue limits. App 8.11.19/v721 release preparation.
 - [Setup buttons swapped inside the screen transition — 2026-10-18](design/setup-actions-transition-2026-10-18.md) —
   The setup actions changed before the transition captured the outgoing screen, so the
   centered phone middle block jumped 36px and the buttons skipped the crossfade when entering
@@ -109,6 +113,20 @@ runbooks. Neither belongs in a general setup document.
   On phone portrait, the first screen's carousel, the invite QR with its code, and the QR
   scanner with the code field sit midway between the header and the actions, with equal
   gaps. Records the layout measurements on five phones, tests, and limits. App 8.11.15/v717.
+- [Local repeat and native Android Pixel preload comparison — 2026-10-18](design/preload-local-pixel-retest-2026-10-18.md) —
+  Repeats the same scratch builds on Windows and checks native Android Chrome in
+  the existing Pixel AVD. Separates transfer/message timing from an unstable
+  no-preload media baseline, preserves setup failures, and records scope limits.
+  Pixel results do not confirm a consistent benefit from the 64 KiB threshold.
+- [Preload control-message priority investigation — 2026-10-18](design/preload-control-priority-investigation-2026-10-18.md) —
+  nine actual-YouTube direct-RTC trials compare the unchanged sender, a smaller
+  preload buffer threshold, and fixed pacing. Records latency/throughput tradeoffs,
+  unchanged product sources, and the remaining multi-device/lifecycle checks.
+- [Actual file preload during YouTube playback — 2026-10-18](design/youtube-preload-live-ab-2026-10-18.md) —
+  Compares 8.11.13 and 8.11.14 with real WebRTC/RAM file transfer through the
+  product Cloudflare adapter, both controlled and actual YouTube providers.
+  Separates delayed control messages from buffering, playback mutation, and
+  physical Android/audio claims. No product code or production change.
 - [Standard YouTube heartbeat correction — 2026-10-17](design/youtube-heartbeat-delay-fix-2026-10-17.md) —
   Uses one current host position for coarse seek, Android BUFFERING recovery,
   and small-drift observation. Preserves output/manual compensation and records

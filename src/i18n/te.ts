@@ -429,10 +429,6 @@ const te: Record<I18nKey, string> = {
     'ఈ ట్రాక్ ఫైల్ చాలా పెద్దది; కొన్ని పరికరాల్లో ప్లే కాకపోవచ్చు.',
   'chat.device_track_unavailable_system_message':
     'ఈ పరికరంలో ప్రస్తుత ట్రాక్‌ను ప్లే చేయడం సాధ్యం కాదు.',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది\nదీన్ని వర్తింపజేయడానికి పేజీని రిఫ్రెష్ చేయండి',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE కొత్త వెర్షన్ అందుబాటులో ఉంది\nదీన్ని వర్తింపజేయడానికి యాప్‌ను మళ్లీ తెరవండి',
   'chat.system_audio_started_system_message':
     'సిస్టమ్ ఆడియో షేరింగ్ ప్రారంభమైంది. హోస్ట్, అతిథి పరికరాల మధ్య కొద్దిపాటి ఆలస్యం సాధారణం. ప్రతిధ్వనిని నివారించడానికి హోస్ట్ పరికరం వాల్యూమ్‌ను తగ్గించాలని సిఫార్సు చేస్తున్నాం.',
   'chat.system_audio_stopped_system_message':
@@ -726,6 +722,13 @@ const te: Record<I18nKey, string> = {
     'వేరే యాప్‌కు మారినా లేదా స్క్రీన్ ఆఫ్ అయినా సౌండ్ ఆగిపోవచ్చు లేదా సింక్ తప్పవచ్చు.',
   'dialog.sw_update_title': 'అప్‌డేట్',
   'dialog.sw_update_msg': 'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nఅప్‌డేట్ చేయడానికి రిఫ్రెష్ చేయండి.',
+  'dialog.sw_update_apply': 'వర్తింపజేయండి',
+  'dialog.sw_update_apply_msg':
+    'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేస్తే పేజీ మళ్లీ లోడ్ అవుతుంది.',
+  'dialog.sw_update_room_host_msg':
+    'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేయడానికి గదిని మళ్లీ తెరవాలి.',
+  'dialog.sw_update_room_guest_msg':
+    'కొత్త వెర్షన్ సిద్ధంగా ఉంది.\nవర్తింపజేయడానికి గదిలో మళ్లీ చేరాలి.',
   'dialog.feature_refresh_title': 'రిఫ్రెష్ చేయాలి',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE అప్‌డేట్ అయింది.\nఎప్పటిలాగే ఉపయోగించడం కొనసాగించడానికి రిఫ్రెష్ చేయండి.',

@@ -115,7 +115,7 @@ export function onCompactLandscapeChange(cb: () => void): () => void {
   };
 }
 
-export function isStandaloneDisplayMode(): boolean {
+function isStandaloneDisplayMode(): boolean {
   try {
     if (installNavigator.standalone) return true;
     if (window.matchMedia?.('(display-mode: standalone)').matches) return true;

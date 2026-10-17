@@ -430,10 +430,6 @@ const da: Record<I18nKey, string> = {
     'Filen til dette nummer er meget stor og kan muligvis ikke afspilles på nogle enheder.',
   'chat.device_track_unavailable_system_message':
     'Denne enhed kan ikke afspille det aktuelle nummer.',
-  'chat.update_available_tab_system_message':
-    'Der er en ny version af MUSIXQUARE\nOpdater siden for at tage den i brug',
-  'chat.update_available_app_system_message':
-    'Der er en ny version af MUSIXQUARE\nÅbn appen igen for at tage den i brug',
   'chat.system_audio_started_system_message':
     'Deling af systemlyd er startet. En lille forsinkelse mellem værtens og gæsternes enheder er normal. Vi anbefaler at sænke værtens lydstyrke for at undgå ekko.',
   'chat.system_audio_stopped_system_message':
@@ -730,6 +726,12 @@ const da: Record<I18nKey, string> = {
     'Hvis du skifter app, eller skærmen slukker, kan lyden stoppe, eller synkroniseringen kan svigte.',
   'dialog.sw_update_title': 'Opdatering',
   'dialog.sw_update_msg': 'En ny version er klar.\nOpdater siden for at installere den.',
+  'dialog.sw_update_apply': 'Anvend',
+  'dialog.sw_update_apply_msg': 'En ny version er klar.\nNår du anvender den, genindlæses siden.',
+  'dialog.sw_update_room_host_msg':
+    'En ny version er klar.\nFor at anvende den skal du åbne rummet igen.',
+  'dialog.sw_update_room_guest_msg':
+    'En ny version er klar.\nFor at anvende den skal du deltage i rummet igen.',
   'dialog.feature_refresh_title': 'Siden skal opdateres',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE er blevet opdateret.\nOpdater siden for at fortsætte med at bruge det som normalt.',

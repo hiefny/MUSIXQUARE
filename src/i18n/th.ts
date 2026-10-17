@@ -417,10 +417,6 @@ const th: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'รายการนี้มีไฟล์ขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
   'chat.device_track_unavailable_system_message': 'อุปกรณ์นี้เล่นรายการปัจจุบันไม่ได้',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE มีเวอร์ชันใหม่\nโหลดหน้าใหม่เพื่อใช้งานเวอร์ชันนี้',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE มีเวอร์ชันใหม่\nเปิดแอปอีกครั้งเพื่อใช้งานเวอร์ชันนี้',
   'chat.system_audio_started_system_message':
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างอุปกรณ์ของเจ้าของห้องกับผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์เจ้าของห้องเพื่อเลี่ยงเสียงสะท้อน',
   'chat.system_audio_stopped_system_message':
@@ -710,6 +706,12 @@ const th: Record<I18nKey, string> = {
     'การสลับไปใช้แอปอื่นหรือปิดหน้าจออาจทำให้เสียงหยุดหรือซิงก์ไม่ตรง',
   'dialog.sw_update_title': 'อัปเดต',
   'dialog.sw_update_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว\nโหลดหน้าใหม่เพื่ออัปเดต',
+  'dialog.sw_update_apply': 'ใช้',
+  'dialog.sw_update_apply_msg': 'มีเวอร์ชันใหม่พร้อมแล้ว\nเมื่อใช้แล้ว หน้าจะโหลดใหม่',
+  'dialog.sw_update_room_host_msg':
+    'มีเวอร์ชันใหม่พร้อมแล้ว\nหากต้องการใช้ ต้องเปิดห้องใหม่อีกครั้ง',
+  'dialog.sw_update_room_guest_msg':
+    'มีเวอร์ชันใหม่พร้อมแล้ว\nหากต้องการใช้ ต้องเข้าร่วมห้องอีกครั้ง',
   'dialog.feature_refresh_title': 'จำเป็นต้องรีเฟรช',
   'dialog.feature_refresh_msg': 'MUSIXQUARE อัปเดตแล้ว\nรีเฟรชเพื่อใช้งานต่อได้ตามปกติ',
   'dialog.reconnect_ask': 'ต้องการเชื่อมต่อใหม่ไหม?',

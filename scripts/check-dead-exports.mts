@@ -157,6 +157,8 @@ const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 // notice, so that platform export is no longer self-only.
 // 2026-10-13: reading dialogs call destroyCustomScrollbar on close, so that
 // lifecycle export is no longer test-only.
+// 2026-10-17: the in-room update notice is gone and isStandaloneDisplayMode is
+// module-private again; its tests observe the root standalone classes.
 const TEST_ONLY_BASELINE_COUNT = 20;
 const SELF_ONLY_BASELINE_COUNT = 78;
 

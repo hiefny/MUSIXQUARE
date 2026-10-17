@@ -425,10 +425,6 @@ const bn: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'এই ট্র্যাকের ফাইল অনেক বড় এবং কিছু ডিভাইসে নাও চলতে পারে।',
   'chat.device_track_unavailable_system_message': 'এই ডিভাইসটি বর্তমান ট্র্যাক চালাতে পারছে না।',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ\nপ্রয়োগ করতে পেজটি রিফ্রেশ করুন',
-  'chat.update_available_app_system_message':
-    'MUSIXQUARE-এর নতুন সংস্করণ উপলব্ধ\nপ্রয়োগ করতে অ্যাপটি আবার খুলুন',
   'chat.system_audio_started_system_message':
     'সিস্টেম অডিও শেয়ার করা শুরু হয়েছে। হোস্ট ও অতিথি ডিভাইসের মাঝে সামান্য বিলম্ব স্বাভাবিক। প্রতিধ্বনি এড়াতে হোস্ট ডিভাইসের ভলিউম কমিয়ে রাখুন।',
   'chat.system_audio_stopped_system_message':
@@ -723,6 +719,10 @@ const bn: Record<I18nKey, string> = {
     'অন্য অ্যাপে গেলে বা স্ক্রিন বন্ধ করলে অডিও থেমে যেতে পারে বা সিঙ্ক বিগড়ে যেতে পারে।',
   'dialog.sw_update_title': 'আপডেট',
   'dialog.sw_update_msg': 'নতুন সংস্করণ প্রস্তুত।\nআপডেট করতে রিফ্রেশ করুন।',
+  'dialog.sw_update_apply': 'প্রয়োগ করুন',
+  'dialog.sw_update_apply_msg': 'নতুন সংস্করণ প্রস্তুত।\nপ্রয়োগ করলে পেজটি রিফ্রেশ হবে।',
+  'dialog.sw_update_room_host_msg': 'নতুন সংস্করণ প্রস্তুত।\nপ্রয়োগ করতে রুমটি আবার খুলতে হবে।',
+  'dialog.sw_update_room_guest_msg': 'নতুন সংস্করণ প্রস্তুত।\nপ্রয়োগ করতে রুমে আবার যোগ দিতে হবে।',
   'dialog.feature_refresh_title': 'রিফ্রেশ করা প্রয়োজন',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE আপডেট হয়েছে।\nস্বাভাবিকভাবে ব্যবহার চালিয়ে যেতে রিফ্রেশ করুন।',

@@ -3,8 +3,6 @@ import { acquireServiceWorkerPromptLock } from './sw-prompt-lock.ts';
 const UPDATE_DISMISSAL_KEY = 'mxqr-sw-update-dismissal-v1';
 const UPDATE_PROMPT_LEASE_KEY = 'mxqr-sw-update-prompt-lease-v1';
 const UPDATE_CHECK_LEASE_KEY = 'mxqr-sw-update-check-lease-v1';
-const KNOWN_GENERATION_DISMISSAL_MS = 24 * 60 * 60 * 1000;
-const UNKNOWN_GENERATION_DISMISSAL_MS = 30 * 60 * 1000;
 const PRESENTATION_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const UPDATE_PROMPT_LEASE_MS = 5 * 60 * 1000;
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
@@ -40,7 +38,6 @@ interface ServiceWorkerUpdateLedger {
   claimPrompt(generation: ServiceWorkerGeneration, now?: number): boolean;
   acquirePrompt(generation: ServiceWorkerGeneration, onOwnershipLost: () => void): Promise<boolean>;
   releasePrompt(generation: ServiceWorkerGeneration): void;
-  rememberDismissal(generation: ServiceWorkerGeneration, now?: number): void;
   rememberPresentationFailure(generation: ServiceWorkerGeneration, now?: number): void;
   claimUpdateCheck(now?: number): boolean;
 }
@@ -176,7 +173,13 @@ export function createServiceWorkerUpdateLedger(): ServiceWorkerUpdateLedger {
     ) {
       return false;
     }
-    if (dismissal.expiresAt <= now) {
+    // Only the short presentation-failure cooldown is stored now. A 24-hour
+    // Later that versions up to 8.11.10 stored is dropped: Later lasts for one page
+    // (owner decision 2026-10-17).
+    if (
+      dismissal.expiresAt <= now ||
+      dismissal.expiresAt - now > PRESENTATION_FAILURE_COOLDOWN_MS
+    ) {
       removeStoredRecord(storage, UPDATE_DISMISSAL_KEY);
       return false;
     }
@@ -265,12 +268,6 @@ export function createServiceWorkerUpdateLedger(): ServiceWorkerUpdateLedger {
       if (current?.owner === owner && current.identity === generation.promptIdentity) {
         removeStoredRecord(storage, UPDATE_PROMPT_LEASE_KEY);
       }
-    },
-    rememberDismissal(generation, now = Date.now()) {
-      const duration = generation.cacheVersion
-        ? KNOWN_GENERATION_DISMISSAL_MS
-        : UNKNOWN_GENERATION_DISMISSAL_MS;
-      storeDismissal(generation, duration, now);
     },
     rememberPresentationFailure(generation, now = Date.now()) {
       storeDismissal(generation, PRESENTATION_FAILURE_COOLDOWN_MS, now);

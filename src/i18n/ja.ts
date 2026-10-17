@@ -650,6 +650,13 @@ const ja: Record<I18nKey, string> = {
   'dialog.sw_update_title': 'アップデート',
   'dialog.sw_update_msg':
     '新しいバージョンの準備ができました。\nページを再読み込みするとアップデートが適用されます。',
+  'dialog.sw_update_apply': '適用する',
+  'dialog.sw_update_apply_msg':
+    '新しいバージョンの準備ができました。\n適用するとページが再読み込みされます。',
+  'dialog.sw_update_room_host_msg':
+    '新しいバージョンの準備ができました。\n適用するにはルームを開き直す必要があります。',
+  'dialog.sw_update_room_guest_msg':
+    '新しいバージョンの準備ができました。\n適用するにはルームに参加し直す必要があります。',
   'dialog.feature_refresh_title': '再読み込みが必要です',
   'dialog.feature_refresh_msg':
     'MUSIXQUAREがアップデートされました。\n引き続き正常に利用するには、ページを再読み込みしてください。',
@@ -806,10 +813,6 @@ const ja: Record<I18nKey, string> = {
     'このトラックはファイルサイズが非常に大きいため、一部のデバイスでは再生できない場合があります。',
   'chat.device_track_unavailable_system_message':
     'このデバイスでは現在のトラックを再生できません。',
-  'chat.update_available_tab_system_message':
-    'MUSIXQUAREの新しいバージョンがあります\nページを再読み込みすると適用されます',
-  'chat.update_available_app_system_message':
-    'MUSIXQUAREの新しいバージョンがあります\nアプリを開き直すと適用されます',
   'chat.system_audio_started_system_message':
     'システムオーディオの共有を開始しました。ホストと参加者のデバイス間に少し遅延があるのは正常です。音が二重に聞こえるのを防ぐため、ホストデバイスの音量を下げることをおすすめします。',
   'chat.system_audio_stopped_system_message':

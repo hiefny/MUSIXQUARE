@@ -661,6 +661,12 @@ const fr: Record<I18nKey, string> = {
     'Si vous changez d’application ou si l’écran s’éteint, le son risque de se couper ou de se désynchroniser.',
   'dialog.sw_update_title': 'Mise à jour',
   'dialog.sw_update_msg': 'Une nouvelle version est prête.\nActualisez pour mettre à jour.',
+  'dialog.sw_update_apply': 'Appliquer',
+  'dialog.sw_update_apply_msg': 'Une nouvelle version est prête.\nL’appliquer recharge la page.',
+  'dialog.sw_update_room_host_msg':
+    'Une nouvelle version est prête.\nPour l’appliquer, vous devez rouvrir le salon.',
+  'dialog.sw_update_room_guest_msg':
+    'Une nouvelle version est prête.\nPour l’appliquer, vous devez rejoindre à nouveau le salon.',
   'dialog.feature_refresh_title': 'Actualisation nécessaire',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE a été mis à jour.\nActualisez la page pour continuer à l’utiliser normalement.',
@@ -819,10 +825,6 @@ const fr: Record<I18nKey, string> = {
     'Cette piste est très volumineuse et risque de ne pas être lue sur certains appareils.',
   'chat.device_track_unavailable_system_message':
     'Cet appareil ne peut pas lire la piste en cours.',
-  'chat.update_available_tab_system_message':
-    'Une nouvelle version de MUSIXQUARE est disponible\nActualisez la page pour l’utiliser',
-  'chat.update_available_app_system_message':
-    'Une nouvelle version de MUSIXQUARE est disponible\nRouvrez l’application pour l’utiliser',
   'chat.system_audio_started_system_message':
     'Le partage de l’audio système a démarré. Une légère latence entre l’hôte et les participants est normale. Nous recommandons de baisser le volume de l’appareil de l’hôte pour éviter les échos.',
   'chat.system_audio_stopped_system_message':

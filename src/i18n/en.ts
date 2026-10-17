@@ -422,10 +422,6 @@ const en: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'This track has a very large file size and may not play on some devices.',
   'chat.device_track_unavailable_system_message': 'This device can’t play the current track.',
-  'chat.update_available_tab_system_message':
-    'A new version of MUSIXQUARE is available\nRefresh the page to apply it',
-  'chat.update_available_app_system_message':
-    'A new version of MUSIXQUARE is available\nReopen the app to apply it',
   'chat.system_audio_started_system_message':
     "System audio sharing has started. A slight latency between host and guest devices is normal. Lower the host device's volume as far as possible to avoid echoes.",
   'chat.system_audio_stopped_system_message':
@@ -717,6 +713,12 @@ const en: Record<I18nKey, string> = {
     'Switching apps or turning off the screen can stop the sound or break the sync.',
   'dialog.sw_update_title': 'Update',
   'dialog.sw_update_msg': 'A new version is ready.\nRefresh to update.',
+  'dialog.sw_update_apply': 'Apply',
+  'dialog.sw_update_apply_msg': 'A new version is ready.\nApplying it reloads the page.',
+  'dialog.sw_update_room_host_msg':
+    'A new version is ready.\nTo apply it, you need to reopen the room.',
+  'dialog.sw_update_room_guest_msg':
+    'A new version is ready.\nTo apply it, you need to join the room again.',
   'dialog.feature_refresh_title': 'Refresh needed',
   'dialog.feature_refresh_msg': 'MUSIXQUARE has been updated.\nRefresh to keep using it normally.',
   'dialog.reconnect_ask': 'Would you like to reconnect?',

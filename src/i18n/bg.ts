@@ -431,10 +431,6 @@ const bg: Record<I18nKey, string> = {
     'Файлът на тази песен е много голям и може да не се възпроизведе на някои устройства.',
   'chat.device_track_unavailable_system_message':
     'Това устройство не може да възпроизведе текущата песен.',
-  'chat.update_available_tab_system_message':
-    'Има нова версия на MUSIXQUARE\nЩе се приложи, когато опресниш страницата',
-  'chat.update_available_app_system_message':
-    'Има нова версия на MUSIXQUARE\nЩе се приложи, когато отвориш приложението отново',
   'chat.system_audio_started_system_message':
     'Споделянето на системен звук започна. Леко закъснение между устройствата на хоста и гостите е нормално. Препоръчваме да намалиш звука на устройството на хоста, за да избегнеш ехо.',
   'chat.system_audio_stopped_system_message':
@@ -733,6 +729,12 @@ const bg: Record<I18nKey, string> = {
     'Ако превключиш към друго приложение или екранът изгасне, звукът може да спре или синхронът да се наруши.',
   'dialog.sw_update_title': 'Актуализация',
   'dialog.sw_update_msg': 'Нова версия е готова.\nОпресни, за да актуализираш.',
+  'dialog.sw_update_apply': 'Приложи',
+  'dialog.sw_update_apply_msg': 'Нова версия е готова.\nПрилагането ще презареди страницата.',
+  'dialog.sw_update_room_host_msg':
+    'Нова версия е готова.\nЗа да я приложиш, трябва да отвориш стаята отново.',
+  'dialog.sw_update_room_guest_msg':
+    'Нова версия е готова.\nЗа да я приложиш, трябва да влезеш отново в стаята.',
   'dialog.feature_refresh_title': 'Нужно е опресняване',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE се обнови.\nОпресни страницата, за да продължиш да го използваш нормално.',

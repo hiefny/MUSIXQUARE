@@ -434,10 +434,6 @@ const ms: Record<I18nKey, string> = {
   'chat.large_local_track_system_message':
     'Saiz fail trek ini sangat besar dan mungkin tidak dapat dimainkan pada sesetengah peranti.',
   'chat.device_track_unavailable_system_message': 'Peranti ini tidak dapat memainkan trek semasa.',
-  'chat.update_available_tab_system_message':
-    'Versi baharu MUSIXQUARE tersedia\nMuat semula halaman untuk menggunakannya',
-  'chat.update_available_app_system_message':
-    'Versi baharu MUSIXQUARE tersedia\nBuka semula aplikasi untuk menggunakannya',
   'chat.system_audio_started_system_message':
     'Perkongsian audio sistem telah bermula. Sedikit kependaman antara peranti hos dan tetamu adalah perkara biasa. Kami mengesyorkan agar kelantangan peranti hos dikecilkan untuk mengelakkan gema.',
   'chat.system_audio_stopped_system_message':
@@ -740,6 +736,13 @@ const ms: Record<I18nKey, string> = {
     'Beralih ke aplikasi lain atau mematikan skrin boleh menyebabkan bunyi terhenti atau penyegerakan terganggu.',
   'dialog.sw_update_title': 'Kemas Kini',
   'dialog.sw_update_msg': 'Versi baharu sudah sedia.\nMuat semula untuk mengemas kini.',
+  'dialog.sw_update_apply': 'Gunakan',
+  'dialog.sw_update_apply_msg':
+    'Versi baharu sudah sedia.\nMenggunakannya akan memuat semula halaman.',
+  'dialog.sw_update_room_host_msg':
+    'Versi baharu sudah sedia.\nUntuk menggunakannya, anda perlu membuka bilik semula.',
+  'dialog.sw_update_room_guest_msg':
+    'Versi baharu sudah sedia.\nUntuk menggunakannya, anda perlu menyertai bilik semula.',
   'dialog.feature_refresh_title': 'Perlu dimuat semula',
   'dialog.feature_refresh_msg':
     'MUSIXQUARE telah dikemas kini.\nMuat semula untuk terus menggunakannya seperti biasa.',

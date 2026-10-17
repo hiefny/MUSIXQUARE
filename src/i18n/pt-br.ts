@@ -665,6 +665,13 @@ const ptBr: Record<I18nKey, string> = {
     'Se você trocar de app ou a tela apagar, o som pode ser interrompido ou perder a sincronização.',
   'dialog.sw_update_title': 'Atualização',
   'dialog.sw_update_msg': 'Uma nova versão está pronta.\nAtualize a página para aplicar.',
+  'dialog.sw_update_apply': 'Aplicar',
+  'dialog.sw_update_apply_msg':
+    'Uma nova versão está pronta.\nAo aplicar, a página será recarregada.',
+  'dialog.sw_update_room_host_msg':
+    'Uma nova versão está pronta.\nPara aplicar, você precisa abrir a sala de novo.',
+  'dialog.sw_update_room_guest_msg':
+    'Uma nova versão está pronta.\nPara aplicar, você precisa entrar na sala de novo.',
   'dialog.feature_refresh_title': 'É preciso atualizar a página',
   'dialog.feature_refresh_msg':
     'O MUSIXQUARE foi atualizado.\nAtualize a página para continuar usando normalmente.',
@@ -819,10 +826,6 @@ const ptBr: Record<I18nKey, string> = {
     'O arquivo desta faixa é muito grande e pode não ser reproduzido em alguns dispositivos.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo não consegue reproduzir a faixa atual.',
-  'chat.update_available_tab_system_message':
-    'Há uma nova versão do MUSIXQUARE\nAtualize a página para usá-la',
-  'chat.update_available_app_system_message':
-    'Há uma nova versão do MUSIXQUARE\nAbra o aplicativo novamente para usá-la',
   'chat.system_audio_started_system_message':
     'Compartilhamento de áudio do sistema iniciado. Um pequeno atraso entre o dispositivo do anfitrião e os dos participantes é normal. Para evitar eco, recomendamos diminuir o volume do dispositivo do anfitrião.',
   'chat.system_audio_stopped_system_message':

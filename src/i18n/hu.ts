@@ -430,10 +430,6 @@ const hu: Record<I18nKey, string> = {
     'A szám fájlja nagyon nagy, ezért egyes eszközökön nem biztos, hogy lejátszható.',
   'chat.device_track_unavailable_system_message':
     'Ez az eszköz nem tudja lejátszani az aktuális számot.',
-  'chat.update_available_tab_system_message':
-    'Elérhető a MUSIXQUARE új verziója\nAz oldal újratöltése után lép életbe',
-  'chat.update_available_app_system_message':
-    'Elérhető a MUSIXQUARE új verziója\nAz alkalmazás újbóli megnyitása után lép életbe',
   'chat.system_audio_started_system_message':
     'Elindult a rendszerhang megosztása. A házigazda és a résztvevők eszközei közötti kis késés normális. A visszhang elkerüléséhez csökkentsd a házigazda eszközének hangerejét.',
   'chat.system_audio_stopped_system_message':
@@ -734,6 +730,12 @@ const hu: Record<I18nKey, string> = {
     'Ha másik alkalmazásra váltasz, vagy kikapcsol a képernyő, leállhat a hang, vagy elcsúszhat a szinkronizálás.',
   'dialog.sw_update_title': 'Frissítés',
   'dialog.sw_update_msg': 'Új verzió érhető el.\nA frissítéshez töltsd újra az oldalt.',
+  'dialog.sw_update_apply': 'Alkalmaz',
+  'dialog.sw_update_apply_msg': 'Új verzió érhető el.\nAz alkalmazás újratölti az oldalt.',
+  'dialog.sw_update_room_host_msg':
+    'Új verzió érhető el.\nAz alkalmazásához újra meg kell nyitnod a szobát.',
+  'dialog.sw_update_room_guest_msg':
+    'Új verzió érhető el.\nAz alkalmazásához újra csatlakoznod kell a szobához.',
   'dialog.feature_refresh_title': 'Újratöltés szükséges',
   'dialog.feature_refresh_msg':
     'A MUSIXQUARE frissült.\nA zavartalan használathoz töltsd újra az oldalt.',

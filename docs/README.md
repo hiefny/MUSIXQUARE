@@ -90,10 +90,19 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Standard YouTube heartbeat correction — 2026-10-17](design/youtube-heartbeat-delay-fix-2026-10-17.md) —
+  Uses one current host position for coarse seek, Android BUFFERING recovery,
+  and small-drift observation. Preserves output/manual compensation and records
+  regression verification, App 8.11.14/v715 release scope, and device limits.
 - [Host QR reveal without the double flicker — 2026-10-17](design/setup-qr-reveal-2026-10-17.md) —
   The carousel stays in the tap transition's snapshot (no empty frames), the desktop left
   panel keeps an unchanged QR stage mounted, and the QR encoder loads from the host tap.
   Records the frame captures, unit and browser tests, and limits. App 8.11.13/v714.
+- [Standard YouTube delayed-heartbeat reproduction — 2026-10-17](design/youtube-heartbeat-delay-reproduction-2026-10-17.md) —
+  Real handler and SharedClock with a fake iframe reproduce two incorrect seek
+  paths: delayed-frame coarse correction and Android BUFFERING recovery. New
+  tests: 15 pass / 6 fail / 0 skip; existing focused tests: 281 pass. No runtime
+  change or deployment; actual preload causation remains unverified.
 - [Deferred Back guard (R policy) — 2026-10-17](design/ios-back-deferred-guard-2026-10-17.md) —
   Owner-tested iPhone diagnostic, shared deferred history registration, actual
   window-close completion and owned-history leave. Records App 8.11.12/v712,

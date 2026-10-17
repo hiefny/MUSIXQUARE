@@ -64,6 +64,20 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
+### 일반방 YouTube 지연 heartbeat 보정
+
+- [ ] App 8.11.14/v716 배포 준비: `ed6fe205`에서 큰 오차 보정·Android BUFFERING
+      복구·작은 오차 관측의 목표 위치를 동일하게 현재 시각으로 투영했다. 기존
+      재현 21건을 유지하고 경계를 추가했다. Codex P2 종료 구간 지적도 재현 후
+      `995c10d7`에서 수정해 새 파일 55/55, 관련 합계 368건 통과했다.
+      최종 로컬 전체 검사·브라우저·빌드 재검증과 배포 증거는 아래 보고서에 기록한다.
+      PR 검토·exact-main CI·운영 배포 증거 확보 전이다.
+      [수정·검증·배포 범위](design/youtube-heartbeat-delay-fix-2026-10-17.md).
+- [ ] 실제 Android 프리로드 사건의 원인: 파일 전송이 당시 지연·버퍼링을
+      유발했는지와 최종 가청 싱크는 합성 재현으로 확정할 수 없다. 이번 두 경로
+      수정과 별도 한계로 남긴다.
+      [재현 조건·검사·한계](design/youtube-heartbeat-delay-reproduction-2026-10-17.md).
+
 ### 최근 해결 근거
 
 App 8.11.11/v711의 업데이트 대화상자 어디서나(오너 결정 2026-10-17)는 PR

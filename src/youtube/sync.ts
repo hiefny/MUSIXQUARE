@@ -1092,13 +1092,30 @@ const SMALL_DRIFT_BUSY_TIMERS = [
   RENDEZVOUS_FOLLOW_UP_TIMER,
 ] as const;
 
-/**
- * Projects a PLAYING host heartbeat to now and measures this playing guest
- * against it. Returns a sample only when an automatic realign may act on it.
- */
+/** Keep every correction on the same present-time canonical position. */
+function projectPlayingHeartbeatTime(
+  hostTime: number,
+  hostState: number,
+  hostClock: number | undefined,
+): number {
+  if (
+    hostState !== 1 ||
+    hostClock === undefined ||
+    !Number.isFinite(hostClock) ||
+    !isClockCalibrated()
+  ) {
+    return hostTime;
+  }
+  const elapsedMs = getHostNow() - hostClock;
+  // Legacy frames and an unavailable clock retain their raw-position fallback.
+  // A timestamp just ahead of our estimate must never project playback backward.
+  return Number.isFinite(elapsedMs) ? hostTime + Math.max(0, elapsedMs) / 1000 : hostTime;
+}
+
+/** Measures projected heartbeat drift only when an automatic realign may act on it. */
 function sampleSmallHeartbeatDrift(
   player: YouTubePlayerInstance,
-  hostTime: number,
+  projectedHostTime: number,
   hostState: number,
   hostClock: number | undefined,
   duration: number,
@@ -1148,13 +1165,10 @@ function sampleSmallHeartbeatDrift(
     return null;
   }
 
-  // hostTime was read at hostClock. Projecting it to now keeps the frame's
-  // delivery delay from reading as guest lead.
-  const expectedHostTime = hostTime + Math.max(0, getHostNow() - hostClock) / 1000;
-  const expectedManualTime = expectedHostTime + getYouTubeManualOffsetSec();
+  const expectedManualTime = projectedHostTime + getYouTubeManualOffsetSec();
   const expectedLocalTime =
     expectedManualTime + guestAudibleLeadAtTargetMs(expectedManualTime, duration) / 1000;
-  if (!hasAutoRealignRunway(expectedHostTime, expectedLocalTime, duration)) return null;
+  if (!hasAutoRealignRunway(projectedHostTime, expectedLocalTime, duration)) return null;
 
   const driftMs = (currentTime - expectedLocalTime) * 1000;
   const magnitudeMs = Math.abs(driftMs);
@@ -1435,7 +1449,11 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
     // YouTube manual offset is separate from the local-file Web Audio offset.
     // Drift correction (skip if duration not loaded yet)
     const duration = (player.getDuration && player.getDuration()) || 0;
-    const rawManualTime = hostTime + getYouTubeManualOffsetSec();
+    // A delayed heartbeat describes where the host was when it was sent.
+    // Coarse seeks and buffering recovery must use the same age compensation
+    // as small-drift sampling, or the correction itself rewinds an aligned guest.
+    const projectedHostTime = projectPlayingHeartbeatTime(hostTime, hostState, hostClock);
+    const rawManualTime = projectedHostTime + getYouTubeManualOffsetSec();
     const rawCompensatedTime =
       rawManualTime +
       (hostState === 1 ? guestAudibleLeadAtTargetMs(rawManualTime, duration) / 1000 : 0);
@@ -1444,17 +1462,18 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       player.getPlayerState?.() === 0 &&
       guestAudibleLeadMs() > 0 &&
       duration > 0 &&
-      rawManualTime < duration &&
       rawManualTime + guestAudibleLeadMs() / 1000 >= duration
     ) {
       // An ahead-of-video speaker can naturally end a fraction before the
       // host. Wait for its next occurrence instead of replaying the tail.
+      // Keep holding when a delayed PLAYING snapshot projects to/past the end;
+      // the elapsed time does not authorize restarting the completed occurrence.
       return;
     }
     // Sampled before either correction below touches the iframe.
     const smallDrift = resumeAfterHostAd
       ? null
-      : sampleSmallHeartbeatDrift(player, hostTime, hostState, hostClock, duration);
+      : sampleSmallHeartbeatDrift(player, projectedHostTime, hostState, hostClock, duration);
     let seekCorrected = false;
     if (duration > 0) {
       const compensatedTime = Math.max(0, Math.min(rawCompensatedTime, duration));
@@ -1481,7 +1500,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         if (guestAudibleLeadMs() !== 0) {
           cancelClockAction();
           clearManagedTimer('yt-seek-play');
-          executeImmediate(player, 1, hostTime, duration, makeGuestStateAction(player));
+          executeImmediate(player, 1, projectedHostTime, duration, makeGuestStateAction(player));
         } else {
           setYtAutoplayIntent(true);
           player.playVideo();

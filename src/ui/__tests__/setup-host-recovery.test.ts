@@ -80,6 +80,15 @@ vi.mock('../setup-shared.ts', () => ({
   setupSetHostError: mocks.setupSetHostError,
   setupSetCode: mocks.setupSetCode,
   setupRenderActions: mocks.setupRenderActions,
+  setupRenderActionsInTransition: (
+    buttons: Array<Record<string, unknown>>,
+    _layout?: string,
+    onRendered?: () => void,
+  ) =>
+    mocks.animateTransition(() => {
+      mocks.setupRenderActions(buttons);
+      onRendered?.();
+    }),
   hideSetupOverlay: vi.fn(),
 }));
 
@@ -137,6 +146,24 @@ describe('host setup recovery', () => {
     expect(carousel.hidden).toBe(false);
     queued.forEach((apply) => apply());
     expect(carousel.hidden).toBe(true);
+  });
+
+  it('swaps the actions inside the setup transition so the outgoing snapshot keeps them', () => {
+    const queued: Array<() => void> = [];
+    mocks.animateTransition.mockImplementation((apply: () => void) => {
+      queued.push(apply);
+    });
+    mocks.createSession.mockReturnValueOnce(new Promise<string>(() => {}));
+    mocks.actions = [{ id: 'btn-setup-host' }, { id: 'btn-setup-guest' }];
+
+    startHostFlow();
+
+    // Swapped before the capture, one row of buttons would re-center the
+    // outgoing carousel and change outside the crossfade.
+    const ids = () => mocks.actions.map((action) => action.id);
+    expect(ids()).toEqual(['btn-setup-host', 'btn-setup-guest']);
+    queued.forEach((apply) => apply());
+    expect(ids()).toEqual(['btn-setup-back', 'btn-setup-confirm']);
   });
 
   it('starts loading the QR encoder with each room request, before its code arrives', async () => {

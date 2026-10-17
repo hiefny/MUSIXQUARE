@@ -35,6 +35,7 @@ import {
   setupSetHostError,
   setupSetCode,
   setupRenderActions,
+  setupRenderActionsInTransition,
   hideSetupOverlay,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
@@ -132,7 +133,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
     else codeEl.textContent = '------';
   }
 
-  setupRenderActions(
+  setupRenderActionsInTransition(
     [
       {
         id: 'btn-setup-back',

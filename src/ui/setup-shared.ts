@@ -438,10 +438,40 @@ interface SetupButton {
   onClick?: (() => void) | null;
 }
 
+type SetupActionsLayout = 'row' | 'vertical' | 'horizontal-with-back';
+
+// Bumped by every render, so a render queued for a transition never
+// overwrites buttons rendered after it was queued.
+let _actionsRenderGeneration = 0;
+
 export function setupRenderActions(
   buttons: SetupButton[],
-  layout: 'row' | 'vertical' | 'horizontal-with-back' = 'row',
+  layout: SetupActionsLayout = 'row',
 ): void {
+  _actionsRenderGeneration += 1;
+  renderSetupActions(buttons, layout);
+}
+
+/**
+ * Swap the actions in the same View Transition as the setup areas. Rendered
+ * before the outgoing snapshot, a different button count re-centers the old
+ * middle block and the buttons change outside the crossfade. `onRendered`
+ * runs once the new buttons exist.
+ */
+export function setupRenderActionsInTransition(
+  buttons: SetupButton[],
+  layout: SetupActionsLayout = 'row',
+  onRendered?: () => void,
+): void {
+  const generation = ++_actionsRenderGeneration;
+  animateTransition(() => {
+    if (generation !== _actionsRenderGeneration) return;
+    renderSetupActions(buttons, layout);
+    onRendered?.();
+  });
+}
+
+function renderSetupActions(buttons: SetupButton[], layout: SetupActionsLayout): void {
   const area = setupEl('setup-actions');
   if (!area) return;
   area.replaceChildren();

@@ -72,6 +72,9 @@ vi.mock('../../ui/setup-shared.ts', () => ({
   setupSetGuestJoinBusy: vi.fn(),
   setupSetGuestJoinError: vi.fn(),
   setupRenderActions: vi.fn(),
+  setupRenderActionsInTransition: vi.fn(
+    (_buttons: unknown, _layout?: unknown, onRendered?: () => void) => onRendered?.(),
+  ),
   initObCarousel: vi.fn(),
   updateObSlider: vi.fn(),
   handleSetupRolePreview: vi.fn(),

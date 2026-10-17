@@ -102,35 +102,66 @@ navigations are network-first.
   worker, the hourly update check, and the lazy-feature recovery dialog in
   `src/app.ts` (owner-approved exception 2026-10-11).
 
+### Review fixes
+
+The Codex review of the first revision (PR #381) found two gaps. Both are
+fixed in `d1a3995d`.
+
+- A dialog opened while a guest or PRO participant was still connecting
+  showed the outside-room message, and the join could finish under it.
+  적용하기 then followed the room path to `/CODE`, which the message had not
+  said. The message is now a callback, and `showDialog` takes `refreshOn`, a
+  subscription it holds only while the dialog is open and that re-reads
+  callback copy as a locale change does. The update dialog passes
+  `subscribeRoomAuthorityLifecycle`, so its message changes with the room
+  before 적용하기 is pressed.
+- A worker that never answers the generation request is known by its script
+  URL (`unknown:<script URL>`) in the waiting prompt, but the dialog for
+  another tab's activation keyed it as `unknown-controller:<n>`, so 나중에
+  did not stop a second dialog. Both now use the resolver's prompt identity.
+  Two different unidentified generations in one page therefore share one
+  identity; only builds older than the generation protocol, or a worker that
+  does not answer in time, are unidentified.
+
 `docs/hotfix-procedure.md` ("Client Update Behavior") now describes this
 behaviour.
 
-App 8.11.11 / service-worker cache v710. App only; Developer API D1 stays
+App 8.11.11 / service-worker cache v711. v710 was the first PR revision and
+was never released. App only; Developer API D1 stays
 disabled. There are no new dependencies, protocols, schema, secrets,
 bindings, permissions, or CSP changes. The copy change is four keys added and
 two removed, in 42 locales.
 
 ## Verification
 
-Base `59c3aa9e` (main after #380). Tested runtime source: `f05b1949`. Local
-Windows checks used Node 24.13.1 / npm 11.8.0. These are local branch
-results, not the exact-main release candidate.
+Base `59c3aa9e` (main after #380). Tested runtime source: `d1a3995d`, the
+PR head runtime after the review fixes. Local Windows checks used Node
+24.13.1 / npm 11.8.0. These are local branch results, not the exact-main
+release candidate.
 
-On `f05b1949`, `format:check`, `lint`, `typecheck`, and `build:checked`
+On `d1a3995d`, `format:check`, `lint`, `typecheck`, and `build:checked`
 passed. `build:checked` includes the room-authority boundary (84
-grandfathered direct reads, unchanged), service-worker cache version (v710
+grandfathered direct reads, unchanged), service-worker cache version (v711
 covers every committed runtime change), legacy TV build, and app-shell (97
 assets) guards. The bus-pairing, import-graph, lifecycle-writes,
-dead-exports (self-only bindings stay at the baseline of 78), chunk-pump,
+dead-exports (self-only bindings within the ratchet), chunk-pump,
 standard-room hot-path, Developer API boundary, D1 migration, and operations
-drift contract guards also passed. The full unit run passed 574 of 575 files
-and 12,893 of 12,894 tests. The one failure was a timeout: the
-`browser/classic-runtime/admin.ts` case of `tooling-eslint-config.test.ts`
-took 26 s against its 15 s limit in the full parallel run. Run alone, the
-file passed 18 of 18. That file changed only in its version string, and the
-case passed in the full run of the first revision.
+drift contract guards also passed. The dead-exports unit test pins exact
+counts and failed there: the update dialog helper now reads `DialogResult`
+from the dialog module, so the self-only count shrank to 77. `9803440f`
+lowers the shrink-only baseline and the pinned test to 77, and both pass.
+The full unit run on `9803440f` passed 574 of 575 files and 12,896 of
+12,897 tests. The one failure was environmental: a workerd test's local
+fetch landed on a port that undici refuses ("bad port"). Run alone, that
+file passed 16 of 16, and it passed in the earlier full runs.
 
-The first revision, `7173dc9a`, failed the dead-exports guard and its unit
+The PR's first runtime revision, `f05b1949`, had passed the same set except
+one timeout in its full unit run (574 of 575 files, 12,893 of 12,894 tests):
+the `browser/classic-runtime/admin.ts` case of `tooling-eslint-config.test.ts`
+took 26 s against its 15 s limit in the full parallel run, and passed 18 of
+18 run alone.
+
+Before the PR, `7173dc9a` failed the dead-exports guard and its unit
 test: "SELF-ONLY BINDING COUNT GREW: 79 > historical baseline 78". Without
 the in-room notice, `isStandaloneDisplayMode` in `src/core/platform.ts` was
 used only inside its own file; 8.10.0 had lowered the baseline from 79 to 78
@@ -142,7 +173,7 @@ removed. Every other check had passed on that revision.
 
 ### Unit tests
 
-- `src/core/__tests__/sw-register.test.ts` (67 cases, 72 before) is rewritten
+- `src/core/__tests__/sw-register.test.ts` (69 cases, 72 before) is rewritten
   for the decision:
   - the dialog in every place (the home screen, a host code screen, a started
     host room, a guest still joining, an entered guest room, a PRO room host,
@@ -168,7 +199,11 @@ removed. Every other check had passed on that revision.
   - an open prompt whose update another client applies asks only once,
     whether the user then picks 나중에 or 적용하기 (one reload);
   - a source check that `sw-register.ts` has no chat notice, toast, system
-    message, or peer send.
+    message, or peer send;
+  - after review: an open dialog re-renders its message when a join finishes
+    under it, and 적용하기 then returns to `/CODE`; and an unidentified
+    generation put off with 나중에 is not offered again when another tab
+    applies it. Reverting either fix makes its case fail.
 
   The chat-notice, toast, deferral, retraction, and apply-on-reopen cases of
   the replaced policies were removed. The other cases keep their behaviour,
@@ -188,31 +223,36 @@ removed. Every other check had passed on that revision.
   `dialog.sw_update_msg` first line, the three consequences differ, and
   non-English text differs from English. The Korean copy is pinned.
   `toast-copy-policy.test.ts` drops the two removed keys.
+- `src/ui/__tests__/dialog-locale.test.ts`: `refreshOn` re-reads callback
+  copy while the dialog is open and unsubscribes when it closes.
 
 ### Browser check
 
-Local production builds of `f05b1949` ran in the Claude desktop app's
+Local production builds of the first revision, `f05b1949`, ran in the Claude
+desktop app's
 built-in Chromium browser, served by `vite preview` at
 `http://localhost:4190`, with PeerJS signaling (the transport for local
-hosts). Four builds differed only in their cache version (v710 to v713) and
-were swapped in place. Each update check was triggered with
+hosts). Four local builds, T0 to T3, differed only in their cache version (test
+values v710 to v713, not the releases of those names) and were swapped in
+place. Each update check was triggered with
 `registration.update()`, as the hourly check does. The local server has no
 `/api` backend.
 
 | Step | Result |
 | --- | --- |
-| Home screen, v711 found while the page is open | 업데이트 / "새 버전이 준비되었어요. 적용하면 페이지를 새로고침해요." / 나중에, 적용하기 |
-| 나중에 | Closed. v711 still waiting, nothing stored in `mxqr-sw-update-dismissal-v1`. |
+| Home screen under T0, T1 found while the page is open | 업데이트 / "새 버전이 준비되었어요. 적용하면 페이지를 새로고침해요." / 나중에, 적용하기 |
+| 나중에 | Closed. T1 still waiting, nothing stored in `mxqr-sw-update-dismissal-v1`. |
 | Browser reload | The same dialog, 1.4 s after the reload (the quiet wait). |
-| 적용하기 | The new document started 0.41 s after the click, under v711, with nothing waiting. |
-| 방 만들기 (code 903307, before Start), v712 found | The host copy "새 버전이 준비되었어요. 적용하려면 방을 다시 열어야 해요." After 나중에 and 시작하기, the room started and the dialog did not return in that page. |
-| Second tab on `/903307` before Start, v712 waiting | The outside-room copy, after the quiet wait. After 나중에 and 시작하기, the tab joined as a guest. |
-| v713 found (update check from the guest tab) | The election gave the dialog to the host tab (host copy). The guest tab showed none. |
-| Host 적용하기 | The host reloaded onto the start screen under v713. The guest tab kept its document and room and showed the guest copy "새 버전이 준비되었어요. 적용하려면 방에 다시 입장해야 해요." |
-| Guest 적용하기 | Navigated to `/903307` under v713 with `mxqr_reconnect_target` = 903307: "환영합니다 / 903307번 방에 입장하려고 해요" with 시작하기. |
+| 적용하기 | The new document started 0.41 s after the click, under T1, with nothing waiting. |
+| 방 만들기 (code 903307, before Start), T2 found | The host copy "새 버전이 준비되었어요. 적용하려면 방을 다시 열어야 해요." After 나중에 and 시작하기, the room started and the dialog did not return in that page. |
+| Second tab on `/903307` before Start, T2 waiting | The outside-room copy, after the quiet wait. After 나중에 and 시작하기, the tab joined as a guest. |
+| T3 found (update check from the guest tab) | The election gave the dialog to the host tab (host copy). The guest tab showed none. |
+| Host 적용하기 | The host reloaded onto the start screen under T3. The guest tab kept its document and room and showed the guest copy "새 버전이 준비되었어요. 적용하려면 방에 다시 입장해야 해요." |
+| Guest 적용하기 | Navigated to `/903307` under T3 with `mxqr_reconnect_target` = 903307: "환영합니다 / 903307번 방에 입장하려고 해요" with 시작하기. |
 | 시작하기 there | The host's reload had ended room 903307, so the join failed with "방장이 세션을 종료한 것 같아요" and 다시 시도. |
 
-Version labels are local test builds, not releases. The test origin's
+The review fixes came after this check and are covered by the unit tests
+above. The test origin's
 worker, caches, and storage, the temporary preview entry, and the second tab
 were removed afterwards.
 
@@ -221,7 +261,8 @@ were removed afterwards.
 - Real devices: iPhone Safari and the home-screen PWA, Android Chrome and the
   installed app, and desktop browsers other than the built-in Chromium.
 - A PRO room and its presence re-entry (no local PRO backend), the demo, the
-  cooldown path, and Back on the dialog: unit tests only.
+  cooldown path, Back on the dialog, a join finishing while the dialog is
+  open, and an unidentified worker: unit tests only.
 - A production deploy and a real backend.
 - E2E was not run.
 

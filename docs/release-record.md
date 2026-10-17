@@ -60,7 +60,38 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] 실제 Android 프리로드 사건의 원인: 파일 전송이 당시 지연·버퍼링을
       유발했는지와 최종 가청 싱크는 합성 재현으로 확정할 수 없다. 이번 두 경로
       수정과 별도 한계로 남긴다.
+      2026-10-18 Windows의 실제 YouTube + 제품 Cloudflare 어댑터/로컬 DO 비교에서는
+      23/115 MB 프리로드 중 control 전달 지연 약 0.98–1.97초를 관측했다.
+      영상 버퍼링·불필요한 seek·현재 곡 전환은 0건이었으며, 115 MB 완료 부근에는
+      69/74 ms long task가 있었다. 전송 지연 완화는 별도 성능 조사 대상으로 남기고,
+      이 결과로 실제 Android/무선망 사건을 닫지 않는다.
+      [실제 전송·공급자 비교](design/youtube-preload-live-ab-2026-10-18.md),
       [재현 조건·검사·한계](design/youtube-heartbeat-delay-reproduction-2026-10-17.md).
+      후속 scratch 실험 9회에서는 preload capacity 기준만 64 KiB로 낮춰
+      이 환경의 최대 control 지연을 1–3 ms로 줄였다. 115 MB 전송은 약761 ms
+      더 걸렸고, 완료 long task는 남았다.
+      [완화 후보·비교·남은 검증](design/preload-control-priority-investigation-2026-10-18.md).
+      추가 Windows 재시험 4회에서도 최대 1–3 ms로 개선됐지만, native Android
+      Pixel 에뮬레이터의 조건부 direct 전송 4회는 기존 기준 최대 약 0.75/4.38초,
+      64 KiB 기준 약 5.92/2.57초였다. 네 파일 무결성·ACK는 통과했으나
+      일관된 제어 지연 개선이 없었으므로 모든 플랫폼의 개선 근거로 쓰지 않는다.
+      Pixel은 무전송 기준부터 버퍼링이 있어 미디어 품질 비교에 부적격이며,
+      한 실행의 host YouTube onError(5) → guest stop 경로도 원인은 미확정이다.
+      자연 라우팅 대신 시험 전용 direct 분류를 사용한 한계를 포함해 보존한다.
+      실제 Android/무선망 사건은 계속 열린 상태다.
+      [로컬 재시험·Pixel 결과·실패와 한계](design/preload-local-pixel-retest-2026-10-18.md).
+      후속 느린 망·다수 수신자 비교 6조건에서는 38개 파일의 바이트·SHA·ACK와
+      현재 재생 보존이 모두 통과했다. 8명 두 순서의 전체 제어 메시지 최대 지연은
+      5.051→3.706초, 3.494→2.511초로 개선됐지만, 2 Mbps 제한 수신자는
+      20.007→19.699초로 기존 병목이 남았다. 역순 8명 sender discard 증가량은
+      2,947→3,308으로 늘어 효율 위험 관측도 유지한다. 이를 네트워크 손실이나
+      특정 heartbeat 지연 원인으로 단정하지 않는다.
+      오너는 이 한계를 문서화해 **64 KiB 최소 완화를 진행하고 배포**하며,
+      간헐적인 심한 제어 지연의 원인·경로 분리·전송량 조절은 별도로 조사하도록
+      지시했다(2026-10-18). App 8.11.19/v721의 App-only 릴리스 준비 중이며
+      Developer API D1=false, 새 의존성·스키마·바인딩·비밀·wire 계약 변경 없음.
+      배포 후에도 이 열린 항목을 자동으로 닫지 않는다.
+      [추가 검증·최소 완화 판단·잔여 병목](design/preload-capacity-validation-2026-10-18.md).
 
 ### 최근 해결 근거
 

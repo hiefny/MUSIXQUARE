@@ -1125,7 +1125,9 @@ async function preloadNextTrack(): Promise<void> {
 // Preload deliberately tolerates congestion longer than active-file broadcast.
 // Both share the bulk channel, and prematurely excluding background work would
 // force that guest to restart the next track from zero.
-const PRELOAD_BROADCAST_BACKPRESSURE_LIMIT = 256 * 1024;
+// Keep speculative sends from filling the shared transport ahead of control
+// traffic. This is the next-send threshold, not a cap on native network queues.
+const PRELOAD_BACKPRESSURE_LIMIT = 64 * 1024;
 const PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 async function backgroundTransfer(
@@ -1281,7 +1283,7 @@ async function backgroundTransfer(
         queueItemId: owner.queueItemId,
         sessionId: owner.sessionId,
       }),
-      bufferedLimit: PRELOAD_BROADCAST_BACKPRESSURE_LIMIT,
+      bufferedLimit: PRELOAD_BACKPRESSURE_LIMIT,
       stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
       isWritable: (peer) => {
         const peerOwner = peerOwners.get(peer.id);
@@ -1446,12 +1448,17 @@ export async function unicastPreload(
         if ((await waitForPreloadTurn(claimedOwner, canContinue)) === 'stopped') return false;
         const channel = conn.dataChannel;
         let priorityInterrupted = false;
-        const capacity = await waitForTransferCapacity(conn, 256 * 1024, 30_000, () => {
-          if (!canContinue()) return false;
-          if (canPreloadSend(claimedOwner)) return true;
-          priorityInterrupted = true;
-          return false;
-        });
+        const capacity = await waitForTransferCapacity(
+          conn,
+          PRELOAD_BACKPRESSURE_LIMIT,
+          30_000,
+          () => {
+            if (!canContinue()) return false;
+            if (canPreloadSend(claimedOwner)) return true;
+            priorityInterrupted = true;
+            return false;
+          },
+        );
         if (!canContinue()) return false;
         if (
           capacity === 'stopped' &&

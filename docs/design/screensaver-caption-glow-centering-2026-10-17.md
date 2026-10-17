@@ -13,7 +13,8 @@ checkout with remote `main` without losing its older documentation work.
 - Production baseline: `5cbfaadf709c25bd66f9bf45e23e532e0955ca09`, App
   `8.11.9` / `v708`; this report does not replace its deployment evidence.
 - Prepared release identity: `8.11.10` / `v709`, target `app`, Developer API
-  D1 disabled. The tested product SHA and final release candidate are pending.
+  D1 disabled. Product source `1214dfb9` and test checkpoint `7bdbcb66` are
+  identified below; the exact-main release candidate is still pending.
 - The grouped caption layer receives a weak `rgb(140,205,255)` glow with the
   seconds effect's opacity and size-relative blur radius. The existing complete
   caption ink remains a separate sharp layer; the change does not restore the
@@ -52,19 +53,45 @@ new integration and final local/remote synchronization have been verified.
 
 ## Verification
 
-Product validation is in progress. No new product test, browser comparison,
-exact-main CI, or production deployment pass is claimed by this initial report.
-The reconciliation-only brand capitalization guard and `git diff --check` passed
-before the product verification round; they do not establish runtime correctness.
+Local verification uses product source `1214dfb9` and test commit `7bdbcb66`,
+whose runtime is identical, on Windows with Node 24.13.1 and npm 11.8.0.
+The pinned CI environment remains authoritative for a production candidate.
 
-The final evidence must identify the tested SHA and environment, record actual
-pass/fail/skip counts and any initial failures, and cover grouped-caption ink and
-glow, weather/AQI/moon group centering, unchanged clock/calendar alignment, and
-small/large viewports in Chromium and WebKit. Existing focused integration checks
-must retain their lazy-loading, YouTube, fullscreen, and scene-change coverage.
-Windows WebKit automation does not establish physical iPhone Safari behavior,
-and synthetic weather or room fixtures do not establish live-provider or audible
-multi-device behavior. Full serial E2E is not claimed unless explicitly run.
+- Full typecheck, lint, and final format checks passed. The first format check
+  overlapped test edits and reported `e2e/screensaver.test.ts`; formatting was
+  corrected before the final passing check. Auxiliary browser types, E2E
+  typecheck, and E2E ESLint also passed.
+- Worker syntax, Developer API boundaries, D1 migration contracts, and
+  source-only operations contracts passed. The reconciliation-only brand
+  capitalization guard and `git diff --check` also passed.
+- The full `npm test -- --maxWorkers=2` run passed 575 files / 12,898 tests,
+  with zero failures and zero skips, in 463.66 seconds.
+- Committed `build:checked` passed at `7bdbcb66`, including production security,
+  legacy-TV compatibility, the v709 cache guard, and 97 app-shell assets.
+- Two focused Chromium caption cases passed, followed by all 16 focused
+  screensaver integration cases. The 16-case suite retains lazy-loading,
+  YouTube exclusion, fullscreen, caption integrity, scene-change, and lifecycle
+  coverage; the two earlier cases are not counted as additional unique cases.
+- Independent source review of `1214dfb9` against `82c3f11e` found no actionable
+  issue in caption alpha/tint handling, grouped ink, halo padding and disposal,
+  steady-state repaint avoidance, unchanged clock/calendar geometry, or combined
+  information bounds including the degree symbol. Review is separate from
+  browser execution and does not establish physical-device behavior.
+- WebKit visual verification is still in progress. Its initial external fixture
+  hit a `3.0000124px` versus `3px` boundary; the original result is retained, and
+  a `3.01px` floating-point tolerance was applied to the fixture without a
+  runtime change. All five scenes at 390px then passed. At 1280px, the weather
+  high-alpha pixel bounding box measured a `+6.94px` center offset. Whether that
+  raster bound reflects the intentionally softened directional edges rather
+  than the logical layout width is under investigation; this is not recorded
+  as a passing full WebKit round or resolved product defect.
+
+The remaining WebKit comparison, PR checks, and exact-main CI are pending at
+this checkpoint. No production deployment success
+is claimed here. Windows WebKit automation does not establish physical iPhone
+Safari behavior, and synthetic weather or room fixtures do not establish
+live-provider or audible multi-device behavior. The full serial E2E suite has
+not been run for this change.
 
 ## Release and recovery
 

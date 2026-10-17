@@ -55,7 +55,7 @@ desktop WebKit selection. No gate or byte budget was raised.
 
 Base: `24be2ec3` (main including the 8.11.11/v711 deployment record).
 Local environment: Windows, Node 24.13.1, npm 11.8.0.
-Final tested code SHA and consolidated checks will be recorded before merge.
+Tested runtime code SHA: `012c44ac3acb4d504532bbffdd67c7c78861dd7c`.
 Local and PR checks are not the exact-main CI release candidate.
 
 Initial focused results:
@@ -88,6 +88,11 @@ Final results follow below.
 Final local verification (runtime source fixed before this run):
 
 - Complete unit suite: **578 files / 12,973 pass / 0 fail / 0 skip**, 335.53s.
+- Committed-HEAD `build:checked` passes at `012c44ac`: App 8.11.12/v712,
+  97 app-shell assets; entry 427.0 KiB raw / 126.6 KiB gzip, eager JS
+  466.1 KiB gzip, eager total 2019.9 KiB raw / 540.8 KiB gzip. Every positive
+  budget preserves its existing 5% reserve; production hooks/security, legacy
+  TV, font, service-worker and asset identity checks pass.
 - Full typecheck (including Worker declarations and E2E), full lint and
   formatting pass. Worker syntax, Developer API boundary, D1/ops contracts,
   import graph, dead exports, event pairing, room authority, chunk pump and

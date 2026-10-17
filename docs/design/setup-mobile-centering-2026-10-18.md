@@ -120,3 +120,54 @@ phone.
 - On 방 참여하기, a keyboard that shrinks the layout viewport shrinks both gaps
   equally. When it leaves no free space, the block returns to sit below the
   header, as before.
+
+## Release and recovery
+
+The owner approved the deploy on 2026-10-18 once CI and the review passed.
+PR #389 was squash-merged as `d51eb3671299ca9d60775a0bf1a4bb79819de0eb` after
+PR CI 39053254917 (11 jobs) passed on head `3d523c49`; the Codex review
+finished with no findings. Exact-main push CI 39053792906 attempt 1 passed
+all 11 jobs: unit 581 files / 13,037 pass / 0 fail / 1 skip (a Windows-only
+path check on Linux), candidate browser 17 and critical browser 55 pass.
+
+Production Release 39054268521 attempt 1 (target `app`, Developer API D1
+disabled) deployed the exact-main candidate, artifact 12108553063 (Node
+24.20.0 / npm 11.19.0 / Wrangler 4.148.0):
+
+- Recovery checkpoint captured at 02:34:12.585 KST (artifact 12108464246). It
+  preserves App 8.11.14/v716, `e47d0bb5`, version `0d55bd02` / deployment
+  `4ffedfd7`. The worker floor was ready at 02:34:14.400 KST (release floor
+  `d9364cd9`, generation floor `4c5612d5`).
+- Partial-release recheck compatible at 02:34:45.477 KST. The five
+  unselected Workers kept their `d9364cd9` provenance and IDs.
+- App version `df193d32-1ba8-4316-8a1e-02f5b4daae04` / deployment
+  `2876a31b-8882-463a-a379-d3ee5db61dd9`, verified by the final ownership
+  check at 02:35:11.227 KST, with the exact-SHA coherent marker recorded.
+- Operational smokes 4/4: App generation (`main-DTBX4PSg.js` converged over
+  three reads), anonymous App account boundary, PRO public boundary, and
+  Standard HTTPS signaling. The seven App D1 baseline steps verified. The
+  deploy job completed at 02:35:14 KST. No rollback was needed, and the
+  recovery job was skipped.
+
+Public assets at 02:35:56 KST matched the candidate byte for byte (HTTP 200,
+same size and SHA-256):
+
+| Path | Bytes |
+| --- | --- |
+| `/` | 140,676 |
+| `/service-worker.js` (v717) | 39,149 |
+| `/bootstrap.js?cache=v717` | 10,196 |
+| `/assets/main-DTBX4PSg.js` | 437,531 |
+| `/assets/main-J7B0zffU.css` (holds this change) | 324,291 |
+
+Operations Drift Audit 39054472061 attempt 1 on `d51eb367`:
+automated-checks-passed, 31 pass / 0 fail / 5 manual-only.
+
+Rolling back to the checkpoint restores 8.11.14, which puts the middle block
+back right below the header on phone portrait setup screens. No stored data or
+wire contract changed. A rollback re-verifies ownership and the floors as the
+procedure requires.
+
+Real devices and the full serial E2E suite were not run after the deploy. The
+device check stays open in the release record.
+

@@ -346,6 +346,8 @@ export interface TransportDataConnection {
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
   readonly bulkFlowControl?: TransportBulkFlowControl;
+  /** Activate private flow frames only after the application join handshake settles. */
+  startBulkFlowControl?(): void;
   /** Provider-owned, non-renewing deadline for this exact ICE interruption. */
   readonly iceRecoveryDeadline?: number;
 

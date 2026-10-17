@@ -662,6 +662,12 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     clearManagedTimer(bootstrapTimerName);
     connectionEstablished = true;
 
+    // Older peers reject unknown frames while awaiting the exact join baseline.
+    // APPLIED has settled on this ordered control channel, so private transport
+    // negotiation can now precede playback/file bootstrap without racing entry.
+    conn.startBulkFlowControl?.();
+    if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
+
     const peers = getState('network.connectedPeers');
     setState(
       'network.connectedPeers',

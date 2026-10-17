@@ -59,7 +59,7 @@ export class BulkFlowControl implements TransportBulkFlowControl {
     private readonly onControlFailure?: () => void,
   ) {}
 
-  /** Called once, before application open handlers can start a transfer. */
+  /** Called after admission settles, before application transfer events. */
   start(): void {
     if (this.started || this.disposed) return;
     this.started = true;
@@ -137,7 +137,7 @@ export class BulkFlowControl implements TransportBulkFlowControl {
       this.legacy = false;
       if (this.graceTimer !== null) clearTimeout(this.graceTimer);
       this.graceTimer = null;
-      // A remote channel may open first. start() will send the pending reply.
+      // Remote admission may finish first. Local start() sends the pending reply.
       if (this.started) this.flushReceipt(true);
       this.notify();
       return true;

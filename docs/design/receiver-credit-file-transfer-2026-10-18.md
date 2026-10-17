@@ -59,8 +59,14 @@ preload and per-peer stall/cancellation ownership remain in force.
 
 ## Compatibility and boundaries
 
-Hello is sent before application open handlers run. During a bounded 1-second
-negotiation grace, the first 128 KiB can be sent. An older peer that does not
+Hello is activated only after the application has completed its ordered join
+bootstrap, before its playback/file bootstrap events. The guest has successfully
+sent APPLIED and the host has accepted APPLIED and completed queue catch-up.
+The same ordered control channel prevents the new frame from overtaking those
+legacy bootstrap frames. RTC open alone never sends the new hello. A remote
+hello received before local activation is retained without sending a reply.
+During a bounded 1-second negotiation grace starting at activation, the first
+128 KiB can be sent. An older peer that does not
 advertise support then uses the local 64 KiB threshold alone. Lifetime counters
 include this grace/fallback interval: a late valid hello activates the window
 without pretending that previously sent bytes were received. A negotiated peer
@@ -110,20 +116,86 @@ Windows / Node 24.20.0 initial implementation validation:
   the connection. The test now asserts a successful hello before injecting the
   application-send failure. No production change was needed. The failed unit
   shard reported 6,872 pass / 1 fail / 1 platform skip; its logs are retained.
+- PR head `1a55867fbf6bfebfab7e439f06d70aebde41d301` passed all 11 jobs of
+  [CI 39078472956](https://github.com/hiefny/MUSIXQUARE/actions/runs/39078472956),
+  including both whole-unit shards, merged coverage and critical browser gate.
+  GitHub Codex reviewed runtime commit `4c0f9498` with no findings. The subsequent
+  commit only fixes the audio test fixture and records its evidence; production
+  code remains identical to the candidate build's source manifest.
+- The first mixed-version product case then found a **production compatibility
+  defect** in that candidate: a new host sent its private hello before WELCOME,
+  and the old guest's strict join bootstrap rejected it and closed the connection.
+  This is not a flaky entry timeout: native send/receive timestamps prove the
+  sequence. Testing stopped; the failed raw and the 16 completed pre-fix
+  performance cases were retained. The repair moves negotiation to the explicit
+  application bootstrap-complete boundary above. The original performance build
+  is not the final release candidate; new/new and mixed-version retests are required.
 
 The product A/B run uses a pinned baseline and source/asset manifests for the
 candidate, on an exclusive local CPU slot. It covers ordinary sends and preload,
 eight recipients in both A/B orders, one shaped slow recipient, high RTT, mixed
 versions, cancellation/re-add and promotion. Application-control percentiles
 exclude new receipt frames so receipt frequency cannot dilute the comparison.
+Transfers use the actual file input, native RTC and product send/receive paths;
+preload uses a controlled YouTube renderer to isolate the transfer. This run does
+not measure the external YouTube provider or physical Android audible alignment.
 Results, final source SHA and final pass/fail/skip counts are pending.
+
+Completed pre-repair product comparisons (maximum matched application heartbeat
+delivery time: SYNC_PONG for ordinary files, YOUTUBE_SYNC for preload; receipts
+excluded):
+
+| Condition | Baseline | Candidate |
+| --- | ---: | ---: |
+| Ordinary file, eight guests, A then B | 5,652 ms | 34 ms |
+| Ordinary file, eight guests, B then A | 7,045 ms | 24 ms |
+| Preload, eight guests, A then B | 1,420 ms | 25 ms |
+| Preload, eight guests, B then A | 4,507 ms | 21 ms |
+| Ordinary file, one 2 Mbps guest among three | 20,083 ms | 425 ms |
+| Preload, one 2 Mbps guest among three | 19,692 ms | 418 ms |
+| Preload heartbeat, one 8 Mbps guest / ~100 ms RTT | 4,884 ms | 114 ms |
+| Preload heartbeat, one 8 Mbps guest / ~220 ms RTT | 4,805 ms | 250 ms |
+
+All 16 performance cases verified 88 file hashes, readiness/final ACK and all 44
+candidate credit connections (maximum 131,072 payload bytes outstanding). The
+eight-guest subset verified 64 files across eight runs. In the first
+ordinary A/B pair, baseline completion ranged from 3.9 to 22.9 seconds while
+candidate completion ranged from 8.3 to 8.5 seconds: some previously fast
+recipients became slower, while the slowest and whole-group completion improved.
+The 2 Mbps ordinary-file completion was 96.845 → 96.415 seconds; preload was
+96.703 → 96.303 seconds. These are controlled same-PC observations, not physical
+Android or arbitrary-network guarantees. Ordinary-file A/B changes both the
+local threshold and credit; preload retains 64 KiB in both variants and isolates
+the credit change. At 8 Mbps and roughly 100 ms RTT, the slow guest's completion
+was 24.198 → 31.684 seconds; at roughly 220 ms RTT it was 24.495 → 64.540 seconds.
+The fixed credit window deliberately trades high-RTT throughput for much shorter
+control queues. These results do not support a claim that downloads are always
+faster. Compatibility and repaired-build confirmation remain pending.
+
+Eight-guest ordinary-file page task time increased about 4–7% and maximum guest
+event-loop lag was about 71 ms versus 30–32 ms. Diagnostic receipt recording is
+part of that cost; these numbers neither isolate application CPU nor measure
+native Blob/RTC memory. Do not claim a universal CPU reduction or a 100-device
+load result. No preload-induced controlled-YouTube mutation occurred. Application
+metadata can have a different tail from the heartbeat table (high-RTT candidate
+app-down max 710 ms, heartbeat max 250 ms). Configured shaper delays are not RTT:
+the high-RTT pair's no-file native ping samples were approximately 216–231 ms.
+
+Raw evidence is retained under `scratch/receiver-flow-validation-2026-10-18/`:
+`actual-product-pre-fix-results-r1.md`, `r1-evidence-manifest.json`,
+`candidate-r1-commit-binding.json` and `compatibility-bootstrap-failure-r1.md`.
+The source binding checks all 506 runtime files against `4c0f9498`; baseline is
+the clean `d09e0d00` checkout. Local tests, build logs and CI logs are under
+`scratch/receiver-credit-2026-10-18/`. Receipt accounting proves transport delivery,
+not storage durability; received Blob SHA-256 and final app readiness are separate
+assertions. The ordinary-file high-RTT case is not independently measured.
 
 Local/PR evidence cannot substitute for the successful exact-main CI candidate
 required by the production release workflow.
 
 ## Release and recovery
 
-Planned identity: App 8.11.20 / cache v722, target app,
+Planned identity: App 8.11.20 / cache v723, target app,
 `apply_developer_api_d1=false`. No production release has run for this change.
 Rollback to the recorded previous App loses receiver credit and returns ordinary
 file local thresholds to 512/256 KiB, while its preload threshold remains 64 KiB.

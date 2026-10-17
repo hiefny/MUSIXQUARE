@@ -961,6 +961,10 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     return this.iceRestartBinding ? this.recoveryDeadline : 0;
   }
 
+  startBulkFlowControl(): void {
+    if (this.open && !this.closed) this.bulkFlowControl.start();
+  }
+
   constructor(
     readonly peer: string,
     readonly metadata?: unknown,
@@ -1280,8 +1284,6 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       return;
     }
     this.open = true;
-    this.bulkFlowControl.start();
-    if (this.closed) return;
     // An ICE restart may retain connected throughout while replacing its
     // selected pair. Reclassify from that actual path change, not from the SDP
     // answer (which can still describe the previously selected local path).

@@ -545,6 +545,9 @@ describe('atomic settings synchronization', () => {
     );
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(newHost.open).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    // This scenario resumes an admitted connection, beyond the ordered join.
+    newHost.startBulkFlowControl();
     expect(send).toHaveBeenCalledOnce();
     expect(JSON.parse(send.mock.calls[0]![0]) as unknown).toMatchObject({
       type: 'mxqr-bulk-flow',

@@ -34,7 +34,7 @@ class PeerConnection extends EventTarget {
 }
 
 const connections: CloudflareDataConnection[] = [];
-async function endpoint() {
+async function endpoint(activate = true) {
   const conn = new CloudflareDataConnection(`peer-${connections.length}`);
   connections.push(conn);
   const pc = new PeerConnection();
@@ -43,6 +43,7 @@ async function endpoint() {
   conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
   conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
   await Promise.resolve();
+  if (activate) conn.startBulkFlowControl();
   return { conn, bulk, control };
 }
 
@@ -75,7 +76,7 @@ afterEach(() => {
 });
 
 describe('Cloudflare transport receiver credit', () => {
-  it('offers capability on control before application open, never through the file stream', async () => {
+  it('keeps RTC open silent until the application explicitly settles admission', async () => {
     const conn = new CloudflareDataConnection('opening');
     connections.push(conn);
     const pc = new PeerConnection();
@@ -86,13 +87,41 @@ describe('Cloudflare transport receiver credit', () => {
     conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
     conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
     await Promise.resolve();
-    expect(observedAtOpen).toHaveLength(1);
-    expect(JSON.parse(observedAtOpen[0] as string)).toMatchObject({
+    expect(observedAtOpen).toHaveLength(0);
+    expect(control.sent).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(false);
+    expect(() => conn.send(chunk())).toThrow('BULK_FLOW_CAPACITY_EXCEEDED');
+    conn.send({ type: MSG.JOIN_BOOTSTRAP_APPLIED, version: 1, bootstrapId: 'settled' });
+    conn.startBulkFlowControl();
+    expect(control.sent.map((frame) => JSON.parse(frame as string).type)).toEqual([
+      MSG.JOIN_BOOTSTRAP_APPLIED,
+      'mxqr-bulk-flow',
+    ]);
+    expect(JSON.parse(control.sent[1] as string)).toMatchObject({
       type: 'mxqr-bulk-flow',
       version: 1,
       kind: 'hello',
     });
     expect(bulk.sent).toHaveLength(0);
+  });
+
+  it('holds an early peer offer without emitting a private reply before local admission', async () => {
+    const sender = await endpoint();
+    const receiver = await endpoint(false);
+    const onData = vi.fn();
+    receiver.conn.on('data', onData);
+    receiver.control.receive(sender.control.sent[0]);
+    await Promise.resolve();
+    expect(receiver.control.sent).toHaveLength(0);
+    expect(onData).not.toHaveBeenCalled();
+    receiver.conn.startBulkFlowControl();
+    expect(receiver.control.sent.map((frame) => JSON.parse(frame as string).kind)).toEqual([
+      'hello',
+      'receipt',
+    ]);
+    receiver.conn.startBulkFlowControl();
+    expect(receiver.control.sent).toHaveLength(2);
   });
 
   it('shares a payload window across FILE/PRELOAD without charging codec headers or blocking control/END', async () => {
@@ -217,7 +246,7 @@ describe('Cloudflare transport receiver credit', () => {
     expect(onData).not.toHaveBeenCalled();
   });
 
-  it('closes a failed initial hello without publishing a false application open', async () => {
+  it('closes when activation fails to send hello after RTC open', async () => {
     const conn = new CloudflareDataConnection('failed-hello');
     connections.push(conn);
     const pc = new PeerConnection();
@@ -231,7 +260,9 @@ describe('Cloudflare transport receiver credit', () => {
     conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
     conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
     await Promise.resolve();
-    expect(onOpen).not.toHaveBeenCalled();
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    conn.startBulkFlowControl();
     expect(onClose).toHaveBeenCalledOnce();
     expect(conn.open).toBe(false);
     expect(conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(false);

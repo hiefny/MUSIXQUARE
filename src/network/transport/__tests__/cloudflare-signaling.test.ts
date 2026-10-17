@@ -4540,6 +4540,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(conn.open).toBe(true);
     expect(onOpen).toHaveBeenCalledTimes(1);
 
+    conn.startBulkFlowControl();
+
     conn.send({
       type: MSG.PLAYLIST_UPDATE,
       list: [],

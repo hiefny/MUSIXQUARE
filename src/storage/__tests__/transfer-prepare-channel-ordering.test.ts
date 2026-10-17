@@ -69,10 +69,12 @@ function connection(id: string) {
   });
   const bulk = new Channel('musixquare-data'),
     control = new Channel('musixquare-control');
-  // Capture/replay fixtures exercise application ordering with a peer that
-  // does not answer negotiation. Assert the private hello separately, then
-  // keep application frame indexes independent of transport housekeeping.
+  // These application-ordering fixtures omit the already-settled room join.
+  // RTC open alone must remain silent; explicitly cross the post-join boundary
+  // before asserting the private hello separately from application frames.
   transport.on('open', () => {
+    expect(control.sent).toEqual([]);
+    transport.startBulkFlowControl();
     expect(JSON.parse(control.sent.shift() as string)).toMatchObject({
       type: 'mxqr-bulk-flow',
       version: 1,

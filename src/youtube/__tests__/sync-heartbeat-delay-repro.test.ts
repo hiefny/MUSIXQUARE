@@ -317,6 +317,99 @@ describe('heartbeat projection boundaries', () => {
   });
 });
 
+describe('Android ENDED output-tail ownership', () => {
+  it.each([0, 125, 500])(
+    'keeps the completed occurrence held when its final PLAYING frame is %i ms old',
+    async (ageMs) => {
+      const player = installGuest(true);
+      const sentAt = getHostNow();
+      await advance(ageMs);
+      player.seekTo(300, true);
+      player.__setState(0, false);
+      player.__log.length = 0;
+      // 299.875 is inside the original 250ms hold; projection reaches exactly
+      // 300s at 125ms and goes beyond it at 500ms. Neither permits a replay.
+      heartbeat(sentAt, { time: 299.875 });
+      await advance(SEEK_PLAY_GAP_MS);
+      expect(mutationOps(player), JSON.stringify(player.__log)).toEqual([]);
+      expect(player.getPlayerState()).toBe(0);
+    },
+  );
+
+  it.each([
+    { manual: 1, time: 298.375, ageMs: 500 },
+    { manual: -1, time: 299.875, ageMs: 1000 },
+  ])('keeps the tail hold with manual offset $manual', async ({ manual, time, ageMs }) => {
+    setState('sync.youtubeLocalOffset', manual);
+    const player = installGuest(true);
+    const sentAt = getHostNow();
+    await advance(ageMs);
+    player.seekTo(300, true);
+    player.__setState(0, false);
+    player.__log.length = 0;
+    // Both local adjusted positions are 299.875s, within the output tail.
+    heartbeat(sentAt, { time });
+    await advance(SEEK_PLAY_GAP_MS);
+    expect(mutationOps(player)).toEqual([]);
+    expect(player.getPlayerState()).toBe(0);
+  });
+
+  it('recovers an ENDED guest whose negative manual offset puts its target before the tail', async () => {
+    setState('sync.youtubeLocalOffset', -1);
+    const player = installGuest(true);
+    const sentAt = getHostNow();
+    await advance(500);
+    player.seekTo(300, true);
+    player.__setState(0, false);
+    player.__log.length = 0;
+    // 299.375 + 0.5 - 1 + 0.25 = 299.125s: ENDED must not become a blanket hold.
+    heartbeat(sentAt, { time: 299.375 });
+    await advance(SEEK_PLAY_GAP_MS);
+    expect(mutationOps(player)).toEqual(['pauseVideo', 'seekTo', 'playVideo']);
+    expect(seekTargets(player)).toEqual([299.125]);
+    expect(player.getPlayerState()).toBe(1);
+  });
+
+  it('allows the next queue occurrence of the same video to start from ENDED', async () => {
+    const player = installGuest(true);
+    player.seekTo(300, true);
+    player.__setState(0, false);
+    player.__log.length = 0;
+    const nextQueueItemId = '99333333-3333-4333-8333-333333333333';
+    setState('playlist.items', [
+      ...getState('playlist.items'),
+      {
+        queueItemId: nextQueueItemId,
+        type: 'youtube',
+        name: 'Replay',
+        videoId: VIDEO,
+        playlistId: null,
+      },
+    ]);
+    setState('playlist.currentQueueItemId', nextQueueItemId);
+    heartbeat(getHostNow(), { queueItemId: nextQueueItemId, time: 0 });
+    await advance(SEEK_PLAY_GAP_MS);
+    expect(mutationOps(player)).toEqual(['pauseVideo', 'seekTo', 'playVideo']);
+    expect(seekTargets(player)).toEqual([0.25]);
+    expect(player.getPlayerState()).toBe(1);
+  });
+
+  it('allows an explicit host play/seek command to leave ENDED', async () => {
+    const player = installGuest(true);
+    player.seekTo(300, true);
+    player.__setState(0, false);
+    player.__log.length = 0;
+    harness.handlers[MSG.YOUTUBE_STATE](
+      { queueItemId: Q, time: 30, state: 1, videoId: VIDEO, hostClock: getHostNow() },
+      host,
+    );
+    await advance(SEEK_PLAY_GAP_MS);
+    expect(mutationOps(player)).toEqual(['pauseVideo', 'seekTo', 'playVideo']);
+    expect(seekTargets(player)).toEqual([30.25]);
+    expect(player.getPlayerState()).toBe(1);
+  });
+});
+
 describe('BUFFERING guest receiving an aged PLAYING heartbeat', () => {
   it.each([0, 200, 500])(
     'Android: age %i ms recovery seek must include elapsed host playback',

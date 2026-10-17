@@ -1462,11 +1462,12 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       player.getPlayerState?.() === 0 &&
       guestAudibleLeadMs() > 0 &&
       duration > 0 &&
-      rawManualTime < duration &&
       rawManualTime + guestAudibleLeadMs() / 1000 >= duration
     ) {
       // An ahead-of-video speaker can naturally end a fraction before the
       // host. Wait for its next occurrence instead of replaying the tail.
+      // Keep holding when a delayed PLAYING snapshot projects to/past the end;
+      // the elapsed time does not authorize restarting the completed occurrence.
       return;
     }
     // Sampled before either correction below touches the iframe.

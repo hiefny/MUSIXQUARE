@@ -46,7 +46,7 @@ import { getState } from '../core/state.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { getRoomContext } from '../rooms/authority.ts';
 import { showDialog } from './dialog.ts';
-import { onWindowBack, syncOverlayState } from './dom.ts';
+import { onWindowBack, syncOverlayState, trackClosingCssTransition } from './dom.ts';
 import { showToast } from './toast.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 
@@ -84,6 +84,7 @@ const ACCOUNT_CLIENT_ID = createAccountClientId();
 
 let _unsubscribeAccount: (() => void) | null = null;
 let _previousFocus: HTMLElement | null = null;
+let _finishAccountDialogClose: (() => void) | null = null;
 let _profilePromptShownScope: string | null | undefined;
 let _profilePromptActive: ReturnType<typeof captureAccountMutationIntent> | null = null;
 let _profilePromptOperation: Promise<AccountNicknameChangeOutcome> | null = null;
@@ -1106,6 +1107,8 @@ function closeAccountDialog(): void {
   const overlay = byId<HTMLElement>('account-dialog-overlay');
   if (!overlay?.classList.contains('show') || _accountActionPending) return;
   overlay.classList.remove('show');
+  _finishAccountDialogClose?.();
+  _finishAccountDialogClose = trackClosingCssTransition(overlay);
   overlay.setAttribute('aria-hidden', 'true');
   _accountStatsRequestId += 1;
   _accountStatsLoading = false;
@@ -1130,6 +1133,8 @@ export function openAccountDialog(): void {
   const snapshot = getAccountSnapshot();
   const overlay = byId<HTMLElement>('account-dialog-overlay');
   if (!overlay) return;
+  _finishAccountDialogClose?.();
+  _finishAccountDialogClose = null;
   const openingNewEpoch = !overlay.classList.contains('show');
   if (openingNewEpoch) _accountStatsDialogEpoch += 1;
   _previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -1495,6 +1500,8 @@ function handleProfilePromptVisibility(): void {
 }
 
 export function initAccount(): void {
+  _finishAccountDialogClose?.();
+  _finishAccountDialogClose = null;
   // initAccount runs before setup.ts. Recover a standalone-PWA room route now
   // so invite parsing and the automatic PRO resume see the intended room.
   restoreAccountLoginReturnPath();
@@ -1527,6 +1534,8 @@ export function initAccount(): void {
 
 /** Reset module-owned UI guards between isolated DOM tests. */
 export function __resetAccountUiForTests(): void {
+  _finishAccountDialogClose?.();
+  _finishAccountDialogClose = null;
   _unsubscribeAccount?.();
   _unsubscribeAccount = null;
   _busScope.dispose();

@@ -30,7 +30,10 @@ vi.mock('../../ui/toast.ts', () => ({
   showToast: vi.fn(),
   updateLoader: vi.fn(),
 }));
-vi.mock('../../ui/dom.ts', () => ({ updateOverlayOpenClass: vi.fn() }));
+vi.mock('../../ui/dom.ts', () => ({
+  beginBackSurfaceTransition: vi.fn(() => vi.fn()),
+  updateOverlayOpenClass: vi.fn(),
+}));
 vi.mock('../../ui/theme-chrome.ts', () => ({
   syncAppThemeChrome: vi.fn(),
   syncDemoThemeChrome: vi.fn(),

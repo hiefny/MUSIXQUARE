@@ -1,4 +1,5 @@
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { beginBackSurfaceTransition } from './dom.ts';
 import {
   FULLSCREEN_CHANGE_EVENTS,
   FULLSCREEN_ERROR_EVENTS,
@@ -26,7 +27,8 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
   const listeners = new Set<() => void>();
   const timerPrefix = `screensaver-fullscreen-${++entrySequence}`;
   const requestTimer = `${timerPrefix}-request`;
-  const exitTimer = `${timerPrefix}-exit`;
+  let exitTimer = 0;
+  let finishBackSurface: (() => void) | null = null;
   let closed = false;
   let requestPending = false;
   let exitPending = false;
@@ -45,7 +47,8 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
     for (const event of FULLSCREEN_ERROR_EVENTS)
       document.removeEventListener(event, onFullscreenError);
     clearManagedTimer(requestTimer);
-    clearManagedTimer(exitTimer);
+    window.clearTimeout(exitTimer);
+    window.removeEventListener('pagehide', onPageHide);
     if (currentEntry === entry) currentEntry = null;
   };
   const settleExit = (generation: number): void => {
@@ -53,7 +56,10 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
     exitGeneration++;
     exitPending = false;
     exitErrorEvent = null;
-    clearManagedTimer(exitTimer);
+    window.clearTimeout(exitTimer);
+    const finishSurface = finishBackSurface;
+    finishBackSurface = null;
+    finishSurface?.();
     finish();
   };
   const restore = (): void => {
@@ -67,8 +73,12 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
       return;
     }
     exitPending = true;
+    finishBackSurface = beginBackSurfaceTransition();
     exitErrorEvent = exit.errorEvent;
     const generation = ++exitGeneration;
+    // Native timer: clearing room timers cannot strand the closing surface.
+    // This bounds promise-based exits too when the browser never settles one.
+    exitTimer = window.setTimeout(() => settleExit(generation), LEGACY_SETTLEMENT_MS);
     try {
       const result = exit.invoke();
       if (result && typeof result.then === 'function') {
@@ -76,9 +86,6 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
           .catch(() => {})
           .finally(() => settleExit(generation));
       } else if (getFullscreenElement() !== target) settleExit(generation);
-      else if (generation === exitGeneration) {
-        setManagedTimer(exitTimer, () => settleExit(generation), LEGACY_SETTLEMENT_MS);
-      }
     } catch {
       settleExit(generation);
     }
@@ -118,6 +125,9 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
     if (exitPending && event.type === exitErrorEvent) settleExit(exitGeneration);
     else if (requestPending && event.type === requestErrorEvent) rejectActiveRequest?.();
   };
+  const onPageHide = (): void => {
+    if (exitPending) settleExit(exitGeneration);
+  };
   const entry: ScreensaverEntry = {
     container:
       previousFullscreen instanceof HTMLElement && previousFullscreen !== document.documentElement
@@ -136,6 +146,7 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
   for (const event of FULLSCREEN_CHANGE_EVENTS)
     document.addEventListener(event, onFullscreenChange);
   for (const event of FULLSCREEN_ERROR_EVENTS) document.addEventListener(event, onFullscreenError);
+  window.addEventListener('pagehide', onPageHide);
 
   const requests = [
     { invoke: target.requestFullscreen, errorEvent: 'fullscreenerror' },

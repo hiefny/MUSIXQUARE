@@ -44,9 +44,24 @@ type WebKitFullscreenDocument = Document & {
   webkitFullscreenElement?: Element | null;
   webkitCurrentFullScreenElement?: Element | null;
   webkitIsFullScreen?: boolean;
-  webkitExitFullscreen?: () => void;
-  webkitCancelFullScreen?: () => void;
+  webkitExitFullscreen?: () => Promise<void> | void;
+  webkitCancelFullScreen?: () => Promise<void> | void;
 };
+
+const FULLSCREEN_EXIT_SETTLEMENT_MS = 1_500;
+let pendingFullscreenExit: {
+  element: Element | null;
+  listeners: Set<() => void>;
+  finish: () => void;
+} | null = null;
+
+function notifyFullscreenExit(listener: (() => void) | undefined): void {
+  try {
+    listener?.();
+  } catch {
+    // A surface observer cannot strand the native exit or its other observers.
+  }
+}
 
 /**
  * Leave every fullscreen surface owned by the YouTube player before its
@@ -54,8 +69,13 @@ type WebKitFullscreenDocument = Document & {
  * (or its iframe) as the active fullscreen element after local-file playback
  * takes ownership, leaving the app chrome inaccessible. Fake fullscreen must
  * be cleared too so its viewport layout cannot remain active while parking.
+ * The explicit fullscreen toggle may use document scope to preserve its
+ * existing ability to leave fullscreen belonging to another app surface.
  */
-export function exitYouTubeFullscreen(): void {
+export function exitYouTubeFullscreen(
+  onSettled?: () => void,
+  options: { scope?: 'document' } = {},
+): void {
   const ytContainer = document.getElementById('youtube-player-container');
   const videoWrapper = (ytContainer?.closest('.video-wrapper') ??
     document.querySelector('.video-wrapper')) as HTMLElement | null;
@@ -72,29 +92,94 @@ export function exitYouTubeFullscreen(): void {
     null;
   const playerOwnsFullscreen = Boolean(
     fullscreenElement &&
-    (fullscreenElement === videoWrapper ||
+    (options.scope === 'document' ||
+      fullscreenElement === videoWrapper ||
       videoWrapper?.contains(fullscreenElement) ||
       (pageWasYouTube && fullscreenElement === document.documentElement)),
   );
-  const legacyPlayerFullscreen = pageWasYouTube && doc.webkitIsFullScreen === true;
-  if (!playerOwnsFullscreen && !legacyPlayerFullscreen) return;
+  const legacyPlayerFullscreen =
+    (options.scope === 'document' || pageWasYouTube) && doc.webkitIsFullScreen === true;
+  if (!playerOwnsFullscreen && !legacyPlayerFullscreen) {
+    notifyFullscreenExit(onSettled);
+    return;
+  }
 
   const exitFullscreen =
     document.exitFullscreen ?? doc.webkitExitFullscreen ?? doc.webkitCancelFullScreen;
-  if (!exitFullscreen) return;
+  if (!exitFullscreen) {
+    notifyFullscreenExit(onSettled);
+    return;
+  }
+
+  if (pendingFullscreenExit?.element === fullscreenElement) {
+    if (onSettled) pendingFullscreenExit.listeners.add(onSettled);
+    return;
+  }
+  pendingFullscreenExit?.finish();
+
+  let finished = false;
+  let timer = 0;
+  const finish = (): void => {
+    if (finished) return;
+    finished = true;
+    window.clearTimeout(timer);
+    for (const name of ['fullscreenchange', 'webkitfullscreenchange'])
+      document.removeEventListener(name, onChange);
+    for (const name of ['fullscreenerror', 'webkitfullscreenerror'])
+      document.removeEventListener(name, onError);
+    window.removeEventListener('pagehide', finish);
+    if (pendingFullscreenExit === attempt) pendingFullscreenExit = null;
+    for (const listener of attempt.listeners) notifyFullscreenExit(listener);
+    attempt.listeners.clear();
+  };
+  const isStillFullscreen = (): boolean => {
+    const current =
+      document.fullscreenElement ??
+      doc.webkitFullscreenElement ??
+      doc.webkitCurrentFullScreenElement ??
+      null;
+    return fullscreenElement ? current === fullscreenElement : doc.webkitIsFullScreen === true;
+  };
+  const onChange = (): void => {
+    if (!isStillFullscreen()) finish();
+  };
+  const onError = (event: Event): void => {
+    if (
+      event.target === document ||
+      event.target === fullscreenElement ||
+      event.target === videoWrapper
+    ) {
+      finish();
+    }
+  };
+  const attempt = {
+    element: fullscreenElement,
+    listeners: new Set(onSettled ? [onSettled] : []),
+    finish,
+  };
+  pendingFullscreenExit = attempt;
+  for (const name of ['fullscreenchange', 'webkitfullscreenchange'])
+    document.addEventListener(name, onChange);
+  for (const name of ['fullscreenerror', 'webkitfullscreenerror'])
+    document.addEventListener(name, onError);
+  window.addEventListener('pagehide', finish);
+  // Native: session teardown may clear managed timers before the browser
+  // finishes exiting. A missing event or promise must not block every Back.
+  timer = window.setTimeout(finish, FULLSCREEN_EXIT_SETTLEMENT_MS);
 
   try {
     const pendingExit: void | Promise<void> = exitFullscreen.call(document);
     if (
       typeof pendingExit === 'object' &&
       pendingExit !== null &&
-      typeof pendingExit.catch === 'function'
+      typeof pendingExit.then === 'function'
     ) {
-      void pendingExit.catch(() => undefined);
-    }
+      pendingExit.then(finish, finish);
+    } else if (!isStillFullscreen()) finish();
   } catch {
     // Fullscreen teardown is best-effort on older WebKit. The fake-fullscreen
     // cleanup above still restores the app layout when the native API throws.
+    finish();
   }
 }
 

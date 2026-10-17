@@ -1,4 +1,7 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { existsSync, statSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -30,25 +33,56 @@ const WEIGHT_PATTERNS = [
   /["']wght["']\s*,?\s*(\d{3})\b/gu,
 ];
 
-async function sourceFiles(): Promise<string[]> {
-  const files: string[] = [];
-  for (const root of ROOTS) {
-    if (TEXT_FILE.test(root)) {
-      files.push(root);
-      continue;
-    }
-    for (const entry of await readdir(root, { recursive: true })) {
-      const file = path.join(root, entry);
-      if (TEXT_FILE.test(file) && !SKIPPED.test(file)) files.push(file);
-    }
-  }
-  return files;
+function sourceFiles(repository = process.cwd()): string[] {
+  // Match the authored JS/inline inventory: include new source before staging,
+  // but not ignored local build copies (for example cloudflare/scratch/).
+  // Tracked files remain in scope even if an ignore rule happens to match them.
+  return execFileSync(
+    'git',
+    ['ls-files', '--cached', '--others', '--exclude-standard', '-z', '--', ...ROOTS],
+    { cwd: repository, encoding: 'utf8' },
+  )
+    .split('\0')
+    .filter((file) => TEXT_FILE.test(file) && !SKIPPED.test(file))
+    .filter((file) => {
+      const absolute = path.join(repository, file);
+      return existsSync(absolute) && statSync(absolute).isFile();
+    });
 }
 
 describe('maximum text weight', () => {
+  it('checks tracked and new authored sources without scanning ignored build copies', async () => {
+    const repository = await mkdtemp(path.join(tmpdir(), 'mxqr-text-weight-'));
+    if (path.dirname(path.resolve(repository)) !== path.resolve(tmpdir())) {
+      throw new Error('Refusing to use a fixture outside the temporary directory');
+    }
+    try {
+      execFileSync('git', ['init', '--quiet'], { cwd: repository });
+      await mkdir(path.join(repository, 'cloudflare/scratch/app-bundle'), { recursive: true });
+      await writeFile(path.join(repository, '.gitignore'), 'scratch/\n');
+      await writeFile(path.join(repository, 'cloudflare/app-worker.ts'), 'fontWeight: 800');
+      await writeFile(path.join(repository, 'cloudflare/new-page.ts'), 'fontWeight: 800');
+      await writeFile(
+        path.join(repository, 'cloudflare/scratch/app-bundle/app-worker.js'),
+        'fontWeight: 800',
+      );
+      await writeFile(path.join(repository, 'cloudflare/scratch/tracked.ts'), 'fontWeight: 800');
+      execFileSync('git', ['add', 'cloudflare/app-worker.ts'], { cwd: repository });
+      execFileSync('git', ['add', '--force', 'cloudflare/scratch/tracked.ts'], { cwd: repository });
+
+      expect(sourceFiles(repository).sort()).toEqual([
+        'cloudflare/app-worker.ts',
+        'cloudflare/new-page.ts',
+        'cloudflare/scratch/tracked.ts',
+      ]);
+    } finally {
+      await rm(repository, { recursive: true, force: true });
+    }
+  });
+
   it('keeps every text weight at 700 or below', async () => {
     const violations: string[] = [];
-    for (const file of await sourceFiles()) {
+    for (const file of sourceFiles()) {
       const source = await readFile(file, 'utf8');
       for (const pattern of WEIGHT_PATTERNS) {
         for (const match of source.matchAll(pattern)) {

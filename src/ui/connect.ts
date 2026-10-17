@@ -11,7 +11,13 @@ import { getState, setState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { showToast } from './toast.ts';
-import { copyTextToClipboard, getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
+import {
+  copyTextToClipboard,
+  getUiElement,
+  onWindowBack,
+  syncOverlayState,
+  trackClosingCssTransition,
+} from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import {
@@ -973,6 +979,7 @@ let _permissionDialogGeneration = 0;
 let _permissionDialogPreviousFocus: HTMLElement | null = null;
 let _permissionDialogPreviousContainerId: string | null = null;
 let _permissionDialogBusy = false;
+let _finishPermissionDialogClose: (() => void) | null = null;
 let _permissionDialogInitializedFor: HTMLElement | null = null;
 let _permissionDialogRoomBoundary: {
   kind: string;
@@ -1432,6 +1439,8 @@ function closeAdministratorPermissionsDialogInternal(ignoreBusy: boolean): void 
   _permissionDialogBusy = false;
   getUiElement('administrator-permissions-dialog')?.setAttribute('aria-busy', 'false');
   overlay.classList.remove('show');
+  _finishPermissionDialogClose?.();
+  _finishPermissionDialogClose = trackClosingCssTransition(overlay);
   overlay.setAttribute('aria-hidden', 'true');
   syncOverlayState();
   const targetMemberId = _permissionDialogTarget?.memberId || null;
@@ -1559,6 +1568,8 @@ function openAdministratorPermissionsDialog(administrator: AdministratorView): v
   const overlay = getUiElement('administrator-permissions-overlay');
   const title = getUiElement('administrator-permissions-title');
   if (!overlay || !title) return;
+  _finishPermissionDialogClose?.();
+  _finishPermissionDialogClose = null;
   const generation = ++_permissionDialogGeneration;
   _permissionDialogBusy = false;
   getUiElement('administrator-permissions-dialog')?.setAttribute('aria-busy', 'false');
@@ -2026,6 +2037,8 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
 const _busScope = createBusScope();
 
 export function initConnect(): void {
+  _finishPermissionDialogClose?.();
+  _finishPermissionDialogClose = null;
   _busScope.dispose();
 
   initSignalingRecoveryDialog();

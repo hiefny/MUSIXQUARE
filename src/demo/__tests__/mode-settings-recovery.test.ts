@@ -94,6 +94,7 @@ vi.mock('../../ui/toast.ts', () => ({
 }));
 
 vi.mock('../../ui/dom.ts', () => ({
+  beginBackSurfaceTransition: vi.fn(() => vi.fn()),
   updateOverlayOpenClass: vi.fn(),
 }));
 

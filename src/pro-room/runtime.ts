@@ -2919,7 +2919,7 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
     // reload /CODE: that would rejoin a public room with one Start tap.
     // Leave the room URL first so a refresh during the dialog lands home.
     try {
-      history.replaceState(null, '', '/');
+      history.replaceState(history.state, '', '/');
     } catch {
       // The navigation below still replaces the room URL.
     }

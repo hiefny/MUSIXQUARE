@@ -46,7 +46,7 @@ import { registerHandlers } from '../network/protocol.ts';
 import { hideSetupOverlay } from '../ui/setup-shared.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
-import { onWindowBack, updateOverlayOpenClass } from '../ui/dom.ts';
+import { beginBackSurfaceTransition, onWindowBack, updateOverlayOpenClass } from '../ui/dom.ts';
 import { syncExclusivePressedState } from '../core/aria-state.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from '../ui/theme-chrome.ts';
 import type { FileMeta, QueueItemId, ResidentFile, TrackMeta } from '../types/index.ts';
@@ -185,6 +185,7 @@ let _queuedDemoEnterIndex: number | null = null;
 // nulled on first run so the curtain onfinish, the fallback timer, and a
 // racing re-entry can never run it twice.
 let _pendingDemoExitFinish: (() => void) | null = null;
+let _finishDemoBackSurface: (() => void) | null = null;
 let _demoEnterRevealRaf = 0;
 let _demoCurtainAnimation: Animation | null = null;
 let _lastDemoStateBroadcastKey = '';
@@ -845,8 +846,11 @@ function revealDemoCurtain(curtain: HTMLElement, onFinish?: () => void): void {
 function transitionThroughDemoCurtain(onCovered: () => void, onRevealed?: () => void): void {
   const curtain = getDemoCurtain();
   if (!curtain) {
-    onCovered();
-    onRevealed?.();
+    try {
+      onCovered();
+    } finally {
+      onRevealed?.();
+    }
     return;
   }
 
@@ -854,8 +858,11 @@ function transitionThroughDemoCurtain(onCovered: () => void, onRevealed?: () => 
   stopDemoCurtainAnimation();
   const from = getComputedStyle(curtain).opacity || '0';
   animateDemoCurtain(curtain, from, '1', () => {
-    onCovered();
-    revealDemoCurtain(curtain, onRevealed);
+    try {
+      onCovered();
+    } finally {
+      revealDemoCurtain(curtain, onRevealed);
+    }
   });
 }
 
@@ -886,6 +893,8 @@ function applyDemoDomInactive(overlay: HTMLElement | null): void {
 function setDemoDomActive(active: boolean, options: { afterCovered?: () => void } = {}): void {
   cancelDemoEnterReveal();
   clearManagedTimer(DEMO_OVERLAY_EXIT_TIMER);
+  _finishDemoBackSurface?.();
+  _finishDemoBackSurface = null;
 
   const overlay = document.getElementById('demo-overlay');
 
@@ -907,6 +916,15 @@ function setDemoDomActive(active: boolean, options: { afterCovered?: () => void 
       overlay.setAttribute('aria-hidden', 'true');
     }
     if (wasActive) {
+      const finishBackSurface = beginBackSurfaceTransition();
+      const settleBackSurface = () => {
+        if (_finishDemoBackSurface === settleBackSurface) {
+          _finishDemoBackSurface = null;
+          clearManagedTimer(DEMO_OVERLAY_EXIT_TIMER);
+        }
+        finishBackSurface();
+      };
+      _finishDemoBackSurface = settleBackSurface;
       // Single-run exit completion. Three possible invokers — the curtain
       // onfinish, the fallback timer (hidden-tab WAAPI defers onfinish), and
       // a re-entry's finishPendingDemoExitRestore() — the token guarantees
@@ -914,32 +932,42 @@ function setDemoDomActive(active: boolean, options: { afterCovered?: () => void 
       const finishExit = (): void => {
         if (_pendingDemoExitFinish !== finishExit) return;
         _pendingDemoExitFinish = null;
-        clearManagedTimer(DEMO_OVERLAY_EXIT_TIMER);
-        options.afterCovered?.();
-        applyDemoDomInactive(overlay);
+        try {
+          options.afterCovered?.();
+        } finally {
+          applyDemoDomInactive(overlay);
+        }
       };
       _pendingDemoExitFinish = finishExit;
-      transitionThroughDemoCurtain(() => finishExit());
       setManagedTimer(
         DEMO_OVERLAY_EXIT_TIMER,
         () => {
           // Cancel the curtain animation so a deferred onfinish
           // can't fire again after visibility returns.
           stopDemoCurtainAnimation();
-          finishExit();
-          const curtain = getDemoCurtain();
-          if (curtain) curtain.style.opacity = '0';
+          try {
+            finishExit();
+          } finally {
+            cancelDemoEnterReveal();
+            const curtain = getDemoCurtain();
+            if (curtain) curtain.style.opacity = '0';
+            settleBackSurface();
+          }
         },
         DEMO_OVERLAY_FADE_MS * 2 + 240,
       );
+      transitionThroughDemoCurtain(() => finishExit(), settleBackSurface);
     } else {
       // Entry can fail before its covering animation publishes the overlay.
       // Retire that callback too, or it can reopen an already exited demo.
       stopDemoCurtainAnimation();
       const curtain = getDemoCurtain();
       if (curtain) curtain.style.opacity = '0';
-      options.afterCovered?.();
-      applyDemoDomInactive(overlay);
+      try {
+        options.afterCovered?.();
+      } finally {
+        applyDemoDomInactive(overlay);
+      }
     }
   }
 

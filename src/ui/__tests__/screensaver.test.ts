@@ -4,7 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { __resetModalStackForTests, isAnyOverlayShown, syncOverlayState } from '../dom.ts';
+import {
+  __resetModalStackForTests,
+  isAnyOverlayShown,
+  offerBackToTopWindow,
+  syncOverlayState,
+  whenBackSurfaceSettled,
+} from '../dom.ts';
 import { openScreensaver } from '../screensaver.ts';
 import { beginScreensaverEntry } from '../screensaver-entry.ts';
 import { getFullscreenElement } from '../fullscreen.ts';
@@ -720,6 +726,50 @@ describe('screensaver lifecycle', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(overlay()).toBeNull();
     expect(getManagedTimer('screensaver-close')).toBeNull();
+  });
+
+  it.each(['transition', 'fallback'] as const)(
+    'keeps repeated Back on the same closing frame until its %s completes',
+    async (completion) => {
+      enableMotion();
+      openFrame();
+      await vi.advanceTimersByTimeAsync(16);
+      const closingOverlay = overlay()!;
+      const first = offerBackToTopWindow();
+      const firstSettled = vi.fn();
+      const observation = first.settled.then(firstSettled);
+      expect(first.handled).toBe(true);
+      expect(offerBackToTopWindow().handled).toBe(true);
+      await vi.advanceTimersByTimeAsync(420);
+      expect(overlay()).toBe(closingOverlay);
+      expect(firstSettled).not.toHaveBeenCalled();
+
+      if (completion === 'transition') {
+        const event = new Event('transitionend');
+        Object.defineProperty(event, 'propertyName', { value: 'opacity' });
+        closingOverlay.dispatchEvent(event);
+      } else {
+        await vi.advanceTimersByTimeAsync(80);
+      }
+      await observation;
+      expect(firstSettled).toHaveBeenCalledOnce();
+      expect(overlay()).toBeNull();
+    },
+  );
+
+  it('exposes an explicit close completion and settles it on immediate session teardown', async () => {
+    enableMotion();
+    openFrame();
+    await vi.advanceTimersByTimeAsync(16);
+    overlay()!.querySelector<HTMLButtonElement>('button')!.click();
+    const settled = whenBackSurfaceSettled();
+    const observed = vi.fn();
+    const observation = settled.then(observed);
+    await Promise.resolve();
+    expect(observed).not.toHaveBeenCalled();
+    setState('setup.sessionStarted', false);
+    await observation;
+    expect(overlay()).toBeNull();
   });
 
   it('removes the covering frame immediately if YouTube takes over during the exit fade', async () => {

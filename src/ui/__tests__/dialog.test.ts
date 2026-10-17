@@ -1548,7 +1548,7 @@ describe('history Back on dialogs', () => {
     });
     vi.advanceTimersByTime(10);
 
-    expect(offerBackToTopWindow()).toBe(true);
+    expect(offerBackToTopWindow().handled).toBe(true);
 
     expect(await promise).toMatchObject({ action: 'back' });
     expect(onPrimaryActivation).not.toHaveBeenCalled();
@@ -1563,7 +1563,7 @@ describe('history Back on dialogs', () => {
     const promise = showDialog({ title: 'Notice', message: 'Read me', dismissible: false });
     vi.advanceTimersByTime(10);
 
-    expect(offerBackToTopWindow()).toBe(true);
+    expect(offerBackToTopWindow().handled).toBe(true);
     expect(await promise).toMatchObject({ action: 'back' });
     vi.advanceTimersByTime(10);
   });
@@ -1578,7 +1578,7 @@ describe('history Back on dialogs', () => {
     });
     vi.advanceTimersByTime(10);
 
-    expect(offerBackToTopWindow()).toBe(true);
+    expect(offerBackToTopWindow().handled).toBe(true);
     await Promise.resolve();
     expect(resolved).toBe(false);
     expect(document.getElementById('dialog-overlay')!.classList.contains('show')).toBe(true);
@@ -1622,11 +1622,11 @@ describe('history Back on dialogs', () => {
     expect(frame.hidden).toBe(false);
     expect(secondary().textContent).toBe('Back');
 
-    expect(offerBackToTopWindow()).toBe(true);
+    expect(offerBackToTopWindow().handled).toBe(true);
     expect(frame.hidden).toBe(true);
     expect(secondary().textContent).toBe('Cancel');
 
-    expect(offerBackToTopWindow()).toBe(true);
+    expect(offerBackToTopWindow().handled).toBe(true);
     expect(await promise).toMatchObject({ action: 'back', inputValue: '12345678' });
     vi.advanceTimersByTime(10);
   });

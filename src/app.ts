@@ -34,6 +34,7 @@ import {
   isIntentionalNav,
 } from './core/page-lifecycle.ts';
 import { createBackButtonGuardController, isGuardedSession } from './core/back-button-guard.ts';
+import { createBackButtonHistory } from './core/back-button-history.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { runBackgroundResumeRecovery } from './core/background-resume-recovery.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
@@ -124,6 +125,7 @@ import {
   isAnyOverlayShown,
   offerBackToTopWindow,
   onOverlayStackChange,
+  whenBackSurfaceSettled,
 } from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
 import { initToast } from './ui/toast.ts';
@@ -902,9 +904,9 @@ window.addEventListener('unhandledrejection', (e) => {
 // entry and fires `popstate` — NOT a real page unload — so the page stays
 // intact. Back then closes the topmost window, like a native app. With no
 // window open, a session shows a custom leave dialog instead: on confirm we
-// call leaveSession() explicitly; on cancel we re-push the guard entry so the
-// next back press re-fires popstate rather than escaping to the real previous
-// page. Outside a room, a Back with no window continues to the previous page.
+// call leaveSession() explicitly. After each UI change the common R policy
+// waits for its closing surface and two frames before restoring one guard.
+// Outside a room, a Back with no window continues to the previous page.
 //
 // Arming is event-driven (a session start or a window opening) rather than
 // seeded at bootstrap: a guard on the bare landing view would only add a
@@ -913,6 +915,10 @@ window.addEventListener('unhandledrejection', (e) => {
 // Complements (does not replace) `beforeunload`: tab close, refresh, and
 // direct URL changes still route through the beforeunload confirmation.
 function initBackButtonGuard(): void {
+  const backHistory = createBackButtonHistory({
+    navigateHome: () => window.location.replace('/'),
+    onNavigationError: (error) => log.warn('[App] Back navigation failed:', error),
+  });
   const controller = createBackButtonGuardController({
     isSessionActive: () =>
       isGuardedSession({
@@ -922,9 +928,17 @@ function initBackButtonGuard(): void {
       }),
     hasOpenWindow,
     closeTopWindow: offerBackToTopWindow,
+    whenSurfaceSettled: whenBackSurfaceSettled,
+    isSurfaceReady: () =>
+      !getState('setup.sessionStarted') ||
+      !document.getElementById('setup-overlay')?.classList.contains('active'),
+    isDocumentVisible: () => document.visibilityState === 'visible',
     isNavigationPending: isSessionResetPending,
-    pushGuard: () => history.pushState({ mxqrGuard: true }, '', location.href),
+    currentHistoryPosition: backHistory.current,
+    pushGuard: backHistory.pushGuard,
     navigateBack: () => history.back(),
+    requestFrame: (callback) => window.requestAnimationFrame(callback),
+    cancelFrame: (id) => window.cancelAnimationFrame(id),
     requestLeaveConfirmation: async () => {
       const result = await showDialog({
         // Browser history may lead to the landing page, another site, or a
@@ -939,25 +953,20 @@ function initBackButtonGuard(): void {
       return result.action === 'ok';
     },
     onLeaveConfirmed: () => {
-      scheduleSessionReset(t('dialog.leaving_session'), () => {
+      const reset = scheduleSessionReset(t('dialog.leaving_session'), () => {
         try {
           leaveSession();
         } catch (e) {
           log.warn('[App] leaveSession failed:', e);
         }
 
-        // Pop both the guard and session entries. Direct-entry users have
-        // no usable history target, so they fall back to a hard replace.
-        const beforeUrl = location.href;
-        try {
-          history.go(-2);
-        } catch {
-          /* noop */
-        }
-        // Native timer by design: leaveSession() clears managed timers.
-        window.setTimeout(() => {
-          if (location.href === beforeUrl) window.location.replace('/');
-        }, 150);
+        // Rearming is deferred, so a guard may or may not exist at confirm.
+        // Traverse only entries owned by this document, then leave once.
+        backHistory.leave();
+      });
+      reset?.onRecovered(() => {
+        backHistory.cancelLeave();
+        controller.recoverNavigation();
       });
     },
     onSeedError: (error) => log.warn('[App] Back-button guard seed failed:', error),
@@ -968,8 +977,16 @@ function initBackButtonGuard(): void {
   // soft-cancellable and must not leave a duplicate landing history entry.
   bus.on('state:network.appRole', controller.handleStateChange);
   bus.on('state:setup.sessionStarted', controller.handleStateChange);
+  bus.on('state:room.context', controller.handleStateChange);
+  bus.on('setup:app-entrance', controller.handleStateChange);
   onOverlayStackChange(controller.handleStateChange);
   window.addEventListener('popstate', controller.handlePopState);
+  window.addEventListener('pagehide', controller.suspend);
+  window.addEventListener('pageshow', controller.resume);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') controller.suspend();
+    else controller.resume();
+  });
   // A window may already be open before this guard starts.
   controller.handleStateChange();
 }

@@ -74,6 +74,7 @@ vi.mock('../../ui/toast.ts', () => ({
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: vi.fn() }));
 vi.mock('../../ui/setup-shared.ts', () => ({ hideSetupOverlay: vi.fn() }));
 vi.mock('../../ui/dom.ts', () => ({
+  beginBackSurfaceTransition: vi.fn(() => vi.fn()),
   animateTransition: (callback: () => void) => callback(),
   updateOverlayOpenClass: vi.fn(),
 }));

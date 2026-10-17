@@ -23,7 +23,12 @@ import { isFilePipelineBusyForPlay } from '../player/transport.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
-import { normalizeEmptyContentEditable, onWindowBack, syncOverlayState } from './dom.ts';
+import {
+  normalizeEmptyContentEditable,
+  onWindowBack,
+  syncOverlayState,
+  trackClosingCssTransition,
+} from './dom.ts';
 import { t } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
 
@@ -37,6 +42,7 @@ interface ManualSyncControllerBridge {
 }
 
 let previousFocus: HTMLElement | null = null;
+let finishOverlayClose: (() => void) | null = null;
 let manualSyncRequest = 0;
 const boundOverlays = new WeakSet<HTMLElement>();
 const boundEditors = new WeakSet<HTMLElement>();
@@ -156,6 +162,10 @@ function close(cancelPending = true): void {
   const wasShown = overlay.classList.contains('show');
   clearManagedTimer('manual-sync-focus');
   overlay.classList.remove('show');
+  if (wasShown) {
+    finishOverlayClose?.();
+    finishOverlayClose = trackClosingCssTransition(overlay);
+  }
   overlay.setAttribute('aria-hidden', 'true');
   syncOverlayState();
 
@@ -318,6 +328,8 @@ function open(fromDemo = false): boolean {
   if (!canUseManualSyncPanelRuntime()) return false;
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay) return false;
+  finishOverlayClose?.();
+  finishOverlayClose = null;
   overlay.classList.toggle('demo-settings-open', fromDemo);
   const nudgeRow = overlay.querySelector<HTMLElement>('.sync-nudge-row');
   if (nudgeRow) nudgeRow.hidden = false;

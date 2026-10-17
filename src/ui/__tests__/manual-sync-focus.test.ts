@@ -3,7 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import { __resetModalStackForTests, syncOverlayState } from '../dom.ts';
+import {
+  __resetModalStackForTests,
+  offerBackToTopWindow,
+  syncOverlayState,
+  whenBackSurfaceSettled,
+} from '../dom.ts';
 import {
   closeManualSyncOverlayRuntime,
   openDemoSyncRuntime,
@@ -55,6 +60,29 @@ afterEach(() => {
 });
 
 describe('manual sync initial editor selection', () => {
+  it('waits for the manual-sync closing fade and cancels it on reopen', async () => {
+    const overlay = document.getElementById('manual-sync-overlay')!;
+    overlay.style.transitionProperty = 'opacity, visibility';
+    overlay.style.transitionDuration = '0.22s, 0s';
+    overlay.style.transitionDelay = '0s, 0.22s';
+    openDemoSyncRuntime();
+    const first = offerBackToTopWindow();
+    expect(first.handled).toBe(true);
+    const observed = vi.fn();
+    const pending = first.settled.then(observed);
+    await Promise.resolve();
+    expect(observed).not.toHaveBeenCalled();
+    openDemoSyncRuntime();
+    await pending;
+    expect(overlay.classList.contains('show')).toBe(true);
+    closeManualSyncOverlayRuntime();
+    const settled = whenBackSurfaceSettled();
+    const end = new Event('transitionend');
+    Object.defineProperty(end, 'propertyName', { value: 'opacity' });
+    overlay.dispatchEvent(end);
+    await settled;
+  });
+
   it.each([
     [0, '0'],
     [0.237, '+237'],

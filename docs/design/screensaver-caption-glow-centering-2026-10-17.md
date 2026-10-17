@@ -77,17 +77,42 @@ The pinned CI environment remains authoritative for a production candidate.
   steady-state repaint avoidance, unchanged clock/calendar geometry, or combined
   information bounds including the degree symbol. Review is separate from
   browser execution and does not establish physical-device behavior.
-- WebKit visual verification is still in progress. Its initial external fixture
-  hit a `3.0000124px` versus `3px` boundary; the original result is retained, and
-  a `3.01px` floating-point tolerance was applied to the fixture without a
-  runtime change. All five scenes at 390px then passed. At 1280px, the weather
-  high-alpha pixel bounding box measured a `+6.94px` center offset. Whether that
-  raster bound reflects the intentionally softened directional edges rather
-  than the logical layout width is under investigation; this is not recorded
-  as a passing full WebKit round or resolved product defect.
+- Real-font Chromium and Windows WebKit visual checks passed for all five scenes
+  at 390×844/DPR2 and 1280×720/DPR1.25: four engine/viewport configurations and
+  20 screenshots. Sixteen caption samples had zero missing, unexpected, or
+  clipped ink pixels and zero halo pixels touching their texture edges. Their
+  maximum halo alpha was 32/255; at least 98.23% of measured halo pixels met the
+  blue-tint check. Clock and calendar geometry matched baseline, and the back
+  button, music text, and action button retained `none` for their text shadow,
+  box shadow, and filter. All configurations had no page errors.
+- The first external WebKit fixture failed at a `3.0000124px` versus `3px`
+  raster-center boundary. A `3.01px` float tolerance addressed that boundary,
+  but the 1280px weather scene then measured `+6.9404px` using an alpha≥160
+  raster bounding box. Both initial reports and logs remain preserved; the
+  threshold was not widened again to force a pass. This high-alpha bound includes
+  the existing directionally softened glyph edges and does not define the full
+  logical group extent.
+- External-only instrumentation read the layout and independently unioned
+  pre-effect glyph ink. Weather/AQI/moon logical centers were exactly zero at
+  both WebKit widths; the independent ink unions were also zero within
+  `2.9e-14px`. Instrumented and original saved-build raster bounds matched within
+  `0.01px`, while preserving the `+6.9404px` thresholded raster result. No product
+  code was changed in response to these diagnostic fixture observations.
 
-The remaining WebKit comparison, PR checks, and exact-main CI are pending at
-this checkpoint. No production deployment success
+Evidence is retained under the operator's `caption-glow-centering/` directory:
+`visual-report.json`, `visual-report-webkit.json`, the two initial-attempt reports,
+`source-review.json`, screenshots, and the local check logs. Foreground source
+pixels were measured independently of background/grain; screenshots show the
+composition. Font and weather responses are deterministic fixtures. Accelerated
+scene captures can retain a prior background during decoding/crossfade, so these
+checks do not claim background-transition or performance coverage. Background
+assets are unchanged. Root review inspected Chromium weather and WebKit weather
+and FRI captures and found their visible text normal.
+
+PR [#379](https://github.com/hiefny/MUSIXQUARE/pull/379) and its checks are in
+progress. [CI 38994238332](https://github.com/hiefny/MUSIXQUARE/actions/runs/38994238332)
+on `256557d5` is not recorded as passed at this checkpoint; a successful
+exact-main CI candidate is still required. No production deployment success
 is claimed here. Windows WebKit automation does not establish physical iPhone
 Safari behavior, and synthetic weather or room fixtures do not establish
 live-provider or audible multi-device behavior. The full serial E2E suite has

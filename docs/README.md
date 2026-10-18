@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Adaptive receiver-credit and clock-quality experiment — 2026-10-18](design/receiver-credit-adaptive-design-2026-10-18.md) —
+  isolated adaptive-window and automatic-realignment candidates, native ordinary/
+  preload comparisons, retained tail-latency rejection, and long-congestion
+  controls. Experimental source only; deployed 64/128 KiB policy is unchanged.
 - [Receiver-credit window comparison — 2026-10-18](design/receiver-credit-window-comparison-2026-10-18.md) —
   Fixed 64 KiB local threshold with 128/256/384/512 KiB receipt windows across
   ordinary transfer/preload, eight receivers, slow links and high RTT. Records

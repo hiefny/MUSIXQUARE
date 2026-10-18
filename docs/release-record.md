@@ -87,12 +87,20 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       프리로드의 동일 sync-pong 추가 최대 지연은 기준보다 +279/+289ms로
       두 순서 모두 예산을 넘었다. 무제한 망 일반 전송의 첫 속도 이득도 역순에는
       재현되지 않았다. 대체 기본값을 채택하지 않고 운영64/128을 유지한다.
+      후속 합동 검토에서 보수적 적응형A2, native16 KiB 분할F16, 둘의 조합AF16을
+      격리 구현했다. native12회·36파일은 기능/무결성을 통과했으나, A2·AF16은
+      갑작스러운8→2 Mbps 하락 구간의 동일 sync-pong excess max가 기준보다
+      +348/+391ms 늘어250ms 예산을 넘었다. F16은 고RTT 이득10.47%로
+      사전20% 기준에 미달했다. 종합 통과 후보가 없어 확대 확인은 생략했고,
+      후보 runtime은 미배포다. 이 결과로 모든 망에서 개선이 불가능하다고
+      단정하지 않으며 운영64/128과 기존 실기 한계를 유지한다.
       구버전 송신자는 기존 지연이 남고(혼합 검사 최대 2.483초), 실기 CPU/메모리·
       8대 초과 실기·TURN은 미검증이다. PRO/R2는 변경 대상이 아니다.
       128 KiB는 payload 미확인량 상한이며 전체 네트워크 대기/지연 상한이 아니다.
       [네 창의 비교·선택 근거](design/receiver-credit-window-comparison-2026-10-18.md),
       [적응형 후보의 지연 예산 실패](design/receiver-credit-adaptive-design-2026-10-18.md),
       [로컬·수신확인 교차 48회와 역순 재검증](design/receiver-credit-cross-matrix-2026-10-18.md),
+      [후속 합동 후보·동적 망 선별](design/transport-candidate-roundtable-2026-10-18.md),
       [범위·tradeoff](design/receiver-credit-file-transfer-2026-10-18.md),
       [이전 64 KiB 완화](design/preload-capacity-validation-2026-10-18.md),
       [독립 native 조사](design/preload-control-queue-root-cause-2026-10-18.md).
@@ -106,15 +114,22 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       고정256 대조군은 추가 재생 조작 5개(완료한 보정 1회와 미완료 1회)가
       발생했고, 시계 품질로 자동 정밀 보정을 제한한 별도 후보는 0개였다.
       메시지 지연은 986→989ms로 거의 같아 전송 개선으로 해석하지 않는다.
-      이 보호는 실험 소스에만 있고, 수동 조작·3초 초과 별도 보정·실기/가청
-      정확도·보정 대기 중 후속 시계 변화까지 해결한 것으로 보지 않는다.
+      이 보호는 실험 소스에만 있다. 후속 Qlease 후보는 자동 재정렬 한 작업의
+      시각을 고정하고, 시계 무효화/지각 릴리스 후 같은 소유권이 유지되면 보정 전
+      로컬 타임라인으로 복귀한다. 새 handler29개를 포함한 결정적648개가 통과했고,
+      같은29개를 이전 Q-only에 적용하면18 pass/11 expected fail이었다.
+      이는 실험 후보 간 대조이며 운영 결함11건을 뜻하지 않는다. 실제300ms
+      오차도 고RTT 품질 부족 때 보류하는 한계가 남고, 복귀는 재생 지속 보호이지
+      정확도 회복이 아니다. 미배포이며 수동 조작·3초 초과 별도 보정·실기/가청
+      정확도·실제 슬립·관측하지 못한 원격 시계 변화까지 해결한 것으로 보지 않는다.
       더 큰 창이나 적응형 창을 검토한다면 시계 추정·자동 보정까지 함께 검증한다.
       후속 교차 시험도 창256의 세 로컬 기준에서 첫 불필요한 자동 재정렬을
       재현했다. 5개 호출인 사례는 완료 보정1회와 관측 종료 전 미완료 시도1회이며,
       두 번째 시도까지 모두 불필요했다고 분류하지 않는다.
       [재현·원시 시각 재구성·한계](design/receiver-credit-window-comparison-2026-10-18.md#candidate-interruption-queue-biased-clock-and-automatic-realignment),
       [추가 설계·장시간 비교·미배포 범위](design/receiver-credit-adaptive-design-2026-10-18.md),
-      [교차 시험의 실패 보존·독립 검산](design/receiver-credit-cross-matrix-2026-10-18.md).
+      [교차 시험의 실패 보존·독립 검산](design/receiver-credit-cross-matrix-2026-10-18.md),
+      [작업 시계 고정 후보·대조와 한계](design/transport-candidate-roundtable-2026-10-18.md#qlease-대조).
 
 ### 최근 해결 근거
 

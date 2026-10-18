@@ -80,11 +80,19 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       후속 적응형 128→192→256 KiB 후보도 고RTT 완료시간은 약55% 줄였지만,
       느린 망 일반 전송의 동일 sync-pong 추가 최대 지연이 274ms 늘어 사전
       비교 예산 250ms를 넘었다. 채택·배포하지 않았으며 운영 128 KiB를 유지한다.
+      로컬 기준 64/128/256 × 수신확인 창 128/256 KiB 후속 교차 36회와
+      선택 조합 역순 12회도 완료했다. 파일 224개는 모두 무결성·receipt 검사를
+      통과했지만, 창256의 느린 망 프리로드 3회는 재생 유지에 실패했다.
+      로컬256/창128의 고RTT 전송은 역순에서도 약65초로 같았고, 느린 망
+      프리로드의 동일 sync-pong 추가 최대 지연은 기준보다 +279/+289ms로
+      두 순서 모두 예산을 넘었다. 무제한 망 일반 전송의 첫 속도 이득도 역순에는
+      재현되지 않았다. 대체 기본값을 채택하지 않고 운영64/128을 유지한다.
       구버전 송신자는 기존 지연이 남고(혼합 검사 최대 2.483초), 실기 CPU/메모리·
       8대 초과 실기·TURN은 미검증이다. PRO/R2는 변경 대상이 아니다.
       128 KiB는 payload 미확인량 상한이며 전체 네트워크 대기/지연 상한이 아니다.
       [네 창의 비교·선택 근거](design/receiver-credit-window-comparison-2026-10-18.md),
       [적응형 후보의 지연 예산 실패](design/receiver-credit-adaptive-design-2026-10-18.md),
+      [로컬·수신확인 교차 48회와 역순 재검증](design/receiver-credit-cross-matrix-2026-10-18.md),
       [범위·tradeoff](design/receiver-credit-file-transfer-2026-10-18.md),
       [이전 64 KiB 완화](design/preload-capacity-validation-2026-10-18.md),
       [독립 native 조사](design/preload-control-queue-root-cause-2026-10-18.md).
@@ -101,8 +109,12 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       이 보호는 실험 소스에만 있고, 수동 조작·3초 초과 별도 보정·실기/가청
       정확도·보정 대기 중 후속 시계 변화까지 해결한 것으로 보지 않는다.
       더 큰 창이나 적응형 창을 검토한다면 시계 추정·자동 보정까지 함께 검증한다.
+      후속 교차 시험도 창256의 세 로컬 기준에서 첫 불필요한 자동 재정렬을
+      재현했다. 5개 호출인 사례는 완료 보정1회와 관측 종료 전 미완료 시도1회이며,
+      두 번째 시도까지 모두 불필요했다고 분류하지 않는다.
       [재현·원시 시각 재구성·한계](design/receiver-credit-window-comparison-2026-10-18.md#candidate-interruption-queue-biased-clock-and-automatic-realignment),
-      [추가 설계·장시간 비교·미배포 범위](design/receiver-credit-adaptive-design-2026-10-18.md).
+      [추가 설계·장시간 비교·미배포 범위](design/receiver-credit-adaptive-design-2026-10-18.md),
+      [교차 시험의 실패 보존·독립 검산](design/receiver-credit-cross-matrix-2026-10-18.md).
 
 ### 최근 해결 근거
 

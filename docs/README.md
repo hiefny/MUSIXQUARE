@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Local buffer / receiver-credit crossed comparison — 2026-10-18](design/receiver-credit-cross-matrix-2026-10-18.md) —
+  fixed 64 KiB payload, six local/credit combinations, 36 exploratory native
+  RTC cases and a frozen reverse-order confirmation. Separates file integrity,
+  playback preservation, control latency and observed capacity waits. No App release.
 - [Adaptive receiver-credit and clock-quality experiment — 2026-10-18](design/receiver-credit-adaptive-design-2026-10-18.md) —
   isolated adaptive-window and automatic-realignment candidates, native ordinary/
   preload comparisons, retained tail-latency rejection, and long-congestion

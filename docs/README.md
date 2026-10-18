@@ -92,7 +92,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [Receiver-confirmed direct file flow control — 2026-10-18](design/receiver-credit-file-transfer-2026-10-18.md) —
   ordinary/preload shared credit, local 64 KiB thresholds, compatibility,
-  cancellation and promotion invariants; comparative validation in progress.
+  cancellation and promotion; final product verification, high-RTT throughput
+  tradeoff and App 8.11.20/v723 deployment/recovery evidence.
 - [Native RTC control-queue root-cause investigation — 2026-10-18](design/preload-control-queue-root-cause-2026-10-18.md) —
   Separates the app from transport behavior using shared/separate PeerConnections
   and receiver-confirmed flow control. Records native file integrity, directional

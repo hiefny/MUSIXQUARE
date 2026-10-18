@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-18 (배포 SHA `eea5a842`, Release `39075260878` attempt 1 성공) |
+| Last source review | 2026-10-18 (배포 SHA `416f5ee4`, Release `39081701815` attempt 1 성공) |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -23,23 +23,22 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ## 1. 현재 운영 상태
 
-아래는 2026-10-18 07:32 KST 배포 후 Drift Audit 완료까지의 상태다. 후속 기록 PR은 배포된 코드 SHA나 exact-main 후보를 대신하지 않는다. 다음 배포 전 Git·CI·Cloudflare 상태를 다시 확인한다.
+아래는 2026-10-18 09:12 KST 배포 후 공개 자산·Drift Audit 확인까지의 상태다. 후속 기록 PR은 배포된 코드 SHA나 exact-main 후보를 대신하지 않는다. 다음 배포 전 Git·CI·Cloudflare 상태를 다시 확인한다.
 
 | 항목 | 값 |
 | --- | --- |
-| App 버전 / SW 캐시 | `8.11.19` / `v721` |
-| 마지막 프로덕션 변경 | 2026-10-18 07:31:33 KST deploy job 완료, [Release 39075260878](https://github.com/hiefny/MUSIXQUARE/actions/runs/39075260878) attempt 1 성공, target=app, Developer API D1=false. 일반방 다음 곡 프리로드 broadcast·late-join unicast의 다음 송신 대기 기준을 256→64 KiB로 통일했다. 청크 크기·wire 계약·활성 파일 송신·30초 stall timeout·PRO/R2는 변경하지 않았다. 느린 경로의 지연이 남는 한계를 문서화하고 최소 완화를 배포하라는 오너 지시(2026-10-18)를 따른다 |
-| 배포 main SHA | `eea5a842c1d1b9cd51b845f95de24b1059378bae`, PR [#397](https://github.com/hiefny/MUSIXQUARE/pull/397). Exact-main push [CI 39074808159](https://github.com/hiefny/MUSIXQUARE/actions/runs/39074808159) attempt 1의 11 jobs success 후보 [artifact 12116097905](https://github.com/hiefny/MUSIXQUARE/actions/runs/39074808159/artifacts/12116097905)를 사용했다. Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0. PR·로컬 검사를 exact-main 후보로 대체하지 않았다 |
-| Worker | App version `89f8574e-88e3-4268-bc63-f16d302b535b` / deployment `9d3dfb4d-c050-4c6f-b69f-e424c64fd3f2`, 100%, message=`git:eea5a842c1d1b9cd51b845f95de24b1059378bae`. 최종 소유권 07:31:26.603 KST verified, exact-SHA coherent marker 기록. 부분 릴리스 recheck 07:30:58.887 compatible. 미선택 5 Worker는 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance와 version/deployment를 유지한다: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. [배포 원본 12115924108](https://github.com/hiefny/MUSIXQUARE/actions/runs/39075260878/artifacts/12115924108), [coherent marker 12116228257](https://github.com/hiefny/MUSIXQUARE/actions/runs/39075260878/artifacts/12116228257) |
-| 운영 smoke / 공개 자산 | 운영 smoke 4/4 pass: App generation, 익명 App 계정 경계, 기존 PRO 공개 경계, Standard HTTPS signaling. 범위 밖 Worker smoke는 skip. 07:31:46.747 KST 공개 7 GET 모두 HTTP 200, exact-main 후보 크기·SHA 일치: `/` 140,676 B, `/service-worker.js` 39,149 B(v721), `/bootstrap.js?cache=v721` 10,196 B, main JS `main-C0gKKzPa.js` 437,646 B, main CSS 324,945 B, 변경 preload `preload-BxeR3twh.js` 31,848 B와 helper 1,599 B. [근거](design/preload-capacity-validation-2026-10-18.md#release-and-recovery) |
-| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 07:30:21.538 KST captured [checkpoint 12117026048](https://github.com/hiefny/MUSIXQUARE/actions/runs/39075260878/artifacts/12117026048)는 App 8.11.18/v720, `06e2664538177e5ce2ff5c9b831aad6572dca37f`, version `8c72ce0e-4500-4a9f-9433-dec671458490` / deployment `fc8c0c4f-6d19-4606-9000-7c29c839beb0`를 보존한다. 복구하면 preload 송신 기준은 256 KiB로 돌아가고 이번 완화를 잃는다. 저장 데이터·wire 변경 없음. 복구 시 소유권/floor를 다시 검증하며 checkpoint는 사용자 데이터 백업이 아니다 |
-| 활성 복구 floor | 07:30:23.381 KST ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor, generation·entitlement·Developer API authority aware. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
-| 검증 범위 | Exact-main CI 11 jobs success: unit 584 files / 13,054 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 55 pass, coverage·타입·린트·정적·빌드·보안 통과. 최종 PR head `36a2cb19`의 [CI 39074385931](https://github.com/hiefny/MUSIXQUARE/actions/runs/39074385931) 11 jobs 통과, Codex 자동 리뷰 지적 0건. 로컬 Windows runtime SHA `f5ea1378` tree에서 unit 584 files / 13,055 pass / 0 fail / 0 skip, 타입·린트·포맷·build:checked 통과. Chromium preload/취소/late-join 19 pass, RTC 비교 6조건·38개 파일 무결성 통과. 신규 8개 수명 핀은 기존 256 주입 시 8개 모두 실패. 초기 cache URL 누락/covering-commit 실패와 수정 근거를 보존했다. 실제 Android 가청 싱크와 전체 serial E2E는 미검증. [범위·한계](design/preload-capacity-validation-2026-10-18.md) |
-| 잔여 성능 조사 | 느린 경로의 기존 병목은 열린 항목이다. 앱 없는 native RTC 9조건·54파일/24,121 control 검증에서 동일 PeerConnection 약4초 지연이 재현됐다. 별도 PeerConnection 또는 수신 확인 128 KiB credit이 이를 줄였고, shaped 2 Mbps에서는 credit으로 최대 하행 20.041초→0.980초·파일 수신96.663초→96.449초였다. 이는 제품 패치가 아닌 별도 실험이며 credit·연결 분리는 배포하지 않았다. 실제 Android 원인 전체나 지연 상한 보장은 아니다. [독립 조사](design/preload-control-queue-root-cause-2026-10-18.md) |
-| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [39075446325](https://github.com/hiefny/MUSIXQUARE/actions/runs/39075446325) attempt 1, `eea5a842`, 07:32:21 KST 완료, automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에 유지한다 |
+| App 버전 / SW 캐시 | `8.11.20` / `v723` |
+| 마지막 프로덕션 변경 | 2026-10-18 09:11:20 KST deploy job 완료, [Release 39081701815](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081701815) attempt 1 성공, target=app, Developer API D1=false. 일반방 직접 파일 전송·프리로드 네 경로의 다음 송신 대기 기준을 64 KiB로 통일하고, 지원하는 양쪽 연결에 128 KiB 누적 수신확인 제어를 적용했다. 혼합 버전 입장 전 private hello가 나가던 비교 후보 결함도 함께 수정했다. 재생·동기화 제어 우선이라는 오너 요청에 따라 비교 검증 뒤 배포했으며 고RTT 파일 전송시간 증가는 문서에 남긴다 |
+| 배포 main SHA | `416f5ee48e3708ae33d82aa1c6d925a72bcab6f3`, PR [#399](https://github.com/hiefny/MUSIXQUARE/pull/399). Exact-main push [CI 39081289549](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081289549) attempt 1의 11 jobs success 후보 [artifact 12118986426](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081289549/artifacts/12118986426)를 사용했다. Node 24.20.0 / npm 11.19.0 / Wrangler 4.148.0. PR·로컬 결과를 exact-main 후보로 대체하지 않았다 |
+| Worker | App version `d9f64847-408c-4a7b-a13c-8c744a41c7c6` / deployment `930bbc83-b7c1-4fbc-b178-afd7de96478a`, 100%, message=`git:416f5ee48e3708ae33d82aa1c6d925a72bcab6f3`. 최종 소유권 09:11:16.794 KST verified, exact-SHA coherent marker 기록. 부분 릴리스 recheck 09:10:49.540 compatible. 미선택 5 Worker는 `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf` provenance와 version/deployment를 유지한다: signaling `c25e8be3-bb42-465f-a66b-77360b3a5f1a` / `052c9597-cc96-44ea-91cb-40469840d760`; pro-room `8d5d44c0-c925-4495-86d7-29bf11a0958e` / `e5049949-cbcf-4210-b736-92541dfadddf`; remote-share `b7150b48-2e77-4db0-a908-718fe341bd5f` / `8b306664-f898-463a-aeb3-f4a083ae0d5a`; developer-api `c4069dcd-524d-4752-baa0-364aba94679a` / `5bf2cebe-69f1-4cdc-847c-e9b3e0c28e5d`; developer-api-facade `d4b348cd-3323-4f48-8bbb-4f49a3680110` / `44f54bd6-1af9-4da3-9829-48d28d4c7037`. [배포 원본 12119341521](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081701815/artifacts/12119341521), [coherent marker 12119456150](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081701815/artifacts/12119456150) |
+| 운영 smoke / 공개 자산 | 운영 smoke 4/4 pass: App generation, 익명 App 계정 경계, 기존 PRO 공개 경계, Standard HTTPS signaling. 범위 밖 Worker smoke는 skip. 09:12:00.794 KST 공개 8 GET 모두 HTTP 200, exact-main 후보 크기·SHA 일치: `/` 140,676 B, `/service-worker.js` 39,149 B(v723), `/bootstrap.js?cache=v723` 10,196 B, main JS `main-Bmr11182.js` 437,646 B, main CSS 324,945 B, credit 어댑터 `peer-ZE0BU1c_.js` 349,157 B, preload 31,888 B와 helper 1,599 B. 공개 어댑터에 `mxqr-bulk-flow` 포함도 확인. [근거](design/receiver-credit-file-transfer-2026-10-18.md#release-and-recovery) |
+| 복구 | rollback 불필요·미실행, 독립 recovery job skipped. 09:10:11.359 KST captured [checkpoint 12119445999](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081701815/artifacts/12119445999)는 App 8.11.19/v721, `eea5a842c1d1b9cd51b845f95de24b1059378bae`, version `89f8574e-88e3-4268-bc63-f16d302b535b` / deployment `9d3dfb4d-c050-4c6f-b69f-e424c64fd3f2`를 보존한다. 복구하면 receiver credit을 잃고 일반 전송 기준은 512/256 KiB로 돌아가며, preload는 64 KiB를 유지한다. 혼합 버전은 legacy fallback 경로를 쓴다. 저장 데이터 마이그레이션 없음. 복구 시 소유권/floor를 다시 검증하며 checkpoint는 사용자 데이터 백업이 아니다 |
+| 활성 복구 floor | 09:10:13.363 KST ready, release floor `d9364cd94ef036c5202ebf20cf5fff0b68d8cacf`, generation floor `4c5612d5fc4c5548781eb7d5b26d6904969c051c`, generation/entitlement true. 보존 App은 verified-release-ancestor, generation·entitlement·Developer API authority aware. 기존 service-control·Soro·PRO 선택형 입장 암호 계약과 marker `pro-room-optional-entry-password-v1` 유지, 신규 floor 없음. 파일 길이·쿠키 경계는 §4와 정식 절차를 따른다 |
+| 검증 범위 | Exact-main CI 11 jobs success: unit 587 files / 13,114 pass / 0 fail / 1 skip(Linux의 Windows 전용 다른 드라이브 경로 거부 검사), candidate browser 17 + critical browser 55 pass, coverage·타입·린트·정적·빌드·보안 통과. 최종 PR head `fd1ce373`의 [CI 39080368618](https://github.com/hiefny/MUSIXQUARE/actions/runs/39080368618) 11 jobs 통과. GitHub Codex 자동 리뷰는 초기 `4c0f9498`에 지적 0건, 최종 수정은 별도 독립 코드·raw 근거 리뷰에서 P1/P2 없음. 로컬 Windows 최종 runtime tree의 unit 587 files / 13,115 pass / 0 fail / 0 skip, 타입·린트·포맷·committed build:checked 통과. 기존 Chromium E2E 24 pass. 최종 실제 제품 RTC 8조건·26파일 SHA/ACK/READY 통과, 이전 비교 16조건·88파일과 구분한다. 초기 fixture 실패와 실제 입장 호환 실패는 원인·수정·재검증 근거를 보존했다. 전체 serial E2E·실기 Android·가청 싱크는 미검증. [범위·한계](design/receiver-credit-file-transfer-2026-10-18.md) |
+| 잔여 성능 조사 | 최종 8명 new/new heartbeat 최대 일반 26 ms / preload 20 ms. 이전 비교에서 2 Mbps 수신자는 약20초→0.42초로 줄고 전송시간은 약96초로 비슷했다. 반면 8 Mbps·약220 ms RTT preload는 23 MB 완료가 24.495→64.540초로 늘었다. 고정 수신확인 창의 처리량 대가와 실제 Android/무선망·공급자·부하 한계는 §2에 유지한다. 구버전 송신자는 기존 지연이 남고, PRO/R2는 이번 변경 범위 밖이다. 전체 망의 지연 상한이나 모든 다운로드의 가속을 보장하지 않는다 |
+| Operations Drift Audit | active, 매일 03:37 UTC. 배포 후 [39081868540](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081868540) attempt 1, `416f5ee4`, 09:12:20 KST 완료, automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 수동 항목은 §3에 유지한다 |
 | Full E2E | 매주 월 18:17 UTC. 이번 전체 serial suite는 재실행하지 않았다. 확인한 마지막 main 실행 [38328670967](https://github.com/hiefny/MUSIXQUARE/actions/runs/38328670967)(`4854e392`)은 failure. 별도 브랜치 성공 [38405378201](https://github.com/hiefny/MUSIXQUARE/actions/runs/38405378201)(`749f0a6a`, Chromium 640·WebKit UI 79 pass/플랫폼 3 skip·SW 1·운영 R2 1)은 이번 변경이나 main 최신 성공을 뜻하지 않는다 |
-| 의존성 | 신규 npm 의존성·프로토콜·스키마·비밀·바인딩·권한·CSP 변경 없음. 기존 App D1 계약 7단계 apply/verify 성공, Developer API D1 skip. 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override, TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [기존 근거](design/dependency-update-2026-10-11.md) |
-
+| 의존성·호환 | 신규 npm 의존성·스키마·비밀·바인딩·권한·CSP 변경 없음. RTC private additive hello/receipt는 앱 입장 APPLIED 완료 후 협상하고 구버전은 1초 grace 뒤 legacy 경로를 쓴다. 기존 FILE/PRELOAD 청크·READY·최종 ACK와 Worker 계약은 유지한다. 기존 App D1 계약 7단계 apply/verify 성공, Developer API D1 skip. 취약점·서명 검사 exact-main CI 통과. sharp 0.35.5 override, TypeScript 6.1 이상·@types/node 25 이상 Dependabot ignore 유지. [기존 근거](design/dependency-update-2026-10-11.md) |
 
 ## 2. 열린 확인 항목
 
@@ -56,61 +55,43 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [수정·검증 한계](design/youtube-playlist-native-control-repair-2026-10-14.md),
       [원인 조사](design/youtube-playlist-native-control-audit-2026-10-14.md).
 
-### 일반방 YouTube 지연 heartbeat 보정
+### 일반방 직접 파일 전송·프리로드의 남은 실기 한계
 
-- [ ] 실제 Android 프리로드 사건의 원인: 파일 전송이 당시 지연·버퍼링을
-      유발했는지와 최종 가청 싱크는 합성 재현으로 확정할 수 없다. 이번 두 경로
-      수정과 별도 한계로 남긴다.
-      2026-10-18 Windows의 실제 YouTube + 제품 Cloudflare 어댑터/로컬 DO 비교에서는
-      23/115 MB 프리로드 중 control 전달 지연 약 0.98–1.97초를 관측했다.
-      영상 버퍼링·불필요한 seek·현재 곡 전환은 0건이었으며, 115 MB 완료 부근에는
-      69/74 ms long task가 있었다. 전송 지연 완화는 별도 성능 조사 대상으로 남기고,
-      이 결과로 실제 Android/무선망 사건을 닫지 않는다.
-      [실제 전송·공급자 비교](design/youtube-preload-live-ab-2026-10-18.md),
-      [재현 조건·검사·한계](design/youtube-heartbeat-delay-reproduction-2026-10-17.md).
-      후속 scratch 실험 9회에서는 preload capacity 기준만 64 KiB로 낮춰
-      이 환경의 최대 control 지연을 1–3 ms로 줄였다. 115 MB 전송은 약761 ms
-      더 걸렸고, 완료 long task는 남았다.
-      [완화 후보·비교·남은 검증](design/preload-control-priority-investigation-2026-10-18.md).
-      추가 Windows 재시험 4회에서도 최대 1–3 ms로 개선됐지만, native Android
-      Pixel 에뮬레이터의 조건부 direct 전송 4회는 기존 기준 최대 약 0.75/4.38초,
-      64 KiB 기준 약 5.92/2.57초였다. 네 파일 무결성·ACK는 통과했으나
-      일관된 제어 지연 개선이 없었으므로 모든 플랫폼의 개선 근거로 쓰지 않는다.
-      Pixel은 무전송 기준부터 버퍼링이 있어 미디어 품질 비교에 부적격이며,
-      한 실행의 host YouTube onError(5) → guest stop 경로도 원인은 미확정이다.
-      자연 라우팅 대신 시험 전용 direct 분류를 사용한 한계를 포함해 보존한다.
-      실제 Android/무선망 사건은 계속 열린 상태다.
-      [로컬 재시험·Pixel 결과·실패와 한계](design/preload-local-pixel-retest-2026-10-18.md).
-      후속 느린 망·다수 수신자 비교 6조건에서는 38개 파일의 바이트·SHA·ACK와
-      현재 재생 보존이 모두 통과했다. 8명 두 순서의 전체 제어 메시지 최대 지연은
-      5.051→3.706초, 3.494→2.511초로 개선됐지만, 2 Mbps 제한 수신자는
-      20.007→19.699초로 기존 병목이 남았다. 역순 8명 sender discard 증가량은
-      2,947→3,308으로 늘어 효율 위험 관측도 유지한다. 이를 네트워크 손실이나
-      특정 heartbeat 지연 원인으로 단정하지 않는다.
-      오너는 이 한계를 문서화해 **64 KiB 최소 완화를 진행하고 배포**하며,
-      간헐적인 심한 제어 지연의 원인·경로 분리·전송량 조절은 별도로 조사하도록
-      지시했다(2026-10-18). App 8.11.19/v721은 Release 39075260878로 배포됐다.
-      Developer API D1=false, 새 의존성·스키마·바인딩·비밀·wire 계약 변경 없음.
-      배포 성공으로 이 열린 항목을 닫지 않는다.
-      [추가 검증·최소 완화 판단·잔여 병목](design/preload-capacity-validation-2026-10-18.md).
-      후속 앱 없는 native RTC 9조건·54개 파일·24,121 control의 무결성과 매칭도
-      통과했다. 동일 PeerConnection에서 약4초 지연이 재현됐고 별도 PeerConnection는 하행 최대4/39ms,
-      동일 PeerConnection+진단용 수신 credit은14/24ms였다. 별도 PeerConnection의 echo 최대165/180ms는
-      남았다. shaped 2 Mbps의 수신 credit 비교는 하행 최대20.041초→0.980초,
-      마지막 송신 뒤 대기19.503초→0.330초, 파일 수신96.663초→96.449초였다.
-      브라우저 내부·하위 경로의 대기에 대한 조건부 근거이며 실제 Android 원인
-      전체는 확정하지 않는다. Credit·연결 분리는 이번 배포에 포함하지 않았고,
-      수신 확인 기반 전송량 제어의 세대·취소·승격·호환성 검토를 후속 후보로 남긴다.
-      [원인 범위·독립 검증·후속 설계](design/preload-control-queue-root-cause-2026-10-18.md).
-      2026-10-18 오너는 일반 직접 파일 전송도 64 KiB로 맞추고, 일반 전송·프리로드
-      양쪽에 수신 확인 기반 제어를 구현·비교 검증한 뒤 명확한 개선이 확인되면
-      배포하도록 승인했다. 작업 중인 App 8.11.20/v723는 연결 단위 128 KiB payload
-      credit과 additive control hello/receipt를 사용하며, 구버전 상대는 유한한
-      협상 유예 후 local-capacity 경로를 유지한다. PRO/R2·Worker 변경은 없다.
-      아직 운영 반영 전이며 비교·릴리스 결과로 이 상태를 갱신한다.
-      [설계·호환·검증](design/receiver-credit-file-transfer-2026-10-18.md).
+App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 64 KiB로
+통일하고, 지원하는 양쪽 연결에 128 KiB 누적 수신확인 창을 적용했다.
+최종 runtime `fd1ce373`의 실제 제품 RTC 8조건·26파일 SHA가 통과했으며 혼합 버전
+입장·취소/재등록·승격을 확인했다. 구현·재현된 입장 호환 결함은 해결됐고,
+아래 확인 항목은 유지한다.
+[설계·검증·배포 근거](design/receiver-credit-file-transfer-2026-10-18.md).
+
+- [ ] 실제 Android/무선망 제보의 인과관계와 가청 동기화: Windows 제어·해시
+      검증으로 원래 사건 전체를 확정하지 않는다. Pixel 에뮬레이터는 무전송 때부터
+      버퍼링이 있어 품질 비교에 부적격이었고, 한 실행의 YouTube onError(5) →
+      guest stop 원인은 미확정이다. 실제 기기/live 공급자에서 재확인한다.
+      [Pixel 한계](design/preload-local-pixel-retest-2026-10-18.md),
+      [실제 공급자 비교](design/youtube-preload-live-ab-2026-10-18.md),
+      [두 재생 오염 경로 수정](design/youtube-heartbeat-delay-reproduction-2026-10-17.md).
+- [ ] 실제 망의 지연·처리량·기기 부하: 고RTT 8 Mbps 실험에서 23 MB 완료가
+      24.495→64.540초로 늘었다. 이는 제어 대기열을 줄이는 고정 창의 대가이며
+      첫 파일 대기나 다음 곡 준비가 늦어질 수 있다. 구버전 송신자는 기존 지연이
+      남고(혼합 검사 최대 2.483초), 일반 파일의 고RTT 비교·실기 CPU/메모리·
+      8대 초과 실기·TURN은 미검증이다. PRO/R2는 변경 대상이 아니다.
+      128 KiB는 payload 미확인량 상한이며 전체 네트워크 대기/지연 상한이 아니다.
+      [범위·tradeoff](design/receiver-credit-file-transfer-2026-10-18.md),
+      [이전 64 KiB 완화](design/preload-capacity-validation-2026-10-18.md),
+      [독립 native 조사](design/preload-control-queue-root-cause-2026-10-18.md).
 
 ### 최근 해결 근거
+
+App 8.11.20/v723의 일반 직접 파일·프리로드 수신확인 제어는 PR
+[#399](https://github.com/hiefny/MUSIXQUARE/pull/399), exact-main `416f5ee4`의
+[CI 39081289549](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081289549),
+[Release 39081701815](https://github.com/hiefny/MUSIXQUARE/actions/runs/39081701815)
+attempt 1의 운영 smoke 4종·최종 소유권·부분 릴리스 호환성·coherent marker,
+공개 8 GET 후보 해시 일치와 Drift 31 pass / 0 fail / 5 manual-only로 배포를
+완료했다. 테스트 중 발견한 private hello의 입장 순서 결함도 재현·수정·재검증했다.
+실제 Android 사건·고RTT 처리량·혼합 버전 성능 한계는 위 열린 항목에 유지한다.
+[설계·실패 원인·검증·배포·복구](design/receiver-credit-file-transfer-2026-10-18.md#release-and-recovery).
 
 App 8.11.19/v721의 프리로드 64 KiB 최소 완화는 PR
 [#397](https://github.com/hiefny/MUSIXQUARE/pull/397), exact-main `eea5a842`의

@@ -23,7 +23,7 @@ import { getState } from '../core/state.ts';
 import { DELAY } from '../core/constants.ts';
 import { delay } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
-import { waitForTransferCapacity } from './transfer-backpressure.ts';
+import { hasTransferCapacity, waitForTransferCapacity } from './transfer-backpressure.ts';
 import type { AnyProtocolMsg, ConnectedPeer, DataConnection } from '../types/index.ts';
 
 // ─── Peer-health helpers ────────────────────────────────────────────
@@ -197,7 +197,7 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
         if (!canSend() || !conn) return;
 
         const priorityReady = (): boolean => isPeerReady?.(p) ?? true;
-        const waitForTurn = async (): Promise<boolean> => {
+        const waitForTurn = async (nextPayloadBytes: number): Promise<boolean> => {
           while (canSend()) {
             if (beforeChunk && (await beforeChunk(p, canSend)) === 'stopped') {
               nextChunks[peerIndex] = total;
@@ -223,6 +223,7 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
                 priorityInterrupted = true;
                 return false;
               },
+              nextPayloadBytes,
             );
             if (!canSend()) return false;
             if (
@@ -251,11 +252,13 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
         };
 
         for (let i = 0; i < total; i++) {
+          const nextPayloadBytes = Math.min(chunkSize, file.size - i * chunkSize);
           let chunkBuf: ArrayBuffer | undefined;
           while (true) {
-            if (!(await waitForTurn()) || !canSend()) return;
+            if (!(await waitForTurn(nextPayloadBytes)) || !canSend()) return;
             // No await separates this final priority check from read/send.
-            if (!priorityReady()) continue;
+            if (!priorityReady() || !hasTransferCapacity(conn, bufferedLimit, nextPayloadBytes))
+              continue;
             if (!chunkBuf) {
               const start = i * chunkSize;
               chunkBuf = await file

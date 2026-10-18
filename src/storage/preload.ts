@@ -77,7 +77,7 @@ import {
 } from '../pro-room/media-hooks.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
 import { hasPendingCurrentFileTransfer } from './transfer-send.ts';
-import { waitForTransferCapacity } from './transfer-backpressure.ts';
+import { hasTransferCapacity, waitForTransferCapacity } from './transfer-backpressure.ts';
 import { armPreloadAdmissionWatchdog } from './preload-watchdog.ts';
 
 /**
@@ -1443,7 +1443,7 @@ export async function unicastPreload(
     )
       return;
 
-    const waitForCapacity = async (): Promise<boolean> => {
+    const waitForCapacity = async (nextPayloadBytes: number): Promise<boolean> => {
       while (canContinue()) {
         if ((await waitForPreloadTurn(claimedOwner, canContinue)) === 'stopped') return false;
         const channel = conn.dataChannel;
@@ -1458,6 +1458,7 @@ export async function unicastPreload(
             priorityInterrupted = true;
             return false;
           },
+          nextPayloadBytes,
         );
         if (!canContinue()) return false;
         if (
@@ -1474,12 +1475,16 @@ export async function unicastPreload(
       return false;
     };
     for (let i = 0; i < total; i++) {
-      if (!(await waitForCapacity())) return;
       const start = i * CHUNK;
-      const chunkBuf = await file.slice(start, Math.min(start + CHUNK, file.size)).arrayBuffer();
+      const end = Math.min(start + CHUNK, file.size);
+      if (!(await waitForCapacity(end - start))) return;
+      const chunkBuf = await file.slice(start, end).arrayBuffer();
       do {
-        if (!(await waitForCapacity())) return;
-      } while (!canPreloadSend(peerOwner));
+        if (!(await waitForCapacity(end - start))) return;
+      } while (
+        !canPreloadSend(peerOwner) ||
+        !hasTransferCapacity(conn, PRELOAD_BACKPRESSURE_LIMIT, end - start)
+      );
       if (!canContinue()) return;
       if (
         !safeSend(conn, {

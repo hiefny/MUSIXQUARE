@@ -4540,6 +4540,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(conn.open).toBe(true);
     expect(onOpen).toHaveBeenCalledTimes(1);
 
+    conn.startBulkFlowControl();
+
     conn.send({
       type: MSG.PLAYLIST_UPDATE,
       list: [],
@@ -4578,13 +4580,13 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       queueItemId: '00000000-0000-4000-8000-000000000001',
     });
 
-    expect(control.sent).toHaveLength(2);
+    expect(control.sent).toHaveLength(3);
     expect(bulk.sent).toHaveLength(4);
     expect(
       control.sent
         .map((frame) => JSON.parse(frame as string) as { type: string })
         .map(({ type }) => type),
-    ).toEqual([MSG.PLAYLIST_UPDATE, MSG.PLAY]);
+    ).toEqual(['mxqr-bulk-flow', MSG.PLAYLIST_UPDATE, MSG.PLAY]);
     expect(bulk.sent[0]).toBeInstanceOf(ArrayBuffer);
     expect(JSON.parse(bulk.sent[1] as string)).toMatchObject({
       type: MSG.FILE_END,

@@ -341,6 +341,66 @@ describe('joinSession reconnect racing', () => {
     expect(immediatePing).toHaveBeenCalledOnce();
   });
 
+  it('activates bulk credit after sending APPLIED and before sync or file bootstrap', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const phases: string[] = [];
+    bus.on('sync:request-immediate-ping', () => phases.push('sync'));
+    bus.on('network:peer-connected', () => phases.push('file'));
+    bus.on('setup:guest-join-success', () => phases.push('success'));
+    joinSession('HOST01');
+    const conn = conns[0];
+    const activate = vi.fn(() => {
+      expect(sentMessages(conn).at(-1)?.type).toBe(MSG.JOIN_BOOTSTRAP_APPLIED);
+      expect(getState('network.isConnecting')).toBe(true);
+      phases.push('credit');
+    });
+    conn.startBulkFlowControl = activate;
+    expect(activate).not.toHaveBeenCalled();
+    conn.fire('open');
+    expect(activate).not.toHaveBeenCalled();
+    const stopApply = installSuccessfulBootstrapApply();
+    try {
+      conn.fire('data', { type: MSG.WELCOME, lockChannel: false, label: 'Guest' });
+      const frames = joinBootstrapFrames();
+      conn.fire('data', frames[0]);
+      conn.fire('data', frames[1]);
+      expect(activate).not.toHaveBeenCalled();
+      expect(phases).toEqual([]);
+      conn.fire('data', frames[2]);
+      expect(activate).toHaveBeenCalledOnce();
+      expect(phases).toEqual(['credit', 'sync', 'file', 'success']);
+    } finally {
+      stopApply();
+    }
+  });
+
+  it('does not report join success or start sync when credit activation closes the connection', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const connected = vi.fn();
+    const successes = vi.fn();
+    const immediatePing = vi.fn();
+    bus.on('network:peer-connected', connected);
+    bus.on('setup:guest-join-success', successes);
+    bus.on('sync:request-immediate-ping', immediatePing);
+    joinSession('HOST01');
+    const conn = conns[0];
+    const activate = vi.fn(() => {
+      expect(sentMessages(conn).at(-1)?.type).toBe(MSG.JOIN_BOOTSTRAP_APPLIED);
+      conn.open = false;
+      conn.fire('close');
+    });
+    conn.startBulkFlowControl = activate;
+    openAndCompleteStandardJoin(conn);
+    expect(activate).toHaveBeenCalledOnce();
+    expect(connected).not.toHaveBeenCalled();
+    expect(successes).not.toHaveBeenCalled();
+    expect(immediatePing).not.toHaveBeenCalled();
+    expect(mocks.startWorkerTimer).not.toHaveBeenCalled();
+    expect(getState('network.hostConn')).toBeNull();
+  });
+
   it('fails closed when bootstrap frames arrive out of order', () => {
     const { peer, conns } = makeFakePeer();
     mocks.getPeer.mockReturnValue(peer);

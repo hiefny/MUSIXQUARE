@@ -519,6 +519,65 @@ describe('ordered host bootstrap phases', () => {
     }
   });
 
+  it('activates bulk credit only after APPLIED and before the file bootstrap event', () => {
+    const conn = makeIncomingConn('guest-credit-boundary');
+    const phases: string[] = [];
+    const activate = vi.fn(() => {
+      expect(getState('network.connectedPeers')[0]?.status).toBe('connecting');
+      phases.push('credit');
+    });
+    conn.startBulkFlowControl = activate;
+    const stopBootstrap = installStandardBootstrapResponder(conn, () => phases.push('queue'));
+    const stopConnected = bus.on('network:peer-connected', (current) => {
+      if (current !== conn) return;
+      expect(activate).toHaveBeenCalledOnce();
+      phases.push('file');
+      current.send({ type: MSG.FILE_PREPARE });
+    });
+    try {
+      handleHostIncomingConnection(conn);
+      expect(activate).not.toHaveBeenCalled();
+      conn.fire('open');
+      expect(activate).not.toHaveBeenCalled();
+      conn.fire('data', joinBootstrapHello());
+      expect(phases).toEqual(['queue']);
+      expect(activate).not.toHaveBeenCalled();
+      conn.fire('data', joinBootstrapApplied());
+      expect(phases).toEqual(['queue', 'credit', 'file']);
+      expect(activate).toHaveBeenCalledOnce();
+      expect(getState('network.connectedPeers')[0]?.status).toBe('connected');
+    } finally {
+      stopBootstrap();
+      stopConnected();
+    }
+  });
+
+  it('does not publish the peer or start file bootstrap when credit activation closes it', () => {
+    const conn = makeIncomingConn('guest-credit-failed');
+    const connected = vi.fn();
+    const activate = vi.fn(() => {
+      conn.open = false;
+      conn.fire('close');
+    });
+    conn.startBulkFlowControl = activate;
+    const stopBootstrap = installStandardBootstrapResponder(conn);
+    const stopConnected = bus.on('network:peer-connected', connected);
+    try {
+      handleHostIncomingConnection(conn);
+      conn.fire('open');
+      conn.fire('data', joinBootstrapHello());
+      expect(activate).not.toHaveBeenCalled();
+      conn.fire('data', joinBootstrapApplied());
+      expect(activate).toHaveBeenCalledOnce();
+      expect(connected).not.toHaveBeenCalled();
+      expect(getState('network.connectedPeers')).toHaveLength(0);
+      expect(getState('network.activeHostConnByPeerId').has(conn.peer)).toBe(false);
+    } finally {
+      stopBootstrap();
+      stopConnected();
+    }
+  });
+
   it('closes and detaches a standard peer that never sends HELLO after exactly 10s', () => {
     const conn = makeIncomingConn('guest-no-hello');
     const connected = vi.fn();

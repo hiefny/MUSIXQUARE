@@ -520,9 +520,7 @@ describe('atomic settings synchronization', () => {
     expect(delivered).toContainEqual({ type: MSG.VBASS, value: 0, _bootstrap: true });
     expect(delivered[0]).toMatchObject({ type: MSG.SETTINGS_SYNC_SNAPSHOT });
 
-    const send = vi.fn<(data: string) => void>().mockImplementationOnce(() => {
-      throw new DOMException('RTCDataChannel send buffer full', 'OperationError');
-    });
+    const send = vi.fn<(data: string) => void>();
     const newHost = new CloudflareDataConnection('host');
     const nativeClose = vi.fn();
     const nativePeer = Object.assign(new EventTarget(), {
@@ -547,6 +545,21 @@ describe('atomic settings synchronization', () => {
     );
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(newHost.open).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    // This scenario resumes an admitted connection, beyond the ordered join.
+    newHost.startBulkFlowControl();
+    expect(send).toHaveBeenCalledOnce();
+    expect(JSON.parse(send.mock.calls[0]![0]) as unknown).toMatchObject({
+      type: 'mxqr-bulk-flow',
+      version: 1,
+      kind: 'hello',
+    });
+    // Fail the application settings publish, not the transport handshake.
+    // A failed private hello deliberately retires the whole connection.
+    send.mockClear();
+    send.mockImplementationOnce(() => {
+      throw new DOMException('RTCDataChannel send buffer full', 'OperationError');
+    });
     setState('network.appRole', 'guest');
     setState('network.hostConn', newHost);
     setState('network.isOperator', true);

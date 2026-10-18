@@ -17,7 +17,7 @@ import {
 } from './chunk-pump.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { freezeFileDeliveryMode, resolvePeerFileDelivery } from '../share/file-delivery-policy.ts';
-import { waitForTransferCapacity } from './transfer-backpressure.ts';
+import { hasTransferCapacity, waitForTransferCapacity } from './transfer-backpressure.ts';
 
 // ─── Send-side Module State ──────────────────────────────────────────
 
@@ -107,9 +107,11 @@ function releasePeerTransfer(peerId: string, owner: PeerTransferOwner): void {
   if (ownsPeerTransfer(peerId, owner)) _peerTransferOwners.delete(peerId);
 }
 
-const BROADCAST_BACKPRESSURE_LIMIT = 512 * 1024;
+// Local queued-byte threshold; negotiated receiver credit independently bounds
+// unconfirmed payload shared with preload on this exact connection.
+const BROADCAST_BACKPRESSURE_LIMIT = 64 * 1024;
 const BROADCAST_BACKPRESSURE_TIMEOUT = 5_000;
-const UNICAST_BACKPRESSURE_LIMIT = 256 * 1024;
+const UNICAST_BACKPRESSURE_LIMIT = 64 * 1024;
 const UNICAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 // ─── Broadcast Debounce ──────────────────────────────────────────────
@@ -627,39 +629,42 @@ export async function unicastFile(
 
   try {
     for (let i = startChunkIndex; i < total; i++) {
-      // Abort if: peer-level cancel, connection closed, or track changed
-      if (!canContinue()) return;
-
-      // Backpressure (return on timeout — connection is likely dead)
-      const capacity = await waitForTransferCapacity(
-        conn,
-        UNICAST_BACKPRESSURE_LIMIT,
-        UNICAST_BACKPRESSURE_TIMEOUT,
-        canContinue,
-      );
-      if (capacity !== 'ready') {
-        if (capacity === 'timeout') log.warn('[Unicast] Backpressure timeout');
-        return;
-      }
-      if (!canContinue()) return;
-
       const start = i * CHUNK;
       const end = Math.min(start + CHUNK, file.size);
-      const chunkBuf = await file.slice(start, end).arrayBuffer();
-      if (!canContinue()) return;
-      const chunk = new Uint8Array(chunkBuf);
-
-      conn.send({
-        type: MSG.FILE_CHUNK,
-        chunk,
-        chunkIndex: i,
-        queueItemId,
-        sessionId: effectiveSessionId,
-        total,
-        name: fileName,
-        size: file.size,
-        mime: file.type,
-      });
+      let chunkBuf: ArrayBuffer | undefined;
+      while (true) {
+        const capacity = await waitForTransferCapacity(
+          conn,
+          UNICAST_BACKPRESSURE_LIMIT,
+          UNICAST_BACKPRESSURE_TIMEOUT,
+          canContinue,
+          end - start,
+        );
+        if (capacity !== 'ready') {
+          if (capacity === 'timeout') log.warn('[Unicast] Backpressure timeout');
+          return;
+        }
+        if (!canContinue()) return;
+        if (!hasTransferCapacity(conn, UNICAST_BACKPRESSURE_LIMIT, end - start)) continue;
+        if (!chunkBuf) {
+          chunkBuf = await file.slice(start, end).arrayBuffer();
+          // Credit/local capacity can change during the read. Hold only this
+          // one slice and reacquire before sending, including on resume.
+          continue;
+        }
+        conn.send({
+          type: MSG.FILE_CHUNK,
+          chunk: new Uint8Array(chunkBuf),
+          chunkIndex: i,
+          queueItemId,
+          sessionId: effectiveSessionId,
+          total,
+          name: fileName,
+          size: file.size,
+          mime: file.type,
+        });
+        break;
+      }
 
       if (i % 50 === 0) await delay(DELAY.TICK);
     }

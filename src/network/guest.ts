@@ -428,6 +428,12 @@ export function joinSession(
     }
     clearManagedTimer(bootstrapTimerName);
     connectionEstablished = true;
+    // The APPLIED frame was accepted by the same ordered control channel first;
+    // an older host finishes its strict bootstrap before seeing private frames.
+    conn.startBulkFlowControl?.();
+    if (!conn.open || !isCurrentGuestJoin(joinEpoch) || getState('network.hostConn') !== conn) {
+      return;
+    }
     setState('network.isConnecting', false);
     startWorkerTimer('sync', 1000);
     bus.emit('sync:request-immediate-ping');

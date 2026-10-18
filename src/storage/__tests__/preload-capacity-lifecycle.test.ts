@@ -133,6 +133,15 @@ function frames(target: Connection, type: string, sessionId?: number): Frame[] {
 
 async function begin(sender: Sender, file: File, target: Connection) {
   await vi.advanceTimersByTimeAsync(0);
+  // This fixture starts after room admission and captures bytes before its
+  // replay receiver exists. RTC open stays silent; explicitly activate then
+  // exercise real old-peer fallback. Negotiated credit has separate coverage.
+  expect(frames(target, 'mxqr-bulk-flow')).toEqual([]);
+  target.transport.startBulkFlowControl();
+  expect(frames(target, 'mxqr-bulk-flow').map(header)).toEqual([
+    expect.objectContaining({ type: 'mxqr-bulk-flow', version: 1, kind: 'hello' }),
+  ]);
+  await vi.advanceTimersByTimeAsync(1000);
   setState('network.connectedPeers', [target.peer]);
   setState('network.activeHostConnByPeerId', new Map([[target.peer.id, target.conn]]));
   setState('playlist.items', [item(CURRENT, new File(['old'], 'old.mp3')), item(NEXT, file)]);
@@ -181,6 +190,8 @@ async function verifyReceiver(
   setState('network.connectionType', 'local');
   setState('network.hostConn', receiver.conn);
   markQueueAuthorityReady(receiver.conn);
+  expect(frames(receiver, 'mxqr-bulk-flow')).toEqual([]);
+  receiver.transport.startBulkFlowControl();
   const deliveries: Promise<void>[] = [];
   receiver.transport.on('data', (message) => deliveries.push(handleData(message, receiver.conn)));
   for (const frame of wire) {

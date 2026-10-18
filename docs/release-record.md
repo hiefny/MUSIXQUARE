@@ -102,6 +102,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       전체는 확정하지 않는다. Credit·연결 분리는 이번 배포에 포함하지 않았고,
       수신 확인 기반 전송량 제어의 세대·취소·승격·호환성 검토를 후속 후보로 남긴다.
       [원인 범위·독립 검증·후속 설계](design/preload-control-queue-root-cause-2026-10-18.md).
+      2026-10-18 오너는 일반 직접 파일 전송도 64 KiB로 맞추고, 일반 전송·프리로드
+      양쪽에 수신 확인 기반 제어를 구현·비교 검증한 뒤 명확한 개선이 확인되면
+      배포하도록 승인했다. 작업 중인 App 8.11.20/v723는 연결 단위 128 KiB payload
+      credit과 additive control hello/receipt를 사용하며, 구버전 상대는 유한한
+      협상 유예 후 local-capacity 경로를 유지한다. PRO/R2·Worker 변경은 없다.
+      아직 운영 반영 전이며 비교·릴리스 결과로 이 상태를 갱신한다.
+      [설계·호환·검증](design/receiver-credit-file-transfer-2026-10-18.md).
 
 ### 최근 해결 근거
 

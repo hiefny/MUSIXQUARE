@@ -272,7 +272,7 @@ describe('current-file priority across real sender and preload lanes', () => {
     },
   );
 
-  it('does not spend the preload capacity timeout while main broadcast keeps its larger window busy', async () => {
+  it('does not spend the preload capacity timeout while a slow main broadcast owns the lane', async () => {
     const target = connection('foreground-window');
     const current = new File([new Uint8Array(CHUNK_SIZE * 4)], 'current.mp3');
     const next = new File(['next'], 'next.mp3');
@@ -294,12 +294,14 @@ describe('current-file priority across real sender and preload lanes', () => {
     const preload = unicastPreload(target.conn, next, NEXT, 7);
     await vi.advanceTimersByTimeAsync(0);
     expect(heldNext.read).toHaveBeenCalledOnce();
-    // Foreground's 512 KiB window keeps making progress. The 256 KiB
-    // speculative lane must pause, without treating this as its own stall.
+    // Both lanes now use 64 KiB. Park the speculative lane on capacity,
+    // then let foreground own the lane across more than its 30 s timeout.
     target.channel.bufferedAmount = 300 * 1024;
     heldNext.release();
     await vi.advanceTimersByTimeAsync(0);
     const main = broadcastFile(current, CURRENT, 6);
+    target.channel.bufferedAmount = 0;
+    target.channel.dispatchEvent(new Event('bufferedamountlow'));
     for (let index = 0; index < 4; index++) {
       await vi.advanceTimersByTimeAsync(index === 0 ? 5_000 : 10_000);
       expect(mainReads).toHaveLength(index + 1);

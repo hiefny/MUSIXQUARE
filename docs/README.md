@@ -90,6 +90,17 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Adaptive credit with 16 KiB native messages — 2026-10-18](design/adaptive-credit-fragment16-screen-2026-10-18.md) —
+  eight same-main native runs: H8 preload 71.583→48.450 seconds and ordinary
+  64.217→36.760, with slow2 throughput preserved. Dynamic-network initial control
+  delays failed the frozen relative budgets; preserves independent audits,
+  the separate small-tail analyzer repair, and ten unexecuted followups.
+  No product integration or deployment.
+- [Adaptive 192 KiB credit screen — 2026-10-18](design/adaptive-credit-192-screen-2026-10-18.md) —
+  same-source native preload shortened 71.791 to 49.516 seconds, but the frozen
+  raw/p95 control-delay gates failed. Preserves startup timing, unequal-duration
+  percentile limits, independent integrity/media verification, and six skipped
+  followups; no production adoption.
 - [Historical preload and playback comparison — 2026-10-18](design/historical-transfer-comparison-2026-10-18.md) —
   exact initial/month-old/yesterday/current production sources, six minimal
   native RTC runs and the first-commit setup blocker. Separates older playback

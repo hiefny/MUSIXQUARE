@@ -41,6 +41,17 @@ vi.mock('../../network/shared-clock.ts', () => ({
   getHostNow: () => Date.now(),
   getClockOffset: () => 0,
   isClockCalibrated: () => true,
+  getClockCorrectionQuality: () => ({
+    eligible: true,
+    reason: 'fresh',
+    epoch: 0,
+    offsetMs: 0,
+    rttMs: 0,
+    uncertaintyMs: 5,
+    precisionMs: 5,
+    selectedAgeMs: 0,
+    newestSampleAgeMs: 0,
+  }),
 }));
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },

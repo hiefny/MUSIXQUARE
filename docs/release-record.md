@@ -114,7 +114,7 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       고정256 대조군은 추가 재생 조작 5개(완료한 보정 1회와 미완료 1회)가
       발생했고, 시계 품질로 자동 정밀 보정을 제한한 별도 후보는 0개였다.
       메시지 지연은 986→989ms로 거의 같아 전송 개선으로 해석하지 않는다.
-      이 보호는 실험 소스에만 있다. 후속 Qlease 후보는 자동 재정렬 한 작업의
+      당시 보호는 격리 실험 소스에만 있었다. 후속 Qlease 후보는 자동 재정렬 한 작업의
       시각을 고정하고, 시계 무효화/지각 릴리스 후 같은 소유권이 유지되면 보정 전
       로컬 타임라인으로 복귀한다. 새 handler29개를 포함한 결정적648개가 통과했고,
       같은29개를 이전 Q-only에 적용하면18 pass/11 expected fail이었다.
@@ -126,6 +126,12 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       후속 교차 시험도 창256의 세 로컬 기준에서 첫 불필요한 자동 재정렬을
       재현했다. 5개 호출인 사례는 완료 보정1회와 관측 종료 전 미완료 시도1회이며,
       두 번째 시도까지 모두 불필요했다고 분류하지 않는다.
+      제품 후보 후속은 운영64/64/128을 유지하고 `m>=150ms && m>2U`의
+      시계 불확실성 gate, 관측부터 실행까지 같은 lease, 새 명령 우선과
+      제한된 로컬 진단을 추가했다. App8.11.21/v724 후보이며 아직 미배포다.
+      전체 회귀·native 비교·exact-main 후보의 완료 여부는
+      [후속 제품 후보 검증](design/automatic-realignment-clock-safety-2026-10-18.md)에
+      따르며, 실제 오차의 장기 보류·실기/가청 한계를 이 변경만으로 닫지 않는다.
       [재현·원시 시각 재구성·한계](design/receiver-credit-window-comparison-2026-10-18.md#candidate-interruption-queue-biased-clock-and-automatic-realignment),
       [추가 설계·장시간 비교·미배포 범위](design/receiver-credit-adaptive-design-2026-10-18.md),
       [교차 시험의 실패 보존·독립 검산](design/receiver-credit-cross-matrix-2026-10-18.md),

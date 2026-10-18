@@ -18,6 +18,7 @@ import { recordStandardStartObservation } from '../diagnostics/standard-start-ob
 
 const MAX_SAMPLES = 60;
 const PING_EXPIRY_MS = 5_000;
+const SAMPLE_AGE_LIMIT_MS = 120_000; // 2 minutes — balances freshness vs sample pool
 // Ignore sub-100ms wall/monotonic disagreement from coarse browser clocks.
 // Larger local discontinuities still require a corroborating host observation.
 const LOCAL_CLOCK_PRECISION_MS = 100;
@@ -171,6 +172,62 @@ export function getClockOffset(): number {
  */
 export function isClockCalibrated(): boolean {
   return _isHostClock || _samples.length > 0;
+}
+
+/**
+ * Read-only admission evidence for optional precision correction, not a new
+ * clock estimate. With fixed clock offset, accurate timestamps and nonnegative
+ * transit time, the midpoint's uncertainty is at most RTT/2 plus precision.
+ * Age/continuity checks reject evidence spanning observable sleep or clock
+ * discontinuities; they cannot prove that an unobserved remote clock is fixed.
+ * Reading this never expires samples, changes the selected offset, or pings.
+ */
+export function getClockCorrectionQuality() {
+  const selected = _selectedSample;
+  const newest = _samples.at(-1);
+  const wallNow = Date.now();
+  const monotonicNow = performance.now();
+  const selectedAgeMs = selected ? wallNow - selected.timestamp : null;
+  const selectedMonotonicAgeMs = selected ? monotonicNow - selected.monotonicTimestamp : null;
+  const newestSampleAgeMs = newest ? wallNow - newest.timestamp : null;
+  const newestMonotonicAgeMs = newest ? monotonicNow - newest.monotonicTimestamp : null;
+  const evidence = {
+    epoch: _clockEpoch,
+    offsetMs: _isHostClock ? 0 : _bestOffset,
+    rttMs: _isHostClock ? 0 : (selected?.rtt ?? null),
+    uncertaintyMs: _isHostClock
+      ? SELECTION_COMPARISON_TOLERANCE_MS
+      : selected
+        ? selected.rtt / 2 + SELECTION_COMPARISON_TOLERANCE_MS
+        : null,
+    precisionMs: SELECTION_COMPARISON_TOLERANCE_MS,
+    selectedAgeMs,
+    selectedMonotonicAgeMs,
+    newestSampleAgeMs,
+    newestMonotonicAgeMs,
+  };
+  if (_isHostClock) return { ...evidence, eligible: true, reason: 'host-clock' };
+  if (
+    selectedAgeMs === null ||
+    selectedMonotonicAgeMs === null ||
+    newestSampleAgeMs === null ||
+    newestMonotonicAgeMs === null
+  )
+    return { ...evidence, eligible: false, reason: 'uncalibrated' };
+  const ages = [selectedAgeMs, selectedMonotonicAgeMs, newestSampleAgeMs, newestMonotonicAgeMs];
+  if (
+    ages.some((age) => !Number.isFinite(age) || age < 0) ||
+    Math.abs(selectedAgeMs - selectedMonotonicAgeMs) > LOCAL_CLOCK_PRECISION_MS ||
+    Math.abs(newestSampleAgeMs - newestMonotonicAgeMs) > LOCAL_CLOCK_PRECISION_MS
+  )
+    return { ...evidence, eligible: false, reason: 'discontinuity' };
+  if (Math.max(selectedAgeMs, selectedMonotonicAgeMs) >= SAMPLE_AGE_LIMIT_MS) {
+    return { ...evidence, eligible: false, reason: 'selected-expired' };
+  }
+  if (Math.max(newestSampleAgeMs, newestMonotonicAgeMs) > PING_EXPIRY_MS) {
+    return { ...evidence, eligible: false, reason: 'replies-stale' };
+  }
+  return { ...evidence, eligible: true, reason: 'fresh' };
 }
 
 /**
@@ -371,10 +428,9 @@ export function processSyncPong(
   // tens of μs/sec — after 30min that's hundreds of ms). Using a
   // months-old minimum-RTT sample's offset causes persistent rendezvous
   // desync that grows linearly with session duration.
-  const AGE_LIMIT = 120_000; // 2 minutes — balances freshness vs sample pool
   const selectedExpired =
-    _selectedSample !== null && receivedAt - _selectedSample.timestamp >= AGE_LIMIT;
-  _samples = _samples.filter((s) => receivedAt - s.timestamp < AGE_LIMIT);
+    _selectedSample !== null && receivedAt - _selectedSample.timestamp >= SAMPLE_AGE_LIMIT_MS;
+  _samples = _samples.filter((s) => receivedAt - s.timestamp < SAMPLE_AGE_LIMIT_MS);
   const evicted = _samples.length > MAX_SAMPLES ? _samples.shift() : undefined;
 
   // Best offset = from the sample with lowest RTT (most accurate)

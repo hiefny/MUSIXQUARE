@@ -26,6 +26,9 @@ const PLAYBACK_KINDS = new Set([
   'youtube-rendezvous-start',
   'youtube-rendezvous-release',
   'youtube-rendezvous-sample',
+  'youtube-automatic-realign-blocked',
+  'youtube-automatic-realign-admitted',
+  'youtube-automatic-realign-recovery',
 ]);
 
 const METRIC_FIELDS = [
@@ -95,6 +98,9 @@ const METRIC_FIELDS = [
   'scheduledAtMs',
   'releasedAtMs',
   'sampledAtMs',
+  'newestSampleAgeMs',
+  'uncertaintyMs',
+  'triggerMs',
 ];
 const REASONS = new Set([
   'new-sample',
@@ -116,6 +122,14 @@ const REASONS = new Set([
   'near-end',
   'outlier',
   'player-read-failed',
+  'uncalibrated',
+  'discontinuity',
+  'selected-expired',
+  'replies-stale',
+  'uncertainty',
+  'admitted',
+  'recovery',
+  'late-release',
 ]);
 const DETAIL_FIELDS = ['reason', ...METRIC_FIELDS];
 const clockRing: ObservationRing = { limit: 1_200, records: [] };

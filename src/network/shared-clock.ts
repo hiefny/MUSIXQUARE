@@ -184,7 +184,7 @@ export function isClockCalibrated(): boolean {
  */
 export function getClockCorrectionQuality() {
   const selected = _selectedSample;
-  const newest = _samples.at(-1);
+  const newest = _samples[_samples.length - 1];
   const wallNow = Date.now();
   const monotonicNow = performance.now();
   const selectedAgeMs = selected ? wallNow - selected.timestamp : null;

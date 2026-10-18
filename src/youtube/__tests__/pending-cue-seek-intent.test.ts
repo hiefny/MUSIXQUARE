@@ -259,76 +259,121 @@ async function fixture() {
 }
 
 describe('pending cue and latest accepted playback intent', () => {
-  it('keeps a same-qid replay before the first READY able to start after READY', async () => {
-    const { playTrack } = await import('../../player/playlist.ts');
-    const playerMod = await import('../player.ts');
-    const state = await import('../_state.ts');
-    await (
-      await import('../standard-host-manual-offset-gate.ts')
-    ).prepareStandardHostManualOffsetRuntimeForTests();
-    setState('network.appRole', 'host');
-    setState('network.myId', 'host');
-    setState('network.sessionCode', '100001');
-    setState('setup.sessionStarted', true);
-    (await import('../../network/shared-clock.ts')).setIsHostClock(true);
-    setState('room.context', {
-      kind: 'standard',
-      roomId: '100001',
-      role: 'coordinator',
-      coordinatorId: 'host',
-      epoch: 1,
-      snapshotRevision: 1,
-      capabilities: ['playback.control', 'queue.mutate'],
-    });
-    const player = makeNativePlayer({
-      __videoId: VID_A,
-      __state: -1,
-      __currentTime: 0,
-      __duration: 180,
-      __advanceClock: true,
-      __autoPlayOnLoad: true,
-    });
-    const yt = installYtNamespace(player);
-    player.__onStateChange = (event) => yt.fireStateChange(event.data);
-    const sync = await import('../sync.ts');
-    sync.resetYouTubeSyncState();
-    sync.initYouTubeSync();
-    playerMod.initYouTube();
-    wireStopAllMediaChain();
+  it.each([
+    { readyDelayMs: 0, latestIntent: 'replay', expectedTarget: 0 },
+    { readyDelayMs: 100, latestIntent: 'replay', expectedTarget: 0 },
+    { readyDelayMs: 0, latestIntent: 'replay-then-seek', expectedTarget: 70 },
+    { readyDelayMs: 0, latestIntent: 'seek-then-replay', expectedTarget: 0 },
+    { readyDelayMs: 0, latestIntent: 'replay-then-pause', expectedTarget: 0 },
+    { readyDelayMs: 0, latestIntent: 'replay-then-stop', expectedTarget: 0 },
+  ])(
+    'keeps cold same-qid $latestIntent stable after READY at $readyDelayMs ms',
+    async ({ readyDelayMs, latestIntent, expectedTarget }) => {
+      const { playTrack } = await import('../../player/playlist.ts');
+      const playerMod = await import('../player.ts');
+      const state = await import('../_state.ts');
+      await (
+        await import('../standard-host-manual-offset-gate.ts')
+      ).prepareStandardHostManualOffsetRuntimeForTests();
+      setState('network.appRole', 'host');
+      setState('network.myId', 'host');
+      setState('network.sessionCode', '100001');
+      setState('setup.sessionStarted', true);
+      (await import('../../network/shared-clock.ts')).setIsHostClock(true);
+      setState('room.context', {
+        kind: 'standard',
+        roomId: '100001',
+        role: 'coordinator',
+        coordinatorId: 'host',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['playback.control', 'queue.mutate'],
+      });
+      const player = makeNativePlayer({
+        __videoId: VID_A,
+        __state: -1,
+        __currentTime: 0,
+        __duration: 180,
+        __advanceClock: true,
+        __autoPlayOnLoad: true,
+      });
+      const yt = installYtNamespace(player);
+      player.__onStateChange = (event) => yt.fireStateChange(event.data);
+      const sync = await import('../sync.ts');
+      sync.resetYouTubeSyncState();
+      sync.initYouTubeSync();
+      playerMod.initYouTube();
+      wireStopAllMediaChain();
 
-    // The real chat path arms the first paused load. Its facade already exposes
-    // the target video, but its independently controlled READY has not arrived.
-    bus.emit('youtube:load-from-chat', `https://www.youtube.com/watch?v=${VID_A}`);
-    const qid = getState('playlist.currentQueueItemId');
-    expect(qid).not.toBeNull();
-    expect(state.getYouTubePlayer()).toBe(player);
-    expect(state.isYtPlayerReady()).toBe(false);
-    expect(playerMod.getPendingAutoSyncOnReadyForTests()).toBe(true);
+      // The real chat path arms the first paused load. Its facade already exposes
+      // the target video, but its independently controlled READY has not arrived.
+      bus.emit('youtube:load-from-chat', `https://www.youtube.com/watch?v=${VID_A}`);
+      const qid = getState('playlist.currentQueueItemId');
+      expect(qid).not.toBeNull();
+      expect(state.getYouTubePlayer()).toBe(player);
+      expect(state.isYtPlayerReady()).toBe(false);
+      expect(playerMod.getPendingAutoSyncOnReadyForTests()).toBe(true);
+      const initialSession = state.getCurrentSessionId();
+      const physicalLoads = () =>
+        player.__log.filter((call) => ['loadVideoById', 'cueVideoById'].includes(call.op));
+      const initialPhysicalLoads = physicalLoads().length;
+      const repeatedLoad = vi.fn();
+      bus.on('youtube:load', repeatedLoad);
 
-    // Match the product QA helper's second, explicit intent on this same qid.
-    await playTrack(qid!, undefined, { explicitPlaybackIntent: true });
-    const pendingAfterReplay = playerMod.getPendingAutoSyncOnReadyForTests();
-    // The explicit replay must retain a readiness-owned intent, rather than
-    // replacing it with one physical command against an unready facade.
-    expect.soft(pendingAfterReplay).toBe(true);
-    // READY is an independent asynchronous boundary, not necessarily the next
-    // task. Give the existing readiness watchdog two opportunities to run.
-    await vi.advanceTimersByTimeAsync(100);
-    expect.soft(state.isYtPlayerReady()).toBe(false);
-    expect.soft(playerMod.getPendingAutoSyncOnReadyForTests()).toBe(true);
+      // Match the product QA helper's second, explicit intent on this same qid.
+      await playTrack(qid!, undefined, { explicitPlaybackIntent: true });
+      if (latestIntent === 'replay-then-seek' || latestIntent === 'seek-then-replay') {
+        const { seekTo } = await import('../../player/transport.ts');
+        seekTo(70);
+        if (latestIntent === 'seek-then-replay') {
+          await playTrack(qid!, undefined, { explicitPlaybackIntent: true });
+        }
+      }
+      const pendingAfterReplay = playerMod.getPendingAutoSyncOnReadyForTests();
+      // The explicit replay must retain a readiness-owned intent, rather than
+      // replacing it with one physical command against an unready facade.
+      expect.soft(pendingAfterReplay).toBe(true);
+      expect.soft(state.getCurrentSessionId()).toBe(initialSession);
+      expect.soft(repeatedLoad).not.toHaveBeenCalled();
+      expect.soft(physicalLoads()).toHaveLength(initialPhysicalLoads);
+      // Exercise both orderings: READY before any deferred cue timer, or after
+      // two readiness-watchdog opportunities. Neither may lose the latest intent.
+      if (readyDelayMs > 0) await vi.advanceTimersByTimeAsync(readyDelayMs);
+      expect.soft(state.isYtPlayerReady()).toBe(false);
+      expect.soft(playerMod.getPendingAutoSyncOnReadyForTests()).toBe(true);
+      const cancelled = latestIntent === 'replay-then-pause' || latestIntent === 'replay-then-stop';
+      if (latestIntent === 'replay-then-pause') bus.emit('youtube:set-local-paused', true);
+      if (latestIntent === 'replay-then-stop') {
+        (await import('../../player/transport.ts')).stopPlayback();
+      }
+      if (cancelled) expect(playerMod.getPendingAutoSyncOnReadyForTests()).toBe(false);
+      const beforeLateReady = player.__log.length;
 
-    // Match the existing fake iframe's cold READY boundary: it reports CUED,
-    // invokes onReady, then delivers the CUED callback. A pre-ready play call is
-    // not evidence that the newly ready iframe will keep playing afterwards.
-    player.__setState(5, false);
-    yt.fireReady();
-    yt.fireStateChange(5);
-    await vi.advanceTimersByTimeAsync(4000);
+      // Match the existing fake iframe's cold READY boundary: it reports CUED,
+      // invokes onReady, then delivers the CUED callback. A pre-ready play call is
+      // not evidence that the newly ready iframe will keep playing afterwards.
+      player.__setState(5, false);
+      yt.fireReady();
+      yt.fireStateChange(5);
+      await vi.advanceTimersByTimeAsync(4000);
 
-    expect(state.isYtPlayerReady()).toBe(true);
-    expect(getState('playlist.currentQueueItemId')).toBe(qid);
-    expect(player.getPlayerState(), `pending after early replay: ${pendingAfterReplay}`).toBe(1);
-  });
+      if (cancelled) {
+        expect(player.getPlayerState()).not.toBe(1);
+        expect(
+          player.__log.slice(beforeLateReady).filter((call) => call.op === 'playVideo'),
+        ).toHaveLength(0);
+        expect(playerMod.getPendingAutoSyncOnReadyForTests()).toBe(false);
+        return;
+      }
+      expect(state.isYtPlayerReady()).toBe(true);
+      expect(state.getCurrentSessionId()).toBe(initialSession);
+      expect(physicalLoads()).toHaveLength(initialPhysicalLoads);
+      expect(getState('playlist.currentQueueItemId')).toBe(qid);
+      expect(player.getPlayerState(), `pending after early replay: ${pendingAfterReplay}`).toBe(1);
+      expect(player.getCurrentTime()).toBeGreaterThanOrEqual(expectedTarget);
+      expect(player.getCurrentTime()).toBeLessThan(expectedTarget + 6);
+    },
+  );
 
   it('keeps a same-qid replay readiness-owned while a ready iframe is still loading', async () => {
     const h = await fixture();

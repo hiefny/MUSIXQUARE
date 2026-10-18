@@ -348,8 +348,37 @@ zero failures or skips** (`root/full-unit-c7.json`, SHA256
 `55e9b1e0c216f7b8c6c8d7ca21a6fc20cc0a1d5eccbc77b34bc2aa26a1bb8c54`).
 Its CI found a separate type-only fixture error: the three new partial fake
 players lack unused playlist methods required by the full player interface.
-That correction follows the existing typed partial-fixture convention and does
-not change product behavior. Native qualification is still pending.
+That correction (`b9eee17f`) follows the existing typed partial-fixture convention
+and does not change product behavior. Full test types, the 118-test file, lint
+and formatting passed.
+
+The C6 native two-intent verification still failed on attempt two, after one
+success. Both endpoints had zero observer drops/exceptions and no file payload.
+The new raw evidence exposes a different remaining ordering: READY now starts
+playback, but the same-target reload's deferred `cueVideoById` follows it by
+2 ms and leaves the host CUED until the stuck-track watchdog. In the successful
+attempt that cue preceded play by 8 ms. Exact source/served assets matched.
+Independent audit `audit/setup-c6-independent-r1.json` has SHA256
+`0f10f1161f3405ed7c41b18f42e104d569f75d53ec8a7041893c43fcbe4fc9b5`;
+failed raw SHA256 is
+`1cc4512e05ab4316d12436f96907b0e2ac917f26a825d726707191c75efef718`.
+The callback itself was not separately traced; the deferred-cue attribution
+combines these native calls with the source path. No performance pair followed.
+
+A strengthened real-module test reproduces that ordering: READY immediately
+after replay fails in three latest-intent variants, whereas READY after 100 ms
+passes. The next minimal correction keeps the original load/session when a
+same-occurrence, same-video, same-sub-index replay arrives before readiness.
+It rearms the existing pending zero-start intent instead of reloading or
+physically playing early; the ready fast path is unchanged. Later seek, pause,
+stop and occurrence changes retain their existing intent/identity fences.
+Cache advances to v731; transfer policy and performance gates are unchanged.
+All 27 tests in the affected file pass, including both READY orderings,
+latest-seek versus latest-replay, no duplicate physical load/session, and no
+resurrection after pause/stop. Full test types, targeted lint and formatting
+also pass. Their evidence manifest has SHA256
+`21381151b7adfcd4c7d95b004df6389fd703797ebe4fcb3334e595db4144ba0f`.
+Full-suite and native follow-up evidence is pending.
 
 Reverse-order replications, multiple receivers, mixed versions, the actual
 Reconnect button and constrained shared-host uplink are also pending.

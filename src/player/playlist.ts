@@ -825,9 +825,7 @@ export async function playTrack(
     _isSameTrack &&
     !options.forceNewYouTubeOccurrence &&
     item.type === 'youtube' &&
-    isYouTubeOwner() &&
-    isYtPlayerReady() &&
-    !isYtLoadInProgress()
+    isYouTubeOwner()
   ) {
     const requestedVideoId =
       getPlaylistSubItems(item)?.ids?.[requestedTrackSubIndex ?? 0] || item.videoId || null;
@@ -843,15 +841,22 @@ export async function playTrack(
       !item.playlistId || currentSubIndex === (requestedTrackSubIndex ?? 0);
 
     if (requestedVideoId && residentVideoId === requestedVideoId && samePlaylistPosition) {
-      cancelYtAutoSync();
-      bus.emit('youtube:auto-play', {
+      const replay = {
         isTrackTransition: false,
         zeroStart: true,
         targetTime: 0,
         videoId: requestedVideoId,
         subIndex: requestedTrackSubIndex ?? 0,
         skipSeek: false,
-      });
+      };
+      if (!isYtPlayerReady() || isYtLoadInProgress()) {
+        // Keep the same occurrence's load. Reloading it can queue a cue that
+        // runs after READY has already consumed and started this replay.
+        setPendingAutoSyncOnReady(true, replay);
+        return;
+      }
+      cancelYtAutoSync();
+      bus.emit('youtube:auto-play', replay);
       return;
     }
   }

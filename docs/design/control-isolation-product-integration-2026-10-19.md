@@ -217,6 +217,16 @@ the unchanged absolute deadline, accepted-phase cadence, immediate age rejection
 and compressed receipts. Original failure evidence remains immutable. Further
 matrix testing and deployment depend on the new evidence.
 
+The committed policy candidate is `0b56607e` (cache v729); its production
+`build:checked` passed. Its PR CI `39172208234` found one additional existing
+adapter fixture that still expected acceptance after only 30 receipts at
+100 ms intervals. The controller correctly remained in `probe`. The fixture
+was reproduced locally before correction and now checks the intermediate
+probe state, the 3.9-second boundary, then acceptance and exact cumulative debt
+after four seconds. This is a test-only follow-up; the native artifact remains
+the exact `0b56607e` runtime. The failed CI is retained and is not a candidate
+release success.
+
 Remaining product-native results and release evidence will be added only after execution.
 PR/local success cannot replace the successful exact-main-SHA CI candidate.
 An ordinary App release leaves Developer API D1 application disabled. Recovery

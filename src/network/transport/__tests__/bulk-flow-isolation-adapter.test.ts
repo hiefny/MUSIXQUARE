@@ -247,9 +247,25 @@ describe('Cloudflare isolated control integration', () => {
     await samples(30, 100);
     expect(p.a.conn.bulkFlowControl.diagnosticSnapshot).toMatchObject({
       windowBytes: 192 * 1024,
-      phase: 'accepted',
+      phase: 'probe',
       sentBytes: 52 * CHUNK_SIZE,
       acknowledgedBytes: 52 * CHUNK_SIZE,
+      outstandingBytes: 0,
+    });
+    // Three warmup receipts and the first observation anchor do not contribute
+    // elapsed sample time. Qualify only after the full four-second observation.
+    await samples(13, 100);
+    expect(p.a.conn.bulkFlowControl.diagnosticSnapshot).toMatchObject({
+      phase: 'probe',
+      sampleCount: 40,
+    });
+    await samples(1, 100);
+    expect(delivered).toBe(66);
+    expect(p.a.conn.bulkFlowControl.diagnosticSnapshot).toMatchObject({
+      windowBytes: 192 * 1024,
+      phase: 'accepted',
+      sentBytes: delivered * CHUNK_SIZE,
+      acknowledgedBytes: delivered * CHUNK_SIZE,
       outstandingBytes: 0,
     });
     expect(p.a.control.sent).toHaveLength(originalBefore);

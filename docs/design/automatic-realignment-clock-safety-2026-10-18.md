@@ -143,6 +143,9 @@ mock을 완성했고, 재생 위치/상태/소유권의 기대값은 그대로 �
 `Array.prototype.at` 사용을 거부했다(`build-checked.log`). 최신 표본 접근을
 동일한 배열 인덱스로 바꾸고 다시 검사한다. 구형 브라우저 보호 검사를 완화하거나
 polyfill 의존성을 추가하지 않았다.
+후속 compatibility 커밋이 최초v724 cache bump보다 뒤에 생겨 두 번째 빌드의
+cache-history guard가 이를 거부했다(`build-checked-r2.log`). 최종 cache와
+bootstrap 참조를v725로 올려 마지막 runtime 변경 뒤에 배치했다.
 
 위는 실행 묶음별 수치다. 이전 격리 후보의648개, 대조 실패, 후속 전체 suite는
 서로 겹치므로 고유 테스트 총수로 합산하지 않는다. 최종 커밋 기준 전체 회귀

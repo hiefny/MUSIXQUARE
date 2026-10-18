@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Transport candidate roundtable and isolated experiments — 2026-10-18](design/transport-candidate-roundtable-2026-10-18.md) —
+  rate-gated credit, native-message fragmentation, and automatic-correction clock
+  leases; separates deterministic safety, native throughput/control results,
+  independent verification, and unresolved real-device limits. No App release.
 - [Local buffer / receiver-credit crossed comparison — 2026-10-18](design/receiver-credit-cross-matrix-2026-10-18.md) —
   fixed 64 KiB payload, six local/credit combinations, 36 exploratory native
   RTC cases and a frozen reverse-order confirmation. Separates file integrity,

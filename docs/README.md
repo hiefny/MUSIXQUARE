@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Historical preload and playback comparison — 2026-10-18](design/historical-transfer-comparison-2026-10-18.md) —
+  exact initial/month-old/yesterday/current production sources, six minimal
+  native RTC runs and the first-commit setup blocker. Separates older playback
+  failures from current high-RTT throughput cost; no App release.
 - [Automatic realignment clock safety candidate — 2026-10-18](design/automatic-realignment-clock-safety-2026-10-18.md) —
   fixed 64/64/128 KiB transport, uncertainty-aware optional YouTube correction,
   operation clock leases and bounded local diagnostics. Ten native cases retain

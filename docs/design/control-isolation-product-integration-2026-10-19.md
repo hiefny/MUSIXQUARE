@@ -331,6 +331,20 @@ native double-intent check verifies the readiness correction. Both are new froze
 runs; neither silently replaces old evidence. Current integration advances to
 cache v730, with transport policy and all performance gates unchanged.
 
+The committed readiness fix is `0387a64c`. Its committed production build,
+full type and formatting checks, targeted lint and independent source review
+passed. The first full Windows unit run found **13,343 passes and 16 failures**
+across three existing YouTube/playlist test files, with no skips. The failed
+report is retained as `root/full-unit-c6.json` under the integration scratch
+directory. Thirteen failures consumed an intent to inspect it without marking
+the mocked player ready; three resident-occurrence handoff fixtures omitted the
+initial captured onReady event. The tests now supply that exact readiness
+boundary, retain their original outcome assertions, and explicitly retain the
+pre-ready intent where appropriate. No runtime gate is bypassed. Independent
+fixture review passed, followed by all **423 tests in those three files**, with
+zero failures or skips. The original full-suite failure remains recorded; a
+complete follow-up run and native qualification are still pending.
+
 Reverse-order replications, multiple receivers, mixed versions, the actual
 Reconnect button and constrained shared-host uplink are also pending.
 First-pair success alone does not authorize merging or deployment.

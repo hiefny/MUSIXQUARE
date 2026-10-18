@@ -231,6 +231,14 @@ function youtubeItem(
   };
 }
 
+// These playlist-only tests stub iframe loading. Model its exact onReady
+// boundary only when inspecting a pending intent's eventual options.
+function setReadyYouTubePlayer(videoId: string): void {
+  const player = { getVideoData: () => ({ video_id: videoId }) } as never;
+  setYouTubePlayer(player);
+  expect(markYtPlayerReady(player)).toBe(true);
+}
+
 function selectIndex(index: number): QueueItemId | null {
   const queueItemId = getState('playlist.items')[index]?.queueItemId ?? null;
   setState('playlist.currentQueueItemId', queueItemId);
@@ -1739,6 +1747,8 @@ describe('playTrack YouTube auto-rendezvous', () => {
     await playTrack(video.queueItemId, undefined, { explicitPlaybackIntent: true });
 
     expect(load).toHaveBeenCalledWith('FIRST_VIDEO_01', null, video.queueItemId, false, 0);
+    expect(getPendingAutoSyncOnReady()).toBe(true);
+    setReadyYouTubePlayer('FIRST_VIDEO_01');
     expect(consumePendingAutoSyncOnReady()).toMatchObject({
       isTrackTransition: false,
       zeroStart: true,
@@ -1822,6 +1832,7 @@ describe('playTrack YouTube auto-rendezvous', () => {
     await playTrack(video.queueItemId);
 
     expect(getPendingAutoSyncOnReady()).toBe(true);
+    setReadyYouTubePlayer('VIDEO_ID_01');
     expect(consumePendingAutoSyncOnReady()).toMatchObject({
       isTrackTransition: false,
       targetTime: 0,
@@ -1873,8 +1884,11 @@ describe('playTrack YouTube auto-rendezvous', () => {
 
       expect(load).toHaveBeenCalledWith('TARGET_NEXT', null, target.queueItemId, false, 1);
       expect(getPendingAutoSyncOnReady()).toBe(true);
+      // Identity mismatch must still refuse consumption even after READY.
+      setReadyYouTubePlayer('CURRENT_VIDEO');
       expect(consumePendingAutoSyncOnReady()).toBeNull();
-      setYouTubePlayer({ getVideoData: () => ({ video_id: 'TARGET_NEXT' }) } as never);
+      expect(getPendingAutoSyncOnReady()).toBe(true);
+      setReadyYouTubePlayer('TARGET_NEXT');
       expect(consumePendingAutoSyncOnReady()).toMatchObject({
         isTrackTransition: true,
         zeroStart: true,
@@ -1907,6 +1921,8 @@ describe('playTrack YouTube auto-rendezvous', () => {
 
     await playTrack(newVideo.queueItemId);
 
+    expect(getPendingAutoSyncOnReady()).toBe(true);
+    setReadyYouTubePlayer('NEW_VIDEO_01');
     expect(consumePendingAutoSyncOnReady()).toMatchObject({
       isTrackTransition: true,
       targetTime: 0,
@@ -1984,6 +2000,8 @@ describe('playTrack YouTube auto-rendezvous', () => {
       title: 'Resolved resident title',
       artist: 'Resolved resident channel',
     });
+    expect(getPendingAutoSyncOnReady()).toBe(true);
+    setReadyYouTubePlayer('SAME_VIDEO_1');
     expect(consumePendingAutoSyncOnReady()).toMatchObject({
       isTrackTransition: true,
       zeroStart: true,
@@ -2012,6 +2030,8 @@ describe('playTrack YouTube auto-rendezvous', () => {
 
     expect(prepareRestart).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
     expect(handoff).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
+    expect(getPendingAutoSyncOnReady()).toBe(true);
+    setReadyYouTubePlayer('SAME_VIDEO_1');
     expect(consumePendingAutoSyncOnReady()).toMatchObject({
       zeroStart: true,
       videoId: 'SAME_VIDEO_1',
@@ -2624,6 +2644,8 @@ describe('atomic batch playlist removal', () => {
     );
     expect(prepareRestart).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
     expect(handoff).toHaveBeenCalledWith(successor.queueItemId, 'SAME_VIDEO_1');
+    expect(getPendingAutoSyncOnReady()).toBe(true);
+    setReadyYouTubePlayer('SAME_VIDEO_1');
     expect(consumePendingAutoSyncOnReady()).toMatchObject({
       isTrackTransition: true,
       zeroStart: true,

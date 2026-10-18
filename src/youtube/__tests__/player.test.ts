@@ -216,6 +216,12 @@ describe('YouTube Player', () => {
         isTrackTransition: true,
         targetTime: 12,
       });
+      const { setYouTubePlayer, markYtPlayerReady } = await import('../_state.ts');
+      const readyPlayer = makeFakeYtPlayer({ __videoId: 'bridgeVideo' });
+      setYouTubePlayer(readyPlayer);
+      // Consumption is gated, but the current pending intent survives until READY.
+      expect(playerRuntime.consumePendingAutoSyncOnReady()).toBeNull();
+      expect(markYtPlayerReady(readyPlayer)).toBe(true);
       expect(playerRuntime.consumePendingAutoSyncOnReady()).toMatchObject({
         isTrackTransition: true,
         targetTime: 12,
@@ -2577,6 +2583,12 @@ describe('YouTube Player', () => {
       expect(getState('playlist.currentQueueItemId')).toBe(
         getState('playlist.items')[0]?.queueItemId,
       );
+      const { setYouTubePlayer, markYtPlayerReady } = await import('../_state.ts');
+      const readyPlayer = makeFakeYtPlayer({ __videoId: 'VIDEO_ID_01' });
+      setYouTubePlayer(readyPlayer);
+      // Consumption is gated, but the current pending intent survives until READY.
+      expect(consumePendingAutoSyncOnReady()).toBeNull();
+      expect(markYtPlayerReady(readyPlayer)).toBe(true);
       expect(consumePendingAutoSyncOnReady()).toMatchObject({
         isTrackTransition: false,
         targetTime: 0,
@@ -4480,6 +4492,12 @@ describe('YouTube Player', () => {
         }),
       );
       expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', QUEUE_ITEM_ID, false, 1);
+      const { setYouTubePlayer, markYtPlayerReady } = await import('../_state.ts');
+      const readyPlayer = makeFakeYtPlayer({ __videoId: 'secondVideo' });
+      setYouTubePlayer(readyPlayer);
+      // Consumption is gated, but the current pending intent survives until READY.
+      expect(consumePendingAutoSyncOnReady()).toBeNull();
+      expect(markYtPlayerReady(readyPlayer)).toBe(true);
       expect(consumePendingAutoSyncOnReady()).toEqual(
         expect.objectContaining({ targetTime: 37.5, skipSeek: false, state: 1 }),
       );

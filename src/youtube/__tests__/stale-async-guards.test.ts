@@ -4726,6 +4726,8 @@ describe('same-video queue occurrence handoff', () => {
     ]);
     setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
     loadYouTubeVideo('sameVideo01', null, false, 0);
+    // The outgoing resident iframe has already completed its own onReady.
+    handle.fireReady();
 
     vi.mocked(player.pauseVideo!).mockClear();
     vi.mocked(player.stopVideo!).mockClear();
@@ -4789,7 +4791,7 @@ describe('same-video queue occurrence handoff', () => {
     const player = createMockYtPlayer();
     player.cueVideoById = vi.fn();
     vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'sameVideoEnded' });
-    installYtNamespace(player);
+    const handle = installYtNamespace(player);
     const {
       handoffSameVideoOccurrenceRestart,
       loadYouTubeVideo,
@@ -4815,6 +4817,8 @@ describe('same-video queue occurrence handoff', () => {
     ]);
     setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
     loadYouTubeVideo('sameVideoEnded', null, false, 0);
+    // The outgoing resident iframe has already completed its own onReady.
+    handle.fireReady();
 
     setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
     expect(prepareSameVideoOccurrenceRestart(SECOND_QUEUE_ITEM_ID, 'sameVideoEnded')).toBe(true);
@@ -4880,7 +4884,7 @@ describe('same-video queue occurrence handoff', () => {
     player.cueVideoById = vi.fn();
     vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'sameVideo03' });
     vi.mocked(player.getPlayerState!).mockReturnValue(1);
-    installYtNamespace(player);
+    const handle = installYtNamespace(player);
     const {
       handoffSameVideoOccurrenceRestart,
       loadYouTubeVideo,
@@ -4909,6 +4913,8 @@ describe('same-video queue occurrence handoff', () => {
     ]);
     setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
     loadYouTubeVideo('sameVideo03', null, false, 0);
+    // The outgoing resident iframe has already completed its own onReady.
+    handle.fireReady();
     setManagedTimerMock.mockClear();
 
     setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);

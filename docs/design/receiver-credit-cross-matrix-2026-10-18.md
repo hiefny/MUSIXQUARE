@@ -326,6 +326,12 @@ The longer fixture listed in the scratch inventory is not used in this matrix.
 | `independent-confirmation-audit.json` | `26e3b65cbb93003d1eacd35c6b256dab548fd314bac48d1d19f67200ea9e1db6` |
 | `matrix-confirmation-frozen.json` | `e8d1882bd243f3b414bf4a21a7f66e0684d79dde82ee53cb14220b60eaec015e` |
 | `execution-freeze-confirmation.json` (103 files) | `01f3c88f7ac104c29ae40d7bffebc59ec193885fbf6c20efc0da4e74517b7ddf` |
+| `primary-evidence-manifest.json` | `50cb169993d953de1d8c9179516c6ba4fb75854b1a247ddbc6e29b2b4d602d0d` |
+
+The primary manifest inventories 215 files / 2,119,594,756 bytes, including
+49 raw results (one excluded preflight plus 48 formal cases). It explicitly
+reuses raw hashes captured by the orchestrator immediately after execution;
+small frozen inputs are rechecked. Independent audit outputs remain separate.
 
 The confirmation freeze predates its first measurement. Each confirmation
 configuration preserves its discovery source configuration except case identity
@@ -355,7 +361,7 @@ Only the measurement owner runs browsers or heavy processing during timed cases.
 Observation overhead and any missing records must remain explicit.
 Only ordinary broadcast and preload are exercised as throughput workloads;
 consistent unicast constants do not constitute a unicast performance test.
-This round does not rerun the product full unit/E2E suite, lifecycle
+This local experiment does not rerun the product full unit/E2E suite, lifecycle
 cancellation/promotion matrix, mixed-version admission, or remote production
 smokes. It does not replace their earlier evidence. The experiment's owned
 servers and browsers were closed after measurements; raw files and builds
@@ -365,6 +371,7 @@ confirmation record completed at 08:10:04.745 UTC: approximately 90 minutes
 including inter-case preparation, preserved failure analysis and selection,
 not 90 minutes of uninterrupted file transfer. The earlier preflight and
 final independent audit fall outside that elapsed interval.
+Normal repository publication CI is separate from these benchmark counts.
 
 This report authorizes no production deployment or runtime promotion. No schema,
 dependency, secret, binding, app version or cache change is part of the task.

@@ -225,7 +225,115 @@ was reproduced locally before correction and now checks the intermediate
 probe state, the 3.9-second boundary, then acceptance and exact cumulative debt
 after four seconds. This is a test-only follow-up; the native artifact remains
 the exact `0b56607e` runtime. The failed CI is retained and is not a candidate
-release success.
+release success. The test-only correction is `5f41abd3`. All 12 transport test
+files pass 713 tests; the full local Windows suite then passed **594 files /
+13,357 tests / zero failures or skips**. The initial npm CLI launch rejected
+forwarded reporter flags before any test ran; that launcher log is preserved
+separately from the successful direct pinned-Node Vitest run. Full-run JSON
+SHA256 is `cc189685bcdea18cac12689fd008cf51795726d83f5cedf5ef76c9f8f7819877`.
+
+The test-only head's [CI 39172724525](https://github.com/hiefny/MUSIXQUARE/actions/runs/39172724525)
+passed all eleven jobs. This is still PR evidence, not an exact-main candidate.
+
+### Uniform-probe candidate product qualification
+
+The new cold H8 ordinary pair used the same baseline, fixture, browser and
+acceptance gates, with exact candidate `0b56607e`. Primary completion improved
+**73.634 to 52.706 seconds (28.42%)**. Maximum application-control delay was
+1,654.2 versus 189.7 ms. Independent exact-byte/chunk/queue/session/lane/source,
+receipt accounting, actual enlargement and applicable relative/absolute control
+checks passed; twelve sparse/unavailable control groups remained N/A, and
+ordinary media was N/A. No cooldown occurred. First observed acceptance was
+20.688 seconds after first native payload (22.800 after demand); 276 chunks
+were admitted while accepted at 192 KiB. This describes the startup/learning
+cost in this run and does not identify every underlying transport delay.
+
+The frozen inputs have SHA256
+`05be39475feab7b56825fd435c12382e2f4bba034c77787f237b9f79ce7002e5`;
+raw baseline/candidate hashes are
+`df83515b7e6d7dd266a5d0653b066ddb62a381e534555358c240aa466c1bf8cd`
+and `0c42ad51ebefa6a23b429fef2270247bec91a477433d04f7bf7b077b7948c1aa`.
+Independent audit `performance-c4-firstpair-independent-r1.json` has SHA256
+`5818e01eee2e90429beb6bb90fe4dcc4e7695589cfd18f0385115b5842b7e822`.
+All paths remain under the product-QA scratch directory identified above.
+
+Remaining six performance cases are separately frozen as
+`execution-freeze-product-c4-remaining-six-r1.json`, SHA256
+`4407e6c3c0d0d62547fc03c47179af471f468a3d7948aebd90e214166b41b3c3`:
+candidate then baseline H8 preload, baseline then candidate slow2 preload,
+candidate then baseline dynamic 8→2→8 preload. Each pair requires independent
+qualification before continuing. The first preload pair was interrupted:
+candidate collection completed in 52.675 seconds with matching resident SHA,
+352 chunks and cumulative receipts, but the baseline stopped during setup before
+the first warmup marker. The final media analyzer assumed a nonempty baseline
+list and threw before raw evidence was written. Its secondary reporting defect
+is confirmed; the original setup error was lost and remains unknown. The log
+is preserved with SHA256
+`88d66d581e0f5016f83526d3e7753e8bcf6f9c7200d4569ba2d3b80e7f588e1b`.
+Candidate raw SHA256 is
+`a2261af58da1573c5d524e240b60c52fb296c6ae862c8a5c82862ea841051d64`.
+Its standalone independent audit passed source/file/route/credit checks:
+52.675 seconds, maximum application-control delay 201.8 ms, and 274 admissions
+with accepted 192 KiB credit and debt above 128 KiB. During the common baseline,
+demand/bulk, tail and drain windows the controlled player's sampled residual
+changed by at most 1 ms from its own baseline, with no unexpected mutations or
+nonplaying samples. Two later guest export samples lack a sufficiently close
+host reference after host observation stopped; they remain invalid in the
+complete raw rows and are not presented as valid media evidence. Standalone
+audit SHA256 is
+`8b4afa73e102ac5ad5ffca011da411ff306b4034d02613203363490e91c0e049`;
+its paired qualification field is deliberately null.
+There is no paired preload qualification and no assertion that the lost error
+was merely a harness setup problem. Original frozen inputs and failed evidence
+remain unchanged.
+
+### Readiness failure investigation
+
+A separate reporting-only runner saves the original error immediately and writes
+immutable endpoint evidence before calling an analyzer. Analyzer failures have a
+separate artifact and cannot overwrite the original failure. Eight focused
+reporting pins pass. A diagnostic baseline preload then completed in 73.822
+seconds without reproducing the setup failure. This diagnostic is not a
+replacement baseline or a paired performance pass.
+
+A bounded setup-only reproduction used the same baseline build, two playback
+intents and initial H8 shaping, without file payload. It stopped on the second
+fresh room: the first succeeded, the second timed out waiting for the host to
+play. The failed raw SHA256 is
+`a59ea585369f8cd4f7b12d057f0508bed0a9499cf4bfd72a6d188f33fb9ceb5e`.
+The helper adds a YouTube URL, which already requests automatic playback, then
+immediately requests explicit replay of the same occurrence. In the successful
+attempt readiness preceded replay. In the failed attempt replay called seek/play
+while the fake player was still UNSTARTED; its later READY changed it to CUED,
+with no subsequent host play call. It stayed there until the existing stuck
+watchdog skipped the track about 19 seconds later, explaining the final idle
+snapshot. Both observers recorded zero drops/exceptions and zero file payload.
+
+Real application-module regression tests reproduce loss of the readiness-owned
+intent under that controlled iframe boundary. Requiring readiness only in the
+same-occurrence replay shortcut was insufficient: a poll/CUED path could still
+consume the rearmed intent before READY. The minimal correction gates that
+shortcut on player readiness and no active load, and makes the shared pending
+consumer retain a valid current intent until the exact player is ready. Stale
+owner cleanup, existing deadlines, normal READY consumption and already-ready
+replay remain intact. No new retry loop is added. The affected integration file
+passes 22 tests, including the two new boundary pins, and the existing normal
+ready-replay pin also passes (125 unrelated tests filtered out). All three red
+iterations are retained separately.
+
+This identifies a reproduced readiness-contract defect in the baseline and C4
+application, not a file-transfer failure. The fake provider exposes video metadata
+before READY and controls the later CUED notification; identical live-provider
+behavior is not established. The first lost-error attempt cannot be assigned this
+cause conclusively. The next performance harness uses one natural chat-load
+intent for both arms, matching the established E2E preparation, while a separate
+native double-intent check verifies the readiness correction. Both are new frozen
+runs; neither silently replaces old evidence. Current integration advances to
+cache v730, with transport policy and all performance gates unchanged.
+
+Reverse-order replications, multiple receivers, mixed versions, the actual
+Reconnect button and constrained shared-host uplink are also pending.
+First-pair success alone does not authorize merging or deployment.
 
 Remaining product-native results and release evidence will be added only after execution.
 PR/local success cannot replace the successful exact-main-SHA CI candidate.

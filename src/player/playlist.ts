@@ -825,7 +825,9 @@ export async function playTrack(
     _isSameTrack &&
     !options.forceNewYouTubeOccurrence &&
     item.type === 'youtube' &&
-    isYouTubeOwner()
+    isYouTubeOwner() &&
+    isYtPlayerReady() &&
+    !isYtLoadInProgress()
   ) {
     const requestedVideoId =
       getPlaylistSubItems(item)?.ids?.[requestedTrackSubIndex ?? 0] || item.videoId || null;

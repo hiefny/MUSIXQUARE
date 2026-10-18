@@ -1926,6 +1926,8 @@ describe('playTrack YouTube auto-rendezvous', () => {
     setYouTubePlayer({
       getVideoData: () => ({ video_id: 'CURRENT_VIDEO_01' }),
     } as never);
+    const { getYouTubePlayer, markYtPlayerReady } = await import('../../youtube/_state.ts');
+    expect(markYtPlayerReady(getYouTubePlayer()!)).toBe(true);
     const autoPlay = vi.fn();
     const load = vi.fn();
     const outbound = vi.fn();

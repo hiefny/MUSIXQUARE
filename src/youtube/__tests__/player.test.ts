@@ -217,7 +217,9 @@ describe('YouTube Player', () => {
         targetTime: 12,
       });
       const { setYouTubePlayer, markYtPlayerReady } = await import('../_state.ts');
-      const readyPlayer = makeFakeYtPlayer({ __videoId: 'bridgeVideo' });
+      const readyPlayer = makeFakeYtPlayer({
+        __videoId: 'bridgeVideo',
+      }) as unknown as YouTubePlayerInstance;
       setYouTubePlayer(readyPlayer);
       // Consumption is gated, but the current pending intent survives until READY.
       expect(playerRuntime.consumePendingAutoSyncOnReady()).toBeNull();
@@ -2584,7 +2586,9 @@ describe('YouTube Player', () => {
         getState('playlist.items')[0]?.queueItemId,
       );
       const { setYouTubePlayer, markYtPlayerReady } = await import('../_state.ts');
-      const readyPlayer = makeFakeYtPlayer({ __videoId: 'VIDEO_ID_01' });
+      const readyPlayer = makeFakeYtPlayer({
+        __videoId: 'VIDEO_ID_01',
+      }) as unknown as YouTubePlayerInstance;
       setYouTubePlayer(readyPlayer);
       // Consumption is gated, but the current pending intent survives until READY.
       expect(consumePendingAutoSyncOnReady()).toBeNull();
@@ -4493,7 +4497,9 @@ describe('YouTube Player', () => {
       );
       expect(loadSpy).toHaveBeenCalledWith('secondVideo', 'playlist-1', QUEUE_ITEM_ID, false, 1);
       const { setYouTubePlayer, markYtPlayerReady } = await import('../_state.ts');
-      const readyPlayer = makeFakeYtPlayer({ __videoId: 'secondVideo' });
+      const readyPlayer = makeFakeYtPlayer({
+        __videoId: 'secondVideo',
+      }) as unknown as YouTubePlayerInstance;
       setYouTubePlayer(readyPlayer);
       // Consumption is gated, but the current pending intent survives until READY.
       expect(consumePendingAutoSyncOnReady()).toBeNull();

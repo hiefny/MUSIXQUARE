@@ -342,8 +342,14 @@ initial captured onReady event. The tests now supply that exact readiness
 boundary, retain their original outcome assertions, and explicitly retain the
 pre-ready intent where appropriate. No runtime gate is bypassed. Independent
 fixture review passed, followed by all **423 tests in those three files**, with
-zero failures or skips. The original full-suite failure remains recorded; a
-complete follow-up run and native qualification are still pending.
+zero failures or skips. The original full-suite failure remains recorded.
+The complete Windows follow-up at `574624e1` passed **594 files / 13,359 tests /
+zero failures or skips** (`root/full-unit-c7.json`, SHA256
+`55e9b1e0c216f7b8c6c8d7ca21a6fc20cc0a1d5eccbc77b34bc2aa26a1bb8c54`).
+Its CI found a separate type-only fixture error: the three new partial fake
+players lack unused playlist methods required by the full player interface.
+That correction follows the existing typed partial-fixture convention and does
+not change product behavior. Native qualification is still pending.
 
 Reverse-order replications, multiple receivers, mixed versions, the actual
 Reconnect button and constrained shared-host uplink are also pending.

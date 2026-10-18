@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Control association isolation — 2026-10-19](design/control-association-isolation-2026-10-19.md) —
+  sequential native transport investigation, with a separate control SCTP
+  association and fixed/adaptive bulk receipt windows. Preserves failed setup instrumentation,
+  exact source/build evidence and untested product-integration boundaries.
 - [Startup transport delay cause — 2026-10-19](design/startup-transport-cause-2026-10-19.md) —
   frozen B128 reproduces 809/1,885 ms first-chunk states; packet/trace evidence
   connects a delivered control message's delayed ACK to unnecessary retransmission

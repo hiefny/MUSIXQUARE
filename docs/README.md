@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Product control isolation — 2026-10-19](design/control-isolation-product-integration-2026-10-19.md) —
+  product negotiation, ordered handoff, compatibility, reconnect and bounded
+  adaptive credit; integration validation and release status are tracked here.
 - [Control association isolation — 2026-10-19](design/control-association-isolation-2026-10-19.md) —
   sequential native transport investigation, with a separate control SCTP
   association and fixed/adaptive bulk receipt windows. Preserves failed setup instrumentation,

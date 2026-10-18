@@ -33,6 +33,11 @@ class PeerConnection extends EventTarget {
   }
 }
 
+async function flushDispatch(): Promise<void> {
+  // Original and isolated control frames share an asynchronous dispatch tail.
+  for (let index = 0; index < 16; index++) await Promise.resolve();
+}
+
 const connections: CloudflareDataConnection[] = [];
 async function endpoint(activate = true) {
   const conn = new CloudflareDataConnection(`peer-${connections.length}`);
@@ -42,7 +47,7 @@ async function endpoint(activate = true) {
   const control = new Channel('musixquare-control');
   conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
   conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
-  await Promise.resolve();
+  await flushDispatch();
   if (activate) conn.startBulkFlowControl();
   return { conn, bulk, control };
 }
@@ -52,7 +57,7 @@ async function pair() {
   const receiver = await endpoint();
   sender.control.receive(receiver.control.sent[0]);
   receiver.control.receive(sender.control.sent[0]);
-  await Promise.resolve();
+  await flushDispatch();
   return { sender, receiver };
 }
 
@@ -86,7 +91,7 @@ describe('Cloudflare transport receiver credit', () => {
     conn.on('open', () => observedAtOpen.push(...control.sent));
     conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
     conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
-    await Promise.resolve();
+    await flushDispatch();
     expect(observedAtOpen).toHaveLength(0);
     expect(control.sent).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(2000);
@@ -112,7 +117,7 @@ describe('Cloudflare transport receiver credit', () => {
     const onData = vi.fn();
     receiver.conn.on('data', onData);
     receiver.control.receive(sender.control.sent[0]);
-    await Promise.resolve();
+    await flushDispatch();
     expect(receiver.control.sent).toHaveLength(0);
     expect(onData).not.toHaveBeenCalled();
     receiver.conn.startBulkFlowControl();
@@ -136,9 +141,9 @@ describe('Cloudflare transport receiver credit', () => {
     expect(() => sender.conn.send({ type: MSG.FILE_END })).not.toThrow();
     expect(JSON.parse(sender.bulk.sent.at(-1) as string)).toEqual({ type: MSG.FILE_END });
     receiver.bulk.receive(sender.bulk.sent[0]);
-    await Promise.resolve();
+    await flushDispatch();
     sender.control.receive(receiver.control.sent.at(-1));
-    await Promise.resolve();
+    await flushDispatch();
     expect(sender.conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(true);
   });
 
@@ -150,10 +155,10 @@ describe('Cloudflare transport receiver credit', () => {
     sender.conn.send(chunk());
     receiver.bulk.receive(sender.bulk.sent[0]);
     receiver.bulk.receive(sender.bulk.sent[1]);
-    await Promise.resolve();
+    await flushDispatch();
     expect(ignored).toHaveBeenCalledTimes(2);
     sender.control.receive(receiver.control.sent.at(-1));
-    await Promise.resolve();
+    await flushDispatch();
     expect(sender.conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(true);
     expect(
       receiver.control.sent.some((frame) => JSON.parse(frame as string).type === MSG.PRELOAD_ACK),
@@ -166,14 +171,14 @@ describe('Cloudflare transport receiver credit', () => {
     const onData = vi.fn();
     sender.conn.on('data', onData);
     sender.bulk.receive(receiver.control.sent[0]);
-    await Promise.resolve();
+    await flushDispatch();
     sender.conn.send(chunk());
     sender.conn.send(chunk());
     await vi.advanceTimersByTimeAsync(1000);
     expect(sender.conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(true);
     expect(onData).not.toHaveBeenCalled();
     sender.control.receive(receiver.control.sent[0]);
-    await Promise.resolve();
+    await flushDispatch();
     expect(sender.conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(false);
     expect(onData).not.toHaveBeenCalled();
   });
@@ -194,7 +199,7 @@ describe('Cloudflare transport receiver credit', () => {
     sender.conn.send(chunk());
     sender.conn.send(chunk());
     receiver.bulk.receive(sender.bulk.sent[0]);
-    await Promise.resolve();
+    await flushDispatch();
     const valid = JSON.parse(receiver.control.sent.at(-1) as string) as Record<string, unknown>;
     const wake = vi.fn();
     sender.conn.bulkFlowControl.subscribe(wake);
@@ -205,15 +210,15 @@ describe('Cloudflare transport receiver credit', () => {
       { version: 2 },
     ]) {
       sender.control.receive(JSON.stringify({ ...valid, ...changes }));
-      await Promise.resolve();
+      await flushDispatch();
       expect(sender.conn.bulkFlowControl.hasCapacity(1)).toBe(false);
     }
     expect(wake).not.toHaveBeenCalled();
     sender.control.receive(JSON.stringify(valid));
-    await Promise.resolve();
+    await flushDispatch();
     expect(wake).toHaveBeenCalledOnce();
     sender.control.receive(JSON.stringify(valid));
-    await Promise.resolve();
+    await flushDispatch();
     expect(wake).toHaveBeenCalledOnce();
     sender.conn.send(chunk());
     expect(() => sender.conn.send(chunk())).toThrow('BULK_FLOW_CAPACITY_EXCEEDED');
@@ -227,7 +232,7 @@ describe('Cloudflare transport receiver credit', () => {
     const controlsBefore = receiver.control.sent.length;
     receiver.bulk.receive(sender.bulk.sent[0]);
     receiver.conn.dataChannel = new Channel('musixquare-data') as unknown as RTCDataChannel;
-    await Promise.resolve();
+    await flushDispatch();
     expect(receiver.control.sent).toHaveLength(controlsBefore);
     expect(onData).not.toHaveBeenCalled();
   });
@@ -240,7 +245,7 @@ describe('Cloudflare transport receiver credit', () => {
     receiver.bulk.receive(sender.bulk.sent[0]);
     const controlsBefore = receiver.control.sent.length;
     receiver.conn.close();
-    await Promise.resolve();
+    await flushDispatch();
     expect(receiver.conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)).toBe(false);
     expect(receiver.control.sent).toHaveLength(controlsBefore);
     expect(onData).not.toHaveBeenCalled();
@@ -259,7 +264,7 @@ describe('Cloudflare transport receiver credit', () => {
     conn.on('close', onClose);
     conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
     conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
-    await Promise.resolve();
+    await flushDispatch();
     expect(onOpen).toHaveBeenCalledOnce();
     expect(onClose).not.toHaveBeenCalled();
     conn.startBulkFlowControl();
@@ -279,7 +284,7 @@ describe('Cloudflare transport receiver credit', () => {
     sender.conn.send(chunk());
     receiver.control.failSend = true;
     receiver.bulk.receive(sender.bulk.sent[0]);
-    await Promise.resolve();
+    await flushDispatch();
     expect(onClose).toHaveBeenCalledOnce();
     expect(onData).not.toHaveBeenCalled();
     expect(receiver.conn.open).toBe(false);

@@ -8,8 +8,9 @@
  *     so the guest owes itself exactly one silent follow-up rendezvous.
  *   - Host heartbeats projected through their `hostClock` expose small, stable
  *     drift that the 3s corrective seek ignores. Two consecutive same-sign
- *     samples above 150ms earn one silent rendezvous, bounded by a cooldown
- *     and a per-occurrence budget.
+ *     samples beyond 150ms plus twice the clock uncertainty earn one silent
+ *     rendezvous, bounded by a cooldown and a per-occurrence budget. This
+ *     fixture uses RTT=0 and U=5ms: even perfect transport needs a 10ms margin.
  *
  * Real sync.ts, managed timers, state and bus. The fake iframe's media clock
  * follows fake time, and the shared clock tracks Date.now().
@@ -70,6 +71,14 @@ vi.mock('../../network/shared-clock.ts', async (importOriginal) => ({
   getHostNow: () => Date.now(),
   getClockOffset: () => 0,
   isClockCalibrated: () => harness.clockCalibrated,
+  getClockCorrectionQuality: () => ({
+    eligible: harness.clockCalibrated,
+    epoch: 0,
+    offsetMs: 0,
+    rttMs: 0,
+    uncertaintyMs: 5,
+    precisionMs: 5,
+  }),
 }));
 vi.mock('../../player/transport.ts', () => ({ fmtTime: (seconds: number) => String(seconds) }));
 vi.mock('../../ui/toast.ts', () => ({ showToast: vi.fn(), showLoader: vi.fn() }));

@@ -12,7 +12,11 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
-import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
+import {
+  getClockCorrectionQuality,
+  getHostNow,
+  isClockCalibrated,
+} from '../network/shared-clock.ts';
 import { getRoomContext, subscribeRoomAuthorityLifecycle } from '../rooms/authority.ts';
 import { fmtTime } from '../player/transport.ts';
 import {
@@ -90,6 +94,14 @@ import {
   getLocalYouTubeAudibleOutputDelayMs,
 } from './play-latency.ts';
 import { captureRendezvousClock, createRendezvousCalibration } from './rendezvous-calibration.ts';
+import {
+  captureRendezvousClockLease,
+  type RendezvousClockLease,
+} from './rendezvous-clock-lease.ts';
+import {
+  recordAutomaticRealignObservation,
+  resetAutomaticRealignObservations,
+} from './automatic-realign-observations.ts';
 import { isYouTubeZeroStartInFlight } from './zero-start.ts';
 import { isYouTubeZeroStartSyncOwned } from './zero-start-ownership.ts';
 import {
@@ -544,15 +556,30 @@ interface SmallDriftStreak {
   occurrenceKey: string;
   sign: 1 | -1;
   count: number;
+  clockEpoch: number;
+  clockOffsetMs: number;
 }
 
 /** A heartbeat drift measurement that an automatic realign may act on. */
 interface SmallDriftSample {
   occurrenceKey: string;
   driftMs: number;
+  clockEpoch: number;
+  clockOffsetMs: number;
+  clockPrecisionMs: number;
+  clockLease: RendezvousClockLease;
+  clockQuality: ReturnType<typeof getClockCorrectionQuality>;
+  action: GuestStateAction;
+  snapshot: HostPositionSnapshot;
 }
 
 interface GuestRendezvousAttempt {
+  /** Automatic corrections only; explicit actions retain their existing policy. */
+  clockLease?: RendezvousClockLease;
+  automaticEvidence?: SmallDriftSample;
+  interruptedPosition?: number;
+  interruptedAtMs?: number;
+  pausedByAttempt?: boolean;
   player: YouTubePlayerInstance;
   hostConn: DataConnection;
   queueItemId: string | null;
@@ -670,6 +697,7 @@ export function isGuestYouTubeTransitionPending(): boolean {
 function matchesRendezvousOccurrence(attempt: GuestRendezvousAttempt): boolean {
   const player = attempt.player;
   try {
+    const videoId = player.getVideoData?.()?.video_id || '';
     return (
       getYouTubePlayer() === player &&
       getCurrentSessionId() === attempt.sessionId &&
@@ -677,7 +705,7 @@ function matchesRendezvousOccurrence(attempt: GuestRendezvousAttempt): boolean {
       attempt.hostConn.open &&
       getCurrentQueueItemId() === attempt.queueItemId &&
       getState('youtube.currentSubIndex') === attempt.subIndex &&
-      (player.getVideoData?.()?.video_id || '') === attempt.videoId &&
+      videoId === attempt.videoId &&
       isPlaybackModeYouTube() &&
       !isYouTubeZeroStartSyncOwned()
     );
@@ -689,9 +717,67 @@ function matchesRendezvousOccurrence(attempt: GuestRendezvousAttempt): boolean {
 
 function isCurrentRendezvous(attempt: GuestRendezvousAttempt): boolean {
   if (_rt.rendezvous !== attempt) return false;
-  if (matchesRendezvousOccurrence(attempt)) return true;
+  if (matchesRendezvousOccurrence(attempt) && _rt.rendezvous === attempt) return true;
   finishRendezvous(attempt);
   return false;
+}
+
+/**
+ * A confirmed epoch/local clock discontinuity invalidates this automatic plan.
+ * If it already paused playback, restore the prior local media timeline rather
+ * than guessing a new host position from the now-invalid clock. This preserves
+ * liveness, not precision. A newer command/occurrence owns recovery instead.
+ */
+function checkRendezvousClockLease(attempt: GuestRendezvousAttempt): boolean {
+  if (!isCurrentRendezvous(attempt)) return false;
+  const lease = attempt.clockLease;
+  if (!lease || lease.isContinuous()) return true;
+  restoreInterruptedRendezvous(attempt);
+  return false;
+}
+
+/** Bounded liveness recovery; neither a new precision attempt nor permission to supersede a command. */
+function restoreInterruptedRendezvous(
+  attempt: GuestRendezvousAttempt,
+  reason = 'clock-changed',
+): void {
+  if (!isCurrentRendezvous(attempt)) return;
+  try {
+    const player = attempt.player;
+    if (
+      attempt.pausedByAttempt &&
+      attempt.interruptedPosition !== undefined &&
+      attempt.interruptedAtMs !== undefined &&
+      !isLocalYouTubePaused() &&
+      _rt.lastHostSnapshot?.hostState === 1
+    ) {
+      const position =
+        attempt.interruptedPosition +
+        Math.max(0, performance.now() - attempt.interruptedAtMs) / 1000;
+      const duration = player.getDuration?.() ?? 0;
+      if (
+        Number.isFinite(position) &&
+        duration > position &&
+        position >= 0 &&
+        isCurrentRendezvous(attempt) &&
+        !isLocalYouTubePaused() &&
+        _rt.lastHostSnapshot?.hostState === 1
+      ) {
+        player.seekTo(position, true);
+        if (!isCurrentRendezvous(attempt)) return;
+        if (!isLocalYouTubePaused() && _rt.lastHostSnapshot?.hostState === 1) {
+          setYtAutoplayIntent(true);
+          player.playVideo();
+          if (attempt.automaticEvidence) {
+            observeAutomaticDecision(attempt.automaticEvidence, 'recovery', reason);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    log.warn('[Rendezvous] Could not restore interrupted local timeline:', error);
+  }
+  if (isCurrentRendezvous(attempt)) finishRendezvous(attempt);
 }
 
 /** A host snapshot describes the same video/sub-index as the guest occurrence. */
@@ -1115,15 +1201,20 @@ function projectPlayingHeartbeatTime(
 /** Measures projected heartbeat drift only when an automatic realign may act on it. */
 function sampleSmallHeartbeatDrift(
   player: YouTubePlayerInstance,
-  projectedHostTime: number,
+  hostTime: number,
   hostState: number,
   hostClock: number | undefined,
   duration: number,
+  action: GuestStateAction,
+  snapshot: HostPositionSnapshot | null,
 ): SmallDriftSample | null {
   const now = performance.now();
   // A frozen host clock (ad onset) reads as growing guest lead before the ad
   // detector confirms it, so any stale-frame suspicion disqualifies a sample.
   if (
+    !snapshot ||
+    !isCurrentStateAction(action) ||
+    _rt.lastHostSnapshot !== snapshot ||
     hostState !== 1 ||
     hostClock === undefined ||
     !Number.isFinite(hostClock) ||
@@ -1142,6 +1233,10 @@ function sampleSmallHeartbeatDrift(
   ) {
     return null;
   }
+
+  const clock = getClockCorrectionQuality();
+  const clockLease = captureRendezvousClockLease();
+  const projectedHostTime = hostTime + Math.max(0, clockLease.hostNow() - hostClock) / 1000;
 
   let guestState: number | undefined;
   let currentTime: number;
@@ -1172,14 +1267,69 @@ function sampleSmallHeartbeatDrift(
 
   const driftMs = (currentTime - expectedLocalTime) * 1000;
   const magnitudeMs = Math.abs(driftMs);
+  // A full correction using an uncertain midpoint can make an aligned player
+  // worse. Retain the 150ms trigger and also require |drift| > 2U: under the fixed-clock bound,
+  // even the worst correction residual is smaller than the smallest true drift.
+  // This bounds clock error only, not iframe observation or audio output error.
+  // This gates optional auto precision only: explicit controls, recovery and
+  // the separate large-drift policy retain their existing behavior.
   if (
     !Number.isFinite(driftMs) ||
     magnitudeMs < STANDARD_AUTO_REALIGN_DRIFT_THRESHOLD_MS ||
     magnitudeMs >= DRIFT_SEEK_THRESHOLD_SEC * 1000
-  ) {
+  )
+    return null;
+  if (!clock.eligible || clock.uncertaintyMs === null || magnitudeMs <= 2 * clock.uncertaintyMs) {
+    recordAutomaticRealignObservation({
+      occurrenceKey,
+      stage: 'blocked',
+      reason: clock.eligible ? 'uncertainty' : clock.reason,
+      driftMs,
+      triggerMs: STANDARD_AUTO_REALIGN_DRIFT_THRESHOLD_MS,
+      clock,
+    });
     return null;
   }
-  return { occurrenceKey, driftMs };
+  return {
+    occurrenceKey,
+    driftMs,
+    clockEpoch: clock.epoch,
+    clockOffsetMs: clock.offsetMs,
+    clockPrecisionMs: clock.precisionMs,
+    clockLease,
+    clockQuality: clock,
+    action,
+    snapshot,
+  };
+}
+
+function observeAutomaticDecision(
+  sample: SmallDriftSample,
+  stage: 'blocked' | 'admitted' | 'recovery',
+  reason: string,
+): void {
+  recordAutomaticRealignObservation({
+    occurrenceKey: sample.occurrenceKey,
+    stage,
+    reason,
+    driftMs: sample.driftMs,
+    triggerMs: STANDARD_AUTO_REALIGN_DRIFT_THRESHOLD_MS,
+    clock: sample.clockQuality,
+  });
+}
+
+/** Admission and execution must refer to the same measurement and command. */
+function isAutomaticAdmissionCurrent(sample: SmallDriftSample): boolean {
+  const clock = getClockCorrectionQuality();
+  return (
+    isCurrentStateAction(sample.action) &&
+    _rt.lastHostSnapshot === sample.snapshot &&
+    !isLocalYouTubePaused() &&
+    sample.clockLease.isContinuous() &&
+    clock.eligible &&
+    clock.epoch === sample.clockEpoch &&
+    clock.offsetMs === sample.clockOffsetMs
+  );
 }
 
 /** Extends the same-sign streak and acts once it is confirmed. */
@@ -1187,11 +1337,32 @@ function confirmSmallHeartbeatDrift(
   sample: SmallDriftSample,
   prior: SmallDriftStreak | null,
 ): void {
+  if (
+    !isCurrentStateAction(sample.action) ||
+    _rt.lastHostSnapshot !== sample.snapshot ||
+    isLocalYouTubePaused()
+  )
+    return;
+  if (!isAutomaticAdmissionCurrent(sample)) {
+    observeAutomaticDecision(sample, 'blocked', 'clock-changed');
+    return;
+  }
   const sign = sample.driftMs > 0 ? 1 : -1;
   const count =
-    prior?.occurrenceKey === sample.occurrenceKey && prior.sign === sign ? prior.count + 1 : 1;
+    prior?.occurrenceKey === sample.occurrenceKey &&
+    prior.sign === sign &&
+    prior.clockEpoch === sample.clockEpoch &&
+    Math.abs(prior.clockOffsetMs - sample.clockOffsetMs) <= sample.clockPrecisionMs
+      ? prior.count + 1
+      : 1;
   if (count < STANDARD_AUTO_REALIGN_CONFIRMATIONS) {
-    _rt.smallDriftStreak = { occurrenceKey: sample.occurrenceKey, sign, count };
+    _rt.smallDriftStreak = {
+      occurrenceKey: sample.occurrenceKey,
+      sign,
+      count,
+      clockEpoch: sample.clockEpoch,
+      clockOffsetMs: sample.clockOffsetMs,
+    };
     return;
   }
 
@@ -1204,8 +1375,10 @@ function confirmSmallHeartbeatDrift(
     silent: true,
     suppressProgressToast: true,
     realign: 'automatic',
+    automaticAdmission: sample,
   });
   if (result.status !== 'started') return;
+  observeAutomaticDecision(sample, 'admitted', 'admitted');
   _rt.lastAutoRealignAt = performance.now();
   const budget = _rt.autoRealignBudget;
   _rt.autoRealignBudget = {
@@ -1236,6 +1409,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
 
   const player = getYouTubePlayer();
   const sessionId = getCurrentSessionId();
+  const heartbeatAction = player ? makeGuestStateAction(player) : null;
 
   // Record the host snapshot BEFORE the YouTube-mode guard. Late-join
   // bootstrap frames arrive while the guest is still inside
@@ -1251,6 +1425,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostSubIndex = data.subIndex as number | undefined;
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(hostTime, hostState, hostClock, (data.videoId as string) || '', hostSubIndex);
+  const heartbeatSnapshot = _rt.lastHostSnapshot;
 
   // This speaker may still be waiting for its negative manual offset after
   // the host has resumed ordinary heartbeats. Keep those snapshots fresh,
@@ -1473,7 +1648,17 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
     // Sampled before either correction below touches the iframe.
     const smallDrift = resumeAfterHostAd
       ? null
-      : sampleSmallHeartbeatDrift(player, projectedHostTime, hostState, hostClock, duration);
+      : sampleSmallHeartbeatDrift(
+          player,
+          hostTime,
+          hostState,
+          hostClock,
+          duration,
+          heartbeatAction!,
+          heartbeatSnapshot,
+        );
+    if (!isCurrentStateAction(heartbeatAction!) || _rt.lastHostSnapshot !== heartbeatSnapshot)
+      return;
     let seekCorrected = false;
     if (duration > 0) {
       const compensatedTime = Math.max(0, Math.min(rawCompensatedTime, duration));
@@ -1549,6 +1734,7 @@ interface GuestRendezvousOptions {
    * owes a follow-up after a buffer-gate fallback, so each chain stays bounded.
    */
   realign?: 'follow-up' | 'automatic';
+  automaticAdmission?: SmallDriftSample;
   onComplete?: () => void;
 }
 
@@ -1561,6 +1747,12 @@ interface GuestRendezvousResult {
 }
 
 export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRendezvousResult {
+  if (
+    opts.realign === 'automatic' &&
+    (!opts.automaticAdmission || !isAutomaticAdmissionCurrent(opts.automaticAdmission))
+  ) {
+    return { status: 'not-ready' };
+  }
   const notify = (message: string): void => {
     if (!opts.silent) showToast(message);
   };
@@ -1634,7 +1826,16 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
     sessionId: getCurrentSessionId(),
     videoId,
     subIndex,
+    ...(opts.automaticAdmission
+      ? {
+          clockLease: opts.automaticAdmission.clockLease,
+          automaticEvidence: opts.automaticAdmission,
+        }
+      : {}),
   };
+  if (opts.automaticAdmission && !isAutomaticAdmissionCurrent(opts.automaticAdmission)) {
+    return { status: 'not-ready' };
+  }
 
   // If host is paused, there's no playback to rendezvous with — just align position
   if (snapshot.hostState === 2) {
@@ -1668,7 +1869,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   const localPlayLatency = getEffectiveYouTubePlayLatencyMs();
 
   // Extrapolate host's current position
-  const plannedClock = captureRendezvousClock();
+  const plannedClock = attempt.clockLease?.clock ?? captureRendezvousClock();
   const nowHost = plannedClock.hostMs;
   const hostPosNow = snapshot.hostPosition + (nowHost - snapshot.hostClockAt) / 1000;
   const targetPosition = hostPosNow + RENDEZVOUS_MARGIN_SEC + manualOffsetSec;
@@ -1722,11 +1923,31 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   if (!isCurrentRendezvous(attempt)) return { status: 'not-ready' };
 
   // Step 1: seek to target + pause (stays paused while buffer fills)
+  if (!checkRendezvousClockLease(attempt)) return { status: 'not-ready' };
   try {
+    if (attempt.clockLease) {
+      const interruptedPosition = player.getCurrentTime();
+      if (!checkRendezvousClockLease(attempt)) return { status: 'not-ready' };
+      const clock = getClockCorrectionQuality();
+      if (
+        !Number.isFinite(interruptedPosition) ||
+        interruptedPosition < 0 ||
+        !clock.eligible ||
+        clock.offsetMs !== attempt.clockLease.clock.offsetMs ||
+        isLocalYouTubePaused() ||
+        _rt.lastHostSnapshot?.hostState !== 1
+      ) {
+        finishRendezvous(attempt);
+        return { status: 'not-ready' };
+      }
+      attempt.interruptedPosition = interruptedPosition;
+      attempt.interruptedAtMs = performance.now();
+      attempt.pausedByAttempt = true;
+    }
     player.pauseVideo();
-    if (!isCurrentRendezvous(attempt)) return { status: 'not-ready' };
+    if (!checkRendezvousClockLease(attempt)) return { status: 'not-ready' };
     player.seekTo(targetPosition, true);
-    if (!isCurrentRendezvous(attempt)) return { status: 'not-ready' };
+    if (!checkRendezvousClockLease(attempt)) return { status: 'not-ready' };
   } catch (e) {
     log.warn('[Rendezvous] seek/pause threw:', e);
     finishRendezvous(attempt);
@@ -1735,12 +1956,14 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
 
   // Step 2: buffer gate — poll player state until PAUSED (2) or CUED (5)
   // YT states: -1=unstarted 0=ended 1=playing 2=paused 3=buffering 5=cued
-  const bufferDeadline =
-    getHostNow() + RENDEZVOUS_MARGIN_SEC * 1000 - RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS;
+  const operationHostNow = (): number => attempt.clockLease?.hostNow() ?? getHostNow();
+  const bufferDeadline = attempt.clockLease
+    ? tHostReachTarget - RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS
+    : operationHostNow() + RENDEZVOUS_MARGIN_SEC * 1000 - RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS;
   let bufferChecks = 0;
 
   const checkBuffer = (): void => {
-    if (!isCurrentRendezvous(attempt)) return;
+    if (!checkRendezvousClockLease(attempt)) return;
     const p = attempt.player;
     bufferChecks++;
     let pState = -1;
@@ -1750,8 +1973,10 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
       /* noop */
     }
 
+    if (!checkRendezvousClockLease(attempt)) return;
+
     const bufferReady = pState === 2 || pState === 5;
-    const outOfTime = getHostNow() > bufferDeadline;
+    const outOfTime = operationHostNow() > bufferDeadline;
 
     if (bufferReady) {
       log.debug(`[Rendezvous] Buffer ready after ${bufferChecks} checks (state=${pState})`);
@@ -1778,7 +2003,8 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
         try {
           // Join the live audible position after preparation timed out. Reusing
           // the old future seek would lose both elapsed time and output lead.
-          const liveHostTime = snapshot.hostPosition + (getHostNow() - snapshot.hostClockAt) / 1000;
+          const liveHostTime =
+            snapshot.hostPosition + (operationHostNow() - snapshot.hostClockAt) / 1000;
           finishRendezvous(attempt);
           const fallback = makeGuestStateAction(p);
           executeImmediate(p, 1, liveHostTime, duration, fallback);
@@ -1822,21 +2048,33 @@ function scheduleRendezvousPlay(
   const notifyProgress = (message: string): void => {
     if (!opts.suppressProgressToast) notify(message);
   };
+  if (!checkRendezvousClockLease(attempt)) return;
   const schedulingClock = captureRendezvousClock();
   calibration.schedule(schedulingClock);
-  const waitMs = Math.max(0, playCallAtHostClock - schedulingClock.hostMs);
+  const operationHostNow = (): number => attempt.clockLease?.hostNow() ?? getHostNow();
+  const waitMs = Math.max(0, playCallAtHostClock - operationHostNow());
   log.debug(`[Rendezvous] Scheduling playVideo in ${waitMs.toFixed(0)}ms`);
 
   setManagedTimer(
     'yt-rendezvous-play',
     () => {
-      if (!isCurrentRendezvous(attempt)) return;
+      if (!checkRendezvousClockLease(attempt)) return;
       const p = attempt.player;
       try {
         const duration = p.getDuration?.() || 0;
+        if (!checkRendezvousClockLease(attempt)) return;
+        const playerState = p.getPlayerState?.();
+        if (!checkRendezvousClockLease(attempt)) return;
         if (
-          getHostNow() - playCallAtHostClock > RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS ||
-          p.getPlayerState?.() === 0 ||
+          attempt.clockLease &&
+          operationHostNow() - playCallAtHostClock > RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS
+        ) {
+          restoreInterruptedRendezvous(attempt, 'late-release');
+          return;
+        }
+        if (
+          operationHostNow() - playCallAtHostClock > RENDEZVOUS_BUFFER_DEADLINE_OFFSET_MS ||
+          playerState === 0 ||
           !Number.isFinite(duration) ||
           duration <= 0 ||
           targetPosition >= duration
@@ -2029,6 +2267,7 @@ export function invalidateGuestYouTubeTimeline(): void {
  *   - youtube:sync-loading overlay hidden
  */
 export function resetYouTubeSyncState(): void {
+  resetAutomaticRealignObservations();
   cancelClockAction();
   clearManagedTimer('yt-seek-play');
   _rt.rendezvous = null;

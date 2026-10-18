@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Automatic realignment clock safety candidate — 2026-10-18](design/automatic-realignment-clock-safety-2026-10-18.md) —
+  fixed 64/64/128 KiB transport, uncertainty-aware optional YouTube correction,
+  operation clock leases and bounded local diagnostics. Ten native cases retain
+  the diagnostic256 performance-budget failure separately from operating128
+  safety and recovery; no production release or full all-green claim.
 - [Transport candidate roundtable and isolated experiments — 2026-10-18](design/transport-candidate-roundtable-2026-10-18.md) —
   rate-gated credit, native-message fragmentation, and automatic-correction clock
   leases; separates deterministic safety, native throughput/control results,

@@ -18,6 +18,38 @@ afterEach(() => {
 });
 
 describe('Standard start observations', () => {
+  it('accepts bounded automatic correction categories and finite clock-quality metrics', () => {
+    recordStandardStartObservation('youtube-automatic-realign-blocked', {
+      reason: 'selected-expired',
+      selectedAgeMs: 120_000,
+      newestSampleAgeMs: 50,
+      uncertaintyMs: Number.NaN,
+      triggerMs: 150,
+      occurrenceKey: 'private-video',
+    });
+    recordStandardStartObservation('youtube-automatic-realign-admitted', { reason: 'admitted' });
+    recordStandardStartObservation('youtube-automatic-realign-recovery', {
+      reason: 'late-release',
+    });
+    const snapshot = getStandardStartObservations();
+    expect(snapshot.clock).toEqual([]);
+    expect(snapshot.playback.map((record) => record.kind)).toEqual([
+      'youtube-automatic-realign-blocked',
+      'youtube-automatic-realign-admitted',
+      'youtube-automatic-realign-recovery',
+    ]);
+    expect(snapshot.playback[0].detail).toEqual({
+      reason: 'selected-expired',
+      selectedAgeMs: 120_000,
+      newestSampleAgeMs: 50,
+      uncertaintyMs: null,
+      triggerMs: 150,
+    });
+    expect(snapshot.playback[1].detail.reason).toBe('admitted');
+    expect(snapshot.playback[2].detail.reason).toBe('late-release');
+    expect(JSON.stringify(snapshot)).not.toContain('private-video');
+  });
+
   it('bounds clock and playback independently and preserves each ring order', () => {
     recordStandardStartObservation('youtube-rendezvous-start', { operationId: 0 });
     for (let selectedSampleId = 0; selectedSampleId < 1_300; selectedSampleId += 1) {

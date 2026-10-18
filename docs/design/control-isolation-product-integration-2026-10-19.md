@@ -5,7 +5,7 @@ production release. The owner authorized integration, remaining tests, and an
 App release only if ordinary transfer and preload pass. The starting main is
 `deb52829930d0b8a4b87e70b05f84aa7c242c799`; production remains `416f5ee4`,
 App 8.11.20/cache v723 until an actual release is recorded. The proposed product
-is 8.11.22/cache v726. No dependencies, Worker protocol, schema, secret, binding,
+is 8.11.22/cache v727. No dependencies, Worker protocol, schema, secret, binding,
 CSP, admission policy or media format are changed. App release scope includes
 the previously merged, undeployed YouTube clock-quality lease protections.
 

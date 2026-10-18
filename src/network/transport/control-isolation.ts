@@ -4,7 +4,7 @@
  * it never enters the room membership/signaling negotiation namespace.
  */
 const TYPE = 'mxqr-control-isolation';
-const LABEL = 'musixquare-control-isolated';
+const LABEL = 'musixquare-control-isolated'; // brand-capitalization: allow-technical -- private RTC data-channel identifier
 const NONCE = /^[a-f0-9]{32}$/u;
 const DISCOVERY_MS = 1_000;
 const NEGOTIATION_MS = 10_000;
@@ -47,14 +47,23 @@ function nonce(): string {
 }
 
 function parse(value: Record<string, unknown>): Frame | null {
-  if (value.version !== 1 || typeof value.nonce !== 'string' || !NONCE.test(value.nonce))
+  if (
+    value.type !== TYPE ||
+    value.version !== 1 ||
+    typeof value.nonce !== 'string' ||
+    !NONCE.test(value.nonce)
+  )
     return null;
   const base = ['type', 'version', 'kind', 'nonce'];
   if (value.kind === 'hello') {
-    return Object.keys(value).length === base.length ? (value as unknown as Frame) : null;
+    return Object.keys(value).length === base.length
+      ? { type: TYPE, version: 1, kind: 'hello', nonce: value.nonce }
+      : null;
   }
   if (typeof value.target !== 'string' || !NONCE.test(value.target)) return null;
   base.push('target');
+  let sdp: string | undefined;
+  let ice: RTCIceCandidateInit | undefined;
   switch (value.kind) {
     case 'request':
     case 'decline':
@@ -66,6 +75,7 @@ function parse(value: Record<string, unknown>): Frame | null {
       if (typeof value.sdp !== 'string' || value.sdp.length === 0 || value.sdp.length > 32 * 1024)
         return null;
       base.push('sdp');
+      sdp = value.sdp;
       break;
     case 'candidate': {
       const candidate = value.candidate;
@@ -87,12 +97,28 @@ function parse(value: Record<string, unknown>): Frame | null {
       )
         return null;
       base.push('candidate');
+      ice = {
+        candidate: c.candidate,
+        ...(typeof c.sdpMid === 'string' ? { sdpMid: c.sdpMid } : {}),
+        ...(typeof c.usernameFragment === 'string' ? { usernameFragment: c.usernameFragment } : {}),
+        ...(typeof c.sdpMLineIndex === 'number' ? { sdpMLineIndex: c.sdpMLineIndex } : {}),
+      };
       break;
     }
     default:
       return null;
   }
-  return Object.keys(value).length === base.length ? (value as unknown as Frame) : null;
+  return Object.keys(value).length === base.length
+    ? {
+        type: TYPE,
+        version: 1,
+        kind: value.kind,
+        nonce: value.nonce,
+        target: value.target,
+        ...(sdp !== undefined ? { sdp } : {}),
+        ...(ice !== undefined ? { candidate: ice } : {}),
+      }
+    : null;
 }
 
 export class ControlIsolation {
@@ -513,7 +539,7 @@ export class ControlIsolation {
   private sendFrame(kind: Kind, extra: Partial<Frame> = {}): void {
     if (this.state === 'closed') return;
     const frame = this.frame(kind, extra);
-    if (!parse(frame as unknown as Record<string, unknown>)) return this.fail();
+    if (!parse({ ...frame })) return this.fail();
     try {
       this.options.sendOriginal(JSON.stringify(frame));
     } catch {

@@ -298,8 +298,9 @@ describe.each(['broadcast', 'unicast'] as const)('%s preload capacity lifecycle'
     expect(frames(target, MSG.PRELOAD_CHUNK, sessionId)).toHaveLength(1);
     expect(frames(target, MSG.PRELOAD_END, sessionId)).toHaveLength(0);
 
-    // ABORT and the new START can overtake the old chunk on the other
-    // channel. Its bytes must neither contaminate the new file nor earn ACK.
+    // Explicitly replay an old sender whose START uses control: ABORT and
+    // the new START can overtake the old bulk chunk. Current START is bulk.
+    // Its bytes must neither contaminate the new file nor earn ACK.
     const oldStart = frames(target, MSG.PRELOAD_START, sessionId)[0]!;
     const abort = frames(target, MSG.PRELOAD_ABORT, sessionId)[0]!;
     const newStart = frames(target, MSG.PRELOAD_START, replacementSession)[0]!;
@@ -309,7 +310,13 @@ describe.each(['broadcast', 'unicast'] as const)('%s preload capacity lifecycle'
       return message.sessionId === replacementSession && message.type !== MSG.PRELOAD_START;
     });
     await verifyReceiver(
-      [oldStart, abort, newStart, lateChunk, ...newTail],
+      [
+        { ...oldStart, channel: target.control },
+        abort,
+        { ...newStart, channel: target.control },
+        lateChunk,
+        ...newTail,
+      ],
       file,
       replacementSession,
       sessionId,
@@ -336,7 +343,14 @@ describe.each(['broadcast', 'unicast'] as const)('%s preload capacity lifecycle'
     await vi.advanceTimersByTimeAsync(0);
     target.bulk.drain();
     await vi.advanceTimersByTimeAsync(10);
-    expect(target.wire.filter((frame) => frame.channel === replacement)).toHaveLength(0);
+    // START metadata is admitted on the new ordered bulk lane; payload must
+    // remain parked until that exact channel reaches capacity.
+    expect(target.wire.filter((frame) => frame.channel === replacement).map(header)).toEqual([
+      expect.objectContaining({ type: MSG.PRELOAD_START, sessionId }),
+    ]);
+    expect(
+      frames(target, MSG.PRELOAD_CHUNK, sessionId).filter((frame) => frame.channel === replacement),
+    ).toHaveLength(0);
     await finish(target, sessionId, replacement);
     await retry;
     expect(target.wire.filter((frame) => frame.channel === target.bulk)).toEqual(oldChannelFrames);

@@ -101,9 +101,26 @@ and arbitrary Internet bottlenecks remain limits unless separately measured.
 
 ## Evidence and release
 
-Implementation checks currently run on Windows with pinned Node 24.20.0.
-Final tested SHA, native results and release evidence will be added after they
-exist. PR/local success cannot replace the successful exact-main-SHA CI candidate.
+Implementation checks run on Windows with pinned Node 24.20.0 / npm 12.0.2.
+Runtime candidate `a30c3f2a191786cb743e82849275e9824191a158` passed the
+committed production `build:checked`. With the subsequent test-only fixture
+updates, the full local unit suite passed **594 files / 13,342 tests / zero
+failures or skips** in 153.35 seconds. Independent source review found no P1/P2
+blocker; it does not substitute for actual browser negotiation or performance.
+
+The first local run on `abd3d7e5` failed 193 assertions in nine files. Seven
+existing fixture files assumed START/RESUME remained on control, or counted a
+bulk metadata header as a payload chunk. Their updates retain explicit legacy
+cross-channel replay and add current ordered-bulk cases. The other two failures
+were the unsafe-cast guard and a stale bootstrap cache query; both were fixed in
+`a30c3f2a`. That commit also fixes the technical private channel label's brand
+guard annotation, which had failed the initial PR candidate build. Initial
+PR CI [39167554202](https://github.com/hiefny/MUSIXQUARE/actions/runs/39167554202)
+failed and is not a release candidate. Original failures are preserved under
+`scratch/control-isolation-product-2026-10-19/root/`.
+
+Product-native results and release evidence will be added only after execution.
+PR/local success cannot replace the successful exact-main-SHA CI candidate.
 An ordinary App release leaves Developer API D1 application disabled. Recovery
 uses the immutable pre-release checkpoint and restores a compatible previous
 App; rollback removes side isolation/adaptive expansion on refreshed clients,

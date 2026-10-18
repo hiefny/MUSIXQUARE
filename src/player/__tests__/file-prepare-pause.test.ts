@@ -154,15 +154,14 @@ async function setupWire(senderMode: Sender, legacyControlEnd: boolean) {
     schedulePreload(0);
     await vi.advanceTimersByTimeAsync(100);
   }
-  expect(sender.control.sent.map((frame) => JSON.parse(frame as string).type)).toEqual([
-    MSG.PRELOAD_START,
-  ]);
-  expect(sender.bulk.sent).toHaveLength(5);
-  const chunks = sender.bulk.sent.slice(0, 4);
+  expect(sender.control.sent).toEqual([]);
+  expect(sender.bulk.sent).toHaveLength(6);
+  const start = sender.bulk.sent[0] as string;
+  expect(JSON.parse(start).type).toBe(MSG.PRELOAD_START);
+  const chunks = sender.bulk.sent.slice(1, 5);
   expect(chunks.every((frame) => frame instanceof ArrayBuffer)).toBe(true);
-  const end = sender.bulk.sent[4] as string;
+  const end = sender.bulk.sent[5] as string;
   expect(JSON.parse(end).type).toBe(MSG.PRELOAD_END);
-  const start = sender.control.sent[0] as string;
   const sessionId = JSON.parse(start).sessionId as number;
 
   resetPreloadReceiveAuthority();
@@ -180,7 +179,8 @@ async function setupWire(senderMode: Sender, legacyControlEnd: boolean) {
   receiver.transport.on('data', (frame) => {
     deliveries.push(handleData(frame, receiver.conn));
   });
-  receiver.control.deliver(start);
+  // Only the explicit legacy replay moves START back to the control lane.
+  receiver[legacyControlEnd ? 'control' : 'bulk'].deliver(start);
   // Older clients send END on control. RTC only orders within each channel,
   // so its END can arrive before every chunk on a slower bulk channel.
   if (legacyControlEnd) receiver.control.deliver(end);
@@ -446,11 +446,12 @@ async function setupDirectWire(bootstrapPaused = false) {
   await vi.advanceTimersByTimeAsync(50);
   await sending;
   expect(sender.control.sent.map((f) => JSON.parse(f as string).type)).toEqual(
-    bootstrapPaused
-      ? [MSG.PAUSE, MSG.FILE_PREPARE, MSG.FILE_START]
-      : [MSG.FILE_PREPARE, MSG.FILE_START],
+    bootstrapPaused ? [MSG.PAUSE, MSG.FILE_PREPARE] : [MSG.FILE_PREPARE],
   );
-  expect(sender.bulk.sent).toHaveLength(3);
+  expect(sender.bulk.sent).toHaveLength(4);
+  expect(JSON.parse(sender.bulk.sent[0] as string).type).toBe(MSG.FILE_START);
+  expect(sender.bulk.sent.slice(1, 3).every((frame) => frame instanceof ArrayBuffer)).toBe(true);
+  expect(JSON.parse(sender.bulk.sent[3] as string).type).toBe(MSG.FILE_END);
   const snapshot = createPlaylistSnapshot();
   cancelOutgoingFileTransfers();
   resetIncomingTransferAuthority();
@@ -477,8 +478,8 @@ async function setupDirectWire(bootstrapPaused = false) {
     file,
     bootstrap: bootstrapPaused ? sender.control.sent[0] : undefined,
     prepare: sender.control.sent[bootstrapPaused ? 1 : 0]!,
-    start: sender.control.sent[bootstrapPaused ? 2 : 1]!,
-    bulk: sender.bulk.sent,
+    start: sender.bulk.sent[0]!,
+    bulk: sender.bulk.sent.slice(1),
   };
 }
 it.each([
@@ -499,7 +500,7 @@ it.each([
     }
     wire.receiver.control.deliver(wire.prepare);
     await pump();
-    wire.receiver.control.deliver(wire.start);
+    wire.receiver.bulk.deliver(wire.start);
     await pump();
     await handleData({ type: MSG.PLAY, queueItemId: NEXT, time: 12 }, wire.receiver.conn);
     const pauseConn =
@@ -547,6 +548,28 @@ import { initSync } from '../../network/sync.ts';
 import { registerPing, resetClockState } from '../../network/shared-clock.ts';
 import { togglePlay, getTrackPosition } from '../transport.ts';
 import { setPlaybackFilePaused, setPlaybackIdle } from '../ownership.ts';
+it('retains paused direct-file decode with an explicit legacy control START replay', async () => {
+  const wire = await setupDirectWire();
+  wire.receiver.control.deliver(wire.prepare);
+  await pump();
+  // Current send-side assertion above requires bulk; this replay covers a
+  // compatible older sender that placed FILE_START on control instead.
+  wire.receiver.control.deliver(wire.start);
+  await pump();
+  await handleData(
+    { type: MSG.PAUSE, queueItemId: NEXT, time: 18, reason: 'pause' },
+    wire.receiver.conn,
+  );
+  for (const frame of wire.bulk) {
+    wire.receiver.bulk.deliver(frame);
+    await pump();
+  }
+  expect(h.pending).toHaveLength(1);
+  await completeDecode();
+  expect(hasOutput()).toBe(false);
+  expect(getState('player.pausedAt')).toBe(18);
+});
+
 it.each([false, true])(
   'operator resume through real wire retains checkpoint after route await=%s',
   async (suspended) => {
@@ -560,7 +583,7 @@ it.each([false, true])(
       }
       wire.receiver.control.deliver(wire.prepare);
       await pump();
-      wire.receiver.control.deliver(wire.start);
+      wire.receiver.bulk.deliver(wire.start);
       await pump();
       await handleData({ type: MSG.PLAY, queueItemId: NEXT, time: 12 }, wire.receiver.conn);
       await handleData(
@@ -665,7 +688,7 @@ it('real paused late-join bootstrap retains checkpoint through subsequently sent
   expect(getState('player.pausedAt')).toBe(18);
   wire.receiver.control.deliver(wire.prepare);
   await pump();
-  wire.receiver.control.deliver(wire.start);
+  wire.receiver.bulk.deliver(wire.start);
   await pump();
   for (const frame of wire.bulk) {
     wire.receiver.bulk.deliver(frame);
@@ -711,7 +734,7 @@ it.each(['small', 'large'] as const)(
       // The remote safety decision is not a persistent R2 delivery assignment;
       // a later authenticated local start can promote this exact wait.
       setState('network.connectionType', 'local');
-      wire.receiver.control.deliver(wire.start);
+      wire.receiver.bulk.deliver(wire.start);
       await pump();
       for (const frame of wire.bulk) {
         wire.receiver.bulk.deliver(frame);
@@ -767,7 +790,7 @@ it('preserves the latest pause through same-session PREPARE recovery with a live
   const wire = await setupDirectWire();
   wire.receiver.control.deliver(wire.prepare);
   await pump();
-  wire.receiver.control.deliver(wire.start);
+  wire.receiver.bulk.deliver(wire.start);
   await pump();
   wire.receiver.bulk.deliver(wire.bulk[0]!);
   await pump();

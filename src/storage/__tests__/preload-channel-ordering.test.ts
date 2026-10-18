@@ -166,15 +166,14 @@ async function setupWire(senderMode: Sender, legacyControlEnd: boolean) {
     schedulePreload(0);
     await vi.advanceTimersByTimeAsync(100);
   }
-  expect(sender.control.sent.map((frame) => JSON.parse(frame as string).type)).toEqual([
-    MSG.PRELOAD_START,
-  ]);
-  expect(sender.bulk.sent).toHaveLength(5);
-  const chunks = sender.bulk.sent.slice(0, 4);
+  expect(sender.control.sent).toEqual([]);
+  expect(sender.bulk.sent).toHaveLength(6);
+  const start = sender.bulk.sent[0] as string;
+  expect(JSON.parse(start).type).toBe(MSG.PRELOAD_START);
+  const chunks = sender.bulk.sent.slice(1, 5);
   expect(chunks.every((frame) => frame instanceof ArrayBuffer)).toBe(true);
-  const end = sender.bulk.sent[4] as string;
+  const end = sender.bulk.sent[5] as string;
   expect(JSON.parse(end).type).toBe(MSG.PRELOAD_END);
-  const start = sender.control.sent[0] as string;
   const sessionId = JSON.parse(start).sessionId as number;
 
   resetPreloadReceiveAuthority();
@@ -191,7 +190,9 @@ async function setupWire(senderMode: Sender, legacyControlEnd: boolean) {
   receiver.transport.on('data', (frame) => {
     deliveries.push(handleData(frame, receiver.conn));
   });
-  receiver.control.deliver(start);
+  // Keep explicit old-sender cross-channel replay for the early-END cases.
+  // The current sender's START/chunks/END otherwise stay on the bulk lane.
+  receiver[legacyControlEnd ? 'control' : 'bulk'].deliver(start);
   // Older clients send END on control. RTC only orders within each channel,
   // so its END can arrive before every chunk on a slower bulk channel.
   if (legacyControlEnd) receiver.control.deliver(end);

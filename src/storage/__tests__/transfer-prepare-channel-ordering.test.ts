@@ -157,10 +157,13 @@ function weaves(control: number, bulk: number, prefix = ''): string[] {
     ...(bulk ? weaves(control, bulk - 1, prefix + 'B') : []),
   ];
 }
-const orders = weaves(3, 6);
+const orders = [
+  ...weaves(3, 6).map((order) => ({ layout: 'legacy', order })),
+  ...weaves(1, 8).map((order) => ({ layout: 'current', order })),
+];
 it.each(orders)(
-  'assembles main and same-name preload with ordered-channel merger %s',
-  async (order) => {
+  'assembles main and same-name preload with $layout ordered-channel merger $order',
+  async ({ layout, order }) => {
     const mainFile = new File([new Uint8Array(CHUNK_SIZE + 3).fill(17)], 'same.mp3', {
       type: 'audio/mpeg',
     });
@@ -221,10 +224,19 @@ it.each(orders)(
     await unicastPreload(sender.conn, preloadFile, B, 7);
     expect(sender.control.sent.map((f) => JSON.parse(f as string).type)).toEqual([
       MSG.FILE_PREPARE,
-      MSG.FILE_START,
-      MSG.PRELOAD_START,
     ]);
-    expect(sender.bulk.sent).toHaveLength(6);
+    expect(sender.bulk.sent).toHaveLength(8);
+    expect(JSON.parse(sender.bulk.sent[0] as string).type).toBe(MSG.FILE_START);
+    expect(JSON.parse(sender.bulk.sent[4] as string).type).toBe(MSG.PRELOAD_START);
+    // Current senders serialize START with its bytes. Reconstruct old senders'
+    // control headers explicitly so every historical cross-lane weave remains.
+    const wire =
+      layout === 'legacy'
+        ? {
+            control: [...sender.control.sent, sender.bulk.sent[0]!, sender.bulk.sent[4]!],
+            bulk: sender.bulk.sent.filter((_, index) => index !== 0 && index !== 4),
+          }
+        : { control: sender.control.sent, bulk: sender.bulk.sent };
 
     reset();
     setState('playlist.items', [item(A), item(B)]);
@@ -243,7 +255,7 @@ it.each(orders)(
       if (index === 3) setState('playlist.items', [item(B), item(A)]);
       const lane = order[index]!;
       (lane === 'C' ? receiver.control : receiver.bulk).deliver(
-        (lane === 'C' ? sender.control.sent[ci++] : sender.bulk.sent[bi++])!,
+        (lane === 'C' ? wire.control[ci++] : wire.bulk[bi++])!,
       );
       await vi.advanceTimersByTimeAsync(1);
     }
@@ -325,8 +337,12 @@ async function captureMain(chunks = 2, pendingPlay = false) {
     MSG.FILE_PREPARE,
     ...(pendingPlay ? [MSG.PLAY] : []),
     MSG.FILE_PREPARE,
-    MSG.FILE_START,
   ]);
+  expect(sender.bulk.sent).toHaveLength(chunks + 2);
+  expect(JSON.parse(sender.bulk.sent[0] as string).type).toBe(MSG.FILE_START);
+  const currentBulk = [...sender.bulk.sent];
+  // Explicit legacy lane reconstruction, without altering the captured sender.
+  const legacyBulk = currentBulk.slice(1);
   reset();
   setState('playlist.items', [
     { ...item(A), name: file.name },
@@ -355,16 +371,18 @@ async function captureMain(chunks = 2, pendingPlay = false) {
     sender,
     receiver,
     deliver,
-    prepare: sender.control.sent.at(-2)!,
-    start: sender.control.sent.at(-1)!,
+    prepare: sender.control.sent.at(-1)!,
+    start: currentBulk[0]!,
+    currentBulk,
+    legacyBulk,
   };
 }
 
 it.each(['prepare-first', 'both-chunks-first', 'headers-first'])(
   'minimal control completes without recovery: %s',
   async (mode) => {
-    const { file, sender, receiver, deliver, prepare, start } = await captureMain();
-    const [chunk0, chunk1, end] = sender.bulk.sent;
+    const { file, legacyBulk, receiver, deliver, prepare, start } = await captureMain();
+    const [chunk0, chunk1, end] = legacyBulk;
     if (mode === 'prepare-first') {
       await deliver(prepare!, 'control');
       await deliver(chunk0!, 'bulk');
@@ -391,9 +409,9 @@ it.each(['prepare-first', 'both-chunks-first', 'headers-first'])(
 it.each([1, 2])(
   'retains early prefix %s across repeated PREPARE then START without recovery',
   async (prefix) => {
-    const { file, sender, receiver, deliver, prepare, start } = await captureMain(3);
-    const chunkFrames = sender.bulk.sent.slice(0, 3),
-      end = sender.bulk.sent[3]!;
+    const { file, legacyBulk, receiver, deliver, prepare, start } = await captureMain(3);
+    const chunkFrames = legacyBulk.slice(0, 3),
+      end = legacyBulk[3]!;
     for (const frame of chunkFrames.slice(0, prefix)) await deliver(frame, 'bulk');
     expect(ramContiguousCount(A, false, 6)).toBe(prefix);
     expect(getState('transfer.state')).toBe('RECEIVING');
@@ -410,10 +428,14 @@ it.each([1, 2])(
   },
 );
 
-function encodeControl(sender: ReturnType<typeof connection>, data: Record<string, unknown>) {
-  // Boundary controls still pass through the real transport frame encoder.
+function encodeLegacyControl(sender: ReturnType<typeof connection>, data: Record<string, unknown>) {
+  // Re-encode through the real transport, then deliberately deliver the header
+  // on the old sender's control lane even if current routing selected bulk.
+  const bulkCount = sender.bulk.sent.length;
   sender.conn.send(data);
-  return sender.control.sent.at(-1)!;
+  return sender.bulk.sent.length > bulkCount
+    ? sender.bulk.sent.at(-1)!
+    : sender.control.sent.at(-1)!;
 }
 
 it.each([
@@ -422,10 +444,10 @@ it.each([
   ['total', 4],
   ['mime', 'audio/ogg'],
 ] as const)('does not restore a partial receive when PREPARE changes %s', async (field, value) => {
-  const { sender, deliver, prepare, start } = await captureMain(3);
-  await deliver(sender.bulk.sent[0]!, 'bulk');
+  const { sender, legacyBulk, deliver, prepare, start } = await captureMain(3);
+  await deliver(legacyBulk[0]!, 'bulk');
   const changed = { ...JSON.parse(prepare as string), [field]: value };
-  await deliver(encodeControl(sender, changed), 'control');
+  await deliver(encodeLegacyControl(sender, changed), 'control');
   expect(getState('transfer.state')).toBe('IDLE');
   expect(ramContiguousCount(A, false, 6)).toBe(1);
   // A later START must not treat the interrupted owner as a live prefix.
@@ -436,8 +458,8 @@ it.each([
 });
 
 it('does not revive an already stopped receive merely because its stored prefix still matches', async () => {
-  const { sender, deliver, prepare, start } = await captureMain(3);
-  await deliver(sender.bulk.sent[0]!, 'bulk');
+  const { legacyBulk, deliver, prepare, start } = await captureMain(3);
+  await deliver(legacyBulk[0]!, 'bulk');
   const receiveMeta = getState('transfer.meta');
   bus.emit('player:stop-all-media');
   expect(getState('transfer.state')).toBe('IDLE');
@@ -456,8 +478,11 @@ it('does not revive an already stopped receive merely because its stored prefix 
 });
 
 it('accepts omitted optional PREPARE metadata and preserves pending PLAY through the real stop', async () => {
-  const { file, sender, receiver, deliver, prepare, start } = await captureMain(3, true);
-  await deliver(sender.bulk.sent[0]!, 'bulk');
+  const { file, sender, legacyBulk, receiver, deliver, prepare, start } = await captureMain(
+    3,
+    true,
+  );
+  await deliver(legacyBulk[0]!, 'bulk');
   expect(getState('playback.pendingPlayTime')).toBe(12.5);
   const pendingSetAt = getState('playback.pendingPlayTimeSetAt');
   const pendingMonotonicSetAt = getState('playback.pendingPlayTimeMonotonicSetAt');
@@ -472,7 +497,7 @@ it('accepts omitted optional PREPARE metadata and preserves pending PLAY through
   const legacyPrepare = JSON.parse(prepare as string);
   delete legacyPrepare.size;
   delete legacyPrepare.total;
-  await deliver(encodeControl(sender, legacyPrepare), 'control');
+  await deliver(encodeLegacyControl(sender, legacyPrepare), 'control');
   expect(seekReset).toHaveBeenCalledOnce();
   expect(stoppedStates).toEqual(['IDLE']);
   expect(getState('transfer.state')).toBe('RECEIVING');
@@ -481,7 +506,7 @@ it('accepts omitted optional PREPARE metadata and preserves pending PLAY through
   expect(getState('playback.pendingPlayTimeMonotonicSetAt')).toBe(pendingMonotonicSetAt);
   await deliver(start, 'control');
   expect(ramContiguousCount(A, false, 6)).toBe(1);
-  for (const frame of sender.bulk.sent.slice(1)) await deliver(frame, 'bulk');
+  for (const frame of legacyBulk.slice(1)) await deliver(frame, 'bulk');
   await expectStored(file);
   expect(finalizeGuestFile).toHaveBeenCalledOnce();
   expect(getState('playback.pendingPlayTimeSetAt')).toBe(pendingSetAt);
@@ -492,8 +517,8 @@ it('accepts omitted optional PREPARE metadata and preserves pending PLAY through
 it.each(['cancel', 'authority-reset'] as const)(
   'does not restore a receive after synchronous %s during the stop',
   async (mode) => {
-    const { sender, deliver, prepare } = await captureMain(3);
-    await deliver(sender.bulk.sent[0]!, 'bulk');
+    const { legacyBulk, deliver, prepare } = await captureMain(3);
+    await deliver(legacyBulk[0]!, 'bulk');
     bus.on('player:stop-all-media', () => {
       if (mode === 'cancel') cancelIncomingFileTransfer('test-stop-cancellation');
       else resetIncomingTransferAuthority();
@@ -510,29 +535,29 @@ it.each([
   ['new session', A],
   ['same-name replacement occurrence', B],
 ] as const)('does not inherit the old prefix for a %s', async (_label, queueItemId) => {
-  const { sender, deliver, prepare, start } = await captureMain(3);
-  await deliver(sender.bulk.sent[0]!, 'bulk');
+  const { sender, legacyBulk, deliver, prepare, start } = await captureMain(3);
+  await deliver(legacyBulk[0]!, 'bulk');
   await deliver(
-    encodeControl(sender, { ...JSON.parse(prepare as string), queueItemId, sessionId: 7 }),
+    encodeLegacyControl(sender, { ...JSON.parse(prepare as string), queueItemId, sessionId: 7 }),
     'control',
   );
   await deliver(
-    encodeControl(sender, { ...JSON.parse(start as string), queueItemId, sessionId: 7 }),
+    encodeLegacyControl(sender, { ...JSON.parse(start as string), queueItemId, sessionId: 7 }),
     'control',
   );
   expect(getState('transfer.meta')).toMatchObject({ queueItemId, sessionId: 7 });
   expect(getState('transfer.receivedCount')).toBe(0);
   expect(ramContiguousCount(queueItemId, false, 7)).toBe(0);
   // Old bulk suffix can legitimately trail the next control selection.
-  for (const frame of sender.bulk.sent.slice(1)) await deliver(frame, 'bulk');
+  for (const frame of legacyBulk.slice(1)) await deliver(frame, 'bulk');
   expect(getState('transfer.meta')).toMatchObject({ queueItemId, sessionId: 7 });
   expect(getState('transfer.receivedCount')).toBe(0);
   expect(finalizeGuestFile).not.toHaveBeenCalled();
 });
 
 it('rejects delayed PREPARE, START and bytes from a superseded host connection', async () => {
-  const { sender, deliver, prepare, start } = await captureMain(3);
-  await deliver(sender.bulk.sent[0]!, 'bulk');
+  const { legacyBulk, deliver, prepare, start } = await captureMain(3);
+  await deliver(legacyBulk[0]!, 'bulk');
   const currentMeta = getState('transfer.meta');
   const replacement = connection('host');
   await vi.advanceTimersByTimeAsync(0);
@@ -541,7 +566,7 @@ it('rejects delayed PREPARE, START and bytes from a superseded host connection',
   // Same peer id and transfer metadata do not authenticate the retired object.
   await deliver(prepare, 'control');
   await deliver(start, 'control');
-  for (const frame of sender.bulk.sent.slice(1)) await deliver(frame, 'bulk');
+  for (const frame of legacyBulk.slice(1)) await deliver(frame, 'bulk');
   expect(getState('transfer.meta')).toEqual(currentMeta);
   expect(getState('transfer.state')).toBe('RECEIVING');
   expect(getState('transfer.receivedCount')).toBe(1);

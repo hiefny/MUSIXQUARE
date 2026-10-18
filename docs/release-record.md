@@ -77,10 +77,14 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       비교에서 일반 전송과 프리로드의 고RTT 경로를 모두 반복 측정했다. 256 이상은
       이 조건에서 빨랐지만, 2 Mbps 프리로드에서는 파일 완료시간 이득 없이
       재생 중 자동 재정렬을 일으켜 고정 기본값 확대 후보에서 제외했다.
+      후속 적응형 128→192→256 KiB 후보도 고RTT 완료시간은 약55% 줄였지만,
+      느린 망 일반 전송의 동일 sync-pong 추가 최대 지연이 274ms 늘어 사전
+      비교 예산 250ms를 넘었다. 채택·배포하지 않았으며 운영 128 KiB를 유지한다.
       구버전 송신자는 기존 지연이 남고(혼합 검사 최대 2.483초), 실기 CPU/메모리·
       8대 초과 실기·TURN은 미검증이다. PRO/R2는 변경 대상이 아니다.
       128 KiB는 payload 미확인량 상한이며 전체 네트워크 대기/지연 상한이 아니다.
       [네 창의 비교·선택 근거](design/receiver-credit-window-comparison-2026-10-18.md),
+      [적응형 후보의 지연 예산 실패](design/receiver-credit-adaptive-design-2026-10-18.md),
       [범위·tradeoff](design/receiver-credit-file-transfer-2026-10-18.md),
       [이전 64 KiB 완화](design/preload-capacity-validation-2026-10-18.md),
       [독립 native 조사](design/preload-control-queue-root-cause-2026-10-18.md).
@@ -90,8 +94,15 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       비대칭 대기열이 섞인 표본 선택→드리프트 오판→자동 재정렬 경로로 분석했다.
       128 KiB는 같은 두 반복에서 재생을 유지했다. 이는 확대 후보의 통제 실험
       결과이며 운영 128 KiB나 원래 Android 사건의 발생 증거로 바꾸지 않는다.
+      후속 약178초 실제 RTC 혼잡에서도 현재 128 KiB는 재생을 유지했다.
+      고정256 대조군은 추가 재생 조작 5개(완료한 보정 1회와 미완료 1회)가
+      발생했고, 시계 품질로 자동 정밀 보정을 제한한 별도 후보는 0개였다.
+      메시지 지연은 986→989ms로 거의 같아 전송 개선으로 해석하지 않는다.
+      이 보호는 실험 소스에만 있고, 수동 조작·3초 초과 별도 보정·실기/가청
+      정확도·보정 대기 중 후속 시계 변화까지 해결한 것으로 보지 않는다.
       더 큰 창이나 적응형 창을 검토한다면 시계 추정·자동 보정까지 함께 검증한다.
-      [재현·원시 시각 재구성·한계](design/receiver-credit-window-comparison-2026-10-18.md#candidate-interruption-queue-biased-clock-and-automatic-realignment).
+      [재현·원시 시각 재구성·한계](design/receiver-credit-window-comparison-2026-10-18.md#candidate-interruption-queue-biased-clock-and-automatic-realignment),
+      [추가 설계·장시간 비교·미배포 범위](design/receiver-credit-adaptive-design-2026-10-18.md).
 
 ### 최근 해결 근거
 

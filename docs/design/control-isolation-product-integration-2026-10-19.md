@@ -5,7 +5,7 @@ production release. The owner authorized integration, remaining tests, and an
 App release only if ordinary transfer and preload pass. The starting main is
 `deb52829930d0b8a4b87e70b05f84aa7c242c799`; production remains `416f5ee4`,
 App 8.11.20/cache v723 until an actual release is recorded. The proposed product
-is 8.11.22/cache v727. No dependencies, Worker protocol, schema, secret, binding,
+is 8.11.22/cache v728. No dependencies, Worker protocol, schema, secret, binding,
 CSP, admission policy or media format are changed. App release scope includes
 the previously merged, undeployed YouTube clock-quality lease protections.
 
@@ -119,7 +119,37 @@ PR CI [39167554202](https://github.com/hiefny/MUSIXQUARE/actions/runs/3916755420
 failed and is not a release candidate. Original failures are preserved under
 `scratch/control-isolation-product-2026-10-19/root/`.
 
-Product-native results and release evidence will be added only after execution.
+The product-native functional R2/R3 prefix independently passed ordinary and
+preload transfers: each run received two 4,800,044-byte files with matching
+resident SHA, READY and cumulative receipts. Both-direction controls crossed
+the real ordered handoff, including queued controls; no private application
+leak was observed. Closing the actual side PC with 65,536 bytes outstanding
+retired the logical connection. These small functional runs are not throughput
+comparisons.
+
+The full reconnect scenario is still failed pending repair/retest. R3 admitted
+a fresh guest during YouTube playback, but sent no pending preload START or
+payload (new connection S=A=0, side idle). `bootstrapLocalPeerFile` returned for
+a YouTube current item before reaching the independent ready-preload branch.
+That function has the same Git blob in baseline `deb52829` and candidate
+`a30c3f2a`; the evidence identifies an existing late-join gap rather than lost
+payload on the new association. The minimal fix separates current-file eligibility
+from the independent next-file bootstrap, retaining PRO/R2 routing and exact
+preload source/connection ownership. Seven new pins cover both admission events,
+stale current-file exclusion, unchanged missing-selection guards and actual
+PRELOAD_START/two chunks/END output. Five reproduction pins fail before the fix;
+after it, both affected test files pass all 37 tests. R1's hidden
+mobile chat selector and R2's probe access on initial about:blank were separate
+harness errors and remain preserved, not reported as product regressions.
+Raw runs, hashes, independent route audit and this failure's exact-state triage
+are under `scratch/transport-isolation-product-qa-2026-10-19/`.
+
+The earlier PR head `40d91772` passed all eleven jobs in
+[CI 39168550135](https://github.com/hiefny/MUSIXQUARE/actions/runs/39168550135).
+GitHub Codex completed its review of that head with no findings. Neither result
+covers the subsequent late-join fix or constitutes an exact-main release candidate.
+
+Remaining product-native results and release evidence will be added only after execution.
 PR/local success cannot replace the successful exact-main-SHA CI candidate.
 An ordinary App release leaves Developer API D1 application disabled. Recovery
 uses the immutable pre-release checkpoint and restores a compatible previous

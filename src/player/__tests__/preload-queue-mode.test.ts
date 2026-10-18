@@ -124,6 +124,89 @@ function decodedBuffer(): AudioBuffer {
 }
 
 describe('preloaded guest playback synchronization', () => {
+  it('sends ready next-file bytes to a late joiner while YouTube remains current', async () => {
+    const frames: Array<Record<string, unknown>> = [];
+    const conn = {
+      open: true,
+      peer: 'guest-late-youtube',
+      send: (frame: Record<string, unknown>) => frames.push(frame),
+      dataChannel: { readyState: 'open', bufferedAmount: 0 },
+    } as unknown as DataConnection;
+    const youtube: PlaylistItem = {
+      queueItemId: '11111111-1111-4111-8111-111111111111',
+      type: 'youtube',
+      name: 'Current YouTube',
+      videoId: 'dQw4w9WgXcQ',
+      playlistId: null,
+    };
+    const payload = new Uint8Array(65_553).fill(37);
+    const file = new File([payload], 'next.mp3', { type: 'audio/mpeg' });
+    const next: PlaylistItem = {
+      queueItemId: '22222222-2222-4222-8222-222222222222',
+      type: 'file',
+      name: file.name,
+      file,
+      videoId: null,
+      playlistId: null,
+    };
+    const ready = {
+      queueItemId: next.queueItemId,
+      indexHint: 1,
+      name: file.name,
+      mime: file.type,
+      size: file.size,
+      total: 2,
+      sessionId: 73,
+      blob: file,
+    };
+    setState('playlist.items', [youtube, next]);
+    setState('playlist.currentQueueItemId', youtube.queueItemId);
+    setState('preload.ready', ready);
+    setState('preload.activeTarget', ready);
+    setState('preload.nextQueueItemId', next.queueItemId);
+    setState('network.connectedPeers', [
+      {
+        id: conn.peer,
+        slot: 1,
+        label: conn.peer,
+        conn,
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: 1,
+        connectionType: 'local',
+        lastHeartbeat: 0,
+      } satisfies ConnectedPeer,
+    ]);
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    initPlayback();
+
+    bus.emit('orchestrator:peer-joined', conn.peer);
+
+    await vi.waitFor(() => expect(frames.at(-1)?.type).toBe(MSG.PRELOAD_END));
+    expect(frames.map((frame) => frame.type)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
+    expect(
+      frames.every((frame) => frame.queueItemId === next.queueItemId && frame.sessionId === 73),
+    ).toBe(true);
+    const chunks = frames.filter((frame) => frame.type === MSG.PRELOAD_CHUNK);
+    expect(chunks.map((frame) => frame.chunkIndex)).toEqual([0, 1]);
+    expect(chunks.map((frame) => (frame.chunk as Uint8Array).byteLength)).toEqual([65_536, 17]);
+    expect(
+      new Uint8Array([...(chunks[0]!.chunk as Uint8Array), ...(chunks[1]!.chunk as Uint8Array)]),
+    ).toEqual(payload);
+    expect(getState('playlist.currentQueueItemId')).toBe(youtube.queueItemId);
+    expect(getState('files.current')).toBeNull();
+    expect(getState('preload.ready')).toBe(ready);
+    expect(native.decode).not.toHaveBeenCalled();
+    expect(native.start).not.toHaveBeenCalled();
+  });
+
   it('keeps the warm clock and corrects the current file before the successor preload finishes', async () => {
     const host = {
       open: true,

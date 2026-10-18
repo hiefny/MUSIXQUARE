@@ -1,11 +1,14 @@
 # 일반방 YouTube 자동 재정렬의 시계 안전성 후보
 
 - Date: 2026-10-18 KST.
-- Status: 제품 빌드 후보 구현·집중 검사 진행 중. 최종 커밋, 전체 회귀,
-  빌드 및 native 비교 결과는 아직 확정하지 않았다. **배포하지 않았다.**
-- Base: `b977ca0bf2ecc8f5148af9eb6653a88a9c537a2e`, 작업 브랜치
-  `agent/automatic-realignment-clock-safety`의 미커밋 변경을 검사했다.
-  아래 검사 결과를 base 자체의 결과나 exact-main CI로 해석하지 않는다.
+- Status: 제품 후보 구현·로컬 회귀·PR CI·native 비교와 독립 검산 완료.
+  운영64/64/128 후보는 검사 범위에서 통과했다. 진단256의 재생 보호는
+  확인했지만 빠른 수신자 두 대의 완료시간 비교 예산은 초과했다.
+  **배포하지 않았다.**
+- Base: `b977ca0bf2ecc8f5148af9eb6653a88a9c537a2e`. Native 비교에 고정한 후보는
+  `fbbc5e1c9e68881988a348c587c9a81395aa986f`, App 8.11.21 / cache v725다.
+  [PR #405](https://github.com/hiefny/MUSIXQUARE/pull/405)의 결과를
+  base 자체의 결과나 exact-main CI로 해석하지 않는다.
 - 운영 기준: runtime `416f5ee48e3708ae33d82aa1c6d925a72bcab6f3`,
   App 8.11.20 / cache v723. 이 보고서 작성으로 운영 배포가 바뀌지 않는다.
 - Owner request: 운영의 논리 청크64 KiB / 로컬 송신 기준64 KiB /
@@ -62,8 +65,9 @@ U114ms이고, **관측** 드리프트300ms는 새 조건을 통과한다. 앞선
 새 retention 정책도 추가하지 않는다.
 
 관측값은 실제 오차와 다를 수 있다. 실제±300ms 오차가 있어도 같은 부호의
-시계 편향100ms가 관측 크기를200ms로 줄이면, RTT204ms의 U107ms 아래에서는
-보류한다. 이는 성공적인 동기화가 아니다. 해당 잔차와 보류 시간을 남겨야 한다.
+시계 편향100ms가 관측 크기를200ms로 줄이면, RTT204ms의 U107ms에서
+2U=214ms를 넘지 못해 보류한다. 이는 성공적인 동기화가 아니다.
+해당 잔차와 보류 시간을 남겨야 한다.
 품질이 회복되면 새로 적격인 heartbeat 두 번으로 다시 판단한다. 품질이 계속
 나쁘면 중간 크기의 실제 오차가 계속 남을 수 있으며, 이를 이번 후보의 한계로 둔다.
 
@@ -107,8 +111,8 @@ blocked 사유만 보존하고, 원시 방·peer·queue·video 식별자를 기�
 
 기존20분 보존·clock1200개/playback512개 ring, 허용 필드·사유 필터를 사용한다.
 서버 업로드, localStorage 영속화, 새 타이머/ping 또는 콘솔 출력 루프를 추가하는
-장치가 아니다. 실제 브라우저에서의 추가 CPU/메모리 비용은 아래 native 검사의
-관측 대상이며 아직 측정 완료로 주장하지 않는다.
+장치가 아니다. 아래 native 비교는 전송·제어 지연과 재생 조작을 관측하며,
+CPU/메모리 프로파일링이나 실기 부하 검사를 대신하지 않는다.
 
 ## 결정적 검사 근거
 
@@ -123,12 +127,17 @@ Node24.20.0과 다르며, 원격 CI나 exact-main release 후보 검사를 대�
 | 이전 합산식의 새 정책 요구4개 | 0 pass / 4 expected fail | RTT218에서 실제±300ms, 기본/Android. 새 정책을 요구한 대조이며 역사적 제품 결함 수가 아님 |
 | 수정 후 lease handler70개 | 70 pass / 0 fail / 0 skip | 원본29 + release 경계17 + 새 정책4 + admission/비대칭 회복20 |
 | 품질·기존 자동 보정72개 | 72 pass / 0 fail / 0 skip | shared-clock 품질10 + YouTube 품질26 + 기존 자동 재정렬36 |
-| 로컬 진단17개 | 17 pass, 독립 담당 실행 보고 | bounded ring/허용 필드와 사유·중복 제한. 별도 원본 로그 위치 미확정, 최종 전체 실행 원본으로 루트가 보완 |
+| 로컬 진단17개 | 17 pass, 후속 전체 단위 실행에도 포함 | bounded ring/허용 필드와 사유·중복 제한. 별도 집중 실행은 담당 도구 출력, 전체 실행은 `full-unit-r2.json`에 보존 |
 | 테스트 타입·소유 lease 파일 lint/format | pass | `tsconfig.test.json`, ESLint, Prettier. 최종 전체 타입/린트와 구분 |
 | 전체 단위 검사 최초 실행 | 13,226 pass / 5 fail / 0 skip | `full-unit.json`. 아래 두 원인을 고친 후 전체 재검사를 진행했다 |
-| 최초 실패 두 파일의 수정 후 집중 검사 | pass | `unit-failures-fixed.json`; 기존 assertion을 약화하지 않았다 |
+| 최초 실패 두 파일의 수정 후 집중 검사 | 56 pass / 0 fail / 0 skip | `unit-failures-fixed.json`; 기존 assertion을 약화하지 않았다 |
 | 전체 타입·린트·포맷 | pass | `typecheck.log`, `lint.log`, `format.log`와 각각 exit=0 |
-| 수정 후 전체 단위 재검사 | 13,231 pass / 0 fail / 0 skip | `full-unit-r2.json`, 최종 runtime 및 진단17개 포함 |
+| 수정 후 전체 단위 재검사 | 13,231 pass / 0 fail / 0 skip | `full-unit-r2.json`, `1aa90b54`의 runtime tree·진단17개 포함. 뒤의 배열 호환 변경 전 실행 |
+| 배열 호환 변경 후 집중 검사 | 132 pass / 0 fail / 0 skip | `legacy-compatibility-fix.json`, shared-clock·자동 보정·lease 4파일 |
+| 최종 committed build:checked | pass | `fbbc5e1c`, `build-checked-r3.log` / exit=0. 예산·보호 검사 완화 없음 |
+| 로컬 production artifact browser | 17 pass / 0 fail / 0 skip | `fbbc5e1c`, `production-candidate-browser.json`, retries=0 |
+| 로컬 관련 Chromium E2E | 34 pass / 0 fail / 0 skip | `fbbc5e1c`, 9.0분, `targeted-browser.json`, retries=0. sync·preload·YouTube sync/output-delay/manual-zero-start 5파일 |
+| PR Linux CI | 11 jobs success | [39119692353](https://github.com/hiefny/MUSIXQUARE/actions/runs/39119692353), 아래 SHA/환경·skip 구분 참조 |
 
 최초 전체 실행의 실패5개는 원인이 확인됐다. PRO bootstrap 검사1개는 cache를
 v724로 올리면서 `index.html`의 bootstrap 참조가v723에 남은 누락이었다.
@@ -141,15 +150,28 @@ mock을 완성했고, 재생 위치/상태/소유권의 기대값은 그대로 �
 
 첫 committed `build:checked`는 legacy-TV 검사에서 새 품질 getter의
 `Array.prototype.at` 사용을 거부했다(`build-checked.log`). 최신 표본 접근을
-동일한 배열 인덱스로 바꾸고 다시 검사한다. 구형 브라우저 보호 검사를 완화하거나
+동일한 배열 인덱스로 바꾸고 집중 검사132개 및 최종 빌드를 통과했다. 구형 브라우저 보호 검사를 완화하거나
 polyfill 의존성을 추가하지 않았다.
 후속 compatibility 커밋이 최초v724 cache bump보다 뒤에 생겨 두 번째 빌드의
 cache-history guard가 이를 거부했다(`build-checked-r2.log`). 최종 cache와
 bootstrap 참조를v725로 올려 마지막 runtime 변경 뒤에 배치했다.
 
 위는 실행 묶음별 수치다. 이전 격리 후보의648개, 대조 실패, 후속 전체 suite는
-서로 겹치므로 고유 테스트 총수로 합산하지 않는다. 최종 커밋 기준 전체 회귀
-총수·환경·pass/fail/skip은 루트의 완료 기록으로 보완한다.
+서로 겹치므로 고유 테스트 총수로 합산하지 않는다.
+
+PR CI는 head `fbbc5e1c`의 merge ref
+`18b3c4c403e20d014542ea09d3726f3aa089c091`를 Linux / Node24.20.0에서 검사했다.
+591개 파일·13,230 pass / 0 fail / 1 skip, production browser17와 critical browser55가
+통과했다. skip은 Linux에서 실행할 수 없는 Windows 다른 드라이브 경로 거부 검사다
+(`pro-grant-campaign-cli.test.ts`); 같은 로컬 Windows 전체 실행에서는 통과했다.
+전체 serial E2E를 다시 돌린 결과가 아니며, PR artifact
+[12133068896](https://github.com/hiefny/MUSIXQUARE/actions/runs/39119692353/artifacts/12133068896)는
+최종 exact-main 배포 후보를 대신하지 않는다.
+
+최종 runtime diff의 독립 읽기 리뷰 두 건에서 새 P1/P2/P3 지적은 없었다.
+[GitHub Codex 자동 리뷰](https://github.com/hiefny/MUSIXQUARE/pull/405)는
+`fbbc5e1c`에서 2026-10-18 10:44:56 UTC 완료, findings 없음으로 확인했다.
+이 리뷰는 native 결과나 실제 음성 동기화 검증을 대신하지 않는다.
 
 70개에는 실제±300/±1200ms의 정밀 시계 복구, Android250ms 유지,
 시계 선택 변경 중 target 고정, epoch/wall 변경·늦은 release의 원래 로컬
@@ -185,7 +207,7 @@ scratch는 ignored 로컬 산출물이므로 아래 경로가 원격 저장소�
 - `quality-after.json` / `.log`: 품질·기존 자동 보정72개 실행 원본.
 - `native-qa-plan.md`: 아래10회 실행 전 계약. 측정 결과 파일이 아니다.
 
-## Native 비교 계획 — 아직 결과 아님
+## Native 비교 결과
 
 운영128 기준과 후보를 같은 관측 부하로 비교한다. 실제 제품 signaling/RTC,
 파일 전송·시계·자동 handler를 쓰되 YouTube 공급자는 독립적으로 진행하는
@@ -193,7 +215,7 @@ scratch는 ignored 로컬 산출물이므로 아래 경로가 원격 저장소�
 host/guest 단조시각과 실제 미디어 위치로 잔차를 계산한다. 수동 offset과
 Android250ms 기대 위치를 포함하며 가청 정확도로 표현하지 않는다.
 
-| 블록 | 예정 비교 | 목적 |
+| 블록 | 실제 실행 순서 | 목적 |
 | --- | --- | --- |
 | P | B128→Q128 | 무전송4게스트에 실제+300/−300/+1200/−1200ms를 각각 주입하여 진짜 오차 복구 확인 |
 | L | Q128→B128 | 2Mbps 느린 수신자를 포함한3게스트·긴 preload,180초 초과 혼잡에서 정렬된 재생 유지 |
@@ -201,17 +223,132 @@ Android250ms 기대 위치를 포함하며 가청 정확도로 표현하지 않�
 | D | Q128→B128 | 8→2→8Mbps 변화망에서128 credit과 정렬된 재생을 유지하는지 확인 |
 | N | B256→Q256 | 별도 고정256 진단 대조에서 기존 오보정이 실제 재현될 때만 후보의 차단 효과 주장 |
 
-총10회 계획이며 아직 통과/실행 완료 수치가 아니다. N의256은 원인 분석용
-실패 재현용 대조이고 제품 기본값 후보가 아니다. B256에서 오보정이 없으면 coverage
-미확보로 남기며, 몰래 재실행하거나 운영128 결함의 증거로 쓰지 않는다.
-사전 제외 preflight, 파일 SHA/순서/최종 ACK·credit, 동일 peer/type/direction의
-제어 지연, phase별 변화망과 늦게 도착한 메시지 보존 기준은 계획 파일에 있다.
+이 순서의10회를2026-10-18 10:53:30.178–11:28:54.654 UTC에 실행했다.
+진단 정지를 포함한 벽시각35분24.476초, 순수 case 합34분5.367초다.
+Windows11 build26200 / Node24.13.1 / Playwright1.63.0 /
+Chromium153.0.8010.12이며 한 조건당1회다. 공식 실행 전 한 게스트+300ms
+preflight는 독립 잔차 계산과 주입을 확인하는 용도였고10회에 포함하지 않는다.
+별도 역순 반복·분포 또는 통계적 유의성을 주장하지 않는다.
+
+실행기 자체의 기능/재생 판정은9 PASS와 예상한 B256 오보정 재현 대조1 FAIL이다.
+이 수치는 아래 독립 paired 전송 예산 판정과 다르며 **전체10회가 모든 기준에서
+통과했다는 뜻이 아니다.** 실제 파일24개 모두 SHA·청크 순서·READY·최종 ACK,
+누적 확인량≤수신량≤송신량 및 고정 credit 상한 검사를 통과했다.
+기준/후보의 전송·storage 소스 바이트는 같고, 관측 패치는 양쪽에 동일하게
+적용했다. 256 진단만 고정 credit 상수를 바꾼다. 실제 로드된 lazy asset 해시도
+측정 뒤 확인했다.
+
+| 블록 | 기준 B → 후보 Q | 실제 재생·복구 결과 |
+| --- | --- | --- |
+| P | 각 게스트 한 번의 pause/seek/play | 실제±300/±1200ms 네 오차 모두 약7초 내 복구. Q 마지막 논리 잔차−7.2~−7.1ms, 이후5초 안정·추가 조작 없음 |
+| L | 가장 느린 파일193.805→193.804초 | 180초 초과 혼잡에서도 두 버전 모두 조작0회. 느린 게스트 마지막 잔차+2.30→+0.10ms |
+| H | 가장 느린 파일65.024→65.303초 | 전송 중 정렬 유지. 전송을 모두 비운 뒤 느린 게스트에+300ms 주입, 양쪽 한 번씩 보정. 후보의 실제 admission과 회복을 아래에서 확인 |
+| D | 가장 느린 파일150.140→150.297초 | 8→2→8Mbps 변화 중 양쪽 조작0회, 느린 게스트 마지막 잔차 양쪽+1.60ms |
+| N | 가장 느린 파일193.819→193.795초 | B256은 정렬된 재생을 잘못 보정, Q256은 전체 조작0회·마지막 잔차+3.30ms. 빠른 두 수신자의 전송시간 예산은 별도로 실패 |
+
+P의 같은 게스트 회복 표본 시각은 +300ms에서7.412→7.296초,
+−300ms에서7.298→7.197초, +1200ms에서7.171→7.060초,
+−1200ms에서7.108→7.126초였다. 후보의 최대 증가는18ms로 사전+3초
+예산 이내다. 이는1초 표본에서 처음 적격으로 관측된 시각의 차이이며,
+회복 시간을18ms 정밀도로 측정했다는 뜻이 아니다.
 
 P는 논리 잔차≤75ms, H는 실제 U와 고정 관측 여유75ms를 구분해 평가한다.
 H에서 실제300ms를 주입했다고 자동 적격으로 간주하지 않는다. 품질이 충분하면
 고RTT에서도 복구해야 하고, 부족하면 보류와 남은 오차를 기록해야 한다.
 150ms 미만 잔차는 기존 동작 기준 아래의 잔차로 수치 그대로 남긴다.
-모든 native 결과·최종 source/build/runner hash와 원격 CI 상태는 후속 기록 대상이다.
+이번 H 후보에서는 관측 드리프트300.5ms / 선택 RTT204ms / U107ms로 실제
+admission 한 번이 기록됐다. 따라서 m>2U를 만족했고, 첫 play 이후 독립 잔차는
+−2.70ms로 U+75ms인182ms 이내였다. 마지막 잔차는−2.15ms였다.
+단순히 나중에 망을 풀었더니 회복된 결과를 고RTT 적격 성공으로 대신하지 않았다.
+이 native H는+300ms 한 부호만 검사한다. 반대 부호는 P와 결정적 handler 검사의
+범위이며 native 고RTT 양방향 검증으로 쓰지 않는다.
+
+### N: 잘못된 첫 보정의 대조와 별도 성능 실패
+
+B256의 첫 조작1ms 전 native heartbeat snapshot에서 독립 잔차는+4.10ms였다.
+가장 가까운 이전1초 periodic 표본의+3.90ms와는 다른 표본이다. 선택 시계
+offset−298.5ms / RTT811ms가 섞인 관측에서는 약299ms의 드리프트처럼 보였고,
+pause→seek→play 한 번 뒤 실제 잔차가−296.40ms로 커졌다.
+기록된 총5개 호출은 완료한 첫 보정3개와 마지막 미완료 pause/seek2개다.
+마지막 시도 때는 시계가 offset+2ms / RTT216ms로 회복했고 실제−297.30ms가
+남아 있었으므로, 두 번째 시도까지 잘못된 보정으로 분류하지 않는다.
+
+Q256은 전체 측정에서 uncertainty 사유의 제한된 차단 기록7개와 물리적 조작0개가
+확인됐다. 차단 표본의 실제 잔차는+2.90~+4.20ms, 마지막 잔차+3.30ms였다.
+모두 m≤2U였으며, 같은 추정 시계로 계산한 잔차를 정답으로 쓰지 않았다.
+차단 로그는20초 제한이 있어7개가 모든 거절 heartbeat의 개수는 아니다.
+compact 결과의 L/D/N 진단 수는 주입 이후만 센 값이므로 전체 로그 수로 쓰지
+않았고, 독립 감사는 원본 recorder 전체를 다시 읽었다.
+
+그러나 N의 빠른 두 수신자는 완료시간이 각각3.610→4.111초(+13.88%),
+3.502→4.017초(+14.71%)로 늘어 사전10% 예산을 넘었다. 느린 수신자와
+파일 무결성이 통과했다고 이 실패를 지우지 않는다. 한 쌍만으로 자동 보정 보호가
+약0.5초 증가의 원인이라고 확정할 수 없으며 원인은 미확정이다. N의 전송 성능은
+종합 통과가 아니고, 256 확대를 채택하거나 속도·안정성 문제를 모두 해결했다고
+판정하지 않는다. 이 대조는 잘못된 보정 차단의 근거로만 사용한다.
+
+### 운영128 전송 보존의 독립 감사
+
+운영 L/H/D의6개 원본·18개 파일을 별도 분석기로 재계산했다. 동일
+peer/type/direction의 무전송 median을 빼고, own/room 두 bulk 구간 및 구간 중
+송신된 늦은 수신을 포함했다. baseline 최소6개, p95는 양쪽20개 이상일 때만
+비교했다. 상대 excess max 증가≤250ms, 적격 p95 증가≤100ms,
+raw 제어 지연≤1000ms, 각 수신자 완료시간 증가≤10%의 사전 예산을 유지했다.
+105개 중 겹치는 scope를 포함한97개 max 적격·60개 p95 적격 비교가 통과했다.
+전체6,744개 application delivery를 다시 짝지어 누락·음수 지연이 없음을
+확인했다. 이 숫자들은 독립 실험 횟수가 아니다. 파일 감사는 browser가 계산해
+기록한 수신 SHA와 fixture SHA·길이·순서의 일치를 확인한 것이며, 원본 payload
+전체를 독립적으로 다시 해시한 것은 아니다. credit/nonce 전체 검증은 실행기의
+기능 검사 근거와 구분한다.
+
+| 운영128 블록 | excess max 증가 최댓값 | 적격 p95 증가 최댓값 | 후보 raw 제어 최대 |
+| --- | ---: | ---: | ---: |
+| L | +9ms | +22ms | 727ms |
+| H | +12ms | +9ms | 713ms |
+| D | +6ms | +9ms | 595ms |
+
+D를 송신 시각 기준 변화 단계·적용 중 구간·첫8초로 나눈 비교에서도 max 증가
+최대+36ms로 통과했다.9개 수신자별 완료시간 비교는 모두 통과했고, 가장 큰
+증가는 H의 빠른 guest2에서1.878→1.982초(+5.54%)였다.
+비교 불가8행은 무전송 baseline이 없는 preload-ack(중복 scope 포함)다.
+정기 sync-ping/sync-pong/youtube-sync의 max 비교는 모두 가능했다.
+baseline 없는 그룹이나 표본20개 미만의 p95를 통과로 꾸미지 않는다.
+raw 최대치는 실험값이며 실제 망의 지연 상한을 보장하지 않는다.
+
+### 근거 고정과 보존
+
+공식 baseline은b977ca0b /8.11.20-v723, 후보는fbbc5e1c /8.11.21-v725다.
+candidate source archive SHA256은
+`56045bc95e1126e7aa193ce26021e97145d5ca34d07128490c5087ff6b09e5b8`다.
+서버를 띄운 archive와 실제 빌드 metadata의 SHA를 일치시키고, 소스/빌드/설정/
+runner3476개 파일을 실행 전에 고정했다. 반복 빌드·사전 검사는 공식 타이밍에
+포함하지 않았으며, root/다른 에이전트는 native 실행 동안 CPU 부하 작업을
+중단했다. 종료 뒤 소유권을 확인한5개 서버와 관련 프로세스만 정리했다.
+
+로컬 scratch의 원본 JSON10개 합계는542,697,249B이며, 이전 실패·대조·preflight를
+모두 남겼다. 아래 manifest는 ignored 로컬 자료에 대한 인덱스이며 GitHub에
+원본을 업로드했다는 뜻이 아니다.
+
+- `execution-freeze.json`: SHA256
+  `9e59059beb09c062ec750274ab7c42c97a936913d644d30dd4552fdea0e263b7`.
+- `matrix-native.json`: SHA256
+  `172f95ae0f5a9b9967a1774ee152f793726fa9a8dc67aa7c493e57e737369ff5`.
+- `primary-evidence-index.json`: SHA256
+  `9f5d3ed3db9a2756d75d20203e1ce728b0819c310f820b1e8f9f3689dfcbc1ea`.
+  공식 raw10개·제외 preflight1개와 소형 metadata31개를 연결한다.
+- `executor-summary.{json,md}`, `executor-test-matrix.csv`,
+  `execution-environment.json`, `owned-server-cleanup.json`: 실행·환경·정리 기록.
+- `final-realignment-audit.{py,json,md}`와 manifest: P/H/N·전체 로컬 진단의
+  독립 재계산. JSON SHA256
+  `380a1abf11a142c195f70c31cc5931ad297617a1dc7cc675170ff0191355359c`.
+- `final-transport-audit.{py,json,md}`: 운영128의 수신 metadata·paired 지연·
+  완료시간 독립 재계산. JSON SHA256은
+  `aa7df5af41d0d08a79efa469af3d32d5564cb7f0f56386dc686a8e5781068dd0`.
+- `final-transport-coverage.{py,json}`와 `final-transport-manifest.json`:
+  전체 관측 matching 및 N256 완료시간 예산 위반을 별도 보존한다.
+  coverage JSON SHA256은
+  `b44314e3b25abe18fbac4f7247972fc59087b1ad3b222fd91cc589dc3efbb816`.
+  N의 상대 latency 예산까지 독립 통과 판정한 자료는 아니다.
 
 ## 남은 범위와 승격 조건
 
@@ -225,6 +362,16 @@ coarse seek·PRO 정책을 이 품질 gate로 막지 않는다. 주변 공통 �
 열린 항목이다. 품질이 지속적으로 낮으면 진짜 중간 크기 오차의 보류가 길어질 수
 있다. 별도 clock repair나 quiet bulk probe는 구현하지 않았다.
 
-최종 후보 커밋·전체 회귀·로컬/원격 환경 차이·빌드 검사와 승인된 native 결과를
-확정한 뒤 제품 채택 여부를 판단한다. 현재 문서는 해당 검토의 중간 근거다.
+제품 후보의 범위는64/64/128을 그대로 둔 자동 보정 안전성에 한정한다.
+그 범위의 회귀와 native 보존·복구 검사는 통과했고, 256 진단의 재생 보호 효과와
+별도 성능 예산 실패는 모두 남긴다. 고RTT23MB 전송이 여전히 약65초 걸리는
+처리량 문제는 해결하지 않았다. 일반 활성 파일 전송의 새 처리량 행렬도 실행하지
+않았으며, 전송 소스 불변과 기존 회귀 검사를 새 네트워크 측정으로 표현하지 않는다.
+N에도 원래 all-peer10% 기준이 적용됐으므로, 이번 전체 사전 계약을 통과한 것은
+아니다. 독립 검토 후 운영128로 한정해 빌드 후보를 남기는 범위 결정이며,
+N의 성능 gate를 소급 면제하거나 원인 미확정 편차를 해결한 것으로 쓰지 않는다.
+**진단 N의 성능 기준 미충족을 남긴 배포 전 후보**이지 전체 all-green 또는
+배포 준비 완료 판정은 아니다.
+병합 후 별도의 exact-main CI가 성공하면 그 SHA의 불변 빌드 후보를 확보한다.
+그 성공도 위 진단 성능 실패를 닫거나 별도의 배포 판단을 대신하지 않는다.
 프로덕션 배포, 운영 smoke, release ownership 확인을 수행했다고 주장하지 않는다.

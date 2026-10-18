@@ -129,7 +129,13 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       제품 후보 후속은 운영64/64/128을 유지하고 `m>=150ms && m>2U`의
       시계 불확실성 gate, 관측부터 실행까지 같은 lease, 새 명령 우선과
       제한된 로컬 진단을 추가했다. App8.11.21/v725 후보이며 아직 미배포다.
-      전체 회귀·native 비교·exact-main 후보의 완료 여부는
+      로컬 전체 단위13,231 pass와 PR CI11 jobs, 관련 브라우저34개를 통과했다.
+      native10회·24파일 및 독립 검산에서 운영128의 전송·재생 보존과 실제
+      ±300/±1200ms 복구를 확인했다. 별도256 진단은 잘못된 첫 보정을 차단했지만
+      빠른 수신자 두 대의 완료시간이+13.88/+14.71%로 사전10% 예산을 넘었고
+      원인은 미확정이다. 전체 사전 계약 통과가 아닌 운영128 한정 빌드 후보다.
+      고RTT 처리량·실기 한계는 유지하며 배포하지 않았다. 환경·skip·exact-main
+      후보의 완료 여부는
       [후속 제품 후보 검증](design/automatic-realignment-clock-safety-2026-10-18.md)에
       따르며, 실제 오차의 장기 보류·실기/가청 한계를 이 변경만으로 닫지 않는다.
       [재현·원시 시각 재구성·한계](design/receiver-credit-window-comparison-2026-10-18.md#candidate-interruption-queue-biased-clock-and-automatic-realignment),

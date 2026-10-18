@@ -73,13 +73,25 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       [두 재생 오염 경로 수정](design/youtube-heartbeat-delay-reproduction-2026-10-17.md).
 - [ ] 실제 망의 지연·처리량·기기 부하: 고RTT 8 Mbps 실험에서 23 MB 완료가
       24.495→64.540초로 늘었다. 이는 제어 대기열을 줄이는 고정 창의 대가이며
-      첫 파일 대기나 다음 곡 준비가 늦어질 수 있다. 구버전 송신자는 기존 지연이
-      남고(혼합 검사 최대 2.483초), 일반 파일의 고RTT 비교·실기 CPU/메모리·
+      첫 파일 대기나 다음 곡 준비가 늦어질 수 있다. 후속 128/256/384/512 KiB
+      비교에서 일반 전송과 프리로드의 고RTT 경로를 모두 반복 측정했다. 256 이상은
+      이 조건에서 빨랐지만, 2 Mbps 프리로드에서는 파일 완료시간 이득 없이
+      재생 중 자동 재정렬을 일으켜 고정 기본값 확대 후보에서 제외했다.
+      구버전 송신자는 기존 지연이 남고(혼합 검사 최대 2.483초), 실기 CPU/메모리·
       8대 초과 실기·TURN은 미검증이다. PRO/R2는 변경 대상이 아니다.
       128 KiB는 payload 미확인량 상한이며 전체 네트워크 대기/지연 상한이 아니다.
+      [네 창의 비교·선택 근거](design/receiver-credit-window-comparison-2026-10-18.md),
       [범위·tradeoff](design/receiver-credit-file-transfer-2026-10-18.md),
       [이전 64 KiB 완화](design/preload-capacity-validation-2026-10-18.md),
       [독립 native 조사](design/preload-control-queue-root-cause-2026-10-18.md).
+- [ ] 창 확대 전 시계·자동 보정의 혼잡 내성: 256/384/512 KiB 실험 후보의
+      2 Mbps 프리로드에서는 정상 파일 수신과 별개로 불필요한 pause→seek→play가
+      각 두 번씩 재현됐다. 첫 사례는 좋은 시계 표본의 개수 제한 퇴출 이후
+      비대칭 대기열이 섞인 표본 선택→드리프트 오판→자동 재정렬 경로로 분석했다.
+      128 KiB는 같은 두 반복에서 재생을 유지했다. 이는 확대 후보의 통제 실험
+      결과이며 운영 128 KiB나 원래 Android 사건의 발생 증거로 바꾸지 않는다.
+      더 큰 창이나 적응형 창을 검토한다면 시계 추정·자동 보정까지 함께 검증한다.
+      [재현·원시 시각 재구성·한계](design/receiver-credit-window-comparison-2026-10-18.md#candidate-interruption-queue-biased-clock-and-automatic-realignment).
 
 ### 최근 해결 근거
 

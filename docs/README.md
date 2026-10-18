@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Receiver-credit window comparison — 2026-10-18](design/receiver-credit-window-comparison-2026-10-18.md) —
+  Fixed 64 KiB local threshold with 128/256/384/512 KiB receipt windows across
+  ordinary transfer/preload, eight receivers, slow links and high RTT. Records
+  counterbalanced native RTC measurements, playback-preservation failures,
+  lifecycle checks and the limits of choosing one fixed window. No App release.
 - [Receiver-confirmed direct file flow control — 2026-10-18](design/receiver-credit-file-transfer-2026-10-18.md) —
   ordinary/preload shared credit, local 64 KiB thresholds, compatibility,
   cancellation and promotion; final product verification, high-RTT throughput

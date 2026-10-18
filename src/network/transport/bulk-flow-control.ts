@@ -158,7 +158,15 @@ class AdaptiveCreditController {
     sample.lastAt = now;
     sample.count += 1;
     sample.ageSum += age;
-    if (sample.count < ADAPTIVE_MIN_SAMPLES || now - sample.firstAt < ADAPTIVE_SAMPLE_MS) return;
+    // Qualify the first probe over one fixed, longer observation. Baseline and
+    // accepted monitoring keep their original cadence; the probe watchdog is
+    // still anchored at entry, and the per-receipt safety checks run above.
+    const observationScale = this.phase === 'probe' ? 2 : 1;
+    if (
+      sample.count < ADAPTIVE_MIN_SAMPLES * observationScale ||
+      now - sample.firstAt < ADAPTIVE_SAMPLE_MS * observationScale
+    )
+      return;
     const measured = this.statistics(sample);
     this.completedBlocks += 1;
     this.conservativeRate = this.previousBlock

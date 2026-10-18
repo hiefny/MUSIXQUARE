@@ -5,7 +5,7 @@ production release. The owner authorized integration, remaining tests, and an
 App release only if ordinary transfer and preload pass. The starting main is
 `deb52829930d0b8a4b87e70b05f84aa7c242c799`; production remains `416f5ee4`,
 App 8.11.20/cache v723 until an actual release is recorded. The proposed product
-is 8.11.22/cache v728. No dependencies, Worker protocol, schema, secret, binding,
+is 8.11.22/cache v729. No dependencies, Worker protocol, schema, secret, binding,
 CSP, admission policy or media format are changed. App release scope includes
 the previously merged, undeployed YouTube clock-quality lease protections.
 
@@ -127,7 +127,7 @@ leak was observed. Closing the actual side PC with 65,536 bytes outstanding
 retired the logical connection. These small functional runs are not throughput
 comparisons.
 
-The full reconnect scenario is still failed pending repair/retest. R3 admitted
+The original full reconnect scenario R3 failed: it admitted
 a fresh guest during YouTube playback, but sent no pending preload START or
 payload (new connection S=A=0, side idle). `bootstrapLocalPeerFile` returned for
 a YouTube current item before reaching the independent ready-preload branch.
@@ -138,7 +138,11 @@ from the independent next-file bootstrap, retaining PRO/R2 routing and exact
 preload source/connection ownership. Seven new pins cover both admission events,
 stale current-file exclusion, unchanged missing-selection guards and actual
 PRELOAD_START/two chunks/END output. Five reproduction pins fail before the fix;
-after it, both affected test files pass all 37 tests. R1's hidden
+after it, both affected test files pass all 37 tests. The committed fix
+`043fcb87` (cache v728) passed `build:checked`; native R4 completed all three
+files, including the previously missing next-file delivery after fresh room
+admission, with matching resident SHA/READY/receipts. R4 took 88.825 seconds
+overall; that includes scenario setup and is not a throughput metric. R1's hidden
 mobile chat selector and R2's probe access on initial about:blank were separate
 harness errors and remain preserved, not reported as product regressions.
 Raw runs, hashes, independent route audit and this failure's exact-state triage
@@ -148,6 +152,70 @@ The earlier PR head `40d91772` passed all eleven jobs in
 [CI 39168550135](https://github.com/hiefny/MUSIXQUARE/actions/runs/39168550135).
 GitHub Codex completed its review of that head with no findings. Neither result
 covers the subsequent late-join fix or constitutes an exact-main release candidate.
+That fix's own [CI 39170147052](https://github.com/hiefny/MUSIXQUARE/actions/runs/39170147052)
+also passed all eleven jobs; it remains a PR candidate only.
+
+### First product performance qualification: failed
+
+The first frozen same-main high-RTT ordinary-file comparison used baseline
+`deb52829` and candidate `043fcb87`, Chromium 153.0.8010.12 on Windows, a
+23,040,044-byte fixture, guest 8 Mbps/100 ms each way from before connection
+creation, and cold product negotiation. Demand-to-final-native-receive time
+was **73.879 versus 66.498 seconds: 9.99% improvement**, below the predeclared
+20% requirement. The candidate's first-payload setup cost (2.163 seconds,
+versus baseline 0.808 seconds) is included. This round failed; successful CI
+and earlier research results do not override it.
+
+Independent inspection passed exact file/chunk/hash/queue/session ownership,
+real control handoff, cumulative receipt accounting and actual 192 KiB use.
+Maximum measured application-control delay fell from 1,632.8 to 219.4 ms;
+applicable absolute and baseline-relative control budgets passed. Sparse or
+unavailable groups remain N/A. The two immutable raw SHA256 values are
+`8293c0aed8ddaf8045a48793c9e9c2a0b374d34a30418d4f69bcb81c76568da9`
+and `396769948967eed28b4916d18d0d50464dceea58077501e364aa2563062e3780`.
+The full independent audit is
+`scratch/transport-isolation-product-qa-2026-10-19/audit/performance-firstpair-independent-r1.json`
+(SHA256 `23787b1e4e6d1c5a8ce0d433283194fe8b47ac1e4b532603e506da58c31ea686`).
+
+The first expansion retired at approximately +18.820 seconds and incurred the
+existing 30-second cooldown. Its saved baseline was 337,387.560 B/s with mean
+receipt age 389.650 ms. Reconstruction of the next 14 native receipt boundaries
+gave 402,974.184 B/s over 2,114.200 ms and age 387.407 ms: a 19.44% gain below
+the unchanged 20% acceptance threshold, despite no age violation. Exact final
+retired statistics are not retained by the controller; these probe values are
+explicitly reconstructed, not claimed as exact controller output. The previous
+13-receipt observation was above the rate threshold but not yet two seconds
+long. The calculation and epoch separation are correct, and the policy matches
+the earlier study. Changed codec/fragmentation does not explain the result:
+both arms and the study used 352 frames with identical total payload/header
+bytes. Whether the short-block variation arose from startup or ordinary network
+variation is unresolved. This is a limitation of the short efficacy observation,
+not proof of a browser bug or a translated-controller defect.
+
+All remaining qualification cases were held at this failure. A new experimental
+candidate will use a **uniform four-second/minimum-16-receipt initial probe**,
+twice the existing baseline observation, instead of making a long cooldown
+decision from its first two-second block. This is a prospective design change,
+not a reinterpretation of the failed run. It has no special tolerance near
+19.44%, no second-block-only selection, and no lowered acceptance threshold.
+It keeps the 192 KiB maximum, 250 ms added-delay admission budget, per-receipt
+100 ms age guard, ambiguity/idle rejection, eight-second absolute probe
+watchdog and 30-second retirement cooldown. Baseline and already-accepted
+monitoring retain their two-second/minimum-eight-receipt windows. This may
+retain an inefficient but otherwise safe probe for up to two extra seconds;
+it does not extend the absolute watchdog or excuse a safety violation. The
+extra observation duration is not a physical queue-delay guarantee.
+
+The changed policy must first pass generic boundary/lifecycle pins and a new
+exact-source cold product comparison under the original qualification gates.
+It is not yet a demonstrated performance fix. Eight new boundary tests produced
+six expected failures and two passes against the previous policy (40 unrelated
+tests filtered out). With the minimal phase-specific observation change, both
+credit test files pass **59 tests, zero failures or skips**. These cover early
+fast/slow sample bias, the minimum sample count, persistent 19% gain rejection,
+the unchanged absolute deadline, accepted-phase cadence, immediate age rejection
+and compressed receipts. Original failure evidence remains immutable. Further
+matrix testing and deployment depend on the new evidence.
 
 Remaining product-native results and release evidence will be added only after execution.
 PR/local success cannot replace the successful exact-main-SHA CI candidate.

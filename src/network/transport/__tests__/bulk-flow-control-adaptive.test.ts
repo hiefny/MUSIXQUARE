@@ -53,7 +53,7 @@ function probe192(p: ReturnType<typeof endpoint>) {
 }
 function accept192(p: ReturnType<typeof endpoint>) {
   probe192(p);
-  p.repeat(30, 100);
+  p.repeat(44, 100);
   expect(p.flow.diagnosticSnapshot).toMatchObject({ windowBytes: 192 * 1024, phase: 'accepted' });
 }
 beforeEach(() => {
@@ -63,6 +63,123 @@ beforeEach(() => {
 afterEach(() => {
   for (const f of flows.splice(0)) f.dispose();
   vi.useRealTimers();
+});
+
+describe('Fixed initial probe observation window', () => {
+  it('does not accept a transient fast first half and rejects insufficient whole-window gain', () => {
+    const p = endpoint();
+    probe192(p);
+    p.repeat(4, 150); // Three excluded warmup receipts, then the observation anchor.
+    p.repeat(14, 150);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({ phase: 'probe', sampleCount: 15 });
+    p.repeat(8, 250);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * 1024,
+      phase: 'cooldown',
+      lastDecision: 'insufficient-goodput-gain',
+    });
+  });
+
+  it('does not reject a transient slow first half and accepts sufficient whole-window gain', () => {
+    const p = endpoint();
+    probe192(p);
+    p.repeat(4, 200);
+    p.repeat(10, 200);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({ phase: 'probe', sampleCount: 11 });
+    p.repeat(20, 100);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 192 * 1024,
+      phase: 'accepted',
+      lastDecision: 'accepted-192',
+    });
+    // All 30 intervals count, including the boundary between slower and faster arrivals.
+    expect(p.flow.diagnosticSnapshot.previousBlock?.goodputBytesPerSecond).toBe(491520);
+  });
+
+  it('requires sixteen eligible receipts even when fifteen span more than four seconds', () => {
+    const p = endpoint();
+    probe192(p);
+    p.repeat(4, 290);
+    p.repeat(14, 290);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({ phase: 'probe', sampleCount: 15 });
+    p.sample(290);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      phase: 'cooldown',
+      lastDecision: 'insufficient-goodput-gain',
+    });
+  });
+
+  it('still rejects a steady nineteen percent gain instead of lowering the acceptance threshold', () => {
+    const p = endpoint();
+    probe192(p);
+    const gap = 200 / 1.19;
+    p.repeat(4, gap);
+    p.repeat(12, gap);
+    expect(p.flow.diagnosticSnapshot.phase).toBe('probe');
+    p.repeat(12, gap);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * 1024,
+      phase: 'cooldown',
+      lastDecision: 'insufficient-goodput-gain',
+    });
+  });
+
+  it('keeps the eight-second watchdog anchored at probe entry, including warmup', () => {
+    const p = endpoint();
+    probe192(p);
+    const enteredAt = now;
+    p.repeat(24, 100);
+    expect(p.flow.diagnosticSnapshot.phase).toBe('probe');
+    tick(8000 - (now - enteredAt) - 1);
+    expect(p.flow.diagnosticSnapshot.windowBytes).toBe(192 * 1024);
+    tick(1);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * 1024,
+      lastDecision: 'phase-deadline',
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('continues monitoring accepted capacity every two seconds rather than four', () => {
+    const p = endpoint();
+    probe192(p);
+    p.repeat(44, 100);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({ phase: 'accepted', sampleCount: 0 });
+    p.repeat(10, 200);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({ phase: 'accepted', sampleCount: 10 });
+    p.sample(200);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * 1024,
+      lastDecision: 'insufficient-goodput-gain',
+    });
+  });
+
+  it('still retires immediately on an individual age violation during the extended observation', () => {
+    const p = endpoint();
+    probe192(p);
+    p.repeat(24, 100);
+    for (let i = 0; i < 3; i++) p.flow.noteSent(CHUNK_SIZE);
+    tick(301);
+    p.ack();
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * 1024,
+      outstandingBytes: 2 * CHUNK_SIZE,
+      lastDecision: 'ack-age-increase',
+    });
+    expect(p.flow.hasCapacity(CHUNK_SIZE)).toBe(false);
+  });
+
+  it('still retires on compressed receipts instead of extending an ambiguous observation', () => {
+    const p = endpoint();
+    probe192(p);
+    p.repeat(24, 100);
+    p.sample(1);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * 1024,
+      outstandingBytes: 0,
+      lastDecision: 'compressed-receipts',
+    });
+  });
 });
 
 describe('Control isolation activation boundary', () => {
@@ -351,7 +468,7 @@ describe('Isolated control adaptive credit, unchanged cumulative receiver credit
   it('retains useful 192 with the unchanged conservative gain and rate criteria', () => {
     const p = endpoint();
     probe192(p);
-    p.repeat(33, 150);
+    p.repeat(46, 150);
     expect(p.flow.diagnosticSnapshot).toMatchObject({
       windowBytes: 192 * 1024,
       phase: 'accepted',
@@ -431,7 +548,7 @@ describe('Isolated control adaptive credit, unchanged cumulative receiver credit
   it('rejects growth with less than 20 percent gain', () => {
     const p = endpoint();
     probe192(p);
-    p.repeat(14, 200);
+    p.repeat(24, 200);
     expect(p.flow.diagnosticSnapshot).toMatchObject({
       windowBytes: 128 * 1024,
       phase: 'cooldown',

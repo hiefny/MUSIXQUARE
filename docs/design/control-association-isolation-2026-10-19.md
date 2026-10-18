@@ -622,7 +622,8 @@ are not implemented by this local broker. No operating default or deployment
 decision has changed. Current production remains App8.11.20/cachev723 with
 128 KiB credit. In particular, a second PC alone improved control but only
 reduced file time7.75%; the bounded adaptive window supplies the additional
-throughput gain. Fixed256 shows why unrestricted enlargement is not the result.
+throughput gain. Fixed256 shows why unconditional window enlargement is not
+the result.
 
 The next product step is an additive authenticated negotiation/ownership design
 for the second control PC, retaining64 KiB chunks/local threshold and bounded

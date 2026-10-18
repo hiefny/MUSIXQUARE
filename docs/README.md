@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Startup transport delay cause — 2026-10-19](design/startup-transport-cause-2026-10-19.md) —
+  frozen B128 reproduces 809/1,885 ms first-chunk states; packet/trace evidence
+  connects a delivered control message's delayed ACK to unnecessary retransmission
+  and reduced-congestion startup. One latency-only counterfactual corroborates
+  the mechanism. Preserves diagnostic binary differences, post-window tail
+  uncertainty and the separate full-transfer cost; no runtime change or release.
 - [Adaptive credit with 16 KiB native messages — 2026-10-18](design/adaptive-credit-fragment16-screen-2026-10-18.md) —
   eight same-main native runs: H8 preload 71.583→48.450 seconds and ordinary
   64.217→36.760, with slow2 throughput preserved. Dynamic-network initial control

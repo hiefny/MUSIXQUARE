@@ -9,7 +9,9 @@ deployment. No App version or cache version was changed; the integration bumps
 once. No native browser harness or timed measurement was run: the combined
 native round runs later, serially, and owns that evidence. If this piece is not
 ready and verified when that round ends, it moves to a second release and the
-network-change limitation is recorded in `known-accepted.md` instead.
+network-change limitation is recorded in `known-accepted.md` instead. Update,
+same day: under that pre-agreed escape hatch the integrating session moved this
+piece to a second release, after its own native failure-injection check.
 
 Tested runtime: `05551d1da803fbfb09b9ae2288e9c6bb754344d8`
 (tree `23a55c02f0a0fd96caf857a8c0345f3ad01e2db6`), four runtime commits:
@@ -232,9 +234,10 @@ run at `758dffe9` that exposed the role-dependent harness defect (1 failure).
 - During a side-only outage the host heartbeat monitor sees the original PC
   `connected` (90-second grace), above the 30-second side cap.
 
-## Native functional scenario for the combined round
+## Native functional scenario
 
-Written for the serialized combined round; not executed here. Use the product's
+Written for the second release's own native failure-injection check; not
+executed here. Use the product's
 own negotiation (no study broker or synthetic events), new/new builds, a
 Standard room with host and one guest, `?mxqrLog=info` on both pages, and
 isolation active (complete one ordinary file first; both

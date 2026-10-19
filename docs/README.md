@@ -96,8 +96,9 @@ runbooks. Neither belongs in a general setup document.
   team's frozen native contract.
 - [Delay-based receipt window candidate — 2026-10-19](design/delay-based-credit-window-2026-10-19.md) —
   experimental replacement for #410's A192 sender policy: one-chunk growth while the
-  measured credit loop shows no added queueing, with deterministic path-model results
-  and the sudden-collapse limit. Not native evidence or a release record.
+  measured credit loop shows no added queueing, a 2 s / 16-chunk evidence bound above
+  128 KiB, deterministic path-model results and the model's sudden-collapse limit. Not
+  native evidence or a release record.
 - [Product control isolation — 2026-10-19](design/control-isolation-product-integration-2026-10-19.md) —
   product negotiation, ordered handoff, compatibility, reconnect and bounded
   adaptive credit; integration validation and release status are tracked here.

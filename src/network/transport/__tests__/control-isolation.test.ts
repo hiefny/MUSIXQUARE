@@ -189,22 +189,18 @@ function pair({
   let bi = 1;
   let asi = 0;
   let bsi = 0;
+  const deliver = (to: Endpoint, data: string) => {
+    const frame = JSON.parse(data) as Frame;
+    if (!restart && frame.type === TYPE && frame.kind === 'restart-capable') return;
+    if (!to.flow.handleOriginal(frame, true) && to.flow.acceptOriginalApplication())
+      to.receive(data);
+  };
+  // Each lane's cursor only advances past delivered frames, so a frame sent in
+  // reaction to the other side's frames is delivered next, as on a real lane.
   const original = () => {
     if (!link.original) return;
-    for (const [from, to, start] of [
-      [a, b, ai],
-      [b, a, bi],
-    ] as const) {
-      for (let index = start; index < from.original.length; index++) {
-        const data = from.original[index];
-        const frame = JSON.parse(data) as Frame;
-        if (!restart && frame.type === TYPE && frame.kind === 'restart-capable') continue;
-        if (!to.flow.handleOriginal(frame, true) && to.flow.acceptOriginalApplication())
-          to.receive(data);
-      }
-    }
-    ai = a.original.length;
-    bi = b.original.length;
+    for (; ai < a.original.length; ai++) deliver(b, a.original[ai]);
+    for (; bi < b.original.length; bi++) deliver(a, b.original[bi]);
   };
   const side = () => {
     if (!link.side) return;
@@ -1251,6 +1247,81 @@ describe('side ICE restart of an active isolated control route', () => {
     await p.pump();
     expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2]);
     expect(frames(answerer, 'restart-answer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+  });
+
+  it('keeps the 10 s handoff deadline for a restart that begins before activation', async () => {
+    const p = pair();
+    await p.negotiate();
+    const { offerer, answerer } = roles(p);
+    p.link[offerer === p.a ? 'aToB' : 'bToA'] = false;
+    p.a.peer.channel!.open();
+    p.b.peer.channel!.open();
+    await p.pump();
+    for (const e of [p.a, p.b]) e.peer.state('connected');
+    offerer.peer.state('failed');
+    answerer.peer.state('failed');
+    await p.pump();
+    expect(frames(answerer, 'restart-answer')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(answerer.fail).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(answerer.fail).toHaveBeenCalledOnce();
+    expect(offerer.fail).not.toHaveBeenCalled();
+  });
+
+  it("restarts again when the offerer's own outage began during a peer-requested attempt", async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    let resolve!: () => void;
+    offerer.peer.offerGate = new Promise<void>((done) => {
+      resolve = done;
+    });
+    answerer.peer.state('failed');
+    await p.pump();
+    expect(iceRestarts(offerer)).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    // The offer's candidates were gathered before this outage began.
+    offerer.peer.state('disconnected');
+    resolve();
+    await p.pump();
+    expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+  });
+
+  it("spends a local outage's attempts on peer requests during it, not the peer window", async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    const request = (epoch: number) =>
+      offerer.flow.handleOriginal(fromPeer(answerer, offerer, 'restart-request', { epoch }), true);
+    offerer.peer.state('failed');
+    await p.pump();
+    request(1);
+    await p.pump();
+    offerer.peer.state('connecting');
+    offerer.peer.state('failed');
+    await p.pump();
+    expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    offerer.peer.state('connected');
+    request(2);
+    await p.pump();
+    expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2, 3]);
+  });
+
+  it('stops offering at the answer bound instead of tripping it', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    for (let i = 0; i < 17; i++) {
+      offerer.peer.state('failed');
+      await p.pump();
+      offerer.peer.state('connected');
+    }
+    expect(frames(offerer, 'restart-offer')).toHaveLength(16);
+    expect(answerer.fail).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30_000);
+    offerer.peer.state('failed');
+    await p.pump();
+    expect(frames(offerer, 'restart-offer')).toHaveLength(17);
     for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
   });
 

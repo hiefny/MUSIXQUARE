@@ -21,7 +21,8 @@ const RESTART_WINDOW_MS = 15_000;
 const RESTART_CAP_MS = 30_000;
 // Per local interruption, and separately per window of peer requests.
 const MAX_RESTART_ATTEMPTS = 2;
-// Restart offers an answerer accepts per 30 s: above any legitimate offerer.
+// Restart offers per 30 s. The offerer stops below it; an answerer offered more
+// closes, so an abusive peer cannot keep it renegotiating.
 const MAX_RESTART_OFFERS = 16;
 const MAX_EPOCH = 0x7fff_ffff;
 const MAX_CANDIDATES = 128;
@@ -89,6 +90,7 @@ interface Interruption {
 
 interface Attempt {
   readonly epoch: number;
+  readonly startedAt: number;
   offered: boolean;
   answered: boolean;
 }
@@ -254,7 +256,8 @@ export class ControlIsolation {
   private peerWanted = false;
   private peerWindowEnd = 0;
   private peerAttempts = 0;
-  private readonly acceptedOffers: number[] = [];
+  /** Monotonic times of offers sent (offerer) or accepted (answerer). */
+  private readonly restartOffers: number[] = [];
 
   constructor(private readonly options: Options) {}
 
@@ -678,14 +681,12 @@ export class ControlIsolation {
       if (this.offerer || epoch !== this.remoteEpochSeen + 1) return;
       // Ignoring an excess offer would strand the peer's attempt: close instead.
       const now = performance.now();
-      while (this.acceptedOffers.length > 0 && this.acceptedOffers[0]! <= now - RESTART_CAP_MS)
-        this.acceptedOffers.shift();
-      if (this.acceptedOffers.length >= MAX_RESTART_OFFERS) return this.fail();
-      this.acceptedOffers.push(now);
+      if (this.offerWindowFull(now)) return this.fail();
+      this.restartOffers.push(now);
       this.remoteEpochSeen = epoch;
       this.remoteRestartCandidates = 0;
       if (this.interruption) this.interruption.wanted = false;
-      this.serialize(() => this.answerRestart(epoch, frame.sdp!));
+      this.serialize(() => this.answerRestart(epoch, frame.sdp!, now));
     } else if (frame.kind === 'restart-answer') {
       const attempt = this.attempt;
       if (!this.offerer || !attempt?.offered || attempt.answered || epoch !== attempt.epoch) return;
@@ -699,6 +700,7 @@ export class ControlIsolation {
         if (!this.ownsAttempt(pc, attempt)) return;
         this.remoteEpoch = epoch;
         this.attempt = null;
+        this.retryIfNewer(attempt.startedAt, pc);
       });
     } else if (frame.kind === 'restart-candidate') {
       if (epoch !== this.remoteEpochSeen) return;
@@ -775,9 +777,15 @@ export class ControlIsolation {
       return;
     }
     const pc = this.lease?.pc;
-    const count = pc ? this.consumeAttempt(interruption) : 0;
+    const startedAt = performance.now();
+    const count = pc ? this.consumeAttempt(interruption, startedAt) : 0;
     if (!pc || count === 0) return;
-    const attempt: Attempt = { epoch: this.restartEpoch + 1, offered: false, answered: false };
+    const attempt: Attempt = {
+      epoch: this.restartEpoch + 1,
+      startedAt,
+      offered: false,
+      answered: false,
+    };
     this.restartEpoch = attempt.epoch;
     this.attempt = attempt;
     log.info(`[Transport] Restarting isolated control ICE (${count}/${MAX_RESTART_ATTEMPTS})`);
@@ -797,21 +805,41 @@ export class ControlIsolation {
   }
 
   /** A local outage spends its own attempts; peer requests alone, a window's. */
-  private consumeAttempt(interruption: Interruption | null): number {
+  private consumeAttempt(interruption: Interruption | null, now: number): number {
+    if (this.offerWindowFull(now)) return 0;
+    let count: number;
     if (interruption) {
       if (interruption.attempts >= MAX_RESTART_ATTEMPTS) return 0;
-      return ++interruption.attempts;
+      count = ++interruption.attempts;
+    } else {
+      if (now >= this.peerWindowEnd) {
+        this.peerWindowEnd = now + RESTART_WINDOW_MS;
+        this.peerAttempts = 0;
+      }
+      if (this.peerAttempts >= MAX_RESTART_ATTEMPTS) return 0;
+      count = ++this.peerAttempts;
     }
-    const now = performance.now();
-    if (now >= this.peerWindowEnd) {
-      this.peerWindowEnd = now + RESTART_WINDOW_MS;
-      this.peerAttempts = 0;
-    }
-    if (this.peerAttempts >= MAX_RESTART_ATTEMPTS) return 0;
-    return ++this.peerAttempts;
+    this.restartOffers.push(now);
+    return count;
   }
 
-  private async answerRestart(epoch: number, sdp: string): Promise<void> {
+  /** Drops offers older than 30 s; true when one more would exceed the bound. */
+  private offerWindowFull(now: number): boolean {
+    while (this.restartOffers.length > 0 && this.restartOffers[0]! <= now - RESTART_CAP_MS)
+      this.restartOffers.shift();
+    return this.restartOffers.length >= MAX_RESTART_OFFERS;
+  }
+
+  /** An outage that began after this restart started may postdate its candidates. */
+  private retryIfNewer(startedAt: number, pc: RTCPeerConnection): void {
+    const interruption = this.interruption;
+    if (!interruption || interruption.start <= startedAt || pc.connectionState === 'connected')
+      return;
+    interruption.wanted = true;
+    this.progressRestart();
+  }
+
+  private async answerRestart(epoch: number, sdp: string, startedAt: number): Promise<void> {
     const pc = this.lease?.pc;
     const current = () => !!pc && this.current(pc) && this.remoteEpochSeen === epoch;
     if (!pc || !current()) return;
@@ -828,6 +856,7 @@ export class ControlIsolation {
     if (!current()) return;
     this.sendFrame('restart-answer', { epoch, sdp: pc.localDescription?.sdp });
     this.releaseLocalCandidates();
+    this.retryIfNewer(startedAt, pc);
   }
 
   /** New-generation candidates follow their own description on the ordered route. */

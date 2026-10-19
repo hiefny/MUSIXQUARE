@@ -147,6 +147,27 @@ PR 리뷰 지적(PeerJS는 `ice-recovered`를 내지 않아 일시 정지된 레
 일시정지·동기 코드를 건드리지 않는다. 같은 PC에 들어온 운영체제 미디어 컨트롤 입력으로 판단해 기록을
 그대로 두고, 실행 전에 선언한 보조 실행 1회를 더했다. 보조 실행은 C1–C4를 모두 통과했다.
 
+## Release and recovery
+
+- PR [#413](https://github.com/hiefny/MUSIXQUARE/pull/413) squash merge → main `e371df6b`. 최종 PR head `20ae6dae`의 CI 39305102783
+  11 jobs 통과. main 트리는 PR head와 같고, 런타임은 로컬 검사한 `4e2a26df`와 같다(차이는 문서뿐).
+  첫 PR CI의 critical runtime coverage 실패(preload.ts 함수 83.92%)는 테스트를 더해 고쳤다.
+- Exact-main push CI [39306522982](https://github.com/hiefny/MUSIXQUARE/actions/runs/39306522982) 12 jobs 통과: unit 597 files /
+  13,436 pass / 0 fail / 1 Windows-only skip, candidate browser 17 + critical browser 55 pass.
+  후보 artifact 12213268474.
+- [Production Release 39307533720](https://github.com/hiefny/MUSIXQUARE/actions/runs/39307533720) attempt 1 성공, target=app,
+  Developer API D1=false. 2026-10-20 04:04:24 KST deploy job 완료. App version
+  `50b772a9-5081-4333-b681-f39e4babc713` / deployment `53a6e14e-4ccd-4f2a-a6bd-f11c381cb1aa`, 최종 소유권
+  04:04:19.249 KST verified, 부분 릴리스 recheck compatible, smoke 4/4, 기존 App D1 계약 7단계
+  apply/verify 성공.
+- 04:04 KST 공개 8 GET 모두 HTTP 200, exact-main 후보와 크기·SHA 일치(서비스 워커 v734, 미리받기 청크
+  `preload-Cq_e08I6.js` 포함). 배포 직후 Drift Audit 39308004289: 31 pass / 0 fail / 5 manual-only.
+- 복구: 04:03:04.101 KST checkpoint 12215170019가 App 8.11.23/v732(`2f9cd799`, version `a72fa56e` /
+  deployment `95fab3bb`)를 보존한다. 롤백은 미실행이다. 롤백하면 새로고침한 클라이언트는 보조 연결 ICE
+  restart, 끊긴 미리받기 재개, 공유 중지 정렬을 잃는다. 저장 데이터 마이그레이션은 없다.
+- 남은 확인: 오너 실기 와이파이→LTE(허용 위험 #18), 미리받기 중 끊김, 공유 중지 정렬. 릴리스 기록 §2의
+  실기기 항목에 있다.
+
 ## 한계
 
 한 PC 루프백 Chromium과 CDP `offline` 규칙이다. 실제 Wi-Fi·LTE 전환, IP 변경, TURN, Android/iOS는

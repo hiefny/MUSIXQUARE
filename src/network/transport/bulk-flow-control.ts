@@ -10,21 +10,25 @@ const LEGACY_GRACE_MS = 1000;
 const NONCE_RE = /^[a-f0-9]{32}$/u;
 
 // Delay-based receipt window. A chunk is credit only while it travels:
-// sent -> bottleneck -> receiver -> receipt back. Throughput is window/loop, so
-// the window must cover the path's bandwidth-delay product, but every byte
-// beyond it waits in the shared bottleneck queue in front of control traffic.
-// Grow one chunk at a time while the measured loop shows the added chunk mostly
-// entered the pipe; shrink as soon as the loop shows it entered the queue.
+// sent -> bottleneck -> receiver -> receipt back, so throughput is window/loop.
+// The rules reason about one shared FIFO bottleneck with a fixed feedback
+// delay: there the window must cover the bandwidth-delay product and every
+// byte beyond it queues in front of control traffic. SCTP, browsers and real
+// links are not that model. Grow one chunk at a time while the measured loop
+// shows the added chunk mostly entered the pipe; shrink as soon as it queues.
 // Budgets are admission policy, not network guarantees.
 const ADAPTIVE_STEP_BYTES = CHUNK_SIZE;
+// The only cap. A 192 KiB variant changes this constant alone.
 const ADAPTIVE_MAX_BYTES = 256 * 1024;
 const ADAPTIVE_BLOCK_SAMPLES = 5;
-// Little's law: a full window drains at windowBytes/loop. Grow only when one
-// more chunk could add at most this much queueing if the path were already
-// full. A 2 Mbps/200 ms path (one chunk = 275 ms) therefore keeps 128 KiB.
+// Little's-law estimate: a full window drains at windowBytes/loop, so one more
+// chunk would add about 64 KiB x loop / window of queueing if the path were
+// already full. It is an estimate from the last median, not a worst-case
+// bound. A 2 Mbps/200 ms path (about 274 ms per chunk) therefore keeps 128 KiB.
 const ADAPTIVE_GROWTH_DELAY_MS = 250;
-// Keep a step only if at most this fraction of the added chunk became queueing
-// and the loop stays within the standing-queue budget of the 128 KiB baseline.
+// Keep a step only if at most this fraction of the added chunk's estimated
+// delay became queueing and the loop stays within the standing-queue budget of
+// the 128 KiB baseline.
 const ADAPTIVE_QUEUED_FRACTION = 0.5;
 const ADAPTIVE_STANDING_QUEUE_MS = 60;
 // Per-receipt safety above the current level's loop: twice this falls back to
@@ -36,6 +40,12 @@ const ADAPTIVE_HOLD_MS = 10_000;
 const ADAPTIVE_REPROBE_GAIN = 0.25;
 const ADAPTIVE_REPROBE_MS = 60_000;
 const ADAPTIVE_IDLE_RESET_MS = 1000;
+// Above 128 KiB the window must keep earning its size. App-limited, tail,
+// coalesced and untracked receipts release credit without a full-window
+// sample, so after this long or this many released bytes without one (counted
+// from the last sample or window change) the window returns to 128 KiB.
+const ADAPTIVE_EVIDENCE_MS = 2000;
+const ADAPTIVE_EVIDENCE_BYTES = 16 * CHUNK_SIZE;
 const ADAPTIVE_BOUNDARIES = ADAPTIVE_MAX_BYTES / CHUNK_SIZE + 4;
 
 type AdaptivePhase = 'measure' | 'probe';
@@ -68,6 +78,8 @@ class AdaptiveCreditController {
   private pendingViolation = false;
   private lastReceiptAt: number | null = null;
   private completedBlocks = 0;
+  private evidenceAt = 0;
+  private releasedSinceEvidence = 0;
 
   constructor(private readonly now: () => number) {}
 
@@ -85,6 +97,8 @@ class AdaptiveCreditController {
       trackedBoundaries: this.boundaries.length,
       completedBlocks: this.completedBlocks,
       warmupThroughBytes: this.warmupThrough,
+      evidenceAtMs: this.evidenceAt,
+      releasedSinceEvidenceBytes: this.releasedSinceEvidence,
       failedProbe: this.failedProbe ? { ...this.failedProbe } : null,
     } as const;
   }
@@ -116,6 +130,8 @@ class AdaptiveCreditController {
       // The path may have changed while idle. Relearn from 128 KiB; not a penalty.
       this.reset('producer-idle', end - bytes);
     }
+    // Evidence can expire between events; at most this chunk used the stale window.
+    this.expireEvidence(now);
     // Tails never become timing samples. Pre-activation debt is never tracked.
     if (bytes !== CHUNK_SIZE) return;
     this.boundaries.push({
@@ -132,20 +148,23 @@ class AdaptiveCreditController {
     if (!this.active) return;
     const now = this.now();
     this.lastReceiptAt = now;
+    this.releasedSinceEvidence += end - previous;
     const boundary = this.boundaries.find((entry) => entry.end === end);
     this.boundaries = this.boundaries.filter((entry) => entry.end > end);
+    const age = boundary ? now - boundary.at : NaN;
     // A coalesced or untracked receipt releases credit but is not a loop sample.
     if (
-      !boundary ||
-      boundary.epoch !== this.epoch ||
-      end - previous !== CHUNK_SIZE ||
-      end <= this.warmupThrough
+      boundary &&
+      boundary.epoch === this.epoch &&
+      end - previous === CHUNK_SIZE &&
+      end > this.warmupThrough &&
+      Number.isFinite(age) &&
+      age >= 0
     ) {
-      return;
+      this.observe(age, boundary.limited, end);
     }
-    const age = now - boundary.at;
-    if (!Number.isFinite(age) || age < 0) return;
-    this.observe(age, boundary.limited, end);
+    // Decide before the released credit wakes the sender.
+    this.expireEvidence(now);
   }
 
   dispose(): void {
@@ -172,6 +191,7 @@ class AdaptiveCreditController {
     // Only a full window measures the path; app-limited loops are shorter.
     if (!limited) return;
     this.samples.push(age);
+    this.noteEvidence();
     if (this.samples.length < ADAPTIVE_BLOCK_SAMPLES) return;
     const median = medianOf(this.samples);
     this.samples = [];
@@ -194,7 +214,8 @@ class AdaptiveCreditController {
     // Probes start only from a measured level, so both references exist.
     const previous = this.referenceAgeMs!;
     const base = this.baseAgeMs ?? previous;
-    // Delay one more chunk adds if it all queued at the previous level's rate.
+    // Estimated delay of one more chunk if all of it queued at the previous
+    // level's drain rate; a model estimate, not a worst-case bound.
     const chunkDelay = (ADAPTIVE_STEP_BYTES * previous) / (this.windowBytes - ADAPTIVE_STEP_BYTES);
     if (
       median - previous > ADAPTIVE_QUEUED_FRACTION * chunkDelay ||
@@ -244,6 +265,22 @@ class AdaptiveCreditController {
     this.referenceAgeMs = null;
   }
 
+  /** Keep a larger window only while full-window samples keep arriving. */
+  private expireEvidence(now: number): void {
+    if (this.windowBytes <= WINDOW_BYTES) return;
+    if (now - this.evidenceAt > ADAPTIVE_EVIDENCE_MS) this.forget('evidence-stale');
+    else if (this.releasedSinceEvidence > ADAPTIVE_EVIDENCE_BYTES) this.forget('evidence-sparse');
+  }
+
+  /** Missing evidence is not a failure: relearn from 128 KiB without a hold or probe memory. */
+  private forget(reason: string): void {
+    this.windowBytes = WINDOW_BYTES;
+    this.phase = 'measure';
+    this.baseAgeMs = null;
+    this.referenceAgeMs = null;
+    this.restartSamples(reason);
+  }
+
   private hold(reason: string, windowBytes: number): void {
     if (this.phase === 'probe' && this.referenceAgeMs !== null) {
       this.failedProbe = {
@@ -264,6 +301,13 @@ class AdaptiveCreditController {
     this.pendingViolation = false;
     this.warmupThrough = this.sentEnd;
     this.lastDecision = reason;
+    this.noteEvidence();
+  }
+
+  /** A full-window sample or a window change restarts the evidence bound. */
+  private noteEvidence(): void {
+    this.evidenceAt = this.now();
+    this.releasedSinceEvidence = 0;
   }
 
   private reset(reason: string, flightStart: number): void {

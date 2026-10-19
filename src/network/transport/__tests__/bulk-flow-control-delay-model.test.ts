@@ -15,6 +15,8 @@ interface Profile {
   forwardMs: number;
   returnMs: number;
   returnJitter?(): number;
+  /** A receiver that acknowledges two chunks per receipt while true. */
+  coalesce?(t: number): boolean;
 }
 
 interface Result {
@@ -23,6 +25,9 @@ interface Result {
   queueP95Ms: number;
   queueMaxMs: number;
   decisions: { t: number; decision: string; windowBytes: number }[];
+  /** Largest evidence age and unsampled release seen while above 128 KiB. */
+  evidenceGapMs: number;
+  evidenceGapBytes: number;
 }
 
 const FILE_BYTES = 23_040_044;
@@ -52,6 +57,8 @@ function simulate(profile: Profile, adaptive: boolean, totalBytes = FILE_BYTES):
   let received = 0;
   let reported = 0;
   let maxWindow = 0;
+  let evidenceGapMs = 0;
+  let evidenceGapBytes = 0;
   try {
     for (now = 0; now < 600_000; now++) {
       while (receipts[0] && receipts[0].at <= now) {
@@ -75,6 +82,10 @@ function simulate(profile: Profile, adaptive: boolean, totalBytes = FILE_BYTES):
         });
       }
       maxWindow = Math.max(maxWindow, snapshot.windowBytes);
+      if (snapshot.windowBytes > 128 * 1024) {
+        evidenceGapMs = Math.max(evidenceGapMs, now - snapshot.evidenceAtMs);
+        evidenceGapBytes = Math.max(evidenceGapBytes, snapshot.releasedSinceEvidenceBytes);
+      }
       if (snapshot.acknowledgedBytes >= totalBytes) {
         const ordered = [...waits].sort((a, b) => a - b);
         return {
@@ -83,6 +94,8 @@ function simulate(profile: Profile, adaptive: boolean, totalBytes = FILE_BYTES):
           queueP95Ms: ordered[Math.floor(ordered.length * 0.95)] ?? 0,
           queueMaxMs: ordered.at(-1) ?? 0,
           decisions,
+          evidenceGapMs,
+          evidenceGapBytes,
         };
       }
       for (;;) {
@@ -108,6 +121,13 @@ function simulate(profile: Profile, adaptive: boolean, totalBytes = FILE_BYTES):
       }
       while (pipe[0] && pipe[0].at <= now) {
         received += pipe.shift()!.bytes;
+        if (
+          profile.coalesce?.(now) &&
+          received - reported < 2 * CHUNK_SIZE &&
+          received < totalBytes
+        ) {
+          continue;
+        }
         // Full chunks are receipted at once; a tail waits for the 20 ms batch.
         const batch = received - reported >= CHUNK_SIZE ? 0 : 20;
         const at = Math.max(
@@ -150,6 +170,16 @@ const failedProbes = (result: Result) =>
     ['queue-growth', 'loop-increase', 'loop-spike'].includes(decision),
   );
 
+const unproven = (result: Result) =>
+  result.decisions.filter(({ decision }) => decision.startsWith('evidence-'));
+
+/** Window-limited flows stay within half of the 2 s / 16-chunk evidence bound. */
+function expectFreshEvidence(result: Result): void {
+  expect(unproven(result)).toEqual([]);
+  expect(result.evidenceGapMs).toBeLessThan(1000);
+  expect(result.evidenceGapBytes).toBeLessThanOrEqual(8 * CHUNK_SIZE);
+}
+
 describe('delay-based receipt window path model', () => {
   it('fills an 8 Mbps / 214 ms path without adding standing queue', () => {
     const { fixed, delay } = compare(constant(8));
@@ -159,6 +189,7 @@ describe('delay-based receipt window path model', () => {
       3000,
     );
     expect(failedProbes(delay)).toEqual([]);
+    expectFreshEvidence(delay);
     expect(delay.completionMs).toBeLessThan(fixed.completionMs * 0.55);
     // A 64 KiB chunk alone is 65.5 ms at 8 Mbps; the window adds at most ~one more
     // queued chunk-time at p95 and none at the maximum.
@@ -178,6 +209,7 @@ describe('delay-based receipt window path model', () => {
       const { fixed, delay } = compare(constant(mbps));
       expect(delay.completionMs).toBeLessThanOrEqual(fixed.completionMs);
       expect(delay.queueP95Ms - fixed.queueP95Ms).toBeLessThan(100);
+      expectFreshEvidence(delay);
       // One probe per minute at most once the same window has failed.
       for (const [index, failure] of failedProbes(delay).entries()) {
         expect(failure.t).toBeGreaterThanOrEqual(index * 60_000);
@@ -189,6 +221,7 @@ describe('delay-based receipt window path model', () => {
     const { fixed, delay } = compare(constant(50, 5, 5));
     expect(delay.completionMs).toBe(fixed.completionMs);
     expect(delay.maxWindow).toBeLessThanOrEqual(192 * 1024);
+    expectFreshEvidence(delay);
   });
 
   it('falls back on a bandwidth collapse and regrows after recovery', () => {
@@ -204,7 +237,9 @@ describe('delay-based receipt window path model', () => {
       delay.decisions.some(({ t, decision }) => t >= 16_000 && decision === 'accepted-256'),
     ).toBe(true);
     expect(delay.completionMs).toBeLessThan(fixed.completionMs * 0.7);
-    // Physics, not a pass: data already in flight for 8 Mbps drains at 2 Mbps.
+    expectFreshEvidence(delay);
+    // A property of this FIFO model, not a pass: data already in flight for
+    // 8 Mbps drains at 2 Mbps.
     expect(delay.queueMaxMs).toBeLessThan(1000);
   });
 
@@ -216,5 +251,20 @@ describe('delay-based receipt window path model', () => {
     });
     expect(delay.maxWindow).toBe(256 * 1024);
     expect(delay.completionMs).toBeLessThan(fixed.completionMs * 0.6);
+    expectFreshEvidence(delay);
+  });
+
+  it('returns to 128 KiB within the evidence bound when receipts stop yielding samples', () => {
+    const { fixed, delay } = compare({
+      ...constant(8),
+      coalesce: (t) => t >= 8000 && t < 16_000,
+    });
+    const shed = delay.decisions.find(({ t }) => t >= 8000)!;
+    expect(shed).toMatchObject({ decision: 'evidence-sparse', windowBytes: 128 * 1024 });
+    expect(shed.t - 8000).toBeLessThan(2000);
+    // One receipt per chunk again: the window is earned anew, not restored.
+    const after = delay.decisions.filter(({ t }) => t >= 16_000).map(({ decision }) => decision);
+    expect(after).toContain('probe-192');
+    expect(delay.completionMs).toBeLessThan(fixed.completionMs);
   });
 });

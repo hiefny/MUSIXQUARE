@@ -345,6 +345,221 @@ describe('Delay-based shrink', () => {
   });
 });
 
+describe('Evidence freshness above 128 KiB', () => {
+  const unproven = (p: ReturnType<typeof endpoint>) =>
+    p.history.filter((decision) => decision.startsWith('evidence-'));
+
+  it('returns to 128 KiB once app-limited receipts supply no sample for more than 2 s', () => {
+    const p = endpoint();
+    grow256(p);
+    p.drain(300);
+    const before = p.flow.diagnosticSnapshot;
+    expect(before.evidenceAtMs).toBe(now);
+    // Timed, on-time receipts that never filled the window are not evidence.
+    for (let i = 0; i < 8; i++) p.single(250);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 256 * KIB,
+      evidenceAtMs: before.evidenceAtMs,
+      releasedSinceEvidenceBytes: 8 * CHUNK_SIZE,
+    });
+    expect(now - before.evidenceAtMs).toBe(2000);
+    p.send();
+    tick(1);
+    p.inflight.shift();
+    p.ack();
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * KIB,
+      phase: 'measure',
+      lastDecision: 'evidence-stale',
+      baseAgeMs: null,
+      referenceAgeMs: null,
+      // Missing evidence is not a failed probe and earns no hold.
+      heldUntilMs: before.heldUntilMs,
+      failedProbe: null,
+      evidenceAtMs: now,
+      releasedSinceEvidenceBytes: 0,
+      outstandingBytes: 0,
+    });
+    // Fresh full-window samples earn the larger window again.
+    p.run(10, 300);
+    expect(p.history.slice(-2)).toEqual(['evidence-stale', 'probe-192']);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('returns to 128 KiB after more than 16 coalesced chunks and cannot regrow while that lasts', () => {
+    const p = endpoint();
+    grow256(p);
+    const before = p.flow.diagnosticSnapshot;
+    // Keep the window full, but every receipt acknowledges two chunks.
+    const pairs = (count: number) => {
+      for (let i = 0; i < count; i++) {
+        p.fill();
+        tick(100);
+        p.inflight.splice(0, 2);
+        p.ack(2 * CHUNK_SIZE);
+      }
+    };
+    pairs(8);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 256 * KIB,
+      releasedSinceEvidenceBytes: 16 * CHUNK_SIZE,
+      sampleCount: before.sampleCount,
+    });
+    pairs(1);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * KIB,
+      lastDecision: 'evidence-sparse',
+      outstandingBytes: 128 * KIB,
+    });
+    expect(now - before.evidenceAtMs).toBeLessThan(2000);
+    expect(p.flow.hasCapacity(CHUNK_SIZE)).toBe(false);
+    pairs(60);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * KIB,
+      completedBlocks: before.completedBlocks,
+    });
+    expect(p.history.at(-1)).toBe('evidence-sparse');
+    // One receipt per chunk again: ordinary learning resumes.
+    p.run(12, 300);
+    expect(p.history.slice(-2)).toEqual(['evidence-sparse', 'probe-192']);
+  });
+
+  it('keeps a window whose full-window samples continue around file tails', () => {
+    const p = endpoint();
+    grow256(p);
+    for (let file = 0; file < 20; file++) {
+      p.run(20, 300);
+      // A file ends with a short tail; its receipt releases credit unsampled.
+      p.send(123);
+    }
+    p.run(20, 300);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 256 * KIB,
+      lastDecision: 'accepted-256',
+    });
+    expect(unproven(p)).toEqual([]);
+  });
+
+  it('lets a burst after an app-limited trickle use only 128 KiB', () => {
+    const p = endpoint();
+    grow256(p);
+    p.drain(300);
+    // One chunk every 900 ms: never idle for 1 s after a receipt, never window-limited.
+    for (let i = 0; i < 3; i++) {
+      p.single(300);
+      tick(600);
+    }
+    expect(p.flow.diagnosticSnapshot.lastDecision).toBe('evidence-stale');
+    p.fill();
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * KIB,
+      outstandingBytes: 128 * KIB,
+      epoch: 1,
+    });
+  });
+
+  it('admits at most the triggering chunk at a window whose evidence expired between events', () => {
+    const p = endpoint();
+    grow256(p);
+    const before = p.flow.diagnosticSnapshot;
+    expect(before.outstandingBytes).toBe(192 * KIB);
+    // Neither a send nor a receipt observes the expiry, so nothing changes yet.
+    tick(2001);
+    expect(p.flow.diagnosticSnapshot).toEqual(before);
+    p.send();
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * KIB,
+      lastDecision: 'evidence-stale',
+      sentBytes: before.sentBytes + CHUNK_SIZE,
+      acknowledgedBytes: before.acknowledgedBytes,
+      outstandingBytes: 256 * KIB,
+    });
+    // Lifetime debt is unchanged: late receipts release exactly their bytes and
+    // credit reopens only below the 128 KiB window.
+    for (const expected of [false, false, true]) {
+      p.inflight.shift();
+      p.ack();
+      expect(p.flow.hasCapacity(CHUNK_SIZE)).toBe(expected);
+    }
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      acknowledgedBytes: before.acknowledgedBytes + 3 * CHUNK_SIZE,
+      outstandingBytes: CHUNK_SIZE,
+      sampleCount: 0,
+    });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('remembers a probe that coincided with a bandwidth drop for up to 60 s', () => {
+    const p = endpoint();
+    p.run(7, 300);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({ windowBytes: 192 * KIB, phase: 'probe' });
+    // The drop lengthens every loop from the moment the probe starts.
+    p.run(10, 900);
+    const failed = p.flow.diagnosticSnapshot;
+    expect(failed).toMatchObject({
+      windowBytes: 128 * KIB,
+      lastDecision: 'loop-spike',
+      failedProbe: { windowBytes: 128 * KIB, ageMs: 300 },
+      heldUntilMs: failed.failedProbe!.at + 10_000,
+    });
+    // The path recovers at once, but the unchanged loop cannot repeat the probe.
+    while (now - failed.failedProbe!.at < 59_000) p.run(1, 300);
+    expect(p.flow.diagnosticSnapshot.windowBytes).toBe(128 * KIB);
+    expect(p.history.filter((decision) => decision === 'probe-192')).toHaveLength(1);
+    while (now - failed.failedProbe!.at < 60_000) p.run(1, 300);
+    p.run(6, 300);
+    expect(p.history.filter((decision) => decision === 'probe-192')).toHaveLength(2);
+    expect(unproven(p)).toEqual([]);
+  });
+
+  it('drops a probe whose drop stalls receipts for more than 2 s without probe memory', () => {
+    const p = endpoint();
+    p.run(7, 300);
+    expect(p.flow.diagnosticSnapshot.lastDecision).toBe('probe-192');
+    p.run(1, 2600);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      windowBytes: 128 * KIB,
+      lastDecision: 'evidence-stale',
+      failedProbe: null,
+      heldUntilMs: 0,
+    });
+    // Nothing was learned about 192 KiB, so a recovered path may probe it again.
+    p.run(10, 300);
+    expect(p.history.slice(-2)).toEqual(['evidence-stale', 'probe-192']);
+  });
+
+  it('ignores receipts after deactivation and restarts the evidence bound on reactivation', () => {
+    const p = endpoint();
+    grow256(p);
+    p.fill();
+    p.flow.setControlIsolationActive(false);
+    const inactive = p.flow.diagnosticSnapshot;
+    expect(inactive).toMatchObject({
+      windowBytes: 128 * KIB,
+      lastDecision: 'control-isolation-inactive',
+      outstandingBytes: 256 * KIB,
+      releasedSinceEvidenceBytes: 0,
+    });
+    tick(5000);
+    p.drain(300);
+    expect(p.flow.diagnosticSnapshot).toEqual({
+      ...inactive,
+      acknowledgedBytes: inactive.sentBytes,
+      outstandingBytes: 0,
+    });
+    p.flow.setControlIsolationActive(true);
+    expect(p.flow.diagnosticSnapshot).toMatchObject({
+      lastDecision: 'negotiated',
+      windowBytes: 128 * KIB,
+      evidenceAtMs: now,
+      releasedSinceEvidenceBytes: 0,
+    });
+    p.run(12, 300);
+    expect(p.history.slice(-2)).toEqual(['negotiated', 'probe-192']);
+    expect(unproven(p)).toEqual([]);
+  });
+});
+
 describe('Control isolation activation boundary', () => {
   it('keeps a shared v1 connection at 128 KiB without collecting adaptive evidence', () => {
     const p = endpoint(true, false);

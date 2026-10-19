@@ -1,6 +1,6 @@
 # 짧은 화면에서 로그인 창 가운데 정렬 (2026-10-20)
 
-- Status: 8.11.27 UI 수정과 검증 기록이다. 배포 결과의 정본은 [릴리스 기록](../release-record.md)과
+- Status: 8.11.27 UI 수정·검증·배포 기록이다. 배포 결과의 정본은 [릴리스 기록](../release-record.md)과
   [릴리스 이력](../release-history.md)이다.
 - 계기: 오너 지적(2026-10-20). 휴대폰 가로 화면에서 화면 높이가 일정 이하가 되면 로그인 창이 작아지면서
   화면 가운데가 아니라 위쪽에 붙어 보였다.
@@ -46,6 +46,26 @@
   `build:checked` 통과, unit 597 files / 13,439 pass / 0 fail / 0 skip(새 계약 테스트 1개 추가), 소스 가드
   bus-pairing·dead-exports·import-graph·sw-cache-version·brand-capitalization 통과. 로컬 결과는 exact-main CI
   후보를 대신하지 않는다.
+
+## Release and recovery
+
+- PR [#418](https://github.com/hiefny/MUSIXQUARE/pull/418) squash merge → main `eaf8734e`. PR head `c4e58547`의 CI 39321172162
+  11 jobs 통과, Codex 리뷰 지적 없음. main 트리는 PR head와 같다.
+- Exact-main push CI [39322160701](https://github.com/hiefny/MUSIXQUARE/actions/runs/39322160701) 11 jobs 통과: unit 597 files /
+  13,438 pass / 0 fail / 1 Windows-only skip, candidate browser 17 + critical browser 55 pass. 후보 artifact
+  12221465363.
+- [Production Release 39322968235](https://github.com/hiefny/MUSIXQUARE/actions/runs/39322968235) attempt 1 성공, target=app,
+  Developer API D1=false. 2026-10-20 05:55:20 KST deploy job 완료. App version
+  `87ff6e7e-d3db-4f2f-92ce-9517f98ca036` / deployment `c77b5867-8587-4acf-b927-cecdaad61d82`, 최종 소유권
+  05:55:13.137 KST verified, 부분 릴리스 recheck compatible, smoke 4/4, 기존 App D1 계약 7단계 apply/verify
+  성공.
+- 05:55 KST 공개 8 GET 모두 HTTP 200, exact-main 후보와 크기·SHA 일치(서비스 워커 v736, main CSS는 빠진
+  선언만큼 23 B 감소). 05:56 KST 595×320 창의 운영 페이지가 `cache=v736`을 싣고, 짧은 화면 규칙이 적용된 채
+  계정·관리자 권한 오버레이가 `align-items: center`, 여백 12px임을 확인했다. 배포 직후 Drift Audit 39323382831:
+  31 pass / 0 fail / 5 manual-only.
+- 복구: 05:53:59.099 KST checkpoint 12220362286이 App 8.11.26/v735(`4f79e356`, version `d96321c5` /
+  deployment `e764cc90`)를 보존한다. provenance는 verified-release-ancestor다. 롤백은 미실행이다. 롤백하면
+  새로고침한 클라이언트는 짧은 화면에서 두 창이 다시 위쪽에 붙고, 저장 데이터 마이그레이션은 없다.
 
 ## 한계
 

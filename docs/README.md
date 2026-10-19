@@ -101,7 +101,9 @@ runbooks. Neither belongs in a general setup document.
   native evidence or a release record.
 - [Product control isolation — 2026-10-19](design/control-isolation-product-integration-2026-10-19.md) —
   product negotiation, ordered handoff, compatibility, reconnect and bounded
-  adaptive credit; integration validation and release status are tracked here.
+  adaptive credit; resumed C9 qualification passes preload, mixed versions,
+  user-operated reconnect and shared uplink checks. Deployment remains withheld;
+  preserved failures, measurement limits and separate-candidate review are included.
 - [Control association isolation — 2026-10-19](design/control-association-isolation-2026-10-19.md) —
   sequential native transport investigation, with a separate control SCTP
   association and fixed/adaptive bulk receipt windows. Preserves failed setup instrumentation,

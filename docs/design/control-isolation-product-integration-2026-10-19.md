@@ -1,13 +1,72 @@
 # Standard control isolation: product integration
 
-Status: implementation and verification in progress. This is not evidence of a
-production release. The owner authorized integration, remaining tests, and an
-App release only if ordinary transfer and preload pass. The starting main is
+Status: the owner resumed qualification on 2026-10-19 and explicitly withheld
+deployment. The earlier safe pause and its standalone preload arm are preserved
+below. Remaining tests and a read-only review of the separate delay-based credit
+branch are authorized; this work does not authorize a production release.
+This is not evidence of a production release. The owner's earlier conditional
+release approval is superseded by the current deployment hold. The starting main is
 `deb52829930d0b8a4b87e70b05f84aa7c242c799`; production remains `416f5ee4`,
 App 8.11.20/cache v723 until an actual release is recorded. The proposed product
-is 8.11.22/cache v729. No dependencies, Worker protocol, schema, secret, binding,
+is 8.11.22/cache v731. No dependencies, Worker protocol, schema, secret, binding,
 CSP, admission policy or media format are changed. App release scope includes
 the previously merged, undeployed YouTube clock-quality lease protections.
+
+## Resumption and separate candidate review
+
+On resumption, server ownership, six served asset hashes and the original
+34 frozen inputs matched. The interrupted candidate preload arm remains
+standalone. A fresh consecutive C9→baseline pair uses new `resume-r2` IDs,
+unchanged fixtures/runner/gates, and freeze SHA256
+`c405c187d32f53a13369b4ff68101aa9e63ec49df403e9a943ff73a0ae6b7db1`.
+Deployment remains withheld even if qualification succeeds.
+
+The owner also requested a read-only review of remote
+`agent/delay-based-credit-window`, captured at `a85831d4` (runtime `4b83ba14`,
+based on C9). That branch replaces A192 with five-sample median receipt-delay
+decisions and a 256 KiB ceiling. It is a worthwhile independent experiment,
+especially a 192 KiB-capped variant that separates faster adaptation from a
+larger maximum. It is not part of the current tested runtime. Its deterministic
+FIFO model omits SCTP/browser effects and does not establish native performance.
+Review identified a safety boundary to test: after expansion, ineligible or
+coalesced receipts release credit without supplying observations, and the old
+phase watchdog is absent. This can retain the larger window without renewed
+evidence. Current full-chunk receivers normally emit one receipt per chunk;
+network batching does not itself merge those application frames, so this is
+not an observed continuous-file failure. Expanded-window sparse/coalesced ACK,
+idle-to-burst and bandwidth-drop-at-probe cases merit pins and native checks.
+The branch's estimated chunk delay is not a worst-case bound, and its physical
+impossibility claims must stay scoped to the stated FIFO/feedback model.
+No source edits or tests were made on that separate branch during this review.
+
+### Resumed qualification result
+
+The planned remaining local qualification is complete on runtime
+`6a5afaaefe2c301b3b37a4f5c43ebe2ef36a01f2` (C9). No product source changed during
+resumption. Windows/Chromium exercised the actual product RTC negotiation and
+file paths, with a controlled YouTube provider. The unchanged gates pass:
+
+| Comparison | Baseline → C9 completion | Maximum control delay, baseline → C9 |
+| --- | --- | --- |
+| High-RTT ordinary (before pause) | 73.565 → 52.326 s | 1,679.1 → 217.4 ms |
+| High-RTT preload (fresh resumed pair) | 72.041 → 51.454 s | 1,226.2 → 179.2 ms |
+| Slow 2 Mbps preload | 102.444 → 103.770 s | 1,245.3 → 348.2 ms |
+| Dynamic 8→2→8 Mbps preload | 156.439 → 126.724 s | 1,216.6 → 565.5 ms |
+| Shared host upload preload, slow receiver | 108.225 → 109.266 s | 2,184.0 → 375.2 ms |
+| Shared host upload preload, high-RTT receiver | 97.740 → 99.208 s | 1,347.2 → 305.8 ms |
+
+All six mixed-version/lifecycle cases (ten files) and actual user-operated
+Reconnect → Start (three completed files) independently pass the functional
+contract. The shared-host pair retains 128 KiB on both candidate connections;
+it demonstrates preserved throughput and lower control delay, not an adaptive
+window expansion. Original harness/reader failures, sparse statistical groups,
+the old-host setup-baseline overlap and invalid export-only rows remain recorded
+below. These results do not claim real-device acoustic synchronization, live
+YouTube behavior, unattended recovery or universal network performance.
+
+Deployment remains explicitly withheld. Main, production and the other
+experimental branch were not changed. Branch CI and local qualification are
+not an exact-main release candidate.
 
 ## Chosen transport
 
@@ -378,14 +437,240 @@ latest-seek versus latest-replay, no duplicate physical load/session, and no
 resurrection after pause/stop. Full test types, targeted lint and formatting
 also pass. Their evidence manifest has SHA256
 `21381151b7adfcd4c7d95b004df6389fd703797ebe4fcb3334e595db4144ba0f`.
-Full-suite and native follow-up evidence is pending.
+The committed correction is `6a5afaae` (App 8.11.22/cache v731). Its committed
+production build and full formatting check pass. The full Windows unit run
+passes **594 files / 13,364 tests / zero failures or skips**;
+`root/full-unit-c9.json` has SHA256
+`5a9b24d57a72723137bbf655f6023e068b7931671bebfeea267d8aac982e4c59`.
+Independent review confirms the only runtime delta from C6 is `playlist.ts`,
+and all ten reviewed transport files remain identical to C4. The final branch
+CI `39177262412` passes all eleven jobs; it is not an exact-main release candidate.
+Before further measurements, the ordinary test order was
+set to candidate then baseline: it replicates the prior C4 forward pass under
+the unchanged transport implementation without duplicating both orders again.
+This selection precedes any C9 numeric result and leaves all gates unchanged.
 
-Reverse-order replications, multiple receivers, mixed versions, the actual
-Reconnect button and constrained shared-host uplink are also pending.
-First-pair success alone does not authorize merging or deployment.
+The unchanged native two-intent diagnostic then completed five fresh rooms.
+Independent audit `audit/setup-c9-independent-r1.json` has SHA256
+`978345562124e1a05f0a3738e957da4394ad4e3e0eeb5faf02e8de62c9f92074`.
+All five finished with both endpoints PLAYING the same occurrence, with no
+host cue/load after playback, browser errors, observer exceptions or drops.
+Attempt three actually delivered the explicit replay before readiness; the
+other four delivered it after playback had already started. Each guest still
+performed its two initial rendezvous pause/seek/play sequences, so this result
+does not claim uninterrupted guest playback or zero setup mutations. The
+controlled-provider scope and the preserved C6 failure remain unchanged.
 
-Remaining product-native results and release evidence will be added only after execution.
-PR/local success cannot replace the successful exact-main-SHA CI candidate.
+The C9 ordinary reverse pair independently passes the unchanged gates:
+baseline **73.565 s** versus candidate **52.326 s**, a **28.8711%** reduction.
+Maximum public-control delay is **1,679.1001 ms versus 217.3999 ms**. Exact
+352-chunk file bytes/hash, queue/session identity, lane ownership, READY,
+S=R=A accounting and cold control handoff all pass. There are 274 accepted
+192 KiB sends above the old 128 KiB debt boundary. Applicable same-type
+baseline-relative delay gates pass; fourteen duplicated whole/profile views
+remain N/A due to sparse baseline samples or candidate-only acknowledgements.
+Media analysis is N/A for ordinary transfer, not a playback-quality pass.
+Independent audit `audit/performance-c9-ordinary-reverse-independent-r1.json`
+has SHA256 `2e35ba7e685d30522d34ff0e4b0651ef6c3ba3b78345e15c01effe84e4cebe0c`;
+manifest SHA256 is
+`02e5fac247bf918849de81aed7d88f6862fb132b5fdf3146e847c0fc45c25200`.
+Candidate raw SHA256 is
+`889b7c915582ebfbfc3993165237d7461be9a3700342fbe093bdd5913470db43`,
+baseline raw SHA256 is
+`bf003e31b345231a5217c39df458cf9b700ca8d81a30b19d8a144be3c0922588`.
+
+The fresh C9 H8 preload `resume-r2` pair also independently passes. Completion
+is baseline **72.041 s** versus candidate **51.454 s** (**28.5768%** reduction);
+maximum control delay is **1,226.200 ms versus 179.200 ms**. All 352 chunks,
+23,040,044-byte S/R/reported/A accounting, file SHA, queue/session/lane identity,
+37 frozen inputs and actual control handoff match. There are 277 accepted
+192 KiB sends above the old debt limit. Applicable delay budgets pass; the
+YouTube-control p95 comparison remains N/A with 24 baseline versus 17 candidate
+samples. In the common measurement interval, the controlled provider has zero
+unexpected mutations, non-playing samples or observation gaps, and residual
+change from each own baseline is at most 1.05/1.00 ms. This is player-timeline
+observation, not acoustic synchronization. Three candidate export-only tail
+rows outside that interval remain invalid and are not silently discarded from
+the raw record. Audit `audit/performance-c9-preload-resume-independent-r1.json`
+has SHA256 `40599bfce4feaa4e8bc5166b0ac39d853a2dbcf69447729ad4d12ee0ca6b9f42`;
+its manifest SHA256 is
+`3c2e8b01ab9c733bbc9c2dfa87031f9fc68de71a6a8e4dcea4d9bac44c8af294`.
+
+The fresh slow2 B→C preload pair independently passes. Completion is
+**102.444 s versus 103.770 s** (+1.2944%, within the predeclared 10% limit);
+payload-only time is 101.431 versus 101.626 s. Both remain at 128 KiB and
+candidate expansion count is zero, as intended for this path. Maximum control
+delay is **1,245.3 ms versus 348.2 ms**. File/accounting/route/freeze checks
+and all applicable relative delay budgets pass (eight sparse views remain N/A).
+Common media observation has zero unexpected mutations, non-playing samples,
+gaps or invalid rows; the separate export-only invalid rows remain preserved.
+Audit `audit/performance-c9-slow2-preload-independent-r1.json` has SHA256
+`d4af4c2719733e900a3a69c8ca6b1b49e1ecde3b2ddf213552286c3f1e0a56ba`;
+manifest SHA256 is
+`e5e4533083f51db0a6ff543fc61acd5cc7d487c0b283206a4a4e2b1613683c48`.
+The audit reader requires enlarged-window exposure for highRTT/dynamic only;
+slow2's intended non-expansion is not a failure. This is a profile-correctness
+fix to the reader, not a change to any numerical budget or product policy.
+
+The fresh dynamic C→B preload pair independently passes. Completion is
+**156.439 s versus 126.724 s** (18.9946% reduction; this profile requires no
+more than 10% regression, not the H8-specific 20% gain). Maximum control delay
+is **1,216.6 ms versus 565.5 ms**. Whole and individual-phase relative budgets
+pass, including slow-phase pong excess maximum +124.1 ms within the 250 ms
+limit; ten sparse views remain N/A. The fixed drop occurred at +30.008 s,
+with matching endpoint/native-ledger boundaries proving accepted epoch 4,
+192 KiB window and 196,608 bytes of actual debt. First observed fallback to
+128 KiB is +30.793 s; accepted 192 KiB resumes at +97.662 s after recovery.
+All three phases contain actual TX and RX. The exact 704-chunk / 46,080,044-byte
+file, lifetime S/R/reported/A, source/routes and 42 frozen inputs pass.
+Common media observations have no unexpected mutations, non-playing samples,
+gaps or invalid rows; export-only invalid rows B3/C7 remain separate.
+Audit `audit/performance-c9-dynamic-preload-independent-r1.json` has SHA256
+`9b987a0ae4d6b8bb87963d77981201df424da8a391b945ca4773304c5ae0c7a9`;
+manifest SHA256 is
+`b0e075703ca442f34fb919b083c2313119b6b133f1c6ff17dc85a1b08203029c`.
+The phase coverage helper was strengthened to check real guest RX as well as
+host TX, preserving the original helper and adding missing-RX negative pins.
+No product, shaping, timing or numerical acceptance value changed.
+
+The resumed `product-c9-actual-reconnect-button-r2` functional run failed during
+setup, before any injected side-connection failure or Reconnect click. Its first
+ordinary file passed exact 74-chunk / 4,800,044-byte accounting, resident hash,
+READY and route checks. The helper then added YouTube to the already nonempty
+playlist and incorrectly waited for automatic playback. Raw events and source
+confirm that adding to this queue preserves the current file, as intended;
+neither endpoint made a YouTube player call. This is a confirmed test-helper
+assumption error, not evidence of a product reconnect defect or a reconnect pass.
+The failed raw SHA256 is
+`085932f707b1fc2c5e9e0085fbbaac0084da016bfcff550388fa869bca5e441d`.
+Independent triage `audit/reconnect-c9-r2-independent-triage.json` has SHA256
+`ce6d52efea1383c63da7621f3fd82671ce716892c99b5feca82a5559eb397b2d`.
+
+A separate functional-only helper now selects the newly added occurrence once
+only when the preceding queue was nonempty and that occurrence is not already
+current. Empty-room automatic startup, the frozen performance driver and all
+product code are unchanged. The new helper and import-only runner revision
+passed independent delta review, syntax and targeted strict types before the
+new `r3` execution. Mixed-version cases start with an empty queue and retain
+their existing driver. The original failure and its 25-input freeze remain
+preserved; no timeout or product acceptance condition was relaxed.
+
+The subsequent functional `r3` completed ordinary and preload files with exact
+resident hashes, then closed the actual side connection with 65,536 bytes of
+outstanding debt. The real Reconnect click navigated to the correct room URL,
+changed the document time origin and completed bootstrap. The helper then
+timed out waiting for a connection without pressing the invite screen's Start
+button. Source confirms that `/CODE` opens that screen, and only its explicit
+Start gesture calls `joinSession`. The new document recorded no PCs, logical
+connections or native/application traffic. This second helper assumption error
+does not demonstrate a reconnect transport defect, but the overall run remains
+failed and does not qualify reconnection. The final invite DOM was not captured
+in this run, so its visible state is a source inference, not direct raw evidence.
+Raw SHA256 is
+`ad5d265e07a604376dbc6df3d800b6d717f8f8bba58942d6fa7d83d4ba95576d`;
+independent triage `audit/reconnect-c9-r3-independent-triage.json` has SHA256
+`33293a122811cb451f4a7f928a6eb0038af9ba69f0be185f3cd07d9045f019f2`.
+The next functional actor requires the exact visible room code and enabled Start,
+clicks it once and preserves DOM/state even on failure. The contract is product
+hard navigation followed by explicit user Start in the same Page/context,
+not unattended automatic reconnection. Product code and acceptance limits remain
+unchanged; the new actor/runner/analyzer delta passed independent reading.
+
+Functional `r4` then completed the real Reconnect → exact invite Start sequence
+and all three files. The original preliminary scorer reported
+`exact-product-invite-code-not-proved` because it required the final URL to retain
+`/CODE`. C9 intentionally cleans that URL to `/` after successful Standard join.
+The preserved raw instead proves the exact pre-Start URL/visible code, one Start
+click, and matching post-join room/host identity. Independent re-reading passes
+that actual contract without another native retry; the original scorer failure
+is retained. Raw SHA256 is
+`12741e55e6e1d55bf00a79c122e7c1c1b36a8a193fde5dc3a2a10baa3df12ff3`.
+The 31 frozen inputs, three 4,800,044-byte files with 74 exact chunks each,
+queue/session/lane identity, S/R/A and resident SHA all match. The same browser
+Page/context contains a new document and new connection/nonces; no send follows
+the old logical close. This verifies user-operated recovery, not unattended
+reconnection or uninterrupted media across navigation. Existing protected media
+intervals have zero non-playing, invalid or unexpected mutation observations
+(old 88/fresh 21 samples). Positive queue growth was not exposed in this run;
+one initial fresh-bootstrap application entry lacks matching observation.
+Those limits remain unavailable rather than being counted as passes.
+Independent audit `audit/reconnect-c9-r4-independent-final-r1.json` has SHA256
+`9d6eec8ee03047dbdac496754ad05fff8f0c708237fea5e6faf9ebe6b61d4a27`;
+its manifest SHA256 is
+`dad1b5668956406f36bd77ad0f70a32ea250c7317d660746a93af312151aebaf`.
+
+The six mixed-version/lifecycle cases independently pass their functional
+contract: new-host mixed old/new receivers for ordinary and preload, old-host
+new receiver for both, cancellation/re-addition, and partial-preload promotion.
+Ten received files each match 4,800,044 bytes / 74 exact chunks, resident SHA,
+queue/session identity, native route and cumulative accounting. All 26 frozen
+references and served C9/production-416 assets match. Mixed links retain the
+128 KiB fallback; cancellation and promotion actually occur with 64 KiB partial
+payload/debt, preserving accounting rather than testing only idle states.
+
+One scope limit is explicit: the old-host preload run's labelled no-file
+baseline overlaps its initial zero-start prepare/arm/commit. That produces
+seven invalid paired samples (six host and five guest non-playing observations).
+Both players start 2,577 ms before the first file demand; the protected file
+interval then has 102 samples with zero invalid observations or unexpected
+mutations. The frozen functional contract reports baseline observations but
+does not impose the performance reader's additional uninterrupted-baseline gate.
+The first independent reader's broader FAIL is preserved and corrected to the
+original contract. Whole-baseline continuity is still false, and that interval
+must not be reused as numeric performance evidence. Functional/route PASS is
+not a claim of flawless playback throughout setup.
+The independent result under `scratch/control-isolation-product-2026-10-19/`
+is `compat/audit/compat-c9-independent-final-r2.json`, SHA256
+`fe561443f0a1675c9f8a272abcd0c8b73a8a12c624561e3a3698b95402907a48`;
+its manifest SHA256 is
+`04066d3f3414113a99f415c7fc4048f185977c3ed440ff99bcf243aad82fca47`.
+
+The constrained shared-host uplink preload B→C comparison independently passes. A single
+4 Mbps host upload profile serves simultaneous slow2 and high-RTT receivers.
+Their completion times are respectively **108.225→109.266 s** (+0.9619%) and
+**97.740→99.208 s** (+1.5019%), within the unchanged 10% regression budget.
+Whole-room maximum control delay falls from **2,184.0→375.2 ms** for slow2 and
+**1,347.2→305.8 ms** for high RTT. All applicable own-transfer and whole-room
+budgets pass across 29 groups; 17 sparse/unavailable views remain N/A.
+The four files each have 352 exact chunks / 23,040,044 bytes with matching
+resident SHA, S/R/A, READY/ACK and route ownership. Both candidate windows remain
+128 KiB, with no expansion. Native selected-pair traffic is approximately
+474/477 kB/s and aggregate receiver payload approximately 450/453 kB/s under the
+single host profile, supporting actual shared load. These are not exact IP-wire
+rates or a claim of saturation at every instant.
+
+Common media and drain intervals have zero invalid/non-playing observations or
+unexpected mutations; maximum change from each own baseline is 1.15 ms.
+After-export guest-only invalid rows remain preserved (baseline 4/7, candidate
+10/16). The final shared runner uses isolated type-only analyzer copies: two
+runner annotations, an analyzer parameter annotation and corresponding import/
+freeze names. Exact inverse edits recover the original files byte for byte.
+Targeted strict types and all three syntax checks pass; no timing, expression
+or acceptance budget changed, and prior frozen performance readers are intact.
+The pair's 26-input freeze has SHA256
+`b6964a8a4d00466f34b172f55a1b3dccee2167476ec9c6b4e3aeafe34a25f548`.
+The final audit under `scratch/control-isolation-product-2026-10-19/` is
+`shared-uplink/shared-c9-independent-final-r2.json`, SHA256
+`a79702da5bf92199ffb41b98ff594bece5c27160b5c7dc0cba023793230920d5`;
+its manifest SHA256 is
+`6fd51907a4cffa5aa12068325b49e848f5cd62c460f9b4a8a382b3e58dc1cdb9`.
+The owner has withheld deployment; passing these comparisons does not lift
+that hold. No additional native run is required by this qualification plan.
+
+At the owner's safe-pause request, only the already-running C9 H8 preload
+candidate arm was completed, with raw export and browser closure at
+2026-10-19 00:02:18.500 UTC. Its collector reports 52.621 s and exact
+23,040,044-byte / 352-chunk S=R=A accounting. Raw SHA256 is
+`4c2cdbbff66db55e89522685d6943d831a3efdfbdc175e89d2d6fbbcddf64f10`.
+No independent audit or paired qualification was performed, and the baseline
+arm was not started. The pause handoff has SHA256
+`d602a17c2f2e2777928f7d4edc9e3e6ccfbc9408172166efc313e84cdb978d24`.
+Existing approval/config files do not authorize execution during the pause.
+The interruption must remain explicit when defining the resumed comparison.
+
+All planned resumed product-native cases are now recorded above; future release
+evidence will be added only after an authorized release. PR/local success cannot
+replace the successful exact-main-SHA CI candidate.
 An ordinary App release leaves Developer API D1 application disabled. Recovery
 uses the immutable pre-release checkpoint and restores a compatible previous
 App; rollback removes side isolation/adaptive expansion on refreshed clients,

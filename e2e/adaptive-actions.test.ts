@@ -905,6 +905,10 @@ test.describe('content-based adaptive action groups', () => {
             range.selectNodeContents(label);
             const textBox = range.getBoundingClientRect();
             const style = getComputedStyle(label);
+            const iconSvg = content.querySelector<SVGSVGElement>('svg')!;
+            const iconBox = iconSvg.getBoundingClientRect();
+            const glyph = iconSvg.querySelector<SVGGraphicsElement>('path')!.getBBox();
+            const viewBox = iconSvg.viewBox.baseVal;
             const timing = Array.from(
               row.querySelectorAll<HTMLElement>('button, button > span'),
             ).map((element) => {
@@ -934,6 +938,15 @@ test.describe('content-based adaptive action groups', () => {
                 top: textBox.top,
                 bottom: textBox.bottom,
               },
+              icon: { left: iconBox.left, right: iconBox.right, width: iconBox.width },
+              iconSize: Number.parseFloat(
+                getComputedStyle(row).getPropertyValue('--play-action-icon-size'),
+              ),
+              glyphFillsIcon:
+                glyph.x === viewBox.x &&
+                glyph.y === viewBox.y &&
+                glyph.width === viewBox.width &&
+                glyph.height === viewBox.height,
               scrollWidth: label.scrollWidth,
               clientWidth: label.clientWidth,
               scrollHeight: label.scrollHeight,
@@ -971,6 +984,18 @@ test.describe('content-based adaptive action groups', () => {
             expect(rect.top, layout.id).toBeGreaterThanOrEqual(layout.button.top - 0.75);
             expect(rect.bottom, layout.id).toBeLessThanOrEqual(layout.button.bottom + 0.75);
           }
+          // The stop icon's box is exactly its drawn square, so centering the
+          // icon and label boxes centers what is visible.
+          expect(layout.glyphFillsIcon, layout.id).toBe(true);
+          expect(Math.abs(layout.icon.width - layout.iconSize / 2), layout.id).toBeLessThanOrEqual(
+            0.05,
+          );
+          const groupLeft = direction === 'ltr' ? layout.icon.left : layout.label.left;
+          const groupRight = direction === 'ltr' ? layout.label.right : layout.icon.right;
+          expect(
+            Math.abs((groupLeft + groupRight) / 2 - (layout.button.left + layout.button.right) / 2),
+            layout.id,
+          ).toBeLessThanOrEqual(0.75);
         }
 
         // Let the global 0.01ms completion event settle without sleeping for a

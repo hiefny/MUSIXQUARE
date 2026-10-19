@@ -1200,6 +1200,25 @@ describe('file-transfer frame validation', () => {
     expect(startHandler).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts only a boolean PRELOAD_START restart flag', async () => {
+    const startHandler = vi.fn();
+    registerHandler(MSG.PRELOAD_START, startHandler);
+    const conn = makeConnection('peer-preload-restart');
+    const start = {
+      type: MSG.PRELOAD_START,
+      name: 'song.mp3',
+      queueItemId: QUEUE_ITEM_ID,
+      sessionId: 4,
+      total: 1,
+      size: 1,
+    };
+
+    await handleData({ ...start, restart: 'yes' }, conn);
+    expect(startHandler).not.toHaveBeenCalled();
+    await handleData({ ...start, restart: true }, conn);
+    expect(startHandler).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects non-positive, fractional, and unsafe IDs on every local transfer frame', async () => {
     const types = [
       MSG.FILE_START,

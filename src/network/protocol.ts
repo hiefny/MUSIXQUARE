@@ -757,6 +757,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isPositiveSafeInt(d.sessionId) &&
     isQueueItemId(d.queueItemId) &&
     (d.skipped === undefined || typeof d.skipped === 'boolean') &&
+    (d.restart === undefined || typeof d.restart === 'boolean') &&
     hasExactFileSizeContract(d),
   // sessionId required — handler uses it to scope sessionState/reorder/storage
   // cleanup. Without the guard, an injected abort with no sid would no-op

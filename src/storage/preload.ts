@@ -129,6 +129,24 @@ interface PreloadPeerOwner {
 // A promoted current file may still be streaming when its successor starts:
 // keep that lane beside the speculative next lane, pruning superseded tuples.
 const _preloadPeerOwners = new Map<string, Set<PreloadPeerOwner>>();
+
+/**
+ * A broadcast lane paused by an ICE interruption on its exact connection.
+ *
+ * The receiver keeps its partial session instead of receiving PRELOAD_ABORT.
+ * An abort sent into the outage is delivered only after recovery, on the
+ * control route, while the resend travels on the bulk route: when the resend's
+ * START wins, the receiver ignores it as a duplicate and the late abort then
+ * discards the resent bytes. Recovery resumes the exact resident tuple, and
+ * every path that abandons the tuple sends the deferred abort instead.
+ */
+interface SuspendedPreloadLane {
+  readonly conn: DataConnection;
+  readonly sourceId: number;
+  readonly queueItemId: string;
+  readonly sessionId: number;
+}
+const _suspendedPreloadLanes = new Map<string, SuspendedPreloadLane>();
 // Completed fences must not retain encoded files after playback releases them.
 const _preloadSourceIds = new WeakMap<Blob, number>();
 let _nextPreloadSourceId = 0;
@@ -221,16 +239,24 @@ function releasePreloadPeer(owner: PreloadPeerOwner): void {
   if (owners?.size === 0) _preloadPeerOwners.delete(owner.conn.peer);
 }
 
+function findResidentPreloadTransfer(
+  owner: Pick<PreloadPeerOwner, 'sourceId' | 'queueItemId' | 'sessionId'>,
+): { readonly blob: Blob } | null {
+  return (
+    [getState('files.current'), getState('preload.ready')].find(
+      (resident) =>
+        !!resident &&
+        resident.queueItemId === owner.queueItemId &&
+        resident.sessionId === owner.sessionId &&
+        preloadSourceId(resident.blob) === owner.sourceId,
+    ) ?? null
+  );
+}
+
 function isResidentPreloadTransfer(
   owner: Pick<PreloadPeerOwner, 'sourceId' | 'queueItemId' | 'sessionId'>,
 ): boolean {
-  return [getState('files.current'), getState('preload.ready')].some(
-    (resident) =>
-      !!resident &&
-      resident.queueItemId === owner.queueItemId &&
-      resident.sessionId === owner.sessionId &&
-      preloadSourceId(resident.blob) === owner.sourceId,
-  );
+  return !!findResidentPreloadTransfer(owner);
 }
 
 function claimPreloadPeer(owner: PreloadPeerOwner): boolean {
@@ -265,6 +291,56 @@ function releasePreloadPeerConnection(peerId: string): void {
     _activePreloadUnicasts.delete(scope);
   }
   _preloadPeerOwners.delete(peerId);
+  _suspendedPreloadLanes.delete(peerId);
+}
+
+/** Disconnected, or failed with an ICE restart pending; the channel itself is still open. */
+function isRecoverablyInterrupted(conn: DataConnection): boolean {
+  if (!conn.open || !isPeerConnectionCurrent(conn.peer, conn)) return false;
+  const channelState = conn.dataChannel?.readyState;
+  if (channelState && channelState !== 'open') return false;
+  const pc = conn.peerConnection;
+  return (
+    pc?.connectionState === 'disconnected' ||
+    pc?.connectionState === 'failed' ||
+    pc?.iceConnectionState === 'disconnected' ||
+    pc?.iceConnectionState === 'failed'
+  );
+}
+
+function abortSuspendedPreloadLane(peerId: string): void {
+  const lane = _suspendedPreloadLanes.get(peerId);
+  if (!lane) return;
+  _suspendedPreloadLanes.delete(peerId);
+  if (!lane.conn.open || !isPeerConnectionCurrent(peerId, lane.conn)) return;
+  safeSend(lane.conn, {
+    type: MSG.PRELOAD_ABORT,
+    queueItemId: lane.queueItemId,
+    sessionId: lane.sessionId,
+  });
+}
+
+function resumeSuspendedPreloadLane(conn: DataConnection): void {
+  const lane = _suspendedPreloadLanes.get(conn.peer);
+  if (!lane || lane.conn !== conn) return;
+  // A selected-pair change can report recovery while the connection is still
+  // interrupted. Keep waiting for the transition that makes it writable.
+  if (isRecoverablyInterrupted(conn)) return;
+  // Promotion keeps the same Blob and tuple in files.current, and a receiver
+  // awaiting it still completes the partial session it holds.
+  const resident = findResidentPreloadTransfer(lane);
+  if (!resident) {
+    abortSuspendedPreloadLane(conn.peer);
+    return;
+  }
+  _suspendedPreloadLanes.delete(conn.peer);
+  log.info(`[Preload] Resuming preload for ${conn.peer} after its connection recovered`);
+  // Restart from chunk 0. A current receiver releases a partial session it
+  // still holds. An older one ignores the flag: it drops the prefix it holds,
+  // or explicitly retries a session its own watchdog abandoned in the outage.
+  void unicastPreload(conn, resident.blob, lane.queueItemId, lane.sessionId, true).catch(
+    (error: unknown) => log.warn('[Preload] Resume after connection recovery failed', error),
+  );
 }
 
 interface PreloadIdentity {
@@ -405,8 +481,51 @@ function invalidatePeerPreloadResidency(conn: DataConnection): void {
   );
 }
 
+function isSuspendedBackgroundPeer(owner: BackgroundTransferOwner, peerId: string): boolean {
+  const lane = _suspendedPreloadLanes.get(peerId);
+  return (
+    !!lane &&
+    lane.conn === owner.peerOwners.get(peerId)?.conn &&
+    lane.queueItemId === owner.queueItemId &&
+    lane.sessionId === owner.sessionId &&
+    lane.sourceId === preloadSourceId(owner.sourceBlob)
+  );
+}
+
+/** Pause an interrupted lane without telling its receiver to discard the prefix. */
+function suspendBackgroundPeer(owner: BackgroundTransferOwner, peer: ConnectedPeer): boolean {
+  if (owner.terminal !== 'streaming' || getState('room.context').kind === 'pro') return false;
+  if (owner.abortedPeerIds.has(peer.id) || owner.completedPeerIds.has(peer.id)) return false;
+  const peerOwner = owner.peerOwners.get(peer.id);
+  // Only a provider that reports recovery can resume the lane; others abort at once.
+  if (
+    !peerOwner ||
+    !ownsPreloadPeer(peerOwner) ||
+    peerOwner.conn.reportsIceRecovery !== true ||
+    !isRecoverablyInterrupted(peerOwner.conn)
+  )
+    return false;
+  owner.abortedPeerIds.add(peer.id);
+  releasePreloadPeer(peerOwner);
+  // An older paused tuple on this peer still owes its receiver an abort.
+  abortSuspendedPreloadLane(peer.id);
+  _suspendedPreloadLanes.set(peer.id, {
+    conn: peerOwner.conn,
+    sourceId: peerOwner.sourceId,
+    queueItemId: owner.queueItemId,
+    sessionId: owner.sessionId,
+  });
+  log.info(`[Preload] Paused preload for ${peer.id} while its connection is interrupted`);
+  return true;
+}
+
 function abortBackgroundPeer(owner: BackgroundTransferOwner, peer: ConnectedPeer): void {
-  if (owner.abortedPeerIds.has(peer.id) || owner.completedPeerIds.has(peer.id)) return;
+  if (owner.completedPeerIds.has(peer.id)) return;
+  if (owner.abortedPeerIds.has(peer.id)) {
+    // A paused lane deferred its abort; terminating the owner sends it now.
+    if (isSuspendedBackgroundPeer(owner, peer.id)) abortSuspendedPreloadLane(peer.id);
+    return;
+  }
   owner.abortedPeerIds.add(peer.id);
   const peerOwner = owner.peerOwners.get(peer.id);
   if (!peerOwner || !ownsPreloadPeer(peerOwner)) return;
@@ -585,6 +704,10 @@ export function cancelPreloadTransfer(
       releasePreloadPeer(owner);
     }
   }
+  for (const [peerId, lane] of _suspendedPreloadLanes) {
+    if (preserveCurrentTransfer && isCurrentPreloadTransfer(lane)) continue;
+    abortSuspendedPreloadLane(peerId);
+  }
 
   if (_preloadScope && _preloadScope !== preservedScope) {
     _preloadScope.dispose();
@@ -628,6 +751,7 @@ export function resetPreloadReceiveAuthority(): void {
   _activePreloadUnicasts.forEach((entry) => entry.scope.dispose());
   _activePreloadUnicasts.clear();
   _preloadPeerOwners.clear();
+  for (const peerId of [..._suspendedPreloadLanes.keys()]) abortSuspendedPreloadLane(peerId);
 
   batchSetState({
     'preload.sessionId': 0,
@@ -1295,9 +1419,12 @@ async function backgroundTransfer(
         const peerOwner = peerOwners.get(peer.id);
         return !!peerOwner && canPreloadSend(peerOwner);
       },
-      // Tear down only the excluded peer. PRELOAD_ABORT uses the control channel,
-      // and the normal AWAITING_PRELOAD watchdog owns any later recovery.
-      onPeerExcluded: (p) => abortBackgroundPeer(owner, p),
+      // Tear down only the excluded peer. An interrupted connection pauses its
+      // lane until recovery resumes it. Otherwise PRELOAD_ABORT uses the control
+      // channel, and the normal AWAITING_PRELOAD watchdog owns any later recovery.
+      onPeerExcluded: (p) => {
+        if (!suspendBackgroundPeer(owner, p)) abortBackgroundPeer(owner, p);
+      },
       onPeerComplete: completePeer,
     });
 
@@ -1335,13 +1462,15 @@ async function backgroundTransfer(
 }
 
 /**
- * Unicast preload data to a single peer (for late-joining guests).
+ * Unicast preload data to a single peer (for late-joining guests, and to
+ * restart a lane paused by an ICE interruption when `restart` is set).
  */
 export async function unicastPreload(
   conn: DataConnection,
   file: File | Blob,
   queueItemId: string,
   sessionId: number,
+  restart = false,
 ): Promise<void> {
   if (getState('room.context').kind === 'pro') return;
   if (!conn?.open || !file || !queueItemId || !Number.isSafeInteger(sessionId) || sessionId <= 0) {
@@ -1439,6 +1568,7 @@ export async function unicastPreload(
         queueItemId,
         sessionId,
         skipped: false,
+        ...(restart ? { restart: true } : {}),
       })
     )
       return;
@@ -1630,7 +1760,13 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     // announce the same exact transfer; restarting RAM storage would discard
     // its received prefix (or an already finalized resident) and rewind UI.
     // A previously skipped attempt may still accept a real explicit retry.
-    if (!existingSession.skipped) return;
+    if (!existingSession.skipped) {
+      // A host resuming a lane paused by an ICE interruption resends from chunk
+      // 0. Replaying a long held prefix makes no progress and can outlast the
+      // progress watchdog, so release the partial session and restart instead.
+      if (data.restart !== true || existingSession.finalized) return;
+      abandonStalledPreloadSession(sid, 'host restarted the interrupted transfer');
+    }
   }
   recordGuestFileDelivery(incomingQueueItemId, sid, 'direct-local');
   const earlyQueueItemId = preloadQueueItemBySid.get(sid);
@@ -2425,6 +2561,7 @@ export function initPreload(): void {
 
   bus.on('network:peer-disconnected', releasePreloadPeerConnection);
   bus.on('network:peer-connection-replaced', releasePreloadPeerConnection);
+  bus.on('network:peer-ice-recovered', resumeSuspendedPreloadLane);
 
   // Handle preload file ready from storage (bridged from storage:file-ready via playback.ts)
   bus.on(

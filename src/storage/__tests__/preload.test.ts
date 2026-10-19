@@ -1030,6 +1030,73 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
     expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(0);
   });
 
+  function withIceState(conn: DataConnection) {
+    const pc: { connectionState: RTCPeerConnectionState } = { connectionState: 'connected' };
+    Object.assign(conn, { peerConnection: pc, reportsIceRecovery: true });
+    return pc;
+  }
+
+  it('pauses an ICE-interrupted lane and restarts it when the exact connection recovers', async () => {
+    const healthyConn = makeBulkConn('peer-healthy');
+    const flakyConn = makeBulkConn('peer-flaky', 10 * 1024 * 1024);
+    const pc = withIceState(flakyConn);
+    connectBulkPeers([healthyConn, flakyConn]);
+    initPreload();
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    const sessionId = getState('preload.sessionId');
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
+    pc.connectionState = 'disconnected';
+    await vi.advanceTimersByTimeAsync(500);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+
+    // A recovery report while the route is still down keeps the lane paused.
+    bus.emit('network:peer-ice-recovered', flakyConn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_START)).toHaveLength(1);
+
+    pc.connectionState = 'connected';
+    (flakyConn.dataChannel as unknown as { bufferedAmount: number }).bufferedAmount = 0;
+    bus.emit('network:peer-ice-recovered', flakyConn);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_START)).toEqual([
+      expect.not.objectContaining({ restart: true }),
+      expect.objectContaining({ sessionId, restart: true }),
+    ]);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_CHUNK).map((message) => message.chunkIndex)).toEqual([
+      0, 1,
+    ]);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_END)).toHaveLength(1);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+  });
+
+  it('sends a paused lane its deferred abort when the streaming preload is cancelled', async () => {
+    const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024);
+    const flakyConn = makeBulkConn('peer-flaky', 10 * 1024 * 1024);
+    const pc = withIceState(flakyConn);
+    connectBulkPeers([frozenConn, flakyConn]);
+    initPreload();
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    const sessionId = getState('preload.sessionId');
+    pc.connectionState = 'disconnected';
+    await vi.advanceTimersByTimeAsync(500);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+
+    // The frozen sibling keeps the owner streaming, so its cancellation owes both aborts.
+    cancelPreloadTransfer();
+    expect(msgsOf(flakyConn, MSG.PRELOAD_ABORT)).toEqual([expect.objectContaining({ sessionId })]);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_ABORT)).toEqual([expect.objectContaining({ sessionId })]);
+
+    pc.connectionState = 'connected';
+    bus.emit('network:peer-ice-recovered', flakyConn);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_START)).toHaveLength(1);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_ABORT)).toHaveLength(1);
+  });
+
   it('aborts only unfinished peers when a partly completed preload is cancelled', async () => {
     const healthyConn = makeBulkConn('peer-healthy');
     const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024);

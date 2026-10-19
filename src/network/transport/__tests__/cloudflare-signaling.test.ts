@@ -735,6 +735,8 @@ describe('bounded Standard-room ICE restart', () => {
       new FakeDataChannel('musixquare-control') as unknown as RTCDataChannel,
     );
     const recovered = vi.fn();
+    // Consumers that pause work until recovery rely on this provider contract.
+    expect(conn.reportsIceRecovery).toBe(true);
     conn.on('ice-recovered', recovered);
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     transport.dispatchEvent(new Event('selectedcandidatepairchange'));

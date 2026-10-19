@@ -953,6 +953,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private backgroundResumeSawDisconnected = false;
   /** Initial SDP exchange binds recovery to this exact established connection. */
   iceRestartBinding: string | null = null;
+  readonly reportsIceRecovery = true;
   private iceRestartAttempted = false;
   private connectionInterrupted = false;
   private recoveryDeadline = 0;

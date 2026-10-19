@@ -1,8 +1,9 @@
 # 끊긴 미리받기의 복구 후 재개 (2026-10-20)
 
 - Status: 8.11.25 / v734 런타임 변경과 native 검증 기록이다. 배포 기록이 아니다.
-- Baseline: main `2e7d6416` (8.11.24 / v733, 미배포). 최종 런타임: `c73a52e1` (`f7ab3c0f` 수정 +
-  8.11.25 / v734 식별자). native 2차는 PeerJS 제한을 더하기 전의 `ad900e0e`로, 3차는 최종 런타임으로 했다.
+- Baseline: main `2e7d6416` (8.11.24 / v733, 미배포). 수정 `f7ab3c0f`. native 2차는 PeerJS 제한을
+  더하기 전의 `ad900e0e`로, 3차는 `c73a52e1`(수정 + 8.11.25 / v734 식별자)로 했다. 릴리스 런타임
+  `4e2a26df`는 여기에 [공유 중지 버튼 정렬](stop-sharing-centering-2026-10-20.md)(HTML·CSS만)을 더한다.
 - Related: [보조 연결 ICE restart 독립 검증](side-ice-restart-independent-verification-2026-10-20.md),
   [구현 세션 랩](side-ice-restart-native-lab-2026-10-19.md).
 

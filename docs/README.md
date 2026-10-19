@@ -90,11 +90,17 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Preload resume after an ICE interruption — 2026-10-20](design/preload-resume-after-ice-recovery-2026-10-20.md) —
+  8.11.25 pauses an interrupted preload lane instead of aborting it and restarts it from chunk 0 with
+  `restart: true` when the same connection recovers; the guest releases a live partial session; PeerJS
+  keeps the immediate abort. Native scenario (c): `ad900e0e` 5/5 and final `c73a52e1` 3/3 exact completions
+  after 10 s and 17 s cuts; baseline `2e7d6416` 0/2; the host-only first candidate failed 1/4 on a live
+  guest session; one final run lost its C3 reading to a pre-cut OS media pause.
 - [Side-PC ICE restart independent verification — 2026-10-20](design/side-ice-restart-independent-verification-2026-10-20.md) —
   a separate session without the owner's field notes fixed its procedure first: 10 s outages keep both
   versions, side-PC `failed` at 17 s loses 8.11.23's session while `ee8dcd28` recovers, and 25 s ends both.
   Preload abort on disconnect is pre-existing; an IP change could not be emulated.
-- [Isolated control side ICE restart — 2026-10-19](design/control-isolation-side-ice-restart-2026-10-19.md) — capability-gated bounded restart of the side PC over the original lane; unit and mutation evidence at `05551d1d`; native lab and independent verification pass on `ee8dcd28`; ships as 8.11.24.
+- [Isolated control side ICE restart — 2026-10-19](design/control-isolation-side-ice-restart-2026-10-19.md) — capability-gated bounded restart of the side PC over the original lane; unit and mutation evidence at `05551d1d`; native lab and independent verification pass on `ee8dcd28`; prepared as 8.11.24 (never deployed) and ships in 8.11.25.
 - [Side-PC ICE restart native lab — 2026-10-19](design/side-ice-restart-native-lab-2026-10-19.md) — candidate `ee8dcd28` passes all five CDP P2P outage runs; production main closes on side PC failure; preload abort on disconnect is a separate pre-existing follow-up; real-device IP change and TURN remain.
 - [Combined transport release — 2026-10-19](design/transport-release-bundle-2026-10-19.md) —
   8.11.23/v732 bundles #410 control isolation, the delay-based receipt window with its

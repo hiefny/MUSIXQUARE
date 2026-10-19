@@ -356,12 +356,13 @@ the same addresses still recover on both connections. On 2026-10-19 the owner re
 production 8.11.23 with a real phone: after a direct file on the host's Wi-Fi, switching the
 phone to LTE showed the disconnect dialog.
 
-App 8.11.24 adds a capability-gated ICE restart for the side connection. Two native lab rounds
+App 8.11.25 ships a capability-gated ICE restart for the side connection (prepared as 8.11.24,
+which was never deployed, and released together with the preload resume fix). Two native lab rounds
 (the implementing session's and an independent one) show the side connection now recovers from
 `failed` while the original connection recovers, where 8.11.23 closed the session; outages longer
 than the original connection's own 15-second grace still end the session in both versions. An IP
 change could not be emulated in the lab. Retire this item after the owner's real-device Wi-Fi to
-LTE check on 8.11.24 passes.
+LTE check on 8.11.25 passes.
 [Combined release record](design/transport-release-bundle-2026-10-19.md),
 [independent verification](design/side-ice-restart-independent-verification-2026-10-20.md).
 

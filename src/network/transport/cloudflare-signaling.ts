@@ -6,6 +6,7 @@ import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
+import { ControlIsolation, type IsolatedControlLease } from './control-isolation.ts';
 import {
   isStandardHttpSignalingSocket,
   StandardHttpSignalingSocket,
@@ -897,12 +898,16 @@ function isBulkPayload(data: unknown): boolean {
   const payload = data as Record<string, unknown>;
   if (toUint8Array(payload.chunk)) return true;
 
-  // File chunks are carried by the ordered bulk channel. Keep their terminal
-  // fences on that same channel as well: ordering is guaranteed within one
+  // File chunks are carried by the ordered bulk channel. Keep their headers and
+  // terminal fences there as well: ordering is guaranteed within one
   // RTCDataChannel, but not between the bulk and control channels. Receivers
   // continue accepting these messages from either channel, so old senders
-  // remain compatible while upgraded senders cannot overtake their last chunk.
+  // remain compatible while upgraded chunks cannot overtake their header/END.
   return (
+    payload.type === MSG.FILE_START ||
+    payload.type === MSG.FILE_RESUME ||
+    payload.type === MSG.PRELOAD_START ||
+    payload.type === MSG.OPERATOR_FILE_UPLOAD_START ||
     payload.type === MSG.FILE_END ||
     payload.type === MSG.PRELOAD_END ||
     payload.type === MSG.OPERATOR_FILE_UPLOAD_FINISH
@@ -929,14 +934,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
   controlChannel?: RTCDataChannel;
-  readonly bulkFlowControl = new BulkFlowControl(
-    (frame) => {
-      const channel = this.controlChannel;
-      if (!this.open || channel?.readyState !== 'open') throw new Error('DATA_CHANNEL_NOT_OPEN');
-      channel.send(JSON.stringify(frame));
-    },
+  private readonly bulkCredit = new BulkFlowControl(
+    (frame) => this.sendControl(JSON.stringify(frame)),
     () => this.terminate(),
   );
+  readonly controlIsolation?: ControlIsolation;
+  readonly bulkFlowControl = this.createBulkFlowPort();
+  private controlReceiveTail: Promise<void> = Promise.resolve();
   private closed = false;
   private intentionalClosing = false;
   private pcListenersAttached = false;
@@ -962,7 +966,10 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   }
 
   startBulkFlowControl(): void {
-    if (this.open && !this.closed) this.bulkFlowControl.start();
+    if (this.open && !this.closed) {
+      this.bulkCredit.start();
+      if (this.open && !this.closed) this.controlIsolation?.start();
+    }
   }
 
   constructor(
@@ -971,8 +978,68 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     public roomIdentity: StandardRoomMemberIdentity | null = null,
     private readonly onConnectionStateChange?: () => void,
     readonly recommendedPreOpenTimeoutMs?: number,
+    createIsolatedControl?: () => IsolatedControlLease | null,
   ) {
     super();
+    if (createIsolatedControl) {
+      this.controlIsolation = new ControlIsolation({
+        createPeerConnection: createIsolatedControl,
+        sendOriginal: (data) => this.sendOriginalControl(data),
+        receive: (data) => this.receiveControl(data, false),
+        changed: (active) => this.bulkCredit.setControlIsolationActive(active),
+        fail: () => this.terminate(),
+      });
+    }
+  }
+
+  private sendOriginalControl(data: string): void {
+    if (!this.open || this.closed || this.controlChannel?.readyState !== 'open') {
+      throw createTransportError('webrtc', 'DATA_CHANNEL_NOT_OPEN');
+    }
+    this.controlChannel.send(data);
+  }
+
+  private createBulkFlowPort() {
+    const credit = this.bulkCredit;
+    return {
+      hasCapacity: (bytes: number): boolean =>
+        (this.controlIsolation?.allowBulk() ?? true) && credit.hasCapacity(bytes),
+      subscribe: (listener: () => void): (() => void) => {
+        const releaseCredit = credit.subscribe(listener);
+        const releaseIsolation = this.controlIsolation?.subscribe(listener);
+        return () => {
+          releaseCredit();
+          releaseIsolation?.();
+        };
+      },
+      get diagnosticSnapshot() {
+        return credit.diagnosticSnapshot;
+      },
+    };
+  }
+
+  private sendControl(data: string): void {
+    if (this.controlIsolation) this.controlIsolation.send(data);
+    else this.sendOriginalControl(data);
+  }
+
+  private receiveControl(data: unknown, original: boolean, channel = this.controlChannel): void {
+    // One dispatch tail also covers the side route: its first message cannot
+    // overtake async decoding/application dispatch before the old-route fence.
+    this.controlReceiveTail = this.controlReceiveTail
+      .then(async () => {
+        const payload = await decodePayload(data);
+        if (this.closed || channel !== this.controlChannel) return;
+        if (original && this.controlIsolation?.handleOriginal(payload, true)) return;
+        if (original && this.controlIsolation && !this.controlIsolation.acceptOriginalApplication())
+          return;
+        if (this.bulkCredit.handleControl(payload, true)) return;
+        if (this.isBackgroundResumeProbePong(payload)) this.clearBackgroundResumeRecovery();
+        this.emit('data', payload);
+      })
+      .catch((error) => {
+        if (!this.closed && channel === this.controlChannel) this.emit('error', error);
+      });
   }
 
   updateRoomIdentity(
@@ -994,12 +1061,17 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       this.markOpenIfReady();
     });
     channel.addEventListener('message', (event) => {
+      if (isControl) {
+        this.receiveControl(event.data, true, channel);
+        return;
+      }
       decodePayload(event.data)
         .then((payload) => {
           if (this.closed || (isControl ? this.controlChannel : this.dataChannel) !== channel)
             return;
-          if (this.bulkFlowControl.handleControl(payload, isControl)) return;
-          if (!isControl) this.bulkFlowControl.noteReceived(creditedFileChunkBytes(payload));
+          if (this.controlIsolation?.handleOriginal(payload, false)) return;
+          if (this.bulkCredit.handleControl(payload, false)) return;
+          this.bulkCredit.noteReceived(creditedFileChunkBytes(payload));
           if (this.closed) return;
           // A connection that WebKit reports as connected/open can still be a
           // frozen SCTP association. Only the exact reply to our post-resume
@@ -1042,7 +1114,10 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
           this.connectionInterrupted = false;
           // A genuine disconnected -> connected transition is ICE-level proof.
           // A redundant connected event on a stale WebKit object is not.
-          if (!this.backgroundResumeRecoveryArmed || this.backgroundResumeSawDisconnected) {
+          if (
+            !this.backgroundResumeRecoveryArmed ||
+            (this.backgroundResumeSawDisconnected && !this.controlIsolation?.peerConnection)
+          ) {
             this.clearBackgroundResumeRecovery();
           }
           this.onConnectionStateChange?.();
@@ -1091,9 +1166,10 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     if (creditedBytes > 0 && !this.bulkFlowControl.hasCapacity(creditedBytes)) {
       throw createTransportError('webrtc', 'BULK_FLOW_CAPACITY_EXCEEDED');
     }
-    if (typeof encoded === 'string') channel.send(encoded);
+    if (!bulk && typeof encoded === 'string') this.sendControl(encoded);
+    else if (typeof encoded === 'string') channel.send(encoded);
     else channel.send(encoded);
-    this.bulkFlowControl.noteSent(creditedBytes);
+    this.bulkCredit.noteSent(creditedBytes);
   }
 
   close(): void {
@@ -1163,9 +1239,18 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     if (this.closed || !this.backgroundResumeRecoveryArmed) return 'not-applicable';
 
     const rtcState = this.peerConnection?.connectionState;
-    const rtcTerminal = !this.peerConnection || rtcState === 'failed' || rtcState === 'closed';
+    const sideState = this.controlIsolation?.peerConnection?.connectionState;
+    const rtcTerminal =
+      !this.peerConnection ||
+      rtcState === 'failed' ||
+      rtcState === 'closed' ||
+      sideState === 'failed' ||
+      sideState === 'closed';
     const dataChannelsUnhealthy =
-      this.dataChannel?.readyState !== 'open' || this.controlChannel?.readyState !== 'open';
+      this.dataChannel?.readyState !== 'open' ||
+      this.controlChannel?.readyState !== 'open' ||
+      (this.controlIsolation?.phase === 'active' &&
+        this.controlIsolation.channel?.readyState !== 'open');
 
     // Terminal RTC/data-channel state is already conclusive after an absence
     // longer than the ordinary grace. A disconnected PC with open channels is
@@ -1180,11 +1265,11 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       return 'stale-connection-closed';
     }
 
-    if (rtcState === 'connected') {
+    if (rtcState === 'connected' && sideState !== 'disconnected') {
       return 'monitoring';
     }
 
-    if (rtcState === 'disconnected') {
+    if (rtcState === 'disconnected' || sideState === 'disconnected') {
       this.backgroundResumeSawDisconnected = true;
       if (signalingDisconnected) {
         this.terminate();
@@ -1197,7 +1282,11 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
           const currentState = this.peerConnection?.connectionState;
           const channelsOpen =
             this.dataChannel?.readyState === 'open' && this.controlChannel?.readyState === 'open';
-          if (currentState === 'connected' && channelsOpen) {
+          if (
+            currentState === 'connected' &&
+            channelsOpen &&
+            this.controlIsolation?.peerConnection?.connectionState !== 'disconnected'
+          ) {
             // A state transition event or the nonce reply clears recovery. If
             // WebKit silently mutates the property, keep waiting for the reply.
             return;
@@ -1237,7 +1326,8 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private disposeResources(): void {
     if (this.resourcesDisposed) return;
     this.resourcesDisposed = true;
-    this.bulkFlowControl.dispose();
+    this.bulkCredit.dispose();
+    this.controlIsolation?.dispose();
     this.selectedPairTransport?.removeEventListener(
       'selectedcandidatepairchange',
       this.onSelectedPairChange,
@@ -1560,6 +1650,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private rtcConfiguration: RTCConfiguration;
   private rtcConfigurationExpiresAt = 0;
   private rtcConfigurationRefreshAt = 0;
+  /** Independently capped even when past direct recipients remain connected. */
+  private readonly isolatedControlPcs = new Set<RTCPeerConnection>();
   private rtcConfigurationRetryAt = 0;
   private rtcConfigurationGeneration = 0;
   private rtcConfigurationNeedsApply = false;
@@ -1988,7 +2080,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       !!this.options.prepareNetworkRouteRetry
         ? STANDARD_ROOM_FALLBACK_GUEST_PRE_OPEN_TIMEOUT_MS
         : undefined;
-    const conn = new CloudflareDataConnection(
+    const conn: CloudflareDataConnection = new CloudflareDataConnection(
       roomId,
       options?.metadata,
       null,
@@ -1997,6 +2089,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         this.maybeRestartGuestIce(roomId);
       },
       recommendedPreOpenTimeoutMs,
+      this.proSignalingAccess ? undefined : () => this.createIsolatedControlConnection(conn),
     );
     const roomPassword =
       typeof options?.roomPassword === 'string' ? options.roomPassword.trim() : '';
@@ -2285,6 +2378,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     for (const conn of this.connections.values()) {
       if (conn.peerConnection) ownedConnections.add(conn.peerConnection);
     }
+    for (const pc of this.isolatedControlPcs) ownedConnections.add(pc);
     for (const owner of this.iceNegotiations.values()) ownedConnections.add(owner.pc);
     for (const pc of ownedConnections) {
       if (pc.connectionState === 'closed') continue;
@@ -4088,6 +4182,30 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return pc;
   }
 
+  private createIsolatedControlConnection(
+    conn: CloudflareDataConnection,
+  ): IsolatedControlLease | null {
+    if (
+      this.destroyed ||
+      this.proSignalingAccess ||
+      !conn.open ||
+      this.connections.get(conn.peer) !== conn ||
+      this.isolatedControlPcs.size >= 8 ||
+      this.rtcConfigurationPending ||
+      (this.rtcConfigurationExpiresAt > 0 && this.rtcConfigurationExpiresAt <= Date.now())
+    )
+      return null;
+    // No Worker offer/candidate map: this PC has its own in-band negotiation.
+    const pc = new RTCPeerConnection(this.rtcConfiguration);
+    this.isolatedControlPcs.add(pc);
+    return {
+      pc,
+      release: () => {
+        this.isolatedControlPcs.delete(pc);
+      },
+    };
+  }
+
   private async sendLocalIceCandidateWhenAdmitted(
     peerId: string,
     pc: RTCPeerConnection,
@@ -4139,7 +4257,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // it here lets Chromium's synchronous close/error event tear down the peer
     // before the replacement is registered.
     const previousConnection = this.connections.get(peerId);
-    const conn = new CloudflareDataConnection(peerId, metadata, roomIdentity);
+    const conn: CloudflareDataConnection = new CloudflareDataConnection(
+      peerId,
+      metadata,
+      roomIdentity,
+      undefined,
+      undefined,
+      this.proSignalingAccess ? undefined : () => this.createIsolatedControlConnection(conn),
+    );
     if (!this.proSignalingAccess && supportsIceRestart) conn.iceRestartBinding = negotiationId;
     const pc = this.createPeerConnection(peerId);
     conn.peerConnection = pc;

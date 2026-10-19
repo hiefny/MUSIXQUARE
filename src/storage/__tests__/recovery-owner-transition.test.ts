@@ -216,15 +216,20 @@ async function response() {
   );
   await vi.advanceTimersByTimeAsync(500);
   await pending;
-  expect(sender.control.sent.map((f) => JSON.parse(f as string).type)).toEqual([MSG.FILE_START]);
-  const start = sender.control.sent[0]!;
-  const chunks = [...sender.bulk.sent];
+  expect(sender.control.sent).toEqual([]);
+  expect(sender.bulk.sent).toHaveLength(6); // START, four chunks, END
+  expect(JSON.parse(sender.bulk.sent[0] as string).type).toBe(MSG.FILE_START);
+  const currentBulk = [...sender.bulk.sent];
+  // Existing owner-transition regressions deliberately model legacy senders:
+  // lift only START onto control and keep its captured payload/END unchanged.
+  const start = currentBulk[0]!;
+  const chunks = currentBulk.slice(1);
   await stopAllMediaAsync({ silent: true, cancelInFlight: true });
   const pause = sender.control.sent.find(
     (f) => typeof f === 'string' && JSON.parse(f).type === MSG.PAUSE,
   )!;
   expect(JSON.parse(pause as string)).toMatchObject({ reason: 'transition', queueItemId: A });
-  return { start, chunks, pause };
+  return { start, chunks, pause, currentBulk };
 }
 
 it('retires pending recovery after authenticated PAUSE and system-audio START', async () => {
@@ -325,7 +330,10 @@ it.each([0, 1])(
       releasePlaybackOwner('system-audio', { currentTrackMeta: null });
       setPlaybackFilePaused();
     };
-    if (stopAfterChunks === 1) sender.bulk.onSend = transition;
+    if (stopAfterChunks === 1)
+      sender.bulk.onSend = (frame) => {
+        if (frame instanceof ArrayBuffer) transition();
+      };
     const request = {
       type: MSG.REQUEST_DATA_RECOVERY,
       requestId: 1001,
@@ -336,11 +344,12 @@ it.each([0, 1])(
     };
     const pending = handleData(request, sender.conn);
     await vi.advanceTimersByTimeAsync(0);
-    expect(sender.control.sent.map((f) => JSON.parse(f as string).type)).toEqual([MSG.FILE_START]);
+    expect(sender.control.sent).toEqual([]);
+    expect(JSON.parse(sender.bulk.sent[0] as string).type).toBe(MSG.FILE_START);
     if (stopAfterChunks === 0) transition();
     await vi.advanceTimersByTimeAsync(500);
     await pending;
-    expect(sender.bulk.sent).toHaveLength(stopAfterChunks);
+    expect(sender.bulk.sent).toHaveLength(1 + stopAfterChunks); // START plus admitted chunks
     expect(getState('files.current')?.blob).toBe(file);
     expect(getPlaybackOwnership().isExternalOwner).toBe(false);
 
@@ -350,7 +359,7 @@ it.each([0, 1])(
     const fresh = handleData({ ...request, requestId: 1002 }, sender.conn);
     await vi.advanceTimersByTimeAsync(500);
     await fresh;
-    expect(sender.bulk.sent).toHaveLength(5); // four chunks plus END
+    expect(sender.bulk.sent).toHaveLength(6); // START, four chunks, END
   },
 );
 
@@ -364,4 +373,23 @@ it('allows a paused local guest to recover its selected file', async () => {
   await vi.advanceTimersByTimeAsync(2_001);
   expect(receiver.recoveries()).toHaveLength(1);
   expect(receiver.recoveries()[0]).toMatchObject({ queueItemId: A, sessionId: sid, nextChunk: 1 });
+});
+
+it('accepts a fresh recovery response on the current ordered bulk lane after external ownership ends', async () => {
+  const frames = await response();
+  const receiver = await guest();
+  await receiver.deliver(JSON.stringify(createSystemAudioStartFrame('display')), 'control');
+  await receiver.deliver(frames.currentBulk[0]!, 'bulk');
+  expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+  expect(getState('transfer.state')).toBe(TRANSFER_STATE.IDLE);
+  expect(finalizeGuestFile).not.toHaveBeenCalled();
+  await receiver.deliver(JSON.stringify({ type: MSG.SYSTEM_AUDIO_STOP }), 'control');
+  for (const frame of frames.currentBulk) await receiver.deliver(frame, 'bulk');
+  const restored = await readStoredFile(A, file.name, false, sid);
+  expect(restored?.size).toBe(file.size);
+  expect(new Uint8Array(await restored!.arrayBuffer())).toEqual(
+    new Uint8Array(await file.arrayBuffer()),
+  );
+  expect(finalizeGuestFile).toHaveBeenCalledOnce();
+  expect(receiver.recoveries()).toHaveLength(0);
 });

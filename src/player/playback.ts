@@ -1287,7 +1287,7 @@ export function initPlayback(): void {
 
     const currentQueueItemId = getCurrentQueueItemId();
     const item = getQueueItemById(currentQueueItemId);
-    if (!currentQueueItemId || !item || item.type === 'youtube') return;
+    if (!currentQueueItemId || !item) return;
     const isProDirect = isProRoomPersistentPlaylistFile(currentQueueItemId);
 
     const peers = getState('network.connectedPeers') || [];
@@ -1299,7 +1299,7 @@ export function initPlayback(): void {
     markLateLocalPeerForR2(peerId);
 
     const currentResident = getState('files.current');
-    if (currentResident?.queueItemId === currentQueueItemId) {
+    if (item.type !== 'youtube' && currentResident?.queueItemId === currentQueueItemId) {
       if (isProDirect) {
         safeSend(conn, {
           type: MSG.FILE_PREPARE,
@@ -1364,7 +1364,8 @@ export function initPlayback(): void {
 
     if (isProDirect) return;
 
-    // Also send the atomically published preload resident.
+    // The next file is independent of whether the current item is a file or YouTube.
+    // Send only the atomically published preload resident.
     const preloadResident = getState('preload.ready');
     if (preloadResident && conn.open) {
       try {

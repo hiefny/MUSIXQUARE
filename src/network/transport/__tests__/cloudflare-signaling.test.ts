@@ -7514,3 +7514,139 @@ describe('Standard-room PIN membership commits', () => {
     },
   );
 });
+
+describe('Isolated control peer ownership', () => {
+  type Lease = { pc: RTCPeerConnection; release(): void };
+  const factory = (peer: CloudflareSignalingPeer) =>
+    peer as unknown as {
+      createIsolatedControlConnection(conn: CloudflareDataConnection): Lease | null;
+    };
+  async function attachCurrent(peer: CloudflareSignalingPeer, id: string) {
+    const conn = new CloudflareDataConnection(id);
+    const pc = new FakeRTCPeerConnection({ iceServers: [] });
+    conn.attach(
+      pc as unknown as RTCPeerConnection,
+      new FakeDataChannel('musixquare-data') as unknown as RTCDataChannel,
+    );
+    conn.attach(
+      pc as unknown as RTCPeerConnection,
+      new FakeDataChannel('musixquare-control') as unknown as RTCDataChannel,
+    );
+    privateMaps(peer).connections.set(id, conn);
+    await Promise.resolve();
+    expect(conn.open).toBe(true);
+    return { conn, pc };
+  }
+  function release(lease: Lease | null) {
+    lease?.pc.close();
+    lease?.release();
+  }
+
+  it('caps isolated control PC ownership at eight and reclaims an explicitly released slot', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    const leases: Lease[] = [];
+    try {
+      for (let i = 0; i < 8; i++) {
+        const { conn } = await attachCurrent(peer, `capacity-${i}`);
+        const lease = factory(peer).createIsolatedControlConnection(conn);
+        expect(lease).not.toBeNull();
+        leases.push(lease!);
+      }
+      const ninth = await attachCurrent(peer, 'capacity-ninth');
+      expect(factory(peer).createIsolatedControlConnection(ninth.conn)).toBeNull();
+      release(leases.shift()!);
+      const replacement = factory(peer).createIsolatedControlConnection(ninth.conn);
+      expect(replacement).not.toBeNull();
+      leases.push(replacement!);
+    } finally {
+      for (const lease of leases) release(lease);
+      peer.destroy();
+    }
+  });
+
+  it('rejects stale, unopened, pending-configuration and expired-configuration factory requests', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      config: { iceServers: [] },
+      deferRtcUntilConfigured: true,
+    });
+    let lease: Lease | null = null;
+    try {
+      const current = await attachCurrent(peer, 'eligible');
+      expect(factory(peer).createIsolatedControlConnection(current.conn)).toBeNull();
+      peer.setRtcConfiguration({ iceServers: [] }, Date.now() - 1);
+      expect(factory(peer).createIsolatedControlConnection(current.conn)).toBeNull();
+      peer.setRtcConfiguration({ iceServers: [] }, Date.now() + 60_000);
+      const unopened = new CloudflareDataConnection('not-open');
+      privateMaps(peer).connections.set(unopened.peer, unopened);
+      expect(factory(peer).createIsolatedControlConnection(unopened)).toBeNull();
+      const superseded = await attachCurrent(peer, 'eligible');
+      expect(factory(peer).createIsolatedControlConnection(current.conn)).toBeNull();
+      current.conn.close();
+      lease = factory(peer).createIsolatedControlConnection(superseded.conn);
+      expect(lease).not.toBeNull();
+    } finally {
+      release(lease);
+      peer.destroy();
+    }
+  });
+
+  it('does not create isolated control PCs for a PRO coordinator', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket: clientProTicket('coordinator-device', { role: 'coordinator' }),
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    try {
+      const { conn } = await attachCurrent(peer, 'pro-recipient');
+      const before = FakeRTCPeerConnection.instances.length;
+      expect(factory(peer).createIsolatedControlConnection(conn)).toBeNull();
+      expect(FakeRTCPeerConnection.instances).toHaveLength(before);
+    } finally {
+      peer.destroy();
+    }
+  });
+
+  it('refreshes an owned side PC configuration without replacing its live original channels', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    let lease: Lease | null = null;
+    try {
+      const { conn, pc } = await attachCurrent(peer, 'credential-refresh');
+      const bulk = conn.dataChannel;
+      const control = conn.controlChannel;
+      lease = factory(peer).createIsolatedControlConnection(conn);
+      expect(lease).not.toBeNull();
+      const renewed = {
+        iceServers: [{ urls: 'turn:relay.example.test', username: 'renewed', credential: 'test' }],
+      };
+      peer.setRtcConfiguration(renewed, Date.now() + 60_000);
+      expect(pc.configurationHistory.at(-1)).toEqual(renewed);
+      expect((lease!.pc as unknown as FakeRTCPeerConnection).configurationHistory.at(-1)).toEqual(
+        renewed,
+      );
+      expect(conn.dataChannel).toBe(bulk);
+      expect(conn.controlChannel).toBe(control);
+      expect(conn.open).toBe(true);
+    } finally {
+      release(lease);
+      peer.destroy();
+    }
+  });
+});

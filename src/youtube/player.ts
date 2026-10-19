@@ -206,6 +206,9 @@ function consumePendingAutoSyncOnReadyOwned(): PendingAutoSyncOptions | null {
     clearPendingAutoSync();
     return null;
   }
+  // A facade can expose target metadata or CUED before its own onReady.
+  // Keep the current owner's intent for that readiness boundary.
+  if (!isYtPlayerReady()) return null;
 
   const expectedVideoId = _pendingAutoSyncOptions?.videoId;
   if (expectedVideoId) {

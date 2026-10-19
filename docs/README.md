@@ -90,6 +90,29 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Combined transport release — 2026-10-19](design/transport-release-bundle-2026-10-19.md) —
+  8.11.23/v732 bundles #410 control isolation, the delay-based receipt window with its
+  evidence bound and the transfer-time clock guard. Native round r1 passes the pre-fixed
+  gates: high-RTT −33%, slow link +1.3%, collapse −21%, every control maximum under 1 s,
+  zero unwanted playback corrections. Side-connection ICE restart is deferred.
+- [Transfer-time clock asymmetry guard — 2026-10-19](design/transfer-clock-sync-guard-2026-10-19.md) —
+  keeps the quiet min-RTT clock sample for its 120 s age, gates local-file soft resync like
+  YouTube auto realignment, and restores a corroborated clock after a forced re-lock;
+  unit evidence here, native evidence in the combined release record.
+- [Container-native shaped A/B — 2026-10-19](design/native-shaped-credit-ab-2026-10-19.md) —
+  B128, SA192 and the delay-based window through a packet-level bottleneck with Chromium 141:
+  8 Mbps 61–67 / 36.6 / 27.0 s, 2 Mbps unchanged, and the 8→2 collapse transient. Not the
+  team's frozen native contract.
+- [Delay-based receipt window candidate — 2026-10-19](design/delay-based-credit-window-2026-10-19.md) —
+  experimental replacement for #410's A192 sender policy: one-chunk growth while the
+  measured credit loop shows no added queueing, a 2 s / 16-chunk evidence bound above
+  128 KiB, deterministic path-model results and the model's sudden-collapse limit. Not
+  native evidence or a release record.
+- [Product control isolation — 2026-10-19](design/control-isolation-product-integration-2026-10-19.md) —
+  product negotiation, ordered handoff, compatibility, reconnect and bounded
+  adaptive credit; resumed C9 qualification passes preload, mixed versions,
+  user-operated reconnect and shared uplink checks. Deployment remains withheld;
+  preserved failures, measurement limits and separate-candidate review are included.
 - [Control association isolation — 2026-10-19](design/control-association-isolation-2026-10-19.md) —
   sequential native transport investigation, with a separate control SCTP
   association and fixed/adaptive bulk receipt windows. Preserves failed setup instrumentation,

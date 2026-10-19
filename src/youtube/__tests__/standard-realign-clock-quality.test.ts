@@ -161,8 +161,8 @@ describe('automatic precision with real clock uncertainty', () => {
     'sustained asymmetric queueing beyond 120 seconds does not interrupt aligned playback (Android %s)',
     (android) => {
       harness.android = android;
-      // 100/700ms asymmetry yields -300ms midpoint error after the 60-item
-      // good-sample eviction. Keep going beyond the age bound as well.
+      // 100/700ms asymmetry yields -300ms midpoint error once the good samples
+      // reach their 120s age bound. Keep going beyond it.
       for (let i = 0; i < 190; i++) {
         sample(100, 700);
         advance(200);

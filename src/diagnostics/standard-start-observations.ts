@@ -108,6 +108,7 @@ const REASONS = new Set([
   'expired',
   'capacity',
   'reset',
+  'restore',
   'rebase',
   'clock-step',
   'host-role',

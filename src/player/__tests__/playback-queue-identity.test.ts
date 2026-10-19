@@ -319,6 +319,95 @@ describe('storage completion identity', () => {
 });
 
 describe('preload and late-join resident identity', () => {
+  it.each([
+    ['orchestrator:peer-joined', false],
+    ['orchestrator:peer-data-target-ready', false],
+    ['orchestrator:peer-joined', true],
+    ['orchestrator:peer-data-target-ready', true],
+  ] as const)(
+    'bootstraps the next file while YouTube is current via %s (stale current resident: %s)',
+    async (event, staleCurrent) => {
+      const conn = {
+        open: true,
+        peer: 'guest-youtube',
+        send: vi.fn(),
+      } as unknown as DataConnection;
+      const ready = resident(QID_B, 1, 'next.mp3', 12);
+      setState('playlist.items', [
+        { ...item(QID_A, 'Current YouTube'), type: 'youtube', videoId: 'dQw4w9WgXcQ' },
+        item(QID_B, ready.name),
+      ]);
+      setState('playlist.currentQueueItemId', QID_A);
+      // Even a stale file resident with this same occurrence ID is not the
+      // selected YouTube media and must never be bootstrapped as a file.
+      if (staleCurrent) setState('files.current', resident(QID_A, 0, 'stale.mp3', 11));
+      setState('preload.ready', ready);
+      setState('preload.nextQueueItemId', QID_B);
+      setState('preload.activeTarget', { ...ready, total: 1 });
+      setState('network.connectedPeers', [
+        {
+          id: conn.peer,
+          slot: 1,
+          label: 'Guest',
+          conn,
+          isOp: false,
+          preloadedQueueItemIds: new Set(),
+          status: 'connected',
+          isDataTarget: true,
+          joinOrder: 1,
+          connectionType: 'local',
+          lastHeartbeat: 0,
+        },
+      ]);
+      initPlayback();
+
+      bus.emit(event, conn.peer);
+
+      await vi.waitFor(() =>
+        expect(mocks.unicastPreload).toHaveBeenCalledWith(conn, ready.blob, QID_B, ready.sessionId),
+      );
+      expect(mocks.unicastFile).not.toHaveBeenCalled();
+      expect(conn.send).not.toHaveBeenCalled();
+      expect(mocks.play).not.toHaveBeenCalled();
+      expect(mocks.pause).not.toHaveBeenCalled();
+      expect(getState('playlist.currentQueueItemId')).toBe(QID_A);
+      expect(getState('preload.ready')).toBe(ready);
+    },
+  );
+
+  it.each(['no-selection', 'missing-item'] as const)(
+    'retains the late-join bootstrap guard for %s',
+    async (selection) => {
+      const conn = { open: true, peer: 'guest-unselected' } as DataConnection;
+      const ready = resident(QID_B, 1, 'next.mp3', 12);
+      setState('playlist.items', [item(QID_B, ready.name)]);
+      setState('playlist.currentQueueItemId', selection === 'missing-item' ? QID_A : null);
+      setState('preload.ready', ready);
+      setState('network.connectedPeers', [
+        {
+          id: conn.peer,
+          slot: 1,
+          label: 'Guest',
+          conn,
+          isOp: false,
+          preloadedQueueItemIds: new Set(),
+          status: 'connected',
+          isDataTarget: true,
+          joinOrder: 1,
+          connectionType: 'local',
+          lastHeartbeat: 0,
+        },
+      ]);
+      initPlayback();
+
+      bus.emit('orchestrator:peer-joined', conn.peer);
+      await Promise.resolve();
+
+      expect(mocks.unicastFile).not.toHaveBeenCalled();
+      expect(mocks.unicastPreload).not.toHaveBeenCalled();
+    },
+  );
+
   it('activates only a preload resident with the requested queue identity', async () => {
     const ready = resident(QID_B, 1, 'b.mp3', 9);
     setState('playlist.items', [item(QID_A, 'a.mp3'), item(QID_B, 'b.mp3')]);

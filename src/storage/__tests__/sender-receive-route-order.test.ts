@@ -191,8 +191,14 @@ async function capture(size: number, kind: 'main' | 'preload' = 'main', mime = '
     await vi.advanceTimersByTimeAsync(50);
     await sending;
   }
-  expect(sender.bulk.sent).toHaveLength(meta.total + 1);
-  return { file, bytes, sender, peer, qid, kind, total: meta.total };
+  expect(sender.bulk.sent).toHaveLength(meta.total + 2);
+  const start = sender.bulk.sent[0] as string;
+  expect(JSON.parse(start).type).toBe(kind === 'main' ? MSG.FILE_START : MSG.PRELOAD_START);
+  expect(sender.bulk.sent.slice(1, -1).every((frame) => frame instanceof ArrayBuffer)).toBe(true);
+  expect(JSON.parse(sender.bulk.sent.at(-1) as string).type).toBe(
+    kind === 'main' ? MSG.FILE_END : MSG.PRELOAD_END,
+  );
+  return { file, bytes, sender, peer, qid, kind, total: meta.total, start };
 }
 async function guest(trace: Awaited<ReturnType<typeof capture>>) {
   reset();
@@ -269,10 +275,12 @@ for (const kind of ['main', 'preload'] as const) {
         expect(await canSendFileTo(trace.sender.conn, SID)).toBe(true);
         const g = await guest(trace);
         for (const frame of controls) await g.deliver(frame, 'control');
-        for (const frame of trace.sender.bulk.sent.slice(0, 2)) await g.deliver(frame, 'bulk');
+        // Actual current routing: START and the first two payload chunks all
+        // arrive on the original ordered bulk lane.
+        for (const frame of trace.sender.bulk.sent.slice(0, 3)) await g.deliver(frame, 'bulk');
         expect(ramContiguousCount(trace.qid, kind === 'preload', SID)).toBe(2);
         await g.deviceList(route);
-        for (const frame of trace.sender.bulk.sent.slice(2)) await g.deliver(frame, 'bulk');
+        for (const frame of trace.sender.bulk.sent.slice(3)) await g.deliver(frame, 'bulk');
         expect(ramContiguousCount(trace.qid, kind === 'preload', SID)).toBe(3);
         await assertBytes(trace);
       },
@@ -282,30 +290,32 @@ for (const kind of ['main', 'preload'] as const) {
 
 for (const chunks of [60, 64]) {
   for (const order of ['headers-first', 'bulk-first'] as const) {
-    it(`admits ${chunks} normal preload chunks with ${order} channel order`, async () => {
+    it(`admits ${chunks} legacy preload chunks with ${order} channel order`, async () => {
       const trace = await capture(chunks * CHUNK_SIZE, 'preload');
-      const headers = [...trace.sender.control.sent];
+      // Preserve the old cross-channel race deliberately: the new sender's
+      // START is captured on bulk, then replayed on legacy control.
+      const headers = [...trace.sender.control.sent, trace.start];
       const g = await guest(trace);
       if (order === 'headers-first') for (const frame of headers) await g.deliver(frame, 'control');
-      for (const frame of trace.sender.bulk.sent) await g.deliver(frame, 'bulk');
+      for (const frame of trace.sender.bulk.sent.slice(1)) await g.deliver(frame, 'bulk');
       if (order === 'bulk-first') for (const frame of headers) await g.deliver(frame, 'control');
       await assertBytes(trace);
     });
   }
 }
 
-it('admits START beyond the early buffer cap and completes on the normal missing suffix', async () => {
+it('admits legacy control START beyond the early buffer cap and completes on the missing suffix', async () => {
   const trace = await capture(65 * CHUNK_SIZE, 'preload');
-  const headers = [...trace.sender.control.sent];
+  const headers = [...trace.sender.control.sent, trace.start];
   const g = await guest(trace);
-  for (const frame of trace.sender.bulk.sent) await g.deliver(frame, 'bulk');
+  for (const frame of trace.sender.bulk.sent.slice(1)) await g.deliver(frame, 'bulk');
   for (const frame of headers) await g.deliver(frame, 'control');
   expect(getState('preload.sessionState').get(SID)).toMatchObject({
     nextExpectedChunk: 64,
     total: 65,
     finalized: false,
   });
-  for (const frame of trace.sender.bulk.sent.slice(64)) await g.deliver(frame, 'bulk');
+  for (const frame of trace.sender.bulk.sent.slice(65)) await g.deliver(frame, 'bulk');
   await assertBytes(trace);
 });
 
@@ -314,7 +324,7 @@ it('retains ordinary partial direct-file recovery after the same connection beco
   const headers = [...trace.sender.control.sent];
   const g = await guest(trace);
   for (const frame of headers) await g.deliver(frame, 'control');
-  for (const frame of trace.sender.bulk.sent.slice(0, 2)) await g.deliver(frame, 'bulk');
+  for (const frame of trace.sender.bulk.sent.slice(0, 3)) await g.deliver(frame, 'bulk');
   await g.deviceList('remote');
   sendRecoveryRequest();
   await vi.advanceTimersByTimeAsync(2001);
@@ -329,6 +339,6 @@ it('retains ordinary partial direct-file recovery after the same connection beco
       nextChunk: 2,
     }),
   );
-  for (const frame of trace.sender.bulk.sent.slice(2)) await g.deliver(frame, 'bulk');
+  for (const frame of trace.sender.bulk.sent.slice(3)) await g.deliver(frame, 'bulk');
   await assertBytes(trace);
 });

@@ -116,13 +116,16 @@ describe('standard clock selection observations', () => {
     });
   });
 
-  it('records capacity eviction when the original precise sample leaves the 60-item pool', () => {
+  it('keeps the precise sample through capacity overflow and records its later expiry', () => {
     receiveSample(1, 1_000, 2, 1_001);
-    for (let id = 2; id <= 60; id++) receiveSample(id, id * 1000, 20, id * 1000 + 11);
+    for (let id = 2; id <= 61; id++) receiveSample(id, id * 1000, 20, id * 1000 + 11);
+    // The 61st reply overflows the pool; the oldest worse sample leaves instead.
     expect(selections()).toHaveLength(1);
-    receiveSample(61, 61_000, 20, 61_011);
+    expect(getClockOffset()).toBe(0);
+    expect(getSharedClockDiagnostics()).toMatchObject({ sampleCount: 60, bestRttMs: 2 });
+    for (let id = 62; id <= 121; id++) receiveSample(id, id * 1000, 20, id * 1000 + 11);
     expect(selections().at(-1)!.detail).toMatchObject({
-      reason: 'capacity',
+      reason: 'expired',
       previousRttMs: 2,
       selectedRttMs: 20,
       selectedOffsetMs: 1,

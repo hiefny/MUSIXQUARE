@@ -191,16 +191,19 @@ async function trace() {
   // Let the real broadcast pump exclude an actual backed-up data channel.
   // It emits START/chunk0, then waits 30 seconds and never emits a suffix or END.
   const sender = await host();
-  sender.bulk.onSend = () => {
-    sender.bulk.bufferedAmount = 2 * 1024 * 1024;
+  sender.bulk.onSend = (frame) => {
+    // The new ordered START is not the first payload chunk.
+    if (frame instanceof ArrayBuffer) sender.bulk.bufferedAmount = 2 * 1024 * 1024;
   };
   const broadcast = broadcastFile(file, A, sid);
   await vi.advanceTimersByTimeAsync(31_000);
   await broadcast;
-  expect(sender.control.sent.map((f) => JSON.parse(f as string).type)).toEqual([MSG.FILE_START]);
-  expect(sender.bulk.sent).toHaveLength(1);
-  const start = sender.control.sent[0]!,
-    chunk0 = sender.bulk.sent[0]!;
+  expect(sender.control.sent).toEqual([]);
+  expect(sender.bulk.sent).toHaveLength(2);
+  const start = sender.bulk.sent[0]!,
+    chunk0 = sender.bulk.sent[1]!;
+  expect(JSON.parse(start as string).type).toBe(MSG.FILE_START);
+  expect(chunk0).toBeInstanceOf(ArrayBuffer);
 
   // Genuine receive watchdog/backoff emits the authenticated request at offset 1.
   const receiver = await guest();
@@ -217,15 +220,17 @@ async function trace() {
   const pending = handleData(request, recoverySender.conn);
   await vi.advanceTimersByTimeAsync(500);
   await pending;
-  expect(recoverySender.control.sent.map((f) => JSON.parse(f as string).type)).toEqual([
-    MSG.FILE_RESUME,
-  ]);
-  expect(recoverySender.bulk.sent).toHaveLength(4); // chunks 1,2,3, END
+  expect(recoverySender.control.sent).toEqual([]);
+  expect(recoverySender.bulk.sent).toHaveLength(5); // RESUME, chunks 1,2,3, END
+  expect(JSON.parse(recoverySender.bulk.sent[0] as string).type).toBe(MSG.FILE_RESUME);
   return {
     start,
     chunk0,
-    resume: recoverySender.control.sent[0]!,
-    suffix: recoverySender.bulk.sent,
+    // Keep old-sender cross-lane coverage by explicitly moving the captured
+    // ordered header to control; the encoded bytes and suffix stay unchanged.
+    resume: recoverySender.bulk.sent[0]!,
+    suffix: recoverySender.bulk.sent.slice(1),
+    currentResumeBulk: [...recoverySender.bulk.sent],
   };
 }
 
@@ -245,8 +250,8 @@ async function expectComplete(
   expect(getTransferMemoryStats().reorderChunks).toBe(0);
 }
 
-// Control contains RESUME; bulk contains chunks 1/2/3 then END. Every
-// interleaving here preserves FIFO on each actual encoded transport lane.
+// Reconstructed legacy control contains RESUME; bulk contains chunks 1/2/3
+// then END. Every old-sender interleaving preserves each lane's FIFO.
 it.each(
   [0, 1, 2, 3, 4].flatMap((overtaking) =>
     [false, true].map((duplicate) => ({ overtaking, duplicate })),
@@ -371,4 +376,16 @@ it('restarts at zero for a new session despite the same filename and size', asyn
     nextChunk: 0,
   });
   expect(finalizeGuestFile).not.toHaveBeenCalled();
+});
+
+it('recovers with current START and RESUME in the actual ordered bulk lane', async () => {
+  const { start, chunk0, currentResumeBulk } = await trace();
+  const receiver = await guest();
+  await receiver.deliver(start, 'bulk');
+  await receiver.deliver(chunk0, 'bulk');
+  await vi.advanceTimersByTimeAsync(15_001);
+  expect(receiver.recoveries()).toHaveLength(1);
+  expect(receiver.recoveries()[0]).toMatchObject({ nextChunk: 1 });
+  for (const frame of currentResumeBulk) await receiver.deliver(frame, 'bulk');
+  await expectComplete(receiver, 1);
 });

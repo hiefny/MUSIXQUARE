@@ -605,11 +605,7 @@ export class ControlIsolation {
         return this.fail();
       }
     }
-    // A restart-capable route takes over a disconnect grace armed before READY.
-    if (this.restartReady() && this.disconnectedTimer !== null && this.lease) {
-      this.sideStateChanged(this.lease.pc);
-      if (this.phase === 'closed') return;
-    }
+    if (!this.takeOverDisconnectGrace()) return;
     if (!this.remoteReady) return;
     this.state = 'active';
     if (this.negotiationTimer !== null) clearTimeout(this.negotiationTimer);
@@ -635,6 +631,13 @@ export class ControlIsolation {
     if (this.state !== 'active') return;
     this.options.changed(true);
     this.notify();
+  }
+
+  /** A restart-capable route takes over a disconnect grace armed before READY. */
+  private takeOverDisconnectGrace(): boolean {
+    if (this.restartReady() && this.disconnectedTimer !== null && this.lease)
+      this.sideStateChanged(this.lease.pc);
+    return this.state !== 'closed';
   }
 
   /**

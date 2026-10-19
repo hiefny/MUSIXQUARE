@@ -154,7 +154,7 @@ PR 리뷰 지적(PeerJS는 `ice-recovered`를 내지 않아 일시 정지된 레
 - PR [#413](https://github.com/hiefny/MUSIXQUARE/pull/413) squash merge → main `e371df6b`. 최종 PR head `20ae6dae`의 CI 39305102783
   11 jobs 통과. main 트리는 PR head와 같고, 런타임은 로컬 검사한 `4e2a26df`와 같다(차이는 문서뿐).
   첫 PR CI의 critical runtime coverage 실패(preload.ts 함수 83.92%)는 테스트를 더해 고쳤다.
-- Exact-main push CI [39306522982](https://github.com/hiefny/MUSIXQUARE/actions/runs/39306522982) 12 jobs 통과: unit 597 files /
+- Exact-main push CI [39306522982](https://github.com/hiefny/MUSIXQUARE/actions/runs/39306522982) 11 jobs 통과: unit 597 files /
   13,436 pass / 0 fail / 1 Windows-only skip, candidate browser 17 + critical browser 55 pass.
   후보 artifact 12213268474.
 - [Production Release 39307533720](https://github.com/hiefny/MUSIXQUARE/actions/runs/39307533720) attempt 1 성공, target=app,

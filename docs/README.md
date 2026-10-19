@@ -695,6 +695,7 @@ labeled portion still supports a current guard or operating interpretation:
 - [PRO heartbeat benchmark](performance/pro-room-heartbeat-benchmark.md) —
   reproducible evidence, not an uptime or latency SLO.
 - [Isolated control side ICE restart — 2026-10-19](design/control-isolation-side-ice-restart-2026-10-19.md) — capability-gated bounded restart of the side PC over the original lane; unit and mutation evidence at `05551d1d`, native round pending, not deployed.
+- [Side-PC ICE restart native lab — 2026-10-19](design/side-ice-restart-native-lab-2026-10-19.md) — candidate `ee8dcd28` passes all five CDP P2P outage runs; production main closes on side PC failure; preload abort on disconnect is a separate pre-existing follow-up; real-device IP change and TURN remain.
 
 ## Historical archive
 

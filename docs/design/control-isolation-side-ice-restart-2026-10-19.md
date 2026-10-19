@@ -11,7 +11,10 @@ native round runs later, serially, and owns that evidence. If this piece is not
 ready and verified when that round ends, it moves to a second release and the
 network-change limitation is recorded in `known-accepted.md` instead. Update,
 same day: under that pre-agreed escape hatch the integrating session moved this
-piece to a second release, after its own native failure-injection check.
+piece to a second release, after its own native failure-injection check. That
+check is recorded in
+[side-ice-restart-native-lab-2026-10-19.md](side-ice-restart-native-lab-2026-10-19.md),
+on merge `ee8dcd28` (this runtime plus current main `0ae3698d`).
 
 Tested runtime: `05551d1da803fbfb09b9ae2288e9c6bb754344d8`
 (tree `23a55c02f0a0fd96caf857a8c0345f3ad01e2db6`), four runtime commits:

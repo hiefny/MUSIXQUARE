@@ -149,6 +149,15 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       실제 제품 검증·exact-main CI·배포가 끝나기
       전에는 실험 통과를 운영 완료로 바꾸지 않는다.
       [제품화·검증 기록](design/control-isolation-product-integration-2026-10-19.md).
+      같은 날 오너는 #410·지연 기반 창(128–256 KiB, 근거 상한)·전송 중 시계 보호를
+      한 릴리스로 묶고, 사전에 고정한 native 라운드가 괜찮으면 배포하도록 요청했다.
+      App 8.11.23/v732 후보 `72c58898`의 r1은 고RTT 프리로드·일반 전송 71.6→47.7초
+      (−33%), 느린 망 +1.3%, 급락 8→2→8 −21%, 로컬 파일 재생 중 프리로드 65.3→33.3초로
+      기준을 통과했다. 모든 응용 제어 최대는 1초 미만(급락 557ms)이고 재생 조작·로컬
+      보정은 0이었다. 보조 연결 ICE restart는 다음 릴리스로 미뤘고, 망 전환 시 연결 종료는
+      [허용 위험 #18](known-accepted.md#18-isolated-standard-room-control-route-ends-on-a-network-change)에
+      둔다. 실기 Android/iOS·가청 싱크·live 공급자는 여전히 미검증이다.
+      [통합 릴리스 검증](design/transport-release-bundle-2026-10-19.md).
       이전에 수행한 128/256/384/512 KiB
       비교에서 일반 전송과 프리로드의 고RTT 경로를 모두 반복 측정했다. 256 이상은
       이 조건에서 빨랐지만, 2 Mbps 프리로드에서는 파일 완료시간 이득 없이
@@ -214,6 +223,12 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       후보의 완료 여부는
       [후속 제품 후보 검증](design/automatic-realignment-clock-safety-2026-10-18.md)에
       따르며, 실제 오차의 장기 보류·실기/가청 한계를 이 변경만으로 닫지 않는다.
+      통합 후보 8.11.23/v732는 같은 gate를 로컬 파일 soft resync에도 적용하고, 용량을
+      넘으면 RTT가 큰 표본부터 지워 조용한 표본을 120초 나이 제한까지 유지하며, 강제
+      재고정 때 기존 표본을 바로 버리지 않는다. r1 느린 망 로컬 파일 시나리오의 98초
+      전송 동안 baseline 시계 오차는 −38ms까지 벌어졌고 후보는 −3ms 안에 머물렀다.
+      고RTT 경로에서는 2U보다 작은 로컬 드리프트 보정을 보류하는 대가가 있다.
+      [전송 중 시계 보호](design/transfer-clock-sync-guard-2026-10-19.md).
       [재현·원시 시각 재구성·한계](design/receiver-credit-window-comparison-2026-10-18.md#candidate-interruption-queue-biased-clock-and-automatic-realignment),
       [추가 설계·장시간 비교·미배포 범위](design/receiver-credit-adaptive-design-2026-10-18.md),
       [교차 시험의 실패 보존·독립 검산](design/receiver-credit-cross-matrix-2026-10-18.md),

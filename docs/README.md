@@ -90,6 +90,15 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Combined transport release — 2026-10-19](design/transport-release-bundle-2026-10-19.md) —
+  8.11.23/v732 bundles #410 control isolation, the delay-based receipt window with its
+  evidence bound and the transfer-time clock guard. Native round r1 passes the pre-fixed
+  gates: high-RTT −33%, slow link +1.3%, collapse −21%, every control maximum under 1 s,
+  zero unwanted playback corrections. Side-connection ICE restart is deferred.
+- [Transfer-time clock asymmetry guard — 2026-10-19](design/transfer-clock-sync-guard-2026-10-19.md) —
+  keeps the quiet min-RTT clock sample for its 120 s age, gates local-file soft resync like
+  YouTube auto realignment, and restores a corroborated clock after a forced re-lock;
+  unit evidence here, native evidence in the combined release record.
 - [Container-native shaped A/B — 2026-10-19](design/native-shaped-credit-ab-2026-10-19.md) —
   B128, SA192 and the delay-based window through a packet-level bottleneck with Chromium 141:
   8 Mbps 61–67 / 36.6 / 27.0 s, 2 Mbps unchanged, and the 8→2 collapse transient. Not the
@@ -685,7 +694,6 @@ labeled portion still supports a current guard or operating interpretation:
   design evidence, not a claim that the whole prototype is current.
 - [PRO heartbeat benchmark](performance/pro-room-heartbeat-benchmark.md) —
   reproducible evidence, not an uptime or latency SLO.
-- [Transfer-time clock asymmetry guard — 2026-10-19](design/transfer-clock-sync-guard-2026-10-19.md) — keeps the quiet min-RTT clock sample for its 120 s age, gates local-file soft resync like YouTube auto realignment, and restores a corroborated clock after a forced re-lock; deterministic unit evidence only, native round pending, no release.
 
 ## Historical archive
 

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ControlIsolation } from '../control-isolation.ts';
+import { ControlIsolation, type IsolatedControlLease } from '../control-isolation.ts';
+import { ControlIsolation as C9ControlIsolation } from './fixtures/control-isolation-c9.ts';
 
 const TYPE = 'mxqr-control-isolation';
 const LABEL = 'musixquare-control-isolated';
 type Frame = Record<string, unknown>;
-const owners: ControlIsolation[] = [];
+const owners: Array<{ dispose(): void }> = [];
 
 class Channel extends EventTarget {
   label = LABEL;
@@ -41,22 +42,41 @@ class Peer extends EventTarget {
   candidates: RTCIceCandidateInit[] = [];
   offerGate: Promise<void> | null = null;
   remoteGate: Promise<void> | null = null;
+  localGate: Promise<void> | null = null;
+  rejectCandidates = false;
+  offerOptions: Array<RTCOfferOptions | undefined> = [];
+  remoteHistory: string[] = [];
   closeCount = 0;
-  async createOffer(): Promise<RTCSessionDescriptionInit> {
+  async createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit> {
+    this.offerOptions.push(options);
     await this.offerGate;
-    return { type: 'offer', sdp: 'offer-description' };
+    return {
+      type: 'offer',
+      sdp: options?.iceRestart
+        ? `restart-offer-${this.offerOptions.filter((value) => value?.iceRestart).length}`
+        : 'offer-description',
+    };
   }
   async createAnswer(): Promise<RTCSessionDescriptionInit> {
-    return { type: 'answer', sdp: 'answer-description' };
+    const remote = this.remoteDescription?.sdp ?? '';
+    return {
+      type: 'answer',
+      sdp: remote.startsWith('restart-offer-')
+        ? remote.replace('restart-offer-', 'restart-answer-')
+        : 'answer-description',
+    };
   }
   async setLocalDescription(description: RTCSessionDescriptionInit): Promise<void> {
+    await this.localGate;
     this.localDescription = description;
   }
   async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
     await this.remoteGate;
     this.remoteDescription = description;
+    this.remoteHistory.push(description.sdp ?? '');
   }
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
+    if (this.rejectCandidates) throw new DOMException('generation mismatch', 'OperationError');
     this.candidates.push(candidate);
   }
   createDataChannel(label: string, options: RTCDataChannelInit): RTCDataChannel {
@@ -87,29 +107,47 @@ class Peer extends EventTarget {
   }
 }
 
-function endpoint() {
+function endpoint(build: 'current' | 'c9' = 'current') {
   const peer = new Peer();
   const original: string[] = [];
   const received: string[] = [];
   const release = vi.fn();
   const changed = vi.fn();
   const fail = vi.fn();
-  const create = vi.fn(() => ({ pc: peer as unknown as RTCPeerConnection, release }));
+  // The owner's original-route readiness and credential hook (current build only).
+  const route = { originalUp: true };
+  const prepareRestart = vi.fn(async () => {});
+  const create = vi.fn((): IsolatedControlLease | null => ({
+    pc: peer as unknown as RTCPeerConnection,
+    release,
+    prepareRestart,
+  }));
   const sendOriginal = vi.fn((data: string) => {
     original.push(data);
   });
   const receive = vi.fn((data: string) => {
     received.push(data);
   });
-  const flow = new ControlIsolation({
-    createPeerConnection: create,
-    sendOriginal,
-    receive,
+  const options = { createPeerConnection: create, sendOriginal, receive, changed, fail };
+  const flow =
+    build === 'c9'
+      ? new C9ControlIsolation(options)
+      : new ControlIsolation({ ...options, originalReady: () => route.originalUp });
+  owners.push(flow);
+  return {
+    flow,
+    peer,
+    original,
+    received,
+    release,
     changed,
     fail,
-  });
-  owners.push(flow);
-  return { flow, peer, original, received, release, changed, fail, create, sendOriginal, receive };
+    create,
+    sendOriginal,
+    receive,
+    route,
+    prepareRestart,
+  };
 }
 type Endpoint = ReturnType<typeof endpoint>;
 
@@ -131,25 +169,37 @@ function inbound(endpoint: Endpoint, kind: string, extra: Frame = {}): Frame {
 async function microtasks(): Promise<void> {
   for (let index = 0; index < 16; index++) await Promise.resolve();
 }
-function pair() {
+/**
+ * `restart: false` models the C9 protocol pin: a build without the restart
+ * capability never sends that advertisement and ignores the other side's.
+ * `link` holds frames in order, as SCTP does while a path is unavailable.
+ */
+function pair({
+  restart = true,
+  b: bBuild = 'current',
+}: { restart?: boolean; b?: 'current' | 'c9' } = {}) {
   const a = endpoint();
-  const b = endpoint();
+  const b = endpoint(bBuild);
   a.flow.start();
   b.flow.start();
   a.flow.handleOriginal(hello(b), true);
   b.flow.handleOriginal(hello(a), true);
+  const link = { original: true, side: true };
   let ai = 1;
   let bi = 1;
   let asi = 0;
   let bsi = 0;
   const original = () => {
+    if (!link.original) return;
     for (const [from, to, start] of [
       [a, b, ai],
       [b, a, bi],
     ] as const) {
       for (let index = start; index < from.original.length; index++) {
         const data = from.original[index];
-        if (!to.flow.handleOriginal(JSON.parse(data), true) && to.flow.acceptOriginalApplication())
+        const frame = JSON.parse(data) as Frame;
+        if (!restart && frame.type === TYPE && frame.kind === 'restart-capable') continue;
+        if (!to.flow.handleOriginal(frame, true) && to.flow.acceptOriginalApplication())
           to.receive(data);
       }
     }
@@ -157,6 +207,7 @@ function pair() {
     bi = b.original.length;
   };
   const side = () => {
+    if (!link.side) return;
     for (; asi < (a.peer.channel?.sent.length ?? 0); asi++)
       b.peer.channel!.message(a.peer.channel!.sent[asi]);
     for (; bsi < (b.peer.channel?.sent.length ?? 0); bsi++)
@@ -181,7 +232,7 @@ function pair() {
     b.peer.channel!.open();
     await pump();
   };
-  return { a, b, original, side, pump, negotiate, activate };
+  return { a, b, link, original, side, pump, negotiate, activate };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -481,7 +532,7 @@ describe('admitted connection control isolation', () => {
   );
 
   it('gives disconnected side ICE a nonrenewing grace and cancels it on recovery', async () => {
-    const p = pair();
+    const p = pair({ restart: false });
     await p.activate();
     p.a.peer.state('disconnected');
     vi.advanceTimersByTime(10_000);
@@ -498,7 +549,7 @@ describe('admitted connection control isolation', () => {
   it.each(['failed', 'closed'] as const)(
     'fails exact logical owner on side PC %s',
     async (state) => {
-      const p = pair();
+      const p = pair({ restart: false });
       await p.activate();
       p.a.peer.state(state);
       expect(p.a.fail).toHaveBeenCalledOnce();
@@ -650,5 +701,503 @@ describe('admitted connection control isolation', () => {
     expect(p.a.release).toHaveBeenCalledOnce();
     expect(p.a.fail).not.toHaveBeenCalled();
     expect(p.a.flow.snapshot.outgoingBytes).toBe(0);
+  });
+});
+
+function frames(e: Endpoint, kind: string): Frame[] {
+  return e.original
+    .map((data) => JSON.parse(data) as Frame)
+    .filter((frame) => frame.type === TYPE && frame.kind === kind);
+}
+function roles(p: ReturnType<typeof pair>) {
+  // The smaller nonce offered the side PC and owns every restart offer.
+  return String(hello(p.a).nonce) < String(hello(p.b).nonce)
+    ? { offerer: p.a, answerer: p.b }
+    : { offerer: p.b, answerer: p.a };
+}
+function restarting(e: Endpoint): ControlIsolation {
+  if (!(e.flow instanceof ControlIsolation)) throw new Error('current build expected');
+  return e.flow;
+}
+function fromPeer(from: Endpoint, to: Endpoint, kind: string, extra: Frame = {}): Frame {
+  return {
+    type: TYPE,
+    version: 1,
+    kind,
+    nonce: hello(from).nonce,
+    target: hello(to).nonce,
+    ...extra,
+  };
+}
+async function live(options?: Parameters<typeof pair>[0]) {
+  const p = pair(options);
+  await p.activate();
+  p.a.peer.state('connected');
+  p.b.peer.state('connected');
+  return p;
+}
+function iceRestarts(e: Endpoint): number {
+  return e.peer.offerOptions.filter((options) => options?.iceRestart).length;
+}
+
+describe('side ICE restart of an active isolated control route', () => {
+  it('restarts a failed side PC in place, then delivers held controls in order', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    for (const e of [p.a, p.b]) expect(restarting(e).snapshot.restartCapable).toBe(true);
+    // The failed path holds side-channel frames; its SCTP association keeps their order.
+    p.link.side = false;
+    p.a.flow.send('{"type":"held-1"}');
+    p.b.flow.send('{"type":"held-b"}');
+    p.a.peer.state('failed');
+    p.b.peer.state('failed');
+    p.a.flow.send('{"type":"held-2"}');
+    await p.pump();
+    expect(offerer.peer.offerOptions.at(-1)).toEqual({ iceRestart: true });
+    expect(frames(offerer, 'restart-offer')).toEqual([
+      expect.objectContaining({ epoch: 1, sdp: 'restart-offer-1' }),
+    ]);
+    expect(frames(answerer, 'restart-answer')).toEqual([
+      expect.objectContaining({ epoch: 1, sdp: 'restart-answer-1' }),
+    ]);
+    expect(answerer.peer.remoteHistory.at(-1)).toBe('restart-offer-1');
+    expect(offerer.peer.remoteHistory.at(-1)).toBe('restart-answer-1');
+    offerer.peer.ice({ candidate: 'offerer-new', sdpMid: '0', sdpMLineIndex: 0 });
+    answerer.peer.ice({ candidate: 'answerer-new', sdpMid: '0', sdpMLineIndex: 0 });
+    await p.pump();
+    expect(frames(offerer, 'restart-candidate')).toEqual([expect.objectContaining({ epoch: 1 })]);
+    expect(answerer.peer.candidates.at(-1)).toEqual({
+      candidate: 'offerer-new',
+      sdpMid: '0',
+      sdpMLineIndex: 0,
+    });
+    expect(offerer.peer.candidates.at(-1)).toEqual({
+      candidate: 'answerer-new',
+      sdpMid: '0',
+      sdpMLineIndex: 0,
+    });
+    p.a.peer.state('connected');
+    p.b.peer.state('connected');
+    p.a.flow.send('{"type":"after"}');
+    p.link.side = true;
+    await p.pump();
+    expect(p.b.received).toEqual(['{"type":"held-1"}', '{"type":"held-2"}', '{"type":"after"}']);
+    expect(p.a.received).toEqual(['{"type":"held-b"}']);
+    vi.advanceTimersByTime(60_000);
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).not.toHaveBeenCalled();
+      expect(e.flow.phase).toBe('active');
+      // Same PC, same lease: a restart never touches the eight-PC owner cap.
+      expect(e.create).toHaveBeenCalledOnce();
+      expect(e.release).not.toHaveBeenCalled();
+      expect(e.prepareRestart).toHaveBeenCalledTimes(e === offerer ? 1 : 0);
+      expect(e.flow.snapshot).toMatchObject({
+        restartInterrupted: false,
+        localRestartEpoch: 1,
+        remoteRestartEpoch: 1,
+      });
+      expect(e.original.some((data) => /held-|"after"/u.test(data))).toBe(false);
+    }
+    expect(iceRestarts(offerer)).toBe(1);
+    expect(iceRestarts(answerer)).toBe(0);
+  });
+
+  it('restarts on disconnected and lets a self-healed path finish the in-flight restart', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    offerer.peer.state('disconnected');
+    await microtasks();
+    offerer.peer.state('connected');
+    expect(restarting(offerer).snapshot.restartInterrupted).toBe(false);
+    await p.pump();
+    expect(frames(offerer, 'restart-offer')).toHaveLength(1);
+    expect(offerer.peer.remoteHistory.at(-1)).toBe('restart-answer-1');
+    expect(restarting(answerer).snapshot.restartInterrupted).toBe(false);
+    await vi.advanceTimersByTimeAsync(60_000);
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).not.toHaveBeenCalled();
+      expect(e.flow.snapshot).toMatchObject({ localRestartEpoch: 1, remoteRestartEpoch: 1 });
+    }
+  });
+
+  it('waits for the original route to recover before restarting, without spending its window', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    // The original PC is itself restarting: its route cannot carry restart signaling.
+    p.link.original = false;
+    for (const e of [p.a, p.b]) {
+      e.route.originalUp = false;
+      restarting(e).originalChanged();
+    }
+    const sent = [p.a.original.length, p.b.original.length];
+    p.a.peer.state('failed');
+    p.b.peer.state('failed');
+    await p.pump();
+    expect([p.a.original.length, p.b.original.length]).toEqual(sent);
+    expect(iceRestarts(offerer)).toBe(0);
+    await vi.advanceTimersByTimeAsync(14_000);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+    // Recovery 14 s into the side interruption leaves the side 15 s (under its 30 s cap).
+    p.link.original = true;
+    for (const e of [p.a, p.b]) {
+      e.route.originalUp = true;
+      restarting(e).originalChanged();
+    }
+    await p.pump();
+    expect(frames(offerer, 'restart-offer')).toHaveLength(1);
+    expect(frames(answerer, 'restart-answer')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(14_999);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+    p.a.peer.state('connected');
+    p.b.peer.state('connected');
+    await vi.advanceTimersByTimeAsync(60_000);
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).not.toHaveBeenCalled();
+      expect(e.flow.phase).toBe('active');
+      expect(e.create).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('closes 15 s after the original route recovers if the restarted side still fails', async () => {
+    const p = await live();
+    for (const e of [p.a, p.b]) {
+      e.route.originalUp = false;
+      restarting(e).originalChanged();
+    }
+    p.a.peer.state('failed');
+    p.b.peer.state('failed');
+    await vi.advanceTimersByTimeAsync(5_000);
+    for (const e of [p.a, p.b]) {
+      e.route.originalUp = true;
+      restarting(e).originalChanged();
+    }
+    await p.pump();
+    expect(frames(roles(p).offerer, 'restart-offer')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(14_999);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).toHaveBeenCalledOnce();
+      expect(e.release).toHaveBeenCalledOnce();
+    }
+  });
+
+  it('never lets one side interruption outlive its 30 s cap while the original stays down', async () => {
+    const p = await live();
+    for (const e of [p.a, p.b]) {
+      e.route.originalUp = false;
+      restarting(e).originalChanged();
+    }
+    p.a.peer.state('failed');
+    p.b.peer.state('failed');
+    await p.pump();
+    await vi.advanceTimersByTimeAsync(29_999);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).toHaveBeenCalledOnce();
+      expect(e.flow.phase).toBe('closed');
+      expect(iceRestarts(e)).toBe(0);
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('makes at most two restart offers per interruption, then uses the existing close at its deadline', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    p.a.peer.state('failed');
+    p.b.peer.state('failed');
+    await p.pump();
+    // Every restarted generation fails as well.
+    for (let i = 0; i < 3; i++) {
+      for (const e of [p.a, p.b]) {
+        e.peer.state('connecting');
+        e.peer.state('failed');
+      }
+      await p.pump();
+    }
+    expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    expect(frames(answerer, 'restart-answer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    await vi.advanceTimersByTimeAsync(14_999);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).toHaveBeenCalledOnce();
+      expect(e.release).toHaveBeenCalledOnce();
+      expect(e.flow.phase).toBe('closed');
+    }
+    const counts = [p.a.original.length, p.b.original.length];
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect([p.a.original.length, p.b.original.length]).toEqual(counts);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('lets the answerer request one restart per generation, bounded per offerer window', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    answerer.peer.state('failed');
+    await p.pump();
+    expect(frames(answerer, 'restart-request')).toEqual([expect.objectContaining({ epoch: 0 })]);
+    expect(frames(offerer, 'restart-offer')).toEqual([expect.objectContaining({ epoch: 1 })]);
+    expect(frames(answerer, 'restart-answer')).toEqual([expect.objectContaining({ epoch: 1 })]);
+    // A request for an already restarted generation is stale.
+    offerer.flow.handleOriginal(fromPeer(answerer, offerer, 'restart-request', { epoch: 0 }), true);
+    await p.pump();
+    expect(frames(offerer, 'restart-offer')).toHaveLength(1);
+    for (let i = 0; i < 2; i++) {
+      answerer.peer.state('connecting');
+      answerer.peer.state('failed');
+      await p.pump();
+    }
+    expect(frames(answerer, 'restart-request').map((frame) => frame.epoch)).toEqual([0, 1, 2]);
+    expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    // The offerer's own connected events do not reopen a peer-requested window.
+    offerer.peer.state('connected');
+    offerer.flow.handleOriginal(fromPeer(answerer, offerer, 'restart-request', { epoch: 2 }), true);
+    await p.pump();
+    expect(frames(offerer, 'restart-offer')).toHaveLength(2);
+    answerer.peer.state('connected');
+    await vi.advanceTimersByTimeAsync(15_000);
+    // The offerer's own PC stayed connected: its request window ends without a close.
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).not.toHaveBeenCalled();
+      expect(restarting(e).snapshot.restartInterrupted).toBe(false);
+    }
+    offerer.flow.handleOriginal(fromPeer(answerer, offerer, 'restart-request', { epoch: 2 }), true);
+    await p.pump();
+    expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2, 3]);
+    expect(offerer.flow.phase).toBe('active');
+  });
+
+  it.each(['failed', 'disconnected'] as const)(
+    'keeps the C9 terminal side-%s behavior against a real peer without the capability',
+    async (state) => {
+      const p = await live({ b: 'c9' });
+      for (const e of [p.a, p.b]) expect(e.flow.phase).toBe('active');
+      // The C9 build ignored the advertisement and never sent its own.
+      expect(restarting(p.a).snapshot.restartCapable).toBe(false);
+      expect(p.b.fail).not.toHaveBeenCalled();
+      p.a.flow.send('{"type":"mixed-control"}');
+      await p.pump();
+      expect(p.b.received).toEqual(['{"type":"mixed-control"}']);
+      p.a.peer.state(state);
+      p.b.peer.state(state);
+      if (state === 'disconnected') {
+        await vi.advanceTimersByTimeAsync(14_999);
+        for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+      }
+      await p.pump();
+      for (const e of [p.a, p.b]) {
+        expect(e.fail).toHaveBeenCalledOnce();
+        expect(e.release).toHaveBeenCalledOnce();
+        expect(iceRestarts(e)).toBe(0);
+      }
+      expect(frames(p.a, 'restart-offer')).toEqual([]);
+      expect(frames(p.a, 'restart-request')).toEqual([]);
+    },
+  );
+
+  it.each(['credential', 'offer'] as const)(
+    'sends no restart offer after disposal during awaited %s work',
+    async (gate) => {
+      const p = await live();
+      const { offerer, answerer } = roles(p);
+      let resolve!: () => void;
+      const pending = new Promise<void>((done) => {
+        resolve = done;
+      });
+      if (gate === 'credential') offerer.prepareRestart.mockImplementationOnce(() => pending);
+      else offerer.peer.offerGate = pending;
+      offerer.peer.state('failed');
+      await p.pump();
+      expect(offerer.prepareRestart).toHaveBeenCalledOnce();
+      const count = offerer.original.length;
+      offerer.flow.dispose();
+      resolve();
+      await p.pump();
+      expect(offerer.original).toHaveLength(count);
+      expect(iceRestarts(offerer)).toBe(gate === 'offer' ? 1 : 0);
+      expect(offerer.release).toHaveBeenCalledOnce();
+      // Late PC events, owner notifications and frames after disposal change nothing.
+      offerer.peer.state('connected');
+      offerer.peer.state('failed');
+      restarting(offerer).originalChanged();
+      offerer.flow.handleOriginal(
+        fromPeer(answerer, offerer, 'restart-answer', { epoch: 1, sdp: 'late' }),
+        true,
+      );
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(offerer.original).toHaveLength(count);
+      expect(offerer.fail).not.toHaveBeenCalled();
+      expect(offerer.peer.remoteHistory).not.toContain('late');
+    },
+  );
+
+  it('sends no restart answer after disposal during an awaited restart description', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    let resolve!: () => void;
+    answerer.peer.remoteGate = new Promise<void>((done) => {
+      resolve = done;
+    });
+    offerer.peer.state('failed');
+    await p.pump();
+    expect(frames(offerer, 'restart-offer')).toHaveLength(1);
+    const count = answerer.original.length;
+    answerer.flow.dispose();
+    resolve();
+    await p.pump();
+    expect(answerer.original).toHaveLength(count);
+    expect(frames(answerer, 'restart-answer')).toEqual([]);
+    expect(answerer.release).toHaveBeenCalledOnce();
+  });
+
+  it('accepts restart signaling only from the exact peer, lane, role and generation', async () => {
+    const p = pair();
+    await p.negotiate();
+    const { offerer, answerer } = roles(p);
+    const offer = fromPeer(offerer, answerer, 'restart-offer', { epoch: 1, sdp: 'direct-offer' });
+    // Before both endpoints are active, restart signaling has no authority.
+    answerer.flow.handleOriginal(offer, true);
+    p.a.peer.channel!.open();
+    p.b.peer.channel!.open();
+    await p.pump();
+    for (const e of [p.a, p.b]) e.peer.state('connected');
+    expect(answerer.peer.remoteHistory).not.toContain('direct-offer');
+    const before = answerer.peer.remoteHistory.length;
+    for (const [frame, lane] of [
+      [{ ...offer, nonce: '0'.repeat(32) }, true],
+      [{ ...offer, target: '0'.repeat(32) }, true],
+      [offer, false],
+      [{ ...offer, epoch: 0 }, true],
+      [{ ...offer, epoch: 2 }, true],
+      [{ ...offer, epoch: 1.5 }, true],
+      [{ ...offer, epoch: '1' }, true],
+      [{ ...offer, epoch: 2 ** 31 }, true],
+      [{ ...offer, extra: true }, true],
+      [{ ...offer, sdp: '' }, true],
+      [{ ...offer, sdp: 'x'.repeat(32 * 1024 + 1) }, true],
+      [fromPeer(offerer, answerer, 'restart-request', { epoch: -1 }), true],
+      [fromPeer(offerer, answerer, 'restart-answer', { epoch: 1, sdp: 'role' }), true],
+    ] as const) {
+      expect(answerer.flow.handleOriginal(frame, lane)).toBe(true);
+    }
+    // The offerer never accepts an offer, nor an answer without its own attempt.
+    offerer.flow.handleOriginal(
+      fromPeer(answerer, offerer, 'restart-offer', { epoch: 1, sdp: 'x' }),
+      true,
+    );
+    offerer.flow.handleOriginal(
+      fromPeer(answerer, offerer, 'restart-answer', { epoch: 1, sdp: 'x' }),
+      true,
+    );
+    await p.pump();
+    expect(answerer.peer.remoteHistory).toHaveLength(before);
+    expect(offerer.peer.remoteHistory.at(-1)).toBe('answer-description');
+    expect(frames(answerer, 'restart-answer')).toEqual([]);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+    answerer.flow.handleOriginal(offer, true);
+    await p.pump();
+    expect(answerer.peer.remoteHistory.at(-1)).toBe('direct-offer');
+    expect(frames(answerer, 'restart-answer')).toEqual([expect.objectContaining({ epoch: 1 })]);
+    // The side channel itself never carries private restart frames.
+    answerer.peer.channel!.message(
+      JSON.stringify(fromPeer(offerer, answerer, 'restart-request', { epoch: 0 })),
+    );
+    expect(answerer.fail).toHaveBeenCalledOnce();
+  });
+
+  it('sends new-generation candidates after their description and drops superseded ones', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    let resolve!: () => void;
+    offerer.peer.localGate = new Promise<void>((done) => {
+      resolve = done;
+    });
+    offerer.peer.state('failed');
+    await p.pump();
+    // Gathering may surface a candidate before setLocalDescription settles.
+    offerer.peer.ice({ candidate: 'early-new', sdpMid: '0', sdpMLineIndex: 0 });
+    expect(frames(offerer, 'restart-candidate')).toEqual([]);
+    resolve();
+    await p.pump();
+    const kinds = offerer.original
+      .map((data) => JSON.parse(data) as Frame)
+      .filter((frame) => frame.type === TYPE)
+      .map((frame) => frame.kind);
+    expect(kinds.slice(kinds.indexOf('restart-offer'))).toEqual([
+      'restart-offer',
+      'restart-candidate',
+    ]);
+    expect(answerer.peer.candidates.at(-1)).toEqual({
+      candidate: 'early-new',
+      sdpMid: '0',
+      sdpMLineIndex: 0,
+    });
+    const applied = answerer.peer.candidates.length;
+    // Initial-generation and wrong-generation trickle is not applied after a restart.
+    answerer.flow.handleOriginal(
+      fromPeer(offerer, answerer, 'candidate', { candidate: { candidate: 'old-generation' } }),
+      true,
+    );
+    answerer.flow.handleOriginal(
+      fromPeer(offerer, answerer, 'restart-candidate', {
+        epoch: 2,
+        candidate: { candidate: 'future-generation' },
+      }),
+      true,
+    );
+    await p.pump();
+    expect(answerer.peer.candidates).toHaveLength(applied);
+    // A browser rejection of a restart candidate is not route failure.
+    answerer.peer.rejectCandidates = true;
+    answerer.flow.handleOriginal(
+      fromPeer(offerer, answerer, 'restart-candidate', {
+        epoch: 1,
+        candidate: { candidate: 'rejected' },
+      }),
+      true,
+    );
+    await p.pump();
+    expect(answerer.fail).not.toHaveBeenCalled();
+    expect(answerer.flow.phase).toBe('active');
+    // The per-generation budget still bounds an authenticated flood.
+    for (let i = 0; i < 128; i++)
+      answerer.flow.handleOriginal(
+        fromPeer(offerer, answerer, 'restart-candidate', {
+          epoch: 1,
+          candidate: { candidate: `flood-${i}` },
+        }),
+        true,
+      );
+    expect(answerer.fail).toHaveBeenCalledOnce();
+  });
+
+  it('takes over a side disconnect that began during the fenced handoff', async () => {
+    const p = pair();
+    await p.negotiate();
+    p.a.peer.channel!.open();
+    p.a.peer.state('disconnected');
+    p.b.peer.channel!.open();
+    await p.pump();
+    expect(p.a.flow.phase).toBe('active');
+    expect(restarting(p.a).snapshot.restartInterrupted).toBe(true);
+    expect(frames(roles(p).offerer, 'restart-offer')).toHaveLength(1);
+    p.a.peer.state('connected');
+    p.b.peer.state('connected');
+    await vi.advanceTimersByTimeAsync(60_000);
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).not.toHaveBeenCalled();
+      expect(e.flow.phase).toBe('active');
+    }
+  });
+
+  it('still closes the logical owner when the side PC itself is closed', async () => {
+    const p = await live();
+    p.a.peer.state('closed');
+    expect(p.a.fail).toHaveBeenCalledOnce();
+    expect(p.a.release).toHaveBeenCalledOnce();
+    expect(iceRestarts(p.a)).toBe(0);
   });
 });

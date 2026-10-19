@@ -7516,7 +7516,7 @@ describe('Standard-room PIN membership commits', () => {
 });
 
 describe('Isolated control peer ownership', () => {
-  type Lease = { pc: RTCPeerConnection; release(): void };
+  type Lease = { pc: RTCPeerConnection; release(): void; prepareRestart?(): Promise<void> };
   const factory = (peer: CloudflareSignalingPeer) =>
     peer as unknown as {
       createIsolatedControlConnection(conn: CloudflareDataConnection): Lease | null;
@@ -7643,6 +7643,50 @@ describe('Isolated control peer ownership', () => {
       );
       expect(conn.dataChannel).toBe(bulk);
       expect(conn.controlChannel).toBe(control);
+      expect(conn.open).toBe(true);
+    } finally {
+      release(lease);
+      peer.destroy();
+    }
+  });
+
+  it('renews a due RTC credential before an owned side PC restarts ICE, without a new PC', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const start = Date.now();
+    const renewed = {
+      iceServers: [
+        { urls: 'turn:relay.example.test', username: 'side-restart', credential: 'test' },
+      ],
+    };
+    const provider = vi.fn(async () => ({
+      configuration: renewed,
+      expiresAt: start + 172_800_000,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      config: { iceServers: [] },
+      rtcConfigurationExpiresAt: start + 120_000,
+      rtcConfigurationProvider: provider,
+    });
+    let lease: Lease | null = null;
+    try {
+      const { conn } = await attachCurrent(peer, 'side-restart');
+      lease = factory(peer).createIsolatedControlConnection(conn);
+      expect(lease?.prepareRestart).toBeTypeOf('function');
+      const instances = FakeRTCPeerConnection.instances.length;
+      await lease!.prepareRestart!();
+      expect(provider).not.toHaveBeenCalled();
+      // A suspended device may restart after the refresh point without its timer running.
+      vi.setSystemTime(start + 119_000);
+      await lease!.prepareRestart!();
+      expect(provider).toHaveBeenCalledOnce();
+      expect((lease!.pc as unknown as FakeRTCPeerConnection).configurationHistory.at(-1)).toEqual(
+        renewed,
+      );
+      expect(FakeRTCPeerConnection.instances).toHaveLength(instances);
       expect(conn.open).toBe(true);
     } finally {
       release(lease);

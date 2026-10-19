@@ -40,13 +40,20 @@ class PeerConnection extends EventTarget {
   connectionState: RTCPeerConnectionState = 'connected';
   localDescription: RTCSessionDescriptionInit | null = null;
   channel: Channel | null = null;
+  iceRestarts = 0;
+  remoteHistory: string[] = [];
   close(): void {
     if (this.connectionState === 'closed') return;
     this.connectionState = 'closed';
     this.dispatchEvent(new Event('connectionstatechange'));
   }
-  async createOffer(): Promise<RTCSessionDescriptionInit> {
-    return { type: 'offer', sdp: 'offer' };
+  state(value: RTCPeerConnectionState): void {
+    this.connectionState = value;
+    this.dispatchEvent(new Event('connectionstatechange'));
+  }
+  async createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit> {
+    if (options?.iceRestart) this.iceRestarts++;
+    return { type: 'offer', sdp: options?.iceRestart ? 'restart-offer' : 'offer' };
   }
   async createAnswer(): Promise<RTCSessionDescriptionInit> {
     return { type: 'answer', sdp: 'answer' };
@@ -54,7 +61,9 @@ class PeerConnection extends EventTarget {
   async setLocalDescription(value: RTCSessionDescriptionInit): Promise<void> {
     this.localDescription = value;
   }
-  async setRemoteDescription(): Promise<void> {}
+  async setRemoteDescription(value: RTCSessionDescriptionInit): Promise<void> {
+    this.remoteHistory.push(value.sdp ?? '');
+  }
   async addIceCandidate(): Promise<void> {}
   createDataChannel(label: string): RTCDataChannel {
     this.channel = new Channel(label);
@@ -98,6 +107,8 @@ async function endpoint(isolated = true) {
 async function pair() {
   const a = await endpoint();
   const b = await endpoint();
+  // Held side frames model the unavailable side path; delivery order is kept.
+  const link = { side: true };
   let ac = 0,
     bc = 0,
     as = 0,
@@ -106,9 +117,9 @@ async function pair() {
     for (let i = 0; i < 12; i++) {
       while (ac < a.control.sent.length) b.control.receive(a.control.sent[ac++]);
       while (bc < b.control.sent.length) a.control.receive(b.control.sent[bc++]);
-      while (as < (a.sidePc.channel?.sent.length ?? 0))
+      while (link.side && as < (a.sidePc.channel?.sent.length ?? 0))
         b.sidePc.channel!.receive(a.sidePc.channel!.sent[as++]);
-      while (bs < (b.sidePc.channel?.sent.length ?? 0))
+      while (link.side && bs < (b.sidePc.channel?.sent.length ?? 0))
         a.sidePc.channel!.receive(b.sidePc.channel!.sent[bs++]);
       await flush();
     }
@@ -128,7 +139,15 @@ async function pair() {
     expect(a.conn.controlIsolation?.phase).toBe('active');
     expect(b.conn.controlIsolation?.phase).toBe('active');
   };
-  return { a, b, pump, negotiate, activate };
+  return { a, b, link, pump, negotiate, activate };
+}
+
+function privateKinds(channel: Channel): unknown[] {
+  return channel.sent
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => JSON.parse(value) as Record<string, unknown>)
+    .filter((value) => value.type === 'mxqr-control-isolation')
+    .map((value) => value.kind);
 }
 
 function chunk(type: string = MSG.FILE_CHUNK, index = 0) {
@@ -379,5 +398,91 @@ describe('Cloudflare isolated control integration', () => {
     expect(p.a.conn.open).toBe(false);
     expect(p.a.release).toHaveBeenCalledOnce();
     expect(p.a.conn.bulkFlowControl.hasCapacity(1)).toBe(false);
+  });
+});
+
+describe('Cloudflare isolated control ICE restart', () => {
+  it('restarts a failed side PC over the original control lane and keeps controls ordered', async () => {
+    const p = await pair();
+    await p.activate();
+    const closed = vi.fn();
+    p.a.conn.on('close', closed);
+    p.b.conn.on('close', closed);
+    const received: Array<Record<string, unknown>> = [];
+    p.b.conn.on('data', (value) => received.push(value as Record<string, unknown>));
+    p.link.side = false;
+    p.a.conn.send({ type: MSG.PAUSE });
+    p.a.sidePc.state('failed');
+    p.b.sidePc.state('failed');
+    p.a.conn.send({ type: MSG.PLAY });
+    await p.pump();
+    const kinds = [...privateKinds(p.a.control), ...privateKinds(p.b.control)];
+    expect(kinds.filter((kind) => kind === 'restart-offer')).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === 'restart-answer')).toHaveLength(1);
+    expect(p.a.sidePc.iceRestarts + p.b.sidePc.iceRestarts).toBe(1);
+    expect([...p.a.sidePc.remoteHistory, ...p.b.sidePc.remoteHistory]).toContain('restart-offer');
+    p.a.sidePc.state('connected');
+    p.b.sidePc.state('connected');
+    p.link.side = true;
+    await p.pump();
+    expect(received.map((value) => value.type)).toEqual([MSG.PAUSE, MSG.PLAY]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(closed).not.toHaveBeenCalled();
+    for (const e of [p.a, p.b]) {
+      expect(e.conn.open).toBe(true);
+      expect(e.conn.controlIsolation?.phase).toBe('active');
+      expect(e.create).toHaveBeenCalledOnce();
+      expect(e.release).not.toHaveBeenCalled();
+    }
+  });
+
+  it('defers the side restart until the original PC itself reconnects', async () => {
+    const p = await pair();
+    await p.activate();
+    for (const e of [p.a, p.b]) e.pc.state('disconnected');
+    for (const e of [p.a, p.b]) e.sidePc.state('failed');
+    await p.pump();
+    expect(p.a.sidePc.iceRestarts + p.b.sidePc.iceRestarts).toBe(0);
+    expect([...privateKinds(p.a.control), ...privateKinds(p.b.control)]).not.toContain(
+      'restart-offer',
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+    for (const e of [p.a, p.b]) e.pc.state('connected');
+    await p.pump();
+    const kinds = [...privateKinds(p.a.control), ...privateKinds(p.b.control)];
+    expect(kinds.filter((kind) => kind === 'restart-offer')).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === 'restart-answer')).toHaveLength(1);
+    for (const e of [p.a, p.b]) e.sidePc.state('connected');
+    await vi.advanceTimersByTimeAsync(60_000);
+    for (const e of [p.a, p.b]) {
+      expect(e.conn.open).toBe(true);
+      expect(e.release).not.toHaveBeenCalled();
+    }
+  });
+
+  it('closes through the existing connection owner when the side does not recover', async () => {
+    const p = await pair();
+    await p.activate();
+    const closed = vi.fn();
+    p.a.conn.on('close', closed);
+    for (const e of [p.a, p.b]) e.sidePc.state('failed');
+    await p.pump();
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(p.a.conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(closed).toHaveBeenCalledOnce();
+    expect(p.a.conn.open).toBe(false);
+    expect(p.a.bulk.readyState).toBe('closed');
+    expect(p.a.release).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the background-resume challenge terminal for a failed side PC', async () => {
+    const p = await pair();
+    await p.activate();
+    p.a.sidePc.state('failed');
+    expect(p.a.conn.open).toBe(true);
+    expect(p.a.conn.recoverAfterBackground(60_000, false)).toBe('stale-connection-closed');
+    expect(p.a.conn.open).toBe(false);
+    expect(p.a.release).toHaveBeenCalledOnce();
   });
 });

@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Login window centering on short screens — 2026-10-20](design/login-dialog-centering-2026-10-20.md) — at
+  480 px tall or less, such as a phone in landscape, the account and administrator-permissions windows stuck
+  12 px from the top; 8.11.27 keeps them centered like every other dialog (844×390: 12 / 68.6 px → 40.3 /
+  40.3 px), pinned by a contract test.
 - [Login legal link order — 2026-10-20](design/login-legal-link-order-2026-10-20.md) — 8.11.26 lists the
   privacy policy before the terms in the login dialog, matching Google's account chooser; a markup contract test
   pins the order.

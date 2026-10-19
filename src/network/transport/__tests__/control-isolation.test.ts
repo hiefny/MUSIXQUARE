@@ -184,7 +184,7 @@ function pair({
   b.flow.start();
   a.flow.handleOriginal(hello(b), true);
   b.flow.handleOriginal(hello(a), true);
-  const link = { original: true, side: true };
+  const link = { original: true, side: true, aToB: true, bToA: true };
   let ai = 1;
   let bi = 1;
   let asi = 0;
@@ -208,9 +208,9 @@ function pair({
   };
   const side = () => {
     if (!link.side) return;
-    for (; asi < (a.peer.channel?.sent.length ?? 0); asi++)
+    for (; link.aToB && asi < (a.peer.channel?.sent.length ?? 0); asi++)
       b.peer.channel!.message(a.peer.channel!.sent[asi]);
-    for (; bsi < (b.peer.channel?.sent.length ?? 0); bsi++)
+    for (; link.bToA && bsi < (b.peer.channel?.sent.length ?? 0); bsi++)
       a.peer.channel!.message(b.peer.channel!.sent[bsi]);
   };
   const pump = async () => {
@@ -790,7 +790,8 @@ describe('side ICE restart of an active isolated control route', () => {
       // Same PC, same lease: a restart never touches the eight-PC owner cap.
       expect(e.create).toHaveBeenCalledOnce();
       expect(e.release).not.toHaveBeenCalled();
-      expect(e.prepareRestart).toHaveBeenCalledTimes(e === offerer ? 1 : 0);
+      // Both sides apply a due credential renewal before gathering.
+      expect(e.prepareRestart).toHaveBeenCalledOnce();
       expect(e.flow.snapshot).toMatchObject({
         restartInterrupted: false,
         localRestartEpoch: 1,
@@ -1199,5 +1200,103 @@ describe('side ICE restart of an active isolated control route', () => {
     expect(p.a.fail).toHaveBeenCalledOnce();
     expect(p.a.release).toHaveBeenCalledOnce();
     expect(iceRestarts(p.a)).toBe(0);
+  });
+
+  it("gives the offerer's own later outage a full window after a peer-requested restart", async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    answerer.peer.state('disconnected');
+    await p.pump();
+    expect(frames(offerer, 'restart-offer')).toHaveLength(1);
+    answerer.peer.state('connected');
+    await vi.advanceTimersByTimeAsync(13_000);
+    offerer.peer.state('disconnected');
+    await p.pump();
+    expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    expect(restarting(offerer).snapshot.restartInterrupted).toBe(true);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(offerer.fail).not.toHaveBeenCalled();
+    offerer.peer.state('connected');
+    await vi.advanceTimersByTimeAsync(60_000);
+    for (const e of [p.a, p.b]) {
+      expect(e.fail).not.toHaveBeenCalled();
+      expect(e.flow.phase).toBe('active');
+    }
+  });
+
+  it('completes a restart offered while the answerer still awaits READY', async () => {
+    const p = pair();
+    await p.negotiate();
+    const { offerer, answerer } = roles(p);
+    // Only the offerer receives READY: it is active while the answerer still fences.
+    const toAnswerer = offerer === p.a ? 'aToB' : 'bToA';
+    p.link[toAnswerer] = false;
+    p.a.peer.channel!.open();
+    p.b.peer.channel!.open();
+    await p.pump();
+    expect(offerer.flow.phase).toBe('active');
+    expect(answerer.flow.phase).toBe('fencing');
+    for (const e of [p.a, p.b]) e.peer.state('connected');
+    offerer.peer.state('failed');
+    answerer.peer.state('failed');
+    await p.pump();
+    expect(frames(offerer, 'restart-offer')).toHaveLength(1);
+    expect(frames(answerer, 'restart-answer')).toEqual([expect.objectContaining({ epoch: 1 })]);
+    for (const e of [p.a, p.b]) e.peer.state('connected');
+    p.link[toAnswerer] = true;
+    await p.pump();
+    expect(answerer.flow.phase).toBe('active');
+    // The answered attempt leaves later outages restartable.
+    offerer.peer.state('disconnected');
+    await p.pump();
+    expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    expect(frames(answerer, 'restart-answer').map((frame) => frame.epoch)).toEqual([1, 2]);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+  });
+
+  it('closes an answerer offered more restarts than any legitimate offerer sends', async () => {
+    const p = await live();
+    const { offerer, answerer } = roles(p);
+    const offer = (epoch: number) =>
+      answerer.flow.handleOriginal(
+        fromPeer(offerer, answerer, 'restart-offer', { epoch, sdp: `offer-${epoch}` }),
+        true,
+      );
+    for (let epoch = 1; epoch <= 16; epoch++) offer(epoch);
+    await p.pump();
+    expect(answerer.fail).not.toHaveBeenCalled();
+    // The bound is a rolling 30 s window.
+    await vi.advanceTimersByTimeAsync(30_000);
+    for (let epoch = 17; epoch <= 32; epoch++) offer(epoch);
+    await p.pump();
+    expect(answerer.fail).not.toHaveBeenCalled();
+    offer(33);
+    expect(answerer.fail).toHaveBeenCalledOnce();
+    expect(answerer.flow.phase).toBe('closed');
+  });
+
+  it('keeps side deadlines on the monotonic clock across a wall-clock correction', async () => {
+    const p = await live();
+    for (const e of [p.a, p.b]) {
+      e.route.originalUp = false;
+      restarting(e).originalChanged();
+    }
+    p.a.peer.state('failed');
+    p.b.peer.state('failed');
+    await vi.advanceTimersByTimeAsync(5_000);
+    // A network change can also correct the device clock by minutes.
+    vi.setSystemTime(Date.now() + 120_000);
+    for (const e of [p.a, p.b]) {
+      e.route.originalUp = true;
+      restarting(e).originalChanged();
+    }
+    await p.pump();
+    expect(frames(roles(p).offerer, 'restart-offer')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(14_999);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+    p.a.peer.state('connected');
+    p.b.peer.state('connected');
+    await vi.advanceTimersByTimeAsync(60_000);
+    for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
   });
 });

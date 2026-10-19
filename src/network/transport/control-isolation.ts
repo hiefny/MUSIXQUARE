@@ -11,14 +11,18 @@ const NONCE = /^[a-f0-9]{32}$/u;
 const DISCOVERY_MS = 1_000;
 const NEGOTIATION_MS = 10_000;
 const DISCONNECTED_MS = 15_000;
-// A restart-capable active side route survives an ICE interruption by
-// restarting ICE on the same PC: DTLS/SCTP and its ordered channel remain, so
-// queued and in-flight controls keep their order. Each interruption gets the
+// A restart-capable side route survives an ICE interruption by restarting ICE
+// on the same PC: DTLS/SCTP and its ordered channel remain, so queued and
+// in-flight controls keep their order. Each local interruption gets the
 // original PC's 15-second grace, extended to 15 seconds after the original
 // route recovers when that route was itself unavailable, never beyond 30.
+// Monotonic time keeps a wall-clock correction from moving these deadlines.
 const RESTART_WINDOW_MS = 15_000;
 const RESTART_CAP_MS = 30_000;
+// Per local interruption, and separately per window of peer requests.
 const MAX_RESTART_ATTEMPTS = 2;
+// Restart offers an answerer accepts per 30 s: above any legitimate offerer.
+const MAX_RESTART_OFFERS = 16;
 const MAX_EPOCH = 0x7fff_ffff;
 const MAX_CANDIDATES = 128;
 const MAX_QUEUE_MESSAGES = 128;
@@ -71,14 +75,13 @@ interface Options {
   originalReady?(): boolean;
 }
 
+/** The exact side PC's own disconnected/failed outage (monotonic times). */
 interface Interruption {
   readonly start: number;
   deadline: number;
   timer: ReturnType<typeof setTimeout> | null;
   attempts: number;
-  /** The exact side PC reported disconnected/failed, not only a peer request. */
-  local: boolean;
-  /** A restart offer (offerer) or request (answerer) is due. */
+  /** A restart offer (offerer) or request (answerer) is due for this outage. */
   wanted: boolean;
   /** The original route was unavailable during this interruption. */
   originalDown: boolean;
@@ -235,8 +238,8 @@ export class ControlIsolation {
   private largestIncomingBytes = 0;
   private flushing = false;
   private readonly listeners = new Set<() => void>();
-  // ICE restart of the active side PC. Only the original side-PC offerer
-  // offers; the answerer may ask it to. Generations ("epochs") increase by one.
+  // ICE restart of the side PC. Only the original side-PC offerer offers; the
+  // answerer may ask it to. Generations ("epochs") increase by one.
   private remoteRestartCapable = false;
   private restartEpoch = 0;
   private remoteEpochSeen = 0;
@@ -248,6 +251,10 @@ export class ControlIsolation {
   private requestedEpoch = -1;
   private interruption: Interruption | null = null;
   private attempt: Attempt | null = null;
+  private peerWanted = false;
+  private peerWindowEnd = 0;
+  private peerAttempts = 0;
+  private readonly acceptedOffers: number[] = [];
 
   constructor(private readonly options: Options) {}
 
@@ -394,20 +401,20 @@ export class ControlIsolation {
 
   /** The owner reports original-PC state changes; side restarts wait for its recovery. */
   originalChanged(): void {
+    if (!this.restartReady()) return;
     const interruption = this.interruption;
-    if (!interruption || !this.restartReady()) return;
     if (!this.originalReady()) {
-      interruption.originalDown = true;
+      if (interruption) interruption.originalDown = true;
       return;
     }
-    if (interruption.originalDown) {
+    if (interruption?.originalDown) {
       interruption.originalDown = false;
       // Waiting for the original route must not consume the side's own window.
       this.armDeadline(
         interruption,
         Math.min(
           interruption.start + RESTART_CAP_MS,
-          Math.max(interruption.deadline, Date.now() + RESTART_WINDOW_MS),
+          Math.max(interruption.deadline, performance.now() + RESTART_WINDOW_MS),
         ),
       );
     }
@@ -420,6 +427,7 @@ export class ControlIsolation {
     this.clearTimers();
     this.attempt = null;
     this.heldCandidates = null;
+    this.peerWanted = false;
     this.closeSide();
     this.outgoing.length = this.incoming.length = 0;
     this.outgoingBytes = this.incomingBytes = 0;
@@ -597,6 +605,11 @@ export class ControlIsolation {
         return this.fail();
       }
     }
+    // A restart-capable route takes over a disconnect grace armed before READY.
+    if (this.restartReady() && this.disconnectedTimer !== null && this.lease) {
+      this.sideStateChanged(this.lease.pc);
+      if (this.phase === 'closed') return;
+    }
     if (!this.remoteReady) return;
     this.state = 'active';
     if (this.negotiationTimer !== null) clearTimeout(this.negotiationTimer);
@@ -620,19 +633,20 @@ export class ControlIsolation {
     }
     this.incomingBytes = 0;
     if (this.state !== 'active') return;
-    // A restart-capable route takes over a disconnect that began while fencing.
-    if (this.remoteRestartCapable && this.disconnectedTimer !== null && this.lease) {
-      clearTimeout(this.disconnectedTimer);
-      this.disconnectedTimer = null;
-      this.sideStateChanged(this.lease.pc);
-      if (this.state !== 'active') return;
-    }
     this.options.changed(true);
     this.notify();
   }
 
+  /**
+   * Both fences are seen and READY is sent, so the peer may already be active
+   * and own a restart: from here on, restart frames and side ICE outages use
+   * the restart path rather than being dropped or closing the connection.
+   */
   private restartReady(): boolean {
-    return this.state === 'active' && this.remoteRestartCapable;
+    return (
+      this.remoteRestartCapable &&
+      (this.state === 'active' || (this.state === 'fencing' && this.sentReady))
+    );
   }
 
   private get offerer(): boolean {
@@ -659,6 +673,12 @@ export class ControlIsolation {
       if (this.offerer) this.serialize(async () => this.restartRequested(epoch));
     } else if (frame.kind === 'restart-offer') {
       if (this.offerer || epoch !== this.remoteEpochSeen + 1) return;
+      // Ignoring an excess offer would strand the peer's attempt: close instead.
+      const now = performance.now();
+      while (this.acceptedOffers.length > 0 && this.acceptedOffers[0]! <= now - RESTART_CAP_MS)
+        this.acceptedOffers.shift();
+      if (this.acceptedOffers.length >= MAX_RESTART_OFFERS) return this.fail();
+      this.acceptedOffers.push(now);
       this.remoteEpochSeen = epoch;
       this.remoteRestartCandidates = 0;
       if (this.interruption) this.interruption.wanted = false;
@@ -690,16 +710,21 @@ export class ControlIsolation {
   }
 
   private sideStateChanged(pc: RTCPeerConnection): void {
+    if (this.disconnectedTimer !== null) {
+      // The restart path owns this outage from here on.
+      clearTimeout(this.disconnectedTimer);
+      this.disconnectedTimer = null;
+    }
     const state = pc.connectionState;
     if (state === 'connected') {
-      if (this.interruption?.local) {
+      if (this.interruption) {
         this.endInterruption();
         log.info('[Transport] Isolated control ICE recovered');
       }
       return;
     }
     if (state !== 'disconnected' && state !== 'failed') return;
-    const interruption = this.beginInterruption(true);
+    const interruption = this.beginInterruption();
     // An offer/answer still being applied already restarts this generation.
     if (!this.restartInFlight()) interruption.wanted = true;
     this.progressRestart();
@@ -707,23 +732,18 @@ export class ControlIsolation {
 
   private restartRequested(epoch: number): void {
     if (!this.restartReady() || this.attempt || epoch !== this.restartEpoch) return;
-    this.beginInterruption(false).wanted = true;
+    this.peerWanted = true;
     this.progressRestart();
   }
 
-  private beginInterruption(local: boolean): Interruption {
-    const current = this.interruption;
-    if (current) {
-      if (local) current.local = true;
-      return current;
-    }
-    const start = Date.now();
+  private beginInterruption(): Interruption {
+    if (this.interruption) return this.interruption;
+    const start = performance.now();
     const interruption: Interruption = {
       start,
       deadline: start + RESTART_WINDOW_MS,
       timer: null,
       attempts: 0,
-      local,
       wanted: false,
       originalDown: !this.originalReady(),
     };
@@ -735,28 +755,29 @@ export class ControlIsolation {
 
   private progressRestart(): void {
     const interruption = this.interruption;
-    if (!interruption?.wanted || !this.restartReady() || this.restartInFlight()) return;
+    if (!(interruption?.wanted || this.peerWanted)) return;
+    if (!this.restartReady() || this.restartInFlight()) return;
     // The restart signaling travels on the original route: let it recover first.
     if (!this.originalReady()) {
-      interruption.originalDown = true;
+      if (interruption) interruption.originalDown = true;
       return;
     }
-    interruption.wanted = false;
+    if (interruption) interruption.wanted = false;
+    this.peerWanted = false;
     if (!this.offerer) {
-      if (this.requestedEpoch === this.remoteEpochSeen) return;
+      // The answerer asks only for its own outage, once per generation.
+      if (!interruption || this.requestedEpoch === this.remoteEpochSeen) return;
       this.requestedEpoch = this.remoteEpochSeen;
       this.sendFrame('restart-request', { epoch: this.remoteEpochSeen });
       return;
     }
     const pc = this.lease?.pc;
-    if (!pc || interruption.attempts >= MAX_RESTART_ATTEMPTS) return;
-    interruption.attempts += 1;
+    const count = pc ? this.consumeAttempt(interruption) : 0;
+    if (!pc || count === 0) return;
     const attempt: Attempt = { epoch: this.restartEpoch + 1, offered: false, answered: false };
     this.restartEpoch = attempt.epoch;
     this.attempt = attempt;
-    log.info(
-      `[Transport] Restarting isolated control ICE (${interruption.attempts}/${MAX_RESTART_ATTEMPTS})`,
-    );
+    log.info(`[Transport] Restarting isolated control ICE (${count}/${MAX_RESTART_ATTEMPTS})`);
     this.serialize(async () => {
       if (!this.ownsAttempt(pc, attempt)) return;
       await this.lease?.prepareRestart?.();
@@ -772,10 +793,28 @@ export class ControlIsolation {
     });
   }
 
+  /** A local outage spends its own attempts; peer requests alone, a window's. */
+  private consumeAttempt(interruption: Interruption | null): number {
+    if (interruption) {
+      if (interruption.attempts >= MAX_RESTART_ATTEMPTS) return 0;
+      return ++interruption.attempts;
+    }
+    const now = performance.now();
+    if (now >= this.peerWindowEnd) {
+      this.peerWindowEnd = now + RESTART_WINDOW_MS;
+      this.peerAttempts = 0;
+    }
+    if (this.peerAttempts >= MAX_RESTART_ATTEMPTS) return 0;
+    return ++this.peerAttempts;
+  }
+
   private async answerRestart(epoch: number, sdp: string): Promise<void> {
     const pc = this.lease?.pc;
     const current = () => !!pc && this.current(pc) && this.remoteEpochSeen === epoch;
     if (!pc || !current()) return;
+    // Same due credential renewal as the offerer before this side gathers.
+    await this.lease?.prepareRestart?.();
+    if (!current()) return;
     await pc.setRemoteDescription({ type: 'offer', sdp });
     if (!current()) return;
     this.remoteEpoch = epoch;
@@ -820,7 +859,7 @@ export class ControlIsolation {
     // eslint-disable-next-line no-restricted-globals -- one bounded recovery deadline per exact side interruption, disposed with the connection
     interruption.timer = setTimeout(
       () => this.restartExpired(interruption),
-      Math.max(0, deadline - Date.now()),
+      Math.max(0, deadline - performance.now()),
     );
   }
 
@@ -831,7 +870,7 @@ export class ControlIsolation {
     if (!pc || !this.current(pc)) return;
     if (pc.connectionState === 'connected') return this.endInterruption();
     const cap = interruption.start + RESTART_CAP_MS;
-    if (!this.originalReady() && Date.now() < cap) {
+    if (!this.originalReady() && performance.now() < cap) {
       // The original route owns its own bounded recovery; do not pre-empt it.
       interruption.originalDown = true;
       return this.armDeadline(interruption, cap);

@@ -40,10 +40,12 @@
 - 05:08 KST 공개 8 GET 모두 HTTP 200, exact-main 후보와 크기·SHA 일치(서비스 워커 v735). 05:10 KST 운영
   페이지가 `cache=v735`를 싣고 로그인 창 링크가 `/privacy`, `/terms` 순서임을 페이지와 네트워크 응답 양쪽에서
   확인했다. 배포 직후 Drift Audit 39316842275: 31 pass / 0 fail / 5 manual-only, App secret 이름 18개 일치.
-- 복구: 05:07:12.154 KST checkpoint 12219075250이 배포 직전 App(오너가 04:12 KST 대시보드에서
-  `YOUTUBE_API_KEY`를 교체한 8.11.25, version `b68188c9` / deployment `e47a4c9e`)을 보존한다. 그 배포
-  메시지에 `git:` SHA가 없어 provenance가 `unverified`라, 실패했다면 자동 복구는 후보를 유지(forward repair)했을
-  것이다. 롤백은 미실행이다. 그 version으로 돌리면 링크 순서만 이전으로 돌아가고 저장 데이터 마이그레이션은 없다.
+- 복구: 05:07:12.154 KST checkpoint 12219075250이 배포 직전 App(04:12 KST 대시보드 배포, version
+  `b68188c9` / deployment `e47a4c9e`)을 보존한다. 오너 보고로는 8.11.25에서 `YOUTUBE_API_KEY`만 교체한
+  version이지만, script ETag가 달라 코드 바이트를 8.11.25 후보와 대조하지 못했다. 그 배포 메시지에 `git:` SHA가
+  없어 provenance가 `unverified`라, 실패했다면 자동 복구는 후보를 유지(forward repair)했을 것이다. 롤백은
+  미실행이다. 그 version으로 수동 복구했을 때 링크 순서 말고 무엇이 달라지는지는 검증하지 않았다. 이번 릴리스에
+  저장 데이터 마이그레이션은 없다.
 
 ## 한계
 

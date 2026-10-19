@@ -47,8 +47,8 @@ ko-KR, 밝은·어두운 테마, 11가지 화면 크기에서 로고와 인사�
   로고 상자 크기는 모든 화면에서 전후가 같다. 로고와 인사말의 중심 차이(로고가 아래)는 수정 뒤 두 열 레이아웃이
   1.0~1.5px로 세로(1.75px)·데스크톱(1.75~2.5px)과 비슷해졌다. 1/6 비례 시도와 고정 3px의 겹친 비교 이미지와
   측정값은 근거 폴더에 있다.
-- 단위: `setup-carousel-motion.test.ts`에 세 레이아웃의 로고 보정(세로 3px, 데스크톱 clamp, 두 열은 로고
-  높이의 1/6)을 확인하는 검사를 더했다. 수정 전 CSS에서는 실패하고 수정 후 통과한다.
+- 단위: `setup-carousel-motion.test.ts`에 세 레이아웃의 로고 보정(세로 3px, 데스크톱 clamp, 두 열 고정
+  3px이고 `0px`이 아님)을 확인하는 검사를 더했다. 수정 전 CSS에서는 실패하고 수정 후 통과한다.
 - 로컬 Windows, Node 24.20.0, 릴리스 식별자 커밋 `a2d47ffc`: `npm run typecheck`·린트·포맷·committed
   `build:checked` 통과, unit 597 files / 13,440 pass / 0 fail / 0 skip(새 계약 테스트 1개 추가), 소스 가드
   bus-pairing·dead-exports·import-graph·sw-cache-version·brand-capitalization 통과. 로컬 결과는 exact-main CI

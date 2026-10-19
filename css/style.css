@@ -5231,10 +5231,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
+  /* Short screens such as landscape phones keep these windows centered like
+     every other dialog. The panel's height is capped below and its content
+     scrolls inside it, so centering cannot push the top out of view. */
   @media (max-height: 480px) {
     .account-dialog-overlay,
     .administrator-permissions-overlay {
-      align-items: flex-start;
       padding-block: 12px;
     }
 

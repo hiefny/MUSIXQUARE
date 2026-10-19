@@ -2738,6 +2738,31 @@ describe('optional account UI', () => {
     ).not.toBeNull();
   });
 
+  it('keeps the account and administrator windows centered on short screens', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const markup = await readFile('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    const overlayRules = stylesheet.match(/\.dialog-overlay\s*\{([^}]*)\}/)?.[1] ?? '';
+    const start = stylesheet.indexOf(
+      '@media (max-height: 480px) {\n    .account-dialog-overlay,\n    .administrator-permissions-overlay {',
+    );
+    expect(start).toBeGreaterThan(-1);
+    const shortRules = stylesheet.slice(start, stylesheet.indexOf('\n  }\n', start));
+
+    // Both windows take the shared dialog overlay's centering.
+    expect(overlayRules).toContain('align-items: center');
+    for (const id of ['account-dialog-overlay', 'administrator-permissions-overlay']) {
+      expect(parsed.getElementById(id)?.classList.contains('dialog-overlay')).toBe(true);
+    }
+    // A landscape phone only tightens the spacing and caps the panel, so the
+    // window stays centered instead of sticking to the top.
+    expect(shortRules).toMatch(
+      /\.administrator-permissions-overlay \{\s*padding-block: 12px;\s*\}/,
+    );
+    expect(shortRules).toContain('max-height: calc(100dvh - 24px)');
+    expect(shortRules).not.toContain('align-items');
+  });
+
   it('inverts the borderless Google button against the active app theme', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const markup = await readFile('index.html', 'utf8');

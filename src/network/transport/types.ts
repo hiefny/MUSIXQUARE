@@ -350,6 +350,11 @@ export interface TransportDataConnection {
   startBulkFlowControl?(): void;
   /** Provider-owned, non-renewing deadline for this exact ICE interruption. */
   readonly iceRecoveryDeadline?: number;
+  /**
+   * The provider emits `ice-recovered` when this connection survives an ICE
+   * interruption. Work paused until that event requires it.
+   */
+  readonly reportsIceRecovery?: boolean;
 
   send(data: unknown): void;
   close(): void;

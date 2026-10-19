@@ -863,6 +863,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   conn.on('ice-recovered', () => {
     if (!conn.open || getState('network.activeHostConnByPeerId').get(peerId) !== conn) return;
+    bus.emit('network:peer-ice-recovered', conn);
     const generation = ++connectionTypeDetectionGeneration;
     clearManagedTimer('ice-fallback-' + peerId);
     setState(

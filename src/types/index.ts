@@ -560,6 +560,8 @@ export interface ProtocolMap {
     queueItemId: QueueItemId;
     sessionId: number;
     skipped?: boolean;
+    /** The host resends a lane it paused during an ICE interruption from chunk 0. */
+    restart?: boolean;
   };
   'preload-chunk': {
     chunk: Uint8Array;
@@ -1501,6 +1503,8 @@ interface BaseEventMap {
   'network:peer-disconnected': [peerId: string];
   /** Same logical peerId, but a new exact authenticated DataConnection. */
   'network:peer-connection-replaced': [peerId: string];
+  /** Host: the exact active guest connection recovered after an ICE interruption. */
+  'network:peer-ice-recovered': [conn: DataConnection];
   'network:data': [data: unknown, conn: DataConnection];
   'network:error': [error: unknown];
   'network:pro-queue-addition': [frame: ProQueueAdditionFrame];

@@ -226,6 +226,26 @@ describe('duplicate guest connection handoff', () => {
     expect(getState('network.connectedPeers')[0]?.connectionType).toBe('local');
   });
 
+  it('announces ICE recovery only for the exact active connection', async () => {
+    const recovered: DataConnection[] = [];
+    const stop = bus.on('network:peer-ice-recovered', (conn) => recovered.push(conn));
+    const first = makeIncomingConn('guest-recovering');
+    const replacement = makeIncomingConn('guest-recovering');
+    try {
+      handleHostIncomingConnection(first);
+      first.fire('ice-recovered');
+      handleHostIncomingConnection(replacement);
+      first.fire('ice-recovered');
+      replacement.fire('ice-recovered');
+      replacement.open = false;
+      replacement.fire('ice-recovered');
+      await vi.advanceTimersByTimeAsync(1_600);
+    } finally {
+      stop();
+    }
+    expect(recovered).toEqual([first, replacement]);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
   });

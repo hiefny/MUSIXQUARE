@@ -55,6 +55,24 @@ function connection(id: string, bufferedAmount = 0) {
   return { conn, peer, channel, wire };
 }
 
+/** Starts blocked behind buffered bytes on a live ICE route. */
+function interruptibleConnection(id: string, reportsIceRecovery = true) {
+  const target = connection(id, 1024 * 1024);
+  const pc: { connectionState: RTCPeerConnectionState; iceConnectionState: RTCIceConnectionState } =
+    { connectionState: 'connected', iceConnectionState: 'connected' };
+  Object.assign(target.conn, { peerConnection: pc, reportsIceRecovery });
+  const interrupt = (): void => {
+    pc.connectionState = 'disconnected';
+    pc.iceConnectionState = 'disconnected';
+  };
+  const recover = (): void => {
+    target.channel.bufferedAmount = 0;
+    pc.connectionState = 'connected';
+    pc.iceConnectionState = 'connected';
+  };
+  return { ...target, pc, interrupt, recover };
+}
+
 function installPeers(...peers: ConnectedPeer[]): void {
   setState('network.connectedPeers', peers);
   setState('network.activeHostConnByPeerId', new Map(peers.map((peer) => [peer.id, peer.conn!])));
@@ -363,6 +381,232 @@ describe('preload peer ownership', () => {
     expect(target.wire.filter((frame) => frame.type === MSG.PRELOAD_START)).toHaveLength(2);
     expect(target.wire.filter((frame) => frame.type === MSG.PRELOAD_ABORT)).toHaveLength(1);
     expect(target.wire.filter((frame) => frame.type === MSG.PRELOAD_END)).toHaveLength(1);
+  });
+});
+
+describe('preload lanes interrupted by ICE', () => {
+  const types = (wire: Array<Record<string, unknown>>) => wire.map((frame) => frame.type);
+
+  /** One healthy receiver completes while the other loses its route mid-stream. */
+  async function interruptBroadcast() {
+    const healthy = connection('healthy-listener');
+    const flaky = interruptibleConnection('interrupted-listener');
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(healthy.peer, flaky.peer);
+    publishPreload(file);
+    setState('preload.ready', null);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    const ready = getState('preload.ready')!;
+    expect(healthy.wire.at(-1)?.type).toBe(MSG.PRELOAD_END);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+    flaky.interrupt();
+    await vi.advanceTimersByTimeAsync(500);
+    return { healthy, flaky, file, ready };
+  }
+
+  it('resumes the receiver after recovery instead of aborting its partial session', async () => {
+    const { flaky, ready } = await interruptBroadcast();
+    // An abort sent now would arrive after recovery and could discard the resend.
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
+    for (const frame of flaky.wire) {
+      expect(frame).toMatchObject({ queueItemId: NEXT, sessionId: ready.sessionId });
+    }
+    expect(flaky.wire[0]).not.toHaveProperty('restart');
+    expect(flaky.wire[1]).toMatchObject({ skipped: false, restart: true });
+
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(flaky.wire).toHaveLength(4);
+  });
+
+  it('waits for the transition that makes an interrupted route writable', async () => {
+    const { flaky } = await interruptBroadcast();
+    // A selected-pair change can report recovery while the route is still down.
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire).at(-1)).toBe(MSG.PRELOAD_END);
+  });
+
+  it('resumes the same tuple after the host promoted it to the current file', async () => {
+    const { flaky, ready } = await interruptBroadcast();
+    setState('files.current', ready);
+    setState('playlist.currentQueueItemId', NEXT);
+    setState('preload.nextQueueItemId', null);
+    setState('preload.activeTarget', null);
+    setState('preload.ready', null);
+    cancelPreloadTransfer(NEXT, true);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
+  });
+
+  it('sends the deferred abort when the paused preload is cancelled', async () => {
+    const { flaky } = await interruptBroadcast();
+    cancelPreloadTransfer();
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START, MSG.PRELOAD_ABORT]);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START, MSG.PRELOAD_ABORT]);
+  });
+
+  it('aborts instead of resuming when the paused tuple is no longer resident', async () => {
+    const { flaky } = await interruptBroadcast();
+    setState('preload.ready', null);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START, MSG.PRELOAD_ABORT]);
+  });
+
+  it('forgets a paused lane whose connection was replaced', async () => {
+    const { flaky } = await interruptBroadcast();
+    bus.emit('network:peer-connection-replaced', flaky.peer.id);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+  });
+
+  describe('as the receiving guest', () => {
+    const SID = 41;
+    const start = {
+      type: MSG.PRELOAD_START,
+      name: 'next.mp3',
+      mime: 'audio/mpeg',
+      total: 3,
+      size: CHUNK_SIZE * 3,
+      queueItemId: NEXT,
+      sessionId: SID,
+      skipped: false,
+    };
+    const chunk = (chunkIndex: number) => ({
+      type: MSG.PRELOAD_CHUNK,
+      chunk: new Uint8Array(CHUNK_SIZE).fill(chunkIndex + 1),
+      chunkIndex,
+      queueItemId: NEXT,
+      sessionId: SID,
+    });
+    const end = { type: MSG.PRELOAD_END, name: 'next.mp3', queueItemId: NEXT, sessionId: SID };
+
+    function becomeGuest() {
+      const host = connection('restarting-host');
+      setState('playlist.items', [
+        item(CURRENT, new File(['old'], 'current.mp3')),
+        item(NEXT, new File(['next'], 'next.mp3')),
+      ]);
+      setState('playlist.currentQueueItemId', CURRENT);
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', host.conn);
+      setState('network.connectionType', 'local');
+      markQueueAuthorityReady(host.conn);
+      resetInboundRateLimit(host.conn.peer);
+      return host;
+    }
+
+    it('restarts a live partial session so a slow resend cannot outlast its watchdog', async () => {
+      const host = becomeGuest();
+      for (const frame of [start, chunk(0), chunk(1)]) await handleData(frame, host.conn);
+      expect(getState('preload.sessionState').get(SID)).toMatchObject({ progress: 2 });
+      // An overlapping lane's START still keeps the prefix.
+      await handleData(start, host.conn);
+      expect(getState('preload.sessionState').get(SID)).toMatchObject({ progress: 2 });
+
+      // Recovery resends from chunk 0, more slowly than the 15 s progress watchdog.
+      await handleData({ ...start, restart: true }, host.conn);
+      expect(getState('preload.sessionState').get(SID)).toMatchObject({
+        progress: 0,
+        skipped: false,
+      });
+      await handleData(chunk(0), host.conn);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await handleData(chunk(1), host.conn);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await handleData(chunk(2), host.conn);
+      await handleData(end, host.conn);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(getState('preload.sessionState').get(SID)).toMatchObject({
+        progress: 3,
+        finalized: true,
+        skipped: false,
+      });
+    });
+
+    it('keeps a finalized preload when a restart arrives', async () => {
+      const host = becomeGuest();
+      for (const frame of [start, chunk(0), chunk(1), chunk(2), end]) {
+        await handleData(frame, host.conn);
+      }
+      await vi.advanceTimersByTimeAsync(100);
+      const finalized = getState('preload.sessionState').get(SID);
+      expect(finalized?.finalized).toBe(true);
+
+      await handleData({ ...start, restart: true }, host.conn);
+      expect(getState('preload.sessionState').get(SID)).toBe(finalized);
+    });
+  });
+
+  it('aborts at once on a provider that never reports ICE recovery', async () => {
+    const healthy = connection('healthy-listener');
+    const flaky = interruptibleConnection('peerjs-listener', false);
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(healthy.peer, flaky.peer);
+    publishPreload(file);
+    setState('preload.ready', null);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    flaky.interrupt();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START, MSG.PRELOAD_ABORT]);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START, MSG.PRELOAD_ABORT]);
+  });
+
+  it('still aborts a lane that stalls on a connected route', async () => {
+    const healthy = connection('healthy-listener');
+    const stalled = interruptibleConnection('stalled-listener');
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(healthy.peer, stalled.peer);
+    publishPreload(file);
+    setState('preload.ready', null);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(types(stalled.wire)).toEqual([MSG.PRELOAD_START, MSG.PRELOAD_ABORT]);
+
+    stalled.recover();
+    bus.emit('network:peer-ice-recovered', stalled.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(stalled.wire)).toEqual([MSG.PRELOAD_START, MSG.PRELOAD_ABORT]);
   });
 });
 

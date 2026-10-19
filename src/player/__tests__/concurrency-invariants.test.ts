@@ -1482,6 +1482,34 @@ describe('progress-aware preload waiter identity', () => {
     });
   });
 
+  it('counts a restarted exact session as progress from its new start', async () => {
+    vi.useFakeTimers();
+    setState('network.hostConn', hostConn);
+    setState('playback.lifecycle', PLAYBACK_STATE.AWAITING_PRELOAD);
+    const queueItemId = selectIndex(4)!;
+    initPlayback();
+
+    bus.emit('storage:use-preloaded', queueItemId, 'same.mp3', 10);
+    setState('preload.sessionState', new Map([[10, waitingSession(10, 50)]]));
+    // Recovery restarts the interrupted transfer below the old high-water mark.
+    for (const progress of [0, 10, 20]) {
+      await vi.advanceTimersByTimeAsync(9_000);
+      setState('preload.sessionState', new Map([[10, waitingSession(10, progress)]]));
+    }
+    expect(exactHostSend).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY }),
+    );
+
+    await vi.advanceTimersByTimeAsync(10_001);
+    expectCorrelatedRequest(exactHostSend, {
+      type: MSG.REQUEST_DATA_RECOVERY,
+      nextChunk: 0,
+      fileName: 'same.mp3',
+      queueItemId,
+      sessionId: 10,
+    });
+  });
+
   it('keeps a healthy exact-session transfer alive beyond sixty seconds', async () => {
     vi.useFakeTimers();
     setState('network.hostConn', hostConn);

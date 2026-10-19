@@ -1120,6 +1120,7 @@ export function initPlayback(): void {
       // only a true no-progress interval may start duplicate main recovery.
       const PRELOAD_WATCHDOG_STALL_MS = 10_000; // no-progress timeout
       let lastProgressChunk = -1;
+      let lastProgressSessionId: number | undefined;
       let disposed = false;
 
       const cleanup = (): void => {
@@ -1190,8 +1191,12 @@ export function initPlayback(): void {
           if (session.queueItemId !== queueItemId) continue;
           if (sessionId !== undefined && sid !== sessionId) continue;
           const prog = session.nextExpectedChunk || 0;
-          if (prog > lastProgressChunk) {
+          // The host restarts a transfer interrupted by ICE from chunk 0; its
+          // progress counts from that new start, not the old high-water mark.
+          const restarted = sid === lastProgressSessionId && prog < lastProgressChunk;
+          if (prog > lastProgressChunk || restarted) {
             lastProgressChunk = prog;
+            lastProgressSessionId = sid;
             installStallTimer(); // reset stall timer on any forward progress
           }
           break;

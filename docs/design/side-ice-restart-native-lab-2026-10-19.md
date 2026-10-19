@@ -155,15 +155,34 @@ and `results/`. Builds are under the main checkout's
 | side-failed candidate 2 | `49fcd625f32de658f3ee2a13eb2a47cc3ef8b6d99a7230cf17eea3004052597f` |
 | side-failed baseline 2 | `b120a9188eaca2014b3a284f91d33d8515a86cd99fab099ed664def2e25bff9a` |
 
-## Limits and what still needs real devices
+## Limits
 
 - Packet loss keeps both endpoints' addresses, so after restore the old path
   works again; this lab proves the candidate no longer closes on a side failure
   and that a restart completes, but not that new candidates find a new path.
-- Still needed on devices: an IP change on the same LAN by switching to a different
-  SSID, and Wi-Fi to LTE through TURN, which needs production TURN credentials and
-  real networks and can only be checked after deployment. Also iOS/Android WebKit
-  and Chrome timing, background tabs, battery and audible sync.
 - One run per arm per case (two for `side-failed`), one Windows PC, controlled
   YouTube provider, no TURN; ICE-TCP/TURN-TCP sockets bypass the CDP P2P rule but
   were not in use.
+
+## Post-release real-device checks for release 2
+
+Real networks and production TURN credentials are needed, so these run only after
+a release-2 deployment, in this order (the first one fixed by the owner on
+2026-10-19). Set `?mxqrLog=info` (or `localStorage['mxqr:logLevel']='info'`) on the
+guest first, so the on-device console shows the side restart log lines.
+
+1. **Wi-Fi to LTE after a direct file, host on Wi-Fi.** The host laptop stays on
+   Wi-Fi. The guest phone joins on the same Wi-Fi, receives one direct file (the
+   side route is then active), then switches from Wi-Fi to LTE. Owner field result
+   on production 8.11.23 (2026-10-19): the connection ended with the disconnect
+   dialog, confirming known-accepted #18. Release 2 passes when the guest sees no
+   disconnect dialog or Reconnect, playback and controls continue, and the guest's
+   console shows `Restarting isolated control ICE` followed by
+   `Isolated control ICE recovered`.
+2. **LTE to Wi-Fi for a remote guest without a direct file** (no side PC).
+   Owner field result on 8.11.23: it recovered through the original PC's ICE
+   restart, and the guest re-detected locality after `ice-recovered`. Recheck it
+   as a regression.
+3. **IP change on the same LAN** by switching the guest to a different SSID after
+   a direct file.
+4. iOS/Android WebKit and Chrome timing, background tabs, battery and audible sync.

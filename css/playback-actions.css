@@ -244,9 +244,18 @@
     width: calc(var(--play-action-slot-width, 100%) * 2 + var(--play-action-gap));
     justify-self: center;
     justify-content: center;
+    /* The square's former inner margin stays visible beside the label. */
+    gap: calc(8px + var(--play-action-icon-size) / 4);
     color: var(--play-action-stop-foreground);
     opacity: 0;
     transform: translateX(calc(16px * var(--play-action-motion-direction)));
+  }
+
+  /* The stop icon's box is the drawn square (half the icon size), so the icon
+     and label center by what is visible rather than by an empty inner margin. */
+  .play-action-buttons #btn-media-source > .play-action-stop-content > svg {
+    width: calc(var(--play-action-icon-size) / 2);
+    height: calc(var(--play-action-icon-size) / 2);
   }
 
   .play-action-buttons .play-action-stop-content > .play-action-label {

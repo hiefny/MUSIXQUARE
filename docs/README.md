@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Side-PC ICE restart independent verification — 2026-10-20](design/side-ice-restart-independent-verification-2026-10-20.md) —
+  a separate session without the owner's field notes fixed its procedure first: 10 s outages keep both
+  versions, side-PC `failed` at 17 s loses 8.11.23's session while `ee8dcd28` recovers, and 25 s ends both.
+  Preload abort on disconnect is pre-existing; an IP change could not be emulated.
+- [Isolated control side ICE restart — 2026-10-19](design/control-isolation-side-ice-restart-2026-10-19.md) — capability-gated bounded restart of the side PC over the original lane; unit and mutation evidence at `05551d1d`; native lab and independent verification pass on `ee8dcd28`; ships as 8.11.24.
+- [Side-PC ICE restart native lab — 2026-10-19](design/side-ice-restart-native-lab-2026-10-19.md) — candidate `ee8dcd28` passes all five CDP P2P outage runs; production main closes on side PC failure; preload abort on disconnect is a separate pre-existing follow-up; real-device IP change and TURN remain.
 - [Combined transport release — 2026-10-19](design/transport-release-bundle-2026-10-19.md) —
   8.11.23/v732 bundles #410 control isolation, the delay-based receipt window with its
   evidence bound and the transfer-time clock guard. Native round r1 passes the pre-fixed
@@ -694,8 +700,6 @@ labeled portion still supports a current guard or operating interpretation:
   design evidence, not a claim that the whole prototype is current.
 - [PRO heartbeat benchmark](performance/pro-room-heartbeat-benchmark.md) —
   reproducible evidence, not an uptime or latency SLO.
-- [Isolated control side ICE restart — 2026-10-19](design/control-isolation-side-ice-restart-2026-10-19.md) — capability-gated bounded restart of the side PC over the original lane; unit and mutation evidence at `05551d1d`, native round pending, not deployed.
-- [Side-PC ICE restart native lab — 2026-10-19](design/side-ice-restart-native-lab-2026-10-19.md) — candidate `ee8dcd28` passes all five CDP P2P outage runs; production main closes on side PC failure; preload abort on disconnect is a separate pre-existing follow-up; real-device IP change and TURN remain.
 
 ## Historical archive
 

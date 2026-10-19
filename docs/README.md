@@ -90,6 +90,9 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Login legal link order — 2026-10-20](design/login-legal-link-order-2026-10-20.md) — 8.11.26 lists the
+  privacy policy before the terms in the login dialog, matching Google's account chooser; a markup contract test
+  pins the order.
 - [Stop Sharing icon and label centering — 2026-10-20](design/stop-sharing-centering-2026-10-20.md) —
   the stop square filled only the middle half of its icon box, so the visible icon and label sat 1.75–2.74 px
   right of center; 8.11.25 crops the icon box to the square with the same size and visible gap (−0.75–0 px),

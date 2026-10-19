@@ -74,8 +74,8 @@ function renderAccountDialog(): void {
             hidden
           ></button>
           <nav id="account-legal-links" hidden>
-            <a id="account-terms" href="/terms"></a>
             <a id="account-privacy" href="/privacy"></a>
+            <a id="account-terms" href="/terms"></a>
           </nav>
         </div>
         <dl id="account-dialog-stats" aria-live="polite" aria-busy="false" hidden>
@@ -2181,7 +2181,8 @@ describe('optional account UI', () => {
     await Promise.resolve();
     expect(document.activeElement).toBe(google);
 
-    privacy.focus();
+    // The terms link is last, after the privacy policy, matching Google's order.
+    terms.focus();
     const forward = new KeyboardEvent('keydown', {
       key: 'Tab',
       bubbles: true,
@@ -2200,7 +2201,7 @@ describe('optional account UI', () => {
     });
     overlay.dispatchEvent(backward);
     expect(backward.defaultPrevented).toBe(true);
-    expect(document.activeElement).toBe(privacy);
+    expect(document.activeElement).toBe(terms);
   });
 
   it('keeps focus on the dialog while every account action is pending', async () => {

@@ -10155,7 +10155,10 @@ Safety is declared first because important layer precedence is reversed; its acc
       --setup-head-py: clamp(24px, 6vh, 48px);
       --setup-head-px: clamp(24px, 6vh, 48px);
       --setup-logo-h: clamp(18px, 4.5vh, 26px);
-      --setup-logo-mt: 0px;
+      /* Lower the wordmark by the phone layout's 3px so its top meets the
+         greeting that replaces it (0–1px below at 18–26px). Unnudged, it sat
+         2–3px above; a size-scaled nudge dropped the 26px tablet mark too far. */
+      --setup-logo-mt: 3px;
       --setup-logo-mb: clamp(6px, 1.5vh, 12px);
       --setup-h2: clamp(20px, 5vh, 28px);
       --setup-h2-mb: clamp(4px, 1vh, 8px);

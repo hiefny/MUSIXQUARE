@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Container-native shaped A/B — 2026-10-19](design/native-shaped-credit-ab-2026-10-19.md) —
+  B128, SA192 and the delay-based window through a packet-level bottleneck with Chromium 141:
+  8 Mbps 61–67 / 36.6 / 27.0 s, 2 Mbps unchanged, and the 8→2 collapse transient. Not the
+  team's frozen native contract.
 - [Delay-based receipt window candidate — 2026-10-19](design/delay-based-credit-window-2026-10-19.md) —
   experimental replacement for #410's A192 sender policy: one-chunk growth while the
   measured credit loop shows no added queueing, with deterministic path-model results

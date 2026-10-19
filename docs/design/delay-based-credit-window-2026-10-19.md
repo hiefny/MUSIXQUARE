@@ -123,5 +123,9 @@ collapse maximum above SA192's; if the dynamic budget must hold, rerun with
 cap. A drop that coincides with a probe can delay regrowth up to 60 s through
 the failed-probe memory.
 
+A first container-native comparison (Chromium 141, userspace bottleneck) is
+recorded in [native-shaped-credit-ab-2026-10-19.md](native-shaped-credit-ab-2026-10-19.md);
+it does not replace the team's frozen native runs.
+
 The release record is unchanged: this branch changes no release scope until a
 native run qualifies it.

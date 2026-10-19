@@ -156,9 +156,18 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       기준을 통과했다. 모든 응용 제어 최대는 1초 미만(급락 557ms)이고 재생 조작·로컬
       보정은 0이었다. 보조 연결 ICE restart는 다음 릴리스로 미뤘고, 망 전환 시 연결 종료는
       [허용 위험 #18](known-accepted.md#18-isolated-standard-room-control-route-ends-on-a-network-change)에
-      둔다. 2026-10-19 18:14 KST Release 39228199282로 배포했다(§1). 실기 Android/iOS·
+      둔다. 2026-10-19 18:14 KST Release 39228199282로 배포했다. 실기 Android/iOS·
       가청 싱크·live 공급자는 여전히 미검증이다.
       [통합 릴리스 검증](design/transport-release-bundle-2026-10-19.md).
+      오너는 같은 날 운영 8.11.23에서 직접 파일을 받은 폰을 와이파이→LTE로 바꿔 연결 끊김을
+      재현했다. 8.11.24/v733 후보(`ee8dcd28` + 식별자)는 보조 연결 ICE restart를 더한다.
+      구현 세션 랩과 기대값 없이 수행한 독립 검증 모두, 짧은 끊김은 두 버전 다 유지하고
+      보조 연결이 failed에 닿으면 8.11.23만 세션을 잃으며, 원래 연결의 15초 유예를 넘는
+      끊김은 두 버전 모두 끝난다는 같은 결과였다. IP 변경은 랩에서 흉내 낼 수 없어 배포 뒤
+      실기 확인으로 남긴다. 두 랩 모두 미리받기가 원래 연결 disconnected 감지 즉시 중단되고
+      복구 뒤 다시 시작하지 않는 기존 동작을 확인했다(별도 후속).
+      [독립 검증](design/side-ice-restart-independent-verification-2026-10-20.md),
+      [구현 랩](design/side-ice-restart-native-lab-2026-10-19.md).
       이전에 수행한 128/256/384/512 KiB
       비교에서 일반 전송과 프리로드의 고RTT 경로를 모두 반복 측정했다. 256 이상은
       이 조건에서 빨랐지만, 2 Mbps 프리로드에서는 파일 완료시간 이득 없이
@@ -641,11 +650,18 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 
 사용자의 실제 기기가 필요하다. 브라우저 자동화 결과로 대신하지 않는다.
 
-- [ ] 8.11.23/v732 일반방 전송 통합: 폰 두 대(Android·iPhone)와 PC로 로컬 파일 재생 중 다음 곡
+- [ ] 일반방 전송 통합(8.11.23 이후): 폰 두 대(Android·iPhone)와 PC로 로컬 파일 재생 중 다음 곡
       프리로드, YouTube 재생 중 프리로드, 프리로드 중 일시정지 반응, 같은 주소의 짧은 와이파이
-      끊김(회복해야 정상), 와이파이→LTE 전환(허용 위험 #18대로 재접속 창 예상)을 확인하고, 보조
-      연결이 하나 더 생기는 데 따른 배터리·발열도 본다. 데스크톱 Chromium native 라운드만 있다.
+      끊김(회복해야 정상)을 확인하고, 보조 연결이 하나 더 생기는 데 따른 배터리·발열도 본다.
+      데스크톱 Chromium native 라운드만 있다.
       [남은 실기 확인](design/transport-release-bundle-2026-10-19.md#남은-실기-확인)
+- [ ] 8.11.24 보조 연결 ICE restart: 호스트 노트북은 와이파이에 두고, 같은 와이파이의 폰이 직접
+      파일을 받은 뒤 와이파이→LTE로 바꾼다. 8.11.23에서는 연결 끊김 창이 떴다(오너 확인
+      2026-10-19). 8.11.24에서 창·재접속 없이 재생과 조작이 이어지고, `?mxqrLog=info`로 연
+      게스트의 `/debug console`에 `Restarting isolated control ICE` 다음
+      `Isolated control ICE recovered`가 보이면 허용 위험 #18을 닫는다. 같은 공유기의 다른 SSID로
+      옮기는 IP 변경과, 원격(LTE) 게스트가 와이파이로 오는 반대 방향(이미 복구됨)도 회귀로 본다.
+      [독립 검증](design/side-ice-restart-independent-verification-2026-10-20.md)
 - [ ] 8.11.18/v720 시작 화면 버튼 전환: iPhone Safari·홈 화면 PWA, Android Chrome, Windows·macOS
       데스크톱에서 첫 화면 → 방 만들기·방 참여하기와 뒤로 가기 때 가운데 덩어리가 튀지 않고 제자리에서
       크로스페이드되는지, 버튼도 함께 서서히 바뀌는지, 방 참여하기의 시작하기 버튼이 전과 같이 동작하는지

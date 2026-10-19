@@ -988,6 +988,12 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         receive: (data) => this.receiveControl(data, false),
         changed: (active) => this.bulkCredit.setControlIsolationActive(active),
         fail: () => this.terminate(),
+        // Side ICE-restart signaling waits while the original PC recovers.
+        originalReady: () =>
+          this.open &&
+          !this.closed &&
+          this.peerConnection?.connectionState === 'connected' &&
+          this.controlChannel?.readyState === 'open',
       });
     }
   }
@@ -1121,6 +1127,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
             this.clearBackgroundResumeRecovery();
           }
           this.onConnectionStateChange?.();
+          this.controlIsolation?.originalChanged();
           if (recovered && this.open) this.emit('ice-recovered');
           return;
         }
@@ -1133,6 +1140,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
           this.onConnectionStateChange?.();
           if (this.closed) return;
           this.scheduleDisconnectedGrace(pc);
+          this.controlIsolation?.originalChanged();
           return;
         }
         if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
@@ -1140,6 +1148,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
             this.connectionInterrupted = true;
             this.scheduleDisconnectedGrace(pc);
             this.onConnectionStateChange?.();
+            this.controlIsolation?.originalChanged();
             return;
           }
           this.terminate();
@@ -4202,6 +4211,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       pc,
       release: () => {
         this.isolatedControlPcs.delete(pc);
+      },
+      // Same due-renewal rule as the original PC's restart; never a new PC.
+      prepareRestart: async () => {
+        if (this.options.rtcConfigurationProvider) await this.refreshRtcConfigurationIfDue();
       },
     };
   }

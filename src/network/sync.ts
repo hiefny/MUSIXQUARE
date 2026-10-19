@@ -40,6 +40,7 @@ import {
 } from '../player/_state.ts';
 import { isLargeAudioTrack } from '../player/file-playback-resource.ts';
 import {
+  getClockCorrectionQuality,
   getHostNow,
   registerPing,
   processSyncPong,
@@ -479,13 +480,30 @@ function emitFileSyncStartFailure(
   });
 }
 
+/**
+ * The admission automatic YouTube realignment uses. With clock error at most
+ * U = selected RTT/2 + 5ms, fully correcting an observed drift m leaves up to U
+ * of clock error while the true drift was at least m - U, so only m > 2U is
+ * guaranteed to improve. When only replies queued behind file data remain
+ * selectable, U grows with their RTT and their midpoint bias (at most U - 5ms)
+ * cannot pass. Returns the withheld reason, or null when admitted.
+ */
+function getSoftResyncClockBlock(absDriftSec: number): string | null {
+  const clock = getClockCorrectionQuality();
+  if (!clock.eligible) return `clock-${clock.reason}`;
+  if (clock.uncertaintyMs === null || absDriftSec * 1000 <= 2 * clock.uncertaintyMs) {
+    return 'clock-uncertainty';
+  }
+  return null;
+}
+
 async function maybeSoftResyncFile(
   syncPosition: number,
   localPosition: number,
   data: Record<string, unknown>,
   hostConn: DataConnection,
   attemptGeneration: number,
-): Promise<'not-needed' | FileSyncStartResult> {
+): Promise<'not-needed' | 'withheld' | FileSyncStartResult> {
   const signedDrift = syncPosition - localPosition;
   const absDrift = Math.abs(signedDrift);
 
@@ -498,6 +516,20 @@ async function maybeSoftResyncFile(
   if (now - _lastSoftFileResyncAt < FILE_SOFT_RESYNC_COOLDOWN_MS) {
     resetSoftFileResyncState();
     return 'not-needed';
+  }
+
+  // A withheld sample restarts the same-direction confirmation, as it does
+  // for the YouTube heartbeat streak.
+  const clockBlock = getSoftResyncClockBlock(absDrift);
+  if (clockBlock !== null) {
+    resetSoftFileResyncState();
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      expectedPositionSeconds: syncPosition,
+      localPositionSeconds: localPosition,
+      reason: clockBlock,
+    });
+    return 'withheld';
   }
 
   const direction: -1 | 1 = signedDrift > 0 ? 1 : -1;
@@ -827,7 +859,7 @@ async function handleSyncPong(data: Record<string, unknown>, conn?: DataConnecti
       expectedPositionSeconds: syncPosition,
       localPositionSeconds: localPosition,
     });
-  } else if (softResult !== 'started') {
+  } else if (softResult === 'pending' || softResult === 'rejected') {
     emitFileSyncStartFailure(softResult, syncPosition, attemptGeneration, localPosition);
   }
 }
@@ -959,7 +991,9 @@ export function initSync(): void {
 
   // Force the next valid SYNC_PONG to re-lock local-file playback even when
   // drift is under the normal correction threshold. A background resume may
-  // have stepped the device clock, so it keeps the default cold calibration.
+  // have stepped a clock, so the estimate restarts cold by default; that reply
+  // restores the set-aside samples only when it corroborates them, so a reply
+  // queued behind a file transfer cannot become the re-lock clock on its own.
   // A decoded track activation can preserve the current host clock while
   // requesting the same immediate playback correction.
   bus.on('sync:force-resync', (options) => {

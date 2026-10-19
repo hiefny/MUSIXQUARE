@@ -76,9 +76,12 @@ describe('read-only evidence for optional clock-based correction', () => {
     expect(getClockOffset()).toBe(0);
   });
 
-  it('exposes, rather than conceals, uncertainty after the good sample is evicted', () => {
+  it('exposes, rather than conceals, uncertainty after the good sample ages out', () => {
     sample();
     for (let i = 0; i < 60; i++) sample(100, 700);
+    // Capacity no longer evicts the good sample; only its 120s age limit does.
+    expect(getClockCorrectionQuality()).toMatchObject({ rttMs: 4, offsetMs: 0 });
+    for (let i = 60; i < 150; i++) sample(100, 700);
     expect(getClockCorrectionQuality()).toMatchObject({
       eligible: true,
       reason: 'fresh',

@@ -685,6 +685,7 @@ labeled portion still supports a current guard or operating interpretation:
   design evidence, not a claim that the whole prototype is current.
 - [PRO heartbeat benchmark](performance/pro-room-heartbeat-benchmark.md) —
   reproducible evidence, not an uptime or latency SLO.
+- [Transfer-time clock asymmetry guard — 2026-10-19](design/transfer-clock-sync-guard-2026-10-19.md) — keeps the quiet min-RTT clock sample for its 120 s age, gates local-file soft resync like YouTube auto realignment, and restores a corroborated clock after a forced re-lock; deterministic unit evidence only, native round pending, no release.
 
 ## Historical archive
 

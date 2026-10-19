@@ -54,6 +54,9 @@ interface SharedClockDiagnostics {
 
 let _isHostClock = false;
 let _samples: ClockSample[] = [];
+// A forced re-lock keeps the previous samples out of the estimate until the
+// next accepted exchange corroborates them. See resetClockSamples().
+let _setAsideSamples: ClockSample[] = [];
 let _bestOffset = 0;
 let _pongsReceived = 0;
 const _pendingPings = new Map<number, PendingPing>();
@@ -343,6 +346,69 @@ function rebaseLocalClockStep(
   recordClockSelection(previous, 'rebase');
 }
 
+/**
+ * Over capacity, drop the highest-RTT sample (the oldest among equals) but
+ * never the newest reply. A reply queued behind file data has an inflated RTT,
+ * so a burst of them can no longer push the last quiet sample out before its
+ * age limit: min-RTT selection covers the whole 120s window instead of only
+ * the newest 60 replies (about 60s at the 1Hz ping). Keeping the newest reply
+ * preserves the freshness evidence read by quality checks and diagnostics.
+ *
+ * Trade-off: the selected offset may now be up to 120s old instead of about
+ * 60s, so relative host/guest clock drift accumulates for up to twice as long
+ * (about 12ms at a combined 100ppm), and an undetected sub-2s host clock step
+ * can be held that long. The age limit, clock-step flush, local rebase and
+ * epochs bound both exactly as before.
+ */
+function evictWorstSamples(): void {
+  while (_samples.length > MAX_SAMPLES) {
+    let worst = 0;
+    for (let index = 1; index < _samples.length - 1; index += 1) {
+      if (_samples[index].rtt > _samples[worst].rtt) worst = index;
+    }
+    _samples.splice(worst, 1);
+  }
+}
+
+/**
+ * The first accepted exchange after a forced re-lock decides whether the
+ * set-aside samples still describe this clock: each must be inside the age
+ * limit without an observable local wall/monotonic discontinuity, and the
+ * fresh midpoint interval must overlap the best one (the same comparison the
+ * selection diagnostics use). A reply that queued behind file data then cannot
+ * replace an established quiet clock, while an observed step still starts cold.
+ */
+function takeCorroboratedSetAsideSamples(
+  rtt: number,
+  offset: number,
+  receivedAt: number,
+  monotonicReceivedAt: number,
+): ClockSample[] | null {
+  const candidates = _setAsideSamples;
+  _setAsideSamples = [];
+  const live: ClockSample[] = [];
+  let best: ClockSample | null = null;
+  for (const sample of candidates) {
+    const wallAge = receivedAt - sample.timestamp;
+    const monotonicAge = monotonicReceivedAt - sample.monotonicTimestamp;
+    if (
+      !Number.isFinite(wallAge) ||
+      !Number.isFinite(monotonicAge) ||
+      wallAge < 0 ||
+      monotonicAge < 0 ||
+      Math.max(wallAge, monotonicAge) >= SAMPLE_AGE_LIMIT_MS ||
+      Math.abs(wallAge - monotonicAge) > LOCAL_CLOCK_PRECISION_MS
+    ) {
+      continue;
+    }
+    live.push(sample);
+    if (best === null || sample.rtt <= best.rtt) best = sample;
+  }
+  if (best === null) return null;
+  const uncertainty = (rtt + best.rtt) / 2 + SELECTION_COMPARISON_TOLERANCE_MS;
+  return Math.abs(offset - best.offset) <= uncertainty ? live : null;
+}
+
 // ─── Pong Processing (RTT/Offset Calculation) ────────────────────
 
 /**
@@ -388,6 +454,19 @@ export function processSyncPong(
   // hostTime was sampled at (pingSentAt + halfRtt) in our time
   const offset = hostTime - (ping.sentAt + halfRtt);
 
+  const previous = captureClockSelection();
+  let selectionReason = 'new-sample';
+  // The first accepted exchange after a forced re-lock either restores the
+  // set-aside samples or confirms the cold start.
+  const restored =
+    _samples.length === 0 && _setAsideSamples.length > 0
+      ? takeCorroboratedSetAsideSamples(rtt, offset, receivedAt, monotonicReceivedAt)
+      : null;
+  if (restored) {
+    _samples = restored;
+    selectionReason = 'restore';
+  }
+
   // Date.now() step detection (NTP correction on network change, mobile
   // sleep/wake, manual time adjustment). After a step, every existing
   // sample's offset references a different epoch — the min-RTT picker
@@ -398,12 +477,13 @@ export function processSyncPong(
   // throwing away the established low-RTT clock; otherwise that single slow
   // reply can manufacture a hard playback correction on an aligned guest.
   // Length gate avoids false-flush during initial calibration where the
-  // first samples legitimately revise the offset.
+  // first samples legitimately revise the offset. A restored pool was just
+  // corroborated within both RTT intervals, far tighter than this gate, which
+  // would otherwise compare it with the reset offset.
   const STEP_THRESHOLD_MS = 2_000;
   const offsetUncertaintyMs = halfRtt + getClockBestRtt() / 2;
-  const previous = captureClockSelection();
-  let selectionReason = 'new-sample';
   if (
+    !restored &&
     _samples.length >= 3 &&
     Math.abs(offset - _bestOffset) > STEP_THRESHOLD_MS + offsetUncertaintyMs
   ) {
@@ -431,20 +511,19 @@ export function processSyncPong(
   const selectedExpired =
     _selectedSample !== null && receivedAt - _selectedSample.timestamp >= SAMPLE_AGE_LIMIT_MS;
   _samples = _samples.filter((s) => receivedAt - s.timestamp < SAMPLE_AGE_LIMIT_MS);
-  const evicted = _samples.length > MAX_SAMPLES ? _samples.shift() : undefined;
+  // Capacity never evicts the selected sample (see evictWorstSamples).
+  evictWorstSamples();
 
   // Best offset = from the sample with lowest RTT (most accurate)
   const best = _samples.reduce((a, b) => (a.rtt < b.rtt ? a : b));
   _bestOffset = best.offset;
   _selectedSample = best;
-  if (selectionReason !== 'clock-step') {
+  if (selectionReason === 'new-sample') {
     selectionReason = selectedExpired
       ? 'expired'
-      : evicted?.sampleId === previous.sampleId
-        ? 'capacity'
-        : best.rtt === previous.rttMs
-          ? 'equal-rtt'
-          : 'new-sample';
+      : best.rtt === previous.rttMs
+        ? 'equal-rtt'
+        : 'new-sample';
   }
   if (best.sampleId !== previous.sampleId || previous.epoch !== _clockEpoch) {
     recordClockSelection(previous, selectionReason);
@@ -473,14 +552,24 @@ function clearClockSamples(): void {
   _clockEpoch += 1;
 }
 
+/**
+ * Forced re-lock: restart the estimate cold, but set the current samples aside
+ * instead of discarding them. A background resume may have stepped a clock,
+ * and during a file transfer the first reply to arrive may have queued behind
+ * file data. The first accepted exchange restores the set-aside samples only
+ * when it corroborates them (takeCorroboratedSetAsideSamples).
+ */
 export function resetClockSamples(): void {
   const previous = captureClockSelection();
+  // A repeated reset before any accepted reply keeps what was already set aside.
+  if (_samples.length > 0) _setAsideSamples = _samples;
   clearClockSamples();
   recordClockSelection(previous, 'reset');
 }
 
 export function resetClockState(): void {
   const previous = captureClockSelection();
+  _setAsideSamples = [];
   clearClockSamples();
   _isHostClock = false;
   recordClockSelection(previous, 'reset');

@@ -676,6 +676,7 @@ labeled portion still supports a current guard or operating interpretation:
   design evidence, not a claim that the whole prototype is current.
 - [PRO heartbeat benchmark](performance/pro-room-heartbeat-benchmark.md) —
   reproducible evidence, not an uptime or latency SLO.
+- [Isolated control side ICE restart — 2026-10-19](design/control-isolation-side-ice-restart-2026-10-19.md) — capability-gated bounded restart of the side PC over the original lane; unit and mutation evidence at `05551d1d`, native round pending, not deployed.
 
 ## Historical archive
 

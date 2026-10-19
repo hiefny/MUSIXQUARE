@@ -76,6 +76,12 @@ describe('app UX markup contract', () => {
     expect(i18nIndex).toBeGreaterThan(restoreIndex);
   });
 
+  it('lists the privacy policy before the terms in the login legal links, as Google does', () => {
+    const links = [...appDocument.querySelectorAll<HTMLAnchorElement>('#account-legal-links a')];
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['/privacy', '/terms']);
+    expect(links.map((link) => link.dataset.i18n)).toEqual(['account.privacy', 'account.terms']);
+  });
+
   it('uses stable cutout question icons on help titles without changing navigation icons', () => {
     const icons = [...appDocument.querySelectorAll<SVGElement>('.help-question-icon')];
     const compactNavPath = appDocument.querySelector('#btn-help-compact path')?.getAttribute('d');

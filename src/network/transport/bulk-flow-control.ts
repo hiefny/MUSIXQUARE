@@ -9,285 +9,318 @@ const RECEIPT_DELAY_MS = 20;
 const LEGACY_GRACE_MS = 1000;
 const NONCE_RE = /^[a-f0-9]{32}$/u;
 
-// Conservative probe budgets are admission policy, not network guarantees.
-const ADAPTIVE_STEP_BYTES = 64 * 1024;
-const ADAPTIVE_MAX_BYTES = 192 * 1024;
-const ADAPTIVE_SAMPLE_MS = 2000;
-const ADAPTIVE_MIN_SAMPLES = 8;
-const ADAPTIVE_MIN_GAIN = 1.2;
-const ADAPTIVE_AGE_BUDGET_MS = 100;
-const ADAPTIVE_MIN_RECEIPT_GAP_MS = 10;
-const ADAPTIVE_MAX_RECEIPT_GAP_MS = 500;
-const ADAPTIVE_ADDED_DELAY_MS = 250;
-const ADAPTIVE_IDLE_MS = 250;
-const ADAPTIVE_DEADLINE_MS = 8000;
-const ADAPTIVE_COOLDOWN_MS = 30_000;
-const ADAPTIVE_BOUNDARIES = 8;
+// Delay-based receipt window. A chunk is credit only while it travels:
+// sent -> bottleneck -> receiver -> receipt back, so throughput is window/loop.
+// The rules reason about one shared FIFO bottleneck with a fixed feedback
+// delay: there the window must cover the bandwidth-delay product and every
+// byte beyond it queues in front of control traffic. SCTP, browsers and real
+// links are not that model. Grow one chunk at a time while the measured loop
+// shows the added chunk mostly entered the pipe; shrink as soon as it queues.
+// Budgets are admission policy, not network guarantees.
+const ADAPTIVE_STEP_BYTES = CHUNK_SIZE;
+// The only cap. A 192 KiB variant changes this constant alone.
+const ADAPTIVE_MAX_BYTES = 256 * 1024;
+const ADAPTIVE_BLOCK_SAMPLES = 5;
+// Little's-law estimate: a full window drains at windowBytes/loop, so one more
+// chunk would add about 64 KiB x loop / window of queueing if the path were
+// already full. It is an estimate from the last median, not a worst-case
+// bound. A 2 Mbps/200 ms path (about 274 ms per chunk) therefore keeps 128 KiB.
+const ADAPTIVE_GROWTH_DELAY_MS = 250;
+// Keep a step only if at most this fraction of the added chunk's estimated
+// delay became queueing and the loop stays within the standing-queue budget of
+// the 128 KiB baseline.
+const ADAPTIVE_QUEUED_FRACTION = 0.5;
+const ADAPTIVE_STANDING_QUEUE_MS = 60;
+// Per-receipt safety above the current level's loop: twice this falls back to
+// 128 KiB at once; two consecutive receipts above it shed one chunk.
+const ADAPTIVE_SAFETY_MS = 100;
+const ADAPTIVE_HOLD_MS = 10_000;
+// A failed probe is not repeated from the same window until that window's loop
+// improves by this fraction of one chunk's delay, or the memory expires.
+const ADAPTIVE_REPROBE_GAIN = 0.25;
+const ADAPTIVE_REPROBE_MS = 60_000;
+const ADAPTIVE_IDLE_RESET_MS = 1000;
+// Above 128 KiB the window must keep earning its size. App-limited, tail,
+// coalesced and untracked receipts release credit without a full-window
+// sample, so after this long or this many released bytes without one (counted
+// from the last sample or window change) the window returns to 128 KiB.
+const ADAPTIVE_EVIDENCE_MS = 2000;
+const ADAPTIVE_EVIDENCE_BYTES = 16 * CHUNK_SIZE;
+const ADAPTIVE_BOUNDARIES = ADAPTIVE_MAX_BYTES / CHUNK_SIZE + 4;
 
-type AdaptivePhase = 'baseline' | 'probe-warmup' | 'probe' | 'accepted' | 'cooldown';
-type SentBoundary = { end: number; bytes: number; at: number; epoch: number };
-type Observation = {
-  firstAt: number;
-  lastAt: number;
-  count: number;
-  ageSum: number;
-};
-type Reference = { goodputBytesPerSecond: number; ackAgeMs: number };
+type AdaptivePhase = 'measure' | 'probe';
+type SentBoundary = { end: number; at: number; epoch: number; limited: boolean };
+type FailedProbe = { windowBytes: number; ageMs: number; at: number };
 
-/** Sender-only policy; receipt age includes transport/batching/return delay. */
+function medianOf(values: readonly number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = sorted.length >> 1;
+  return sorted.length % 2 === 1 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
+}
+
+/** Sender-only policy; receipt age includes local, link, receiver and return time. */
 class AdaptiveCreditController {
   windowBytes = WINDOW_BYTES;
-  phase: AdaptivePhase = 'baseline';
+  phase: AdaptivePhase = 'measure';
   epoch = 0;
-  cooldownUntilMs = 0;
+  heldUntilMs = 0;
   lastDecision = 'initial';
   private active = false;
+  private sentEnd = 0;
   private boundaries: SentBoundary[] = [];
-  private observation: Observation | null = null;
-  private reference: Reference | null = null;
-  private baseline: Reference | null = null;
-  private previousBlock: Reference | null = null;
-  private conservativeRate: number | null = null;
-  private lastEligibleReceiptAt: number | null = null;
-  private completedBlocks = 0;
+  private samples: number[] = [];
   private warmupThrough = 0;
+  private safetyFrom = 0;
+  private failedProbe: FailedProbe | null = null;
+  private baseAgeMs: number | null = null;
+  private referenceAgeMs: number | null = null;
+  private lastBlockAgeMs: number | null = null;
+  private pendingViolation = false;
   private lastReceiptAt: number | null = null;
-  private deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+  private completedBlocks = 0;
+  private evidenceAt = 0;
+  private releasedSinceEvidence = 0;
 
   constructor(private readonly now: () => number) {}
 
   get diagnostics() {
-    const sample = this.observation;
     return {
       windowBytes: this.windowBytes,
       phase: this.phase,
       epoch: this.epoch,
-      sampleCount: sample?.count ?? 0,
-      goodputBytesPerSecond: sample ? this.statistics(sample).goodputBytesPerSecond : null,
-      ackAgeMs: sample ? this.statistics(sample).ackAgeMs : null,
-      cooldownUntilMs: this.cooldownUntilMs,
+      sampleCount: this.samples.length,
+      baseAgeMs: this.baseAgeMs,
+      referenceAgeMs: this.referenceAgeMs,
+      lastBlockAgeMs: this.lastBlockAgeMs,
+      heldUntilMs: this.heldUntilMs,
       lastDecision: this.lastDecision,
       trackedBoundaries: this.boundaries.length,
-      conservativeRateBytesPerSecond: this.conservativeRate,
       completedBlocks: this.completedBlocks,
-      previousBlock: this.previousBlock ? { ...this.previousBlock } : null,
       warmupThroughBytes: this.warmupThrough,
-      reference: this.reference ? { ...this.reference } : null,
+      evidenceAtMs: this.evidenceAt,
+      releasedSinceEvidenceBytes: this.releasedSinceEvidence,
+      failedProbe: this.failedProbe ? { ...this.failedProbe } : null,
     } as const;
   }
 
   activate(): void {
     if (this.active) return;
     this.active = true;
-    this.resetBaseline('negotiated');
+    this.failedProbe = null;
+    this.reset('negotiated', this.sentEnd);
   }
 
   deactivate(): void {
     if (!this.active) return;
     this.active = false;
-    this.resetBaseline('control-isolation-inactive');
     // Lifetime debt belongs to BulkFlowControl. Only learning history expires.
-    this.boundaries = [];
+    this.reset('control-isolation-inactive', this.sentEnd);
     this.lastReceiptAt = null;
   }
 
   sent(end: number, bytes: number, previousOutstanding: number): void {
+    this.sentEnd = end;
     if (!this.active) return;
     const now = this.now();
-    if (this.phase === 'cooldown' && now >= this.cooldownUntilMs) {
-      this.resetBaseline('cooldown-complete');
-    }
     if (
       previousOutstanding === 0 &&
       this.lastReceiptAt !== null &&
-      now - this.lastReceiptAt > ADAPTIVE_IDLE_MS
+      now - this.lastReceiptAt > ADAPTIVE_IDLE_RESET_MS
     ) {
-      this.inconclusive('producer-idle');
+      // The path may have changed while idle. Relearn from 128 KiB; not a penalty.
+      this.reset('producer-idle', end - bytes);
     }
-    if (bytes !== CHUNK_SIZE) this.inconclusive('partial-tail');
-    // Legacy history is never kept. A late hello can therefore have untracked
-    // old debt; its receipt releases credit but cannot become a timing sample.
-    this.boundaries.push({ end, bytes, at: now, epoch: this.epoch });
+    // Evidence can expire between events; at most this chunk used the stale window.
+    this.expireEvidence(now);
+    // Tails never become timing samples. Pre-activation debt is never tracked.
+    if (bytes !== CHUNK_SIZE) return;
+    this.boundaries.push({
+      end,
+      at: now,
+      epoch: this.epoch,
+      // The sender is window-limited: less than one chunk of credit remains.
+      limited: previousOutstanding + bytes > this.windowBytes - ADAPTIVE_STEP_BYTES,
+    });
     if (this.boundaries.length > ADAPTIVE_BOUNDARIES) this.boundaries.shift();
   }
 
-  receipt(previous: number, end: number, sentBytes: number): void {
+  receipt(previous: number, end: number): void {
     if (!this.active) return;
     const now = this.now();
+    this.lastReceiptAt = now;
+    this.releasedSinceEvidence += end - previous;
     const boundary = this.boundaries.find((entry) => entry.end === end);
     this.boundaries = this.boundaries.filter((entry) => entry.end > end);
-    this.lastReceiptAt = now;
-    if (this.phase === 'cooldown') return;
-    if (!boundary || end - previous !== CHUNK_SIZE || boundary.bytes !== CHUNK_SIZE) {
-      this.inconclusive('ambiguous-receipt');
-      return;
-    }
-    if (boundary.epoch !== this.epoch) return;
-    if (this.phase === 'probe-warmup') {
-      if (end <= this.warmupThrough) return;
-      this.phase = 'probe';
-    }
-    const age = now - boundary.at;
-    if (!Number.isFinite(age) || age < 0) {
-      this.inconclusive('invalid-monotonic-time');
-      return;
-    }
+    const age = boundary ? now - boundary.at : NaN;
+    // A coalesced or untracked receipt releases credit but is not a loop sample.
     if (
-      this.windowBytes > WINDOW_BYTES &&
-      this.reference &&
-      age > this.reference.ackAgeMs + ADAPTIVE_AGE_BUDGET_MS
+      boundary &&
+      boundary.epoch === this.epoch &&
+      end - previous === CHUNK_SIZE &&
+      end > this.warmupThrough &&
+      Number.isFinite(age) &&
+      age >= 0
     ) {
-      this.retire('ack-age-increase');
-      return;
+      this.observe(age, boundary.limited, end);
     }
-    const previousEligibleAt = this.lastEligibleReceiptAt;
-    if (previousEligibleAt !== null && now - previousEligibleAt < ADAPTIVE_MIN_RECEIPT_GAP_MS) {
-      this.inconclusive('compressed-receipts');
-      return;
-    }
-    if (previousEligibleAt !== null && now - previousEligibleAt > ADAPTIVE_MAX_RECEIPT_GAP_MS) {
-      this.inconclusive('ambiguous-receipt-gap');
-      return;
-    }
-    this.lastEligibleReceiptAt = now;
-    const sample = this.observation;
-    if (!sample) {
-      this.observation = { firstAt: now, lastAt: now, count: 1, ageSum: age };
-      return;
-    }
-    sample.lastAt = now;
-    sample.count += 1;
-    sample.ageSum += age;
-    // Qualify the first probe over one fixed, longer observation. Baseline and
-    // accepted monitoring keep their original cadence; the probe watchdog is
-    // still anchored at entry, and the per-receipt safety checks run above.
-    const observationScale = this.phase === 'probe' ? 2 : 1;
-    if (
-      sample.count < ADAPTIVE_MIN_SAMPLES * observationScale ||
-      now - sample.firstAt < ADAPTIVE_SAMPLE_MS * observationScale
-    )
-      return;
-    const measured = this.statistics(sample);
-    this.completedBlocks += 1;
-    this.conservativeRate = this.previousBlock
-      ? Math.min(this.previousBlock.goodputBytesPerSecond, measured.goodputBytesPerSecond)
-      : null;
-    this.previousBlock = measured;
-    if (this.phase === 'baseline') {
-      if (this.canGrowTo(WINDOW_BYTES + ADAPTIVE_STEP_BYTES)) {
-        this.baseline = measured;
-        this.probe(WINDOW_BYTES + ADAPTIVE_STEP_BYTES, measured, sentBytes);
-      } else {
-        this.lastDecision = 'baseline-rate-gate';
-        this.observation = null;
-      }
-      return;
-    }
-    const reference = this.phase === 'accepted' ? this.baseline : this.reference;
-    if (
-      !reference ||
-      measured.goodputBytesPerSecond < reference.goodputBytesPerSecond * ADAPTIVE_MIN_GAIN
-    ) {
-      this.retire('insufficient-goodput-gain');
-      return;
-    }
-    if (measured.ackAgeMs > reference.ackAgeMs + ADAPTIVE_AGE_BUDGET_MS) {
-      this.retire('ack-age-increase');
-      return;
-    }
-    if (
-      this.windowBytes < ADAPTIVE_MAX_BYTES &&
-      this.canGrowTo(this.windowBytes + ADAPTIVE_STEP_BYTES)
-    ) {
-      this.probe(this.windowBytes + ADAPTIVE_STEP_BYTES, measured, sentBytes);
-      return;
-    }
-    this.phase = 'accepted';
-    this.lastDecision = `accepted-${this.windowBytes / 1024}`;
-    this.observation = null;
-    // A sustained connection must keep demonstrating useful throughput. This
-    // is one phase watchdog, never a per-chunk timer or an ACK polling request.
-    this.armDeadline();
+    // Decide before the released credit wakes the sender.
+    this.expireEvidence(now);
   }
 
   dispose(): void {
     this.active = false;
-    this.clearDeadline();
     this.boundaries = [];
-    this.observation = null;
-    this.previousBlock = null;
-    this.conservativeRate = null;
-    this.lastEligibleReceiptAt = null;
+    this.samples = [];
+    this.lastReceiptAt = null;
   }
 
-  private canGrowTo(windowBytes: number): boolean {
-    return (
-      this.conservativeRate !== null &&
-      this.conservativeRate > 0 &&
-      ((windowBytes - WINDOW_BYTES) * 1000) / this.conservativeRate <= ADAPTIVE_ADDED_DELAY_MS
-    );
+  private observe(age: number, limited: boolean, end: number): void {
+    const reference = this.referenceAgeMs;
+    // The first flight after growth queues behind its own extra chunk; the
+    // probe's median judges it, the per-receipt safety starts after it.
+    if (reference !== null && this.windowBytes > WINDOW_BYTES && end > this.safetyFrom) {
+      const excess = age - reference;
+      if (excess > 2 * ADAPTIVE_SAFETY_MS) return this.fallBack('loop-spike');
+      if (excess > ADAPTIVE_SAFETY_MS) {
+        if (this.pendingViolation) return this.shrink('loop-increase');
+        this.pendingViolation = true;
+      } else {
+        this.pendingViolation = false;
+      }
+    }
+    // Only a full window measures the path; app-limited loops are shorter.
+    if (!limited) return;
+    this.samples.push(age);
+    this.noteEvidence();
+    if (this.samples.length < ADAPTIVE_BLOCK_SAMPLES) return;
+    const median = medianOf(this.samples);
+    this.samples = [];
+    this.completedBlocks += 1;
+    this.lastBlockAgeMs = median;
+    if (this.phase === 'probe') this.decideProbe(median);
+    else this.decideMeasure(median);
   }
 
-  private statistics(sample: Observation): Reference {
-    const elapsed = sample.lastAt - sample.firstAt;
-    return {
-      goodputBytesPerSecond: elapsed > 0 ? ((sample.count - 1) * CHUNK_SIZE * 1000) / elapsed : 0,
-      ackAgeMs: sample.ageSum / sample.count,
-    };
+  private decideMeasure(median: number): void {
+    if (this.windowBytes === WINDOW_BYTES) this.baseAgeMs = median;
+    else if (this.baseAgeMs !== null && median - this.baseAgeMs > ADAPTIVE_SAFETY_MS) {
+      return this.shrink('standing-queue');
+    }
+    this.referenceAgeMs = median;
+    this.maybeGrow(median);
   }
 
-  private probe(windowBytes: number, reference: Reference, sentBytes: number): void {
-    this.windowBytes = windowBytes;
-    this.phase = 'probe-warmup';
-    this.epoch += 1;
-    this.reference = reference;
-    this.observation = null;
-    this.previousBlock = null;
-    this.conservativeRate = null;
-    this.lastEligibleReceiptAt = null;
-    // Existing epoch debt and a complete first flight at the new size cannot
-    // be counted as evidence of improved delivery under the new target.
-    this.warmupThrough = sentBytes + windowBytes;
-    this.lastDecision = `probe-${windowBytes / 1024}`;
-    this.armDeadline();
+  private decideProbe(median: number): void {
+    // Probes start only from a measured level, so both references exist.
+    const previous = this.referenceAgeMs!;
+    const base = this.baseAgeMs ?? previous;
+    // Estimated delay of one more chunk if all of it queued at the previous
+    // level's drain rate; a model estimate, not a worst-case bound.
+    const chunkDelay = (ADAPTIVE_STEP_BYTES * previous) / (this.windowBytes - ADAPTIVE_STEP_BYTES);
+    if (
+      median - previous > ADAPTIVE_QUEUED_FRACTION * chunkDelay ||
+      median - base > ADAPTIVE_STANDING_QUEUE_MS
+    ) {
+      this.hold('queue-growth', this.windowBytes - ADAPTIVE_STEP_BYTES);
+      return;
+    }
+    this.referenceAgeMs = median;
+    this.phase = 'measure';
+    this.lastDecision = `accepted-${this.windowBytes / 1024}`;
+    this.maybeGrow(median);
   }
 
-  private inconclusive(reason: string): void {
-    if (this.windowBytes > WINDOW_BYTES) this.retire(reason);
-    else if (this.phase !== 'cooldown') this.resetBaseline(reason);
+  private maybeGrow(ageMs: number): void {
+    const now = this.now();
+    const failed = this.failedProbe;
+    const failedHere =
+      failed !== null &&
+      failed.windowBytes === this.windowBytes &&
+      now - failed.at < ADAPTIVE_REPROBE_MS &&
+      ageMs >
+        failed.ageMs -
+          (ADAPTIVE_REPROBE_GAIN * ADAPTIVE_STEP_BYTES * failed.ageMs) / failed.windowBytes;
+    if (
+      this.windowBytes >= ADAPTIVE_MAX_BYTES ||
+      now < this.heldUntilMs ||
+      failedHere ||
+      (ADAPTIVE_STEP_BYTES * ageMs) / this.windowBytes > ADAPTIVE_GROWTH_DELAY_MS
+    ) {
+      return;
+    }
+    this.windowBytes += ADAPTIVE_STEP_BYTES;
+    this.phase = 'probe';
+    this.restartSamples(`probe-${this.windowBytes / 1024}`);
+    this.safetyFrom = this.sentEnd + this.windowBytes;
   }
 
-  private resetBaseline(reason: string): void {
-    this.clearDeadline();
+  /** Two consecutive excess receipts: shed one chunk and keep the old reference. */
+  private shrink(reason: string): void {
+    this.hold(reason, Math.max(WINDOW_BYTES, this.windowBytes - ADAPTIVE_STEP_BYTES));
+  }
+
+  /** A sudden loop jump (bandwidth collapse) returns to the 128 KiB baseline. */
+  private fallBack(reason: string): void {
+    this.hold(reason, WINDOW_BYTES);
+    this.referenceAgeMs = null;
+  }
+
+  /** Keep a larger window only while full-window samples keep arriving. */
+  private expireEvidence(now: number): void {
+    if (this.windowBytes <= WINDOW_BYTES) return;
+    if (now - this.evidenceAt > ADAPTIVE_EVIDENCE_MS) this.forget('evidence-stale');
+    else if (this.releasedSinceEvidence > ADAPTIVE_EVIDENCE_BYTES) this.forget('evidence-sparse');
+  }
+
+  /** Missing evidence is not a failure: relearn from 128 KiB without a hold or probe memory. */
+  private forget(reason: string): void {
     this.windowBytes = WINDOW_BYTES;
-    this.phase = this.now() < this.cooldownUntilMs ? 'cooldown' : 'baseline';
-    this.epoch += 1;
-    this.reference = null;
-    this.baseline = null;
-    this.observation = null;
-    this.previousBlock = null;
-    this.conservativeRate = null;
-    this.lastEligibleReceiptAt = null;
+    this.phase = 'measure';
+    this.baseAgeMs = null;
+    this.referenceAgeMs = null;
+    this.restartSamples(reason);
+  }
+
+  private hold(reason: string, windowBytes: number): void {
+    if (this.phase === 'probe' && this.referenceAgeMs !== null) {
+      this.failedProbe = {
+        windowBytes: this.windowBytes - ADAPTIVE_STEP_BYTES,
+        ageMs: this.referenceAgeMs,
+        at: this.now(),
+      };
+    }
+    this.windowBytes = windowBytes;
+    this.phase = 'measure';
+    this.heldUntilMs = this.now() + ADAPTIVE_HOLD_MS;
+    this.restartSamples(reason);
+  }
+
+  /** Every chunk already sent belongs to the previous window. */
+  private restartSamples(reason: string): void {
+    this.samples = [];
+    this.pendingViolation = false;
+    this.warmupThrough = this.sentEnd;
     this.lastDecision = reason;
+    this.noteEvidence();
   }
 
-  private retire(reason: string): void {
-    this.cooldownUntilMs = Math.max(this.cooldownUntilMs, this.now() + ADAPTIVE_COOLDOWN_MS);
-    this.resetBaseline(reason);
+  /** A full-window sample or a window change restarts the evidence bound. */
+  private noteEvidence(): void {
+    this.evidenceAt = this.now();
+    this.releasedSinceEvidence = 0;
   }
 
-  private armDeadline(): void {
-    this.clearDeadline();
-    // eslint-disable-next-line no-restricted-globals -- this exact connection owns one bounded phase watchdog
-    this.deadlineTimer = setTimeout(() => {
-      this.deadlineTimer = null;
-      if (this.active) this.retire('phase-deadline');
-    }, ADAPTIVE_DEADLINE_MS);
-  }
-
-  private clearDeadline(): void {
-    if (this.deadlineTimer !== null) clearTimeout(this.deadlineTimer);
-    this.deadlineTimer = null;
+  private reset(reason: string, flightStart: number): void {
+    this.epoch += 1;
+    this.windowBytes = WINDOW_BYTES;
+    this.phase = 'measure';
+    this.boundaries = [];
+    this.baseAgeMs = null;
+    this.referenceAgeMs = null;
+    this.restartSamples(reason);
+    // A first flight from an empty pipe queues behind itself; skip it.
+    this.warmupThrough = flightStart + WINDOW_BYTES;
+    this.safetyFrom = 0;
   }
 }
 
@@ -476,7 +509,7 @@ export class BulkFlowControl implements TransportBulkFlowControl {
     }
     const previousAcknowledged = this.acknowledgedBytes;
     this.acknowledgedBytes = frame.receivedBytes as number;
-    this.adaptive.receipt(previousAcknowledged, this.acknowledgedBytes, this.sentBytes);
+    this.adaptive.receipt(previousAcknowledged, this.acknowledgedBytes);
     this.notify();
     return true;
   }

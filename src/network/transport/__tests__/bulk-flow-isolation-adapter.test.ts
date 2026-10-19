@@ -249,43 +249,36 @@ describe('Cloudflare isolated control integration', () => {
     p.a.conn.send({ type: MSG.PAUSE });
     await p.pump();
     expect(received).toHaveBeenCalledExactlyOnceWith({ type: MSG.PAUSE });
+    let sent = 0;
     let delivered = 0;
-    const samples = async (count: number, delay: number) => {
+    // Keep the window full and deliver at window/loop, so every chunk's receipt
+    // returns `loop` ms after its send: a path whose BDP exceeds the window.
+    const run = async (count: number, loop: number) => {
       for (let index = 0; index < count; index++) {
-        p.a.conn.send(chunk(MSG.PRELOAD_CHUNK, delivered));
-        await vi.advanceTimersByTimeAsync(delay);
+        while (p.a.conn.bulkFlowControl.hasCapacity(CHUNK_SIZE)) {
+          p.a.conn.send(chunk(MSG.PRELOAD_CHUNK, sent++));
+        }
+        const { windowBytes } = p.a.conn.bulkFlowControl.diagnosticSnapshot;
+        await vi.advanceTimersByTimeAsync((loop * CHUNK_SIZE) / windowBytes);
         p.b.bulk.receive(p.a.bulk.sent[delivered++]);
         await p.pump();
       }
     };
-    await samples(22, 200);
-    expect(p.a.conn.bulkFlowControl.diagnosticSnapshot).toMatchObject({
-      windowBytes: 192 * 1024,
-      phase: 'probe-warmup',
-    });
-    await samples(30, 100);
+    await run(7, 300);
     expect(p.a.conn.bulkFlowControl.diagnosticSnapshot).toMatchObject({
       windowBytes: 192 * 1024,
       phase: 'probe',
-      sentBytes: 52 * CHUNK_SIZE,
-      acknowledgedBytes: 52 * CHUNK_SIZE,
-      outstandingBytes: 0,
+      baseAgeMs: 300,
+      lastDecision: 'probe-192',
     });
-    // Three warmup receipts and the first observation anchor do not contribute
-    // elapsed sample time. Qualify only after the full four-second observation.
-    await samples(13, 100);
+    await run(30, 300);
     expect(p.a.conn.bulkFlowControl.diagnosticSnapshot).toMatchObject({
-      phase: 'probe',
-      sampleCount: 40,
-    });
-    await samples(1, 100);
-    expect(delivered).toBe(66);
-    expect(p.a.conn.bulkFlowControl.diagnosticSnapshot).toMatchObject({
-      windowBytes: 192 * 1024,
-      phase: 'accepted',
-      sentBytes: delivered * CHUNK_SIZE,
+      windowBytes: 256 * 1024,
+      phase: 'measure',
+      lastDecision: 'accepted-256',
+      sentBytes: sent * CHUNK_SIZE,
       acknowledgedBytes: delivered * CHUNK_SIZE,
-      outstandingBytes: 0,
+      outstandingBytes: (sent - delivered) * CHUNK_SIZE,
     });
     expect(p.a.control.sent).toHaveLength(originalBefore);
     expect(

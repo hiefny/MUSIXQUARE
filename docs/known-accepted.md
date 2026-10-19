@@ -342,6 +342,21 @@ that differ from English on purpose
 ([report §2](design/i18n-quality-update-2026-10-14.md)). History:
 [archive](beta-release-readiness-archive-2026-10-10.md#누적-변경-이력).
 
+### 18. Isolated Standard-Room Control Route Ends On A Network Change
+
+Accepted on 2026-10-19 under the owner-approved combined transport release plan, whose
+pre-agreed escape hatch moves side-connection ICE restart to the next release unless it is
+natively verified in time. After the first direct file transfer to a same-network guest,
+playback controls use a separate RTCPeerConnection for the rest of that logical connection.
+That side connection has no ICE restart: a `failed` state, or `disconnected` for longer than
+15 seconds, closes the guest's whole logical connection, which stops its media and shows the
+Reconnect dialog. The original connection alone would have recovered such an outage (for
+example an IP change from Wi-Fi to LTE) through its existing ICE restart. Short outages on
+the same addresses still recover on both connections. The restart implementation is on branch
+`claude/side-ice-restart-1eee23` and needs its own native failure-injection check before
+release; retire this item when it ships.
+[Combined release record](design/transport-release-bundle-2026-10-19.md).
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

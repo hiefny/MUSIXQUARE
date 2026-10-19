@@ -309,7 +309,8 @@ describe('automatic rendezvous owns one monotonic clock lease', () => {
     (offset) => {
       heartbeat(0);
       advance(3000);
-      for (let i = 0; i < 60; i++) sample(offset < 0 ? 2 : 402, offset < 0 ? 402 : 2);
+      // The precise samples now leave only by their 120s age limit.
+      for (let i = 0; i < 300; i++) sample(offset < 0 ? 2 : 402, offset < 0 ? 402 : 2);
       expect(getClockOffset()).toBe(offset);
       heartbeat(0);
       advance(3000);

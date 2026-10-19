@@ -123,3 +123,23 @@ baseline보다 122.5 ms 길었지만 절대 기준 1초 안이다. 느린 망의
   아니라 기록이다. 실행 전 README에 그렇게 고정했다.
 - 혼합 버전·취소/재등록·승격·Reconnect 기능 검사는 #410 C9 결과를 재사용한다. 이번
   조각들은 연결 협상과 경로를 바꾸지 않는다.
+
+## Release and recovery
+
+- PR [#410](https://github.com/hiefny/MUSIXQUARE/pull/410) squash merge → main `2f9cd799`.
+  최종 PR head `ce4cc594`의 CI 39226458379 11 jobs 통과. main 트리는 PR head와 같고,
+  런타임은 native로 검증한 `72c58898`과 같다(차이는 문서뿐).
+- Exact-main push CI [39227337275](https://github.com/hiefny/MUSIXQUARE/actions/runs/39227337275)
+  11 jobs 통과: unit 597 files / 13,392 pass / 0 fail / 1 Windows-only skip, candidate
+  browser 17 + critical browser 55 pass. 후보 artifact 12174810382.
+- [Production Release 39228199282](https://github.com/hiefny/MUSIXQUARE/actions/runs/39228199282)
+  attempt 1 성공, target=app, Developer API D1=false. 18:14:06 KST deploy job 완료. App
+  version `a72fa56e-3cb5-4cf6-b0d7-e707178da832` / deployment `95fab3bb-d0ea-448c-a18a-dafee80c8a88`,
+  최종 소유권 18:14:00.698 KST verified, 부분 릴리스 recheck compatible, smoke 4/4, 기존 App
+  D1 계약 7단계 apply/verify 성공.
+- 18:16 KST 공개 8 GET 모두 HTTP 200, exact-main 후보와 크기·SHA 일치(서비스 워커 v732).
+  배포 직후 Drift Audit 39228587343: 31 pass / 0 fail / 5 manual-only.
+- 복구: 18:12:48.636 KST checkpoint 12176070631이 App 8.11.20/v723(`416f5ee4`, version
+  `d9f64847` / deployment `930bbc83`)을 보존한다. 롤백은 미실행이다. 롤백하면 새로고침한
+  클라이언트는 128 KiB 고정 수신확인으로 돌아가고, 혼합 버전은 legacy 경로를 쓴다. 저장
+  데이터 마이그레이션은 없다.

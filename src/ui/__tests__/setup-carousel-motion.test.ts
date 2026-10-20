@@ -589,6 +589,28 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toContain('animation: none !important;');
   });
 
+  it('lowers the wordmark in every layout so its top meets the greeting', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const desktop = await readFile('css/desktop.css', 'utf8');
+    const twoColumnStart = stylesheet.indexOf('@media (min-width: 720px) {\n    #setup-overlay {');
+    expect(twoColumnStart).toBeGreaterThan(-1);
+    const twoColumn = stylesheet.slice(
+      twoColumnStart,
+      stylesheet.indexOf('\n    }\n', twoColumnStart),
+    );
+
+    // Phone: a fixed 3px. Desktop: 3–5px with its wordmark. The 720–1279px
+    // two-column layout (landscape phones, tablets) takes the phone's 3px
+    // instead of leaving the mark 2–3px above the greeting.
+    expect(stylesheet).toMatch(
+      /\.setup-brand-greeting-stage > \.logo-welcome \{[^}]*transform: translateY\(3px\);/,
+    );
+    expect(desktop).toContain('--setup-logo-mt: clamp(3px, calc(-18px + 1.625vw), 5px);');
+    expect(twoColumn).toContain('--setup-logo-mt: 3px;');
+    expect(twoColumn).not.toContain('--setup-logo-mt: 0px');
+    expect(stylesheet).toContain('transform: translateY(var(--setup-logo-mt));');
+  });
+
   it('reuses the welcome crossfade timing when the host guide becomes an invitation QR', async () => {
     const markup = await readFile('index.html', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');

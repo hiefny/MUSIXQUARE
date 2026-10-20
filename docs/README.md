@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Welcome wordmark alignment — 2026-10-20](design/welcome-wordmark-alignment-2026-10-20.md) — the start
+  screen wordmark is 5–12% taller than the greeting that replaces it in every layout, but only the 720–1279 px
+  two-column layout left its top 2–3 px above the greeting; 8.11.28 lowers it by the phone layout's 3 px (top
+  0–1 px below), after a size-scaled nudge sank the tablet mark too far.
 - [Login window centering on short screens — 2026-10-20](design/login-dialog-centering-2026-10-20.md) — at
   480 px tall or less, such as a phone in landscape, the account and administrator-permissions windows stuck
   12 px from the top; 8.11.27 keeps them centered like every other dialog (844×390: 12 / 68.6 px → 40.3 /

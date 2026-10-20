@@ -17,6 +17,7 @@ const en: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Cancel',
   'common.close': 'Close',
+  'common.skip_to_content': 'Skip to content',
   'common.reset': 'Reset',
   'common.clear_input': 'Clear input',
   'common.refresh': 'Refresh',

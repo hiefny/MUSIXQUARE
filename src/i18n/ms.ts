@@ -16,6 +16,7 @@ const ms: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Batal',
   'common.close': 'Tutup',
+  'common.skip_to_content': 'Langkau ke kandungan',
   'common.reset': 'Set semula',
   'common.clear_input': 'Kosongkan input',
   'common.refresh': 'Muat semula',

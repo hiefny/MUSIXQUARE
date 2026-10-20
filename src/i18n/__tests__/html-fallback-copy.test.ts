@@ -46,6 +46,9 @@ describe('initial app-shell translation fallbacks', () => {
       }
     }
 
+    expect(document.querySelector('.skip-link')?.getAttribute('data-i18n')).toBe(
+      'common.skip_to_content',
+    );
     expect(document.querySelector('#seek-slider')?.getAttribute('aria-valuetext')).toBe(
       en['player.no_media'],
     );

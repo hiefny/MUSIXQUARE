@@ -17,6 +17,7 @@ const vi: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Hủy',
   'common.close': 'Đóng',
+  'common.skip_to_content': 'Chuyển đến phần nội dung',
   'common.reset': 'Đặt lại',
   'common.clear_input': 'Xóa nội dung nhập',
   'common.refresh': 'Làm mới',

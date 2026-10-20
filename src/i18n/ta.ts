@@ -17,6 +17,7 @@ const ta: Record<I18nKey, string> = {
   'common.ok': 'சரி',
   'common.cancel': 'ரத்துசெய்',
   'common.close': 'மூடு',
+  'common.skip_to_content': 'உள்ளடக்கத்திற்கு செல்க',
   'common.reset': 'மீட்டமை',
   'common.clear_input': 'உள்ளீட்டை அழி',
   'common.refresh': 'புதுப்பி',

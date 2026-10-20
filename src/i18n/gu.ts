@@ -17,6 +17,7 @@ const gu: Record<I18nKey, string> = {
   'common.ok': 'ઠીક છે',
   'common.cancel': 'રદ કરો',
   'common.close': 'બંધ કરો',
+  'common.skip_to_content': 'કંટેન્ટ પર જાઓ',
   'common.reset': 'મૂળ સ્થિતિમાં લાવો',
   'common.clear_input': 'લખાણ સાફ કરો',
   'common.refresh': 'રિફ્રેશ કરો',

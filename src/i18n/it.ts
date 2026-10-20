@@ -16,6 +16,7 @@ const it: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Annulla',
   'common.close': 'Chiudi',
+  'common.skip_to_content': 'Salta al contenuto',
   'common.reset': 'Ripristina',
   'common.clear_input': 'Cancella il testo inserito',
   'common.refresh': 'Aggiorna',

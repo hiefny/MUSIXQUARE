@@ -18,6 +18,7 @@ const es: Record<I18nKey, string> = {
   'common.ok': 'Aceptar',
   'common.cancel': 'Cancelar',
   'common.close': 'Cerrar',
+  'common.skip_to_content': 'Saltar al contenido',
   'common.reset': 'Restablecer',
   'common.clear_input': 'Borrar entrada',
   'common.refresh': 'Actualizar',

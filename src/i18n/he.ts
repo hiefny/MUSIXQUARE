@@ -16,6 +16,7 @@ const he: Record<I18nKey, string> = {
   'common.ok': 'אישור',
   'common.cancel': 'ביטול',
   'common.close': 'סגירה',
+  'common.skip_to_content': 'דילוג לתוכן',
   'common.reset': 'איפוס',
   'common.clear_input': 'ניקוי השדה',
   'common.refresh': 'רענון',

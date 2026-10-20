@@ -17,6 +17,7 @@ const zhHant: Record<I18nKey, string> = {
   'common.ok': '確定',
   'common.cancel': '取消',
   'common.close': '關閉',
+  'common.skip_to_content': '跳至主要內容',
   'common.reset': '重設',
   'common.clear_input': '清除輸入內容',
   'common.refresh': '重新整理',

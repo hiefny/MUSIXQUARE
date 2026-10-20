@@ -17,6 +17,7 @@ const da: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Annuller',
   'common.close': 'Luk',
+  'common.skip_to_content': 'Fortsæt til indhold',
   'common.reset': 'Nulstil',
   'common.clear_input': 'Ryd indtastning',
   'common.refresh': 'Opdater',

@@ -16,6 +16,7 @@ const cs: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Zrušit',
   'common.close': 'Zavřít',
+  'common.skip_to_content': 'Přejít k obsahu',
   'common.reset': 'Resetovat',
   'common.clear_input': 'Vymazat zadaný text',
   'common.refresh': 'Načíst znovu',

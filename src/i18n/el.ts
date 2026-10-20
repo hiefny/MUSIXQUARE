@@ -16,6 +16,7 @@ const el: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Ακύρωση',
   'common.close': 'Κλείσιμο',
+  'common.skip_to_content': 'Μετάβαση σε περιεχόμενο',
   'common.reset': 'Επαναφορά',
   'common.clear_input': 'Εκκαθάριση κειμένου',
   'common.refresh': 'Ανανέωση',

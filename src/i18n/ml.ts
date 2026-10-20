@@ -17,6 +17,7 @@ const ml: Record<I18nKey, string> = {
   'common.ok': 'ശരി',
   'common.cancel': 'റദ്ദാക്കുക',
   'common.close': 'അടയ്ക്കുക',
+  'common.skip_to_content': 'ഉള്ളടക്കത്തിലേക്ക് നീങ്ങുക',
   'common.reset': 'പുനഃസജ്ജമാക്കുക',
   'common.clear_input': 'നൽകിയത് മായ്ക്കുക',
   'common.refresh': 'പുതുക്കുക',

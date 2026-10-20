@@ -17,6 +17,7 @@ const hi: Record<I18nKey, string> = {
   'common.ok': 'ठीक है',
   'common.cancel': 'रद्द करें',
   'common.close': 'बंद करें',
+  'common.skip_to_content': 'सामग्री पर जाएं',
   'common.reset': 'रीसेट करें',
   'common.clear_input': 'इनपुट साफ़ करें',
   'common.refresh': 'रीफ़्रेश करें',

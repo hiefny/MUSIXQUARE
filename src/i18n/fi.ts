@@ -17,6 +17,7 @@ const fi: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Peruuta',
   'common.close': 'Sulje',
+  'common.skip_to_content': 'Siirry sisältöön',
   'common.reset': 'Palauta',
   'common.clear_input': 'Tyhjennä kenttä',
   'common.refresh': 'Päivitä',

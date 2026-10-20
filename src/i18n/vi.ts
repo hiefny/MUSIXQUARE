@@ -16,6 +16,8 @@ const vi: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Hủy',
+  'common.delete': 'Xóa',
+  'common.undo': 'Hoàn tác',
   'common.close': 'Đóng',
   'common.skip_to_content': 'Chuyển đến phần nội dung',
   'common.reset': 'Đặt lại',
@@ -247,6 +249,7 @@ const vi: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Bỏ chọn tất cả',
   'playlist.select_all': 'Chọn tất cả',
   'playlist.delete_selected': 'Xóa {{count}} mục đã chọn',
+  'playlist.selected_count': '{{count}} được chọn',
   'playlist.video_fallback': 'Đang tải...',
   'playlist.track_fallback': 'Mục {{idx}}',
   'playlist.deferred_load_hint': 'Phát để tải thông tin của tất cả các mục',

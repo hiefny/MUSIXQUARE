@@ -16,6 +16,8 @@ const te: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'సరే',
   'common.cancel': 'రద్దు చేయి',
+  'common.delete': 'తొలగించు',
+  'common.undo': 'చెయ్యకు',
   'common.close': 'మూసివేయి',
   'common.skip_to_content': 'విషయానికి వెళ్ళండి',
   'common.reset': 'రీసెట్ చేయి',
@@ -159,6 +161,7 @@ const te: Record<I18nKey, string> = {
   'playlist.deselect_all': 'అన్ని ఎంపికలను తీసివేయి',
   'playlist.select_all': 'అన్నింటినీ ఎంచుకో',
   'playlist.delete_selected': 'ఎంచుకున్న {{count}} ట్రాక్‌లను తొలగించు',
+  'playlist.selected_count': 'ఎంచుకున్నవి: {{count}}',
   'playlist.video_fallback': 'లోడ్ అవుతోంది...',
   'playlist.track_fallback': 'ట్రాక్ {{idx}}',
   'playlist.deferred_load_hint': 'పూర్తి ట్రాక్ జాబితాను లోడ్ చేయడానికి ప్లే చేయండి',

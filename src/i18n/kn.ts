@@ -16,6 +16,8 @@ const kn: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ಸರಿ',
   'common.cancel': 'ರದ್ದುಮಾಡಿ',
+  'common.delete': 'ಅಳಿಸು',
+  'common.undo': 'ರದ್ದು ಮಾಡು',
   'common.close': 'ಮುಚ್ಚಿ',
   'common.skip_to_content': 'ವಿಷಯಕ್ಕೆ ತೆರಳಿ',
   'common.reset': 'ಮರುಹೊಂದಿಸಿ',
@@ -159,6 +161,7 @@ const kn: Record<I18nKey, string> = {
   'playlist.deselect_all': 'ಎಲ್ಲಾ ಆಯ್ಕೆಗಳನ್ನು ರದ್ದುಮಾಡಿ',
   'playlist.select_all': 'ಎಲ್ಲವನ್ನೂ ಆರಿಸಿ',
   'playlist.delete_selected': 'ಆರಿಸಿದ {{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಳಿಸಿ',
+  'playlist.selected_count': 'ಆರಿಸಿದವುಗಳು: {{count}}',
   'playlist.video_fallback': 'ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   'playlist.track_fallback': 'ಟ್ರ್ಯಾಕ್ {{idx}}',
   'playlist.deferred_load_hint': 'ಪೂರ್ಣ ಟ್ರ್ಯಾಕ್ ಪಟ್ಟಿಯನ್ನು ಲೋಡ್ ಮಾಡಲು ಪ್ಲೇ ಮಾಡಿ',

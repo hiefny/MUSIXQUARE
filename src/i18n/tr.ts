@@ -14,6 +14,8 @@ const tr: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'Tamam',
   'common.cancel': 'İptal',
+  'common.delete': 'Sil',
+  'common.undo': 'Geri al',
   'common.close': 'Kapat',
   'common.skip_to_content': 'İçeriğe geç',
   'common.reset': 'Sıfırla',
@@ -155,6 +157,7 @@ const tr: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Tüm seçimleri kaldır',
   'playlist.select_all': 'Tümünü seç',
   'playlist.delete_selected': 'Seçilen {{count}} medyayı sil',
+  'playlist.selected_count': '{{count}} seçilmiş',
   'playlist.video_fallback': 'Yükleniyor...',
   'playlist.track_fallback': 'Medya {{idx}}',
   'playlist.deferred_load_hint': 'Tüm medya bilgilerini yüklemek için oynatmayı başlat',

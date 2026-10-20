@@ -16,6 +16,8 @@ const ml: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ശരി',
   'common.cancel': 'റദ്ദാക്കുക',
+  'common.delete': 'ഇല്ലാതാക്കുക',
+  'common.undo': 'മാറ്റി ചെയ്യുക',
   'common.close': 'അടയ്ക്കുക',
   'common.skip_to_content': 'ഉള്ളടക്കത്തിലേക്ക് നീങ്ങുക',
   'common.reset': 'പുനഃസജ്ജമാക്കുക',
@@ -159,6 +161,7 @@ const ml: Record<I18nKey, string> = {
   'playlist.deselect_all': 'എല്ലാം തിരഞ്ഞെടുപ്പിൽ നിന്ന് മാറ്റുക',
   'playlist.select_all': 'എല്ലാം തിരഞ്ഞെടുക്കുക',
   'playlist.delete_selected': 'തിരഞ്ഞെടുത്ത {{count}} ട്രാക്കുകൾ ഇല്ലാതാക്കുക',
+  'playlist.selected_count': '{{count}} തെരഞ്ഞെടുത്തു',
   'playlist.video_fallback': 'ലോഡ് ചെയ്യുന്നു...',
   'playlist.track_fallback': 'ട്രാക്ക് {{idx}}',
   'playlist.deferred_load_hint': 'പൂർണ്ണ ട്രാക്ക് ലിസ്റ്റ് ലോഡ് ചെയ്യാൻ പ്ലേ ചെയ്യുക',

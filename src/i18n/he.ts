@@ -15,6 +15,8 @@ const he: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'אישור',
   'common.cancel': 'ביטול',
+  'common.delete': 'מחק',
+  'common.undo': 'ביטול פעולה אחרונה',
   'common.close': 'סגירה',
   'common.skip_to_content': 'דילוג לתוכן',
   'common.reset': 'איפוס',
@@ -157,6 +159,7 @@ const he: Record<I18nKey, string> = {
   'playlist.deselect_all': 'ביטול בחירת הכול',
   'playlist.select_all': 'בחירת הכול',
   'playlist.delete_selected': 'מחיקת {{count}} הרצועות שנבחרו',
+  'playlist.selected_count': '{{count}} נבחרו',
   'playlist.video_fallback': 'בטעינה...',
   'playlist.track_fallback': 'רצועה {{idx}}',
   'playlist.deferred_load_hint': 'יש להפעיל כדי לטעון את רשימת הרצועות המלאה',
@@ -891,6 +894,7 @@ const he: Record<I18nKey, string> = {
 export default he;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: 'נבחר פריט {{count}}' },
   'playlist.delete_selected': {
     one: 'מחיקת {{count}} רצועה שנבחרה',
   },

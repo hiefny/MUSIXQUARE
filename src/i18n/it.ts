@@ -15,6 +15,8 @@ const it: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Annulla',
+  'common.delete': 'Elimina',
+  'common.undo': 'Annulla',
   'common.close': 'Chiudi',
   'common.skip_to_content': 'Salta al contenuto',
   'common.reset': 'Ripristina',
@@ -157,6 +159,7 @@ const it: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Deseleziona tutto',
   'playlist.select_all': 'Seleziona tutto',
   'playlist.delete_selected': 'Elimina {{count}} tracce selezionate',
+  'playlist.selected_count': '{{count}} selezionati',
   'playlist.video_fallback': 'Caricamento...',
   'playlist.track_fallback': 'Traccia {{idx}}',
   'playlist.deferred_load_hint':
@@ -946,6 +949,7 @@ const it: Record<I18nKey, string> = {
 export default it;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} selezionato' },
   'connect.administrator_list': { one: '{{count}} amministratore' },
   'playlist.delete_selected': { one: 'Elimina {{count}} traccia selezionata' },
   'connect.device_list': { one: '{{count}} dispositivo connesso' },

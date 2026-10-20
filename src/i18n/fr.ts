@@ -17,6 +17,8 @@ const fr: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Annuler',
+  'common.delete': 'Supprimer',
+  'common.undo': 'Annuler',
   'common.close': 'Fermer',
   'common.skip_to_content': 'Aller au contenu',
   'common.reset': 'Réinitialiser',
@@ -250,6 +252,7 @@ const fr: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Tout désélectionner',
   'playlist.select_all': 'Tout sélectionner',
   'playlist.delete_selected': 'Supprimer {{count}} pistes sélectionnées',
+  'playlist.selected_count': '{{count}} sélectionnés',
   'playlist.video_fallback': 'Chargement…',
   'playlist.track_fallback': 'Piste {{idx}}',
   'playlist.deferred_load_hint': 'Lancez la lecture pour charger la liste complète',
@@ -930,6 +933,7 @@ const fr: Record<I18nKey, string> = {
 export default fr;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} sélectionné' },
   'connect.administrator_list': { one: '{{count}} administrateur' },
   'playlist.delete_selected': { one: 'Supprimer {{count}} piste sélectionnée' },
   'connect.device_list': { one: '{{count}} appareil connecté' },

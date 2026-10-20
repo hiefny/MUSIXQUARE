@@ -15,6 +15,8 @@ const ur: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ٹھیک ہے',
   'common.cancel': 'منسوخ کریں',
+  'common.delete': 'حذف کریں',
+  'common.undo': 'کالعدم کریں',
   'common.close': 'بند کریں',
   'common.skip_to_content': 'چھوڑیں مواد پر جائیں',
   'common.reset': 'ری سیٹ کریں',
@@ -157,6 +159,7 @@ const ur: Record<I18nKey, string> = {
   'playlist.deselect_all': 'سب کا انتخاب ہٹائیں',
   'playlist.select_all': 'سب منتخب کریں',
   'playlist.delete_selected': 'منتخب کیے گئے {{count}} ٹریک حذف کریں',
+  'playlist.selected_count': '{{count}} منتخب شدہ',
   'playlist.video_fallback': 'لوڈ ہو رہا ہے...',
   'playlist.track_fallback': 'ٹریک {{idx}}',
   'playlist.deferred_load_hint': 'مکمل ٹریک لسٹ لوڈ کرنے کے لیے چلائیں',

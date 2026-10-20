@@ -15,6 +15,8 @@ const bn: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ঠিক আছে',
   'common.cancel': 'বাতিল করুন',
+  'common.delete': 'মুছে ফেলুন',
+  'common.undo': 'পূর্বাবস্থা',
   'common.close': 'বন্ধ করুন',
   'common.skip_to_content': 'এড়িয়ে কনটেন্টে যান',
   'common.reset': 'রিসেট করুন',
@@ -158,6 +160,7 @@ const bn: Record<I18nKey, string> = {
   'playlist.deselect_all': 'সব নির্বাচন বাতিল করুন',
   'playlist.select_all': 'সব বেছে নিন',
   'playlist.delete_selected': 'নির্বাচিত {{count}}টি ট্র্যাক মুছুন',
+  'playlist.selected_count': '{{count}}টি নির্বাচিত',
   'playlist.video_fallback': 'লোড হচ্ছে...',
   'playlist.track_fallback': 'ট্র্যাক {{idx}}',
   'playlist.deferred_load_hint': 'সম্পূর্ণ ট্র্যাক তালিকা লোড করতে চালান',

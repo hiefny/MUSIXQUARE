@@ -14,6 +14,8 @@ const ko = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': '확인',
   'common.cancel': '취소',
+  'common.delete': '삭제',
+  'common.undo': '되돌리기',
   'common.close': '닫기',
   'common.skip_to_content': '콘텐츠로 바로가기',
   'common.reset': '초기화',
@@ -156,6 +158,7 @@ const ko = {
   'playlist.deselect_all': '모두 선택 해제',
   'playlist.select_all': '모두 선택',
   'playlist.delete_selected': '선택한 트랙 {{count}}개 삭제',
+  'playlist.selected_count': '{{count}}개 선택됨',
   'playlist.video_fallback': '불러오는 중...',
   'playlist.track_fallback': '트랙 {{idx}}',
   'playlist.deferred_load_hint': '재생하면 전체 트랙 정보를 불러올게요',

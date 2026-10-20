@@ -15,6 +15,8 @@ const ar: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'حسنًا',
   'common.cancel': 'إلغاء',
+  'common.delete': 'حذف',
+  'common.undo': 'تراجع',
   'common.close': 'إغلاق',
   'common.skip_to_content': 'التخطي إلى المحتوى',
   'common.reset': 'إعادة الضبط',
@@ -156,6 +158,7 @@ const ar: Record<I18nKey, string> = {
   'playlist.deselect_all': 'إلغاء تحديد الكل',
   'playlist.select_all': 'تحديد الكل',
   'playlist.delete_selected': 'حذف {{count}} من المقاطع المحددة',
+  'playlist.selected_count': 'عدد العناصر المحدّدة: {{count}}',
   'playlist.video_fallback': 'جارٍ التحميل...',
   'playlist.track_fallback': 'المقطع {{idx}}',
   'playlist.deferred_load_hint': 'ابدأ التشغيل لتحميل قائمة المقاطع كاملة',

@@ -16,6 +16,8 @@ const pa: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ਠੀਕ ਹੈ',
   'common.cancel': 'ਰੱਦ ਕਰੋ',
+  'common.delete': 'ਮਿਟਾਓ',
+  'common.undo': 'ਅਣਕੀਤਾ ਕਰੋ',
   'common.close': 'ਬੰਦ ਕਰੋ',
   'common.skip_to_content': "ਸਿੱਧਾ ਸਮੱਗਰੀ 'ਤੇ ਜਾਓ",
   'common.reset': 'ਮੁੜ ਸੈੱਟ ਕਰੋ',
@@ -160,6 +162,7 @@ const pa: Record<I18nKey, string> = {
   'playlist.deselect_all': 'ਸਾਰੀਆਂ ਚੋਣਾਂ ਹਟਾਓ',
   'playlist.select_all': 'ਸਭ ਚੁਣੋ',
   'playlist.delete_selected': 'ਚੁਣੇ ਹੋਏ {{count}} ਟਰੈਕ ਮਿਟਾਓ',
+  'playlist.selected_count': '{{count}} ਚੁਣੇ ਹੋਏ',
   'playlist.video_fallback': 'ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ...',
   'playlist.track_fallback': 'ਟਰੈਕ {{idx}}',
   'playlist.deferred_load_hint': 'ਟਰੈਕਾਂ ਦੀ ਪੂਰੀ ਸੂਚੀ ਲੋਡ ਕਰਨ ਲਈ ਚਲਾਓ',

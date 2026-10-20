@@ -4,6 +4,7 @@ export type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';
 
 export const PLURAL_PARAM_BY_KEY = {
   'playlist.delete_selected': 'count',
+  'playlist.selected_count': 'count',
   'connect.device_list': 'count',
   'connect.administrator_list': 'count',
   'demo.session_body_connected': 'count',

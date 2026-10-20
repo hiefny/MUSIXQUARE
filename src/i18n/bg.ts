@@ -15,6 +15,8 @@ const bg: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Отказ',
+  'common.delete': 'Изтриване',
+  'common.undo': 'Отмяна',
   'common.close': 'Затваряне',
   'common.skip_to_content': 'Напред към съдържанието',
   'common.reset': 'Нулиране',
@@ -157,6 +159,7 @@ const bg: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Отмяна на целия избор',
   'playlist.select_all': 'Избиране на всички',
   'playlist.delete_selected': 'Изтриване на избраните песни ({{count}})',
+  'playlist.selected_count': 'Избрани: {{count}}',
   'playlist.video_fallback': 'Зареждане...',
   'playlist.track_fallback': 'Песен {{idx}}',
   'playlist.deferred_load_hint': 'Пусни, за да заредиш целия списък с песни',

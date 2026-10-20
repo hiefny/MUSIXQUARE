@@ -15,6 +15,8 @@ const hu: Record<I18nKey, string> = {
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Mégse',
+  'common.delete': 'Törlés',
+  'common.undo': 'Visszavonás',
   'common.close': 'Bezárás',
   'common.skip_to_content': 'Ugrás a tartalomhoz',
   'common.reset': 'Visszaállítás',
@@ -158,6 +160,7 @@ const hu: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Összes kijelölés megszüntetése',
   'playlist.select_all': 'Összes kijelölése',
   'playlist.delete_selected': 'Kijelölt számok törlése: {{count}}',
+  'playlist.selected_count': '{{count}} kijelölve',
   'playlist.video_fallback': 'Betöltés...',
   'playlist.track_fallback': '{{idx}}. szám',
   'playlist.deferred_load_hint': 'A teljes számlista betöltéséhez indítsd el a lejátszást',

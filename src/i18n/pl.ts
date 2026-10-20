@@ -15,6 +15,8 @@ const pl: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Anuluj',
+  'common.delete': 'Usuń',
+  'common.undo': 'Cofnij',
   'common.close': 'Zamknij',
   'common.skip_to_content': 'Przejdź do treści',
   'common.reset': 'Resetuj',
@@ -156,6 +158,7 @@ const pl: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Odznacz wszystko',
   'playlist.select_all': 'Zaznacz wszystko',
   'playlist.delete_selected': 'Usuń zaznaczone materiały: {{count}}',
+  'playlist.selected_count': 'Wybrano {{count}}',
   'playlist.video_fallback': 'Ładowanie…',
   'playlist.track_fallback': 'Materiał {{idx}}',
   'playlist.deferred_load_hint':
@@ -938,6 +941,11 @@ const pl: Record<I18nKey, string> = {
 export default pl;
 
 export const pluralMessages = {
+  'playlist.selected_count': {
+    one: 'Wybrano {{count}}',
+    few: 'Wybrano {{count}}',
+    many: 'Wybrano {{count}}',
+  },
   'connect.administrator_list': {
     one: 'Administrator: {{count}}',
     few: 'Administratorzy: {{count}}',

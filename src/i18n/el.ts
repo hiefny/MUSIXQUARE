@@ -15,6 +15,8 @@ const el: Record<I18nKey, string> = {
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Ακύρωση',
+  'common.delete': 'Διαγραφή',
+  'common.undo': 'Αναίρεση',
   'common.close': 'Κλείσιμο',
   'common.skip_to_content': 'Μετάβαση σε περιεχόμενο',
   'common.reset': 'Επαναφορά',
@@ -159,6 +161,7 @@ const el: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Κατάργηση όλων των επιλογών',
   'playlist.select_all': 'Επιλογή όλων',
   'playlist.delete_selected': 'Διαγραφή επιλεγμένων κομματιών: {{count}}',
+  'playlist.selected_count': 'Επιλεγμένα: {{count}}',
   'playlist.video_fallback': 'Φόρτωση...',
   'playlist.track_fallback': 'Κομμάτι {{idx}}',
   'playlist.deferred_load_hint': 'Ξεκινήστε την αναπαραγωγή για να φορτωθεί ολόκληρη η λίστα',

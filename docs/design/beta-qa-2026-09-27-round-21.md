@@ -159,7 +159,7 @@ Local evidence is under ignored `scratch/qa-beta-round21-2026-09-27/`.
   `35759e8b07f1ee0b272afbd0af03c770a858889e`. Operations Drift Audit remains
   `disabled_manually`.
 
-The competition freeze remains active. Work is committed and pushed only to
+The release freeze remains active. Work is committed and pushed only to
 `mxqr_beta`; no PR, main advancement or production deployment is authorized.
 UI design, room policy, app **8.6.61** and cache **v630** remain unchanged.
 These controlled tests do not certify every physical device, network handover,

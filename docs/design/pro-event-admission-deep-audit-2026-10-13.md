@@ -6,8 +6,8 @@
 | 검토 HEAD | `d279e9d3d0fc9115e36dde2dbc6e08d03627d5d7` |
 | 현재 배포 소스 | `332600a9a00fcaafccae884558b5fcf29f816f25`, App 8.10.4 / v665 |
 | 행사 시작 당시 소스 | `d76b1432`, App 8.9.0 |
-| 조사 대상 | 2026-10-11 Montpellier 행사, PRO 방 `002026` |
-| 운영 조회 구간 | 2026-10-11 11:00–17:00 UTC = 13:00–19:00 CEST = 10월 11일 20:00–12일 02:00 KST |
+| 조사 대상 | 2026-10-11 고객 행사에 쓴 PRO 방 1개(방 코드는 공개하지 않음) |
+| 운영 조회 구간 | 2026-10-11 11:00–17:00 UTC = 10월 11일 20:00–12일 02:00 KST |
 | 환경 | Windows, Node v24.13.1, Vitest 5.0.3, 설치된 Miniflare/workerd; Cloudflare 로그인 대시보드 및 D1 SELECT |
 
 ## 결론과 증거 수준
@@ -28,7 +28,7 @@
    입장 실패 원인을 복원할 명단·응답 본문은 없다. 기존 stale-ticket 거절과
    실제 방 heartbeat timeout은 확인되지만, 둘만으로 모든 실패를 설명할 수 없다.
 
-Hélène의 원문은 “as if the 100 threshold was reached”라는 추정이다.
+고객 보고의 "정원 100명에 걸린 것 같다"는 추정이다.
 정확히 정원 오류 문구를 봤다는 증거와 구별해야 한다. 사용자가 관찰한 약 30대와
 Peer 70번대 퇴장 알림은 서로 모순이라고 단정할 수 없다.
 
@@ -189,21 +189,21 @@ cache도 분리되므로 그 그룹의 debug cache 값보다 200 응답과 실�
 위 6시간 구간의 Workers 데이터셋에는 다음 4개 raw row가 있었다.
 App·PRO custom logs는 head sampling 0.1이므로 발생 총수라고 해석하지 않는다.
 
-| UTC (2026-10-11) | CEST | KST | 기록 |
-| --- | --- | --- | --- |
-| 13:05:17.036 | 15:05:17 | 22:05:17 | PRO stateless Worker, `002026/system-audio` GET, 종료된 요청 컨텍스트의 Promise continuation 취소 경고 |
-| 14:11:54.006 | 16:11:54 | 23:11:54 | App `002026/presence/heartbeat` POST, `SERVICE_RESPONSE_TIMEOUT` |
-| 14:12:37.669 | 16:12:37 | 23:12:37 | 같은 API, 같은 오류 |
-| 14:12:46.806 | 16:12:46 | 23:12:46 | 같은 API, 같은 오류 |
+| UTC (2026-10-11) | KST | 기록 |
+| --- | --- | --- |
+| 13:05:17.036 | 22:05:17 | PRO stateless Worker, `<행사 방>/system-audio` GET, 종료된 요청 컨텍스트의 Promise continuation 취소 경고 |
+| 14:11:54.006 | 23:11:54 | App `<행사 방>/presence/heartbeat` POST, `SERVICE_RESPONSE_TIMEOUT` |
+| 14:12:37.669 | 23:12:37 | 같은 API, 같은 오류 |
+| 14:12:46.806 | 23:12:46 | 같은 API, 같은 오류 |
 
 PRO 경고 version `9a93389f-0bb1-4b5f-833a-05925ec34f7d`, App 오류 version
 `5d6f99f1-bd20-490a-b5e8-58a6bd2faacd`. 경고는 stateless 앞단에 기록됐으며
 어느 공유 cache인지 식별할 스택이 없다. 세 timeout은 방이 명시된 실증거다.
 다만 admission 요청 자체의 timeout은 아니므로 그대로 입장 실패 건수로 세지 않는다.
 
-### 002026 Durable Object 메트릭
+### 행사 방 Durable Object 메트릭
 
-Cloudflare에서 `MusixquareProRoom`의 `002026:generation:0`을 직접 선택했다.
+Cloudflare에서 `MusixquareProRoom`의 행사 방 객체(`<행사 방>:generation:0`)를 직접 선택했다.
 동일 6시간 구간에 대시보드 표시값은 요청 약 15k, 오류 분류 194개이며 194개는
 모두 client disconnected였다. CPU 제한 초과, Worker exception, internal은 0.
 요청 wall time P50 310ms, P90 776ms, CPU P99 38.88ms, 메모리 P99 10.72MB였다.
@@ -225,7 +225,7 @@ Cloudflare에서 `MusixquareProRoom`의 `002026:generation:0`을 직접 선택�
 이전 10:00–22:00 UTC 조회의 성공 연결 315건과는 시간 범위가 다르다.
 이번 SELECT의 `changes=0`, `rows_written=0`을 확인했다.
 
-HTTP adaptive log에는 프랑스에서 12:36:44 UTC에 `POST /rooms/002026/sessions`
+HTTP adaptive log에는 12:36:44 UTC에 `POST /rooms/<행사 방>/sessions`
 409가 있었다. 응답 body가 없으므로 `ROOM_FULL`, idempotency 충돌, 세션 replay
 불가, 계정/상태 저장 용량 오류 등을 구별할 수 없다. 같은 방의 presence enter
 409/502 및 system-audio/account-lease 502도 확인됐다. 같은 6시간의 room 429

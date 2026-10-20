@@ -173,7 +173,7 @@ Repair SQ07–SQ09 with the verified stale-owner/permission/healthy-path control
 before promotion. No new dependency, schema, secret, binding, migration,
 version/cache change or recovery procedure is introduced by this records-only
 change. The existing security, device and exact-main-SHA release checks remain,
-along with the competition freeze.
+along with the release freeze.
 
 ## Repair addendum — 2026-10-03
 

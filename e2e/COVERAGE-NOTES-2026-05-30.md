@@ -26,8 +26,8 @@ Expected local-preview noise observed during YouTube E2E: TURN endpoint 401/403 
 
 The legacy production `appState` state slot is gone, so raw reads inside
 `page.evaluate` / `page.waitForFunction` now bypass the E2E projection and
-resolve to `undefined`. I removed those direct raw reads and routed assertions
-through `window.__MUSIXQUARE_GET_PLAYBACK_PROJECTION__` or existing helpers
+resolve to `undefined`. Those direct raw reads were removed and assertions were
+routed through `window.__MUSIXQUARE_GET_PLAYBACK_PROJECTION__` or existing helpers
 that already read the playback projection.
 
 De-staled files:
@@ -38,7 +38,7 @@ De-staled files:
 - `e2e/playback-advanced.test.ts`
 - `e2e/playback-sync.test.ts`
 - `e2e/youtube-sync.test.ts`
-- `e2e/youtube.test.ts` (also contained current raw reads in this worktree)
+- `e2e/youtube.test.ts` (also contained raw reads at the time)
 
 Verification:
 
@@ -62,9 +62,9 @@ No stale `appState` raw-read path is currently known.
 
 ## Stale Spec Pass
 
-The existing suite is still runnable as a whole, so I did not delete or quarantine specs. The scan found broad existing coverage for reconnects, host leave/refresh, multi-guest fan-out, mobile UI, YouTube drift/rendezvous, and transfer round trips. I added narrower regression tests where the prompt named edge paths that were only indirectly covered.
+The existing suite is still runnable as a whole, so no specs were deleted or quarantined. The scan found broad existing coverage for reconnects, host leave/refresh, multi-guest fan-out, mobile UI, YouTube drift/rendezvous, and transfer round trips. Narrower regression tests were added for edge paths that were only indirectly covered.
 
-I also de-staled the shared setup helpers after full-suite runs exposed local PeerJS setup flakes:
+The shared setup helpers were also de-staled after full-suite runs exposed local PeerJS setup flakes:
 
 - Corrected no-argument `page.waitForFunction` calls so timeout options are passed as Playwright options, not as the page-function argument.
 - Added one bounded retry for host code generation and guest join setup. This keeps transient local signaling stalls from consuming the enclosing test timeout while still failing quickly if setup remains broken.

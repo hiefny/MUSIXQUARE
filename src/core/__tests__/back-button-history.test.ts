@@ -5,7 +5,7 @@ type OwnedState = { mxqrGuard: { owner: string; kind: 'base' | 'guard' } };
 
 function harness(initialState: unknown = null) {
   let state = initialState;
-  let url = 'https://musixquare.com/002026';
+  let url = 'https://musixquare.com/098765';
   const events = new EventTarget();
   const history = {
     get state() {
@@ -85,13 +85,13 @@ describe('document-owned Back history', () => {
 
   it('uses the URL at each write and never restores a previously scrubbed claim', () => {
     const h = harness();
-    h.setUrl('https://musixquare.com/002026#pro-claim=private');
-    h.setUrl('https://musixquare.com/002026');
+    h.setUrl('https://musixquare.com/098765#pro-claim=private');
+    h.setUrl('https://musixquare.com/098765');
     const { base } = h.arm();
     expect(h.history.replaceState).toHaveBeenCalledWith(
       expect.any(Object),
       '',
-      'https://musixquare.com/002026',
+      'https://musixquare.com/098765',
     );
     h.pop(base);
     h.setUrl('https://musixquare.com/?lang=ko');

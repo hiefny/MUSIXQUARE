@@ -216,6 +216,6 @@ hardware memory behavior or final Linux/main-SHA CI candidate is certified.
 Only QA-T04/QA-T05's maintained tests and evidence documentation are changed.
 Product source, dependencies, schema, secrets, bindings, contracts, version
 and cache are unchanged. Cumulative `target=all` / Developer API D1 false and
-competition freeze remain. Main, production and the disabled Operations Drift
+release freeze remain. Main, production and the disabled Operations Drift
 Audit remain untouched. Known security/cache gates, final exact-main evidence
 and physical-device checks stay in the living release record.

@@ -171,7 +171,7 @@ minimal reproductions and neighboring stale-owner/cancellation controls into
 tracked tests with the repairs. There is no new dependency, schema, secret,
 binding, migration, version/cache change or special recovery action from this
 documentation-only round. Existing dependency-security, physical-device and
-exact-main-SHA release gates remain in the living record. The competition
+exact-main-SHA release gates remain in the living record. The release
 freeze still prohibits main advancement, production deployment and Operations
 Drift Audit reactivation.
 

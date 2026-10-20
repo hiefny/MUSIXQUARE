@@ -14,7 +14,7 @@
 The owner requested one last QA round and an end to further defect discovery
 if this round also confirmed zero new defects. **No new product defect is
 confirmed.** The final selected executions pass, and additional discovery ends
-here under that instruction. This decision does not end the competition freeze
+here under that instruction. This decision does not end the release freeze
 or mark production promotion ready.
 
 The round combines a fresh complete maintained unit run with new failure/

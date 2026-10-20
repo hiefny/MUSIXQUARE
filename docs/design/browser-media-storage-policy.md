@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Decision date:** 2026-07-10
 - **Last implementation check:** 2026-07-15
-- **Latest beta implementation check:** 2026-09-23 (`mxqr_beta`; not deployed)
+- **Latest beta implementation check:** 2026-09-23 (on `mxqr_beta`; promoted to main in 8.7.0 on 2026-10-07)
 - **Applies to:** production file-transfer, preload, remote-share receive, and
   file-playback paths
 

@@ -2,7 +2,7 @@
 
 Baseline: `mxqr_beta` at `a0ca76ad`. Scope: late work during room recovery,
 source switches, system-audio receiving, and participant-local playback recovery.
-This work preserves the competition freeze, app/cache versions, and existing
+This work preserves the release freeze, app/cache versions, and existing
 room-control policy.
 
 ## Confirmed finding

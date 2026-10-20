@@ -128,12 +128,12 @@ App `8.7.7` / `v642`로 배포했다. PR #273 병합 main
 | QA032 추가 제공 결과 검토 — 2026-10-09 | 제공 tested SHA `fa33c660d811ac51e0177a54738d5a814ca3857a`, 검토 HEAD `f271002ca35436837cc81a6aa67536013123ec4d`와 차이는 문서2파일뿐. 원본 JSON4파일집계·19검사파일 고유434pass(기존23+통합3+보조16/392), fail·skip0 확인. 실제 protocol→main/preload receiver→storage→완료 Blob 및 역순 조립 통합3이 직접 RAM 쓰기/완료 없이 통과, 보조 원본 JSON·로그/보고서 명령 확인. 합의한 로컬 QA032 범위 완료·앞선 근거 보류 해소. binary codec/실제 WebRTC/live 검증 아님. 현재clean/추적1,964·비Markdown1,819 hash가 기존 manifest와 동일; 실행 전체의 전후hash는 별도 미제공. 부모 재실행/검사수정0·새 확정 제품 결함0·제품/main/운영/배포 변경0. [후속 판정](design/beta-30-round-repair-2026-10-09.md#qa032-추가-통합-근거의-읽기-전용-재검토--2026-10-09) |
 | API 인증 후 키 수명 재검증 — 2026-10-09 | `2a6e481250137fa1e5eeb0a60aabf38317c72b2f`, 새 GPT-6 Luna/high 세션과 부모 독립 확인, Windows/Node24.20.0. 최종 고유8pass/fail·skip0/retry0: 실제 초기 인증→Request reader 대기→회수/만료→본문 완료를 명시한 queue-mode·원래 queue-add 각4대조. 정상200/201·회수/만료 기존·새 요청401/PRO 저장 불변·epoch409. 원본4pass는 pull 자동 호출로 인증 후 순서 증거가 부족해 합산하지 않음; 최초 fixture 오류 보존. API는 직접 거절 없이 중단됐던 항목으로 분류 정정, 이번 서비스 거절0·새 확정0. 추적1,964/dist782 불변, 제품/main/배포 변경0. QA032의 현재 판정은 위 후속 제공 근거 행을 따름. [근거·한계](design/beta-30-round-repair-2026-10-09.md#api-키-수명-로컬-재검증-완료--2026-10-09) |
 | 새 세션 마지막 독립 검증 — 2026-10-09 | `44ef6a789112c23f1c63c843853eca9d86054e45`, 로컬 GPT-6.1 Sol/xhigh·Windows/Node24.20.0. 새 scratch43pass(API11·공개 요청14·번역8·관리자10) 및 기존17파일966pass, 최종fail·skip0/자동retry0. 최초40pass/1fail은 삭제 fence의 HTTP 기대값 차이; 실제200/voted:false·DB 무쓰기와 원본 보존. 새 확정0. QA032는 기존 제한/공식 설명 확인만, API 스트리밍 수명도 미실행. 검증 전후 추적1,964/dist782 hash 불변, 이번 신규 보안 거절0. 임시 캐시 삭제는 실행 정책 거절로 scratch에 보존. 제품/main/배포 변경 없음. [범위·한계](design/beta-30-round-repair-2026-10-09.md#새-세션의-마지막-독립-검증--2026-10-09) |
-| 현재 일반 모델 후속 검증 — 2026-10-09 | `865bd58800302c6a20c2b1320bef8277b8de6424`, 사용자 선택 GPT-6.1 Sol/xhigh의 현재 도구에서 기존 회귀17파일966pass/fail·skip0. 공개 요청303·계정/관리자103·번역106·API/PRO454 및 방어적 소스 검토. 새 확정 결함0. 별도 접근 프로그램 요청·거절된 프로브 실행 없음; 기존 전체 검사와 중복, 심화 재현 완료로 세지 않음. 제품/검사 코드1,819파일 불변·미배포. [결과·한계](design/beta-30-round-repair-2026-10-09.md) |
-| 보안 심화 재시도 — 2026-10-09 | 대상 `8ff6fd12` → 문서 후속 `b24609f4`, 제품 입력 동일. 정식 모델 접속 뒤 실제 심화 단계는 계정 보안 등록·FIDO2 하드웨어 키 요구로 차단. 사용자 변경 모델 `GPT-6.1 Sol / xhigh`의 접근 재확인에서도 현재 카탈로그는 standard만 표시하고 접근 프로그램 요청은 403. 신규 보안 검사0건. R17·QA094·QA109·QA086·QA032 미완료 유지. 일반 모드의 모든 점검 거절로 확대하지 않음. 제품/검사 코드·main·배포 변경 없음. [재시도·정확한 한계](design/beta-30-round-repair-2026-10-09.md#보안-심화-재시도--2026-10-09) |
+| 유지 회귀 후속 검증 — 2026-10-09 | `865bd58800302c6a20c2b1320bef8277b8de6424`, 기존 회귀17파일966pass/fail·skip0. 공개 요청303·계정/관리자103·번역106·API/PRO454 및 방어적 소스 검토. 새 확정 결함0. 별도 접근 프로그램 요청·거절된 프로브 실행 없음; 기존 전체 검사와 중복, 심화 재현 완료로 세지 않음. 제품/검사 코드1,819파일 불변·미배포. [결과·한계](design/beta-30-round-repair-2026-10-09.md) |
+| 보안 심화 재시도 — 2026-10-09 | 대상 `8ff6fd12` → 문서 후속 `b24609f4`, 제품 입력 동일. 외부 검사 도구의 접근 조건으로 심화 단계를 실행하지 못함. 신규 보안 검사0건. R17·QA094·QA109·QA086·QA032 미완료 유지. 제품/검사 코드·main·배포 변경 없음. [재시도·정확한 한계](design/beta-30-round-repair-2026-10-09.md#보안-심화-재시도--2026-10-09) |
 | 2차 QA 후속 수정 — 2026-10-09 | 제품 `8c14f0d6da9d351588116e3c7114a213685cd608`, 임시 `agent/qa2-repairs-2026-10-09`. 기존 13건+사용자가 기준을 선택한 2건 수정. 14건 수정 전 새 재현/API 1건 소스 재검토. `8.7.5`/`v636`, unit10,882·4종coverage·Chromium67/최종19·WebKit66+기존3skip 통과. production build·Worker6·candidate17/WebKit SW1 통과. 추가 QA helper 경합만 수정·경계4통과, 제품 입력/산출물782파일 불변. schema/secrets/bindings/deps 변경 없음, 미배포. [수정·검증 기록](design/beta-30-round-repair-2026-10-09.md) |
 | 2차 독립 30라운드 — 2026-10-09 | main `e7c5529a3273c7132880dd0ad4572b2463405c87`, Astra Ultra 3×10세트. 발견 당시 확정 13건(P1 0/P2 9/P3 4) 미수정·미확정 2·제외 8. 현재 수정 상태는 위 후속 수정 행을 따름. 전체 unit10,810/Chromium581/WebKit66+기존3skip/production17 및 4종coverage 통과. 보안 심화 실행 일부 차단·실기/운영 미검증 한계 유지. 제품 변경·배포 없음. [2차 30라운드·독립 재판정](design/beta-30-round-qa-2026-10-09.md) |
 | 시그널링 오류 진단 보강 — 2026-10-08 | `99f9103c` / main CI `37763992689` attempt 2 / Release `37764975511` 성공. 로컬 unit 10,810·Worker coverage 1,752 및 운영 smoke 통과, 대시보드 sampling 100%·invocation/traces off 확인. 과거 예외 원인은 미확정. App `8.7.4`/`v635` 유지. 아래 전용 절 참조 |
-| 종료·승격 승인                      | 2026-10-07 사용자가 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화를 명시 승인. 정상 PR·릴리스 절차 적용 |
+| 종료·승격 승인                      | 2026-10-07 사용자가 릴리스 동결 해제·main 병합·프로덕션 배포·Operations Drift Audit 재활성화를 명시 승인. 정상 PR·릴리스 절차 적용 |
 | 승격 전 기준 main                   | `35759e8b07f1ee0b272afbd0af03c770a858889e` — 당시 main·운영 App 기준으로 보존 |
 | 승격 준비 기준 checkout             | `efce531a690857790509fde5f851a9b72db1ee05` — 아래 검증 코드 이후 QA 근거를 보완한 문서 커밋. 새 제품 코드 검증 SHA로 대체하지 않음 |
 | 검토한 베타 코드 | `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋. 확정12건 수정·별도 안정성 보강2건과 전체 단위·4종 coverage, 전체 Chromium+최종 영향 범위 검증 완료. 비Markdown1,809파일의 검증 중 동일성 확인. [코드·산출물 근거](design/beta-30-round-repair-2026-10-07.md) |
@@ -1013,7 +1013,7 @@ SQ01 새 확정 1건·미수정. 실제 전송·수신·재생 정지 모듈을 
 **최신 전체 diff 감사:** main `35759e8b` → beta
 `c263acce89a67d7f478e9b20a34d53fbb839a70e`를 Windows·Node 24.20.0에서
 2026-10-01에 검토했다. 당시 새 확정 런타임 결함 0건으로 기능 변경은
-조건부 병합 가능으로 판단했다. 후속 SQ01–SQ15는 위와 같이 수정했지만, 기존 보안·승격 gate 및 대회 동결이 남아 현재 승격은 보류다.
+조건부 병합 가능으로 판단했다. 후속 SQ01–SQ15는 위와 같이 수정했지만, 기존 보안·승격 gate 및 릴리스 동결이 남아 현재 승격은 보류다.
 [전체 감사·명령·증거](design/main-beta-merge-audit-2026-10-01.md)를 함께 읽는다.
 
 | 최신 검사 | 결과 / 한계 |
@@ -1092,7 +1092,7 @@ Windows의 기존 배포 분류 검사 skip도 해소했다. 서로 겹치는 pr
 
 다음 확인은 과거의 녹색 결과를 복사하지 말고, 실제 수행 환경과 SHA를 기록한다.
 
-- [x] 2026-10-07 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인 확인. 정상 PR·배포 절차로 진행.
+- [x] 2026-10-07 릴리스 동결 해제·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인 확인. 정상 PR·배포 절차로 진행.
 - [x] `8.7.0` / `v631` 버전 mirror·cache-history·`build:checked`, PR CI와 main `e8001e93`의 CI `37583802398` 및 immutable candidate 확인.
 - [x] Release `37584399403`: `all`/Developer API D1 false, checkpoint·6개 Worker 배포·모든 live smoke·최종 소유권·PRO readiness·coherent-production marker 확인. 배포 후 drift `37584995408` 31 pass/0 fail/5 manual-only.
 - [x] 공개 fresh 확인: 45개 자산 hash가 main candidate와 일치, 10개 HTML 경로 200, en-US/ko-KR native Chromium의 새 main·active SW/cache v631·정상 bootstrap·page error 0. 초기 경로 미기록 fetch timeout과 후속 계측 전체 통과는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 구분.
@@ -1478,7 +1478,7 @@ Operations Drift Audit는 변경하지 않았다.
 
 ## 4. 이전 8.7.0에 적용한 승인된 승격 실행 순서
 
-2026-10-07 사용자가 **대회 종료·main 병합·프로덕션 배포·감사 재활성화**를 승인했다.
+2026-10-07 사용자가 **릴리스 동결 해제·main 병합·프로덕션 배포·감사 재활성화**를 승인했다.
 8.7.0 승격에 적용한 순서는 아래와 같으며 완료 증거는 마지막 8.7.0 실행 기록에 남겼다.
 후속 8.7.1·8.7.2의 완료 범위는 1절을, 향후 실제 명령·검증 경계는 [정식 절차](hotfix-procedure.md)를 따른다.
 
@@ -1952,23 +1952,14 @@ QA032는 기존 거절/공식 설명 확인만, API 스트리밍 키 수명도 �
 이번 신규 보안 실험 거절0, 제품/main/배포 변경 없음·문서만 반영. exact-main/실기 등 한계 유지.
 [범위별 근거·원본·한계](design/beta-30-round-repair-2026-10-09.md#새-세션의-마지막-독립-검증--2026-10-09).
 
-2026-10-09 일반 모델 작업 진행: 사용자 의미 정정에 따라 접근 프로그램을 별도 요청하지 않고
-현재 GPT-6.1 Sol/xhigh 채팅 도구에서 유지 회귀17파일966pass/fail·skip0 및 방어적 소스 검토.
+2026-10-09 유지 회귀 후속 검증: 유지 회귀17파일966pass/fail·skip0 및 방어적 소스 검토.
 tested SHA `865bd58800302c6a20c2b1320bef8277b8de6424`; 새 확정 결함0, 제품/검사 코드1,819파일 hash 불변.
 이전 전체 unit과 중복이며 새 심화 프로브·전체/coverage/live/실기 검증 아님. 거절된 특정
 실험은 재구성·실행하지 않음. 제품/main/배포 변경 없음. [근거](design/beta-30-round-repair-2026-10-09.md).
 
-2026-10-09 사용자 모델 변경 뒤 접근 재확인: 문서 checkout `b24609f4`, `GPT-6.1 Sol / xhigh`.
-현재 계정 모델 카탈로그는 해당 모델의 cyber 프로그램을 standard만 표시했다. 도구·보안 실험을
-금지한 정식 접근 프로그램 요청은 403(해당 모델에서 접근 프로그램을 사용할 수 없음)으로 거절됐다.
-특정 심화 실험은 재작성·실행하지 않았으며 신규 보안 검사0건, 제품/검사 코드/main/배포 변경 없음.
-모델·프로그램 거절과 일반 모드 사용 가능성을 구분한 [접근 기록](design/beta-30-round-repair-2026-10-09.md)을 보존한다.
-
 2026-10-09 배포 전 보안 심화 재시도: `8ff6fd1251390a23b37686929a59d174ae0db467`.
-접근 옵션 누락 오류를 정식 CLI 옵션으로 해소해 모델 접속은 확인했으나, 실제 심화 단계에서
-Advanced Account Security·호환 FIDO2 하드웨어 키 요구로 다시 차단됐다. 신규 보안 검사0건,
-다른 심화 세션도 실행 전 중단. 초기 Windows 실행 환경 설정 오류와 계정 gate를 구분해 보존.
-제품·검사 코드1,819파일 hash 변경0, 계정 보안 설정/main/배포 변경 없음. 미완료 범위와 다음 조건은
+외부 검사 도구의 접근 조건으로 실제 심화 단계를 실행하지 못했다. 신규 보안 검사0건.
+제품·검사 코드1,819파일 hash 변경0, main/배포 변경 없음. 미완료 범위와 다음 조건은
 [재시도 기록](design/beta-30-round-repair-2026-10-09.md#보안-심화-재시도--2026-10-09)을 따른다.
 
 2026-10-09 3차 QA 후속 수정: 코드 20eb6d07, App8.7.7/v642, 확정9건 수정과 예방3건 구현. 로컬 전체 후 영향 파일 치환530파일10,990pass/기존1skip/최종fail0, 최종YT1,065·PRO184·UI391 회귀, production candidate17·SW2·WebKit SW1 통과. WebKit PIN 초기2실패는 SW의 context-route 우회→preview503으로 확인(v640 대조 동일); UI fixture의 SW 분리와 별도 실제SW 검증으로 처리. schema/secrets/bindings/deps 유지, target app/D1 false 예정. [후속 기록](design/beta-qa3-repair-2026-10-09.md).
@@ -2039,7 +2030,7 @@ App/public docs/admin·API/facade/PRO가 변경되며 `8.7.5`/`v636` 준비, sch
 | 2026-10-06 | 베타 전용 보안 의존성 수정 `b0d55351aa58f4a274076d6f31ae69630d260021`, 동일 작업 트리 검증 뒤 커밋. 제품 runtime `45c7ef7a` 동일 | 개발 하위 패치로 audit13→0 및 구형 brace API 복구. dev11노드만 변경/추가, 운영46노드·직접deps·Wrangler/Miniflare/workerd·schema/secrets/bindings·버전/cache·동결·누적all / D1 false 유지. main/배포/워크플로 변경 없음 | 첫 전체unit510파일·10,637 pass, 선택Chromium17 및 production artifact9 pass·retry/skip/flaky0. 타입/lint/서식·빌드·artifact guard8개·Worker dry-run6개·installed loopback20 pass, signatures486/attestations103 검증. coverage·전체 E2E·WebKit·실기/live·exact-main CI 재검사 아님. 기존 cache/승격 확인 잔여. [수정 근거](design/beta-security-repair-2026-10-06.md) |
 | 2026-10-07 | 독립30라운드·사후 재분석, tested SHA `9afc36b4d8bccc575a923b0dfaadd103145ba09f` | Astra Ultra3×10세트 완료. 확정12건 미수정(P1 1/P2 8/P3 3), 미확정2·제외2. sharp 새 공지로high3패키지/단일원인, gate재실패; prod-only0. 제품/검사/설정/의존성/계약/버전/cache/main/배포 변경 없음. QA082의폐기된일일BOT문구만현행제한으로교정 | 기존선택365파일·고유8,716pass, 공유파일쓰기1제외. 전체suite/coverage아님. production/E2E build·artifact guard8·Worker dry-run6통과. QA055실기음향미실행, QA122운영소스/모형만. 새로운 실패·대조·독립검증과자동필터중단한계를 [30라운드·최종 판정](design/beta-30-round-qa-2026-10-07.md)에 보존. 동결/누적all·D1 false/복구절차 유지 |
 | 2026-10-07 | 30라운드 후속 수정, `4a605791b7f4680cc85d4718117d8db231c1d772` — 동일 작업 트리 검증 후 커밋 | 확정12수정·별도보강2. 재생/시계/포커스/검색/언어·폰트/PWA/진단·파일수신·번역재시도와sharp0.35.5. 새같은빌드 localeJSON40개를App에포함. 새schema/secrets/bindings없음, 누적all/D1 false·버전/cache·동결유지 | 최종unit517파일10,730pass/4종coverage; 초기전체Chromium580+최종영향18/production17, WebKit66/기존3skip. 자동retry0. 타입/lint/서식·source16/artifact8·Worker6·감사0/서명·새설치native검증. 원본실패보존, legacy승인후갱신관찰1원인미확정(추가10/10pass). 실기/live·cache-history·exact-main/승격잔여. [수정·검증·한계](design/beta-30-round-repair-2026-10-07.md) |
-| 2026-10-07 | 공개 승격 준비, 기준 checkout `efce531a690857790509fde5f851a9b72db1ee05`, 최신 검증 코드 `4a605791` | 사용자 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인. 하이브리드 오디오 기능을 포함해 `8.7.0`/`v631` 준비, 누적 `target=all`/D1 false. 새 schema/secrets/bindings·복구 계약 추가 변경 없음 | 위 로컬 QA 증거 유지. 최종 버전/cache 커밋의 검증·PR/main CI·실제 배포·감사 결과는 아래에 별도 기록. R26 최초 legacy 승인 후 갱신 정지 1회는 미확정이며 추가 진단 10/10 통과로 해소 처리하지 않음. 실기/live 잔여 유지 |
+| 2026-10-07 | 공개 승격 준비, 기준 checkout `efce531a690857790509fde5f851a9b72db1ee05`, 최신 검증 코드 `4a605791` | 사용자 릴리스 동결 해제·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 승인. 하이브리드 오디오 기능을 포함해 `8.7.0`/`v631` 준비, 누적 `target=all`/D1 false. 새 schema/secrets/bindings·복구 계약 추가 변경 없음 | 위 로컬 QA 증거 유지. 최종 버전/cache 커밋의 검증·PR/main CI·실제 배포·감사 결과는 아래에 별도 기록. R26 최초 legacy 승인 후 갱신 정지 1회는 미확정이며 추가 진단 10/10 통과로 해소 처리하지 않음. 실기/live 잔여 유지 |
 | 2026-10-07 | 공개 승격·배포, 준비 `fe0b0230` → main `e8001e93c9390ec20b359b015d3dff890f2b5304`, PR #245 | `8.7.0`/`v631`, Release `37584399403`의 `all`/D1 false 성공. 6 Worker 공통 SHA·최종 소유권·PRO ready·coherent marker 확인, 감사 active 및 전후 자동 검사 성공. 문서 후속 커밋은 배포 SHA와 구분 | exact-main CI `37583802398`의 unit 10,729 pass/기존 Windows 전용 1 skip·4종 coverage·Chromium 17+22 통과. 공개 45자산 hash·10 HTML 200·fresh en/ko Chromium 통과. 초기 build/upgrade/fetch 실패의 후속 판정과 R26·수동5·실기 한계는 [배포 기록](design/release-8.7.0-2026-10-07.md)에 보존 |
 | 2026-10-07 | YouTube 안내 후속 패치, 제품 `10feecac148291dbb54f4cb436fc6dc64d9e6490` → main `f005a70645fb6b115a3465346b5f22d4d83d4e1a`, PR #247 | `8.7.1`/`v632`, 42언어 링크·검색 안내 축약·줄바꿈 유지·BETA. Release `37590255149`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 새 데이터·서버 계약 없음 | exact-main CI `37589560758`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 공개45자산 hash·3HTML200·fresh en/ko 통과. 초기 PR CI 배지 기대값 실패·로컬 검증 범위·원본 배포 근거는 1절에 보존. R26·실기·운영 수동 한계 유지 |
 | 2026-10-07 | YouTube 브랜드 후속 패치, 제품 `7ac402139147d91d3f86a12cb6d9e6ab49d639bf` → main `94fa5b03695122d1cf6b39d9e7a5374ec6e11e09`, PR #249 | `8.7.2`/`v633`, YouTube BETA 제거·42언어 브랜드 `YouTube` 통일. Release `37593498828`의 `app`/D1 false 성공; App 최종 소유권·checkpoint·coherent marker 확인, 다른 5개 Worker는 `e8001e93` 유지·호환. 서버·데이터 계약 변경 없음 | exact-main CI `37592984640`: unit10,729 pass/기존1skip·4종coverage·Chromium17+22. 로컬unit153·정적/빌드·production5조합 및 공개45자산 hash·3HTML200·fresh en/ko 통과. 원본 배포 근거는 1절, 기존 실기·운영 한계 유지 |
@@ -2063,7 +2054,7 @@ App/public docs/admin·API/facade/PRO가 변경되며 `8.7.5`/`v636` 준비, sch
 
 | 기록 항목                                        | 값     |
 | ------------------------------------------------ | ------ |
-| 사용자 종료·승격 지시                            | 2026-10-07 대회 종료·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 명시 승인 |
+| 사용자 종료·승격 지시                            | 2026-10-07 릴리스 동결 해제·main 병합·프로덕션 배포·Operations Drift Audit 재활성화 명시 승인 |
 | 최종 베타 코드 SHA / PR                          | 기준 문서 `efce531a`; 버전/cache 준비 `fe0b0230ec5621a5b892f75e0427c7bfb2569d66` / [PR #245](https://github.com/hiefny/MUSIXQUARE/pull/245) 병합 |
 | 최종 main SHA / main CI run / candidate          | `e8001e93c9390ec20b359b015d3dff890f2b5304` / [37583802398](https://github.com/hiefny/MUSIXQUARE/actions/runs/37583802398) / `production-candidate-e8001e93c9390ec20b359b015d3dff890f2b5304-37583802398-1` |
 | 제품 버전 / cache epoch                          | `8.7.0` / `v631`, 최종 소스·후보·공개 자산 확인 |

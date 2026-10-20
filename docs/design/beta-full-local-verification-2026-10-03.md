@@ -2,7 +2,7 @@
 
 | Field                                | Value                                                                                                                 |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Status                               | Local verification complete; security/cache promotion gates remain; competition freeze active                         |
+| Status                               | Local verification complete; security/cache promotion gates remain; release freeze active                         |
 | Tested checkout                      | `0912b8aec322084bffd594618a49140aa4566345`, `mxqr_beta`                                                               |
 | Product and maintained test revision | `45c7ef7a4e0fef5b788efe11cb72d54c9b221929`                                                                            |
 | Main reference                       | `35759e8b07f1ee0b272afbd0af03c770a858889e`                                                                            |
@@ -120,5 +120,5 @@ exit codes, browser metadata and the capability probe are retained in ignored
 the tracked evidence summary; generated artifacts are not committed.
 
 Beta evidence is not a successful exact-main-SHA CI release candidate. The
-competition freeze, main reference, production state and disabled Operations
+release freeze, main reference, production state and disabled Operations
 Drift Audit remain unchanged.

@@ -438,7 +438,7 @@ runbooks. Neither belongs in a general setup document.
 
 - [PRO 행사 입장·Peer 번호 심층 감사 — 2026-10-13](design/pro-event-admission-deep-audit-2026-10-13.md) —
   당시·현재 소스에서 최대 4대의 `Peer 101`과 앱 입장 응답 거부, 공유 registry 조회 취소의 후속
-  요청 차단을 로컬 재현했다. 002026의 Cloudflare 오류·객체 통계 및 D1 카운터를
+  요청 차단을 로컬 재현했다. 행사 방의 Cloudflare 오류·객체 통계 및 D1 카운터를
   대조했다. 현장 정원 초과 여부는 미확정이며 제품 수정·로그 추가·배포는 없다.
 
 - [공지 철회·관리자 편집·전체보기 수정 — 2026-10-13](design/announcement-repair-2026-10-13.md) —
@@ -592,7 +592,7 @@ labeled portion still supports a current guard or operating interpretation:
   full unit/Chromium/WebKit verification and the closed production R2 delay
   investigation (cause undetermined; no policy relaxation).
 - [8.7.0 production release — 2026-10-07](design/release-8.7.0-2026-10-07.md) —
-  the post-competition promotion of the accumulated beta to all six Workers.
+  the promotion of the accumulated beta to all six Workers after the release freeze.
 - [3차 QA 후속 수정·예방 보강 — 2026-10-09](design/beta-qa3-repair-2026-10-09.md):
   확정 9건과 승인된 예방 보강 3건의 재검증·수정·릴리스 근거. 기존 감사 판정과 provider/실기 한계를 보존한다.
 - [8.7.6 follow-up third 30-round QA — 2026-10-09](design/beta-30-round-qa3-2026-10-09.md) —

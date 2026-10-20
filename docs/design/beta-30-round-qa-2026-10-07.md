@@ -201,4 +201,4 @@ production/E2E 빌드를 각각 생성했고, 고정된 복사본을 사용했�
 
 8라운드의 비정상 전송 입력 실험은 자동 보안 필터가 중단했다. 이후 같은 작업을 다른 에이전트·도구로 재구성하거나 우회 실행하지 않았고, 기존 자료와 소스 검토만으로 미확정 처리했다.
 
-대회 동결, `8.6.61`/`v630`, 누적 release `all`/Developer API D1 `false`, schema/secrets/bindings와 복구 절차는 그대로다. 새 코드·의존성 배포가 없으므로 이번 QA 자체가 rollback 대상 배포를 만들지 않는다. 승격 전 버전/cache-history, 최종 main SHA의 CI candidate, 운영 상태와 실기 확인은 별도로 남는다.
+릴리스 동결, `8.6.61`/`v630`, 누적 release `all`/Developer API D1 `false`, schema/secrets/bindings와 복구 절차는 그대로다. 새 코드·의존성 배포가 없으므로 이번 QA 자체가 rollback 대상 배포를 만들지 않는다. 승격 전 버전/cache-history, 최종 main SHA의 CI candidate, 운영 상태와 실기 확인은 별도로 남는다.

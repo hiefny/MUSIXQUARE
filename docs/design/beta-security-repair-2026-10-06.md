@@ -11,7 +11,7 @@
 | Executable sources | [package/overrides](../../package.json), [lock](../../package-lock.json), [CI audit/signatures](../../.github/workflows/ci.yml), [Worker dry-run](../../scripts/check-worker-bundles.mts) |
 | Related documents | [현재 베타 승격 기록](../beta-release-readiness-archive-2026-10-10.md), [수정 전 main/beta 비교](main-beta-comparison-2026-10-06.md) |
 
-사용자의 대회 동결 지시에 따라 **베타에만 수정**했다. 수정 전 main/beta의 공통
+사용자의 릴리스 동결 지시에 따라 **베타에만 수정**했다. 수정 전 main/beta의 공통
 개발 의존성 감사 13패키지(critical 1/high 7/moderate 5)는 이번 베타의 재감사에서
 **0건**으로 줄었다. main은 당시 커밋을 유지하며, 이전 비교 보고서는 수정 전
 13건의 증거로 보존한다. npm 감사 통과가 제품 전체의 보안 무결함을 뜻하지 않는다.

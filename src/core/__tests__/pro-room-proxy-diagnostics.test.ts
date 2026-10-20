@@ -20,12 +20,12 @@ afterEach(() => {
 });
 
 function request(suffix = '/presence/enter') {
-  return new Request(`https://musixquare.com/api/pro-room/v1/rooms/002026${suffix}`, {
+  return new Request(`https://musixquare.com/api/pro-room/v1/rooms/098765${suffix}`, {
     method: 'POST',
     headers: {
       Origin: 'https://musixquare.com',
       'Content-Type': 'application/json',
-      Cookie: '__Host-mxqr_pro_002026_session=private-cookie',
+      Cookie: '__Host-mxqr_pro_098765_session=private-cookie',
       Authorization: 'Bearer private-token',
       'CF-Connecting-IP': '203.0.113.190',
       'X-MXQR-Pro-Room-Generation': '999999',
@@ -60,7 +60,7 @@ describe('App PRO facade structured failure diagnostics', () => {
     expect(events()).toEqual([
       expect.objectContaining({
         scope: 'app',
-        roomCode: '002026',
+        roomCode: '098765',
         roomGeneration: null,
         // App has no version metadata binding; provider log metadata supplies
         // deployment identity. Do not claim a custom release ID is available.

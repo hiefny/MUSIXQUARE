@@ -8,8 +8,8 @@
 
 [행사 심층 감사](pro-event-admission-deep-audit-2026-10-13.md)와
 [외부 보고서 재검증](pro-event-report-verification-2026-10-13.md)의 세 결함을 수정한다.
-행사 당시 002026의 실패가 이 중 어느 조합이었는지는 여전히 확정하지 않는다.
-Peer 번호는 동시 접속 수가 아니며, 사용자 메일의 “100명처럼”도 서버 오류 코드의
+행사 당시 행사 방의 실패가 이 중 어느 조합이었는지는 여전히 확정하지 않는다.
+Peer 번호는 동시 접속 수가 아니며, 고객 보고의 “100명처럼”도 서버 오류 코드의
 직접 증거가 아니다. 원문 [외부 보고서](pro-event-sleep-and-capacity-code-review-2026-10-13.md)는
 수정하지 않고 보존한다.
 
@@ -175,7 +175,7 @@ committed HEAD의 `build:checked`도 통과했다. exact-main CI·운영 smoke �
 
 이번 SHA의 전체 serial Full E2E와 실제 수십 대 행사 네트워크·잠금/복귀 검사는
 실행하지 않았다. exact-main 후보·critical browser 및 운영 smoke와 구분한다.
-과거 002026 행사 원인을 이번 수정이나 새 로그만으로 확정하지 않는다. 정원·요청
+과거 고객 행사의 원인을 이번 수정이나 새 로그만으로 확정하지 않는다. 정원·요청
 제한은 유지했고, 입장 3개 결함은 재현 회귀·리뷰·exact-main CI·배포 근거로 닫는다.
 추가한 진단은 이후 요청부터 적용되는 best-effort 관측이며 과거 인원 통계 복원이 아니다.
 후속 기록 PR은 문서만 바꾸며 추가 Production Release를 실행하지 않는다.

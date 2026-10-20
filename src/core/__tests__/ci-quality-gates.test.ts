@@ -20,7 +20,7 @@ const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
 const e2eWorkflow = readFileSync(resolve('.github/workflows/e2e.yml'), 'utf8');
 
 describe('CI quality and supply-chain gates', () => {
-  it('keeps production candidates restricted to main after beta promotion', () => {
+  it('keeps production candidates restricted to main', () => {
     expect(ciWorkflow).toMatch(/push:\s+branches: \[main\]/u);
     expect(ciWorkflow).toMatch(/pull_request:\s+branches: \[main\]/u);
 
@@ -45,7 +45,7 @@ describe('CI quality and supply-chain gates', () => {
               id: 1,
               run_attempt: 1,
               head_sha: sha,
-              head_branch: 'mxqr_beta',
+              head_branch: 'feature/example',
               event: 'push',
               status: 'completed',
               conclusion: 'success',

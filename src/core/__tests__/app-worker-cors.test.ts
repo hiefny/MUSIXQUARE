@@ -9310,7 +9310,7 @@ describe('Cloudflare app worker Developer API key administration', () => {
 
 describe('Cloudflare app worker PRO room facade', () => {
   it('detaches only the exact duplicate legacy owner and safely reconciles a signaling failure', async () => {
-    const targetRoomCode = '031108';
+    const targetRoomCode = '098108';
     const retainedRoomCode = '020924';
     const roomGeneration = 0;
     const ownerAccountId = 'acct_0123456789abcdefghijkl';
@@ -10051,7 +10051,7 @@ describe('Cloudflare app worker PRO room facade', () => {
   });
 
   it('atomically supersedes only a stale pre-apply detach intent and freezes it after detach', async () => {
-    const targetRoomCode = '031109';
+    const targetRoomCode = '098109';
     const staleRetainedRoomCode = '020925';
     const replacementRoomCodes = ['020926', '020927'] as const;
     const roomGeneration = 0;

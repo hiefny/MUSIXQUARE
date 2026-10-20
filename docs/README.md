@@ -90,10 +90,14 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [Short desktop title spacing and delete mode stability 8.11.33 — 2026-10-21](design/short-desktop-title-and-delete-mode-stability-2026-10-21.md) —
+- [Short desktop title spacing, delete mode stability and the edit mode redesign 8.11.33 — 2026-10-21](design/short-desktop-title-and-delete-mode-stability-2026-10-21.md) —
   the 720-899 px desktop band pulled its Playlist and Settings titles up to 12 px from the top edge; they keep the
   dashboard's 32 px again. Entering delete mode changed the playlist header by 2-3 px (baseline-aligned 44 px toggle,
   hidden 36 px icon row), moving the list; header height, list position and scroll position now stay identical.
+  Edit mode then replaces each row's X with a check circle, paints selected rows as one fill (lone rows as pills,
+  consecutive rows as one block with pill-radius outer corners), folds YouTube playlists while it lasts, adds
+  check-column drag and two-finger range selection, and turns the bottom pill's Delete/Cancel into trash and close
+  icon buttons. The Help tab's tour button is blue again. Eager JS gzip headroom is now 111 B.
 - [Desktop layout by viewport height — 2026-10-21](design/desktop-height-layout-2026-10-21.md) — wide viewports
   under 720 px tall now use the compact sidebar layout, and from 720 to 899 px tall the dashboard keeps its header
   over the Play column only so Playlist/Chat and Settings run full height. One module holds the bands for CSS and

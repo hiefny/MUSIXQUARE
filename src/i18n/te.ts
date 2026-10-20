@@ -17,7 +17,7 @@ const te: Record<I18nKey, string> = {
   'common.ok': 'సరే',
   'common.cancel': 'రద్దు చేయి',
   'common.delete': 'తొలగించు',
-  'common.undo': 'చెయ్యకు',
+  'common.undo': 'రద్దుచెయ్యి',
   'common.close': 'మూసివేయి',
   'common.skip_to_content': 'విషయానికి వెళ్ళండి',
   'common.reset': 'రీసెట్ చేయి',

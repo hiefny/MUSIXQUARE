@@ -14,8 +14,8 @@ const ko = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': '확인',
   'common.cancel': '취소',
-  'common.delete': '삭제',
-  'common.undo': '되돌리기',
+  'common.delete': '삭제하기',
+  'common.undo': '실행 취소',
   'common.close': '닫기',
   'common.skip_to_content': '콘텐츠로 바로가기',
   'common.reset': '초기화',

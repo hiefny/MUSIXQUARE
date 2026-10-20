@@ -598,7 +598,7 @@ describe('strict TypeScript classic browser runtimes', () => {
   it('preserves explicit and stored locale intent across editorial and app links', async () => {
     const { code } = await compiledAsset('editorial-pages.js');
     const markup = `<!doctype html><html><body data-soro-view="article">
-      <header><a class="lp-try" href="https://musixquare.com">Open app</a></header>
+      <header><a class="lp-try" href="https://musixquare.com">Try it now</a></header>
       <a class="lp-logo" href="https://musixquare.com">MUSIXQUARE</a>
       <nav>
         <a class="editorial-site-tab" href="/about">About</a>

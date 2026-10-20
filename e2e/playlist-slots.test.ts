@@ -8,7 +8,10 @@ import { navigateToTab, waitForPlaylistCount } from './helpers/wait.ts';
 const SCREENSHOT_DIR = process.env.MXQR_E2E_SCREENSHOT_DIR;
 
 async function snap(page: Page, name: string): Promise<void> {
-  if (SCREENSHOT_DIR) await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png` });
+  if (!SCREENSHOT_DIR) return;
+  // Rows fade between states; capture the settled frame.
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${SCREENSHOT_DIR}/${name}.png` });
 }
 
 async function readSlots(page: Page): Promise<unknown> {

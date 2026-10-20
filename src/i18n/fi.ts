@@ -291,10 +291,12 @@ const fi: Record<I18nKey, string> = {
   'connect.kicked_message': 'Isäntä poisti sinut istunnosta.',
   'connect.copy_invite_link': 'Kopioi kutsulinkki',
   'connect.link_copied': 'Kutsulinkki kopioitu',
-  'connect.room_password_title': 'Vaadi liittymiseen salasana',
+  'connect.room_password_title': 'Huoneen salasana',
   'connect.room_password_toggle_aria':
     'Ota huoneen salasanavaatimus käyttöön tai poista se käytöstä',
   'connect.room_password_on': 'Salasana käytössä',
+  'connect.room_password_show': 'Näytä salasana',
+  'connect.room_password_hide': 'Piilota salasana',
   'connect.room_password_invalid': 'Anna 8 numeroa',
   'connect.room_password_disabled': 'Osallistujat eivät enää tarvitse huoneen salasanaa',
   'connect.room_password_apply_pending': 'Uusi salasana tulee voimaan, kun yhteys palautuu',

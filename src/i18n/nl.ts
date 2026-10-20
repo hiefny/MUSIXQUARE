@@ -293,9 +293,11 @@ const nl: Record<I18nKey, string> = {
   'connect.kicked_message': 'De host heeft je uit de kamer verwijderd.',
   'connect.copy_invite_link': 'Uitnodiging kopiëren',
   'connect.link_copied': 'Uitnodigingslink gekopieerd',
-  'connect.room_password_title': 'Wachtwoord vereisen',
+  'connect.room_password_title': 'Kamerwachtwoord',
   'connect.room_password_toggle_aria': 'Kamerwachtwoord in- of uitschakelen',
   'connect.room_password_on': 'Wachtwoord toegepast',
+  'connect.room_password_show': 'Wachtwoord tonen',
+  'connect.room_password_hide': 'Wachtwoord verbergen',
   'connect.room_password_invalid': 'Voer 8 cijfers in',
   'connect.room_password_disabled': 'Deelnemers hebben geen wachtwoord meer nodig',
   'connect.room_password_apply_pending':

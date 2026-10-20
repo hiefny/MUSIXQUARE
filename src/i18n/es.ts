@@ -104,7 +104,7 @@ const es: Record<I18nKey, string> = {
 
   // Navigation
   'nav.home': 'Inicio',
-  'nav.playlist': 'Lista de reproducción',
+  'nav.playlist': 'Lista',
   'nav.settings': 'Ajustes',
   'nav.help': 'Ayuda',
   'nav.connect': 'Conectar',
@@ -294,9 +294,11 @@ const es: Record<I18nKey, string> = {
   'connect.kicked_message': 'El anfitrión te expulsó de la sala.',
   'connect.copy_invite_link': 'Copiar enlace',
   'connect.link_copied': 'Enlace de invitación copiado',
-  'connect.room_password_title': 'Exigir contraseña para entrar',
+  'connect.room_password_title': 'Contraseña de la sala',
   'connect.room_password_toggle_aria': 'Cambiar requisito de contraseña de la sala',
   'connect.room_password_on': 'Contraseña aplicada',
+  'connect.room_password_show': 'Mostrar contraseña',
+  'connect.room_password_hide': 'Ocultar contraseña',
   'connect.room_password_invalid': 'Ingresa 8 dígitos',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
   'connect.room_password_apply_pending':

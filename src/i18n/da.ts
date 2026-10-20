@@ -291,9 +291,11 @@ const da: Record<I18nKey, string> = {
   'connect.kicked_message': 'Værten har fjernet dig fra sessionen.',
   'connect.copy_invite_link': 'Kopiér invitationslink',
   'connect.link_copied': 'Invitationslinket er kopieret',
-  'connect.room_password_title': 'Kræv adgangskode for at deltage',
+  'connect.room_password_title': 'Adgangskode til rummet',
   'connect.room_password_toggle_aria': 'Slå krav om adgangskode til rummet til eller fra',
   'connect.room_password_on': 'Adgangskoden er aktiveret',
+  'connect.room_password_show': 'Vis adgangskode',
+  'connect.room_password_hide': 'Skjul adgangskode',
   'connect.room_password_invalid': 'Indtast 8 cifre',
   'connect.room_password_disabled': 'Deltagerne behøver ikke længere adgangskoden til rummet',
   'connect.room_password_apply_pending':

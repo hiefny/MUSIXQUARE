@@ -293,9 +293,11 @@ const nb: Record<I18nKey, string> = {
   'connect.kicked_message': 'Verten har fjernet deg fra økten.',
   'connect.copy_invite_link': 'Kopier invitasjon',
   'connect.link_copied': 'Invitasjonslenken er kopiert',
-  'connect.room_password_title': 'Krev passord for å delta',
+  'connect.room_password_title': 'Rompassord',
   'connect.room_password_toggle_aria': 'Slå krav om rompassord av eller på',
   'connect.room_password_on': 'Passordet er tatt i bruk',
+  'connect.room_password_show': 'Vis passord',
+  'connect.room_password_hide': 'Skjul passord',
   'connect.room_password_invalid': 'Skriv inn 8 sifre',
   'connect.room_password_disabled': 'Deltakere trenger ikke lenger rompassordet',
   'connect.room_password_apply_pending':

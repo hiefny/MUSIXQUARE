@@ -294,9 +294,11 @@ const de: Record<I18nKey, string> = {
   'connect.kicked_message': 'Du wurdest vom Host aus dem Raum entfernt.',
   'connect.copy_invite_link': 'Einladung kopieren',
   'connect.link_copied': 'Einladungslink kopiert',
-  'connect.room_password_title': 'Raumpasswort verlangen',
+  'connect.room_password_title': 'Raumpasswort',
   'connect.room_password_toggle_aria': 'Raumpasswort-Anforderung umschalten',
   'connect.room_password_on': 'Passwort angewendet',
+  'connect.room_password_show': 'Passwort anzeigen',
+  'connect.room_password_hide': 'Passwort verbergen',
   'connect.room_password_invalid': 'Gib 8 Ziffern ein',
   'connect.room_password_disabled': 'Teilnehmer benötigen kein Raumpasswort mehr',
   'connect.room_password_apply_pending':

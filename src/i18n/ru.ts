@@ -292,9 +292,11 @@ const ru: Record<I18nKey, string> = {
   'connect.kicked_message': 'Хост исключил вас из комнаты.',
   'connect.copy_invite_link': 'Скопировать ссылку',
   'connect.link_copied': 'Ссылка для приглашения скопирована',
-  'connect.room_password_title': 'Требовать пароль для входа в комнату',
+  'connect.room_password_title': 'Пароль комнаты',
   'connect.room_password_toggle_aria': 'Переключить требование пароля для комнаты',
   'connect.room_password_on': 'Пароль установлен',
+  'connect.room_password_show': 'Показать пароль',
+  'connect.room_password_hide': 'Скрыть пароль',
   'connect.room_password_invalid': 'Введите 8-значный пароль',
   'connect.room_password_disabled': 'Для входа в эту комнату больше не требуется пароль',
   'connect.room_password_apply_pending':

@@ -292,9 +292,11 @@ const fr: Record<I18nKey, string> = {
   'connect.kicked_message': 'L’hôte a déconnecté cet appareil du salon.',
   'connect.copy_invite_link': 'Copier l’invitation',
   'connect.link_copied': 'Lien d’invitation copié',
-  'connect.room_password_title': 'Exiger un mot de passe pour rejoindre le salon',
+  'connect.room_password_title': 'Mot de passe du salon',
   'connect.room_password_toggle_aria': 'Activer/désactiver le mot de passe du salon',
   'connect.room_password_on': 'Mot de passe appliqué',
+  'connect.room_password_show': 'Afficher le mot de passe',
+  'connect.room_password_hide': 'Masquer le mot de passe',
   'connect.room_password_invalid': 'Saisissez 8 chiffres',
   'connect.room_password_disabled': 'Les participants n’ont plus besoin du mot de passe du salon',
   'connect.room_password_apply_pending':

@@ -293,9 +293,11 @@ const pl: Record<I18nKey, string> = {
   'connect.kicked_message': 'Host wyrzucił to urządzenie z pokoju.',
   'connect.copy_invite_link': 'Kopiuj zaproszenie',
   'connect.link_copied': 'Link zaproszenia skopiowany',
-  'connect.room_password_title': 'Wymagaj hasła przy wejściu do pokoju',
+  'connect.room_password_title': 'Hasło pokoju',
   'connect.room_password_toggle_aria': 'Przełącz wymaganie hasła do pokoju',
   'connect.room_password_on': 'Hasło aktywne',
+  'connect.room_password_show': 'Pokaż hasło',
+  'connect.room_password_hide': 'Ukryj hasło',
   'connect.room_password_invalid': 'Wpisz 8-cyfrowe hasło',
   'connect.room_password_disabled': 'Wejście do tego pokoju nie wymaga już hasła',
   'connect.room_password_apply_pending':

@@ -292,9 +292,11 @@ const it: Record<I18nKey, string> = {
   'connect.kicked_message': 'L’host ti ha rimosso dalla stanza.',
   'connect.copy_invite_link': 'Copia il link d’invito',
   'connect.link_copied': 'Link d’invito copiato',
-  'connect.room_password_title': 'Richiedi password per accedere alla stanza',
+  'connect.room_password_title': 'Password della stanza',
   'connect.room_password_toggle_aria': 'Attiva/disattiva richiesta password stanza',
   'connect.room_password_on': 'Password attiva',
+  'connect.room_password_show': 'Mostra password',
+  'connect.room_password_hide': 'Nascondi password',
   'connect.room_password_invalid': 'Inserisci una password di 8 cifre',
   'connect.room_password_disabled':
     'Ora non è più richiesta la password per accedere a questa stanza',

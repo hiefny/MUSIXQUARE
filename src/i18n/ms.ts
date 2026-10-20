@@ -296,9 +296,11 @@ const ms: Record<I18nKey, string> = {
   'connect.kicked_message': 'Anda telah dikeluarkan daripada sesi oleh hos.',
   'connect.copy_invite_link': 'Salin pautan jemputan',
   'connect.link_copied': 'Pautan jemputan disalin',
-  'connect.room_password_title': 'Wajibkan kata laluan untuk menyertai',
+  'connect.room_password_title': 'Kata laluan bilik',
   'connect.room_password_toggle_aria': 'Togol keperluan kata laluan bilik',
   'connect.room_password_on': 'Kata laluan digunakan',
+  'connect.room_password_show': 'Tunjukkan kata laluan',
+  'connect.room_password_hide': 'Sembunyikan kata laluan',
   'connect.room_password_invalid': 'Masukkan 8 digit',
   'connect.room_password_disabled': 'Peserta tidak lagi memerlukan kata laluan bilik',
   'connect.room_password_apply_pending':

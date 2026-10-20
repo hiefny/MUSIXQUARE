@@ -566,16 +566,35 @@ const ROOM_PASSWORD_CODE_IDS = ['room-password-code', 'desktop-room-password-cod
 const ROOM_PASSWORD_STATUS_IDS = ['room-password-status', 'desktop-room-password-status'];
 const ROOM_PASSWORD_EDIT_IDS = ['room-password-refresh', 'desktop-room-password-refresh'];
 const ROOM_PASSWORD_OFF_TEXT = '- - - - - - - -';
-// The PIN is never shown again once set, in either room type: the owner
-// re-enters it through the pencil action instead of reading it back.
+// A PRO PIN is never shown again once set: the owner re-enters it through the
+// pencil. A Standard-room host may reveal the PIN this tab set with the eye;
+// it stays masked until asked.
 const ROOM_PASSWORD_MASKED_TEXT = '••••-••••';
 const ROOM_PASSWORD_EDIT_PATH =
   'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.04a.996.996 0 0 0 0-1.41l-2.51-2.51a.996.996 0 0 0-1.41 0l-1.96 1.96 3.75 3.75 2.13-1.79z';
+const ROOM_PASSWORD_SHOW_PATH =
+  'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z';
+const ROOM_PASSWORD_HIDE_PATH =
+  'M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z';
+/** The Standard-room PIN this host tab set, bound to the room it was set in. */
+let _standardRoomPin: {
+  readonly roomId: string | null;
+  readonly sessionCode: string | null;
+  readonly pin: string;
+} | null = null;
+let _standardRoomPinShown = false;
 /** Locks the toggle and pencil while a PIN dialog or its commit is open. */
 let _roomPinChangeInFlight = false;
 
 function _isProRoom(): boolean {
   return getRoomContext().kind === 'pro';
+}
+
+function _knownStandardRoomPin(): string | null {
+  const known = _standardRoomPin;
+  if (!known || _isProRoom() || !getState('network.roomPasswordRequired')) return null;
+  if (getRoomContext().roomId !== known.roomId) return null;
+  return getState('network.sessionCode') === known.sessionCode ? known.pin : null;
 }
 
 function _canEditRoomPassword(): boolean {
@@ -626,14 +645,21 @@ function syncRoomPasswordControls(): void {
     if (row) row.hidden = false;
   });
 
+  const isPro = _isProRoom();
+  const knownPin = isPro ? null : _knownStandardRoomPin();
+  const shownPin = _standardRoomPinShown ? knownPin : null;
   ROOM_PASSWORD_CODE_IDS.forEach((id) => {
     const code = getUiElement(id);
     if (!code) return;
-    code.textContent = active ? ROOM_PASSWORD_MASKED_TEXT : ROOM_PASSWORD_OFF_TEXT;
+    code.textContent = !active
+      ? ROOM_PASSWORD_OFF_TEXT
+      : shownPin
+        ? `${shownPin.slice(0, 4)}-${shownPin.slice(4)}`
+        : ROOM_PASSWORD_MASKED_TEXT;
     code.classList.toggle('is-placeholder', !active);
     // Bullets and dashes are decoration; the status text beside them is what
-    // a screen reader announces.
-    code.setAttribute('aria-hidden', 'true');
+    // a screen reader announces. A revealed PIN is read out itself.
+    code.setAttribute('aria-hidden', shownPin ? 'false' : 'true');
   });
 
   ROOM_PASSWORD_STATUS_IDS.forEach((id) => {
@@ -644,11 +670,27 @@ function syncRoomPasswordControls(): void {
   ROOM_PASSWORD_EDIT_IDS.forEach((id) => {
     const button = getUiElement(id) as HTMLButtonElement | null;
     if (!button) return;
-    const ariaKey = 'pro.pin_change_title';
+    // PRO: the pencil changes the PIN. Standard: the eye shows or hides it.
+    const ariaKey = isPro
+      ? 'pro.pin_change_title'
+      : shownPin
+        ? 'connect.room_password_hide'
+        : 'connect.room_password_show';
     button.setAttribute('data-i18n-aria-label', ariaKey);
     button.setAttribute('aria-label', t(ariaKey));
-    button.querySelector('path')?.setAttribute('d', ROOM_PASSWORD_EDIT_PATH);
-    const unavailable = !active || !canEdit;
+    button
+      .querySelector('path')
+      ?.setAttribute(
+        'd',
+        isPro
+          ? ROOM_PASSWORD_EDIT_PATH
+          : shownPin
+            ? ROOM_PASSWORD_HIDE_PATH
+            : ROOM_PASSWORD_SHOW_PATH,
+      );
+    if (isPro) button.removeAttribute('aria-pressed');
+    else button.setAttribute('aria-pressed', shownPin ? 'true' : 'false');
+    const unavailable = !active || !canEdit || (!isPro && !knownPin);
     button.hidden = unavailable;
     button.disabled = unavailable || locked;
     button.setAttribute('aria-disabled', unavailable || locked ? 'true' : 'false');
@@ -849,12 +891,14 @@ async function changeProRoomPin(disable = false): Promise<void> {
 
 /**
  * Standard rooms: the host types the PIN in the same two-step dialog as PRO.
- * The PIN stays only in this tab's memory (the transport replays it) and is
- * never shown again. Turning protection off stays immediate, with no dialog.
+ * The PIN stays only in this tab's memory (the transport replays it); the eye
+ * shows it on request. Turning protection off stays immediate, with no dialog.
  */
 async function changeStandardRoomPinFromConnect(disable = false): Promise<void> {
   if (_roomPinChangeInFlight || _guardRoomPasswordCtrl()) return;
   if (disable) {
+    _standardRoomPin = null;
+    _standardRoomPinShown = false;
     setState('network.roomPasswordRequired', false);
     // Also disarms the removal of an older, still-pending "Everyone rejoins".
     changeStandardRoomPin(null, { enabling: false }).catch((error: unknown) => {
@@ -897,6 +941,14 @@ async function changeStandardRoomPinFromConnect(disable = false): Promise<void> 
       enabling,
     });
     if (!isCurrent()) return;
+    if (outcome !== 'unsupported') {
+      _standardRoomPin = {
+        roomId: initialRoom.roomId,
+        sessionCode: initialSessionCode,
+        pin: choice.pin,
+      };
+      _standardRoomPinShown = false;
+    }
     if (outcome === 'applied') {
       showToast(t(enabling ? 'pro.pin_enabled' : 'pro.pin_changed'));
     } else if (outcome === 'pending') {
@@ -934,7 +986,12 @@ function initRoomPasswordControls(): void {
 
   ROOM_PASSWORD_EDIT_IDS.forEach((id) => {
     getUiElement(id)?.addEventListener('click', () => {
-      changeRoomPinFromConnect(false);
+      if (_isProRoom()) {
+        changeRoomPinFromConnect(false);
+        return;
+      }
+      _standardRoomPinShown = !_standardRoomPinShown;
+      syncRoomPasswordControls();
     });
   });
 

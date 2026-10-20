@@ -298,9 +298,11 @@ const ta: Record<I18nKey, string> = {
   'connect.kicked_message': 'ஹோஸ்ட் உங்களை அமர்விலிருந்து நீக்கியுள்ளார்.',
   'connect.copy_invite_link': 'அழைப்பு இணைப்பை நகலெடு',
   'connect.link_copied': 'அழைப்பு இணைப்பு நகலெடுக்கப்பட்டது',
-  'connect.room_password_title': 'சேரக் கடவுச்சொல் தேவை',
+  'connect.room_password_title': 'அறைக் கடவுச்சொல்',
   'connect.room_password_toggle_aria': 'அறைக் கடவுச்சொல் தேவையை மாற்று',
   'connect.room_password_on': 'கடவுச்சொல் நடைமுறையில் உள்ளது',
+  'connect.room_password_show': 'கடவுச்சொல்லைக் காட்டு',
+  'connect.room_password_hide': 'கடவுச்சொல்லை மறை',
   'connect.room_password_invalid': '8 இலக்கங்களை உள்ளிடவும்',
   'connect.room_password_disabled': 'பங்கேற்பாளர்களுக்கு இனி அறைக் கடவுச்சொல் தேவையில்லை',
   'connect.room_password_apply_pending':

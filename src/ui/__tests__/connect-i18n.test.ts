@@ -3388,6 +3388,7 @@ describe('Standard-room owner PIN controls', () => {
     initConnect();
   }
   const toggle = () => document.getElementById('room-password-toggle') as HTMLButtonElement;
+  // Standard rooms show an eye here; PRO rooms keep the pencil.
   const pencil = () => document.getElementById('room-password-refresh') as HTMLButtonElement;
 
   it('asks for the first PIN on one page when nobody else is in the room and keeps the host', async () => {
@@ -3451,27 +3452,73 @@ describe('Standard-room owner PIN controls', () => {
     expect(step.options.map((option) => option.value)).toEqual(['keep_present', 'revoke_all']);
   });
 
-  it('changes a protected PIN through the pencil and sends "Everyone rejoins"', async () => {
-    openHostSettings(true, [presentPeer('guest-1')]);
+  it('masks the PIN this host set and shows or hides it with the eye', async () => {
+    openHostSettings(false, [presentPeer('guest-1')]);
+    expect(pencil().hidden).toBe(true);
     mockedShowDialog.mockResolvedValueOnce({
       action: 'ok',
       inputValue: '55667788',
       choiceValue: 'revoke_all',
     });
     mockedChangeStandardRoomPin.mockResolvedValueOnce('applied');
-    expect(pencil().hidden).toBe(false);
-    expect(pencil().getAttribute('aria-label')).toBe(t('pro.pin_change_title'));
-    expect(pencil().querySelector('path')?.getAttribute('d')).toContain('M3 17.25');
-    pencil().click();
-
+    toggle().click();
     await vi.waitFor(() =>
       expect(mockedChangeStandardRoomPin).toHaveBeenCalledWith('55667788', {
         membership: 'revoke_all',
-        enabling: false,
+        enabling: true,
       }),
     );
-    expect(renderedDialogText(lastDialogOptions().title)).toBe(t('pro.pin_change_title'));
-    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_changed')));
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_enabled')));
+
+    const code = () => document.getElementById('room-password-code')!;
+    expect(code().textContent).toBe('••••-••••');
+    expect(pencil().hidden).toBe(false);
+    expect(pencil().getAttribute('aria-label')).toBe(t('connect.room_password_show'));
+    expect(pencil().getAttribute('aria-pressed')).toBe('false');
+    expect(pencil().querySelector('path')?.getAttribute('d')).toContain('M12 4.5');
+
+    pencil().click();
+    expect(code().textContent).toBe('5566-7788');
+    expect(code().getAttribute('aria-hidden')).toBe('false');
+    expect(pencil().getAttribute('aria-label')).toBe(t('connect.room_password_hide'));
+    expect(pencil().getAttribute('aria-pressed')).toBe('true');
+    expect(mockedShowDialog).toHaveBeenCalledOnce();
+
+    pencil().click();
+    expect(code().textContent).toBe('••••-••••');
+    expect(code().getAttribute('aria-hidden')).toBe('true');
+
+    // Another room never shows this PIN.
+    setState('network.sessionCode', '654321');
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '654321',
+      role: 'coordinator',
+      coordinatorId: 'host-device',
+      epoch: 2,
+      snapshotRevision: 0,
+      capabilities: [],
+    } as RoomContext);
+    initConnect();
+    expect(pencil().hidden).toBe(true);
+  });
+
+  it('offers no eye when this tab does not know the PIN', () => {
+    openHostSettings(true);
+    // A room this tab never set a PIN for, e.g. after a reload.
+    setState('network.sessionCode', '777777');
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '777777',
+      role: 'coordinator',
+      coordinatorId: 'host-device',
+      epoch: 1,
+      snapshotRevision: 0,
+      capabilities: [],
+    } as RoomContext);
+    initConnect();
+    expect(document.getElementById('room-password-code')?.textContent).toBe('••••-••••');
+    expect(pencil().hidden).toBe(true);
   });
 
   it('treats a peer that is still connecting as nobody else present', async () => {
@@ -3503,8 +3550,8 @@ describe('Standard-room owner PIN controls', () => {
     },
   );
 
-  it('locks the toggle and pencil while the dialog and the commit are open', async () => {
-    openHostSettings(true);
+  it('locks the toggle and eye while the dialog and the commit are open', async () => {
+    openHostSettings(false);
     let answer: (value: DialogResult) => void = () => undefined;
     let commit: (value: 'applied') => void = () => undefined;
     mockedShowDialog.mockImplementationOnce(
@@ -3519,15 +3566,14 @@ describe('Standard-room owner PIN controls', () => {
           commit = resolve;
         }),
     );
-    pencil().click();
-    await vi.waitFor(() => expect(toggle().disabled).toBe(true));
-    expect(pencil().disabled).toBe(true);
     toggle().click();
-    pencil().click();
+    await vi.waitFor(() => expect(toggle().disabled).toBe(true));
+    toggle().click();
     expect(mockedShowDialog).toHaveBeenCalledOnce();
     answer({ action: 'ok', inputValue: '12345678' });
     await vi.waitFor(() => expect(mockedChangeStandardRoomPin).toHaveBeenCalledOnce());
     expect(toggle().disabled).toBe(true);
+    expect(pencil().disabled).toBe(true);
     commit('applied');
     await vi.waitFor(() => expect(toggle().disabled).toBe(false));
     expect(pencil().disabled).toBe(false);

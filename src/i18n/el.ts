@@ -294,9 +294,11 @@ const el: Record<I18nKey, string> = {
   'connect.kicked_message': 'Ο οικοδεσπότης σάς αφαίρεσε από τη συνεδρία.',
   'connect.copy_invite_link': 'Αντιγραφή πρόσκλησης',
   'connect.link_copied': 'Ο σύνδεσμος πρόσκλησης αντιγράφηκε',
-  'connect.room_password_title': 'Απαίτηση κωδικού πρόσβασης για είσοδο',
+  'connect.room_password_title': 'Κωδικός πρόσβασης δωματίου',
   'connect.room_password_toggle_aria': 'Εναλλαγή απαίτησης κωδικού πρόσβασης δωματίου',
   'connect.room_password_on': 'Ο κωδικός εφαρμόστηκε',
+  'connect.room_password_show': 'Εμφάνιση κωδικού πρόσβασης',
+  'connect.room_password_hide': 'Απόκρυψη κωδικού πρόσβασης',
   'connect.room_password_invalid': 'Εισαγάγετε 8 ψηφία',
   'connect.room_password_disabled': 'Τα μέλη δεν χρειάζονται πλέον τον κωδικό πρόσβασης δωματίου',
   'connect.room_password_apply_pending':

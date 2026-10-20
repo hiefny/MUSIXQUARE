@@ -298,9 +298,11 @@ const fil: Record<I18nKey, string> = {
   'connect.kicked_message': 'Inalis ka ng host sa session.',
   'connect.copy_invite_link': 'Kopyahin ang link',
   'connect.link_copied': 'Nakopya ang link ng imbitasyon',
-  'connect.room_password_title': 'Kailangan ng password para sumali',
+  'connect.room_password_title': 'Password ng kuwarto',
   'connect.room_password_toggle_aria': 'I-on o i-off ang password ng kuwarto',
   'connect.room_password_on': 'Nailapat ang password',
+  'connect.room_password_show': 'Ipakita ang password',
+  'connect.room_password_hide': 'Itago ang password',
   'connect.room_password_invalid': 'Maglagay ng 8 digit',
   'connect.room_password_disabled': 'Hindi na kailangan ng mga kalahok ang password ng kuwarto',
   'connect.room_password_apply_pending':

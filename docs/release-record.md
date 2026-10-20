@@ -818,6 +818,12 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       카운터는 Durable Object 메모리에만 있어 운영에서 직접 볼 수 없고, 주소별 키
       파생(IPv4, IPv6 /64)은 front door 단위 테스트로만 검증했다.
       [상세](design/pro-room-admission-protection-2026-10-11.md)
+- [ ] Standard HTTPS signaling 브리지 열기의 일시 5xx: 2026-10-16 8.10.25 배포에서 503 한 번, 2026-10-20 8.11.28
+      배포에서 502 두 번(방장·게스트 열기) smoke가 실패했고, 자동 복구나 재시도 뒤 통과했다. 원인은 미확정이다.
+      8.11.29가 배포되면 smoke 실패 줄에 역할·HTTP 상태·오류 코드·경과 ms·Ray ID가, App Worker 로그에
+      `standard_signaling_bridge` 진단(operation·reason·브리지 객체 코드·시간)이 남는다. 다음 실패 때 둘을 Ray ID로
+      맞춰 어느 Worker의 어떤 실패인지 좁힌다. 5초 제한과 smoke 재시도 변경은 오너가 정한다.
+      [진단·읽는 법](design/standard-signaling-bridge-diagnostics-2026-10-20.md)
 
 ### 후속 작업과 유지 결정
 

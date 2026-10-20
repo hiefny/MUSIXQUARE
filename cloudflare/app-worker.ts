@@ -353,7 +353,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.11.28';
+const ADMIN_ASSET_VERSION = '8.11.29';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -13021,13 +13021,29 @@ function standardSignalingBridgeHeaders(corsHeaders: HeadersInit): Record<string
   return headers;
 }
 
+type StandardSignalingBridgeOperation = 'open' | 'send' | 'poll' | 'close';
+// Without a usable response: the service-binding reasons (and `unknown`, which
+// fetchServiceBindingResponse never leaves unreported). With one: the rest.
+type StandardSignalingBridgeFailureReason =
+  ServiceBindingFailureReason | 'unknown' | 'invalid_utf8' | 'content_type' | 'upstream_status';
+
+interface StandardSignalingBridgeCall {
+  readonly operation: StandardSignalingBridgeOperation;
+  readonly upstream: { response: Response; bytes: Uint8Array } | null;
+  readonly failure: { reason: ServiceBindingFailureReason; error: unknown } | null;
+  readonly elapsedMs: number;
+  readonly timeoutMs: number;
+}
+
 async function callStandardSignalingBridge(
   stub: AppDurableObjectStub,
-  operation: 'open' | 'send' | 'poll' | 'close',
+  operation: StandardSignalingBridgeOperation,
   body: JsonObject,
   timeoutMs: number,
-): Promise<{ response: Response; bytes: Uint8Array } | null> {
-  return fetchServiceBindingResponse(
+): Promise<StandardSignalingBridgeCall> {
+  let failure: StandardSignalingBridgeCall['failure'] = null;
+  const startedAt = Date.now();
+  const upstream = await fetchServiceBindingResponse(
     (request) => stub.fetch(request),
     new Request(
       `https://signaling.internal${STANDARD_SIGNALING_BRIDGE_INTERNAL_PREFIX}/${operation}`,
@@ -13042,20 +13058,136 @@ async function callStandardSignalingBridge(
     ),
     STANDARD_SIGNALING_BRIDGE_BODY_MAX_BYTES,
     timeoutMs,
+    (reason, error) => {
+      failure ??= { reason, error };
+    },
   );
+  return {
+    operation,
+    upstream,
+    failure,
+    elapsedMs: Math.max(0, Date.now() - startedAt),
+    timeoutMs,
+  };
+}
+
+// 5xx codes of the signaling bridge object. A diagnostic copies only these
+// exact values, so upstream response text can never become log text.
+const STANDARD_SIGNALING_BRIDGE_UPSTREAM_ERROR_CODES = new Set([
+  'STANDARD_HTTP_BRIDGE_UNAVAILABLE',
+  'STANDARD_HTTP_BRIDGE_UPSTREAM_UNAVAILABLE',
+  'STANDARD_HTTP_BRIDGE_UPSTREAM_REJECTED',
+  'STANDARD_HTTP_BRIDGE_SEND_FAILED',
+]);
+const STANDARD_SIGNALING_BRIDGE_ERROR_TYPES = new Set([
+  'Error',
+  'TypeError',
+  'RangeError',
+  'DOMException',
+  'AbortError',
+  'TimeoutError',
+  'ResponseBodyTooLargeError',
+]);
+
+function standardSignalingBridgeProperty(value: unknown, key: string): unknown {
+  try {
+    return typeof value === 'object' && value !== null ? Reflect.get(value, key) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function standardSignalingBridgeMediaType(response: Response): string {
+  const value = response.headers.get('Content-Type');
+  if (value === null) return 'none';
+  const mediaType = (value.split(';', 1)[0] || '').trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$/.test(mediaType)
+    ? mediaType
+    : 'invalid';
+}
+
+/**
+ * One credential-free record per failed bridge response. Room and peer IDs,
+ * session data, tokens, IPs, URLs and upstream or exception text stay out: only
+ * fixed categories, allowlisted codes, durations and the request's Ray ID.
+ */
+function reportStandardSignalingBridgeFailure(
+  request: Request,
+  call: StandardSignalingBridgeCall,
+  reason: StandardSignalingBridgeFailureReason,
+  status: number,
+): void {
+  try {
+    const response = call.upstream?.response ?? null;
+    let upstreamError: string | null = null;
+    if (call.upstream && reason === 'upstream_status') {
+      const payload = parseServiceJsonBytes(call.upstream.bytes);
+      const code = isJsonObject(payload) ? payload.error : undefined;
+      upstreamError =
+        typeof code === 'string' && STANDARD_SIGNALING_BRIDGE_UPSTREAM_ERROR_CODES.has(code)
+          ? code
+          : 'unknown';
+    }
+    const error = call.failure?.error;
+    const errorName = standardSignalingBridgeProperty(error, 'name');
+    const rayId = request.headers.get('CF-Ray') || '';
+    console.error({
+      diagnostic: 'standard_signaling_bridge',
+      schema: 1,
+      operation: call.operation,
+      reason,
+      status,
+      upstreamStatus: response?.status ?? null,
+      upstreamContentType: response ? standardSignalingBridgeMediaType(response) : null,
+      upstreamError,
+      errorType:
+        error === undefined
+          ? null
+          : typeof errorName === 'string' && STANDARD_SIGNALING_BRIDGE_ERROR_TYPES.has(errorName)
+            ? errorName
+            : 'unknown',
+      retryable: standardSignalingBridgeProperty(error, 'retryable') === true,
+      overloaded: standardSignalingBridgeProperty(error, 'overloaded') === true,
+      remote: standardSignalingBridgeProperty(error, 'remote') === true,
+      elapsedMs: call.elapsedMs,
+      timeoutMs: call.timeoutMs,
+      rayId: /^[0-9a-f]{16}(?:-[A-Z]{3,4})?$/.test(rayId) ? rayId : null,
+    });
+  } catch {
+    // Diagnostics must never replace the bounded bridge response.
+  }
 }
 
 function standardSignalingBridgeUpstreamResponse(
-  upstream: { response: Response; bytes: Uint8Array } | null,
+  request: Request,
+  call: StandardSignalingBridgeCall,
   corsHeaders: HeadersInit,
 ): Response {
   const headers = standardSignalingBridgeHeaders(corsHeaders);
+  const upstream = call.upstream;
   if (!upstream || !isValidUtf8(upstream.bytes)) {
+    reportStandardSignalingBridgeFailure(
+      request,
+      call,
+      upstream ? 'invalid_utf8' : (call.failure?.reason ?? 'unknown'),
+      502,
+    );
     return json({ error: 'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE' }, 502, headers);
   }
   const contentType = upstream.response.headers.get('Content-Type') || '';
   if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    reportStandardSignalingBridgeFailure(request, call, 'content_type', 502);
     return json({ error: 'STANDARD_SIGNALING_BRIDGE_INVALID_RESPONSE' }, 502, headers);
+  }
+  // The bridge object's own 5xx JSON (for example a refused room socket) is
+  // passed through unchanged; record which one the client received.
+  if (upstream.response.status >= 500) {
+    reportStandardSignalingBridgeFailure(
+      request,
+      call,
+      'upstream_status',
+      upstream.response.status,
+    );
   }
   return withSecurityHeaders(
     new Response(upstream.bytes.byteLength > 0 ? new Uint8Array(upstream.bytes).buffer : null, {
@@ -13124,7 +13256,7 @@ async function handleStandardSignalingBridge(request: Request, env: AppEnv, url:
       },
       env,
     );
-    const upstream = await callStandardSignalingBridge(
+    const call = await callStandardSignalingBridge(
       standardSignalingBridgeStub(namespace, sessionId),
       'open',
       {
@@ -13137,9 +13269,9 @@ async function handleStandardSignalingBridge(request: Request, env: AppEnv, url:
       },
       5_000,
     );
-    const payload = upstream ? parseServiceJsonBytes(upstream.bytes) : null;
-    if (!upstream?.response.ok || !isJsonObject(payload) || payload.ok !== true) {
-      return standardSignalingBridgeUpstreamResponse(upstream, trust.headers);
+    const payload = call.upstream ? parseServiceJsonBytes(call.upstream.bytes) : null;
+    if (!call.upstream?.response.ok || !isJsonObject(payload) || payload.ok !== true) {
+      return standardSignalingBridgeUpstreamResponse(request, call, trust.headers);
     }
     return json({ sessionToken: capability.token }, 200, headers);
   }
@@ -13180,7 +13312,7 @@ async function handleStandardSignalingBridge(request: Request, env: AppEnv, url:
     if (!('value' in parsed)) return jsonBodyError(parsed, headers);
     clientBody = parsed.value;
   }
-  const upstream = await callStandardSignalingBridge(
+  const call = await callStandardSignalingBridge(
     standardSignalingBridgeStub(namespace, capability.sessionId),
     operation,
     {
@@ -13194,7 +13326,7 @@ async function handleStandardSignalingBridge(request: Request, env: AppEnv, url:
     },
     operation === 'poll' ? 18_000 : 5_000,
   );
-  return standardSignalingBridgeUpstreamResponse(upstream, trust.headers);
+  return standardSignalingBridgeUpstreamResponse(request, call, trust.headers);
 }
 
 function getRealtimeEnv(env: AppEnv) {
@@ -13653,20 +13785,24 @@ export async function fetchAndConsumeWithTimeout<T>(
   }
 }
 
+type ServiceBindingFailureReason = 'response_timeout' | 'body_timeout' | 'fetch' | 'body';
+
 async function fetchServiceBindingResponse(
   fetcher: typeof fetch,
   request: Request,
   maxBytes: number,
   timeoutMs: number = PRO_ROOM_SERVICE_RESPONSE_TIMEOUT_MS,
-  onFailure?: (reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body') => void,
+  // `error` is the rejection behind `fetch` or `body`. It is for summarized
+  // diagnostics only and is never part of the bounded response.
+  onFailure?: (reason: ServiceBindingFailureReason, error?: unknown) => void,
 ) {
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let timedOut = false;
   let readingBody = false;
-  const reportFailure = (reason: 'response_timeout' | 'body_timeout' | 'fetch' | 'body') => {
+  const reportFailure = (reason: ServiceBindingFailureReason, error?: unknown) => {
     try {
-      onFailure?.(reason);
+      onFailure?.(reason, error);
     } catch {
       /* Diagnostics cannot change the bounded response. */
     }
@@ -13684,8 +13820,8 @@ async function fetchServiceBindingResponse(
     })
     // A service binding may reject only after the timeout race has completed.
     // Normalize that late settlement so cleanup never becomes an unhandled task.
-    .catch(() => {
-      if (!timedOut) reportFailure(readingBody ? 'body' : 'fetch');
+    .catch((error: unknown) => {
+      if (!timedOut) reportFailure(readingBody ? 'body' : 'fetch', error);
       return null;
     });
   const timeout = new Promise<null>((resolve) => {

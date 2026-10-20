@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   main,
@@ -127,8 +127,11 @@ describe('live Standard HTTPS signaling smoke', () => {
 
       expect(failure).toBeInstanceOf(Error);
       const message = (failure as Error).message;
-      expect(message).toBe(
-        `HTTP signaling bridge send failed (HTTP 503; cseq=1; frame=${frameType}; code=${code})`,
+      expect(message).toMatch(
+        new RegExp(
+          `^HTTP signaling bridge send failed \\(role=guest; HTTP 503; cseq=1; ` +
+            `frame=${frameType}; code=${code}; elapsedMs=\\d+; ray=none\\)$`,
+        ),
       );
       expect(message.length).toBeLessThan(200);
       for (const secret of ['private-', '4821', 'Bearer ', 'A'.repeat(100)]) {
@@ -137,6 +140,282 @@ describe('live Standard HTTPS signaling smoke', () => {
       expect(fetchMock).toHaveBeenCalledTimes(2);
     },
   );
+
+  describe('bridge failure lines', () => {
+    const RAY_ID = '8d1f2c3b4a5e6f70-ORD';
+    const SECRETS = [
+      'private-capability',
+      'private-bridge-session',
+      'http-host-private',
+      '654321',
+      'private-detail',
+    ];
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // Resolve after the given fake wall time, as a slow production edge would.
+    function respondAfter(elapsedMs: number, response: () => Response) {
+      return vi.fn(async () => {
+        vi.advanceTimersByTime(elapsedMs);
+        return response();
+      });
+    }
+
+    function openHost() {
+      return StandardHttpBridgeSmokeClient.open('private-capability', {
+        roomId: '654321',
+        role: 'host',
+        peerId: 'http-host-private',
+      });
+    }
+
+    function expectNoSecrets(message: string) {
+      for (const secret of SECRETS) expect(message).not.toContain(secret);
+    }
+
+    it.each([
+      ['STANDARD_SIGNALING_BRIDGE_UNAVAILABLE', 502, 'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE'],
+      [
+        'STANDARD_SIGNALING_BRIDGE_INVALID_RESPONSE',
+        502,
+        'STANDARD_SIGNALING_BRIDGE_INVALID_RESPONSE',
+      ],
+      ['STANDARD_HTTP_BRIDGE_UPSTREAM_REJECTED', 502, 'STANDARD_HTTP_BRIDGE_UPSTREAM_REJECTED'],
+      ['RATE_LIMIT_UNAVAILABLE', 503, 'RATE_LIMIT_UNAVAILABLE'],
+      ['private-detail room 654321 peer http-host-private', 502, 'unknown'],
+      [undefined, 502, 'none'],
+    ])('names the open status, code %s, elapsed time and Ray ID', async (error, status, code) => {
+      vi.stubGlobal(
+        'fetch',
+        respondAfter(5_012, () =>
+          Response.json(
+            error === undefined ? { ok: false } : { error, message: 'private-detail' },
+            {
+              status,
+              headers: { 'cf-ray': RAY_ID },
+            },
+          ),
+        ),
+      );
+
+      const failure: unknown = await openHost().catch((caught: unknown) => caught);
+
+      expect(failure).toBeInstanceOf(Error);
+      const message = (failure as Error).message;
+      expect(message).toBe(
+        `HTTP signaling bridge open failed (role=host; HTTP ${status}; code=${code}; ` +
+          `elapsedMs=5012; ray=${RAY_ID})`,
+      );
+      expectNoSecrets(message);
+    });
+
+    it.each([
+      [
+        'an HTML edge error page',
+        () =>
+          new Response('<html>private-detail</html>', {
+            status: 502,
+            headers: { 'Content-Type': 'text/html', 'cf-ray': RAY_ID },
+          }),
+        `HTTP 502; code=non-json; elapsedMs=40; ray=${RAY_ID}`,
+      ],
+      [
+        'an oversized body',
+        () =>
+          new Response(JSON.stringify({ error: 'x'.repeat(200 * 1024) }), {
+            status: 502,
+            headers: { 'cf-ray': 'private-detail' },
+          }),
+        'HTTP 502; code=oversized; elapsedMs=40; ray=none',
+      ],
+      [
+        'a body that fails mid-read',
+        () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.error(new Error('private-detail'));
+              },
+            }),
+            { status: 502 },
+          ),
+        'HTTP 502; code=body-error; elapsedMs=40; ray=none',
+      ],
+    ])('classifies %s without its contents', async (_label, response, expected) => {
+      vi.stubGlobal('fetch', respondAfter(40, response));
+
+      const failure: unknown = await openHost().catch((caught: unknown) => caught);
+
+      const message = (failure as Error).message;
+      expect(message).toBe(`HTTP signaling bridge open failed (role=host; ${expected})`);
+      expectNoSecrets(message);
+    });
+
+    it('reports a request that never reached HTTP as a network error', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          vi.advanceTimersByTime(7);
+          throw new TypeError('private-detail fetch failed');
+        }),
+      );
+
+      const failure: unknown = await openHost().catch((caught: unknown) => caught);
+
+      expect((failure as Error).message).toBe(
+        'HTTP signaling bridge open failed (role=host; HTTP none; code=network-error; ' +
+          'elapsedMs=7; ray=none)',
+      );
+    });
+
+    it('reports the 20 s client deadline as a timeout', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          (_input: unknown, init?: RequestInit) =>
+            new Promise<Response>((_resolve, reject) => {
+              init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+            }),
+        ),
+      );
+
+      const opening = openHost().catch((caught: unknown) => caught);
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(((await opening) as Error).message).toBe(
+        'HTTP signaling bridge open failed (role=host; HTTP none; code=timeout; ' +
+          'elapsedMs=20000; ray=none)',
+      );
+    });
+
+    it('names the role and code of a failed poll and prints a failed close without throwing', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockImplementationOnce(async () =>
+            Response.json({ sessionToken: 'private-bridge-session' }),
+          )
+          .mockImplementationOnce(
+            respondAfter(18_003, () =>
+              Response.json(
+                { error: 'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE' },
+                { status: 502, headers: { 'cf-ray': RAY_ID } },
+              ),
+            ),
+          )
+          .mockImplementationOnce(async () =>
+            Response.json({ error: 'STANDARD_HTTP_BRIDGE_AUTHORITY_MISMATCH' }, { status: 409 }),
+          ),
+      );
+      const client = await openHost();
+
+      const failure: unknown = await client.poll(1_500).catch((caught: unknown) => caught);
+      await expect(client.close()).resolves.toBeUndefined();
+
+      expect((failure as Error).message).toBe(
+        'HTTP signaling bridge poll failed (role=host; HTTP 502; ' +
+          `code=STANDARD_SIGNALING_BRIDGE_UNAVAILABLE; elapsedMs=18003; ray=${RAY_ID})`,
+      );
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        'HTTP signaling bridge close failed (role=host; HTTP 409; ' +
+          'code=STANDARD_HTTP_BRIDGE_AUTHORITY_MISMATCH; elapsedMs=0; ray=none)',
+      );
+      expectNoSecrets(JSON.stringify([(failure as Error).message, warn.mock.calls]));
+    });
+  });
+
+  describe('close acknowledgment', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it.each([
+      [
+        'a 200 whose body is not JSON',
+        () => new Response('private-detail', { status: 200 }),
+        'HTTP 200; code=non-json; elapsedMs=0',
+      ],
+      [
+        'a 200 without the ok acknowledgment',
+        () => Response.json({ ok: false, detail: 'private-detail' }),
+        'HTTP 200; code=none; elapsedMs=0',
+      ],
+      [
+        'a 200 whose body stalls past the client deadline',
+        (init?: RequestInit) =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                init?.signal?.addEventListener('abort', () =>
+                  controller.error(init.signal?.reason),
+                );
+              },
+            }),
+            { status: 200 },
+          ),
+        'HTTP 200; code=timeout; elapsedMs=20000',
+      ],
+    ])('prints a close answered by %s', async (_label, closeResponse, expected) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockImplementationOnce(async () =>
+            Response.json({ sessionToken: 'private-bridge-session' }),
+          )
+          .mockImplementationOnce(async (_input: unknown, init?: RequestInit) =>
+            closeResponse(init),
+          ),
+      );
+      const client = await StandardHttpBridgeSmokeClient.open('private-capability', {
+        roomId: '654321',
+        role: 'guest',
+        peerId: 'http-guest-private',
+      });
+
+      const closing = client.close();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await expect(closing).resolves.toBeUndefined();
+
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        `HTTP signaling bridge close failed (role=guest; ${expected}; ray=none)`,
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+    });
+
+    it('stays quiet for the expected acknowledgment', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(Response.json({ sessionToken: 'private-bridge-session' }))
+          .mockResolvedValueOnce(Response.json({ ok: true })),
+      );
+      const client = await StandardHttpBridgeSmokeClient.open('private-capability', {
+        roomId: '654321',
+        role: 'host',
+        peerId: 'http-host-private',
+      });
+
+      await client.close();
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
 
   it('rejects gaps in the server event sequence', async () => {
     vi.stubGlobal(
@@ -264,5 +543,9 @@ describe('live Standard HTTPS signaling smoke', () => {
     );
     expect(output).toHaveBeenCalledOnce();
     expect(output.mock.calls[0]?.[0]).not.toContain('session-');
+    expect(JSON.parse(String(output.mock.calls[0]?.[0]))).toMatchObject({
+      ok: true,
+      bridgeOpenMs: { host: expect.any(Number), guest: expect.any(Number) },
+    });
   });
 });

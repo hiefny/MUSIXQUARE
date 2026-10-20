@@ -50,7 +50,8 @@ import { createReloadRecoveryLatch } from './core/reload-recovery-latch.ts';
 import { initAudio, isAudioReady } from './audio/engine.ts';
 import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
-import { isPlaybackModeYouTube, isPlaybackPlayingFile } from './player/ownership.ts';
+import { isPlaybackPlayingFile } from './player/ownership.ts';
+import { runBackgroundReturnSync } from './player/background-return-sync.ts';
 import { inspectBackgroundFileOutput } from './audio/output-health.ts';
 import {
   armForegroundAudioContextClockHealthCheck,
@@ -116,7 +117,7 @@ import {
 
 // ── YouTube ──
 import { initYouTube } from './youtube/player.ts';
-import { guestRendezvousSync, initYouTubeSync } from './youtube/sync.ts';
+import { initYouTubeSync } from './youtube/sync.ts';
 
 // ── UI ──
 import {
@@ -729,14 +730,20 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
   return operation;
 }
 
-async function resumeAudioForBackgroundRecovery(): Promise<void> {
-  if (!isPlaybackPlayingFile()) return;
+/**
+ * Restore this device's local-file output after a background return.
+ * Resolves true when audio recovery owns, or has already published, the
+ * participant-local file alignment for this return, so the background-return
+ * Sync must not start a competing one.
+ */
+async function resumeAudioForBackgroundRecovery(): Promise<boolean> {
+  if (!isPlaybackPlayingFile()) return false;
 
   // The app guard is registered before the lazily-created AudioContext
   // binding. Yield one task so every visibility listener can publish its
   // exact incident before the inspector captures one-shot recovery tokens.
   await delay(0);
-  if (!isPlaybackPlayingFile()) return;
+  if (!isPlaybackPlayingFile()) return false;
 
   const output = await inspectBackgroundFileOutput();
   if (output.status === 'stale') {
@@ -746,7 +753,10 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
     if (getPendingAudioContextRecoveryAttemptForHealth()) {
       longBackgroundWarning.yieldToAudioRecovery();
     }
-    return;
+    // A superseded sample belongs to that owner, a parked foreground restart,
+    // or a newer playback identity. Only an early, inconclusive clock sample
+    // leaves a running output whose alignment is still unowned.
+    return output.reason !== 'inconclusive';
   }
   if (output.status === 'needs-gesture') {
     const reason = output.reason === 'clock-stalled' ? 'clock-stalled' : 'context-not-running';
@@ -757,32 +767,37 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
       source: 'background-resume',
       queueItemId,
     });
+    // The dialog's gesture publishes the rejoin that aligns this output.
     await requestAudioOutputRecovery(reason, 'background-resume', queueItemId);
-    return;
+    return true;
   }
-  if (output.status === 'not-applicable') return;
+  if (output.status === 'not-applicable') return false;
 
   // applySettingsAsync is intentionally synchronous; do not insert a
   // microtask gap between the inspector's exact source claim and rejoin.
   if (isAudioReady()) applySettingsAsync();
-  if (output.isCurrent?.() !== true) return;
+  if (output.isCurrent?.() !== true) return true;
   const lockRecovery = recoverStalePlayLock('background-resume', Date.now(), {
     preservePlaybackState: true,
   });
   if (lockRecovery.recovered) {
     log.warn('[Audio] Foreground recovery discarded a stalled play owner', lockRecovery.snapshot);
   }
-  if (output.rejoinEmitted || (!output.rejoinRequired && !lockRecovery.recovered)) return;
+  if (output.rejoinEmitted) return true;
+  if (!output.rejoinRequired && !lockRecovery.recovered) return false;
   const rejoinIdentityCurrent = lockRecovery.recovered
     ? output.isPlaybackCurrent?.() === true
     : output.isCurrent?.() === true;
-  if (!rejoinIdentityCurrent) return;
+  if (!rejoinIdentityCurrent) return true;
+  // The rejoin router performs the room's file alignment (PRO
+  // reconciliation, guest re-sync, or a host's local rebuild).
   bus.emit('playback:local-output-rejoin', {
     reason: 'background-resume',
     mode: 'file',
     isCurrent: () =>
       output.isPlaybackCurrent?.() === true && isPlaybackPlayingFile() && !isLocalFilePaused(),
   });
+  return true;
 }
 
 async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
@@ -799,33 +814,14 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
     onAudioRecoveryError: (error) => {
       log.warn('[App] Background audio recovery failed', error);
     },
-    shouldRecoverRoom: (peerRecovery) => {
-      // PRO reconciliation belongs exclusively to the server-authority
-      // runtime. Its endpoints intentionally have no hostConn, so falling
-      // through would broadcast a stale legacy-host snapshot.
-      if (getRoomContext().kind === 'pro') return false;
-      // File recovery is participant-local and room-aware. It already chose
-      // host rebuild, guest authoritative sync, or PRO reconciliation above.
-      if (isPlaybackPlayingFile()) return false;
-
-      // A foreground probe owns a possibly stale guest connection. A confirmed
-      // survivor resumes on its heartbeat; a stale connection follows the
-      // normal HOST_DISCONNECTED path.
-      return peerRecovery.status === 'not-applicable';
-    },
-    recoverRoom: () => {
-      const hostConn = getState('network.hostConn');
-
-      if (isPlaybackModeYouTube()) {
-        if (hostConn?.open) {
-          guestRendezvousSync({ silent: true });
-        } else {
-          // Mobile WebKit suspends interval timers while hidden. Publish a
-          // fresh host snapshot instead of waiting for the next heartbeat.
-          bus.emit('youtube:broadcast-sync');
-        }
-        return;
-      }
+    // Every return then performs the Sync button's room alignment. A recovery
+    // dialog that is still open (for example from an earlier failed PLAY)
+    // owns the file output as much as one this return opened.
+    syncRoom: ({ peer, audio }) => {
+      runBackgroundReturnSync({
+        peerRecovery: peer,
+        fileOutputOwned: audio === true || audioRecoveryPrompt !== null,
+      });
     },
   });
 }

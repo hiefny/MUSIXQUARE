@@ -15,6 +15,7 @@ const ms: Record<I18nKey, string> = {
   // ─── Umum ────────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Batal',
+  'common.delete': 'Padam',
   'common.close': 'Tutup',
   'common.skip_to_content': 'Langkau ke kandungan',
   'common.reset': 'Set semula',
@@ -45,6 +46,7 @@ const ms: Record<I18nKey, string> = {
   'common.off': 'Mati',
 
   'screensaver.back': 'Kembali ke MUSIXQUARE',
+  'screensaver.turn_on': 'Hidupkan penyelamat skrin',
 
   // ─── Akaun ───────────────────────────────────────────────────────
   'account.login_title': 'Log masuk',
@@ -160,6 +162,7 @@ const ms: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Nyahpilih semua',
   'playlist.select_all': 'Pilih semua',
   'playlist.delete_selected': 'Padam {{count}} trek yang dipilih',
+  'playlist.selected_count': '{{count}} dipilih',
   'playlist.video_fallback': 'Memuatkan...',
   'playlist.track_fallback': 'Trek {{idx}}',
   'playlist.deferred_load_hint': 'Mainkan untuk memuatkan senarai penuh trek',
@@ -554,6 +557,7 @@ const ms: Record<I18nKey, string> = {
     'Sebuah peranti gagal menyahkod trek ini\nMain balik diteruskan untuk peranti lain',
   'toast.invite_code_info': '{{count}} disambungkan | Kod {{code}}',
   'toast.added_tracks': '{{count}} trek ditambah',
+  'toast.deleted_tracks': '{{count}} trek dipadam',
   'toast.preparing': 'Menyediakan: {{name}}',
   'toast.file_save_error': 'Ralat menyimpan fail: {{name}}',
   'toast.decoding_audio': 'Menyahkod audio...',
@@ -589,6 +593,16 @@ const ms: Record<I18nKey, string> = {
   'toast.member_management_required': 'Kebenaran untuk mengeluarkan ahli diperlukan',
   'toast.chat_notice_required': 'Kebenaran untuk menyiarkan notis sembang diperlukan',
   'toast.room_owner_required': 'Hanya pemilik bilik boleh mengubah tetapan ini',
+  'toast.media_management_checking':
+    'Menyemak kebenaran mengurus media\nSila cuba lagi sebentar nanti',
+  'toast.playback_control_checking':
+    'Menyemak kebenaran mengawal main balik\nSila cuba lagi sebentar nanti',
+  'toast.member_management_checking':
+    'Menyemak kebenaran untuk mengeluarkan ahli\nSila cuba lagi sebentar nanti',
+  'toast.chat_notice_checking':
+    'Menyemak kebenaran untuk menyiarkan notis sembang\nSila cuba lagi sebentar nanti',
+  'toast.admin_permission_checking': 'Menyemak kebenaran pentadbir\nSila cuba lagi sebentar nanti',
+  'toast.room_owner_checking': 'Menyemak kebenaran pemilik bilik\nSila cuba lagi sebentar nanti',
   'toast.system_audio_owner_required':
     'Anda hanya boleh berkongsi audio daripada tab yang membuka bilik',
   'toast.host_setting_required': 'Hanya hos boleh mengubah tetapan ini',

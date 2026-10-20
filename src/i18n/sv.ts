@@ -16,6 +16,7 @@ const sv: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Avbryt',
+  'common.delete': 'Ta bort',
   'common.close': 'Stäng',
   'common.skip_to_content': 'Hoppa till innehåll',
   'common.reset': 'Återställ',
@@ -46,6 +47,7 @@ const sv: Record<I18nKey, string> = {
   'common.off': 'Av',
 
   'screensaver.back': 'Tillbaka till MUSIXQUARE',
+  'screensaver.turn_on': 'Slå på skärmsläckaren',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Logga in',
@@ -159,6 +161,7 @@ const sv: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Avmarkera alla',
   'playlist.select_all': 'Markera alla',
   'playlist.delete_selected': 'Radera {{count}} markerade spår',
+  'playlist.selected_count': '{{count}} valda',
   'playlist.video_fallback': 'Läser in…',
   'playlist.track_fallback': 'Spår {{idx}}',
   'playlist.deferred_load_hint': 'Spela upp för att läsa in hela spårlistan',
@@ -550,6 +553,7 @@ const sv: Record<I18nKey, string> = {
     'En enhet kunde inte avkoda spåret\nUppspelningen fortsätter för alla andra',
   'toast.invite_code_info': '{{count}} anslutna | Kod {{code}}',
   'toast.added_tracks': '{{count}} spår har lagts till',
+  'toast.deleted_tracks': '{{count}} spår har raderats',
   'toast.preparing': 'Förbereder: {{name}}',
   'toast.file_save_error': 'Det gick inte att spara filen: {{name}}',
   'toast.decoding_audio': 'Avkodar ljud…',
@@ -583,6 +587,17 @@ const sv: Record<I18nKey, string> = {
   'toast.member_management_required': 'Behörighet att ta bort medlemmar krävs',
   'toast.chat_notice_required': 'Behörighet att publicera chattanslag krävs',
   'toast.room_owner_required': 'Bara rumsägaren kan ändra detta',
+  'toast.media_management_checking':
+    'Kontrollerar behörighet att hantera media\nFörsök igen om en stund',
+  'toast.playback_control_checking':
+    'Kontrollerar behörighet att styra uppspelningen\nFörsök igen om en stund',
+  'toast.member_management_checking':
+    'Kontrollerar behörighet att ta bort medlemmar\nFörsök igen om en stund',
+  'toast.chat_notice_checking':
+    'Kontrollerar behörighet att publicera chattanslag\nFörsök igen om en stund',
+  'toast.admin_permission_checking':
+    'Kontrollerar administratörsbehörighet\nFörsök igen om en stund',
+  'toast.room_owner_checking': 'Kontrollerar rumsägarens behörighet\nFörsök igen om en stund',
   'toast.system_audio_owner_required': 'Du kan bara dela ljud från fliken som öppnade rummet',
   'toast.host_setting_required': 'Bara värden kan ändra den här inställningen',
   'toast.no_tracks': 'Det finns inga spår att spela',
@@ -929,6 +944,7 @@ const sv: Record<I18nKey, string> = {
 export default sv;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} vald' },
   'playlist.delete_selected': {
     one: 'Radera {{count}} markerat spår',
   },

@@ -1523,6 +1523,14 @@ export function initPlayerControls(): void {
   $on('btn-demo-media', 'click', handleDemoMediaClick);
   $on('btn-demo-media-mobile', 'click', handleDemoMediaClick);
 
+  // Screensaver button (Help tab — desktop + mobile). The shared opener requests
+  // fullscreen synchronously, so it must run inside this click's activation.
+  const handleScreensaverClick = (): void => {
+    bus.emit('ui:open-screensaver');
+  };
+  $on('btn-screensaver', 'click', handleScreensaverClick);
+  $on('btn-screensaver-mobile', 'click', handleScreensaverClick);
+
   // YouTube popup (contenteditable)
   const ytInput = getUiElement('youtube-url-input');
   if (ytInput) {

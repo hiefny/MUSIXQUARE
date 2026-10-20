@@ -126,6 +126,14 @@ export function assertLegacyCss(css: string): void {
   }
 }
 
+// iOS Safari honours only the prefixed property. Without it, long-pressing a
+// playlist row selects its text before the reorder drag starts.
+export function assertTouchSelectionCss(css: string): void {
+  if (!/-webkit-user-select:\s*none/u.test(css)) {
+    throw new Error('Built CSS lost -webkit-user-select: none, which iOS Safari needs.');
+  }
+}
+
 const UNSUPPORTED_RUNTIME_CALLS = [
   '.replaceAll(',
   '.at(',
@@ -211,6 +219,7 @@ async function main(): Promise<void> {
   await assertLegacyJavaScript(mainPath);
   await assertNoScriptFallback();
   assertLegacyCss(css);
+  assertTouchSelectionCss(css);
   process.stdout.write(
     `[legacy-tv-build] Chromium 79 static compatibility checks passed: ${path.basename(mainPath)}, ${path.basename(cssPath)}\n`,
   );

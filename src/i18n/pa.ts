@@ -16,6 +16,7 @@ const pa: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ਠੀਕ ਹੈ',
   'common.cancel': 'ਰੱਦ ਕਰੋ',
+  'common.delete': 'ਮਿਟਾਓ',
   'common.close': 'ਬੰਦ ਕਰੋ',
   'common.skip_to_content': "ਸਿੱਧਾ ਸਮੱਗਰੀ 'ਤੇ ਜਾਓ",
   'common.reset': 'ਮੁੜ ਸੈੱਟ ਕਰੋ',
@@ -46,6 +47,7 @@ const pa: Record<I18nKey, string> = {
   'common.off': 'ਬੰਦ',
 
   'screensaver.back': 'MUSIXQUARE ’ਤੇ ਵਾਪਸ ਜਾਓ',
+  'screensaver.turn_on': 'ਸਕ੍ਰੀਨਸੇਵਰ ਚਾਲੂ ਕਰੋ',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ਸਾਈਨ ਇਨ ਕਰੋ',
@@ -160,6 +162,7 @@ const pa: Record<I18nKey, string> = {
   'playlist.deselect_all': 'ਸਾਰੀਆਂ ਚੋਣਾਂ ਹਟਾਓ',
   'playlist.select_all': 'ਸਭ ਚੁਣੋ',
   'playlist.delete_selected': 'ਚੁਣੇ ਹੋਏ {{count}} ਟਰੈਕ ਮਿਟਾਓ',
+  'playlist.selected_count': '{{count}} ਚੁਣੇ ਹੋਏ',
   'playlist.video_fallback': 'ਲੋਡ ਹੋ ਰਿਹਾ ਹੈ...',
   'playlist.track_fallback': 'ਟਰੈਕ {{idx}}',
   'playlist.deferred_load_hint': 'ਟਰੈਕਾਂ ਦੀ ਪੂਰੀ ਸੂਚੀ ਲੋਡ ਕਰਨ ਲਈ ਚਲਾਓ',
@@ -543,6 +546,7 @@ const pa: Record<I18nKey, string> = {
     'ਇੱਕ ਡਿਵਾਈਸ ਇਸ ਟਰੈਕ ਨੂੰ ਡੀਕੋਡ ਨਹੀਂ ਕਰ ਸਕੀ\nਬਾਕੀ ਸਾਰਿਆਂ ਲਈ ਪਲੇਬੈਕ ਜਾਰੀ ਹੈ',
   'toast.invite_code_info': 'ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ: {{count}} | ਕੋਡ {{code}}',
   'toast.added_tracks': '{{count}} ਟਰੈਕ ਜੋੜੇ ਗਏ',
+  'toast.deleted_tracks': '{{count}} ਟਰੈਕ ਮਿਟਾਏ ਗਏ',
   'toast.preparing': 'ਤਿਆਰ ਹੋ ਰਿਹਾ ਹੈ: {{name}}',
   'toast.file_save_error': 'ਫ਼ਾਈਲ ਸੰਭਾਲਣ ਵਿੱਚ ਗੜਬੜ: {{name}}',
   'toast.decoding_audio': 'ਆਡੀਓ ਡੀਕੋਡ ਹੋ ਰਿਹਾ ਹੈ...',
@@ -574,6 +578,18 @@ const pa: Record<I18nKey, string> = {
   'toast.member_management_required': 'ਮੈਂਬਰਾਂ ਨੂੰ ਕੱਢਣ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ',
   'toast.chat_notice_required': 'ਚੈਟ ਸੂਚਨਾਵਾਂ ਪੋਸਟ ਕਰਨ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ',
   'toast.room_owner_required': 'ਇਹ ਸਿਰਫ਼ ਰੂਮ ਦਾ ਮਾਲਕ ਬਦਲ ਸਕਦਾ ਹੈ',
+  'toast.media_management_checking':
+    'ਮੀਡੀਆ ਪ੍ਰਬੰਧ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.playback_control_checking':
+    'ਪਲੇਬੈਕ ਕੰਟਰੋਲ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.member_management_checking':
+    'ਮੈਂਬਰਾਂ ਨੂੰ ਕੱਢਣ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.chat_notice_checking':
+    'ਚੈਟ ਸੂਚਨਾਵਾਂ ਪੋਸਟ ਕਰਨ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.admin_permission_checking':
+    'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.room_owner_checking':
+    'ਰੂਮ ਦੇ ਮਾਲਕ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'toast.system_audio_owner_required':
     'ਤੁਸੀਂ ਸਿਰਫ਼ ਉਸੇ ਟੈਬ ਤੋਂ ਆਡੀਓ ਸਾਂਝਾ ਕਰ ਸਕਦੇ ਹੋ ਜਿਸ ਨੇ ਰੂਮ ਖੋਲ੍ਹਿਆ ਸੀ',
   'toast.host_setting_required': 'ਇਹ ਸੈਟਿੰਗ ਸਿਰਫ਼ ਹੋਸਟ ਬਦਲ ਸਕਦਾ ਹੈ',
@@ -939,6 +955,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: 'ਜੋੜੇ ਗਏ ਟਰੈਕਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
+  },
+  'toast.deleted_tracks': {
+    one: 'ਮਿਟਾਏ ਗਏ ਟਰੈਕਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
   },
   'toast.unsupported_files_excluded': {
     one: 'ਛੱਡੀਆਂ ਗਈਆਂ ਨਾ-ਚੱਲਣ ਵਾਲੀਆਂ ਫ਼ਾਈਲਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',

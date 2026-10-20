@@ -230,6 +230,20 @@ let refreshInFlight = false;
 let visibilityBound = false;
 let visibilityPlaybackRecoveryPending = false;
 let visibilityPlaybackRecoveryAttempt = 0;
+/**
+ * Media covered by the pending foreground repair. Showing the page starts a
+ * YouTube-only pass at once (a hidden WebKit iframe can stop while the room
+ * advances); local-file output must first pass the app's AudioContext
+ * inspection, after which the background-return Sync widens the same pending
+ * repair to every medium.
+ */
+let visibilityPlaybackRecoveryScope: 'youtube' | 'all' = 'youtube';
+/** Identity of the repair pass currently awaiting reconciliation. */
+let visibilityPlaybackRecoveryFlight: object | null = null;
+/** Advances on every hidden transition: one value per background return. */
+let visibilityReturnGeneration = 0;
+/** The return whose checkpoint a foreground repair has already re-applied. */
+let visibilityReturnReconciledGeneration = -1;
 let playlistManager: ProRoomPlaylistStateManager | null = null;
 let playlistProjection: ProRoomPlaylistProjection | null = null;
 let mediaTransfer: ProRoomMediaTransfer | null = null;
@@ -2508,6 +2522,8 @@ function stopLifecycle(): void {
   active = false;
   visibilityPlaybackRecoveryPending = false;
   visibilityPlaybackRecoveryAttempt = 0;
+  visibilityPlaybackRecoveryScope = 'youtube';
+  visibilityPlaybackRecoveryFlight = null;
   playbackController.stopLifecycle();
   accountReconciler.stop();
   accountIdentityGeneration += 1;
@@ -3348,7 +3364,7 @@ async function refreshSignalingCredential(): Promise<boolean> {
   }
 }
 
-function activeSnapshotNeedsYouTubeVisibilityRecovery(): boolean {
+function activeSnapshotNeedsVisibilityRecovery(scope: 'youtube' | 'all'): boolean {
   const snapshot = playlistManager?.snapshot ?? controller.snapshot;
   if (!snapshot) return true;
   const playback = snapshot.playback;
@@ -3357,7 +3373,13 @@ function activeSnapshotNeedsYouTubeVisibilityRecovery(): boolean {
     (candidate) => candidate.queueItemId === playback.queueItemId,
   );
   // A temporarily missing projection still needs another authoritative pass.
-  return !item || item.source.kind === 'youtube';
+  return !item || scope === 'all' || item.source.kind === 'youtube';
+}
+
+function settleVisibilityPlaybackRecovery(): void {
+  visibilityPlaybackRecoveryPending = false;
+  visibilityPlaybackRecoveryAttempt = 0;
+  visibilityPlaybackRecoveryScope = 'youtube';
 }
 
 function scheduleVisibilityPlaybackRecoveryRetry(): void {
@@ -3368,6 +3390,18 @@ function scheduleVisibilityPlaybackRecoveryRetry(): void {
     document.visibilityState !== 'visible'
   ) {
     return;
+  }
+  if (
+    visibilityPlaybackRecoveryScope === 'all' &&
+    visibilityPlaybackRecoveryAttempt >= VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS.length
+  ) {
+    // The widened Sync is bounded like the button it stands in for. A YouTube
+    // item keeps the original unbounded iframe repair below.
+    visibilityPlaybackRecoveryScope = 'youtube';
+    if (!activeSnapshotNeedsVisibilityRecovery('youtube')) {
+      settleVisibilityPlaybackRecovery();
+      return;
+    }
   }
   const delay =
     VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS[
@@ -3388,26 +3422,78 @@ async function recoverVisibleProRoomPlayback(): Promise<void> {
     return;
   }
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
+  // One pass at a time: a duplicate visible event or a widening Sync joins
+  // the running pass, which re-checks the scope when it settles.
+  if (visibilityPlaybackRecoveryFlight) return;
+  const flight = {};
+  visibilityPlaybackRecoveryFlight = flight;
+  const scope = visibilityPlaybackRecoveryScope;
+  const generation = visibilityReturnGeneration;
+  let reconciled = false;
+  let failed = false;
   try {
     // Rejoin through the planned local rendezvous: a direct seek-and-play
     // would start this iframe late by its seek latency for the whole track.
-    const reconciled = await playbackController.reconcile({
+    reconciled = await playbackController.reconcile({
       showLoading: false,
-      youtubeOnly: true,
+      youtubeOnly: scope === 'youtube',
       rendezvous: true,
     });
-    if (!active || document.visibilityState !== 'visible') return;
-    if (reconciled || !activeSnapshotNeedsYouTubeVisibilityRecovery()) {
-      visibilityPlaybackRecoveryPending = false;
-      visibilityPlaybackRecoveryAttempt = 0;
+  } catch (error) {
+    failed = true;
+    log.warn('[PRO Playback] Foreground reconciliation failed', error);
+  }
+  // A lifecycle restart discards the pass it inherited.
+  if (visibilityPlaybackRecoveryFlight !== flight) return;
+  visibilityPlaybackRecoveryFlight = null;
+  if (!active || document.visibilityState !== 'visible' || !visibilityPlaybackRecoveryPending) {
+    return;
+  }
+  if (generation !== visibilityReturnGeneration) {
+    // The page was hidden and shown again during this pass. Its result is
+    // for the previous return, so repair the newer one now.
+    await recoverVisibleProRoomPlayback();
+    return;
+  }
+  if (reconciled) {
+    visibilityReturnReconciledGeneration = generation;
+    settleVisibilityPlaybackRecovery();
+    return;
+  }
+  if (!failed) {
+    if (scope !== visibilityPlaybackRecoveryScope) {
+      // The background-return Sync widened this repair while a YouTube-only
+      // pass that could not cover the current item was running.
+      await recoverVisibleProRoomPlayback();
       return;
     }
-  } catch (error) {
-    log.warn('[PRO Playback] Foreground reconciliation failed', error);
+    if (!activeSnapshotNeedsVisibilityRecovery(scope)) {
+      settleVisibilityPlaybackRecovery();
+      return;
+    }
   }
   // Keep the hidden-session repair intent until media actually converges.
   // Retrying on its own timer avoids requiring a second hide/show cycle.
   scheduleVisibilityPlaybackRecoveryRetry();
+}
+
+/**
+ * Background-return Sync for a PRO room: the Sync button's reconciliation of
+ * every medium (youtubeOnly false, planned rendezvous), without its panel,
+ * toast, or loading state. It widens this return's foreground repair rather
+ * than starting a second one, so a YouTube checkpoint the visibility pass
+ * already re-applied is not re-applied again, and keeps that repair's retry.
+ */
+export function requestProRoomBackgroundReturnSync(): void {
+  if (!active || typeof document === 'undefined' || document.visibilityState !== 'visible') {
+    return;
+  }
+  if (visibilityReturnReconciledGeneration === visibilityReturnGeneration) return;
+  visibilityPlaybackRecoveryPending = true;
+  visibilityPlaybackRecoveryScope = 'all';
+  if (visibilityPlaybackRecoveryFlight) return;
+  visibilityPlaybackRecoveryAttempt = 0;
+  observeProRoomRuntimeTask(recoverVisibleProRoomPlayback(), 'background-return sync');
 }
 
 function bindVisibilityRefresh(): void {
@@ -3416,8 +3502,10 @@ function bindVisibilityRefresh(): void {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible') {
       if (active) {
+        visibilityReturnGeneration += 1;
         visibilityPlaybackRecoveryPending = true;
         visibilityPlaybackRecoveryAttempt = 0;
+        visibilityPlaybackRecoveryScope = 'youtube';
         clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
       }
       return;
@@ -3428,7 +3516,9 @@ function bindVisibilityRefresh(): void {
     // A hidden WebKit iframe may be locally paused while the exact same server
     // revision keeps advancing. A normal heartbeat intentionally deduplicates
     // that revision, so foreground recovery must explicitly re-apply it.
-    if (recoverPlayback) {
+    // A pass still running from an earlier return repairs this one when it
+    // settles; keep the heartbeat loop alive meanwhile.
+    if (recoverPlayback && !visibilityPlaybackRecoveryFlight) {
       observeProRoomRuntimeTask(recoverVisibleProRoomPlayback(), 'foreground playback recovery');
     } else {
       observeProRoomRuntimeTask(runHeartbeat(), 'foreground heartbeat');
@@ -3451,6 +3541,9 @@ function startLifecycle(): void {
   visibilityPlaybackRecoveryPending =
     typeof document !== 'undefined' && document.visibilityState !== 'visible';
   visibilityPlaybackRecoveryAttempt = 0;
+  visibilityPlaybackRecoveryScope = 'youtube';
+  visibilityPlaybackRecoveryFlight = null;
+  if (visibilityPlaybackRecoveryPending) visibilityReturnGeneration += 1;
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   playbackController.startLifecycle();
   releaseTerminalRecovery();

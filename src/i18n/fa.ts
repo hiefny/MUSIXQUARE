@@ -14,6 +14,7 @@ const fa: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'تأیید',
   'common.cancel': 'لغو',
+  'common.delete': 'حذف',
   'common.close': 'بستن',
   'common.skip_to_content': 'پرش به محتوا',
   'common.reset': 'بازنشانی',
@@ -44,6 +45,7 @@ const fa: Record<I18nKey, string> = {
   'common.off': 'خاموش',
 
   'screensaver.back': 'بازگشت به MUSIXQUARE',
+  'screensaver.turn_on': 'روشن کردن محافظ صفحه',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ورود',
@@ -157,6 +159,7 @@ const fa: Record<I18nKey, string> = {
   'playlist.deselect_all': 'برداشتن انتخاب همه',
   'playlist.select_all': 'انتخاب همه',
   'playlist.delete_selected': 'حذف {{count}} قطعهٔ انتخاب‌شده',
+  'playlist.selected_count': 'گزینش‌شده: {{count}}',
   'playlist.video_fallback': 'در حال بارگیری...',
   'playlist.track_fallback': 'قطعهٔ {{idx}}',
   'playlist.deferred_load_hint': 'برای بارگیری فهرست کامل قطعه‌ها، پخش را شروع کنید',
@@ -539,6 +542,7 @@ const fa: Record<I18nKey, string> = {
     'یکی از دستگاه‌ها نتوانست این قطعه را رمزگشایی کند\nپخش برای بقیه ادامه دارد',
   'toast.invite_code_info': '{{count}} متصل | کد {{code}}',
   'toast.added_tracks': '{{count}} قطعه اضافه شد',
+  'toast.deleted_tracks': '{{count}} قطعه حذف شد',
   'toast.preparing': 'در حال آماده‌سازی: {{name}}',
   'toast.file_save_error': 'خطای ذخیرهٔ فایل: {{name}}',
   'toast.decoding_audio': 'صدا در حال رمزگشایی است...',
@@ -572,6 +576,13 @@ const fa: Record<I18nKey, string> = {
   'toast.member_management_required': 'مجوز حذف اعضا لازم است',
   'toast.chat_notice_required': 'مجوز ارسال اعلان در گفت‌وگو لازم است',
   'toast.room_owner_required': 'فقط مالک اتاق می‌تواند این مورد را تغییر دهد',
+  'toast.media_management_checking': 'در حال بررسی مجوز مدیریت رسانه\nکمی بعد دوباره تلاش کنید',
+  'toast.playback_control_checking': 'در حال بررسی مجوز کنترل پخش\nکمی بعد دوباره تلاش کنید',
+  'toast.member_management_checking': 'در حال بررسی مجوز حذف اعضا\nکمی بعد دوباره تلاش کنید',
+  'toast.chat_notice_checking':
+    'در حال بررسی مجوز ارسال اعلان در گفت‌وگو\nکمی بعد دوباره تلاش کنید',
+  'toast.admin_permission_checking': 'در حال بررسی مجوز مدیریت\nکمی بعد دوباره تلاش کنید',
+  'toast.room_owner_checking': 'در حال بررسی مجوز مالک اتاق\nکمی بعد دوباره تلاش کنید',
   'toast.system_audio_owner_required':
     'فقط می‌توانید صدا را از زبانه‌ای که اتاق را باز کرده است به اشتراک بگذارید',
   'toast.host_setting_required': 'فقط میزبان می‌تواند این تنظیم را تغییر دهد',

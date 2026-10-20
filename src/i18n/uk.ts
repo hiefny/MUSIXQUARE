@@ -15,6 +15,7 @@ const uk: Record<I18nKey, string> = {
   // ─── Загальні ────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Скасувати',
+  'common.delete': 'Видалити',
   'common.close': 'Закрити',
   'common.skip_to_content': 'Перейти до вмісту',
   'common.reset': 'Скинути',
@@ -45,6 +46,7 @@ const uk: Record<I18nKey, string> = {
   'common.off': 'Вимкнено',
 
   'screensaver.back': 'Повернутися до MUSIXQUARE',
+  'screensaver.turn_on': 'Увімкнути заставку',
 
   // ─── Обліковий запис ─────────────────────────────────────────────
   'account.login_title': 'Увійти',
@@ -158,6 +160,7 @@ const uk: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Зняти всі позначення',
   'playlist.select_all': 'Вибрати все',
   'playlist.delete_selected': 'Видалити вибрані треки: {{count}}',
+  'playlist.selected_count': 'Вибрано: {{count}}',
   'playlist.video_fallback': 'Завантаження...',
   'playlist.track_fallback': 'Трек {{idx}}',
   'playlist.deferred_load_hint': 'Почніть відтворення, щоб завантажити весь список треків',
@@ -548,6 +551,7 @@ const uk: Record<I18nKey, string> = {
     'Один із пристроїв не зміг декодувати цей трек\nНа інших пристроях відтворення триває',
   'toast.invite_code_info': 'Підключено: {{count}} | Код {{code}}',
   'toast.added_tracks': 'Додано треків: {{count}}',
+  'toast.deleted_tracks': 'Видалено треків: {{count}}',
   'toast.preparing': 'Підготовка: {{name}}',
   'toast.file_save_error': 'Помилка збереження файла: {{name}}',
   'toast.decoding_audio': 'Декодування аудіо...',
@@ -581,6 +585,16 @@ const uk: Record<I18nKey, string> = {
   'toast.member_management_required': 'Потрібен дозвіл на вилучення учасників',
   'toast.chat_notice_required': 'Потрібен дозвіл на публікацію оголошень у чаті',
   'toast.room_owner_required': 'Змінити це може лише власник кімнати',
+  'toast.media_management_checking':
+    'Перевіряємо дозвіл на керування медіа\nСпробуйте трохи пізніше',
+  'toast.playback_control_checking':
+    'Перевіряємо дозвіл на керування відтворенням\nСпробуйте трохи пізніше',
+  'toast.member_management_checking':
+    'Перевіряємо дозвіл на вилучення учасників\nСпробуйте трохи пізніше',
+  'toast.chat_notice_checking':
+    'Перевіряємо дозвіл на публікацію оголошень у чаті\nСпробуйте трохи пізніше',
+  'toast.admin_permission_checking': 'Перевіряємо права адміністратора\nСпробуйте трохи пізніше',
+  'toast.room_owner_checking': 'Перевіряємо права власника кімнати\nСпробуйте трохи пізніше',
   'toast.system_audio_owner_required':
     'Транслювати аудіо можна лише з вкладки, в якій було створено кімнату',
   'toast.host_setting_required': 'Змінити цей параметр може лише хост',

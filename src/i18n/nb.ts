@@ -16,6 +16,7 @@ const nb: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Avbryt',
+  'common.delete': 'Slett',
   'common.close': 'Lukk',
   'common.skip_to_content': 'Gå til innhold',
   'common.reset': 'Tilbakestill',
@@ -46,6 +47,7 @@ const nb: Record<I18nKey, string> = {
   'common.off': 'Av',
 
   'screensaver.back': 'Tilbake til MUSIXQUARE',
+  'screensaver.turn_on': 'Slå på skjermsparer',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Logg inn',
@@ -159,6 +161,7 @@ const nb: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Fjern all merking',
   'playlist.select_all': 'Merk alle',
   'playlist.delete_selected': 'Slett {{count}} merkede spor',
+  'playlist.selected_count': '{{count}} er valgt',
   'playlist.video_fallback': 'Laster inn…',
   'playlist.track_fallback': 'Spor {{idx}}',
   'playlist.deferred_load_hint': 'Spill av for å laste inn hele sporlisten',
@@ -548,6 +551,7 @@ const nb: Record<I18nKey, string> = {
     'En enhet kunne ikke dekode dette sporet\nAvspillingen fortsetter for alle andre',
   'toast.invite_code_info': '{{count}} tilkoblet | Kode {{code}}',
   'toast.added_tracks': '{{count}} spor ble lagt til',
+  'toast.deleted_tracks': '{{count}} spor ble slettet',
   'toast.preparing': 'Forbereder: {{name}}',
   'toast.file_save_error': 'Kunne ikke lagre filen: {{name}}',
   'toast.decoding_audio': 'Dekoder lyd…',
@@ -581,6 +585,15 @@ const nb: Record<I18nKey, string> = {
   'toast.member_management_required': 'Tillatelse til å fjerne medlemmer kreves',
   'toast.chat_notice_required': 'Tillatelse til å legge ut chatvarsler kreves',
   'toast.room_owner_required': 'Bare rommets eier kan endre dette',
+  'toast.media_management_checking':
+    'Sjekker tillatelse til å administrere medier\nPrøv igjen om litt',
+  'toast.playback_control_checking':
+    'Sjekker tillatelse til å styre avspillingen\nPrøv igjen om litt',
+  'toast.member_management_checking':
+    'Sjekker tillatelse til å fjerne medlemmer\nPrøv igjen om litt',
+  'toast.chat_notice_checking': 'Sjekker tillatelse til å legge ut chatvarsler\nPrøv igjen om litt',
+  'toast.admin_permission_checking': 'Sjekker administratorrettigheter\nPrøv igjen om litt',
+  'toast.room_owner_checking': 'Sjekker rommets eierrettigheter\nPrøv igjen om litt',
   'toast.system_audio_owner_required': 'Du kan bare dele lyd fra fanen som åpnet rommet',
   'toast.host_setting_required': 'Bare verten kan endre denne innstillingen',
   'toast.no_tracks': 'Det finnes ingen spor å spille av',

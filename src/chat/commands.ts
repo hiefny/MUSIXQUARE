@@ -13,7 +13,7 @@ import { MSG, PEER_NAME_PREFIX, BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core
 import { sendToHost } from '../network/peer.ts';
 import { refuseHostCommand } from '../network/host-presence.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
-import { roomCapabilityRequiredMessage } from '../rooms/permission-feedback.ts';
+import { roomCapabilityFeedbackMessage } from '../rooms/permission-feedback.ts';
 import { createProRoomIdempotencyKey } from '../pro-room/idempotency.ts';
 import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
 import { t } from '../i18n/index.ts';
@@ -190,10 +190,10 @@ function hasPermission(perm: Permission): boolean {
 }
 
 function permissionDeniedMessage(permission: Permission): string {
-  if (permission === 'members') return roomCapabilityRequiredMessage('members.manage');
-  if (permission === 'notice') return roomCapabilityRequiredMessage('chat.notice');
+  if (permission === 'members') return roomCapabilityFeedbackMessage('members.manage');
+  if (permission === 'notice') return roomCapabilityFeedbackMessage('chat.notice');
   if (permission === 'host') {
-    return roomCapabilityRequiredMessage('room.configure');
+    return roomCapabilityFeedbackMessage('room.configure');
   }
   if (permission === 'physical-host') return t('toast.host_setting_required');
   return t('chat.cmd_no_permission');

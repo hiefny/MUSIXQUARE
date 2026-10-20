@@ -18,6 +18,7 @@ const nl: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Annuleren',
+  'common.delete': 'Verwijderen',
   'common.close': 'Sluiten',
   'common.skip_to_content': 'Ga naar de inhoud',
   'common.reset': 'Resetten',
@@ -48,6 +49,7 @@ const nl: Record<I18nKey, string> = {
   'common.off': 'Uit',
 
   'screensaver.back': 'Terug naar MUSIXQUARE',
+  'screensaver.turn_on': 'Schermbeveiliging aanzetten',
   'account.login_title': 'Inloggen',
   'account.login_cancelled': 'Het inloggen is geannuleerd',
   'account.login_failed': 'Inloggen mislukt\nProbeer het opnieuw',
@@ -158,6 +160,7 @@ const nl: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Alles deselecteren',
   'playlist.select_all': 'Alles selecteren',
   'playlist.delete_selected': '{{count}} geselecteerde tracks verwijderen',
+  'playlist.selected_count': '{{count}} geselecteerd',
   'playlist.video_fallback': 'Laden...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Speel af om de volledige tracklijst te laden',
@@ -558,6 +561,7 @@ const nl: Record<I18nKey, string> = {
     'Een apparaat kon deze track niet decoderen\nAfspelen gaat door voor de anderen',
   'toast.invite_code_info': '{{count}} verbonden | Code {{code}}',
   'toast.added_tracks': '{{count}} tracks toegevoegd',
+  'toast.deleted_tracks': '{{count}} tracks verwijderd',
   'toast.preparing': 'Voorbereiden: {{name}}',
   'toast.file_save_error': 'Bestand opslaan mislukt: {{name}}',
   'toast.decoding_audio': 'Audio decoderen...',
@@ -591,6 +595,18 @@ const nl: Record<I18nKey, string> = {
   'toast.member_management_required': 'Toestemming voor het verwijderen van leden vereist',
   'toast.chat_notice_required': 'Toestemming voor chataankondigingen vereist',
   'toast.room_owner_required': 'Alleen de kamereigenaar kan dit wijzigen',
+  'toast.media_management_checking':
+    'Toestemming voor mediabeheer wordt gecontroleerd\nProbeer het zo opnieuw',
+  'toast.playback_control_checking':
+    'Toestemming voor afspeelbediening wordt gecontroleerd\nProbeer het zo opnieuw',
+  'toast.member_management_checking':
+    'Toestemming voor het verwijderen van leden wordt gecontroleerd\nProbeer het zo opnieuw',
+  'toast.chat_notice_checking':
+    'Toestemming voor chataankondigingen wordt gecontroleerd\nProbeer het zo opnieuw',
+  'toast.admin_permission_checking':
+    'Beheerdersrechten worden gecontroleerd\nProbeer het zo opnieuw',
+  'toast.room_owner_checking':
+    'Rechten van de kamereigenaar worden gecontroleerd\nProbeer het zo opnieuw',
   'toast.system_audio_owner_required':
     'Je kunt alleen audio delen vanuit het tabblad dat de kamer heeft geopend',
   'toast.host_setting_required': 'Alleen de host kan deze instelling wijzigen',
@@ -931,6 +947,7 @@ const nl: Record<I18nKey, string> = {
 export default nl;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} geselecteerd' },
   'connect.administrator_list': { one: '{{count}} beheerder' },
   'playlist.delete_selected': { one: '{{count}} geselecteerde track verwijderen' },
   'connect.device_list': { one: '{{count}} verbonden apparaat' },
@@ -946,6 +963,7 @@ export const pluralMessages = {
     one: '{{name}} heeft {{count}} track toegevoegd, waaronder {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} track toegevoegd' },
+  'toast.deleted_tracks': { one: '{{count}} track verwijderd' },
   'toast.unsupported_files_excluded': {
     one: 'Niet-ondersteund bestand overgeslagen: {{count}}',
   },

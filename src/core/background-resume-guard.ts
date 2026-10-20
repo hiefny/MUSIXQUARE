@@ -12,6 +12,10 @@
  * Wake recovery invalidates clock continuation leases before recalibrating.
  * Running it for a zero-duration bounce can therefore disrupt a healthy
  * rendezvous even though no sleep/wake actually occurred.
+ *
+ * This is also the only threshold of the background-return Sync that ends
+ * every recovery (player/background-return-sync.ts): each hidden period of at
+ * least this long counts as a return from the background and is synced.
  */
 export const DEFAULT_RECOVER_THRESHOLD_MS = 1000;
 

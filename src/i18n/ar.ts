@@ -15,6 +15,7 @@ const ar: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'حسنًا',
   'common.cancel': 'إلغاء',
+  'common.delete': 'حذف',
   'common.close': 'إغلاق',
   'common.skip_to_content': 'التخطي إلى المحتوى',
   'common.reset': 'إعادة الضبط',
@@ -45,6 +46,7 @@ const ar: Record<I18nKey, string> = {
   'common.off': 'تعطيل',
 
   'screensaver.back': 'العودة إلى MUSIXQUARE',
+  'screensaver.turn_on': 'تشغيل شاشة التوقف',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'تسجيل الدخول',
@@ -156,6 +158,7 @@ const ar: Record<I18nKey, string> = {
   'playlist.deselect_all': 'إلغاء تحديد الكل',
   'playlist.select_all': 'تحديد الكل',
   'playlist.delete_selected': 'حذف {{count}} من المقاطع المحددة',
+  'playlist.selected_count': 'عدد العناصر المحدّدة: {{count}}',
   'playlist.video_fallback': 'جارٍ التحميل...',
   'playlist.track_fallback': 'المقطع {{idx}}',
   'playlist.deferred_load_hint': 'ابدأ التشغيل لتحميل قائمة المقاطع كاملة',
@@ -531,6 +534,7 @@ const ar: Record<I18nKey, string> = {
     'تعذّر على أحد الأجهزة فك ترميز هذا المقطع\nيستمر التشغيل على بقية الأجهزة',
   'toast.invite_code_info': 'متصل: {{count}} | الرمز {{code}}',
   'toast.added_tracks': 'تمت إضافة {{count}} من المقاطع',
+  'toast.deleted_tracks': 'تم حذف {{count}} من المقاطع',
   'toast.preparing': 'جارٍ التحضير: {{name}}',
   'toast.file_save_error': 'خطأ في حفظ الملف: {{name}}',
   'toast.decoding_audio': 'جارٍ فك ترميز الصوت...',
@@ -564,6 +568,16 @@ const ar: Record<I18nKey, string> = {
   'toast.member_management_required': 'يلزم إذن إزالة الأعضاء',
   'toast.chat_notice_required': 'يلزم إذن نشر إشعارات الدردشة',
   'toast.room_owner_required': 'لا يستطيع تغيير هذا إلا مالك الغرفة',
+  'toast.media_management_checking':
+    'جارٍ التحقق من إذن إدارة الوسائط\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.playback_control_checking':
+    'جارٍ التحقق من إذن التحكم في التشغيل\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.member_management_checking':
+    'جارٍ التحقق من إذن إزالة الأعضاء\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.chat_notice_checking':
+    'جارٍ التحقق من إذن نشر إشعارات الدردشة\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.admin_permission_checking': 'جارٍ التحقق من صلاحية المسؤول\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.room_owner_checking': 'جارٍ التحقق من صلاحية مالك الغرفة\nيرجى المحاولة مجددًا بعد قليل',
   'toast.system_audio_owner_required':
     'لا يمكنك مشاركة الصوت إلا من علامة التبويب التي فتحت الغرفة',
   'toast.host_setting_required': 'لا يستطيع تغيير هذا الإعداد إلا المضيف',
@@ -935,6 +949,12 @@ export const pluralMessages = {
     two: 'تمت إضافة {{count}} مقطعين',
     few: 'تمت إضافة {{count}} مقاطع',
     many: 'تمت إضافة {{count}} مقطعًا',
+  },
+  'toast.deleted_tracks': {
+    one: 'تم حذف {{count}} مقطع',
+    two: 'تم حذف {{count}} مقطعين',
+    few: 'تم حذف {{count}} مقاطع',
+    many: 'تم حذف {{count}} مقطعًا',
   },
   'dialog.file_drop.message': {
     one: 'هل تريد إضافة {{count}} ملف؟',

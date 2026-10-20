@@ -16,6 +16,7 @@ const mr: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ठीक आहे',
   'common.cancel': 'रद्द करा',
+  'common.delete': 'काढून टाका',
   'common.close': 'बंद करा',
   'common.skip_to_content': 'सामुग्रीवर जा',
   'common.reset': 'मूळ स्थितीत आणा',
@@ -46,6 +47,7 @@ const mr: Record<I18nKey, string> = {
   'common.off': 'बंद',
 
   'screensaver.back': 'MUSIXQUARE वर परत जा',
+  'screensaver.turn_on': 'स्क्रीनसेव्हर सुरू करा',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'साइन इन करा',
@@ -158,6 +160,7 @@ const mr: Record<I18nKey, string> = {
   'playlist.deselect_all': 'सर्व निवडी रद्द करा',
   'playlist.select_all': 'सर्व निवडा',
   'playlist.delete_selected': 'निवडलेले {{count}} ट्रॅक हटवा',
+  'playlist.selected_count': '{{count}} निवडले आहे',
   'playlist.video_fallback': 'लोड होत आहे...',
   'playlist.track_fallback': 'ट्रॅक {{idx}}',
   'playlist.deferred_load_hint': 'ट्रॅकची पूर्ण यादी लोड करण्यासाठी प्ले करा',
@@ -540,6 +543,7 @@ const mr: Record<I18nKey, string> = {
     'एका डिव्हाइसवर हा ट्रॅक डीकोड झाला नाही\nइतर सर्वांसाठी प्लेबॅक सुरू आहे',
   'toast.invite_code_info': '{{count}} कनेक्ट | कोड {{code}}',
   'toast.added_tracks': '{{count}} ट्रॅक जोडले',
+  'toast.deleted_tracks': '{{count}} ट्रॅक हटवले',
   'toast.preparing': 'तयार करत आहे: {{name}}',
   'toast.file_save_error': 'फाइल जतन करताना त्रुटी: {{name}}',
   'toast.decoding_audio': 'ऑडिओ डीकोड होत आहे...',
@@ -571,6 +575,18 @@ const mr: Record<I18nKey, string> = {
   'toast.member_management_required': 'सदस्यांना काढण्याची परवानगी आवश्यक आहे',
   'toast.chat_notice_required': 'चॅट सूचना पोस्ट करण्याची परवानगी आवश्यक आहे',
   'toast.room_owner_required': 'हे फक्त रूमचा मालक बदलू शकतो',
+  'toast.media_management_checking':
+    'मीडिया व्यवस्थापनाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.playback_control_checking':
+    'प्लेबॅक नियंत्रणाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.member_management_checking':
+    'सदस्यांना काढण्याची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.chat_notice_checking':
+    'चॅट सूचना पोस्ट करण्याची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.admin_permission_checking':
+    'प्रशासकीय परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.room_owner_checking':
+    'रूमच्या मालकाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'toast.system_audio_owner_required': 'तुम्ही फक्त रूम उघडलेल्या टॅबमधूनच ऑडिओ शेअर करू शकता',
   'toast.host_setting_required': 'हे सेटिंग फक्त होस्ट बदलू शकतो',
   'toast.no_tracks': 'प्ले करण्यासाठी कोणतेही ट्रॅक नाहीत',
@@ -939,6 +955,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ट्रॅक जोडला',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ट्रॅक हटवला',
   },
   'toast.unsupported_files_excluded': {
     one: 'असमर्थित फाइल वगळली: {{count}}',

@@ -14,6 +14,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { isCompactLandscape } from '../core/platform.ts';
+import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { animateTransition, updateOverlayOpenClass } from './dom.ts';
 import { showToast } from './toast.ts';
 import {
@@ -100,7 +101,7 @@ let _desktopSyncedDiagramParent: HTMLElement | null = null;
 let _desktopSyncedDiagramNextSibling: Node | null = null;
 
 function isDesktopLayout(): boolean {
-  return window.matchMedia('(min-width: 1280px)').matches || isCompactLandscape();
+  return window.matchMedia(DESKTOP_LAYOUT_QUERY).matches || isCompactLandscape();
 }
 
 function _restoreDesktopDiagram(): void {

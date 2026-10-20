@@ -16,6 +16,7 @@ const kn: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ಸರಿ',
   'common.cancel': 'ರದ್ದುಮಾಡಿ',
+  'common.delete': 'ಅಳಿಸು',
   'common.close': 'ಮುಚ್ಚಿ',
   'common.skip_to_content': 'ವಿಷಯಕ್ಕೆ ತೆರಳಿ',
   'common.reset': 'ಮರುಹೊಂದಿಸಿ',
@@ -46,6 +47,7 @@ const kn: Record<I18nKey, string> = {
   'common.off': 'ಆಫ್',
 
   'screensaver.back': 'MUSIXQUAREಗೆ ಹಿಂತಿರುಗಿ',
+  'screensaver.turn_on': 'ಸ್ಕ್ರೀನ್‌ಸೇವರ್ ಆನ್ ಮಾಡಿ',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ಸೈನ್ ಇನ್ ಮಾಡಿ',
@@ -159,6 +161,7 @@ const kn: Record<I18nKey, string> = {
   'playlist.deselect_all': 'ಎಲ್ಲಾ ಆಯ್ಕೆಗಳನ್ನು ರದ್ದುಮಾಡಿ',
   'playlist.select_all': 'ಎಲ್ಲವನ್ನೂ ಆರಿಸಿ',
   'playlist.delete_selected': 'ಆರಿಸಿದ {{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಳಿಸಿ',
+  'playlist.selected_count': 'ಆರಿಸಿದವುಗಳು: {{count}}',
   'playlist.video_fallback': 'ಲೋಡ್ ಆಗುತ್ತಿದೆ...',
   'playlist.track_fallback': 'ಟ್ರ್ಯಾಕ್ {{idx}}',
   'playlist.deferred_load_hint': 'ಪೂರ್ಣ ಟ್ರ್ಯಾಕ್ ಪಟ್ಟಿಯನ್ನು ಲೋಡ್ ಮಾಡಲು ಪ್ಲೇ ಮಾಡಿ',
@@ -550,6 +553,7 @@ const kn: Record<I18nKey, string> = {
     'ಒಂದು ಸಾಧನವು ಈ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಡಿಕೋಡ್ ಮಾಡಲು ವಿಫಲವಾಗಿದೆ\nಉಳಿದ ಎಲ್ಲರಿಗೂ ಪ್ಲೇಬ್ಯಾಕ್ ಮುಂದುವರಿಯುತ್ತಿದೆ',
   'toast.invite_code_info': '{{count}} ಸಂಪರ್ಕಗೊಂಡಿವೆ | ಕೋಡ್ {{code}}',
   'toast.added_tracks': '{{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಸೇರಿಸಲಾಗಿದೆ',
+  'toast.deleted_tracks': '{{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಳಿಸಲಾಗಿದೆ',
   'toast.preparing': 'ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ: {{name}}',
   'toast.file_save_error': 'ಫೈಲ್ ಉಳಿಸುವಲ್ಲಿ ದೋಷ: {{name}}',
   'toast.decoding_audio': 'ಆಡಿಯೊ ಡಿಕೋಡ್ ಆಗುತ್ತಿದೆ...',
@@ -581,6 +585,18 @@ const kn: Record<I18nKey, string> = {
   'toast.member_management_required': 'ಸದಸ್ಯರನ್ನು ಹೊರಹಾಕುವ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ',
   'toast.chat_notice_required': 'ಚಾಟ್ ಸೂಚನೆಗಳನ್ನು ಪೋಸ್ಟ್ ಮಾಡುವ ಅನುಮತಿ ಅಗತ್ಯವಿದೆ',
   'toast.room_owner_required': 'ಇದನ್ನು ರೂಮ್ ಮಾಲೀಕರು ಮಾತ್ರ ಬದಲಿಸಬಹುದು',
+  'toast.media_management_checking':
+    'ಮೀಡಿಯಾ ನಿರ್ವಹಣೆಯ ಅನುಮತಿಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'toast.playback_control_checking':
+    'ಪ್ಲೇಬ್ಯಾಕ್ ನಿಯಂತ್ರಣದ ಅನುಮತಿಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'toast.member_management_checking':
+    'ಸದಸ್ಯರನ್ನು ಹೊರಹಾಕುವ ಅನುಮತಿಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'toast.chat_notice_checking':
+    'ಚಾಟ್ ಸೂಚನೆಗಳನ್ನು ಪೋಸ್ಟ್ ಮಾಡುವ ಅನುಮತಿಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'toast.admin_permission_checking':
+    'ನಿರ್ವಾಹಕ ಅನುಮತಿಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
+  'toast.room_owner_checking':
+    'ರೂಮ್ ಮಾಲೀಕರ ಅನುಮತಿಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ\nಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ',
   'toast.system_audio_owner_required': 'ರೂಮ್ ತೆರೆದ ಟ್ಯಾಬ್‌ನಿಂದ ಮಾತ್ರ ನೀವು ಆಡಿಯೊ ಹಂಚಿಕೊಳ್ಳಬಹುದು',
   'toast.host_setting_required': 'ಈ ಸೆಟ್ಟಿಂಗ್ ಅನ್ನು ಹೋಸ್ಟ್ ಮಾತ್ರ ಬದಲಿಸಬಹುದು',
   'toast.no_tracks': 'ಪ್ಲೇ ಮಾಡಲು ಯಾವುದೇ ಟ್ರ್ಯಾಕ್‌ಗಳಿಲ್ಲ',
@@ -954,6 +970,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ಟ್ರ್ಯಾಕ್ ಸೇರಿಸಲಾಗಿದೆ',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ಟ್ರ್ಯಾಕ್ ಅಳಿಸಲಾಗಿದೆ',
   },
   'toast.unsupported_files_excluded': {
     one: 'ಬೆಂಬಲಿಸದ ಫೈಲ್ ಅನ್ನು ಬಿಟ್ಟುಬಿಡಲಾಗಿದೆ: {{count}}',

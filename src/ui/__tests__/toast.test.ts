@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { parse as parseCss } from 'postcss';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { COMPACT_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { resetState, setState } from '../../core/state.ts';
 import type { DataConnection, StandardOperatorFileUplinkProgress } from '../../types/index.ts';
 import { initToast, showToast, showLoader, updateLoader } from '../toast.ts';
@@ -603,7 +604,7 @@ describe('header loader layout contract', () => {
 
   it('keeps the portrait loading text on the logo rail below the iOS safe area', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
-    const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
+    const compactStart = stylesheet.indexOf(`@media ${COMPACT_LAYOUT_QUERY} {`);
     expect(compactStart).toBeGreaterThanOrEqual(0);
 
     const baseStyles = stylesheet.slice(0, compactStart);
@@ -631,7 +632,7 @@ describe('header loader layout contract', () => {
 
     const compactRules: string[] = [];
     parseCss(stylesheet).walkAtRules('media', (rule) => {
-      if (rule.params === '(min-width: 720px) and (max-width: 1279px)') {
+      if (rule.params === COMPACT_LAYOUT_QUERY) {
         compactRules.push(rule.toString());
       }
     });

@@ -17,6 +17,7 @@ const ja: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'キャンセル',
+  'common.delete': '削除',
   'common.close': '閉じる',
   'common.skip_to_content': 'コンテンツへスキップ',
   'common.reset': 'リセット',
@@ -47,6 +48,7 @@ const ja: Record<I18nKey, string> = {
   'common.off': 'オフ',
 
   'screensaver.back': 'MUSIXQUAREに戻る',
+  'screensaver.turn_on': 'スクリーンセーバーをオンにする',
   'account.login_title': 'ログイン',
   'account.login_cancelled': 'ログインがキャンセルされました',
   'account.login_failed': 'ログインできませんでした\nもう一度お試しください',
@@ -250,6 +252,7 @@ const ja: Record<I18nKey, string> = {
   'playlist.deselect_all': 'すべて選択解除',
   'playlist.select_all': 'すべて選択',
   'playlist.delete_selected': '選択したトラック{{count}}件を削除',
+  'playlist.selected_count': '{{count}}個を選択中',
   'playlist.video_fallback': '読み込み中...',
   'playlist.track_fallback': 'トラック{{idx}}',
   'playlist.deferred_load_hint': '再生すると全トラック情報を読み込みます',
@@ -509,6 +512,7 @@ const ja: Record<I18nKey, string> = {
     'このトラックをデコードできないデバイスがあります\n他のデバイスでは再生を続けます',
   'toast.invite_code_info': '{{count}}台接続中 | コード {{code}}',
   'toast.added_tracks': 'トラックを{{count}}件追加しました',
+  'toast.deleted_tracks': 'トラックを{{count}}件削除しました',
   'toast.preparing': '準備中: {{name}}',
   'toast.file_save_error': 'ファイル保存エラー: {{name}}',
   'toast.decoding_audio': 'オーディオをデコード中...',
@@ -542,6 +546,18 @@ const ja: Record<I18nKey, string> = {
   'toast.member_management_required': 'メンバーを退出させる権限が必要です',
   'toast.chat_notice_required': 'チャットのお知らせ投稿権限が必要です',
   'toast.room_owner_required': '変更できるのはルームのオーナーだけです',
+  'toast.media_management_checking':
+    'メディア管理権限を確認しています\nしばらくしてからもう一度お試しください',
+  'toast.playback_control_checking':
+    '再生操作権限を確認しています\nしばらくしてからもう一度お試しください',
+  'toast.member_management_checking':
+    'メンバーを退出させる権限を確認しています\nしばらくしてからもう一度お試しください',
+  'toast.chat_notice_checking':
+    'チャットのお知らせ投稿権限を確認しています\nしばらくしてからもう一度お試しください',
+  'toast.admin_permission_checking':
+    '管理者権限を確認しています\nしばらくしてからもう一度お試しください',
+  'toast.room_owner_checking':
+    'ルームのオーナー権限を確認しています\nしばらくしてからもう一度お試しください',
   'toast.system_audio_owner_required': 'ルームを直接開いたタブからのみ共有できます',
   'toast.host_setting_required': 'この設定を変更できるのはホストだけです',
   'toast.no_tracks': '再生するトラックがありません',

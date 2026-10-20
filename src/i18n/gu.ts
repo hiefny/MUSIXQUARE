@@ -16,6 +16,7 @@ const gu: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ઠીક છે',
   'common.cancel': 'રદ કરો',
+  'common.delete': 'કાઢી નાખો',
   'common.close': 'બંધ કરો',
   'common.skip_to_content': 'કંટેન્ટ પર જાઓ',
   'common.reset': 'મૂળ સ્થિતિમાં લાવો',
@@ -46,6 +47,7 @@ const gu: Record<I18nKey, string> = {
   'common.off': 'બંધ',
 
   'screensaver.back': 'MUSIXQUARE પર પાછા જાઓ',
+  'screensaver.turn_on': 'સ્ક્રીનસેવર ચાલુ કરો',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'સાઇન ઇન કરો',
@@ -159,6 +161,7 @@ const gu: Record<I18nKey, string> = {
   'playlist.deselect_all': 'બધી પસંદગી હટાવો',
   'playlist.select_all': 'બધું પસંદ કરો',
   'playlist.delete_selected': 'પસંદ કરેલા {{count}} ટ્રૅક કાઢી નાખો',
+  'playlist.selected_count': '{{count}} પસંદ કરેલ છે',
   'playlist.video_fallback': 'લોડ થઈ રહ્યું છે...',
   'playlist.track_fallback': 'ટ્રૅક {{idx}}',
   'playlist.deferred_load_hint': 'ટ્રૅકની સંપૂર્ણ યાદી લોડ કરવા ચલાવો',
@@ -537,6 +540,7 @@ const gu: Record<I18nKey, string> = {
     'એક ડિવાઇસ આ ટ્રૅકને ડિકોડ કરી શક્યું નથી\nબાકીના બધાં માટે પ્લેબૅક ચાલુ છે',
   'toast.invite_code_info': '{{count}} જોડાયેલા | કોડ {{code}}',
   'toast.added_tracks': '{{count}} ટ્રૅક ઉમેર્યા',
+  'toast.deleted_tracks': '{{count}} ટ્રૅક કાઢી નાખ્યા',
   'toast.preparing': 'તૈયાર થઈ રહ્યું છે: {{name}}',
   'toast.file_save_error': 'ફાઇલ સાચવવામાં ભૂલ: {{name}}',
   'toast.decoding_audio': 'ઑડિયો ડિકોડ થઈ રહ્યો છે...',
@@ -568,6 +572,16 @@ const gu: Record<I18nKey, string> = {
   'toast.member_management_required': 'સભ્યોને દૂર કરવાની પરવાનગી જરૂરી છે',
   'toast.chat_notice_required': 'ચૅટ સૂચના પોસ્ટ કરવાની પરવાનગી જરૂરી છે',
   'toast.room_owner_required': 'આ ફક્ત રૂમનો માલિક બદલી શકે છે',
+  'toast.media_management_checking':
+    'મીડિયા સંચાલનની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.playback_control_checking':
+    'પ્લેબૅક નિયંત્રણની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.member_management_checking':
+    'સભ્યોને દૂર કરવાની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.chat_notice_checking':
+    'ચૅટ સૂચના પોસ્ટ કરવાની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.admin_permission_checking': 'સંચાલક પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.room_owner_checking': 'રૂમના માલિકની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
   'toast.system_audio_owner_required': 'તમે ફક્ત રૂમ ખોલનાર ટૅબમાંથી જ ઑડિયો શેર કરી શકો છો',
   'toast.host_setting_required': 'આ સેટિંગ ફક્ત હોસ્ટ બદલી શકે છે',
   'toast.no_tracks': 'ચલાવવા કોઈ ટ્રૅક નથી',
@@ -926,6 +940,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: 'ઉમેરેલા ટ્રૅકની સંખ્યા: {{count}}',
+  },
+  'toast.deleted_tracks': {
+    one: 'કાઢી નાખેલા ટ્રૅકની સંખ્યા: {{count}}',
   },
   'toast.unsupported_files_excluded': {
     one: 'છોડી દેવાયેલી અસમર્થિત ફાઇલોની સંખ્યા: {{count}}',

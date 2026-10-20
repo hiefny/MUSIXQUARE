@@ -15,6 +15,7 @@ const bg: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Отказ',
+  'common.delete': 'Изтриване',
   'common.close': 'Затваряне',
   'common.skip_to_content': 'Напред към съдържанието',
   'common.reset': 'Нулиране',
@@ -45,6 +46,7 @@ const bg: Record<I18nKey, string> = {
   'common.off': 'Изкл.',
 
   'screensaver.back': 'Обратно към MUSIXQUARE',
+  'screensaver.turn_on': 'Пусни скрийнсейвъра',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Вход',
@@ -157,6 +159,7 @@ const bg: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Отмяна на целия избор',
   'playlist.select_all': 'Избиране на всички',
   'playlist.delete_selected': 'Изтриване на избраните песни ({{count}})',
+  'playlist.selected_count': 'Избрани: {{count}}',
   'playlist.video_fallback': 'Зареждане...',
   'playlist.track_fallback': 'Песен {{idx}}',
   'playlist.deferred_load_hint': 'Пусни, за да заредиш целия списък с песни',
@@ -551,6 +554,7 @@ const bg: Record<I18nKey, string> = {
     'Едно устройство не успя да декодира песента\nВъзпроизвеждането продължава за останалите',
   'toast.invite_code_info': 'Свързани: {{count}} | Код {{code}}',
   'toast.added_tracks': 'Добавени песни: {{count}}',
+  'toast.deleted_tracks': 'Изтрити песни: {{count}}',
   'toast.preparing': 'Подготовка: {{name}}',
   'toast.file_save_error': 'Грешка при записването на файла: {{name}}',
   'toast.decoding_audio': 'Декодиране на звука...',
@@ -584,6 +588,18 @@ const bg: Record<I18nKey, string> = {
   'toast.member_management_required': 'Необходимо е разрешение за премахване на участници',
   'toast.chat_notice_required': 'Необходимо е разрешение за публикуване на известия в чата',
   'toast.room_owner_required': 'Само собственикът на стаята може да промени това',
+  'toast.media_management_checking':
+    'Проверяваме разрешението за управление на медията\nОпитай отново след малко',
+  'toast.playback_control_checking':
+    'Проверяваме разрешението за управление на възпроизвеждането\nОпитай отново след малко',
+  'toast.member_management_checking':
+    'Проверяваме разрешението за премахване на участници\nОпитай отново след малко',
+  'toast.chat_notice_checking':
+    'Проверяваме разрешението за публикуване на известия в чата\nОпитай отново след малко',
+  'toast.admin_permission_checking':
+    'Проверяваме администраторските права\nОпитай отново след малко',
+  'toast.room_owner_checking':
+    'Проверяваме правата на собственика на стаята\nОпитай отново след малко',
   'toast.system_audio_owner_required':
     'Можеш да споделяш звук само от раздела, в който е отворена стаята',
   'toast.host_setting_required': 'Само хостът може да промени тази настройка',

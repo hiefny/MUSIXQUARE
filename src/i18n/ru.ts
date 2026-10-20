@@ -15,6 +15,7 @@ const ru: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ОК',
   'common.cancel': 'Отмена',
+  'common.delete': 'Удалить',
   'common.close': 'Закрыть',
   'common.skip_to_content': 'Перейти к содержимому',
   'common.reset': 'Сброс',
@@ -45,6 +46,7 @@ const ru: Record<I18nKey, string> = {
   'common.off': 'Выкл.',
 
   'screensaver.back': 'Вернуться в MUSIXQUARE',
+  'screensaver.turn_on': 'Включить заставку',
   'account.login_title': 'Войти',
   'account.login_cancelled': 'Вход отменён',
   'account.login_failed': 'Не удалось войти\nПопробуйте ещё раз',
@@ -156,6 +158,7 @@ const ru: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Снять выделение',
   'playlist.select_all': 'Выбрать все',
   'playlist.delete_selected': 'Удалить выбранные материалы: {{count}}',
+  'playlist.selected_count': 'Выбрано: {{count}}',
   'playlist.video_fallback': 'Загрузка...',
   'playlist.track_fallback': 'Материал {{idx}}',
   'playlist.deferred_load_hint':
@@ -551,6 +554,7 @@ const ru: Record<I18nKey, string> = {
     'Не удалось декодировать материал на одном из устройств\nВоспроизведение на остальных продолжается',
   'toast.invite_code_info': 'Устройств: {{count}} | Код: {{code}}',
   'toast.added_tracks': 'Добавлено материалов: {{count}}',
+  'toast.deleted_tracks': 'Удалено материалов: {{count}}',
   'toast.preparing': 'Готовится: {{name}}',
   'toast.file_save_error': 'Ошибка сохранения файла: {{name}}',
   'toast.decoding_audio': 'Декодирование аудио...',
@@ -584,6 +588,17 @@ const ru: Record<I18nKey, string> = {
   'toast.member_management_required': 'Требуется право на исключение участников',
   'toast.chat_notice_required': 'Требуется право на публикацию объявлений в чате',
   'toast.room_owner_required': 'Изменить это может только владелец комнаты',
+  'toast.media_management_checking':
+    'Проверяем право на управление медиа\nПопробуйте ещё раз через минуту',
+  'toast.playback_control_checking':
+    'Проверяем право на управление воспроизведением\nПопробуйте ещё раз через минуту',
+  'toast.member_management_checking':
+    'Проверяем право на исключение участников\nПопробуйте ещё раз через минуту',
+  'toast.chat_notice_checking':
+    'Проверяем право на публикацию объявлений в чате\nПопробуйте ещё раз через минуту',
+  'toast.admin_permission_checking':
+    'Проверяем права администратора\nПопробуйте ещё раз через минуту',
+  'toast.room_owner_checking': 'Проверяем права владельца комнаты\nПопробуйте ещё раз через минуту',
   'toast.system_audio_owner_required':
     'Транслировать аудио можно только из вкладки, в которой была создана комната',
   'toast.host_setting_required': 'Изменять эту настройку может только хост комнаты',
@@ -937,6 +952,11 @@ const ru: Record<I18nKey, string> = {
 export default ru;
 
 export const pluralMessages = {
+  'playlist.selected_count': {
+    one: 'Выбрано: {{count}}',
+    few: 'Выбрано: {{count}}',
+    many: 'Выбрано: {{count}}',
+  },
   'connect.administrator_list': {
     one: '{{count}} администратор',
     few: '{{count}} администратора',
@@ -981,6 +1001,11 @@ export const pluralMessages = {
     one: 'Добавлен {{count}} материал',
     few: 'Добавлено {{count}} материала',
     many: 'Добавлено {{count}} материалов',
+  },
+  'toast.deleted_tracks': {
+    one: 'Удалён {{count}} материал',
+    few: 'Удалено {{count}} материала',
+    many: 'Удалено {{count}} материалов',
   },
   'toast.unsupported_files_excluded': {
     one: 'Пропущен {{count}} неподдерживаемый файл',

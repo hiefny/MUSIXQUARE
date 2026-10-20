@@ -15,6 +15,7 @@ const he: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'אישור',
   'common.cancel': 'ביטול',
+  'common.delete': 'מחק',
   'common.close': 'סגירה',
   'common.skip_to_content': 'דילוג לתוכן',
   'common.reset': 'איפוס',
@@ -45,6 +46,7 @@ const he: Record<I18nKey, string> = {
   'common.off': 'כבוי',
 
   'screensaver.back': 'חזרה ל-MUSIXQUARE',
+  'screensaver.turn_on': 'הפעלת שומר המסך',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'התחברות',
@@ -157,6 +159,7 @@ const he: Record<I18nKey, string> = {
   'playlist.deselect_all': 'ביטול בחירת הכול',
   'playlist.select_all': 'בחירת הכול',
   'playlist.delete_selected': 'מחיקת {{count}} הרצועות שנבחרו',
+  'playlist.selected_count': '{{count}} נבחרו',
   'playlist.video_fallback': 'בטעינה...',
   'playlist.track_fallback': 'רצועה {{idx}}',
   'playlist.deferred_load_hint': 'יש להפעיל כדי לטעון את רשימת הרצועות המלאה',
@@ -533,6 +536,7 @@ const he: Record<I18nKey, string> = {
     'אחד המכשירים לא הצליח לפענח את הרצועה\nההפעלה נמשכת בשאר המכשירים',
   'toast.invite_code_info': 'מחוברים: {{count}} | קוד {{code}}',
   'toast.added_tracks': 'נוספו {{count}} רצועות',
+  'toast.deleted_tracks': 'נמחקו {{count}} רצועות',
   'toast.preparing': 'בהכנה: {{name}}',
   'toast.file_save_error': 'שגיאה בשמירת הקובץ: {{name}}',
   'toast.decoding_audio': 'השמע מפוענח...',
@@ -566,6 +570,12 @@ const he: Record<I18nKey, string> = {
   'toast.member_management_required': 'נדרשת הרשאה להסרת חברים',
   'toast.chat_notice_required': 'נדרשת הרשאה לפרסום הכרזות בצ׳אט',
   'toast.room_owner_required': 'רק בעל החדר יכול לשנות זאת',
+  'toast.media_management_checking': 'בודקים את ההרשאה לניהול מדיה\nכדאי לנסות שוב בעוד רגע',
+  'toast.playback_control_checking': 'בודקים את ההרשאה לשליטה בהפעלה\nכדאי לנסות שוב בעוד רגע',
+  'toast.member_management_checking': 'בודקים את ההרשאה להסרת חברים\nכדאי לנסות שוב בעוד רגע',
+  'toast.chat_notice_checking': 'בודקים את ההרשאה לפרסום הכרזות בצ׳אט\nכדאי לנסות שוב בעוד רגע',
+  'toast.admin_permission_checking': 'בודקים את הרשאת המנהל\nכדאי לנסות שוב בעוד רגע',
+  'toast.room_owner_checking': 'בודקים את הרשאת בעל החדר\nכדאי לנסות שוב בעוד רגע',
   'toast.system_audio_owner_required': 'ניתן לשתף שמע רק מהכרטיסייה שפתחה את החדר',
   'toast.host_setting_required': 'רק המארח יכול לשנות את ההגדרה',
   'toast.no_tracks': 'אין רצועות להפעלה',
@@ -891,6 +901,7 @@ const he: Record<I18nKey, string> = {
 export default he;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: 'נבחר פריט {{count}}' },
   'playlist.delete_selected': {
     one: 'מחיקת {{count}} רצועה שנבחרה',
   },
@@ -911,6 +922,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: 'נוספה {{count}} רצועה',
+  },
+  'toast.deleted_tracks': {
+    one: 'נמחקה {{count}} רצועה',
   },
   'dialog.file_drop.message': {
     one: 'להוסיף {{count}} קובץ?',

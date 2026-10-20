@@ -15,6 +15,7 @@ const cs: Record<I18nKey, string> = {
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Zrušit',
+  'common.delete': 'Odstranit',
   'common.close': 'Zavřít',
   'common.skip_to_content': 'Přejít k obsahu',
   'common.reset': 'Resetovat',
@@ -45,6 +46,7 @@ const cs: Record<I18nKey, string> = {
   'common.off': 'Vypnuto',
 
   'screensaver.back': 'Zpět do MUSIXQUARE',
+  'screensaver.turn_on': 'Zapnout spořič obrazovky',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Přihlášení',
@@ -158,6 +160,7 @@ const cs: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Zrušit výběr všeho',
   'playlist.select_all': 'Vybrat vše',
   'playlist.delete_selected': 'Smazat vybrané skladby: {{count}}',
+  'playlist.selected_count': 'Vybráno: {{count}}',
   'playlist.video_fallback': 'Načítání...',
   'playlist.track_fallback': 'Skladba {{idx}}',
   'playlist.deferred_load_hint': 'Spuštěním přehrávání načtete celý seznam skladeb',
@@ -549,6 +552,7 @@ const cs: Record<I18nKey, string> = {
     'Jednomu zařízení se nepodařilo tuto skladbu dekódovat\nNa ostatních zařízeních přehrávání pokračuje',
   'toast.invite_code_info': 'Připojeno: {{count}} | Kód {{code}}',
   'toast.added_tracks': 'Přidáno skladeb: {{count}}',
+  'toast.deleted_tracks': 'Smazáno skladeb: {{count}}',
   'toast.preparing': 'Připravuje se: {{name}}',
   'toast.file_save_error': 'Chyba při ukládání souboru: {{name}}',
   'toast.decoding_audio': 'Dekóduje se zvuk...',
@@ -583,6 +587,16 @@ const cs: Record<I18nKey, string> = {
   'toast.member_management_required': 'Je vyžadováno oprávnění k odebírání účastníků',
   'toast.chat_notice_required': 'Je vyžadováno oprávnění zveřejňovat oznámení v chatu',
   'toast.room_owner_required': 'Tuto volbu může změnit pouze vlastník místnosti',
+  'toast.media_management_checking':
+    'Ověřujeme oprávnění ke správě médií\nZkuste to za chvíli znovu',
+  'toast.playback_control_checking':
+    'Ověřujeme oprávnění k ovládání přehrávání\nZkuste to za chvíli znovu',
+  'toast.member_management_checking':
+    'Ověřujeme oprávnění k odebírání účastníků\nZkuste to za chvíli znovu',
+  'toast.chat_notice_checking':
+    'Ověřujeme oprávnění zveřejňovat oznámení v chatu\nZkuste to za chvíli znovu',
+  'toast.admin_permission_checking': 'Ověřujeme oprávnění správce\nZkuste to za chvíli znovu',
+  'toast.room_owner_checking': 'Ověřujeme oprávnění vlastníka místnosti\nZkuste to za chvíli znovu',
   'toast.system_audio_owner_required': 'Zvuk můžete sdílet pouze z karty, která místnost otevřela',
   'toast.host_setting_required': 'Toto nastavení může změnit pouze hostitel',
   'toast.no_tracks': 'Nejsou k dispozici žádné skladby k přehrání',

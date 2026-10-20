@@ -16,6 +16,7 @@ const te: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'సరే',
   'common.cancel': 'రద్దు చేయి',
+  'common.delete': 'తొలగించు',
   'common.close': 'మూసివేయి',
   'common.skip_to_content': 'విషయానికి వెళ్ళండి',
   'common.reset': 'రీసెట్ చేయి',
@@ -46,6 +47,7 @@ const te: Record<I18nKey, string> = {
   'common.off': 'ఆఫ్',
 
   'screensaver.back': 'MUSIXQUAREకి తిరిగి వెళ్లండి',
+  'screensaver.turn_on': 'స్క్రీన్‌సేవర్ ఆన్ చేయండి',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'సైన్ ఇన్',
@@ -159,6 +161,7 @@ const te: Record<I18nKey, string> = {
   'playlist.deselect_all': 'అన్ని ఎంపికలను తీసివేయి',
   'playlist.select_all': 'అన్నింటినీ ఎంచుకో',
   'playlist.delete_selected': 'ఎంచుకున్న {{count}} ట్రాక్‌లను తొలగించు',
+  'playlist.selected_count': 'ఎంచుకున్నవి: {{count}}',
   'playlist.video_fallback': 'లోడ్ అవుతోంది...',
   'playlist.track_fallback': 'ట్రాక్ {{idx}}',
   'playlist.deferred_load_hint': 'పూర్తి ట్రాక్ జాబితాను లోడ్ చేయడానికి ప్లే చేయండి',
@@ -547,6 +550,7 @@ const te: Record<I18nKey, string> = {
     'ఒక పరికరం ఈ ట్రాక్‌ను డీకోడ్ చేయలేకపోయింది\nమిగతావారికి ప్లేబ్యాక్ కొనసాగుతోంది',
   'toast.invite_code_info': '{{count}} కనెక్ట్ అయ్యాయి | కోడ్ {{code}}',
   'toast.added_tracks': '{{count}} ట్రాక్‌లు జోడించబడ్డాయి',
+  'toast.deleted_tracks': '{{count}} ట్రాక్‌లు తొలగించబడ్డాయి',
   'toast.preparing': 'సిద్ధమవుతోంది: {{name}}',
   'toast.file_save_error': 'ఫైల్ సేవ్ లోపం: {{name}}',
   'toast.decoding_audio': 'ఆడియో డీకోడ్ అవుతోంది...',
@@ -580,6 +584,18 @@ const te: Record<I18nKey, string> = {
   'toast.member_management_required': 'సభ్యులను తొలగించే అనుమతి అవసరం',
   'toast.chat_notice_required': 'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతి అవసరం',
   'toast.room_owner_required': 'గది యజమాని మాత్రమే దీన్ని మార్చగలరు',
+  'toast.media_management_checking':
+    'మీడియా నిర్వహణ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.playback_control_checking':
+    'ప్లేబ్యాక్ నియంత్రణ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.member_management_checking':
+    'సభ్యులను తొలగించే అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.chat_notice_checking':
+    'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.admin_permission_checking':
+    'అడ్మిన్ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.room_owner_checking':
+    'గది యజమాని అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'toast.system_audio_owner_required':
     'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను షేర్ చేయగలరు',
   'toast.host_setting_required': 'హోస్ట్ మాత్రమే ఈ సెట్టింగ్‌ను మార్చగలరు',
@@ -954,6 +970,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ట్రాక్ జోడించబడింది',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ట్రాక్ తొలగించబడింది',
   },
   'toast.unsupported_files_excluded': {
     one: 'మద్దతు లేని ఫైల్ దాటవేయబడింది: {{count}}',

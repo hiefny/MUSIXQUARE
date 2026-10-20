@@ -9,14 +9,6 @@ import { uploadFixture } from './helpers/file-upload.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { connectHostAndGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import {
-  installCaptionInkProbe,
-  installInfoGeometryProbe,
-  readCaptionInk,
-  readForegroundInkBounds,
-  readInfoGlyphBounds,
-  type CaptionInkEvidence,
-} from './helpers/screensaver-caption-probe.ts';
-import {
   installSyntheticSystemAudio,
   readSyntheticSystemAudio,
 } from './helpers/system-audio-source.ts';
@@ -33,6 +25,8 @@ test.use({ viewport: { width: 1280, height: 720 }, locale: 'en-US', serviceWorke
 
 type ScreensaverTestWindow = Window & {
   __MUSIXQUARE_SET_STATE__(path: string, value: unknown): void;
+  __MUSIXQUARE_BUS__: { emit(type: string, ...args: unknown[]): void };
+  __screensaverGeolocationCalls?: number;
 };
 const pageErrors = new WeakMap<Page, string[]>();
 const consoleMessages = new WeakMap<Page, string[]>();
@@ -61,14 +55,29 @@ async function preparePage(page: Page): Promise<string[]> {
       requests.push(request.url());
     }
   });
-  // Functional browser checks do not rely on external font/weather services.
-  // The real Google Sans and live provider rendering remain separate visual QA.
+  // Functional browser checks do not rely on the external font service.
+  // The real Google Sans rendering remains separate visual QA.
   await page.route('https://fonts.googleapis.com/**', (route) =>
     route.fulfill({ contentType: 'text/css', body: '' }),
   );
   await page.route('https://fonts.gstatic.com/**', (route) => route.abort());
-  await page.route('https://*.open-meteo.com/**', (route) => route.abort());
   await page.addInitScript(() => localStorage.setItem('musixquare-lang', 'en'));
+  // Count location requests from the app and the screensaver frame alike.
+  await page.addInitScript(() => {
+    const geolocation = navigator.geolocation;
+    if (!geolocation) return;
+    for (const method of ['getCurrentPosition', 'watchPosition'] as const) {
+      const original = geolocation[method].bind(geolocation) as (...args: unknown[]) => number;
+      Object.defineProperty(geolocation, method, {
+        configurable: true,
+        value: (...args: unknown[]) => {
+          const top = window.top as ScreensaverTestWindow;
+          top.__screensaverGeolocationCalls = (top.__screensaverGeolocationCalls || 0) + 1;
+          return original(...args);
+        },
+      });
+    }
+  });
   await useAnonymousAccountSession(page);
   return requests;
 }
@@ -83,6 +92,39 @@ async function openHost(page: Page): Promise<string[]> {
 async function openScreensaver(page: Page, command = '/screensaver'): Promise<FrameLocator> {
   await openChatDrawer(page);
   await sendChat(page, command);
+  return waitForScreensaver(page);
+}
+
+async function openScreensaverFromBus(page: Page): Promise<FrameLocator> {
+  await page.evaluate(() =>
+    (window as unknown as ScreensaverTestWindow).__MUSIXQUARE_BUS__.emit('ui:open-screensaver'),
+  );
+  return waitForScreensaver(page);
+}
+
+async function geolocationCalls(page: Page): Promise<number> {
+  return page.evaluate(
+    () => (window as unknown as ScreensaverTestWindow).__screensaverGeolocationCalls || 0,
+  );
+}
+
+async function neutralLook(page: Page, selector: string) {
+  return page
+    .locator(selector)
+    .first()
+    .evaluate((node) => {
+      const style = getComputedStyle(node);
+      return {
+        background: style.backgroundColor,
+        color: style.color,
+        radius: style.borderRadius,
+        font: `${style.fontWeight} ${style.fontSize}`,
+        minHeight: style.minHeight,
+      };
+    });
+}
+
+async function waitForScreensaver(page: Page): Promise<FrameLocator> {
   await expect(page.locator('#screensaver-overlay iframe')).toHaveCount(1);
   const child = page.frameLocator('#screensaver-overlay iframe');
   await expect(child.locator('#displayBack')).toHaveAttribute('aria-label', 'Back to MUSIXQUARE');
@@ -186,6 +228,7 @@ test('loads only on the local command and keeps connected file playback running'
       )
       .toBe(true);
     expect(hostRequests.some((url) => url.includes('open-meteo.com'))).toBe(false);
+    expect(await geolocationCalls(host)).toBe(0);
     expect(await readState(host, 'playback.activity')).toBe('playing');
     expect(await readState(guest, 'playback.activity')).toBe('playing');
     expect(await readState(host, 'player.currentTrackMeta')).toEqual(currentTrack);
@@ -281,16 +324,14 @@ test('shows two-line track details with idle chrome without adding a music scene
   await page.mouse.move(620, 350);
   await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
   await page.clock.fastForward(5_200);
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^clock$/iu);
   await seedMusic(page, 'Second track');
   await expect(child.locator('#musicTitle')).toHaveText('Second track');
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
   await page.mouse.click(620, 350);
   await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
-  for (const scene of ['weather', 'air', 'moon', 'clock']) {
-    await page.clock.fastForward(10_000);
-    await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', scene);
-  }
+  await page.clock.fastForward(40_000);
+  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^clock$/iu);
+  await expect(child.locator('#musicTitle')).toHaveText('Second track');
   expect(await page.evaluate(() => localStorage.getItem('mxqr:screensaver:music'))).toBe('off');
   await page.mouse.move(640, 350);
   await child.locator('#displayBack').click();
@@ -528,34 +569,35 @@ test('renders while the font stylesheet is delayed, then refits the clock after 
   }
 });
 
-test('holds the decoded background while the next image loads, then crossfades only two layers', async ({
+test('holds the decoded background while a resized variant loads, then crossfades only two layers', async ({
   page,
 }) => {
-  const requests = await openHost(page);
-  await page.clock.install({ time: new Date('2026-10-16T12:00:00Z') });
+  await openHost(page);
+  await disableFullscreenForLayoutProbe(page);
   let releaseImage: () => void = () => {};
   const imageReady = new Promise<void>((resolve) => {
     releaseImage = resolve;
   });
-  const autumn = '**/assets/screensaver/backgrounds/photo-autumn-7800/**';
-  await page.route(autumn, async (route) => {
+  const portrait = '**/assets/screensaver/backgrounds/clock/portrait-*.webp';
+  let portraitRequested = false;
+  await page.route(portrait, async (route) => {
+    portraitRequested = true;
     await imageReady;
     await route.continue();
   });
   try {
-    expect(requests).toEqual([]);
     const child = await openScreensaver(page);
     const images = child.locator('#imageBackgroundRoot .image-background-layer img');
     await expect(images).toHaveCount(1);
-    await expect(images).toHaveAttribute('src', /\/clock\/.*\.webp$/u);
+    await expect(images).toHaveAttribute('src', /\/clock\/wide-[a-f0-9]{8}\.webp$/u);
     expect(
       await images.evaluate((node: HTMLImageElement) => node.complete && node.naturalWidth > 0),
     ).toBe(true);
-    await expect.poll(() => requests.some((url) => url.includes('/photo-autumn-7800/'))).toBe(true);
-    await page.clock.fastForward(10_100);
-    await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => portraitRequested).toBe(true);
+    await page.waitForTimeout(300);
     await expect(images).toHaveCount(1);
-    await expect(images).toHaveAttribute('src', /\/clock\/.*\.webp$/u);
+    await expect(images).toHaveAttribute('src', /\/clock\/wide-[a-f0-9]{8}\.webp$/u);
 
     releaseImage();
     await expect(images).toHaveCount(2);
@@ -579,7 +621,7 @@ test('holds the decoded background while the next image loads, then crossfades o
       )
       .toBe(true);
     await expect(images).toHaveCount(1);
-    await expect(images).toHaveAttribute('src', /\/photo-autumn-7800\/.*\.webp$/u);
+    await expect(images).toHaveAttribute('src', /\/clock\/portrait-[a-f0-9]{8}\.webp$/u);
     expect(
       await child
         .locator('body')
@@ -589,12 +631,12 @@ test('holds the decoded background while the next image loads, then crossfades o
           ).some((node) => getComputedStyle(node).filter !== 'none'),
         ),
     ).toBe(false);
-    await expect.poll(() => visibleForegroundSources(child, 'weatherCanvas')).toBeGreaterThan(0);
+    await expect(child.locator('#backgroundGrain')).toHaveCSS('opacity', '0.62');
     await page.keyboard.press('Escape');
     await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
   } finally {
     releaseImage();
-    await page.unroute(autumn);
+    await page.unroute(portrait);
   }
 });
 
@@ -602,30 +644,28 @@ test('keeps the previous image after a failed background request and recovers on
   page,
 }) => {
   await openHost(page);
-  await page.clock.install({ time: new Date('2026-10-16T12:00:00Z') });
-  const autumn = '**/assets/screensaver/backgrounds/photo-autumn-7800/**';
-  await page.route(autumn, (route) => route.abort());
+  await disableFullscreenForLayoutProbe(page);
+  const portrait = '**/assets/screensaver/backgrounds/clock/portrait-*.webp';
+  await page.route(portrait, (route) => route.abort());
   let child = await openScreensaver(page);
   await expect(child.locator('#imageBackgroundRoot img')).toHaveCount(1);
-  await page.clock.fastForward(12_000);
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(800);
   await expect(child.locator('#imageBackgroundRoot img')).toHaveCount(1);
   await expect(child.locator('#imageBackgroundRoot img')).toHaveAttribute(
     'src',
-    /\/clock\/.*\.webp$/u,
+    /\/clock\/wide-[a-f0-9]{8}\.webp$/u,
   );
-  await expect.poll(() => visibleForegroundSources(child, 'weatherCanvas')).toBeGreaterThan(0);
+  await expect.poll(() => visibleForegroundSources(child, 'opticalClockCanvas')).toBeGreaterThan(0);
   await page.keyboard.press('Escape');
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 
-  await page.unroute(autumn);
-  child = await openScreensaver(page);
-  await page.clock.fastForward(12_000);
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
+  await page.unroute(portrait);
+  child = await openScreensaverFromBus(page);
   await expect(child.locator('#imageBackgroundRoot img')).toHaveCount(1);
   await expect(child.locator('#imageBackgroundRoot img')).toHaveAttribute(
     'src',
-    /\/photo-autumn-7800\/.*\.webp$/u,
+    /\/clock\/portrait-[a-f0-9]{8}\.webp$/u,
   );
   await page.keyboard.press('Escape');
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
@@ -676,181 +716,198 @@ test('renders glow without Canvas filter and recreates bounded layers after page
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 });
 
-for (const display of [
-  { width: 390, height: 844, dpr: 2 },
-  { width: 1280, height: 720, dpr: 1.25 },
-]) {
-  test.describe(`caption integrity at ${display.width}px DPR ${display.dpr}`, () => {
-    test.use({
-      viewport: { width: display.width, height: display.height },
-      deviceScaleFactor: display.dpr,
-    });
-    test('preserves narrow caption strokes through scene changes, revisits, and resize', async ({
-      page,
-    }, testInfo) => {
-      await openHost(page);
-      await disableFullscreenForLayoutProbe(page);
-      await page.context().grantPermissions(['geolocation']);
-      await page.context().setGeolocation({ latitude: 37.566, longitude: 126.978 });
-      await page.route('https://api.open-meteo.com/**', (route) =>
-        route.fulfill({
-          json: {
-            current: { temperature_2m: 18, weather_code: 1, is_day: 1 },
-            current_units: { temperature_2m: '°C' },
-          },
-        }),
-      );
-      await page.route('https://air-quality-api.open-meteo.com/**', (route) =>
-        route.fulfill({ json: { current: { us_aqi: 42 }, current_units: { us_aqi: 'USAQI' } } }),
-      );
-      await installCaptionInkProbe(page);
-      await installInfoGeometryProbe(page);
-      await page.clock.install({ time: new Date('2026-10-16T12:00:00Z') });
-      const child = await openScreensaver(page);
-      await expect(child.locator('#opticalClockCanvas')).toHaveAttribute(
-        'aria-label',
-        /^\d{2}:\d{2}:\d{2}$/u,
-      );
-      const evidence: (CaptionInkEvidence & { label: string })[] = [];
-      const centered: {
-        label: string;
-        bounds: Awaited<ReturnType<typeof readInfoGlyphBounds>>;
-        highAlphaBounds: Awaited<ReturnType<typeof readForegroundInkBounds>>;
-      }[] = [];
-      const verifyCombinedCenter = async (label: string) => {
-        const bounds = await readInfoGlyphBounds(child);
-        const highAlphaBounds = await readForegroundInkBounds(child);
-        expect(bounds.scene).toBe(label.split('-')[0]);
-        const roles = bounds.glyphs.map((glyph) => glyph.role);
-        expect(roles).toContain(label === 'moon' ? 'moon' : 'number');
-        expect(roles).toContain('tail');
-        if (label.startsWith('weather'))
-          expect(bounds.glyphs.some((glyph) => glyph.role === 'unit' && glyph.char === '°')).toBe(
-            true,
-          );
-        expect(
-          Math.abs(bounds.centerOffset),
-          `${label}: main and caption combined pre-effect ink center`,
-        ).toBeLessThan(1);
-        expect(bounds.left).toBeGreaterThanOrEqual(0);
-        expect(bounds.right).toBeLessThanOrEqual(bounds.width);
-        centered.push({ label, bounds, highAlphaBounds });
-      };
-      const verifyCaption = async (text: string, label: string) => {
-        await expect.poll(async () => (await readCaptionInk(child)).text).toBe(text);
-        const result = await readCaptionInk(child);
-        expect(
-          result.samples.reduce((total, sample) => total + sample.expectedPixels, 0),
-        ).toBeGreaterThan(5);
-        for (const sample of result.samples) {
-          expect(sample.missingPixels, `${label}: ${sample.text} missing ink`).toBe(0);
-          expect(sample.unexpectedPixels, `${label}: ${sample.text} stale ink`).toBe(0);
-          expect(sample.clippedPixels, `${label}: ${sample.text} clipped ink`).toBe(0);
-          expect(sample.halo, `${label}: ${sample.text} separate halo`).not.toBeNull();
-          expect(
-            sample.halo!.outsideInkPixels,
-            `${label}: glow extends beyond the strokes`,
-          ).toBeGreaterThan(5);
-          expect(sample.halo!.bluePixels).toBeGreaterThan(sample.halo!.pixels * 0.95);
-          expect(sample.halo!.edgePixels, `${label}: glow does not reach the texture edge`).toBe(0);
-          expect(sample.halo!.maxAlpha).toBeGreaterThan(2);
-          expect(sample.halo!.maxAlpha, `${label}: glow stays subtle`).toBeLessThanOrEqual(57);
-        }
-        evidence.push({ label, ...result });
-        await page.screenshot({ path: testInfo.outputPath(`caption-${label}.png`) });
-      };
-      await page.clock.fastForward(12_000);
-      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
-      await verifyCaption('FRI', 'date');
-      await page.clock.fastForward(10_000);
-      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
-      await verifyCaption('MOSTLYCLEAR', 'weather');
-      await verifyCombinedCenter('weather');
-      await page.clock.fastForward(10_000);
-      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'air');
-      await verifyCaption('AQI', 'air');
-      await verifyCombinedCenter('air');
-      await page.setViewportSize({ width: 320, height: 240 });
-      await page.clock.fastForward(1_500);
-      await verifyCaption('AQI', 'air-resized');
-      await verifyCombinedCenter('air-resized');
-      await page.clock.fastForward(30_000);
-      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'date');
-      await verifyCaption('FRI', 'date-revisited');
-      await page.clock.fastForward(10_000);
-      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
-      await verifyCaption('MOSTLYCLEAR', 'weather-revisited');
-      await verifyCombinedCenter('weather-revisited');
-      await page.clock.setFixedTime(new Date('2026-10-26T12:00:00Z'));
-      await page.clock.fastForward(20_000);
-      await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'moon');
-      await verifyCaption('FULLMOON', 'moon');
-      await verifyCombinedCenter('moon');
-      await testInfo.attach('caption-ink-reference', {
-        body: JSON.stringify({ captions: evidence, centered }, null, 2),
-        contentType: 'application/json',
-      });
-      await page.keyboard.press('Escape');
-      await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
-    });
-  });
-}
-
-test('keeps denied-location controls separate in a 160×160 weather scene', async ({
+test('opens from the Help tab and shows only the clock without asking for location', async ({
   page,
 }, testInfo) => {
   const requests = await openHost(page);
-  await seedMusic(page, 'Ambient');
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'geolocation', {
-      configurable: true,
-      value: {
-        getCurrentPosition: (_success: PositionCallback, failure?: PositionErrorCallback | null) =>
-          failure?.({
-            code: 1,
-            message: 'Location permission denied for this browser test',
-            PERMISSION_DENIED: 1,
-            POSITION_UNAVAILABLE: 2,
-            TIMEOUT: 3,
-          }),
-      },
-    });
-  });
   await page.clock.install();
-  await disableFullscreenForLayoutProbe(page);
-  const child = await openScreensaver(page);
-  await page.setViewportSize({ width: 160, height: 160 });
-  await expect(child.locator('#displayMusicInfo')).toBeVisible();
-  await expect(child.locator('#opticalClockCanvas')).toHaveAttribute('aria-hidden', 'false');
-  await page.clock.fastForward(22_000);
-  await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', 'weather');
-  await page.mouse.move(80, 158);
-  await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
-  const retry = child.locator('#weatherRetry');
-  await expect(retry).toBeVisible();
-  await expect(retry).toHaveText('Use current location');
-  await expect(retry).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-  await retry.hover();
-  await expect(retry).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-
-  const boxes = await Promise.all(
-    ['displayBack', 'weatherRetry', 'displayMusicInfo'].map((id) =>
-      child.locator(`#${id}`).boundingBox(),
-    ),
+  if (!(await page.locator('#settings-subtab-help').isVisible()))
+    await page.locator('#nav-settings').click();
+  await page.locator('#settings-subtab-help').click();
+  const tour = page.locator('#btn-demo-media');
+  const button = page.locator('#btn-screensaver');
+  await expect(button).toHaveText('Turn on screensaver');
+  await expect(button).toHaveClass(/\baccent-action-btn\b/u);
+  await expect(tour).toHaveClass(/\bneutral-action-btn\b/u);
+  // The tour shares the invite-link button's neutral look; the screensaver keeps the accent.
+  expect(await neutralLook(page, '#btn-demo-media')).toEqual(
+    await neutralLook(page, '#desktop-qr-container .btn-copy-invite-link'),
   );
-  for (const box of boxes) {
-    expect(box).not.toBeNull();
-    expect(box!.x).toBeGreaterThanOrEqual(0);
-    expect(box!.y).toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(161);
-    expect(box!.y + box!.height).toBeLessThanOrEqual(161);
+  await expect(button).toHaveCSS('color', 'rgb(0, 122, 255)');
+  const [tourBox, buttonBox] = await Promise.all([tour.boundingBox(), button.boundingBox()]);
+  expect(buttonBox!.y).toBeGreaterThan(tourBox!.y + tourBox!.height);
+  expect(buttonBox!.width).toBeCloseTo(tourBox!.width, 0);
+  await page.screenshot({ path: testInfo.outputPath('help-actions-1280x720.png') });
+
+  await button.click();
+  const child = await waitForScreensaver(page);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement?.tagName)).toBe('HTML');
+  await expect(child.locator('#opticalClockCanvas')).toHaveAttribute(
+    'aria-label',
+    /^\d{2}:\d{2}:\d{2}$/u,
+  );
+  await expect(child.locator('#mainStage > canvas')).toHaveCount(2);
+  await expect(child.locator('#weatherCanvas, #weatherRetry, #weatherAttribution')).toHaveCount(0);
+  await expect(child.locator('a[href]')).toHaveCount(0);
+  // Long enough for every former scene rotation (10 s each) to have come around.
+  for (let elapsed = 0; elapsed < 60_000; elapsed += 10_000) {
+    await page.clock.fastForward(10_000);
+    await expect(child.locator('#mainStage')).toHaveAttribute('aria-label', /^clock$/iu);
+    await expect(child.locator('#opticalClockCanvas')).not.toHaveAttribute('aria-hidden', 'true');
   }
-  const [back, location, music] = boxes;
-  expect(back!.y + back!.height).toBeLessThanOrEqual(location!.y);
-  expect(location!.y + location!.height).toBeLessThanOrEqual(music!.y);
+  expect(await geolocationCalls(page)).toBe(0);
   expect(requests.some((url) => url.includes('open-meteo.com'))).toBe(false);
-  await page.screenshot({ path: testInfo.outputPath('screensaver-weather-160x160.png') });
-  await child.locator('#displayBack').click();
+  expect(requests.some((url) => /\/assets\/screensaver\/backgrounds\/(?!clock\/)/u.test(url))).toBe(
+    false,
+  );
+  await page.screenshot({ path: testInfo.outputPath('screensaver-clock-only-1280x720.png') });
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+});
+
+test('closes on a double-click anywhere but not on a single click', async ({ page }) => {
+  await openHost(page);
+  await seedMusic(page, 'Ambient');
+  const child = await openScreensaver(page);
+  await expect(child.locator('#opticalClockCanvas')).toHaveAttribute(
+    'aria-label',
+    /^\d{2}:\d{2}:\d{2}$/u,
+  );
+  await page.mouse.click(400, 500);
+  await page.waitForTimeout(900);
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(1);
+  await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
+  // Separate clicks slower than a double-click keep it open too.
+  await page.mouse.click(900, 300);
+  await page.waitForTimeout(700);
+  await page.mouse.click(900, 300);
+  await page.waitForTimeout(400);
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(1);
+
+  await page.mouse.dblclick(640, 600);
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.fullscreenElement === null)).toBe(true);
+});
+
+test.describe('touch', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+
+  test('double-tap closes without zooming, a single tap only reveals the controls', async ({
+    page,
+  }, testInfo) => {
+    await openHost(page);
+    await disableFullscreenForLayoutProbe(page);
+    await page.locator('#nav-guide').tap();
+    const button = page.locator('#btn-screensaver-mobile');
+    await button.scrollIntoViewIfNeeded();
+    await expect(button).toHaveText('Turn on screensaver');
+    await button.tap();
+    const child = await waitForScreensaver(page);
+    await expect(child.locator('body')).toHaveCSS('touch-action', 'manipulation');
+    await expect(child.locator('#opticalClockCanvas')).toHaveAttribute(
+      'aria-label',
+      /^\d{2}:\d{2}:\d{2}$/u,
+    );
+    const scale = () => page.evaluate(() => window.visualViewport?.scale ?? 1);
+    expect(await scale()).toBe(1);
+
+    await page.touchscreen.tap(195, 600);
+    await page.waitForTimeout(700);
+    await expect(page.locator('#screensaver-overlay')).toHaveCount(1);
+    await expect(child.locator('body')).not.toHaveClass(/chrome-hidden/u);
+    await page.screenshot({ path: testInfo.outputPath('screensaver-touch-390x844.png') });
+    // Two taps far apart are not a double-tap.
+    await page.touchscreen.tap(60, 200);
+    await page.waitForTimeout(60);
+    await page.touchscreen.tap(330, 700);
+    await page.waitForTimeout(700);
+    await expect(page.locator('#screensaver-overlay')).toHaveCount(1);
+
+    await page.touchscreen.tap(195, 600);
+    await page.waitForTimeout(60);
+    await page.touchscreen.tap(197, 602);
+    await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+    await page.waitForTimeout(400);
+    expect(await scale()).toBe(1);
+  });
+});
+
+test('brightens subtly with the visualizer bass while a file plays and not with reduced motion', async ({
+  page,
+}, testInfo) => {
+  await openHost(page);
+  // Feed the shared analyser a deterministic kick pattern on top of real file playback.
+  await page.evaluate(() => {
+    const original = AnalyserNode.prototype.getFloatFrequencyData;
+    AnalyserNode.prototype.getFloatFrequencyData = function (array: Float32Array<ArrayBuffer>) {
+      original.call(this, array);
+      const bass = (window as unknown as { __syntheticBassDb?: number }).__syntheticBassDb;
+      if (typeof bass === 'number') for (let i = 0; i < 12; i++) array[i] = bass;
+    };
+    Object.assign(window, { __syntheticBassDb: -100 });
+  });
+  await uploadFixture(page, 'test01');
+  await waitForFilePlaybackReady(page);
+  if ((await readState(page, 'playback.activity')) !== 'playing') await clickPlayButton(page);
+  await waitForState(page, 'playback.activity', 'playing');
+  await openScreensaver(page);
+  const frame = page.locator('#screensaver-overlay iframe');
+  await expect(frame).toHaveCSS('filter', 'none');
+
+  const samples = await page.evaluate(async () => {
+    const node = document.querySelector<HTMLIFrameElement>('#screensaver-overlay iframe')!;
+    const values: { t: number; kick: boolean; brightness: number }[] = [];
+    const start = performance.now();
+    let kick = false;
+    await new Promise<void>((resolve) => {
+      const step = (now: number) => {
+        const t = now - start;
+        // Three 150 ms kicks, 750 ms apart, then silence.
+        kick = t < 2_250 && t % 750 < 150;
+        Object.assign(window, { __syntheticBassDb: kick ? -2 : -100 });
+        const match = /brightness\(([\d.]+)\)/u.exec(node.style.filter);
+        values.push({ t, kick, brightness: match ? Number(match[1]) : 1 });
+        if (t < 4_000) requestAnimationFrame(step);
+        else resolve();
+      };
+      requestAnimationFrame(step);
+    });
+    return values;
+  });
+  await testInfo.attach('bass-brightness-samples', {
+    body: JSON.stringify(samples),
+    contentType: 'application/json',
+  });
+  const peak = Math.max(...samples.map((sample) => sample.brightness));
+  expect(peak).toBeGreaterThan(1.03);
+  expect(peak).toBeLessThanOrEqual(1.06);
+  let largestStep = 0;
+  for (let i = 1; i < samples.length; i++)
+    largestStep = Math.max(
+      largestStep,
+      Math.abs(samples[i]!.brightness - samples[i - 1]!.brightness),
+    );
+  // Eased per frame: the lift never lands in one step.
+  expect(largestStep).toBeLessThan(0.04);
+  // Fast attack: most of a kick's lift arrives within about 100 ms, not instantly.
+  const firstPeak = Math.max(
+    ...samples.filter((sample) => sample.t < 750).map((sample) => sample.brightness),
+  );
+  const riseAt = samples.find((sample) => sample.brightness - 1 >= (firstPeak - 1) * 0.8)!.t;
+  expect(riseAt).toBeGreaterThan(30);
+  expect(riseAt).toBeLessThan(220);
+  const firstKickEnd = samples.find((sample) => sample.t >= 150)!;
+  const beforeSecondKick = samples.filter((sample) => sample.t < 750).at(-1)!;
+  expect(beforeSecondKick.brightness).toBeLessThan(firstKickEnd.brightness);
+  expect(beforeSecondKick.brightness).toBeGreaterThan(1);
+  await expect(frame).toHaveCSS('filter', 'none');
+  expect(await readState(page, 'playback.activity')).toBe('playing');
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => Object.assign(window, { __syntheticBassDb: -2 }));
+  await page.waitForTimeout(600);
+  await expect(frame).toHaveCSS('filter', 'none');
+  await page.keyboard.press('Escape');
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 });
 
@@ -884,7 +941,7 @@ for (const viewport of [
       expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width + 1);
       expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height + 1);
     }
-    for (const id of ['displayBack', 'musicTitle', 'musicSubtitle', 'weatherRetry']) {
+    for (const id of ['displayBack', 'musicTitle', 'musicSubtitle']) {
       const control = child.locator(`#${id}`);
       await expect(control).toHaveCSS('text-shadow', 'none');
       await expect(control).toHaveCSS('box-shadow', 'none');

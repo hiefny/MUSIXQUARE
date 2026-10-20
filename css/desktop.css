@@ -1,10 +1,12 @@
 /* ==========================================================================
-   Wide desktop dashboard, active from 1280px.
+   Wide desktop dashboard, active from 1280px wide and 540px tall.
    Layout: [ Play ] | [ Playlist / Chat ] | [ Settings ]
+   Shorter wide viewports use the compact sidebar layout instead. Media
+   query strings match src/core/layout-breakpoints.ts.
    ========================================================================== */
 
 @layer desktop {
-  @media (min-width: 1280px) {
+  @media (min-width: 1280px) and (min-height: 720px) {
     /*
        Desktop density experiment
 
@@ -176,10 +178,8 @@
       padding-bottom: 0;
     }
 
-    #tab-playlist > .playlist-selection-pill {
-      left: 24px;
-      right: 24px;
-      bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    #tab-playlist .playlist-selection-bar {
+      bottom: 0;
     }
 
     /* Five auto margins divide desktop free height into 2:1:2 shares:
@@ -794,6 +794,13 @@
       width: calc(100% - 40px);
     }
 
+    /* The Help actions group keeps its own narrow inset; its buttons fill it. */
+    .help-actions .accent-action-btn {
+      width: 100%;
+      margin-inline-start: 0;
+      margin-inline-end: 0;
+    }
+
     body.mode-demo .demo-finish-content .demo-large-actions {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -914,12 +921,43 @@
       background: transparent;
     }
   }
+
+  /* Short desktop, 540–719px tall: the header covers only the Play column.
+     Playlist/Chat and Settings start at the top edge, keep the equal
+     Playlist/Chat split, and pad for the top safe area themselves. Their
+     titles share the header's 60px content row. */
+  @media (min-width: 1280px) and (min-height: 720px) and (max-height: 899px) {
+    body {
+      grid-template-rows:
+        var(--header-height)
+        minmax(0, calc(50% - var(--header-height)))
+        minmax(0, 1fr);
+      grid-template-areas:
+        'header tab-playlist tab-settings'
+        'tab-play tab-playlist tab-settings'
+        'tab-play tab-chat tab-settings';
+    }
+
+    header {
+      border-inline-end: 1px solid var(--divider);
+    }
+
+    #tab-playlist,
+    #tab-settings {
+      padding-top: var(--safe-top);
+    }
+
+    #tab-playlist > .tab-header,
+    #tab-settings > .tab-header {
+      padding-top: 12px;
+    }
+  }
 } /* end @layer desktop */
 
 /* The transformed desktop dashboard exposes an inverse viewport token. Shared components and responsive geometry consume that token so dialogs and full-screen flows are scaled exactly once. */
 
 @layer components {
-  @media (min-width: 1280px) {
+  @media (min-width: 1280px) and (min-height: 720px) {
     .dialog.account-dialog,
     .dialog.administrator-permissions-dialog {
       max-height: calc(var(--desktop-viewport-height) - 48px);
@@ -940,7 +978,7 @@
 }
 
 @layer responsive {
-  @media (min-width: 1280px) {
+  @media (min-width: 1280px) and (min-height: 720px) {
     .onboarding-overlay {
       max-height: var(--desktop-viewport-height);
     }

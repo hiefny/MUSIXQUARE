@@ -31,7 +31,11 @@ import {
   isJoinBootstrapPayloadFrame,
 } from './join-bootstrap.ts';
 import { showToast } from '../ui/toast.ts';
-import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import {
+  getRoomContext,
+  hasRoomCapability,
+  markStandardRoomAuthorityConfirmed,
+} from '../rooms/authority.ts';
 import {
   markProRoomTransportRecovered,
   requestProRoomTransportRecovery,
@@ -943,6 +947,7 @@ function handleOperatorGrant(data: Record<string, unknown>, conn?: DataConnectio
     return;
   }
 
+  markStandardRoomAuthorityConfirmed(hostConn);
   const wasOperator = getState('network.isOperator');
   const capabilities = normalizeStandardGrantCapabilities(data.capabilities);
   const isOwnerProjection = capabilities?.includes('room.configure') === true;
@@ -976,6 +981,8 @@ function handleOperatorRevoke(data: Record<string, unknown>, conn?: DataConnecti
     return;
   }
 
+  // A revoke is also this guest's confirmed answer: a plain participant.
+  markStandardRoomAuthorityConfirmed(hostConn);
   const wasOperator = getState('network.isOperator');
   const wasOwnerProjection =
     getState('network.standardRoomCapabilities')?.includes('room.configure') === true;

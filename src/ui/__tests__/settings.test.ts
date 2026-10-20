@@ -8,6 +8,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
+import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 import {
@@ -924,8 +925,10 @@ describe('initSettings effect slider fill sync', () => {
 
   it('fails closed when a delegated administrator projection lacks effects control', () => {
     installEffectSettingsDom();
+    const hostConn = { open: true } as DataConnection;
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { open: true } as DataConnection);
+    setState('network.hostConn', hostConn);
+    markStandardRoomAuthorityConfirmed(hostConn);
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', [
       'media.add',

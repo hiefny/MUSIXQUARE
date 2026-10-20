@@ -15,6 +15,7 @@ const pl: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Anuluj',
+  'common.delete': 'Usuń',
   'common.close': 'Zamknij',
   'common.skip_to_content': 'Przejdź do treści',
   'common.reset': 'Resetuj',
@@ -45,6 +46,7 @@ const pl: Record<I18nKey, string> = {
   'common.off': 'Wył.',
 
   'screensaver.back': 'Wróć do MUSIXQUARE',
+  'screensaver.turn_on': 'Włącz wygaszacz ekranu',
   'account.login_title': 'Zaloguj się',
   'account.login_cancelled': 'Logowanie anulowano',
   'account.login_failed': 'Nie udało się zalogować\nSpróbuj ponownie',
@@ -156,6 +158,7 @@ const pl: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Odznacz wszystko',
   'playlist.select_all': 'Zaznacz wszystko',
   'playlist.delete_selected': 'Usuń zaznaczone materiały: {{count}}',
+  'playlist.selected_count': 'Wybrano {{count}}',
   'playlist.video_fallback': 'Ładowanie…',
   'playlist.track_fallback': 'Materiał {{idx}}',
   'playlist.deferred_load_hint':
@@ -554,6 +557,7 @@ const pl: Record<I18nKey, string> = {
     'Dekodowanie materiału nie powiodło się na jednym z urządzeń\nOdtwarzanie jest kontynuowane na pozostałych',
   'toast.invite_code_info': 'Urządzenia: {{count}} | Kod: {{code}}',
   'toast.added_tracks': 'Dodane materiały: {{count}}',
+  'toast.deleted_tracks': 'Usunięte materiały: {{count}}',
   'toast.preparing': 'Przygotowanie: {{name}}',
   'toast.file_save_error': 'Błąd zapisu pliku: {{name}}',
   'toast.decoding_audio': 'Dekodowanie dźwięku w toku…',
@@ -588,6 +592,18 @@ const pl: Record<I18nKey, string> = {
   'toast.member_management_required': 'Wymagane jest uprawnienie do wyrzucania uczestników',
   'toast.chat_notice_required': 'Wymagane jest uprawnienie do publikowania ogłoszeń na czacie',
   'toast.room_owner_required': 'Tylko właściciel pokoju może to zmienić',
+  'toast.media_management_checking':
+    'Sprawdzamy uprawnienie do zarządzania multimediami\nSpróbuj ponownie za chwilę',
+  'toast.playback_control_checking':
+    'Sprawdzamy uprawnienie do sterowania odtwarzaniem\nSpróbuj ponownie za chwilę',
+  'toast.member_management_checking':
+    'Sprawdzamy uprawnienie do wyrzucania uczestników\nSpróbuj ponownie za chwilę',
+  'toast.chat_notice_checking':
+    'Sprawdzamy uprawnienie do publikowania ogłoszeń na czacie\nSpróbuj ponownie za chwilę',
+  'toast.admin_permission_checking':
+    'Sprawdzamy uprawnienia administratora\nSpróbuj ponownie za chwilę',
+  'toast.room_owner_checking':
+    'Sprawdzamy uprawnienia właściciela pokoju\nSpróbuj ponownie za chwilę',
   'toast.system_audio_owner_required':
     'Możesz udostępniać dźwięk tylko z karty, w której utworzono pokój',
   'toast.host_setting_required': 'Tylko host może zmienić to ustawienie',
@@ -938,6 +954,11 @@ const pl: Record<I18nKey, string> = {
 export default pl;
 
 export const pluralMessages = {
+  'playlist.selected_count': {
+    one: 'Wybrano {{count}}',
+    few: 'Wybrano {{count}}',
+    many: 'Wybrano {{count}}',
+  },
   'connect.administrator_list': {
     one: 'Administrator: {{count}}',
     few: 'Administratorzy: {{count}}',
@@ -982,6 +1003,11 @@ export const pluralMessages = {
     one: 'Dodano {{count}} materiał',
     few: 'Dodano {{count}} materiały',
     many: 'Dodano {{count}} materiałów',
+  },
+  'toast.deleted_tracks': {
+    one: 'Usunięto {{count}} materiał',
+    few: 'Usunięto {{count}} materiały',
+    many: 'Usunięto {{count}} materiałów',
   },
   'toast.unsupported_files_excluded': {
     one: 'Pominięto {{count}} nieobsługiwany plik',

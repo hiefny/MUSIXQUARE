@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { APP_DICTIONARIES } from '../catalogs.ts';
 import { LANGUAGE_OPTIONS } from '../locales.ts';
 
-const SCREEN_SAVER_KEYS = ['screensaver.back', 'toast.screensaver_youtube'] as const;
+const SCREEN_SAVER_KEYS = [
+  'screensaver.back',
+  'screensaver.turn_on',
+  'toast.screensaver_youtube',
+] as const;
 
 describe('screensaver translations', () => {
   it('provides translated controls and the YouTube restriction in all 42 languages', () => {
@@ -31,5 +35,7 @@ describe('screensaver translations', () => {
       'Screensaver is unavailable during YouTube playback',
     );
     expect(APP_DICTIONARIES.en['screensaver.back']).toBe('Back to MUSIXQUARE');
+    expect(APP_DICTIONARIES.ko['screensaver.turn_on']).toBe('화면 보호기 켜기');
+    expect(APP_DICTIONARIES.en['screensaver.turn_on']).toBe('Turn on screensaver');
   });
 });

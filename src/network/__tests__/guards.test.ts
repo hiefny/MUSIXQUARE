@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { t } from '../../i18n/index.ts';
+import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
 import type { DataConnection, RoomCapability } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
 import { isGuestBlocked } from '../guards.ts';
@@ -18,8 +19,11 @@ beforeEach(() => {
 });
 
 function enterStandardAdministrator(capabilities: RoomCapability[]): void {
+  const hostConn = { open: true, peer: 'host-1' } as DataConnection;
   setState('network.appRole', 'guest');
-  setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
+  setState('network.hostConn', hostConn);
+  // The host's grant projection has arrived, so a missing capability is final.
+  markStandardRoomAuthorityConfirmed(hostConn);
   setState('network.isOperator', true);
   setState('network.standardRoomCapabilities', capabilities);
 }

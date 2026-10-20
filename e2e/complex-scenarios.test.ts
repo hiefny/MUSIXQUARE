@@ -760,7 +760,7 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
     await expect(pair.hostPage.locator('#chat-drawer')).toHaveClass(/open/);
   });
 
-  test('playlist removal selection survives a wide-layout tab switch', async () => {
+  test('playlist removal selection ends on a wide-layout tab switch', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -771,15 +771,15 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
     const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first();
 
     await removeBtn.click();
-    await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
+    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeVisible();
 
     await pair.hostPage.evaluate(() => {
       (document.getElementById('nav-settings') as HTMLElement)?.click();
     });
 
     await navigateToTab(pair.hostPage, 'play');
-    await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
-    await expect(removeBtn).toHaveAttribute('aria-pressed', 'true');
+    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeHidden();
+    await expect(removeBtn).toHaveAttribute('aria-pressed', 'false');
 
     const count = await pair.hostPage.evaluate(
       () => document.getElementById('playlist-ui')?.children.length ?? 0,

@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v740"></script>
+    <script src="/bootstrap.js?cache=v743"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <!-- mxqr-hreflang:start -->
@@ -799,14 +799,24 @@
           <div class="help-desc" data-i18n-html="help.need_help_html"><ul class="help-list"><li><strong>Entered the code but can't connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul></div>
         </div>
 
-        <button class="accent-action-btn divider-narrower" id="btn-demo-media-mobile">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path
-              d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"
-            />
-          </svg>
-          <span data-i18n="setup.demo_button">Take a Tour</span>
-        </button>
+        <div class="help-actions divider-narrower">
+          <button class="neutral-action-btn" id="btn-demo-media-mobile">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"
+              />
+            </svg>
+            <span data-i18n="setup.demo_button">Take a Tour</span>
+          </button>
+          <button type="button" class="accent-action-btn" id="btn-screensaver-mobile">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"
+              />
+            </svg>
+            <span data-i18n="screensaver.turn_on">Turn on screensaver</span>
+          </button>
+        </div>
 
         <div class="help-block legal-block">
           <div class="help-title">
@@ -1858,14 +1868,24 @@
               <div class="help-desc" data-i18n-html="help.need_help_html"><ul class="help-list"><li><strong>Entered the code but can't connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul></div>
             </div>
 
-            <button class="accent-action-btn divider-narrow" id="btn-demo-media">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path
-                  d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"
-                />
-              </svg>
-              <span data-i18n="setup.demo_button">Take a Tour</span>
-            </button>
+            <div class="help-actions divider-narrow">
+              <button class="neutral-action-btn" id="btn-demo-media">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"
+                  />
+                </svg>
+                <span data-i18n="setup.demo_button">Take a Tour</span>
+              </button>
+              <button type="button" class="accent-action-btn" id="btn-screensaver">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"
+                  />
+                </svg>
+                <span data-i18n="screensaver.turn_on">Turn on screensaver</span>
+              </button>
+            </div>
 
             <div class="help-block legal-block">
               <div class="help-title">

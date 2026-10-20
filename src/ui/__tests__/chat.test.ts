@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -516,8 +517,12 @@ describe('Chat Module', () => {
     document.body.innerHTML =
       '<div id="chat-messages"></div><div id="chat-input" contenteditable="true"></div>';
     document.getElementById('chat-input')!.textContent = '/notice ' + 'denied '.repeat(100);
+    const hostConn = { open: true, peer: 'host-denied-notice' } as DataConnection;
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { open: true, peer: 'host-denied-notice' } as DataConnection);
+    setState('network.hostConn', hostConn);
+    // The host has already projected this guest as a plain participant.
+    const { markStandardRoomAuthorityConfirmed } = await import('../../rooms/authority.ts');
+    markStandardRoomAuthorityConfirmed(hostConn);
     const sent = vi.fn();
     bus.on('network:broadcast', sent);
     const { sendChatMessage } = await import('../chat.ts');
@@ -626,7 +631,7 @@ describe('Chat Module', () => {
   });
 
   it('installs bubble copy gestures when the desktop chat starts already visible', async () => {
-    const desktopMedia = window.matchMedia('(min-width: 1280px)');
+    const desktopMedia = window.matchMedia(DESKTOP_LAYOUT_QUERY);
     Object.defineProperty(desktopMedia, 'matches', { configurable: true, value: true });
     const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
     const writeText = vi.fn(async () => undefined);

@@ -16,6 +16,7 @@ const da: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Annuller',
+  'common.delete': 'Slet',
   'common.close': 'Luk',
   'common.skip_to_content': 'Fortsæt til indhold',
   'common.reset': 'Nulstil',
@@ -46,6 +47,7 @@ const da: Record<I18nKey, string> = {
   'common.off': 'Fra',
 
   'screensaver.back': 'Tilbage til MUSIXQUARE',
+  'screensaver.turn_on': 'Slå pauseskærm til',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Log ind',
@@ -158,6 +160,7 @@ const da: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Fjern alle markeringer',
   'playlist.select_all': 'Markér alle',
   'playlist.delete_selected': 'Slet {{count}} markerede numre',
+  'playlist.selected_count': '{{count}} valgt',
   'playlist.video_fallback': 'Indlæser…',
   'playlist.track_fallback': 'Nummer {{idx}}',
   'playlist.deferred_load_hint': 'Afspil for at indlæse hele nummerlisten',
@@ -549,6 +552,7 @@ const da: Record<I18nKey, string> = {
     'En enhed kunne ikke afkode dette nummer\nAfspilningen fortsætter for alle andre',
   'toast.invite_code_info': '{{count}} forbundet | Kode {{code}}',
   'toast.added_tracks': '{{count}} numre blev tilføjet',
+  'toast.deleted_tracks': '{{count}} numre blev slettet',
   'toast.preparing': 'Forbereder: {{name}}',
   'toast.file_save_error': 'Kunne ikke gemme filen: {{name}}',
   'toast.decoding_audio': 'Afkoder lyd…',
@@ -582,6 +586,16 @@ const da: Record<I18nKey, string> = {
   'toast.member_management_required': 'Der kræves tilladelse til at fjerne medlemmer',
   'toast.chat_notice_required': 'Der kræves tilladelse til at slå chatmeddelelser op',
   'toast.room_owner_required': 'Kun rummets ejer kan ændre dette',
+  'toast.media_management_checking':
+    'Tjekker tilladelse til at administrere medier\nPrøv igen om et øjeblik',
+  'toast.playback_control_checking':
+    'Tjekker tilladelse til at styre afspilningen\nPrøv igen om et øjeblik',
+  'toast.member_management_checking':
+    'Tjekker tilladelse til at fjerne medlemmer\nPrøv igen om et øjeblik',
+  'toast.chat_notice_checking':
+    'Tjekker tilladelse til at slå chatmeddelelser op\nPrøv igen om et øjeblik',
+  'toast.admin_permission_checking': 'Tjekker administratorrettigheder\nPrøv igen om et øjeblik',
+  'toast.room_owner_checking': 'Tjekker rummets ejerrettigheder\nPrøv igen om et øjeblik',
   'toast.system_audio_owner_required': 'Du kan kun dele lyd fra den fane, der åbnede rummet',
   'toast.host_setting_required': 'Kun værten kan ændre denne indstilling',
   'toast.no_tracks': 'Der er ingen numre at afspille',
@@ -946,6 +960,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} nummer blev tilføjet',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} nummer blev slettet',
   },
   'dialog.file_drop.message': {
     one: 'Tilføj {{count}} fil?',

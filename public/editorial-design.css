@@ -675,7 +675,7 @@
 .expand-toggle:focus-visible,
 .playlist-remove:focus-visible,
 .tab-action-btn-sample:focus-visible,
-.playlist-selection-action:focus-visible,
+.playlist-selection-pill:focus-visible,
 .toggle-sample:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
@@ -1175,72 +1175,47 @@
   transform: scale(0.92);
 }
 
-.playlist-selection-pill {
+.playlist-selection-bar {
   width: max-content;
-  min-height: 56px;
+  max-width: 100%;
+  box-sizing: border-box;
   margin: 28px auto 0;
   padding: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--primary-filled);
-  color: #fff;
+  gap: 6px;
+  border: 1px solid var(--glass-border, transparent);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--surface-1);
 }
 
-.playlist-selection-action {
-  width: 44px;
-  height: 44px;
-  padding: 0;
+.playlist-selection-pill {
+  min-width: 100px;
+  min-height: 54px;
+  padding: 0 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: transparent;
-  color: rgba(255, 255, 255, 0.94);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.playlist-selection-action svg {
-  width: 21px;
-  height: 21px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
 .playlist-selection-delete {
-  width: auto;
-  min-width: 58px;
-  padding: 0 9px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.playlist-selection-delete svg {
-  fill: currentColor;
-  stroke: none;
-}
-
-.playlist-selection-count {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--danger-filled);
   color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+}
+
+.playlist-selection-cancel {
+  border-color: var(--glass-border, transparent);
+  background: var(--surface-2);
+  color: var(--text-main);
 }
 
 .range-demo-grid {

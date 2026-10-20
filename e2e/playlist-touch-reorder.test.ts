@@ -132,24 +132,24 @@ test.describe('Playlist touch reorder', () => {
       await touchEnd(cdp);
     }
     await expect(firstRemoveButton).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
-    await expect(page.locator('.playlist-selection-count')).toHaveText('1');
+    await expect(page.locator('.playlist-selection-bar')).toBeVisible();
+    await expect(page.locator('.playlist-selection-title')).toHaveText('1 selected');
 
-    const actionSizes = await page.locator('.playlist-selection-action').evaluateAll((buttons) =>
+    const actionSizes = await page.locator('.playlist-selection-pill').evaluateAll((buttons) =>
       buttons.map((button) => {
         const rect = button.getBoundingClientRect();
         return { width: rect.width, height: rect.height };
       }),
     );
-    expect(actionSizes).toHaveLength(3);
+    expect(actionSizes).toHaveLength(2);
     expect(actionSizes.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
 
-    const selectAllAction = page.locator('[data-selection-action="select-all"]');
+    const selectAllAction = page.locator('.playlist-selection-toggle');
     await quickTap(cdp, await centerOf(selectAllAction));
-    await expect(selectAllAction).toHaveAttribute('aria-pressed', 'true');
+    await expect(selectAllAction).toHaveText('Deselect all');
     await quickTap(cdp, await centerOf(page.locator('[data-selection-action="cancel"]')));
     await expect(firstRemoveButton).toHaveAttribute('aria-pressed', 'false');
-    await expect(page.locator('.playlist-selection-pill')).not.toHaveClass(/is-visible/);
+    await expect(page.locator('.playlist-selection-bar')).toBeHidden();
 
     // A short touch on the non-interactive row body must retain the existing
     // tap-to-play behavior.

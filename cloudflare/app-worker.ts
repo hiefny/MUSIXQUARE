@@ -353,7 +353,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.11.31';
+const ADMIN_ASSET_VERSION = '8.11.32';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -530,10 +530,6 @@ const SECURITY_HEADERS = {
 };
 
 const APP_DOCUMENT_SECURITY_HEADERS = {
-  'Permissions-Policy': SECURITY_HEADERS['Permissions-Policy'].replace(
-    'geolocation=()',
-    'geolocation=(self)',
-  ),
   'Content-Security-Policy': SECURITY_HEADERS['Content-Security-Policy'].replace(
     'frame-src ',
     "frame-src 'self' ",
@@ -546,10 +542,9 @@ const SCREENSAVER_SECURITY_HEADERS = {
   'Cloudflare-CDN-Cache-Control': 'no-store',
   'X-Frame-Options': 'SAMEORIGIN',
   'X-Robots-Tag': 'noindex, nofollow',
-  'Permissions-Policy':
-    'camera=(), microphone=(), display-capture=(), geolocation=(self), payment=()',
+  'Permissions-Policy': 'camera=(), microphone=(), display-capture=(), geolocation=(), payment=()',
   'Content-Security-Policy':
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://air-quality-api.open-meteo.com; frame-src 'none'; worker-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
 };
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {
@@ -15383,11 +15378,24 @@ async function serveSoroImage(request: Request, env: AppEnv, key: string) {
     return withSecurityHeaders(new Response('Not found', { status: 404 }));
   }
 
-  let object = await env.SORO_IMAGE_BUCKET.get(key);
+  const bucket = env.SORO_IMAGE_BUCKET;
+  let article: SoroArticle | null = null;
+  let mirrorStatus = '';
+  // An R2 outage must reach the source fallback below instead of failing the
+  // request, so a read error counts as a missing object.
+  const readObject = async (objectKey: string) => {
+    try {
+      return await bucket.get(objectKey);
+    } catch {
+      mirrorStatus = 'read-error';
+      return null;
+    }
+  };
+  let object = await readObject(key);
   if (!object && request.method !== 'HEAD') {
-    const article = await findSoroImageArticleForKey(env, key);
+    article = await findSoroImageArticleForKey(env, key);
     if (article) {
-      await ensureSoroImageMirror(env, article, { fetchMissing: true });
+      mirrorStatus = await ensureSoroImageMirror(env, article, { fetchMissing: true });
       const currentKey = await soroImageKey(article);
       if (currentKey !== key) {
         return withSecurityHeaders(
@@ -15397,10 +15405,22 @@ async function serveSoroImage(request: Request, env: AppEnv, key: string) {
           },
         );
       }
-      object = await env.SORO_IMAGE_BUCKET.get(currentKey);
+      object = await readObject(currentKey);
     }
   }
-  if (!object) return withSecurityHeaders(new Response('Not found', { status: 404 }));
+  if (!object) {
+    // A failed mirror must not break the article image. The allowlisted
+    // provider URL is already permitted by the page CSP, so send the browser
+    // there and keep the mirror status visible for diagnosis.
+    const source = article ? sanitizeSoroImageSource(article.image) : '';
+    if (source) {
+      return withSecurityHeaders(Response.redirect(source, 302), {
+        'Cache-Control': 'no-store',
+        'X-Soro-Image-Mirror': mirrorStatus || 'missing',
+      });
+    }
+    return withSecurityHeaders(new Response('Not found', { status: 404 }));
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',

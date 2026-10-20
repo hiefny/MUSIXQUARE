@@ -9,6 +9,7 @@ import { createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
+import { BASS_BIN_COUNT, averageBassLevel, bassPunch as toBassPunch } from '../audio/bass-level.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import { isPlaybackModeYouTube, isPlaybackPaused, isPlaybackPlaying } from '../player/ownership.ts';
 import { buildSpectrumDitherStrip, SPECTRUM_DITHER_TILE_SIZE } from './spectrum-dither.ts';
@@ -735,8 +736,7 @@ export function startVisualizer(): void {
   const highEnd = bufferLength;
   let highCountVal = highEnd - highStart;
   if (highCountVal < 1) highCountVal = 1;
-  let bassCount = 12;
-  if (bassCount > bufferLength) bassCount = bufferLength;
+  const bassCount = Math.min(BASS_BIN_COUNT, bufferLength);
 
   // Cache theme on start
   refreshThemeCache();
@@ -762,20 +762,11 @@ export function startVisualizer(): void {
       analyser!.getFloatFrequencyData(_freqData);
       const dbData = _freqData;
 
-      // Bass: 0~260Hz (12 bins)
-      let bassSum = 0;
-      for (let i = 0; i < bassCount; i++) {
-        let val = (dbData[i] + 100) * 2.5;
-        if (!isFinite(val)) val = 0;
-        if (val < 0) val = 0;
-        if (val > 255) val = 255;
-        bassSum += val;
-      }
-      const bassAverage = bassSum / bassCount;
+      // Bass: lowest analyser bins, shared with the screensaver glow.
+      const bassAverage = averageBassLevel(dbData, bassCount);
 
       smoothedBass = smoothedBass * BASS_SMOOTH + bassAverage * (1 - BASS_SMOOTH);
-      let bassPunch = Math.pow(smoothedBass / 255, 2.5);
-      if (!isFinite(bassPunch)) bassPunch = 0;
+      const bassPunch = toBassPunch(smoothedBass);
       const bassPunchOpacity = Math.pow(smoothedBass / 255, 1.5);
 
       // High: 7.5kHz~20kHz (0.7~1.0 of buffer)

@@ -15,6 +15,7 @@ const hu: Record<I18nKey, string> = {
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Mégse',
+  'common.delete': 'Törlés',
   'common.close': 'Bezárás',
   'common.skip_to_content': 'Ugrás a tartalomhoz',
   'common.reset': 'Visszaállítás',
@@ -45,6 +46,7 @@ const hu: Record<I18nKey, string> = {
   'common.off': 'Ki',
 
   'screensaver.back': 'Vissza a MUSIXQUARE-hez',
+  'screensaver.turn_on': 'Képernyőkímélő bekapcsolása',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Bejelentkezés',
@@ -158,6 +160,7 @@ const hu: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Összes kijelölés megszüntetése',
   'playlist.select_all': 'Összes kijelölése',
   'playlist.delete_selected': 'Kijelölt számok törlése: {{count}}',
+  'playlist.selected_count': '{{count}} kijelölve',
   'playlist.video_fallback': 'Betöltés...',
   'playlist.track_fallback': '{{idx}}. szám',
   'playlist.deferred_load_hint': 'A teljes számlista betöltéséhez indítsd el a lejátszást',
@@ -550,6 +553,7 @@ const hu: Record<I18nKey, string> = {
     'Egy eszköz nem tudta dekódolni ezt a számot\nA többi eszközön folytatódik a lejátszás',
   'toast.invite_code_info': '{{count}} csatlakoztatott eszköz | Kód: {{code}}',
   'toast.added_tracks': '{{count}} szám hozzáadva',
+  'toast.deleted_tracks': '{{count}} szám törölve',
   'toast.preparing': 'Előkészítés: {{name}}',
   'toast.file_save_error': 'Fájlmentési hiba: {{name}}',
   'toast.decoding_audio': 'Hang dekódolása...',
@@ -585,6 +589,18 @@ const hu: Record<I18nKey, string> = {
   'toast.member_management_required': 'Résztvevő-eltávolítási jogosultság szükséges',
   'toast.chat_notice_required': 'Közlemény közzétételéhez jogosultság szükséges',
   'toast.room_owner_required': 'Ezt csak a szobatulajdonos módosíthatja',
+  'toast.media_management_checking':
+    'Médiakezelési jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.playback_control_checking':
+    'Lejátszásvezérlési jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.member_management_checking':
+    'Résztvevő-eltávolítási jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.chat_notice_checking':
+    'Közlemény-közzétételi jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.admin_permission_checking':
+    'Adminisztrátori jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.room_owner_checking':
+    'Szobatulajdonosi jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
   'toast.system_audio_owner_required':
     'Csak arról a lapról oszthatsz meg hangot, amelyik megnyitotta a szobát',
   'toast.host_setting_required': 'Ezt a beállítást csak a házigazda módosíthatja',

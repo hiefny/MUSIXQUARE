@@ -16,6 +16,7 @@ const fi: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Peruuta',
+  'common.delete': 'Poista',
   'common.close': 'Sulje',
   'common.skip_to_content': 'Siirry sisältöön',
   'common.reset': 'Palauta',
@@ -46,6 +47,7 @@ const fi: Record<I18nKey, string> = {
   'common.off': 'Pois käytöstä',
 
   'screensaver.back': 'Takaisin MUSIXQUAREen',
+  'screensaver.turn_on': 'Käynnistä näytönsäästäjä',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Kirjaudu sisään',
@@ -159,6 +161,7 @@ const fi: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Poista kaikki valinnat',
   'playlist.select_all': 'Valitse kaikki',
   'playlist.delete_selected': 'Poista {{count}} valittua kappaletta',
+  'playlist.selected_count': '{{count}} valittu',
   'playlist.video_fallback': 'Ladataan…',
   'playlist.track_fallback': 'Kappale {{idx}}',
   'playlist.deferred_load_hint': 'Lataa koko kappalelista aloittamalla toisto',
@@ -547,6 +550,7 @@ const fi: Record<I18nKey, string> = {
     'Yksi laite ei pystynyt purkamaan kappaletta\nToisto jatkuu muilla laitteilla',
   'toast.invite_code_info': 'Yhdistettyjä: {{count}} | Koodi {{code}}',
   'toast.added_tracks': 'Lisättiin {{count}} kappaletta',
+  'toast.deleted_tracks': 'Poistettiin {{count}} kappaletta',
   'toast.preparing': 'Valmistellaan: {{name}}',
   'toast.file_save_error': 'Tiedoston tallennusvirhe: {{name}}',
   'toast.decoding_audio': 'Puretaan ääntä…',
@@ -580,6 +584,18 @@ const fi: Record<I18nKey, string> = {
   'toast.member_management_required': 'Jäsenten poistamisoikeus vaaditaan',
   'toast.chat_notice_required': 'Chat-ilmoitusten julkaisuoikeus vaaditaan',
   'toast.room_owner_required': 'Vain huoneen omistaja voi muuttaa tätä',
+  'toast.media_management_checking':
+    'Tarkistetaan median hallintaoikeutta\nYritä hetken kuluttua uudelleen',
+  'toast.playback_control_checking':
+    'Tarkistetaan toiston hallintaoikeutta\nYritä hetken kuluttua uudelleen',
+  'toast.member_management_checking':
+    'Tarkistetaan jäsenten poistamisoikeutta\nYritä hetken kuluttua uudelleen',
+  'toast.chat_notice_checking':
+    'Tarkistetaan chat-ilmoitusten julkaisuoikeutta\nYritä hetken kuluttua uudelleen',
+  'toast.admin_permission_checking':
+    'Tarkistetaan ylläpitäjäoikeuksia\nYritä hetken kuluttua uudelleen',
+  'toast.room_owner_checking':
+    'Tarkistetaan huoneen omistajan oikeuksia\nYritä hetken kuluttua uudelleen',
   'toast.system_audio_owner_required': 'Voit jakaa ääntä vain välilehdeltä, joka avasi huoneen',
   'toast.host_setting_required': 'Vain isäntä voi muuttaa tätä asetusta',
   'toast.no_tracks': 'Ei toistettavia kappaleita',
@@ -948,6 +964,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: 'Lisättiin {{count}} kappale',
+  },
+  'toast.deleted_tracks': {
+    one: 'Poistettiin {{count}} kappale',
   },
   'dialog.file_drop.message': {
     one: 'Lisätäänkö {{count}} tiedosto?',

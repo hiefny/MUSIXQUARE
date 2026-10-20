@@ -14,6 +14,7 @@ const ko = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': '확인',
   'common.cancel': '취소',
+  'common.delete': '삭제하기',
   'common.close': '닫기',
   'common.skip_to_content': '콘텐츠로 바로가기',
   'common.reset': '초기화',
@@ -44,6 +45,7 @@ const ko = {
   'common.off': '끄기',
 
   'screensaver.back': 'MUSIXQUARE로 돌아가기',
+  'screensaver.turn_on': '화면 보호기 켜기',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': '로그인',
@@ -156,6 +158,7 @@ const ko = {
   'playlist.deselect_all': '모두 선택 해제',
   'playlist.select_all': '모두 선택',
   'playlist.delete_selected': '선택한 트랙 {{count}}개 삭제',
+  'playlist.selected_count': '{{count}}개 선택됨',
   'playlist.video_fallback': '불러오는 중...',
   'playlist.track_fallback': '트랙 {{idx}}',
   'playlist.deferred_load_hint': '재생하면 전체 트랙 정보를 불러올게요',
@@ -535,6 +538,7 @@ const ko = {
     '현재 디코딩에 실패한 기기가 있어요\n해당 기기를 제외하고 재생 중이에요',
   'toast.invite_code_info': '연결된 기기 {{count}}대 | 초대 코드 {{code}}',
   'toast.added_tracks': '트랙 {{count}}개를 추가했어요',
+  'toast.deleted_tracks': '트랙 {{count}}개를 삭제했어요',
   'toast.preparing': '준비 중: {{name}}',
   'toast.file_save_error': '파일 저장 오류: {{name}}',
   'toast.decoding_audio': '오디오 디코딩 중...',
@@ -568,6 +572,12 @@ const ko = {
   'toast.member_management_required': '멤버 추방 권한이 필요해요',
   'toast.chat_notice_required': '채팅방 공지 권한이 필요해요',
   'toast.room_owner_required': '방 소유자만 변경할 수 있어요',
+  'toast.media_management_checking': '미디어 관리 권한을 확인 중이에요\n잠시 후 다시 시도해 주세요',
+  'toast.playback_control_checking': '재생 제어 권한을 확인 중이에요\n잠시 후 다시 시도해 주세요',
+  'toast.member_management_checking': '멤버 추방 권한을 확인 중이에요\n잠시 후 다시 시도해 주세요',
+  'toast.chat_notice_checking': '채팅방 공지 권한을 확인 중이에요\n잠시 후 다시 시도해 주세요',
+  'toast.admin_permission_checking': '관리자 권한을 확인 중이에요\n잠시 후 다시 시도해 주세요',
+  'toast.room_owner_checking': '방 소유자 권한을 확인 중이에요\n잠시 후 다시 시도해 주세요',
   'toast.system_audio_owner_required': '방을 직접 연 탭에서만 공유할 수 있어요',
   'toast.host_setting_required': '방장만 이 설정을 변경할 수 있어요',
   'toast.no_tracks': '재생할 트랙이 없어요',

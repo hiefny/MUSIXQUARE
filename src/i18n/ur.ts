@@ -15,6 +15,7 @@ const ur: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ٹھیک ہے',
   'common.cancel': 'منسوخ کریں',
+  'common.delete': 'حذف کریں',
   'common.close': 'بند کریں',
   'common.skip_to_content': 'چھوڑیں مواد پر جائیں',
   'common.reset': 'ری سیٹ کریں',
@@ -45,6 +46,7 @@ const ur: Record<I18nKey, string> = {
   'common.off': 'آف',
 
   'screensaver.back': 'MUSIXQUARE پر واپس جائیں',
+  'screensaver.turn_on': 'اسکرین سیور آن کریں',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'سائن ان',
@@ -157,6 +159,7 @@ const ur: Record<I18nKey, string> = {
   'playlist.deselect_all': 'سب کا انتخاب ہٹائیں',
   'playlist.select_all': 'سب منتخب کریں',
   'playlist.delete_selected': 'منتخب کیے گئے {{count}} ٹریک حذف کریں',
+  'playlist.selected_count': '{{count}} منتخب شدہ',
   'playlist.video_fallback': 'لوڈ ہو رہا ہے...',
   'playlist.track_fallback': 'ٹریک {{idx}}',
   'playlist.deferred_load_hint': 'مکمل ٹریک لسٹ لوڈ کرنے کے لیے چلائیں',
@@ -539,6 +542,7 @@ const ur: Record<I18nKey, string> = {
     'ایک آلہ یہ ٹریک ڈی کوڈ نہیں کر سکا\nباقی سب کے لیے پلے بیک جاری ہے',
   'toast.invite_code_info': '{{count}} منسلک | کوڈ {{code}}',
   'toast.added_tracks': '{{count}} ٹریک شامل ہوئے',
+  'toast.deleted_tracks': '{{count}} ٹریک حذف ہوئے',
   'toast.preparing': 'تیار ہو رہا ہے: {{name}}',
   'toast.file_save_error': 'فائل محفوظ کرنے میں خرابی: {{name}}',
   'toast.decoding_audio': 'آڈیو ڈی کوڈ ہو رہی ہے...',
@@ -572,6 +576,18 @@ const ur: Record<I18nKey, string> = {
   'toast.member_management_required': 'ارکان کو نکالنے کی اجازت درکار ہے',
   'toast.chat_notice_required': 'چیٹ اطلاع پوسٹ کرنے کی اجازت درکار ہے',
   'toast.room_owner_required': 'صرف کمرے کا مالک یہ بدل سکتا ہے',
+  'toast.media_management_checking':
+    'میڈیا کے انتظام کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.playback_control_checking':
+    'پلے بیک کنٹرول کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.member_management_checking':
+    'ارکان کو نکالنے کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.chat_notice_checking':
+    'چیٹ اطلاع پوسٹ کرنے کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.admin_permission_checking':
+    'منتظم کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.room_owner_checking':
+    'کمرے کے مالک کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
   'toast.system_audio_owner_required':
     'آپ صرف اسی ٹیب سے آڈیو شیئر کر سکتے ہیں جس نے کمرہ کھولا تھا',
   'toast.host_setting_required': 'صرف میزبان یہ ترتیب بدل سکتا ہے',
@@ -930,6 +946,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ٹریک شامل ہوا',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ٹریک حذف ہوا',
   },
   'dialog.file_drop.message': {
     one: '{{count}} فائل شامل کریں؟',

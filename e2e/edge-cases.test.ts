@@ -467,10 +467,10 @@ test.describe('Edge Cases', () => {
     await navigateToTab(pair.hostPage, 'playlist');
 
     await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
-    await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
+    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeVisible();
     await expect(pair.hostPage.locator('#dialog-overlay')).toBeHidden();
     await pair.hostPage.locator('[data-selection-action="cancel"]').click();
-    await expect(pair.hostPage.locator('.playlist-selection-pill')).not.toHaveClass(/is-visible/);
+    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeHidden();
 
     const count = await pair.hostPage.evaluate(() => {
       return document.getElementById('playlist-ui')?.children.length ?? 0;

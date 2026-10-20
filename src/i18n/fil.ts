@@ -15,6 +15,7 @@ const fil: Record<I18nKey, string> = {
   // ─── Pangkalahatan ───────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Kanselahin',
+  'common.delete': 'Burahin',
   'common.close': 'Isara',
   'common.skip_to_content': 'Lumaktaw patungo sa content',
   'common.reset': 'I-reset',
@@ -45,6 +46,7 @@ const fil: Record<I18nKey, string> = {
   'common.off': 'Naka-off',
 
   'screensaver.back': 'Bumalik sa MUSIXQUARE',
+  'screensaver.turn_on': 'I-on ang screensaver',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Mag-sign in',
@@ -160,6 +162,7 @@ const fil: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Alisin sa pagpili ang lahat',
   'playlist.select_all': 'Piliin lahat',
   'playlist.delete_selected': 'I-delete ang {{count}} na napiling track',
+  'playlist.selected_count': '{{count}} pinili',
   'playlist.video_fallback': 'Nilo-load...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'I-play para i-load ang buong listahan ng track',
@@ -561,6 +564,7 @@ const fil: Record<I18nKey, string> = {
     'Hindi na-decode ng isang device ang track na ito\nNagpapatuloy ang pag-play sa lahat ng iba pang device',
   'toast.invite_code_info': '{{count}} nakakonekta | Code {{code}}',
   'toast.added_tracks': '{{count}} track ang idinagdag',
+  'toast.deleted_tracks': '{{count}} track ang na-delete',
   'toast.preparing': 'Inihahanda: {{name}}',
   'toast.file_save_error': 'Hindi ma-save ang file: {{name}}',
   'toast.decoding_audio': 'Dine-decode ang audio...',
@@ -594,6 +598,18 @@ const fil: Record<I18nKey, string> = {
   'toast.member_management_required': 'Kailangan ang pahintulot na mag-alis ng mga miyembro',
   'toast.chat_notice_required': 'Kailangan ang pahintulot na mag-post ng mga abiso sa chat',
   'toast.room_owner_required': 'May-ari lang ng kuwarto ang makakapagbago nito',
+  'toast.media_management_checking':
+    'Sinusuri ang pahintulot na mamahala ng media\nPakisubukan muli maya-maya',
+  'toast.playback_control_checking':
+    'Sinusuri ang pahintulot na kontrolin ang pag-play\nPakisubukan muli maya-maya',
+  'toast.member_management_checking':
+    'Sinusuri ang pahintulot na mag-alis ng mga miyembro\nPakisubukan muli maya-maya',
+  'toast.chat_notice_checking':
+    'Sinusuri ang pahintulot na mag-post ng mga abiso sa chat\nPakisubukan muli maya-maya',
+  'toast.admin_permission_checking':
+    'Sinusuri ang pahintulot ng administrator\nPakisubukan muli maya-maya',
+  'toast.room_owner_checking':
+    'Sinusuri ang pahintulot ng may-ari ng kuwarto\nPakisubukan muli maya-maya',
   'toast.system_audio_owner_required':
     'Maaari mo lang ibahagi ang audio mula sa tab na nagbukas ng kuwarto',
   'toast.host_setting_required': 'Host lang ang makakapagbago ng setting na ito',

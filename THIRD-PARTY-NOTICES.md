@@ -139,20 +139,15 @@ without modifying either source.
 
 ---
 
-## 14. Screen Saver Typography And Moon Illumination
+## 14. Screen Saver Typography
 
 - **Google Sans numeral outlines**: Copyright 2025 The Google Sans Project
   Authors. Distributed under the SIL Open Font License 1.1. The screen saver
   loads Google Sans through Google Fonts and embeds the weight-700 numeral
   outlines for its seconds animation.
-- **SunCalc 1.9.0 moon illumination calculation**: Copyright (c) 2014 Vladimir
-  Agafonkin. BSD 2-Clause license. Adapted from
-  [SunCalc 1.9.0](https://github.com/mourner/suncalc/tree/v1.9.0).
 - **Full copyright notices and license texts**:
   [Screen saver third-party notices](public/licenses/screensaver-third-party.txt).
   The same notices are included in the screen saver HTML.
-- **Local weather and air quality data**: Open-Meteo and CAMS attribution is
-  displayed on the corresponding screen saver scenes.
 
 ### License Summaries
 

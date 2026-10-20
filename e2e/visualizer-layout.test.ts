@@ -459,7 +459,7 @@ test.describe('mobile visualizer layout', () => {
       const tabBody = document.querySelector<HTMLElement>('#tab-play > .tab-body');
       const secondary = document.querySelector<HTMLElement>('.play-secondary-area');
       const toast = document.querySelector<HTMLElement>('.toast');
-      const selection = document.querySelector<HTMLElement>('.playlist-selection-pill');
+      const selection = document.querySelector<HTMLElement>('.playlist-selection-bar');
 
       if (!nav || !tabBody || !secondary || !toast || !selection) {
         throw new Error('Mobile nav-clearance elements are missing');
@@ -472,7 +472,14 @@ test.describe('mobile visualizer layout', () => {
         playBottomClearance: Number.parseFloat(getComputedStyle(tabBody).paddingBottom),
         secondaryPadding: Number.parseFloat(getComputedStyle(secondary).paddingBottom),
         toastGap: Number.parseFloat(getComputedStyle(toast).bottom) - navHeight,
-        selectionGap: Number.parseFloat(getComputedStyle(selection).bottom) - navHeight,
+        // The deletion bar is sticky inside the playlist body, whose bottom
+        // padding already clears the nav plus 24px; -10px leaves 14px.
+        selectionStickyBottom: getComputedStyle(selection).bottom,
+        playlistBodyClearance:
+          Number.parseFloat(
+            getComputedStyle(document.querySelector<HTMLElement>('#tab-playlist > .tab-body')!)
+              .paddingBottom,
+          ) - navHeight,
       };
     });
 
@@ -481,7 +488,10 @@ test.describe('mobile visualizer layout', () => {
     expect(geometry.playBottomClearance).toBe(64);
     expect(geometry.secondaryPadding).toBe(24);
     expect(geometry.toastGap).toBe(46);
-    expect(geometry.selectionGap).toBe(14);
+    expect(geometry.selectionStickyBottom).toBe('-10px');
+    expect(geometry.playlistBodyClearance + Number.parseFloat(geometry.selectionStickyBottom)).toBe(
+      14,
+    );
   });
 
   test('ties the YouTube frame treatment to the active mobile UI tier', async ({ page }) => {

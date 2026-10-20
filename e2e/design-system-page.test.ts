@@ -404,8 +404,11 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           headerProgress: !!document.querySelector('.app-loading-header-progress'),
         },
         playlistRemoval: {
-          actionCount: document.querySelectorAll('.playlist-selection-pill button').length,
-          count: document.querySelector('.playlist-selection-count')?.textContent?.trim(),
+          actionCount: document.querySelectorAll('.playlist-selection-bar button').length,
+          labels: Array.from(
+            document.querySelectorAll('.playlist-selection-bar button'),
+            (button) => button.textContent?.trim(),
+          ),
           selectedState: (() => {
             const selected = document.querySelector<HTMLElement>(
               '.btn-playlist-remove.is-selected',
@@ -625,8 +628,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.playlistSourceIcons[2]?.visualGap).toBeCloseTo(6.4, 1);
     expect(components.volumeCycle).toEqual({ mutedMarks: 1, waves: 2 });
     expect(components.playlistRemoval).toEqual({
-      actionCount: 3,
-      count: '1',
+      actionCount: 2,
+      labels: ['Delete', 'Cancel'],
       selectedState: { selected: true, shadow: 'none' },
     });
     expect(components.expandedLists).toEqual({

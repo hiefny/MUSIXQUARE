@@ -20,7 +20,7 @@ import { auxiliaryBrowserAssets } from './scripts/auxiliary-browser-assets.ts';
 import { useAsyncConnectMiddleware } from './scripts/async-connect-middleware.ts';
 import { translationCatalogAssets } from './scripts/translation-catalog-assets.ts';
 import { localeRecoveryAssets } from './scripts/locale-recovery-assets.ts';
-import { LEGACY_APP_BROWSER_TARGET } from './scripts/browser-target.ts';
+import { APP_CSS_BROWSER_TARGETS, LEGACY_APP_BROWSER_TARGET } from './scripts/browser-target.ts';
 import { LANGUAGE_OPTIONS } from './src/i18n/locales.ts';
 
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
@@ -988,7 +988,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
     build: {
       outDir: 'dist',
       target: LEGACY_APP_BROWSER_TARGET,
-      cssTarget: LEGACY_APP_BROWSER_TARGET,
+      cssTarget: APP_CSS_BROWSER_TARGETS,
       assetsInlineLimit: localeFontAssetInlineLimit,
       sourcemap: false,
       // Vite's built-in threshold is global. Suppress the known main-entry

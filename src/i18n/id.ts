@@ -16,6 +16,7 @@ const id: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Batal',
+  'common.delete': 'Hapus',
   'common.close': 'Tutup',
   'common.skip_to_content': 'Lewati ke konten',
   'common.reset': 'Atur ulang',
@@ -46,6 +47,7 @@ const id: Record<I18nKey, string> = {
   'common.off': 'Mati',
 
   'screensaver.back': 'Kembali ke MUSIXQUARE',
+  'screensaver.turn_on': 'Aktifkan screensaver',
   'account.login_title': 'Masuk',
   'account.login_cancelled': 'Proses masuk dibatalkan',
   'account.login_failed': 'Tidak dapat masuk\nCoba lagi',
@@ -252,6 +254,7 @@ const id: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Batalkan semua pilihan',
   'playlist.select_all': 'Pilih semua',
   'playlist.delete_selected': 'Hapus {{count}} media terpilih',
+  'playlist.selected_count': '{{count}} dipilih',
   'playlist.video_fallback': 'Memuat...',
   'playlist.track_fallback': 'Media {{idx}}',
   'playlist.deferred_load_hint': 'Putar untuk memuat daftar media lengkap',
@@ -514,6 +517,7 @@ const id: Record<I18nKey, string> = {
     'Sebuah perangkat gagal mendekode media ini\nPemutaran berlanjut untuk perangkat lain',
   'toast.invite_code_info': '{{count}} perangkat tersambung | Kode {{code}}',
   'toast.added_tracks': '{{count}} media ditambahkan',
+  'toast.deleted_tracks': '{{count}} media dihapus',
   'toast.preparing': 'Menyiapkan: {{name}}',
   'toast.file_save_error': 'Kesalahan menyimpan file: {{name}}',
   'toast.decoding_audio': 'Mendekode audio...',
@@ -546,6 +550,14 @@ const id: Record<I18nKey, string> = {
   'toast.member_management_required': 'Izin mengeluarkan anggota diperlukan',
   'toast.chat_notice_required': 'Izin pengumuman chat diperlukan',
   'toast.room_owner_required': 'Hanya pemilik ruang yang dapat mengubah ini',
+  'toast.media_management_checking':
+    'Memeriksa izin untuk mengelola media\nCoba lagi sebentar lagi',
+  'toast.playback_control_checking': 'Memeriksa izin kontrol pemutaran\nCoba lagi sebentar lagi',
+  'toast.member_management_checking':
+    'Memeriksa izin mengeluarkan anggota\nCoba lagi sebentar lagi',
+  'toast.chat_notice_checking': 'Memeriksa izin pengumuman chat\nCoba lagi sebentar lagi',
+  'toast.admin_permission_checking': 'Memeriksa izin admin\nCoba lagi sebentar lagi',
+  'toast.room_owner_checking': 'Memeriksa izin pemilik ruang\nCoba lagi sebentar lagi',
   'toast.system_audio_owner_required':
     'Anda hanya dapat membagikan audio dari tab yang membuka ruang',
   'toast.host_setting_required': 'Hanya host yang dapat mengubah pengaturan ini',

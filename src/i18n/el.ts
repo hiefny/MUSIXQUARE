@@ -15,6 +15,7 @@ const el: Record<I18nKey, string> = {
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Ακύρωση',
+  'common.delete': 'Διαγραφή',
   'common.close': 'Κλείσιμο',
   'common.skip_to_content': 'Μετάβαση σε περιεχόμενο',
   'common.reset': 'Επαναφορά',
@@ -45,6 +46,7 @@ const el: Record<I18nKey, string> = {
   'common.off': 'Ανενεργό',
 
   'screensaver.back': 'Επιστροφή στο MUSIXQUARE',
+  'screensaver.turn_on': 'Έναρξη προφύλαξης οθόνης',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Σύνδεση',
@@ -159,6 +161,7 @@ const el: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Κατάργηση όλων των επιλογών',
   'playlist.select_all': 'Επιλογή όλων',
   'playlist.delete_selected': 'Διαγραφή επιλεγμένων κομματιών: {{count}}',
+  'playlist.selected_count': 'Επιλεγμένα: {{count}}',
   'playlist.video_fallback': 'Φόρτωση...',
   'playlist.track_fallback': 'Κομμάτι {{idx}}',
   'playlist.deferred_load_hint': 'Ξεκινήστε την αναπαραγωγή για να φορτωθεί ολόκληρη η λίστα',
@@ -558,6 +561,7 @@ const el: Record<I18nKey, string> = {
     'Μια συσκευή δεν μπόρεσε να αποκωδικοποιήσει αυτό το κομμάτι\nΗ αναπαραγωγή συνεχίζεται στις υπόλοιπες',
   'toast.invite_code_info': 'Συνδεδεμένες συσκευές: {{count}} | Κωδικός {{code}}',
   'toast.added_tracks': 'Κομμάτια που προστέθηκαν: {{count}}',
+  'toast.deleted_tracks': 'Κομμάτια που διαγράφηκαν: {{count}}',
   'toast.preparing': 'Προετοιμασία: {{name}}',
   'toast.file_save_error': 'Σφάλμα αποθήκευσης αρχείου: {{name}}',
   'toast.decoding_audio': 'Αποκωδικοποίηση ήχου...',
@@ -593,6 +597,17 @@ const el: Record<I18nKey, string> = {
   'toast.member_management_required': 'Απαιτείται δικαίωμα αφαίρεσης μελών',
   'toast.chat_notice_required': 'Απαιτείται δικαίωμα δημοσίευσης ανακοινώσεων συνομιλίας',
   'toast.room_owner_required': 'Μόνο ο κάτοχος του δωματίου μπορεί να το αλλάξει',
+  'toast.media_management_checking':
+    'Ελέγχεται το δικαίωμα διαχείρισης πολυμέσων\nΔοκιμάστε ξανά σε λίγο',
+  'toast.playback_control_checking':
+    'Ελέγχεται το δικαίωμα ελέγχου αναπαραγωγής\nΔοκιμάστε ξανά σε λίγο',
+  'toast.member_management_checking':
+    'Ελέγχεται το δικαίωμα αφαίρεσης μελών\nΔοκιμάστε ξανά σε λίγο',
+  'toast.chat_notice_checking':
+    'Ελέγχεται το δικαίωμα δημοσίευσης ανακοινώσεων συνομιλίας\nΔοκιμάστε ξανά σε λίγο',
+  'toast.admin_permission_checking': 'Ελέγχονται τα δικαιώματα διαχειριστή\nΔοκιμάστε ξανά σε λίγο',
+  'toast.room_owner_checking':
+    'Ελέγχονται τα δικαιώματα του κατόχου του δωματίου\nΔοκιμάστε ξανά σε λίγο',
   'toast.system_audio_owner_required':
     'Μπορείτε να κοινοποιήσετε ήχο μόνο από την καρτέλα που άνοιξε το δωμάτιο',
   'toast.host_setting_required': 'Μόνο ο οικοδεσπότης μπορεί να αλλάξει αυτή τη ρύθμιση',

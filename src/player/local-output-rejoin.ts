@@ -133,10 +133,11 @@ function hasLocalRejoinIntent(request: RejoinRequest): boolean {
   // pause bit. It may query authority while the semantic room state is paused;
   // the local-only reconciliation path cannot manufacture a room PLAY.
   if (request.reason === 'media-session-play') return true;
-  if (request.reason === 'audio-recovery-gesture' || request.reason === 'background-resume') {
-    return getState('playback.activity') === 'playing' && !isLocalFilePaused();
-  }
-  if (request.reason === 'audio-context-recovered') {
+  if (
+    request.reason === 'audio-recovery-gesture' ||
+    request.reason === 'background-resume' ||
+    request.reason === 'audio-context-recovered'
+  ) {
     return (
       getState('playback.activity') === 'playing' &&
       (mode === 'file' ? !isLocalFilePaused() : !isLocalYouTubePaused())

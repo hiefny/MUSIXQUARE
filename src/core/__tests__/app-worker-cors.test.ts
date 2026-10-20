@@ -2156,6 +2156,77 @@ describe('Cloudflare app worker scheduled maintenance', () => {
     expect(retainedLegacy.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
   });
 
+  it('sends a blog image request to the allowlisted source when mirroring fails', async () => {
+    const imageSource = 'https://afocirmbqdxnkyescnev.supabase.co/storage/v1/object/public/a.webp';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (resource: RequestInfo | URL) =>
+        String(resource) === imageSource
+          ? new Response('unavailable', { status: 503 })
+          : new Response(rssWithImage(imageSource), {
+              headers: { 'Content-Type': 'application/rss+xml' },
+            }),
+      ),
+    );
+    const imagePut = vi.fn(async () => null);
+    const { env } = createScheduledEnv(vi.fn(async () => ({ success: true })));
+    Object.assign(env, {
+      SORO_IMAGE_BUCKET: {
+        head: vi.fn(async () => null),
+        put: imagePut,
+        get: vi.fn(async () => null),
+      },
+    });
+
+    const legacy = await appWorker.fetch(
+      new Request('https://musixquare.com/soro-images/featured/scheduled-article.webp'),
+      env,
+    );
+    expect(legacy.status).toBe(302);
+    const versioned = await appWorker.fetch(new Request(legacy.headers.get('Location')!), env);
+
+    expect(versioned.status).toBe(302);
+    expect(versioned.headers.get('Location')).toBe(imageSource);
+    expect(versioned.headers.get('Cache-Control')).toBe('no-store');
+    expect(versioned.headers.get('X-Soro-Image-Mirror')).toBe('fetch-error');
+    expect(imagePut).not.toHaveBeenCalled();
+  });
+
+  it('still falls back to the blog image source when R2 reads fail', async () => {
+    const imageSource = 'https://afocirmbqdxnkyescnev.supabase.co/storage/v1/object/public/b.webp';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (resource: RequestInfo | URL) =>
+        String(resource) === imageSource
+          ? new Response('unavailable', { status: 503 })
+          : new Response(rssWithImage(imageSource), {
+              headers: { 'Content-Type': 'application/rss+xml' },
+            }),
+      ),
+    );
+    const { env } = createScheduledEnv(vi.fn(async () => ({ success: true })));
+    Object.assign(env, {
+      SORO_IMAGE_BUCKET: {
+        head: vi.fn(async () => null),
+        put: vi.fn(async () => null),
+        get: vi.fn(async () => {
+          throw new Error('R2 unavailable');
+        }),
+      },
+    });
+
+    const legacy = await appWorker.fetch(
+      new Request('https://musixquare.com/soro-images/featured/scheduled-article.webp'),
+      env,
+    );
+    expect(legacy.status).toBe(302);
+    const versioned = await appWorker.fetch(new Request(legacy.headers.get('Location')!), env);
+
+    expect(versioned.status).toBe(302);
+    expect(versioned.headers.get('Location')).toBe(imageSource);
+    expect(versioned.headers.get('X-Soro-Image-Mirror')).toBe('read-error');
+  });
+
   it.each([
     ['an arbitrary public host', 'https://images.attacker.example/scheduled-article.webp'],
     [

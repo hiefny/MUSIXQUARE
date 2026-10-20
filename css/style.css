@@ -2215,8 +2215,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     transition: padding-bottom 0.2s ease;
   }
 
-  .playlist-ul.has-removal-selection {
-    padding-bottom: calc(88px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+  /* The deletion pills sit right after the last track, so the list stops
+     stretching to the bottom of the body while they are shown. */
+  .playlist-ul.has-removal-selection,
+  .playlist-ul.has-removal-exit {
+    flex: 0 0 auto;
   }
 
   .is-playlist-reordering {
@@ -2565,7 +2568,8 @@ Safety is declared first because important layer precedence is reversed; its acc
      exposes it; otherwise animate the current top-level row. Wide desktop
      layouts remain static until hover or keyboard focus, even on coarse-pointer
      hardware such as a touchscreen or TV-style browser. */
-  @media (max-width: 1279px) and (hover: none) and (pointer: coarse) {
+  @media (max-width: 1279px) and (hover: none) and (pointer: coarse),
+    (max-height: 719px) and (hover: none) and (pointer: coarse) {
     .playlist-entry:not(:has(.sub-track-item.active))
       > .track-item:has(.playlist-current-leading.is-current-playing)
       .track-name-text.is-playlist-title-overflowing
@@ -2836,8 +2840,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     .playlist-reorder-grip,
     .playlist-reorder-ghost,
     .playlist-reorder-settle,
+    .playlist-selection-bar,
     .playlist-selection-pill,
-    .playlist-selection-action,
+    .playlist-selection-toggle,
     .playlist-ul,
     .btn-playlist-remove,
     .btn-playlist-remove svg,
@@ -2942,132 +2947,174 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  .playlist-selection-pill {
-    position: absolute;
-    z-index: 100;
-    left: calc(var(--safe-left) + 16px);
-    right: calc(var(--safe-right) + 16px);
-    bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 14px);
-    width: max-content;
-    min-height: 56px;
-    margin-inline: auto;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    padding: 6px;
-    color: #fff;
-    background: var(--primary-filled);
-    border: 0;
-    border-radius: var(--radius-pill);
-    box-shadow: none;
-    opacity: 0;
-    visibility: hidden;
-    pointer-events: none;
-    transform: translateY(18px);
-    transform-origin: center bottom;
-    transition:
-      opacity 0.18s ease,
-      visibility 0s linear 0.2s,
-      transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Deletion mode: the playlist title becomes the selected count and one
+     text-only action toggles select all. The tab's icon actions step aside
+     until the mode ends. */
+  .tab-header.is-removal-selecting > .tab-title:not(.playlist-selection-title),
+  .tab-header.is-removal-selecting .playlist-title-area > .tab-action-btn {
+    display: none;
   }
 
-  .playlist-selection-pill.is-visible {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transform: translateY(0);
-    transition-delay: 0s;
+  /* The count title and the small toggle share one text baseline, so the
+     toggle sits on the title's bottom line instead of its vertical middle. */
+  .tab-header.is-removal-selecting,
+  .tab-header.is-removal-selecting .playlist-title-area {
+    align-items: baseline;
   }
 
-  .playlist-selection-action {
+  .playlist-selection-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .playlist-selection-title[hidden],
+  .playlist-selection-toggle[hidden] {
+    display: none;
+  }
+
+  .playlist-selection-toggle {
     appearance: none;
     -webkit-appearance: none;
-    width: 44px;
+    flex: 0 0 auto;
+    /* Same -4px trick as .tab-action-btn: a 44px touch box that occupies the
+       36px header row, so entering the mode never moves the title. */
     height: 44px;
-    flex: 0 0 44px;
-    padding: 0;
+    margin: -4px 0 -4px 16px;
+    padding: 0 4px;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 5px;
-    color: rgba(255, 255, 255, 0.94);
-    background: transparent;
     border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
-    transition:
-      background 0.15s ease,
-      opacity 0.15s ease,
-      transform 0.15s ease;
-    border-radius: var(--radius-pill);
+    transition: opacity 0.15s ease;
   }
 
-  .playlist-selection-action svg {
-    width: 21px;
-    height: 21px;
-    flex: 0 0 21px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+  .playlist-selection-toggle:active {
+    opacity: 0.6;
   }
 
-  .playlist-selection-action:active {
-    background: rgba(255, 255, 255, 0.18);
-    transform: scale(0.94);
-  }
-
-  .playlist-selection-action:focus-visible {
-    outline: 2px solid rgba(255, 255, 255, 0.95);
-    outline-offset: -3px;
-  }
-
-  .playlist-selection-action:disabled {
-    opacity: 0.38;
-    cursor: default;
-  }
-
-  .playlist-selection-action.is-selected {
-    background: rgba(255, 255, 255, 0.18);
+  .playlist-selection-toggle:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   @media (hover: hover) {
-    .playlist-selection-action:not(:disabled):hover {
-      background: rgba(255, 255, 255, 0.14);
+    .playlist-selection-toggle:hover {
+      opacity: 0.8;
     }
   }
 
-  .playlist-selection-delete {
-    width: auto;
-    min-width: 58px;
-    flex-basis: auto;
-    padding: 0 9px;
-    background: rgba(255, 255, 255, 0.12);
-  }
-
-  .playlist-selection-delete svg {
-    fill: currentColor;
-    stroke: none;
-  }
-
-  .playlist-selection-count {
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
+  /* Delete and Cancel use the dialog pill family (54px, pill radius, 700
+     label) inside one container pill. It follows the last track; a list
+     taller than the view keeps it floating at the bottom (sticky), above the
+     bottom navigation. The container carries the light dialog grey button's
+     faint token stroke (transparent in dark, its own value in the
+     high-contrast palettes) instead of a shadow. */
+  .playlist-selection-bar {
+    position: sticky;
+    z-index: 100;
+    /* Sticky offsets are measured inside the body's bottom padding, which
+       already clears the navigation plus 24px. -10px keeps the floating bar
+       14px above the navigation, where the old floating pill sat. */
+    bottom: -10px;
+    flex: 0 0 auto;
+    align-self: center;
+    width: max-content;
+    max-width: calc(100% - var(--safe-left) - var(--safe-right) - 32px);
     box-sizing: border-box;
+    margin: 16px auto 0;
+    padding: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-pill);
+    background: var(--surface-1);
+    animation: playlist-selection-bar-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  /* On its way out after the mode ends, taps reach the rows underneath. */
+  .playlist-selection-bar[data-state='leaving'],
+  .playlist-selection-bar[data-state='leaving'] .playlist-selection-pill {
+    pointer-events: none;
+  }
+
+  .playlist-selection-bar[hidden] {
+    display: none;
+  }
+
+  @keyframes playlist-selection-bar-in {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .playlist-selection-pill {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    min-width: 100px;
+    min-height: 54px;
+    box-sizing: border-box;
+    padding: 0 28px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 8px;
+    overflow: hidden;
+    border: 1px solid transparent;
     border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.2);
-    color: #fff;
-    font-size: 11px;
+    font-family: inherit;
+    font-size: 15px;
     font-weight: 700;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+      border-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+      color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+      scale 0.2s ease;
+  }
+
+  .playlist-selection-pill:active {
+    scale: 0.97;
+  }
+
+  .playlist-selection-pill:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+  }
+
+  .playlist-selection-delete {
+    background: var(--danger-filled);
+    color: #fff;
+  }
+
+  .playlist-selection-cancel {
+    background: var(--surface-2);
+    border-color: var(--glass-border);
+    color: var(--text-main);
   }
 
   .playlist-ul.has-removal-selection .playlist-reorder-handle {
@@ -4125,6 +4172,22 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: #007aff;
   }
 
+  /* Help tab actions: the neutral tour button above the accent screensaver
+     button. Both size like the invite-link button so long labels wrap. */
+  .help-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .help-actions .accent-action-btn {
+    height: auto;
+    min-height: 56px;
+    margin-top: 0;
+    padding: 10px 16px;
+    line-height: 1.3;
+  }
+
   .leave-session-btn {
     display: flex;
     align-items: center;
@@ -4205,7 +4268,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     padding: 32px 0;
   }
 
-  /* Copy Invite Link Button */
+  /* Copy Invite Link Button (and the neutral action that shares its look) */
+  .neutral-action-btn,
   .btn-copy-invite-link {
     display: flex;
     align-items: center;
@@ -4232,6 +4296,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     -webkit-tap-highlight-color: transparent;
   }
 
+  .neutral-action-btn > svg,
   .btn-copy-invite-link > svg {
     width: 20px;
     height: 20px;
@@ -4239,6 +4304,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: currentColor;
   }
 
+  .neutral-action-btn > span[data-i18n],
   .btn-copy-invite-link > span[data-i18n] {
     min-width: 0;
     max-width: 100%;
@@ -4252,6 +4318,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     word-break: keep-all;
   }
 
+  .neutral-action-btn > span[data-i18n]:lang(ja),
+  .neutral-action-btn > span[data-i18n]:lang(zh-hans),
+  .neutral-action-btn > span[data-i18n]:lang(zh-hant),
   .btn-copy-invite-link > span[data-i18n]:lang(ja),
   .btn-copy-invite-link > span[data-i18n]:lang(zh-hans),
   .btn-copy-invite-link > span[data-i18n]:lang(zh-hant) {
@@ -4259,10 +4328,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     line-break: strict;
   }
 
+  .neutral-action-btn:hover,
   .btn-copy-invite-link:hover {
     background: var(--surface-3);
   }
 
+  .neutral-action-btn:active,
   .btn-copy-invite-link:active {
     background: var(--surface-3);
     transform: scale(0.97);
@@ -4603,8 +4674,9 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   @media (max-width: 719px) {
-    body:has(#tab-playlist.active .playlist-selection-pill.is-visible) .toast {
-      bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 84px);
+    body:has(#tab-playlist.active .playlist-selection-bar:not([hidden]):not([data-state='leaving']))
+      .toast {
+      bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 98px);
     }
   }
 
@@ -7875,7 +7947,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       visibility 0s 0s;
   }
 
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer {
       z-index: 3000;
     }
@@ -7925,7 +7997,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     outline: none;
   }
 
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer-header {
       justify-content: center;
       padding: 16px;
@@ -7938,7 +8010,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Drag handle bar — mobile bottom sheet affordance */
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer-header::before {
       content: '';
       width: 36px;
@@ -7980,7 +8052,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Cascade after the base close-button rule so mobile keeps the drawer chrome hidden. */
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer-title,
     .chat-drawer-close {
       display: none;
@@ -8119,7 +8191,7 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   /* Mobile chat grows upward from the input like a native messenger. Desktop
      keeps the conventional panel flow and starts its first message at the top. */
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 719px) {
     .chat-drawer-messages > .chat-group:first-child {
       margin-top: auto;
     }
@@ -9948,12 +10020,14 @@ Safety is declared first because important layer precedence is reversed; its acc
   /* Light Mode — hover/active for surface-2 buttons */
   [data-theme='light'] .chat-preview-btn:hover,
   [data-theme='light'] .file-select-btn:hover,
+  [data-theme='light'] .neutral-action-btn:hover,
   [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover {
     background: #f0f0f0;
   }
 
   [data-theme='light'] .chat-preview-btn:active,
   [data-theme='light'] .file-select-btn:active,
+  [data-theme='light'] .neutral-action-btn:active,
   [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:active {
     background: #e8e8e8;
   }
@@ -10050,6 +10124,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
 
     #media-source-overlay .file-select-btn-large:hover:not(:active),
+    .neutral-action-btn:hover:not(:active),
     .btn-copy-invite-link[data-mode='copy']:hover:not(:active),
     #btn-sync:hover:not(:active),
     #btn-media-source:hover:not(:active) {
@@ -10079,6 +10154,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       background: var(--play-action-surface);
     }
 
+    [data-theme='light'] .neutral-action-btn:hover:not(:active),
     [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover:not(:active) {
       background: var(--surface-2);
     }
@@ -10145,7 +10221,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   /* ── Setup Overlay: Unified 2-Column Layout ──────────────────────
        Shared between mobile landscape and desktop.
        Dimension tokens default to landscape values;
-       overridden by @layer desktop for ≥1280px screens.
+       overridden by @layer desktop on the wide desktop layout.
        ─────────────────────────────────────────────────────────────── */
   @media (min-width: 720px) {
     #setup-overlay {
@@ -10870,7 +10946,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     right: 56px;
   }
 
-  @media (min-width: 1280px) {
+  @media (min-width: 1280px) and (min-height: 720px) {
     #youtube-url-overlay .setup-join-area > .cscroll-track {
       right: 40px;
     }
@@ -11359,7 +11435,6 @@ Safety is declared first because important layer precedence is reversed; its acc
 /* Responsive layout owns geometry. Component tokens describe shape; active playback/overlay/entrance states are defined separately. */
 
 @layer responsive {
-
   /* Only a short portrait stack needs to sacrifice the subtitle row.
      Landscape has enough horizontal room to keep TRACK / ARTIST visible. */
   @media (max-width: 1279px) and (max-height: 720px) and (orientation: portrait) {
@@ -11419,8 +11494,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       padding-bottom: 41px;
     }
   }
-  /* Compact sidebar geometry: 720–1279px, with independent short-height variants. Navigation/overlay visibility is owned by states below. */
-  @media (min-width: 720px) and (max-width: 1279px) {
+  /* Compact sidebar geometry: 720–1279px wide, or wider but under 540px tall, with independent short-height variants. Navigation/overlay visibility is owned by states below. */
+  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
     /* ── Sidebar (header) — right side ── */
     header {
       width: calc(200px + var(--safe-right));
@@ -11599,10 +11674,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       scroll-padding-bottom: 0;
     }
 
-    #tab-playlist > .playlist-selection-pill {
-      left: calc(var(--safe-left) + 24px);
-      right: 24px;
-      bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    #tab-playlist .playlist-selection-bar {
+      bottom: 0;
     }
 
     .playback-stage {
@@ -12277,7 +12350,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   body.mode-demo .bottom-nav {
     transform: translateY(20px);
   }
-  @media (min-width: 720px) and (max-width: 1279px) {
+  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 719px) {
     body:has(#setup-overlay.active) header,
     body.overlay-open:has(#setup-overlay.active) header {
       pointer-events: none;

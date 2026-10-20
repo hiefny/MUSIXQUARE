@@ -17,6 +17,7 @@ const es: Record<I18nKey, string> = {
   // Common
   'common.ok': 'Aceptar',
   'common.cancel': 'Cancelar',
+  'common.delete': 'Borrar',
   'common.close': 'Cerrar',
   'common.skip_to_content': 'Saltar al contenido',
   'common.reset': 'Restablecer',
@@ -47,6 +48,7 @@ const es: Record<I18nKey, string> = {
   'common.off': 'Desactivado',
 
   'screensaver.back': 'Volver a MUSIXQUARE',
+  'screensaver.turn_on': 'Activar salvapantallas',
   'account.login_title': 'Iniciar sesión',
   'account.login_cancelled': 'Se canceló el inicio de sesión',
   'account.login_failed': 'No se pudo iniciar sesión\nInténtalo de nuevo',
@@ -251,6 +253,7 @@ const es: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Deseleccionar todo',
   'playlist.select_all': 'Seleccionar todo',
   'playlist.delete_selected': 'Eliminar {{count}} pistas seleccionadas',
+  'playlist.selected_count': '{{count}} seleccionados',
   'playlist.video_fallback': 'Cargando...',
   'playlist.track_fallback': 'Pista {{idx}}',
   'playlist.deferred_load_hint': 'Reproduce para cargar la lista completa de pistas',
@@ -524,6 +527,7 @@ const es: Record<I18nKey, string> = {
     'Un dispositivo no pudo decodificar esta pista\nLa reproducción continúa para los demás',
   'toast.invite_code_info': '{{count}} conectados | Código {{code}}',
   'toast.added_tracks': '{{count}} pistas añadidas',
+  'toast.deleted_tracks': '{{count}} pistas eliminadas',
   'toast.preparing': 'Preparando: {{name}}',
   'toast.file_save_error': 'Error al guardar archivo: {{name}}',
   'toast.decoding_audio': 'Decodificando audio...',
@@ -557,6 +561,18 @@ const es: Record<I18nKey, string> = {
   'toast.member_management_required': 'Se necesita permiso para expulsar miembros',
   'toast.chat_notice_required': 'Se necesita permiso para publicar avisos en el chat',
   'toast.room_owner_required': 'Solo el propietario de la sala puede cambiar esto',
+  'toast.media_management_checking':
+    'Comprobando el permiso para gestionar contenido\nInténtalo de nuevo en un momento',
+  'toast.playback_control_checking':
+    'Comprobando el permiso para controlar la reproducción\nInténtalo de nuevo en un momento',
+  'toast.member_management_checking':
+    'Comprobando el permiso para expulsar miembros\nInténtalo de nuevo en un momento',
+  'toast.chat_notice_checking':
+    'Comprobando el permiso para publicar avisos en el chat\nInténtalo de nuevo en un momento',
+  'toast.admin_permission_checking':
+    'Comprobando el permiso de administrador\nInténtalo de nuevo en un momento',
+  'toast.room_owner_checking':
+    'Comprobando el permiso del propietario de la sala\nInténtalo de nuevo en un momento',
   'toast.system_audio_owner_required':
     'Solo puedes compartir audio desde la pestaña que abrió la sala',
   'toast.host_setting_required': 'Solo el anfitrión puede cambiar este ajuste',
@@ -940,6 +956,7 @@ const es: Record<I18nKey, string> = {
 export default es;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} seleccionado' },
   'connect.administrator_list': { one: '{{count}} administrador' },
   'playlist.delete_selected': { one: 'Eliminar {{count}} pista seleccionada' },
   'connect.device_list': { one: '{{count}} dispositivo conectado' },
@@ -953,6 +970,7 @@ export const pluralMessages = {
     one: '{{name}} añadió {{count}} pista, incluida {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} pista añadida' },
+  'toast.deleted_tracks': { one: '{{count}} pista eliminada' },
   'toast.unsupported_files_excluded': {
     one: 'Archivo no compatible omitido: {{count}}',
   },

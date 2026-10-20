@@ -4,6 +4,7 @@
 import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { MSG } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -52,7 +53,13 @@ beforeEach(() => {
   localStorage.clear();
   setState('network.appRole', 'host');
   document.body.innerHTML =
-    '<section id="tab-playlist" class="tab-content active" tabindex="-1"><div class="tab-body"><ul id="playlist-ui"></ul></div></section>';
+    '<nav class="bottom-nav"><button type="button" class="nav-item" data-tab="play">Play</button></nav>' +
+    '<section id="tab-playlist" class="tab-content active" tabindex="-1">' +
+    '<div class="tab-header"><span class="tab-title" data-i18n="nav.playlist">Playlist</span>' +
+    '<div class="playlist-title-area"><button type="button" class="tab-action-btn" id="btn-repeat"></button>' +
+    '<button type="button" class="tab-action-btn" id="btn-shuffle"></button>' +
+    '<button type="button" class="tab-action-btn" id="btn-add-media"></button></div></div>' +
+    '<div class="tab-body"><ul id="playlist-ui"></ul></div></section>';
   Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
     configurable: true,
     value: vi.fn(),
@@ -90,6 +97,29 @@ function sampleItems(): PlaylistItem[] {
       isExpanded: true,
     },
   ];
+}
+
+function selectionBarVisible(): boolean {
+  const bar = document.querySelector<HTMLElement>('.playlist-selection-bar');
+  return !!bar && !bar.hidden;
+}
+
+function selectionTitle(): string | null {
+  const title = document.querySelector<HTMLElement>('.playlist-selection-title');
+  return title && !title.hidden ? title.textContent : null;
+}
+
+function renderedQueueIds(): string[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>('#playlist-ui > .playlist-entry[data-queue-item-id]'),
+    (entry) => entry.dataset.queueItemId ?? '',
+  );
+}
+
+function clickRemove(queueItemId: string): void {
+  document
+    .querySelector<HTMLButtonElement>(`.btn-playlist-remove[data-queue-item-id="${queueItemId}"]`)!
+    .click();
 }
 
 function nextAnimationFrame(): Promise<void> {
@@ -1089,7 +1119,7 @@ describe('playlist queue identity rendering and actions', () => {
     await nextAnimationFrame();
 
     expect(replaceChildren).not.toHaveBeenCalled();
-    expect(document.querySelector('.playlist-selection-pill')?.classList).toContain('is-visible');
+    expect(selectionBarVisible()).toBe(true);
     expect(
       document
         .querySelector(`.btn-playlist-remove[data-queue-item-id="${FILE_A}"]`)
@@ -1115,26 +1145,20 @@ describe('playlist queue identity rendering and actions', () => {
 
     document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
     setState('room.context', { ...context, snapshotRevision: 2, capabilities: [] });
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
 
     setState('room.context', { ...context, snapshotRevision: 3 });
     await nextAnimationFrame();
     document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
     setState('room.context', { ...context, epoch: 2, snapshotRevision: 4 });
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
 
     setState('room.context', { ...context, epoch: 2, snapshotRevision: 5 });
     await nextAnimationFrame();
     document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
     setState('room.context', { ...context, roomId: '000002', snapshotRevision: 1 });
 
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
   });
 
   it('keeps an active PRO reorder mounted through revision-only context pulses', () => {
@@ -1217,9 +1241,7 @@ describe('playlist queue identity rendering and actions', () => {
     await nextAnimationFrame();
     expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
     expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(0);
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
   });
 
   it('arms an immediate play-control wait after a PRO member requests a row', () => {
@@ -1252,45 +1274,50 @@ describe('playlist queue identity rendering and actions', () => {
   });
 
   it('delegates play, remove, expansion, and sub-seek actions by queueItemId', async () => {
-    const items = sampleItems();
-    items[1] = { ...items[1], isExpanded: false };
-    setState('playlist.items', items);
-    setState('youtube.subItemsMap', {
-      PL_TEST: { ids: ['video-a'], titles: ['First'] },
-    });
-    initPlaylistView();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const items = sampleItems();
+      items[1] = { ...items[1], isExpanded: false };
+      setState('playlist.items', items);
+      setState('youtube.subItemsMap', {
+        PL_TEST: { ids: ['video-a'], titles: ['First'] },
+      });
+      initPlaylistView();
 
-    const play = vi.fn();
-    const remove = vi.fn();
-    const populate = vi.fn();
-    const subSeek = vi.fn();
-    bus.on('playlist:play-track', play);
-    bus.on('playlist:remove-tracks', remove);
-    bus.on('youtube:populate-sub-items', populate);
-    bus.on('youtube:sub-seek', subSeek);
+      const play = vi.fn();
+      const remove = vi.fn();
+      const populate = vi.fn();
+      const subSeek = vi.fn();
+      bus.on('playlist:play-track', play);
+      bus.on('playlist:remove-tracks', remove);
+      bus.on('youtube:populate-sub-items', populate);
+      bus.on('youtube:sub-seek', subSeek);
 
-    document
-      .querySelector<HTMLElement>(`.track-item[data-queue-item-id="${FILE_A}"] .track-name`)!
-      .click();
-    expect(play).toHaveBeenCalledWith(FILE_A, undefined, { explicitPlaybackIntent: true });
+      document
+        .querySelector<HTMLElement>(`.track-item[data-queue-item-id="${FILE_A}"] .track-name`)!
+        .click();
+      expect(play).toHaveBeenCalledWith(FILE_A, undefined, { explicitPlaybackIntent: true });
 
-    document
-      .querySelector<HTMLElement>(`[data-action="expand"][data-queue-item-id="${YT_B}"]`)!
-      .click();
-    expect(populate).toHaveBeenCalledWith('PL_TEST', YT_B);
-    document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="0"]')!.click();
-    expect(subSeek).toHaveBeenCalledWith(YT_B, 0, false);
+      document
+        .querySelector<HTMLElement>(`[data-action="expand"][data-queue-item-id="${YT_B}"]`)!
+        .click();
+      expect(populate).toHaveBeenCalledWith('PL_TEST', YT_B);
+      document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="0"]')!.click();
+      expect(subSeek).toHaveBeenCalledWith(YT_B, 0, false);
 
-    const removeButton = document.querySelector<HTMLButtonElement>(
-      `[data-action="remove"][data-queue-item-id="${FILE_A}"]`,
-    )!;
-    removeButton.click();
-    expect(removeButton.getAttribute('aria-pressed')).toBe('true');
-    expect(document.querySelector('.playlist-selection-pill')?.classList).toContain('is-visible');
-    expect(remove).not.toHaveBeenCalled();
+      const removeButton = document.querySelector<HTMLButtonElement>(
+        `[data-action="remove"][data-queue-item-id="${FILE_A}"]`,
+      )!;
+      removeButton.click();
+      expect(removeButton.getAttribute('aria-pressed')).toBe('true');
+      expect(selectionBarVisible()).toBe(true);
+      expect(remove).not.toHaveBeenCalled();
 
-    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-    expect(remove).toHaveBeenCalledWith([FILE_A]);
+      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+      expect(remove).toHaveBeenCalledWith([FILE_A]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('uses the existing remove buttons as stable multi-selection toggles', () => {
@@ -1311,16 +1338,51 @@ describe('playlist queue identity rendering and actions', () => {
     );
     buttons[1]!.click();
     expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual(['true', 'true']);
-    expect(document.querySelector('.playlist-selection-count')?.textContent).toBe('2');
+    expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 2 }));
 
     buttons[0]!.click();
-    expect(document.querySelector('.playlist-selection-count')?.textContent).toBe('1');
-    expect(document.querySelector('.playlist-selection-pill')?.classList).toContain('is-visible');
+    expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 1 }));
+    expect(selectionBarVisible()).toBe(true);
 
     buttons[1]!.click();
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
+    expect(selectionTitle()).toBeNull();
+  });
+
+  it('turns the header into the selected count with one select-all text toggle', () => {
+    setLanguageMode('en');
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const header = document.querySelector<HTMLElement>('#tab-playlist .tab-header')!;
+    const toggle = header.querySelector<HTMLButtonElement>('.playlist-selection-toggle')!;
+    const live = header.querySelector<HTMLElement>('.playlist-selection-title')!;
+
+    expect(header.classList.contains('is-removal-selecting')).toBe(false);
+    expect(toggle.hidden).toBe(true);
+    expect(live.hidden).toBe(true);
+    expect(live.getAttribute('aria-live')).toBe('polite');
+
+    clickRemove(FILE_A);
+    expect(header.classList.contains('is-removal-selecting')).toBe(true);
+    expect(live.textContent).toBe('1 selected');
+    expect(toggle.hidden).toBe(false);
+    expect(toggle.tagName).toBe('BUTTON');
+    expect(toggle.textContent).toBe('Select all (2)');
+    expect(header.querySelectorAll('.playlist-selection-toggle')).toHaveLength(1);
+    // The tab's icon actions stay in the DOM; CSS hides them in this mode.
+    expect(header.querySelector('#btn-add-media')).not.toBeNull();
+
+    clickRemove(YT_B);
+    expect(live.textContent).toBe('2 selected');
+    expect(toggle.textContent).toBe('Deselect all');
+
+    const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+    const deleteButton = bar.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
+    const cancelButton = bar.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!;
+    expect(bar.getAttribute('role')).toBe('group');
+    expect(deleteButton.textContent?.trim()).toBe('Delete');
+    expect(cancelButton.textContent?.trim()).toBe('Cancel');
+    expect(cancelButton.hidden).toBe(false);
   });
 
   it('cancels selection with Escape and disables reorder controls only while active', () => {
@@ -1332,47 +1394,49 @@ describe('playlist queue identity rendering and actions', () => {
     );
 
     removeButton.click();
-    expect(document.querySelector('.playlist-selection-pill')?.getAttribute('role')).toBe('group');
+    expect(document.querySelector('.playlist-selection-bar')?.getAttribute('role')).toBe('group');
     expect(handles.every((handle) => handle.disabled)).toBe(true);
     expect(handles.every((handle) => !handle.hasAttribute('aria-keyshortcuts'))).toBe(true);
 
     removeButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
 
     expect(removeButton.getAttribute('aria-pressed')).toBe('false');
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
     expect(handles.every((handle) => !handle.disabled)).toBe(true);
     expect(handles.every((handle) => handle.hasAttribute('aria-keyshortcuts'))).toBe(true);
+
+    removeButton.click();
+    document
+      .querySelector<HTMLButtonElement>('.playlist-selection-toggle')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(selectionBarVisible()).toBe(false);
   });
 
-  it('toggles every live queue item from one select-all action without mutating the queue', () => {
+  it('selects every live row, then ends deletion mode from Deselect all', () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
     const remove = vi.fn();
     bus.on('playlist:remove-tracks', remove);
 
-    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
-    const selectAll = document.querySelector<HTMLButtonElement>(
-      '[data-selection-action="select-all"]',
-    )!;
-    selectAll.click();
+    clickRemove(FILE_A);
+    const toggle = document.querySelector<HTMLButtonElement>('.playlist-selection-toggle')!;
+    expect(toggle.dataset.selectionAction).toBe('select-all');
+    expect(toggle.textContent).toBe(`${t('playlist.select_all')} (2)`);
+    toggle.click();
 
     expect(
       Array.from(document.querySelectorAll('.btn-playlist-remove')).map((button) =>
         button.getAttribute('aria-pressed'),
       ),
     ).toEqual(['true', 'true']);
-    expect(selectAll.disabled).toBe(false);
-    expect(selectAll.getAttribute('aria-pressed')).toBe('true');
-    expect(selectAll.getAttribute('aria-label')).toBe(t('playlist.deselect_all'));
-    expect(document.querySelector('[data-selection-action="deselect"]')).toBeNull();
+    expect(toggle.dataset.selectionAction).toBe('deselect-all');
+    expect(toggle.textContent).toBe(t('playlist.deselect_all'));
+    expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 2 }));
 
-    selectAll.click();
+    toggle.click();
     expect(remove).not.toHaveBeenCalled();
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
+    expect(toggle.hidden).toBe(true);
     expect(
       Array.from(document.querySelectorAll('.btn-playlist-remove')).map((button) =>
         button.getAttribute('aria-pressed'),
@@ -1380,23 +1444,21 @@ describe('playlist queue identity rendering and actions', () => {
     ).toEqual(['false', 'false']);
   });
 
-  it('clears selection and closes the pill from the explicit cancel action', () => {
+  it('clears selection and closes the pills from the explicit cancel action', () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
     const remove = vi.fn();
     bus.on('playlist:remove-tracks', remove);
 
-    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
+    clickRemove(FILE_A);
     const cancelButton = document.querySelector<HTMLButtonElement>(
       '[data-selection-action="cancel"]',
     )!;
-    expect(cancelButton.getAttribute('aria-label')).toBe(t('common.cancel'));
+    expect(cancelButton.textContent).toBe(t('common.cancel'));
     cancelButton.click();
 
     expect(remove).not.toHaveBeenCalled();
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
     expect(
       Array.from(document.querySelectorAll('.btn-playlist-remove')).map((button) =>
         button.getAttribute('aria-pressed'),
@@ -1404,7 +1466,56 @@ describe('playlist queue identity rendering and actions', () => {
     ).toEqual(['false', 'false']);
   });
 
-  it('deletes non-contiguous selections once in playlist order and without a dialog', () => {
+  it('ends deletion mode on a tap outside the track list but not on its own controls', () => {
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+
+    clickRemove(FILE_A);
+    document.querySelector<HTMLButtonElement>('.playlist-selection-toggle')!.click();
+    expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 2 }));
+    // Rows and the list itself keep the mode.
+    document.getElementById('playlist-ui')!.click();
+    clickRemove(YT_B);
+    expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 1 }));
+
+    document.querySelector<HTMLElement>('#tab-playlist .tab-title[data-i18n]')!.click();
+    expect(selectionBarVisible()).toBe(false);
+
+    clickRemove(FILE_A);
+    document.querySelector<HTMLElement>('.tab-body')!.click();
+    expect(selectionBarVisible()).toBe(false);
+
+    clickRemove(FILE_A);
+    document.querySelector<HTMLButtonElement>('.bottom-nav .nav-item')!.click();
+    expect(selectionBarVisible()).toBe(false);
+  });
+
+  it.each([false, true])('ends deletion mode on a tab change (desktop: %s)', async (desktop) => {
+    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn((query: string) => ({ matches: desktop && query === '(min-width: 1280px)' })),
+    });
+    try {
+      setState('playlist.items', sampleItems());
+      initPlaylistView();
+      clickRemove(FILE_A);
+      expect(selectionBarVisible()).toBe(true);
+
+      bus.emit('ui:tab-changed', 'playlist');
+      expect(selectionBarVisible()).toBe(true);
+
+      if (!desktop) document.getElementById('tab-playlist')!.classList.remove('active');
+      bus.emit('ui:tab-changed', 'chat');
+      expect(selectionBarVisible()).toBe(false);
+      expect(selectionTitle()).toBeNull();
+    } finally {
+      if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+      else Reflect.deleteProperty(window, 'matchMedia');
+    }
+  });
+
+  it('deletes non-contiguous selections at once in playlist order and tells only this device', () => {
     const third: PlaylistItem = {
       queueItemId: '00000000-0000-4000-8000-000000000003',
       type: 'file',
@@ -1415,24 +1526,144 @@ describe('playlist queue identity rendering and actions', () => {
     };
     setState('playlist.items', [...sampleItems(), third]);
     initPlaylistView();
-    const remove = vi.fn();
+    const remove = vi.fn((ids: string[]) =>
+      setState(
+        'playlist.items',
+        getState('playlist.items').filter((item) => !ids.includes(item.queueItemId)),
+      ),
+    );
+    const toast = vi.fn();
     bus.on('playlist:remove-tracks', remove);
+    bus.on('ui:show-toast', toast);
 
-    document
-      .querySelector<HTMLButtonElement>(`.btn-playlist-remove[data-queue-item-id="${FILE_A}"]`)!
-      .click();
-    document
-      .querySelector<HTMLButtonElement>(
-        `.btn-playlist-remove[data-queue-item-id="${third.queueItemId}"]`,
-      )!
-      .click();
+    clickRemove(FILE_A);
+    clickRemove(third.queueItemId);
     document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
 
     expect(remove).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledWith([FILE_A, third.queueItemId]);
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(renderedQueueIds()).toEqual([YT_B]);
+    expect(selectionTitle()).toBeNull();
+    expect(selectionBarVisible()).toBe(false);
+    expect(document.querySelector('[data-selection-action="undo"]')).toBeNull();
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith(t('toast.deleted_tracks', { count: 2 }));
+    expect(t('toast.deleted_tracks', { count: 2 })).toBe('트랙 2개를 삭제했어요');
+  });
+
+  it('does not report a deletion the host refused', () => {
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const remove = vi.fn();
+    const toast = vi.fn();
+    bus.on('playlist:remove-tracks', remove);
+    bus.on('ui:show-toast', toast);
+
+    clickRemove(FILE_A);
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+
+    expect(remove).toHaveBeenCalledWith([FILE_A]);
+    // The host applies removals synchronously, so a refused one stays listed.
+    expect(renderedQueueIds()).toEqual([FILE_A, YT_B]);
+    updatePlaylistUI();
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+  function joinProRoomAsMediaManager(): void {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    setState('room.context', {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['queue.mutate' as const],
+    });
+  }
+
+  it('keeps a remote deletion hidden until the authoritative snapshot drops it', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      joinProRoomAsMediaManager();
+      const third: PlaylistItem = {
+        queueItemId: '00000000-0000-4000-8000-000000000003',
+        type: 'file',
+        name: 'c.mp3',
+        title: 'C',
+        videoId: null,
+        playlistId: null,
+      };
+      const items = [...sampleItems(), third];
+      setState('playlist.items', items);
+      initPlaylistView();
+      const remove = vi.fn();
+      const toast = vi.fn();
+      bus.on('playlist:remove-tracks', remove);
+      bus.on('ui:show-toast', toast);
+
+      clickRemove(FILE_A);
+      clickRemove(third.queueItemId);
+      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+      expect(remove).toHaveBeenCalledWith([FILE_A, third.queueItemId]);
+      expect(renderedQueueIds()).toEqual([YT_B]);
+      // One visible row cannot be reordered, even though three are canonical.
+      expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
+      // Survivors are numbered as they appear.
+      expect(document.querySelector('.track-idx')?.textContent).toBe('1');
+      bus.emit('i18n:changed', 'ko');
+      updatePlaylistUI();
+      expect(renderedQueueIds()).toEqual([YT_B]);
+      expect(toast).not.toHaveBeenCalled();
+
+      setState('playlist.items', [items[1]!]);
+      updatePlaylistUI();
+      expect(renderedQueueIds()).toEqual([YT_B]);
+      expect(toast).toHaveBeenCalledTimes(1);
+      expect(toast).toHaveBeenCalledWith(t('toast.deleted_tracks', { count: 2 }));
+      vi.advanceTimersByTime(10_000);
+      expect(toast).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives a rejected or lost remote deletion its rows back without a toast', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      joinProRoomAsMediaManager();
+      setState('playlist.items', sampleItems());
+      initPlaylistView();
+      const toast = vi.fn();
+      bus.on('ui:show-toast', toast);
+
+      clickRemove(FILE_A);
+      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+      expect(renderedQueueIds()).toEqual([YT_B]);
+      vi.advanceTimersByTime(9_999);
+      expect(renderedQueueIds()).toEqual([YT_B]);
+      vi.advanceTimersByTime(1);
+      expect(renderedQueueIds()).toEqual([FILE_A, YT_B]);
+      expect(toast).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not report a remote deletion settled after the room is gone', () => {
+    joinProRoomAsMediaManager();
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const toast = vi.fn();
+    bus.on('ui:show-toast', toast);
+
+    clickRemove(FILE_A);
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+    setState('room.context', { ...getState('room.context'), capabilities: [] });
+    setState('playlist.items', []);
+    updatePlaylistUI();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it('keeps selection attached to queueItemId across rerenders and prunes lost authority', () => {
@@ -1454,12 +1685,10 @@ describe('playlist queue identity rendering and actions', () => {
     setState('network.hostConn', { open: true, peer: 'host' } as DataConnection);
     updatePlaylistUI();
     expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(0);
-    expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-      'is-visible',
-    );
+    expect(selectionBarVisible()).toBe(false);
   });
 
-  it('preserves desktop deletion selection across track advance and prunes only removed rows', async () => {
+  it('keeps desktop deletion selection across track advance and prunes only removed rows', async () => {
     const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
@@ -1472,48 +1701,32 @@ describe('playlist queue identity rendering and actions', () => {
       setState('playlist.currentQueueItemId', FILE_A);
       initPlaylistView();
 
-      for (const queueItemId of [FILE_A, YT_B]) {
-        document
-          .querySelector<HTMLButtonElement>(
-            `.btn-playlist-remove[data-queue-item-id="${queueItemId}"]`,
-          )!
-          .click();
-      }
+      for (const queueItemId of [FILE_A, YT_B]) clickRemove(queueItemId);
 
-      // playTrack() emits this logical switch while the wide dashboard keeps
-      // the playlist physically visible. Advancing the active row must not
-      // cancel the user's independent deletion task.
-      bus.emit('ui:tab-changed', 'play');
+      // Sequential playback advances without a tab switch.
       setState('playlist.currentQueueItemId', YT_B);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
-      expect(document.querySelector('.playlist-selection-count')?.textContent).toBe('2');
+      expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 2 }));
       expect(
         document
           .querySelector(`.btn-playlist-remove[data-queue-item-id="${FILE_A}"]`)
           ?.getAttribute('aria-pressed'),
       ).toBe('true');
-      expect(
-        document
-          .querySelector(`.btn-playlist-remove[data-queue-item-id="${YT_B}"]`)
-          ?.getAttribute('aria-pressed'),
-      ).toBe('true');
 
       setState('playlist.items', [items[1]!]);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      expect(document.querySelector('.playlist-selection-count')?.textContent).toBe('1');
+      expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 1 }));
       expect(
         document
           .querySelector(`.btn-playlist-remove[data-queue-item-id="${YT_B}"]`)
           ?.getAttribute('aria-pressed'),
       ).toBe('true');
-      expect(document.querySelector('.playlist-selection-pill')?.classList).toContain('is-visible');
+      expect(selectionBarVisible()).toBe(true);
 
       setState('playlist.items', []);
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      expect(document.querySelector('.playlist-selection-pill')?.classList).not.toContain(
-        'is-visible',
-      );
+      expect(selectionBarVisible()).toBe(false);
     } finally {
       if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
       else Reflect.deleteProperty(window, 'matchMedia');
@@ -1540,7 +1753,7 @@ describe('playlist queue identity rendering and actions', () => {
     const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
-      value: vi.fn((query: string) => ({ matches: query === '(min-width: 1280px)' })),
+      value: vi.fn((query: string) => ({ matches: query === DESKTOP_LAYOUT_QUERY })),
     });
 
     try {
@@ -1586,7 +1799,7 @@ describe('playlist queue identity rendering and actions', () => {
     const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
-      value: vi.fn((query: string) => ({ matches: query === '(min-width: 1280px)' })),
+      value: vi.fn((query: string) => ({ matches: query === DESKTOP_LAYOUT_QUERY })),
     });
 
     try {
@@ -1638,25 +1851,30 @@ describe('playlist queue identity rendering and actions', () => {
   });
 
   it('keeps deletion survivor focus without starting an unrelated current-track follow', async () => {
-    const items = sampleItems();
-    setState('playlist.items', items);
-    setState('playlist.currentQueueItemId', FILE_A);
-    initPlaylistView();
-    const scrollTo = configurePlaylistFollowLayout();
-    await nextAnimationFrame();
-    scrollTo.mockClear();
-    bus.on('playlist:remove-tracks', () => setState('playlist.items', [items[0]!]));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const items = sampleItems();
+      setState('playlist.items', items);
+      setState('playlist.currentQueueItemId', FILE_A);
+      initPlaylistView();
+      const scrollTo = configurePlaylistFollowLayout();
+      await nextAnimationFrame();
+      scrollTo.mockClear();
+      bus.on('playlist:remove-tracks', () => setState('playlist.items', [items[0]!]));
 
-    document
-      .querySelector<HTMLButtonElement>(`.btn-playlist-remove[data-queue-item-id="${YT_B}"]`)!
-      .click();
-    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-    await Promise.resolve();
-    await nextAnimationFrame();
-    await Promise.resolve();
+      clickRemove(YT_B);
+      const pill = document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
+      pill.focus();
+      pill.click();
+      await Promise.resolve();
+      await nextAnimationFrame();
+      await Promise.resolve();
 
-    expect(scrollTo).not.toHaveBeenCalled();
-    expect((document.activeElement as HTMLElement | null)?.dataset.queueItemId).toBe(FILE_A);
+      expect(scrollTo).not.toHaveBeenCalled();
+      expect((document.activeElement as HTMLElement | null)?.dataset.queueItemId).toBe(FILE_A);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not expose removal or reorder controls while system audio owns playback', () => {
@@ -1669,22 +1887,27 @@ describe('playlist queue identity rendering and actions', () => {
   });
 
   it('does not restore deletion focus into a playlist that became hidden', async () => {
-    setState('playlist.items', sampleItems());
-    initPlaylistView();
-    document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
-    const deleteButton = document.querySelector<HTMLButtonElement>(
-      '[data-selection-action="delete"]',
-    )!;
-    deleteButton.focus();
-    bus.on('playlist:remove-tracks', () => {
-      document.getElementById('tab-playlist')?.classList.remove('active');
-    });
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      setState('playlist.items', sampleItems());
+      initPlaylistView();
+      clickRemove(FILE_A);
+      const deleteButton = document.querySelector<HTMLButtonElement>(
+        '[data-selection-action="delete"]',
+      )!;
+      deleteButton.focus();
+      bus.on('playlist:remove-tracks', () => {
+        document.getElementById('tab-playlist')?.classList.remove('active');
+      });
 
-    deleteButton.click();
-    updatePlaylistUI();
-    await Promise.resolve();
+      deleteButton.click();
+      updatePlaylistUI();
+      await Promise.resolve();
 
-    expect(document.activeElement?.closest('#tab-playlist')).toBeNull();
+      expect(document.activeElement?.closest('#tab-playlist')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reveals all host handles when an add batch completes', () => {

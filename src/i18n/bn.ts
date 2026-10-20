@@ -15,6 +15,7 @@ const bn: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ঠিক আছে',
   'common.cancel': 'বাতিল করুন',
+  'common.delete': 'মুছে ফেলুন',
   'common.close': 'বন্ধ করুন',
   'common.skip_to_content': 'এড়িয়ে কনটেন্টে যান',
   'common.reset': 'রিসেট করুন',
@@ -45,6 +46,7 @@ const bn: Record<I18nKey, string> = {
   'common.off': 'বন্ধ',
 
   'screensaver.back': 'MUSIXQUARE-এ ফিরে যান',
+  'screensaver.turn_on': 'স্ক্রিনসেভার চালু করুন',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'সাইন ইন করুন',
@@ -158,6 +160,7 @@ const bn: Record<I18nKey, string> = {
   'playlist.deselect_all': 'সব নির্বাচন বাতিল করুন',
   'playlist.select_all': 'সব বেছে নিন',
   'playlist.delete_selected': 'নির্বাচিত {{count}}টি ট্র্যাক মুছুন',
+  'playlist.selected_count': '{{count}}টি নির্বাচিত',
   'playlist.video_fallback': 'লোড হচ্ছে...',
   'playlist.track_fallback': 'ট্র্যাক {{idx}}',
   'playlist.deferred_load_hint': 'সম্পূর্ণ ট্র্যাক তালিকা লোড করতে চালান',
@@ -542,6 +545,7 @@ const bn: Record<I18nKey, string> = {
     'একটি ডিভাইস এই ট্র্যাকটি ডিকোড করতে পারেনি\nঅন্য সবার জন্য প্লেব্যাক চলতে থাকবে',
   'toast.invite_code_info': '{{count}}টি সংযুক্ত | কোড {{code}}',
   'toast.added_tracks': '{{count}}টি ট্র্যাক যোগ করা হয়েছে',
+  'toast.deleted_tracks': '{{count}}টি ট্র্যাক মুছে ফেলা হয়েছে',
   'toast.preparing': 'প্রস্তুত হচ্ছে: {{name}}',
   'toast.file_save_error': 'ফাইল সেভ করতে সমস্যা: {{name}}',
   'toast.decoding_audio': 'অডিও ডিকোড হচ্ছে...',
@@ -575,6 +579,16 @@ const bn: Record<I18nKey, string> = {
   'toast.member_management_required': 'সদস্য সরানোর অনুমতি প্রয়োজন',
   'toast.chat_notice_required': 'চ্যাট নোটিশ পোস্ট করার অনুমতি প্রয়োজন',
   'toast.room_owner_required': 'শুধু রুমের মালিক এটি পরিবর্তন করতে পারবেন',
+  'toast.media_management_checking':
+    'মিডিয়া পরিচালনার অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.playback_control_checking':
+    'প্লেব্যাক নিয়ন্ত্রণের অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.member_management_checking':
+    'সদস্য সরানোর অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.chat_notice_checking':
+    'চ্যাট নোটিশ পোস্ট করার অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.admin_permission_checking': 'অ্যাডমিন অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.room_owner_checking': 'রুমের মালিকের অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
   'toast.system_audio_owner_required':
     'যে ট্যাবে রুমটি খোলা হয়েছিল, শুধু সেই ট্যাব থেকেই অডিও শেয়ার করতে পারবেন',
   'toast.host_setting_required': 'শুধু হোস্ট এই সেটিং পরিবর্তন করতে পারবেন',

@@ -90,6 +90,36 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Desktop layout by viewport height — 2026-10-21](design/desktop-height-layout-2026-10-21.md) — wide viewports
+  under 720 px tall now use the compact sidebar layout, and from 720 to 899 px tall the dashboard keeps its header
+  over the Play column only so Playlist/Chat and Settings run full height. One module holds the bands for CSS and
+  JS, and a contract test keeps them equal (unreleased).
+- [Playlist and platform fixes 8.11.32 — 2026-10-20](design/playlist-and-platform-fixes-2026-10-20.md) —
+  the drag ghost showed the play icon under the grip; desktop gets press-and-hold reorder; edge auto-scroll no longer
+  starts from an edge-row grab and stops outside its zone; iOS long-press text selection returns after lightningcss had
+  stripped every `-webkit-user-select` since 8.6.9 (CSS targets now include Safari/iOS, with a build guard); blog
+  images fall back to their source when the R2 mirror fails; permission feedback says "checking" until the host
+  confirms; the deletion pills sit in one container pill under the last track, and (owner decision 2026-10-21) the
+  Undo window and its playback-navigation gate are gone: Delete deletes at once and only the deleting device sees
+  a "Deleted N tracks" toast.
+- [Background-return Sync — 2026-10-20](design/background-return-sync-2026-10-20.md) — every return from the
+  background (hidden 1 s or longer) in an active room now runs the Sync button's room alignment without its panel
+  or toasts: PRO full reconciliation merged into the runtime's own foreground repair, a manual broadcast on a
+  Standard YouTube host, a retried rendezvous on a Standard YouTube guest (also while the connection is being
+  probed), and a forced re-sync on a Standard file guest, playing or paused. Local evidence at `5e8d8623`; not
+  released, real devices untested.
+- [Playlist delete mode — 2026-10-20](design/playlist-delete-mode-undo-2026-10-20.md) —
+  selecting rows turns the playlist title into the selected count with one Select all / Deselect all text button,
+  and a red Delete and grey Cancel pill in one container pill replace the icon pill; tapping outside the list or
+  changing tabs ends the mode. The 3 s Undo window was removed by owner decision on 2026-10-21: Delete runs
+  `playlist:remove-tracks` at once and the deleting device alone gets a `toast.deleted_tracks` toast once the rows
+  are gone. Two redesign keys use WordPress core translations in 42 locales; the toast follows each locale's
+  "tracks added" toast.
+- [Clock-only screensaver and Help-tab entry — 2026-10-21](design/screensaver-clock-only-help-entry-2026-10-21.md) —
+  the Help tab's tour button takes the neutral invite-link look and a new accent "Turn on screensaver" button opens
+  the screensaver; the screensaver keeps only the clock (no date, weather, air quality, moon, Open-Meteo or location
+  request), closes on a double-click or double-tap, and brightens by at most 6% with the visualizer's bass while a
+  file or system audio plays. Records translations, branch tests and limits.
 - [Skip link translation — 2026-10-20](design/skip-link-translation-2026-10-20.md) —
   the keyboard skip link at the top of the app read "Skip to content" in English for all 42 locales; 8.11.31 binds
   it to `common.skip_to_content`, using the WordPress community translation of the same source string (theme

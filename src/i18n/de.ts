@@ -17,6 +17,7 @@ const de: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Abbrechen',
+  'common.delete': 'Löschen',
   'common.close': 'Schließen',
   'common.skip_to_content': 'Zum Inhalt springen',
   'common.reset': 'Zurücksetzen',
@@ -47,6 +48,7 @@ const de: Record<I18nKey, string> = {
   'common.off': 'Aus',
 
   'screensaver.back': 'Zurück zu MUSIXQUARE',
+  'screensaver.turn_on': 'Bildschirmschoner einschalten',
   'account.login_title': 'Anmelden',
   'account.login_cancelled': 'Die Anmeldung wurde abgebrochen',
   'account.login_failed': 'Anmeldung fehlgeschlagen\nVersuche es erneut',
@@ -251,6 +253,7 @@ const de: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Alle abwählen',
   'playlist.select_all': 'Alle auswählen',
   'playlist.delete_selected': '{{count}} ausgewählte Titel löschen',
+  'playlist.selected_count': '{{count}} ausgewählt',
   'playlist.video_fallback': 'Wird geladen...',
   'playlist.track_fallback': 'Titel {{idx}}',
   'playlist.deferred_load_hint': 'Abspielen, um die vollständige Titelliste zu laden',
@@ -522,6 +525,7 @@ const de: Record<I18nKey, string> = {
     'Ein Gerät konnte diesen Titel nicht dekodieren\nDie Wiedergabe läuft für die anderen weiter',
   'toast.invite_code_info': '{{count}} verbunden | Code {{code}}',
   'toast.added_tracks': '{{count}} Titel hinzugefügt',
+  'toast.deleted_tracks': '{{count}} Titel gelöscht',
   'toast.preparing': 'Wird vorbereitet: {{name}}',
   'toast.file_save_error': 'Fehler beim Speichern der Datei: {{name}}',
   'toast.decoding_audio': 'Audio wird dekodiert...',
@@ -555,6 +559,18 @@ const de: Record<I18nKey, string> = {
   'toast.member_management_required': 'Berechtigung zum Entfernen von Mitgliedern erforderlich',
   'toast.chat_notice_required': 'Berechtigung zum Senden von Chat-Ankündigungen erforderlich',
   'toast.room_owner_required': 'Nur der Raumbesitzer kann dies ändern',
+  'toast.media_management_checking':
+    'Berechtigung zur Medienverwaltung wird geprüft\nBitte versuche es gleich noch einmal',
+  'toast.playback_control_checking':
+    'Berechtigung zur Wiedergabesteuerung wird geprüft\nBitte versuche es gleich noch einmal',
+  'toast.member_management_checking':
+    'Berechtigung zum Entfernen von Mitgliedern wird geprüft\nBitte versuche es gleich noch einmal',
+  'toast.chat_notice_checking':
+    'Berechtigung zum Senden von Chat-Ankündigungen wird geprüft\nBitte versuche es gleich noch einmal',
+  'toast.admin_permission_checking':
+    'Administratorrechte werden geprüft\nBitte versuche es gleich noch einmal',
+  'toast.room_owner_checking':
+    'Rechte des Raumbesitzers werden geprüft\nBitte versuche es gleich noch einmal',
   'toast.system_audio_owner_required':
     'Audio kann nur über den Tab freigegeben werden, der den Raum geöffnet hat',
   'toast.host_setting_required': 'Nur der Host kann diese Einstellung ändern',
@@ -935,6 +951,7 @@ const de: Record<I18nKey, string> = {
 export default de;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} ausgewählt' },
   'connect.administrator_list': { one: '{{count}} Administrator' },
   'playlist.delete_selected': { one: '{{count}} ausgewählten Titel löschen' },
   'connect.device_list': { one: '{{count}} verbundenes Gerät' },
@@ -948,6 +965,7 @@ export const pluralMessages = {
     one: '{{name}} hat {{count}} Titel hinzugefügt, darunter {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} Titel hinzugefügt' },
+  'toast.deleted_tracks': { one: '{{count}} Titel gelöscht' },
   'toast.unsupported_files_excluded': {
     one: '{{count}} nicht unterstützte Datei übersprungen',
   },

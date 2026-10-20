@@ -12,6 +12,7 @@ import { readFile } from 'node:fs/promises';
 import { parse as parseCss } from 'postcss';
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { COMPACT_LAYOUT_QUERY, SHORT_DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 
 // ── jsdom polyfills (module scope, installed once for the whole file) ──────
@@ -134,7 +135,6 @@ function fireMqlChange(query: string): void {
 }
 
 const ORIENTATION_QUERY = '(orientation: landscape)';
-const COMPACT_QUERY = '(min-width: 720px) and (max-width: 1279px)';
 
 function makeRect(height: number, top = 0): DOMRect {
   return {
@@ -489,9 +489,19 @@ describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {
     initCustomScrollbar(a.container);
 
     a.setClientHeight(280);
-    fireMqlChange(COMPACT_QUERY);
+    fireMqlChange(COMPACT_LAYOUT_QUERY);
     vi.advanceTimersByTime(350);
     expect(a.track().style.height).toBe('280px');
+  });
+
+  it('short-desktop header changes also trigger the settled re-layout', () => {
+    const a = createScrollbox('box-a');
+    initCustomScrollbar(a.container);
+
+    a.setClientHeight(300);
+    fireMqlChange(SHORT_DESKTOP_LAYOUT_QUERY);
+    vi.advanceTimersByTime(350);
+    expect(a.track().style.height).toBe('300px');
   });
 });
 
@@ -1205,7 +1215,7 @@ describe('compact-landscape scrollbar ownership contract', () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const compactRules: string[] = [];
     parseCss(stylesheet).walkAtRules('media', (rule) => {
-      if (rule.params === '(min-width: 720px) and (max-width: 1279px)') {
+      if (rule.params === COMPACT_LAYOUT_QUERY) {
         compactRules.push(rule.toString());
       }
     });

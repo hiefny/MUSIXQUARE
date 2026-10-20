@@ -20,6 +20,8 @@
         padding: 0;
         user-select: none;
         -webkit-user-select: none;
+        /* Same double-tap policy as the app shell; double-tap closes this display. */
+        touch-action: manipulation;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
@@ -87,69 +89,8 @@
         z-index: 20;
       }
 
-      #weatherCanvas {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        z-index: 18;
-        opacity: 0;
-      }
       [hidden] {
         display: none !important;
-      }
-      .location-retry {
-        position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 24;
-        max-width: 85vw;
-        min-height: min(38px, 18vh);
-        padding: clamp(5px, 1.5vmin, 10px) clamp(12px, 3vmin, 22px);
-        border: 1px solid rgba(221, 240, 255, 0.28);
-        border-radius: 999px;
-        background: rgba(8, 32, 83, 0.25);
-        color: #edf6ff;
-        font: 500 clamp(10px, 2.8vmin, 14px) var(--font-sans);
-        cursor: pointer;
-        opacity: 0;
-      }
-      .location-retry:hover {
-        background: rgba(166, 213, 255, 0.15);
-      }
-      .location-retry:focus-visible,
-      .data-attribution:focus-visible {
-        outline: 2px solid #d5ecff;
-        outline-offset: 5px;
-      }
-      .data-attribution {
-        position: absolute;
-        right: max(12px, env(safe-area-inset-right));
-        bottom: max(9px, env(safe-area-inset-bottom));
-        z-index: 24;
-        max-width: 85vw;
-        color: rgba(224, 241, 255, 0.53);
-        opacity: 0;
-        font: 500 clamp(8px, 1.8vmin, 11px) var(--font-sans);
-        text-decoration: none;
-        text-align: right;
-      }
-      .data-attribution:hover {
-        color: #e0f1ff;
-      }
-      .location-retry {
-        border: 0;
-        width: max-content;
-        border-radius: 12px;
-        background: transparent;
-        color: #eee;
-        min-height: 40px;
-        padding: 10px 18px;
-      }
-      .location-retry:hover {
-        background: transparent;
-        color: #fff;
       }
       .display-chrome {
         position: fixed;
@@ -260,10 +201,6 @@
         cursor: none;
       }
       @media (max-height: 280px) {
-        .location-retry {
-          min-height: 28px;
-          padding: 6px 10px;
-        }
         .display-back {
           top: max(2px, env(safe-area-inset-top));
           padding: 4px 8px;
@@ -271,16 +208,6 @@
         }
         .display-music-info {
           bottom: max(4px, env(safe-area-inset-bottom));
-        }
-      }
-      @media (max-width: 480px) {
-        .data-attribution {
-          bottom: max(76px, calc(env(safe-area-inset-bottom) + 60px));
-        }
-      }
-      @media (max-width: 480px) and (max-height: 280px) {
-        .data-attribution {
-          bottom: max(46px, calc(env(safe-area-inset-bottom) + 44px));
         }
       }
       @media (prefers-reduced-motion: reduce) {
@@ -298,20 +225,6 @@
     <main id="mainStage" class="clock-stage" aria-label="Clock">
       <canvas id="opticalClockCanvas" role="img" aria-label="Current time"></canvas>
       <canvas id="speckleFieldCanvas" aria-hidden="true"></canvas>
-      <canvas id="weatherCanvas" role="img" aria-hidden="true"></canvas>
-      <button id="weatherRetry" class="location-retry" type="button" hidden tabindex="-1">
-        Use current location
-      </button>
-      <a
-        id="weatherAttribution"
-        class="data-attribution"
-        href="https://open-meteo.com/"
-        target="_blank"
-        rel="noopener noreferrer"
-        hidden
-        tabindex="-1"
-        >Open-Meteo</a
-      >
     </main>
     <div id="displayChrome" class="display-chrome">
       <button id="displayBack" class="display-back" type="button" aria-label="Back to MUSIXQUARE">
@@ -367,32 +280,6 @@
       <pre>
 Third-party notices
 ===================
-
-Moon illumination adapted from SunCalc 1.9.0:
-https://github.com/mourner/suncalc/tree/v1.9.0
-Based on Jean Meeus, Astronomical Algorithms, Chapter 48.
-
-Copyright (c) 2014, Vladimir Agafonkin
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are
-permitted provided that the following conditions are met:
-
-   1. Redistributions of source code must retain the above copyright notice, this list of
-      conditions and the following disclaimer.
-   2. Redistributions in binary form must reproduce the above copyright notice, this list
-      of conditions and the following disclaimer in the documentation and/or other materials
-      provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
-EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
-TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 Embedded numeral outlines: Google Sans, weight 700.
        Source: https://fonts.gstatic.com/s/googlesans/v71/4Ua_rENHsxJlGDuGo1OIlJfC6l_24rlCK1Yo_Iqcsih3SAyH6cAwhX9RFD48TE63OOYKtrzjJ6li.ttf

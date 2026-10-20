@@ -16,6 +16,7 @@ const en: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Cancel',
+  'common.delete': 'Delete',
   'common.close': 'Close',
   'common.skip_to_content': 'Skip to content',
   'common.reset': 'Reset',
@@ -46,6 +47,7 @@ const en: Record<I18nKey, string> = {
   'common.off': 'Off',
 
   'screensaver.back': 'Back to MUSIXQUARE',
+  'screensaver.turn_on': 'Turn on screensaver',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Sign in',
@@ -158,6 +160,7 @@ const en: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Deselect all',
   'playlist.select_all': 'Select all',
   'playlist.delete_selected': 'Delete {{count}} selected tracks',
+  'playlist.selected_count': '{{count}} selected',
   'playlist.video_fallback': 'Loading...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Play to load the full track list',
@@ -540,6 +543,7 @@ const en: Record<I18nKey, string> = {
     'A device failed to decode this track\nPlayback is continuing for everyone else',
   'toast.invite_code_info': '{{count}} connected | Code {{code}}',
   'toast.added_tracks': '{{count}} tracks added',
+  'toast.deleted_tracks': 'Deleted {{count}} tracks',
   'toast.preparing': 'Preparing: {{name}}',
   'toast.file_save_error': 'File save error: {{name}}',
   'toast.decoding_audio': 'Decoding audio...',
@@ -573,6 +577,17 @@ const en: Record<I18nKey, string> = {
   'toast.member_management_required': 'Permission to kick members is required',
   'toast.chat_notice_required': 'Permission to post chat notices is required',
   'toast.room_owner_required': 'Only the room owner can change this',
+  'toast.media_management_checking':
+    'Checking media management permission\nPlease try again in a moment',
+  'toast.playback_control_checking':
+    'Checking playback control permission\nPlease try again in a moment',
+  'toast.member_management_checking':
+    'Checking permission to kick members\nPlease try again in a moment',
+  'toast.chat_notice_checking':
+    'Checking permission to post chat notices\nPlease try again in a moment',
+  'toast.admin_permission_checking':
+    'Checking administrator permissions\nPlease try again in a moment',
+  'toast.room_owner_checking': 'Checking room owner permission\nPlease try again in a moment',
   'toast.system_audio_owner_required': 'You can only share audio from the tab that opened the room',
   'toast.host_setting_required': 'Only the host can change this setting',
   'toast.no_tracks': 'No tracks to play',

@@ -15,6 +15,7 @@ const it: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Annulla',
+  'common.delete': 'Elimina',
   'common.close': 'Chiudi',
   'common.skip_to_content': 'Salta al contenuto',
   'common.reset': 'Ripristina',
@@ -45,6 +46,7 @@ const it: Record<I18nKey, string> = {
   'common.off': 'Disattivo',
 
   'screensaver.back': 'Torna a MUSIXQUARE',
+  'screensaver.turn_on': 'Attiva salvaschermo',
   'account.login_title': 'Accedi',
   'account.login_cancelled': 'Accesso annullato',
   'account.login_failed': 'Accesso non riuscito\nRiprova',
@@ -157,6 +159,7 @@ const it: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Deseleziona tutto',
   'playlist.select_all': 'Seleziona tutto',
   'playlist.delete_selected': 'Elimina {{count}} tracce selezionate',
+  'playlist.selected_count': '{{count}} selezionati',
   'playlist.video_fallback': 'Caricamento...',
   'playlist.track_fallback': 'Traccia {{idx}}',
   'playlist.deferred_load_hint':
@@ -556,6 +559,7 @@ const it: Record<I18nKey, string> = {
     'Un dispositivo non è riuscito a decodificare questa traccia\nLa riproduzione continua sugli altri',
   'toast.invite_code_info': '{{count}} dispositivi | Codice: {{code}}',
   'toast.added_tracks': '{{count}} tracce aggiunte',
+  'toast.deleted_tracks': '{{count}} tracce eliminate',
   'toast.preparing': 'Preparazione: {{name}}',
   'toast.file_save_error': 'Errore di salvataggio del file: {{name}}',
   'toast.decoding_audio': 'Decodifica audio in corso...',
@@ -591,6 +595,18 @@ const it: Record<I18nKey, string> = {
   'toast.member_management_required': 'È richiesto il permesso per rimuovere i partecipanti',
   'toast.chat_notice_required': 'È richiesto il permesso per pubblicare avvisi in chat',
   'toast.room_owner_required': 'Solo il proprietario della stanza può modificarlo',
+  'toast.media_management_checking':
+    'Stiamo verificando il permesso per gestire i contenuti\nRiprova tra qualche istante',
+  'toast.playback_control_checking':
+    'Stiamo verificando il permesso per controllare la riproduzione\nRiprova tra qualche istante',
+  'toast.member_management_checking':
+    'Stiamo verificando il permesso per rimuovere i partecipanti\nRiprova tra qualche istante',
+  'toast.chat_notice_checking':
+    'Stiamo verificando il permesso per pubblicare avvisi in chat\nRiprova tra qualche istante',
+  'toast.admin_permission_checking':
+    'Stiamo verificando i permessi di amministratore\nRiprova tra qualche istante',
+  'toast.room_owner_checking':
+    'Stiamo verificando i permessi del proprietario della stanza\nRiprova tra qualche istante',
   'toast.system_audio_owner_required':
     'Puoi condividere l’audio solo dalla scheda che ha aperto la stanza',
   'toast.host_setting_required': 'Solo l’host può modificare questa impostazione',
@@ -946,6 +962,7 @@ const it: Record<I18nKey, string> = {
 export default it;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} selezionato' },
   'connect.administrator_list': { one: '{{count}} amministratore' },
   'playlist.delete_selected': { one: 'Elimina {{count}} traccia selezionata' },
   'connect.device_list': { one: '{{count}} dispositivo connesso' },
@@ -963,6 +980,7 @@ export const pluralMessages = {
     one: '{{name}} ha aggiunto {{count}} traccia: {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} traccia aggiunta' },
+  'toast.deleted_tracks': { one: '{{count}} traccia eliminata' },
   'toast.unsupported_files_excluded': { one: '{{count}} file non supportato escluso' },
   'dialog.file_drop.message': { one: 'Vuoi aggiungere {{count}} file?' },
   'dialog.file_drop.unsupported_notice': {

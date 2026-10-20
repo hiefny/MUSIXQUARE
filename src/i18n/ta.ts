@@ -16,6 +16,7 @@ const ta: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'சரி',
   'common.cancel': 'ரத்துசெய்',
+  'common.delete': 'நீக்கு',
   'common.close': 'மூடு',
   'common.skip_to_content': 'உள்ளடக்கத்திற்கு செல்க',
   'common.reset': 'மீட்டமை',
@@ -46,6 +47,7 @@ const ta: Record<I18nKey, string> = {
   'common.off': 'முடக்கு',
 
   'screensaver.back': 'MUSIXQUARE-க்குத் திரும்பு',
+  'screensaver.turn_on': 'திரைக்காப்பானை இயக்கு',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'உள்நுழை',
@@ -160,6 +162,7 @@ const ta: Record<I18nKey, string> = {
   'playlist.deselect_all': 'அனைத்துத் தேர்வுகளையும் நீக்கு',
   'playlist.select_all': 'அனைத்தையும் தேர்ந்தெடு',
   'playlist.delete_selected': 'தேர்ந்தெடுத்த {{count}} டிராக்குகளை நீக்கு',
+  'playlist.selected_count': '{{count}} தேர்வுகள்',
   'playlist.video_fallback': 'ஏற்றப்படுகிறது...',
   'playlist.track_fallback': 'டிராக் {{idx}}',
   'playlist.deferred_load_hint': 'முழு டிராக் பட்டியலை ஏற்ற இயக்கவும்',
@@ -559,6 +562,7 @@ const ta: Record<I18nKey, string> = {
     'ஒரு சாதனத்தால் இந்த டிராக்கை டிகோட் செய்ய முடியவில்லை\nமற்றவர்களுக்கு பிளேபேக் தொடர்கிறது',
   'toast.invite_code_info': 'இணைந்த சாதனங்கள்: {{count}} | குறியீடு {{code}}',
   'toast.added_tracks': '{{count}} டிராக்குகள் சேர்க்கப்பட்டன',
+  'toast.deleted_tracks': '{{count}} டிராக்குகள் நீக்கப்பட்டன',
   'toast.preparing': 'தயாராகிறது: {{name}}',
   'toast.file_save_error': 'கோப்பைச் சேமிப்பதில் பிழை: {{name}}',
   'toast.decoding_audio': 'ஆடியோ டிகோட் செய்யப்படுகிறது...',
@@ -592,6 +596,18 @@ const ta: Record<I18nKey, string> = {
   'toast.member_management_required': 'உறுப்பினர்களை நீக்கும் அனுமதி தேவை',
   'toast.chat_notice_required': 'அரட்டை அறிவிப்புகளை இடும் அனுமதி தேவை',
   'toast.room_owner_required': 'அறை உரிமையாளர் மட்டுமே இதை மாற்ற முடியும்',
+  'toast.media_management_checking':
+    'மீடியா நிர்வாக அனுமதி சரிபார்க்கப்படுகிறது\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
+  'toast.playback_control_checking':
+    'பிளேபேக் கட்டுப்பாட்டு அனுமதி சரிபார்க்கப்படுகிறது\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
+  'toast.member_management_checking':
+    'உறுப்பினர்களை நீக்கும் அனுமதி சரிபார்க்கப்படுகிறது\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
+  'toast.chat_notice_checking':
+    'அரட்டை அறிவிப்புகளை இடும் அனுமதி சரிபார்க்கப்படுகிறது\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
+  'toast.admin_permission_checking':
+    'நிர்வாகி அனுமதி சரிபார்க்கப்படுகிறது\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
+  'toast.room_owner_checking':
+    'அறை உரிமையாளர் அனுமதி சரிபார்க்கப்படுகிறது\nசிறிது நேரத்தில் மீண்டும் முயலவும்',
   'toast.system_audio_owner_required':
     'அறையைத் திறந்த தாவலில் இருந்து மட்டுமே ஆடியோவைப் பகிர முடியும்',
   'toast.host_setting_required': 'ஹோஸ்ட் மட்டுமே இந்த அமைப்பை மாற்ற முடியும்',
@@ -973,6 +989,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} டிராக் சேர்க்கப்பட்டது',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} டிராக் நீக்கப்பட்டது',
   },
   'toast.unsupported_files_excluded': {
     one: 'ஆதரிக்கப்படாத கோப்பு தவிர்க்கப்பட்டது: {{count}}',

@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { isDesktopLayout } from '../core/layout-breakpoints.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
@@ -121,12 +122,7 @@ function pruneExpansionOverrides(items: readonly PlaylistItem[]): void {
 }
 
 function isDesktopPlaylistLayout(): boolean {
-  try {
-    return window.matchMedia('(min-width: 1280px)').matches;
-  } catch {
-    /* matchMedia can be unavailable in tests. */
-    return false;
-  }
+  return isDesktopLayout();
 }
 
 function playlistIsVisible(): boolean {
@@ -779,12 +775,12 @@ export function updatePlaylistUI(): void {
   const focusSnapshot = capturePlaylistFocus(list);
   cancelSubPlaylistProgressiveRenders();
 
-  const playlist = getState('playlist.items');
-  if (!Array.isArray(playlist)) {
+  const canonicalPlaylist = getState('playlist.items');
+  if (!Array.isArray(canonicalPlaylist)) {
     log.warn('[Playlist] playlist is not an array; render skipped');
     return;
   }
-  const committedIds = new Set(playlist.map((item) => item.queueItemId));
+  const committedIds = new Set(canonicalPlaylist.map((item) => item.queueItemId));
   // A server commit may outlive both its append response and the immediate
   // reconciliation request. A later authoritative playlist snapshot settles
   // that ambiguous failure and owns the row, so retire the matching temporary
@@ -795,7 +791,10 @@ export function updatePlaylistUI(): void {
       upload.phase === 'waiting' || upload.phase === 'uploading' || upload.phase === 'confirming',
   );
 
-  pruneExpansionOverrides(playlist);
+  pruneExpansionOverrides(canonicalPlaylist);
+  // Rows awaiting a remote removal are not part of the rendered list, so
+  // reorder, follow and the current-row locator never target them.
+  const playlist = visiblePlaylistItems(canonicalPlaylist);
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
   const followController = ensureFollowController(list, scrollContainer);
   const savedScrollTop = scrollContainer.scrollTop;
@@ -895,6 +894,12 @@ export function updatePlaylistUI(): void {
   followController.afterRender();
   _currentJumpController?.afterRender();
   schedulePlaylistTitleMarqueeMeasure(list);
+}
+
+function visiblePlaylistItems(items: readonly PlaylistItem[]): readonly PlaylistItem[] {
+  const controller = _removalController;
+  if (!controller) return items;
+  return items.filter((item) => !controller.isHidden(item.queueItemId));
 }
 
 function queueItemIdFromElement(element: Element | null): QueueItemId | null {
@@ -1014,7 +1019,7 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
       canEditQueueStructure() &&
       getState('playback.mode') !== 'system-audio' &&
       !_removalController?.isActive &&
-      getState('playlist.items').length > 1,
+      visiblePlaylistItems(getState('playlist.items')).length > 1,
     isPlaylistVisible: playlistIsVisible,
     onCommit: (queueItemId, beforeQueueItemId) => {
       bus.emit(
@@ -1110,6 +1115,12 @@ export function initPlaylistView(): void {
       isPlaylistVisible: playlistIsVisible,
       getItems: () => getState('playlist.items'),
       onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
+      // Only the deleting device hears this; nothing is broadcast.
+      onDeleted: (count) => bus.emit('ui:show-toast', t('toast.deleted_tracks', { count })),
+      onHiddenChange: () => updatePlaylistUI(),
+      // Only the Standard host removes synchronously; PRO and Standard
+      // guests wait for the authoritative snapshot.
+      isRemovalLocal: () => getRoomContext().kind !== 'pro' && !getState('network.hostConn'),
       onSelectionStart: () => {
         _reorderController?.cancel();
         _currentJumpController?.refresh();
@@ -1235,13 +1246,17 @@ export function initPlaylistView(): void {
     if (tabId !== 'playlist') {
       _reorderController?.notifyPlaylistHidden();
       if (!playlistIsVisible()) {
-        // Narrow layouts genuinely park the playlist off-screen. The wide
-        // desktop dashboard keeps it visible, so a playback-driven logical
-        // tab change must not discard an in-progress deletion selection.
+        // Narrow layouts park the playlist off-screen, so focus follows the
+        // destination tab.
         const destination = Array.from(
           document.querySelectorAll<HTMLElement>('.nav-item[data-tab]'),
         ).find((item) => item.dataset.tab === tabId);
         _removalController?.notifyPlaylistHidden(destination ?? null);
+      } else {
+        // The wide dashboard keeps the playlist on screen, but moving to
+        // another tab still ends deletion mode. Sequential playback opts out
+        // of tab switches, so this only follows a real navigation.
+        _removalController?.cancel();
       }
     }
     _currentJumpController?.refresh();

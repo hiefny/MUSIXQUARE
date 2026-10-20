@@ -1,5 +1,6 @@
 import { bus, createBusScope } from '../core/events.ts';
 import { log } from '../core/log.ts';
+import { NOT_DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { MSG } from '../core/constants.ts';
@@ -147,7 +148,6 @@ const FLAT_EQ = [0, 0, 0, 0, 0];
 const WARM_EQ = [5, 3, 0, -2, -3];
 const BRIGHT_EQ = [0, -2, 0, 4, 6];
 const V_SHAPE_EQ = [5, 3, 0, 4, 6];
-const MOBILE_QUERY = '(max-width: 1279px)';
 const DEMO_OVERLAY_FADE_MS = 340;
 const DEMO_OVERLAY_EXIT_TIMER = 'demo-overlay-exit';
 const DEMO_STEP_COLLAPSE_MS = 320;
@@ -2102,7 +2102,7 @@ export function initDemoMode(
 
   try {
     enforceDemoRoomBoundary();
-    const mql = window.matchMedia(MOBILE_QUERY);
+    const mql = window.matchMedia(NOT_DESKTOP_LAYOUT_QUERY);
     mql.addEventListener('change', () => {
       if (getState('demo.active')) setDemoDomActive(true);
     });

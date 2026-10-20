@@ -5,6 +5,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { bus } from '../core/events.ts';
 import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { setManagedTimer } from '../core/timers.ts';
@@ -172,7 +173,7 @@ export function initTabs(): void {
   });
 
   try {
-    const desktopMql = window.matchMedia('(min-width: 1280px)');
+    const desktopMql = window.matchMedia(DESKTOP_LAYOUT_QUERY);
     const refreshDesktopPanels = () => {
       if (!desktopMql.matches) return;
       setManagedTimer(

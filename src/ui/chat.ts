@@ -9,6 +9,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX, MAX_MSG_LENGTH } from '../core/constants.ts';
@@ -142,7 +143,7 @@ function resetUnread(): void {
  */
 const CHAT_DRAWER_RELAYOUT_FALLBACK_MS = 700;
 const CHAT_DRAWER_HEIGHT_SETTLE_FALLBACK_MS = 400;
-const _isDesktop = window.matchMedia('(min-width: 1280px)');
+const _isDesktop = window.matchMedia(DESKTOP_LAYOUT_QUERY);
 let _chatDrawerBottomAnchorFrame: number | null = null;
 let _chatDrawerBottomAnchorAC: AbortController | null = null;
 let _pendingChatDrawerSnap: {
@@ -297,7 +298,7 @@ const CHAT_DRAWER_BACKGROUND_SELECTOR = [
 ].join(',');
 
 function isMobileChatDrawer(): boolean {
-  return getChatDrawerViewportContext().viewportWidth < 1280;
+  return !_isDesktop.matches;
 }
 
 function setChatDrawerBackgroundInert(makeInert: boolean): void {
@@ -955,7 +956,7 @@ let _chatDrawerLayoutMode: 'desktop' | 'portrait' | 'landscape' | null = null;
 function getChatDrawerLayoutMode(
   context: ChatDrawerViewportContext,
 ): 'desktop' | 'portrait' | 'landscape' {
-  if (context.viewportWidth >= 1280) return 'desktop';
+  if (_isDesktop.matches) return 'desktop';
   return context.isPortrait ? 'portrait' : 'landscape';
 }
 

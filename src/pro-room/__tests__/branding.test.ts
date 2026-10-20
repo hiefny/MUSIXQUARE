@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { parse as parseCss } from 'postcss';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { COMPACT_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { resetState, setState } from '../../core/state.ts';
 import {
   initProRoomBranding,
@@ -158,7 +159,7 @@ describe('PRO room branding', () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const compactRules: string[] = [];
     parseCss(stylesheet).walkAtRules('media', (rule) => {
-      if (rule.params === '(min-width: 720px) and (max-width: 1279px)') {
+      if (rule.params === COMPACT_LAYOUT_QUERY) {
         compactRules.push(rule.toString());
       }
     });

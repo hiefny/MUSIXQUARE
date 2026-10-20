@@ -2,6 +2,7 @@
  * MUSIXQUARE — Platform Detection & Viewport Management
  */
 
+import { COMPACT_LAYOUT_QUERY } from './layout-breakpoints.ts';
 import { log } from './log.ts';
 import { setManagedTimer } from './timers.ts';
 import type { DevicePlatform } from '../types/index.ts';
@@ -76,8 +77,6 @@ export function canCaptureSystemAudio(): boolean {
 
 // ─── Layout Breakpoint Helpers ─────────────────────────────────────
 
-const MQL_COMPACT = '(min-width: 720px) and (max-width: 1279px)';
-
 /**
  * Uniform scale applied to the desktop dashboard's body render tree.
  *
@@ -101,14 +100,14 @@ export function viewportLengthToBodyCssPixels(viewportPixels: number): number {
   return viewportPixels / getBodyRenderedScale();
 }
 
-/** Compact landscape: width 720px–1279px */
+/** Compact sidebar layout: 720–1279px wide, or wider but shorter than 540px. */
 export function isCompactLandscape(): boolean {
-  return window.matchMedia(MQL_COMPACT).matches;
+  return window.matchMedia(COMPACT_LAYOUT_QUERY).matches;
 }
 
 /** Listen for compact landscape changes. Returns cleanup function. */
 export function onCompactLandscapeChange(cb: () => void): () => void {
-  const mql = window.matchMedia(MQL_COMPACT);
+  const mql = window.matchMedia(COMPACT_LAYOUT_QUERY);
   mql.addEventListener('change', cb);
   return () => {
     mql.removeEventListener('change', cb);

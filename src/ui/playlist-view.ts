@@ -6,6 +6,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { isDesktopLayout } from '../core/layout-breakpoints.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
@@ -121,12 +122,7 @@ function pruneExpansionOverrides(items: readonly PlaylistItem[]): void {
 }
 
 function isDesktopPlaylistLayout(): boolean {
-  try {
-    return window.matchMedia('(min-width: 1280px)').matches;
-  } catch {
-    /* matchMedia can be unavailable in tests. */
-    return false;
-  }
+  return isDesktopLayout();
 }
 
 function playlistIsVisible(): boolean {

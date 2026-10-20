@@ -3,6 +3,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFileSync } from 'node:fs';
+import { DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -626,7 +627,7 @@ describe('Chat Module', () => {
   });
 
   it('installs bubble copy gestures when the desktop chat starts already visible', async () => {
-    const desktopMedia = window.matchMedia('(min-width: 1280px)');
+    const desktopMedia = window.matchMedia(DESKTOP_LAYOUT_QUERY);
     Object.defineProperty(desktopMedia, 'matches', { configurable: true, value: true });
     const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
     const writeText = vi.fn(async () => undefined);

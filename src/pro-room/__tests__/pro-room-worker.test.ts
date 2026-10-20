@@ -13724,7 +13724,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {
@@ -26338,5 +26338,622 @@ describe('PRO long-session retention and presence recovery', () => {
     expect(forwarded[0]?.headers.get('x-mxqr-pro-presence-incarnation')).toBe(
       'presence_0000000001',
     );
+  });
+});
+
+describe('PRO room multiple playlists', () => {
+  const VIDEO_IDS = ['dQw4w9WgXcQ', 'M7lc1UVf-VE', '9bZkp7q19f0'];
+  type RoomContext = Awaited<ReturnType<typeof activatedRoom>>;
+  type Internal = {
+    room: Record<string, any>;
+    persist(): Promise<boolean>;
+    ready: Promise<void> | undefined;
+  };
+
+  function withSlots(input: Request): Request {
+    input.headers.set('x-mxqr-pro-playlist-slots', 'v1');
+    return input;
+  }
+
+  async function seedYouTube(context: RoomContext, key: string, names: string[]) {
+    const response = await mutateInternalDeveloperQueue(context.worker, DEVELOPER_KEY_ID, key, {
+      type: 'add_youtube_batch',
+      items: names.map((name, index) => ({ videoId: VIDEO_IDS[index], name })),
+    });
+    expect(response.status).toBe(201);
+    const queue = await responseJson(response);
+    return (queue.items as Array<Record<string, any>>).map((item) => item.queueItemId as string);
+  }
+
+  async function slotSnapshot(context: RoomContext, worker = context.worker) {
+    return responseJson(
+      await worker.fetch(withSlots(request('/snapshot', {}, context.ownerCookie))),
+    );
+  }
+
+  function transfer(context: RoomContext, body: Record<string, unknown>, key: string) {
+    return context.worker.fetch(
+      withSlots(jsonRequest('/playlists/transfer', 'POST', body, context.ownerCookie, key)),
+    );
+  }
+
+  function switchTo(context: RoomContext, body: Record<string, unknown>, key: string) {
+    return context.worker.fetch(
+      withSlots(jsonRequest('/playlists/switch', 'POST', body, context.ownerCookie, key)),
+    );
+  }
+
+  function developerPlaylistRead(worker: MusixquareProRoom, body: Record<string, unknown>) {
+    return worker.fetch(
+      new Request('https://pro-room.internal/internal/developer/v1/read', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+        body: JSON.stringify({
+          keyId: DEVELOPER_KEY_ID,
+          developerAuthorityEpoch: 0,
+          roomGeneration: 0,
+          ...body,
+        }),
+      }),
+    );
+  }
+
+  function playAt(internal: Internal, queueItemId: string, videoId: string) {
+    internal.room.currentQueueItemId = queueItemId;
+    internal.room.playback = {
+      coordinatorEpoch: internal.room.presence.coordinatorEpoch,
+      revision: 3,
+      state: 'playing',
+      queueItemId,
+      positionSeconds: 5,
+      updatedAtMs: Date.now(),
+      youtubeVideoId: videoId,
+      youtubeSubIndex: 0,
+    };
+  }
+
+  it('keeps the snapshot unchanged without the opt-in header and adds summaries with it', async () => {
+    const context = await activatedRoom();
+    await seedYouTube(context, 'playlist-slots-parity-01', ['One', 'Two']);
+
+    const plainText = await (
+      await context.worker.fetch(request('/snapshot', {}, context.ownerCookie))
+    ).text();
+    expect(plainText).not.toContain('playlistSlots');
+    const opted = await slotSnapshot(context);
+    expect(opted.snapshot.playlistSlots).toEqual({
+      activeSlot: 0,
+      slots: [
+        { count: 2, bytes: null },
+        { count: 0, bytes: null },
+        { count: 0, bytes: null },
+      ],
+    });
+    const { playlistSlots: _summary, ...rest } = opted.snapshot;
+    expect({ snapshot: rest }).toEqual(JSON.parse(plainText));
+    expect(parseProRoomSnapshot(opted.snapshot)?.playlistSlots).toEqual(
+      opted.snapshot.playlistSlots,
+    );
+    // A room that never used another playlist keeps the legacy storage layout.
+    expect(context.state.storage.data.has('pro-room:v2:slots')).toBe(false);
+    expect([...context.state.storage.data.keys()].some((key) => key.includes(':slot-item:'))).toBe(
+      false,
+    );
+  });
+
+  it('copies tracks, switches playlists with playback stopped, and reloads them from storage', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first, second] = await seedYouTube(context, 'playlist-slots-switch-01', ['One', 'Two']);
+    playAt(internal, first!, VIDEO_IDS[0]!);
+    await internal.persist();
+
+    const copied = await transfer(
+      context,
+      {
+        baseRevision: internal.room.revision,
+        queueItemIds: [second, first],
+        targetSlots: [1],
+        mode: 'copy',
+      },
+      'playlist-slots-copy-0001',
+    );
+    expect(copied.status).toBe(200);
+    const copiedEnvelope = await responseJson(copied);
+    expect(copiedEnvelope.snapshot.playlist.map((item: any) => item.queueItemId)).toEqual([
+      first,
+      second,
+    ]);
+    expect(copiedEnvelope.snapshot.playback).toMatchObject({
+      state: 'playing',
+      queueItemId: first,
+    });
+    expect(copiedEnvelope.snapshot.playlistSlots.slots).toEqual([
+      { count: 2, bytes: null },
+      { count: 2, bytes: null },
+      { count: 0, bytes: null },
+    ]);
+    const clones = internal.room.playlistSlots.inactive[1] as Array<Record<string, any>>;
+    // Active order, fresh queue item IDs, same source.
+    expect(clones.map((item) => item.name)).toEqual(['One', 'Two']);
+    expect(clones.map((item) => item.source.videoId)).toEqual([VIDEO_IDS[0], VIDEO_IDS[1]]);
+    const cloneIds = clones.map((item) => item.queueItemId as string);
+    expect(new Set([...cloneIds, first, second]).size).toBe(4);
+
+    const baseRevision = internal.room.revision;
+    const basePlaylistRevision = internal.room.playlistRevision;
+    const basePlaybackRevision = internal.room.playback.revision;
+    const switched = await switchTo(
+      context,
+      { baseRevision, slot: 1 },
+      'playlist-slots-switch-0001',
+    );
+    expect(switched.status).toBe(200);
+    const switchedEnvelope = await responseJson(switched);
+    expect(switchedEnvelope.snapshot).toMatchObject({
+      revision: baseRevision + 1,
+      playlistRevision: basePlaylistRevision + 1,
+      currentQueueItemId: null,
+      playback: { state: 'idle', queueItemId: null, revision: basePlaybackRevision + 1 },
+      playlistSlots: { activeSlot: 1 },
+    });
+    expect(switchedEnvelope.snapshot.playlist.map((item: any) => item.queueItemId)).toEqual(
+      cloneIds,
+    );
+
+    // The active playlist keeps the v2 layout; the previous one moved beside it.
+    expect(context.state.storage.data.get('pro-room:v2:slots')).toEqual({
+      schemaVersion: 1,
+      activeSlot: 1,
+      orders: [[first, second], [], []],
+    });
+    expect(context.state.storage.data.has(`pro-room:v2:slot-item:${first}`)).toBe(true);
+    expect(context.state.storage.data.has(`pro-room:v2:playlist:${first}`)).toBe(false);
+    expect(
+      storedCanonicalRoom(context.state).playlist.map((item: any) => item.queueItemId),
+    ).toEqual(cloneIds);
+    const storedCore = context.state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    expect(storedCore.core.playlistSlots).toBeUndefined();
+
+    const replay = await switchTo(context, { baseRevision, slot: 1 }, 'playlist-slots-switch-0001');
+    expect(replay.status).toBe(200);
+    expect(internal.room.revision).toBe(baseRevision + 1);
+    const sameSlot = await switchTo(
+      context,
+      { baseRevision: baseRevision + 1, slot: 1 },
+      'playlist-slots-switch-0002',
+    );
+    expect(sameSlot.status).toBe(200);
+    expect(internal.room.revision).toBe(baseRevision + 1);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const reloaded = await slotSnapshot(context, restarted);
+    expect(reloaded.snapshot.playlistSlots).toEqual(switchedEnvelope.snapshot.playlistSlots);
+    expect(reloaded.snapshot.playlist).toEqual(switchedEnvelope.snapshot.playlist);
+    const restartedInternal = restarted as unknown as Internal;
+    expect(
+      restartedInternal.room.playlistSlots.inactive[0].map((item: any) => item.queueItemId),
+    ).toEqual([first, second]);
+  });
+
+  it('fails closed when the stored playlists cannot be read', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first] = await seedYouTube(context, 'playlist-slots-corrupt-01', ['One']);
+    expect(
+      (
+        await transfer(
+          context,
+          {
+            baseRevision: internal.room.revision,
+            queueItemIds: [first],
+            targetSlots: [2],
+            mode: 'copy',
+          },
+          'playlist-slots-corrupt-copy',
+        )
+      ).status,
+    ).toBe(200);
+    const record = context.state.storage.data.get('pro-room:v2:slots') as Record<string, any>;
+    expect(record).toMatchObject({ activeSlot: 0 });
+    // The same queue item in the active playlist and an inactive one.
+    context.state.storage.data.set('pro-room:v2:slots', {
+      ...record,
+      orders: [[], [], [first]],
+    });
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const ready = (restarted as unknown as Internal).ready;
+    ready?.catch(() => undefined);
+    await expect(ready).rejects.toThrow('PRO_ROOM_PERSISTENCE_V2_SLOTS_INVALID');
+  });
+
+  it('keeps files of inactive playlists and does not count copies again', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const { assetId, asset } = await completeReadyAsset(context, 'playlist-slots-asset');
+    const item = playlistItem('55555555-5555-4555-8555-555555555555', asset);
+    expect((await replacePlaylist(context, [item], 'playlist-slots-asset-active')).status).toBe(
+      200,
+    );
+    const usedBytes = internal.room.quota.usedBytes;
+    expect(usedBytes).toBe(asset.byteLength);
+
+    const copied = await transfer(
+      context,
+      {
+        baseRevision: internal.room.revision,
+        queueItemIds: [item.queueItemId],
+        targetSlots: [1, 2],
+        mode: 'copy',
+      },
+      'playlist-slots-asset-copy',
+    );
+    expect(copied.status).toBe(200);
+    const envelope = await responseJson(copied);
+    expect(envelope.snapshot.quota.usedBytes).toBe(usedBytes);
+    expect(envelope.snapshot.playlistSlots.slots).toEqual([
+      { count: 1, bytes: asset.byteLength },
+      { count: 1, bytes: asset.byteLength },
+      { count: 1, bytes: asset.byteLength },
+    ]);
+
+    // Removing the file from the active playlist must not schedule its asset.
+    expect((await replacePlaylist(context, [], 'playlist-slots-asset-empty')).status).toBe(200);
+    expect(internal.room.assets[assetId].gcAfterMs).toBeUndefined();
+    const deleted = await context.worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': 'playlist-slots-asset-delete' } },
+        context.ownerCookie,
+      ),
+    );
+    expect(deleted.status).toBe(409);
+    expect(await responseJson(deleted)).toEqual({ error: 'ASSET_IN_USE' });
+    expect(internal.room.assets[assetId].status).toBe('ready');
+    expect(internal.room.quota.usedBytes).toBe(usedBytes);
+  });
+
+  it('drops inactive items whose file an older Worker already collected', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const { assetId, asset } = await completeReadyAsset(context, 'playlist-slots-rollback');
+    const item = playlistItem('77777777-7777-4777-8777-777777777777', asset);
+    expect((await replacePlaylist(context, [item], 'playlist-slots-rollback-a')).status).toBe(200);
+    expect(
+      (
+        await transfer(
+          context,
+          {
+            baseRevision: internal.room.revision,
+            queueItemIds: [item.queueItemId],
+            targetSlots: [1],
+            mode: 'move',
+          },
+          'playlist-slots-rollback-move',
+        )
+      ).status,
+    ).toBe(200);
+    expect(context.state.storage.data.has('pro-room:v2:slots')).toBe(true);
+
+    // What a rolled-back Worker's garbage collection leaves behind.
+    const stored = context.state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    delete stored.core.assets[assetId];
+    context.state.storage.data.set('pro-room:v2:core', stored);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const reloaded = await slotSnapshot(context, restarted);
+    expect(reloaded.snapshot.playlistSlots.slots[1]).toEqual({ count: 0, bytes: null });
+    expect(context.state.storage.data.has('pro-room:v2:slots')).toBe(false);
+    expect([...context.state.storage.data.keys()].some((key) => key.includes(':slot-item:'))).toBe(
+      false,
+    );
+  });
+
+  it('moves the current track like a removal and refuses invalid or oversized transfers', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first, second, third] = await seedYouTube(context, 'playlist-slots-move-0001', [
+      'One',
+      'Two',
+      'Three',
+    ]);
+    playAt(internal, second!, VIDEO_IDS[1]!);
+    await internal.persist();
+    const playbackRevision = internal.room.playback.revision;
+
+    const refused = async (body: Record<string, unknown>, key: string) => {
+      const response = await transfer(context, body, key);
+      return { status: response.status, body: await responseJson(response) };
+    };
+    const base = {
+      queueItemIds: [second],
+      targetSlots: [2],
+      mode: 'move',
+    };
+    expect(
+      await refused(
+        { ...base, baseRevision: internal.room.revision, targetSlots: [0] },
+        'playlist-slots-move-active',
+      ),
+    ).toEqual({ status: 400, body: { error: 'INVALID_PLAYLIST_SLOT' } });
+    expect(
+      await refused(
+        { ...base, baseRevision: internal.room.revision - 1 },
+        'playlist-slots-move-stale',
+      ),
+    ).toEqual({ status: 409, body: { error: 'REVISION_CONFLICT' } });
+    expect(
+      await refused(
+        {
+          ...base,
+          baseRevision: internal.room.revision,
+          queueItemIds: ['66666666-6666-4666-8666-666666666666'],
+        },
+        'playlist-slots-move-missing',
+      ),
+    ).toEqual({ status: 404, body: { error: 'QUEUE_ITEM_NOT_FOUND' } });
+    expect(
+      await refused(
+        { ...base, baseRevision: internal.room.revision, mode: 'swap' },
+        'playlist-slots-move-mode',
+      ),
+    ).toEqual({ status: 400, body: { error: 'INVALID_REQUEST' } });
+
+    const moved = await transfer(
+      context,
+      { ...base, baseRevision: internal.room.revision },
+      'playlist-slots-move-0002',
+    );
+    expect(moved.status).toBe(200);
+    const envelope = await responseJson(moved);
+    expect(envelope.snapshot.playlist.map((item: any) => item.queueItemId)).toEqual([first, third]);
+    expect(envelope.snapshot.currentQueueItemId).toBeNull();
+    expect(envelope.snapshot.playback).toMatchObject({
+      state: 'idle',
+      queueItemId: null,
+      revision: playbackRevision + 1,
+    });
+    expect(internal.room.playlistSlots.inactive[2].map((item: any) => item.name)).toEqual(['Two']);
+
+    // A target that would pass the queue limit refuses the whole transfer.
+    const full = Array.from({ length: 1000 }, (_, index) => ({
+      queueItemId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      name: `Full ${index}`,
+      source: { kind: 'youtube', videoId: VIDEO_IDS[0] },
+    }));
+    internal.room.playlistSlots.inactive[1] = full;
+    const revision = internal.room.revision;
+    expect(
+      await refused(
+        { queueItemIds: [first], targetSlots: [2, 1], mode: 'copy', baseRevision: revision },
+        'copy-capacity-0001',
+      ),
+    ).toEqual({ status: 409, body: { error: 'PLAYLIST_CAPACITY_EXCEEDED' } });
+    expect(internal.room.playlistSlots.inactive[2]).toHaveLength(1);
+    expect(internal.room.revision).toBe(revision);
+  });
+
+  it('serves playlist projections, playlist-scoped removal and switching to the Developer API', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first, second] = await seedYouTube(context, 'playlist-slots-dev-0001', ['One', 'Two']);
+    expect(
+      (
+        await transfer(
+          context,
+          {
+            baseRevision: internal.room.revision,
+            queueItemIds: [second],
+            targetSlots: [2],
+            mode: 'copy',
+          },
+          'playlist-slots-dev-copy',
+        )
+      ).status,
+    ).toBe(200);
+    const clone = internal.room.playlistSlots.inactive[2][0].queueItemId as string;
+
+    const summaries = await developerPlaylistRead(context.worker, { projection: 'playlists' });
+    expect(summaries.status).toBe(200);
+    expect(await responseJson(summaries)).toEqual({
+      schemaVersion: 1,
+      view: 'playlists',
+      roomCode: ROOM_CODE,
+      playlistRevision: internal.room.playlistRevision,
+      activePlaylist: 1,
+      playlists: [
+        { playlist: 1, active: true, itemCount: 2, byteLength: null },
+        { playlist: 2, active: false, itemCount: 0, byteLength: null },
+        { playlist: 3, active: false, itemCount: 1, byteLength: null },
+      ],
+    });
+    const queue = await responseJson(
+      await developerPlaylistRead(context.worker, { projection: 'playlist-queue', playlist: 3 }),
+    );
+    expect(queue).toMatchObject({
+      view: 'playlist-queue',
+      playlist: 3,
+      active: false,
+      currentQueueItemId: null,
+      items: [{ queueItemId: clone, name: 'Two', kind: 'youtube' }],
+    });
+    expect(
+      (await developerPlaylistRead(context.worker, { projection: 'queue', playlist: 3 })).status,
+    ).toBe(400);
+    expect(
+      (await developerPlaylistRead(context.worker, { projection: 'playlist-queue', playlist: 4 }))
+        .status,
+    ).toBe(400);
+
+    const removal = { type: 'remove', queueItemId: clone, playlist: 3 };
+    const removed = await mutateInternalDeveloperQueue(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'playlist-slots-dev-remove',
+      removal,
+    );
+    expect(removed.status).toBe(200);
+    expect(await responseJson(removed)).toMatchObject({ view: 'playlist-queue', items: [] });
+    expect(internal.room.playlist.map((item: any) => item.queueItemId)).toEqual([first, second]);
+    const replayed = await mutateInternalDeveloperQueue(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'playlist-slots-dev-remove',
+      removal,
+    );
+    expect(replayed.status).toBe(200);
+    expect(await responseJson(replayed)).toMatchObject({ view: 'playlist-queue', playlist: 3 });
+
+    // play_item in another playlist switches to it and plays the item there.
+    expect(
+      (
+        await transfer(
+          context,
+          {
+            baseRevision: internal.room.revision,
+            queueItemIds: [first],
+            targetSlots: [1],
+            mode: 'copy',
+          },
+          'playlist-slots-dev-copy2',
+        )
+      ).status,
+    ).toBe(200);
+    const target = internal.room.playlistSlots.inactive[1][0].queueItemId as string;
+    const played = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'playlist-slots-dev-play',
+      { type: 'play_item', queueItemId: target, playlist: 2 },
+    );
+    expect(played.status).toBe(202);
+    expect((await responseJson(played)).status).not.toBe('rejected');
+    expect(internal.room.playlistSlots.activeSlot).toBe(1);
+    expect(internal.room.playlist.map((item: any) => item.queueItemId)).toEqual([target]);
+    expect([
+      internal.room.pendingPlaybackTransition?.target.queueItemId,
+      internal.room.playback.queueItemId,
+    ]).toContain(target);
+
+    const switchedBack = await responseJson(
+      await createInternalDeveloperCommand(
+        context.worker,
+        DEVELOPER_KEY_ID,
+        'playlist-slots-dev-switch',
+        { type: 'switch_playlist', playlist: 1 },
+      ),
+    );
+    expect(switchedBack).toMatchObject({ status: 'applied', resultCode: 'applied' });
+    expect(internal.room.playlistSlots.activeSlot).toBe(0);
+    expect(internal.room.playback).toMatchObject({ state: 'idle', queueItemId: null });
+    const again = await responseJson(
+      await createInternalDeveloperCommand(
+        context.worker,
+        DEVELOPER_KEY_ID,
+        'playlist-slots-dev-switch2',
+        { type: 'switch_playlist', playlist: 1 },
+      ),
+    );
+    expect(again).toMatchObject({ status: 'applied', resultCode: 'already_applied' });
+  });
+
+  it('gives BOT per-playlist ordinals and plays or removes in a named playlist', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first, second] = await seedYouTube(context, 'playlist-slots-bot-0001', ['One', 'Two']);
+    expect(
+      (
+        await transfer(
+          context,
+          {
+            baseRevision: internal.room.revision,
+            queueItemIds: [second],
+            targetSlots: [1],
+            mode: 'copy',
+          },
+          'playlist-slots-bot-copy',
+        )
+      ).status,
+    ).toBe(200);
+    const clone = internal.room.playlistSlots.inactive[1][0].queueItemId as string;
+
+    const playRequestId = 'bot-playlist-play-0001';
+    const playContext = await responseJson(
+      await internalBotRequest(
+        context.worker,
+        'context',
+        { roomCode: ROOM_CODE, requestId: playRequestId, prompt: 'play track 1 of playlist 2' },
+        context.ownerCookie,
+      ),
+    );
+    expect(playContext.room.activePlaylist).toBe(1);
+    expect(
+      playContext.room.playlists.map((playlist: any) => [playlist.playlist, playlist.itemCount]),
+    ).toEqual([
+      [1, 2],
+      [2, 1],
+      [3, 0],
+    ]);
+    expect(playContext.room.playlists[1].items[0]).toMatchObject({ queueItemId: clone });
+    expect(playContext.room.playlist.map((item: any) => item.queueItemId)).toEqual([first, second]);
+
+    const played = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: playRequestId,
+        leaseToken: playContext.leaseToken,
+        plan: { intent: 'play_existing', queueItemId: clone, playlist: 2 },
+        tracks: [],
+      },
+      context.ownerCookie,
+    );
+    expect(played.status).toBe(200);
+    expect(await responseJson(played)).toMatchObject({ ok: true, playbackChanged: true });
+    expect(internal.room.playlistSlots.activeSlot).toBe(1);
+    expect(internal.room.playlist.map((item: any) => item.queueItemId)).toEqual([clone]);
+
+    const removeRequestId = 'bot-playlist-remove-01';
+    const removeContext = await responseJson(
+      await internalBotRequest(
+        context.worker,
+        'context',
+        { roomCode: ROOM_CODE, requestId: removeRequestId, prompt: 'delete track 1 of playlist 1' },
+        context.ownerCookie,
+      ),
+    );
+    expect(removeContext.room.activePlaylist).toBe(2);
+    const removed = await internalBotRequest(
+      context.worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId: removeRequestId,
+        leaseToken: removeContext.leaseToken,
+        plan: { intent: 'remove_items', queueItemIds: [first], playlist: 1 },
+        tracks: [],
+      },
+      context.ownerCookie,
+    );
+    expect(removed.status).toBe(200);
+    expect(await responseJson(removed)).toMatchObject({ ok: true, playbackChanged: false });
+    expect(internal.room.playlistSlots.inactive[0].map((item: any) => item.queueItemId)).toEqual([
+      second,
+    ]);
+    expect(internal.room.playlist.map((item: any) => item.queueItemId)).toEqual([clone]);
   });
 });

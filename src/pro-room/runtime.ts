@@ -60,7 +60,12 @@ import { schedulePreload } from '../storage/preload.ts';
 import { setPlaybackTrackMeta } from '../player/ownership.ts';
 import { resolveYouTubePlaylistManifest } from '../youtube/search.ts';
 import { hasRoomCapability, resetRoomContext, setRoomContext } from '../rooms/authority.ts';
-import type { PlaylistItem, QueueItemId, RoomContext } from '../types/index.ts';
+import type {
+  PlaylistItem,
+  PlaylistStorageUsage,
+  QueueItemId,
+  RoomContext,
+} from '../types/index.ts';
 import {
   parseProQueueAdditionFrame,
   type ProQueueAdditionFrame,
@@ -763,7 +768,10 @@ function publishProRoomPlaylistSlots(snapshot: ProRoomSnapshot): void {
   if (JSON.stringify(getState('playlist.slots')) !== JSON.stringify(slots)) {
     setState('playlist.slots', slots);
   }
-  const usage = { usedBytes: snapshot.quota.usedBytes, limitBytes: snapshot.quota.limitBytes };
+  const usage: PlaylistStorageUsage = {
+    usedBytes: snapshot.quota.usedBytes,
+    limitBytes: snapshot.quota.limitBytes,
+  };
   if (JSON.stringify(getState('playlist.storageUsage')) !== JSON.stringify(usage)) {
     setState('playlist.storageUsage', usage);
   }

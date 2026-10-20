@@ -111,6 +111,7 @@ const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const BOT_PROMPT_MAX_CHARS = 500;
 const BOT_BODY_MAX_BYTES = 2 * 1024;
 const BOT_UPSTREAM_MAX_BYTES = 256 * 1024;
+const BOT_ROOM_RESPONSE_MAX_BYTES = 1024 * 1024;
 const BOT_GROUNDED_CONTEXT_MAX_CHARS = 4_000;
 const BOT_MAX_TRACKS = 3;
 const BOT_TOTAL_TIMEOUT_MS = 35_000;
@@ -2063,7 +2064,10 @@ async function callRoomInternal(
     throw new BotUpstreamError('BOT_ROOM_UNAVAILABLE', 503);
   }
   const { response } = outcome;
-  const payload = await readResponseJson(response, 256 * 1024, signal);
+  // The context lists up to 100 items of each of the three playlists (the
+  // active one twice, as `playlist` and in `playlists`), each with up to three
+  // 160-character labels, so it can exceed the former 256 KiB.
+  const payload = await readResponseJson(response, BOT_ROOM_RESPONSE_MAX_BYTES, signal);
   return { response, payload };
 }
 

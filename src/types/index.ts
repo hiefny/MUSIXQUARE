@@ -138,9 +138,6 @@ export type YouTubeSyncLoadingOwner = 'rendezvous' | 'clock-action' | 'zero-star
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
-/** A room has this many playlists: "Playlist", "Playlist 2", "Playlist 3". */
-export const PLAYLIST_SLOT_COUNT = 3;
-
 /** One playlist's summary. `bytes` is null when its size is unknown. */
 export interface PlaylistSlotSummary {
   readonly count: number;
@@ -644,6 +641,25 @@ export interface ProtocolMap {
     requestId: string;
     baseRevision: PlaylistRevision;
     queueItemIds: QueueItemId[];
+  };
+  /** Standard-room operator request: make another playlist the active one. */
+  'request-playlist-switch': {
+    requestId: string;
+    baseRevision: PlaylistRevision;
+    slot: number;
+  };
+  /** Standard-room operator request: copy or move tracks to other playlists. */
+  'request-playlist-transfer': {
+    requestId: string;
+    baseRevision: PlaylistRevision;
+    queueItemIds: QueueItemId[];
+    targetSlots: number[];
+    mode: PlaylistTransferMode;
+  };
+  /** Host→guest summary of every playlist; older guests drop it unread. */
+  'playlist-slots': {
+    activeSlot: number;
+    slots: PlaylistSlotSummary[];
   };
   /** Standard-room operator request; insertion is expressed by stable queue IDs. */
   'request-playlist-reorder': {

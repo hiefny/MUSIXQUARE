@@ -34,7 +34,9 @@ export type StandardQueueMutationResultCode = NonNullable<QueueMutationResult['c
 type StandardQueueMutationRequest =
   | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_ADD_YOUTUBE>
   | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REMOVE>
-  | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REORDER>;
+  | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REORDER>
+  | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_SWITCH>
+  | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_TRANSFER>;
 
 function requiredQueueMutationCapability(
   messageOrName: StandardQueueMutationRequest | StandardQueueMutationRequest['type'],

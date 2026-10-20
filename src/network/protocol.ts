@@ -15,6 +15,7 @@ import {
   BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
   MAX_GUEST_SLOTS,
   MAX_SENDER_LABEL_LENGTH,
+  PLAYLIST_SLOT_COUNT,
 } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import { isQueueItemId, parsePlaylistSnapshot } from '../player/queue-model.ts';
@@ -300,6 +301,8 @@ const isBoundedNumber = (v: unknown, min: number, max: number): boolean =>
   isFiniteNumber(v) && v >= min && v <= max;
 const isReverbPreset = (v: unknown): boolean => v === 'off' || v === 'studio' || v === 'arena';
 const isRepeatMode = (v: unknown): boolean => v === 0 || v === 1 || v === 2;
+const isPlaylistSlot = (v: unknown): v is number =>
+  Number.isInteger(v) && (v as number) >= 0 && (v as number) < PLAYLIST_SLOT_COUNT;
 const hasValidBootstrapFlag = (data: Record<string, unknown>): boolean =>
   data._bootstrap === undefined || typeof data._bootstrap === 'boolean';
 
@@ -958,6 +961,40 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     d.queueItemIds.length <= 1000 &&
     d.queueItemIds.every(isQueueItemId) &&
     new Set(d.queueItemIds).size === d.queueItemIds.length,
+  [MSG.REQUEST_PLAYLIST_SWITCH]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'baseRevision', 'slot']) &&
+    isQueueItemId(d.requestId) &&
+    isNonNegSafeInt(d.baseRevision) &&
+    isPlaylistSlot(d.slot),
+  [MSG.REQUEST_PLAYLIST_TRANSFER]: (d) =>
+    hasExactKeys(d, ['type', 'requestId', 'baseRevision', 'queueItemIds', 'targetSlots', 'mode']) &&
+    isQueueItemId(d.requestId) &&
+    isNonNegSafeInt(d.baseRevision) &&
+    Array.isArray(d.queueItemIds) &&
+    d.queueItemIds.length > 0 &&
+    d.queueItemIds.length <= 1000 &&
+    d.queueItemIds.every(isQueueItemId) &&
+    new Set(d.queueItemIds).size === d.queueItemIds.length &&
+    Array.isArray(d.targetSlots) &&
+    d.targetSlots.length > 0 &&
+    d.targetSlots.length < PLAYLIST_SLOT_COUNT &&
+    d.targetSlots.every(isPlaylistSlot) &&
+    new Set(d.targetSlots).size === d.targetSlots.length &&
+    (d.mode === 'copy' || d.mode === 'move'),
+  [MSG.PLAYLIST_SLOTS]: (d) =>
+    hasExactKeys(d, ['type', 'activeSlot', 'slots']) &&
+    isPlaylistSlot(d.activeSlot) &&
+    Array.isArray(d.slots) &&
+    d.slots.length === PLAYLIST_SLOT_COUNT &&
+    d.slots.every(
+      (slot) =>
+        !!slot &&
+        typeof slot === 'object' &&
+        hasExactKeys(slot as Record<string, unknown>, ['count', 'bytes']) &&
+        isNonNegSafeInt((slot as Record<string, unknown>).count) &&
+        ((slot as Record<string, unknown>).bytes === null ||
+          isNonNegSafeInt((slot as Record<string, unknown>).bytes)),
+    ),
   [MSG.REQUEST_PLAYLIST_REORDER]: (d) =>
     hasExactKeys(d, ['type', 'requestId', 'baseRevision', 'queueItemId', 'beforeQueueItemId']) &&
     isQueueItemId(d.requestId) &&

@@ -983,6 +983,18 @@ function installDomDelegation(list: HTMLElement): void {
         if (id) _removalController?.toggle(id);
         return;
       }
+      // While tracks are being picked, the rest of the row picks it too
+      // instead of playing it.
+      if (_removalController?.isActive) {
+        event.preventDefault();
+        event.stopPropagation();
+        const rowSelect = target
+          .closest('.track-item[data-queue-item-id]')
+          ?.querySelector('[data-action="select"]');
+        const id = queueItemIdFromElement(rowSelect ?? null);
+        if (id) _removalController.toggle(id);
+        return;
+      }
       const subItem = target.closest<HTMLElement>('.sub-track-item[data-sub-index]');
       if (subItem) {
         event.preventDefault();

@@ -230,6 +230,27 @@ test.describe('Playlist edit mode (mouse)', () => {
     await expect(page.locator('.playlist-selection-bar')).toBeHidden();
   });
 
+  test('in edit mode a title tap selects the row instead of playing it', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    const titles = page.locator('#playlist-ui .track-name');
+    const currentBefore = await currentQueueItemId(page);
+
+    await checks.nth(0).click();
+    await titles.nth(2).click();
+    expect(await pressedStates(page)).toEqual(selected([0, 2]));
+    await titles.nth(0).click();
+    expect(await pressedStates(page)).toEqual(selected([2]));
+    expect(await currentQueueItemId(page)).toBe(currentBefore);
+
+    // Deselecting the last row by its title ends edit mode, and titles play again.
+    await titles.nth(2).click();
+    await expect(page.locator('.playlist-selection-bar')).toBeHidden();
+    await titles.nth(3).click();
+    await expect.poll(() => currentQueueItemId(page)).not.toBe(currentBefore);
+  });
+
   test('edit mode folds YouTube playlists and restores each expansion', async ({ page }) => {
     test.setTimeout(90_000);
     await openFiveTrackPlaylist(page, false);

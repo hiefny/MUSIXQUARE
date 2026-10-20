@@ -2032,7 +2032,7 @@ describe('Cloudflare app worker scheduled maintenance', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       imageSource,
-      expect.objectContaining({ redirect: 'error', signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ redirect: 'manual', signal: expect.any(AbortSignal) }),
     );
     expect(imagePut).toHaveBeenCalledWith(
       `featured/scheduled-article.${createHash('sha256').update(imageSource).digest('base64url')}.webp`,
@@ -2289,7 +2289,7 @@ describe('Cloudflare app worker scheduled maintenance', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       imageSource,
-      expect.objectContaining({ redirect: 'error' }),
+      expect.objectContaining({ redirect: 'manual' }),
     );
     expect(fetchMock).not.toHaveBeenCalledWith(redirectTarget, expect.anything());
     expect(imagePut).not.toHaveBeenCalled();

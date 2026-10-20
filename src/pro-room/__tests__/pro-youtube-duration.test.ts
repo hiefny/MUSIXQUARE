@@ -70,7 +70,7 @@ describe('trusted PRO YouTube duration metadata', () => {
       expect(url.searchParams.get('id')).toBe(VIDEO_ID);
       expect(url.searchParams.get('key')).toBeNull();
       expect(request.headers.get('x-goog-api-key')).toBe(env.YOUTUBE_API_KEY);
-      expect(request.redirect).toBe('error');
+      expect(request.redirect).toBe('manual');
       return metadata();
     });
     vi.stubGlobal('fetch', upstream);

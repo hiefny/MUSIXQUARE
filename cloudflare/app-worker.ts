@@ -14047,7 +14047,9 @@ async function ensureSoroImageMirror(
     const fetched = await fetchAndConsumeWithTimeout(
       sourceUrl,
       {
-        redirect: 'error',
+        // Workers reject the "error" redirect mode. A manual 3xx is not ok and is
+        // refused below, so a redirect is still never followed.
+        redirect: 'manual',
         headers: {
           Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.8,*/*;q=0.1',
         },

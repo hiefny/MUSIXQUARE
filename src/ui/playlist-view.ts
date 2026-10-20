@@ -852,7 +852,7 @@ export function updatePlaylistUI(): void {
           data-queue-item-id="${escapeHtml(item.queueItemId)}"
           aria-pressed="${isRemovalSelected}"
           aria-label="${escapeHtml(selectLabel)}" title="${escapeHtml(selectLabel)}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="playlist-select-minus" d="M6 12h12"/><path class="playlist-select-mark" d="M5 12.5l4.2 4.2L19 6.9"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="playlist-select-minus" d="M7 12h10"/><path class="playlist-select-mark" d="M5 12.5l4.2 4.2L19 6.9"/></svg>
         </button>`
       : '';
 

@@ -3007,6 +3007,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 0;
   }
 
+  /* The minus matches the old remove X: about 9px wide, a thinner stroke. */
+  .playlist-select-minus {
+    stroke-width: 1.9;
+  }
+
   .btn-playlist-select[aria-pressed='true'] {
     color: var(--primary);
   }

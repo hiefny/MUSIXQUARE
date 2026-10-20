@@ -1156,6 +1156,10 @@
   opacity: 0;
 }
 
+.playlist-select-minus {
+  stroke-width: 1.9;
+}
+
 .playlist-select[aria-pressed='true'] {
   color: var(--primary);
 }

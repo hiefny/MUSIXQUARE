@@ -63,8 +63,8 @@ ko-KR, 밝은·어두운 테마, 11가지 화면 크기에서 로고와 인사�
   13,439 pass / 0 fail / 1 Windows-only skip, candidate browser 17 + critical browser 55 pass. 후보 artifact
   12240513735.
 - 첫 두 배포 실행 [39371044098](https://github.com/hiefny/MUSIXQUARE/actions/runs/39371044098)(13:43 KST)·[39371530082](https://github.com/hiefny/MUSIXQUARE/actions/runs/39371530082)(13:48 KST)은
-  App 배포 뒤 Standard HTTPS signaling smoke가 `/api/standard-signaling/v1/bridge/open`에서 HTTP 502를 받아
-  실패했다(첫 번째는 방장 열기, 두 번째는 방장 열기 성공 뒤 게스트 열기). 502는 App Worker가 시그널링 Worker의
+  App 배포(새 version `73e939bf`, `467e34f2`) 뒤 Standard HTTPS signaling smoke가
+  `/api/standard-signaling/v1/bridge/open`에서 HTTP 502를 받아 실패했다(첫 번째는 방장 열기, 두 번째는 방장 열기 성공 뒤 게스트 열기). 502는 App Worker가 시그널링 Worker의
   Durable Object를 5초 안에 열지 못하거나 응답이 JSON이 아닐 때 나온다. 이번 변경은 CSS 한 줄이라 이 경로와
   무관하다. 두 번 모두 자동 복구가 App을 8.11.27 version `87ff6e7e`로 되돌리고(deployment `f69978da`,
   `57b295ca`) 소유권·floor·R2를 검증했으며, 직후 Drift Audit 39371361020도 31 / 0 / 5였다. Cloudflare 상태 페이지의

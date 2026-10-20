@@ -3127,20 +3127,29 @@ export function initPlaylist(): void {
     [MSG.PLAYLIST_SLOTS]: handlePlaylistSlots,
   });
 
-  // Playlists belong to one room. A guest learns them from its host; a
-  // standard host announces them, and a new room starts with one playlist.
-  let playlistSlotsRoom: string | null = null;
+  // Playlists belong to one room session. A guest learns them from its host;
+  // a standard host announces them, and a new session (another room code, a
+  // different role, or leaving) starts with one playlist and drops the old
+  // inactive playlists and their files. Standard rooms carry no room ID, so
+  // the session code names the room.
+  let playlistSlotsOwner: string | null = null;
+  resetPlaylistSlots();
   const syncPlaylistSlotsOwner = (): void => {
     const room = getRoomContext();
-    const owner = room.kind === 'standard' ? room.roomId : null;
-    if (owner !== playlistSlotsRoom) {
-      playlistSlotsRoom = owner;
+    const sessionCode = getState('network.sessionCode');
+    const owner =
+      room.kind === 'standard' && sessionCode
+        ? `${sessionCode}:${isCoordinator() ? 'host' : 'guest'}`
+        : null;
+    if (owner !== playlistSlotsOwner) {
+      playlistSlotsOwner = owner;
       resetPlaylistSlots();
       if (room.kind !== 'pro') setState('playlist.slots', null);
     }
     publishPlaylistSlots();
   };
   bus.on('state:room.context', syncPlaylistSlotsOwner);
+  bus.on('state:network.sessionCode', syncPlaylistSlotsOwner);
   bus.on('state:network.hostConn', (conn) => {
     // A new host connection announces its own playlists, if it has any.
     if (conn && getRoomContext().kind === 'standard') setState('playlist.slots', null);

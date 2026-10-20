@@ -6,6 +6,14 @@ const HANDLE_SELECTOR = '.playlist-reorder-handle';
 const INTERACTIVE_SELECTOR =
   'button, a, input, select, textarea, [contenteditable="true"], .sub-track-item';
 const LONG_PRESS_PLAY_SURFACE_SELECTOR = '.track-name[data-action="play"]';
+const PLAYBACK_STATE_ICON_SELECTOR = '.track-playback-state-icon';
+const CURRENT_LEADING_SELECTOR = '.playlist-current-leading';
+const CURRENT_LEADING_STATE_CLASSES = [
+  'playlist-current-leading',
+  'is-current-loading',
+  'is-current-playing',
+  'is-current-paused',
+] as const;
 
 const PLAYLIST_LONG_PRESS_MS = 700;
 const PLAYLIST_TOUCH_MOVE_TOLERANCE_PX = 8;
@@ -13,8 +21,13 @@ const PLAYLIST_REORDER_HINT_MS = 2000;
 
 const MOMENTUM_SETTLE_MS = 140;
 const CLICK_SUPPRESSION_MS = 500;
+// Edge zones scale with the visible pane. A desktop playlist shares its
+// column with chat and can be only three or four rows tall, so a fixed 40px
+// floor would turn most of the first and last visible rows into scroll zones.
+const EDGE_ZONE_RATIO = 0.12;
 const EDGE_ZONE_MAX_PX = 72;
-const EDGE_ZONE_MIN_PX = 40;
+const EDGE_ZONE_MIN_PX = 24;
+const EDGE_ZONE_ARM_TRAVEL_PX = PLAYLIST_TOUCH_MOVE_TOLERANCE_PX;
 const EDGE_SCROLL_MAX_PX = 18;
 const REORDER_REFLOW_MS = 220;
 const REORDER_DROP_MS = 180;
@@ -34,8 +47,11 @@ interface DragState {
   input: DragInput;
   pointerId: number | null;
   touchId: number | null;
+  startClientY: number;
   lastClientX: number;
   lastClientY: number;
+  topEdgeArmed: boolean;
+  bottomEdgeArmed: boolean;
   grabOffsetY: number;
   ghost: HTMLElement;
   ghostOriginTop: number;
@@ -61,6 +77,17 @@ interface TouchProbeState {
   suppressClickOnEnd: boolean;
   scrollConfirmed: boolean;
   longPressTimer: number | null;
+}
+
+interface PointerHoldState {
+  pointerId: number;
+  sourceId: string;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  startScrollTop: number;
+  timer: number;
 }
 
 interface ScopedClickSuppression {
@@ -155,6 +182,7 @@ export function createPlaylistReorderController(
   let keyboard: KeyboardState | null = null;
   let settling: SettlingState | null = null;
   let touchProbe: TouchProbeState | null = null;
+  let pointerHold: PointerHoldState | null = null;
   let touchHintEntry: HTMLElement | null = null;
   let hintTimer: number | null = null;
   let hintPendingUntilVisible = false;
@@ -348,6 +376,12 @@ export function createPlaylistReorderController(
     }
   }
 
+  function clearPointerHold(): void {
+    if (!pointerHold) return;
+    window.clearTimeout(pointerHold.timer);
+    pointerHold = null;
+  }
+
   function clearTouchHint(): void {
     if (touchHintFrame !== null) {
       window.cancelAnimationFrame(touchHintFrame);
@@ -473,34 +507,54 @@ export function createPlaylistReorderController(
     return { top: rect.top, bottom };
   }
 
+  function autoScrollVelocity(state: DragState): number {
+    const { top, bottom } = visibleScrollBounds();
+    const height = Math.max(1, bottom - top);
+    const zone = clamp(height * EDGE_ZONE_RATIO, EDGE_ZONE_MIN_PX, EDGE_ZONE_MAX_PX);
+    const y = state.lastClientY;
+    const topDepth = top + zone - y;
+    const bottomDepth = y - (bottom - zone);
+    // Grabbing the first or last visible row starts inside an edge zone. Arm
+    // each edge only after the pointer has been outside it or has travelled
+    // toward it, so picking up an edge row never scrolls by itself.
+    if (topDepth <= 0 || state.startClientY - y >= EDGE_ZONE_ARM_TRAVEL_PX) {
+      state.topEdgeArmed = true;
+    }
+    if (bottomDepth <= 0 || y - state.startClientY >= EDGE_ZONE_ARM_TRAVEL_PX) {
+      state.bottomEdgeArmed = true;
+    }
+    if (topDepth > 0 && state.topEdgeArmed) {
+      const ratio = clamp(topDepth / zone, 0, 1);
+      return -EDGE_SCROLL_MAX_PX * ratio * ratio;
+    }
+    if (bottomDepth > 0 && state.bottomEdgeArmed) {
+      const ratio = clamp(bottomDepth / zone, 0, 1);
+      return EDGE_SCROLL_MAX_PX * ratio * ratio;
+    }
+    return 0;
+  }
+
   function autoScrollStep(): void {
     autoScrollFrame = null;
     if (!drag) return;
-
-    const { top, bottom } = visibleScrollBounds();
-    const height = Math.max(1, bottom - top);
-    const zone = clamp(height * 0.16, EDGE_ZONE_MIN_PX, EDGE_ZONE_MAX_PX);
-    let velocity = 0;
-    if (drag.lastClientY < top + zone) {
-      const ratio = clamp((top + zone - drag.lastClientY) / zone, 0, 1);
-      velocity = -EDGE_SCROLL_MAX_PX * ratio * ratio;
-    } else if (drag.lastClientY > bottom - zone) {
-      const ratio = clamp((drag.lastClientY - (bottom - zone)) / zone, 0, 1);
-      velocity = EDGE_SCROLL_MAX_PX * ratio * ratio;
-    }
-
-    if (velocity !== 0) {
-      const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
-      const next = clamp(scrollContainer.scrollTop + velocity, 0, maxScroll);
-      if (next !== scrollContainer.scrollTop) {
-        scrollContainer.scrollTop = next;
-        updateDragTarget();
-      }
+    // The loop keeps itself alive only while the pointer stays in an armed
+    // zone. It ends on the first frame outside one; pointer input restarts it.
+    const velocity = autoScrollVelocity(drag);
+    if (velocity === 0) return;
+    const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    const next = clamp(scrollContainer.scrollTop + velocity, 0, maxScroll);
+    if (next !== scrollContainer.scrollTop) {
+      scrollContainer.scrollTop = next;
+      updateDragTarget();
     }
     autoScrollFrame = window.requestAnimationFrame(autoScrollStep);
   }
 
-  function startAutoScroll(): void {
+  function syncAutoScroll(): void {
+    if (!drag || autoScrollVelocity(drag) === 0) {
+      stopAutoScroll();
+      return;
+    }
     if (autoScrollFrame === null) autoScrollFrame = window.requestAnimationFrame(autoScrollStep);
   }
 
@@ -522,6 +576,13 @@ export function createPlaylistReorderController(
     ghost.querySelectorAll<HTMLElement>('[id]').forEach((el) => el.removeAttribute('id'));
     ghost.querySelectorAll<HTMLElement>('button, [tabindex]').forEach((el) => {
       el.setAttribute('tabindex', '-1');
+    });
+    // The current row's handle stacks its play/pause/loading icon in the grip's
+    // grid cell, and those state rules outrank the ghost's hide rule. A lifted
+    // row shows only the grip, so the clone carries no playback state at all.
+    ghost.querySelectorAll(PLAYBACK_STATE_ICON_SELECTOR).forEach((el) => el.remove());
+    ghost.querySelectorAll(CURRENT_LEADING_SELECTOR).forEach((el) => {
+      el.classList.remove(...CURRENT_LEADING_STATE_CLASSES);
     });
     // A transformed body is the containing block for this fixed descendant.
     // Convert the viewport box back into that body's local CSS coordinate
@@ -547,6 +608,7 @@ export function createPlaylistReorderController(
     if (!sourceId || !row) return;
 
     clearLongPressTimer();
+    clearPointerHold();
     clearTouchHint();
     clearGlobalHint();
     const rowRect = row.getBoundingClientRect();
@@ -559,8 +621,11 @@ export function createPlaylistReorderController(
       input,
       pointerId,
       touchId,
+      startClientY: clientY,
       lastClientX: clientX,
       lastClientY: clientY,
+      topEdgeArmed: false,
+      bottomEdgeArmed: false,
       grabOffsetY: clamp(clientY - rowRect.top, 0, rowRect.height),
       ghost,
       ghostOriginTop,
@@ -570,7 +635,7 @@ export function createPlaylistReorderController(
     document.body.classList.add('playlist-reorder-active');
     markSource(sourceEntry);
     updateGhostPosition();
-    startAutoScroll();
+    syncAutoScroll();
 
     if (input === 'long-press') {
       try {
@@ -839,6 +904,7 @@ export function createPlaylistReorderController(
 
   function cancel(): void {
     clearLongPressTimer();
+    clearPointerHold();
     clearTouchHint();
     touchProbe = null;
     if (drag) finishDrag(false);
@@ -868,10 +934,67 @@ export function createPlaylistReorderController(
     });
   }
 
+  function longPressSourceEntry(target: Element | null): HTMLElement | null {
+    const row = target?.closest<HTMLElement>(ROW_SELECTOR);
+    const entry = row?.closest<HTMLElement>(ENTRY_SELECTOR);
+    if (!row || !entry || !list.contains(entry) || !getEntryId(entry)) return null;
+    const interactiveTarget = target?.closest<HTMLElement>(INTERACTIVE_SELECTOR);
+    // The title now uses a real button for keyboard/AT semantics, but it is
+    // also the largest row-body surface. Keep ordinary taps and clicks as play
+    // actions while allowing a stationary hold to enter reorder; startDrag and
+    // finishDrag suppress the click that follows a long press.
+    if (interactiveTarget && !interactiveTarget.matches(LONG_PRESS_PLAY_SURFACE_SELECTOR)) {
+      return null;
+    }
+    return entry;
+  }
+
+  function armPointerHold(event: PointerEvent, target: Element | null): void {
+    // Touch contacts arm through the touch probe, which also owns native
+    // scroll disqualification and the synthetic-click policy.
+    if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
+    if (drag || keyboard || !reorderable()) return;
+    const sourceId = getEntryId(longPressSourceEntry(target));
+    if (!sourceId) return;
+    const pointerId = event.pointerId;
+    pointerHold = {
+      pointerId,
+      sourceId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      startScrollTop: scrollContainer.scrollTop,
+      timer: window.setTimeout(() => {
+        const hold = pointerHold;
+        if (hold?.pointerId !== pointerId) return;
+        pointerHold = null;
+        // Resolve by ID: an authoritative render during the hold replaces rows.
+        const sourceEntry = entryForId(hold.sourceId);
+        if (!sourceEntry || scrollContainer.scrollTop !== hold.startScrollTop || !reorderable()) {
+          return;
+        }
+        try {
+          // Capture only once the hold becomes a drag. Capturing at press
+          // time would retarget the click of an ordinary short press.
+          list.setPointerCapture(pointerId);
+        } catch {
+          /* Pointer capture is a reliability boost, not a hard dependency. */
+        }
+        startDrag(sourceEntry, hold.lastX, hold.lastY, 'long-press', pointerId, null);
+      }, PLAYLIST_LONG_PRESS_MS),
+    };
+  }
+
   function onPointerDown(event: PointerEvent): void {
+    clearPointerHold();
+    if (event.button !== 0 || !event.isPrimary) return;
     const target = asElement(event.target);
     const handle = target?.closest<HTMLElement>(HANDLE_SELECTOR);
-    if (!handle || !list.contains(handle) || event.button !== 0 || !event.isPrimary) return;
+    if (!handle || !list.contains(handle)) {
+      armPointerHold(event, target);
+      return;
+    }
     const entry = handle.closest<HTMLElement>(ENTRY_SELECTOR);
     if (!entry || !reorderable()) return;
     event.preventDefault();
@@ -896,6 +1019,7 @@ export function createPlaylistReorderController(
     drag.lastClientY = event.clientY;
     updateGhostPosition();
     updateDragTarget();
+    syncAutoScroll();
   }
 
   function onPointerUp(event: PointerEvent): void {
@@ -913,16 +1037,8 @@ export function createPlaylistReorderController(
     if (touchSequenceBlocked || !reorderable() || drag || keyboard || event.touches.length !== 1) {
       return;
     }
-    const target = asElement(event.target);
-    const row = target?.closest<HTMLElement>(ROW_SELECTOR);
-    const entry = row?.closest<HTMLElement>(ENTRY_SELECTOR);
-    if (!row || !entry || !list.contains(entry)) return;
-    const interactiveTarget = target?.closest<HTMLElement>(INTERACTIVE_SELECTOR);
-    // The title now uses a real button for keyboard/AT semantics, but on touch
-    // it is also the only comfortably sized row-body surface. Keep ordinary
-    // taps as play actions while allowing a stationary hold to enter reorder;
-    // startDrag/finishDrag suppress the synthetic click after a long press.
-    if (interactiveTarget && !interactiveTarget.matches(LONG_PRESS_PLAY_SURFACE_SELECTOR)) return;
+    const entry = longPressSourceEntry(asElement(event.target));
+    if (!entry) return;
 
     const touch = event.touches.item(0);
     const sourceId = getEntryId(entry);
@@ -969,6 +1085,7 @@ export function createPlaylistReorderController(
       drag.lastClientY = touch.clientY;
       updateGhostPosition();
       updateDragTarget();
+      syncAutoScroll();
       return;
     }
     if (!touchProbe) return;
@@ -1035,9 +1152,33 @@ export function createPlaylistReorderController(
     if (event.touches.length === 0) touchSequenceBlocked = false;
   }
 
+  function onDocumentPointerMove(event: PointerEvent): void {
+    if (!pointerHold || event.pointerId !== pointerHold.pointerId) return;
+    pointerHold.lastX = event.clientX;
+    pointerHold.lastY = event.clientY;
+    const distance = Math.hypot(
+      event.clientX - pointerHold.startX,
+      event.clientY - pointerHold.startY,
+    );
+    // Pressing a second button mid-hold arrives as a pointermove whose
+    // buttons bitmask changed, not as another pointerdown.
+    if (distance >= PLAYLIST_TOUCH_MOVE_TOLERANCE_PX || event.buttons !== 1) clearPointerHold();
+  }
+
+  function onDocumentPointerFinish(event: PointerEvent): void {
+    if (event.pointerId === pointerHold?.pointerId) clearPointerHold();
+  }
+
   function onScroll(): void {
     lastScrollAt = performance.now();
-    if (!touchProbe || drag) return;
+    clearPointerHold();
+    if (drag) {
+      // Wheel scrolling moves rows under a stationary pointer; keep the
+      // preview slot under it just like an auto-scroll frame does.
+      updateDragTarget();
+      return;
+    }
+    if (!touchProbe) return;
     touchProbe.disqualified = true;
     touchProbe.suppressClickOnEnd = true;
     touchProbe.scrollConfirmed = true;
@@ -1098,6 +1239,7 @@ export function createPlaylistReorderController(
   }
 
   function onDocumentKeyDown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') clearPointerHold();
     if (event.key !== 'Escape' || (!drag && !keyboard)) return;
     event.preventDefault();
     cancel();
@@ -1132,6 +1274,13 @@ export function createPlaylistReorderController(
   list.addEventListener('pointerup', onPointerUp, { signal });
   list.addEventListener('pointercancel', onPointerCancel, { signal });
   list.addEventListener('lostpointercapture', onPointerCancel, { signal });
+  list.addEventListener(
+    'pointerleave',
+    (event) => {
+      if (event.pointerId === pointerHold?.pointerId) clearPointerHold();
+    },
+    { signal },
+  );
   list.addEventListener('touchstart', onTouchStart, { passive: true, signal });
   list.addEventListener('touchmove', onTouchMove, { passive: false, signal });
   list.addEventListener('touchend', (event) => finishTouch(true, event), { signal });
@@ -1146,6 +1295,25 @@ export function createPlaylistReorderController(
   });
   document.addEventListener('touchend', onDocumentTouchFinish, { capture: true, signal });
   document.addEventListener('touchcancel', onDocumentTouchFinish, { capture: true, signal });
+  document.addEventListener('pointermove', onDocumentPointerMove, { capture: true, signal });
+  document.addEventListener('pointerup', onDocumentPointerFinish, { capture: true, signal });
+  document.addEventListener('pointercancel', onDocumentPointerFinish, { capture: true, signal });
+  document.addEventListener(
+    'contextmenu',
+    (event) => {
+      clearPointerHold();
+      // Windows pen press-and-hold synthesizes a context menu mid-drag.
+      if (drag) event.preventDefault();
+    },
+    { capture: true, signal },
+  );
+  document.addEventListener(
+    'selectstart',
+    (event) => {
+      if (drag || pointerHold) event.preventDefault();
+    },
+    { capture: true, signal },
+  );
   document.addEventListener('keydown', onDocumentKeyDown, { signal });
   document.addEventListener('pointerdown', clearPendingFocus, { capture: true, signal });
   document.addEventListener('keydown', clearPendingFocus, { capture: true, signal });

@@ -45,6 +45,7 @@ const ko = {
   'common.off': '끄기',
 
   'screensaver.back': 'MUSIXQUARE로 돌아가기',
+  'screensaver.turn_on': '화면 보호기 켜기',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': '로그인',

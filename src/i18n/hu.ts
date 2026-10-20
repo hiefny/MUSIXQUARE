@@ -46,6 +46,7 @@ const hu: Record<I18nKey, string> = {
   'common.off': 'Ki',
 
   'screensaver.back': 'Vissza a MUSIXQUARE-hez',
+  'screensaver.turn_on': 'Képernyőkímélő bekapcsolása',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Bejelentkezés',

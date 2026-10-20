@@ -47,6 +47,7 @@ const te: Record<I18nKey, string> = {
   'common.off': 'ఆఫ్',
 
   'screensaver.back': 'MUSIXQUAREకి తిరిగి వెళ్లండి',
+  'screensaver.turn_on': 'స్క్రీన్‌సేవర్ ఆన్ చేయండి',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'సైన్ ఇన్',

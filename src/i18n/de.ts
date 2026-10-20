@@ -48,6 +48,7 @@ const de: Record<I18nKey, string> = {
   'common.off': 'Aus',
 
   'screensaver.back': 'Zurück zu MUSIXQUARE',
+  'screensaver.turn_on': 'Bildschirmschoner einschalten',
   'account.login_title': 'Anmelden',
   'account.login_cancelled': 'Die Anmeldung wurde abgebrochen',
   'account.login_failed': 'Anmeldung fehlgeschlagen\nVersuche es erneut',

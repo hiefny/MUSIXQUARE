@@ -47,6 +47,7 @@ const mr: Record<I18nKey, string> = {
   'common.off': 'बंद',
 
   'screensaver.back': 'MUSIXQUARE वर परत जा',
+  'screensaver.turn_on': 'स्क्रीनसेव्हर सुरू करा',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'साइन इन करा',

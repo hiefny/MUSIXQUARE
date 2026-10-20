@@ -46,6 +46,7 @@ const pl: Record<I18nKey, string> = {
   'common.off': 'Wył.',
 
   'screensaver.back': 'Wróć do MUSIXQUARE',
+  'screensaver.turn_on': 'Włącz wygaszacz ekranu',
   'account.login_title': 'Zaloguj się',
   'account.login_cancelled': 'Logowanie anulowano',
   'account.login_failed': 'Nie udało się zalogować\nSpróbuj ponownie',

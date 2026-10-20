@@ -46,6 +46,7 @@ const ur: Record<I18nKey, string> = {
   'common.off': 'آف',
 
   'screensaver.back': 'MUSIXQUARE پر واپس جائیں',
+  'screensaver.turn_on': 'اسکرین سیور آن کریں',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'سائن ان',

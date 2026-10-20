@@ -47,6 +47,7 @@ const zhHant: Record<I18nKey, string> = {
   'common.off': '關閉',
 
   'screensaver.back': '返回 MUSIXQUARE',
+  'screensaver.turn_on': '開啟螢幕保護程式',
   'account.login_title': '登入',
   'account.login_cancelled': '已取消登入',
   'account.login_failed': '無法登入\n請再試一次',

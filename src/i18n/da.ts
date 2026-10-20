@@ -47,6 +47,7 @@ const da: Record<I18nKey, string> = {
   'common.off': 'Fra',
 
   'screensaver.back': 'Tilbage til MUSIXQUARE',
+  'screensaver.turn_on': 'Slå pauseskærm til',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Log ind',

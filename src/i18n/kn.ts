@@ -47,6 +47,7 @@ const kn: Record<I18nKey, string> = {
   'common.off': 'ಆಫ್',
 
   'screensaver.back': 'MUSIXQUAREಗೆ ಹಿಂತಿರುಗಿ',
+  'screensaver.turn_on': 'ಸ್ಕ್ರೀನ್‌ಸೇವರ್ ಆನ್ ಮಾಡಿ',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ಸೈನ್ ಇನ್ ಮಾಡಿ',

@@ -299,12 +299,12 @@ describe('policy-page accordions', () => {
       'keyed digest of each one-time voucher code rather than the plaintext code',
       'grant audit and account-deletion fences are append-only',
       'Google Sans from Google Fonts',
-      'coordinates rounded to three decimal places',
-      'Open-Meteo for local weather and air quality',
+      'does not request your location',
       'Closing the screensaver stops its updates',
     ]) {
       expect(privacyText).toContain(phrase);
     }
+    expect(privacyText).not.toContain('Open-Meteo');
     expect(termsText).toContain('Google OpenID Connect');
     expect(termsText).toContain('Google Gemini API');
     expect(termsText).toContain('Cloudflare Privacy Policy');

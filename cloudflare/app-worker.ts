@@ -530,10 +530,6 @@ const SECURITY_HEADERS = {
 };
 
 const APP_DOCUMENT_SECURITY_HEADERS = {
-  'Permissions-Policy': SECURITY_HEADERS['Permissions-Policy'].replace(
-    'geolocation=()',
-    'geolocation=(self)',
-  ),
   'Content-Security-Policy': SECURITY_HEADERS['Content-Security-Policy'].replace(
     'frame-src ',
     "frame-src 'self' ",
@@ -546,10 +542,9 @@ const SCREENSAVER_SECURITY_HEADERS = {
   'Cloudflare-CDN-Cache-Control': 'no-store',
   'X-Frame-Options': 'SAMEORIGIN',
   'X-Robots-Tag': 'noindex, nofollow',
-  'Permissions-Policy':
-    'camera=(), microphone=(), display-capture=(), geolocation=(self), payment=()',
+  'Permissions-Policy': 'camera=(), microphone=(), display-capture=(), geolocation=(), payment=()',
   'Content-Security-Policy':
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https://api.open-meteo.com https://air-quality-api.open-meteo.com; frame-src 'none'; worker-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-src 'none'; worker-src 'none'; media-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
 };
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {

@@ -48,6 +48,7 @@ const ja: Record<I18nKey, string> = {
   'common.off': 'オフ',
 
   'screensaver.back': 'MUSIXQUAREに戻る',
+  'screensaver.turn_on': 'スクリーンセーバーをオンにする',
   'account.login_title': 'ログイン',
   'account.login_cancelled': 'ログインがキャンセルされました',
   'account.login_failed': 'ログインできませんでした\nもう一度お試しください',

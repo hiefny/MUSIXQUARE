@@ -45,6 +45,7 @@ const fa: Record<I18nKey, string> = {
   'common.off': 'خاموش',
 
   'screensaver.back': 'بازگشت به MUSIXQUARE',
+  'screensaver.turn_on': 'روشن کردن محافظ صفحه',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ورود',

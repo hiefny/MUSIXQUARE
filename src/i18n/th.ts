@@ -45,6 +45,7 @@ const th: Record<I18nKey, string> = {
   'common.off': 'ปิด',
 
   'screensaver.back': 'กลับไปที่ MUSIXQUARE',
+  'screensaver.turn_on': 'เปิดโปรแกรมรักษาหน้าจอ',
   'account.login_title': 'เข้าสู่ระบบ',
   'account.login_cancelled': 'ยกเลิกการเข้าสู่ระบบแล้ว',
   'account.login_failed': 'เข้าสู่ระบบไม่ได้\nลองอีกครั้ง',

@@ -26,7 +26,7 @@ function assetEnvironment() {
 
 describe('screensaver document security boundary', () => {
   it.each(['GET', 'HEAD'])(
-    'serves a same-origin-only child with narrow provider permissions (%s)',
+    'serves a same-origin-only child without location or third-party data access (%s)',
     async (method) => {
       const env = assetEnvironment();
       const response = await appWorker.fetch(
@@ -37,7 +37,7 @@ describe('screensaver document security boundary', () => {
       expect(new URL(env.ASSETS.fetch.mock.calls[0]![0].url).pathname).toBe('/screensaver.html');
       expect(response.headers.get('X-Frame-Options')).toBe('SAMEORIGIN');
       expect(response.headers.get('Permissions-Policy')).toBe(
-        'camera=(), microphone=(), display-capture=(), geolocation=(self), payment=()',
+        'camera=(), microphone=(), display-capture=(), geolocation=(), payment=()',
       );
       expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
       expect(response.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
@@ -45,12 +45,7 @@ describe('screensaver document security boundary', () => {
       expect(directive(response, 'script-src')).toEqual(['script-src', "'self'"]);
       expect(directive(response, 'frame-ancestors')).toEqual(['frame-ancestors', "'self'"]);
       expect(directive(response, 'frame-src')).toEqual(['frame-src', "'none'"]);
-      expect(directive(response, 'connect-src')).toEqual([
-        'connect-src',
-        "'self'",
-        'https://api.open-meteo.com',
-        'https://air-quality-api.open-meteo.com',
-      ]);
+      expect(directive(response, 'connect-src')).toEqual(['connect-src', "'self'"]);
       expect(directive(response, 'style-src')).toEqual([
         'style-src',
         "'self'",
@@ -75,7 +70,8 @@ describe('screensaver document security boundary', () => {
         assetEnvironment(),
       );
       expect(response.status).toBe(200);
-      expect(response.headers.get('Permissions-Policy')).toContain('geolocation=(self)');
+      // The clock-only child needs no location, so app documents delegate none.
+      expect(response.headers.get('Permissions-Policy')).toContain('geolocation=()');
       expect(directive(response, 'frame-src')).toEqual([
         'frame-src',
         "'self'",

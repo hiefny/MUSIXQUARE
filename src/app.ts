@@ -51,7 +51,6 @@ import { initAudio, isAudioReady } from './audio/engine.ts';
 import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
 import { isPlaybackPlayingFile } from './player/ownership.ts';
-import { runBackgroundReturnSync } from './player/background-return-sync.ts';
 import { inspectBackgroundFileOutput } from './audio/output-health.ts';
 import {
   armForegroundAudioContextClockHealthCheck,
@@ -817,11 +816,11 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
     // Every return then performs the Sync button's room alignment. A recovery
     // dialog that is still open (for example from an earlier failed PLAY)
     // owns the file output as much as one this return opened.
-    syncRoom: ({ peer, audio }) => {
-      runBackgroundReturnSync({
-        peerRecovery: peer,
-        fileOutputOwned: audio === true || audioRecoveryPrompt !== null,
-      });
+    // The step only runs after a return, so it stays out of the initial bundle.
+    syncRoom: async ({ peer, audio }) => {
+      const fileOutputOwned = audio === true || audioRecoveryPrompt !== null;
+      const { runBackgroundReturnSync } = await import('./player/background-return-sync.ts');
+      runBackgroundReturnSync({ peerRecovery: peer, fileOutputOwned });
     },
   });
 }

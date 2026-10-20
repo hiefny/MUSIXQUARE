@@ -3099,7 +3099,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .playlist-selection-delete {
-    background: var(--primary-filled);
+    background: var(--danger-filled);
     color: #fff;
   }
 

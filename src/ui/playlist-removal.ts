@@ -500,10 +500,12 @@ export function createPlaylistRemovalController(
     window.clearTimeout(owner.timer);
     pending = null;
     const focusWasOnUndo = takeControlFocus();
+    const rowsBefore = rowTops();
     setBarState('hidden');
     options.onUndoChange?.();
     options.onHiddenChange?.();
     syncDom();
+    glideRows(rowsBefore);
     if (focusWasOnUndo) releaseControlFocus(owner.queueItemIds[0] ?? null);
   }
 
@@ -595,13 +597,48 @@ export function createPlaylistRemovalController(
     // Hiding the deleted rows moves the last track up; the Undo pill follows
     // it from where the Delete pill was instead of jumping.
     const barTopBefore = !bar.hidden && canAnimate(bar) ? bar.getBoundingClientRect().top : null;
+    const rowsBefore = rowTops();
     selectedQueueItemIds.clear();
     // The pressed Delete pill becomes the Undo pill, so keyboard focus stays
     // on it. A pointer press leaves focus where the browser put it.
     options.onUndoChange?.();
     options.onHiddenChange?.();
     syncDom();
+    glideRows(rowsBefore);
     followLastTrack(barTopBefore);
+  }
+
+  // Survivors glide to their new rows when tracks are hidden or restored.
+  function rowTops(): Map<string, number> | null {
+    if (!canAnimate(list)) return null;
+    const tops = new Map<string, number>();
+    for (const handle of list.querySelectorAll<HTMLElement>('.playlist-reorder-handle')) {
+      const entry = handle.closest<HTMLElement>('.playlist-entry');
+      const id = handle.dataset.queueItemId;
+      if (entry && id && entry.getClientRects().length) {
+        tops.set(id, entry.getBoundingClientRect().top);
+      }
+    }
+    return tops;
+  }
+
+  function glideRows(before: Map<string, number> | null): void {
+    if (!before) return;
+    const timing = { duration: MORPH_MS, easing: MORPH_EASING };
+    for (const handle of list.querySelectorAll<HTMLElement>('.playlist-reorder-handle')) {
+      const entry = handle.closest<HTMLElement>('.playlist-entry');
+      const id = handle.dataset.queueItemId;
+      if (!entry || !id || !entry.getClientRects().length) continue;
+      const top = before.get(id);
+      if (top === undefined) {
+        entry.animate([{ opacity: 0 }, { opacity: 1 }], timing);
+        continue;
+      }
+      const dy = top - entry.getBoundingClientRect().top;
+      if (Math.abs(dy) >= 1) {
+        entry.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], timing);
+      }
+    }
   }
 
   function followLastTrack(barTopBefore: number | null): void {

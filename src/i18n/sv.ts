@@ -17,6 +17,7 @@ const sv: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Avbryt',
   'common.close': 'Stäng',
+  'common.skip_to_content': 'Hoppa till innehåll',
   'common.reset': 'Återställ',
   'common.clear_input': 'Rensa inmatning',
   'common.refresh': 'Uppdatera',

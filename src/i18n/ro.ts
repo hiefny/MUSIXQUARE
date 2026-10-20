@@ -17,6 +17,7 @@ const ro: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Anulează',
   'common.close': 'Închide',
+  'common.skip_to_content': 'Sari la conținut',
   'common.reset': 'Resetează',
   'common.clear_input': 'Șterge textul introdus',
   'common.refresh': 'Reîncarcă',

@@ -17,6 +17,7 @@ const kn: Record<I18nKey, string> = {
   'common.ok': 'ಸರಿ',
   'common.cancel': 'ರದ್ದುಮಾಡಿ',
   'common.close': 'ಮುಚ್ಚಿ',
+  'common.skip_to_content': 'ವಿಷಯಕ್ಕೆ ತೆರಳಿ',
   'common.reset': 'ಮರುಹೊಂದಿಸಿ',
   'common.clear_input': 'ನಮೂದನ್ನು ತೆರವುಗೊಳಿಸಿ',
   'common.refresh': 'ರಿಫ್ರೆಶ್ ಮಾಡಿ',

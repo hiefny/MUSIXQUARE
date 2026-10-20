@@ -17,6 +17,7 @@ const nb: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Avbryt',
   'common.close': 'Lukk',
+  'common.skip_to_content': 'Gå til innhold',
   'common.reset': 'Tilbakestill',
   'common.clear_input': 'Tøm feltet',
   'common.refresh': 'Oppdater',

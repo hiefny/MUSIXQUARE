@@ -15,6 +15,7 @@ const ko = {
   'common.ok': '확인',
   'common.cancel': '취소',
   'common.close': '닫기',
+  'common.skip_to_content': '콘텐츠로 바로가기',
   'common.reset': '초기화',
   'common.clear_input': '입력 내용 지우기',
   'common.refresh': '새로고침',

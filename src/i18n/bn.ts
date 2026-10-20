@@ -16,6 +16,7 @@ const bn: Record<I18nKey, string> = {
   'common.ok': 'ঠিক আছে',
   'common.cancel': 'বাতিল করুন',
   'common.close': 'বন্ধ করুন',
+  'common.skip_to_content': 'এড়িয়ে কনটেন্টে যান',
   'common.reset': 'রিসেট করুন',
   'common.clear_input': 'ইনপুট মুছুন',
   'common.refresh': 'রিফ্রেশ করুন',

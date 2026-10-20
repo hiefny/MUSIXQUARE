@@ -16,6 +16,7 @@ const bg: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Отказ',
   'common.close': 'Затваряне',
+  'common.skip_to_content': 'Напред към съдържанието',
   'common.reset': 'Нулиране',
   'common.clear_input': 'Изчистване на полето',
   'common.refresh': 'Опресняване',

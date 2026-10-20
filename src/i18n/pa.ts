@@ -17,6 +17,7 @@ const pa: Record<I18nKey, string> = {
   'common.ok': 'ਠੀਕ ਹੈ',
   'common.cancel': 'ਰੱਦ ਕਰੋ',
   'common.close': 'ਬੰਦ ਕਰੋ',
+  'common.skip_to_content': "ਸਿੱਧਾ ਸਮੱਗਰੀ 'ਤੇ ਜਾਓ",
   'common.reset': 'ਮੁੜ ਸੈੱਟ ਕਰੋ',
   'common.clear_input': 'ਲਿਖਤ ਸਾਫ਼ ਕਰੋ',
   'common.refresh': 'ਰਿਫ੍ਰੈਸ਼ ਕਰੋ',

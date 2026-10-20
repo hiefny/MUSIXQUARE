@@ -16,6 +16,7 @@ const ar: Record<I18nKey, string> = {
   'common.ok': 'حسنًا',
   'common.cancel': 'إلغاء',
   'common.close': 'إغلاق',
+  'common.skip_to_content': 'التخطي إلى المحتوى',
   'common.reset': 'إعادة الضبط',
   'common.clear_input': 'مسح الإدخال',
   'common.refresh': 'تحديث',

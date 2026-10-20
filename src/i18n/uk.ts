@@ -16,6 +16,7 @@ const uk: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Скасувати',
   'common.close': 'Закрити',
+  'common.skip_to_content': 'Перейти до вмісту',
   'common.reset': 'Скинути',
   'common.clear_input': 'Очистити поле',
   'common.refresh': 'Оновити',

@@ -15,6 +15,7 @@ const tr: Record<I18nKey, string> = {
   'common.ok': 'Tamam',
   'common.cancel': 'İptal',
   'common.close': 'Kapat',
+  'common.skip_to_content': 'İçeriğe geç',
   'common.reset': 'Sıfırla',
   'common.clear_input': 'Girişi temizle',
   'common.refresh': 'Yenile',

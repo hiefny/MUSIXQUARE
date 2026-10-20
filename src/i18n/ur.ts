@@ -16,6 +16,7 @@ const ur: Record<I18nKey, string> = {
   'common.ok': 'ٹھیک ہے',
   'common.cancel': 'منسوخ کریں',
   'common.close': 'بند کریں',
+  'common.skip_to_content': 'چھوڑیں مواد پر جائیں',
   'common.reset': 'ری سیٹ کریں',
   'common.clear_input': 'اندراج صاف کریں',
   'common.refresh': 'ریفریش کریں',

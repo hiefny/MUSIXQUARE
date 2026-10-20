@@ -19,6 +19,7 @@ const nl: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Annuleren',
   'common.close': 'Sluiten',
+  'common.skip_to_content': 'Ga naar de inhoud',
   'common.reset': 'Resetten',
   'common.clear_input': 'Invoer wissen',
   'common.refresh': 'Vernieuwen',

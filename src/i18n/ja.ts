@@ -18,6 +18,7 @@ const ja: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'キャンセル',
   'common.close': '閉じる',
+  'common.skip_to_content': 'コンテンツへスキップ',
   'common.reset': 'リセット',
   'common.clear_input': '入力内容を消去',
   'common.refresh': '再読み込み',

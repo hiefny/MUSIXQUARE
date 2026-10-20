@@ -16,6 +16,7 @@ const hu: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Mégse',
   'common.close': 'Bezárás',
+  'common.skip_to_content': 'Ugrás a tartalomhoz',
   'common.reset': 'Visszaállítás',
   'common.clear_input': 'Beírt szöveg törlése',
   'common.refresh': 'Frissítés',

@@ -15,6 +15,7 @@ const th: Record<I18nKey, string> = {
   'common.ok': 'ตกลง',
   'common.cancel': 'ยกเลิก',
   'common.close': 'ปิด',
+  'common.skip_to_content': 'ข้ามไปยังเนื้อหา',
   'common.reset': 'รีเซ็ต',
   'common.clear_input': 'ล้างข้อความ',
   'common.refresh': 'รีเฟรช',

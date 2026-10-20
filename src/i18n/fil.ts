@@ -16,6 +16,7 @@ const fil: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Kanselahin',
   'common.close': 'Isara',
+  'common.skip_to_content': 'Lumaktaw patungo sa content',
   'common.reset': 'I-reset',
   'common.clear_input': 'Burahin ang inilagay',
   'common.refresh': 'I-refresh',

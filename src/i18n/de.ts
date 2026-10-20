@@ -18,6 +18,7 @@ const de: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Abbrechen',
   'common.close': 'Schließen',
+  'common.skip_to_content': 'Zum Inhalt springen',
   'common.reset': 'Zurücksetzen',
   'common.clear_input': 'Eingabe löschen',
   'common.refresh': 'Aktualisieren',

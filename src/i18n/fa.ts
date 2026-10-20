@@ -15,6 +15,7 @@ const fa: Record<I18nKey, string> = {
   'common.ok': 'تأیید',
   'common.cancel': 'لغو',
   'common.close': 'بستن',
+  'common.skip_to_content': 'پرش به محتوا',
   'common.reset': 'بازنشانی',
   'common.clear_input': 'پاک کردن ورودی',
   'common.refresh': 'تازه‌سازی',

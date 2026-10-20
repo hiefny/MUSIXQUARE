@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------- |
 | Status             | Maintained index                                                      |
 | Applies to         | Repository documentation and its lifecycle classification             |
-| Last source review | 2026-10-13 |
+| Last source review | 2026-10-13                                                            |
 | Governance         | [Documentation governance](documentation-governance.md)               |
 | Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Skip link translation — 2026-10-20](design/skip-link-translation-2026-10-20.md) —
+  the keyboard skip link at the top of the app read "Skip to content" in English for all 42 locales; 8.11.31 binds
+  it to `common.skip_to_content`, using the WordPress community translation of the same source string (theme
+  first, core where the theme has none), with Wikipedia's "Jump to content" listed for comparison.
 - [Editorial header label and redeem hint centering — 2026-10-20](design/editorial-header-and-redeem-hint-2026-10-20.md) —
   the History header said "Open app" after its 2026-08-23 rebuild while every other editorial header said "Try it
   now", and 8.11.30 matches it; the event page's redeem code hint sat 1.5–2.5 px low in Chromium, which draws the

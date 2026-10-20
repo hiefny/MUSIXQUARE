@@ -17,6 +17,7 @@ const id: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Batal',
   'common.close': 'Tutup',
+  'common.skip_to_content': 'Lewati ke konten',
   'common.reset': 'Atur ulang',
   'common.clear_input': 'Hapus isi',
   'common.refresh': 'Muat ulang',

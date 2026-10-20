@@ -30,6 +30,13 @@ Worker에서 실제로 실행되던 곳은 세 군데다.
 - 새 가드 테스트 `src/core/__tests__/worker-redirect-mode.test.ts`가 `cloudflare/`의 Worker 코드에 `redirect: 'error'`가
   다시 들어오면 실패한다. 기존 테스트의 기대값도 `manual`로 바꿨다.
 
+## 하이브리드 기기 마우스 올림 (같은 PR)
+
+Surface Laptop Studio처럼 태블릿 자세에서 터치패드를 끄는 기기는 `(any-hover: hover)`가 거짓이라, 펜이나 마우스를 올려도
+재생목록의 순서 바꾸기 그립과 제목 흐름 효과가 나오지 않았다(오너 제보). `src/ui/hover-pointer.ts`가 실제 마우스·펜 움직임에
+`html[data-hover-pointer]`를 붙이고 터치 누름에 떼며, CSS가 두 any-hover 규칙을 이 표시로도 적용한다. 실기기로는 확인하지
+않았다. 이 변경으로 초기 JS 예산 여유는 48 B다(491,520 / 491,568 B gzip).
+
 ## 배포 범위
 
 블로그 사진은 App Worker만으로 고쳐진다. PRO 길이 조회는 PRO Worker(`pro-room-worker.ts`가 요청을 만든다)와 App Worker(요청을

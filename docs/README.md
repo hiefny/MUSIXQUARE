@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Worker fetch redirect mode — 2026-10-21](design/worker-redirect-mode-2026-10-21.md) — the Workers runtime throws
+  "Invalid redirect value" for `redirect: 'error'`, so the blog image R2 mirror (since 2026-09-04) and both hops of the
+  PRO YouTube duration lookup (since 8.9.5) failed before any request; all three use `manual` (3xx still refused) and a
+  guard test keeps the error mode out of Worker code. Hybrid convertibles in tablet posture also get the playlist hover
+  affordances again through a runtime `data-hover-pointer` flag.
 - [Short desktop title spacing, delete mode stability and the edit mode redesign 8.11.33 — 2026-10-21](design/short-desktop-title-and-delete-mode-stability-2026-10-21.md) —
   the 720-899 px desktop band pulled its Playlist and Settings titles up to 12 px from the top edge; they keep the
   dashboard's 32 px again. Entering delete mode changed the playlist header by 2-3 px (baseline-aligned 44 px toggle,

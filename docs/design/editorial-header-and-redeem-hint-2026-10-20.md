@@ -1,6 +1,6 @@
 # 에디토리얼 헤더 버튼과 리딤 코드 힌트 정렬 (2026-10-20)
 
-- Status: 8.11.30 UI 수정과 검증 기록이다. 배포 결과의 정본은 [릴리스 기록](../release-record.md)과
+- Status: 8.11.30 UI 수정·검증·배포 기록이다. 배포 결과의 정본은 [릴리스 기록](../release-record.md)과
   [릴리스 이력](../release-history.md)이다.
 - 계기: 오너 요청(2026-10-20) 두 가지.
   - 에디토리얼 페이지 상단 오른쪽 버튼이 페이지에 따라 "Try it now"와 "Open app"으로 달랐다. 오너는 달라진 이유를
@@ -77,9 +77,30 @@
   0 skip(새 계약 테스트 파일 2개), 소스 가드 bus-pairing·dead-exports·import-graph·chunk-pump·lifecycle-writes 통과.
   로컬 결과는 exact-main CI 후보를 대신하지 않는다.
 
+## Release and recovery
+
+- PR [#425](https://github.com/hiefny/MUSIXQUARE/pull/425) squash merge → main `df22c930`. PR head `94953599`의 CI 39405982634
+  11 jobs 통과, Codex 리뷰 지적 없음. main 트리는 PR head와 같다.
+- Exact-main push CI [39407333115](https://github.com/hiefny/MUSIXQUARE/actions/runs/39407333115) 11 jobs 통과: unit 600 files /
+  13,476 pass / 0 fail / 1 Windows-only skip, candidate browser 17 + critical browser 55 pass. 후보 artifact
+  12256888576.
+- [Production Release 39408176153](https://github.com/hiefny/MUSIXQUARE/actions/runs/39408176153) attempt 1 성공, target=app,
+  Developer API D1=false. 2026-10-20 19:31:01 KST deploy job 완료. App version
+  `86e0fa21-c5b2-4ff4-a176-a69023f936ba` / deployment `e8b0f862-635d-4b8e-b9fb-4aa9aa29da85`, 최종 소유권
+  19:30:55.833 KST verified, 부분 릴리스 recheck compatible, smoke 4/4(시그널링 브리지 열기 방장 830ms·게스트
+  392ms), 기존 App D1 계약 7단계 apply/verify 성공.
+- 19:31 KST 공개 8 GET 모두 HTTP 200, exact-main 후보와 크기·SHA 일치(서비스 워커 v739). 바뀐 `/history`와
+  `/events/event.css`도 후보와 같다. 운영 `/history`를 375×812로 열어 헤더 버튼이 "Try it now"(79×29px, 보조
+  기술 이름 "Try MUSIXQUARE now")임을 확인했다. 운영 이벤트 페이지를 위 측정과 같은 방법(이벤트 스크립트·API
+  요청 차단)으로 열어 리딤 힌트가 Chromium·WebKit 모두 다섯 폭에서 −0.5px임을 확인했다. 배포 직후 Drift Audit
+  39408578867: 31 pass / 0 fail / 5 manual-only.
+- 복구: 19:29:27.967 KST checkpoint 12258365044가 App 8.11.29/v738(`c0810ff4`, version `e695330f` /
+  deployment `753e1db6`)을 보존한다. provenance는 verified-release-ancestor다. 롤백은 미실행이다. 롤백하면 History
+  헤더가 다시 "Open app"이 되고 Chromium의 리딤 힌트가 다시 1.5~2.5px 아래로 내려가며, 저장 데이터 마이그레이션은
+  없다.
+
 ## 한계
 
 - About 다른 언어의 헤더 문구는 범위 밖이다.
 - 실기 휴대폰(Android Chrome, iPhone Safari)은 확인하지 않았다. 리딤 힌트 측정은 Playwright 엔진 기준이며, 다른
   Chromium 계열 브라우저도 같은 방식으로 그린다고 보고 있다.
-- 운영 페이지 확인은 배포 뒤에 한다.

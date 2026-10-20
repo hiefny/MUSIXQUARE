@@ -39,3 +39,12 @@
   to completed-task cleanup; retain security updates, alerts, and checks.
 - Follow `docs/hotfix-procedure.md` and `docs/release-versioning.md` for production
   changes, including the exact-commit CI candidate and release workflow.
+
+## Public repository
+
+- This repository is public. The owner's own details may appear, but write
+  other people's cases anonymously: no names, quoted messages, cities, event
+  types, or real room codes. Summarize emails instead of quoting them, and use
+  synthetic room codes in tests and examples.
+- Keep working notes, session chatter, and AI tool or account notes in the
+  git-ignored `docs/private/` folder, not in committed documents.

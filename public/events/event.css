@@ -328,6 +328,14 @@ a:focus-visible {
   letter-spacing: 0.02em;
 }
 
+/* Size the empty field like its hint. Chromium sets the placeholder on the
+   typed text's baseline, so the smaller hint sat 1.5–2.5px below center. */
+.redeem-input:placeholder-shown {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .field-message {
   min-height: 20px;
   margin: 10px 4px 0;

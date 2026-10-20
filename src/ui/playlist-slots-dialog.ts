@@ -9,6 +9,7 @@
  */
 
 import { setPressedState } from '../core/aria-state.ts';
+import { bus } from '../core/events.ts';
 import { PLAYLIST_SLOT_COUNT } from '../core/constants.ts';
 import { getState } from '../core/state.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
@@ -228,4 +229,17 @@ function bindDialogs(): void {
       return true;
     });
   }
+  // Another device can switch or fill playlists while a dialog is open.
+  bus.on('state:playlist.slots', (slots) => {
+    if (!slots) {
+      closeOverlay(SLOTS_OVERLAY_ID);
+      closeOverlay(TRANSFER_OVERLAY_ID);
+      return;
+    }
+    if (getUiElement(SLOTS_OVERLAY_ID)?.classList.contains('show')) renderSlots();
+    if (getUiElement(TRANSFER_OVERLAY_ID)?.classList.contains('show')) {
+      _transferTargets.delete(slots.activeSlot);
+      renderTransfer();
+    }
+  });
 }

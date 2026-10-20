@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Clock-only screensaver and Help-tab entry — 2026-10-21](design/screensaver-clock-only-help-entry-2026-10-21.md) —
+  the Help tab's tour button takes the neutral invite-link look and a new accent "Turn on screensaver" button opens
+  the screensaver; the screensaver keeps only the clock (no date, weather, air quality, moon, Open-Meteo or location
+  request), closes on a double-click or double-tap, and brightens by at most 6% with the visualizer's bass while a
+  file or system audio plays. Records translations, branch tests and limits.
 - [Skip link translation — 2026-10-20](design/skip-link-translation-2026-10-20.md) —
   the keyboard skip link at the top of the app read "Skip to content" in English for all 42 locales; 8.11.31 binds
   it to `common.skip_to_content`, using the WordPress community translation of the same source string (theme

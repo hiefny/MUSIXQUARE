@@ -194,11 +194,7 @@ function ensureFollowController(
         scrollContainer,
         getSelection: currentFollowSelection,
         isVisible: () => playlistIsVisible() && getState('playback.mode') !== 'system-audio',
-        // The locator shares the bottom-centre slot with the Undo pill.
-        isBlocked: () =>
-          isInteractionBlocked() ||
-          !!_removalController?.hasPendingDeletion ||
-          !!_followController?.isFollowing,
+        isBlocked: () => isInteractionBlocked() || !!_followController?.isFollowing,
         onActivate: (selection) => {
           _followController?.forceSelection(selection.queueItemId, selection.subIndex);
           _followController?.afterRender();
@@ -800,9 +796,8 @@ export function updatePlaylistUI(): void {
   );
 
   pruneExpansionOverrides(canonicalPlaylist);
-  // Rows waiting out their Undo window (or a remote removal) are not part of
-  // the rendered list, so reorder, follow and the current-row locator never
-  // target them.
+  // Rows awaiting a remote removal are not part of the rendered list, so
+  // reorder, follow and the current-row locator never target them.
   const playlist = visiblePlaylistItems(canonicalPlaylist);
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
   const followController = ensureFollowController(list, scrollContainer);
@@ -1124,11 +1119,12 @@ export function initPlaylistView(): void {
       isPlaylistVisible: playlistIsVisible,
       getItems: () => getState('playlist.items'),
       onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
+      // Only the deleting device hears this; nothing is broadcast.
+      onDeleted: (count) => bus.emit('ui:show-toast', t('toast.deleted_tracks', { count })),
       onHiddenChange: () => updatePlaylistUI(),
       // Only the Standard host removes synchronously; PRO and Standard
       // guests wait for the authoritative snapshot.
       isRemovalLocal: () => getRoomContext().kind !== 'pro' && !getState('network.hostConn'),
-      onUndoChange: () => _currentJumpController?.refresh(),
       onSelectionStart: () => {
         _reorderController?.cancel();
         _currentJumpController?.refresh();
@@ -1164,7 +1160,6 @@ export function initPlaylistView(): void {
   _busScope.on('state:network.hostConn', () => {
     _reorderController?.cancel();
     _removalController?.cancel();
-    _removalController?.dropPendingDeletion();
     schedulePlaylistUpdate();
   });
   _busScope.on('state:network.isOperator', (isOperator) => {
@@ -1175,7 +1170,6 @@ export function initPlaylistView(): void {
     if (!isOperator || !canEditQueueStructure()) {
       _reorderController?.cancel();
       _removalController?.cancel();
-      _removalController?.dropPendingDeletion();
     }
     schedulePlaylistUpdate();
   });
@@ -1183,7 +1177,6 @@ export function initPlaylistView(): void {
     if (!canEditQueueStructure()) {
       _reorderController?.cancel();
       _removalController?.cancel();
-      _removalController?.dropPendingDeletion();
     }
     schedulePlaylistUpdate();
   });
@@ -1207,7 +1200,6 @@ export function initPlaylistView(): void {
     if (roomChanged || editAuthorityLost) {
       _reorderController?.cancel();
       _removalController?.cancel();
-      _removalController?.dropPendingDeletion();
     }
     if (roomChanged || queueEditBoundary.canEdit !== nextBoundary.canEdit) {
       schedulePlaylistUpdate();
@@ -1220,13 +1212,7 @@ export function initPlaylistView(): void {
     const crossesSystemAudioBoundary =
       (renderedPlaybackMode === 'system-audio') !== (mode === 'system-audio');
     renderedPlaybackMode = mode;
-    if (mode === 'system-audio') {
-      // Queue edits are disabled while system audio is shared. Sending a
-      // pending removal now could replace the shared source with a successor
-      // track, so the rows come back instead.
-      _removalController?.cancel();
-      _removalController?.dropPendingDeletion();
-    }
+    if (mode === 'system-audio') _removalController?.cancel();
     if (crossesSystemAudioBoundary) {
       schedulePlaylistUpdate();
     } else {
@@ -1285,7 +1271,6 @@ export function initPlaylistView(): void {
       _expansionOverrides.clear();
       _reorderController?.cancel();
       _removalController?.cancel();
-      _removalController?.dropPendingDeletion();
       _currentJumpController?.refresh();
     }
   });

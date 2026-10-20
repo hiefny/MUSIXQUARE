@@ -16,7 +16,6 @@ const he: Record<I18nKey, string> = {
   'common.ok': 'אישור',
   'common.cancel': 'ביטול',
   'common.delete': 'מחק',
-  'common.undo': 'ביטול פעולה אחרונה',
   'common.close': 'סגירה',
   'common.skip_to_content': 'דילוג לתוכן',
   'common.reset': 'איפוס',
@@ -536,6 +535,7 @@ const he: Record<I18nKey, string> = {
     'אחד המכשירים לא הצליח לפענח את הרצועה\nההפעלה נמשכת בשאר המכשירים',
   'toast.invite_code_info': 'מחוברים: {{count}} | קוד {{code}}',
   'toast.added_tracks': 'נוספו {{count}} רצועות',
+  'toast.deleted_tracks': 'נמחקו {{count}} רצועות',
   'toast.preparing': 'בהכנה: {{name}}',
   'toast.file_save_error': 'שגיאה בשמירת הקובץ: {{name}}',
   'toast.decoding_audio': 'השמע מפוענח...',
@@ -921,6 +921,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: 'נוספה {{count}} רצועה',
+  },
+  'toast.deleted_tracks': {
+    one: 'נמחקה {{count}} רצועה',
   },
   'dialog.file_drop.message': {
     one: 'להוסיף {{count}} קובץ?',

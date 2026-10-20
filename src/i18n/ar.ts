@@ -16,7 +16,6 @@ const ar: Record<I18nKey, string> = {
   'common.ok': 'حسنًا',
   'common.cancel': 'إلغاء',
   'common.delete': 'حذف',
-  'common.undo': 'تراجع',
   'common.close': 'إغلاق',
   'common.skip_to_content': 'التخطي إلى المحتوى',
   'common.reset': 'إعادة الضبط',
@@ -534,6 +533,7 @@ const ar: Record<I18nKey, string> = {
     'تعذّر على أحد الأجهزة فك ترميز هذا المقطع\nيستمر التشغيل على بقية الأجهزة',
   'toast.invite_code_info': 'متصل: {{count}} | الرمز {{code}}',
   'toast.added_tracks': 'تمت إضافة {{count}} من المقاطع',
+  'toast.deleted_tracks': 'تم حذف {{count}} من المقاطع',
   'toast.preparing': 'جارٍ التحضير: {{name}}',
   'toast.file_save_error': 'خطأ في حفظ الملف: {{name}}',
   'toast.decoding_audio': 'جارٍ فك ترميز الصوت...',
@@ -948,6 +948,12 @@ export const pluralMessages = {
     two: 'تمت إضافة {{count}} مقطعين',
     few: 'تمت إضافة {{count}} مقاطع',
     many: 'تمت إضافة {{count}} مقطعًا',
+  },
+  'toast.deleted_tracks': {
+    one: 'تم حذف {{count}} مقطع',
+    two: 'تم حذف {{count}} مقطعين',
+    few: 'تم حذف {{count}} مقاطع',
+    many: 'تم حذف {{count}} مقطعًا',
   },
   'dialog.file_drop.message': {
     one: 'هل تريد إضافة {{count}} ملف؟',

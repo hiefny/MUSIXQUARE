@@ -17,7 +17,6 @@ const gu: Record<I18nKey, string> = {
   'common.ok': 'ઠીક છે',
   'common.cancel': 'રદ કરો',
   'common.delete': 'કાઢી નાખો',
-  'common.undo': 'પૂર્વવત્ કરો',
   'common.close': 'બંધ કરો',
   'common.skip_to_content': 'કંટેન્ટ પર જાઓ',
   'common.reset': 'મૂળ સ્થિતિમાં લાવો',
@@ -540,6 +539,7 @@ const gu: Record<I18nKey, string> = {
     'એક ડિવાઇસ આ ટ્રૅકને ડિકોડ કરી શક્યું નથી\nબાકીના બધાં માટે પ્લેબૅક ચાલુ છે',
   'toast.invite_code_info': '{{count}} જોડાયેલા | કોડ {{code}}',
   'toast.added_tracks': '{{count}} ટ્રૅક ઉમેર્યા',
+  'toast.deleted_tracks': '{{count}} ટ્રૅક કાઢી નાખ્યા',
   'toast.preparing': 'તૈયાર થઈ રહ્યું છે: {{name}}',
   'toast.file_save_error': 'ફાઇલ સાચવવામાં ભૂલ: {{name}}',
   'toast.decoding_audio': 'ઑડિયો ડિકોડ થઈ રહ્યો છે...',
@@ -939,6 +939,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: 'ઉમેરેલા ટ્રૅકની સંખ્યા: {{count}}',
+  },
+  'toast.deleted_tracks': {
+    one: 'કાઢી નાખેલા ટ્રૅકની સંખ્યા: {{count}}',
   },
   'toast.unsupported_files_excluded': {
     one: 'છોડી દેવાયેલી અસમર્થિત ફાઇલોની સંખ્યા: {{count}}',

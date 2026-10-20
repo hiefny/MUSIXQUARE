@@ -1178,11 +1178,16 @@
 .playlist-selection-bar {
   width: max-content;
   max-width: 100%;
+  box-sizing: border-box;
   margin: 28px auto 0;
+  padding: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 6px;
+  border: 1px solid var(--glass-border, transparent);
+  border-radius: var(--radius-pill, 999px);
+  background: var(--surface-1);
 }
 
 .playlist-selection-pill {
@@ -1203,7 +1208,7 @@
 }
 
 .playlist-selection-delete {
-  background: var(--primary-filled);
+  background: var(--danger-filled);
   color: #fff;
 }
 

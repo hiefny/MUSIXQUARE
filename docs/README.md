@@ -95,18 +95,22 @@ runbooks. Neither belongs in a general setup document.
   starts from an edge-row grab and stops outside its zone; iOS long-press text selection returns after lightningcss had
   stripped every `-webkit-user-select` since 8.6.9 (CSS targets now include Safari/iOS, with a build guard); blog
   images fall back to their source when the R2 mirror fails; permission feedback says "checking" until the host
-  confirms; deletion pills follow the last track and a pending deletion commits before any playback navigation.
+  confirms; the deletion pills sit in one container pill under the last track, and (owner decision 2026-10-21) the
+  Undo window and its playback-navigation gate are gone: Delete deletes at once and only the deleting device sees
+  a "Deleted N tracks" toast.
 - [Background-return Sync — 2026-10-20](design/background-return-sync-2026-10-20.md) — every return from the
   background (hidden 1 s or longer) in an active room now runs the Sync button's room alignment without its panel
   or toasts: PRO full reconciliation merged into the runtime's own foreground repair, a manual broadcast on a
   Standard YouTube host, a retried rendezvous on a Standard YouTube guest (also while the connection is being
   probed), and a forced re-sync on a Standard file guest, playing or paused. Local evidence at `5e8d8623`; not
   released, real devices untested.
-- [Playlist delete mode with an Undo window — 2026-10-20](design/playlist-delete-mode-undo-2026-10-20.md) —
+- [Playlist delete mode — 2026-10-20](design/playlist-delete-mode-undo-2026-10-20.md) —
   selecting rows turns the playlist title into the selected count with one Select all / Deselect all text button,
-  and a blue Delete and grey Cancel pill replace the icon pill; tapping outside the list or changing tabs ends the
-  mode. Delete hides the rows and morphs into an Undo pill for 3 s before `playlist:remove-tracks` runs. Three new
-  keys use WordPress core translations in 42 locales. Unit, lint and screenshot checks pass; e2e not run.
+  and a red Delete and grey Cancel pill in one container pill replace the icon pill; tapping outside the list or
+  changing tabs ends the mode. The 3 s Undo window was removed by owner decision on 2026-10-21: Delete runs
+  `playlist:remove-tracks` at once and the deleting device alone gets a `toast.deleted_tracks` toast once the rows
+  are gone. Two redesign keys use WordPress core translations in 42 locales; the toast follows each locale's
+  "tracks added" toast.
 - [Skip link translation — 2026-10-20](design/skip-link-translation-2026-10-20.md) —
   the keyboard skip link at the top of the app read "Skip to content" in English for all 42 locales; 8.11.31 binds
   it to `common.skip_to_content`, using the WordPress community translation of the same source string (theme

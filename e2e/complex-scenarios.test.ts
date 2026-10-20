@@ -172,7 +172,6 @@ test.describe('Playlist Manipulation During Playback', () => {
 
     await btnForCurrent.click();
     await pair.hostPage.locator('.playlist-selection-delete').click();
-    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeHidden();
     await waitForPlaylistCount(pair.hostPage, 1);
 
     const state = (await readPlaybackProjection(pair.hostPage)) as string;
@@ -851,7 +850,6 @@ test.describe('State Consistency After Complex Flows', () => {
 
     await removeBtn.click();
     await pair.hostPage.locator('.playlist-selection-delete').click();
-    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeHidden();
     await waitForPlaylistCount(pair.hostPage, 2);
 
     await uploadFixture(pair.hostPage, 'test01');

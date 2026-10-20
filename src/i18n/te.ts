@@ -17,7 +17,6 @@ const te: Record<I18nKey, string> = {
   'common.ok': 'సరే',
   'common.cancel': 'రద్దు చేయి',
   'common.delete': 'తొలగించు',
-  'common.undo': 'రద్దుచెయ్యి',
   'common.close': 'మూసివేయి',
   'common.skip_to_content': 'విషయానికి వెళ్ళండి',
   'common.reset': 'రీసెట్ చేయి',
@@ -550,6 +549,7 @@ const te: Record<I18nKey, string> = {
     'ఒక పరికరం ఈ ట్రాక్‌ను డీకోడ్ చేయలేకపోయింది\nమిగతావారికి ప్లేబ్యాక్ కొనసాగుతోంది',
   'toast.invite_code_info': '{{count}} కనెక్ట్ అయ్యాయి | కోడ్ {{code}}',
   'toast.added_tracks': '{{count}} ట్రాక్‌లు జోడించబడ్డాయి',
+  'toast.deleted_tracks': '{{count}} ట్రాక్‌లు తొలగించబడ్డాయి',
   'toast.preparing': 'సిద్ధమవుతోంది: {{name}}',
   'toast.file_save_error': 'ఫైల్ సేవ్ లోపం: {{name}}',
   'toast.decoding_audio': 'ఆడియో డీకోడ్ అవుతోంది...',
@@ -969,6 +969,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ట్రాక్ జోడించబడింది',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ట్రాక్ తొలగించబడింది',
   },
   'toast.unsupported_files_excluded': {
     one: 'మద్దతు లేని ఫైల్ దాటవేయబడింది: {{count}}',

@@ -13,6 +13,7 @@ export const PLURAL_PARAM_BY_KEY = {
   'chat.tracks_added': 'count',
   'chat.tracks_added_named': 'count',
   'toast.added_tracks': 'count',
+  'toast.deleted_tracks': 'count',
   'toast.unsupported_files_excluded': 'count',
   'dialog.file_drop.message': 'count',
   'dialog.file_drop.unsupported_notice': 'count',

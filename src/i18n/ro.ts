@@ -17,7 +17,6 @@ const ro: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Anulează',
   'common.delete': 'Șterge',
-  'common.undo': 'Anulează',
   'common.close': 'Închide',
   'common.skip_to_content': 'Sari la conținut',
   'common.reset': 'Resetează',
@@ -555,6 +554,7 @@ const ro: Record<I18nKey, string> = {
     'Un dispozitiv nu a putut decoda această pistă\nRedarea continuă pe celelalte dispozitive',
   'toast.invite_code_info': 'Dispozitive conectate: {{count}} | Cod {{code}}',
   'toast.added_tracks': '{{count}} piste adăugate',
+  'toast.deleted_tracks': '{{count}} piste șterse',
   'toast.preparing': 'Se pregătește: {{name}}',
   'toast.file_save_error': 'Eroare la salvarea fișierului: {{name}}',
   'toast.decoding_audio': 'Se decodează sunetul...',
@@ -992,6 +992,10 @@ export const pluralMessages = {
   'toast.added_tracks': {
     one: '{{count}} pistă adăugată',
     other: '{{count}} de piste adăugate',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} pistă ștearsă',
+    other: '{{count}} de piste șterse',
   },
   'dialog.file_drop.message': {
     one: 'Adaugi {{count}} fișier?',

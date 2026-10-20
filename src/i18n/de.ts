@@ -18,7 +18,6 @@ const de: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Abbrechen',
   'common.delete': 'Löschen',
-  'common.undo': 'Rückgängig machen',
   'common.close': 'Schließen',
   'common.skip_to_content': 'Zum Inhalt springen',
   'common.reset': 'Zurücksetzen',
@@ -525,6 +524,7 @@ const de: Record<I18nKey, string> = {
     'Ein Gerät konnte diesen Titel nicht dekodieren\nDie Wiedergabe läuft für die anderen weiter',
   'toast.invite_code_info': '{{count}} verbunden | Code {{code}}',
   'toast.added_tracks': '{{count}} Titel hinzugefügt',
+  'toast.deleted_tracks': '{{count}} Titel gelöscht',
   'toast.preparing': 'Wird vorbereitet: {{name}}',
   'toast.file_save_error': 'Fehler beim Speichern der Datei: {{name}}',
   'toast.decoding_audio': 'Audio wird dekodiert...',
@@ -964,6 +964,7 @@ export const pluralMessages = {
     one: '{{name}} hat {{count}} Titel hinzugefügt, darunter {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} Titel hinzugefügt' },
+  'toast.deleted_tracks': { one: '{{count}} Titel gelöscht' },
   'toast.unsupported_files_excluded': {
     one: '{{count}} nicht unterstützte Datei übersprungen',
   },

@@ -18,7 +18,6 @@ const ptBr: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Cancelar',
   'common.delete': 'Excluir',
-  'common.undo': 'Desfazer',
   'common.close': 'Fechar',
   'common.skip_to_content': 'Pular para o conteúdo',
   'common.reset': 'Redefinir',
@@ -524,6 +523,7 @@ const ptBr: Record<I18nKey, string> = {
     'Um dispositivo não conseguiu decodificar esta faixa\nA reprodução continua para os outros',
   'toast.invite_code_info': '{{count}} conectados | Código {{code}}',
   'toast.added_tracks': '{{count}} faixas adicionadas',
+  'toast.deleted_tracks': '{{count}} faixas excluídas',
   'toast.preparing': 'Preparando: {{name}}',
   'toast.file_save_error': 'Erro ao salvar arquivo: {{name}}',
   'toast.decoding_audio': 'Decodificando áudio...',
@@ -962,6 +962,7 @@ export const pluralMessages = {
     one: '{{name}} adicionou {{count}} faixa, incluindo {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} faixa adicionada' },
+  'toast.deleted_tracks': { one: '{{count}} faixa excluída' },
   'toast.unsupported_files_excluded': {
     one: '{{count}} arquivo não compatível ignorado',
   },

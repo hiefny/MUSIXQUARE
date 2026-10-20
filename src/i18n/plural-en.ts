@@ -16,6 +16,7 @@ export const EN_PLURAL_MESSAGES = {
     one: '{{name}} added {{count}} track, including {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} track added' },
+  'toast.deleted_tracks': { one: 'Deleted {{count}} track' },
   'toast.unsupported_files_excluded': { one: 'Unsupported file skipped: {{count}}' },
   'dialog.file_drop.message': { one: 'Add {{count}} file?' },
   'dialog.file_drop.unsupported_notice': {

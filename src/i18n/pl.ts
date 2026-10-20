@@ -16,7 +16,6 @@ const pl: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Anuluj',
   'common.delete': 'Usuń',
-  'common.undo': 'Cofnij',
   'common.close': 'Zamknij',
   'common.skip_to_content': 'Przejdź do treści',
   'common.reset': 'Resetuj',
@@ -557,6 +556,7 @@ const pl: Record<I18nKey, string> = {
     'Dekodowanie materiału nie powiodło się na jednym z urządzeń\nOdtwarzanie jest kontynuowane na pozostałych',
   'toast.invite_code_info': 'Urządzenia: {{count}} | Kod: {{code}}',
   'toast.added_tracks': 'Dodane materiały: {{count}}',
+  'toast.deleted_tracks': 'Usunięte materiały: {{count}}',
   'toast.preparing': 'Przygotowanie: {{name}}',
   'toast.file_save_error': 'Błąd zapisu pliku: {{name}}',
   'toast.decoding_audio': 'Dekodowanie dźwięku w toku…',
@@ -1002,6 +1002,11 @@ export const pluralMessages = {
     one: 'Dodano {{count}} materiał',
     few: 'Dodano {{count}} materiały',
     many: 'Dodano {{count}} materiałów',
+  },
+  'toast.deleted_tracks': {
+    one: 'Usunięto {{count}} materiał',
+    few: 'Usunięto {{count}} materiały',
+    many: 'Usunięto {{count}} materiałów',
   },
   'toast.unsupported_files_excluded': {
     one: 'Pominięto {{count}} nieobsługiwany plik',

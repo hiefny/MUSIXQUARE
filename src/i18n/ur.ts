@@ -16,7 +16,6 @@ const ur: Record<I18nKey, string> = {
   'common.ok': 'ٹھیک ہے',
   'common.cancel': 'منسوخ کریں',
   'common.delete': 'حذف کریں',
-  'common.undo': 'کالعدم کریں',
   'common.close': 'بند کریں',
   'common.skip_to_content': 'چھوڑیں مواد پر جائیں',
   'common.reset': 'ری سیٹ کریں',
@@ -542,6 +541,7 @@ const ur: Record<I18nKey, string> = {
     'ایک آلہ یہ ٹریک ڈی کوڈ نہیں کر سکا\nباقی سب کے لیے پلے بیک جاری ہے',
   'toast.invite_code_info': '{{count}} منسلک | کوڈ {{code}}',
   'toast.added_tracks': '{{count}} ٹریک شامل ہوئے',
+  'toast.deleted_tracks': '{{count}} ٹریک حذف ہوئے',
   'toast.preparing': 'تیار ہو رہا ہے: {{name}}',
   'toast.file_save_error': 'فائل محفوظ کرنے میں خرابی: {{name}}',
   'toast.decoding_audio': 'آڈیو ڈی کوڈ ہو رہی ہے...',
@@ -945,6 +945,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ٹریک شامل ہوا',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ٹریک حذف ہوا',
   },
   'dialog.file_drop.message': {
     one: '{{count}} فائل شامل کریں؟',

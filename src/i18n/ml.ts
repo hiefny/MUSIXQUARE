@@ -17,7 +17,6 @@ const ml: Record<I18nKey, string> = {
   'common.ok': 'ശരി',
   'common.cancel': 'റദ്ദാക്കുക',
   'common.delete': 'ഇല്ലാതാക്കുക',
-  'common.undo': 'മാറ്റി ചെയ്യുക',
   'common.close': 'അടയ്ക്കുക',
   'common.skip_to_content': 'ഉള്ളടക്കത്തിലേക്ക് നീങ്ങുക',
   'common.reset': 'പുനഃസജ്ജമാക്കുക',
@@ -556,6 +555,7 @@ const ml: Record<I18nKey, string> = {
     'ഒരു ഡിവൈസിന് ഈ ട്രാക്ക് ഡീകോഡ് ചെയ്യാനായില്ല\nമറ്റെല്ലാവർക്കും പ്ലേബാക്ക് തുടരുന്നു',
   'toast.invite_code_info': '{{count}} ബന്ധിപ്പിച്ചു | കോഡ് {{code}}',
   'toast.added_tracks': '{{count}} ട്രാക്കുകൾ ചേർത്തു',
+  'toast.deleted_tracks': '{{count}} ട്രാക്കുകൾ ഇല്ലാതാക്കി',
   'toast.preparing': 'തയ്യാറാക്കുന്നു: {{name}}',
   'toast.file_save_error': 'ഫയൽ സേവ് ചെയ്യുന്നതിൽ പിശക്: {{name}}',
   'toast.decoding_audio': 'ഓഡിയോ ഡീകോഡ് ചെയ്യുന്നു...',
@@ -974,6 +974,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ട്രാക്ക് ചേർത്തു',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ട്രാക്ക് ഇല്ലാതാക്കി',
   },
   'toast.unsupported_files_excluded': {
     one: 'പിന്തുണയ്ക്കാത്ത ഫയൽ ഒഴിവാക്കി: {{count}}',

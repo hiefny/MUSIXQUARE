@@ -277,7 +277,6 @@ test.describe('YouTube Sync — Drift & Rendezvous Regression', () => {
 
     await pair.hostPage.locator(`.btn-playlist-remove[data-queue-item-id="${firstId}"]`).click();
     await pair.hostPage.locator('.playlist-selection-delete').click();
-    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeHidden();
     await waitForPlaylistCount(pair.hostPage, 1);
     await waitForPlaylistCount(pair.guestPage, 1);
     await waitForCurrentQueueItemId(pair.hostPage, successorId);

@@ -30,7 +30,7 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(15);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(16);
   });
 
   it('uses natural English singular and plural copy for all count-sensitive messages', async () => {
@@ -59,6 +59,8 @@ describe('count-sensitive translations', () => {
       ['chat.cmd_slowmode_wait', { sec: 2 }, 'Wait 2 seconds before sending'],
       ['toast.added_tracks', { count: 1 }, '1 track added'],
       ['toast.added_tracks', { count: 2 }, '2 tracks added'],
+      ['toast.deleted_tracks', { count: 1 }, 'Deleted 1 track'],
+      ['toast.deleted_tracks', { count: 2 }, 'Deleted 2 tracks'],
       ['chat.tracks_added', { name: 'Alex', count: 1 }, 'Alex added 1 track'],
       ['chat.tracks_added', { name: 'Alex', count: 2 }, 'Alex added 2 tracks'],
       [
@@ -111,6 +113,10 @@ describe('count-sensitive translations', () => {
     expect(t('toast.added_tracks', { count: 1 })).toBe('Добавлен 1 материал');
     expect(t('toast.added_tracks', { count: 2 })).toBe('Добавлено 2 материала');
     expect(t('toast.added_tracks', { count: 5 })).toBe('Добавлено 5 материалов');
+    expect(t('toast.deleted_tracks', { count: 1 })).toBe('Удалён 1 материал');
+    expect(t('toast.deleted_tracks', { count: 2 })).toBe('Удалено 2 материала');
+    expect(t('toast.deleted_tracks', { count: 5 })).toBe('Удалено 5 материалов');
+    expect(t('toast.deleted_tracks', { count: 21 })).toBe('Удалён 21 материал');
 
     expect(t('connect.administrator_list', { count: 1 })).toBe('1 администратор');
     expect(t('connect.administrator_list', { count: 2 })).toBe('2 администратора');
@@ -137,6 +143,9 @@ describe('count-sensitive translations', () => {
     expect(t('toast.added_tracks', { count: 21 })).toBe('Dodano 21 materiałów');
     expect(t('toast.added_tracks', { count: 22 })).toBe('Dodano 22 materiały');
     expect(t('toast.added_tracks', { count: 25 })).toBe('Dodano 25 materiałów');
+    expect(t('toast.deleted_tracks', { count: 1 })).toBe('Usunięto 1 materiał');
+    expect(t('toast.deleted_tracks', { count: 22 })).toBe('Usunięto 22 materiały');
+    expect(t('toast.deleted_tracks', { count: 25 })).toBe('Usunięto 25 materiałów');
 
     expect(t('chat.tracks_added', { name: 'Alex', count: 1 })).toBe('Alex: dodano 1 materiał');
     expect(t('chat.tracks_added', { name: 'Alex', count: 2 })).toBe('Alex: dodano 2 materiały');

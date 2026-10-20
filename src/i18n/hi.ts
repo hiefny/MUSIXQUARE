@@ -17,7 +17,6 @@ const hi: Record<I18nKey, string> = {
   'common.ok': 'ठीक है',
   'common.cancel': 'रद्द करें',
   'common.delete': 'मिटाएं',
-  'common.undo': 'पूर्ववत करें',
   'common.close': 'बंद करें',
   'common.skip_to_content': 'सामग्री पर जाएं',
   'common.reset': 'रीसेट करें',
@@ -545,6 +544,7 @@ const hi: Record<I18nKey, string> = {
     'एक डिवाइस इस ट्रैक को डिकोड नहीं कर सका\nबाकी सभी के लिए प्लेबैक जारी है',
   'toast.invite_code_info': '{{count}} कनेक्टेड | कोड {{code}}',
   'toast.added_tracks': '{{count}} ट्रैक जोड़े गए',
+  'toast.deleted_tracks': '{{count}} ट्रैक मिटाए गए',
   'toast.preparing': 'तैयार हो रहा है: {{name}}',
   'toast.file_save_error': 'फ़ाइल सेव करने में गड़बड़ी: {{name}}',
   'toast.decoding_audio': 'ऑडियो डिकोड हो रहा है...',
@@ -954,6 +954,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ट्रैक जोड़ा गया',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ट्रैक मिटाया गया',
   },
   'dialog.file_drop.message': {
     one: '{{count}} फ़ाइल जोड़नी है?',

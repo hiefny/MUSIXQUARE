@@ -689,7 +689,6 @@ test.describe('Stress Tests', () => {
 
     await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
     await pair.hostPage.locator('.playlist-selection-delete').click();
-    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeHidden();
 
     await pair.hostPage.waitForFunction(
       (before) => {
@@ -706,7 +705,6 @@ test.describe('Stress Tests', () => {
     expect(countAfter).toBe(1);
     await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
     await pair.hostPage.locator('.playlist-selection-delete').click();
-    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeHidden();
     await waitForPlaylistCount(pair.hostPage, 0);
   });
 

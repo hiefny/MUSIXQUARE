@@ -18,7 +18,6 @@ const fr: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Annuler',
   'common.delete': 'Supprimer',
-  'common.undo': 'Annuler',
   'common.close': 'Fermer',
   'common.skip_to_content': 'Aller au contenu',
   'common.reset': 'Réinitialiser',
@@ -520,6 +519,7 @@ const fr: Record<I18nKey, string> = {
     'Un appareil n’a pas pu décoder cette piste\nLa lecture continue pour les autres',
   'toast.invite_code_info': '{{count}} connectés | Code {{code}}',
   'toast.added_tracks': '{{count}} pistes ajoutées',
+  'toast.deleted_tracks': '{{count}} pistes supprimées',
   'toast.preparing': 'Préparation : {{name}}',
   'toast.file_save_error': 'Erreur d’enregistrement du fichier : {{name}}',
   'toast.decoding_audio': 'Décodage audio…',
@@ -959,6 +959,7 @@ export const pluralMessages = {
     one: '{{name}} a ajouté {{count}} piste, dont {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} piste ajoutée' },
+  'toast.deleted_tracks': { one: '{{count}} piste supprimée' },
   'toast.unsupported_files_excluded': {
     one: 'Fichier non pris en charge ignoré : {{count}}',
   },

@@ -17,7 +17,6 @@ const da: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Annuller',
   'common.delete': 'Slet',
-  'common.undo': 'Fortryd',
   'common.close': 'Luk',
   'common.skip_to_content': 'Fortsæt til indhold',
   'common.reset': 'Nulstil',
@@ -552,6 +551,7 @@ const da: Record<I18nKey, string> = {
     'En enhed kunne ikke afkode dette nummer\nAfspilningen fortsætter for alle andre',
   'toast.invite_code_info': '{{count}} forbundet | Kode {{code}}',
   'toast.added_tracks': '{{count}} numre blev tilføjet',
+  'toast.deleted_tracks': '{{count}} numre blev slettet',
   'toast.preparing': 'Forbereder: {{name}}',
   'toast.file_save_error': 'Kunne ikke gemme filen: {{name}}',
   'toast.decoding_audio': 'Afkoder lyd…',
@@ -959,6 +959,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} nummer blev tilføjet',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} nummer blev slettet',
   },
   'dialog.file_drop.message': {
     one: 'Tilføj {{count}} fil?',

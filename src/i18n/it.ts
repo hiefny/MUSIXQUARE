@@ -16,7 +16,6 @@ const it: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Annulla',
   'common.delete': 'Elimina',
-  'common.undo': 'Annulla',
   'common.close': 'Chiudi',
   'common.skip_to_content': 'Salta al contenuto',
   'common.reset': 'Ripristina',
@@ -559,6 +558,7 @@ const it: Record<I18nKey, string> = {
     'Un dispositivo non è riuscito a decodificare questa traccia\nLa riproduzione continua sugli altri',
   'toast.invite_code_info': '{{count}} dispositivi | Codice: {{code}}',
   'toast.added_tracks': '{{count}} tracce aggiunte',
+  'toast.deleted_tracks': '{{count}} tracce eliminate',
   'toast.preparing': 'Preparazione: {{name}}',
   'toast.file_save_error': 'Errore di salvataggio del file: {{name}}',
   'toast.decoding_audio': 'Decodifica audio in corso...',
@@ -979,6 +979,7 @@ export const pluralMessages = {
     one: '{{name}} ha aggiunto {{count}} traccia: {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} traccia aggiunta' },
+  'toast.deleted_tracks': { one: '{{count}} traccia eliminata' },
   'toast.unsupported_files_excluded': { one: '{{count}} file non supportato escluso' },
   'dialog.file_drop.message': { one: 'Vuoi aggiungere {{count}} file?' },
   'dialog.file_drop.unsupported_notice': {

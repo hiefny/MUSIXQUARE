@@ -17,7 +17,6 @@ const mr: Record<I18nKey, string> = {
   'common.ok': 'ठीक आहे',
   'common.cancel': 'रद्द करा',
   'common.delete': 'काढून टाका',
-  'common.undo': 'उलटवा',
   'common.close': 'बंद करा',
   'common.skip_to_content': 'सामुग्रीवर जा',
   'common.reset': 'मूळ स्थितीत आणा',
@@ -543,6 +542,7 @@ const mr: Record<I18nKey, string> = {
     'एका डिव्हाइसवर हा ट्रॅक डीकोड झाला नाही\nइतर सर्वांसाठी प्लेबॅक सुरू आहे',
   'toast.invite_code_info': '{{count}} कनेक्ट | कोड {{code}}',
   'toast.added_tracks': '{{count}} ट्रॅक जोडले',
+  'toast.deleted_tracks': '{{count}} ट्रॅक हटवले',
   'toast.preparing': 'तयार करत आहे: {{name}}',
   'toast.file_save_error': 'फाइल जतन करताना त्रुटी: {{name}}',
   'toast.decoding_audio': 'ऑडिओ डीकोड होत आहे...',
@@ -954,6 +954,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ट्रॅक जोडला',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ट्रॅक हटवला',
   },
   'toast.unsupported_files_excluded': {
     one: 'असमर्थित फाइल वगळली: {{count}}',

@@ -17,7 +17,6 @@ const kn: Record<I18nKey, string> = {
   'common.ok': 'ಸರಿ',
   'common.cancel': 'ರದ್ದುಮಾಡಿ',
   'common.delete': 'ಅಳಿಸು',
-  'common.undo': 'ರದ್ದು ಮಾಡು',
   'common.close': 'ಮುಚ್ಚಿ',
   'common.skip_to_content': 'ವಿಷಯಕ್ಕೆ ತೆರಳಿ',
   'common.reset': 'ಮರುಹೊಂದಿಸಿ',
@@ -553,6 +552,7 @@ const kn: Record<I18nKey, string> = {
     'ಒಂದು ಸಾಧನವು ಈ ಟ್ರ್ಯಾಕ್ ಅನ್ನು ಡಿಕೋಡ್ ಮಾಡಲು ವಿಫಲವಾಗಿದೆ\nಉಳಿದ ಎಲ್ಲರಿಗೂ ಪ್ಲೇಬ್ಯಾಕ್ ಮುಂದುವರಿಯುತ್ತಿದೆ',
   'toast.invite_code_info': '{{count}} ಸಂಪರ್ಕಗೊಂಡಿವೆ | ಕೋಡ್ {{code}}',
   'toast.added_tracks': '{{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಸೇರಿಸಲಾಗಿದೆ',
+  'toast.deleted_tracks': '{{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಳಿಸಲಾಗಿದೆ',
   'toast.preparing': 'ಸಿದ್ಧಪಡಿಸಲಾಗುತ್ತಿದೆ: {{name}}',
   'toast.file_save_error': 'ಫೈಲ್ ಉಳಿಸುವಲ್ಲಿ ದೋಷ: {{name}}',
   'toast.decoding_audio': 'ಆಡಿಯೊ ಡಿಕೋಡ್ ಆಗುತ್ತಿದೆ...',
@@ -969,6 +969,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} ಟ್ರ್ಯಾಕ್ ಸೇರಿಸಲಾಗಿದೆ',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} ಟ್ರ್ಯಾಕ್ ಅಳಿಸಲಾಗಿದೆ',
   },
   'toast.unsupported_files_excluded': {
     one: 'ಬೆಂಬಲಿಸದ ಫೈಲ್ ಅನ್ನು ಬಿಟ್ಟುಬಿಡಲಾಗಿದೆ: {{count}}',

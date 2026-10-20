@@ -2218,7 +2218,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   /* The deletion pills sit right after the last track, so the list stops
      stretching to the bottom of the body while they are shown. */
   .playlist-ul.has-removal-selection,
-  .playlist-ul.has-removal-undo {
+  .playlist-ul.has-removal-exit {
     flex: 0 0 auto;
   }
 
@@ -2841,7 +2841,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     .playlist-reorder-settle,
     .playlist-selection-bar,
     .playlist-selection-pill,
-    .playlist-selection-pill-label,
     .playlist-selection-toggle,
     .playlist-ul,
     .btn-playlist-remove,
@@ -2990,7 +2989,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     border: 0;
     border-radius: var(--radius-pill);
     background: transparent;
-    color: var(--primary);
+    color: var(--text-main);
     font-family: inherit;
     font-size: 15px;
     font-weight: 600;
@@ -3017,8 +3016,11 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Delete and Cancel use the dialog pill family (54px, pill radius, 700
-     label). They follow the last track; a list taller than the view keeps
-     them floating at the bottom (sticky), above the bottom navigation. */
+     label) inside one container pill. It follows the last track; a list
+     taller than the view keeps it floating at the bottom (sticky), above the
+     bottom navigation. The container carries the light dialog grey button's
+     faint token stroke (transparent in dark, its own value in the
+     high-contrast palettes) instead of a shadow. */
   .playlist-selection-bar {
     position: sticky;
     z-index: 100;
@@ -3030,13 +3032,23 @@ Safety is declared first because important layer precedence is reversed; its acc
     align-self: center;
     width: max-content;
     max-width: calc(100% - var(--safe-left) - var(--safe-right) - 32px);
+    box-sizing: border-box;
     margin: 16px auto 0;
+    padding: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    pointer-events: none;
+    gap: 6px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-pill);
+    background: var(--surface-1);
     animation: playlist-selection-bar-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  /* On its way out after the mode ends, taps reach the rows underneath. */
+  .playlist-selection-bar[data-state='leaving'],
+  .playlist-selection-bar[data-state='leaving'] .playlist-selection-pill {
+    pointer-events: none;
   }
 
   .playlist-selection-bar[hidden] {
@@ -3076,17 +3088,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     line-height: 1.2;
     white-space: nowrap;
     cursor: pointer;
-    pointer-events: auto;
     -webkit-tap-highlight-color: transparent;
     transition:
       background-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
       border-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
       color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
       scale 0.2s ease;
-  }
-
-  .playlist-selection-pill[hidden] {
-    display: none;
   }
 
   .playlist-selection-pill:active {
@@ -3103,41 +3110,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: #fff;
   }
 
-  .playlist-selection-cancel,
-  .playlist-selection-delete.is-undo {
+  .playlist-selection-cancel {
     background: var(--surface-2);
     border-color: var(--glass-border);
     color: var(--text-main);
-  }
-
-  .playlist-selection-cancel.is-exiting {
-    position: absolute;
-    pointer-events: none;
-  }
-
-  .playlist-selection-delete.is-leaving {
-    pointer-events: none;
-  }
-
-  .playlist-selection-delete > svg {
-    display: none;
-    width: 20px;
-    height: 20px;
-    flex: 0 0 20px;
-    fill: currentColor;
-  }
-
-  .playlist-selection-delete.is-undo > svg {
-    display: block;
-  }
-
-  /* The undo arrow points backwards in reading order. */
-  [dir='rtl'] .playlist-selection-delete > svg {
-    transform: scaleX(-1);
-  }
-
-  .playlist-selection-delete.is-undo {
-    padding-inline: 24px 28px;
   }
 
   .playlist-ul.has-removal-selection .playlist-reorder-handle {
@@ -4673,8 +4649,9 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   @media (max-width: 719px) {
-    body:has(#tab-playlist.active .playlist-selection-bar:not([hidden])) .toast {
-      bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 84px);
+    body:has(#tab-playlist.active .playlist-selection-bar:not([hidden]):not([data-state='leaving']))
+      .toast {
+      bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 98px);
     }
   }
 

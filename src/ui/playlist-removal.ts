@@ -4,28 +4,28 @@ import { t } from '../i18n/index.ts';
 
 const REMOVE_BUTTON_SELECTOR = '.btn-playlist-remove[data-queue-item-id]';
 
-/** How long the Undo pill stays before the deletion is really sent. */
-const PLAYLIST_REMOVAL_UNDO_MS = 3000;
-/** Shared length of the Delete → Undo morph and the exit slides. */
+/** Shared length of the survivors' glide and the pills' exit. */
 const MORPH_MS = 300;
 const MORPH_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 /**
  * Remote paths (PRO server, Standard host) answer asynchronously. Keep the
- * committed rows hidden until the canonical playlist drops them, but give a
+ * deleted rows hidden until the canonical playlist drops them, but give a
  * rejected or lost request back to the list instead of hiding it forever.
  */
 const REMOTE_CONFIRMATION_TIMEOUT_MS = 10_000;
-
-const UNDO_ICON =
-  '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg>';
 
 interface PlaylistRemovalControllerOptions {
   list: HTMLElement;
   canRemove: () => boolean;
   isPlaylistVisible: () => boolean;
-  /** Canonical playlist, including rows hidden by a pending deletion. */
+  /** Canonical playlist, including rows hidden while a removal is confirmed. */
   getItems: () => readonly PlaylistItem[];
   onDelete: (queueItemIds: QueueItemId[]) => void;
+  /**
+   * The canonical playlist no longer holds any row of a deletion this
+   * controller sent. Only the deleting device hears this.
+   */
+  onDeleted?: (count: number) => void;
   /** The set of hidden rows changed; the owner must re-render the list. */
   onHiddenChange?: () => void;
   /**
@@ -36,29 +36,21 @@ interface PlaylistRemovalControllerOptions {
   isRemovalLocal?: () => boolean;
   onSelectionStart?: () => void;
   onSelectionEnd?: () => void;
-  /** The Undo pill appeared or went away. */
-  onUndoChange?: () => void;
 }
 
 export interface PlaylistRemovalController {
   readonly isActive: boolean;
-  /** True while the Undo pill is offered. */
-  readonly hasPendingDeletion: boolean;
   isSelected(queueItemId: QueueItemId): boolean;
-  /** Rows the list must not render: pending undo or awaiting remote removal. */
+  /** Rows the list must not render while their remote removal is confirmed. */
   isHidden(queueItemId: QueueItemId): boolean;
   toggle(queueItemId: QueueItemId): void;
   afterRender(): void;
   cancel(options?: { restoreFocus?: boolean }): void;
   notifyPlaylistHidden(focusTarget?: HTMLElement | null): void;
-  /** Send a pending deletion now (page hide, a newer deletion). */
-  commitPendingDeletion(): void;
-  /** Forget a pending deletion and show its rows again (room or authority loss). */
-  dropPendingDeletion(): void;
   destroy(): void;
 }
 
-type BarState = 'hidden' | 'select' | 'undo';
+type BarState = 'hidden' | 'select' | 'leaving';
 
 function setButtonLabel(button: HTMLButtonElement, label: string): void {
   button.setAttribute('aria-label', label);
@@ -79,8 +71,7 @@ function canAnimate(element: Element): boolean {
 
 function createBar(list: HTMLElement): {
   bar: HTMLElement;
-  primary: HTMLButtonElement;
-  primaryLabel: HTMLElement;
+  deleteButton: HTMLButtonElement;
   cancelButton: HTMLButtonElement;
 } {
   const bar = document.createElement('div');
@@ -88,17 +79,14 @@ function createBar(list: HTMLElement): {
   bar.setAttribute('role', 'group');
   bar.hidden = true;
   bar.innerHTML = `
-    <button type="button" class="playlist-selection-pill playlist-selection-delete" data-selection-action="delete">
-      ${UNDO_ICON}<span class="playlist-selection-pill-label"></span>
-    </button>
+    <button type="button" class="playlist-selection-pill playlist-selection-delete" data-selection-action="delete"></button>
     <button type="button" class="playlist-selection-pill playlist-selection-cancel" data-selection-action="cancel"></button>`;
   // The bar follows the last track in the scrolling list body; CSS makes it
   // sticky, so a list taller than the view keeps it floating at the bottom.
   list.insertAdjacentElement('afterend', bar);
   return {
     bar,
-    primary: bar.querySelector<HTMLButtonElement>('.playlist-selection-delete')!,
-    primaryLabel: bar.querySelector<HTMLElement>('.playlist-selection-pill-label')!,
+    deleteButton: bar.querySelector<HTMLButtonElement>('.playlist-selection-delete')!,
     cancelButton: bar.querySelector<HTMLButtonElement>('.playlist-selection-cancel')!,
   };
 }
@@ -138,15 +126,14 @@ function queueItemIdFromButton(button: Element | null): QueueItemId | null {
  *
  * Selecting a row's X enters the mode: the tab title becomes the selected
  * count, one text button toggles select all, and a Delete/Cancel pill pair
- * floats over the list. Delete hides the rows locally and morphs into an Undo
- * pill; only when the undo window closes does `onDelete` run, so the PRO,
- * Standard guest/operator and host removal paths stay unchanged.
+ * follows the last track. Delete sends `onDelete` at once through the PRO,
+ * Standard guest/operator or host removal path and ends the mode. Whenever
+ * the mode ends, the bar slides down and fades out as one unit.
  *
- * A pending deletion never outlives its authority: a room change, authority
- * loss or session end drops it (the rows come back), while a newer deletion,
- * a new selection, or the page going away commits it first so a deletion the
- * user did not undo is not lost. The current track may keep playing until the
- * commit; the host's normal removal path then picks the successor.
+ * Remote paths keep the deleted rows hidden until the authoritative playlist
+ * drops them (at most REMOTE_CONFIRMATION_TIMEOUT_MS; rows of a rejected or
+ * lost request come back). `onDeleted` reports a deletion once none of its
+ * rows remain, so a refused request never reads as done.
  */
 export function createPlaylistRemovalController(
   options: PlaylistRemovalControllerOptions,
@@ -154,7 +141,7 @@ export function createPlaylistRemovalController(
   const { list } = options;
   const container = list.closest('#tab-playlist') ?? list.parentElement;
   const selectedQueueItemIds = new Set<QueueItemId>();
-  const { bar, primary, primaryLabel, cancelButton } = createBar(list);
+  const { bar, deleteButton, cancelButton } = createBar(list);
   const { header, title, toggleButton } = createHeaderControls(container);
   const abortController = new AbortController();
   let lastTriggerQueueItemId: QueueItemId | null = null;
@@ -162,28 +149,29 @@ export function createPlaylistRemovalController(
   let destroyed = false;
   let barState: BarState = 'hidden';
   let barAnimations: Animation[] = [];
-  let cancelExitTimer = 0;
+  let barExitTimer = 0;
 
-  let pending: {
-    queueItemIds: QueueItemId[];
-    survivorQueueItemId: QueueItemId | null;
+  interface SentDeletion {
+    queueItemIds: ReadonlySet<QueueItemId>;
+    /** Remote removals hide their rows until the room confirms them. */
+    hidden: boolean;
     timer: number;
-    leaving: boolean;
-  } | null = null;
-  const awaitingRemoval = new Set<QueueItemId>();
-  let awaitingTimer = 0;
+  }
+  const sentDeletions: SentDeletion[] = [];
 
   function canonicalItems(): readonly PlaylistItem[] {
     return options.getItems();
   }
 
   function isHidden(queueItemId: QueueItemId): boolean {
-    return !!pending?.queueItemIds.includes(queueItemId) || awaitingRemoval.has(queueItemId);
+    return sentDeletions.some(
+      (deletion) => deletion.hidden && deletion.queueItemIds.has(queueItemId),
+    );
   }
 
   function visibleItems(): readonly PlaylistItem[] {
     const items = canonicalItems();
-    if (!pending && awaitingRemoval.size === 0) return items;
+    if (!sentDeletions.some((deletion) => deletion.hidden)) return items;
     return items.filter((item) => !isHidden(item.queueItemId));
   }
 
@@ -221,89 +209,60 @@ export function createPlaylistRemovalController(
   function stopBarAnimations(): void {
     for (const animation of barAnimations) animation.cancel();
     barAnimations = [];
-    if (cancelExitTimer) window.clearTimeout(cancelExitTimer);
-    cancelExitTimer = 0;
-    cancelButton.classList.remove('is-exiting');
-    cancelButton.style.removeProperty('left');
-    cancelButton.style.removeProperty('top');
-    primary.classList.remove('is-leaving');
+    if (barExitTimer) window.clearTimeout(barExitTimer);
+    barExitTimer = 0;
   }
 
-  function renderBarLabels(state: BarState): void {
-    const undo = state === 'undo';
-    primary.dataset.selectionAction = undo ? 'undo' : 'delete';
-    primary.classList.toggle('is-undo', undo);
-    primaryLabel.textContent = t(undo ? 'common.undo' : 'common.delete');
+  function renderBarLabels(): void {
+    deleteButton.textContent = t('common.delete');
     cancelButton.textContent = t('common.cancel');
     bar.setAttribute('aria-label', t('playlist.remove_title'));
   }
 
-  /** Delete → Undo: Cancel slides away while the Delete pill turns into Undo. */
-  function morphToUndo(): void {
-    stopBarAnimations();
-    const animate = canAnimate(primary) && !bar.hidden;
-    const barBefore = animate ? bar.getBoundingClientRect() : null;
-    const primaryBefore = animate ? primary.getBoundingClientRect() : null;
-    const cancelBefore = animate ? cancelButton.getBoundingClientRect() : null;
-
-    barState = 'undo';
-    bar.dataset.state = 'undo';
-    bar.hidden = false;
-    renderBarLabels('undo');
-
-    if (!animate || !barBefore || !primaryBefore || !cancelBefore) {
-      cancelButton.hidden = true;
-      return;
-    }
-
-    // The Cancel pill leaves the flow at once so the Undo pill can centre,
-    // but stays painted where it was while it slides down.
-    cancelButton.classList.add('is-exiting');
-    const barAfter = bar.getBoundingClientRect();
-    cancelButton.style.left = `${cancelBefore.left - barAfter.left}px`;
-    cancelButton.style.top = `${cancelBefore.top - barAfter.top}px`;
-    const primaryAfter = primary.getBoundingClientRect();
-    const dx =
-      primaryBefore.left + primaryBefore.width / 2 - (primaryAfter.left + primaryAfter.width / 2);
-    const timing = { duration: MORPH_MS, easing: MORPH_EASING };
-    barAnimations.push(
-      primary.animate(
-        [
-          { transform: `translateX(${dx}px)`, width: `${primaryBefore.width}px` },
-          { transform: 'translateX(0)', width: `${primaryAfter.width}px` },
-        ],
-        timing,
-      ),
-      cancelButton.animate(
-        [
-          { transform: 'translateY(0)', opacity: 1 },
-          { transform: `translateY(${cancelBefore.height + 24}px)`, opacity: 0 },
-        ],
-        { ...timing, fill: 'forwards' },
-      ),
-    );
-    cancelExitTimer = window.setTimeout(() => {
-      cancelExitTimer = 0;
-      if (barState !== 'undo') return;
-      cancelButton.hidden = true;
-      cancelButton.classList.remove('is-exiting');
-      cancelButton.style.removeProperty('left');
-      cancelButton.style.removeProperty('top');
-    }, MORPH_MS);
-  }
-
   function setBarState(state: BarState): void {
     if (state === barState && state !== 'select') return;
-    if (state === 'undo') {
-      morphToUndo();
-      return;
-    }
     stopBarAnimations();
+    const reentering = barState === 'leaving' && state === 'select';
     barState = state;
     bar.dataset.state = state;
+    if (reentering) {
+      // Selecting again while the pills leave replays their entry instead of
+      // snapping the half-faded bar back.
+      bar.hidden = true;
+      void bar.offsetWidth;
+    }
     bar.hidden = state === 'hidden';
-    cancelButton.hidden = state !== 'select';
-    renderBarLabels(state);
+    // While the pills slide away the list keeps its selection-mode height,
+    // so they leave from right under the last track.
+    list.classList.toggle('has-removal-exit', state === 'leaving');
+    renderBarLabels();
+  }
+
+  function canAnimateBarExit(): boolean {
+    return !bar.hidden && canAnimate(bar) && options.isPlaylistVisible();
+  }
+
+  /**
+   * The whole bar slides down a little and fades out as one unit, starting
+   * where it stood before the mode ended. It never delays the deletion.
+   */
+  function animateBarExit(barTopBefore: number): void {
+    if (barState !== 'leaving') return;
+    // Hiding deleted rows moves the last track, and the bar with it, up.
+    const dy = barTopBefore - bar.getBoundingClientRect().top;
+    barAnimations.push(
+      bar.animate(
+        [
+          { transform: `translateY(${dy}px)`, opacity: 1 },
+          { transform: `translateY(${dy + 24}px)`, opacity: 0 },
+        ],
+        { duration: MORPH_MS, easing: MORPH_EASING, fill: 'forwards' },
+      ),
+    );
+    barExitTimer = window.setTimeout(() => {
+      barExitTimer = 0;
+      if (barState === 'leaving') setBarState('hidden');
+    }, MORPH_MS);
   }
 
   function syncHeader(
@@ -330,31 +289,36 @@ export function createPlaylistRemovalController(
     }
   }
 
-  function pruneHidden(items: readonly PlaylistItem[]): void {
+  function retireDeletion(deletion: SentDeletion): void {
+    window.clearTimeout(deletion.timer);
+    const index = sentDeletions.indexOf(deletion);
+    if (index >= 0) sentDeletions.splice(index, 1);
+  }
+
+  /** A sent deletion is done once the canonical playlist holds none of its rows. */
+  function settleDeletions(items: readonly PlaylistItem[]): void {
+    if (sentDeletions.length === 0) return;
     const liveIds = new Set(items.map((item) => item.queueItemId));
-    for (const queueItemId of awaitingRemoval) {
-      if (!liveIds.has(queueItemId)) awaitingRemoval.delete(queueItemId);
+    // Leaving the room or losing edit authority also empties the list, so
+    // only a deletion settled while this device can still edit is reported.
+    const canConfirm = options.canRemove();
+    for (const deletion of [...sentDeletions]) {
+      if ([...deletion.queueItemIds].some((queueItemId) => liveIds.has(queueItemId))) continue;
+      retireDeletion(deletion);
+      if (canConfirm) options.onDeleted?.(deletion.queueItemIds.size);
     }
-    if (awaitingRemoval.size === 0 && awaitingTimer) {
-      window.clearTimeout(awaitingTimer);
-      awaitingTimer = 0;
-    }
-    if (!pending) return;
-    pending.queueItemIds = pending.queueItemIds.filter((queueItemId) => liveIds.has(queueItemId));
-    if (pending.queueItemIds.length === 0) {
-      // Someone else already removed every pending row. Nothing is left to
-      // undo or send, so retire the pill quietly.
-      window.clearTimeout(pending.timer);
-      pending = null;
-      setBarState('hidden');
-      options.onUndoChange?.();
-    }
+  }
+
+  function expireDeletion(deletion: SentDeletion): void {
+    if (!sentDeletions.includes(deletion)) return;
+    retireDeletion(deletion);
+    // The room never confirmed it: show the rows that are still there.
+    if (deletion.hidden && !destroyed) options.onHiddenChange?.();
   }
 
   function syncDom(): void {
     if (destroyed) return;
-    const canonical = canonicalItems();
-    pruneHidden(canonical);
+    settleDeletions(canonicalItems());
     const items = visibleItems();
     const itemsById = new Map(items.map((item) => [item.queueItemId, item]));
     if (!options.canRemove()) selectedQueueItemIds.clear();
@@ -368,7 +332,6 @@ export function createPlaylistRemovalController(
     wasSelectionActive = active;
     const allSelected = active && items.length > 0 && selectedCount === items.length;
     list.classList.toggle('has-removal-selection', active);
-    list.classList.toggle('has-removal-undo', !active && !!pending);
 
     for (const button of list.querySelectorAll<HTMLButtonElement>(REMOVE_BUTTON_SELECTOR)) {
       const queueItemId = queueItemIdFromButton(button);
@@ -394,10 +357,12 @@ export function createPlaylistRemovalController(
 
     syncHeader(active, selectedCount, items.length, allSelected);
     if (active) setBarState('select');
-    else if (pending) {
-      if (barState !== 'undo') setBarState('undo');
-      else renderBarLabels('undo');
-    } else setBarState('hidden');
+    else if (barState === 'select' && canAnimateBarExit()) {
+      // Cancel, Deselect all, an outside tap or a tab change.
+      const barTop = bar.getBoundingClientRect().top;
+      setBarState('leaving');
+      animateBarExit(barTop);
+    } else if (barState !== 'leaving') setBarState('hidden');
 
     if (selectionEnded && options.isPlaylistVisible()) {
       // Playback may have advanced while follow-scrolling was intentionally
@@ -443,111 +408,11 @@ export function createPlaylistRemovalController(
     else activeElement.blur();
   }
 
-  function releaseAwaiting(): void {
-    if (awaitingTimer) window.clearTimeout(awaitingTimer);
-    awaitingTimer = 0;
-    if (awaitingRemoval.size === 0) return;
-    awaitingRemoval.clear();
-    options.onHiddenChange?.();
-  }
-
-  /** Send the pending deletion now, without the exit slide. */
-  function commitPendingDeletion(): void {
-    const owner = pending;
-    if (!owner) return;
-    window.clearTimeout(owner.timer);
-    pending = null;
-    const liveIds = new Set(canonicalItems().map((item) => item.queueItemId));
-    const queueItemIds = owner.queueItemIds.filter((queueItemId) => liveIds.has(queueItemId));
-    if (queueItemIds.length > 0 && options.canRemove()) {
-      if (!options.isRemovalLocal?.()) {
-        for (const queueItemId of queueItemIds) awaitingRemoval.add(queueItemId);
-        if (awaitingTimer) window.clearTimeout(awaitingTimer);
-        awaitingTimer = window.setTimeout(releaseAwaiting, REMOTE_CONFIRMATION_TIMEOUT_MS);
-      }
-      // Removing the current track can move the view to another tab, which
-      // hands focus to that tab before the pill goes away.
-      options.onDelete(queueItemIds);
-    }
-    const focusWasOnUndo = takeControlFocus();
-    if (selectedQueueItemIds.size === 0) setBarState('hidden');
-    options.onUndoChange?.();
-    options.onHiddenChange?.();
-    if (!destroyed) syncDom();
-    if (focusWasOnUndo) releaseControlFocus(owner.survivorQueueItemId);
-  }
-
-  function dropPendingDeletion(): void {
-    const hadPending = !!pending;
-    if (pending) window.clearTimeout(pending.timer);
-    pending = null;
-    if (awaitingTimer) window.clearTimeout(awaitingTimer);
-    awaitingTimer = 0;
-    const hadAwaiting = awaitingRemoval.size > 0;
-    awaitingRemoval.clear();
-    if (!hadPending && !hadAwaiting) return;
-    if (focusIsInsideControls() && selectedQueueItemIds.size === 0) {
-      (document.activeElement as HTMLElement | null)?.blur();
-    }
-    if (hadPending) options.onUndoChange?.();
-    options.onHiddenChange?.();
-    syncDom();
-  }
-
-  function undo(): void {
-    const owner = pending;
-    if (!owner) return;
-    window.clearTimeout(owner.timer);
-    pending = null;
-    const focusWasOnUndo = takeControlFocus();
-    const rowsBefore = rowTops();
-    setBarState('hidden');
-    options.onUndoChange?.();
-    options.onHiddenChange?.();
-    syncDom();
-    glideRows(rowsBefore);
-    if (focusWasOnUndo) releaseControlFocus(owner.queueItemIds[0] ?? null);
-  }
-
-  function beginUndoExit(): void {
-    const owner = pending;
-    if (!owner || owner.leaving) return;
-    owner.leaving = true;
-    if (!canAnimate(primary) || bar.hidden || !options.isPlaylistVisible()) {
-      commitPendingDeletion();
-      return;
-    }
-    // The Undo pill swooshes down; only then is the deletion really sent.
-    stopBarAnimations();
-    primary.classList.add('is-leaving');
-    barAnimations.push(
-      primary.animate(
-        [
-          { transform: 'translateY(0)', opacity: 1 },
-          { transform: `translateY(${primary.offsetHeight + 24}px)`, opacity: 0 },
-        ],
-        { duration: MORPH_MS, easing: MORPH_EASING, fill: 'forwards' },
-      ),
-    );
-    owner.timer = window.setTimeout(() => {
-      if (pending === owner) commitPendingDeletion();
-    }, MORPH_MS);
-  }
-
-  function startSelection(queueItemId: QueueItemId): void {
-    // The Undo pill is about to be replaced by Delete/Cancel, so the earlier
-    // deletion can no longer be undone. Send it before selecting again.
-    if (pending) commitPendingDeletion();
-    lastTriggerQueueItemId = queueItemId;
-  }
-
   function toggle(queueItemId: QueueItemId): void {
     if (!options.canRemove()) return;
     if (!visibleItems().some((item) => item.queueItemId === queueItemId)) return;
     const wasActive = selectedQueueItemIds.size > 0;
-    if (!wasActive) startSelection(queueItemId);
-    else lastTriggerQueueItemId = queueItemId;
-    if (!visibleItems().some((item) => item.queueItemId === queueItemId)) return;
+    lastTriggerQueueItemId = queueItemId;
     if (selectedQueueItemIds.has(queueItemId)) selectedQueueItemIds.delete(queueItemId);
     else selectedQueueItemIds.add(queueItemId);
     if (!wasActive && selectedQueueItemIds.size > 0) options.onSelectionStart?.();
@@ -569,7 +434,6 @@ export function createPlaylistRemovalController(
 
   function deleteSelected(): void {
     if (!options.canRemove() || selectedQueueItemIds.size === 0) return;
-    if (pending) commitPendingDeletion();
     const items = visibleItems();
     const orderedQueueItemIds = items
       .filter((item) => selectedQueueItemIds.has(item.queueItemId))
@@ -584,28 +448,30 @@ export function createPlaylistRemovalController(
     const survivorQueueItemId =
       survivors[Math.min(firstRemovedIndex, Math.max(0, survivors.length - 1))]?.queueItemId ??
       null;
-    const owner = {
-      queueItemIds: orderedQueueItemIds,
-      survivorQueueItemId,
-      timer: 0,
-      leaving: false,
-    };
-    owner.timer = window.setTimeout(() => {
-      if (pending === owner) beginUndoExit();
-    }, PLAYLIST_REMOVAL_UNDO_MS);
-    pending = owner;
-    // Hiding the deleted rows moves the last track up; the Undo pill follows
-    // it from where the Delete pill was instead of jumping.
-    const barTopBefore = !bar.hidden && canAnimate(bar) ? bar.getBoundingClientRect().top : null;
     const rowsBefore = rowTops();
+    const barTopBefore = canAnimateBarExit() ? bar.getBoundingClientRect().top : null;
     selectedQueueItemIds.clear();
-    // The pressed Delete pill becomes the Undo pill, so keyboard focus stays
-    // on it. A pointer press leaves focus where the browser put it.
-    options.onUndoChange?.();
+    if (barTopBefore !== null) setBarState('leaving');
+
+    const deletion: SentDeletion = {
+      queueItemIds: new Set(orderedQueueItemIds),
+      hidden: !options.isRemovalLocal?.(),
+      timer: 0,
+    };
+    deletion.timer = window.setTimeout(
+      () => expireDeletion(deletion),
+      REMOTE_CONFIRMATION_TIMEOUT_MS,
+    );
+    sentDeletions.push(deletion);
+    // Removing the current track can move the view to another tab, which
+    // hands focus to that tab before the pills go away.
+    options.onDelete(orderedQueueItemIds);
+    const focusWasOnBar = takeControlFocus();
     options.onHiddenChange?.();
-    syncDom();
+    if (!destroyed) syncDom();
     glideRows(rowsBefore);
-    followLastTrack(barTopBefore);
+    if (barTopBefore !== null) animateBarExit(barTopBefore);
+    if (focusWasOnBar) releaseControlFocus(survivorQueueItemId);
   }
 
   // Survivors glide to their new rows when tracks are hidden or restored.
@@ -641,18 +507,6 @@ export function createPlaylistRemovalController(
     }
   }
 
-  function followLastTrack(barTopBefore: number | null): void {
-    if (barTopBefore === null || bar.hidden) return;
-    const dy = barTopBefore - bar.getBoundingClientRect().top;
-    if (Math.abs(dy) < 1) return;
-    barAnimations.push(
-      bar.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], {
-        duration: MORPH_MS,
-        easing: MORPH_EASING,
-      }),
-    );
-  }
-
   // Deletion mode belongs to the track list. Any tap or click elsewhere
   // (another tab, the player, empty space under the list) ends it, while the
   // mode's own header button and pills keep it.
@@ -670,11 +524,12 @@ export function createPlaylistRemovalController(
   );
 
   const handleAction = (event: Event) => {
+    // Pills on their way out no longer act.
+    if (barState === 'leaving') return;
     const target = event.target instanceof Element ? event.target : null;
     const action = target?.closest<HTMLElement>('[data-selection-action]')?.dataset.selectionAction;
     if (action === 'select-all' || action === 'deselect-all') toggleSelectAll();
     else if (action === 'delete') deleteSelected();
-    else if (action === 'undo') undo();
     else if (action === 'cancel') cancel({ restoreFocus: true });
   };
   bar.addEventListener('click', handleAction, { signal: abortController.signal });
@@ -690,24 +545,11 @@ export function createPlaylistRemovalController(
   bar.addEventListener('keydown', handleEscape, { signal: abortController.signal });
   toggleButton?.addEventListener('keydown', handleEscape, { signal: abortController.signal });
 
-  // A deletion the user did not undo must not be lost when the page goes away.
-  window.addEventListener('pagehide', commitPendingDeletion, { signal: abortController.signal });
-  document.addEventListener(
-    'visibilitychange',
-    () => {
-      if (document.visibilityState === 'hidden') commitPendingDeletion();
-    },
-    { signal: abortController.signal },
-  );
-
   syncDom();
 
   return {
     get isActive() {
       return selectedQueueItemIds.size > 0;
-    },
-    get hasPendingDeletion() {
-      return !!pending;
     },
     isSelected: (queueItemId) => selectedQueueItemIds.has(queueItemId),
     isHidden,
@@ -715,18 +557,14 @@ export function createPlaylistRemovalController(
     afterRender: syncDom,
     cancel,
     notifyPlaylistHidden,
-    commitPendingDeletion,
-    dropPendingDeletion,
     destroy: () => {
       destroyed = true;
-      if (pending) window.clearTimeout(pending.timer);
-      pending = null;
-      if (awaitingTimer) window.clearTimeout(awaitingTimer);
-      awaitingRemoval.clear();
+      for (const deletion of sentDeletions) window.clearTimeout(deletion.timer);
+      sentDeletions.length = 0;
       stopBarAnimations();
       abortController.abort();
       selectedQueueItemIds.clear();
-      list.classList.remove('has-removal-selection', 'has-removal-undo');
+      list.classList.remove('has-removal-selection', 'has-removal-exit');
       header?.classList.remove('is-removal-selecting');
       bar.remove();
       title?.remove();

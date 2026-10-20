@@ -18,7 +18,6 @@ const es: Record<I18nKey, string> = {
   'common.ok': 'Aceptar',
   'common.cancel': 'Cancelar',
   'common.delete': 'Borrar',
-  'common.undo': 'Deshacer',
   'common.close': 'Cerrar',
   'common.skip_to_content': 'Saltar al contenido',
   'common.reset': 'Restablecer',
@@ -527,6 +526,7 @@ const es: Record<I18nKey, string> = {
     'Un dispositivo no pudo decodificar esta pista\nLa reproducción continúa para los demás',
   'toast.invite_code_info': '{{count}} conectados | Código {{code}}',
   'toast.added_tracks': '{{count}} pistas añadidas',
+  'toast.deleted_tracks': '{{count}} pistas eliminadas',
   'toast.preparing': 'Preparando: {{name}}',
   'toast.file_save_error': 'Error al guardar archivo: {{name}}',
   'toast.decoding_audio': 'Decodificando audio...',
@@ -969,6 +969,7 @@ export const pluralMessages = {
     one: '{{name}} añadió {{count}} pista, incluida {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} pista añadida' },
+  'toast.deleted_tracks': { one: '{{count}} pista eliminada' },
   'toast.unsupported_files_excluded': {
     one: 'Archivo no compatible omitido: {{count}}',
   },

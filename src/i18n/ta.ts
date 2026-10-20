@@ -17,7 +17,6 @@ const ta: Record<I18nKey, string> = {
   'common.ok': 'சரி',
   'common.cancel': 'ரத்துசெய்',
   'common.delete': 'நீக்கு',
-  'common.undo': 'செயல்தவிர்',
   'common.close': 'மூடு',
   'common.skip_to_content': 'உள்ளடக்கத்திற்கு செல்க',
   'common.reset': 'மீட்டமை',
@@ -562,6 +561,7 @@ const ta: Record<I18nKey, string> = {
     'ஒரு சாதனத்தால் இந்த டிராக்கை டிகோட் செய்ய முடியவில்லை\nமற்றவர்களுக்கு பிளேபேக் தொடர்கிறது',
   'toast.invite_code_info': 'இணைந்த சாதனங்கள்: {{count}} | குறியீடு {{code}}',
   'toast.added_tracks': '{{count}} டிராக்குகள் சேர்க்கப்பட்டன',
+  'toast.deleted_tracks': '{{count}} டிராக்குகள் நீக்கப்பட்டன',
   'toast.preparing': 'தயாராகிறது: {{name}}',
   'toast.file_save_error': 'கோப்பைச் சேமிப்பதில் பிழை: {{name}}',
   'toast.decoding_audio': 'ஆடியோ டிகோட் செய்யப்படுகிறது...',
@@ -988,6 +988,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: '{{count}} டிராக் சேர்க்கப்பட்டது',
+  },
+  'toast.deleted_tracks': {
+    one: '{{count}} டிராக் நீக்கப்பட்டது',
   },
   'toast.unsupported_files_excluded': {
     one: 'ஆதரிக்கப்படாத கோப்பு தவிர்க்கப்பட்டது: {{count}}',

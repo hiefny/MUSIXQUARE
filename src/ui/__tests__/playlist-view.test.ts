@@ -73,8 +73,6 @@ afterEach(() => {
   clearAllManagedTimers();
 });
 
-/** Matches the playlist removal controller's undo window. */
-const PLAYLIST_REMOVAL_UNDO_MS = 3000;
 const FILE_A = '00000000-0000-4000-8000-000000000001';
 const YT_B = '00000000-0000-4000-8000-000000000002';
 
@@ -1315,8 +1313,6 @@ describe('playlist queue identity rendering and actions', () => {
       expect(remove).not.toHaveBeenCalled();
 
       document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      expect(remove).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(PLAYLIST_REMOVAL_UNDO_MS);
       expect(remove).toHaveBeenCalledWith([FILE_A]);
     } finally {
       vi.useRealTimers();
@@ -1518,118 +1514,78 @@ describe('playlist queue identity rendering and actions', () => {
     }
   });
 
-  it('deletes non-contiguous selections once in playlist order after the undo window', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const third: PlaylistItem = {
-        queueItemId: '00000000-0000-4000-8000-000000000003',
-        type: 'file',
-        name: 'a.mp3',
-        title: 'A duplicate',
-        videoId: null,
-        playlistId: null,
-      };
-      setState('playlist.items', [...sampleItems(), third]);
-      initPlaylistView();
-      const remove = vi.fn();
-      bus.on('playlist:remove-tracks', remove);
+  it('deletes non-contiguous selections at once in playlist order and tells only this device', () => {
+    const third: PlaylistItem = {
+      queueItemId: '00000000-0000-4000-8000-000000000003',
+      type: 'file',
+      name: 'a.mp3',
+      title: 'A duplicate',
+      videoId: null,
+      playlistId: null,
+    };
+    setState('playlist.items', [...sampleItems(), third]);
+    initPlaylistView();
+    const remove = vi.fn((ids: string[]) =>
+      setState(
+        'playlist.items',
+        getState('playlist.items').filter((item) => !ids.includes(item.queueItemId)),
+      ),
+    );
+    const toast = vi.fn();
+    bus.on('playlist:remove-tracks', remove);
+    bus.on('ui:show-toast', toast);
 
-      clickRemove(FILE_A);
-      clickRemove(third.queueItemId);
-      const deleteButton = document.querySelector<HTMLButtonElement>(
-        '[data-selection-action="delete"]',
-      )!;
-      deleteButton.click();
+    clickRemove(FILE_A);
+    clickRemove(third.queueItemId);
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
 
-      // The rows leave the list at once; nothing is sent yet.
-      expect(remove).not.toHaveBeenCalled();
-      expect(renderedQueueIds()).toEqual([YT_B]);
-      expect(selectionTitle()).toBeNull();
-      expect(selectionBarVisible()).toBe(true);
-      // The same pill becomes Undo; Cancel steps away.
-      expect(deleteButton.dataset.selectionAction).toBe('undo');
-      expect(deleteButton.textContent?.trim()).toBe(t('common.undo'));
-      expect(document.querySelector<HTMLElement>('.playlist-selection-cancel')!.hidden).toBe(true);
-      expect(document.getElementById('playlist-ui')!.classList).toContain('has-removal-undo');
-
-      vi.advanceTimersByTime(PLAYLIST_REMOVAL_UNDO_MS - 1);
-      expect(remove).not.toHaveBeenCalled();
-      vi.advanceTimersByTime(1);
-      expect(remove).toHaveBeenCalledTimes(1);
-      expect(remove).toHaveBeenCalledWith([FILE_A, third.queueItemId]);
-      expect(selectionBarVisible()).toBe(false);
-
-      vi.advanceTimersByTime(20_000);
-      expect(remove).toHaveBeenCalledTimes(1);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith([FILE_A, third.queueItemId]);
+    expect(renderedQueueIds()).toEqual([YT_B]);
+    expect(selectionTitle()).toBeNull();
+    expect(selectionBarVisible()).toBe(false);
+    expect(document.querySelector('[data-selection-action="undo"]')).toBeNull();
+    expect(toast).toHaveBeenCalledTimes(1);
+    expect(toast).toHaveBeenCalledWith(t('toast.deleted_tracks', { count: 2 }));
+    expect(t('toast.deleted_tracks', { count: 2 })).toBe('트랙 2개를 삭제했어요');
   });
 
-  it('restores the rows on Undo without sending anything', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      setState('playlist.items', sampleItems());
-      initPlaylistView();
-      const remove = vi.fn();
-      bus.on('playlist:remove-tracks', remove);
+  it('does not report a deletion the host refused', () => {
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const remove = vi.fn();
+    const toast = vi.fn();
+    bus.on('playlist:remove-tracks', remove);
+    bus.on('ui:show-toast', toast);
 
-      clickRemove(FILE_A);
-      const pill = document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
-      pill.focus();
-      pill.click();
-      expect(renderedQueueIds()).toEqual([YT_B]);
-      expect(document.activeElement).toBe(pill);
+    clickRemove(FILE_A);
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
 
-      pill.click();
-      expect(renderedQueueIds()).toEqual([FILE_A, YT_B]);
-      expect(selectionBarVisible()).toBe(false);
-      expect((document.activeElement as HTMLElement).dataset.queueItemId).toBe(FILE_A);
-
-      vi.advanceTimersByTime(20_000);
-      expect(remove).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(remove).toHaveBeenCalledWith([FILE_A]);
+    // The host applies removals synchronously, so a refused one stays listed.
+    expect(renderedQueueIds()).toEqual([FILE_A, YT_B]);
+    updatePlaylistUI();
+    expect(toast).not.toHaveBeenCalled();
   });
 
-  it('keeps pending rows hidden through rerenders and from reorder controls', async () => {
+  function joinProRoomAsMediaManager(): void {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    setState('room.context', {
+      kind: 'pro' as const,
+      roomId: '000001',
+      role: 'member' as const,
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['queue.mutate' as const],
+    });
+  }
+
+  it('keeps a remote deletion hidden until the authoritative snapshot drops it', () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
-      const third: PlaylistItem = {
-        queueItemId: '00000000-0000-4000-8000-000000000003',
-        type: 'file',
-        name: 'c.mp3',
-        title: 'C',
-        videoId: null,
-        playlistId: null,
-      };
-      setState('playlist.items', [...sampleItems(), third]);
-      setState('playlist.currentQueueItemId', FILE_A);
-      initPlaylistView();
-
-      clickRemove(FILE_A);
-      clickRemove(third.queueItemId);
-      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      expect(renderedQueueIds()).toEqual([YT_B]);
-      // One visible row cannot be reordered, even though three are canonical.
-      expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
-      // Survivors are numbered as they appear.
-      expect(document.querySelector('.track-idx')?.textContent).toBe('1');
-
-      setState('playlist.items', [...getState('playlist.items')]);
-      updatePlaylistUI();
-      bus.emit('i18n:changed', 'ko');
-      updatePlaylistUI();
-      expect(renderedQueueIds()).toEqual([YT_B]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('commits a pending deletion before a new selection or deletion starts', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
+      joinProRoomAsMediaManager();
       const third: PlaylistItem = {
         queueItemId: '00000000-0000-4000-8000-000000000003',
         type: 'file',
@@ -1641,186 +1597,72 @@ describe('playlist queue identity rendering and actions', () => {
       const items = [...sampleItems(), third];
       setState('playlist.items', items);
       initPlaylistView();
-      const remove = vi.fn((ids: string[]) =>
-        setState(
-          'playlist.items',
-          getState('playlist.items').filter((item) => !ids.includes(item.queueItemId)),
-        ),
-      );
-      bus.on('playlist:remove-tracks', remove);
-
-      clickRemove(FILE_A);
-      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      expect(remove).not.toHaveBeenCalled();
-
-      clickRemove(YT_B);
-      expect(remove).toHaveBeenCalledTimes(1);
-      expect(remove).toHaveBeenLastCalledWith([FILE_A]);
-      expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 1 }));
-      expect(
-        document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.textContent,
-      ).toContain(t('common.delete'));
-
-      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      vi.advanceTimersByTime(PLAYLIST_REMOVAL_UNDO_MS);
-      expect(remove).toHaveBeenCalledTimes(2);
-      expect(remove).toHaveBeenLastCalledWith([YT_B]);
-      expect(renderedQueueIds()).toEqual([third.queueItemId]);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('drops a pending deletion when the room changes and shows the rows again', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      setState('playlist.items', sampleItems());
-      initPlaylistView();
       const remove = vi.fn();
+      const toast = vi.fn();
       bus.on('playlist:remove-tracks', remove);
+      bus.on('ui:show-toast', toast);
 
       clickRemove(FILE_A);
+      clickRemove(third.queueItemId);
       document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+      expect(remove).toHaveBeenCalledWith([FILE_A, third.queueItemId]);
       expect(renderedQueueIds()).toEqual([YT_B]);
-
-      setState('room.context', { ...getState('room.context'), roomId: '000009', epoch: 7 });
-      expect(renderedQueueIds()).toEqual([FILE_A, YT_B]);
-      expect(selectionBarVisible()).toBe(false);
-
-      vi.advanceTimersByTime(20_000);
-      expect(remove).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('drops a pending deletion when the session ends or edit authority is lost', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      setState('playlist.items', sampleItems());
-      initPlaylistView();
-      const remove = vi.fn();
-      bus.on('playlist:remove-tracks', remove);
-
-      clickRemove(FILE_A);
-      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      setState('network.appRole', 'idle');
-      expect(selectionBarVisible()).toBe(false);
-
-      setState('network.appRole', 'host');
-      updatePlaylistUI();
-      clickRemove(FILE_A);
-      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      setState('playback.mode', 'system-audio');
-      expect(selectionBarVisible()).toBe(false);
-
-      vi.advanceTimersByTime(20_000);
-      expect(remove).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it.each(['pagehide', 'hidden'] as const)(
-    'commits a pending deletion immediately on %s',
-    (trigger) => {
-      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-      const visibility = Object.getOwnPropertyDescriptor(Document.prototype, 'visibilityState');
-      try {
-        setState('playlist.items', sampleItems());
-        initPlaylistView();
-        const remove = vi.fn();
-        bus.on('playlist:remove-tracks', remove);
-
-        clickRemove(FILE_A);
-        document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-        if (trigger === 'pagehide') {
-          window.dispatchEvent(new Event('pagehide'));
-        } else {
-          Object.defineProperty(document, 'visibilityState', {
-            configurable: true,
-            get: () => 'hidden',
-          });
-          document.dispatchEvent(new Event('visibilitychange'));
-        }
-        expect(remove).toHaveBeenCalledTimes(1);
-        expect(remove).toHaveBeenCalledWith([FILE_A]);
-        vi.advanceTimersByTime(20_000);
-        expect(remove).toHaveBeenCalledTimes(1);
-      } finally {
-        Reflect.deleteProperty(document, 'visibilityState');
-        if (visibility) Object.defineProperty(Document.prototype, 'visibilityState', visibility);
-        vi.useRealTimers();
-      }
-    },
-  );
-
-  it('retires a pending deletion whose rows another device already removed', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      const items = sampleItems();
-      setState('playlist.items', items);
-      initPlaylistView();
-      const remove = vi.fn();
-      bus.on('playlist:remove-tracks', remove);
-
-      clickRemove(FILE_A);
-      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      setState('playlist.items', [items[1]!]);
-      updatePlaylistUI();
-      expect(selectionBarVisible()).toBe(false);
-
-      vi.advanceTimersByTime(20_000);
-      expect(remove).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('keeps a remote deletion hidden until the authoritative snapshot drops it', () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      setState('network.appRole', 'guest');
-      setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
-      const context = {
-        kind: 'pro' as const,
-        roomId: '000001',
-        role: 'member' as const,
-        coordinatorId: 'coordinator',
-        epoch: 1,
-        snapshotRevision: 1,
-        capabilities: ['queue.mutate' as const],
-      };
-      setState('room.context', context);
-      const items = sampleItems();
-      setState('playlist.items', items);
-      initPlaylistView();
-      const remove = vi.fn();
-      bus.on('playlist:remove-tracks', remove);
-
-      clickRemove(FILE_A);
-      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      vi.advanceTimersByTime(PLAYLIST_REMOVAL_UNDO_MS);
-      expect(remove).toHaveBeenCalledWith([FILE_A]);
+      // One visible row cannot be reordered, even though three are canonical.
+      expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
+      // Survivors are numbered as they appear.
+      expect(document.querySelector('.track-idx')?.textContent).toBe('1');
+      bus.emit('i18n:changed', 'ko');
       updatePlaylistUI();
       expect(renderedQueueIds()).toEqual([YT_B]);
+      expect(toast).not.toHaveBeenCalled();
 
       setState('playlist.items', [items[1]!]);
       updatePlaylistUI();
       expect(renderedQueueIds()).toEqual([YT_B]);
-
-      // A rejected or lost request gives the row back instead of hiding it.
-      setState('playlist.items', items);
-      updatePlaylistUI();
-      clickRemove(FILE_A);
-      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
-      vi.advanceTimersByTime(PLAYLIST_REMOVAL_UNDO_MS);
-      expect(renderedQueueIds()).toEqual([YT_B]);
+      expect(toast).toHaveBeenCalledTimes(1);
+      expect(toast).toHaveBeenCalledWith(t('toast.deleted_tracks', { count: 2 }));
       vi.advanceTimersByTime(10_000);
-      expect(renderedQueueIds()).toEqual([FILE_A, YT_B]);
+      expect(toast).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('gives a rejected or lost remote deletion its rows back without a toast', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      joinProRoomAsMediaManager();
+      setState('playlist.items', sampleItems());
+      initPlaylistView();
+      const toast = vi.fn();
+      bus.on('ui:show-toast', toast);
+
+      clickRemove(FILE_A);
+      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+      expect(renderedQueueIds()).toEqual([YT_B]);
+      vi.advanceTimersByTime(9_999);
+      expect(renderedQueueIds()).toEqual([YT_B]);
+      vi.advanceTimersByTime(1);
+      expect(renderedQueueIds()).toEqual([FILE_A, YT_B]);
+      expect(toast).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not report a remote deletion settled after the room is gone', () => {
+    joinProRoomAsMediaManager();
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+    const toast = vi.fn();
+    bus.on('ui:show-toast', toast);
+
+    clickRemove(FILE_A);
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+    setState('room.context', { ...getState('room.context'), capabilities: [] });
+    setState('playlist.items', []);
+    updatePlaylistUI();
+    expect(toast).not.toHaveBeenCalled();
   });
 
   it('keeps selection attached to queueItemId across rerenders and prunes lost authority', () => {
@@ -2023,9 +1865,6 @@ describe('playlist queue identity rendering and actions', () => {
       const pill = document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
       pill.focus();
       pill.click();
-      // Focus stays on the pill that became Undo.
-      expect(document.activeElement).toBe(pill);
-      vi.advanceTimersByTime(PLAYLIST_REMOVAL_UNDO_MS);
       await Promise.resolve();
       await nextAnimationFrame();
       await Promise.resolve();
@@ -2061,7 +1900,6 @@ describe('playlist queue identity rendering and actions', () => {
       });
 
       deleteButton.click();
-      vi.advanceTimersByTime(PLAYLIST_REMOVAL_UNDO_MS);
       updatePlaylistUI();
       await Promise.resolve();
 

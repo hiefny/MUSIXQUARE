@@ -17,7 +17,6 @@ const pa: Record<I18nKey, string> = {
   'common.ok': 'ਠੀਕ ਹੈ',
   'common.cancel': 'ਰੱਦ ਕਰੋ',
   'common.delete': 'ਮਿਟਾਓ',
-  'common.undo': 'ਅਣਕੀਤਾ ਕਰੋ',
   'common.close': 'ਬੰਦ ਕਰੋ',
   'common.skip_to_content': "ਸਿੱਧਾ ਸਮੱਗਰੀ 'ਤੇ ਜਾਓ",
   'common.reset': 'ਮੁੜ ਸੈੱਟ ਕਰੋ',
@@ -546,6 +545,7 @@ const pa: Record<I18nKey, string> = {
     'ਇੱਕ ਡਿਵਾਈਸ ਇਸ ਟਰੈਕ ਨੂੰ ਡੀਕੋਡ ਨਹੀਂ ਕਰ ਸਕੀ\nਬਾਕੀ ਸਾਰਿਆਂ ਲਈ ਪਲੇਬੈਕ ਜਾਰੀ ਹੈ',
   'toast.invite_code_info': 'ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ: {{count}} | ਕੋਡ {{code}}',
   'toast.added_tracks': '{{count}} ਟਰੈਕ ਜੋੜੇ ਗਏ',
+  'toast.deleted_tracks': '{{count}} ਟਰੈਕ ਮਿਟਾਏ ਗਏ',
   'toast.preparing': 'ਤਿਆਰ ਹੋ ਰਿਹਾ ਹੈ: {{name}}',
   'toast.file_save_error': 'ਫ਼ਾਈਲ ਸੰਭਾਲਣ ਵਿੱਚ ਗੜਬੜ: {{name}}',
   'toast.decoding_audio': 'ਆਡੀਓ ਡੀਕੋਡ ਹੋ ਰਿਹਾ ਹੈ...',
@@ -954,6 +954,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: 'ਜੋੜੇ ਗਏ ਟਰੈਕਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
+  },
+  'toast.deleted_tracks': {
+    one: 'ਮਿਟਾਏ ਗਏ ਟਰੈਕਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
   },
   'toast.unsupported_files_excluded': {
     one: 'ਛੱਡੀਆਂ ਗਈਆਂ ਨਾ-ਚੱਲਣ ਵਾਲੀਆਂ ਫ਼ਾਈਲਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',

@@ -19,7 +19,6 @@ const nl: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Annuleren',
   'common.delete': 'Verwijderen',
-  'common.undo': 'Ongedaan maken',
   'common.close': 'Sluiten',
   'common.skip_to_content': 'Ga naar de inhoud',
   'common.reset': 'Resetten',
@@ -561,6 +560,7 @@ const nl: Record<I18nKey, string> = {
     'Een apparaat kon deze track niet decoderen\nAfspelen gaat door voor de anderen',
   'toast.invite_code_info': '{{count}} verbonden | Code {{code}}',
   'toast.added_tracks': '{{count}} tracks toegevoegd',
+  'toast.deleted_tracks': '{{count}} tracks verwijderd',
   'toast.preparing': 'Voorbereiden: {{name}}',
   'toast.file_save_error': 'Bestand opslaan mislukt: {{name}}',
   'toast.decoding_audio': 'Audio decoderen...',
@@ -962,6 +962,7 @@ export const pluralMessages = {
     one: '{{name}} heeft {{count}} track toegevoegd, waaronder {{title}}',
   },
   'toast.added_tracks': { one: '{{count}} track toegevoegd' },
+  'toast.deleted_tracks': { one: '{{count}} track verwijderd' },
   'toast.unsupported_files_excluded': {
     one: 'Niet-ondersteund bestand overgeslagen: {{count}}',
   },

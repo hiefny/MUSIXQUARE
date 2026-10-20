@@ -324,7 +324,26 @@ test.describe('Playlist Management', () => {
     const guestBeforeDelete = await readQueueSnapshot(pair.guestPage);
     expect(guestBeforeDelete.items).toHaveLength(3);
 
+    // A busy host can replace one toast with the next, so record every toast
+    // text instead of reading only the latest.
+    const recordToasts = () => {
+      const log: string[] = [];
+      (window as unknown as { __toastLog: string[] }).__toastLog = log;
+      const message = document.getElementById('toast-msg')!;
+      new MutationObserver(() => log.push(message.textContent ?? '')).observe(message, {
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+    };
+    const toastLog = (page: typeof pair.hostPage) =>
+      page.evaluate(() => (window as unknown as { __toastLog: string[] }).__toastLog);
+    await pair.hostPage.evaluate(recordToasts);
+    await pair.guestPage.evaluate(recordToasts);
+
     await pair.hostPage.locator('.playlist-selection-delete').click();
+    // Only the deleting device is told; the deletion is not broadcast as a toast.
+    await expect.poll(() => toastLog(pair.hostPage)).toContain('Deleted 2 tracks');
     const expectedSurvivor = before.items[1]!.queueItemId;
     await pair.guestPage.waitForFunction(
       (queueItemId) => {
@@ -335,6 +354,8 @@ test.describe('Playlist Management', () => {
       expectedSurvivor,
       { timeout: 15_000 },
     );
+
+    expect(await toastLog(pair.guestPage)).not.toContain('Deleted 2 tracks');
 
     const [hostAfter, guestAfter] = await Promise.all([
       readQueueSnapshot(pair.hostPage),

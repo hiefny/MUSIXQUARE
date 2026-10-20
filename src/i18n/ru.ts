@@ -16,7 +16,6 @@ const ru: Record<I18nKey, string> = {
   'common.ok': 'ОК',
   'common.cancel': 'Отмена',
   'common.delete': 'Удалить',
-  'common.undo': 'Отменить',
   'common.close': 'Закрыть',
   'common.skip_to_content': 'Перейти к содержимому',
   'common.reset': 'Сброс',
@@ -554,6 +553,7 @@ const ru: Record<I18nKey, string> = {
     'Не удалось декодировать материал на одном из устройств\nВоспроизведение на остальных продолжается',
   'toast.invite_code_info': 'Устройств: {{count}} | Код: {{code}}',
   'toast.added_tracks': 'Добавлено материалов: {{count}}',
+  'toast.deleted_tracks': 'Удалено материалов: {{count}}',
   'toast.preparing': 'Готовится: {{name}}',
   'toast.file_save_error': 'Ошибка сохранения файла: {{name}}',
   'toast.decoding_audio': 'Декодирование аудио...',
@@ -1000,6 +1000,11 @@ export const pluralMessages = {
     one: 'Добавлен {{count}} материал',
     few: 'Добавлено {{count}} материала',
     many: 'Добавлено {{count}} материалов',
+  },
+  'toast.deleted_tracks': {
+    one: 'Удалён {{count}} материал',
+    few: 'Удалено {{count}} материала',
+    many: 'Удалено {{count}} материалов',
   },
   'toast.unsupported_files_excluded': {
     one: 'Пропущен {{count}} неподдерживаемый файл',

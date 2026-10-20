@@ -17,7 +17,6 @@ const fi: Record<I18nKey, string> = {
   'common.ok': 'OK',
   'common.cancel': 'Peruuta',
   'common.delete': 'Poista',
-  'common.undo': 'Kumoa',
   'common.close': 'Sulje',
   'common.skip_to_content': 'Siirry sisältöön',
   'common.reset': 'Palauta',
@@ -550,6 +549,7 @@ const fi: Record<I18nKey, string> = {
     'Yksi laite ei pystynyt purkamaan kappaletta\nToisto jatkuu muilla laitteilla',
   'toast.invite_code_info': 'Yhdistettyjä: {{count}} | Koodi {{code}}',
   'toast.added_tracks': 'Lisättiin {{count}} kappaletta',
+  'toast.deleted_tracks': 'Poistettiin {{count}} kappaletta',
   'toast.preparing': 'Valmistellaan: {{name}}',
   'toast.file_save_error': 'Tiedoston tallennusvirhe: {{name}}',
   'toast.decoding_audio': 'Puretaan ääntä…',
@@ -963,6 +963,9 @@ export const pluralMessages = {
   },
   'toast.added_tracks': {
     one: 'Lisättiin {{count}} kappale',
+  },
+  'toast.deleted_tracks': {
+    one: 'Poistettiin {{count}} kappale',
   },
   'dialog.file_drop.message': {
     one: 'Lisätäänkö {{count}} tiedosto?',

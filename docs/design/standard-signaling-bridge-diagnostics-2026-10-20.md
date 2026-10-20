@@ -114,6 +114,28 @@ standard_signaling_bridge` 기록을 찾는다. 로컬 wrangler 토큰은 `worke
 - Codex 지적(close 확인)을 반영한 뒤 smoke·진단 두 suite 40 pass, 스크립트·테스트 타입 검사와 린트 통과.
 - 로컬 결과는 exact-main CI 후보를 대신하지 않는다.
 
+## Release and recovery
+
+- PR [#422](https://github.com/hiefny/MUSIXQUARE/pull/422) squash merge → main `c0810ff4`(2026-10-20 15:28 KST). PR head
+  `7b8fa8dd`의 CI [39379927652](https://github.com/hiefny/MUSIXQUARE/actions/runs/39379927652) 11 jobs 통과. Codex 지적
+  1건(2xx close의 본문 확인)은 `7b8fa8dd`에서 고치고 테스트 3개로 고정했다. main 트리는 PR head와 같다.
+- Exact-main push CI [39380580111](https://github.com/hiefny/MUSIXQUARE/actions/runs/39380580111) 11 jobs 통과: unit
+  598 files / 13,471 pass / 0 fail / 1 Windows-only skip, candidate browser 17 + critical browser 55 pass. 후보 artifact
+  12244834389.
+- 오너 승인(2026-10-20, PR CI와 exact-main CI가 통과하면 배포) 뒤
+  [Production Release 39381338801](https://github.com/hiefny/MUSIXQUARE/actions/runs/39381338801) attempt 1 성공,
+  target=app, Developer API D1=false. 15:38:23 KST deploy job 완료. App version `e695330f-b7a7-48df-b57b-a63ded5e6195` /
+  deployment `753e1db6-929c-49d2-b416-617b93cf70f8`, 최종 소유권 15:38:18.589 KST verified, 부분 릴리스 recheck
+  compatible, 기존 App D1 계약 7단계 apply/verify 성공.
+- smoke 4/4. Standard HTTPS signaling smoke는 첫 운영 실행에서 통과했고 새 성공 줄에
+  `"bridgeOpenMs":{"host":878,"guest":393}`을 남겼다. 실패가 없었으므로 새 실패 줄과 App 진단 기록은 운영에서 아직
+  나오지 않았다.
+- 15:38:50 KST 공개 8 GET 모두 HTTP 200, exact-main 후보와 크기·SHA 일치(서비스 워커 v738). 배포 직후 Drift Audit
+  [39381601404](https://github.com/hiefny/MUSIXQUARE/actions/runs/39381601404): 31 pass / 0 fail / 5 manual-only.
+- 복구: 15:37:15.291 KST checkpoint 12245018123이 App 8.11.28/v737(`19552573`, version `9a932633` / deployment
+  `ebe88791`)을 보존한다. provenance는 verified-release-ancestor다. 성공한 실행의 롤백은 미실행이다. 롤백하면 App
+  Worker의 브리지 실패 기록이 사라지고, 사용자 화면·저장 데이터 변화는 없다.
+
 ## 한계
 
 - 원인은 아직 모른다. 이번 변경은 다음 실패의 위치와 시간을 남길 뿐이고, 한 번의 실패가 원인 전체를 확정하지는 않는다.

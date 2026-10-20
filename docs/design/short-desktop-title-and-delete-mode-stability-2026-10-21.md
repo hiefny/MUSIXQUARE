@@ -157,3 +157,16 @@
 - 곡이 하나뿐인 목록에서도 길게 누르면 그 곡이 선택되며 편집 모드로 들어간다. 순서 바꾸기는 두 곡 이상일 때만 되므로 길게 누르기
   준비 조건을 분리했다(`canTakeLongPress`).
 
+## 최종 검증 (PR #430, `9302a9e7`, v754)
+
+로컬 Windows, Node 24.20.0 / npm 12.0.2. 위 편집 모드·길게 누르기·재생 표시·지연 로드·리뷰 반영 변경을 모두 포함한 코드다.
+
+- 통과: typecheck, 린트, 포맷, 가드(bus-pairing, dead-exports, import-graph, room-authority-boundaries, sw-cache-version),
+  unit 13,598 pass / 0 fail / 0 skip.
+- 통과: `build:checked`(초기 전송 예산 포함: eager JS 475.6 KiB gzip).
+- Chromium e2e 41개 중 40 통과·1 실패: `playlist-desktop-reorder`의 길게 클릭 선택 단계가 한 번 실패했다. 같은 파일을 바로
+  다시 3번, 편집 모드·터치·데스크톱 순서 바꾸기 세 파일을 4번씩 병렬(28개) 돌려 모두 통과해 간헐 실패로 본다. 원인은 찾지
+  못했다.
+- 그 전 `5ca0c995` 실행에서 `app-touch-policy`의 재생목록·채팅 스와이프 검사가 실패했는데, 현재 `main`(`b1c522e6`)에서도 3번 중
+  2번 실패해 이 변경과 무관하다.
+- 로컬 결과는 exact-main CI 후보를 대신하지 않는다.

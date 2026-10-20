@@ -1028,6 +1028,10 @@
   color: var(--youtube-filled);
 }
 
+.playlist-source.playing {
+  color: var(--primary);
+}
+
 .playlist-source.youtube-playlist {
   transform: scale(1.2);
 }

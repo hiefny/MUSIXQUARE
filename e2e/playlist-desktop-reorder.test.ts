@@ -75,7 +75,7 @@ test.describe('Playlist desktop reorder', () => {
     await navigateToTab(page, 'playlist');
     await waitForFilePlaybackReady(page, 30_000);
     await clickPlayButton(page);
-    await expect(page.locator('.playlist-reorder-handle.playlist-current-leading')).toHaveClass(
+    await expect(page.locator('.track-type-slot.playlist-current-leading')).toHaveClass(
       /is-current-playing/,
     );
 
@@ -89,7 +89,9 @@ test.describe('Playlist desktop reorder', () => {
 
     // 1. Lifting the playing row by its handle shows only the grip.
     await resetScroll(page, scroller);
-    const currentHandle = page.locator('.playlist-reorder-handle.playlist-current-leading');
+    const currentHandle = page.locator(
+      '.playlist-entry:has(.playlist-current-leading) .playlist-reorder-handle',
+    );
     const handleBox = await currentHandle.boundingBox();
     if (!handleBox) throw new Error('Current handle has no geometry');
     await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);

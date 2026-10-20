@@ -599,9 +599,8 @@ export function createPlaylistReorderController(
     ghost.querySelectorAll<HTMLElement>('button, [tabindex]').forEach((el) => {
       el.setAttribute('tabindex', '-1');
     });
-    // The current row's handle stacks its play/pause/loading icon in the grip's
-    // grid cell, and those state rules outrank the ghost's hide rule. A lifted
-    // row shows only the grip, so the clone carries no playback state at all.
+    // A lifted row shows its grip and its plain source icon, so the clone
+    // carries no play/pause/loading state at all.
     ghost.querySelectorAll(PLAYBACK_STATE_ICON_SELECTOR).forEach((el) => el.remove());
     ghost.querySelectorAll(CURRENT_LEADING_SELECTOR).forEach((el) => {
       el.classList.remove(...CURRENT_LEADING_STATE_CLASSES);

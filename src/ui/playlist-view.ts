@@ -284,16 +284,9 @@ function syncPlaylistPlaybackIndicator(
   }
 }
 
-function renderLeadingSlot(
-  item: PlaylistItem,
-  idx: number,
-  canReorder: boolean,
-  isCurrent: boolean,
-): string {
-  const currentClass = isCurrent ? ' playlist-current-leading' : '';
-  const playbackIcons = isCurrent ? renderPlaybackIndicatorIcons() : '';
+function renderLeadingSlot(item: PlaylistItem, idx: number, canReorder: boolean): string {
   if (!canReorder) {
-    return `<div class="track-leading track-leading-static${currentClass}" aria-hidden="true"><span class="track-idx">${idx + 1}</span>${playbackIcons}</div>`;
+    return `<div class="track-leading track-leading-static" aria-hidden="true"><span class="track-idx">${idx + 1}</span></div>`;
   }
 
   const label = t('playlist.reorder_handle', {
@@ -301,12 +294,11 @@ function renderLeadingSlot(
     position: idx + 1,
   });
   return `
-    <button type="button" class="track-leading playlist-reorder-handle${currentClass}"
+    <button type="button" class="track-leading playlist-reorder-handle"
       data-queue-item-id="${escapeHtml(item.queueItemId)}"
       aria-label="${escapeHtml(label)}" aria-grabbed="false"
       aria-keyshortcuts="Space Enter ArrowUp ArrowDown Home End Escape">
       <span class="track-idx" aria-hidden="true">${idx + 1}</span>
-      ${playbackIcons}
       <svg class="playlist-reorder-grip" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 8h14M5 12h14M5 16h14"/>
       </svg>
@@ -320,6 +312,13 @@ function renderTrackIcon(item: PlaylistItem): string {
       : '<svg class="type-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:#FF0033;"><path d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"/></svg>';
   }
   return renderFileTrackIcon();
+}
+
+// The current row keeps its number; its play/pause/loading state stands in
+// for the source icon beside the title.
+function renderTrackIconSlot(item: PlaylistItem, isCurrent: boolean): string {
+  if (!isCurrent) return `<span class="track-type-slot">${renderTrackIcon(item)}</span>`;
+  return `<span class="track-type-slot playlist-current-leading">${renderTrackIcon(item)}${renderPlaybackIndicatorIcons()}</span>`;
 }
 
 function renderFileTrackIcon(): string {
@@ -857,10 +856,10 @@ export function updatePlaylistUI(): void {
       : '';
 
     row.innerHTML = `
-      ${renderLeadingSlot(item, idx, canReorder, isCurrent)}
+      ${renderLeadingSlot(item, idx, canReorder)}
       <button type="button" class="track-name" data-action="play"
         data-queue-item-id="${escapeHtml(item.queueItemId)}"
-        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text" dir="auto"><span class="playlist-title-marquee-content">${escapeHtml(displayName)}</span></span></button>
+        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIconSlot(item, isCurrent)}<span class="track-name-text" dir="auto"><span class="playlist-title-marquee-content">${escapeHtml(displayName)}</span></span></button>
       ${expandButton}
       ${selectButton}
     `;

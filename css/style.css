@@ -2338,7 +2338,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
-    :is(.track-idx, .sub-idx-number) {
+    :is(.sub-idx-number, .type-icon) {
     opacity: 0;
     transform: scale(0.82);
   }
@@ -2407,11 +2407,8 @@ Safety is declared first because important layer precedence is reversed; its acc
   /* Reorder affordance priority:
      dragging > row hover/focus or touch-scroll row > global hint > number. */
   .playlist-ul.show-reorder-hints .playlist-reorder-handle .track-idx,
-  .playlist-ul.show-reorder-hints .playlist-reorder-handle .track-playback-state-icon,
   .playlist-entry.is-touch-scroll-hint .playlist-reorder-handle .track-idx,
-  .playlist-entry.is-touch-scroll-hint .playlist-reorder-handle .track-playback-state-icon,
-  .playlist-entry.is-reorder-source .playlist-reorder-handle .track-idx,
-  .playlist-entry.is-reorder-source .playlist-reorder-handle .track-playback-state-icon {
+  .playlist-entry.is-reorder-source .playlist-reorder-handle .track-idx {
     opacity: 0;
     transform: scale(0.82);
   }
@@ -2432,9 +2429,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
 
     .track-item:hover .playlist-reorder-handle .track-idx,
-    .track-item:hover .playlist-reorder-handle .track-playback-state-icon,
-    .playlist-reorder-handle:focus-visible .track-idx,
-    .playlist-reorder-handle:focus-visible .track-playback-state-icon {
+    .playlist-reorder-handle:focus-visible .track-idx {
       opacity: 0;
       transform: scale(0.82);
     }
@@ -2453,8 +2448,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: var(--primary);
   }
 
-  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .track-idx,
-  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .track-playback-state-icon {
+  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .track-idx {
     opacity: 0;
     transform: scale(0.82);
   }
@@ -2478,30 +2472,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     .playlist-reorder-grip {
     opacity: 0;
     transform: scale(0.82);
-  }
-
-  .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
-    .playlist-entry:not(.is-reorder-source)
-    .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
-    .track-idx {
-    opacity: 0;
-    transform: scale(0.82);
-  }
-
-  .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
-    .playlist-entry:not(.is-reorder-source)
-    .playlist-current-leading.is-current-loading
-    .track-playback-loading-indicator,
-  .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
-    .playlist-entry:not(.is-reorder-source)
-    .playlist-current-leading.is-current-playing
-    .track-playing-indicator,
-  .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
-    .playlist-entry:not(.is-reorder-source)
-    .playlist-current-leading.is-current-paused
-    .track-paused-indicator {
-    opacity: 1;
-    transform: scale(1);
   }
 
   .track-name {
@@ -2665,11 +2635,21 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: var(--text-muted);
   }
 
+  .track-type-slot {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 16px;
+  }
+
   .type-icon {
+    grid-area: 1 / 1;
     width: 16px;
     height: 16px;
     flex-shrink: 0;
     fill: var(--text-sub);
+    transition: opacity 0.14s ease;
   }
 
   .sub-playlist {
@@ -3262,26 +3242,6 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .playlist-ul.has-removal-selection .playlist-reorder-handle .track-idx {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  .playlist-ul.has-removal-selection
-    .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
-    .track-idx {
-    opacity: 0;
-    transform: scale(0.82);
-  }
-
-  .playlist-ul.has-removal-selection
-    .playlist-current-leading.is-current-loading
-    .track-playback-loading-indicator,
-  .playlist-ul.has-removal-selection
-    .playlist-current-leading.is-current-playing
-    .track-playing-indicator,
-  .playlist-ul.has-removal-selection
-    .playlist-current-leading.is-current-paused
-    .track-paused-indicator {
     opacity: 1;
     transform: scale(1);
   }

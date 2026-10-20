@@ -610,7 +610,14 @@ describe('playlist queue identity rendering and actions', () => {
     const currentLeading = list.querySelector<HTMLElement>('.playlist-current-leading')!;
 
     expect(currentLeading.classList).toContain('is-current-paused');
-    expect(currentLeading.querySelector('.track-idx')?.textContent).toBe('1');
+    // The state stands in for the source icon; the row keeps its number.
+    expect(currentLeading.classList).toContain('track-type-slot');
+    expect(currentLeading.closest('.track-name')).not.toBeNull();
+    expect(currentLeading.querySelector('.type-icon')).not.toBeNull();
+    expect(currentLeading.closest('.track-item')?.querySelector('.track-idx')?.textContent).toBe(
+      '1',
+    );
+    expect(list.querySelector('.track-leading .track-playback-state-icon')).toBeNull();
     expect(currentLeading.querySelector('.track-playing-indicator path')?.getAttribute('d')).toBe(
       'M8 5v14l11-7z',
     );

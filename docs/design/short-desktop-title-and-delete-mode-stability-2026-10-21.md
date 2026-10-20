@@ -101,3 +101,11 @@
 - 한계: CDP 합성 터치는 움직이는 채로 손을 떼면 fling으로 읽혀 다음 탭이 클릭되지 않는다(빈 페이지에서도 재현). 테스트는 손을 떼기
   전에 멈춘다. 실기기(iOS Safari, Android Chrome)의 두 손가락 선택·동그라미 열 끌기·자동 스크롤, `:has()` 미지원 브라우저의
   모양은 확인하지 않았다. 로컬 결과는 exact-main CI 후보를 대신하지 않는다.
+
+## 최종 통합 검증 (8.11.33)
+
+편집 모드 개편, [Worker redirect 수정과 하이브리드 기기 마우스 올림](worker-redirect-mode-2026-10-21.md)을 합친 코드
+`75826be4`(8.11.33 / v748), 로컬 Windows, Node 24.20.0: 타입·린트·포맷·가드 통과, unit 604+ files / 13,595 pass / 0 fail /
+0 skip, committed `build:checked`(초기 전송 예산 eager JS 491,520 / 491,568 B gzip) 통과, Chromium e2e 229 pass(이번 묶음이
+바꾼 e2e 전체와 critical-browser, release-smoke, background-resume, back-navigation, adaptive-actions). 초기 JS 예산 여유가
+48 B라 다음 초기 로딩 코드 추가 전에 다른 곳을 줄여야 한다. 로컬 결과는 exact-main CI 후보를 대신하지 않는다.

@@ -3158,3 +3158,293 @@ describe('Developer API atomic room limiter', () => {
     });
   });
 });
+
+describe('Developer API room playlists', () => {
+  function playlistsPayload() {
+    return {
+      schemaVersion: 1,
+      view: 'playlists',
+      roomCode: ROOM_CODE,
+      playlistRevision: 4,
+      activePlaylist: 2,
+      playlists: [
+        { playlist: 1, active: false, itemCount: 3, byteLength: 8_192 },
+        { playlist: 2, active: true, itemCount: 1, byteLength: null },
+        { playlist: 3, active: false, itemCount: 0, byteLength: null },
+      ],
+    };
+  }
+
+  function playlistQueuePayload(playlist = 3, active = false) {
+    return {
+      schemaVersion: 1,
+      view: 'playlist-queue',
+      roomCode: ROOM_CODE,
+      playlist,
+      active,
+      playlistRevision: 4,
+      currentQueueItemId: active ? 'queue_item_000001' : null,
+      items: [playbackPayload().item],
+    };
+  }
+
+  function forwardedCalls(facadeFetch: { mock: { calls: unknown[][] } }) {
+    return facadeFetch.mock.calls.map(([input, init]) => ({
+      path: new URL(String(input)).pathname,
+      body: JSON.parse(String((init as RequestInit | undefined)?.body)) as Record<string, unknown>,
+    }));
+  }
+
+  it('reads playlist summaries through queue:read with a playlists ETag', async () => {
+    const setup = await createEnvironment({
+      scopeMask: developerApiScopes['queue:read'],
+      facadePayload: playlistsPayload(),
+    });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playlists`),
+      setup.env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toMatch(/^"mxqr-playlists-[A-Za-z0-9_-]{43}"$/);
+    await expect(response.json()).resolves.toEqual(playlistsPayload());
+    expect(forwardedCalls(setup.facadeFetch)).toEqual([
+      {
+        path: '/internal/v1/read',
+        body: {
+          roomCode: ROOM_CODE,
+          roomGeneration: 0,
+          developerAuthorityEpoch: 0,
+          keyId: KEY_ID,
+          projection: 'playlists',
+        },
+      },
+    ]);
+
+    const unscoped = await createEnvironment({
+      scopeMask: developerApiScopes['playback:read'],
+      facadePayload: playlistsPayload(),
+    });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playlists`),
+      unscoped.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(unscoped.facadeFetch).not.toHaveBeenCalled();
+  });
+
+  it('reads one playlist queue by its one-based number', async () => {
+    const setup = await createEnvironment({ facadePayload: playlistQueuePayload(3) });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playlists/3/queue`),
+      setup.env,
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('etag')).toMatch(/^"mxqr-playlist-queue-[A-Za-z0-9_-]{43}"$/);
+    await expect(response.json()).resolves.toEqual(playlistQueuePayload(3));
+    expect(forwardedCalls(setup.facadeFetch)[0]?.body).toEqual({
+      roomCode: ROOM_CODE,
+      roomGeneration: 0,
+      developerAuthorityEpoch: 0,
+      keyId: KEY_ID,
+      projection: 'playlist-queue',
+      playlist: 3,
+    });
+
+    for (const path of ['playlists/0/queue', 'playlists/4/queue', 'playlists/01/queue']) {
+      const missing = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/${path}`),
+        setup.env,
+      );
+      expect(missing.status).toBe(404);
+    }
+    expect(setup.facadeFetch).toHaveBeenCalledOnce();
+  });
+
+  it('fails closed on malformed playlist projections', async () => {
+    const summaries = playlistsPayload();
+    const queue = playlistQueuePayload(3);
+    const invalidPayloads: Array<{ path: string; payload: unknown }> = [
+      { path: 'playlists', payload: { ...summaries, extra: true } },
+      { path: 'playlists', payload: { ...summaries, playlists: summaries.playlists.slice(0, 2) } },
+      { path: 'playlists', payload: { ...summaries, activePlaylist: 1 } },
+      {
+        path: 'playlists',
+        payload: {
+          ...summaries,
+          playlists: [summaries.playlists[1], summaries.playlists[0], summaries.playlists[2]],
+        },
+      },
+      {
+        path: 'playlists',
+        payload: {
+          ...summaries,
+          playlists: [
+            { ...summaries.playlists[0], byteLength: 0 },
+            ...summaries.playlists.slice(1),
+          ],
+        },
+      },
+      { path: 'playlists/3/queue', payload: { ...queue, playlist: 2 } },
+      { path: 'playlists/3/queue', payload: { ...queue, currentQueueItemId: 'queue_item_000001' } },
+      { path: 'playlists/3/queue', payload: { ...queue, view: 'queue' } },
+      { path: 'playlists/3/queue', payload: queuePayload() },
+    ];
+    for (const { path, payload } of invalidPayloads) {
+      const setup = await createEnvironment({ facadePayload: payload });
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/${path}`),
+        setup.env,
+      );
+      expect(response.status).toBe(503);
+      expect(await errorCode(response)).toBe('INTERNAL_RESPONSE_INVALID');
+    }
+  });
+
+  it('removes an item from a named playlist and keeps the 1.0 removal unchanged', async () => {
+    const setup = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+      facadePayload: playlistQueuePayload(2),
+    });
+    const removed = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playlists/2/queue/items/${QUEUE_ITEM_ID}`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.playlist-remove-0001' },
+      }),
+      setup.env,
+    );
+    expect(removed.status).toBe(200);
+    await expect(removed.json()).resolves.toEqual(playlistQueuePayload(2));
+    expect(setup.limiter.calls.map((call) => call.body.operation)).toEqual([
+      'ingress-read',
+      'authenticated-queue-write',
+    ]);
+    expect(forwardedCalls(setup.facadeFetch)).toEqual([
+      {
+        path: '/internal/v1/queue/mutate',
+        body: {
+          keyId: KEY_ID,
+          roomCode: ROOM_CODE,
+          roomGeneration: 0,
+          developerAuthorityEpoch: 0,
+          idempotencyKey: 'request.playlist-remove-0001',
+          mutation: { type: 'remove', queueItemId: QUEUE_ITEM_ID, playlist: 2 },
+        },
+      },
+    ]);
+
+    // The playlist route never accepts the active-queue view as its answer.
+    const mismatched = await createEnvironment({
+      scopeMask: developerApiScopes['queue:write'],
+      facadePayload: queuePayload(),
+    });
+    const invalid = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playlists/2/queue/items/${QUEUE_ITEM_ID}`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.playlist-remove-0002' },
+      }),
+      mismatched.env,
+    );
+    expect(invalid.status).toBe(503);
+    expect(await errorCode(invalid)).toBe('INTERNAL_RESPONSE_INVALID');
+
+    const withBody = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playlists/2/queue/items/${QUEUE_ITEM_ID}`, {
+        method: 'DELETE',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.playlist-remove-0003',
+        },
+        body: JSON.stringify({ playlist: 2 }),
+      }),
+      setup.env,
+    );
+    expect(withBody.status).toBe(400);
+
+    const noKey = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playlists/2/queue/items/${QUEUE_ITEM_ID}`, {
+        method: 'DELETE',
+      }),
+      setup.env,
+    );
+    expect(noKey.status).toBe(400);
+    expect(await errorCode(noKey)).toBe('IDEMPOTENCY_KEY_REQUIRED');
+
+    const outOfRange = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playlists/4/queue/items/${QUEUE_ITEM_ID}`, {
+        method: 'DELETE',
+        headers: { 'idempotency-key': 'request.playlist-remove-0004' },
+      }),
+      setup.env,
+    );
+    expect(outOfRange.status).toBe(404);
+    expect(setup.facadeFetch).toHaveBeenCalledOnce();
+  });
+
+  it('forwards play_item with a playlist and the switch_playlist command', async () => {
+    const setup = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['playback:control'],
+    });
+    const commands = [
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, playlist: 2 },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 1, playlist: 1 },
+      { type: 'switch_playlist', playlist: 3 },
+    ];
+    for (const [index, command] of commands.entries()) {
+      const response = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': `request.playlist-command-000${index}`,
+          },
+          body: JSON.stringify(command),
+        }),
+        setup.env,
+      );
+      expect(response.status).toBe(202);
+    }
+    expect(forwardedCalls(setup.facadeFetch).map((call) => call.body.command)).toEqual(commands);
+
+    for (const command of [
+      { type: 'switch_playlist' },
+      { type: 'switch_playlist', playlist: 0 },
+      { type: 'switch_playlist', playlist: 4 },
+      { type: 'switch_playlist', playlist: '2' },
+      { type: 'switch_playlist', playlist: 2, queueItemId: QUEUE_ITEM_ID },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, playlist: 1.5 },
+    ]) {
+      const rejected = await developerApiWorker.fetch(
+        apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'idempotency-key': 'request.playlist-command-bad1',
+          },
+          body: JSON.stringify(command),
+        }),
+        setup.env,
+      );
+      expect(rejected.status).toBe(400);
+    }
+    expect(setup.facadeFetch).toHaveBeenCalledTimes(commands.length);
+
+    const effectsOnly = await createEnvironment({
+      mode: 'enabled',
+      scopeMask: developerApiScopes['effects:control'],
+    });
+    const forbidden = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/commands`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'idempotency-key': 'request.playlist-command-0009',
+        },
+        body: JSON.stringify({ type: 'switch_playlist', playlist: 2 }),
+      }),
+      effectsOnly.env,
+    );
+    expect(forbidden.status).toBe(403);
+    expect(effectsOnly.facadeFetch).not.toHaveBeenCalled();
+  });
+});

@@ -1985,3 +1985,253 @@ describe('private Developer API facade', () => {
     await expect(response.json()).resolves.toEqual({ error: 'NOT_FOUND' });
   });
 });
+
+describe('private Developer API facade room playlists', () => {
+  const queueItem = {
+    queueItemId: QUEUE_ITEM_ID,
+    kind: 'audio',
+    name: 'Orchestra.flac',
+    addedBy: 'participant',
+    byteLength: 4_096,
+  };
+
+  function playlistsPayload() {
+    return {
+      schemaVersion: 1,
+      view: 'playlists',
+      roomCode: ROOM_CODE,
+      playlistRevision: 9,
+      activePlaylist: 1,
+      playlists: [
+        { playlist: 1, active: true, itemCount: 1, byteLength: 4_096 },
+        { playlist: 2, active: false, itemCount: 2, byteLength: null },
+        { playlist: 3, active: false, itemCount: 0, byteLength: null },
+      ],
+    };
+  }
+
+  function playlistQueuePayload(playlist = 2) {
+    return {
+      schemaVersion: 1,
+      view: 'playlist-queue',
+      roomCode: ROOM_CODE,
+      playlist,
+      active: false,
+      playlistRevision: 9,
+      currentQueueItemId: null,
+      items: [queueItem],
+    };
+  }
+
+  it('forwards the playlists projection and sanitizes its exact summary', async () => {
+    const rooms = namespace(() => Response.json(playlistsPayload()));
+    const response = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'playlists' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(playlistsPayload());
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      keyId: KEY_ID,
+      projection: 'playlists',
+    });
+  });
+
+  it('requires a playlist number exactly for the per-playlist queue', async () => {
+    const rooms = namespace(() => Response.json(playlistQueuePayload(2)));
+    const response = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'playlist-queue', playlist: 2 }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(playlistQueuePayload(2));
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      keyId: KEY_ID,
+      projection: 'playlist-queue',
+      playlist: 2,
+    });
+
+    for (const body of [
+      { roomCode: ROOM_CODE, projection: 'playlist-queue' },
+      { roomCode: ROOM_CODE, projection: 'playlist-queue', playlist: 0 },
+      { roomCode: ROOM_CODE, projection: 'playlist-queue', playlist: 4 },
+      { roomCode: ROOM_CODE, projection: 'playlist-queue', playlist: '2' },
+      { roomCode: ROOM_CODE, projection: 'queue', playlist: 2 },
+      { roomCode: ROOM_CODE, projection: 'playlists', playlist: 1 },
+    ]) {
+      const rejected = await facadeWorker.fetch(request(body), {
+        PRO_ROOM_DEVELOPER_ROOMS: rooms,
+      });
+      expect(rejected.status).toBe(400);
+    }
+    expect(rooms.seen).toHaveLength(1);
+  });
+
+  it('fails closed on malformed playlist projections', async () => {
+    const summaries = playlistsPayload();
+    const queue = playlistQueuePayload(2);
+    const cases: Array<{ body: Record<string, unknown>; payload: unknown }> = [
+      { body: { projection: 'playlists' }, payload: { ...summaries, private: true } },
+      {
+        body: { projection: 'playlists' },
+        payload: { ...summaries, playlists: summaries.playlists.slice(1) },
+      },
+      { body: { projection: 'playlists' }, payload: { ...summaries, activePlaylist: 3 } },
+      {
+        body: { projection: 'playlists' },
+        payload: {
+          ...summaries,
+          playlists: [
+            { ...summaries.playlists[0], assetIds: ['private'] },
+            ...summaries.playlists.slice(1),
+          ],
+        },
+      },
+      {
+        body: { projection: 'playlists' },
+        payload: {
+          ...summaries,
+          playlists: [
+            { ...summaries.playlists[0], itemCount: 1_001 },
+            ...summaries.playlists.slice(1),
+          ],
+        },
+      },
+      { body: { projection: 'playlist-queue', playlist: 2 }, payload: { ...queue, playlist: 3 } },
+      {
+        body: { projection: 'playlist-queue', playlist: 2 },
+        payload: { ...queue, currentQueueItemId: QUEUE_ITEM_ID },
+      },
+      {
+        body: { projection: 'playlist-queue', playlist: 2 },
+        payload: { ...queue, ownerMemberId: 'private-owner' },
+      },
+      {
+        body: { projection: 'playlist-queue', playlist: 2 },
+        payload: { ...queue, items: [queueItem, queueItem] },
+      },
+    ];
+    for (const { body, payload } of cases) {
+      const rooms = namespace(() => Response.json(payload));
+      const response = await facadeWorker.fetch(
+        request({ roomCode: ROOM_CODE, keyId: KEY_ID, ...body }),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+      expect(response.status).toBe(503);
+    }
+  });
+
+  it('forwards a playlist removal and answers with that playlist queue', async () => {
+    const rooms = namespace(() => Response.json(playlistQueuePayload(3)));
+    const mutation = { type: 'remove', queueItemId: QUEUE_ITEM_ID, playlist: 3 };
+    const response = await facadeWorker.fetch(
+      request(
+        { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, mutation },
+        {},
+        '/internal/v1/queue/mutate',
+      ),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(playlistQueuePayload(3));
+    await expect(rooms.seen[0]!.json()).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      keyId: KEY_ID,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      mutation,
+    });
+
+    // A response for a different playlist, or the active-queue view, is rejected.
+    for (const payload of [
+      playlistQueuePayload(2),
+      {
+        schemaVersion: 1,
+        view: 'queue',
+        roomCode: ROOM_CODE,
+        playlistRevision: 9,
+        currentQueueItemId: null,
+        items: [queueItem],
+      },
+    ]) {
+      const mismatched = namespace(() => Response.json(payload));
+      const invalid = await facadeWorker.fetch(
+        request(
+          { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, mutation },
+          {},
+          '/internal/v1/queue/mutate',
+        ),
+        { PRO_ROOM_DEVELOPER_ROOMS: mismatched },
+      );
+      expect(invalid.status).toBe(503);
+    }
+
+    for (const playlist of [0, 4, '1', null]) {
+      const rejected = await facadeWorker.fetch(
+        request(
+          {
+            roomCode: ROOM_CODE,
+            keyId: KEY_ID,
+            idempotencyKey: IDEMPOTENCY_KEY,
+            mutation: { type: 'remove', queueItemId: QUEUE_ITEM_ID, playlist },
+          },
+          {},
+          '/internal/v1/queue/mutate',
+        ),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+      expect(rejected.status).toBe(400);
+    }
+    expect(rooms.seen).toHaveLength(1);
+  });
+
+  it('forwards play_item with a playlist and the exact switch_playlist command', async () => {
+    const rooms = namespace(() =>
+      Response.json(
+        {
+          schemaVersion: 1,
+          roomCode: ROOM_CODE,
+          commandId: COMMAND_ID,
+          status: 'pending',
+          createdAtMs: 1_000,
+          expiresAtMs: 31_000,
+        },
+        { status: 202 },
+      ),
+    );
+    const commands = [
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, playlist: 3 },
+      { type: 'switch_playlist', playlist: 2 },
+    ];
+    for (const command of commands) {
+      const response = await facadeWorker.fetch(
+        request(
+          { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, command },
+          {},
+          '/internal/v1/commands/create',
+        ),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+      expect(response.status).toBe(202);
+    }
+    const forwarded = await Promise.all(rooms.seen.map((seen) => seen.json()));
+    expect(forwarded.map((body) => (body as { command: unknown }).command)).toEqual(commands);
+
+    for (const command of [
+      { type: 'switch_playlist' },
+      { type: 'switch_playlist', playlist: 4 },
+      { type: 'switch_playlist', playlist: 2, extra: true },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, playlist: 0 },
+    ]) {
+      const rejected = await facadeWorker.fetch(
+        request(
+          { roomCode: ROOM_CODE, keyId: KEY_ID, idempotencyKey: IDEMPOTENCY_KEY, command },
+          {},
+          '/internal/v1/commands/create',
+        ),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+      expect(rejected.status).toBe(400);
+    }
+    expect(rooms.seen).toHaveLength(commands.length);
+  });
+});

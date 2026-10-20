@@ -108,6 +108,9 @@ describe('Developer API public documentation', () => {
       '/v1/rooms/{roomCode}/effects:',
       '/v1/rooms/{roomCode}/queue-mode:',
       '/v1/rooms/{roomCode}/queue:',
+      '/v1/rooms/{roomCode}/playlists:',
+      '/v1/rooms/{roomCode}/playlists/{playlist}/queue:',
+      '/v1/rooms/{roomCode}/playlists/{playlist}/queue/items/{queueItemId}:',
       '/v1/rooms/{roomCode}/commands:',
       '/v1/rooms/{roomCode}/commands/{commandId}:',
       '/v1/rooms/{roomCode}/queue/items:',
@@ -120,7 +123,11 @@ describe('Developer API public documentation', () => {
     ];
 
     expect(spec).toMatch(/^openapi: 3\.1\.0/m);
-    expect(spec).toMatch(/^ {2}version: 1\.0\.0$/m);
+    expect(spec).toMatch(/^ {2}version: 1\.1\.0$/m);
+    expect(spec).toContain('operationId: listPlaylists');
+    expect(spec).toContain('operationId: getPlaylistQueue');
+    expect(spec).toContain('operationId: removePlaylistQueueItem');
+    expect(spec).toContain('type: { const: switch_playlist }');
     expect(spec).not.toMatch(/^ {2}version: .*beta/im);
     expect(spec).toContain('url: https://api.musixquare.com');
     expect(spec).toContain('developerApiKey: []');
@@ -408,7 +415,7 @@ describe('Developer API public documentation', () => {
     ]
       .map((match) => match[1] ?? '')
       .filter((operation) => !operation.includes('operationId: getHealth'));
-    expect(authenticatedReads).toHaveLength(6);
+    expect(authenticatedReads).toHaveLength(8);
     for (const operation of authenticatedReads) {
       expect(operation).toContain("'409': { $ref: '#/components/responses/Conflict' }");
     }

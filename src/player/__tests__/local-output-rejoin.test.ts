@@ -403,6 +403,25 @@ describe('participant-local output rejoin', () => {
     await vi.waitFor(() => expect(mocks.rendezvous).toHaveBeenCalledOnce());
   });
 
+  it('judges a YouTube background rejoin by the YouTube pause gate, not the file one', async () => {
+    startSession();
+    setStandardGuest();
+    setPlaybackYouTubePlaying();
+    // A stale file pause bit from the previous source must not veto YouTube.
+    setLocalFilePaused(true);
+    bus.emit('playback:local-output-rejoin', { reason: 'background-resume', mode: 'youtube' });
+    await vi.waitFor(() => expect(mocks.rendezvous).toHaveBeenCalledOnce());
+
+    mocks.rendezvous.mockClear();
+    setLocalFilePaused(false);
+    setLocalYouTubePaused(true);
+    initLocalOutputRejoin();
+    bus.emit('playback:local-output-rejoin', { reason: 'background-resume', mode: 'youtube' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.rendezvous).not.toHaveBeenCalled();
+  });
+
   it('lets an explicit PRO PLAY reconcile even when the local pause bit was lost', async () => {
     startSession();
     setProRoom();

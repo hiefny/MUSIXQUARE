@@ -58,6 +58,7 @@ import {
   kickActiveProRoomPresence,
   requestActiveProRoomPlaybackReconciliation,
   requestFirstAppendSelectionForTests,
+  requestProRoomBackgroundReturnSync,
 } from '../runtime.ts';
 
 const nativeCreateSessionForQa20 = ProRoomApiClient.prototype.createSession;
@@ -3527,6 +3528,126 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     );
     expect(manualCommit.positionSeconds).toBe(prepareMedia.mock.calls[1]![0].positionSeconds);
     expect(manualCommit.scheduleDelayMs).toBeGreaterThanOrEqual(1_400);
+  });
+
+  describe('background-return Sync', () => {
+    function fileSnapshot(state: 'playing' | 'paused'): ProRoomSnapshot {
+      const base = snapshot(
+        playback(1, {
+          state,
+          positionSeconds: 18,
+          updatedAtMs: Date.now(),
+          youtubeVideoId: null,
+          youtubeSubIndex: null,
+        }),
+      );
+      return {
+        ...base,
+        revision: 2,
+        playlist: [
+          {
+            queueItemId: QUEUE_ITEM_ID,
+            name: 'Server-authoritative file',
+            source: {
+              kind: 'pro-r2',
+              assetId: 'asset_00000000001',
+              version: 1,
+              byteLength: 1024,
+              mime: 'audio/flac',
+            },
+          },
+        ],
+      };
+    }
+
+    it('does not re-apply a YouTube checkpoint the visibility pass already re-applied', async () => {
+      const current = await establishCurrentPlayingCheckpoint();
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+
+      setDocumentVisibility('hidden');
+      setDocumentVisibility('visible');
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      await vi.waitFor(() =>
+        expect(getManagedTimer('pro-room-visibility-playback-recovery')).toBeNull(),
+      );
+
+      requestProRoomBackgroundReturnSync();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(prepareMedia).toHaveBeenCalledOnce();
+      expect(commitMedia).toHaveBeenCalledOnce();
+
+      // The next return is a new one and syncs again.
+      setDocumentVisibility('hidden');
+      setDocumentVisibility('visible');
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledTimes(2));
+      requestProRoomBackgroundReturnSync();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(commitMedia).toHaveBeenCalledTimes(2);
+    });
+
+    it('joins an in-flight YouTube visibility pass instead of starting a second rendezvous', async () => {
+      const current = await establishCurrentPlayingCheckpoint();
+      const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+      let resolveVisibilityHeartbeat!: (value: ProRoomSnapshot) => void;
+      heartbeat
+        .mockImplementationOnce(
+          () =>
+            new Promise<ProRoomSnapshot>((resolve) => {
+              resolveVisibilityHeartbeat = resolve;
+            }),
+        )
+        .mockResolvedValue(current);
+
+      setDocumentVisibility('hidden');
+      setDocumentVisibility('visible');
+      await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+
+      // Unlike a manual Sync, the background-return Sync widens this same
+      // return's repair, which already covers the current YouTube item.
+      requestProRoomBackgroundReturnSync();
+      resolveVisibilityHeartbeat(current);
+
+      await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(heartbeat).toHaveBeenCalledOnce();
+      expect(prepareMedia).toHaveBeenCalledOnce();
+      expect(commitMedia).toHaveBeenCalledOnce();
+    });
+
+    it.each(['playing', 'paused'] as const)(
+      're-applies a %s file checkpoint once the YouTube-only visibility pass leaves it',
+      async (state) => {
+        await establishCurrentPlayingCheckpoint();
+        const current = fileSnapshot(state);
+        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+        prepareMedia.mockImplementation(async (request) => ({
+          status: 'ready',
+          authority: request.authority,
+          queueItemId: request.queueItemId,
+          mediaKind: 'file',
+          durationSeconds: 180,
+          youtubeSubIndex: null,
+          youtubeVideoId: null,
+        }));
+
+        setDocumentVisibility('hidden');
+        setDocumentVisibility('visible');
+        await vi.waitFor(() => expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalledOnce());
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        // Local-file output waits for the app's AudioContext inspection.
+        expect(commitMedia).not.toHaveBeenCalled();
+
+        requestProRoomBackgroundReturnSync();
+        await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+        expect(commitMedia.mock.calls[0]![0]).toEqual(
+          expect.objectContaining({ queueItemId: QUEUE_ITEM_ID, state }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(commitMedia).toHaveBeenCalledOnce();
+        expect(getManagedTimer('pro-room-visibility-playback-recovery')).toBeNull();
+      },
+    );
   });
 
   it('does not share A heartbeat with B and runs the live B follow-up', async () => {

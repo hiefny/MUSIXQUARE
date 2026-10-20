@@ -942,14 +942,11 @@
       border-inline-end: 1px solid var(--divider);
     }
 
+    /* The columns start at the top edge, so they clear the safe area
+       themselves; their title rows keep the dashboard's own top spacing. */
     #tab-playlist,
     #tab-settings {
       padding-top: var(--safe-top);
-    }
-
-    #tab-playlist > .tab-header,
-    #tab-settings > .tab-header {
-      padding-top: 12px;
     }
   }
 } /* end @layer desktop */

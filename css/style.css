@@ -1432,6 +1432,80 @@ Safety is declared first because important layer precedence is reversed; its acc
     letter-spacing: -0.03em;
   }
 
+  /* With several playlists the title is one large button, like the first-run
+     "Hello" language button: the active playlist's name and a chevron, its
+     text kept on the plain title's line by negative margins. */
+  .playlist-switch-button {
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 44px;
+    padding: 0 10px 0 12px;
+    margin: -4px auto -4px -12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 1 auto;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--text-sub);
+    font: inherit;
+    cursor: pointer;
+    transition:
+      background-color 0.18s ease,
+      transform 0.18s ease;
+  }
+
+  .playlist-switch-button[hidden] {
+    display: none;
+  }
+
+  @media (hover: hover) {
+    .playlist-switch-button:hover {
+      background: var(--surface-2);
+    }
+  }
+
+  .playlist-switch-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  .playlist-switch-button:active {
+    transform: scale(0.98);
+  }
+
+  .playlist-switch-button svg {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* A long name is cut before its number: "Playl… 2". */
+  .playlist-slot-name {
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .playlist-slot-name-base {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .playlist-slot-name-number {
+    flex: 0 0 auto;
+    white-space: pre;
+  }
+
   /* Settings tab header follows the common tab header layout */
 
   /* YouTube Together mode: lock/blur advanced Settings (keep Theme available) */
@@ -3068,6 +3142,7 @@ Safety is declared first because important layer precedence is reversed; its acc
      text-only action toggles select all. The tab's icon actions step aside
      until the mode ends. */
   .tab-header.is-removal-selecting > .tab-title:not(.playlist-selection-title),
+  .tab-header.is-removal-selecting > .playlist-switch-button,
   .tab-header.is-removal-selecting .playlist-title-area > .tab-action-btn {
     display: none;
   }
@@ -3224,6 +3299,15 @@ Safety is declared first because important layer precedence is reversed; its acc
   .playlist-selection-action:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 3px;
+  }
+
+  .playlist-selection-move {
+    background: var(--primary-filled);
+    color: #fff;
+  }
+
+  .playlist-selection-action[hidden] {
+    display: none;
   }
 
   .playlist-selection-delete {
@@ -6271,6 +6355,53 @@ Safety is declared first because important layer precedence is reversed; its acc
     width: 22px;
     height: 22px;
     display: block;
+  }
+
+  /* The move dialog picks several playlists with the playlist rows' own
+     minus and check, so the mark shows before anything is chosen. */
+  .language-option-check.playlist-slot-select-mark {
+    opacity: 1;
+    color: var(--text-muted);
+  }
+
+  .language-option.active .playlist-slot-select-mark {
+    color: var(--primary);
+  }
+
+  .playlist-slot-select-mark .playlist-select-minus,
+  .playlist-slot-select-mark .playlist-select-mark {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .playlist-slot-select-mark .playlist-select-minus {
+    stroke-width: 1.9;
+  }
+
+  .playlist-slot-select-mark .playlist-select-mark,
+  .language-option.active .playlist-slot-select-mark .playlist-select-minus {
+    opacity: 0;
+  }
+
+  .language-option.active .playlist-slot-select-mark .playlist-select-mark {
+    opacity: 1;
+  }
+
+  .playlist-slots-dialog .dialog-message {
+    margin: 0;
+    padding: 4px 32px 0;
+  }
+
+  .playlist-storage-usage {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .playlist-storage-usage[hidden] {
+    display: none;
   }
 
   .dialog-secondary {

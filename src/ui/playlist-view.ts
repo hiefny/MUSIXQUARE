@@ -36,6 +36,7 @@ import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import { renderPlaylistSlotName } from './playlist-slot-names.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import {
   acknowledgeCommittedProRoomUploads,
@@ -1112,6 +1113,37 @@ function updateSubPlaylistUI(): void {
   }
 }
 
+// Once the room announces its playlists, the tab title becomes the active
+// playlist's name with a chevron and opens the switcher; until then it stays
+// the plain "Playlist" title (an older host or Worker has one playlist).
+function syncPlaylistSwitchButton(): void {
+  const button = document.getElementById('btn-playlist-switch');
+  const label = document.getElementById('playlist-switch-label');
+  if (!button || !label) return;
+  const slots = getState('playlist.slots');
+  button.hidden = !slots;
+  const plainTitle = button.parentElement?.querySelector<HTMLElement>(
+    ':scope > .tab-title[data-i18n="nav.playlist"]',
+  );
+  if (plainTitle) plainTitle.hidden = !!slots;
+  if (slots) renderPlaylistSlotName(label, slots.activeSlot);
+}
+
+function openPlaylistSlotsDialogLazily(): void {
+  void import('./playlist-slots-dialog.ts').then(
+    ({ openPlaylistSlotsDialog }) => openPlaylistSlotsDialog(),
+    (error: unknown) => log.warn('[Playlist] Could not open the playlist switcher', error),
+  );
+}
+
+function openPlaylistTransferDialogLazily(queueItemIds: readonly QueueItemId[]): void {
+  void import('./playlist-slots-dialog.ts').then(
+    ({ openPlaylistTransferDialog }) =>
+      openPlaylistTransferDialog(queueItemIds, () => _removalController?.cancel()),
+    (error: unknown) => log.warn('[Playlist] Could not open the track move dialog', error),
+  );
+}
+
 export function initPlaylistView(): void {
   _busScope.dispose();
   _domAbort?.abort();
@@ -1165,8 +1197,21 @@ export function initPlaylistView(): void {
         _followController?.afterRender();
         _currentJumpController?.refresh();
       },
+      canMove: () => getState('playlist.slots') !== null,
+      onMove: openPlaylistTransferDialogLazily,
     });
   }
+
+  const switchButton = document.getElementById('btn-playlist-switch');
+  if (switchButton && switchButton.dataset.bound !== 'true') {
+    switchButton.dataset.bound = 'true';
+    switchButton.addEventListener('click', openPlaylistSlotsDialogLazily);
+  }
+  syncPlaylistSwitchButton();
+  _busScope.on('state:playlist.slots', () => {
+    syncPlaylistSwitchButton();
+    _removalController?.afterRender();
+  });
 
   const initialRoomContext = getRoomContext();
   let queueEditBoundary = {
@@ -1266,6 +1311,7 @@ export function initPlaylistView(): void {
     if (isDesktopPlaylistLayout()) _followController?.afterRender();
   });
   _busScope.on('i18n:changed', schedulePlaylistUpdate);
+  _busScope.on('i18n:changed', syncPlaylistSwitchButton);
   _busScope.on('playlist:items-added', () => _reorderController?.notifyItemsAdded());
   _unsubscribeProRoomUploadRows = subscribeProRoomUploadRows(schedulePlaylistUpdate);
 

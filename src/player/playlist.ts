@@ -96,7 +96,21 @@ import {
   isYouTubeOwner,
   setPlaybackTrackMeta,
 } from './ownership.ts';
-import type { AnyProtocolMsg, DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
+import type {
+  AnyProtocolMsg,
+  DataConnection,
+  PlaylistItem,
+  PlaylistTransferMode,
+  QueueItemId,
+} from '../types/index.ts';
+import {
+  appendToInactivePlaylists,
+  createPlaylistSlotsSummary,
+  getActivePlaylistSlot,
+  isPlaylistSlot,
+  resetPlaylistSlots,
+  swapActivePlaylist,
+} from './playlist-slots.ts';
 import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
@@ -104,7 +118,7 @@ import { cancelRemoteShareWait, shareRemoteFileIfNeeded } from '../share/remote-
 import { getHostNow } from '../network/shared-clock.ts';
 import { hasQueueAuthority, markQueueAuthorityReady } from '../network/queue-authority.ts';
 import { resetRecoveryAuthority } from '../storage/recovery.ts';
-import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
 import {
   broadcastTracksAdded,
   localQueueActorName,
@@ -120,8 +134,10 @@ import {
   cancelProRoomPlaylistFileResolution,
   cancelProRoomPlaylistFilePreload,
   handleProRoomFiles,
+  handleProRoomPlaylistSwitch,
   handleProRoomTrackRemoval,
   handleProRoomTrackReorder,
+  handleProRoomTrackTransfer,
   isProRoomPersistentPlaylistFile,
   resolveProRoomPlaylistFile,
 } from '../pro-room/media-hooks.ts';
@@ -2108,6 +2124,221 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
 
 function broadcastPlaylistSnapshot(): void {
   broadcast({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot() });
+  publishPlaylistSlots();
+}
+
+// ─── Playlists (docs/design/multi-playlist-2026-10-21.md) ────────
+
+function isStandardRoomHost(): boolean {
+  return getRoomContext().kind === 'standard' && isCoordinator();
+}
+
+/** Standard host: publish every playlist's summary locally and to guests. */
+function publishPlaylistSlots(): void {
+  if (!isStandardRoomHost()) return;
+  const summary = createPlaylistSlotsSummary();
+  setState('playlist.slots', summary);
+  broadcast({
+    type: MSG.PLAYLIST_SLOTS,
+    activeSlot: summary.activeSlot,
+    slots: [...summary.slots],
+  });
+}
+
+function sendPlaylistSlots(conn: DataConnection): void {
+  if (!isStandardRoomHost()) return;
+  const summary = createPlaylistSlotsSummary();
+  safeSend(conn, {
+    type: MSG.PLAYLIST_SLOTS,
+    activeSlot: summary.activeSlot,
+    slots: [...summary.slots],
+  });
+}
+
+function handlePlaylistSlots(
+  data: { activeSlot: number; slots: { count: number; bytes: number | null }[] },
+  conn: DataConnection,
+): void {
+  if (getState('network.hostConn') !== conn) return;
+  setState('playlist.slots', { activeSlot: data.activeSlot, slots: data.slots });
+}
+
+/** Standard host: stop everything and make `slot` the active playlist. */
+function switchActivePlaylistAsHost(slot: number): boolean {
+  if (!isStandardRoomHost() || getState('playback.mode') === 'system-audio') return false;
+  if (!isPlaylistSlot(slot) || slot === getActivePlaylistSlot()) return false;
+  const currentQueueItemId = getCurrentQueueItemId();
+  if (currentQueueItemId && isCurrentRemovalBlockedByManualOffset([currentQueueItemId])) {
+    return false;
+  }
+  const incoming = swapActivePlaylist(slot, getState('playlist.items') || []);
+  if (!incoming) return false;
+
+  stopAllMedia({ cancelInFlight: true });
+  clearPreloadState();
+  cancelOutgoingFileTransfers();
+  setCurrentAudioBuffer(null);
+  setPlaybackTrackMeta(null);
+  setState('files.current', null);
+  setState('transfer.meta', null);
+  setState('playback.pendingRecoveryTarget', null);
+  setState('recovery.pending', false);
+  bus.emit('ui:play-btn-state', false);
+
+  commitPlaylistItems(incoming, { currentQueueItemId: null });
+  resetShuffleOrder();
+  if (getState('playlist.isShuffle')) generateShuffleOrder();
+  broadcastPlaylistSnapshot();
+  return true;
+}
+
+/**
+ * Standard host: copy or move active-playlist tracks to the end of other
+ * playlists, keeping the active order. Move removes them from the active
+ * playlist exactly like a deletion.
+ */
+function transferTracksAsHost(
+  queueItemIds: readonly QueueItemId[],
+  targetSlots: readonly number[],
+  mode: PlaylistTransferMode,
+): boolean {
+  if (!isStandardRoomHost() || getState('playback.mode') === 'system-audio') return false;
+  const requested = new Set(queueItemIds);
+  const selected = (getState('playlist.items') || []).filter((item) =>
+    requested.has(item.queueItemId),
+  );
+  if (selected.length === 0) return false;
+  if (mode === 'move' && isCurrentRemovalBlockedByManualOffset(queueItemIds)) return false;
+  if (!appendToInactivePlaylists(selected, targetSlots)) return false;
+  if (mode === 'move') removeQueueItems(selected.map((item) => item.queueItemId));
+  else publishPlaylistSlots();
+  return true;
+}
+
+function showTransferDone(mode: PlaylistTransferMode, count: number): void {
+  showToast(t(mode === 'move' ? 'toast.moved_tracks' : 'toast.copied_tracks', { count }));
+}
+
+function canMutateRoomQueue(): boolean {
+  if (hasRoomCapability('queue.mutate')) return true;
+  showRoomCapabilityRequired('queue.mutate');
+  return false;
+}
+
+/** Make another playlist the room's active one. Playback stops. */
+export function switchPlaylist(slot: number): boolean {
+  if (getRoomContext().kind === 'pro') {
+    return canMutateRoomQueue() && handleProRoomPlaylistSwitch(slot);
+  }
+  if (getState('network.hostConn')) {
+    return (
+      canMutateRoomQueue() &&
+      sendStandardQueueMutationRequest({
+        type: MSG.REQUEST_PLAYLIST_SWITCH,
+        requestId: createQueueItemId(),
+        baseRevision: getState('playlist.revision'),
+        slot,
+      })
+    );
+  }
+  return switchActivePlaylistAsHost(slot);
+}
+
+/** Copy or move active-playlist tracks to other playlists. */
+export function transferTracks(
+  queueItemIds: readonly QueueItemId[],
+  targetSlots: readonly number[],
+  mode: PlaylistTransferMode,
+): boolean {
+  const ids = [...new Set(queueItemIds)];
+  const targets = [...new Set(targetSlots)];
+  if (ids.length === 0 || targets.length === 0) return false;
+  if (getRoomContext().kind === 'pro') {
+    return canMutateRoomQueue() && handleProRoomTrackTransfer(ids, targets, mode);
+  }
+  if (getState('network.hostConn')) {
+    return (
+      canMutateRoomQueue() &&
+      sendStandardQueueMutationRequest(
+        {
+          type: MSG.REQUEST_PLAYLIST_TRANSFER,
+          requestId: createQueueItemId(),
+          baseRevision: getState('playlist.revision'),
+          queueItemIds: ids,
+          targetSlots: targets,
+          mode,
+        },
+        () => showTransferDone(mode, ids.length),
+      )
+    );
+  }
+  if (!transferTracksAsHost(ids, targets, mode)) {
+    showToast(t('playlist.queue_full'));
+    return false;
+  }
+  showTransferDone(mode, ids.length);
+  return true;
+}
+
+function handleRequestPlaylistSwitch(
+  data: { requestId: string; baseRevision: number; slot: number },
+  conn: DataConnection,
+): void {
+  const outcome = acceptStandardQueueMutationRequest({
+    conn,
+    requestId: data.requestId,
+    requestName: MSG.REQUEST_PLAYLIST_SWITCH,
+    fingerprint: JSON.stringify([MSG.REQUEST_PLAYLIST_SWITCH, data.baseRevision, data.slot]),
+  });
+  if (outcome !== 'accepted') return;
+  // Switching to the playlist that is already active is already done.
+  const applied = data.slot === getActivePlaylistSlot() || switchActivePlaylistAsHost(data.slot);
+  if (!applied) sendPlaylistSlots(conn);
+  settleStandardQueueMutationRequest(
+    conn,
+    data.requestId,
+    applied ? { outcome: 'applied' } : { outcome: 'rejected', code: 'conflict' },
+  );
+}
+
+function handleRequestPlaylistTransfer(
+  data: {
+    requestId: string;
+    baseRevision: number;
+    queueItemIds: QueueItemId[];
+    targetSlots: number[];
+    mode: PlaylistTransferMode;
+  },
+  conn: DataConnection,
+): void {
+  const outcome = acceptStandardQueueMutationRequest({
+    conn,
+    requestId: data.requestId,
+    requestName: MSG.REQUEST_PLAYLIST_TRANSFER,
+    fingerprint: JSON.stringify([
+      MSG.REQUEST_PLAYLIST_TRANSFER,
+      data.baseRevision,
+      data.queueItemIds,
+      data.targetSlots,
+      data.mode,
+    ]),
+  });
+  if (outcome !== 'accepted') return;
+  let applied = false;
+  try {
+    applied = transferTracksAsHost(data.queueItemIds, data.targetSlots, data.mode);
+  } catch (error) {
+    log.warn('[Playlist] Standard operator transfer failed:', error);
+  }
+  if (!applied) {
+    safeSend(conn, { type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot(), refresh: true });
+    sendPlaylistSlots(conn);
+  }
+  settleStandardQueueMutationRequest(
+    conn,
+    data.requestId,
+    applied ? { outcome: 'applied' } : { outcome: 'rejected', code: 'conflict' },
+  );
 }
 
 function appendStandardHostFiles(
@@ -2891,7 +3122,30 @@ export function initPlaylist(): void {
     [MSG.REQUEST_SETTING]: handleRequestSetting,
     [MSG.REQUEST_PLAYLIST_REMOVE]: handleRequestPlaylistRemove,
     [MSG.REQUEST_PLAYLIST_REORDER]: handleRequestPlaylistReorder,
+    [MSG.REQUEST_PLAYLIST_SWITCH]: handleRequestPlaylistSwitch,
+    [MSG.REQUEST_PLAYLIST_TRANSFER]: handleRequestPlaylistTransfer,
+    [MSG.PLAYLIST_SLOTS]: handlePlaylistSlots,
   });
+
+  // Playlists belong to one room. A guest learns them from its host; a
+  // standard host announces them, and a new room starts with one playlist.
+  let playlistSlotsRoom: string | null = null;
+  const syncPlaylistSlotsOwner = (): void => {
+    const room = getRoomContext();
+    const owner = room.kind === 'standard' ? room.roomId : null;
+    if (owner !== playlistSlotsRoom) {
+      playlistSlotsRoom = owner;
+      resetPlaylistSlots();
+      if (room.kind !== 'pro') setState('playlist.slots', null);
+    }
+    publishPlaylistSlots();
+  };
+  bus.on('state:room.context', syncPlaylistSlotsOwner);
+  bus.on('state:network.hostConn', (conn) => {
+    // A new host connection announces its own playlists, if it has any.
+    if (conn && getRoomContext().kind === 'standard') setState('playlist.slots', null);
+  });
+  bus.on('network:peer-connected', (conn) => sendPlaylistSlots(conn));
 
   // Handle track ended auto-advance (guarded against double-fire from overlapping timers)
   // Mechanism M7b in docs/design/playback-concurrency-invariants.md — a

@@ -551,6 +551,17 @@
     >
       <div class="tab-header">
         <span class="tab-title" data-i18n="nav.playlist">Playlist</span>
+        <button
+          type="button"
+          class="playlist-switch-button"
+          id="btn-playlist-switch"
+          aria-haspopup="dialog"
+          aria-controls="playlist-slots-overlay"
+          hidden
+        >
+          <span class="tab-title playlist-slot-name" id="playlist-switch-label"></span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9 5.5 5.5L17.5 9" /></svg>
+        </button>
         <div class="playlist-title-area">
           <button
             class="tab-action-btn"
@@ -3332,6 +3343,99 @@
             >Help translate</a
           >
         </nav>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay language-dialog-overlay playlist-slots-overlay"
+      id="playlist-slots-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog language-dialog playlist-slots-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="playlist-slots-title"
+        aria-describedby="playlist-slots-message"
+      >
+        <div class="dialog-header">
+          <span class="dialog-title" id="playlist-slots-title" data-i18n="playlist.slots_title"
+            >Multiple playlists</span
+          >
+        </div>
+        <p class="dialog-message" id="playlist-slots-message" data-i18n="playlist.slots_subtitle">
+          Use several playlists to switch between sets of songs quickly
+        </p>
+        <div class="language-list-frame">
+          <div
+            class="language-list"
+            id="playlist-slots-list"
+            role="group"
+            aria-labelledby="playlist-slots-title"
+          ></div>
+        </div>
+        <div class="dialog-actions adaptive-action-group">
+          <button
+            type="button"
+            class="dialog-primary"
+            id="btn-playlist-slots-done"
+            data-i18n="common.ok"
+          >
+            OK
+          </button>
+        </div>
+        <p class="language-translate-link playlist-storage-usage" id="playlist-storage-usage" hidden></p>
+      </div>
+    </div>
+
+    <div
+      class="dialog-overlay language-dialog-overlay playlist-transfer-overlay"
+      id="playlist-transfer-overlay"
+      aria-hidden="true"
+    >
+      <div
+        class="dialog language-dialog playlist-transfer-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="playlist-transfer-title"
+      >
+        <div class="dialog-header">
+          <span class="dialog-title" id="playlist-transfer-title"></span>
+        </div>
+        <div class="language-list-frame">
+          <div
+            class="language-list"
+            id="playlist-transfer-list"
+            role="group"
+            aria-labelledby="playlist-transfer-title"
+          ></div>
+        </div>
+        <div class="dialog-actions adaptive-action-group playlist-transfer-actions">
+          <button
+            type="button"
+            class="dialog-primary"
+            id="btn-playlist-transfer-copy"
+            data-i18n="playlist.copy_action"
+          >
+            Copy
+          </button>
+          <button
+            type="button"
+            class="dialog-primary"
+            id="btn-playlist-transfer-move"
+            data-i18n="playlist.move_action"
+          >
+            Move
+          </button>
+          <button
+            type="button"
+            class="dialog-secondary adaptive-action-group-full"
+            id="btn-playlist-transfer-close"
+            data-i18n="common.close"
+          >
+            Close
+          </button>
+        </div>
       </div>
     </div>
 

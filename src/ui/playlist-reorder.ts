@@ -112,6 +112,10 @@ interface EntryRect {
 interface PlaylistReorderOptions {
   list: HTMLElement;
   canReorder: () => boolean;
+  /** False keeps the handle (drag and keyboard) out of reordering; a long press still moves. */
+  canUseHandle?: () => boolean;
+  /** Returns true when it took the held row for itself instead of moving it. */
+  onLongPress?: (queueItemId: string) => boolean;
   onCommit: (queueItemId: string, beforeQueueItemId: string | null) => void;
   getAnnouncement: (queueItemId: string, position: number, total: number) => string;
   getHandleLabel?: (queueItemId: string, position: number) => string;
@@ -194,6 +198,7 @@ export function createPlaylistReorderController(
   let lastScrollAt = Number.NEGATIVE_INFINITY;
   let suppressClicksUntil = 0;
   let scopedClickSuppression: ScopedClickSuppression | null = null;
+  let heldPointerSelection: { pointerId: number; sourceId: string } | null = null;
   let touchSequenceBlocked = false;
   let pendingFocusId: string | null = null;
   let pendingFocusOrigin: Element | null = null;
@@ -368,6 +373,22 @@ export function createPlaylistReorderController(
 
   function reorderable(): boolean {
     return !destroyed && !settling && options.canReorder() && entries().length > 1;
+  }
+
+  function handleUsable(): boolean {
+    return options.canUseHandle?.() ?? true;
+  }
+
+  // A hold that the owner takes (edit mode's select) ends here instead of
+  // starting a drag; the click its release would send is swallowed.
+  function longPressTaken(sourceId: string): boolean {
+    if (!options.onLongPress?.(sourceId)) return false;
+    try {
+      navigator.vibrate?.(10);
+    } catch {
+      /* Haptics are optional. */
+    }
+    return true;
   }
 
   function clearLongPressTimer(): void {
@@ -812,7 +833,7 @@ export function createPlaylistReorderController(
   }
 
   function startKeyboard(sourceEntry: HTMLElement): void {
-    if (!reorderable() || drag || keyboard) return;
+    if (!reorderable() || !handleUsable() || drag || keyboard) return;
     const sourceId = getEntryId(sourceEntry);
     if (!sourceId) return;
     clearGlobalHint();
@@ -941,9 +962,9 @@ export function createPlaylistReorderController(
     if (!row || !entry || !list.contains(entry) || !getEntryId(entry)) return null;
     const interactiveTarget = target?.closest<HTMLElement>(INTERACTIVE_SELECTOR);
     // The title now uses a real button for keyboard/AT semantics, but it is
-    // also the largest row-body surface. Keep ordinary taps and clicks as play
-    // actions while allowing a stationary hold to enter reorder; startDrag and
-    // finishDrag suppress the click that follows a long press.
+    // also the largest row-body surface. Keep ordinary taps and clicks as
+    // their own actions while a stationary hold selects or moves the row; the
+    // click that follows a long press is suppressed.
     if (interactiveTarget && !interactiveTarget.matches(LONG_PRESS_PLAY_SURFACE_SELECTOR)) {
       return null;
     }
@@ -975,6 +996,10 @@ export function createPlaylistReorderController(
         if (!sourceEntry || scrollContainer.scrollTop !== hold.startScrollTop || !reorderable()) {
           return;
         }
+        if (longPressTaken(hold.sourceId)) {
+          heldPointerSelection = { pointerId, sourceId: hold.sourceId };
+          return;
+        }
         try {
           // Capture only once the hold becomes a drag. Capturing at press
           // time would retarget the click of an ordinary short press.
@@ -997,7 +1022,7 @@ export function createPlaylistReorderController(
       return;
     }
     const entry = handle.closest<HTMLElement>(ENTRY_SELECTOR);
-    if (!entry || !reorderable()) return;
+    if (!entry || !reorderable() || !handleUsable()) return;
     event.preventDefault();
     event.stopPropagation();
     handle.focus({ preventScroll: true });
@@ -1072,6 +1097,11 @@ export function createPlaylistReorderController(
           probe.suppressClickOnEnd = true;
         }
         if (probe.disqualified) return;
+        if (longPressTaken(probe.sourceId)) {
+          probe.disqualified = true;
+          probe.suppressClickOnEnd = true;
+          return;
+        }
         startDrag(probe.sourceEntry, probe.lastX, probe.lastY, 'long-press', null, probe.touchId);
       }, PLAYLIST_LONG_PRESS_MS);
     }
@@ -1168,6 +1198,13 @@ export function createPlaylistReorderController(
 
   function onDocumentPointerFinish(event: PointerEvent): void {
     if (event.pointerId === pointerHold?.pointerId) clearPointerHold();
+    if (event.pointerId === heldPointerSelection?.pointerId) {
+      scopedClickSuppression = {
+        sourceId: heldPointerSelection.sourceId,
+        until: performance.now() + CLICK_SUPPRESSION_MS,
+      };
+      heldPointerSelection = null;
+    }
   }
 
   function onScroll(): void {

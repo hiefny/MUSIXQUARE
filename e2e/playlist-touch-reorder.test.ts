@@ -171,8 +171,8 @@ test.describe('Playlist touch reorder', () => {
     await navigateToTab(page, 'playlist');
 
     // The accessible title play button doubles as the large touch long-press
-    // surface: it must not activate early, then must cross the production
-    // 700 ms threshold and create the real drag ghost.
+    // surface. Outside edit mode a hold selects that row and enters edit mode;
+    // the release neither plays it nor toggles it back.
     await resetPlaylistScroll(page);
     const longPressTarget = rows.nth(1).locator('.track-name');
     await longPressTarget.scrollIntoViewIfNeeded();
@@ -181,6 +181,24 @@ test.describe('Playlist touch reorder', () => {
     // without issuing a second scroll immediately before touchStart.
     await page.waitForTimeout(200);
     const longPressPoint = await visibleCenterOf(longPressTarget);
+    const heldSelect = page.locator('.btn-playlist-select').nth(1);
+    await touchStart(cdp, longPressPoint);
+    try {
+      await page.waitForTimeout(600);
+      await expect(heldSelect).toHaveAttribute('aria-pressed', 'false');
+      await expect(heldSelect).toHaveAttribute('aria-pressed', 'true', { timeout: 500 });
+      await expect(ghost).toHaveCount(0);
+    } finally {
+      await touchEnd(cdp);
+    }
+    await page.waitForTimeout(300);
+    await expect(heldSelect).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.playlist-selection-title')).toHaveText('1 selected');
+    await waitForCurrentQueueItemId(page, tapTargetId);
+
+    // In edit mode the same hold must not activate early, then must cross the
+    // production 700 ms threshold and lift the held row as the real drag ghost.
+    await page.waitForTimeout(200);
     await touchStart(cdp, longPressPoint);
     try {
       await page.waitForTimeout(600);
@@ -213,6 +231,8 @@ test.describe('Playlist touch reorder', () => {
       await touchEnd(cdp);
     }
     await expect(ghost).toHaveCount(0);
+    await quickTap(cdp, await centerOf(page.locator('[data-selection-action="cancel"]')));
+    await expect(page.locator('.playlist-selection-bar')).toBeHidden();
     const idleHandleColor = await firstHandle.evaluate((handle) => getComputedStyle(handle).color);
     const mutedColor = await page.evaluate(() => {
       const probe = document.createElement('span');

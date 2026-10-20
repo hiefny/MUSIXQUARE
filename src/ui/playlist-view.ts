@@ -1032,8 +1032,15 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
     canReorder: () =>
       canEditQueueStructure() &&
       getState('playback.mode') !== 'system-audio' &&
-      !_removalController?.isActive &&
       visiblePlaylistItems(getState('playlist.items')).length > 1,
+    // In edit mode the number column is for picking, and a long press moves
+    // the held track. Outside it a long press starts edit mode with that track.
+    canUseHandle: () => !_removalController?.isActive,
+    onLongPress: (queueItemId) => {
+      if (!_removalController || _removalController.isActive) return false;
+      _removalController.toggle(queueItemId as QueueItemId);
+      return true;
+    },
     isPlaylistVisible: playlistIsVisible,
     onCommit: (queueItemId, beforeQueueItemId) => {
       bus.emit(

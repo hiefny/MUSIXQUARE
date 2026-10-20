@@ -195,7 +195,8 @@ export async function resolveProYouTubeDuration(
   const signature = await hmacBase64Url(secret, signaturePayload(videoId, timestamp));
   const request = new Request(`${INTERNAL_ORIGIN}${PRO_YOUTUBE_DURATION_PATH}?videoId=${videoId}`, {
     headers: { [SIGNATURE_HEADER]: signature, [TIMESTAMP_HEADER]: timestamp },
-    redirect: 'error',
+    // Workers reject the "error" redirect mode; a manual 3xx is not 200 and retries.
+    redirect: 'manual',
   });
   const response = await fetchBoundedJson(
     (input) => service.fetch(input),
@@ -268,7 +269,7 @@ export async function handleProYouTubeDurationRequest(
         (input) => fetch(input),
         new Request(`https://www.googleapis.com/youtube/v3/videos?${params}`, {
           headers: { 'x-goog-api-key': apiKey },
-          redirect: 'error',
+          redirect: 'manual',
         }),
         UPSTREAM_TIMEOUT_MS,
       );

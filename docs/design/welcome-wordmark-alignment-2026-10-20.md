@@ -1,6 +1,6 @@
 # 두 열 시작 화면의 로고 윗변 맞춤 (2026-10-20)
 
-- Status: 8.11.28 UI 수정과 검증 기록이다. 배포 결과의 정본은 [릴리스 기록](../release-record.md)과
+- Status: 8.11.28 UI 수정·검증·배포 기록이다. 배포 결과의 정본은 [릴리스 기록](../release-record.md)과
   [릴리스 이력](../release-history.md)이다.
 - 계기: 오너 관찰(2026-10-20). 휴대폰 가로에서 시작 화면 로고가 그 자리를 이어받는 "안녕하세요!"보다 커 보였다.
   오너는 착시일 수 있다며 크기 조정은 보류하고 원인 조사를 요청했고, 조사 결과를 본 뒤 가로·태블릿의 로고 위치를
@@ -53,6 +53,39 @@ ko-KR, 밝은·어두운 테마, 11가지 화면 크기에서 로고와 인사�
   `build:checked` 통과, unit 597 files / 13,440 pass / 0 fail / 0 skip(새 계약 테스트 1개 추가), 소스 가드
   bus-pairing·dead-exports·import-graph·sw-cache-version·brand-capitalization 통과. 로컬 결과는 exact-main CI
   후보를 대신하지 않는다.
+
+## Release and recovery
+
+- PR [#420](https://github.com/hiefny/MUSIXQUARE/pull/420) squash merge → main `19552573`. PR head `291c2792`의 CI 39327088593
+  11 jobs 통과. Codex 지적 1건(검증 항목의 두 열 보정 설명이 1/6로 남은 문구)은 반영했다. main 트리는 PR head와
+  같다.
+- Exact-main push CI [39370438116](https://github.com/hiefny/MUSIXQUARE/actions/runs/39370438116) 11 jobs 통과: unit 597 files /
+  13,439 pass / 0 fail / 1 Windows-only skip, candidate browser 17 + critical browser 55 pass. 후보 artifact
+  12240513735.
+- 첫 두 배포 실행 [39371044098](https://github.com/hiefny/MUSIXQUARE/actions/runs/39371044098)(13:43 KST)·[39371530082](https://github.com/hiefny/MUSIXQUARE/actions/runs/39371530082)(13:48 KST)은
+  App 배포 뒤 Standard HTTPS signaling smoke가 `/api/standard-signaling/v1/bridge/open`에서 HTTP 502를 받아
+  실패했다(첫 번째는 방장 열기, 두 번째는 방장 열기 성공 뒤 게스트 열기). 502는 App Worker가 시그널링 Worker의
+  Durable Object를 5초 안에 열지 못하거나 응답이 JSON이 아닐 때 나온다. 이번 변경은 CSS 한 줄이라 이 경로와
+  무관하다. 두 번 모두 자동 복구가 App을 8.11.27 version `87ff6e7e`로 되돌리고(deployment `f69978da`,
+  `57b295ca`) 소유권·floor·R2를 검증했으며, 직후 Drift Audit 39371361020도 31 / 0 / 5였다. Cloudflare 상태 페이지의
+  진행 중 장애(Zero Trust 연결, Gateway DLP, WARP 위치)와 PHL 점검(14:00 KST 시작)은 이 경로와 직접 관련이
+  없어 보였다.
+- 진단: 오너 승인 뒤 두 Worker에 `wrangler tail`을 켜고 14:16 KST에 운영 8.11.27에서 같은 smoke를 한 번 돌렸다.
+  통과했고 브리지 열기는 방장 1.17초·게스트 0.55초였다. 같은 로그를 켠 채 세 번째 실행을 했다.
+- [Production Release 39374155277](https://github.com/hiefny/MUSIXQUARE/actions/runs/39374155277) attempt 1 성공, target=app, Developer API D1=false.
+  2026-10-20 14:20:31 KST deploy job 완료. App version `9a932633-a36e-4198-b5f5-6d520ddaa96f` / deployment
+  `ebe88791-7d43-4a18-b7ff-4aef96bfa63a`, 최종 소유권 14:20:26.797 KST verified, 부분 릴리스 recheck compatible,
+  smoke 4/4(시그널링 브리지 열기는 Cloudflare ORD 경유 방장 1.23초·게스트 0.30초, 예외 없음), 기존 App D1 계약
+  7단계 apply/verify 성공.
+- 14:21 KST 공개 8 GET 모두 HTTP 200, exact-main 후보와 크기·SHA 일치(서비스 워커 v737). 14:22 KST 운영 페이지를
+  844×390으로 열어 두 열 레이아웃에서 `--setup-logo-mt: 3px`, 18px 로고의 `translateY(3px)`를 확인했다. 배포 직후
+  Drift Audit 39374443622: 31 pass / 0 fail / 5 manual-only.
+- 복구: 14:19:12.929 KST checkpoint 12242468001이 App 8.11.27/v736(`eaf8734e`, version `87ff6e7e` / deployment
+  `57b295ca`)을 보존한다. provenance는 verified-release-ancestor다. 성공한 실행의 롤백은 미실행이다. 롤백하면
+  새로고침한 클라이언트는 두 열 시작 화면에서 로고 윗변이 다시 2~3px 위로 튀어나오고, 저장 데이터 마이그레이션은
+  없다.
+- 남은 관찰: 실패 시점의 502가 Durable Object 지연인지 다른 오류인지는 로그를 켜기 전이라 확인하지 못했다. 같은
+  smoke가 다시 502로 실패하면 이번처럼 로그를 켜고 원인을 잡는다.
 
 ## 한계
 

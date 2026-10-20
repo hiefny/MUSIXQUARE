@@ -26662,6 +26662,130 @@ describe('PRO room multiple playlists', () => {
     );
   });
 
+  it('drops inactive files whose deletion an older Worker already started', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const { assetId, asset } = await completeReadyAsset(context, 'playlist-slots-deleting');
+    const item = playlistItem('88888888-8888-4888-8888-888888888888', asset);
+    expect((await replacePlaylist(context, [item], 'playlist-slots-deleting-a')).status).toBe(200);
+    expect(
+      (
+        await transfer(
+          context,
+          {
+            baseRevision: internal.room.revision,
+            queueItemIds: [item.queueItemId],
+            targetSlots: [1],
+            mode: 'move',
+          },
+          'playlist-slots-deleting-move',
+        )
+      ).status,
+    ).toBe(200);
+
+    // An older Worker's garbage collection had already begun deleting it.
+    const stored = context.state.storage.data.get('pro-room:v2:core') as Record<string, any>;
+    const nowMs = Date.now();
+    stored.core.assets[assetId].deletionPending = {
+      reason: 'orphan-gc',
+      requestedAtMs: nowMs,
+      retryAtMs: nowMs + 60_000,
+      originalStatus: 'ready',
+    };
+    context.state.storage.data.set('pro-room:v2:core', stored);
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const reloaded = await slotSnapshot(context, restarted);
+    expect(reloaded.snapshot.playlistSlots.slots[1]).toEqual({ count: 0, bytes: null });
+    expect(context.state.storage.data.has('pro-room:v2:slots')).toBe(false);
+  });
+
+  it('leaves out files that became unavailable when their playlist becomes active', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const { assetId, asset } = await completeReadyAsset(context, 'playlist-slots-switch-dead');
+    const item = playlistItem('99999999-9999-4999-8999-999999999999', asset);
+    expect((await replacePlaylist(context, [item], 'playlist-slots-switch-dead-a')).status).toBe(
+      200,
+    );
+    expect(
+      (
+        await transfer(
+          context,
+          {
+            baseRevision: internal.room.revision,
+            queueItemIds: [item.queueItemId],
+            targetSlots: [2],
+            mode: 'move',
+          },
+          'playlist-slots-switch-dead-move',
+        )
+      ).status,
+    ).toBe(200);
+    internal.room.assets[assetId].status = 'deleting';
+    internal.room.assets[assetId].deletionPending = {
+      reason: 'orphan-gc',
+      requestedAtMs: Date.now(),
+      retryAtMs: Date.now() + 60_000,
+      originalStatus: 'ready',
+    };
+    const switched = await switchTo(
+      context,
+      { baseRevision: internal.room.revision, slot: 2 },
+      'playlist-slots-switch-dead-to',
+    );
+    expect(switched.status).toBe(200);
+    expect((await responseJson(switched)).snapshot.playlist).toEqual([]);
+    // The newly active playlist stays editable.
+    expect((await replacePlaylist(context, [], 'playlist-slots-switch-dead-edit')).status).toBe(
+      200,
+    );
+  });
+
+  it('refuses a queue item ID that another playlist holds so the room keeps loading', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first] = await seedYouTube(context, 'playlist-slots-reuse-0001', ['One', 'Two']);
+    expect(
+      (
+        await switchTo(
+          context,
+          { baseRevision: internal.room.revision, slot: 1 },
+          'playlist-slots-reuse-switch',
+        )
+      ).status,
+    ).toBe(200);
+
+    // The ID was visible while playlist 1 was active.
+    const reused = await replacePlaylist(
+      context,
+      [{ queueItemId: first, name: 'Reused', source: { kind: 'youtube', videoId: VIDEO_IDS[2] } }],
+      'playlist-slots-reuse-add',
+    );
+    expect(reused.status).toBe(409);
+    expect(await responseJson(reused)).toEqual({ error: 'QUEUE_ITEM_ID_CONFLICT' });
+    expect(internal.room.playlist).toEqual([]);
+
+    // No other path can persist a collision either.
+    internal.room.playlist.push({
+      queueItemId: first,
+      name: 'Forced',
+      source: { kind: 'youtube', videoId: VIDEO_IDS[2] },
+    });
+    await expect(internal.persist()).rejects.toThrow('bounded storage budget');
+    internal.room.playlist = [];
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const reloaded = await slotSnapshot(context, restarted);
+    expect(reloaded.snapshot.playlistSlots).toMatchObject({ activeSlot: 1 });
+    expect(reloaded.snapshot.playlistSlots.slots[0]).toEqual({ count: 2, bytes: null });
+  });
+
   it('moves the current track like a removal and refuses invalid or oversized transfers', async () => {
     const context = await activatedRoom();
     const internal = context.worker as unknown as Internal;

@@ -4169,7 +4169,11 @@ function assertBoundedRoomState(room: ProRoomState) {
 function boundedPlaylistSlots(room: ProRoomState) {
   const slots = room.playlistSlots;
   if (!slots) return true;
+  // Queue item IDs are unique across every playlist. The stored record is
+  // rejected on load otherwise, so no commit may persist a collision.
+  const ids = [...room.playlist, ...inactivePlaylistItems(slots)].map((item) => item.queueItemId);
   return (
+    new Set(ids).size === ids.length &&
     isPlaylistSlot(slots.activeSlot) &&
     slots.inactive.length === PRO_ROOM_PLAYLIST_SLOT_COUNT &&
     slots.inactive[slots.activeSlot]?.length === 0 &&
@@ -6185,16 +6189,21 @@ export class MusixquareProRoom {
 
   // A Worker that predates multiple playlists collects files only the active
   // playlist references. After a rollback and forward deploy, an inactive
-  // item can therefore name an asset that no longer exists; drop it so the
-  // playlist stays editable once it becomes active (edits validate assets).
+  // item can therefore name an asset that is gone or already being deleted.
+  // Such an item can never play, and once its playlist is active every edit
+  // fails asset validation, so it is dropped instead (letting a stalled
+  // deletion finish).
+  isUnavailableFileItem(item: PlaylistItem) {
+    if (item.source.kind !== 'pro-r2') return false;
+    const asset = this.activeRoom.assets?.[item.source.assetId];
+    return !asset || asset.status !== 'ready' || asset.deletionPending !== undefined;
+  }
+
   normalizeLoadedPlaylistSlots() {
     const slots = this.room?.playlistSlots;
     if (!slots) return;
-    const assets = this.activeRoom.assets || {};
     for (const [slot, items] of slots.inactive.entries()) {
-      const kept = items.filter(
-        (item) => item.source.kind !== 'pro-r2' || assets[item.source.assetId] !== undefined,
-      );
+      const kept = items.filter((item) => !this.isUnavailableFileItem(item));
       if (kept.length === items.length) continue;
       slots.inactive[slot] = kept;
       this.playlistSlotsMigrationPending = true;
@@ -8823,6 +8832,9 @@ export class MusixquareProRoom {
         },
         developerOwnerKeyId: developerKeyId,
       };
+      if (this.reusesInactiveQueueItemId([item])) {
+        return errorResponse('QUEUE_ITEM_ID_CONFLICT', 409);
+      }
       this.activeRoom.playlist.push(item);
       playlistChanged = true;
     } else if (mutation.type === 'add_youtube_batch') {
@@ -8849,6 +8861,9 @@ export class MusixquareProRoom {
         },
         developerOwnerKeyId: developerKeyId,
       }));
+      if (this.reusesInactiveQueueItemId(items)) {
+        return errorResponse('QUEUE_ITEM_ID_CONFLICT', 409);
+      }
       this.activeRoom.playlist.push(...items);
       playlistChanged = true;
     } else if (mutation.type === 'remove') {
@@ -16943,6 +16958,11 @@ export class MusixquareProRoom {
     if (addedCount > 0 && !this.sessionHasPermission(auth.session, 'media.add')) {
       return errorResponse('PERMISSION_REQUIRED', 403);
     }
+    // Client-chosen IDs must not reuse one held by another playlist (they were
+    // visible while that playlist was active).
+    if (this.reusesInactiveQueueItemId(addedItems)) {
+      return errorResponse('QUEUE_ITEM_ID_CONFLICT', 409);
+    }
     if (auth.session.role !== 'owner') {
       const changesExistingItem = playlist.some((item: PlaylistItem) => {
         const previous = previousPlaylistById.get(item.queueItemId);
@@ -17062,6 +17082,14 @@ export class MusixquareProRoom {
     return this.activeRoom.playlistSlots?.activeSlot ?? 0;
   }
 
+  /** True when an item to add would take a queue item ID an inactive playlist holds. */
+  reusesInactiveQueueItemId(items: readonly { queueItemId: string }[]) {
+    const inactive = inactivePlaylistItems(this.activeRoom.playlistSlots);
+    if (inactive.length === 0 || items.length === 0) return false;
+    const ids = new Set(inactive.map((item) => item.queueItemId));
+    return items.some((item) => ids.has(item.queueItemId));
+  }
+
   /**
    * Make `slot` the active playlist. Playback stops and no track stays
    * selected, as when the current track is removed. The caller stores its
@@ -17088,7 +17116,9 @@ export class MusixquareProRoom {
     if (stopsPlayback && !target) return { error: 'PLAYBACK_REVISION_EXHAUSTED', status: 409 };
     const cancelEvent = this.cancelPendingPlayback('playlist-switched', nowMs);
     const swapped = swapActivePlaylist(room.playlist, room.playlistSlots, slot);
-    room.playlist = swapped.active;
+    // An inactive file whose asset became unavailable since load would make
+    // every edit of the newly active playlist fail asset validation.
+    room.playlist = swapped.active.filter((item) => !this.isUnavailableFileItem(item));
     room.playlistSlots = swapped.slots;
     room.currentQueueItemId = null;
     if (target) room.playback = target;

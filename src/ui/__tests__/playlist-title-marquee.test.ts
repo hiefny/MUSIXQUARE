@@ -102,8 +102,8 @@ describe('playlist title marquee', () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
 
     expect(stylesheet).toContain('@media (any-hover: hover)');
-    expect(stylesheet).toContain(
-      '@media (max-width: 1279px) and (hover: none) and (pointer: coarse)',
+    expect(stylesheet).toMatch(
+      /@media \(max-width: 1279px\) and \(hover: none\) and \(pointer: coarse\),\s+\(max-height: 539px\) and \(hover: none\) and \(pointer: coarse\) \{/u,
     );
     expect(stylesheet).toContain('.playlist-entry:not(:has(.sub-track-item.active))');
     expect(stylesheet).toContain('.playlist-current-leading.is-current-playing');

@@ -2568,7 +2568,8 @@ Safety is declared first because important layer precedence is reversed; its acc
      exposes it; otherwise animate the current top-level row. Wide desktop
      layouts remain static until hover or keyboard focus, even on coarse-pointer
      hardware such as a touchscreen or TV-style browser. */
-  @media (max-width: 1279px) and (hover: none) and (pointer: coarse) {
+  @media (max-width: 1279px) and (hover: none) and (pointer: coarse),
+    (max-height: 539px) and (hover: none) and (pointer: coarse) {
     .playlist-entry:not(:has(.sub-track-item.active))
       > .track-item:has(.playlist-current-leading.is-current-playing)
       .track-name-text.is-playlist-title-overflowing
@@ -7946,7 +7947,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       visibility 0s 0s;
   }
 
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 539px) {
     .chat-drawer {
       z-index: 3000;
     }
@@ -7996,7 +7997,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     outline: none;
   }
 
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 539px) {
     .chat-drawer-header {
       justify-content: center;
       padding: 16px;
@@ -8009,7 +8010,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Drag handle bar — mobile bottom sheet affordance */
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 539px) {
     .chat-drawer-header::before {
       content: '';
       width: 36px;
@@ -8051,7 +8052,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Cascade after the base close-button rule so mobile keeps the drawer chrome hidden. */
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 539px) {
     .chat-drawer-title,
     .chat-drawer-close {
       display: none;
@@ -8190,7 +8191,7 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   /* Mobile chat grows upward from the input like a native messenger. Desktop
      keeps the conventional panel flow and starts its first message at the top. */
-  @media (max-width: 1279px) {
+  @media (max-width: 1279px), (max-height: 539px) {
     .chat-drawer-messages > .chat-group:first-child {
       margin-top: auto;
     }
@@ -10220,7 +10221,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   /* ── Setup Overlay: Unified 2-Column Layout ──────────────────────
        Shared between mobile landscape and desktop.
        Dimension tokens default to landscape values;
-       overridden by @layer desktop for ≥1280px screens.
+       overridden by @layer desktop on the wide desktop layout.
        ─────────────────────────────────────────────────────────────── */
   @media (min-width: 720px) {
     #setup-overlay {
@@ -10945,7 +10946,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     right: 56px;
   }
 
-  @media (min-width: 1280px) {
+  @media (min-width: 1280px) and (min-height: 540px) {
     #youtube-url-overlay .setup-join-area > .cscroll-track {
       right: 40px;
     }
@@ -11493,8 +11494,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       padding-bottom: 41px;
     }
   }
-  /* Compact sidebar geometry: 720–1279px, with independent short-height variants. Navigation/overlay visibility is owned by states below. */
-  @media (min-width: 720px) and (max-width: 1279px) {
+  /* Compact sidebar geometry: 720–1279px wide, or wider but under 540px tall, with independent short-height variants. Navigation/overlay visibility is owned by states below. */
+  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 539px) {
     /* ── Sidebar (header) — right side ── */
     header {
       width: calc(200px + var(--safe-right));
@@ -12349,7 +12350,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   body.mode-demo .bottom-nav {
     transform: translateY(20px);
   }
-  @media (min-width: 720px) and (max-width: 1279px) {
+  @media (min-width: 720px) and (max-width: 1279px), (min-width: 1280px) and (max-height: 539px) {
     body:has(#setup-overlay.active) header,
     body.overlay-open:has(#setup-overlay.active) header {
       pointer-events: none;

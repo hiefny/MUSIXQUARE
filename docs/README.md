@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Desktop layout by viewport height — 2026-10-21](design/desktop-height-layout-2026-10-21.md) — wide viewports
+  under 540 px tall now use the compact sidebar layout, and from 540 to 719 px tall the dashboard keeps its header
+  over the Play column only so Playlist/Chat and Settings run full height. One module holds the bands for CSS and
+  JS, and a contract test keeps them equal (unreleased).
 - [Playlist and platform fixes 8.11.32 — 2026-10-20](design/playlist-and-platform-fixes-2026-10-20.md) —
   the drag ghost showed the play icon under the grip; desktop gets press-and-hold reorder; edge auto-scroll no longer
   starts from an edge-row grab and stops outside its zone; iOS long-press text selection returns after lightningcss had

@@ -4,6 +4,7 @@
 import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 import { MSG } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -1752,7 +1753,7 @@ describe('playlist queue identity rendering and actions', () => {
     const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
-      value: vi.fn((query: string) => ({ matches: query === '(min-width: 1280px)' })),
+      value: vi.fn((query: string) => ({ matches: query === DESKTOP_LAYOUT_QUERY })),
     });
 
     try {
@@ -1798,7 +1799,7 @@ describe('playlist queue identity rendering and actions', () => {
     const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
-      value: vi.fn((query: string) => ({ matches: query === '(min-width: 1280px)' })),
+      value: vi.fn((query: string) => ({ matches: query === DESKTOP_LAYOUT_QUERY })),
     });
 
     try {

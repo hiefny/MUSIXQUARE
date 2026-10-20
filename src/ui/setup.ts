@@ -19,6 +19,7 @@ import { cancelCapabilityChallenge } from '../core/capability.ts';
 import { requestProRoomTransportRecovery } from '../pro-room/transport-recovery.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { onCompactLandscapeChange } from '../core/platform.ts';
+import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { showToast, showLoader } from './toast.ts';
 import { showDialog } from './dialog.ts';
 import { updateRoleBadge } from './player-controls.ts';
@@ -177,7 +178,7 @@ function clearEntranceClasses(el: HTMLElement): void {
 }
 
 function _applyEntranceClasses(): void {
-  const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
+  const isDesktop = window.matchMedia(DESKTOP_LAYOUT_QUERY).matches;
   for (const [sel, dir, delay, desktopOnly] of ENTRANCE_TARGETS) {
     const el = document.querySelector(sel) as HTMLElement | null;
     if (!el) continue;
@@ -193,7 +194,7 @@ function _applyEntranceClasses(): void {
 
 function triggerAppEntrance(): void {
   requestAnimationFrame(() => {
-    const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
+    const isDesktop = window.matchMedia(DESKTOP_LAYOUT_QUERY).matches;
     for (const [sel, , , desktopOnly] of ENTRANCE_TARGETS) {
       const el = document.querySelector(sel) as HTMLElement | null;
       if (el && desktopOnly && !isDesktop) {
@@ -204,7 +205,7 @@ function triggerAppEntrance(): void {
     }
     // Desktop chat: separate animation (mobile drawer conflicts with app-entrance)
     const chatDrawer = document.querySelector('.chat-drawer') as HTMLElement | null;
-    if (chatDrawer && window.matchMedia('(min-width: 1280px)').matches) {
+    if (chatDrawer && window.matchMedia(DESKTOP_LAYOUT_QUERY).matches) {
       chatDrawer.classList.add('app-chat-entrance');
     }
     // Cleanup just after the 1200ms visual timeline completes. Reduced-motion
@@ -429,7 +430,7 @@ export function initSetup(): void {
 
   // Desktop / compact landscape layout listener
   try {
-    const mqlDesktop = window.matchMedia('(min-width: 1280px)');
+    const mqlDesktop = window.matchMedia(DESKTOP_LAYOUT_QUERY);
     mqlDesktop.addEventListener('change', () => {
       syncDesktopLeftPanel();
       if (setupEl('setup-overlay')?.classList.contains('active')) {

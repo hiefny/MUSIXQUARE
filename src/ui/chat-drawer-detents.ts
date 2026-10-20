@@ -1,3 +1,5 @@
+import { isDesktopLayoutSize } from '../core/layout-breakpoints.ts';
+
 export type ChatDrawerDetent = 'half' | 'full';
 type ChatDrawerReleaseTarget = ChatDrawerDetent | 'closed';
 
@@ -7,7 +9,6 @@ const CHAT_DRAWER_DISMISS_THRESHOLD = 100;
 const CHAT_DRAWER_FULL_DISMISS_EXTRA_MIN = 120;
 const CHAT_DRAWER_FULL_DISMISS_EXTRA_RATIO = 0.15;
 
-const CHAT_DRAWER_DESKTOP_MIN_WIDTH = 1280;
 const CHAT_DRAWER_MIN_HALF_HEIGHT = 300;
 const CHAT_DRAWER_STAGE_CLEARANCE = 12;
 const CHAT_DRAWER_FALLBACK_HALF_MIN_VIEWPORT_HEIGHT = 720;
@@ -29,7 +30,7 @@ export interface ChatDrawerViewportContext {
  */
 export function canUseChatDrawerHalfDetent(context: ChatDrawerViewportContext): boolean {
   const { viewportWidth, viewportHeight, isPortrait, stageBottom } = context;
-  if (viewportWidth >= CHAT_DRAWER_DESKTOP_MIN_WIDTH || viewportHeight <= 0) return false;
+  if (isDesktopLayoutSize(viewportWidth, viewportHeight) || viewportHeight <= 0) return false;
   if (isPortrait) return true;
 
   const halfHeight = viewportHeight * 0.5;

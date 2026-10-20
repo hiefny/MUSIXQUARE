@@ -1,3 +1,4 @@
+import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { getBodyRenderedScale, viewportLengthToBodyCssPixels } from '../core/platform.ts';
 
 const ENTRY_SELECTOR = '.playlist-entry[data-queue-item-id]';
@@ -151,7 +152,7 @@ function defaultIsPlaylistVisible(list: HTMLElement): boolean {
   const panel = list.closest<HTMLElement>('.tab-content');
   if (!panel) return true;
   try {
-    if (window.matchMedia('(min-width: 1280px)').matches) return true;
+    if (window.matchMedia(DESKTOP_LAYOUT_QUERY).matches) return true;
   } catch {
     /* matchMedia can be unavailable in jsdom and old browsers. */
   }

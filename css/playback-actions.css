@@ -172,7 +172,7 @@
     }
   }
 
-  @media (min-width: 1280px) {
+  @media (min-width: 1280px) and (min-height: 540px) {
     .play-action-buttons {
       --play-action-padding-x: 16px;
       --play-action-icon-size: 22px;

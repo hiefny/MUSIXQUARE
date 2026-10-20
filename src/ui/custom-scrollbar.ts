@@ -9,6 +9,7 @@ import {
   isCompactLandscape,
   onCompactLandscapeChange,
 } from '../core/platform.ts';
+import { isDesktopLayout, SHORT_DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { bus } from '../core/events.ts';
 
@@ -376,6 +377,8 @@ function ensureGlobalLayoutListeners(): void {
   // bookkeeping needed.
   onCompactLandscapeChange(onGlobalLayoutChange);
   window.matchMedia('(orientation: landscape)').addEventListener('change', onGlobalLayoutChange);
+  // Short desktop moves the side panels up beside the Play-only header.
+  window.matchMedia(SHORT_DESKTOP_LAYOUT_QUERY).addEventListener('change', onGlobalLayoutChange);
 }
 
 /**
@@ -432,7 +435,7 @@ function updateLayout(state: ScrollbarState): void {
 
   const containerRect = container.getBoundingClientRect();
   let visibleHeight = clientHeight;
-  const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
+  const isDesktop = isDesktopLayout();
   const isCompactLand = isCompactLandscape();
 
   if (

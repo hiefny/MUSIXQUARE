@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DESKTOP_LAYOUT_QUERY } from '../../core/layout-breakpoints.ts';
 
 const mocks = vi.hoisted(() => ({
   desktop: true,
@@ -83,7 +84,7 @@ beforeEach(() => {
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
     value: vi.fn((query: string) => ({
-      matches: query === '(min-width: 1280px)' ? mocks.desktop : false,
+      matches: query === DESKTOP_LAYOUT_QUERY ? mocks.desktop : false,
       media: query,
       onchange: null,
       addEventListener: vi.fn(),

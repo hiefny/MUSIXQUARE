@@ -1,16 +1,5 @@
 # Repository workflow
 
-## Competition freeze ended (owner instruction, 2026-10-07)
-
-- The owner explicitly ended the competition and authorized promotion of the
-  accumulated `mxqr_beta` changes to `main`, production deployment, and
-  reactivation of Operations Drift Audit on 2026-10-07.
-- The 2026-09-23 freeze and its 2026-09-25 beta-push exception are historical.
-  Follow the normal workflow below, including PR review, the successful
-  exact-main-SHA CI candidate, and the production release procedure.
-- Reactivate only Operations Drift Audit; this authorization does not restore
-  unrelated disabled workflows. Audit-tooling-only changes need no App release.
-
 ## Release record
 
 - Read `docs/release-record.md` before each QA round and before preparing a
@@ -32,9 +21,10 @@
   treat local or branch tests as the successful exact-main-SHA release
   candidate.
 - `docs/beta-release-readiness-archive-2026-10-10.md` is the frozen beta-era
-  record. Do not edit it except to keep links working.
+  record. Do not edit it except to keep links working or to remove third-party
+  or off-project content.
 - The record tracks evidence; owner authorization and the release procedure
-  remain authoritative. The 2026-10-07 promotion authorization is recorded above.
+  remain authoritative.
 
 ## Normal workflow
 

@@ -2,7 +2,7 @@
 
 Baseline: `mxqr_beta` at `95869a73`. Scope: queue edits, repeat/shuffle,
 asynchronous track preparation, and authority changes at their boundaries.
-Competition freeze, UI design, room-control policy, and app/cache versions stay
+Release freeze, UI design, room-control policy, and app/cache versions stay
 unchanged.
 
 ## Confirmed findings

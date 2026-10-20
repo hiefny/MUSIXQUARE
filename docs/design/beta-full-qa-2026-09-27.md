@@ -182,7 +182,7 @@ not published. Browser and signaling processes started for this QA were cleaned 
   was deployed.
 - `guard:sw-cache-version` fails as the already-recorded promotion prerequisite:
   beta runtime changes still share version **8.6.61 / cache v630** with main.
-  The competition freeze intentionally leaves that bump for authorized promotion.
+  The release freeze intentionally leaves that bump for authorized promotion.
   Do not report `build:checked` or release readiness as green.
 
 Separate PRO review used the actual playback controller and local-output-rejoin

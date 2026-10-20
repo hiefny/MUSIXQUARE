@@ -3,7 +3,7 @@
 This review covers Standard and PRO admission, current-file bootstrap,
 background preload, remote delivery, YouTube synchronization, demo participation,
 and system-audio route promotion. It extends the
-[Demo Day transition review](demo-day-transition-matrix-2026-09-19.md).
+[demo media transition review](demo-day-transition-matrix-2026-09-19.md).
 
 ## Runtime boundaries corrected in 8.6.48
 

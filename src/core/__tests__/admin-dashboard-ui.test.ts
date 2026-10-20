@@ -920,7 +920,7 @@ describe('admin PRO room claim lifecycle', () => {
           generatedAt: new Date().toISOString(),
           rooms: [
             {
-              roomCode: '031108',
+              roomCode: '098108',
               roomGeneration: 0,
               label: 'Legacy ownerless room',
               status: 'suspended',
@@ -1643,7 +1643,7 @@ describe('admin PRO room operations dashboard', () => {
           summary: { hourly: [], daily: [], daily30: [], last24: {} },
         });
       }
-      if (url.pathname === '/api/admin/pro-rooms/031108/legacy-owner-detach') {
+      if (url.pathname === '/api/admin/pro-rooms/098108/legacy-owner-detach') {
         detachRequests.push(init || {});
         if (detachRequests.length === 1) {
           return Response.json({ error: 'PRO_ROOM_OWNER_DETACH_AUDIT_PENDING' }, { status: 503 });
@@ -1651,7 +1651,7 @@ describe('admin PRO room operations dashboard', () => {
         detached = true;
         return Response.json({
           ok: true,
-          roomCode: '031108',
+          roomCode: '098108',
           roomGeneration: 12,
           status: 'suspended',
           suspensionReason: 'ownership_transfer_pending',
@@ -1660,11 +1660,11 @@ describe('admin PRO room operations dashboard', () => {
           changed: true,
         });
       }
-      if (url.pathname === '/api/admin/pro-rooms/031108/owner-recovery-claim') {
+      if (url.pathname === '/api/admin/pro-rooms/098108/owner-recovery-claim') {
         return Response.json({
-          roomCode: '031108',
+          roomCode: '098108',
           roomGeneration: 12,
-          recoveryUrl: 'https://musixquare.com/031108#pro-recovery=stale-secret',
+          recoveryUrl: 'https://musixquare.com/098108#pro-recovery=stale-secret',
           expiresAt: Date.now() + 10 * 60 * 1000,
           ownerAccountLinked: true,
         });
@@ -1683,7 +1683,7 @@ describe('admin PRO room operations dashboard', () => {
               createdAt: Date.now(),
             },
             {
-              roomCode: '031108',
+              roomCode: '098108',
               roomGeneration: 12,
               label: 'Legacy duplicate room',
               status: detached ? 'suspended' : 'registered',
@@ -1727,7 +1727,7 @@ describe('admin PRO room operations dashboard', () => {
 
     const detachButton = await vi.waitFor(() => {
       const value = document.querySelector<HTMLButtonElement>(
-        '[data-pro-room-owner-detach="031108"]',
+        '[data-pro-room-owner-detach="098108"]',
       );
       expect(value?.textContent).toBe('Detach legacy owner');
       return value!;
@@ -1736,7 +1736,7 @@ describe('admin PRO room operations dashboard', () => {
     expect(detachButton.closest('.pro-room-owner-repair')?.textContent).toContain(
       'This is not transfer or deletion',
     );
-    const targetRow = detachButton.closest('[data-pro-room-item="031108"]')!;
+    const targetRow = detachButton.closest('[data-pro-room-item="098108"]')!;
     const recoveryButton = [...targetRow.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === 'Issue owner recovery link',
     )!;
@@ -1781,20 +1781,20 @@ describe('admin PRO room operations dashboard', () => {
     expect(dialog.open).toBe(true);
     expect(document.activeElement).toBe(retainedInput);
 
-    retainedInput.value = '031108';
+    retainedInput.value = '098108';
     retainedInput.dispatchEvent(new Event('input', { bubbles: true }));
-    targetInput.value = '031108';
+    targetInput.value = '098108';
     targetInput.dispatchEvent(new Event('input', { bubbles: true }));
     expect(confirm.disabled).toBe(true);
     expect(detachRequests).toHaveLength(0);
 
     retainedInput.value = '000001';
     retainedInput.dispatchEvent(new Event('input', { bubbles: true }));
-    targetInput.value = '031107';
+    targetInput.value = '098107';
     targetInput.dispatchEvent(new Event('input', { bubbles: true }));
     expect(confirm.disabled).toBe(true);
 
-    targetInput.value = '031108';
+    targetInput.value = '098108';
     targetInput.dispatchEvent(new Event('input', { bubbles: true }));
     expect(confirm.disabled).toBe(false);
     confirm.click();
@@ -1815,8 +1815,8 @@ describe('admin PRO room operations dashboard', () => {
     await vi.waitFor(() => {
       expect(detachRequests).toHaveLength(2);
       expect(dialog.open).toBe(false);
-      expect(document.querySelector('[data-pro-room-owner-detach="031108"]')).toBeNull();
-      expect(document.querySelector('[data-pro-room-item="031108"]')?.textContent).toContain(
+      expect(document.querySelector('[data-pro-room-owner-detach="098108"]')).toBeNull();
+      expect(document.querySelector('[data-pro-room-item="098108"]')?.textContent).toContain(
         'Ownership transfer required',
       );
       expect(document.querySelector<HTMLElement>('[data-pro-room-claim]')?.hidden).toBe(true);
@@ -1828,7 +1828,7 @@ describe('admin PRO room operations dashboard', () => {
     expect(JSON.parse(String(request.body))).toEqual({
       roomGeneration: 12,
       retainRoomCode: '000001',
-      confirmRoomCode: '031108',
+      confirmRoomCode: '098108',
     });
     expect(document.querySelector('[data-pro-room-status]')?.textContent).toContain(
       'owner authority detached',

@@ -10,7 +10,7 @@ import {
 const VERSION_ID = '440b001f-acde-4321-9876-abcdefabcdef';
 const context: ProRoomDiagnosticContext = {
   scope: 'room',
-  roomCode: '002026',
+  roomCode: '098765',
   roomGeneration: 3,
   versionId: VERSION_ID,
 };
@@ -227,7 +227,7 @@ describe('bounded PRO server diagnostics', () => {
     const valueOf = vi.fn(() => 99);
     const diagnostics = new ProRoomDiagnostics(() => ({
       scope: 'room',
-      roomCode: '002026?private-token',
+      roomCode: '098765?private-token',
       roomGeneration: '3',
       versionId: `${VERSION_ID}?private-token`,
     }));
@@ -344,7 +344,7 @@ describe('bounded PRO server diagnostics', () => {
       status: 502,
     });
     reportProRoomFrontDiagnostic(
-      { ...context, roomCode: '002027', scope: 'app' },
+      { ...context, roomCode: '098766', scope: 'app' },
       'upstream_failure',
       {
         operation: 'sessions',
@@ -353,10 +353,10 @@ describe('bounded PRO server diagnostics', () => {
     );
     expect(log.mock.calls[0]?.[0]).toMatchObject({
       scope: 'app',
-      roomCode: '002026',
+      roomCode: '098765',
       roomGeneration: 3,
     });
-    expect(log.mock.calls[1]?.[0]).toMatchObject({ scope: 'app', roomCode: '002027' });
+    expect(log.mock.calls[1]?.[0]).toMatchObject({ scope: 'app', roomCode: '098766' });
     vi.advanceTimersByTime(60_000);
     reportProRoomFrontDiagnostic({ ...context, scope: 'app' }, 'upstream_timeout', {
       reason: 'body',

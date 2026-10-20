@@ -195,7 +195,7 @@ production index hash equal to the preceding production build.
 
 Product source, maintained tests, dependencies, contracts, schema/secrets/
 bindings, version/cache and recovery procedures are unchanged. Cumulative
-`target=all` / `apply_developer_api_d1=false`, competition freeze and disabled
+`target=all` / `apply_developer_api_d1=false`, release freeze and disabled
 Operations Drift Audit remain. No main advancement, deployment or live
 provider mutation occurred. The preceding nine-package security findings,
 cache-history gate, physical-device/live-service checks and exact-main-SHA

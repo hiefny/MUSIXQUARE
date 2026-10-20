@@ -3,7 +3,7 @@
 ## Scope and execution boundary
 
 Baseline: local `mxqr_beta` at `cc979c82` (8.6.61 / cache v630), including
-the bounded AAC engine. This audit runs locally during the competition freeze.
+the bounded AAC engine. This audit runs locally during the release freeze.
 It does not publish a branch, advance `main`, re-enable Operations Drift Audit,
 or deploy an application update.
 

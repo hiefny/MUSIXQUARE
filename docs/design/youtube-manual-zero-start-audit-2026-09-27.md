@@ -292,7 +292,7 @@ ordinary heartbeat to hold the race window open; zero-start messages continue.
 The six-case tests allow 120 ms scheduling variance, so losing 250 ms cannot
 pass. These are not live YouTube, full browser-suite, physical iPhone/Safari or
 Bluetooth acoustic tests. Physical first-audio alignment remains a release
-check. Version/cache stay `8.6.61`/`v630` during the competition freeze; only beta
+check. Version/cache stay `8.6.61`/`v630` during the release freeze; only beta
 publication is authorized.
 
 Ignored local artifacts: `scratch/youtube-manual-fix-full-results.json`,

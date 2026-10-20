@@ -30,7 +30,7 @@ remain repaired within their tested scope. No introduction commit was bisected,
 and no production incidence or physical-device prevalence was measured.
 Product code and tracked tests were not changed. Only this evidence, the
 documentation index and living release record are committed to beta. The
-competition freeze, main, production, version/cache and disabled audit workflow
+release freeze, main, production, version/cache and disabled audit workflow
 remain unchanged.
 
 ## SQ10 — file preparation discards the paused checkpoint

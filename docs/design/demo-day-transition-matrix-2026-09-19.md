@@ -1,4 +1,4 @@
-# Demo Day media transition review
+# Demo media transition review
 
 Baseline: `99b8c1b1`, MUSIXQUARE 8.6.46 / cache v613. This review extends
 [the demo reliability review](demo-reliability-2026-09-19.md) to local files,

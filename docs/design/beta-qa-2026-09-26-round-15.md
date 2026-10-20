@@ -2,7 +2,7 @@
 
 Baseline: `mxqr_beta` at `259d36ed`. Scope: settings and authority changes
 overlapping playback, demo, and asynchronous metadata work. This round preserves
-the competition freeze, UI design, room-control policy, and app/cache versions.
+the release freeze, UI design, room-control policy, and app/cache versions.
 
 ## Confirmed findings
 

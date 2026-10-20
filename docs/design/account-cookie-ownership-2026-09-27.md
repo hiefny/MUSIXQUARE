@@ -2,7 +2,7 @@
 
 This follow-up resolves the delayed account-cookie response finding left open
 by [beta QA21](beta-qa-2026-09-27-round-21.md). It is a beta-only server change;
-the competition freeze still applies.
+the release freeze still applies.
 
 ## Failure and fix
 

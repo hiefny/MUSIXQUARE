@@ -12,7 +12,7 @@ import {
 
 const CSS_FILES = ['css/style.css', 'css/desktop.css', 'css/playback-actions.css', 'css/rtl.css'];
 const LAYOUT_FEATURE =
-  /\((?:min|max)-width:\s*12(?:79|80)px\)|\((?:min|max)-height:\s*5(?:39|40)px\)/u;
+  /\((?:min|max)-width:\s*12(?:79|80)px\)|\(min-height:\s*720px\)|\(max-height:\s*(?:719|899)px\)/u;
 
 /** Apply extra media features to every branch of a query list. */
 function withFeatures(query: string, features: string): string {
@@ -28,7 +28,7 @@ const ALLOWED_PRELUDES = new Set([
   COMPACT_LAYOUT_QUERY,
   SHORT_DESKTOP_LAYOUT_QUERY,
   withFeatures(NOT_DESKTOP_LAYOUT_QUERY, '(hover: none) and (pointer: coarse)'),
-  // A portrait viewport is never at least 1280px wide and under 540px tall,
+  // A portrait viewport is never at least 1280px wide and under 720px tall,
   // so these width-only portrait branches already agree with the bands.
   '(max-width: 1279px) and (max-height: 720px) and (orientation: portrait)',
   '(min-width: 720px) and (max-width: 1279px) and (orientation: portrait)',
@@ -93,30 +93,31 @@ describe('layout breakpoint contract', () => {
 
   it('partitions every viewport into one layout band', () => {
     for (const width of [360, 719, 720, 1024, 1279, 1280, 1440, 1920, 2560]) {
-      for (const height of [320, 500, 539, 540, 560, 620, 719, 720, 900, 1440]) {
+      for (const height of [320, 500, 539, 540, 620, 719, 720, 768, 800, 899, 900, 1440]) {
         const size = `${width}x${height}`;
         const desktop = evaluate(DESKTOP_LAYOUT_QUERY, width, height);
         expect(evaluate(NOT_DESKTOP_LAYOUT_QUERY, width, height), size).toBe(!desktop);
         expect(evaluate(COMPACT_LAYOUT_QUERY, width, height), size).toBe(width >= 720 && !desktop);
         expect(evaluate(SHORT_DESKTOP_LAYOUT_QUERY, width, height), size).toBe(
-          desktop && height < 720,
+          desktop && height < 900,
         );
         expect(isDesktopLayoutSize(width, height), size).toBe(desktop);
       }
     }
   });
 
-  it('forces the compact layout below 540px and narrows the header below 720px', () => {
-    expect(evaluate(COMPACT_LAYOUT_QUERY, 1440, 500)).toBe(true);
-    expect(evaluate(SHORT_DESKTOP_LAYOUT_QUERY, 1440, 620)).toBe(true);
-    expect(evaluate(SHORT_DESKTOP_LAYOUT_QUERY, 1280, 560)).toBe(true);
+  it('forces the compact layout below 720px and narrows the header below 900px', () => {
+    expect(evaluate(COMPACT_LAYOUT_QUERY, 1440, 700)).toBe(true);
+    expect(evaluate(SHORT_DESKTOP_LAYOUT_QUERY, 1440, 800)).toBe(true);
+    expect(evaluate(SHORT_DESKTOP_LAYOUT_QUERY, 1366, 768)).toBe(true);
+    expect(evaluate(SHORT_DESKTOP_LAYOUT_QUERY, 1280, 720)).toBe(true);
     expect(evaluate(DESKTOP_LAYOUT_QUERY, 1440, 900)).toBe(true);
     expect(evaluate(SHORT_DESKTOP_LAYOUT_QUERY, 1440, 900)).toBe(false);
     expect(evaluate(COMPACT_LAYOUT_QUERY, 1024, 700)).toBe(true);
 
     const desktop = readFileSync(resolve('css/desktop.css'), 'utf8');
     expect(desktop).toMatch(
-      /@media \(min-width: 1280px\) and \(min-height: 540px\) and \(max-height: 719px\)\s*\{\s*body\s*\{[^}]*grid-template-areas:\s*'header tab-playlist tab-settings'\s*'tab-play tab-playlist tab-settings'\s*'tab-play tab-chat tab-settings';/u,
+      /@media \(min-width: 1280px\) and \(min-height: 720px\) and \(max-height: 899px\)\s*\{\s*body\s*\{[^}]*grid-template-areas:\s*'header tab-playlist tab-settings'\s*'tab-play tab-playlist tab-settings'\s*'tab-play tab-chat tab-settings';/u,
     );
   });
 });

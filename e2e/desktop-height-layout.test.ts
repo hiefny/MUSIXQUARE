@@ -8,14 +8,14 @@ type Band = 'desktop' | 'short-desktop' | 'compact';
 
 const VIEWPORTS: ReadonlyArray<{ width: number; height: number; band: Band }> = [
   { width: 1440, height: 900, band: 'desktop' },
-  { width: 1440, height: 620, band: 'short-desktop' },
-  { width: 1280, height: 560, band: 'short-desktop' },
-  { width: 1280, height: 540, band: 'short-desktop' },
-  { width: 1440, height: 500, band: 'compact' },
-  { width: 1280, height: 539, band: 'compact' },
+  { width: 1440, height: 800, band: 'short-desktop' },
+  { width: 1366, height: 768, band: 'short-desktop' },
+  { width: 1280, height: 720, band: 'short-desktop' },
+  { width: 1440, height: 700, band: 'compact' },
+  { width: 1280, height: 719, band: 'compact' },
   { width: 1024, height: 700, band: 'compact' },
-  { width: 1280, height: 720, band: 'desktop' },
-  { width: 1440, height: 620, band: 'short-desktop' },
+  { width: 1280, height: 900, band: 'desktop' },
+  { width: 1440, height: 800, band: 'short-desktop' },
 ];
 
 interface Box {
@@ -139,9 +139,9 @@ test.describe('desktop layout height bands', () => {
   });
 
   test('mirrors the Play-only header for right-to-left documents', async ({ page }) => {
-    await startRoom(page, 1440, 620);
+    await startRoom(page, 1440, 800);
     await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
-    await resizeTo(page, 1440, 620);
+    await resizeTo(page, 1440, 800);
 
     const layout = await readLayout(page);
     expect(layout.scrollWidth).toBeLessThanOrEqual(1440);

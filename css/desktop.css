@@ -6,7 +6,7 @@
    ========================================================================== */
 
 @layer desktop {
-  @media (min-width: 1280px) and (min-height: 540px) {
+  @media (min-width: 1280px) and (min-height: 720px) {
     /*
        Desktop density experiment
 
@@ -926,7 +926,7 @@
      Playlist/Chat and Settings start at the top edge, keep the equal
      Playlist/Chat split, and pad for the top safe area themselves. Their
      titles share the header's 60px content row. */
-  @media (min-width: 1280px) and (min-height: 540px) and (max-height: 719px) {
+  @media (min-width: 1280px) and (min-height: 720px) and (max-height: 899px) {
     body {
       grid-template-rows:
         var(--header-height)
@@ -957,7 +957,7 @@
 /* The transformed desktop dashboard exposes an inverse viewport token. Shared components and responsive geometry consume that token so dialogs and full-screen flows are scaled exactly once. */
 
 @layer components {
-  @media (min-width: 1280px) and (min-height: 540px) {
+  @media (min-width: 1280px) and (min-height: 720px) {
     .dialog.account-dialog,
     .dialog.administrator-permissions-dialog {
       max-height: calc(var(--desktop-viewport-height) - 48px);
@@ -978,7 +978,7 @@
 }
 
 @layer responsive {
-  @media (min-width: 1280px) and (min-height: 540px) {
+  @media (min-width: 1280px) and (min-height: 720px) {
     .onboarding-overlay {
       max-height: var(--desktop-viewport-height);
     }

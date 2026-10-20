@@ -2,6 +2,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { PLAYLIST_SLOT_COUNT } from '../core/constants.ts';
 import {
   restoreSessionReset,
   scheduleDocumentReload,
@@ -752,12 +753,38 @@ export function shouldStopForAuthoritativeDeselectionForTests(
   );
 }
 
+/**
+ * Mirror the room's playlist summaries and storage use for the playlist UI.
+ * A Worker that predates playlists omits `playlistSlots`, which keeps the
+ * switcher hidden. Unchanged values are not re-emitted on every heartbeat.
+ */
+function publishProRoomPlaylistSlots(snapshot: ProRoomSnapshot): void {
+  const slots = snapshot.playlistSlots ?? null;
+  if (JSON.stringify(getState('playlist.slots')) !== JSON.stringify(slots)) {
+    setState('playlist.slots', slots);
+  }
+  const usage = { usedBytes: snapshot.quota.usedBytes, limitBytes: snapshot.quota.limitBytes };
+  if (JSON.stringify(getState('playlist.storageUsage')) !== JSON.stringify(usage)) {
+    setState('playlist.storageUsage', usage);
+  }
+}
+
+function isPlaylistSlot(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value < PLAYLIST_SLOT_COUNT
+  );
+}
+
 async function applyProjectedPlaylist(
   snapshot: ProRoomSnapshot,
   playlist: PlaylistItem[],
   lease: PlaylistRuntimeLease,
 ): Promise<void> {
   if (!isPlaylistLeaseCurrent(lease) || snapshot.roomCode !== lease.roomCode) return;
+  publishProRoomPlaylistSlots(snapshot);
   hydrateProRoomYouTubeManifests(snapshot);
   scheduleLegacyYouTubeManifestUpgrades(snapshot, lease);
   const nextSignature = projectedSignature(snapshot);
@@ -1385,6 +1412,29 @@ function installMediaHooks(
       void manager.removeMany(queueItemIds, { signal }).catch(reportCurrentPlaylistError(signal));
       return true;
     },
+    switchPlaylist(slot) {
+      const signal = captureMutationSignal();
+      if (!signal || getState('playlist.slots') === null || !isPlaylistSlot(slot)) return false;
+      void manager.switchPlaylist(slot, { signal }).catch(reportCurrentPlaylistError(signal));
+      return true;
+    },
+    transferTracks(queueItemIds, targetSlots, mode) {
+      const signal = captureMutationSignal();
+      if (
+        !signal ||
+        getState('playlist.slots') === null ||
+        queueItemIds.length === 0 ||
+        targetSlots.length === 0 ||
+        !targetSlots.every(isPlaylistSlot) ||
+        (mode !== 'copy' && mode !== 'move')
+      ) {
+        return false;
+      }
+      void manager
+        .transferTracks(queueItemIds, targetSlots, mode, { signal })
+        .catch(reportCurrentPlaylistError(signal));
+      return true;
+    },
     reorderTrack(queueItemId, beforeQueueItemId, baseRevision) {
       const signal = captureMutationSignal();
       if (!signal) return true;
@@ -1570,6 +1620,8 @@ function resetPlaylistRuntime(): void {
   playlistRoomCode = null;
   playlistSignature = '';
   pendingReorderOverlay = null;
+  if (getState('playlist.slots') !== null) setState('playlist.slots', null);
+  if (getState('playlist.storageUsage') !== null) setState('playlist.storageUsage', null);
   seenQueueAdditionEventIds.clear();
   pendingQueueAdditions.clear();
   lastAnnouncedQueueAdditionOrder = 0;

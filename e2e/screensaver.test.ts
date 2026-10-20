@@ -108,7 +108,7 @@ async function geolocationCalls(page: Page): Promise<number> {
   );
 }
 
-async function neutralLook(page: Page, selector: string) {
+async function actionLook(page: Page, selector: string) {
   return page
     .locator(selector)
     .first()
@@ -728,10 +728,10 @@ test('opens from the Help tab and shows only the clock without asking for locati
   const button = page.locator('#btn-screensaver');
   await expect(button).toHaveText('Turn on screensaver');
   await expect(button).toHaveClass(/\baccent-action-btn\b/u);
-  await expect(tour).toHaveClass(/\bneutral-action-btn\b/u);
-  // The tour shares the invite-link button's neutral look; the screensaver keeps the accent.
-  expect(await neutralLook(page, '#btn-demo-media')).toEqual(
-    await neutralLook(page, '#desktop-qr-container .btn-copy-invite-link'),
+  await expect(tour).toHaveClass(/\baccent-action-btn\b/u);
+  // The tour and the screensaver share the accent look.
+  expect(await actionLook(page, '#btn-demo-media')).toEqual(
+    await actionLook(page, '#btn-screensaver'),
   );
   await expect(button).toHaveCSS('color', 'rgb(0, 122, 255)');
   const [tourBox, buttonBox] = await Promise.all([tour.boundingBox(), button.boundingBox()]);

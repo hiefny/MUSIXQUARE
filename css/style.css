@@ -4184,8 +4184,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: #007aff;
   }
 
-  /* Help tab actions: the neutral tour button above the accent screensaver
-     button. Both size like the invite-link button so long labels wrap. */
+  /* Help tab actions: the tour button above the screensaver button, both in
+     the accent style. They size like the invite-link button so long labels
+     wrap. */
   .help-actions {
     display: flex;
     flex-direction: column;
@@ -4280,8 +4281,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     padding: 32px 0;
   }
 
-  /* Copy Invite Link Button (and the neutral action that shares its look) */
-  .neutral-action-btn,
+  /* Copy Invite Link Button */
   .btn-copy-invite-link {
     display: flex;
     align-items: center;
@@ -4308,7 +4308,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     -webkit-tap-highlight-color: transparent;
   }
 
-  .neutral-action-btn > svg,
   .btn-copy-invite-link > svg {
     width: 20px;
     height: 20px;
@@ -4316,7 +4315,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: currentColor;
   }
 
-  .neutral-action-btn > span[data-i18n],
   .btn-copy-invite-link > span[data-i18n] {
     min-width: 0;
     max-width: 100%;
@@ -4330,9 +4328,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     word-break: keep-all;
   }
 
-  .neutral-action-btn > span[data-i18n]:lang(ja),
-  .neutral-action-btn > span[data-i18n]:lang(zh-hans),
-  .neutral-action-btn > span[data-i18n]:lang(zh-hant),
   .btn-copy-invite-link > span[data-i18n]:lang(ja),
   .btn-copy-invite-link > span[data-i18n]:lang(zh-hans),
   .btn-copy-invite-link > span[data-i18n]:lang(zh-hant) {
@@ -4340,12 +4335,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     line-break: strict;
   }
 
-  .neutral-action-btn:hover,
   .btn-copy-invite-link:hover {
     background: var(--surface-3);
   }
 
-  .neutral-action-btn:active,
   .btn-copy-invite-link:active {
     background: var(--surface-3);
     transform: scale(0.97);
@@ -10032,14 +10025,12 @@ Safety is declared first because important layer precedence is reversed; its acc
   /* Light Mode — hover/active for surface-2 buttons */
   [data-theme='light'] .chat-preview-btn:hover,
   [data-theme='light'] .file-select-btn:hover,
-  [data-theme='light'] .neutral-action-btn:hover,
   [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover {
     background: #f0f0f0;
   }
 
   [data-theme='light'] .chat-preview-btn:active,
   [data-theme='light'] .file-select-btn:active,
-  [data-theme='light'] .neutral-action-btn:active,
   [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:active {
     background: #e8e8e8;
   }
@@ -10136,7 +10127,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
 
     #media-source-overlay .file-select-btn-large:hover:not(:active),
-    .neutral-action-btn:hover:not(:active),
     .btn-copy-invite-link[data-mode='copy']:hover:not(:active),
     #btn-sync:hover:not(:active),
     #btn-media-source:hover:not(:active) {
@@ -10166,7 +10156,6 @@ Safety is declared first because important layer precedence is reversed; its acc
       background: var(--play-action-surface);
     }
 
-    [data-theme='light'] .neutral-action-btn:hover:not(:active),
     [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover:not(:active) {
       background: var(--surface-2);
     }

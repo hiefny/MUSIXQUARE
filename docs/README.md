@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Editorial header label and redeem hint centering — 2026-10-20](design/editorial-header-and-redeem-hint-2026-10-20.md) —
+  the History header said "Open app" after its 2026-08-23 rebuild while every other editorial header said "Try it
+  now", and 8.11.30 matches it; the event page's redeem code hint sat 1.5–2.5 px low in Chromium, which draws the
+  placeholder on the larger typed text's baseline, so the empty field now uses the hint's size (within half a pixel
+  of center in Chromium and WebKit). Contract tests pin both.
 - [Standard HTTPS bridge failure diagnostics — 2026-10-20](design/standard-signaling-bridge-diagnostics-2026-10-20.md) —
   after two 8.11.28 runs failed on a bare bridge-open 502, 8.11.29 makes the next one readable: the smoke prints
   role, status, allowlisted code, elapsed ms and Ray ID for any failed open/send/poll/close, and the App Worker logs

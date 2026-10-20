@@ -6,7 +6,7 @@
  * unrelated exports that happen to share a name no longer keep each other
  * alive. Value/type space and prod/test/self evidence are reported separately.
  *
- * The binding-aware 20/77 count baselines record the reviewed runtime and
+ * The binding-aware 20/76 count baselines record the reviewed runtime and
  * server-authority surfaces. Fully-dead exports remain forbidden, and both
  * counts are shrink-only.
  * Module reachability is report-only and includes static value imports,
@@ -162,7 +162,7 @@ const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 // update dialog helper types its result with DialogResult, so that dialog type
 // export is no longer self-only.
 const TEST_ONLY_BASELINE_COUNT = 20;
-const SELF_ONLY_BASELINE_COUNT = 77;
+const SELF_ONLY_BASELINE_COUNT = 76;
 
 function kindCounts(entries: readonly ExportEntry[]): Record<ExportKind, number> {
   return entries.reduce(

@@ -28,6 +28,13 @@
   asset, so `quota.usedBytes` stays the room-wide counter and copying never changes it.
 - Decommissioning replaces the room with a fresh state without `playlistSlots`, so its next commit
   deletes every slot key.
+- Queue item IDs are unique across every playlist, because the slots record is rejected on load
+  otherwise. Adding an item (compact snapshot upserts, Developer API and BOT additions) whose ID
+  an inactive playlist holds answers `409 QUEUE_ITEM_ID_CONFLICT`, and `assertBoundedRoomState`
+  refuses to commit any collision (review finding, 2026-10-21).
+- A file item whose asset is missing, not ready or pending deletion is dropped from inactive
+  playlists on load and from a playlist as it becomes active, so a stalled deletion can finish
+  and the playlist stays editable.
 
 ## Client wire (PRO room public API)
 
@@ -47,7 +54,7 @@
   (`409 PLAYLIST_CAPACITY_EXCEEDED`). `move` then removes the tracks from the active playlist the
   way the compact removal does, including stopping a moved current track.
 - Errors: `400 INVALID_REQUEST | INVALID_REVISION | INVALID_PLAYLIST | INVALID_PLAYLIST_SLOT`,
-  `404 QUEUE_ITEM_NOT_FOUND`, `409 REVISION_CONFLICT | PLAYLIST_CAPACITY_EXCEEDED |
+  `404 QUEUE_ITEM_NOT_FOUND`, `409 REVISION_CONFLICT | PLAYLIST_CAPACITY_EXCEEDED | QUEUE_ITEM_ID_CONFLICT |
 ROOM_STATE_CAPACITY_EXCEEDED`, `403 PERMISSION_REQUIRED`. Replays use the snapshot receipt.
 - Client (`src/pro-room/**`): `ProRoomApiClient.switchPlaylist` / `transferPlaylistTracks`,
   `ProRoomPlaylistStateManager.switchPlaylist` / `transferTracks` (one refresh-and-retry on a
@@ -91,6 +98,13 @@ ROOM_STATE_CAPACITY_EXCEEDED`, `403 PERMISSION_REQUIRED`. Replays use the snapsh
 - Mixed deploys: the facade and public Developer API Worker should not go live before the PRO
   room Worker, or the new routes answer 400/503 until it does. Existing routes are unaffected in
   either order.
+- CORS: a new client sends `X-MXQR-Pro-Playlist-Slots` on every PRO request, so a cross-origin
+  caller (a `www.musixquare.com` page against the apex endpoint, local development origins)
+  needs a preflight that allows it. An older PRO Worker's allow list does not, so a Worker-only
+  rollback, or a client that goes live before the PRO Worker, breaks PRO rooms for those
+  origins until both match again. Same-origin callers send no preflight and are unaffected. This
+  is the same constraint as `X-MXQR-Pro-Entry-Policy`: deploy the PRO Worker first, and roll
+  the App back together with it.
 - Data floor: a rolled-back Worker loads only the core record and active rows, so it shows the
   active playlist; its garbage collection counts only that playlist and would delete files that
   only inactive playlists reference (after the 15-minute grace). Rolling the PRO room Worker back
@@ -124,3 +138,20 @@ ROOM_STATE_CAPACITY_EXCEEDED`, `403 PERMISSION_REQUIRED`. Replays use the snapsh
   `developer-api-docs.test.ts`).
 - Not covered: real Cloudflare runtime, real browsers, e2e (the PRO e2e CORS fixture allows the
   new header but e2e was not run), and the standard-room/UI half.
+
+### Review fixes (2026-10-21)
+
+- Tested code: `7fc5e63d` (`agent/multi-playlist-pro` after merging `agent/multi-playlist` at
+  `439daf23`, with the UI half; local branch only, not the exact-main release candidate).
+- Fixed: queue item ID reuse across playlists (P1), dead file items at load and switch (P3), and
+  the CORS compatibility note above (P3).
+- Pass: `npm run typecheck`, `npm run lint`, `npm run format:check`, `guard:bus-pairing`,
+  `guard:dead-exports`, `guard:import-graph`, `guard:room-authority-boundaries`,
+  `guard:source-complexity` (`pro-room-worker.ts` 18,099 of 20,000 lines).
+- Full `npx vitest run --maxWorkers=6`: 13,659 tests in 609 files; the only failure was the
+  dead-export ratchet asserting the self-only count 77, which the merged code lowered to 76; the
+  baseline is lowered in the same commit and `dead-exports.test.ts` passes on rerun.
+- New tests in "PRO room multiple playlists": an inactive ID reused by a compact add is refused
+  with `409 QUEUE_ITEM_ID_CONFLICT`, a forced collision cannot persist, and the room reloads;
+  an inactive file whose deletion an older Worker started is dropped on load; a file that became
+  unavailable is left out when its playlist becomes active, which stays editable.

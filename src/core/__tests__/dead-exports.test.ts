@@ -43,8 +43,9 @@ describe('Dead-export ratchet', () => {
       // async wrappers and Promise callbacks; private decoder error branding
       // no longer exposes a class used externally only by test fixtures. The
       // update dialog helper now reads DialogResult from the dialog module.
-      expect(summary).toContain('baseline 20), self-only: 77 ');
-      expect(summary).toMatch(/self-only: 77 .*baseline 77\)$/u);
+      // The multiple-playlist work consumes one more previously self-only export.
+      expect(summary).toContain('baseline 20), self-only: 76 ');
+      expect(summary).toMatch(/self-only: 76 .*baseline 76\)$/u);
       expect(output).toContain('OK');
     },
     DEAD_EXPORT_TEST_TIMEOUT_MS,

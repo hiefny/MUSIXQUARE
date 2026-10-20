@@ -15384,10 +15384,12 @@ async function serveSoroImage(request: Request, env: AppEnv, key: string) {
   }
 
   let object = await env.SORO_IMAGE_BUCKET.get(key);
+  let article: SoroArticle | null = null;
+  let mirrorStatus = '';
   if (!object && request.method !== 'HEAD') {
-    const article = await findSoroImageArticleForKey(env, key);
+    article = await findSoroImageArticleForKey(env, key);
     if (article) {
-      await ensureSoroImageMirror(env, article, { fetchMissing: true });
+      mirrorStatus = await ensureSoroImageMirror(env, article, { fetchMissing: true });
       const currentKey = await soroImageKey(article);
       if (currentKey !== key) {
         return withSecurityHeaders(
@@ -15400,7 +15402,19 @@ async function serveSoroImage(request: Request, env: AppEnv, key: string) {
       object = await env.SORO_IMAGE_BUCKET.get(currentKey);
     }
   }
-  if (!object) return withSecurityHeaders(new Response('Not found', { status: 404 }));
+  if (!object) {
+    // A failed mirror must not break the article image. The allowlisted
+    // provider URL is already permitted by the page CSP, so send the browser
+    // there and keep the mirror status visible for diagnosis.
+    const source = article ? sanitizeSoroImageSource(article.image) : '';
+    if (source) {
+      return withSecurityHeaders(Response.redirect(source, 302), {
+        'Cache-Control': 'no-store',
+        'X-Soro-Image-Mirror': mirrorStatus || 'missing',
+      });
+    }
+    return withSecurityHeaders(new Response('Not found', { status: 404 }));
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',

@@ -230,7 +230,8 @@ function bindDialogs(): void {
     });
   }
   // Another device can switch or fill playlists while a dialog is open.
-  bus.on('state:playlist.slots', (slots) => {
+  bus.on('state:playlist.slots', () => {
+    const slots = getState('playlist.slots');
     if (!slots) {
       closeOverlay(SLOTS_OVERLAY_ID);
       closeOverlay(TRANSFER_OVERLAY_ID);

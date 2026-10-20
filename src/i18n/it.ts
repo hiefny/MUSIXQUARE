@@ -160,6 +160,13 @@ const it: Record<I18nKey, string> = {
   'playlist.select_all': 'Seleziona tutto',
   'playlist.delete_selected': 'Elimina {{count}} tracce selezionate',
   'playlist.selected_count': '{{count}} selezionati',
+  'playlist.slots_title': 'Più playlist',
+  'playlist.slots_subtitle':
+    'Usa più playlist per passare rapidamente da una selezione di brani all’altra',
+  'playlist.slot_tracks': '{{count}} tracce',
+  'playlist.move_title': 'Sposta {{count}} tracce',
+  'playlist.copy_action': 'Copia',
+  'playlist.move_action': 'Sposta',
   'playlist.video_fallback': 'Caricamento...',
   'playlist.track_fallback': 'Traccia {{idx}}',
   'playlist.deferred_load_hint':
@@ -562,6 +569,8 @@ const it: Record<I18nKey, string> = {
   'toast.invite_code_info': '{{count}} dispositivi | Codice: {{code}}',
   'toast.added_tracks': '{{count}} tracce aggiunte',
   'toast.deleted_tracks': '{{count}} tracce eliminate',
+  'toast.copied_tracks': '{{count}} tracce copiate',
+  'toast.moved_tracks': '{{count}} tracce spostate',
   'toast.preparing': 'Preparazione: {{name}}',
   'toast.file_save_error': 'Errore di salvataggio del file: {{name}}',
   'toast.decoding_audio': 'Decodifica audio in corso...',
@@ -965,6 +974,8 @@ export default it;
 
 export const pluralMessages = {
   'playlist.selected_count': { one: '{{count}} selezionato' },
+  'playlist.slot_tracks': { one: '{{count}} traccia' },
+  'playlist.move_title': { one: 'Sposta {{count}} traccia' },
   'connect.administrator_list': { one: '{{count}} amministratore' },
   'playlist.delete_selected': { one: 'Elimina {{count}} traccia selezionata' },
   'connect.device_list': { one: '{{count}} dispositivo connesso' },
@@ -983,6 +994,8 @@ export const pluralMessages = {
   },
   'toast.added_tracks': { one: '{{count}} traccia aggiunta' },
   'toast.deleted_tracks': { one: '{{count}} traccia eliminata' },
+  'toast.copied_tracks': { one: '{{count}} traccia copiata' },
+  'toast.moved_tracks': { one: '{{count}} traccia spostata' },
   'toast.unsupported_files_excluded': { one: '{{count}} file non supportato escluso' },
   'dialog.file_drop.message': { one: 'Vuoi aggiungere {{count}} file?' },
   'dialog.file_drop.unsupported_notice': {

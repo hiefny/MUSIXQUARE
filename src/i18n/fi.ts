@@ -162,6 +162,13 @@ const fi: Record<I18nKey, string> = {
   'playlist.select_all': 'Valitse kaikki',
   'playlist.delete_selected': 'Poista {{count}} valittua kappaletta',
   'playlist.selected_count': '{{count}} valittu',
+  'playlist.slots_title': 'Useita soittolistoja',
+  'playlist.slots_subtitle':
+    'Käytä useita soittolistoja ja vaihda nopeasti kappalekokoelmasta toiseen',
+  'playlist.slot_tracks': '{{count}} kappaletta',
+  'playlist.move_title': 'Siirrä {{count}} kappaletta',
+  'playlist.copy_action': 'Kopioi',
+  'playlist.move_action': 'Siirrä',
   'playlist.video_fallback': 'Ladataan…',
   'playlist.track_fallback': 'Kappale {{idx}}',
   'playlist.deferred_load_hint': 'Lataa koko kappalelista aloittamalla toisto',
@@ -553,6 +560,8 @@ const fi: Record<I18nKey, string> = {
   'toast.invite_code_info': 'Yhdistettyjä: {{count}} | Koodi {{code}}',
   'toast.added_tracks': 'Lisättiin {{count}} kappaletta',
   'toast.deleted_tracks': 'Poistettiin {{count}} kappaletta',
+  'toast.copied_tracks': 'Kopioitiin {{count}} kappaletta',
+  'toast.moved_tracks': 'Siirrettiin {{count}} kappaletta',
   'toast.preparing': 'Valmistellaan: {{name}}',
   'toast.file_save_error': 'Tiedoston tallennusvirhe: {{name}}',
   'toast.decoding_audio': 'Puretaan ääntä…',
@@ -970,6 +979,10 @@ export const pluralMessages = {
   'toast.deleted_tracks': {
     one: 'Poistettiin {{count}} kappale',
   },
+  'playlist.slot_tracks': { one: '{{count}} kappale' },
+  'playlist.move_title': { one: 'Siirrä {{count}} kappale' },
+  'toast.copied_tracks': { one: 'Kopioitiin {{count}} kappale' },
+  'toast.moved_tracks': { one: 'Siirrettiin {{count}} kappale' },
   'dialog.file_drop.message': {
     one: 'Lisätäänkö {{count}} tiedosto?',
   },

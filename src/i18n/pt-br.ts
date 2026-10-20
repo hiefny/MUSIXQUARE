@@ -254,6 +254,13 @@ const ptBr: Record<I18nKey, string> = {
   'playlist.select_all': 'Selecionar tudo',
   'playlist.delete_selected': 'Excluir {{count}} faixas selecionadas',
   'playlist.selected_count': '{{count}} selecionados',
+  'playlist.slots_title': 'Várias playlists',
+  'playlist.slots_subtitle':
+    'Use várias playlists para alternar rapidamente entre conjuntos de músicas',
+  'playlist.slot_tracks': '{{count}} faixas',
+  'playlist.move_title': 'Mover {{count}} faixas',
+  'playlist.copy_action': 'Copiar',
+  'playlist.move_action': 'Mover',
   'playlist.video_fallback': 'Carregando...',
   'playlist.track_fallback': 'Faixa {{idx}}',
   'playlist.deferred_load_hint': 'Reproduza para carregar a lista completa de faixas',
@@ -527,6 +534,8 @@ const ptBr: Record<I18nKey, string> = {
   'toast.invite_code_info': '{{count}} conectados | Código {{code}}',
   'toast.added_tracks': '{{count}} faixas adicionadas',
   'toast.deleted_tracks': '{{count}} faixas excluídas',
+  'toast.copied_tracks': '{{count}} faixas copiadas',
+  'toast.moved_tracks': '{{count}} faixas movidas',
   'toast.preparing': 'Preparando: {{name}}',
   'toast.file_save_error': 'Erro ao salvar arquivo: {{name}}',
   'toast.decoding_audio': 'Decodificando áudio...',
@@ -952,6 +961,8 @@ export default ptBr;
 
 export const pluralMessages = {
   'playlist.selected_count': { one: '{{count}} selecionado' },
+  'playlist.slot_tracks': { one: '{{count}} faixa' },
+  'playlist.move_title': { one: 'Mover {{count}} faixa' },
   'connect.administrator_list': { one: '{{count}} administrador' },
   'playlist.delete_selected': { one: 'Excluir {{count}} faixa selecionada' },
   'connect.device_list': { one: '{{count}} dispositivo conectado' },
@@ -966,6 +977,8 @@ export const pluralMessages = {
   },
   'toast.added_tracks': { one: '{{count}} faixa adicionada' },
   'toast.deleted_tracks': { one: '{{count}} faixa excluída' },
+  'toast.copied_tracks': { one: '{{count}} faixa copiada' },
+  'toast.moved_tracks': { one: '{{count}} faixa movida' },
   'toast.unsupported_files_excluded': {
     one: '{{count}} arquivo não compatível ignorado',
   },

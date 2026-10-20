@@ -162,6 +162,13 @@ const ml: Record<I18nKey, string> = {
   'playlist.select_all': 'എല്ലാം തിരഞ്ഞെടുക്കുക',
   'playlist.delete_selected': 'തിരഞ്ഞെടുത്ത {{count}} ട്രാക്കുകൾ ഇല്ലാതാക്കുക',
   'playlist.selected_count': '{{count}} തെരഞ്ഞെടുത്തു',
+  'playlist.slots_title': 'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ',
+  'playlist.slots_subtitle':
+    'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ ഉപയോഗിച്ച് പാട്ടുകളുടെ സെറ്റുകൾ വേഗത്തിൽ മാറ്റുക',
+  'playlist.slot_tracks': '{{count}} ട്രാക്കുകൾ',
+  'playlist.move_title': '{{count}} ട്രാക്കുകൾ നീക്കുക',
+  'playlist.copy_action': 'പകർത്തുക',
+  'playlist.move_action': 'നീക്കുക',
   'playlist.video_fallback': 'ലോഡ് ചെയ്യുന്നു...',
   'playlist.track_fallback': 'ട്രാക്ക് {{idx}}',
   'playlist.deferred_load_hint': 'പൂർണ്ണ ട്രാക്ക് ലിസ്റ്റ് ലോഡ് ചെയ്യാൻ പ്ലേ ചെയ്യുക',
@@ -559,6 +566,8 @@ const ml: Record<I18nKey, string> = {
   'toast.invite_code_info': '{{count}} ബന്ധിപ്പിച്ചു | കോഡ് {{code}}',
   'toast.added_tracks': '{{count}} ട്രാക്കുകൾ ചേർത്തു',
   'toast.deleted_tracks': '{{count}} ട്രാക്കുകൾ ഇല്ലാതാക്കി',
+  'toast.copied_tracks': '{{count}} ട്രാക്കുകൾ പകർത്തി',
+  'toast.moved_tracks': '{{count}} ട്രാക്കുകൾ നീക്കി',
   'toast.preparing': 'തയ്യാറാക്കുന്നു: {{name}}',
   'toast.file_save_error': 'ഫയൽ സേവ് ചെയ്യുന്നതിൽ പിശക്: {{name}}',
   'toast.decoding_audio': 'ഓഡിയോ ഡീകോഡ് ചെയ്യുന്നു...',
@@ -981,6 +990,10 @@ export const pluralMessages = {
   'toast.deleted_tracks': {
     one: '{{count}} ട്രാക്ക് ഇല്ലാതാക്കി',
   },
+  'playlist.slot_tracks': { one: '{{count}} ട്രാക്ക്' },
+  'playlist.move_title': { one: '{{count}} ട്രാക്ക് നീക്കുക' },
+  'toast.copied_tracks': { one: '{{count}} ട്രാക്ക് പകർത്തി' },
+  'toast.moved_tracks': { one: '{{count}} ട്രാക്ക് നീക്കി' },
   'toast.unsupported_files_excluded': {
     one: 'പിന്തുണയ്ക്കാത്ത ഫയൽ ഒഴിവാക്കി: {{count}}',
   },

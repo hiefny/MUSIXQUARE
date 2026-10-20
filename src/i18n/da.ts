@@ -161,6 +161,13 @@ const da: Record<I18nKey, string> = {
   'playlist.select_all': 'Markér alle',
   'playlist.delete_selected': 'Slet {{count}} markerede numre',
   'playlist.selected_count': '{{count}} valgt',
+  'playlist.slots_title': 'Flere afspilningslister',
+  'playlist.slots_subtitle':
+    'Brug flere afspilningslister til hurtigt at skifte mellem sæt af sange',
+  'playlist.slot_tracks': '{{count}} numre',
+  'playlist.move_title': 'Flyt {{count}} numre',
+  'playlist.copy_action': 'Kopiér',
+  'playlist.move_action': 'Flyt',
   'playlist.video_fallback': 'Indlæser…',
   'playlist.track_fallback': 'Nummer {{idx}}',
   'playlist.deferred_load_hint': 'Afspil for at indlæse hele nummerlisten',
@@ -555,6 +562,8 @@ const da: Record<I18nKey, string> = {
   'toast.invite_code_info': '{{count}} forbundet | Kode {{code}}',
   'toast.added_tracks': '{{count}} numre blev tilføjet',
   'toast.deleted_tracks': '{{count}} numre blev slettet',
+  'toast.copied_tracks': '{{count}} numre blev kopieret',
+  'toast.moved_tracks': '{{count}} numre blev flyttet',
   'toast.preparing': 'Forbereder: {{name}}',
   'toast.file_save_error': 'Kunne ikke gemme filen: {{name}}',
   'toast.decoding_audio': 'Afkoder lyd…',
@@ -966,6 +975,10 @@ export const pluralMessages = {
   'toast.deleted_tracks': {
     one: '{{count}} nummer blev slettet',
   },
+  'playlist.slot_tracks': { one: '{{count}} nummer' },
+  'playlist.move_title': { one: 'Flyt {{count}} nummer' },
+  'toast.copied_tracks': { one: '{{count}} nummer blev kopieret' },
+  'toast.moved_tracks': { one: '{{count}} nummer blev flyttet' },
   'dialog.file_drop.message': {
     one: 'Tilføj {{count}} fil?',
   },

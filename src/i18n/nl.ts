@@ -591,6 +591,18 @@ const nl: Record<I18nKey, string> = {
   'toast.member_management_required': 'Toestemming voor het verwijderen van leden vereist',
   'toast.chat_notice_required': 'Toestemming voor chataankondigingen vereist',
   'toast.room_owner_required': 'Alleen de kamereigenaar kan dit wijzigen',
+  'toast.media_management_checking':
+    'Toestemming voor mediabeheer wordt gecontroleerd\nProbeer het zo opnieuw',
+  'toast.playback_control_checking':
+    'Toestemming voor afspeelbediening wordt gecontroleerd\nProbeer het zo opnieuw',
+  'toast.member_management_checking':
+    'Toestemming voor het verwijderen van leden wordt gecontroleerd\nProbeer het zo opnieuw',
+  'toast.chat_notice_checking':
+    'Toestemming voor chataankondigingen wordt gecontroleerd\nProbeer het zo opnieuw',
+  'toast.admin_permission_checking':
+    'Beheerdersrechten worden gecontroleerd\nProbeer het zo opnieuw',
+  'toast.room_owner_checking':
+    'Rechten van de kamereigenaar worden gecontroleerd\nProbeer het zo opnieuw',
   'toast.system_audio_owner_required':
     'Je kunt alleen audio delen vanuit het tabblad dat de kamer heeft geopend',
   'toast.host_setting_required': 'Alleen de host kan deze instelling wijzigen',

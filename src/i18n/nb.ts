@@ -581,6 +581,15 @@ const nb: Record<I18nKey, string> = {
   'toast.member_management_required': 'Tillatelse til å fjerne medlemmer kreves',
   'toast.chat_notice_required': 'Tillatelse til å legge ut chatvarsler kreves',
   'toast.room_owner_required': 'Bare rommets eier kan endre dette',
+  'toast.media_management_checking':
+    'Sjekker tillatelse til å administrere medier\nPrøv igjen om litt',
+  'toast.playback_control_checking':
+    'Sjekker tillatelse til å styre avspillingen\nPrøv igjen om litt',
+  'toast.member_management_checking':
+    'Sjekker tillatelse til å fjerne medlemmer\nPrøv igjen om litt',
+  'toast.chat_notice_checking': 'Sjekker tillatelse til å legge ut chatvarsler\nPrøv igjen om litt',
+  'toast.admin_permission_checking': 'Sjekker administratorrettigheter\nPrøv igjen om litt',
+  'toast.room_owner_checking': 'Sjekker rommets eierrettigheter\nPrøv igjen om litt',
   'toast.system_audio_owner_required': 'Du kan bare dele lyd fra fanen som åpnet rommet',
   'toast.host_setting_required': 'Bare verten kan endre denne innstillingen',
   'toast.no_tracks': 'Det finnes ingen spor å spille av',

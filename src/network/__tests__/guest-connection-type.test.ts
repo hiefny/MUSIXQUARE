@@ -246,6 +246,36 @@ describe('guest connection type authority', () => {
       expect(mocks.showToast).toHaveBeenCalledTimes(2);
     });
 
+    it('confirms the guest role only from the host projection on the current link', async () => {
+      const { handleData } = await import('../protocol.ts');
+      const { roomCapabilityStatus } = await import('../../rooms/authority.ts');
+      setState('network.appRole', 'guest');
+      setState('setup.sessionStarted', true);
+
+      expect(roomCapabilityStatus('media.add')).toBe('pending');
+
+      // WELCOME precedes a returning administrator's grant, and a forged
+      // projection from another peer proves nothing.
+      await handleData({ type: MSG.WELCOME, label: 'Guest' }, gatedHostConn);
+      await handleData({ type: MSG.OPERATOR_REVOKE, silent: true }, evilConn);
+      expect(roomCapabilityStatus('media.add')).toBe('pending');
+
+      await handleData({ type: MSG.OPERATOR_REVOKE, silent: true }, gatedHostConn);
+      expect(roomCapabilityStatus('media.add')).toBe('denied');
+
+      // A reconnect starts a new link that waits for its own projection.
+      const replacement = { ...gatedHostConn } as DataConnection;
+      setState('network.hostConn', replacement);
+      expect(roomCapabilityStatus('media.add')).toBe('pending');
+
+      await handleData(
+        { type: MSG.OPERATOR_GRANT, capabilities: ['effects.control'], silent: true },
+        replacement,
+      );
+      expect(roomCapabilityStatus('effects.control')).toBe('granted');
+      expect(roomCapabilityStatus('media.add')).toBe('denied');
+    });
+
     it('fails authority closed and restores it silently during identity reconciliation', async () => {
       const { handleData } = await import('../protocol.ts');
 

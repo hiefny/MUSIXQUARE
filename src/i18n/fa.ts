@@ -572,6 +572,13 @@ const fa: Record<I18nKey, string> = {
   'toast.member_management_required': 'مجوز حذف اعضا لازم است',
   'toast.chat_notice_required': 'مجوز ارسال اعلان در گفت‌وگو لازم است',
   'toast.room_owner_required': 'فقط مالک اتاق می‌تواند این مورد را تغییر دهد',
+  'toast.media_management_checking': 'در حال بررسی مجوز مدیریت رسانه\nکمی بعد دوباره تلاش کنید',
+  'toast.playback_control_checking': 'در حال بررسی مجوز کنترل پخش\nکمی بعد دوباره تلاش کنید',
+  'toast.member_management_checking': 'در حال بررسی مجوز حذف اعضا\nکمی بعد دوباره تلاش کنید',
+  'toast.chat_notice_checking':
+    'در حال بررسی مجوز ارسال اعلان در گفت‌وگو\nکمی بعد دوباره تلاش کنید',
+  'toast.admin_permission_checking': 'در حال بررسی مجوز مدیریت\nکمی بعد دوباره تلاش کنید',
+  'toast.room_owner_checking': 'در حال بررسی مجوز مالک اتاق\nکمی بعد دوباره تلاش کنید',
   'toast.system_audio_owner_required':
     'فقط می‌توانید صدا را از زبانه‌ای که اتاق را باز کرده است به اشتراک بگذارید',
   'toast.host_setting_required': 'فقط میزبان می‌تواند این تنظیم را تغییر دهد',

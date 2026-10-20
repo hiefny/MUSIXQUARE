@@ -571,6 +571,18 @@ const mr: Record<I18nKey, string> = {
   'toast.member_management_required': 'सदस्यांना काढण्याची परवानगी आवश्यक आहे',
   'toast.chat_notice_required': 'चॅट सूचना पोस्ट करण्याची परवानगी आवश्यक आहे',
   'toast.room_owner_required': 'हे फक्त रूमचा मालक बदलू शकतो',
+  'toast.media_management_checking':
+    'मीडिया व्यवस्थापनाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.playback_control_checking':
+    'प्लेबॅक नियंत्रणाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.member_management_checking':
+    'सदस्यांना काढण्याची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.chat_notice_checking':
+    'चॅट सूचना पोस्ट करण्याची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.admin_permission_checking':
+    'प्रशासकीय परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
+  'toast.room_owner_checking':
+    'रूमच्या मालकाची परवानगी तपासत आहोत\nथोड्या वेळाने पुन्हा प्रयत्न करा',
   'toast.system_audio_owner_required': 'तुम्ही फक्त रूम उघडलेल्या टॅबमधूनच ऑडिओ शेअर करू शकता',
   'toast.host_setting_required': 'हे सेटिंग फक्त होस्ट बदलू शकतो',
   'toast.no_tracks': 'प्ले करण्यासाठी कोणतेही ट्रॅक नाहीत',

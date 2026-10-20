@@ -583,6 +583,16 @@ const cs: Record<I18nKey, string> = {
   'toast.member_management_required': 'Je vyžadováno oprávnění k odebírání účastníků',
   'toast.chat_notice_required': 'Je vyžadováno oprávnění zveřejňovat oznámení v chatu',
   'toast.room_owner_required': 'Tuto volbu může změnit pouze vlastník místnosti',
+  'toast.media_management_checking':
+    'Ověřujeme oprávnění ke správě médií\nZkuste to za chvíli znovu',
+  'toast.playback_control_checking':
+    'Ověřujeme oprávnění k ovládání přehrávání\nZkuste to za chvíli znovu',
+  'toast.member_management_checking':
+    'Ověřujeme oprávnění k odebírání účastníků\nZkuste to za chvíli znovu',
+  'toast.chat_notice_checking':
+    'Ověřujeme oprávnění zveřejňovat oznámení v chatu\nZkuste to za chvíli znovu',
+  'toast.admin_permission_checking': 'Ověřujeme oprávnění správce\nZkuste to za chvíli znovu',
+  'toast.room_owner_checking': 'Ověřujeme oprávnění vlastníka místnosti\nZkuste to za chvíli znovu',
   'toast.system_audio_owner_required': 'Zvuk můžete sdílet pouze z karty, která místnost otevřela',
   'toast.host_setting_required': 'Toto nastavení může změnit pouze hostitel',
   'toast.no_tracks': 'Nejsou k dispozici žádné skladby k přehrání',

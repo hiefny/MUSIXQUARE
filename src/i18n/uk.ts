@@ -581,6 +581,16 @@ const uk: Record<I18nKey, string> = {
   'toast.member_management_required': 'Потрібен дозвіл на вилучення учасників',
   'toast.chat_notice_required': 'Потрібен дозвіл на публікацію оголошень у чаті',
   'toast.room_owner_required': 'Змінити це може лише власник кімнати',
+  'toast.media_management_checking':
+    'Перевіряємо дозвіл на керування медіа\nСпробуйте трохи пізніше',
+  'toast.playback_control_checking':
+    'Перевіряємо дозвіл на керування відтворенням\nСпробуйте трохи пізніше',
+  'toast.member_management_checking':
+    'Перевіряємо дозвіл на вилучення учасників\nСпробуйте трохи пізніше',
+  'toast.chat_notice_checking':
+    'Перевіряємо дозвіл на публікацію оголошень у чаті\nСпробуйте трохи пізніше',
+  'toast.admin_permission_checking': 'Перевіряємо права адміністратора\nСпробуйте трохи пізніше',
+  'toast.room_owner_checking': 'Перевіряємо права власника кімнати\nСпробуйте трохи пізніше',
   'toast.system_audio_owner_required':
     'Транслювати аудіо можна лише з вкладки, в якій було створено кімнату',
   'toast.host_setting_required': 'Змінити цей параметр може лише хост',

@@ -580,6 +580,18 @@ const fi: Record<I18nKey, string> = {
   'toast.member_management_required': 'Jäsenten poistamisoikeus vaaditaan',
   'toast.chat_notice_required': 'Chat-ilmoitusten julkaisuoikeus vaaditaan',
   'toast.room_owner_required': 'Vain huoneen omistaja voi muuttaa tätä',
+  'toast.media_management_checking':
+    'Tarkistetaan median hallintaoikeutta\nYritä hetken kuluttua uudelleen',
+  'toast.playback_control_checking':
+    'Tarkistetaan toiston hallintaoikeutta\nYritä hetken kuluttua uudelleen',
+  'toast.member_management_checking':
+    'Tarkistetaan jäsenten poistamisoikeutta\nYritä hetken kuluttua uudelleen',
+  'toast.chat_notice_checking':
+    'Tarkistetaan chat-ilmoitusten julkaisuoikeutta\nYritä hetken kuluttua uudelleen',
+  'toast.admin_permission_checking':
+    'Tarkistetaan ylläpitäjäoikeuksia\nYritä hetken kuluttua uudelleen',
+  'toast.room_owner_checking':
+    'Tarkistetaan huoneen omistajan oikeuksia\nYritä hetken kuluttua uudelleen',
   'toast.system_audio_owner_required': 'Voit jakaa ääntä vain välilehdeltä, joka avasi huoneen',
   'toast.host_setting_required': 'Vain isäntä voi muuttaa tätä asetusta',
   'toast.no_tracks': 'Ei toistettavia kappaleita',

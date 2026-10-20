@@ -575,6 +575,16 @@ const bn: Record<I18nKey, string> = {
   'toast.member_management_required': 'সদস্য সরানোর অনুমতি প্রয়োজন',
   'toast.chat_notice_required': 'চ্যাট নোটিশ পোস্ট করার অনুমতি প্রয়োজন',
   'toast.room_owner_required': 'শুধু রুমের মালিক এটি পরিবর্তন করতে পারবেন',
+  'toast.media_management_checking':
+    'মিডিয়া পরিচালনার অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.playback_control_checking':
+    'প্লেব্যাক নিয়ন্ত্রণের অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.member_management_checking':
+    'সদস্য সরানোর অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.chat_notice_checking':
+    'চ্যাট নোটিশ পোস্ট করার অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.admin_permission_checking': 'অ্যাডমিন অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
+  'toast.room_owner_checking': 'রুমের মালিকের অনুমতি যাচাই করা হচ্ছে\nএকটু পর আবার চেষ্টা করুন',
   'toast.system_audio_owner_required':
     'যে ট্যাবে রুমটি খোলা হয়েছিল, শুধু সেই ট্যাব থেকেই অডিও শেয়ার করতে পারবেন',
   'toast.host_setting_required': 'শুধু হোস্ট এই সেটিং পরিবর্তন করতে পারবেন',

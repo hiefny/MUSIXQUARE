@@ -580,6 +580,18 @@ const te: Record<I18nKey, string> = {
   'toast.member_management_required': 'సభ్యులను తొలగించే అనుమతి అవసరం',
   'toast.chat_notice_required': 'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతి అవసరం',
   'toast.room_owner_required': 'గది యజమాని మాత్రమే దీన్ని మార్చగలరు',
+  'toast.media_management_checking':
+    'మీడియా నిర్వహణ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.playback_control_checking':
+    'ప్లేబ్యాక్ నియంత్రణ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.member_management_checking':
+    'సభ్యులను తొలగించే అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.chat_notice_checking':
+    'చాట్ నోటీసులు పోస్ట్ చేసే అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.admin_permission_checking':
+    'అడ్మిన్ అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
+  'toast.room_owner_checking':
+    'గది యజమాని అనుమతిని తనిఖీ చేస్తున్నాం\nకాసేపట్లో మళ్లీ ప్రయత్నించండి',
   'toast.system_audio_owner_required':
     'గదిని తెరిచిన ట్యాబ్ నుండి మాత్రమే మీరు ఆడియోను షేర్ చేయగలరు',
   'toast.host_setting_required': 'హోస్ట్ మాత్రమే ఈ సెట్టింగ్‌ను మార్చగలరు',

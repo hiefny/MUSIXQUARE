@@ -136,6 +136,58 @@ export function hasRoomCapability(capability: RoomCapability): boolean {
   return false;
 }
 
+/**
+ * Host links whose grant or revoke projection has reached this guest.
+ *
+ * The host sends a silent OPERATOR_GRANT or OPERATOR_REVOKE as soon as a
+ * joining link is established (and again whenever the projection changes), so
+ * a plain guest also learns its role. WELCOME is not enough: it precedes a
+ * returning administrator's grant. A reconnect replaces the DataConnection, so
+ * the new link starts unconfirmed without any explicit reset.
+ */
+const confirmedStandardAuthorityConnections = new WeakSet<DataConnection>();
+
+/** Record that the standard-room host has projected this guest's role on `conn`. */
+export function markStandardRoomAuthorityConfirmed(conn: DataConnection): void {
+  confirmedStandardAuthorityConnections.add(conn);
+}
+
+/**
+ * Capabilities a standard-room host can ever project to a guest (the owner's
+ * other verified device receives all of them). Physical transport roles
+ * (system audio, coordinator) stay on the host's own tab, so a guest's answer
+ * for them never depends on a pending grant.
+ */
+const STANDARD_GUEST_GRANTABLE_CAPABILITIES = new Set<RoomCapability>(
+  [...STANDARD_HOST_CAPABILITIES].filter(
+    (capability) => capability !== 'system-audio.publish' && capability !== 'coordinator.eligible',
+  ),
+);
+
+/**
+ * Whether this browser has a definitive answer for a capability.
+ *
+ * `pending` is feedback only: gating stays on `hasRoomCapability()`, which
+ * already treats every unconfirmed state as not allowed.
+ */
+export function roomCapabilityStatus(capability: RoomCapability): 'granted' | 'denied' | 'pending' {
+  if (hasRoomCapability(capability)) return 'granted';
+  // PRO capabilities arrive inside the authenticated snapshot that creates the
+  // PRO context, and the physical standard host owns its own answer.
+  if (!isStandardRoomMember()) return 'denied';
+  if (!STANDARD_GUEST_GRANTABLE_CAPABILITIES.has(capability)) return 'denied';
+
+  const hostConn = getState('network.hostConn');
+  if (hostConn?.open === true) {
+    return confirmedStandardAuthorityConnections.has(hostConn) ? 'denied' : 'pending';
+  }
+  // Without a live host link the answer is unknown while joining or while an
+  // active session waits to reconnect. Outside a session it is simply denied.
+  return getState('network.isConnecting') || getState('setup.sessionStarted')
+    ? 'pending'
+    : 'denied';
+}
+
 export function isAuthoritativeConnection(conn: DataConnection | null | undefined): boolean {
   if (!conn) return false;
   if (!isCoordinator()) return getAuthorityConnection() === conn;

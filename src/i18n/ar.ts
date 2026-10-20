@@ -564,6 +564,16 @@ const ar: Record<I18nKey, string> = {
   'toast.member_management_required': 'يلزم إذن إزالة الأعضاء',
   'toast.chat_notice_required': 'يلزم إذن نشر إشعارات الدردشة',
   'toast.room_owner_required': 'لا يستطيع تغيير هذا إلا مالك الغرفة',
+  'toast.media_management_checking':
+    'جارٍ التحقق من إذن إدارة الوسائط\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.playback_control_checking':
+    'جارٍ التحقق من إذن التحكم في التشغيل\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.member_management_checking':
+    'جارٍ التحقق من إذن إزالة الأعضاء\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.chat_notice_checking':
+    'جارٍ التحقق من إذن نشر إشعارات الدردشة\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.admin_permission_checking': 'جارٍ التحقق من صلاحية المسؤول\nيرجى المحاولة مجددًا بعد قليل',
+  'toast.room_owner_checking': 'جارٍ التحقق من صلاحية مالك الغرفة\nيرجى المحاولة مجددًا بعد قليل',
   'toast.system_audio_owner_required':
     'لا يمكنك مشاركة الصوت إلا من علامة التبويب التي فتحت الغرفة',
   'toast.host_setting_required': 'لا يستطيع تغيير هذا الإعداد إلا المضيف',

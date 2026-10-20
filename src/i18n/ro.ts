@@ -586,6 +586,18 @@ const ro: Record<I18nKey, string> = {
   'toast.member_management_required': 'Este necesară permisiunea de eliminare a membrilor',
   'toast.chat_notice_required': 'Este necesară permisiunea de publicare a anunțurilor în chat',
   'toast.room_owner_required': 'Doar proprietarul camerei poate modifica asta',
+  'toast.media_management_checking':
+    'Se verifică permisiunea de gestionare media\nÎncearcă din nou peste câteva momente',
+  'toast.playback_control_checking':
+    'Se verifică permisiunea de control al redării\nÎncearcă din nou peste câteva momente',
+  'toast.member_management_checking':
+    'Se verifică permisiunea de eliminare a membrilor\nÎncearcă din nou peste câteva momente',
+  'toast.chat_notice_checking':
+    'Se verifică permisiunea de publicare a anunțurilor în chat\nÎncearcă din nou peste câteva momente',
+  'toast.admin_permission_checking':
+    'Se verifică drepturile de administrator\nÎncearcă din nou peste câteva momente',
+  'toast.room_owner_checking':
+    'Se verifică drepturile proprietarului camerei\nÎncearcă din nou peste câteva momente',
   'toast.system_audio_owner_required':
     'Poți partaja conținut audio doar din fila care a deschis camera',
   'toast.host_setting_required': 'Numai gazda poate schimba această setare',

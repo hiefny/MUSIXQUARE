@@ -591,6 +591,18 @@ const it: Record<I18nKey, string> = {
   'toast.member_management_required': 'È richiesto il permesso per rimuovere i partecipanti',
   'toast.chat_notice_required': 'È richiesto il permesso per pubblicare avvisi in chat',
   'toast.room_owner_required': 'Solo il proprietario della stanza può modificarlo',
+  'toast.media_management_checking':
+    'Stiamo verificando il permesso per gestire i contenuti\nRiprova tra qualche istante',
+  'toast.playback_control_checking':
+    'Stiamo verificando il permesso per controllare la riproduzione\nRiprova tra qualche istante',
+  'toast.member_management_checking':
+    'Stiamo verificando il permesso per rimuovere i partecipanti\nRiprova tra qualche istante',
+  'toast.chat_notice_checking':
+    'Stiamo verificando il permesso per pubblicare avvisi in chat\nRiprova tra qualche istante',
+  'toast.admin_permission_checking':
+    'Stiamo verificando i permessi di amministratore\nRiprova tra qualche istante',
+  'toast.room_owner_checking':
+    'Stiamo verificando i permessi del proprietario della stanza\nRiprova tra qualche istante',
   'toast.system_audio_owner_required':
     'Puoi condividere l’audio solo dalla scheda che ha aperto la stanza',
   'toast.host_setting_required': 'Solo l’host può modificare questa impostazione',

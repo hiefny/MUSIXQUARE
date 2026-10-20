@@ -10,6 +10,9 @@ import {
   isCoordinator,
   isStandardRoomMember,
   isStandardRoomRole,
+  markStandardRoomAuthorityConfirmed,
+  resetRoomContext,
+  roomCapabilityStatus,
   setRoomContext,
   subscribeRoomAuthorityLifecycle,
   verifyPeerCapability,
@@ -268,5 +271,119 @@ describe('room authority compatibility layer', () => {
     expect(verifyPeerCapability(live, 'playback.control')).toBe(true);
     expect(verifyPeerCapability(live, 'queue.mutate')).toBe(false);
     expect(verifyPeerCapability(stale, 'playback.control')).toBe(false);
+  });
+});
+
+describe('room capability status', () => {
+  function joinAsGuest(conn: DataConnection): void {
+    setState('network.appRole', 'guest');
+    setState('network.isConnecting', false);
+    setState('setup.sessionStarted', true);
+    setState('network.hostConn', conn);
+  }
+
+  it('always gives the physical standard host a definitive answer', () => {
+    setState('network.appRole', 'host');
+
+    expect(roomCapabilityStatus('playback.control')).toBe('granted');
+    expect(roomCapabilityStatus('system-audio.publish')).toBe('granted');
+
+    // A host tab that is not in a room yet keeps the same local answer.
+    setState('setup.sessionStarted', false);
+    expect(roomCapabilityStatus('room.configure')).toBe('granted');
+  });
+
+  it('keeps a standard guest pending until the host projects its role on the live link', () => {
+    const host = connection('host');
+    joinAsGuest(host);
+
+    expect(roomCapabilityStatus('media.add')).toBe('pending');
+    expect(roomCapabilityStatus('effects.control')).toBe('pending');
+    expect(roomCapabilityStatus('room.configure')).toBe('pending');
+    // Pending is feedback only; gating still fails closed.
+    expect(hasRoomCapability('media.add')).toBe(false);
+
+    markStandardRoomAuthorityConfirmed(host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control', 'playback.control']);
+
+    expect(roomCapabilityStatus('playback.control')).toBe('granted');
+    expect(roomCapabilityStatus('effects.control')).toBe('granted');
+    expect(roomCapabilityStatus('media.add')).toBe('denied');
+    expect(roomCapabilityStatus('members.manage')).toBe('denied');
+  });
+
+  it('confirms a plain guest as denied once its revoke projection has arrived', () => {
+    const host = connection('host');
+    joinAsGuest(host);
+    markStandardRoomAuthorityConfirmed(host);
+
+    expect(roomCapabilityStatus('media.add')).toBe('denied');
+    expect(roomCapabilityStatus('playback.control')).toBe('denied');
+    expect(roomCapabilityStatus('chat.notice')).toBe('denied');
+    expect(roomCapabilityStatus('room.configure')).toBe('denied');
+  });
+
+  it('returns to pending while reconnecting and on a replacement host link', () => {
+    const first = connection('host');
+    joinAsGuest(first);
+    markStandardRoomAuthorityConfirmed(first);
+    expect(roomCapabilityStatus('media.add')).toBe('denied');
+
+    first.open = false;
+    expect(roomCapabilityStatus('media.add')).toBe('pending');
+
+    setState('network.hostConn', null);
+    expect(roomCapabilityStatus('media.add')).toBe('pending');
+
+    const second = connection('host');
+    setState('network.hostConn', second);
+    expect(roomCapabilityStatus('media.add')).toBe('pending');
+
+    markStandardRoomAuthorityConfirmed(second);
+    expect(roomCapabilityStatus('media.add')).toBe('denied');
+  });
+
+  it('treats a guest that is joining as pending and one outside a session as denied', () => {
+    setState('network.appRole', 'guest');
+    expect(roomCapabilityStatus('media.add')).toBe('denied');
+
+    setState('network.isConnecting', true);
+    expect(roomCapabilityStatus('media.add')).toBe('pending');
+
+    setState('network.isConnecting', false);
+    setState('setup.sessionStarted', true);
+    expect(roomCapabilityStatus('media.add')).toBe('pending');
+
+    setState('network.appRole', 'idle');
+    expect(roomCapabilityStatus('media.add')).toBe('denied');
+  });
+
+  it('never leaves a guest pending for physical host roles it cannot be granted', () => {
+    joinAsGuest(connection('host'));
+
+    expect(roomCapabilityStatus('system-audio.publish')).toBe('denied');
+    expect(roomCapabilityStatus('coordinator.eligible')).toBe('denied');
+  });
+
+  it('answers a PRO room from its loaded context only', () => {
+    // Before the PRO snapshot creates its context, the setup guest is still
+    // waiting like any other joining guest.
+    setState('network.appRole', 'guest');
+    setState('network.isConnecting', true);
+    expect(roomCapabilityStatus('playback.control')).toBe('pending');
+
+    setRoomContext(proContext({ capabilities: ['playback.control'] }));
+    setState('network.appRole', 'host');
+    setState('network.isConnecting', true);
+
+    expect(roomCapabilityStatus('playback.control')).toBe('granted');
+    expect(roomCapabilityStatus('media.add')).toBe('denied');
+    expect(roomCapabilityStatus('room.configure')).toBe('denied');
+
+    resetRoomContext();
+    setState('network.appRole', 'idle');
+    setState('network.isConnecting', false);
+    expect(roomCapabilityStatus('playback.control')).toBe('denied');
   });
 });

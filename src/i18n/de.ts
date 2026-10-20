@@ -555,6 +555,18 @@ const de: Record<I18nKey, string> = {
   'toast.member_management_required': 'Berechtigung zum Entfernen von Mitgliedern erforderlich',
   'toast.chat_notice_required': 'Berechtigung zum Senden von Chat-Ankündigungen erforderlich',
   'toast.room_owner_required': 'Nur der Raumbesitzer kann dies ändern',
+  'toast.media_management_checking':
+    'Berechtigung zur Medienverwaltung wird geprüft\nBitte versuche es gleich noch einmal',
+  'toast.playback_control_checking':
+    'Berechtigung zur Wiedergabesteuerung wird geprüft\nBitte versuche es gleich noch einmal',
+  'toast.member_management_checking':
+    'Berechtigung zum Entfernen von Mitgliedern wird geprüft\nBitte versuche es gleich noch einmal',
+  'toast.chat_notice_checking':
+    'Berechtigung zum Senden von Chat-Ankündigungen wird geprüft\nBitte versuche es gleich noch einmal',
+  'toast.admin_permission_checking':
+    'Administratorrechte werden geprüft\nBitte versuche es gleich noch einmal',
+  'toast.room_owner_checking':
+    'Rechte des Raumbesitzers werden geprüft\nBitte versuche es gleich noch einmal',
   'toast.system_audio_owner_required':
     'Audio kann nur über den Tab freigegeben werden, der den Raum geöffnet hat',
   'toast.host_setting_required': 'Nur der Host kann diese Einstellung ändern',

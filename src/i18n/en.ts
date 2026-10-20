@@ -573,6 +573,17 @@ const en: Record<I18nKey, string> = {
   'toast.member_management_required': 'Permission to kick members is required',
   'toast.chat_notice_required': 'Permission to post chat notices is required',
   'toast.room_owner_required': 'Only the room owner can change this',
+  'toast.media_management_checking':
+    'Checking media management permission\nPlease try again in a moment',
+  'toast.playback_control_checking':
+    'Checking playback control permission\nPlease try again in a moment',
+  'toast.member_management_checking':
+    'Checking permission to kick members\nPlease try again in a moment',
+  'toast.chat_notice_checking':
+    'Checking permission to post chat notices\nPlease try again in a moment',
+  'toast.admin_permission_checking':
+    'Checking administrator permissions\nPlease try again in a moment',
+  'toast.room_owner_checking': 'Checking room owner permission\nPlease try again in a moment',
   'toast.system_audio_owner_required': 'You can only share audio from the tab that opened the room',
   'toast.host_setting_required': 'Only the host can change this setting',
   'toast.no_tracks': 'No tracks to play',

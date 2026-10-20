@@ -546,6 +546,14 @@ const id: Record<I18nKey, string> = {
   'toast.member_management_required': 'Izin mengeluarkan anggota diperlukan',
   'toast.chat_notice_required': 'Izin pengumuman chat diperlukan',
   'toast.room_owner_required': 'Hanya pemilik ruang yang dapat mengubah ini',
+  'toast.media_management_checking':
+    'Memeriksa izin untuk mengelola media\nCoba lagi sebentar lagi',
+  'toast.playback_control_checking': 'Memeriksa izin kontrol pemutaran\nCoba lagi sebentar lagi',
+  'toast.member_management_checking':
+    'Memeriksa izin mengeluarkan anggota\nCoba lagi sebentar lagi',
+  'toast.chat_notice_checking': 'Memeriksa izin pengumuman chat\nCoba lagi sebentar lagi',
+  'toast.admin_permission_checking': 'Memeriksa izin admin\nCoba lagi sebentar lagi',
+  'toast.room_owner_checking': 'Memeriksa izin pemilik ruang\nCoba lagi sebentar lagi',
   'toast.system_audio_owner_required':
     'Anda hanya dapat membagikan audio dari tab yang membuka ruang',
   'toast.host_setting_required': 'Hanya host yang dapat mengubah pengaturan ini',

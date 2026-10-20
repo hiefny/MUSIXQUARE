@@ -589,6 +589,16 @@ const ms: Record<I18nKey, string> = {
   'toast.member_management_required': 'Kebenaran untuk mengeluarkan ahli diperlukan',
   'toast.chat_notice_required': 'Kebenaran untuk menyiarkan notis sembang diperlukan',
   'toast.room_owner_required': 'Hanya pemilik bilik boleh mengubah tetapan ini',
+  'toast.media_management_checking':
+    'Menyemak kebenaran mengurus media\nSila cuba lagi sebentar nanti',
+  'toast.playback_control_checking':
+    'Menyemak kebenaran mengawal main balik\nSila cuba lagi sebentar nanti',
+  'toast.member_management_checking':
+    'Menyemak kebenaran untuk mengeluarkan ahli\nSila cuba lagi sebentar nanti',
+  'toast.chat_notice_checking':
+    'Menyemak kebenaran untuk menyiarkan notis sembang\nSila cuba lagi sebentar nanti',
+  'toast.admin_permission_checking': 'Menyemak kebenaran pentadbir\nSila cuba lagi sebentar nanti',
+  'toast.room_owner_checking': 'Menyemak kebenaran pemilik bilik\nSila cuba lagi sebentar nanti',
   'toast.system_audio_owner_required':
     'Anda hanya boleh berkongsi audio daripada tab yang membuka bilik',
   'toast.host_setting_required': 'Hanya hos boleh mengubah tetapan ini',

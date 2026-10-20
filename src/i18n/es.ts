@@ -557,6 +557,18 @@ const es: Record<I18nKey, string> = {
   'toast.member_management_required': 'Se necesita permiso para expulsar miembros',
   'toast.chat_notice_required': 'Se necesita permiso para publicar avisos en el chat',
   'toast.room_owner_required': 'Solo el propietario de la sala puede cambiar esto',
+  'toast.media_management_checking':
+    'Comprobando el permiso para gestionar contenido\nInténtalo de nuevo en un momento',
+  'toast.playback_control_checking':
+    'Comprobando el permiso para controlar la reproducción\nInténtalo de nuevo en un momento',
+  'toast.member_management_checking':
+    'Comprobando el permiso para expulsar miembros\nInténtalo de nuevo en un momento',
+  'toast.chat_notice_checking':
+    'Comprobando el permiso para publicar avisos en el chat\nInténtalo de nuevo en un momento',
+  'toast.admin_permission_checking':
+    'Comprobando el permiso de administrador\nInténtalo de nuevo en un momento',
+  'toast.room_owner_checking':
+    'Comprobando el permiso del propietario de la sala\nInténtalo de nuevo en un momento',
   'toast.system_audio_owner_required':
     'Solo puedes compartir audio desde la pestaña que abrió la sala',
   'toast.host_setting_required': 'Solo el anfitrión puede cambiar este ajuste',

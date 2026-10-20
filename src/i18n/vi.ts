@@ -538,6 +538,13 @@ const vi: Record<I18nKey, string> = {
   'toast.member_management_required': 'Cần quyền mời thành viên ra',
   'toast.chat_notice_required': 'Cần quyền đăng thông báo trò chuyện',
   'toast.room_owner_required': 'Chỉ chủ phòng mới có thể thay đổi mục này',
+  'toast.media_management_checking': 'Đang kiểm tra quyền quản lý nội dung\nVui lòng thử lại sau',
+  'toast.playback_control_checking': 'Đang kiểm tra quyền điều khiển phát\nVui lòng thử lại sau',
+  'toast.member_management_checking': 'Đang kiểm tra quyền mời thành viên ra\nVui lòng thử lại sau',
+  'toast.chat_notice_checking':
+    'Đang kiểm tra quyền đăng thông báo trò chuyện\nVui lòng thử lại sau',
+  'toast.admin_permission_checking': 'Đang kiểm tra quyền quản trị\nVui lòng thử lại sau',
+  'toast.room_owner_checking': 'Đang kiểm tra quyền chủ phòng\nVui lòng thử lại sau',
   'toast.system_audio_owner_required': 'Bạn chỉ có thể chia sẻ âm thanh từ thẻ đã mở phòng',
   'toast.host_setting_required': 'Chỉ chủ phòng mới có thể đổi cài đặt này',
   'toast.no_tracks': 'Không có mục nào để phát',

@@ -2216,10 +2216,18 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* The deletion pills sit right after the last track, so the list stops
-     stretching to the bottom of the body while they are shown. */
+     stretching to the bottom of the body while they are shown. The pills take
+     the free space below them instead (margin-bottom: auto), which keeps the
+     body's scroll height, and so its scroll position, the same as outside the
+     mode. */
   .playlist-ul.has-removal-selection,
   .playlist-ul.has-removal-exit {
     flex: 0 0 auto;
+  }
+
+  .playlist-ul.has-removal-selection ~ .playlist-selection-bar,
+  .playlist-ul.has-removal-exit ~ .playlist-selection-bar {
+    margin-bottom: auto;
   }
 
   .is-playlist-reordering {
@@ -2963,6 +2971,9 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .playlist-selection-title {
+    /* The 36px row the hidden icon actions normally set, with the text centred
+       in it as before, so the header keeps its height in both modes. */
+    line-height: 36px;
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
@@ -2980,10 +2991,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     appearance: none;
     -webkit-appearance: none;
     flex: 0 0 auto;
-    /* Same -4px trick as .tab-action-btn: a 44px touch box that occupies the
-       36px header row, so entering the mode never moves the title. */
+    /* A 44px touch box whose margin box is only 16px tall, so sitting on the
+       title's baseline never makes the header row taller than its normal
+       36px and entering the mode never moves the title or the list. */
     height: 44px;
-    margin: -4px 0 -4px 16px;
+    margin: -14px 0 -14px 16px;
     padding: 0 4px;
     display: inline-flex;
     align-items: center;

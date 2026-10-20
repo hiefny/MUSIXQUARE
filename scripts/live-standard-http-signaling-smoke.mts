@@ -17,22 +17,41 @@ const SEND_FRAME_TYPES = new Set([
 ]);
 // Emit only recognized machine codes. Response text and authentication data
 // must never become release logs, even when an upstream returns them as error.
-const SEND_ERROR_CODES = new Set([
+// App Worker codes come first, then the signaling bridge object's, which the
+// App passes through unchanged.
+const BRIDGE_ERROR_CODES = new Set([
   'CAPABILITY_NOT_CONFIGURED',
+  'CAPABILITY_REQUIRED',
+  'CAPABILITY_SECRET_INVALID',
   'RATE_LIMIT_UNAVAILABLE',
+  'SERVICE_MAINTENANCE',
+  'SERVICE_MAINTENANCE_STATUS_UNAVAILABLE',
+  'NOT_FOUND',
+  'INVALID_STANDARD_SIGNALING_BRIDGE_REQUEST',
   'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE',
   'STANDARD_SIGNALING_BRIDGE_INVALID_RESPONSE',
   'STANDARD_SIGNALING_BRIDGE_SESSION_REQUIRED',
   'INVALID_STANDARD_HTTP_BRIDGE_REQUEST',
+  'STANDARD_HTTP_BRIDGE_UNAVAILABLE',
+  'STANDARD_HTTP_BRIDGE_UPSTREAM_UNAVAILABLE',
+  'STANDARD_HTTP_BRIDGE_UPSTREAM_REJECTED',
   'STANDARD_HTTP_BRIDGE_REAUTH_REQUIRED',
   'STANDARD_HTTP_BRIDGE_AUTHORITY_MISMATCH',
   'STANDARD_HTTP_BRIDGE_CLOSED',
   'STANDARD_HTTP_BRIDGE_SEQUENCE_REPLAY_MISMATCH',
   'STANDARD_HTTP_BRIDGE_SEQUENCE_GAP',
   'STANDARD_HTTP_BRIDGE_SEND_FAILED',
+  'STANDARD_HTTP_BRIDGE_ACK_AHEAD',
+  'STANDARD_HTTP_BRIDGE_REQUEST_EPOCH_STALE',
+  'STANDARD_HTTP_BRIDGE_POLL_SUPERSEDED',
+  'STANDARD_HTTP_BRIDGE_POLL_ABORTED',
 ]);
+// A Ray ID names one request in Cloudflare logs; it carries no credential.
+const RAY_ID_RE = /^[0-9a-f]{16}(?:-[A-Z]{3,4})?$/;
 
 type JsonObject = Record<string, unknown>;
+type BridgeOperation = 'open' | 'send' | 'poll' | 'close';
+type BridgeRole = 'host' | 'guest';
 
 function isJsonObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -68,6 +87,90 @@ async function fetchJson(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+interface BridgeExchange {
+  readonly response: Response | null;
+  readonly payload: unknown;
+  /** Why no bounded JSON body arrived; null when one did, whatever its status. */
+  readonly transport: 'timeout' | 'network-error' | 'body-error' | 'oversized' | 'non-json' | null;
+  readonly elapsedMs: number;
+}
+
+/** Never rejects: every bridge failure must reach describeBridgeFailure. */
+async function exchangeBridge(path: BridgeOperation, init: RequestInit): Promise<BridgeExchange> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const startedAt = performance.now();
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new Error('HTTP_SIGNALING_SMOKE_TIMEOUT'));
+  }, REQUEST_TIMEOUT_MS);
+  const settle = (
+    response: Response | null,
+    payload: unknown,
+    transport: BridgeExchange['transport'],
+  ): BridgeExchange => ({
+    response,
+    payload,
+    transport,
+    elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+  });
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${BRIDGE_PREFIX}/${path}`, {
+        ...init,
+        cache: 'no-store',
+        redirect: 'error',
+        signal: controller.signal,
+      });
+    } catch {
+      return settle(null, undefined, timedOut ? 'timeout' : 'network-error');
+    }
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await response.arrayBuffer());
+    } catch {
+      return settle(response, undefined, timedOut ? 'timeout' : 'body-error');
+    }
+    if (bytes.byteLength > MAX_JSON_BYTES) return settle(response, undefined, 'oversized');
+    try {
+      const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      return settle(response, JSON.parse(text), null);
+    } catch {
+      return settle(response, undefined, 'non-json');
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * One line per failed bridge request: role, HTTP status, an allowlisted code,
+ * elapsed ms and the Ray ID that finds the App Worker diagnostic. Tokens, peer
+ * and room IDs, frame contents and response text are never included.
+ */
+function describeBridgeFailure(
+  operation: BridgeOperation,
+  role: BridgeRole,
+  exchange: BridgeExchange,
+  detail: readonly string[] = [],
+): string {
+  const rawCode = isJsonObject(exchange.payload) ? exchange.payload.error : undefined;
+  const code =
+    exchange.transport ??
+    (typeof rawCode !== 'string' ? 'none' : BRIDGE_ERROR_CODES.has(rawCode) ? rawCode : 'unknown');
+  const rayId = exchange.response?.headers.get('cf-ray') ?? '';
+  const fields = [
+    `role=${role}`,
+    `HTTP ${exchange.response?.status ?? 'none'}`,
+    ...detail,
+    `code=${code}`,
+    `elapsedMs=${exchange.elapsedMs}`,
+    `ray=${RAY_ID_RE.test(rayId) ? rayId : 'none'}`,
+  ];
+  return `HTTP signaling bridge ${operation} failed (${fields.join('; ')})`;
 }
 
 function hasLeadingZeroBits(bytes: Uint8Array, difficulty: number): boolean {
@@ -158,16 +261,21 @@ export class StandardHttpBridgeSmokeClient {
   private requestEpoch = 0;
   private readonly queued: JsonObject[] = [];
   private readonly sessionToken: string;
+  private readonly role: BridgeRole;
+  /** Wall time of the successful open, for the release log's latency record. */
+  readonly openElapsedMs: number;
 
-  private constructor(sessionToken: string) {
+  private constructor(sessionToken: string, role: BridgeRole, openElapsedMs: number) {
     this.sessionToken = sessionToken;
+    this.role = role;
+    this.openElapsedMs = openElapsedMs;
   }
 
   static async open(
     capabilityToken: string,
-    input: { roomId: string; role: 'host' | 'guest'; peerId: string },
+    input: { roomId: string; role: BridgeRole; peerId: string },
   ): Promise<StandardHttpBridgeSmokeClient> {
-    const opened = await fetchJson(`${BRIDGE_PREFIX}/open`, {
+    const opened = await exchangeBridge('open', {
       method: 'POST',
       headers: {
         Origin: APP_ORIGIN,
@@ -179,14 +287,14 @@ export class StandardHttpBridgeSmokeClient {
     const keys = isJsonObject(opened.payload) ? Object.keys(opened.payload) : [];
     const token = isJsonObject(opened.payload) ? opened.payload.sessionToken : null;
     if (
-      !opened.response.ok ||
+      !opened.response?.ok ||
       keys.length !== 1 ||
       keys[0] !== 'sessionToken' ||
       typeof token !== 'string'
     ) {
-      throw new Error(`HTTP signaling bridge open failed (HTTP ${opened.response.status})`);
+      throw new Error(describeBridgeFailure('open', input.role, opened));
     }
-    return new StandardHttpBridgeSmokeClient(token);
+    return new StandardHttpBridgeSmokeClient(token, input.role, opened.elapsedMs);
   }
 
   private authorizationHeaders(): Record<string, string> {
@@ -199,32 +307,31 @@ export class StandardHttpBridgeSmokeClient {
 
   async send(frame: JsonObject): Promise<void> {
     this.clientSequence += 1;
-    const sent = await fetchJson(`${BRIDGE_PREFIX}/send`, {
+    const sent = await exchangeBridge('send', {
       method: 'POST',
       headers: this.authorizationHeaders(),
       body: JSON.stringify({ v: 1, cseq: this.clientSequence, frame: JSON.stringify(frame) }),
     });
     if (
-      !sent.response.ok ||
+      !sent.response?.ok ||
       !isJsonObject(sent.payload) ||
       sent.payload.v !== 1 ||
       sent.payload.ack !== this.clientSequence
     ) {
       const frameType =
         typeof frame.type === 'string' && SEND_FRAME_TYPES.has(frame.type) ? frame.type : 'unknown';
-      const rawCode = isJsonObject(sent.payload) ? sent.payload.error : undefined;
-      const code =
-        typeof rawCode === 'string' && SEND_ERROR_CODES.has(rawCode) ? rawCode : 'unknown';
       throw new Error(
-        `HTTP signaling bridge send failed (HTTP ${sent.response.status}; ` +
-          `cseq=${this.clientSequence}; frame=${frameType}; code=${code})`,
+        describeBridgeFailure('send', this.role, sent, [
+          `cseq=${this.clientSequence}`,
+          `frame=${frameType}`,
+        ]),
       );
     }
   }
 
   async poll(waitMs = 1_000): Promise<JsonObject[]> {
     this.requestEpoch += 1;
-    const polled = await fetchJson(`${BRIDGE_PREFIX}/poll`, {
+    const polled = await exchangeBridge('poll', {
       method: 'POST',
       headers: this.authorizationHeaders(),
       body: JSON.stringify({
@@ -234,8 +341,8 @@ export class StandardHttpBridgeSmokeClient {
         waitMs,
       }),
     });
-    if (!polled.response.ok || !isJsonObject(polled.payload)) {
-      throw new Error(`HTTP signaling bridge poll failed (HTTP ${polled.response.status})`);
+    if (!polled.response?.ok || !isJsonObject(polled.payload)) {
+      throw new Error(describeBridgeFailure('poll', this.role, polled));
     }
     if (polled.payload.v !== 1 || !Array.isArray(polled.payload.events)) {
       throw new Error('HTTP signaling bridge poll response was malformed');
@@ -294,14 +401,13 @@ export class StandardHttpBridgeSmokeClient {
   }
 
   async close(): Promise<void> {
-    try {
-      await fetchJson(`${BRIDGE_PREFIX}/close`, {
-        method: 'POST',
-        headers: this.authorizationHeaders(),
-      });
-    } catch {
-      // Cleanup is best-effort; the bridge lease is the bounded fallback.
-    }
+    // Cleanup is best-effort; the bridge lease is the bounded fallback. A
+    // failure is still printed, but it never replaces the smoke's own result.
+    const closed = await exchangeBridge('close', {
+      method: 'POST',
+      headers: this.authorizationHeaders(),
+    });
+    if (!closed.response?.ok) console.warn(describeBridgeFailure('close', this.role, closed));
   }
 }
 
@@ -406,6 +512,8 @@ export async function main(): Promise<void> {
         expectedVersion: expectedVersion || null,
         admission: { host: true, guest: true },
         relay: { offer: true, answer: true },
+        // The App bounds each open at 5 s; record how close a passing run came.
+        bridgeOpenMs: { host: host.openElapsedMs, guest: guest.openElapsedMs },
       }),
     );
   } finally {

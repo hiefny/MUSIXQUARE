@@ -15,6 +15,7 @@ export default defineConfig({
       'src/core/__tests__/announcement-expiry.test.ts',
       'src/core/__tests__/cloudflare-signaling-http-bridge.test.ts',
       'src/core/__tests__/signaling-diagnostics.test.ts',
+      'src/core/__tests__/standard-signaling-bridge-diagnostics.test.ts',
       'src/core/__tests__/pro-room-proxy-diagnostics.test.ts',
       'src/core/__tests__/worker-shared-read-lifetime.test.ts',
       'src/core/__tests__/standard-room-burst.test.ts',

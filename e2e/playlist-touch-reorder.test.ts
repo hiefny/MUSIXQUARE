@@ -146,7 +146,7 @@ test.describe('Playlist touch reorder', () => {
 
     const selectAllAction = page.locator('.playlist-selection-toggle');
     await quickTap(cdp, await centerOf(selectAllAction));
-    await expect(selectAllAction).toHaveText('Deselect all');
+    await expect(selectAllAction).toHaveText(/^Deselect all \(\d+\)$/);
     await quickTap(cdp, await centerOf(page.locator('[data-selection-action="cancel"]')));
     await expect(firstRemoveButton).toHaveAttribute('aria-pressed', 'false');
     await expect(page.locator('.playlist-selection-bar')).toBeHidden();

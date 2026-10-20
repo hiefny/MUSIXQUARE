@@ -304,7 +304,12 @@ export function createPlaylistRemovalController(
     renderBarLabels(state);
   }
 
-  function syncHeader(active: boolean, selectedCount: number, allSelected: boolean): void {
+  function syncHeader(
+    active: boolean,
+    selectedCount: number,
+    totalCount: number,
+    allSelected: boolean,
+  ): void {
     header?.classList.toggle('is-removal-selecting', active);
     if (title) {
       title.hidden = !active;
@@ -313,7 +318,10 @@ export function createPlaylistRemovalController(
     }
     if (toggleButton) {
       toggleButton.hidden = !active;
-      toggleButton.textContent = t(allSelected ? 'playlist.deselect_all' : 'playlist.select_all');
+      // The total in parentheses tells how many tracks the toggle affects.
+      const label = t(allSelected ? 'playlist.deselect_all' : 'playlist.select_all');
+      const text = `${label} (${totalCount})`;
+      if (toggleButton.textContent !== text) toggleButton.textContent = text;
       toggleButton.dataset.selectionAction = allSelected ? 'deselect-all' : 'select-all';
     }
   }
@@ -380,7 +388,7 @@ export function createPlaylistRemovalController(
         handle.setAttribute('aria-keyshortcuts', 'Space Enter ArrowUp ArrowDown Home End Escape');
     }
 
-    syncHeader(active, selectedCount, allSelected);
+    syncHeader(active, selectedCount, items.length, allSelected);
     if (active) setBarState('select');
     else if (pending) {
       if (barState !== 'undo') setBarState('undo');

@@ -1370,14 +1370,14 @@ describe('playlist queue identity rendering and actions', () => {
     expect(live.textContent).toBe('1 selected');
     expect(toggle.hidden).toBe(false);
     expect(toggle.tagName).toBe('BUTTON');
-    expect(toggle.textContent).toBe('Select all');
+    expect(toggle.textContent).toBe('Select all (2)');
     expect(header.querySelectorAll('.playlist-selection-toggle')).toHaveLength(1);
     // The tab's icon actions stay in the DOM; CSS hides them in this mode.
     expect(header.querySelector('#btn-add-media')).not.toBeNull();
 
     clickRemove(YT_B);
     expect(live.textContent).toBe('2 selected');
-    expect(toggle.textContent).toBe('Deselect all');
+    expect(toggle.textContent).toBe('Deselect all (2)');
 
     const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
     const deleteButton = bar.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
@@ -1424,7 +1424,7 @@ describe('playlist queue identity rendering and actions', () => {
     clickRemove(FILE_A);
     const toggle = document.querySelector<HTMLButtonElement>('.playlist-selection-toggle')!;
     expect(toggle.dataset.selectionAction).toBe('select-all');
-    expect(toggle.textContent).toBe(t('playlist.select_all'));
+    expect(toggle.textContent).toBe(`${t('playlist.select_all')} (2)`);
     toggle.click();
 
     expect(
@@ -1433,7 +1433,7 @@ describe('playlist queue identity rendering and actions', () => {
       ),
     ).toEqual(['true', 'true']);
     expect(toggle.dataset.selectionAction).toBe('deselect-all');
-    expect(toggle.textContent).toBe(t('playlist.deselect_all'));
+    expect(toggle.textContent).toBe(`${t('playlist.deselect_all')} (2)`);
     expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 2 }));
 
     toggle.click();

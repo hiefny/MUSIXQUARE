@@ -2953,6 +2953,13 @@ Safety is declared first because important layer precedence is reversed; its acc
     display: none;
   }
 
+  /* The count title and the small toggle share one text baseline, so the
+     toggle sits on the title's bottom line instead of its vertical middle. */
+  .tab-header.is-removal-selecting,
+  .tab-header.is-removal-selecting .playlist-title-area {
+    align-items: baseline;
+  }
+
   .playlist-selection-title {
     flex: 1 1 auto;
     min-width: 0;

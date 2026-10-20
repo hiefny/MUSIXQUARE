@@ -16,7 +16,8 @@ import { gateServiceMaintenance } from './service-maintenance.ts';
 type JsonRecord = Record<string, unknown>;
 type BodyReader = ReadableStreamDefaultReader<Uint8Array>;
 type CancellableBody = { cancel(reason?: unknown): Promise<void> };
-type Projection = 'room' | 'playback' | 'queue' | 'effects' | 'queue-mode';
+type Projection =
+  'room' | 'playback' | 'queue' | 'effects' | 'queue-mode' | 'playlists' | 'playlist-queue';
 
 interface DeveloperApiFacadeEnvPort {
   readonly CF_VERSION_METADATA?: unknown;
@@ -109,7 +110,21 @@ function isProjection(value: unknown): value is Projection {
     value === 'playback' ||
     value === 'queue' ||
     value === 'effects' ||
-    value === 'queue-mode'
+    value === 'queue-mode' ||
+    value === 'playlists' ||
+    value === 'playlist-queue'
+  );
+}
+
+// Room playlists are numbered from 1 ("Playlist", "Playlist 2", "Playlist 3").
+const PLAYLIST_COUNT = 3;
+
+function isPlaylistNumber(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 1 &&
+    value <= PLAYLIST_COUNT
   );
 }
 
@@ -595,6 +610,97 @@ function sanitizeProjection(value: unknown, projection: Projection, roomCode: st
       items,
     };
   }
+  if (projection === 'playlists') {
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'playlistRevision',
+        'activePlaylist',
+        'playlists',
+      ]) ||
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      !isPlaylistNumber(value.activePlaylist) ||
+      !Array.isArray(value.playlists) ||
+      value.playlists.length !== PLAYLIST_COUNT
+    ) {
+      return null;
+    }
+    const activePlaylist = value.activePlaylist;
+    const playlists = value.playlists.map((entry: unknown, index) => {
+      if (
+        !hasExactKeys(entry, ['playlist', 'active', 'itemCount', 'byteLength']) ||
+        entry.playlist !== index + 1 ||
+        entry.active !== (index + 1 === activePlaylist) ||
+        !isSafeNonNegativeInteger(entry.itemCount) ||
+        entry.itemCount > PLAYLIST_MAX_ITEMS ||
+        (entry.byteLength !== null &&
+          (!isSafeNonNegativeInteger(entry.byteLength) || entry.byteLength <= 0))
+      ) {
+        return null;
+      }
+      return {
+        playlist: entry.playlist,
+        active: entry.active,
+        itemCount: entry.itemCount,
+        byteLength: entry.byteLength,
+      };
+    });
+    if (!hasNoNull(playlists)) return null;
+    return {
+      schemaVersion: 1,
+      view: 'playlists',
+      roomCode,
+      playlistRevision: value.playlistRevision,
+      activePlaylist,
+      playlists,
+    };
+  }
+  if (projection === 'playlist-queue') {
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'playlist',
+        'active',
+        'playlistRevision',
+        'currentQueueItemId',
+        'items',
+      ]) ||
+      !isPlaylistNumber(value.playlist) ||
+      typeof value.active !== 'boolean' ||
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      (value.currentQueueItemId !== null &&
+        (!value.active ||
+          typeof value.currentQueueItemId !== 'string' ||
+          !QUEUE_ITEM_ID_RE.test(value.currentQueueItemId))) ||
+      !Array.isArray(value.items) ||
+      value.items.length > PLAYLIST_MAX_ITEMS
+    ) {
+      return null;
+    }
+    const items = value.items.map(sanitizeQueueItem);
+    if (
+      !hasNoNull(items) ||
+      new Set(items.map((item) => item.queueItemId)).size !== items.length ||
+      (value.currentQueueItemId !== null &&
+        !items.some((item) => item.queueItemId === value.currentQueueItemId))
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      view: 'playlist-queue',
+      roomCode,
+      playlist: value.playlist,
+      active: value.active,
+      playlistRevision: value.playlistRevision,
+      currentQueueItemId: value.currentQueueItemId,
+      items,
+    };
+  }
   if (projection === 'effects') {
     const effects = parseEffectsState(value.effects);
     if (
@@ -656,6 +762,10 @@ function sanitizeProjection(value: unknown, projection: Projection, roomCode: st
   return null;
 }
 
+function projectionPlaylist(value: unknown): unknown {
+  return isRecord(value) ? value.playlist : undefined;
+}
+
 function parseQueueModeUpdate(value: unknown) {
   return hasExactKeys(value, ['baseRevision', 'repeatMode', 'shuffleEnabled']) &&
     isSafeNonNegativeInteger(value.baseRevision) &&
@@ -685,19 +795,26 @@ function parseDeveloperCommand(value: unknown) {
       : null;
   }
   if (value.type === 'play_item') {
-    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex']) &&
+    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex', 'playlist']) &&
       typeof value.queueItemId === 'string' &&
       QUEUE_ITEM_UUID_RE.test(value.queueItemId) &&
       (value.youtubeSubIndex === undefined ||
         (isSafeNonNegativeInteger(value.youtubeSubIndex) &&
-          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS))
+          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS)) &&
+      (value.playlist === undefined || isPlaylistNumber(value.playlist))
       ? {
           type: 'play_item',
           queueItemId: value.queueItemId,
           ...(value.youtubeSubIndex === undefined
             ? {}
             : { youtubeSubIndex: value.youtubeSubIndex }),
+          ...(value.playlist === undefined ? {} : { playlist: value.playlist }),
         }
+      : null;
+  }
+  if (value.type === 'switch_playlist') {
+    return hasExactKeys(value, ['type', 'playlist']) && isPlaylistNumber(value.playlist)
+      ? { type: 'switch_playlist', playlist: value.playlist }
       : null;
   }
   if (value.type === 'set_effects') {
@@ -967,10 +1084,15 @@ function parseQueueMutation(value: unknown): QueueMutation | null {
     return canonicalItems ? { type: 'add_youtube_batch', items: canonicalItems } : null;
   }
   if (value.type === 'remove') {
-    return hasExactKeys(value, ['type', 'queueItemId']) &&
+    return hasExactKeys(value, ['type', 'queueItemId'], ['playlist']) &&
       typeof value.queueItemId === 'string' &&
-      QUEUE_ITEM_UUID_RE.test(value.queueItemId)
-      ? { type: 'remove', queueItemId: value.queueItemId }
+      QUEUE_ITEM_UUID_RE.test(value.queueItemId) &&
+      (value.playlist === undefined || isPlaylistNumber(value.playlist))
+      ? {
+          type: 'remove',
+          queueItemId: value.queueItemId,
+          ...(value.playlist === undefined ? {} : { playlist: value.playlist }),
+        }
       : null;
   }
   if (value.type === 'reorder') {
@@ -1380,7 +1502,7 @@ const developerApiFacadeWorker = {
         !hasExactKeys(
           body,
           ['roomCode', 'roomGeneration', 'projection'],
-          ['developerAuthorityEpoch', 'keyId', 'effectsVersion'],
+          ['developerAuthorityEpoch', 'keyId', 'effectsVersion', 'playlist'],
         ) ||
         typeof body.roomCode !== 'string' ||
         !ROOM_CODE_RE.test(body.roomCode) ||
@@ -1389,6 +1511,11 @@ const developerApiFacadeWorker = {
         (body.projection === 'effects'
           ? body.effectsVersion !== 2
           : body.effectsVersion !== undefined) ||
+        // Only the per-playlist queue names a playlist; every other view
+        // keeps its exact single-playlist request shape.
+        (body.projection === 'playlist-queue'
+          ? !isPlaylistNumber(body.playlist)
+          : body.playlist !== undefined) ||
         !isProjection(body.projection)
       ) {
         return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
@@ -1403,6 +1530,7 @@ const developerApiFacadeWorker = {
           ...(body.keyId === undefined ? {} : { keyId: body.keyId }),
           ...(body.projection === 'effects' ? { effectsVersion: 2 } : {}),
           projection: body.projection,
+          ...(body.projection === 'playlist-queue' ? { playlist: body.playlist } : {}),
         },
         PROJECTION_RESPONSE_MAX_BYTES,
       );
@@ -1419,7 +1547,8 @@ const developerApiFacadeWorker = {
         return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
       }
       const sanitized = sanitizeProjection(value, body.projection, body.roomCode);
-      return sanitized
+      return sanitized &&
+        (body.projection !== 'playlist-queue' || projectionPlaylist(sanitized) === body.playlist)
         ? jsonResponse(sanitized, 200, facadeVersionHeaders(env))
         : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
     }
@@ -1566,8 +1695,15 @@ const developerApiFacadeWorker = {
       }
       const expectedStatus =
         mutation.type === 'add_youtube' || mutation.type === 'add_youtube_batch' ? 201 : 200;
-      const sanitized = sanitizeProjection(value, 'queue', body.roomCode);
-      return called.response.status === expectedStatus && sanitized
+      // A removal from a named playlist answers with that playlist's queue.
+      const targetPlaylist = mutation.type === 'remove' ? mutation.playlist : undefined;
+      const sanitized =
+        targetPlaylist === undefined
+          ? sanitizeProjection(value, 'queue', body.roomCode)
+          : sanitizeProjection(value, 'playlist-queue', body.roomCode);
+      return called.response.status === expectedStatus &&
+        sanitized &&
+        (targetPlaylist === undefined || projectionPlaylist(sanitized) === targetPlaylist)
         ? jsonResponse(sanitized, expectedStatus)
         : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
     }

@@ -1,6 +1,7 @@
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_MAX_ADMINISTRATOR_ITEMS,
+  PRO_ROOM_MAX_PLAYLIST_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
   type ProRoomAdministrator,
   type ProRoomPlaybackCheckpoint,
@@ -43,7 +44,8 @@ import {
   type ProRoomQueueModeSnapshot,
   type ProRoomRepeatMode,
 } from './queue-mode.ts';
-import { BOT_RATE_LIMIT_MAX_RETRY_SECONDS } from '../core/constants.ts';
+import { BOT_RATE_LIMIT_MAX_RETRY_SECONDS, PLAYLIST_SLOT_COUNT } from '../core/constants.ts';
+import type { PlaylistTransferMode } from '../types/index.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
 import {
   DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
@@ -318,6 +320,25 @@ export interface UpdateProRoomCompactSnapshotInput {
   idempotencyKey: string;
 }
 
+export interface SwitchProRoomPlaylistInput {
+  code: string;
+  baseRevision: number;
+  /** Zero-based playlist slot to make active. */
+  slot: number;
+  idempotencyKey: string;
+}
+
+export interface TransferProRoomPlaylistTracksInput {
+  code: string;
+  baseRevision: number;
+  /** Active-playlist rows, copied or moved in active-playlist order. */
+  queueItemIds: readonly string[];
+  /** Zero-based slots other than the active one. */
+  targetSlots: readonly number[];
+  mode: PlaylistTransferMode;
+  idempotencyKey: string;
+}
+
 interface UpdateProRoomEffectsInput {
   code: string;
   coordinatorEpoch: number;
@@ -464,6 +485,10 @@ function hasExactKeys(
 
 function isSafeNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isPlaylistSlot(value: unknown): value is number {
+  return isSafeNonNegativeInteger(value) && value < PLAYLIST_SLOT_COUNT;
 }
 
 function parseBoundedString(value: unknown, maxLength: number): string | null {
@@ -1340,6 +1365,8 @@ export class ProRoomApiClient {
     const headers = new Headers(options.headers);
     // Opt in to additive entry policy fields; cached strict v1 clients retain their wire shape.
     headers.set('X-MXQR-Pro-Entry-Policy', 'optional-v1');
+    // Same opt-in for the additive `playlistSlots` snapshot field.
+    headers.set('X-MXQR-Pro-Playlist-Slots', 'v1');
     let body: string | undefined;
     if (options.body !== undefined) {
       body = encodeRequestBody(options.body);
@@ -2244,6 +2271,69 @@ export class ProRoomApiClient {
         upserts: input.upserts,
         currentQueueItemId: input.currentQueueItemId,
         playback: input.playback,
+      },
+      signal,
+      activeRoomCode: input.code,
+      parser: (value) => parseSnapshotEnvelope(value, input.code),
+    });
+  }
+
+  /** Make another playlist active. The server stops playback and selects nothing. */
+  switchPlaylist(
+    input: SwitchProRoomPlaylistInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot> {
+    const path = roomPath(input.code);
+    if (!isSafeNonNegativeInteger(input.baseRevision)) {
+      throw new ProRoomApiError('INVALID_REVISION');
+    }
+    if (!isPlaylistSlot(input.slot)) throw new ProRoomApiError('INVALID_PLAYLIST_SLOT');
+    return this.#request(`${path}/playlists/switch`, {
+      method: 'POST',
+      idempotencyKey: input.idempotencyKey,
+      body: { baseRevision: input.baseRevision, slot: input.slot },
+      signal,
+      activeRoomCode: input.code,
+      parser: (value) => parseSnapshotEnvelope(value, input.code),
+    });
+  }
+
+  /** Append copies of active-playlist rows to other playlists; `move` also removes them. */
+  transferPlaylistTracks(
+    input: TransferProRoomPlaylistTracksInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot> {
+    const path = roomPath(input.code);
+    if (!isSafeNonNegativeInteger(input.baseRevision)) {
+      throw new ProRoomApiError('INVALID_REVISION');
+    }
+    if (
+      input.queueItemIds.length === 0 ||
+      input.queueItemIds.length > PRO_ROOM_MAX_PLAYLIST_ITEMS ||
+      input.queueItemIds.some((queueItemId) => !isProRoomQueueItemId(queueItemId)) ||
+      new Set(input.queueItemIds).size !== input.queueItemIds.length
+    ) {
+      throw new ProRoomApiError('INVALID_QUEUE_ITEM_ID');
+    }
+    if (
+      input.targetSlots.length === 0 ||
+      input.targetSlots.length >= PLAYLIST_SLOT_COUNT ||
+      !input.targetSlots.every(isPlaylistSlot) ||
+      new Set(input.targetSlots).size !== input.targetSlots.length
+    ) {
+      throw new ProRoomApiError('INVALID_PLAYLIST_SLOT');
+    }
+    if (input.mode !== 'copy' && input.mode !== 'move') {
+      throw new ProRoomApiError('INVALID_REQUEST');
+    }
+    return this.#request(`${path}/playlists/transfer`, {
+      method: 'POST',
+      idempotencyKey: input.idempotencyKey,
+      body: {
+        baseRevision: input.baseRevision,
+        queueItemIds: [...input.queueItemIds],
+        targetSlots: [...input.targetSlots],
+        mode: input.mode,
       },
       signal,
       activeRoomCode: input.code,

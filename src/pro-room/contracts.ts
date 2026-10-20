@@ -1,4 +1,4 @@
-import type { DevicePlatform, QueueItemId } from '../types/index.ts';
+import type { DevicePlatform, PlaylistSlotsSummary, QueueItemId } from '../types/index.ts';
 
 export const PRO_ROOM_SNAPSHOT_SCHEMA_VERSION = 1 as const;
 export const PRO_ROOM_QUOTA_BYTES = 1024 * 1024 * 1024;
@@ -288,6 +288,11 @@ interface ProRoomSnapshotV1 {
   memberIdentityVersion: 1;
   authorityVersion: 1;
   administrators: ProRoomAdministrator[];
+  /**
+   * Every playlist of the room; `playlist` above is the active one. Present
+   * only when the client opted in and the Worker supports playlists.
+   */
+  playlistSlots?: PlaylistSlotsSummary;
 }
 
 export type ProRoomSnapshot = ProRoomSnapshotV1;

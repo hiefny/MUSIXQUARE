@@ -2359,3 +2359,278 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+function slotQueueItemId(playlist: number, ordinal: number): string {
+  return `aaaaaaaa-aaaa-4aaa-8aaa-${String(playlist).padStart(4, '0')}${String(ordinal).padStart(8, '0')}`;
+}
+
+function multiPlaylistRoom(activePlaylist: number, counts: readonly number[]) {
+  const playlists = counts.map((count, index) => ({
+    playlist: index + 1,
+    active: index + 1 === activePlaylist,
+    itemCount: count,
+    items: Array.from({ length: count }, (_, itemIndex) => ({
+      queueItemId: slotQueueItemId(index + 1, itemIndex + 1),
+      kind: 'youtube',
+      name: `Track ${index + 1}-${itemIndex + 1}`,
+    })),
+  }));
+  return {
+    playlistRevision: 5,
+    currentQueueItemId: playlists[activePlaylist - 1]?.items[0]?.queueItemId ?? null,
+    playbackState: 'playing',
+    repeatMode: 'off',
+    shuffleEnabled: false,
+    playlist: playlists[activePlaylist - 1]?.items ?? [],
+    activePlaylist,
+    playlists,
+  };
+}
+
+async function executedBotPlan(
+  prompt: string,
+  room: Record<string, unknown>,
+  geminiPlan: Record<string, unknown> | null = null,
+): Promise<Record<string, unknown> | null> {
+  let executedPlan: Record<string, unknown> | null = null;
+  const namespace = roomNamespace(async (request) => {
+    const path = new URL(request.url).pathname;
+    if (path === '/internal/bot/context') {
+      return Response.json({ leaseToken: LEASE_TOKEN, actorName: 'Peer 1', room });
+    }
+    if (path === '/internal/bot/execute') {
+      const body = (await request.json()) as { plan: Record<string, unknown> };
+      executedPlan = body.plan;
+      return Response.json({ ok: true, summary: 'Done.', addedCount: 0, playbackChanged: false });
+    }
+    return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+  });
+  const fetchMock = vi.fn(async () => {
+    if (!geminiPlan) throw new Error('unexpected provider call');
+    return geminiPlanResponse(geminiPlan);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  const response = await appWorker.fetch(
+    botRequest({ body: { prompt, requestId: REQUEST_ID } }),
+    appBotEnvironment(namespace, { GEMINI_API_KEY: GEMINI_KEY, YOUTUBE_API_KEY: YOUTUBE_KEY }),
+  );
+  expect(response.status).toBe(200);
+  if (!geminiPlan) expect(fetchMock).not.toHaveBeenCalled();
+  return executedPlan;
+}
+
+describe('PRO BOT room playlist selection', () => {
+  it('reads a room playlist selector without swallowing track ordinals or YouTube playlists', () => {
+    const { parseRoomPlaylistSelection, requestedQueueOrdinal, requestedYoutubeSubItemNumber } =
+      proBotInternalsForTests;
+    expect(parseRoomPlaylistSelection('play track 34 of playlist 2')).toEqual({
+      playlist: 2,
+      ambiguous: false,
+      prompt: 'play track 34 of queue',
+    });
+    expect(requestedYoutubeSubItemNumber('play track 34 of playlist 2')).toBeNull();
+    expect(requestedYoutubeSubItemNumber('play track 34 of queue')).toBeNull();
+    expect(requestedQueueOrdinal('play track 34 of queue')).toBe(34);
+    expect(parseRoomPlaylistSelection('플레이리스트 2의 34번 곡 재생해줘')).toEqual({
+      playlist: 2,
+      ambiguous: false,
+      prompt: '대기열의 34번 곡 재생해줘',
+    });
+    expect(requestedQueueOrdinal('대기열의 34번 곡 재생해줘')).toBe(34);
+    for (const [prompt, playlist] of [
+      ['2번 플레이리스트 34번 곡 틀어줘', 2],
+      ['1번 플레이리스트에서 5번 곡 삭제해줘', 1],
+      ['2번째 플레이리스트의 첫 곡 재생해줘', 2],
+      ['두 번째 플레이리스트 3번 곡 틀어줘', 2],
+      ['플리 3에서 2번 곡 삭제해줘', 3],
+      ['재생목록 2번의 1번 곡 틀어줘', 2],
+      ['play the second playlist', 2],
+      ['delete song 3 from playlist #3', 3],
+      ['Play track 1 in the 3rd playlist', 3],
+    ] as const) {
+      expect(parseRoomPlaylistSelection(prompt).playlist, prompt).toBe(playlist);
+    }
+    for (const prompt of [
+      '재생목록 2번 곡 삭제해줘',
+      '재생목록 2번째 곡 틀어줘',
+      '유튜브 플레이리스트의 3번째 영상을 재생해줘',
+      'play the fourth video in the YouTube playlist',
+      'play YouTube playlist 2',
+      'play track 2',
+      'play playlist 4',
+      '플레이리스트 23번 곡 재생해줘',
+    ]) {
+      expect(parseRoomPlaylistSelection(prompt), prompt).toEqual({
+        playlist: null,
+        ambiguous: false,
+        prompt,
+      });
+    }
+    expect(parseRoomPlaylistSelection('play track 1 of playlist 2 and playlist 3')).toMatchObject({
+      playlist: null,
+      ambiguous: true,
+    });
+    expect(parseRoomPlaylistSelection('play track 1 of playlist 2, then playlist 2')).toMatchObject(
+      { playlist: 2, ambiguous: false },
+    );
+  });
+
+  it('switches to the named playlist and plays its ordinal without a model call', async () => {
+    const room = multiPlaylistRoom(1, [3, 40, 0]);
+    await expect(executedBotPlan('play track 34 of playlist 2', room)).resolves.toEqual({
+      intent: 'play_existing',
+      queueItemId: slotQueueItemId(2, 34),
+      answer: 'Playing track 34 of playlist 2.',
+      playlist: 2,
+    });
+    for (const prompt of ['플레이리스트 2의 34번 곡 재생해줘', '2번 플레이리스트 34번 곡 틀어줘']) {
+      await expect(executedBotPlan(prompt, room), prompt).resolves.toEqual({
+        intent: 'play_existing',
+        queueItemId: slotQueueItemId(2, 34),
+        answer: '플레이리스트 2의 34번 트랙을 재생할게요.',
+        playlist: 2,
+      });
+    }
+    await expect(executedBotPlan('play track 41 of playlist 2', room)).resolves.toEqual({
+      intent: 'answer',
+      answer: 'That track number is not in playlist 2.',
+    });
+  });
+
+  it('sends no playlist field when the request names the active playlist', async () => {
+    const room = multiPlaylistRoom(2, [3, 4, 0]);
+    await expect(executedBotPlan('play track 4 of playlist 2', room)).resolves.toEqual({
+      intent: 'play_existing',
+      queueItemId: slotQueueItemId(2, 4),
+      answer: 'Playing track 4 of playlist 2.',
+    });
+  });
+
+  it('removes a named track from an inactive playlist after deterministic verification', async () => {
+    const room = multiPlaylistRoom(2, [6, 2, 0]);
+    await expect(
+      executedBotPlan('delete track 5 of playlist 1', room, {
+        intent: 'remove_items',
+        queueItemIds: [slotQueueItemId(1, 5)],
+        playlist: 1,
+        answer: 'Removing track 5.',
+      }),
+    ).resolves.toEqual({
+      intent: 'remove_items',
+      queueItemIds: [slotQueueItemId(1, 5)],
+      answer: 'Tracks removed.',
+      playlist: 1,
+    });
+    await expect(
+      executedBotPlan('1번 플레이리스트에서 5번 곡 삭제해줘', room, {
+        intent: 'remove_items',
+        queueItemIds: [slotQueueItemId(1, 5)],
+        answer: '삭제할게요.',
+      }),
+    ).resolves.toEqual({
+      intent: 'remove_items',
+      queueItemIds: [slotQueueItemId(1, 5)],
+      answer: '트랙을 삭제했어요.',
+      playlist: 1,
+    });
+  });
+
+  it('answers without acting for an unavailable, ambiguous or unsupported playlist request', async () => {
+    const legacyRoom = {
+      playlistRevision: 3,
+      currentQueueItemId: null,
+      playbackState: 'idle',
+      repeatMode: 'off',
+      shuffleEnabled: false,
+      playlist: [{ queueItemId: QUEUE_ITEM_ID_1, name: 'First' }],
+    };
+    await expect(executedBotPlan('play track 1 of playlist 2', legacyRoom)).resolves.toEqual({
+      intent: 'answer',
+      answer: 'That playlist is not available.',
+    });
+    await expect(executedBotPlan('플레이리스트 3의 1번 곡 재생해줘', legacyRoom)).resolves.toEqual({
+      intent: 'answer',
+      answer: '해당 플레이리스트를 찾을 수 없어요.',
+    });
+    // An older room has one playlist, number 1, which is active.
+    await expect(executedBotPlan('play track 1 of playlist 1', legacyRoom)).resolves.toEqual({
+      intent: 'play_existing',
+      queueItemId: QUEUE_ITEM_ID_1,
+      answer: 'Playing track 1 of playlist 1.',
+    });
+    const room = multiPlaylistRoom(1, [3, 3, 3]);
+    await expect(
+      executedBotPlan('play track 1 of playlist 2 and playlist 3', room),
+    ).resolves.toEqual({ intent: 'answer', answer: ACTION_NOT_CONFIRMED_EN });
+    await expect(
+      executedBotPlan('clear playlist 2', room, { intent: 'clear_queue', answer: 'Clearing.' }),
+    ).resolves.toEqual({ intent: 'answer', answer: ACTION_NOT_CONFIRMED_EN });
+    await expect(
+      executedBotPlan('play track 1 of playlist 2', { ...room, playlists: [{ playlist: 1 }] }),
+    ).resolves.toEqual({ intent: 'answer', answer: 'That playlist is not available.' });
+  });
+
+  it('keeps track ordinals in the active playlist and binds model playlist claims to the request', async () => {
+    const { buildPlan } = proBotInternalsForTests;
+    const context = { room: multiPlaylistRoom(1, [3, 3, 0]) };
+    const plan = (args: Record<string, unknown>) =>
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => geminiPlanResponse(args)),
+      );
+    const run = (prompt: string) =>
+      buildPlan(prompt, context, '', { GEMINI_API_KEY: GEMINI_KEY }, new AbortController().signal);
+
+    plan({ intent: 'remove_items', queueItemIds: [slotQueueItemId(1, 2)], answer: '삭제할게요.' });
+    await expect(run('재생목록 2번 곡 삭제해줘')).resolves.toEqual({
+      intent: 'remove_items',
+      queueItemIds: [slotQueueItemId(1, 2)],
+      answer: '삭제할게요.',
+    });
+
+    plan({ intent: 'remove_items', queueItemIds: [slotQueueItemId(2, 2)], answer: 'Removing.' });
+    await expect(run('delete track 2 of playlist 2')).resolves.toEqual({
+      intent: 'remove_items',
+      queueItemIds: [slotQueueItemId(2, 2)],
+      answer: 'Removing.',
+    });
+    // The active playlist's IDs are not in the named playlist.
+    plan({ intent: 'remove_items', queueItemIds: [slotQueueItemId(1, 2)], answer: 'Removing.' });
+    await expect(run('delete track 2 of playlist 2')).rejects.toThrow('BOT_INVALID_PLAN');
+    // A model playlist must equal the named playlist and needs a named one.
+    plan({
+      intent: 'remove_items',
+      queueItemIds: [slotQueueItemId(2, 2)],
+      playlist: 3,
+      answer: 'Removing.',
+    });
+    await expect(run('delete track 2 of playlist 2')).rejects.toThrow('BOT_INVALID_PLAN');
+    plan({
+      intent: 'remove_items',
+      queueItemIds: [slotQueueItemId(1, 2)],
+      playlist: 1,
+      answer: 'Removing.',
+    });
+    await expect(run('delete track 2')).rejects.toThrow('BOT_INVALID_PLAN');
+  });
+
+  it('parses a playlist only on play_existing and remove_items plans', () => {
+    const { parsePlan } = proBotInternalsForTests;
+    expect(
+      parsePlan({ intent: 'play_existing', queueItemId: QUEUE_ITEM_ID_1, playlist: 2 }),
+    ).toEqual({ intent: 'play_existing', queueItemId: QUEUE_ITEM_ID_1, playlist: 2 });
+    expect(
+      parsePlan({ intent: 'remove_items', queueItemIds: [QUEUE_ITEM_ID_1], playlist: 3 }),
+    ).toEqual({ intent: 'remove_items', queueItemIds: [QUEUE_ITEM_ID_1], playlist: 3 });
+    for (const invalid of [
+      { intent: 'play_existing', queueItemId: QUEUE_ITEM_ID_1, playlist: 0 },
+      { intent: 'play_existing', queueItemId: QUEUE_ITEM_ID_1, playlist: 4 },
+      { intent: 'remove_items', queueItemIds: [QUEUE_ITEM_ID_1], playlist: '2' },
+      { intent: 'clear_queue', playlist: 2 },
+      { intent: 'playback', playbackCommand: 'play', playlist: 2 },
+      { intent: 'add_youtube', trackQueries: ['Song Artist'], playlist: 2 },
+    ]) {
+      expect(parsePlan(invalid), JSON.stringify(invalid)).toBeNull();
+    }
+  });
+});

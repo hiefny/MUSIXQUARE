@@ -1,4 +1,10 @@
-import type { DevicePlatform, QueueItemId } from '../types/index.ts';
+import { PLAYLIST_SLOT_COUNT } from '../core/constants.ts';
+import type {
+  DevicePlatform,
+  PlaylistSlotSummary,
+  PlaylistSlotsSummary,
+  QueueItemId,
+} from '../types/index.ts';
 import {
   capabilitiesForProRoomRole,
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -749,6 +755,41 @@ function sameCapabilities(left: readonly ProRoomCapability[], right: readonly Pr
   return left.length === right.length && left.every((capability) => right.includes(capability));
 }
 
+/**
+ * Opt-in summary of every room playlist. Exactly one entry per slot; `bytes`
+ * is the sum of file sizes, or null when the playlist has no file items.
+ */
+function parsePlaylistSlots(value: unknown): PlaylistSlotsSummary | null {
+  if (!isRecord(value) || !hasExactKeys(value, ['activeSlot', 'slots'])) return null;
+  const { activeSlot } = value;
+  if (
+    typeof activeSlot !== 'number' ||
+    !Number.isSafeInteger(activeSlot) ||
+    activeSlot < 0 ||
+    activeSlot >= PLAYLIST_SLOT_COUNT ||
+    !Array.isArray(value.slots) ||
+    value.slots.length !== PLAYLIST_SLOT_COUNT
+  ) {
+    return null;
+  }
+  const slots: PlaylistSlotSummary[] = [];
+  for (const slot of value.slots) {
+    if (!isRecord(slot) || !hasExactKeys(slot, ['count', 'bytes'])) return null;
+    const { count, bytes } = slot;
+    if (
+      typeof count !== 'number' ||
+      !Number.isSafeInteger(count) ||
+      count < 0 ||
+      count > PRO_ROOM_MAX_PLAYLIST_ITEMS ||
+      (bytes !== null && (typeof bytes !== 'number' || !Number.isSafeInteger(bytes) || bytes <= 0))
+    ) {
+      return null;
+    }
+    slots.push({ count, bytes });
+  }
+  return { activeSlot, slots };
+}
+
 export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   if (!isRecord(value)) return null;
   if (
@@ -773,10 +814,16 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
         'authorityVersion',
         'administrators',
       ],
-      ['passwordRequired'],
+      ['passwordRequired', 'playlistSlots'],
     )
   ) {
     return null;
+  }
+  let playlistSlots: PlaylistSlotsSummary | undefined;
+  if (value.playlistSlots !== undefined) {
+    const parsedSlots = parsePlaylistSlots(value.playlistSlots);
+    if (!parsedSlots) return null;
+    playlistSlots = parsedSlots;
   }
   if (value.passwordRequired !== undefined && typeof value.passwordRequired !== 'boolean')
     return null;
@@ -846,6 +893,10 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   if (playback.coordinatorEpoch !== presence.coordinatorEpoch) return null;
   if (playback.queueItemId !== null && !queueItemIds.has(playback.queueItemId)) return null;
   if (playback.queueItemId !== currentQueueItemId) return null;
+  // The active slot summarizes the same playlist this snapshot carries.
+  if (playlistSlots && playlistSlots.slots[playlistSlots.activeSlot]?.count !== playlist.length) {
+    return null;
+  }
   if (playback.queueItemId !== null) {
     const playbackItem = playlist.find((item) => item.queueItemId === playback.queueItemId);
     if (!playbackItem) return null;
@@ -994,5 +1045,6 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
     memberIdentityVersion: 1,
     authorityVersion: 1,
     administrators,
+    ...(playlistSlots === undefined ? {} : { playlistSlots }),
   };
 }

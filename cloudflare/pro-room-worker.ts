@@ -25,6 +25,21 @@ import {
 } from './pro-room-queue-mode.ts';
 import type { StoredQueueMode } from './pro-room-queue-mode.ts';
 import {
+  emptyPlaylistSlots,
+  inactivePlaylistItems,
+  isPlaylistSlot,
+  parseStoredPlaylistSlots,
+  playlistItemsAt,
+  PRO_ROOM_PLAYLIST_SLOT_COUNT,
+  referencedPlaylistAssetIds,
+  slotItemStorageKey,
+  STORAGE_V2_SLOTS_KEY,
+  storedPlaylistSlots,
+  summarizePlaylistSlots,
+  swapActivePlaylist,
+} from './pro-room-playlists.ts';
+import type { ProRoomPlaylistSlots } from './pro-room-playlists.ts';
+import {
   capabilitiesFromPermissions,
   clonePermissionSet,
   DELEGATED_ADMIN_PERMISSIONS,
@@ -604,6 +619,8 @@ interface IdempotencyRecord {
   kind?: string;
   status?: number;
   committedRevision?: number;
+  // Zero-based slot whose queue view a `developer-playlist-queue` replay regenerates.
+  playlistSlot?: number;
   tokenHash?: string;
   participantId?: string;
   expiresAtMs: number;
@@ -661,7 +678,9 @@ interface DeveloperCommandIdempotencyRecord {
 type DeveloperControlCommand =
   | { type: 'play' | 'pause' | 'next' }
   | { type: 'seek'; positionSeconds: number }
-  | { type: 'play_item'; queueItemId: string; youtubeSubIndex?: number }
+  // `playlist` is one-based; omitted means the active playlist.
+  | { type: 'play_item'; queueItemId: string; youtubeSubIndex?: number; playlist?: number }
+  | { type: 'switch_playlist'; playlist: number }
   | { type: 'set_effects'; effects: RoomEffectsPatch };
 
 interface DeveloperMetadata extends JsonRecord {
@@ -689,8 +708,8 @@ type DeveloperQueueMutation =
       videoIds?: string[];
     } & DeveloperNamedMetadata)
   | { type: 'add_youtube_batch'; items: DeveloperYouTubeItem[] }
-  | { type: 'remove'; queueItemId: string }
-  | { type: 'remove_many'; queueItemIds: string[] }
+  | { type: 'remove'; queueItemId: string; playlist?: number }
+  | { type: 'remove_many'; queueItemIds: string[]; playlist?: number }
   | { type: 'clear' }
   | { type: 'clear_owned' }
   | { type: 'reorder'; basePlaylistRevision: number; queueItemIds: string[] };
@@ -702,9 +721,10 @@ type BotPlan =
       queueItemId: string;
       youtubeSubItemNumber?: number;
       basePlaylistRevision?: number;
+      playlist?: number;
       answer?: string;
     }
-  | { intent: 'remove_items'; queueItemIds: string[]; answer?: string }
+  | { intent: 'remove_items'; queueItemIds: string[]; playlist?: number; answer?: string }
   | { intent: 'clear_queue'; basePlaylistRevision: number; answer?: string }
   | { intent: 'playback'; playbackCommand: 'play' | 'pause' | 'next'; answer?: string }
   | {
@@ -788,7 +808,10 @@ interface ProRoomState {
   runtime: 'sleeping' | 'awake';
   revision: number;
   playlistRevision: number;
+  // The active playlist. The room's other playlists are stored outside the
+  // core record (`pro-room-playlists.ts`); absent means one playlist at slot 0.
   playlist: PlaylistItem[];
+  playlistSlots?: ProRoomPlaylistSlots<PlaylistItem>;
   currentQueueItemId: string | null;
   playback: PlaybackState;
   pendingPlaybackTransition: PlaybackTransition | null;
@@ -839,6 +862,8 @@ interface ProRoomState {
 interface InMemoryCheckpoint {
   room: ProRoomState | null;
   persistedPlaylistSignatures: Map<string, string>;
+  persistedSlotItemSignatures: Map<string, string>;
+  persistedSlotsSignature: string | null;
   persistedPresenceLastSeenAtMs: Map<string, number>;
   hasV2Persistence: boolean;
   heartbeatDurabilityDirty: boolean;
@@ -854,6 +879,7 @@ interface InMemoryCheckpoint {
   developerCommandMigrationPending: boolean;
   playbackAuthorityMigrationPending: boolean;
   assetDeletionMigrationPending: boolean;
+  playlistSlotsMigrationPending: boolean;
   alarmMaintenanceDirty: boolean;
   alarmMaintenanceRetryAttempt: number;
   alarmMaintenanceRetryTimer: ReturnType<typeof setTimeout> | null;
@@ -1619,7 +1645,7 @@ function corsHeaders(origin: string): HeaderRecord {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -2469,7 +2495,44 @@ function developerProjection(
   }
   if (projection === 'effects') return publicEffects(room);
   if (projection === 'queue-mode') return developerQueueMode(room);
+  if (projection === 'playlists') {
+    const summary = summarizePlaylistSlots(room.playlist, room.playlistSlots);
+    return {
+      schemaVersion: 1,
+      view: 'playlists',
+      roomCode: room.roomCode,
+      playlistRevision: room.playlistRevision,
+      activePlaylist: summary.activeSlot + 1,
+      playlists: summary.slots.map((slot, index) => ({
+        playlist: index + 1,
+        active: index === summary.activeSlot,
+        itemCount: slot.count,
+        byteLength: slot.bytes,
+      })),
+    };
+  }
   return null;
+}
+
+// Developer API playlist numbers are one-based; slot 0 is playlist 1.
+function developerPlaylistQueue(room: ProRoomState, slot: number, requesterKeyId?: string) {
+  const active = slot === (room.playlistSlots?.activeSlot ?? 0);
+  return {
+    schemaVersion: 1,
+    view: 'playlist-queue',
+    roomCode: room.roomCode,
+    playlist: slot + 1,
+    active,
+    playlistRevision: room.playlistRevision,
+    currentQueueItemId: active ? room.currentQueueItemId : null,
+    items: playlistItemsAt(room.playlist, room.playlistSlots, slot).map((item) =>
+      developerQueueItem(item, requesterKeyId),
+    ),
+  };
+}
+
+function isDeveloperPlaylistNumber(value: unknown): value is number {
+  return isSafeInteger(value) && value >= 1 && value <= PRO_ROOM_PLAYLIST_SLOT_COUNT;
 }
 
 function parseDeveloperCommand(value: unknown): DeveloperControlCommand | null {
@@ -2486,19 +2549,26 @@ function parseDeveloperCommand(value: unknown): DeveloperControlCommand | null {
       : null;
   }
   if (value.type === 'play_item') {
-    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex']) &&
+    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex', 'playlist']) &&
       typeof value.queueItemId === 'string' &&
       QUEUE_ITEM_ID_RE.test(value.queueItemId) &&
       (value.youtubeSubIndex === undefined ||
         (isSafeNonNegativeInteger(value.youtubeSubIndex) &&
-          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS))
+          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS)) &&
+      (value.playlist === undefined || isDeveloperPlaylistNumber(value.playlist))
       ? {
           type: 'play_item',
           queueItemId: value.queueItemId,
           ...(value.youtubeSubIndex === undefined
             ? {}
             : { youtubeSubIndex: value.youtubeSubIndex }),
+          ...(value.playlist === undefined ? {} : { playlist: value.playlist }),
         }
+      : null;
+  }
+  if (value.type === 'switch_playlist') {
+    return hasExactKeys(value, ['type', 'playlist']) && isDeveloperPlaylistNumber(value.playlist)
+      ? { type: 'switch_playlist', playlist: value.playlist }
       : null;
   }
   if (value.type === 'set_effects') {
@@ -2674,15 +2744,21 @@ function parseDeveloperQueueMutation(value: unknown): DeveloperQueueMutation | n
     return canonicalItems === null ? null : { type: 'add_youtube_batch', items: canonicalItems };
   }
   if (value.type === 'remove') {
-    return hasExactKeys(value, ['type', 'queueItemId']) &&
+    return hasExactKeys(value, ['type', 'queueItemId'], ['playlist']) &&
       typeof value.queueItemId === 'string' &&
-      QUEUE_ITEM_ID_RE.test(value.queueItemId)
-      ? { type: 'remove', queueItemId: value.queueItemId }
+      QUEUE_ITEM_ID_RE.test(value.queueItemId) &&
+      (value.playlist === undefined || isDeveloperPlaylistNumber(value.playlist))
+      ? {
+          type: 'remove',
+          queueItemId: value.queueItemId,
+          ...(value.playlist === undefined ? {} : { playlist: value.playlist }),
+        }
       : null;
   }
   if (value.type === 'remove_many') {
     if (
-      !hasExactKeys(value, ['type', 'queueItemIds']) ||
+      !hasExactKeys(value, ['type', 'queueItemIds'], ['playlist']) ||
+      (value.playlist !== undefined && !isDeveloperPlaylistNumber(value.playlist)) ||
       !Array.isArray(value.queueItemIds) ||
       value.queueItemIds.length < 1 ||
       value.queueItemIds.length > DEVELOPER_REMOVE_MANY_MAX_ITEMS ||
@@ -2692,7 +2768,11 @@ function parseDeveloperQueueMutation(value: unknown): DeveloperQueueMutation | n
     ) {
       return null;
     }
-    return { type: 'remove_many', queueItemIds: [...value.queueItemIds] };
+    return {
+      type: 'remove_many',
+      queueItemIds: [...value.queueItemIds],
+      ...(isDeveloperPlaylistNumber(value.playlist) ? { playlist: value.playlist } : {}),
+    };
   }
   if (value.type === 'clear') {
     return hasExactKeys(value, ['type']) ? { type: 'clear' } : null;
@@ -2733,6 +2813,7 @@ function parseBotPlan(value: unknown): BotPlan | null {
         'youtubeSubItemNumber',
         'queueItemIds',
         'basePlaylistRevision',
+        'playlist',
         'playbackCommand',
         'repeatMode',
         'shuffleEnabled',
@@ -2740,6 +2821,9 @@ function parseBotPlan(value: unknown): BotPlan | null {
         'answer',
       ],
     ) ||
+    (value.playlist !== undefined &&
+      (!isDeveloperPlaylistNumber(value.playlist) ||
+        (value.intent !== 'play_existing' && value.intent !== 'remove_items'))) ||
     ![
       'add_youtube',
       'play_existing',
@@ -2789,14 +2873,18 @@ function parseBotPlan(value: unknown): BotPlan | null {
           value.youtubeSubItemNumber > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS)) ||
       (value.youtubeSubItemNumber === undefined) !== (value.basePlaylistRevision === undefined) ||
       (value.basePlaylistRevision !== undefined &&
-        !isSafeNonNegativeInteger(value.basePlaylistRevision))
+        !isSafeNonNegativeInteger(value.basePlaylistRevision)) ||
+      // An inner YouTube item is chosen in the current, active playlist only.
+      (value.youtubeSubItemNumber !== undefined && value.playlist !== undefined)
     ) {
       return null;
     }
+    const playlist = isDeveloperPlaylistNumber(value.playlist) ? { playlist: value.playlist } : {};
     if (value.youtubeSubItemNumber === undefined) {
       return {
         intent: value.intent,
         queueItemId: value.queueItemId,
+        ...playlist,
         ...(answer ? { answer } : {}),
       };
     }
@@ -2810,7 +2898,7 @@ function parseBotPlan(value: unknown): BotPlan | null {
   }
   if (value.intent === 'remove_items') {
     if (
-      !hasExactKeys(value, ['intent', 'queueItemIds'], ['answer']) ||
+      !hasExactKeys(value, ['intent', 'queueItemIds'], ['playlist', 'answer']) ||
       !Array.isArray(value.queueItemIds) ||
       value.queueItemIds.length < 1 ||
       value.queueItemIds.length > DEVELOPER_REMOVE_MANY_MAX_ITEMS ||
@@ -2823,6 +2911,7 @@ function parseBotPlan(value: unknown): BotPlan | null {
     return {
       intent: value.intent,
       queueItemIds: [...value.queueItemIds],
+      ...(isDeveloperPlaylistNumber(value.playlist) ? { playlist: value.playlist } : {}),
       ...(answer ? { answer } : {}),
     };
   }
@@ -3899,7 +3988,7 @@ function parseStoredPlaylistItem(value: unknown) {
 }
 
 function splitPersistentRoomState(room: ProRoomState) {
-  const { playlist: _playlist, ...core } = room;
+  const { playlist: _playlist, playlistSlots: _playlistSlots, ...core } = room;
   return {
     schemaVersion: STORAGE_V2_SCHEMA_VERSION,
     core,
@@ -4068,10 +4157,32 @@ function assertBoundedRoomState(room: ProRoomState) {
     room.playlist.some(
       (item: PlaylistItem) =>
         encoder.encode(playlistItemSignature(item)).byteLength > PLAYLIST_ITEM_MAX_BYTES,
-    )
+    ) ||
+    !boundedPlaylistSlots(room)
   ) {
     throw new RoomStateCapacityError();
   }
+}
+
+// Each inactive playlist has the active playlist's bounds. Keeping its order
+// out of the core record keeps the 1.2 MiB core budget unchanged.
+function boundedPlaylistSlots(room: ProRoomState) {
+  const slots = room.playlistSlots;
+  if (!slots) return true;
+  return (
+    isPlaylistSlot(slots.activeSlot) &&
+    slots.inactive.length === PRO_ROOM_PLAYLIST_SLOT_COUNT &&
+    slots.inactive[slots.activeSlot]?.length === 0 &&
+    slots.inactive.every(
+      (items) =>
+        items.length <= PLAYLIST_MAX_ITEMS &&
+        encoder.encode(JSON.stringify(items)).byteLength <= PLAYLIST_STATE_MAX_BYTES &&
+        items.every(
+          (item) =>
+            encoder.encode(playlistItemSignature(item)).byteLength <= PLAYLIST_ITEM_MAX_BYTES,
+        ),
+    )
+  );
 }
 
 export default {
@@ -4220,7 +4331,11 @@ export class MusixquareProRoom {
   developerCommandMigrationPending: boolean;
   playbackAuthorityMigrationPending: boolean;
   assetDeletionMigrationPending: boolean;
+  playlistSlotsMigrationPending: boolean;
   persistedPlaylistSignatures: Map<string, string>;
+  // Inactive playlist rows and the stored slots record, as last committed.
+  persistedSlotItemSignatures: Map<string, string>;
+  persistedSlotsSignature: string | null;
   persistedPresenceLastSeenAtMs: Map<string, number>;
   hasV2Persistence: boolean;
   heartbeatDurabilityDirty: boolean;
@@ -4269,7 +4384,10 @@ export class MusixquareProRoom {
     this.developerCommandMigrationPending = false;
     this.playbackAuthorityMigrationPending = false;
     this.assetDeletionMigrationPending = false;
+    this.playlistSlotsMigrationPending = false;
     this.persistedPlaylistSignatures = new Map();
+    this.persistedSlotItemSignatures = new Map();
+    this.persistedSlotsSignature = null;
     this.persistedPresenceLastSeenAtMs = new Map();
     this.hasV2Persistence = false;
     this.heartbeatDurabilityDirty = false;
@@ -4306,6 +4424,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedPlaybackBroadcasts();
       this.normalizeLoadedPresenceBroadcast();
       this.normalizeLoadedAssetDeletions();
+      this.normalizeLoadedPlaylistSlots();
     };
     if (typeof state.blockConcurrencyWhile === 'function') {
       this.ready = state.blockConcurrencyWhile(load);
@@ -4370,6 +4489,7 @@ export class MusixquareProRoom {
     this.normalizeLoadedPlaybackBroadcasts();
     this.normalizeLoadedPresenceBroadcast();
     this.normalizeLoadedAssetDeletions();
+    this.normalizeLoadedPlaylistSlots();
     this.reconcileMemberAuthoritySessions();
     if (!Object.prototype.hasOwnProperty.call(this.activeRoom.playback, 'youtubeVideoId')) {
       this.activeRoom.playback.youtubeVideoId = null;
@@ -6063,6 +6183,24 @@ export class MusixquareProRoom {
     }
   }
 
+  // A Worker that predates multiple playlists collects files only the active
+  // playlist references. After a rollback and forward deploy, an inactive
+  // item can therefore name an asset that no longer exists; drop it so the
+  // playlist stays editable once it becomes active (edits validate assets).
+  normalizeLoadedPlaylistSlots() {
+    const slots = this.room?.playlistSlots;
+    if (!slots) return;
+    const assets = this.activeRoom.assets || {};
+    for (const [slot, items] of slots.inactive.entries()) {
+      const kept = items.filter(
+        (item) => item.source.kind !== 'pro-r2' || assets[item.source.assetId] !== undefined,
+      );
+      if (kept.length === items.length) continue;
+      slots.inactive[slot] = kept;
+      this.playlistSlotsMigrationPending = true;
+    }
+  }
+
   normalizeLoadedAssetDeletions() {
     if (!this.room) return;
     const expectedReceipts = new Map<string, { assetId: string; request: AssetDeletionRequest }>();
@@ -6220,6 +6358,8 @@ export class MusixquareProRoom {
     return {
       room: structuredClone(this.room),
       persistedPlaylistSignatures: new Map(this.persistedPlaylistSignatures),
+      persistedSlotItemSignatures: new Map(this.persistedSlotItemSignatures),
+      persistedSlotsSignature: this.persistedSlotsSignature,
       persistedPresenceLastSeenAtMs: new Map(this.persistedPresenceLastSeenAtMs),
       hasV2Persistence: this.hasV2Persistence,
       heartbeatDurabilityDirty: this.heartbeatDurabilityDirty,
@@ -6235,6 +6375,7 @@ export class MusixquareProRoom {
       developerCommandMigrationPending: this.developerCommandMigrationPending,
       playbackAuthorityMigrationPending: this.playbackAuthorityMigrationPending,
       assetDeletionMigrationPending: this.assetDeletionMigrationPending,
+      playlistSlotsMigrationPending: this.playlistSlotsMigrationPending,
       alarmMaintenanceDirty: this.alarmMaintenanceDirty,
       alarmMaintenanceRetryAttempt: this.alarmMaintenanceRetryAttempt,
       alarmMaintenanceRetryTimer: this.alarmMaintenanceRetryTimer,
@@ -6256,6 +6397,8 @@ export class MusixquareProRoom {
     }
     this.room = checkpoint.room;
     this.persistedPlaylistSignatures = checkpoint.persistedPlaylistSignatures;
+    this.persistedSlotItemSignatures = checkpoint.persistedSlotItemSignatures;
+    this.persistedSlotsSignature = checkpoint.persistedSlotsSignature;
     this.persistedPresenceLastSeenAtMs = checkpoint.persistedPresenceLastSeenAtMs;
     this.hasV2Persistence = checkpoint.hasV2Persistence;
     this.heartbeatDurabilityDirty = checkpoint.heartbeatDurabilityDirty;
@@ -6271,6 +6414,7 @@ export class MusixquareProRoom {
     this.developerCommandMigrationPending = checkpoint.developerCommandMigrationPending;
     this.playbackAuthorityMigrationPending = checkpoint.playbackAuthorityMigrationPending;
     this.assetDeletionMigrationPending = checkpoint.assetDeletionMigrationPending;
+    this.playlistSlotsMigrationPending = checkpoint.playlistSlotsMigrationPending;
     this.alarmMaintenanceDirty = checkpoint.alarmMaintenanceDirty;
     this.alarmMaintenanceRetryAttempt = checkpoint.alarmMaintenanceRetryAttempt;
     this.alarmMaintenanceRetryTimer = checkpoint.alarmMaintenanceRetryTimer;
@@ -6322,12 +6466,25 @@ export class MusixquareProRoom {
         }
         playlist.push(item);
       }
-      const room = { ...storedV2.core, playlist };
+      const room: ProRoomState = { ...storedV2.core, playlist };
+      const storedSlots = await this.storage.get(STORAGE_V2_SLOTS_KEY);
+      let slotsSignature: string | null = null;
+      if (storedSlots !== undefined && storedSlots !== null) {
+        room.playlistSlots = await this.loadPlaylistSlots(storedSlots, storedV2.playlistOrder);
+        slotsSignature = JSON.stringify(storedPlaylistSlots(room.playlistSlots));
+      }
       assertBoundedRoomState(room);
       this.room = room;
       this.persistedPlaylistSignatures = new Map(
         playlist.map((item) => [item.queueItemId, playlistItemSignature(item)]),
       );
+      this.persistedSlotItemSignatures = new Map(
+        inactivePlaylistItems(room.playlistSlots).map((item) => [
+          item.queueItemId,
+          playlistItemSignature(item),
+        ]),
+      );
+      this.persistedSlotsSignature = slotsSignature;
       this.persistedPresenceLastSeenAtMs = new Map(
         Object.values(room.presence.participants).map((participant) => [
           participant.participantId,
@@ -6340,8 +6497,40 @@ export class MusixquareProRoom {
 
     this.room = null;
     this.persistedPlaylistSignatures = new Map();
+    this.persistedSlotItemSignatures = new Map();
+    this.persistedSlotsSignature = null;
     this.persistedPresenceLastSeenAtMs = new Map();
     this.hasV2Persistence = false;
+  }
+
+  // Inactive playlists fail closed exactly like the core record: a room whose
+  // stored playlists cannot be read must not load as if they were empty, or
+  // the next garbage collection would delete their files.
+  async loadPlaylistSlots(
+    value: unknown,
+    activeOrder: string[],
+  ): Promise<ProRoomPlaylistSlots<PlaylistItem>> {
+    const stored = parseStoredPlaylistSlots(value, PLAYLIST_MAX_ITEMS, (queueItemId) =>
+      QUEUE_ITEM_ID_RE.test(queueItemId),
+    );
+    const activeIds = new Set(activeOrder);
+    if (!stored || stored.orders.some((order) => order.some((id) => activeIds.has(id)))) {
+      throw new Error('PRO_ROOM_PERSISTENCE_V2_SLOTS_INVALID');
+    }
+    const rows = await getStorageEntries(
+      this.storage,
+      stored.orders.flat().map(slotItemStorageKey),
+    );
+    const inactive = stored.orders.map((order) =>
+      order.map((queueItemId) => {
+        const item = parseStoredPlaylistItem(rows.get(slotItemStorageKey(queueItemId)));
+        if (!item || item.queueItemId !== queueItemId) {
+          throw new Error('PRO_ROOM_PERSISTENCE_V2_SLOTS_INVALID');
+        }
+        return item;
+      }),
+    );
+    return { activeSlot: stored.activeSlot, inactive };
   }
 
   invalidatePendingHeartbeatFlush() {
@@ -6486,6 +6675,31 @@ export class MusixquareProRoom {
     const removedKeys = [...this.persistedPlaylistSignatures.keys()]
       .filter((queueItemId) => !nextSignatures.has(queueItemId))
       .map(playlistStorageKey);
+    // Inactive playlists share the transaction, so a switch that moves rows
+    // between the two key families is atomic with the core record.
+    const inactiveItems = inactivePlaylistItems(this.activeRoom.playlistSlots);
+    const nextSlotItemSignatures = new Map(
+      inactiveItems.map((item) => [item.queueItemId, playlistItemSignature(item)]),
+    );
+    for (const item of inactiveItems) {
+      if (
+        !this.hasV2Persistence ||
+        this.persistedSlotItemSignatures.get(item.queueItemId) !==
+          nextSlotItemSignatures.get(item.queueItemId)
+      ) {
+        changedEntries.push([slotItemStorageKey(item.queueItemId), item]);
+      }
+    }
+    for (const queueItemId of this.persistedSlotItemSignatures.keys()) {
+      if (!nextSlotItemSignatures.has(queueItemId))
+        removedKeys.push(slotItemStorageKey(queueItemId));
+    }
+    const nextSlotsRecord = storedPlaylistSlots(this.activeRoom.playlistSlots);
+    const nextSlotsSignature = nextSlotsRecord ? JSON.stringify(nextSlotsRecord) : null;
+    if (nextSlotsSignature !== this.persistedSlotsSignature) {
+      if (nextSlotsRecord) changedEntries.push([STORAGE_V2_SLOTS_KEY, nextSlotsRecord]);
+      else removedKeys.push(STORAGE_V2_SLOTS_KEY);
+    }
     const write = async (storage: DurableObjectStoragePort) => {
       await putStorageEntries(storage, changedEntries);
       await deleteStorageKeys(storage, removedKeys);
@@ -6504,6 +6718,8 @@ export class MusixquareProRoom {
       throw new RoomStateStorageCommitError(error);
     }
     this.persistedPlaylistSignatures = nextSignatures;
+    this.persistedSlotItemSignatures = nextSlotItemSignatures;
+    this.persistedSlotsSignature = nextSlotsSignature;
     this.persistedPresenceLastSeenAtMs = new Map(
       Object.values(this.activeRoom.presence.participants).map((participant) => [
         participant.participantId,
@@ -6775,12 +6991,10 @@ export class MusixquareProRoom {
     );
   }
 
+  // Every playlist keeps its files: a file only an inactive playlist uses is
+  // still referenced, and copies share one asset.
   referencedAssetIds() {
-    return new Set(
-      this.activeRoom.playlist.flatMap((item) =>
-        item.source.kind === 'pro-r2' ? [item.source.assetId] : [],
-      ),
-    );
+    return referencedPlaylistAssetIds(this.activeRoom.playlist, this.activeRoom.playlistSlots);
   }
 
   reconcileAssetGarbageCollection(nowMs: number, referenced = this.referencedAssetIds()) {
@@ -7384,6 +7598,10 @@ export class MusixquareProRoom {
               return this.handleReleaseSystemAudio(request);
             if (request.method === 'POST' && url.pathname === `${prefix}/snapshot/compact`)
               return this.handleCompactSnapshotMutation(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/playlists/switch`)
+              return this.handlePlaylistSwitch(request);
+            if (request.method === 'POST' && url.pathname === `${prefix}/playlists/transfer`)
+              return this.handlePlaylistTransfer(request);
             if (request.method === 'POST' && url.pathname === `${prefix}/media/reservations`)
               return this.handleCreateReservation(request);
             if (request.method === 'POST' && completedAssetId)
@@ -7402,6 +7620,12 @@ export class MusixquareProRoom {
 
   supportsOptionalEntryPassword(request: Request) {
     return request.headers.get('x-mxqr-pro-entry-policy') === 'optional-v1';
+  }
+
+  // Deployed strict clients reject unknown snapshot keys, so playlist
+  // summaries are only added for a client that asks for them.
+  supportsPlaylistSlots(request: Request) {
+    return request.headers.get('x-mxqr-pro-playlist-slots') === 'v1';
   }
 
   private recordDiagnostic(event: ProRoomDiagnosticEvent, detail: ProRoomDiagnosticDetail = {}) {
@@ -7555,8 +7779,10 @@ export class MusixquareProRoom {
 
   async withEntryPolicyResponse(request: Request, task: () => Promise<Response>) {
     const response = await this.withAdmissionDiagnostics(request, task);
+    const entryPolicy = this.supportsOptionalEntryPassword(request);
+    const playlistSlots = this.supportsPlaylistSlots(request);
     if (
-      !this.supportsOptionalEntryPassword(request) ||
+      (!entryPolicy && !playlistSlots) ||
       !response.ok ||
       !response.headers.get('content-type')?.startsWith('application/json')
     )
@@ -7565,7 +7791,13 @@ export class MusixquareProRoom {
     // the room mutation lock, so admission policy and snapshot are atomic.
     const body: unknown = await response.clone().json();
     if (!isRecord(body) || !isRecord(body.snapshot)) return response;
-    body.snapshot.passwordRequired = this.activeRoom.passwordRequired;
+    if (entryPolicy) body.snapshot.passwordRequired = this.activeRoom.passwordRequired;
+    if (playlistSlots) {
+      body.snapshot.playlistSlots = summarizePlaylistSlots(
+        this.activeRoom.playlist,
+        this.activeRoom.playlistSlots,
+      );
+    }
     return new Response(JSON.stringify(body), {
       status: response.status,
       headers: response.headers,
@@ -7645,16 +7877,30 @@ export class MusixquareProRoom {
   }
 
   publicBotContext(auth: AuthenticatedSession) {
-    const playlist = this.activeRoom.playlist.slice(0, 100).map((item) => ({
-      queueItemId: item.queueItemId,
-      kind: item.source.kind === 'youtube' ? 'youtube' : 'audio',
-      name: item.name.slice(0, 160),
-      ...(typeof item.title === 'string' ? { title: item.title.slice(0, 160) } : {}),
-      ...(typeof item.artist === 'string' ? { artist: item.artist.slice(0, 160) } : {}),
-      ...(item.source.kind === 'youtube' && item.source.videoIds !== undefined
-        ? { youtubeSubItemCount: item.source.videoIds.length }
-        : {}),
-    }));
+    const botItems = (items: PlaylistItem[]) =>
+      items.slice(0, 100).map((item) => ({
+        queueItemId: item.queueItemId,
+        kind: item.source.kind === 'youtube' ? 'youtube' : 'audio',
+        name: item.name.slice(0, 160),
+        ...(typeof item.title === 'string' ? { title: item.title.slice(0, 160) } : {}),
+        ...(typeof item.artist === 'string' ? { artist: item.artist.slice(0, 160) } : {}),
+        ...(item.source.kind === 'youtube' && item.source.videoIds !== undefined
+          ? { youtubeSubItemCount: item.source.videoIds.length }
+          : {}),
+      }));
+    const playlist = botItems(this.activeRoom.playlist);
+    const activeSlot = this.activePlaylistSlot();
+    // Ordinals resolve per playlist: "track 34 of playlist 2" is the 34th
+    // item of slot 1, whichever playlist is active.
+    const playlists = Array.from({ length: PRO_ROOM_PLAYLIST_SLOT_COUNT }, (_, slot) => {
+      const items = playlistItemsAt(this.activeRoom.playlist, this.activeRoom.playlistSlots, slot);
+      return {
+        playlist: slot + 1,
+        active: slot === activeSlot,
+        itemCount: items.length,
+        items: slot === activeSlot ? playlist : botItems(items),
+      };
+    });
     return {
       actorName: queueAdditionActorName(auth.session.displayName, 'Peer'),
       room: {
@@ -7674,6 +7920,8 @@ export class MusixquareProRoom {
         shuffleEnabled: this.activeRoom.queueMode.shuffleEnabled,
         effects: structuredClone(this.activeRoom.effects.effects),
         playlist,
+        activePlaylist: activeSlot + 1,
+        playlists,
       },
     };
   }
@@ -7854,7 +8102,9 @@ export class MusixquareProRoom {
     if (
       (plan.intent === 'remove_items' ||
         plan.intent === 'clear_queue' ||
-        plan.intent === 'queue_mode') &&
+        plan.intent === 'queue_mode' ||
+        // Playing from another playlist switches the room's queue first.
+        (plan.intent === 'play_existing' && plan.playlist !== undefined)) &&
       !this.sessionHasPermission(auth.session, 'media.add')
     ) {
       return errorResponse('PERMISSION_REQUIRED', 403);
@@ -7957,7 +8207,15 @@ export class MusixquareProRoom {
         }
       }
     } else if (plan.intent === 'play_existing') {
-      const target = this.activeRoom.playlist.find((item) => item.queueItemId === plan.queueItemId);
+      const targetPlaylist =
+        plan.playlist === undefined
+          ? this.activeRoom.playlist
+          : playlistItemsAt(
+              this.activeRoom.playlist,
+              this.activeRoom.playlistSlots,
+              plan.playlist - 1,
+            );
+      const target = targetPlaylist.find((item) => item.queueItemId === plan.queueItemId);
       if (!target) {
         return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
       }
@@ -7975,6 +8233,7 @@ export class MusixquareProRoom {
         type: 'play_item',
         queueItemId: plan.queueItemId,
         ...(youtubeSubIndex === undefined ? {} : { youtubeSubIndex }),
+        ...(plan.playlist === undefined ? {} : { playlist: plan.playlist }),
       });
       if (!playbackChanged) return errorResponse('BOT_ACTION_FAILED', 409);
     } else if (plan.intent === 'remove_items' || plan.intent === 'clear_queue') {
@@ -7994,7 +8253,11 @@ export class MusixquareProRoom {
             idempotencyKey: queueIdempotencyKey,
             mutation:
               plan.intent === 'remove_items'
-                ? { type: 'remove_many', queueItemIds: plan.queueItemIds }
+                ? {
+                    type: 'remove_many',
+                    queueItemIds: plan.queueItemIds,
+                    ...(plan.playlist === undefined ? {} : { playlist: plan.playlist }),
+                  }
                 : { type: 'clear' },
           }),
         }),
@@ -8138,7 +8401,7 @@ export class MusixquareProRoom {
       !hasExactKeys(
         parsed.value,
         ['projection'],
-        ['keyId', 'effectsVersion', 'roomGeneration', 'developerAuthorityEpoch'],
+        ['keyId', 'effectsVersion', 'playlist', 'roomGeneration', 'developerAuthorityEpoch'],
       ) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.activeRoom.roomGeneration ||
       (parsed.value.keyId !== undefined &&
@@ -8146,13 +8409,29 @@ export class MusixquareProRoom {
       (parsed.value.projection === 'effects'
         ? parsed.value.effectsVersion !== 2
         : parsed.value.effectsVersion !== undefined) ||
+      (parsed.value.projection === 'playlist-queue'
+        ? !isDeveloperPlaylistNumber(parsed.value.playlist)
+        : parsed.value.playlist !== undefined) ||
       typeof parsed.value.projection !== 'string' ||
-      !['room', 'playback', 'queue', 'effects', 'queue-mode'].includes(parsed.value.projection)
+      ![
+        'room',
+        'playback',
+        'queue',
+        'effects',
+        'queue-mode',
+        'playlists',
+        'playlist-queue',
+      ].includes(parsed.value.projection)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const authorityError = this.developerAuthorityEpochError(parsed.value.developerAuthorityEpoch);
     if (authorityError) return authorityError;
+    if (isDeveloperPlaylistNumber(parsed.value.playlist)) {
+      return jsonResponse(
+        developerPlaylistQueue(this.activeRoom, parsed.value.playlist - 1, parsed.value.keyId),
+      );
+    }
     const projection = developerProjection(
       this.activeRoom,
       parsed.value.projection,
@@ -8206,10 +8485,20 @@ export class MusixquareProRoom {
 
     const requiredControlVersion = requiredDeveloperControlVersion(command);
     let playItemYoutubeVideoId: string | undefined;
+    // A play_item naming another playlist first switches to it, which stops
+    // playback, and then plays the item there. Both commit together.
+    const commandPlaylist =
+      command.type === 'switch_playlist' || command.type === 'play_item'
+        ? command.playlist
+        : undefined;
+    const switchSlot = commandPlaylist === undefined ? null : commandPlaylist - 1;
+    const switchesPlaylist = switchSlot !== null && switchSlot !== this.activePlaylistSlot();
     if (command.type === 'play_item') {
-      const target = this.activeRoom.playlist.find(
-        (item) => item.queueItemId === command.queueItemId,
-      );
+      const target = (
+        switchSlot === null
+          ? this.activeRoom.playlist
+          : playlistItemsAt(this.activeRoom.playlist, this.activeRoom.playlistSlots, switchSlot)
+      ).find((item) => item.queueItemId === command.queueItemId);
       if (!target) {
         return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
       }
@@ -8275,7 +8564,27 @@ export class MusixquareProRoom {
     };
 
     let authorityResult: PlaybackAuthorityResult | null = null;
-    if (command.type === 'set_effects') {
+    let playlistSwitch: ReturnType<MusixquareProRoom['applyPlaylistSwitch']> | null = null;
+    if (switchesPlaylist) {
+      playlistSwitch = this.applyPlaylistSwitch(switchSlot, nowMs);
+      if (playlistSwitch.error === undefined) {
+        this.enqueuePlaylistPlaybackEvents(
+          playlistSwitch.cancelEvent,
+          playlistSwitch.playbackCleared,
+          nowMs,
+        );
+      }
+    }
+    if (playlistSwitch?.error !== undefined) {
+      this.completeDeveloperCommand(record, 'rejected', 'execution_failed', nowMs);
+    } else if (command.type === 'switch_playlist') {
+      this.completeDeveloperCommand(
+        record,
+        'applied',
+        switchesPlaylist ? 'applied' : 'already_applied',
+        nowMs,
+      );
+    } else if (command.type === 'set_effects') {
       if (this.activeRoom.effects.revision >= Number.MAX_SAFE_INTEGER) {
         this.completeDeveloperCommand(record, 'rejected', 'execution_failed', nowMs);
       } else {
@@ -8333,6 +8642,14 @@ export class MusixquareProRoom {
     if (command.type === 'set_effects' && record.status === 'applied') {
       await this.broadcastServerEvent(
         this.invalidationEvent({ effectsRevision: this.activeRoom.effects.revision }),
+      );
+    }
+    if (playlistSwitch && playlistSwitch.error === undefined) {
+      await this.broadcastServerEvent(
+        this.invalidationEvent({
+          playlistRevision: this.activeRoom.playlistRevision,
+          playbackRevision: this.activeRoom.playback.revision,
+        }),
       );
     }
     return jsonResponse(publicDeveloperCommand(record), 202);
@@ -8449,6 +8766,28 @@ export class MusixquareProRoom {
     if (credentialError) return credentialError;
     const replay = this.replayIdempotency(scope, idempotencyKey, fingerprint, null, developerKeyId);
     if (replay) return replay;
+    // A removal naming a playlist answers with that playlist's queue; one
+    // naming an inactive playlist leaves the active queue and playback alone.
+    const removalIds =
+      mutation.type === 'remove'
+        ? [mutation.queueItemId]
+        : mutation.type === 'remove_many'
+          ? mutation.queueItemIds
+          : null;
+    const removalPlaylist =
+      mutation.type === 'remove' || mutation.type === 'remove_many' ? mutation.playlist : undefined;
+    const playlistSlot = removalPlaylist === undefined ? null : removalPlaylist - 1;
+    if (removalIds && playlistSlot !== null && playlistSlot !== this.activePlaylistSlot()) {
+      return this.removeInactivePlaylistItems({
+        slot: playlistSlot,
+        queueItemIds: removalIds,
+        scope,
+        idempotencyKey,
+        fingerprint,
+        developerKeyId,
+        botTerminal,
+      });
+    }
 
     const nowMs = Date.now();
     let playlistChanged = false;
@@ -8695,10 +9034,19 @@ export class MusixquareProRoom {
     ) {
       playbackCancelEvent = this.cancelPendingPlayback('queue-item-removed', nowMs);
     }
-    const responseBody = developerProjection(this.activeRoom, 'queue', nowMs, developerKeyId);
+    const responseBody =
+      playlistSlot === null
+        ? developerProjection(this.activeRoom, 'queue', nowMs, developerKeyId)
+        : developerPlaylistQueue(this.activeRoom, playlistSlot, developerKeyId);
     const responseStatus =
       mutation.type === 'add_youtube' || mutation.type === 'add_youtube_batch' ? 201 : 200;
-    this.storeDeveloperQueueIdempotency(scope, idempotencyKey, fingerprint, responseStatus);
+    this.storeDeveloperQueueIdempotency(
+      scope,
+      idempotencyKey,
+      fingerprint,
+      responseStatus,
+      playlistSlot,
+    );
     if (botTerminal !== null && botTerminalAction !== null && removedCount !== null) {
       this.storeIdempotency(
         botTerminal.terminalScope,
@@ -8744,6 +9092,62 @@ export class MusixquareProRoom {
       );
     }
     return jsonResponse(responseBody, responseStatus);
+  }
+
+  async removeInactivePlaylistItems({
+    slot,
+    queueItemIds,
+    scope,
+    idempotencyKey,
+    fingerprint,
+    developerKeyId,
+    botTerminal,
+  }: {
+    slot: number;
+    queueItemIds: string[];
+    scope: string;
+    idempotencyKey: string;
+    fingerprint: string;
+    developerKeyId: string;
+    botTerminal: BotTerminalOptions | null;
+  }) {
+    const room = this.activeRoom;
+    const slots = room.playlistSlots ?? emptyPlaylistSlots<PlaylistItem>();
+    const items = slots.inactive[slot] ?? [];
+    const present = new Set(items.map((item) => item.queueItemId));
+    if (queueItemIds.some((queueItemId) => !present.has(queueItemId))) {
+      return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
+    }
+    if (
+      room.playlistRevision >= Number.MAX_SAFE_INTEGER ||
+      room.revision >= Number.MAX_SAFE_INTEGER
+    ) {
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    }
+    const removed = new Set(queueItemIds);
+    room.playlistSlots = {
+      activeSlot: slots.activeSlot,
+      inactive: slots.inactive.map((list, index) =>
+        index === slot ? list.filter((item) => !removed.has(item.queueItemId)) : [...list],
+      ),
+    };
+    // Summaries count every playlist, so clients refresh on this revision.
+    room.playlistRevision += 1;
+    room.revision += 1;
+    this.reconcileAssetGarbageCollection(Date.now());
+    const responseBody = developerPlaylistQueue(room, slot, developerKeyId);
+    this.storeDeveloperQueueIdempotency(scope, idempotencyKey, fingerprint, 200, slot);
+    if (botTerminal !== null) {
+      this.storeIdempotency(
+        botTerminal.terminalScope,
+        botTerminal.terminalKey,
+        botTerminal.terminalFingerprint,
+        botDestructiveResult('remove_items', removed.size, false, botTerminal.languageHint),
+      );
+    }
+    await this.persist();
+    this.scheduleDeveloperInvalidationHint(null);
+    return jsonResponse(responseBody);
   }
 
   async handleInternalDeveloperQueueModeUpdate(request: Request, trustedBot = false) {
@@ -16325,6 +16729,22 @@ export class MusixquareProRoom {
         record.status,
       );
     }
+    if (record.kind === 'developer-playlist-queue') {
+      if (
+        !DEVELOPER_API_KEY_ID_RE.test(developerRequesterKeyId || '') ||
+        !isPlaylistSlot(record.playlistSlot)
+      ) {
+        return errorResponse('ROOM_STATE_INVALID', 503);
+      }
+      return jsonResponse(
+        developerPlaylistQueue(
+          this.activeRoom,
+          record.playlistSlot,
+          developerRequesterKeyId ?? undefined,
+        ),
+        record.status,
+      );
+    }
     return jsonResponse(record.body, record.status);
   }
 
@@ -16365,11 +16785,19 @@ export class MusixquareProRoom {
     };
   }
 
-  storeDeveloperQueueIdempotency(scope: string, key: string, fingerprint: string, status: number) {
+  storeDeveloperQueueIdempotency(
+    scope: string,
+    key: string,
+    fingerprint: string,
+    status: number,
+    playlistSlot: number | null = null,
+  ) {
     const records = this.reserveIdempotencySlot(scope, key);
     records[`${scope}:${key}`] = {
       fingerprint,
-      kind: 'developer-queue',
+      ...(playlistSlot === null
+        ? { kind: 'developer-queue' }
+        : { kind: 'developer-playlist-queue', playlistSlot }),
       status,
       expiresAtMs: Date.now() + IDEMPOTENCY_TTL_MS,
     };
@@ -16627,6 +17055,224 @@ export class MusixquareProRoom {
         ...(firstTitle === undefined ? {} : { firstTitle }),
       });
     }
+    return jsonResponse(responseBody);
+  }
+
+  activePlaylistSlot() {
+    return this.activeRoom.playlistSlots?.activeSlot ?? 0;
+  }
+
+  /**
+   * Make `slot` the active playlist. Playback stops and no track stays
+   * selected, as when the current track is removed. The caller stores its
+   * receipt, enqueues the returned events, persists and invalidates clients.
+   */
+  applyPlaylistSwitch(
+    slot: number,
+    nowMs: number,
+  ):
+    | { error: string; status: number }
+    | { error?: never; playbackCleared: boolean; cancelEvent: JsonRecord | null } {
+    const room = this.activeRoom;
+    if (
+      room.playlistRevision >= Number.MAX_SAFE_INTEGER ||
+      room.revision >= Number.MAX_SAFE_INTEGER
+    ) {
+      return { error: 'ROOM_STATE_CAPACITY_EXCEEDED', status: 409 };
+    }
+    const stopsPlayback =
+      room.currentQueueItemId !== null ||
+      room.playback.queueItemId !== null ||
+      room.playback.state !== 'idle';
+    const target = stopsPlayback ? this.targetPlayback(null, 'idle', 0, nowMs) : null;
+    if (stopsPlayback && !target) return { error: 'PLAYBACK_REVISION_EXHAUSTED', status: 409 };
+    const cancelEvent = this.cancelPendingPlayback('playlist-switched', nowMs);
+    const swapped = swapActivePlaylist(room.playlist, room.playlistSlots, slot);
+    room.playlist = swapped.active;
+    room.playlistSlots = swapped.slots;
+    room.currentQueueItemId = null;
+    if (target) room.playback = target;
+    reconcileQueueModePlaylist(room, nowMs);
+    this.reconcileAssetGarbageCollection(nowMs);
+    room.playlistRevision += 1;
+    room.revision += 1;
+    return { playbackCleared: target !== null, cancelEvent };
+  }
+
+  enqueuePlaylistPlaybackEvents(
+    cancelEvent: JsonRecord | null,
+    playbackCleared: boolean,
+    nowMs: number,
+  ) {
+    if (cancelEvent) this.enqueuePlaybackBroadcast(cancelEvent);
+    if (playbackCleared) {
+      this.enqueuePlaybackBroadcast(
+        this.playbackCommitEvent(null, this.activeRoom.playback.updatedAtMs, nowMs),
+      );
+    }
+  }
+
+  async handlePlaylistSwitch(request: Request) {
+    const auth = await this.requireSession(request, {
+      activePresence: true,
+      capability: 'queue.mutate',
+    });
+    if (auth.response) return auth.response;
+    const key = this.readIdempotencyKey(request);
+    if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
+    const parsed = await this.parseBody(request);
+    if (parsed.response) return parsed.response;
+    const body = parsed.value;
+    if (!hasExactKeys(body, ['baseRevision', 'slot'])) return errorResponse('INVALID_REQUEST', 400);
+    const scope = `participant:${auth.session.participantId}:playlist-switch`;
+    const fingerprint = await this.idempotencyFingerprint(scope, body);
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session, null);
+    if (replay) return replay;
+    if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
+    if (!isPlaylistSlot(body.slot)) return errorResponse('INVALID_PLAYLIST_SLOT', 400);
+    if (body.baseRevision !== this.activeRoom.revision) {
+      return errorResponse('REVISION_CONFLICT', 409);
+    }
+    if (body.slot === this.activePlaylistSlot()) {
+      return jsonResponse({ snapshot: publicSnapshot(this.activeRoom, auth.session) });
+    }
+    const nowMs = Date.now();
+    const switched = this.applyPlaylistSwitch(body.slot, nowMs);
+    if (switched.error !== undefined) return errorResponse(switched.error, switched.status);
+    const responseBody = { snapshot: publicSnapshot(this.activeRoom, auth.session) };
+    this.storeSnapshotIdempotency(scope, key, fingerprint, this.activeRoom.revision);
+    this.enqueuePlaylistPlaybackEvents(switched.cancelEvent, switched.playbackCleared, nowMs);
+    await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({
+        playlistRevision: this.activeRoom.playlistRevision,
+        ...(switched.playbackCleared
+          ? { playbackRevision: this.activeRoom.playback.revision }
+          : {}),
+      }),
+    );
+    return jsonResponse(responseBody);
+  }
+
+  /**
+   * Append copies of active-playlist tracks to other playlists, in active
+   * order and with fresh queue item IDs per target. Copies reuse their asset,
+   * so room storage use does not change. A move then removes the tracks from
+   * the active playlist the way a removal does.
+   */
+  async handlePlaylistTransfer(request: Request) {
+    const auth = await this.requireSession(request, {
+      activePresence: true,
+      capability: 'queue.mutate',
+    });
+    if (auth.response) return auth.response;
+    const key = this.readIdempotencyKey(request);
+    if (!key) return errorResponse('IDEMPOTENCY_KEY_REQUIRED', 400);
+    const parsed = await this.parseBody(request, 64 * 1024);
+    if (parsed.response) return parsed.response;
+    const body = parsed.value;
+    if (!hasExactKeys(body, ['baseRevision', 'queueItemIds', 'targetSlots', 'mode'])) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const scope = `participant:${auth.session.participantId}:playlist-transfer`;
+    const fingerprint = await this.idempotencyFingerprint(scope, body);
+    const replay = this.replayIdempotency(scope, key, fingerprint, auth.session, null);
+    if (replay) return replay;
+    if (!isSafeNonNegativeInteger(body.baseRevision)) return errorResponse('INVALID_REVISION', 400);
+    if (body.mode !== 'copy' && body.mode !== 'move') return errorResponse('INVALID_REQUEST', 400);
+    const queueItemIds = body.queueItemIds;
+    if (
+      !isStringArray(queueItemIds) ||
+      queueItemIds.length < 1 ||
+      queueItemIds.length > PLAYLIST_MAX_ITEMS ||
+      queueItemIds.some((queueItemId) => !QUEUE_ITEM_ID_RE.test(queueItemId)) ||
+      new Set(queueItemIds).size !== queueItemIds.length
+    ) {
+      return errorResponse('INVALID_PLAYLIST', 400);
+    }
+    const activeSlot = this.activePlaylistSlot();
+    const targetSlots = body.targetSlots;
+    if (
+      !Array.isArray(targetSlots) ||
+      targetSlots.length < 1 ||
+      targetSlots.length >= PRO_ROOM_PLAYLIST_SLOT_COUNT ||
+      !targetSlots.every(isPlaylistSlot) ||
+      new Set(targetSlots).size !== targetSlots.length ||
+      targetSlots.includes(activeSlot)
+    ) {
+      return errorResponse('INVALID_PLAYLIST_SLOT', 400);
+    }
+    if (body.baseRevision !== this.activeRoom.revision) {
+      return errorResponse('REVISION_CONFLICT', 409);
+    }
+    // A copy adds tracks, so it needs the same permission as adding them.
+    if (!this.sessionHasPermission(auth.session, 'media.add')) {
+      return errorResponse('PERMISSION_REQUIRED', 403);
+    }
+    const room = this.activeRoom;
+    const selected = new Set(queueItemIds);
+    const transferred = room.playlist.filter((item) => selected.has(item.queueItemId));
+    if (transferred.length !== selected.size) return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
+    const slots = room.playlistSlots ?? emptyPlaylistSlots<PlaylistItem>();
+    if (
+      targetSlots.some(
+        (slot) => (slots.inactive[slot]?.length ?? 0) + transferred.length > PLAYLIST_MAX_ITEMS,
+      )
+    ) {
+      return errorResponse('PLAYLIST_CAPACITY_EXCEEDED', 409);
+    }
+    if (
+      room.playlistRevision >= Number.MAX_SAFE_INTEGER ||
+      room.revision >= Number.MAX_SAFE_INTEGER
+    ) {
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    }
+    const nowMs = Date.now();
+    let playbackCleared = false;
+    let cancelEvent: JsonRecord | null = null;
+    if (body.mode === 'move') {
+      const removesCurrent =
+        (room.currentQueueItemId !== null && selected.has(room.currentQueueItemId)) ||
+        (room.playback.queueItemId !== null && selected.has(room.playback.queueItemId));
+      if (removesCurrent) {
+        const target = this.targetPlayback(null, 'idle', 0, nowMs);
+        if (!target) return errorResponse('PLAYBACK_REVISION_EXHAUSTED', 409);
+        cancelEvent = this.cancelPendingPlayback('queue-item-removed', nowMs);
+        room.playback = target;
+        room.currentQueueItemId = null;
+        playbackCleared = true;
+      }
+      room.playlist = room.playlist.filter((item) => !selected.has(item.queueItemId));
+      const pendingQueueItemId = room.pendingPlaybackTransition?.target.queueItemId;
+      if (pendingQueueItemId != null && selected.has(pendingQueueItemId)) {
+        cancelEvent = this.cancelPendingPlayback('queue-item-removed', nowMs) ?? cancelEvent;
+      }
+      reconcileQueueModePlaylist(room, nowMs);
+    }
+    const inactive = slots.inactive.map((items) => [...items]);
+    for (const slot of targetSlots) {
+      inactive[slot] = [
+        ...(inactive[slot] ?? []),
+        ...transferred.map((item) => ({
+          ...structuredClone(item),
+          queueItemId: randomQueueItemId(),
+        })),
+      ];
+    }
+    room.playlistSlots = { activeSlot: slots.activeSlot, inactive };
+    this.reconcileAssetGarbageCollection(nowMs);
+    room.playlistRevision += 1;
+    room.revision += 1;
+    const responseBody = { snapshot: publicSnapshot(room, auth.session) };
+    this.storeSnapshotIdempotency(scope, key, fingerprint, room.revision);
+    this.enqueuePlaylistPlaybackEvents(cancelEvent, playbackCleared, nowMs);
+    await this.persist();
+    await this.broadcastServerEvent(
+      this.invalidationEvent({
+        playlistRevision: room.playlistRevision,
+        ...(playbackCleared ? { playbackRevision: room.playback.revision } : {}),
+      }),
+    );
     return jsonResponse(responseBody);
   }
 
@@ -17039,9 +17685,7 @@ export class MusixquareProRoom {
       }
       if (
         asset.deletionPending.originalStatus === 'ready' &&
-        this.activeRoom.playlist.some(
-          (item) => item.source.kind === 'pro-r2' && item.source.assetId === assetId,
-        )
+        this.referencedAssetIds().has(assetId)
       ) {
         return errorResponse('ASSET_IN_USE', 409);
       }
@@ -17050,13 +17694,7 @@ export class MusixquareProRoom {
         ? jsonResponse(responseBody)
         : errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
     }
-    if (
-      this.activeRoom.playlist.some(
-        (item) => item.source.kind === 'pro-r2' && item.source.assetId === assetId,
-      )
-    ) {
-      return errorResponse('ASSET_IN_USE', 409);
-    }
+    if (this.referencedAssetIds().has(assetId)) return errorResponse('ASSET_IN_USE', 409);
     if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
     const nowMs = Date.now();
     await this.beginAssetDeletion(asset, {
@@ -17097,6 +17735,7 @@ export class MusixquareProRoom {
       this.developerCommandMigrationPending ||
       this.playbackAuthorityMigrationPending ||
       this.assetDeletionMigrationPending ||
+      this.playlistSlotsMigrationPending ||
       this.reconcileSystemAudio(nowMs);
     if (
       this.activeRoom.pendingPlaybackTransition &&
@@ -17342,6 +17981,7 @@ export class MusixquareProRoom {
       this.developerCommandMigrationPending = false;
       this.playbackAuthorityMigrationPending = false;
       this.assetDeletionMigrationPending = false;
+      this.playlistSlotsMigrationPending = false;
     }
     // Complete after liveness pruning and its independent maintenance writes.
     // Natural advance has its own atomic rollback boundary: an R2 cleanup above
@@ -17408,6 +18048,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedPlaybackBroadcasts();
       this.normalizeLoadedPresenceBroadcast();
       this.normalizeLoadedAssetDeletions();
+      this.normalizeLoadedPlaylistSlots();
       const nowMs = Date.now();
       await this.prune(nowMs);
       if (this.heartbeatDurabilityDirty) {

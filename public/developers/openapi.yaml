@@ -1,10 +1,12 @@
 openapi: 3.1.0
 info:
   title: MUSIXQUARE Developer API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     Server-to-server API for one room-bound MUSIXQUARE PRO room.
     The API can read and control persistent room-wide audio effects as well as playback and the playlist.
+    A room has three playlists, numbered 1 to 3; playlist 1 is the default one. Exactly one is active, and every
+    request that does not name a playlist acts on the active playlist exactly as in version 1.0.
     API keys must never be embedded in browser code or other public clients.
     Write requests require an active, unexpired key at the room's final authorization check,
     after request parsing and asynchronous preparation, even if initial authentication succeeded earlier.
@@ -194,6 +196,80 @@ paths:
         '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/playlists:
+    get:
+      operationId: listPlaylists
+      description: |
+        Returns a summary of the room's three playlists and which one is active. Requires queue:read.
+        byteLength is the total size of a playlist's uploaded audio files, or null when it has none.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Playlist summaries.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlaylistsState' }
+        '304': { description: Representation is unchanged. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/playlists/{playlist}/queue:
+    get:
+      operationId: getPlaylistQueue
+      description: |
+        Returns one playlist's items, whether or not it is active. Requires queue:read. currentQueueItemId is
+        always null for an inactive playlist.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/Playlist'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: The playlist's sanitized items.
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlaylistQueueState' }
+        '304': { description: Representation is unchanged. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+  /v1/rooms/{roomCode}/playlists/{playlist}/queue/items/{queueItemId}:
+    delete:
+      operationId: removePlaylistQueueItem
+      description: |
+        Removes one item from the named playlist. Requires queue:write and a unique Idempotency-Key. Removing
+        from the active playlist behaves like deleteQueueItem; removing from an inactive playlist never changes
+        playback.
+      parameters:
+        - $ref: '#/components/parameters/RoomCode'
+        - $ref: '#/components/parameters/Playlist'
+        - $ref: '#/components/parameters/QueueItemId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      responses:
+        '200':
+          description: Item removed, including an idempotent replay.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlaylistQueueState' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/commands:
     post:
       operationId: createRoomCommand
@@ -203,7 +279,9 @@ paths:
         inside the current YouTube playlist aggregate first, then advances to the next top-level queue item using
         the room's repeat and shuffle settings. play_item force-selects the exact top-level queueItemId. When that
         item is a YouTube playlist aggregate with a complete manifest, optional youtubeSubIndex selects an exact
-        zero-based item inside the aggregate; the server derives and validates the video ID.
+        zero-based item inside the aggregate; the server derives and validates the video ID. Optional playlist names
+        the playlist that holds queueItemId; when it is not the active one, the room first switches to it.
+        switch_playlist makes another playlist active; switching stops playback and selects no item.
         Playback and effect commands are authorized and applied by the PRO room server, including while the runtime is
         sleeping. An applied play_item command means the server committed the canonical selection; connected or
         returning devices may still be loading it. There is no browser coordinator. The sleeping timeline remains
@@ -513,6 +591,12 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/QueueItemId' }
+    Playlist:
+      name: playlist
+      in: path
+      required: true
+      description: One-based playlist number; playlist 1 is the default one.
+      schema: { $ref: '#/components/schemas/PlaylistNumber' }
     AssetId:
       name: assetId
       in: path
@@ -522,6 +606,7 @@ components:
     RoomCommand:
       oneOf:
         - $ref: '#/components/schemas/PlaybackCommand'
+        - $ref: '#/components/schemas/SwitchPlaylistCommand'
         - $ref: '#/components/schemas/SetEffectsCommand'
     PlaybackCommand:
       oneOf:
@@ -562,6 +647,81 @@ components:
                 Optional zero-based item inside a YouTube playlist aggregate. The target queue item must expose a
                 complete manifest summary and the index must be smaller than youtubeSubItemCount. Omit this field
                 to select the aggregate's canonical entry video, preserving the original play_item behavior.
+            playlist:
+              $ref: '#/components/schemas/PlaylistNumber'
+              description: |
+                Optional playlist that holds queueItemId. Omit it to play an item of the active playlist as in 1.0.
+                Naming an inactive playlist switches the room to it, stopping playback, and then plays the item.
+    SwitchPlaylistCommand:
+      type: object
+      additionalProperties: false
+      required: [type, playlist]
+      description: |
+        Makes the named playlist active. Requires playback:control. Switching stops playback and selects no item;
+        naming the already active playlist completes as already_applied.
+      properties:
+        type: { const: switch_playlist }
+        playlist: { $ref: '#/components/schemas/PlaylistNumber' }
+    PlaylistNumber:
+      type: integer
+      minimum: 1
+      maximum: 3
+      description: One-based playlist number; playlist 1 is the default one.
+    PlaylistSummary:
+      type: object
+      additionalProperties: false
+      required: [playlist, active, itemCount, byteLength]
+      properties:
+        playlist: { $ref: '#/components/schemas/PlaylistNumber' }
+        active: { type: boolean }
+        itemCount: { type: integer, minimum: 0, maximum: 1000 }
+        byteLength:
+          oneOf: [{ type: integer, minimum: 1 }, { type: 'null' }]
+          description: Total size of the playlist's uploaded audio files, or null when it has none.
+    PlaylistsState:
+      type: object
+      additionalProperties: false
+      required: [schemaVersion, view, roomCode, playlistRevision, activePlaylist, playlists]
+      properties:
+        schemaVersion: { const: 1 }
+        view: { const: playlists }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        playlistRevision: { type: integer, minimum: 0 }
+        activePlaylist: { $ref: '#/components/schemas/PlaylistNumber' }
+        playlists:
+          type: array
+          minItems: 3
+          maxItems: 3
+          description: Playlists 1, 2, and 3 in order.
+          items: { $ref: '#/components/schemas/PlaylistSummary' }
+    PlaylistQueueState:
+      type: object
+      additionalProperties: false
+      required:
+        [
+          schemaVersion,
+          view,
+          roomCode,
+          playlist,
+          active,
+          playlistRevision,
+          currentQueueItemId,
+          items,
+        ]
+      properties:
+        schemaVersion: { const: 1 }
+        view: { const: playlist-queue }
+        roomCode: { type: string, pattern: '^0[0-9]{5}$' }
+        playlist: { $ref: '#/components/schemas/PlaylistNumber' }
+        active: { type: boolean }
+        playlistRevision: { type: integer, minimum: 0 }
+        currentQueueItemId:
+          oneOf: [{ $ref: '#/components/schemas/QueueItemId' }, { type: 'null' }]
+          description: Always null for an inactive playlist.
+        items:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/QueueItem' }
     SetEffectsCommand:
       type: object
       additionalProperties: false

@@ -15,6 +15,7 @@
     "pro-room-generation.ts",
     "pro-room-grants.ts",
     "pro-room-permissions.ts",
+    "pro-room-playlists.ts",
     "pro-room-queue-mode.ts",
     "pro-room-validation.ts",
     "service-control-object.ts",

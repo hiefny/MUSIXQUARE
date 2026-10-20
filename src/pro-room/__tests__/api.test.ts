@@ -15,6 +15,7 @@ import {
   type ProRoomSnapshot,
   type ProRoomSystemAudioPublication,
 } from '../contracts.ts';
+import { parseProRoomSnapshot } from '../snapshot.ts';
 
 const ROOM_CODE = '000001';
 const PRO_ROOM_PRODUCTION_PATH = new URL(PRO_ROOM_PRODUCTION_ENDPOINT).pathname;
@@ -2617,5 +2618,164 @@ describe('PRO room private media API', () => {
     expect(new Headers(fetchMock.mock.calls[2]?.[1]?.headers).get('idempotency-key')).toBe(
       IDEMPOTENCY_KEY,
     );
+  });
+});
+
+describe('PRO room playlists', () => {
+  const SLOTS = {
+    activeSlot: 0,
+    slots: [
+      { count: 1, bytes: null },
+      { count: 2, bytes: 4096 },
+      { count: 0, bytes: null },
+    ],
+  };
+
+  it('accepts the optional playlist summary and round-trips it', () => {
+    const legacy = parseProRoomSnapshot(activeSnapshot());
+    expect(legacy).not.toBeNull();
+    expect(legacy).not.toHaveProperty('playlistSlots');
+
+    const parsed = parseProRoomSnapshot({ ...activeSnapshot(), playlistSlots: SLOTS });
+    expect(parsed?.playlistSlots).toEqual(SLOTS);
+    expect(parseProRoomSnapshot(parsed)).toEqual(parsed);
+  });
+
+  it.each([
+    ['too few slots', { activeSlot: 0, slots: SLOTS.slots.slice(0, 2) }],
+    ['too many slots', { activeSlot: 0, slots: [...SLOTS.slots, { count: 0, bytes: null }] }],
+    ['an unknown key', { ...SLOTS, names: [] }],
+    [
+      'an unknown slot key',
+      { activeSlot: 0, slots: [{ count: 1, bytes: null, name: 'x' }, ...SLOTS.slots.slice(1)] },
+    ],
+    ['an active count unlike the playlist', { ...SLOTS, activeSlot: 1 }],
+    ['zero bytes', { activeSlot: 0, slots: [{ count: 1, bytes: 0 }, ...SLOTS.slots.slice(1)] }],
+    ['an out-of-range active slot', { ...SLOTS, activeSlot: 3 }],
+    [
+      'a fractional count',
+      { activeSlot: 0, slots: [{ count: 1.5, bytes: null }, ...SLOTS.slots.slice(1)] },
+    ],
+    [
+      'an oversized count',
+      { activeSlot: 0, slots: [SLOTS.slots[0], { count: 1001, bytes: null }, SLOTS.slots[2]] },
+    ],
+  ])('rejects a playlist summary with %s', (_label, playlistSlots) => {
+    expect(parseProRoomSnapshot({ ...activeSnapshot(), playlistSlots })).toBeNull();
+  });
+
+  it('opts every request in to playlist summaries', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () =>
+        jsonResponse({ snapshot: { ...activeSnapshot(), playlistSlots: SLOTS } }),
+      );
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.enterPresence(ROOM_CODE)).resolves.toMatchObject({ playlistSlots: SLOTS });
+    await client.getSnapshot(ROOM_CODE);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get('x-mxqr-pro-playlist-slots')).toBe('v1');
+    }
+  });
+
+  it('sends a playlist switch with the room revision and caller idempotency', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        snapshot: {
+          ...activeSnapshot(),
+          revision: 4,
+          playlistSlots: {
+            ...SLOTS,
+            activeSlot: 2,
+            slots: [SLOTS.slots[0], SLOTS.slots[1], { count: 1, bytes: null }],
+          },
+        },
+      }),
+    );
+
+    const snapshot = await client.switchPlaylist({
+      code: ROOM_CODE,
+      baseRevision: 3,
+      slot: 2,
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
+
+    expect(snapshot.playlistSlots?.activeSlot).toBe(2);
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/playlists/switch`);
+    expect(init.method).toBe('POST');
+    const headers = new Headers(init.headers);
+    expect(headers.get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
+    expect(headers.get('x-mxqr-pro-participant-id')).toBe('participant_00001');
+    expect(JSON.parse(String(init.body))).toEqual({ baseRevision: 3, slot: 2 });
+  });
+
+  it('sends a track transfer with exact fields', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValue(
+      jsonResponse({ snapshot: { ...activeSnapshot(), revision: 4, playlistSlots: SLOTS } }),
+    );
+
+    await client.transferPlaylistTracks({
+      code: ROOM_CODE,
+      baseRevision: 3,
+      queueItemIds: [QUEUE_ITEM_ID],
+      targetSlots: [1, 2],
+      mode: 'move',
+      idempotencyKey: IDEMPOTENCY_KEY,
+    });
+
+    const { url, init } = requestParts(fetchMock);
+    expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/playlists/transfer`);
+    expect(init.method).toBe('POST');
+    expect(new Headers(init.headers).get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
+    expect(JSON.parse(String(init.body))).toEqual({
+      baseRevision: 3,
+      queueItemIds: [QUEUE_ITEM_ID],
+      targetSlots: [1, 2],
+      mode: 'move',
+    });
+  });
+
+  it('rejects malformed playlist requests before any network call', () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    const base = { code: ROOM_CODE, baseRevision: 3, idempotencyKey: IDEMPOTENCY_KEY };
+    const transfer = {
+      ...base,
+      queueItemIds: [QUEUE_ITEM_ID],
+      targetSlots: [1],
+      mode: 'copy' as const,
+    };
+
+    expect(() => client.switchPlaylist({ ...base, slot: 3 })).toThrow(
+      expect.objectContaining({ code: 'INVALID_PLAYLIST_SLOT' }),
+    );
+    expect(() => client.switchPlaylist({ ...base, baseRevision: -1, slot: 1 })).toThrow(
+      expect.objectContaining({ code: 'INVALID_REVISION' }),
+    );
+    expect(() => client.transferPlaylistTracks({ ...transfer, queueItemIds: [] })).toThrow(
+      expect.objectContaining({ code: 'INVALID_QUEUE_ITEM_ID' }),
+    );
+    expect(() =>
+      client.transferPlaylistTracks({ ...transfer, queueItemIds: [QUEUE_ITEM_ID, QUEUE_ITEM_ID] }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_QUEUE_ITEM_ID' }));
+    expect(() => client.transferPlaylistTracks({ ...transfer, targetSlots: [] })).toThrow(
+      expect.objectContaining({ code: 'INVALID_PLAYLIST_SLOT' }),
+    );
+    expect(() => client.transferPlaylistTracks({ ...transfer, targetSlots: [0, 1, 2] })).toThrow(
+      expect.objectContaining({ code: 'INVALID_PLAYLIST_SLOT' }),
+    );
+    expect(() =>
+      client.transferPlaylistTracks({ ...transfer, mode: 'swap' as unknown as 'copy' }),
+    ).toThrow(expect.objectContaining({ code: 'INVALID_REQUEST' }));
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

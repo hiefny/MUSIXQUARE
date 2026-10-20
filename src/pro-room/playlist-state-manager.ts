@@ -1,4 +1,10 @@
-import type { UpdateProRoomCompactSnapshotInput } from './api.ts';
+import { PLAYLIST_SLOT_COUNT } from '../core/constants.ts';
+import type { PlaylistSlotsSummary, PlaylistTransferMode } from '../types/index.ts';
+import type {
+  SwitchProRoomPlaylistInput,
+  TransferProRoomPlaylistTracksInput,
+  UpdateProRoomCompactSnapshotInput,
+} from './api.ts';
 import {
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
   type ProRoomPlaybackCheckpoint,
@@ -28,6 +34,14 @@ interface ProRoomPlaylistStateApi {
   getSnapshot(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   updateCompactSnapshot(
     input: UpdateProRoomCompactSnapshotInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot>;
+  switchPlaylist?(
+    input: SwitchProRoomPlaylistInput,
+    signal?: AbortSignal,
+  ): Promise<ProRoomSnapshot>;
+  transferPlaylistTracks?(
+    input: TransferProRoomPlaylistTracksInput,
     signal?: AbortSignal,
   ): Promise<ProRoomSnapshot>;
 }
@@ -171,6 +185,26 @@ type PlaylistMutationAttempt =
   { outcome: 'accepted'; snapshot: ProRoomSnapshot } | { outcome: 'conflict'; error: unknown };
 
 type PlaylistIntent = (snapshot: ProRoomSnapshot, isRebase: boolean) => PlaylistMutation | null;
+
+type SlotRequest = (
+  baseRevision: number,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) => Promise<ProRoomSnapshot>;
+
+/** Null means the intent is already satisfied by (or no longer applies to) `snapshot`. */
+type SlotRequestBuilder = (snapshot: ProRoomSnapshot) => SlotRequest | null;
+
+function isPlaylistSlot(value: unknown): value is number {
+  return isSafeNonNegativeInteger(value) && value < PLAYLIST_SLOT_COUNT;
+}
+
+function requirePlaylistSlots(snapshot: ProRoomSnapshot): PlaylistSlotsSummary {
+  if (!snapshot.playlistSlots) {
+    throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SLOTS_UNAVAILABLE');
+  }
+  return snapshot.playlistSlots;
+}
 
 function cloneSnapshot(snapshot: ProRoomSnapshot): ProRoomSnapshot {
   const cloned = parseProRoomSnapshot(snapshot);
@@ -547,6 +581,72 @@ export class ProRoomPlaylistStateManager {
     });
   }
 
+  /** Make another playlist the room's active one; the server stops playback. */
+  switchPlaylist(
+    slot: number,
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    return this.#enqueue(() => {
+      if (!isPlaylistSlot(slot)) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SLOT_INVALID');
+      }
+      return this.#slotMutation((snapshot) => {
+        if (requirePlaylistSlots(snapshot).activeSlot === slot) return null;
+        return (baseRevision, idempotencyKey, signal) =>
+          this.#slotApi().switchPlaylist(
+            { code: this.#code, baseRevision, slot, idempotencyKey },
+            signal,
+          );
+      }, options.signal);
+    });
+  }
+
+  /**
+   * Copy or move active-playlist rows to the end of other playlists, in
+   * active-playlist order. A rebase drops rows and targets that no longer
+   * qualify instead of failing the whole request.
+   */
+  transferTracks(
+    queueItemIds: readonly QueueItemId[],
+    targetSlots: readonly number[],
+    mode: PlaylistTransferMode,
+    options: ProRoomPlaylistMutationOptions = {},
+  ): Promise<ProRoomSnapshot> {
+    const requested = new Set(queueItemIds);
+    const targets = [...new Set(targetSlots)];
+    return this.#enqueue(() => {
+      if (
+        requested.size === 0 ||
+        [...requested].some((queueItemId) => !isProRoomQueueItemId(queueItemId)) ||
+        targets.length === 0 ||
+        !targets.every(isPlaylistSlot) ||
+        (mode !== 'copy' && mode !== 'move')
+      ) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_TRANSFER_INVALID');
+      }
+      return this.#slotMutation((snapshot) => {
+        const { activeSlot } = requirePlaylistSlots(snapshot);
+        const ids = snapshot.playlist
+          .filter((item) => requested.has(item.queueItemId))
+          .map((item) => item.queueItemId);
+        const slots = targets.filter((target) => target !== activeSlot);
+        if (ids.length === 0 || slots.length === 0) return null;
+        return (baseRevision, idempotencyKey, signal) =>
+          this.#slotApi().transferPlaylistTracks(
+            {
+              code: this.#code,
+              baseRevision,
+              queueItemIds: ids,
+              targetSlots: slots,
+              mode,
+              idempotencyKey,
+            },
+            signal,
+          );
+      }, options.signal);
+    });
+  }
+
   updateMetadata(
     queueItemId: QueueItemId,
     patch: UpdateProRoomPlaylistMetadataInput,
@@ -890,6 +990,62 @@ export class ProRoomPlaylistStateManager {
     return {
       outcome: 'accepted',
       snapshot: await this.#accept(incoming, incoming.revision > base.revision),
+    };
+  }
+
+  /**
+   * Server-side playlist edits (switch, transfer) send intent rather than a
+   * compact playlist. They share #mutate's single CAS refresh/rebase.
+   */
+  async #slotMutation(build: SlotRequestBuilder, signal?: AbortSignal): Promise<ProRoomSnapshot> {
+    assertNotAborted(signal);
+    const base = this.#requireSnapshot();
+    const send = build(base);
+    if (!send) return cloneSnapshot(base);
+    const initialAttempt = await this.#attemptSlotMutation(base, send, signal);
+    if (initialAttempt.outcome === 'accepted') return initialAttempt.snapshot;
+
+    assertNotAborted(signal);
+    const refreshed = await this.#api.getSnapshot(this.#code, signal);
+    const accepted = await this.#accept(refreshed, true);
+    if (accepted.revision <= base.revision) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_CONFLICT_REFRESH_STALE');
+    }
+    const rebased = build(accepted);
+    if (!rebased) return cloneSnapshot(accepted);
+    const retry = await this.#attemptSlotMutation(accepted, rebased, signal);
+    if (retry.outcome === 'conflict') throw retry.error;
+    return retry.snapshot;
+  }
+
+  async #attemptSlotMutation(
+    base: ProRoomSnapshot,
+    send: SlotRequest,
+    signal?: AbortSignal,
+  ): Promise<PlaylistMutationAttempt> {
+    assertNotAborted(signal);
+    let incoming: ProRoomSnapshot;
+    try {
+      incoming = await send(base.revision, this.#nextIdempotencyKey(), signal);
+    } catch (error) {
+      if (isRevisionConflict(error)) return { outcome: 'conflict', error };
+      throw error;
+    }
+    return {
+      outcome: 'accepted',
+      snapshot: await this.#accept(incoming, incoming.revision > base.revision),
+    };
+  }
+
+  #slotApi(): Required<Pick<ProRoomPlaylistStateApi, 'switchPlaylist' | 'transferPlaylistTracks'>> {
+    const api = this.#api;
+    const { switchPlaylist, transferPlaylistTracks } = api;
+    if (!switchPlaylist || !transferPlaylistTracks) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SLOTS_UNAVAILABLE');
+    }
+    return {
+      switchPlaylist: switchPlaylist.bind(api),
+      transferPlaylistTracks: transferPlaylistTracks.bind(api),
     };
   }
 

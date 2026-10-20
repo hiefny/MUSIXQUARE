@@ -407,7 +407,11 @@ export class StandardHttpBridgeSmokeClient {
       method: 'POST',
       headers: this.authorizationHeaders(),
     });
-    if (!closed.response?.ok) console.warn(describeBridgeFailure('close', this.role, closed));
+    // A 2xx alone is not an acknowledgment: its body can still time out, be
+    // unreadable, or carry something other than `{ ok: true }`.
+    if (!closed.response?.ok || !isJsonObject(closed.payload) || closed.payload.ok !== true) {
+      console.warn(describeBridgeFailure('close', this.role, closed));
+    }
   }
 }
 

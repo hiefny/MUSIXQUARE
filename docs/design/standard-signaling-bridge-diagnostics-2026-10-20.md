@@ -44,8 +44,10 @@ HTTP signaling bridge open failed (role=guest; HTTP 502; code=STANDARD_SIGNALING
 - `elapsedMs`는 요청 시작부터 본문을 다 읽거나 실패할 때까지다. `ray`는 응답의 `cf-ray`이고 형식이 맞지 않으면 `none`이다.
 - 세션 토큰, capability 토큰, peer ID, 방 번호, 프레임 내용, 응답 문구는 넣지 않는다. Ray ID는 요청 하나를 가리키는
   Cloudflare 식별자이고 자격 증명이 아니다.
-- close 실패는 경고로 출력만 하고 smoke 결과는 그대로다(정리는 best-effort, lease가 최종 정리). 통과한 실행은 마지막
-  JSON 줄에 `bridgeOpenMs`(방장·게스트 열기 시간)를 남겨 5초 제한까지의 여유를 릴리스마다 볼 수 있게 했다.
+- close는 2xx이면서 본문이 `{ ok: true }`일 때만 확인된 것으로 본다(본문 시간 초과·깨진 본문·다른 JSON은 실패,
+  Codex 리뷰 지적 반영). close 실패는 경고로 출력만 하고 smoke 결과는 그대로다(정리는 best-effort, lease가 최종
+  정리). 통과한 실행은 마지막 JSON 줄에 `bridgeOpenMs`(방장·게스트 열기 시간)를 남겨 5초 제한까지의 여유를 릴리스마다
+  볼 수 있게 했다.
 - 재시도와 제한 시간은 바꾸지 않았다. 둘 다 오너가 정할 일이다.
 
 ### App Worker
@@ -96,9 +98,11 @@ standard_signaling_bridge` 기록을 찾는다. 로컬 wrangler 토큰은 `worke
   코드·시간)을 정확히 비교하고, 기록 전체에 방 번호·peer ID·IP·capability 토큰·`Bearer`·오류 문구가 없음을 확인한다.
   5초 열기 제한과 18초 poll 본문 제한은 가짜 타이머로 양쪽 `elapsedMs`가 5000·18000인지 본다. 정상 흐름과 409는 기록이
   없고, 로거가 예외를 던져도 502 응답은 같다.
-- `live-standard-http-signaling-smoke.test.ts` 20개(새 12개, 기존 send 실패 4개와 성공 흐름 1개 갱신): 허용·미허용·
-  누락 코드, HTML·초과·중단 본문, 네트워크 오류, 20초 제한, poll 실패, close 경고, 성공 줄의 `bridgeOpenMs`.
-- 일부러 깨뜨린 확인: App이 실패 사유를 버리게 하면 새 테스트 7개, 브리지 객체 5xx 기록을 끄면 4개가 실패했다.
+- `live-standard-http-signaling-smoke.test.ts` 24개(새 16개, 기존 send 실패 4개와 성공 흐름 1개 갱신): 허용·미허용·
+  누락 코드, HTML·초과·중단 본문, 네트워크 오류, 20초 제한, poll 실패, close 경고(409, JSON이 아닌 200, `ok`가 없는
+  200, 20초 넘게 멈춘 200 본문)와 정상 close의 무경고, 성공 줄의 `bridgeOpenMs`.
+- 일부러 깨뜨린 확인: App이 실패 사유를 버리게 하면 새 테스트 7개, 브리지 객체 5xx 기록을 끄면 4개, close를 2xx만 보게
+  되돌리면 3개가 실패했다.
 - 커밋 `e34f923a`: `npm run typecheck`, 린트, 포맷, committed `build:checked` 통과(`guard:sw-cache-version`은 v738이
   런타임 커밋을 덮는다고 판정). PR head `3bf6ab2c`(그 뒤로는 테스트 주석만 바뀜): unit 598 files / 13,468 pass /
   0 fail / 0 skip, Worker coverage 51 files / 2,642 pass(`app-worker.ts` 80.25 / 76.27 / 87.08 / 85.43, 기준 75 / 71 /
@@ -107,6 +111,7 @@ standard_signaling_bridge` 기록을 찾는다. 로컬 wrangler 토큰은 `worke
 - 새 worktree의 첫 전체 실행(`71c5166d`)은 13,466 pass / 2 fail이었다. 둘 다 무거운 도구 검사(`ci-quality-gates`의
   Worker suite 목록 검사, `tooling-eslint-config`의 `admin.ts` 타입 기반 린트)의 15초 시간 초과였고, 따로 실행하면
   통과했으며 위 재실행에서도 통과했다.
+- Codex 지적(close 확인)을 반영한 뒤 smoke·진단 두 suite 40 pass, 스크립트·테스트 타입 검사와 린트 통과.
 - 로컬 결과는 exact-main CI 후보를 대신하지 않는다.
 
 ## 한계

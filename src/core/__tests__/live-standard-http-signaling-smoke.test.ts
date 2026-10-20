@@ -332,6 +332,91 @@ describe('live Standard HTTPS signaling smoke', () => {
     });
   });
 
+  describe('close acknowledgment', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it.each([
+      [
+        'a 200 whose body is not JSON',
+        () => new Response('private-detail', { status: 200 }),
+        'HTTP 200; code=non-json; elapsedMs=0',
+      ],
+      [
+        'a 200 without the ok acknowledgment',
+        () => Response.json({ ok: false, detail: 'private-detail' }),
+        'HTTP 200; code=none; elapsedMs=0',
+      ],
+      [
+        'a 200 whose body stalls past the client deadline',
+        (init?: RequestInit) =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                init?.signal?.addEventListener('abort', () =>
+                  controller.error(init.signal?.reason),
+                );
+              },
+            }),
+            { status: 200 },
+          ),
+        'HTTP 200; code=timeout; elapsedMs=20000',
+      ],
+    ])('prints a close answered by %s', async (_label, closeResponse, expected) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockImplementationOnce(async () =>
+            Response.json({ sessionToken: 'private-bridge-session' }),
+          )
+          .mockImplementationOnce(async (_input: unknown, init?: RequestInit) =>
+            closeResponse(init),
+          ),
+      );
+      const client = await StandardHttpBridgeSmokeClient.open('private-capability', {
+        roomId: '654321',
+        role: 'guest',
+        peerId: 'http-guest-private',
+      });
+
+      const closing = client.close();
+      await vi.advanceTimersByTimeAsync(20_000);
+      await expect(closing).resolves.toBeUndefined();
+
+      expect(warn).toHaveBeenCalledExactlyOnceWith(
+        `HTTP signaling bridge close failed (role=guest; ${expected}; ray=none)`,
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toContain('private');
+    });
+
+    it('stays quiet for the expected acknowledgment', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      vi.stubGlobal(
+        'fetch',
+        vi
+          .fn()
+          .mockResolvedValueOnce(Response.json({ sessionToken: 'private-bridge-session' }))
+          .mockResolvedValueOnce(Response.json({ ok: true })),
+      );
+      const client = await StandardHttpBridgeSmokeClient.open('private-capability', {
+        roomId: '654321',
+        role: 'host',
+        peerId: 'http-host-private',
+      });
+
+      await client.close();
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
   it('rejects gaps in the server event sequence', async () => {
     vi.stubGlobal(
       'fetch',

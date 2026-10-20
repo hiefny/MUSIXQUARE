@@ -11,13 +11,19 @@ badge, cancel) and deleted at once.
 - **Header.** While rows are selected, the "Playlist" title reads
   `playlist.selected_count` ("2 selected", Korean "2개 선택됨"), keeping the
   title's size and weight. Repeat, shuffle and add media are hidden and one
-  blue text button sits on the right: "Select all" until every visible row is
-  selected, then "Deselect all". Deselect all empties the selection, which
-  ends the mode. The count is an `aria-live="polite"` region.
+  blue text button sits on the right: "Select all (N)" with the playlist
+  total until every visible row is selected, then plain "Deselect all" (the
+  count title beside it already shows the size). The toggle shares the
+  title's text baseline. Deselect all empties the selection, which ends the
+  mode. The count is an `aria-live="polite"` region.
 - **Bottom.** A blue Delete pill (no count) and a grey Cancel pill replace the
-  icon pill. Both use the dialog pill metrics (54 px, pill radius, 15 px / 700) and sit where the old pill sat: above the phone nav, 16 px from the
-  panel bottom on tablet and desktop. The list keeps its bottom padding while
-  either the pills or the Undo pill are shown.
+  icon pill. Both use the dialog pill metrics (54 px, pill radius, 15 px /
+  700). They sit 16 px under the last track inside the scrolling list body and
+  are sticky: a list taller than the view keeps them floating at the bottom,
+  14 px above the phone navigation (where the old pill sat) or 16 px from the
+  panel bottom on tablet and desktop, and scrolling to the end returns them
+  under the last track without covering it. After Delete the Undo pill
+  slides with the last track to its new place.
 - **Exits.** A tap or click anywhere outside the track list, the header toggle
   and the pills (the custom scrollbar excepted), any `ui:tab-changed` away
   from the playlist on phones and on the desktop grid, Escape, Deselect all,
@@ -69,7 +75,7 @@ for the count, "Delete" in its `verb` context where translated, and "Undo".
 | Locale  | `playlist.selected_count`                             | `common.delete` | `common.undo`      | Source                                                                                    |
 | ------- | ----------------------------------------------------- | --------------- | ------------------ | ----------------------------------------------------------------------------------------- |
 | en      | {{count}} selected                                    | Delete          | Undo               | source copy                                                                               |
-| ko      | {{count}}개 선택됨                                    | 삭제            | 되돌리기           | count: owner spec (WP "%d개 항목 선택됨" without 항목)                                    |
+| ko      | {{count}}개 선택됨                                    | 삭제하기        | 실행 취소          | owner wording (WP count "%d개 항목 선택됨" without 항목)                                   |
 | ja      | {{count}}個を選択中                                   | 削除            | 元に戻す           | WP                                                                                        |
 | zh-hans | 已选择 {{count}} 项                                   | 删除            | 撤销               | count: WP "%d Item selected"                                                              |
 | zh-hant | {{count}} 個項目已選取                                | 刪除            | 復原               | WP                                                                                        |
@@ -85,10 +91,10 @@ for the count, "Delete" in its `verb` context where translated, and "Undo".
 | id      | {{count}} dipilih                                     | Hapus           | Batalkan           | WP                                                                                        |
 | vi      | {{count}} được chọn                                   | Xóa             | Hoàn tác           | WP                                                                                        |
 | th      | {{count}} รายการที่เลือก                              | ลบ              | ย้อนกลับ           | count: WP "%s item selected"                                                              |
-| hi      | {{count}} चयन किया गया                                | मिटाएं          | पहले जैसा          | WP                                                                                        |
+| hi      | {{count}} चयन किया गया                                | मिटाएं          | पूर्ववत करें       | WP; Undo from MediaWiki `editundo` (WP "पहले जैसा" reads "as before")                  |
 | bn      | {{count}}টি নির্বাচিত                                 | মুছে ফেলুন      | পূর্বাবস্থা        | WP                                                                                        |
 | ta      | {{count}} தேர்வுகள்                                   | நீக்கு          | செயல்தவிர்         | WP (trailing period dropped)                                                              |
-| te      | ఎంచుకున్నవి: {{count}}                                | తొలగించు        | చెయ్యకు            | WP                                                                                        |
+| te      | ఎంచుకున్నవి: {{count}}                                | తొలగించు        | రద్దుచెయ్యి        | WP; Undo from MediaWiki `editundo` (WP "చెయ్యకు" reads "don't do")                     |
 | ms      | {{count}} dipilih                                     | Padam           | Buat asal          | WP                                                                                        |
 | fil     | {{count}} pinili                                      | Burahin         | Ibalik             | count/delete: WP; undo: app vocabulary (WP leaves "Undo" untranslated)                    |
 | ar      | عدد العناصر المحدّدة: {{count}}                       | حذف             | تراجع              | WP (count-neutral form)                                                                   |
@@ -99,7 +105,7 @@ for the count, "Delete" in its `verb` context where translated, and "Undo".
 | cs      | Vybráno: {{count}}                                    | Odstranit       | Zpět               | count: app vocabulary (WP "%d selected" is "Zvolené soubory: %d", files); delete/undo: WP |
 | el      | Επιλεγμένα: {{count}}                                 | Διαγραφή        | Αναίρεση           | count: app count-neutral pattern (WP "%d έχουν επιλεγεί" is plural-only); delete/undo: WP |
 | fa      | گزینش‌شده: {{count}}                                  | حذف             | بازگردانی          | WP                                                                                        |
-| mr      | {{count}} निवडले आहे                                  | काढून टाका      | पाठीमागे           | WP                                                                                        |
+| mr      | {{count}} निवडले आहे                                  | काढून टाका      | उलटवा              | WP; Undo from MediaWiki `editundo` (WP "पाठीमागे" reads "behind")                      |
 | gu      | {{count}} પસંદ કરેલ છે                                | કાઢી નાખો       | પૂર્વવત્ કરો       | WP                                                                                        |
 | kn      | ಆರಿಸಿದವುಗಳು: {{count}}                                | ಅಳಿಸು           | ರದ್ದು ಮಾಡು         | WP (space before colon removed)                                                           |
 | ml      | {{count}} തെരഞ്ഞെടുത്തു                               | ഇല്ലാതാക്കുക    | മാറ്റി ചെയ്യുക     | count/undo: WP; delete: app vocabulary (WP "ഏടുത്തുകളയുക" looks misspelled)               |
@@ -125,7 +131,9 @@ Node 24.20.0.
   and light: selection header and pills, all selected, the morph at 40 ms and
   100 ms, the centred Undo pill, and the list after commit with two rows
   left. With reduced motion, no animation runs on the pills after Delete.
-- Not run: the e2e suite. Specs that click Delete now wait for the Undo pill
-  to go away; the wide-layout tab-switch spec now expects the mode to end.
+- Later owner refinements (sticky placement, Undo following the last track,
+  the toggle total and baseline, Korean labels, and the te/mr/hi Undo words)
+  and the e2e results are recorded in the combined batch report,
+  [playlist and platform fixes](playlist-and-platform-fixes-2026-10-20.md).
 - Not checked: real phones, screen readers, and how long-translation headers
   ellipsize at 360 px.

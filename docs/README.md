@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Playlist and platform fixes 8.11.32 — 2026-10-20](design/playlist-and-platform-fixes-2026-10-20.md) —
+  the drag ghost showed the play icon under the grip; desktop gets press-and-hold reorder; edge auto-scroll no longer
+  starts from an edge-row grab and stops outside its zone; iOS long-press text selection returns after lightningcss had
+  stripped every `-webkit-user-select` since 8.6.9 (CSS targets now include Safari/iOS, with a build guard); blog
+  images fall back to their source when the R2 mirror fails; permission feedback says "checking" until the host
+  confirms; deletion pills follow the last track and a pending deletion commits before any playback navigation.
 - [Background-return Sync — 2026-10-20](design/background-return-sync-2026-10-20.md) — every return from the
   background (hidden 1 s or longer) in an active room now runs the Sync button's room alignment without its panel
   or toasts: PRO full reconciliation merged into the runtime's own foreground repair, a manual broadcast on a

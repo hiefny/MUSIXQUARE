@@ -99,7 +99,15 @@ standard_signaling_bridge` 기록을 찾는다. 로컬 wrangler 토큰은 `worke
 - `live-standard-http-signaling-smoke.test.ts` 20개(새 12개, 기존 send 실패 4개와 성공 흐름 1개 갱신): 허용·미허용·
   누락 코드, HTML·초과·중단 본문, 네트워크 오류, 20초 제한, poll 실패, close 경고, 성공 줄의 `bridgeOpenMs`.
 - 일부러 깨뜨린 확인: App이 실패 사유를 버리게 하면 새 테스트 7개, 브리지 객체 5xx 기록을 끄면 4개가 실패했다.
-- 전체 검사는 아래에 적는다.
+- 커밋 `e34f923a`: `npm run typecheck`, 린트, 포맷, committed `build:checked` 통과(`guard:sw-cache-version`은 v738이
+  런타임 커밋을 덮는다고 판정). PR head `3bf6ab2c`(그 뒤로는 테스트 주석만 바뀜): unit 598 files / 13,468 pass /
+  0 fail / 0 skip, Worker coverage 51 files / 2,642 pass(`app-worker.ts` 80.25 / 76.27 / 87.08 / 85.43, 기준 75 / 71 /
+  82 / 80), `node --check cloudflare/app-worker.ts`와 가드 developer-api-boundaries·d1-migrations·ops-drift-contract·
+  bus-pairing·dead-exports·import-graph·brand-capitalization 통과.
+- 새 worktree의 첫 전체 실행(`71c5166d`)은 13,466 pass / 2 fail이었다. 둘 다 무거운 도구 검사(`ci-quality-gates`의
+  Worker suite 목록 검사, `tooling-eslint-config`의 `admin.ts` 타입 기반 린트)의 15초 시간 초과였고, 따로 실행하면
+  통과했으며 위 재실행에서도 통과했다.
+- 로컬 결과는 exact-main CI 후보를 대신하지 않는다.
 
 ## 한계
 

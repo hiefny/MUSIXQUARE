@@ -78,10 +78,16 @@ The manifest also records the Git SHA, build tools, validation profile, and
 content hashes. Cloudflare deployment records add each deployed Worker version
 ID, completing the operational release identity.
 
-The Standard HTTPS signaling smoke records the failed send's HTTP status,
-client sequence, recognized frame type, and recognized machine error code.
-Unknown values are reported as `unknown`; response text, tokens, authentication
-payloads, and PINs are never included. These fields identify the failed boundary
-but do not establish an upstream root cause. A 503 still fails the smoke without
-retrying admission, and a later successful run does not explain the earlier
-failure.
+The Standard HTTPS signaling smoke records each failed bridge open, send, poll,
+or close with the client role, HTTP status, recognized machine error code,
+elapsed milliseconds, and Cloudflare Ray ID; a failed send also names its client
+sequence and recognized frame type. Unrecognized codes are reported as
+`unknown`, a JSON body without one as `none`, and a request without a usable
+JSON body as `timeout`, `network-error`, `body-error`, `oversized`, or
+`non-json`. Response text, tokens, peer and room IDs, authentication payloads,
+and PINs are never included. The Ray ID finds the App Worker's
+`standard_signaling_bridge` diagnostic for the same 5xx response, and a passing
+run records both bridge open times. These fields identify the failed boundary
+but do not establish an upstream root cause. A 502 or 503 still fails the smoke
+without retrying admission, a failed close is printed without failing it, and a
+later successful run does not explain the earlier failure.

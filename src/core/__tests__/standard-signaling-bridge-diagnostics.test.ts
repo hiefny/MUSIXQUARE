@@ -176,7 +176,7 @@ describe('Standard HTTPS signaling bridge failure diagnostics', () => {
     [502, 'STANDARD_HTTP_BRIDGE_UPSTREAM_UNAVAILABLE', 'STANDARD_HTTP_BRIDGE_UPSTREAM_UNAVAILABLE'],
     [503, `private room ${ROOM_ID}`, 'unknown'],
   ])(
-    'passes the bridge object’s own HTTP %i through and records its allowlisted code',
+    'passes a bridge object HTTP %i through and records its allowlisted code',
     async (status, error, code) => {
       await connectSmokeToApp(async () => Response.json({ error }, { status }));
 

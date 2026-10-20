@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Standard HTTPS bridge failure diagnostics — 2026-10-20](design/standard-signaling-bridge-diagnostics-2026-10-20.md) —
+  after two 8.11.28 runs failed on a bare bridge-open 502, 8.11.29 makes the next one readable: the smoke prints
+  role, status, allowlisted code, elapsed ms and Ray ID for any failed open/send/poll/close, and the App Worker logs
+  one credential-free `standard_signaling_bridge` record per 5xx (operation, reason, upstream status and code,
+  timing). The bridge object's own 502s, which the App passes through, are now told apart from App-side ones.
 - [Welcome wordmark alignment — 2026-10-20](design/welcome-wordmark-alignment-2026-10-20.md) — the start
   screen wordmark is 5–12% taller than the greeting that replaces it in every layout, but only the 720–1279 px
   two-column layout left its top 2–3 px above the greeting; 8.11.28 lowers it by the phone layout's 3 px (top

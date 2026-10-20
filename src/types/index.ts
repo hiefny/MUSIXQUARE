@@ -138,6 +138,29 @@ export type YouTubeSyncLoadingOwner = 'rendezvous' | 'clock-action' | 'zero-star
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
+/** A room has this many playlists: "Playlist", "Playlist 2", "Playlist 3". */
+export const PLAYLIST_SLOT_COUNT = 3;
+
+/** One playlist's summary. `bytes` is null when its size is unknown. */
+export interface PlaylistSlotSummary {
+  readonly count: number;
+  readonly bytes: number | null;
+}
+
+/** Every playlist of the room, by slot index (0 = the unnumbered default). */
+export interface PlaylistSlotsSummary {
+  readonly activeSlot: number;
+  readonly slots: readonly PlaylistSlotSummary[];
+}
+
+export interface PlaylistStorageUsage {
+  readonly usedBytes: number;
+  readonly limitBytes: number;
+}
+
+/** Copy keeps the tracks in the current playlist; move takes them out. */
+export type PlaylistTransferMode = 'copy' | 'move';
+
 export type ProPlaybackUiControlKind = 'play' | 'pause' | 'seek';
 
 /**
@@ -1056,6 +1079,14 @@ export interface StateTree {
     revision: PlaylistRevision;
     repeatMode: number;
     isShuffle: boolean;
+    /**
+     * The room's playlists as summaries; `items` above is always the active
+     * one. Null while the room authority has not announced playlists (an
+     * older host or Worker), which hides the playlist switcher.
+     */
+    slots: PlaylistSlotsSummary | null;
+    /** PRO room storage use across all playlists; null outside PRO rooms. */
+    storageUsage: PlaylistStorageUsage | null;
   };
   files: { current: ResidentFile | null };
   youtube: {

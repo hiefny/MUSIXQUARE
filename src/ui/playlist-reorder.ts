@@ -112,6 +112,12 @@ interface EntryRect {
 interface PlaylistReorderOptions {
   list: HTMLElement;
   canReorder: () => boolean;
+  /** False keeps the handle (drag and keyboard) out of reordering; a long press still moves. */
+  canUseHandle?: () => boolean;
+  /** Returns true when it took the held row for itself instead of moving it. */
+  onLongPress?: (queueItemId: string) => boolean;
+  /** True when onLongPress can take a hold, even on a list too short to reorder. */
+  canTakeLongPress?: () => boolean;
   onCommit: (queueItemId: string, beforeQueueItemId: string | null) => void;
   getAnnouncement: (queueItemId: string, position: number, total: number) => string;
   getHandleLabel?: (queueItemId: string, position: number) => string;
@@ -194,6 +200,7 @@ export function createPlaylistReorderController(
   let lastScrollAt = Number.NEGATIVE_INFINITY;
   let suppressClicksUntil = 0;
   let scopedClickSuppression: ScopedClickSuppression | null = null;
+  let heldSelection: { pointerId?: number; touchId?: number; sourceId: string } | null = null;
   let touchSequenceBlocked = false;
   let pendingFocusId: string | null = null;
   let pendingFocusOrigin: Element | null = null;
@@ -368,6 +375,43 @@ export function createPlaylistReorderController(
 
   function reorderable(): boolean {
     return !destroyed && !settling && options.canReorder() && entries().length > 1;
+  }
+
+  // A hold arms when it can move the row or when the owner can take it.
+  function holdable(): boolean {
+    return reorderable() || (!destroyed && !!options.canTakeLongPress?.());
+  }
+
+  function handleUsable(): boolean {
+    return options.canUseHandle?.() ?? true;
+  }
+
+  // A hold that the owner takes (edit mode's select) ends here instead of
+  // starting a drag; the click its release would send is swallowed.
+  function longPressTaken(hold: NonNullable<typeof heldSelection>): boolean {
+    if (!options.onLongPress?.(hold.sourceId)) return false;
+    // Taking the hold may cancel this controller, so its release is tracked
+    // on its own.
+    heldSelection = hold;
+    buzz();
+    return true;
+  }
+
+  function releaseHeldSelection(): void {
+    if (!heldSelection) return;
+    scopedClickSuppression = {
+      sourceId: heldSelection.sourceId,
+      until: performance.now() + CLICK_SUPPRESSION_MS,
+    };
+    heldSelection = null;
+  }
+
+  function buzz(): void {
+    try {
+      navigator.vibrate?.(10);
+    } catch {
+      /* Haptics are optional. */
+    }
   }
 
   function clearLongPressTimer(): void {
@@ -578,9 +622,8 @@ export function createPlaylistReorderController(
     ghost.querySelectorAll<HTMLElement>('button, [tabindex]').forEach((el) => {
       el.setAttribute('tabindex', '-1');
     });
-    // The current row's handle stacks its play/pause/loading icon in the grip's
-    // grid cell, and those state rules outrank the ghost's hide rule. A lifted
-    // row shows only the grip, so the clone carries no playback state at all.
+    // A lifted row shows its grip and its plain source icon, so the clone
+    // carries no play/pause/loading state at all.
     ghost.querySelectorAll(PLAYBACK_STATE_ICON_SELECTOR).forEach((el) => el.remove());
     ghost.querySelectorAll(CURRENT_LEADING_SELECTOR).forEach((el) => {
       el.classList.remove(...CURRENT_LEADING_STATE_CLASSES);
@@ -638,13 +681,7 @@ export function createPlaylistReorderController(
     updateGhostPosition();
     syncAutoScroll();
 
-    if (input === 'long-press') {
-      try {
-        navigator.vibrate?.(10);
-      } catch {
-        /* Haptics are optional. */
-      }
-    }
+    if (input === 'long-press') buzz();
   }
 
   function clearSourceState(sourceEntry: HTMLElement | null): void {
@@ -812,7 +849,7 @@ export function createPlaylistReorderController(
   }
 
   function startKeyboard(sourceEntry: HTMLElement): void {
-    if (!reorderable() || drag || keyboard) return;
+    if (!reorderable() || !handleUsable() || drag || keyboard) return;
     const sourceId = getEntryId(sourceEntry);
     if (!sourceId) return;
     clearGlobalHint();
@@ -941,9 +978,9 @@ export function createPlaylistReorderController(
     if (!row || !entry || !list.contains(entry) || !getEntryId(entry)) return null;
     const interactiveTarget = target?.closest<HTMLElement>(INTERACTIVE_SELECTOR);
     // The title now uses a real button for keyboard/AT semantics, but it is
-    // also the largest row-body surface. Keep ordinary taps and clicks as play
-    // actions while allowing a stationary hold to enter reorder; startDrag and
-    // finishDrag suppress the click that follows a long press.
+    // also the largest row-body surface. Keep ordinary taps and clicks as
+    // their own actions while a stationary hold selects or moves the row; the
+    // click that follows a long press is suppressed.
     if (interactiveTarget && !interactiveTarget.matches(LONG_PRESS_PLAY_SURFACE_SELECTOR)) {
       return null;
     }
@@ -954,7 +991,7 @@ export function createPlaylistReorderController(
     // Touch contacts arm through the touch probe, which also owns native
     // scroll disqualification and the synthetic-click policy.
     if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
-    if (drag || keyboard || !reorderable()) return;
+    if (drag || keyboard || !holdable()) return;
     const sourceId = getEntryId(longPressSourceEntry(target));
     if (!sourceId) return;
     const pointerId = event.pointerId;
@@ -972,9 +1009,8 @@ export function createPlaylistReorderController(
         pointerHold = null;
         // Resolve by ID: an authoritative render during the hold replaces rows.
         const sourceEntry = entryForId(hold.sourceId);
-        if (!sourceEntry || scrollContainer.scrollTop !== hold.startScrollTop || !reorderable()) {
-          return;
-        }
+        if (!sourceEntry || scrollContainer.scrollTop !== hold.startScrollTop) return;
+        if (longPressTaken({ pointerId, sourceId: hold.sourceId }) || !reorderable()) return;
         try {
           // Capture only once the hold becomes a drag. Capturing at press
           // time would retarget the click of an ordinary short press.
@@ -997,7 +1033,7 @@ export function createPlaylistReorderController(
       return;
     }
     const entry = handle.closest<HTMLElement>(ENTRY_SELECTOR);
-    if (!entry || !reorderable()) return;
+    if (!entry || !reorderable() || !handleUsable()) return;
     event.preventDefault();
     event.stopPropagation();
     handle.focus({ preventScroll: true });
@@ -1035,7 +1071,7 @@ export function createPlaylistReorderController(
   }
 
   function onTouchStart(event: TouchEvent): void {
-    if (touchSequenceBlocked || !reorderable() || drag || keyboard || event.touches.length !== 1) {
+    if (touchSequenceBlocked || !holdable() || drag || keyboard || event.touches.length !== 1) {
       return;
     }
     const entry = longPressSourceEntry(asElement(event.target));
@@ -1072,6 +1108,10 @@ export function createPlaylistReorderController(
           probe.suppressClickOnEnd = true;
         }
         if (probe.disqualified) return;
+        if (longPressTaken({ touchId: probe.touchId, sourceId: probe.sourceId })) {
+          probe.disqualified = true;
+          return;
+        }
         startDrag(probe.sourceEntry, probe.lastX, probe.lastY, 'long-press', null, probe.touchId);
       }, PLAYLIST_LONG_PRESS_MS);
     }
@@ -1151,6 +1191,10 @@ export function createPlaylistReorderController(
 
   function onDocumentTouchFinish(event: TouchEvent): void {
     if (event.touches.length === 0) touchSequenceBlocked = false;
+    const touchId = heldSelection?.touchId;
+    if (touchId !== undefined && getTouchById(event.changedTouches, touchId)) {
+      releaseHeldSelection();
+    }
   }
 
   function onDocumentPointerMove(event: PointerEvent): void {
@@ -1168,6 +1212,7 @@ export function createPlaylistReorderController(
 
   function onDocumentPointerFinish(event: PointerEvent): void {
     if (event.pointerId === pointerHold?.pointerId) clearPointerHold();
+    if (event.pointerId === heldSelection?.pointerId) releaseHeldSelection();
   }
 
   function onScroll(): void {

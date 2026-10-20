@@ -124,11 +124,18 @@ test.describe('Playlist edit mode (mouse)', () => {
     // The single pill's corners equal the block's: half the 56px row.
     expect(fills[3]!.entryBottom - fills[3]!.entryTop).toBeCloseTo(56, 0);
 
-    const selectedRing = await checks
-      .nth(0)
-      .locator('.playlist-select-ring')
-      .evaluate((ring) => getComputedStyle(ring).fill);
-    expect(selectedRing).toBe(await cssColor(page, 'var(--primary-filled)'));
+    // A selected row shows the language list's check in the brand blue and
+    // hides its minus.
+    const selectedLook = await checks.nth(0).evaluate((button) => ({
+      color: getComputedStyle(button).color,
+      minus: getComputedStyle(button.querySelector('.playlist-select-minus')!).opacity,
+      mark: getComputedStyle(button.querySelector('.playlist-select-mark')!).opacity,
+    }));
+    expect(selectedLook).toEqual({
+      color: await cssColor(page, 'var(--primary)'),
+      minus: '0',
+      mark: '1',
+    });
 
     // The panel holds two circular icon buttons.
     const actions = page.locator('.playlist-selection-bar .playlist-selection-action');
@@ -221,6 +228,34 @@ test.describe('Playlist edit mode (mouse)', () => {
       [1, 2, 4].map((index) => before.items[index]!.queueItemId),
     );
     await expect(page.locator('.playlist-selection-bar')).toBeHidden();
+  });
+
+  test('in edit mode a title tap selects the row instead of playing it', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    const titles = page.locator('#playlist-ui .track-name');
+    const currentBefore = await currentQueueItemId(page);
+
+    await checks.nth(0).click();
+    await titles.nth(2).click();
+    expect(await pressedStates(page)).toEqual(selected([0, 2]));
+    await titles.nth(0).click();
+    expect(await pressedStates(page)).toEqual(selected([2]));
+    // The number column is part of the row while picking. It takes no pointer
+    // events then, so click its spot rather than the element.
+    const number = await centerOf(page.locator('#playlist-ui .playlist-reorder-handle').nth(4));
+    await page.mouse.click(number.x, number.y);
+    expect(await pressedStates(page)).toEqual(selected([2, 4]));
+    await page.mouse.click(number.x, number.y);
+    expect(await pressedStates(page)).toEqual(selected([2]));
+    expect(await currentQueueItemId(page)).toBe(currentBefore);
+
+    // Deselecting the last row by its title ends edit mode, and titles play again.
+    await titles.nth(2).click();
+    await expect(page.locator('.playlist-selection-bar')).toBeHidden();
+    await titles.nth(3).click();
+    await expect.poll(() => currentQueueItemId(page)).not.toBe(currentBefore);
   });
 
   test('edit mode folds YouTube playlists and restores each expansion', async ({ page }) => {

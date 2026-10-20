@@ -8,8 +8,6 @@ import { beforeAll, describe, expect, it } from 'vitest';
 const PLAY_PATH = 'M8 5v14l11-7z';
 const PLAY_MEDIA_PATH =
   'm431-341 184-122q9-6 9-17t-9-17L431-619q-10-7-20.5-1.5T400-603v246q0 12 10.5 17.5T431-341Zm49 261q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-32 5-64t15-63q5-16 20.5-21.5T150-626q15 8 21.5 23.5T173-570q-6 22-9.5 44.5T160-480q0 134 93 227t227 93q134 0 227-93t93-227q0-134-93-227t-227-93q-24 0-47.5 3.5T386-786q-17 5-32-1t-22-21q-7-15-.5-30.5T354-859q30-11 62-16t64-5q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80ZM177.5-697.5Q160-715 160-740t17.5-42.5Q195-800 220-800t42.5 17.5Q280-765 280-740t-17.5 42.5Q245-680 220-680t-42.5-17.5ZM480-480Z';
-const YOUTUBE_PATH =
-  'M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z';
 const YOUTUBE_PLAYLIST_PATH = 'M4 10h12v2H4zm0-4h12v2H4zm0 8h8v2H4zm10 0v6l5-3z';
 const FILE_PATH =
   'M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z';
@@ -276,7 +274,9 @@ describe('public design-system page contract', () => {
       normalizedPath(item.querySelector('.playlist-source path')?.getAttribute('d') ?? null),
     );
     const checkPaths = items.map((item) =>
-      normalizedPath(item.querySelector('.playlist-select path')?.getAttribute('d') ?? null),
+      normalizedPath(
+        item.querySelector('.playlist-select .playlist-select-mark')?.getAttribute('d') ?? null,
+      ),
     );
     const trackTitles = items.map((item) =>
       item.querySelector('.playlist-name')?.textContent?.trim(),
@@ -295,13 +295,13 @@ describe('public design-system page contract', () => {
     expect(items).toHaveLength(3);
     expect(playlist?.querySelector('.dur, .duration, .playlist-duration')).toBeNull();
     expect(playlist?.textContent).not.toMatch(/\b\d+:\d{2}\b/u);
-    expect(currentLeading?.textContent?.trim()).toBe('');
-    expect(normalizedPath(currentLeading?.querySelector('path')?.getAttribute('d') ?? null)).toBe(
-      normalizedPath(PLAY_PATH),
+    // The playing row keeps its number; the play icon takes the source icon's place.
+    expect(currentLeading?.textContent?.trim()).toBe('2');
+    expect(currentLeading?.querySelector('svg')).toBeNull();
+    expect(current?.querySelector('.playlist-source.playing')?.getAttribute('aria-label')).toBe(
+      'Playing',
     );
-    expect(sourcePaths).toEqual(
-      [FILE_PATH, YOUTUBE_PATH, YOUTUBE_PLAYLIST_PATH].map(normalizedPath),
-    );
+    expect(sourcePaths).toEqual([FILE_PATH, PLAY_PATH, YOUTUBE_PLAYLIST_PATH].map(normalizedPath));
     expect(trackTitles).toEqual([
       'Goldberg Aria.wav',
       'Cello Suite No. 1 Prelude',
@@ -332,7 +332,7 @@ describe('public design-system page contract', () => {
       items.every(
         (item) =>
           item.lastElementChild?.classList.contains('playlist-select') &&
-          item.lastElementChild.querySelector('circle.playlist-select-ring') !== null,
+          item.lastElementChild.querySelector('path.playlist-select-minus') !== null,
       ),
     ).toBe(true);
     // Rows 1 and 2 are selected and join into one block; row 3 is not.

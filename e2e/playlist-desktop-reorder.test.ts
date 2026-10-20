@@ -75,7 +75,7 @@ test.describe('Playlist desktop reorder', () => {
     await navigateToTab(page, 'playlist');
     await waitForFilePlaybackReady(page, 30_000);
     await clickPlayButton(page);
-    await expect(page.locator('.playlist-reorder-handle.playlist-current-leading')).toHaveClass(
+    await expect(page.locator('.track-type-slot.playlist-current-leading')).toHaveClass(
       /is-current-playing/,
     );
 
@@ -89,7 +89,9 @@ test.describe('Playlist desktop reorder', () => {
 
     // 1. Lifting the playing row by its handle shows only the grip.
     await resetScroll(page, scroller);
-    const currentHandle = page.locator('.playlist-reorder-handle.playlist-current-leading');
+    const currentHandle = page.locator(
+      '.playlist-entry:has(.playlist-current-leading) .playlist-reorder-handle',
+    );
     const handleBox = await currentHandle.boundingBox();
     if (!handleBox) throw new Error('Current handle has no geometry');
     await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
@@ -134,14 +136,28 @@ test.describe('Playlist desktop reorder', () => {
     expect(await queueOrder(page)).toEqual(orderBeforeClick);
     await navigateToTab(page, 'playlist');
 
-    // 4. A stationary mouse hold on the row body reorders, and the release
-    // does not also play the row.
+    // 4. Outside edit mode a stationary mouse hold on the row body selects
+    // that row and enters edit mode; the release neither plays nor toggles it.
     await resetScroll(page, scroller);
     const before = await readQueueSnapshot(page);
     const title = page.locator('.playlist-entry[data-queue-item-id] .track-name').nth(0);
     const titleBox = await title.boundingBox();
     if (!titleBox) throw new Error('Title has no geometry');
     const start = { x: titleBox.x + titleBox.width / 2, y: titleBox.y + titleBox.height / 2 };
+    const firstSelect = page.locator('#playlist-ui .btn-playlist-select').nth(0);
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.waitForTimeout(LONG_PRESS_MS + 300);
+    await expect(firstSelect).toHaveAttribute('aria-pressed', 'true');
+    await expect(ghost).toHaveCount(0);
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    await expect(firstSelect).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.playlist-selection-title')).toHaveText('1 selected');
+    expect((await readQueueSnapshot(page)).currentQueueItemId).toBe(before.currentQueueItemId);
+
+    // 5. In edit mode the same hold moves the held row, and the release does
+    // not also play it.
     await page.mouse.move(start.x, start.y);
     await page.mouse.down();
     await page.waitForTimeout(LONG_PRESS_MS - 250);
@@ -155,5 +171,11 @@ test.describe('Playlist desktop reorder', () => {
     expected.splice(2, 0, moved);
     await expect.poll(() => queueOrder(page)).toEqual(expected);
     expect((await readQueueSnapshot(page)).currentQueueItemId).toBe(before.currentQueueItemId);
+    // The moved row is still the one picked.
+    await expect(page.locator('#playlist-ui .btn-playlist-select').nth(2)).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(page.locator('.playlist-selection-title')).toHaveText('1 selected');
   });
 });

@@ -308,20 +308,48 @@ architectural limits by 5%; keep both entry limits, zero eager fonts, the
 secondary 500 kB chunk ceiling, and the mandatory 5% reserve unchanged. This is
 a reviewed capacity decision, not an exemption from conditional loading.
 
-| Metric | Current B | Prior limit B | Revised limit B | Revised 95% ceiling B |
-| --- | ---: | ---: | ---: | ---: |
-| Entry script raw | 427,322 | 1,677,500 | 1,677,500 | 1,593,625 |
-| Entry script gzip | 126,320 | 486,200 | 486,200 | 461,890 |
-| Eager JavaScript gzip | 468,087 | 492,800 | 517,440 | 491,568 |
-| Eager total raw | 2,042,992 | 2,161,500 | 2,269,575 | 2,156,096.25 |
-| Eager total gzip | 544,507 | 572,000 | 600,600 | 570,570 |
-| Eager fonts | 0 | 0 | 0 | 0 |
+| Metric                | Current B | Prior limit B | Revised limit B | Revised 95% ceiling B |
+| --------------------- | --------: | ------------: | --------------: | --------------------: |
+| Entry script raw      |   427,322 |     1,677,500 |       1,677,500 |             1,593,625 |
+| Entry script gzip     |   126,320 |       486,200 |         486,200 |               461,890 |
+| Eager JavaScript gzip |   468,087 |       492,800 |         517,440 |               491,568 |
+| Eager total raw       | 2,042,992 |     2,161,500 |       2,269,575 |          2,156,096.25 |
+| Eager total gzip      |   544,507 |       572,000 |         600,600 |               570,570 |
+| Eager fonts           |         0 |             0 |               0 |                     0 |
 
 The final source measurement, controlled startup observations, cold-cache and
 offline evidence are recorded in the
 [implementation report](system-audio-sharing-actions-2026-10-14.md). These
 measurements are not permission to make room-only work eager or a promise of
 physical low-end-device performance.
+
+### 2026-10-21 playlist reorder boundary addendum
+
+The 8.11.33 playlist edit-mode changes measured 491,761 B eager JavaScript gzip
+in a local production build, 193 B above the unchanged 491,568 B maintenance
+ceiling. Instead of raising capacity, the playlist reorder controller
+(`src/ui/playlist-reorder.ts`) became a reviewed deferred app-shell root.
+Reordering starts only from a held press, the reorder handle, or the keyboard,
+never in the first frame, so `playlist-view.ts` imports the controller after the
+list mounts and drops a stale load when the view is initialized again. Until it
+arrives, rows behave as plain rows: a tap still plays and the select control
+still selects. Only the type import stays static. The root is in
+`REVIEWED_DEFERRED_APP_SHELL_ROOTS`, so the service-worker install manifest
+caches its chunk for a cold offline launch, and the graph guard keeps it out of
+the static closure of `src/app.ts`.
+
+| Metric                |     Before B |   After B | Unchanged 95% ceiling B |
+| --------------------- | -----------: | --------: | ----------------------: |
+| Eager JavaScript gzip |      491,761 |   486,992 |                 491,568 |
+| Eager total gzip      | not recorded |   564,416 |                 570,570 |
+| Eager total raw       | not recorded | 2,108,323 |            2,156,096.25 |
+| Entry script gzip     | not recorded |   126,767 |                 461,890 |
+
+The deferred chunk is 19,233 B raw / 6,248 B gzip. Architectural limits, the 5%
+reserve, entry limits, and zero eager fonts are unchanged. These are local
+build measurements, not an exact-main CI release candidate. Implementation and
+test evidence are in the
+[8.11.33 report](short-desktop-title-and-delete-mode-stability-2026-10-21.md).
 
 ## Consequences
 

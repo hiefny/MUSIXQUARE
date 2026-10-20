@@ -18,10 +18,7 @@ import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getYouTubePlayer, setSubItemsLoadError } from '../youtube/_state.ts';
 import { getPlaylistSubItems, getPlaylistSubItemsKey } from '../youtube/queue-manifest.ts';
-import {
-  createPlaylistReorderController,
-  type PlaylistReorderController,
-} from './playlist-reorder.ts';
+import type { PlaylistReorderController } from './playlist-reorder.ts';
 import {
   createPlaylistRemovalController,
   type PlaylistRemovalController,
@@ -89,6 +86,7 @@ let _pendingProgressiveFocus: {
 } | null = null;
 let _domAbort: AbortController | null = null;
 let _reorderController: PlaylistReorderController | null = null;
+let _reorderLoad = 0;
 let _removalController: PlaylistRemovalController | null = null;
 let _followController: PlaylistFollowController | null = null;
 let _currentJumpController: PlaylistCurrentJumpController | null = null;
@@ -284,16 +282,9 @@ function syncPlaylistPlaybackIndicator(
   }
 }
 
-function renderLeadingSlot(
-  item: PlaylistItem,
-  idx: number,
-  canReorder: boolean,
-  isCurrent: boolean,
-): string {
-  const currentClass = isCurrent ? ' playlist-current-leading' : '';
-  const playbackIcons = isCurrent ? renderPlaybackIndicatorIcons() : '';
+function renderLeadingSlot(item: PlaylistItem, idx: number, canReorder: boolean): string {
   if (!canReorder) {
-    return `<div class="track-leading track-leading-static${currentClass}" aria-hidden="true"><span class="track-idx">${idx + 1}</span>${playbackIcons}</div>`;
+    return `<div class="track-leading track-leading-static" aria-hidden="true"><span class="track-idx">${idx + 1}</span></div>`;
   }
 
   const label = t('playlist.reorder_handle', {
@@ -301,12 +292,11 @@ function renderLeadingSlot(
     position: idx + 1,
   });
   return `
-    <button type="button" class="track-leading playlist-reorder-handle${currentClass}"
+    <button type="button" class="track-leading playlist-reorder-handle"
       data-queue-item-id="${escapeHtml(item.queueItemId)}"
       aria-label="${escapeHtml(label)}" aria-grabbed="false"
       aria-keyshortcuts="Space Enter ArrowUp ArrowDown Home End Escape">
       <span class="track-idx" aria-hidden="true">${idx + 1}</span>
-      ${playbackIcons}
       <svg class="playlist-reorder-grip" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M5 8h14M5 12h14M5 16h14"/>
       </svg>
@@ -320,6 +310,13 @@ function renderTrackIcon(item: PlaylistItem): string {
       : '<svg class="type-icon" viewBox="0 0 24 24" aria-hidden="true" style="fill:#FF0033;"><path d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"/></svg>';
   }
   return renderFileTrackIcon();
+}
+
+// The current row keeps its number; its play/pause/loading state stands in
+// for the source icon beside the title.
+function renderTrackIconSlot(item: PlaylistItem, isCurrent: boolean): string {
+  if (!isCurrent) return `<span class="track-type-slot">${renderTrackIcon(item)}</span>`;
+  return `<span class="track-type-slot playlist-current-leading">${renderTrackIcon(item)}${renderPlaybackIndicatorIcons()}</span>`;
 }
 
 function renderFileTrackIcon(): string {
@@ -819,7 +816,7 @@ export function updatePlaylistUI(): void {
 
   const currentQueueItemId = getState('playlist.currentQueueItemId');
   const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
-  const canEditPlaylist = canEditQueueStructure() && getState('playback.mode') !== 'system-audio';
+  const canEditPlaylist = canRemoveRows();
   const canReorder = canEditPlaylist && playlist.length > 1;
 
   playlist.forEach((item, idx) => {
@@ -845,21 +842,22 @@ export function updatePlaylistUI(): void {
       isRemovalSelected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
       { title: displayName },
     );
-    // A check circle; its check mark is the language list's, scaled into it.
+    // A minus marks a row that can be selected; once selected it shows the
+    // language list's check mark in the same stroke style.
     const selectButton = canEditPlaylist
       ? `<button type="button" class="btn-playlist-select" data-action="select"
           data-queue-item-id="${escapeHtml(item.queueItemId)}"
           aria-pressed="${isRemovalSelected}"
           aria-label="${escapeHtml(selectLabel)}" title="${escapeHtml(selectLabel)}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="playlist-select-ring" cx="12" cy="12" r="9"/><path class="playlist-select-mark" d="M5 12.5l4.2 4.2L19 6.9" transform="translate(4.8 4.8) scale(.6)"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="playlist-select-minus" d="M7 12h10"/><path class="playlist-select-mark" d="M5 12.5l4.2 4.2L19 6.9"/></svg>
         </button>`
       : '';
 
     row.innerHTML = `
-      ${renderLeadingSlot(item, idx, canReorder, isCurrent)}
+      ${renderLeadingSlot(item, idx, canReorder)}
       <button type="button" class="track-name" data-action="play"
         data-queue-item-id="${escapeHtml(item.queueItemId)}"
-        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text" dir="auto"><span class="playlist-title-marquee-content">${escapeHtml(displayName)}</span></span></button>
+        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIconSlot(item, isCurrent)}<span class="track-name-text" dir="auto"><span class="playlist-title-marquee-content">${escapeHtml(displayName)}</span></span></button>
       ${expandButton}
       ${selectButton}
     `;
@@ -974,11 +972,16 @@ function installDomDelegation(list: HTMLElement): void {
         if (id) toggleExpansion(id);
         return;
       }
-      const select = target.closest<HTMLElement>('[data-action="select"]');
-      if (select) {
+      // While tracks are being picked, the rest of the row picks it too
+      // instead of playing it.
+      const picking = _removalController?.isActive;
+      const select =
+        target.closest('[data-action="select"]') ??
+        (picking ? target.closest('.track-item')?.querySelector('[data-action="select"]') : null);
+      if (select || picking) {
         event.preventDefault();
         event.stopPropagation();
-        const id = queueItemIdFromElement(select);
+        const id = queueItemIdFromElement(select ?? null);
         if (id) _removalController?.toggle(id);
         return;
       }
@@ -1012,15 +1015,45 @@ function installDomDelegation(list: HTMLElement): void {
   );
 }
 
-function createReorderController(list: HTMLElement): PlaylistReorderController {
-  _reorderController?.destroy();
-  const controller = createPlaylistReorderController({
+function canRemoveRows(): boolean {
+  return canEditQueueStructure() && getState('playback.mode') !== 'system-audio';
+}
+
+// Reordering starts only from a held press, the handle, or the keyboard, never
+// in the first frame, so its controller loads after the list mounts
+// (docs/design/initial-bundle-loading-policy.md). Until then the rows are
+// plain: taps still play and the minus still selects.
+function loadReorderController(list: HTMLElement): void {
+  const load = ++_reorderLoad;
+  void import('./playlist-reorder.ts').then(
+    ({ createPlaylistReorderController }) => {
+      if (load !== _reorderLoad) return;
+      _reorderController = createReorderController(createPlaylistReorderController, list);
+      _reorderController.afterRender();
+    },
+    () => {},
+  );
+}
+
+function createReorderController(
+  create: typeof import('./playlist-reorder.ts').createPlaylistReorderController,
+  list: HTMLElement,
+): PlaylistReorderController {
+  return create({
     list,
     canReorder: () =>
       canEditQueueStructure() &&
       getState('playback.mode') !== 'system-audio' &&
-      !_removalController?.isActive &&
       visiblePlaylistItems(getState('playlist.items')).length > 1,
+    // In edit mode the number column is for picking, and a long press moves
+    // the held track. Outside it a long press starts edit mode with that track.
+    canUseHandle: () => !_removalController?.isActive,
+    canTakeLongPress: () => canRemoveRows() && !_removalController?.isActive,
+    onLongPress: (queueItemId) => {
+      if (!_removalController || _removalController.isActive || !canRemoveRows()) return false;
+      _removalController.toggle(queueItemId as QueueItemId);
+      return true;
+    },
     isPlaylistVisible: playlistIsVisible,
     onCommit: (queueItemId, beforeQueueItemId) => {
       bus.emit(
@@ -1052,8 +1085,6 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
       schedulePlaylistUpdate();
     },
   });
-  _reorderController = controller;
-  return controller;
 }
 
 function schedulePlaylistUpdate(): void {
@@ -1087,6 +1118,7 @@ export function initPlaylistView(): void {
   _domAbort = null;
   _reorderController?.destroy();
   _reorderController = null;
+  _reorderLoad += 1;
   _removalController?.destroy();
   _removalController = null;
   _followController?.destroy();
@@ -1109,10 +1141,10 @@ export function initPlaylistView(): void {
   if (list) {
     _playlistTitleMarqueeList = list;
     installDomDelegation(list);
-    createReorderController(list);
+    loadReorderController(list);
     _removalController = createPlaylistRemovalController({
       list,
-      canRemove: () => canEditQueueStructure() && getState('playback.mode') !== 'system-audio',
+      canRemove: canRemoveRows,
       isPlaylistVisible: playlistIsVisible,
       getItems: () => getState('playlist.items'),
       onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),

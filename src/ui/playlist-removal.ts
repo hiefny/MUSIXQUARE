@@ -51,11 +51,8 @@ export interface PlaylistRemovalController {
   afterRender(): void;
   cancel(options?: { restoreFocus?: boolean }): void;
   notifyPlaylistHidden(focusTarget?: HTMLElement | null): void;
-  /**
-   * Send a pending deletion now (page hide, a newer deletion, playback
-   * navigation). Returns the rows it sent.
-   */
-  commitPendingDeletion(): readonly QueueItemId[];
+  /** Send a pending deletion now (page hide, a newer deletion). */
+  commitPendingDeletion(): void;
   /** Forget a pending deletion and show its rows again (room or authority loss). */
   dropPendingDeletion(): void;
   destroy(): void;
@@ -148,11 +145,8 @@ function queueItemIdFromButton(button: Element | null): QueueItemId | null {
  * A pending deletion never outlives its authority: a room change, authority
  * loss or session end drops it (the rows come back), while a newer deletion,
  * a new selection, or the page going away commits it first so a deletion the
- * user did not undo is not lost. Playback navigation (Next, Previous, a track
- * end, a track choice) also commits it first through the player's queue
- * removal gate, so it can never land on a deleted row. The current track may
- * keep playing until the commit; the host's normal removal path then picks
- * the successor.
+ * user did not undo is not lost. The current track may keep playing until the
+ * commit; the host's normal removal path then picks the successor.
  */
 export function createPlaylistRemovalController(
   options: PlaylistRemovalControllerOptions,
@@ -458,15 +452,14 @@ export function createPlaylistRemovalController(
   }
 
   /** Send the pending deletion now, without the exit slide. */
-  function commitPendingDeletion(): readonly QueueItemId[] {
+  function commitPendingDeletion(): void {
     const owner = pending;
-    if (!owner) return [];
+    if (!owner) return;
     window.clearTimeout(owner.timer);
     pending = null;
     const liveIds = new Set(canonicalItems().map((item) => item.queueItemId));
-    let queueItemIds = owner.queueItemIds.filter((queueItemId) => liveIds.has(queueItemId));
-    if (!options.canRemove()) queueItemIds = [];
-    if (queueItemIds.length > 0) {
+    const queueItemIds = owner.queueItemIds.filter((queueItemId) => liveIds.has(queueItemId));
+    if (queueItemIds.length > 0 && options.canRemove()) {
       if (!options.isRemovalLocal?.()) {
         for (const queueItemId of queueItemIds) awaitingRemoval.add(queueItemId);
         if (awaitingTimer) window.clearTimeout(awaitingTimer);
@@ -482,7 +475,6 @@ export function createPlaylistRemovalController(
     options.onHiddenChange?.();
     if (!destroyed) syncDom();
     if (focusWasOnUndo) releaseControlFocus(owner.survivorQueueItemId);
-    return queueItemIds;
   }
 
   function dropPendingDeletion(): void {

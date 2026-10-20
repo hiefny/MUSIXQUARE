@@ -33,7 +33,6 @@ import { broadcast, sendToHost } from '../network/peer.ts';
 import { refuseHostCommand } from '../network/host-presence.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
-import { commitQueueRemovalBeforeNavigation } from './queue-removal-gate.ts';
 import { LEGACY_FILE_SCHEDULE_AHEAD_MS, LOCAL_FILE_START_LEAD_MS } from './file-play-timing.ts';
 import {
   captureLocalFileOutputIdentity,
@@ -2096,11 +2095,9 @@ export function togglePlay(
   // rather than silently resuming the stale audio buffer with "미디어 없음"
   // still showing in the title.
   if (!isActuallyPlaying && !currentQueueItemId && playlistItems.length > 0) {
-    // Send an Undo-pending deletion first and start from the first kept row.
-    const removed = commitQueueRemovalBeforeNavigation();
-    const firstItem = playlistItems.find((item) => !removed.includes(item.queueItemId));
-    if (!firstItem) return;
-    const firstQueueItemId = firstItem.queueItemId;
+    const firstItem = playlistItems[0];
+    const firstQueueItemId = firstItem?.queueItemId;
+    if (!firstQueueItemId) return;
     if (!hostConn) {
       void loadPlaylistModule()
         .then((mod) => mod.playTrack(firstQueueItemId, undefined, { explicitPlaybackIntent: true }))

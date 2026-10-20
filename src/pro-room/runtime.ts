@@ -1,7 +1,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
-import { clearManagedTimer, delay, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
   restoreSessionReset,
   scheduleDocumentReload,
@@ -57,7 +57,6 @@ import {
 } from '../player/playlist.ts';
 import { schedulePreload } from '../storage/preload.ts';
 import { setPlaybackTrackMeta } from '../player/ownership.ts';
-import { noteProQueueRemoval } from './queue-removal-wait.ts';
 import { resolveYouTubePlaylistManifest } from '../youtube/search.ts';
 import { hasRoomCapability, resetRoomContext, setRoomContext } from '../rooms/authority.ts';
 import type { PlaylistItem, QueueItemId, RoomContext } from '../types/index.ts';
@@ -198,10 +197,6 @@ const QUEUE_MODE_CHECKPOINT_RETRY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
 const QUEUE_ADDITION_FLUSH_TIMER = 'pro-room-queue-addition-flush';
 const QUEUE_ADDITION_REORDER_WINDOW_MS = 100;
 const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
-// Navigation waits for a sent playlist removal at most this long. The manager
-// serializes it behind earlier mutations (an upload's append, for one), and a
-// stalled queue must not leave Next unanswered.
-const QUEUE_REMOVAL_NAVIGATION_WAIT_MS = 5_000;
 const api = new ProRoomApiClient();
 configureProSystemAudioService(api, async (liveness) => {
   const restored = await playbackController.reconcile({
@@ -1387,21 +1382,7 @@ function installMediaHooks(
     removeTracks(queueItemIds) {
       const signal = captureMutationSignal();
       if (!signal) return true;
-      let markApplied = (): void => {};
-      const applied = new Promise<void>((resolve) => {
-        markApplied = resolve;
-      });
-      const removal = manager.removeMany(queueItemIds, { signal, onApplied: markApplied });
-      void removal.catch(reportCurrentPlaylistError(signal));
-      // The Worker computes Next and the natural advance itself, so a
-      // navigation command is sent only after it has applied this removal
-      // (or the removal failed), not after the media cleanup that follows.
-      noteProQueueRemoval(
-        Promise.race([applied, removal, delay(QUEUE_REMOVAL_NAVIGATION_WAIT_MS)]).then(
-          () => {},
-          () => {},
-        ),
-      );
+      void manager.removeMany(queueItemIds, { signal }).catch(reportCurrentPlaylistError(signal));
       return true;
     },
     reorderTrack(queueItemId, beforeQueueItemId, baseRevision) {

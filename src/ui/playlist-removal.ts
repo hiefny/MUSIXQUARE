@@ -77,7 +77,7 @@ function canAnimate(element: Element): boolean {
   return typeof (element as HTMLElement).animate === 'function' && !prefersReducedMotion();
 }
 
-function createBar(container: Element | null): {
+function createBar(list: HTMLElement): {
   bar: HTMLElement;
   primary: HTMLButtonElement;
   primaryLabel: HTMLElement;
@@ -92,7 +92,9 @@ function createBar(container: Element | null): {
       ${UNDO_ICON}<span class="playlist-selection-pill-label"></span>
     </button>
     <button type="button" class="playlist-selection-pill playlist-selection-cancel" data-selection-action="cancel"></button>`;
-  container?.appendChild(bar);
+  // The bar follows the last track in the scrolling list body; CSS makes it
+  // sticky, so a list taller than the view keeps it floating at the bottom.
+  list.insertAdjacentElement('afterend', bar);
   return {
     bar,
     primary: bar.querySelector<HTMLButtonElement>('.playlist-selection-delete')!,
@@ -152,7 +154,7 @@ export function createPlaylistRemovalController(
   const { list } = options;
   const container = list.closest('#tab-playlist') ?? list.parentElement;
   const selectedQueueItemIds = new Set<QueueItemId>();
-  const { bar, primary, primaryLabel, cancelButton } = createBar(container);
+  const { bar, primary, primaryLabel, cancelButton } = createBar(list);
   const { header, title, toggleButton } = createHeaderControls(container);
   const abortController = new AbortController();
   let lastTriggerQueueItemId: QueueItemId | null = null;
@@ -318,9 +320,11 @@ export function createPlaylistRemovalController(
     }
     if (toggleButton) {
       toggleButton.hidden = !active;
-      // The total in parentheses tells how many tracks the toggle affects.
-      const label = t(allSelected ? 'playlist.deselect_all' : 'playlist.select_all');
-      const text = `${label} (${totalCount})`;
+      // Select all shows how many tracks it would take; Deselect all needs no
+      // count because the title beside it already shows the selection size.
+      const text = allSelected
+        ? t('playlist.deselect_all')
+        : `${t('playlist.select_all')} (${totalCount})`;
       if (toggleButton.textContent !== text) toggleButton.textContent = text;
       toggleButton.dataset.selectionAction = allSelected ? 'deselect-all' : 'select-all';
     }
@@ -588,12 +592,28 @@ export function createPlaylistRemovalController(
       if (pending === owner) beginUndoExit();
     }, PLAYLIST_REMOVAL_UNDO_MS);
     pending = owner;
+    // Hiding the deleted rows moves the last track up; the Undo pill follows
+    // it from where the Delete pill was instead of jumping.
+    const barTopBefore = !bar.hidden && canAnimate(bar) ? bar.getBoundingClientRect().top : null;
     selectedQueueItemIds.clear();
     // The pressed Delete pill becomes the Undo pill, so keyboard focus stays
     // on it. A pointer press leaves focus where the browser put it.
     options.onUndoChange?.();
     options.onHiddenChange?.();
     syncDom();
+    followLastTrack(barTopBefore);
+  }
+
+  function followLastTrack(barTopBefore: number | null): void {
+    if (barTopBefore === null || bar.hidden) return;
+    const dy = barTopBefore - bar.getBoundingClientRect().top;
+    if (Math.abs(dy) < 1) return;
+    barAnimations.push(
+      bar.animate([{ transform: `translateY(${dy}px)` }, { transform: 'translateY(0)' }], {
+        duration: MORPH_MS,
+        easing: MORPH_EASING,
+      }),
+    );
   }
 
   // Deletion mode belongs to the track list. Any tap or click elsewhere

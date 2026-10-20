@@ -1377,7 +1377,7 @@ describe('playlist queue identity rendering and actions', () => {
 
     clickRemove(YT_B);
     expect(live.textContent).toBe('2 selected');
-    expect(toggle.textContent).toBe('Deselect all (2)');
+    expect(toggle.textContent).toBe('Deselect all');
 
     const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
     const deleteButton = bar.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!;
@@ -1433,7 +1433,7 @@ describe('playlist queue identity rendering and actions', () => {
       ),
     ).toEqual(['true', 'true']);
     expect(toggle.dataset.selectionAction).toBe('deselect-all');
-    expect(toggle.textContent).toBe(`${t('playlist.deselect_all')} (2)`);
+    expect(toggle.textContent).toBe(t('playlist.deselect_all'));
     expect(selectionTitle()).toBe(t('playlist.selected_count', { count: 2 }));
 
     toggle.click();

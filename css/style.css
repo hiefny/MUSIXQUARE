@@ -2215,9 +2215,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     transition: padding-bottom 0.2s ease;
   }
 
+  /* The deletion pills sit right after the last track, so the list stops
+     stretching to the bottom of the body while they are shown. */
   .playlist-ul.has-removal-selection,
   .playlist-ul.has-removal-undo {
-    padding-bottom: calc(88px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    flex: 0 0 auto;
   }
 
   .is-playlist-reordering {
@@ -3015,16 +3017,20 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Delete and Cancel use the dialog pill family (54px, pill radius, 700
-     label) and float over the list in the old selection pill's slot. */
+     label). They follow the last track; a list taller than the view keeps
+     them floating at the bottom (sticky), above the bottom navigation. */
   .playlist-selection-bar {
-    position: absolute;
+    position: sticky;
     z-index: 100;
-    left: calc(var(--safe-left) + 16px);
-    right: calc(var(--safe-right) + 16px);
-    bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 14px);
+    /* Sticky offsets are measured inside the body's bottom padding, which
+       already clears the navigation plus 24px. -10px keeps the floating bar
+       14px above the navigation, where the old floating pill sat. */
+    bottom: -10px;
+    flex: 0 0 auto;
+    align-self: center;
     width: max-content;
     max-width: calc(100% - var(--safe-left) - var(--safe-right) - 32px);
-    margin-inline: auto;
+    margin: 16px auto 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -11662,10 +11668,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       scroll-padding-bottom: 0;
     }
 
-    #tab-playlist > .playlist-selection-bar {
-      left: calc(var(--safe-left) + 24px);
-      right: 24px;
-      bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    #tab-playlist .playlist-selection-bar {
+      bottom: 0;
     }
 
     .playback-stage {

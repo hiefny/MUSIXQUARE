@@ -60,7 +60,7 @@ describe('visualizer layout contract', () => {
     expect(stylesheet).toMatch(/\.nav-item\s*\{[\s\S]*?min-height:\s*44px;/u);
     expect(stylesheet).toMatch(/\.toast\s*\{[\s\S]*?bottom:\s*110px;/u);
     expect(stylesheet).toMatch(
-      /\.playlist-selection-bar\s*\{[\s\S]*?bottom:\s*calc\(var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\) \+ 14px\);/u,
+      /\.playlist-selection-bar\s*\{[\s\S]*?position:\s*sticky;[\s\S]*?bottom:\s*-10px;/u,
     );
     expect(desktopStylesheet).toMatch(
       /#tab-play \.tab-body::before\s*\{[\s\S]*?content:\s*'';[\s\S]*?flex:\s*0 0 0;[\s\S]*?margin-top:\s*auto;/u,

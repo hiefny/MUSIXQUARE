@@ -176,10 +176,8 @@
       padding-bottom: 0;
     }
 
-    #tab-playlist > .playlist-selection-bar {
-      left: 24px;
-      right: 24px;
-      bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
+    #tab-playlist .playlist-selection-bar {
+      bottom: 0;
     }
 
     /* Five auto margins divide desktop free height into 2:1:2 shares:

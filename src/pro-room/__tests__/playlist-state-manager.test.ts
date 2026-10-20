@@ -1264,6 +1264,44 @@ describe('PRO room playlist state manager', () => {
     expect(result.playlist.map((item) => item.queueItemId)).toEqual([B]);
   });
 
+  it('reports an applied removal before its unreferenced media cleanup finishes', async () => {
+    const asset = 'asset_00000000001';
+    const initial = activeSnapshot({ playlistRevision: 1, playlist: [youtube(A), r2(B, asset)] });
+    const { api } = updatingApi(initial);
+    let finishCleanup!: () => void;
+    const media = mediaTransfer({
+      deleteAsset: vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            finishCleanup = resolve;
+          }),
+      ),
+    });
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+    const onApplied = vi.fn();
+
+    let settled = false;
+    const removal = manager.removeMany([B], { onApplied }).then(() => {
+      settled = true;
+    });
+
+    await vi.waitFor(() => expect(media.deleteAsset).toHaveBeenCalledOnce());
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
+    expect(onApplied).toHaveBeenCalledOnce();
+    expect(settled).toBe(false);
+
+    finishCleanup();
+    await removal;
+    expect(onApplied).toHaveBeenCalledOnce();
+  });
+
   it('does not delete a shared R2 asset while a surviving row still references it', async () => {
     const sharedAsset = 'asset_00000000001';
     const initial = activeSnapshot({

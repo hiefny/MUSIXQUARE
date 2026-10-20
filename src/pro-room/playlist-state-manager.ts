@@ -445,7 +445,10 @@ export class ProRoomPlaylistStateManager {
 
   removeMany(
     queueItemIds: readonly QueueItemId[],
-    options: ProRoomPlaylistMutationOptions = {},
+    options: ProRoomPlaylistMutationOptions & {
+      /** The room accepted the removal; unreferenced media cleanup follows. */
+      onApplied?: () => void;
+    } = {},
   ): Promise<ProRoomSnapshot> {
     const requested = new Set(queueItemIds);
     return this.#enqueue(async () => {
@@ -472,6 +475,7 @@ export class ProRoomPlaylistStateManager {
             : clonePlayback(snapshot.playback),
         };
       }, options.signal);
+      options.onApplied?.();
 
       const survivingAssetIds = new Set(
         accepted.playlist.flatMap((item) =>

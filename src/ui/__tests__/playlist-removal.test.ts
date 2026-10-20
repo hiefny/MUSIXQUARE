@@ -287,4 +287,37 @@ describe('playlist removal controller', () => {
 
     expect(onSelectionEnd).not.toHaveBeenCalled();
   });
+
+  it('reports the rows a navigation commit sent, and nothing without a pending deletion', () => {
+    const items = [item(A, 'Alpha'), item(B, 'Beta')];
+    const list = document.getElementById('playlist-ui')!;
+    const onDelete = vi.fn();
+    let canRemove = true;
+    controller = createPlaylistRemovalController({
+      list,
+      canRemove: () => canRemove,
+      isPlaylistVisible: () => true,
+      getItems: () => items,
+      onDelete,
+      isRemovalLocal: () => true,
+    });
+
+    expect(controller.commitPendingDeletion()).toEqual([]);
+    controller.toggle(B);
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+    expect(controller.hasPendingDeletion).toBe(true);
+
+    expect(controller.commitPendingDeletion()).toEqual([B]);
+    expect(onDelete).toHaveBeenCalledWith([B]);
+    expect(controller.hasPendingDeletion).toBe(false);
+    expect(document.querySelector<HTMLElement>('.playlist-selection-bar')!.hidden).toBe(true);
+    expect(controller.commitPendingDeletion()).toEqual([]);
+
+    // Authority lost during the window: nothing is sent or reported.
+    controller.toggle(A);
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+    canRemove = false;
+    expect(controller.commitPendingDeletion()).toEqual([]);
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
 });

@@ -127,6 +127,10 @@ import {
 } from '../pro-room/media-hooks.ts';
 import { freezeFileDeliveryMode } from '../share/file-delivery-policy.ts';
 import {
+  commitQueueRemovalBeforeNavigation,
+  navigationRemovedCurrent,
+} from './queue-removal-gate.ts';
+import {
   getProPlaybackAuthorityKey,
   isProPlaybackAuthorityToken,
   registerProPlaybackMediaEndpoint,
@@ -1533,6 +1537,9 @@ function handleEndOfPlaylist(reason: string): void {
 export function playNextTrack(): void {
   if (isGuestBlocked()) return;
   if (deferStandardHostManualNavigation('next-track navigation', () => playNextTrack())) return;
+  // An Undo-pending deletion is sent before the target is chosen. When it
+  // takes the playing row, the room's removed-current rule replaces Next.
+  if (navigationRemovedCurrent(getCurrentQueueItemId())) return;
 
   if (
     routeProPlaybackCommand({
@@ -1641,6 +1648,7 @@ function restartCurrentTrackFromStart(queueItemId: QueueItemId): void {
 export function playPrevTrack(): void {
   if (isGuestBlocked()) return;
   if (deferStandardHostManualNavigation('previous-track navigation', () => playPrevTrack())) return;
+  if (navigationRemovedCurrent(getCurrentQueueItemId())) return;
 
   if (
     routeProPlaybackCommand({
@@ -1899,6 +1907,9 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
   ) {
     return;
   }
+  // The host's own Undo-pending deletion goes first; a target it removed is
+  // then simply missing.
+  commitQueueRemovalBeforeNavigation();
   observePlayTrack(
     playTrack(queueItemId, undefined, { explicitPlaybackIntent: true }),
     'apply the operator track change',
@@ -2909,6 +2920,8 @@ export function initPlaylist(): void {
     // parallel-observed lifecycle to IDLE. Guests learn via the subsequent
     // PAUSE broadcast, which drives their own transition.
     transition({ type: 'TRACK_ENDED' });
+    // Repeat and auto-advance must not replay or reach an Undo-pending row.
+    if (navigationRemovedCurrent(getCurrentQueueItemId())) return;
 
     const token = ++_endedAdvanceToken;
     const repeatMode = getState('playlist.repeatMode') || 0;
@@ -2984,6 +2997,7 @@ export function initPlaylist(): void {
 
   // Play specific track from playlist view click
   bus.on('playlist:play-track', (queueItemId, subIndex, options) => {
+    commitQueueRemovalBeforeNavigation();
     if (getQueueItemById(queueItemId)) return playTrack(queueItemId, subIndex, options);
   });
 

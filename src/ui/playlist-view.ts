@@ -37,6 +37,10 @@ import {
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
+import {
+  commitQueueRemovalBeforeNavigation,
+  setQueueRemovalCommit,
+} from '../player/queue-removal-gate.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import {
@@ -66,6 +70,13 @@ function schedulePlaylistTitleMarqueeMeasure(
 }
 
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
+/**
+ * The PRO Worker and a Standard host advance on their own when the playing
+ * track ends (a guest cannot intercept that), and repeat-one replays it.
+ * Within this many seconds of the end, an Undo-pending deletion is sent at
+ * once so it is applied before the advance.
+ */
+const REMOVAL_END_LEAD_SECONDS = 3;
 // A full YouTube playlist can contain 5,000 entries. Building every row in
 // one task blocks touch/scroll input on mobile, so render one useful viewport
 // immediately and yield between the remaining batches.
@@ -922,6 +933,9 @@ function playQueueItem(queueItemId: QueueItemId): void {
     showRoomCapabilityRequired('playback.control');
     return;
   }
+  // A Standard guest's removal request precedes its track request on the
+  // same ordered connection to the host.
+  commitQueueRemovalBeforeNavigation();
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     bus.emit('playlist:play-track', queueItemId, undefined, { explicitPlaybackIntent: true });
@@ -940,6 +954,7 @@ function seekSubItem(queueItemId: QueueItemId, subIndex: number): void {
     showRoomCapabilityRequired('playback.control');
     return;
   }
+  commitQueueRemovalBeforeNavigation();
   const hostConn = getState('network.hostConn');
   if (!hostConn) {
     const isCurrent = queueItemId === getState('playlist.currentQueueItemId');
@@ -1143,6 +1158,11 @@ export function initPlaylistView(): void {
     });
   }
 
+  // Playback navigation sends the Undo-pending deletion before it acts.
+  setQueueRemovalCommit(() =>
+    _removalController ? _removalController.commitPendingDeletion() : [],
+  );
+
   const initialRoomContext = getRoomContext();
   let queueEditBoundary = {
     kind: initialRoomContext.kind,
@@ -1235,6 +1255,17 @@ export function initPlaylistView(): void {
     }
   });
   _busScope.on('state:playback.activity', () => syncPlaylistPlaybackIndicator());
+  _busScope.on('ui:time-update', (_current, _total, time, duration) => {
+    const controller = _removalController;
+    if (
+      controller &&
+      controller.hasPendingDeletion &&
+      duration > 0 &&
+      duration - time < REMOVAL_END_LEAD_SECONDS
+    ) {
+      controller.commitPendingDeletion();
+    }
+  });
   _busScope.on('ui:play-loading-state', (loading) => {
     _playButtonLoading = loading;
     syncPlaylistPlaybackIndicator();

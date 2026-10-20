@@ -45,6 +45,7 @@ import {
   type ProPlaybackTimingMode,
   type ProPlaybackUserIntent,
 } from './playback-authority-hooks.ts';
+import { pendingProQueueRemoval } from './queue-removal-wait.ts';
 import type { ProRoomFirstAppendSelectionRequest } from './playlist-state-manager.ts';
 import { registerProRoomLocalPlaybackTimeline } from './local-playback-timeline.ts';
 import { getProSystemAudioViewState } from './system-audio-bridge.ts';
@@ -2159,7 +2160,16 @@ function createImplementation(
       }
       return submitPlaybackIntent(intent, exactBaseRevision, canSubmit);
     };
-    const operation = state.commandTail.then(submit, submit);
+    // A playlist removal sent just before this navigation must reach the
+    // Worker first; it never rejects and gives up after a bounded wait.
+    const navigates =
+      intent.kind !== 'play' &&
+      intent.kind !== 'pause' &&
+      intent.kind !== 'seek' &&
+      intent.kind !== 'stop';
+    const removal = navigates ? pendingProQueueRemoval() : null;
+    const tail = removal ? state.commandTail.then(() => removal) : state.commandTail;
+    const operation = tail.then(submit, submit);
     state.commandTail = operation.catch(() => undefined);
     return operation;
   }

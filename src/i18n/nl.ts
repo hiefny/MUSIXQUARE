@@ -48,6 +48,7 @@ const nl: Record<I18nKey, string> = {
   'common.off': 'Uit',
 
   'screensaver.back': 'Terug naar MUSIXQUARE',
+  'screensaver.turn_on': 'Schermbeveiliging aanzetten',
   'account.login_title': 'Inloggen',
   'account.login_cancelled': 'Het inloggen is geannuleerd',
   'account.login_failed': 'Inloggen mislukt\nProbeer het opnieuw',

@@ -46,6 +46,7 @@ const gu: Record<I18nKey, string> = {
   'common.off': 'બંધ',
 
   'screensaver.back': 'MUSIXQUARE પર પાછા જાઓ',
+  'screensaver.turn_on': 'સ્ક્રીનસેવર ચાલુ કરો',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'સાઇન ઇન કરો',

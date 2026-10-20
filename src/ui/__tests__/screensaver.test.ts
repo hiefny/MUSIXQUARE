@@ -281,7 +281,8 @@ describe('screensaver frame bridge', () => {
     expect(frame.getAttribute('sandbox')).toBe(
       'allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox',
     );
-    expect(frame.allow).toContain('geolocation');
+    // The clock-only child needs no location permission.
+    expect(frame.allow).toBe("fullscreen 'self'");
     expect(isAnyOverlayShown()).toBe(true);
     expect(document.body.classList.contains('overlay-open')).toBe(true);
     expect(document.getElementById('app-shell')!.hasAttribute('inert')).toBe(true);

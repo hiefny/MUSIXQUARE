@@ -794,6 +794,13 @@
       width: calc(100% - 40px);
     }
 
+    /* The Help actions group keeps its own narrow inset; its buttons fill it. */
+    .help-actions .accent-action-btn {
+      width: 100%;
+      margin-inline-start: 0;
+      margin-inline-end: 0;
+    }
+
     body.mode-demo .demo-finish-content .demo-large-actions {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));

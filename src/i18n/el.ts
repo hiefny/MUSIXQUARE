@@ -45,6 +45,7 @@ const el: Record<I18nKey, string> = {
   'common.off': 'Ανενεργό',
 
   'screensaver.back': 'Επιστροφή στο MUSIXQUARE',
+  'screensaver.turn_on': 'Έναρξη προφύλαξης οθόνης',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Σύνδεση',

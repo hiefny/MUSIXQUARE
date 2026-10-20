@@ -46,6 +46,7 @@ const ta: Record<I18nKey, string> = {
   'common.off': 'முடக்கு',
 
   'screensaver.back': 'MUSIXQUARE-க்குத் திரும்பு',
+  'screensaver.turn_on': 'திரைக்காப்பானை இயக்கு',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'உள்நுழை',

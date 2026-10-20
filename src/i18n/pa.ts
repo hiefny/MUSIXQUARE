@@ -46,6 +46,7 @@ const pa: Record<I18nKey, string> = {
   'common.off': 'ਬੰਦ',
 
   'screensaver.back': 'MUSIXQUARE ’ਤੇ ਵਾਪਸ ਜਾਓ',
+  'screensaver.turn_on': 'ਸਕ੍ਰੀਨਸੇਵਰ ਚਾਲੂ ਕਰੋ',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'ਸਾਈਨ ਇਨ ਕਰੋ',

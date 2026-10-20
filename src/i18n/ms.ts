@@ -45,6 +45,7 @@ const ms: Record<I18nKey, string> = {
   'common.off': 'Mati',
 
   'screensaver.back': 'Kembali ke MUSIXQUARE',
+  'screensaver.turn_on': 'Hidupkan penyelamat skrin',
 
   // ─── Akaun ───────────────────────────────────────────────────────
   'account.login_title': 'Log masuk',

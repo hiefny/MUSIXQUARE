@@ -45,6 +45,7 @@ const ru: Record<I18nKey, string> = {
   'common.off': 'Выкл.',
 
   'screensaver.back': 'Вернуться в MUSIXQUARE',
+  'screensaver.turn_on': 'Включить заставку',
   'account.login_title': 'Войти',
   'account.login_cancelled': 'Вход отменён',
   'account.login_failed': 'Не удалось войти\nПопробуйте ещё раз',

@@ -46,6 +46,7 @@ const fi: Record<I18nKey, string> = {
   'common.off': 'Pois käytöstä',
 
   'screensaver.back': 'Takaisin MUSIXQUAREen',
+  'screensaver.turn_on': 'Käynnistä näytönsäästäjä',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Kirjaudu sisään',

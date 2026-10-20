@@ -45,6 +45,7 @@ const bg: Record<I18nKey, string> = {
   'common.off': 'Изкл.',
 
   'screensaver.back': 'Обратно към MUSIXQUARE',
+  'screensaver.turn_on': 'Пусни скрийнсейвъра',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Вход',

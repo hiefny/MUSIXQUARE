@@ -46,6 +46,7 @@ const en: Record<I18nKey, string> = {
   'common.off': 'Off',
 
   'screensaver.back': 'Back to MUSIXQUARE',
+  'screensaver.turn_on': 'Turn on screensaver',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'Sign in',

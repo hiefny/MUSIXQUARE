@@ -1,8 +1,4 @@
-import {
-  IMAGE_BACKGROUND_MANIFEST,
-  type BackgroundImageScene,
-  type BackgroundImageVariant,
-} from '../screensaver-backgrounds';
+import { CLOCK_BACKGROUND, type BackgroundImageVariant } from '../screensaver-backgrounds';
 
 type CanvasContext = CanvasRenderingContext2D;
 type Stops = ReadonlyArray<readonly number[]>;
@@ -19,18 +15,6 @@ interface MorphPair {
   to: Contour[];
   fromAdvance: number;
   toAdvance: number;
-}
-interface Layer {
-  canvas: HTMLCanvasElement;
-  ctx: CanvasContext;
-  width: number;
-  height: number;
-}
-interface GlyphTile extends Layer {
-  offsetX: number;
-  offsetY: number;
-  fontSize: number;
-  dpr: number;
 }
 interface ClockDigit {
   char: string;
@@ -89,113 +73,6 @@ interface ClockMetrics {
   colonDotOffset: number;
 }
 type Speckle = ReturnType<typeof spawnSpeckle>;
-type MoonPhase = ReturnType<typeof getMoonPhase>;
-type DataStatus = 'idle' | 'locating' | 'loading' | 'ready' | 'denied' | 'unavailable' | 'error';
-interface LocalDataState {
-  status: DataStatus;
-  temperature: number | null;
-  weatherCode: number | null;
-  isDay: boolean;
-  description: string;
-  aqi: number | null;
-  updatedAt: number | null;
-  observedAt: number | null;
-  stale: boolean;
-  message: string;
-}
-type SceneName = 'clock' | 'date' | 'weather' | 'air' | 'moon';
-interface InfoContent {
-  kind: 'date' | 'moon' | 'number' | 'status';
-  text: string;
-  label: string;
-  ready: boolean;
-  unit?: string;
-  scene?: SceneName;
-  retry?: boolean;
-  stale?: boolean;
-  updatedAt?: number | null;
-  source?: 'air' | 'weather';
-  moon?: MoonPhase;
-  southernHemisphere?: boolean;
-}
-interface InfoLayout extends InfoContent {
-  w: number;
-  h: number;
-  fontSize: number;
-  mainX: number;
-  baseline: number;
-  primaryLines: { text: string; x: number; baseline: number }[];
-  primaryLeft: number;
-  primaryRight: number;
-  primaryTop: number;
-  primaryBottom: number;
-  primaryUnit: string;
-  unitSize: number;
-  unitX: number;
-  unitBaseline: number;
-  labelSize: number;
-  lines: string[];
-  labelY: number;
-  actionY: number;
-  tailText: string;
-  tailLines: string[];
-  tailSize: number;
-  tailX: number;
-  tailBaseline: number;
-  radius: number;
-  moonX: number;
-  moonY: number;
-  bounds: number[];
-}
-interface InfoGlyph {
-  char: string;
-  role: string;
-  key: string;
-  x: number;
-  y: number;
-  fontSize: number;
-  weight: number;
-  alpha: number;
-  optical: boolean;
-  metrics: Pick<
-    TextMetrics,
-    | 'width'
-    | 'actualBoundingBoxLeft'
-    | 'actualBoundingBoxRight'
-    | 'actualBoundingBoxAscent'
-    | 'actualBoundingBoxDescent'
-  >;
-  tile?: GlyphTile;
-  moon?: MoonPhase;
-  southernHemisphere?: boolean;
-}
-interface InfoScene {
-  name: SceneName;
-  layout: InfoLayout;
-  dpr: number;
-  tileDpr: number;
-  glyphs: InfoGlyph[];
-}
-interface InfoPair {
-  from?: InfoGlyph | null;
-  to?: InfoGlyph | null;
-  unchanged: boolean;
-  mixed?: GlyphTile;
-}
-interface InfoTransition {
-  start: number;
-  from: InfoScene;
-  to: InfoScene;
-  pairs: InfoPair[];
-  mixDpr: number;
-}
-interface BackgroundSpec {
-  key: string;
-  asset: string | null;
-  gradient: string;
-  brightness: number;
-  pending?: boolean;
-}
 function element<K extends keyof HTMLElementTagNameMap>(
   id: string,
   tag: K,
@@ -743,35 +620,6 @@ const blurEngine = (() => {
   };
 })();
 
-interface CompositorText extends Pick<
-  CanvasContext,
-  'font' | 'textAlign' | 'textBaseline' | 'fontKerning' | 'direction' | 'fillStyle' | 'globalAlpha'
-> {
-  value: string;
-  x: number;
-  y: number;
-  blur: number;
-  glow: number;
-  transform: DOMMatrix;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
-interface CompositorTextLayer {
-  canvas: HTMLCanvasElement;
-  glowCanvas: HTMLCanvasElement;
-}
-interface CompositorTextGroup {
-  texts: CompositorText[];
-  transform: DOMMatrix;
-  blur: number;
-  glow: number;
-  left: number;
-  top: number;
-  right: number;
-  bottom: number;
-}
 interface CompositorEntry {
   state: CompositorState;
   source: HTMLCanvasElement;
@@ -790,8 +638,6 @@ interface CompositorState {
   entries: Set<CompositorEntry>;
   bySource: WeakMap<HTMLCanvasElement, CompositorEntry[]>;
   uses: WeakMap<HTMLCanvasElement, number>;
-  texts: CompositorText[];
-  textLayers: CompositorTextLayer[];
   ratioX: number;
   ratioY: number;
   defaultOpacity: string;
@@ -840,8 +686,6 @@ const compositor = (() => {
       entries: new Set(),
       bySource: new WeakMap(),
       uses: new WeakMap(),
-      texts: [],
-      textLayers: [],
       ratioX: 1,
       ratioY: 1,
       defaultOpacity: computed.opacity,
@@ -869,7 +713,6 @@ const compositor = (() => {
     state.frame++;
     state.order = 0;
     state.uses = new WeakMap();
-    state.texts.length = 0;
     state.ratioX = canvas.width / Math.max(0.001, rect.width);
     state.ratioY = canvas.height / Math.max(0.001, rect.height);
     assign(root.style, 'left', canvas.offsetLeft + 'px');
@@ -969,102 +812,6 @@ const compositor = (() => {
     assign(style, 'filter', sigma > 0.005 ? `blur(${sigma}px)` : 'none');
     assign(style, 'zIndex', String(++state.order));
   }
-  function text(target: CanvasContext, value: string, x: number, y: number, blur = 0, glow = 0) {
-    if (!(target.globalAlpha > 0)) return;
-    const measure = target.measureText(value);
-    stateFor(target).texts.push({
-      value,
-      x,
-      y,
-      blur,
-      glow,
-      transform: target.getTransform(),
-      font: target.font,
-      textAlign: target.textAlign,
-      textBaseline: target.textBaseline,
-      fontKerning: target.fontKerning,
-      direction: target.direction,
-      fillStyle: target.fillStyle,
-      globalAlpha: target.globalAlpha,
-      left: x - (measure.actualBoundingBoxLeft || 0),
-      top: y - (measure.actualBoundingBoxAscent || 0),
-      right: x + (measure.actualBoundingBoxRight || measure.width),
-      bottom: y + (measure.actualBoundingBoxDescent || 0),
-    });
-  }
-  function flushText(target: CanvasContext, state: CompositorState) {
-    const groups = new Map<string, CompositorTextGroup>();
-    for (const command of state.texts) {
-      const { a, b, c, d, e, f } = command.transform;
-      const key = JSON.stringify([command.blur, command.glow, a, b, c, d, e, f]);
-      let group = groups.get(key);
-      if (!group) {
-        group = { ...command, texts: [] };
-        groups.set(key, group);
-      }
-      group.texts.push(command);
-      group.left = Math.min(group.left, command.left);
-      group.top = Math.min(group.top, command.top);
-      group.right = Math.max(group.right, command.right);
-      group.bottom = Math.max(group.bottom, command.bottom);
-    }
-    let index = 0;
-    for (const group of groups.values()) {
-      const layer = (state.textLayers[index++] ??= {
-        canvas: document.createElement('canvas'),
-        glowCanvas: document.createElement('canvas'),
-      });
-      const { canvas, glowCanvas } = layer;
-      const scale = Math.max(0.1, Math.hypot(group.transform.a, group.transform.b));
-      const padding = Math.max(16, (group.bottom - group.top) * 0.25, group.glow * 4);
-      const left = Math.floor((group.left - padding) * scale) / scale;
-      const top = Math.floor((group.top - padding) * scale) / scale;
-      const width = Math.max(1, Math.ceil((group.right + padding - left) * scale));
-      const height = Math.max(1, Math.ceil((group.bottom + padding - top) * scale));
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
-      const ctx = context(canvas);
-      ctx.resetTransform();
-      ctx.clearRect(0, 0, width, height);
-      ctx.setTransform(scale, 0, 0, scale, -left * scale, -top * scale);
-      for (const command of group.texts) {
-        ctx.font = command.font;
-        ctx.textAlign = command.textAlign;
-        ctx.textBaseline = command.textBaseline;
-        ctx.fontKerning = command.fontKerning;
-        ctx.direction = command.direction;
-        ctx.fillStyle = command.fillStyle;
-        ctx.globalAlpha = command.globalAlpha;
-        ctx.fillText(command.value, command.x, command.y);
-      }
-      target.save();
-      target.setTransform(group.transform);
-      target.globalAlpha = 1;
-      if (group.glow > 0) {
-        if (glowCanvas.width !== width || glowCanvas.height !== height) {
-          glowCanvas.width = width;
-          glowCanvas.height = height;
-        }
-        const glowCtx = context(glowCanvas);
-        glowCtx.clearRect(0, 0, width, height);
-        glowCtx.globalAlpha = 0.22;
-        glowCtx.drawImage(blurEngine.solid(canvas, group.glow * scale, 'rgb(140,205,255)'), 0, 0);
-        glowCtx.globalAlpha = 1;
-        draw(target, glowCanvas, left, top, width / scale, height / scale, group.blur);
-      }
-      draw(target, canvas, left, top, width / scale, height / scale, group.blur);
-      target.restore();
-    }
-    for (const layer of state.textLayers.splice(index)) {
-      forget(layer.canvas);
-      forget(layer.glowCanvas);
-      layer.canvas.width = layer.canvas.height = 0;
-      layer.glowCanvas.width = layer.glowCanvas.height = 0;
-    }
-    state.texts.length = 0;
-  }
   function forget(source: HTMLCanvasElement) {
     const entries = sourceEntries.get(source);
     if (entries) for (const entry of entries) remove(entry);
@@ -1072,7 +819,6 @@ const compositor = (() => {
   }
   function end(target: CanvasContext) {
     const state = stateFor(target);
-    flushText(target, state);
     for (const entry of state.entries) {
       if (!entry.source.width || !entry.source.height || entry.lastFrame < state.frame - 2)
         remove(entry);
@@ -1083,18 +829,12 @@ const compositor = (() => {
   function dispose() {
     for (const state of states) {
       for (const entry of state.entries) remove(entry);
-      for (const layer of state.textLayers) {
-        layer.canvas.width = layer.canvas.height = 0;
-        layer.glowCanvas.width = layer.glowCanvas.height = 0;
-      }
-      state.textLayers.length = 0;
-      state.texts.length = 0;
       state.root.remove();
     }
     states.clear();
     targets = new WeakMap();
   }
-  return { begin, draw, text, end, sync, forget, dispose };
+  return { begin, draw, end, forget, dispose };
 })();
 const compatPaintCanvas = document.createElement('canvas');
 const compatPaintContext = context(compatPaintCanvas);
@@ -1160,7 +900,7 @@ function drawCompatImage(
   sigma = 0,
   solidTint: string | null = null,
 ) {
-  if (target === clockCtx || target === weatherCtx) {
+  if (target === clockCtx) {
     compositor.draw(target, source, x, y, width, height, sigma);
     return;
   }
@@ -1329,12 +1069,6 @@ window.addEventListener('pagehide', () => {
   animationFrame = 0;
   if (controlsTimer !== null) clearTimeout(controlsTimer);
   if (fontWarmupTimer !== null) clearTimeout(fontWarmupTimer);
-  if (weatherRefreshTimer !== null) clearInterval(weatherRefreshTimer);
-  weatherGeneration++;
-  for (const controller of weatherFetchControllers) controller.abort();
-  weatherFetchControllers.clear();
-  settleInfoTransition();
-  releaseInfoScene(currentInfoScene);
   if (clockTransition) releaseClockTransition(clockTransition);
   releaseClockScene(currentClockScene);
   if (currentSecondsTile) {
@@ -1357,530 +1091,10 @@ window.addEventListener('pageshow', (event) => {
   currentSecondsTile = null;
   secondsMorph = null;
   secondsLastFrame = null;
-  currentInfoScene = null;
-  currentInfoLayout = null;
   invalidateFontLayouts();
-  weatherInitialized = false;
-  initializeWeather();
   showControls();
   startAnimationLoop();
 });
-
-const WEATHER_REFRESH_MS = 10 * 60 * 1000;
-const WEATHER_REQUEST_TIMEOUT_MS = 12000;
-const weatherState: LocalDataState = {
-  aqi: null,
-  status: 'idle',
-  temperature: null,
-  weatherCode: null,
-  isDay: true,
-  description: '',
-  updatedAt: null,
-  observedAt: null,
-  stale: false,
-  message: '',
-};
-const airState: LocalDataState = {
-  temperature: null,
-  weatherCode: null,
-  isDay: true,
-  description: '',
-  status: 'idle',
-  aqi: null,
-  updatedAt: null,
-  observedAt: null,
-  stale: false,
-  message: '',
-};
-let weatherCoordinates: { latitude: number; longitude: number } | null = null;
-let weatherGeneration = 0;
-const weatherFetchControllers = new Set<AbortController>();
-let weatherFetchPromise: Promise<LocalDataState> | null = null;
-let weatherLocationSettler: ((state: LocalDataState) => void) | null = null;
-let weatherRefreshTimer: ReturnType<typeof setInterval> | null = null;
-let weatherLastAttemptAt = 0;
-let weatherInitialized = false;
-let weatherListenersRegistered = false;
-
-function getWeatherDescription(code: number | null, isDay = true) {
-  if (code === 0) return isDay ? 'Clear sky' : 'Clear night';
-  const descriptions: Record<number, string> = {
-    1: 'Mostly clear',
-    2: 'Partly cloudy',
-    3: 'Overcast',
-    45: 'Fog',
-    48: 'Rime fog',
-    51: 'Light drizzle',
-    53: 'Drizzle',
-    55: 'Heavy drizzle',
-    56: 'Freezing drizzle',
-    57: 'Heavy freezing drizzle',
-    61: 'Light rain',
-    63: 'Rain',
-    65: 'Heavy rain',
-    66: 'Freezing rain',
-    67: 'Heavy freezing rain',
-    71: 'Light snow',
-    73: 'Snow',
-    75: 'Heavy snow',
-    77: 'Snow grains',
-    80: 'Light showers',
-    81: 'Showers',
-    82: 'Heavy showers',
-    85: 'Snow showers',
-    86: 'Heavy snow showers',
-    95: 'Thunderstorm',
-    96: 'Thunderstorm with hail',
-    97: 'Heavy thunderstorm',
-    99: 'Heavy thunderstorm with hail',
-  };
-  return descriptions[code ?? -1] || 'Current weather';
-}
-
-function getAirQualityDescription(aqi: number | null) {
-  if (!finite(aqi) || aqi < 0) return 'Air quality';
-  if (aqi <= 50) return 'Good';
-  if (aqi <= 100) return 'Moderate';
-  if (aqi <= 150) return 'Unhealthy for sensitive groups';
-  if (aqi <= 200) return 'Unhealthy';
-  if (aqi <= 300) return 'Very unhealthy';
-  return 'Hazardous';
-}
-
-function setLocalDataFailure(state: LocalDataState, message: string) {
-  if (state.updatedAt !== null) {
-    state.status = 'ready';
-    state.stale = true;
-    state.message = 'Waiting for an update · Last available data';
-  } else {
-    state.status = 'error';
-    state.message = message;
-  }
-}
-
-async function fetchLocalData(url: string) {
-  const controller = new AbortController();
-  weatherFetchControllers.add(controller);
-  let timedOut = false;
-  const timeout = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, WEATHER_REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      cache: 'no-store',
-      credentials: 'omit',
-      referrerPolicy: 'no-referrer',
-    });
-    if (!response.ok) throw new Error('Request failed');
-    const data: unknown = await response.json();
-    if (!isRecord(data) || data.error || controller.signal.aborted)
-      throw new Error('Invalid response');
-    return data;
-  } catch (error) {
-    if (timedOut) throw new Error('Request timed out');
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-    weatherFetchControllers.delete(controller);
-  }
-}
-
-function applyForecastData(data: Record<string, unknown>) {
-  const current = isRecord(data.current) ? data.current : null;
-  if (
-    current &&
-    finite(current.temperature_2m) &&
-    finite(current.weather_code) &&
-    Number.isInteger(current.weather_code) &&
-    (current.is_day === 0 || current.is_day === 1) &&
-    (!data.current_units ||
-      (isRecord(data.current_units) ? data.current_units.temperature_2m : null) === '°C')
-  ) {
-    Object.assign(weatherState, {
-      status: 'ready',
-      temperature: current.temperature_2m,
-      weatherCode: current.weather_code,
-      isDay: current.is_day === 1,
-      description: getWeatherDescription(current.weather_code, current.is_day === 1),
-      updatedAt: Date.now(),
-      observedAt: finite(current.time) ? current.time * 1000 : null,
-      stale: false,
-      message: '',
-    });
-  } else {
-    setLocalDataFailure(weatherState, 'Weather is unavailable');
-  }
-}
-
-function applyAirQualityData(data: Record<string, unknown>) {
-  const current = isRecord(data.current) ? data.current : null;
-  if (
-    !current ||
-    !finite(current.us_aqi) ||
-    current.us_aqi < 0 ||
-    (data.current_units &&
-      (isRecord(data.current_units) ? data.current_units.us_aqi : null) !== 'USAQI')
-  ) {
-    setLocalDataFailure(airState, 'Air quality is unavailable');
-    return;
-  }
-  Object.assign(airState, {
-    status: 'ready',
-    aqi: current.us_aqi,
-    updatedAt: Date.now(),
-    observedAt: finite(current.time) ? current.time * 1000 : null,
-    stale: false,
-    message: '',
-  });
-}
-
-function refreshWeather() {
-  if (!weatherCoordinates) return Promise.resolve(weatherState);
-  if (weatherFetchPromise) return weatherFetchPromise;
-  const generation = weatherGeneration;
-  const coordinates = { ...weatherCoordinates };
-  weatherLastAttemptAt = Date.now();
-  for (const state of [weatherState, airState] as const) {
-    if (state.status !== 'ready') {
-      state.status = 'loading';
-      state.message = 'Loading local conditions';
-    }
-  }
-
-  weatherFetchPromise = Promise.resolve()
-    .then(async () => {
-      if (generation !== weatherGeneration) return weatherState;
-      const common = {
-        latitude: String(coordinates.latitude),
-        longitude: String(coordinates.longitude),
-        timezone: 'auto',
-        timeformat: 'unixtime',
-      };
-      const forecastParams = new URLSearchParams({
-        ...common,
-        current: 'temperature_2m,weather_code,is_day',
-        temperature_unit: 'celsius',
-      });
-      const airParams = new URLSearchParams({ ...common, current: 'us_aqi' });
-      const forecastRequest = fetchLocalData(
-        'https://api.open-meteo.com/v1/forecast?' + forecastParams,
-      )
-        .then((data) => {
-          if (generation === weatherGeneration) applyForecastData(data);
-        })
-        .catch((error) => {
-          if (generation !== weatherGeneration) return;
-          const message =
-            error.message === 'Request timed out'
-              ? 'The weather service is taking a moment'
-              : 'Weather is unavailable';
-          setLocalDataFailure(weatherState, message);
-        });
-      const airRequest = fetchLocalData(
-        'https://air-quality-api.open-meteo.com/v1/air-quality?' + airParams,
-      )
-        .then((data) => {
-          if (generation === weatherGeneration) applyAirQualityData(data);
-        })
-        .catch(() => {
-          if (generation === weatherGeneration)
-            setLocalDataFailure(airState, 'Air quality is unavailable');
-        });
-      await Promise.all([forecastRequest, airRequest]);
-      return weatherState;
-    })
-    .finally(() => {
-      if (generation === weatherGeneration) weatherFetchPromise = null;
-    });
-  return weatherFetchPromise;
-}
-
-function requestWeatherLocation() {
-  const generation = ++weatherGeneration;
-  for (const controller of weatherFetchControllers) controller.abort();
-  weatherFetchControllers.clear();
-  weatherFetchPromise = null;
-  weatherCoordinates = null;
-  if (weatherLocationSettler) weatherLocationSettler(weatherState);
-  weatherLocationSettler = null;
-
-  Object.assign(weatherState, {
-    temperature: null,
-    weatherCode: null,
-    description: '',
-    observedAt: null,
-  });
-  Object.assign(airState, { aqi: null, observedAt: null });
-  for (const state of [weatherState, airState] as const) {
-    Object.assign(state, {
-      status: 'locating',
-      updatedAt: null,
-      stale: false,
-      message: 'Finding your location',
-    });
-  }
-
-  if (
-    typeof navigator === 'undefined' ||
-    !navigator.geolocation ||
-    (typeof window !== 'undefined' && window.isSecureContext === false)
-  ) {
-    for (const state of [weatherState, airState] as const) {
-      state.status = 'unavailable';
-      state.message =
-        typeof window !== 'undefined' && window.isSecureContext === false
-          ? 'Location needs a secure HTTPS connection'
-          : 'Location is unavailable in this browser';
-    }
-    return Promise.resolve(weatherState);
-  }
-
-  return new Promise<LocalDataState>((resolve) => {
-    weatherLocationSettler = resolve;
-    const settle = () => {
-      if (weatherLocationSettler === resolve) weatherLocationSettler = null;
-      resolve(weatherState);
-    };
-    const failure = (error: Pick<GeolocationPositionError, 'code'>) => {
-      if (generation !== weatherGeneration) return settle();
-      const denied = error && error.code === 1;
-      for (const state of [weatherState, airState] as const) {
-        state.status = denied ? 'denied' : 'unavailable';
-        state.message = denied
-          ? 'Allow location in your browser'
-          : error && error.code === 3
-            ? 'Finding your location is taking a moment'
-            : 'Your location is unavailable';
-      }
-      settle();
-    };
-    try {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          if (generation !== weatherGeneration) return settle();
-          const coordinates = position && position.coords;
-          if (
-            !coordinates ||
-            !finite(coordinates.latitude) ||
-            !finite(coordinates.longitude) ||
-            Math.abs(coordinates.latitude) > 90 ||
-            Math.abs(coordinates.longitude) > 180
-          )
-            return failure({ code: 2 });
-          weatherCoordinates = {
-            latitude: Math.round(coordinates.latitude * 1000) / 1000,
-            longitude: Math.round(coordinates.longitude * 1000) / 1000,
-          };
-          refreshWeather().then(settle, () => {
-            if (generation === weatherGeneration) {
-              for (const state of [weatherState, airState] as const) {
-                setLocalDataFailure(state, 'Local conditions are unavailable');
-              }
-            }
-            settle();
-          });
-        },
-        failure,
-        {
-          enableHighAccuracy: false,
-          maximumAge: WEATHER_REFRESH_MS,
-          timeout: 15000,
-        },
-      );
-    } catch {
-      failure({ code: 2 });
-    }
-  });
-}
-
-function initializeWeather() {
-  if (weatherInitialized) return;
-  weatherInitialized = true;
-  requestWeatherLocation().catch(handleLocalDataError);
-  weatherRefreshTimer = setInterval(() => {
-    if (typeof document === 'undefined' || !document.hidden)
-      refreshWeather().catch(handleLocalDataError);
-  }, WEATHER_REFRESH_MS);
-  if (weatherListenersRegistered) return;
-  weatherListenersRegistered = true;
-  if (typeof document !== 'undefined' && document.addEventListener) {
-    document.addEventListener('visibilitychange', () => {
-      if (
-        !document.hidden &&
-        weatherCoordinates &&
-        Date.now() - weatherLastAttemptAt >= WEATHER_REFRESH_MS
-      )
-        refreshWeather().catch(handleLocalDataError);
-    });
-  }
-  if (typeof window !== 'undefined' && window.addEventListener) {
-    window.addEventListener('online', () => {
-      if (
-        weatherCoordinates &&
-        [weatherState, airState].some((state) => state.stale || state.status === 'error') &&
-        Date.now() - weatherLastAttemptAt >= 30000
-      )
-        refreshWeather().catch(handleLocalDataError);
-    });
-  }
-}
-
-function handleLocalDataError(error: unknown) {
-  if (disposed) return;
-  console.warn('Local conditions could not update.', error);
-  for (const state of [weatherState, airState])
-    setLocalDataFailure(state, 'Local conditions are unavailable');
-}
-
-function getMoonPhase(date = new Date()) {
-  const rad = Math.PI / 180;
-  const d = date.valueOf() / 86400000 + 2440587.5 - 2451545;
-  const e = rad * 23.4397;
-  const rightAscension = (l: number, b: number) =>
-    Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
-  const declination = (l: number, b: number) =>
-    Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
-  const solarMeanAnomaly = rad * (357.5291 + 0.98560028 * d);
-  const solarLongitude =
-    solarMeanAnomaly +
-    rad *
-      (1.9148 * Math.sin(solarMeanAnomaly) +
-        0.02 * Math.sin(2 * solarMeanAnomaly) +
-        0.0003 * Math.sin(3 * solarMeanAnomaly) +
-        102.9372) +
-    Math.PI;
-  const sun = { ra: rightAscension(solarLongitude, 0), dec: declination(solarLongitude, 0) };
-  const moonMeanLongitude = rad * (218.316 + 13.176396 * d);
-  const moonMeanAnomaly = rad * (134.963 + 13.064993 * d);
-  const moonMeanDistance = rad * (93.272 + 13.22935 * d);
-  const moonLongitude = moonMeanLongitude + rad * 6.289 * Math.sin(moonMeanAnomaly);
-  const moonLatitude = rad * 5.128 * Math.sin(moonMeanDistance);
-  const moon = {
-    ra: rightAscension(moonLongitude, moonLatitude),
-    dec: declination(moonLongitude, moonLatitude),
-    distance: 385001 - 20905 * Math.cos(moonMeanAnomaly),
-  };
-  const separationCos =
-    Math.sin(sun.dec) * Math.sin(moon.dec) +
-    Math.cos(sun.dec) * Math.cos(moon.dec) * Math.cos(sun.ra - moon.ra);
-  const separation = Math.acos(Math.max(-1, Math.min(1, separationCos)));
-  const incidence = Math.atan2(
-    149598000 * Math.sin(separation),
-    moon.distance - 149598000 * Math.cos(separation),
-  );
-  const angle = Math.atan2(
-    Math.cos(sun.dec) * Math.sin(sun.ra - moon.ra),
-    Math.sin(sun.dec) * Math.cos(moon.dec) -
-      Math.cos(sun.dec) * Math.sin(moon.dec) * Math.cos(sun.ra - moon.ra),
-  );
-  const fraction = Math.max(0, Math.min(1, (1 + Math.cos(incidence)) / 2));
-  const phase = 0.5 + (0.5 * incidence * (angle < 0 ? -1 : 1)) / Math.PI;
-  const labels = [
-    'New Moon',
-    'Waxing Crescent',
-    'First Quarter',
-    'Waxing Gibbous',
-    'Full Moon',
-    'Waning Gibbous',
-    'Last Quarter',
-    'Waning Crescent',
-  ];
-  return { fraction, phase, waxing: phase < 0.5, label: labels[Math.round(phase * 8) % 8] };
-}
-
-function drawMoon(
-  ctx: CanvasContext,
-  cx: number,
-  cy: number,
-  radius: number,
-  phaseData: MoonPhase,
-  southernHemisphere = false,
-) {
-  if (!(radius > 0)) return;
-  const fraction = Math.max(0, Math.min(1, phaseData.fraction));
-  const direction = (phaseData.waxing ? 1 : -1) * (southernHemisphere ? -1 : 1);
-  const k = 0.552284749831;
-  const r = radius;
-  const terminatorX = direction * (1 - 2 * fraction) * r;
-  const brightPath = () => {
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - r);
-    ctx.bezierCurveTo(
-      cx + direction * k * r,
-      cy - r,
-      cx + direction * r,
-      cy - k * r,
-      cx + direction * r,
-      cy,
-    );
-    ctx.bezierCurveTo(cx + direction * r, cy + k * r, cx + direction * k * r, cy + r, cx, cy + r);
-    ctx.bezierCurveTo(
-      cx + k * terminatorX,
-      cy + r,
-      cx + terminatorX,
-      cy + k * r,
-      cx + terminatorX,
-      cy,
-    );
-    ctx.bezierCurveTo(cx + terminatorX, cy - k * r, cx + k * terminatorX, cy - r, cx, cy - r);
-    ctx.closePath();
-  };
-  ctx.save();
-
-  const earthshine = ctx.createRadialGradient(cx - r * 0.32, cy - r * 0.36, r * 0.05, cx, cy, r);
-  earthshine.addColorStop(0, 'rgba(96,150,207,0.22)');
-  earthshine.addColorStop(1, 'rgba(17,44,91,0.34)');
-  ctx.fillStyle = earthshine;
-  ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fill();
-  if (fraction > 0.00001) {
-    const lunarLight = ctx.createRadialGradient(
-      cx + direction * r * 0.32,
-      cy - r * 0.38,
-      r * 0.08,
-      cx,
-      cy,
-      r * 1.18,
-    );
-    lunarLight.addColorStop(0, '#ffffff');
-    lunarLight.addColorStop(0.6, '#edf6ff');
-    lunarLight.addColorStop(1, '#a9ccef');
-    brightPath();
-    ctx.fillStyle = lunarLight;
-    ctx.shadowColor = 'rgba(157,210,255,0.2)';
-    ctx.shadowBlur = r * 0.1;
-    ctx.fill();
-    ctx.shadowBlur = 0;
-
-    ctx.save();
-    brightPath();
-    ctx.clip();
-    const marks = [
-      [-0.29, -0.3, 0.23, 0.18, -0.45, 0.065],
-      [0.08, -0.42, 0.17, 0.22, 0.4, 0.045],
-      [0.35, -0.03, 0.2, 0.15, -0.25, 0.045],
-      [-0.38, 0.12, 0.12, 0.16, 0.22, 0.04],
-      [0.13, 0.34, 0.085, 0.07, 0, 0.065],
-      [-0.16, 0.56, 0.06, 0.045, -0.4, 0.05],
-    ];
-    for (const [x, y, rx, ry, rotation, opacity] of marks) {
-      const px = cx + x * r;
-      const py = cy + y * r;
-      const shade = ctx.createRadialGradient(px, py, 0, px, py, Math.max(rx, ry) * r);
-      shade.addColorStop(0, 'rgba(52,83,119,' + opacity + ')');
-      shade.addColorStop(1, 'rgba(52,83,119,0)');
-      ctx.fillStyle = shade;
-      ctx.beginPath();
-      ctx.ellipse(px, py, rx * r, ry * r, rotation, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-  ctx.restore();
-}
 
 function createFilmGrainTile() {
   const size = 190;
@@ -3878,1147 +3092,11 @@ function updateAndDrawSpeckles(now: number) {
   }
 }
 
-const SCENE_NAMES: SceneName[] = ['clock', 'date', 'weather', 'air', 'moon'];
-const SCENE_DURATION_MS = 10000;
-const SCENE_FADE_MS = 450;
-const INFO_TRANSITION_MS = 1000;
-
-const INFO_TILE_PIXEL_BUDGET = 4000000;
-let sceneStartedAt: number | null = null;
-let sceneHiddenAt: number | null = null;
-let activeSceneName: SceneName = 'clock';
-const weatherCanvas = element('weatherCanvas', 'canvas');
-const weatherCtx = context(weatherCanvas);
-const weatherRetry = element('weatherRetry', 'button');
-const weatherAttribution = element('weatherAttribution', 'a');
-const mainStage = element('mainStage', 'main');
-let infoRenderKey = '';
-let infoControlsKey = '';
-let currentInfoLayout: InfoLayout | null = null;
-let currentInfoScene: InfoScene | null = null;
-let infoTransition: InfoTransition | null = null;
-let infoWasHidden = false;
-let moonPhaseCache: { minute: number; data: MoonPhase } | null = null;
-
 function getRenderDpr(w: number, h: number) {
   return Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(12000000 / Math.max(1, w * h)));
 }
-
-function getSceneState(now: number) {
-  if (sceneStartedAt === null) sceneStartedAt = now;
-  const elapsed = Math.max(0, (sceneHiddenAt === null ? now : sceneHiddenAt) - sceneStartedAt);
-  const index = Math.floor(elapsed / SCENE_DURATION_MS);
-  const phase = elapsed % SCENE_DURATION_MS;
-  const names = SCENE_NAMES;
-  const name = names[index % names.length];
-  const opacity = reducedMotion.matches
-    ? 1
-    : Math.min(
-        index === 0 ? 1 : smoothProgress(phase / SCENE_FADE_MS),
-        smoothProgress((SCENE_DURATION_MS - phase) / SCENE_FADE_MS),
-      );
-  return {
-    name,
-    opacity,
-    elapsed,
-    phase,
-    clockOpacity: name === 'clock' ? opacity : 0,
-    weatherOpacity: name === 'clock' ? 0 : opacity,
-  };
-}
-
-function getInfoContent(
-  name: SceneName,
-  date = new Date(),
-  overrideState?: LocalDataState,
-): InfoContent {
-  const months = [
-    'JAN',
-    'FEB',
-    'MAR',
-    'APR',
-    'MAY',
-    'JUN',
-    'JUL',
-    'AUG',
-    'SEP',
-    'OCT',
-    'NOV',
-    'DEC',
-  ];
-  if (name === 'date')
-    return {
-      kind: 'date',
-      text: `${date.getDate()} ${months[date.getMonth()]}`,
-      label: '',
-      ready: true,
-    };
-  if (name === 'moon') {
-    const minute = Math.floor(date.getTime() / 60000);
-    if (!moonPhaseCache || moonPhaseCache.minute !== minute)
-      moonPhaseCache = { minute, data: getMoonPhase(date) };
-    return {
-      kind: 'moon',
-      text: '',
-      label: moonPhaseCache.data.label,
-      moon: moonPhaseCache.data,
-      southernHemisphere: !!weatherCoordinates && weatherCoordinates.latitude < 0,
-      ready: true,
-    };
-  }
-  const state = overrideState || (name === 'air' ? airState : weatherState);
-  if (state.status !== 'ready') {
-    const busy =
-      state.status === 'idle' || state.status === 'locating' || state.status === 'loading';
-    const text =
-      state.status === 'denied'
-        ? 'Enable location'
-        : state.status === 'unavailable'
-          ? 'Location unavailable'
-          : state.status === 'error'
-            ? 'Connection unavailable'
-            : state.status === 'loading'
-              ? 'Loading'
-              : 'Locating';
-    return {
-      kind: 'status',
-      scene: name,
-      text,
-      label: state.message || 'Allow location to see local conditions.',
-      ready: false,
-      retry: !busy,
-      stale: false,
-    };
-  }
-  if (name === 'air')
-    return {
-      kind: 'number',
-      text: String(Math.round(state.aqi ?? 0)),
-      unit: 'AQI',
-      label: '',
-      ready: true,
-      stale: state.stale,
-      updatedAt: state.updatedAt,
-      source: 'air',
-    };
-  return {
-    kind: 'number',
-    text: String(Math.round(state.temperature ?? 0)),
-    unit: '°',
-    label: state.description || getWeatherDescription(state.weatherCode, state.isDay),
-    ready: true,
-    stale: state.stale,
-    updatedAt: state.updatedAt,
-    source: 'weather',
-  };
-}
-
-function useInfoFont(ctx: CanvasContext, size: number, weight = 700) {
-  ctx.font = `${weight} ${size}px "Google Sans", "Malgun Gothic", sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  if ('fontKerning' in ctx) ctx.fontKerning = 'normal';
-}
-
-function fitInfoText(text: string, size: number, width: number, weight = 700) {
-  useInfoFont(weatherCtx, size, weight);
-  const measured = inkWidth(weatherCtx.measureText(text));
-  return Math.max(1, size * Math.min(1, width / Math.max(1, measured)));
-}
-
-function wrapInfoText(text: string, maxWidth: number, size: number, weight = 500) {
-  useInfoFont(weatherCtx, size, weight);
-  const words = text.split(/\s+/);
-  const lines = [];
-  let line = '';
-  for (const word of words) {
-    const next = line ? line + ' ' + word : word;
-    if (line && weatherCtx.measureText(next).width > maxWidth) {
-      lines.push(line);
-      line = word;
-    } else line = next;
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-function buildInfoLayout(
-  name: SceneName,
-  w: number,
-  h: number,
-  date = new Date(),
-  overrideState?: LocalDataState,
-): InfoLayout {
-  const content = getInfoContent(name, date, overrideState);
-  const maxWidth = w * 0.8;
-  const compact = Math.min(w, h);
-  const defaults = {
-    primaryUnit: '',
-    unitSize: 0,
-    unitX: 0,
-    unitBaseline: 0,
-    labelSize: 0,
-    lines: [],
-    labelY: 0,
-    actionY: 0,
-    tailSize: 0,
-    tailX: 0,
-    tailBaseline: 0,
-    radius: 0,
-    moonX: 0,
-    moonY: 0,
-  };
-  if (content.kind === 'status') {
-    const fontSize = fitInfoText(
-      content.text,
-      Math.max(1, Math.min(w * 0.075, h * 0.11, 48)),
-      maxWidth,
-    );
-    const labelSize = Math.max(1, Math.min(compact * 0.05, 16));
-    const lines = wrapInfoText(content.label, maxWidth, labelSize);
-    const gap = Math.max(2, Math.min(16, compact * 0.045));
-    const actionHeight = content.retry ? Math.min(40, h * 0.19) + gap : 0;
-    const totalHeight = fontSize + gap + lines.length * labelSize * 1.4 + actionHeight;
-    const top = Math.max(h * 0.04, (h - totalHeight) / 2);
-    useInfoFont(weatherCtx, fontSize);
-    const metric = weatherCtx.measureText(content.text);
-    const mainX = (w - inkWidth(metric)) / 2 + (metric.actualBoundingBoxLeft || 0);
-    const baseline = top + fontSize;
-    return {
-      ...defaults,
-      ...content,
-      w,
-      h,
-      fontSize,
-      mainX,
-      baseline,
-      primaryLines: [{ text: content.text, x: mainX, baseline }],
-      primaryLeft: (w - inkWidth(metric)) / 2,
-      primaryRight: (w + inkWidth(metric)) / 2,
-      primaryTop: baseline - (metric.actualBoundingBoxAscent || fontSize * 0.73),
-      primaryBottom: baseline + (metric.actualBoundingBoxDescent || 0),
-      labelSize,
-      lines,
-      labelY: top + fontSize + gap + labelSize,
-      actionY: top + totalHeight - actionHeight + gap,
-      tailText: '',
-      tailLines: [],
-      bounds: [w * 0.1, top, w * 0.9, top + totalHeight],
-    };
-  }
-  if (content.kind === 'moon') {
-    let fontSize = Math.max(1, Math.min(w * 0.55, h * 0.57, 1520));
-    let tailSize = 0,
-      tailWidth = 0,
-      tailDescent = 0,
-      gap = 0,
-      width = 0;
-    let tailLines: string[] = [];
-    function measureMoon() {
-      tailSize = fontSize * 0.12;
-      tailLines = wrapInfoText(content.label, fontSize * 0.55, tailSize);
-      if (tailLines.length > 2) {
-        tailSize *= 2 / tailLines.length;
-        tailLines = wrapInfoText(content.label, fontSize * 0.55, tailSize);
-      }
-      useInfoFont(weatherCtx, tailSize, 500);
-      tailWidth = Math.max(0, ...tailLines.map((line) => inkWidth(weatherCtx.measureText(line))));
-      tailDescent = weatherCtx.measureText('Ag').actualBoundingBoxDescent || tailSize * 0.2;
-      gap = fontSize * 0.11;
-      width = fontSize + gap + tailWidth;
-    }
-    measureMoon();
-    fontSize *= Math.min(1, maxWidth / Math.max(1, width));
-    measureMoon();
-    const top = (h - fontSize) / 2;
-    const left = (w - width) / 2;
-    const bottom = top + fontSize;
-    return {
-      ...defaults,
-      ...content,
-      w,
-      h,
-      fontSize,
-      primaryLines: [],
-      primaryUnit: '',
-      mainX: left,
-      baseline: bottom,
-      radius: fontSize / 2,
-      moonX: left + fontSize / 2,
-      moonY: top + fontSize / 2,
-      primaryLeft: left,
-      primaryRight: left + fontSize,
-      primaryTop: top,
-      primaryBottom: bottom,
-      tailText: content.label,
-      tailLines,
-      tailSize,
-      tailX: left + fontSize + gap,
-      tailBaseline: bottom - tailDescent,
-      bounds: [left, top, left + width, bottom],
-    };
-  }
-  const isDate = content.kind === 'date';
-  const primaryUnit = content.unit === '°' ? '°' : '';
-  let tailText = isDate
-    ? ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][date.getDay()]
-    : name === 'weather'
-      ? content.label
-      : content.unit
-        ? content.unit.toUpperCase()
-        : '';
-  tailText = tailText.replace(/(?:Heavy )?Thunderstorm with hail/i, 'Thunder & hail');
-  let fontSize = Math.max(1, Math.min(w * (isDate ? 0.255 : 0.58), h * 0.48, 1400));
-  let metrics = weatherCtx.measureText(''),
-    unitMetrics = metrics,
-    unitSize = 0,
-    primaryWidth = 0,
-    mainHeight = 0,
-    ascent = 0,
-    descent = 0;
-  let tailSize = 0,
-    tailWidth = 0,
-    tailDescent = 0,
-    tailHeight = 0,
-    gap = 0,
-    tailOffset = 0,
-    width = 0;
-  let tailLines: string[] = [];
-  function measure() {
-    useInfoFont(weatherCtx, fontSize);
-    metrics = weatherCtx.measureText(content.text);
-    ascent = metrics.actualBoundingBoxAscent || fontSize * 0.73;
-    descent = metrics.actualBoundingBoxDescent || 0;
-    mainHeight = ascent + descent;
-    unitSize = fontSize * 0.4;
-    useInfoFont(weatherCtx, unitSize, 500);
-    unitMetrics = weatherCtx.measureText(primaryUnit);
-    primaryWidth = inkWidth(metrics) + (primaryUnit ? fontSize * 0.025 + inkWidth(unitMetrics) : 0);
-    tailSize = fontSize * (tailText.length > 4 ? 0.18 : 0.24);
-    tailLines = tailText ? wrapInfoText(tailText, fontSize * 1.05, tailSize) : [];
-    if (tailLines.length > 2) {
-      tailSize *= 2 / tailLines.length;
-      tailLines = wrapInfoText(tailText, fontSize * 1.05, tailSize);
-    }
-    useInfoFont(weatherCtx, tailSize, 500);
-    tailWidth = Math.max(0, ...tailLines.map((line) => inkWidth(weatherCtx.measureText(line))));
-    tailDescent = weatherCtx.measureText('Ag').actualBoundingBoxDescent || tailSize * 0.2;
-    tailHeight = tailLines.length * tailSize * 1.2;
-    gap = tailText ? fontSize * SECONDS_GAP_SCALE : 0;
-    tailOffset = primaryWidth + gap;
-    if (primaryUnit && tailText) {
-      const unitBottom =
-        -ascent +
-        (unitMetrics.actualBoundingBoxAscent || unitSize * 0.7) +
-        (unitMetrics.actualBoundingBoxDescent || 0);
-      const tailAscent = Math.max(
-        ...tailLines.map(
-          (line) => weatherCtx.measureText(line).actualBoundingBoxAscent || tailSize * 0.73,
-        ),
-      );
-      const tailTop = descent - tailDescent - (tailLines.length - 1) * tailSize * 1.2 - tailAscent;
-      if (unitBottom + fontSize * 0.06 <= tailTop) tailOffset = inkWidth(metrics) + fontSize * 0.12;
-    }
-    width = Math.max(primaryWidth, tailOffset + tailWidth);
-  }
-  measure();
-  fontSize *= Math.min(1, maxWidth / Math.max(1, width));
-  measure();
-  const totalHeight = Math.max(mainHeight, tailHeight);
-  const top = (h - totalHeight) / 2;
-  const opticalBias = isDate ? (width - primaryWidth) * (1 - SECONDS_CENTER_WEIGHT) * 0.5 : 0;
-  const left = (w - width) / 2 + opticalBias;
-  const bottom = top + totalHeight;
-  const baseline = bottom - descent;
-  const mainX = left + (metrics.actualBoundingBoxLeft || 0);
-  return {
-    ...defaults,
-    ...content,
-    w,
-    h,
-    fontSize,
-    primaryUnit,
-    unitSize,
-    mainX,
-    baseline,
-    primaryLines: [{ text: content.text, x: mainX, baseline }],
-    unitX: primaryUnit
-      ? left + inkWidth(metrics) + fontSize * 0.025 + (unitMetrics.actualBoundingBoxLeft || 0)
-      : 0,
-    unitBaseline: primaryUnit
-      ? baseline - ascent + (unitMetrics.actualBoundingBoxAscent || unitSize * 0.7)
-      : baseline,
-    tailText,
-    tailLines,
-    tailSize,
-    tailX: left + tailOffset,
-    tailBaseline: bottom - tailDescent,
-    primaryTop: bottom - mainHeight,
-    primaryLeft: left,
-    primaryBottom: bottom,
-    primaryRight: left + primaryWidth,
-    bounds: [left, top, left + width, bottom],
-  };
-}
-
-function buildWeatherLayout(state: LocalDataState, w: number, h: number) {
-  return buildInfoLayout('weather', w, h, new Date(), state);
-}
-
-function getInfoGlyphs(layout: InfoLayout) {
-  const glyphs: InfoGlyph[] = [];
-  const counts = new Map<string, number>();
-  function addLine(
-    text: string,
-    x: number,
-    y: number,
-    size: number,
-    weight: number,
-    alpha: number,
-    optical: boolean,
-    role: string,
-    numeric = false,
-  ) {
-    useInfoFont(weatherCtx, size, weight);
-    const chars = Array.from(text);
-    let prefix = '';
-    chars.forEach((char, index) => {
-      prefix += char;
-      const metrics = weatherCtx.measureText(char);
-
-      const glyphX = x + weatherCtx.measureText(prefix).width - metrics.width;
-      const sequence = counts.get(role) || 0;
-      counts.set(role, sequence + 1);
-      if (/\s/.test(char)) return;
-      glyphs.push({
-        char,
-        role,
-        key: numeric ? `${role}:${chars.length - 1 - index}` : `${role}:${sequence}`,
-        x: glyphX,
-        y,
-        fontSize: size,
-        weight,
-        alpha,
-        optical,
-        metrics,
-      });
-    });
-  }
-  if (layout.kind === 'date') {
-    const [day, month] = layout.text.split(' ');
-    addLine(day, layout.mainX, layout.baseline, layout.fontSize, 700, 1, true, 'day', true);
-    useInfoFont(weatherCtx, layout.fontSize);
-    const monthX =
-      layout.mainX +
-      weatherCtx.measureText(layout.text).width -
-      weatherCtx.measureText(month).width;
-    addLine(month, monthX, layout.baseline, layout.fontSize, 700, 1, true, 'month');
-  } else {
-    for (const [lineIndex, line] of layout.primaryLines.entries()) {
-      const numeric = layout.kind === 'number';
-      const sign = numeric && line.text.startsWith('-') ? '-' : '';
-      if (sign) addLine(sign, line.x, line.baseline, layout.fontSize, 700, 1, true, 'sign');
-      const text = sign ? line.text.slice(1) : line.text;
-      useInfoFont(weatherCtx, layout.fontSize);
-      const x = sign
-        ? line.x + weatherCtx.measureText(line.text).width - weatherCtx.measureText(text).width
-        : line.x;
-      const role = numeric ? 'number' : layout.kind === 'moon' ? `main:${lineIndex}` : 'main';
-      addLine(text, x, line.baseline, layout.fontSize, 700, 1, true, role, numeric);
-    }
-  }
-  if (layout.primaryUnit)
-    addLine(
-      layout.primaryUnit,
-      layout.unitX,
-      layout.unitBaseline,
-      layout.unitSize,
-      500,
-      0.88,
-      true,
-      'unit',
-    );
-  layout.tailLines.forEach((line, index) => {
-    useInfoFont(weatherCtx, layout.tailSize, 500);
-    addLine(
-      line,
-      layout.tailX + (weatherCtx.measureText(line).actualBoundingBoxLeft || 0),
-      layout.tailBaseline - (layout.tailLines.length - 1 - index) * layout.tailSize * 1.2,
-      layout.tailSize,
-      500,
-      0.76,
-      false,
-      'tail',
-    );
-  });
-  (layout.lines || []).forEach((line, index) => {
-    useInfoFont(weatherCtx, layout.labelSize, 500);
-    const metric = weatherCtx.measureText(line);
-    addLine(
-      line,
-      (layout.w - inkWidth(metric)) / 2 + (metric.actualBoundingBoxLeft || 0),
-      layout.labelY + index * layout.labelSize * 1.4,
-      layout.labelSize,
-      500,
-      0.78,
-      false,
-      'tail',
-    );
-  });
-  return glyphs;
-}
-
-function infoGlyphGeometry(glyph: InfoGlyph) {
-  const scale = Math.max(0.08, Math.min(3, glyph.fontSize / 320));
-  const padding = glyph.optical ? Math.ceil(128 * scale) : Math.max(2, glyph.fontSize * 0.04);
-  const ascent = glyph.metrics.actualBoundingBoxAscent || glyph.fontSize * 0.73;
-  const descent = glyph.metrics.actualBoundingBoxDescent || 0;
-  return {
-    scale,
-    offsetX: -(glyph.metrics.actualBoundingBoxLeft || 0) - padding,
-    offsetY: -ascent - padding,
-    width: Math.max(1, inkWidth(glyph.metrics) + padding * 2),
-    height: Math.max(1, ascent + descent + padding * 2),
-  };
-}
-
-function buildInfoGlyphTile(glyph: InfoGlyph, layout: InfoLayout, dpr: number) {
-  const geometry = infoGlyphGeometry(glyph);
-  const { scale, offsetX, offsetY, width, height } = geometry;
-  const layer = makeLayer(width, height, dpr);
-  const tile = { ...layer, offsetX, offsetY, fontSize: glyph.fontSize, dpr };
-  const draw = (ctx: CanvasContext, color: string = '#ffffff') => {
-    useInfoFont(ctx, glyph.fontSize, glyph.weight);
-    ctx.fillStyle = color;
-    ctx.fillText(glyph.char, -offsetX, -offsetY);
-  };
-  if (!glyph.optical) {
-    draw(layer.ctx);
-    return tile;
-  }
-  const scratch = makeLayer(width, height, dpr);
-  const reset = () => {
-    const ctx = scratch.ctx;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 1;
-    ctx.filter = 'none';
-    ctx.clearRect(0, 0, scratch.width, scratch.height);
-    return ctx;
-  };
-  const mask = (stops: Stops) => {
-    const ctx = scratch.ctx;
-    const left = glyph.x + offsetX,
-      top = glyph.y + offsetY;
-    const gradient = ctx.createLinearGradient(
-      layout.primaryLeft - left,
-      layout.primaryBottom - top,
-      layout.primaryRight - left,
-      layout.primaryTop - top,
-    );
-    stops.forEach(([position, alpha]) => gradient.addColorStop(position, `rgba(0,0,0,${alpha})`));
-    ctx.globalCompositeOperation = 'destination-in';
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, scratch.width, scratch.height);
-    ctx.globalCompositeOperation = 'source-over';
-  };
-  const composite = (dx = 0, dy = 0, blur = 0, tint: string | null = null) =>
-    drawCompatImage(
-      layer.ctx,
-      scratch.canvas,
-      dx * scale,
-      dy * scale,
-      scratch.width,
-      scratch.height,
-      blur,
-      tint,
-    );
-  for (const [blur, color] of [
-    [20, 'rgba(115,195,255,.24)'],
-    [5.5, 'rgba(255,255,255,.28)'],
-  ] as const) {
-    const ctx = reset();
-    paintCompatBlur(ctx, blur * scale, (target) => draw(target, color), opaqueCompatColor(color));
-    mask([
-      [0, 0.38],
-      [0.14, 1],
-      [0.84, 1],
-      [1, 0.32],
-    ]);
-    composite();
-  }
-  BLUR_RADII.forEach((radius, index) => {
-    const ctx = reset();
-    paintCompatBlur(
-      ctx,
-      radius * scale,
-      (target) => draw(target),
-      glyph.char === 'moon' ? null : '#ffffff',
-    );
-    mask(PASS_STOPS[index]);
-    composite();
-  });
-  for (const [stops, color, blur, alpha, dx, dy] of [
-    [
-      [
-        [0, 0],
-        [0.76, 0],
-        [0.9, 0.55],
-        [1, 1],
-      ],
-      '#ffffff',
-      16,
-      0.25,
-      8,
-      -7,
-    ],
-    [
-      [
-        [0, 0],
-        [0.76, 0],
-        [0.9, 0.55],
-        [1, 1],
-      ],
-      '#80c8ff',
-      30,
-      0.2,
-      18,
-      -15,
-    ],
-    [
-      [
-        [0, 0.85],
-        [0.11, 0.35],
-        [0.22, 0],
-        [1, 0],
-      ],
-      '#ffffff',
-      13,
-      0.16,
-      -6,
-      5,
-    ],
-  ] as const) {
-    draw(reset(), color);
-    mask(stops);
-    layer.ctx.save();
-    layer.ctx.globalAlpha = alpha;
-    composite(dx, dy, blur * scale, opaqueCompatColor(color));
-    layer.ctx.restore();
-  }
-  compositor.forget(scratch.canvas);
-  scratch.canvas.width = scratch.canvas.height = 0;
-  return tile;
-}
-
-function buildInfoMoonTile(glyph: InfoGlyph, layout: InfoLayout, dpr: number) {
-  const geometry = infoGlyphGeometry(glyph);
-  const { scale, offsetX, offsetY, width, height } = geometry;
-  const layer = makeLayer(width, height, dpr);
-  const scratch = makeLayer(width, height, dpr);
-  const tile = { ...layer, offsetX, offsetY, fontSize: glyph.fontSize, dpr };
-  const reset = () => {
-    const ctx = scratch.ctx;
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.globalAlpha = 1;
-    ctx.filter = 'none';
-    ctx.clearRect(0, 0, scratch.width, scratch.height);
-    return ctx;
-  };
-  const draw = (ctx: CanvasContext, color = '') => {
-    if (!layout.moon) return;
-    drawMoon(ctx, -offsetX, -offsetY, layout.radius, layout.moon, layout.southernHemisphere);
-    if (color) {
-      ctx.save();
-      ctx.globalCompositeOperation = 'source-in';
-      ctx.filter = 'none';
-      ctx.fillStyle = color;
-      ctx.fillRect(0, 0, scratch.width, scratch.height);
-      ctx.restore();
-    }
-  };
-  const mask = (stops: Stops) => {
-    const ctx = scratch.ctx;
-    const left = glyph.x + offsetX,
-      top = glyph.y + offsetY;
-    const gradient = ctx.createLinearGradient(
-      layout.primaryLeft - left,
-      layout.primaryBottom - top,
-      layout.primaryRight - left,
-      layout.primaryTop - top,
-    );
-    stops.forEach(([position, alpha]) => gradient.addColorStop(position, `rgba(0,0,0,${alpha})`));
-    ctx.globalCompositeOperation = 'destination-in';
-    ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, scratch.width, scratch.height);
-    ctx.globalCompositeOperation = 'source-over';
-  };
-  const composite = (dx = 0, dy = 0, blur = 0, tint: string | null = null) =>
-    drawCompatImage(
-      layer.ctx,
-      scratch.canvas,
-      dx * scale,
-      dy * scale,
-      scratch.width,
-      scratch.height,
-      blur,
-      tint,
-    );
-  for (const [blur, color] of [
-    [20, 'rgba(115,195,255,.24)'],
-    [5.5, 'rgba(255,255,255,.28)'],
-  ] as const) {
-    const ctx = reset();
-    paintCompatBlur(ctx, blur * scale, (target) => draw(target, color), opaqueCompatColor(color));
-    mask([
-      [0, 0.38],
-      [0.14, 1],
-      [0.84, 1],
-      [1, 0.32],
-    ]);
-    composite();
-  }
-  BLUR_RADII.forEach((radius, index) => {
-    const ctx = reset();
-    paintCompatBlur(
-      ctx,
-      radius * scale,
-      (target) => draw(target),
-      glyph.char === 'moon' ? null : '#ffffff',
-    );
-    mask(PASS_STOPS[index]);
-    composite();
-  });
-  for (const [stops, color, blur, alpha, dx, dy] of [
-    [
-      [
-        [0, 0],
-        [0.76, 0],
-        [0.9, 0.55],
-        [1, 1],
-      ],
-      '#ffffff',
-      16,
-      0.25,
-      8,
-      -7,
-    ],
-    [
-      [
-        [0, 0],
-        [0.76, 0],
-        [0.9, 0.55],
-        [1, 1],
-      ],
-      '#80c8ff',
-      30,
-      0.2,
-      18,
-      -15,
-    ],
-    [
-      [
-        [0, 0.85],
-        [0.11, 0.35],
-        [0.22, 0],
-        [1, 0],
-      ],
-      '#ffffff',
-      13,
-      0.16,
-      -6,
-      5,
-    ],
-  ] as const) {
-    draw(reset(), color);
-    mask(stops);
-    layer.ctx.save();
-    layer.ctx.globalAlpha = alpha;
-    composite(dx, dy, blur * scale, opaqueCompatColor(color));
-    layer.ctx.restore();
-  }
-  compositor.forget(scratch.canvas);
-  scratch.canvas.width = scratch.canvas.height = 0;
-  return tile;
-}
-
-function buildInfoScene(name: SceneName, layout: InfoLayout, dpr: number) {
-  const glyphs = getInfoGlyphs(layout);
-  if (layout.kind === 'moon') {
-    glyphs.unshift({
-      char: 'moon',
-      role: 'moon',
-      key: 'moon',
-      optical: true,
-      x: layout.moonX,
-      y: layout.moonY,
-      fontSize: layout.fontSize,
-      weight: 700,
-      alpha: 1,
-      metrics: {
-        width: layout.fontSize,
-        actualBoundingBoxLeft: layout.radius,
-        actualBoundingBoxRight: layout.radius,
-        actualBoundingBoxAscent: layout.radius,
-        actualBoundingBoxDescent: layout.radius,
-      },
-    });
-  }
-  const opticalGlyphs = glyphs.filter((glyph) => glyph.optical);
-  const area = opticalGlyphs.reduce((sum, glyph) => {
-    const geometry = infoGlyphGeometry(glyph);
-    return sum + geometry.width * geometry.height;
-  }, 0);
-
-  const tileDpr = Math.min(dpr, Math.sqrt((INFO_TILE_PIXEL_BUDGET * 0.98) / Math.max(1, area)));
-  opticalGlyphs.forEach((glyph) => {
-    glyph.tile =
-      glyph.role === 'moon'
-        ? buildInfoMoonTile(glyph, layout, tileDpr)
-        : buildInfoGlyphTile(glyph, layout, tileDpr);
-  });
-  return { name, layout, dpr, tileDpr, glyphs };
-}
-
-function releaseInfoScene(scene: InfoScene | null) {
-  if (!scene) return;
-  scene.glyphs.forEach((glyph) => {
-    if (glyph.tile) {
-      compositor.forget(glyph.tile.canvas);
-      glyph.tile.canvas.width = glyph.tile.canvas.height = 0;
-    }
-  });
-}
-
-function releaseInfoTransition(transition: InfoTransition | null) {
-  if (!transition) return;
-  releaseInfoScene(transition.from);
-  transition.pairs.forEach((pair) => {
-    if (pair.mixed) {
-      compositor.forget(pair.mixed.canvas);
-      pair.mixed.canvas.width = pair.mixed.canvas.height = 0;
-    }
-  });
-}
-
-function matchInfoGlyphs(from: InfoScene, to: InfoScene) {
-  const pairs: InfoPair[] = [];
-  const roles = new Set([...from.glyphs, ...to.glyphs].map((glyph) => glyph.role));
-  for (const role of roles) {
-    const a = from.glyphs.filter((glyph) => glyph.role === role);
-    const b = to.glyphs.filter((glyph) => glyph.role === role);
-    if (role === 'number' || role === 'day' || role === 'sign' || role === 'unit') {
-      const old = new Map(a.map((glyph) => [glyph.key, glyph]));
-      b.forEach((glyph) => {
-        const previous = old.get(glyph.key);
-        old.delete(glyph.key);
-        pairs.push({ from: previous, to: glyph, unchanged: previous?.char === glyph.char });
-      });
-      old.forEach((glyph) => pairs.push({ from: glyph, to: null, unchanged: false }));
-      continue;
-    }
-
-    const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
-    for (let i = a.length - 1; i >= 0; i--)
-      for (let j = b.length - 1; j >= 0; j--) {
-        dp[i][j] =
-          a[i].char === b[j].char ? 1 + dp[i + 1][j + 1] : Math.max(dp[i + 1][j], dp[i][j + 1]);
-      }
-    const anchors = [];
-    let i = 0,
-      j = 0;
-    while (i < a.length && j < b.length) {
-      if (a[i].char === b[j].char) {
-        anchors.push([i++, j++]);
-      } else if (dp[i + 1][j] > dp[i][j + 1]) i++;
-      else j++;
-    }
-    let ai = 0,
-      bi = 0;
-    for (const [endA, endB] of [...anchors, [a.length, b.length]] as const) {
-      while (ai < endA || bi < endB) {
-        pairs.push({
-          from: ai < endA ? a[ai++] : null,
-          to: bi < endB ? b[bi++] : null,
-          unchanged: false,
-        });
-      }
-      if (endA < a.length && endB < b.length) {
-        pairs.push({ from: a[endA], to: b[endB], unchanged: true });
-        ai++;
-        bi++;
-      }
-    }
-  }
-  return pairs;
-}
-
-function infoBlendGeometry(pair: InfoPair) {
-  const a = pair.from?.tile,
-    b = pair.to?.tile;
-  if (!a || !b || !pair.to) throw new Error('Missing optical glyph tile');
-  const size = pair.to.fontSize;
-  const left = Math.min(a.offsetX / a.fontSize, b.offsetX / b.fontSize) * size;
-  const top = Math.min(a.offsetY / a.fontSize, b.offsetY / b.fontSize) * size;
-  const right =
-    Math.max((a.offsetX + a.width) / a.fontSize, (b.offsetX + b.width) / b.fontSize) * size;
-  const bottom =
-    Math.max((a.offsetY + a.height) / a.fontSize, (b.offsetY + b.height) / b.fontSize) * size;
-  return { offsetX: left, offsetY: top, width: right - left, height: bottom - top, fontSize: size };
-}
-
-function createInfoTransition(from: InfoScene, to: InfoScene, now: number) {
-  const pairs = matchInfoGlyphs(from, to);
-  const area = pairs
-    .filter((pair) => pair.unchanged && pair.from?.optical && pair.to?.optical)
-    .reduce((sum, pair) => {
-      const geometry = infoBlendGeometry(pair);
-      return sum + geometry.width * geometry.height;
-    }, 0);
-  return {
-    start: now,
-    from,
-    to,
-    pairs,
-    mixDpr: Math.min(
-      from.tileDpr,
-      to.tileDpr,
-      Math.sqrt((INFO_TILE_PIXEL_BUDGET * 0.98) / Math.max(1, area)),
-    ),
-  };
-}
-
-function blendUnchangedInfoGlyph(pair: InfoPair, progress: number, dpr: number) {
-  if (!pair.from?.tile || !pair.to?.tile) return undefined;
-  if (progress <= 0) return pair.from.tile;
-  if (progress >= 1) return pair.to.tile;
-  if (!pair.mixed) {
-    const geometry = infoBlendGeometry(pair);
-    pair.mixed = { ...makeLayer(geometry.width, geometry.height, dpr), ...geometry, dpr };
-  }
-  const mixed = pair.mixed,
-    ctx = mixed.ctx;
-  ctx.clearRect(0, 0, mixed.width, mixed.height);
-  for (const [tile, alpha, operation] of [
-    [pair.from.tile, 1 - progress, 'source-over'],
-    [pair.to.tile, progress, 'lighter'],
-  ] as const) {
-    const ratio = mixed.fontSize / tile.fontSize;
-    ctx.globalCompositeOperation = operation;
-    ctx.globalAlpha = alpha;
-    ctx.drawImage(
-      tile.canvas,
-      tile.offsetX * ratio - mixed.offsetX,
-      tile.offsetY * ratio - mixed.offsetY,
-      tile.width * ratio,
-      tile.height * ratio,
-    );
-  }
-  ctx.globalCompositeOperation = 'source-over';
-  ctx.globalAlpha = 1;
-  return mixed;
-}
-
-function drawInfoGlyph(
-  glyph: InfoGlyph,
-  x: number,
-  y: number,
-  size: number,
-  alpha = 1,
-  blur = 0,
-  tile = glyph.tile,
-) {
-  if (alpha <= 0) return;
-  weatherCtx.save();
-  weatherCtx.globalAlpha = glyph.alpha * alpha;
-  weatherCtx.globalCompositeOperation = 'source-over';
-  if (!glyph.optical) {
-    useInfoFont(weatherCtx, size, glyph.weight);
-    weatherCtx.fillStyle = '#ffffff';
-    compositor.text(weatherCtx, glyph.char, x, y, blur, (7 * size) / 80);
-  } else if (tile) {
-    const ratio = size / tile.fontSize;
-    drawCompatImage(
-      weatherCtx,
-      tile.canvas,
-      x + tile.offsetX * ratio,
-      y + tile.offsetY * ratio,
-      tile.width * ratio,
-      tile.height * ratio,
-      blur,
-    );
-  }
-  weatherCtx.restore();
-}
-
-function drawInfoTextTransition(transition: InfoTransition, progress: number) {
-  const t = smoothProgress(progress);
-  const exit = Math.min(1, t / 0.6);
-  const entry = Math.max(0, (t - 0.15) / 0.85);
-  transition.pairs.forEach((pair) => {
-    const from = pair.from || pair.to,
-      to = pair.to || pair.from;
-    if (!from || !to) return;
-    const x = lerp(from.x, to.x, t),
-      y = lerp(from.y, to.y, t);
-    const size = lerp(from.fontSize, to.fontSize, t);
-    if (pair.unchanged) {
-      const glyph = from.alpha === to.alpha ? to : { ...to, alpha: lerp(from.alpha, to.alpha, t) };
-      const tile = glyph.optical ? blendUnchangedInfoGlyph(pair, t, transition.mixDpr) : undefined;
-      drawInfoGlyph(glyph, x, y, size, 1, 0, tile);
-      return;
-    }
-    if (pair.from)
-      drawInfoGlyph(from, x + size * 0.07 * t, y - size * 0.07 * t, size, 1 - exit, 12 * t);
-    if (pair.to)
-      drawInfoGlyph(
-        to,
-        x - size * 0.045 * (1 - entry),
-        y + size * 0.045 * (1 - entry),
-        size,
-        entry,
-        8 * (1 - entry),
-      );
-  });
-}
-
-function settleInfoTransition() {
-  releaseInfoTransition(infoTransition);
-  infoTransition = null;
-}
-
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) {
-    infoWasHidden = true;
-    settleInfoTransition();
-  }
-});
-
-function updateInfoControls(layout: InfoLayout, sceneName: SceneName) {
-  weatherCanvas.setAttribute(
-    'aria-label',
-    [
-      layout.text,
-      layout.primaryUnit === '°' ? 'degrees Celsius' : '',
-      layout.tailText || layout.label,
-      layout.source === 'air' ? getAirQualityDescription(airState.aqi) : '',
-    ]
-      .filter(Boolean)
-      .join(' ') || sceneName,
-  );
-  weatherRetry.hidden = !layout.retry;
-  if (layout.retry) weatherRetry.style.top = `${layout.actionY}px`;
-  weatherAttribution.hidden = !layout.source;
-  if (layout.source) {
-    const updated =
-      layout.stale && layout.updatedAt != null
-        ? 'Last update ' +
-          new Date(layout.updatedAt).toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-          }) +
-          ' · '
-        : '';
-    weatherAttribution.textContent =
-      updated + (layout.source === 'air' ? 'CAMS · Open-Meteo' : 'Open-Meteo');
-    weatherAttribution.href =
-      layout.source === 'air'
-        ? 'https://open-meteo.com/en/docs/air-quality-api'
-        : 'https://open-meteo.com/';
-    weatherAttribution.title =
-      layout.source === 'air'
-        ? 'US EPA Air Quality Index · CAMS / Open-Meteo'
-        : 'Weather data · Open-Meteo';
-  }
-}
-
-function renderWeatherFrame(now: number, sceneName: SceneName = 'weather') {
-  const rect = weatherCanvas.getBoundingClientRect();
-  if (!rect.width || !rect.height || document.hidden) return;
-  const dpr = getRenderDpr(rect.width, rect.height);
-  const layout =
-    sceneName === 'weather'
-      ? buildWeatherLayout(weatherState, rect.width, rect.height)
-      : buildInfoLayout(sceneName, rect.width, rect.height);
-  const key = JSON.stringify([
-    sceneName,
-    rect.width,
-    rect.height,
-    dpr,
-    layout.kind,
-    layout.text,
-    layout.primaryUnit,
-    layout.tailText,
-    layout.label,
-    layout.retry,
-    layout.moon && [
-      Math.round(layout.moon.fraction * 100000),
-      layout.moon.waxing,
-      layout.southernHemisphere,
-    ],
-  ]);
-  const resized =
-    !!currentInfoLayout &&
-    (currentInfoLayout.w !== rect.width ||
-      currentInfoLayout.h !== rect.height ||
-      currentInfoScene?.dpr !== dpr);
-  const changed = key !== infoRenderKey;
-  let repaint = changed || infoWasHidden;
-  currentInfoLayout = layout;
-  const controlsKey = JSON.stringify([key, layout.stale, layout.updatedAt, layout.source]);
-  if (controlsKey !== infoControlsKey) {
-    updateInfoControls(layout, sceneName);
-    infoControlsKey = controlsKey;
-  }
-  if (changed) {
-    const animate =
-      currentInfoScene &&
-      currentInfoScene.name === sceneName &&
-      !resized &&
-      !reducedMotion.matches &&
-      !infoWasHidden &&
-      !infoTransition;
-    if (!animate) {
-      settleInfoTransition();
-      releaseInfoScene(currentInfoScene);
-    }
-    const next = buildInfoScene(sceneName, layout, dpr);
-    if (animate && currentInfoScene)
-      infoTransition = createInfoTransition(currentInfoScene, next, now);
-    currentInfoScene = next;
-    infoRenderKey = key;
-  }
-  if (infoTransition && (reducedMotion.matches || infoWasHidden || resized)) {
-    settleInfoTransition();
-    repaint = true;
-  }
-  infoWasHidden = false;
-  if (infoTransition && now - infoTransition.start >= INFO_TRANSITION_MS) {
-    settleInfoTransition();
-    repaint = true;
-  }
-  if (!repaint && !infoTransition) return;
-  const pixelW = Math.round(rect.width * dpr),
-    pixelH = Math.round(rect.height * dpr);
-  if (weatherCanvas.width !== pixelW || weatherCanvas.height !== pixelH) {
-    weatherCanvas.width = pixelW;
-    weatherCanvas.height = pixelH;
-  }
-  weatherCtx.setTransform(1, 0, 0, 1, 0, 0);
-  weatherCtx.clearRect(0, 0, weatherCanvas.width, weatherCanvas.height);
-  weatherCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  compositor.begin(weatherCtx);
-  if (infoTransition)
-    drawInfoTextTransition(infoTransition, (now - infoTransition.start) / INFO_TRANSITION_MS);
-  else
-    currentInfoScene?.glyphs.forEach((glyph) =>
-      drawInfoGlyph(glyph, glyph.x, glyph.y, glyph.fontSize),
-    );
-  compositor.end(weatherCtx);
-}
-
 const backgroundGrain = element('backgroundGrain', 'div');
 interface BackgroundImageRecord {
-  scene: BackgroundImageScene;
   variant: BackgroundImageVariant;
   image: HTMLImageElement;
   status: 'loading' | 'ready' | 'error';
@@ -5031,7 +3109,7 @@ const imageBackgrounds = (() => {
   let root: HTMLDivElement | null = null;
   let layers: HTMLDivElement[] = [];
   let currentIndex = 0;
-  let currentSpec: BackgroundSpec | null = null;
+  let active = false;
   let resizeTimer: ReturnType<typeof setTimeout> | null = null;
   let transition: {
     from: number;
@@ -5040,22 +3118,12 @@ const imageBackgrounds = (() => {
     fromGrain: number;
     toGrain: number;
   } | null = null;
-  function sceneFor(spec: BackgroundSpec) {
-    if (spec.pending) return undefined;
-    return IMAGE_BACKGROUND_MANIFEST.scenes.find((scene) =>
-      spec.key === 'clock' || spec.key.startsWith('air-')
-        ? scene.key === spec.key
-        : scene.kind === 'photo' &&
-          scene.asset === spec.asset &&
-          Math.abs(scene.brightness - spec.brightness) < 0.000001,
-    );
-  }
-  function variantFor(scene: BackgroundImageScene) {
+  function variantFor() {
     const width = Math.max(1, innerWidth),
       height = Math.max(1, innerHeight);
-    let best = scene.variants[0],
+    let best = CLOCK_BACKGROUND.variants[0],
       score = Infinity;
-    for (const variant of scene.variants) {
+    for (const variant of CLOCK_BACKGROUND.variants) {
       const w = variant.viewportWidth,
         h = variant.viewportHeight;
       const aspect = Math.abs(Math.log(width / height / (w / h)));
@@ -5091,10 +3159,7 @@ const imageBackgrounds = (() => {
         .map((slot) => slot.variant.file),
     );
     protectedFiles.add(latestFile);
-    if (currentSpec) {
-      const currentScene = sceneFor(currentSpec);
-      if (currentScene) protectedFiles.add(variantFor(currentScene).file);
-    }
+    if (active) protectedFiles.add(variantFor().file);
     for (const [file, record] of cache) {
       if (cache.size <= 5) break;
       if (protectedFiles.has(file)) continue;
@@ -5102,11 +3167,9 @@ const imageBackgrounds = (() => {
       cache.delete(file);
     }
   }
-  function prepare(spec: BackgroundSpec): BackgroundImageRecord | null {
+  function prepare(): BackgroundImageRecord | null {
     if (disposed) return null;
-    const scene = sceneFor(spec);
-    if (!scene) return null;
-    const variant = variantFor(scene),
+    const variant = variantFor(),
       file = variant.file;
     const cached = cache.get(file);
     if (cached && (cached.status !== 'error' || Date.now() - cached.failedAt < 30000)) {
@@ -5125,7 +3188,6 @@ const imageBackgrounds = (() => {
       'display:block;width:100%;height:100%;object-fit:cover;object-position:center;';
     let canceled = false;
     const record: BackgroundImageRecord = {
-      scene,
       variant,
       image,
       status: 'loading',
@@ -5143,14 +3205,8 @@ const imageBackgrounds = (() => {
       if (record.status === 'error') record.failedAt = Date.now();
       image.onload = null;
       image.onerror = null;
-      if (
-        record.status === 'ready' &&
-        scene.kind === 'clock' &&
-        !slots[currentIndex] &&
-        (!currentSpec || currentSpec.key === 'clock')
-      ) {
-        apply(getBackgroundSpec('clock'), performance.now());
-      }
+      // Show the first decoded image even while fonts still hold the frame loop.
+      if (record.status === 'ready' && !slots[currentIndex]) apply(performance.now());
     };
     image.onload = () => {
       if (typeof image.decode === 'function')
@@ -5183,13 +3239,13 @@ const imageBackgrounds = (() => {
       transition = null;
     }
   }
-  function apply(spec: BackgroundSpec, now: number) {
+  /** Shows the viewport's variant, crossfading when a resize selects another one. */
+  function apply(now: number) {
     if (disposed) return;
     initialize();
     advance(now);
-    if (spec.pending) return;
-    currentSpec = spec;
-    const record = prepare(spec);
+    active = true;
+    const record = prepare();
     if (!record || record.status !== 'ready' || transition) return;
     if (slots[currentIndex]?.variant.file === record.variant.file) return;
     const grainSource = document.getElementById('grainLayer');
@@ -5205,14 +3261,14 @@ const imageBackgrounds = (() => {
     layers[next].style.opacity = immediate ? '1' : '0';
     slots[next] = record;
     currentIndex = next;
-    if (immediate) backgroundGrain.style.opacity = String(record.scene.grainOpacity);
+    if (immediate) backgroundGrain.style.opacity = String(CLOCK_BACKGROUND.grainOpacity);
     else
       transition = {
         from: previous,
         to: next,
         start: now,
         fromGrain: Number(backgroundGrain.style.opacity) || 0,
-        toGrain: record.scene.grainOpacity,
+        toGrain: CLOCK_BACKGROUND.grainOpacity,
       };
   }
   function resize() {
@@ -5220,14 +3276,14 @@ const imageBackgrounds = (() => {
     if (disposed) return;
     resizeTimer = setTimeout(() => {
       resizeTimer = null;
-      if (!disposed && currentSpec) prepare(currentSpec);
+      if (!disposed && active) prepare();
     }, 120);
   }
   function dispose() {
     if (resizeTimer !== null) clearTimeout(resizeTimer);
     resizeTimer = null;
     transition = null;
-    currentSpec = null;
+    active = false;
     for (const record of cache.values()) record.cancel();
     cache.clear();
     slots[0] = slots[1] = null;
@@ -5239,135 +3295,13 @@ const imageBackgrounds = (() => {
   return { prepare, apply, resize, dispose };
 })();
 
-function getAirPalette(value: number | null) {
-  if (!finite(value) || value < 0)
-    return { key: 'unknown', edge: '#315675', middle: '#172a43', base: '#071323' };
-  const aqi = Math.round(value);
-  if (aqi <= 50) return { key: 'good', edge: '#20895d', middle: '#174d49', base: '#03171e' };
-  if (aqi <= 100) return { key: 'moderate', edge: '#b99b37', middle: '#6b5824', base: '#171b1a' };
-  if (aqi <= 150) return { key: 'sensitive', edge: '#ca682c', middle: '#6b3332', base: '#241322' };
-  if (aqi <= 200) return { key: 'unhealthy', edge: '#c04458', middle: '#67213e', base: '#250c24' };
-  if (aqi <= 300)
-    return { key: 'very-unhealthy', edge: '#7850ad', middle: '#3c2566', base: '#130f2a' };
-  return { key: 'hazardous', edge: '#88234b', middle: '#461c3c', base: '#170d24' };
-}
-
-function getBackgroundSpec(sceneName: SceneName, date = new Date()): BackgroundSpec {
-  if (sceneName === 'clock') return { key: 'clock', asset: null, gradient: '', brightness: 1 };
-  if (sceneName === 'weather' && weatherState.status !== 'ready') {
-    return { key: 'weather-pending', asset: null, gradient: '', brightness: 1, pending: true };
-  }
-  if (sceneName === 'air') {
-    const palette = getAirPalette(airState.status === 'ready' ? airState.aqi : null);
-    return {
-      key: 'air-' + palette.key,
-      asset: null,
-      brightness: 1,
-      gradient: `radial-gradient(ellipse at 82% 18%, ${palette.edge} 0%, transparent 65%), radial-gradient(ellipse at 16% 65%, ${palette.middle} 0%, transparent 72%), linear-gradient(135deg, ${palette.middle}, ${palette.base})`,
-    };
-  }
-  let asset = 'cloudy',
-    variant = '',
-    brightness = 0.78;
-  if (sceneName === 'date') {
-    const month = (date.getMonth() + ((weatherCoordinates?.latitude ?? 0) < 0 ? 6 : 0)) % 12;
-    asset =
-      month >= 2 && month <= 4
-        ? 'spring'
-        : month >= 5 && month <= 7
-          ? 'summer'
-          : month >= 8 && month <= 10
-            ? 'autumn'
-            : 'winter';
-  } else if (sceneName === 'moon') {
-    asset = 'night';
-    brightness = 0.86;
-  } else if (sceneName === 'weather' && weatherState.status === 'ready') {
-    const code = weatherState.weatherCode ?? -1;
-    if ([71, 73, 75, 77, 85, 86].includes(code)) asset = 'winter';
-    else if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99].includes(code))
-      asset = 'rain';
-    else if ([2, 3, 45, 48].includes(code)) asset = 'cloudy';
-    else if ([0, 1].includes(code)) asset = weatherState.isDay ? 'summer' : 'night';
-    if (code >= 95) {
-      brightness = 0.6;
-      variant = '-storm';
-    }
-    if (!weatherState.isDay) {
-      brightness *= 0.76;
-      variant += '-night';
-    }
-  }
-  return {
-    key: `${sceneName}-${asset}${variant}`,
-    asset: `assets/backgrounds/${asset}.webp`,
-    gradient: 'linear-gradient(135deg, #142b43, #080f20)',
-    brightness,
-  };
-}
-
-function applySceneBackground(sceneName: SceneName, now = performance.now()) {
-  imageBackgrounds.apply(getBackgroundSpec(sceneName), now);
-  const nextScene = SCENE_NAMES[(SCENE_NAMES.indexOf(sceneName) + 1) % SCENE_NAMES.length];
-  imageBackgrounds.prepare(getBackgroundSpec(nextScene));
-}
-
-function applySceneState(scene: ReturnType<typeof getSceneState>, now = performance.now()) {
-  applySceneBackground(scene.name, now);
-  clockCanvas.style.opacity = String(scene.clockOpacity);
-  speckleCanvas.style.opacity = String(scene.clockOpacity);
-  weatherCanvas.style.opacity = String(scene.weatherOpacity);
-  compositor.sync(clockCtx);
-  compositor.sync(weatherCtx);
-  weatherRetry.style.opacity = String(scene.weatherOpacity);
-  weatherAttribution.style.opacity = String(scene.weatherOpacity);
-  const infoActive = scene.name !== 'clock' && scene.opacity > 0.5;
-  weatherRetry.style.pointerEvents = infoActive ? 'auto' : 'none';
-  weatherAttribution.style.pointerEvents = infoActive ? 'auto' : 'none';
-  weatherRetry.tabIndex = infoActive && !weatherRetry.hidden ? 0 : -1;
-  weatherAttribution.tabIndex = infoActive && !weatherAttribution.hidden ? 0 : -1;
-  weatherRetry.setAttribute('aria-hidden', String(!infoActive));
-  weatherAttribution.setAttribute('aria-hidden', String(!infoActive));
-  clockCanvas.setAttribute('aria-hidden', String(scene.name !== 'clock'));
-  weatherCanvas.setAttribute('aria-hidden', String(scene.name === 'clock'));
-  if (activeSceneName !== scene.name) {
-    if (scene.name === 'clock') {
-      settleInfoTransition();
-      releaseInfoScene(currentInfoScene);
-      currentInfoScene = null;
-      infoRenderKey = '';
-    }
-    activeSceneName = scene.name;
-    mainStage.setAttribute('aria-label', scene.name);
-  }
-}
-
-document.addEventListener('visibilitychange', () => {
-  const now = performance.now();
-  if (document.hidden) {
-    if (sceneHiddenAt === null) sceneHiddenAt = now;
-  } else if (sceneHiddenAt !== null) {
-    if (sceneStartedAt !== null) sceneStartedAt += now - sceneHiddenAt;
-    sceneHiddenAt = null;
-  }
-});
-weatherRetry.addEventListener('click', (event) => {
-  event.stopPropagation();
-  requestWeatherLocation().catch(handleLocalDataError);
-});
-
 function mainAnimationLoop(now: number) {
   animationFrame = 0;
   if (disposed) return;
   if (!document.hidden) {
-    const scene = getSceneState(now);
-    if (scene.name === 'clock') {
-      renderFrame(now);
-      updateAndDrawSpeckles(now);
-    } else {
-      renderWeatherFrame(now, scene.name);
-    }
-    applySceneState(scene, now);
+    renderFrame(now);
+    updateAndDrawSpeckles(now);
+    imageBackgrounds.apply(now);
   }
   startAnimationLoop();
 }
@@ -5377,15 +3311,52 @@ function startAnimationLoop() {
   animationFrame = requestAnimationFrame(mainAnimationLoop);
 }
 
-window.addEventListener('dblclick', (event) => {
-  if (window.parent !== window) return;
-  if (event.target instanceof Element && event.target.closest('button, a')) return;
-  if (!document.fullscreenElement) {
+const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_SLOP_PX = 32;
+let lastTap: { time: number; x: number; y: number } | null = null;
+let lastDoubleActivation = -Infinity;
+function isControlTarget(target: EventTarget | null) {
+  return target instanceof Element && !!target.closest('button, a');
+}
+/** Double-click or double-tap anywhere outside a control leaves the display. */
+function handleDoubleActivation(time: number) {
+  // A touch double-tap can also produce a native dblclick; act on it once.
+  if (time - lastDoubleActivation < 600) return;
+  lastDoubleActivation = time;
+  if (window.parent !== window) {
+    postToHost('close');
+  } else if (!document.fullscreenElement) {
     document.documentElement.requestFullscreen?.().catch(() => {});
   } else {
     document.exitFullscreen?.().catch(() => {});
   }
+}
+window.addEventListener('dblclick', (event) => {
+  if (!isControlTarget(event.target)) handleDoubleActivation(event.timeStamp);
 });
+window.addEventListener('pointerup', (event) => {
+  // Mouse double-clicks keep the platform's own timing through dblclick.
+  if (event.pointerType === 'mouse' || !event.isPrimary || isControlTarget(event.target)) {
+    lastTap = null;
+    return;
+  }
+  const tap = { time: event.timeStamp, x: event.clientX, y: event.clientY };
+  if (
+    lastTap &&
+    tap.time - lastTap.time <= DOUBLE_TAP_MS &&
+    Math.hypot(tap.x - lastTap.x, tap.y - lastTap.y) <= DOUBLE_TAP_SLOP_PX
+  ) {
+    lastTap = null;
+    handleDoubleActivation(tap.time);
+  } else lastTap = tap;
+});
+window.addEventListener('pointercancel', () => {
+  lastTap = null;
+});
+// Same pinch guard as the app shell: iOS gesture events do not cross into this frame.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend'] as const) {
+  document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
+}
 
 window.addEventListener('resize', () => {
   imageBackgrounds.resize();
@@ -5441,9 +3412,8 @@ async function warmGoogleSansFonts() {
 async function initializeScreensaver() {
   const generation = lifecycleGeneration;
   initializeDisplayControls();
-  initializeWeather();
   createFilmGrainTile();
-  imageBackgrounds.prepare(getBackgroundSpec('clock'));
+  imageBackgrounds.prepare();
   resizeSpeckleCanvas();
 
   await Promise.race([
@@ -5468,7 +3438,6 @@ async function initializeScreensaver() {
 function invalidateFontLayouts() {
   fittedFont = null;
   lastViewportW = 0;
-  infoRenderKey = '';
 }
 
 document.fonts?.addEventListener('loadingdone', () => {

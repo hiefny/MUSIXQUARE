@@ -8,6 +8,7 @@ import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { beginBackSurfaceTransition, getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { showToast } from './toast.ts';
 import { beginScreensaverEntry, type ScreensaverEntry } from './screensaver-entry.ts';
+import { startScreensaverBassGlow } from './screensaver-bass.ts';
 
 const OVERLAY_ID = 'screensaver-overlay';
 const CLOSE_TIMER = 'screensaver-close';
@@ -75,7 +76,7 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   const frame = document.createElement('iframe');
   frame.title = 'Screensaver';
   frame.src = '/screensaver.html';
-  frame.allow = "geolocation 'self'; fullscreen 'self'";
+  frame.allow = "fullscreen 'self'";
   frame.allowFullscreen = true;
   frame.setAttribute(
     'sandbox',
@@ -107,6 +108,7 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   let closing = false;
   let finishBackSurface: (() => void) | null = null;
   let entryFrame: number | null = null;
+  let stopBassGlow: (() => void) | null = null;
   let lastPayload = '';
   const sendUpdate = (force = false): void => {
     if (disposed || closing || !ready) return;
@@ -139,6 +141,8 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
     clearManagedTimer(CLOSE_TIMER);
     scope.dispose();
     subtitleObserver.disconnect();
+    stopBassGlow?.();
+    stopBassGlow = null;
     window.removeEventListener('message', onMessage);
     window.removeEventListener('pagehide', onPageHide);
     document.removeEventListener('keydown', onKey, true);
@@ -203,6 +207,7 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
       }
       ready = true;
       sendUpdate(true);
+      stopBassGlow ??= startScreensaverBassGlow(frame, motion);
       fallbackBack.hidden = true;
       if (!overlay.closest('[inert]')) frame.focus();
     } else if (data.type === 'mxqr:screensaver:close') {

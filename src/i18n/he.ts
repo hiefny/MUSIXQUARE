@@ -45,6 +45,7 @@ const he: Record<I18nKey, string> = {
   'common.off': 'כבוי',
 
   'screensaver.back': 'חזרה ל-MUSIXQUARE',
+  'screensaver.turn_on': 'הפעלת שומר המסך',
 
   // ─── Account ─────────────────────────────────────────────────────
   'account.login_title': 'התחברות',

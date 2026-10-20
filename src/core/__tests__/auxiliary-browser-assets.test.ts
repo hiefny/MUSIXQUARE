@@ -195,8 +195,9 @@ describe('strict TypeScript auxiliary browser assets', () => {
       compileAuxiliaryBrowserAsset(REPOSITORY, descriptor),
       compileAuxiliaryBrowserAsset(REPOSITORY, { ...descriptor, emitForProduction: false }),
     ]);
+    // The clock-only renderer still uses optional chaining; the floor lowers it.
     expect(newerThanChrome79Syntax(localOnly.code)).toEqual(
-      expect.arrayContaining(['QuestionDotToken', 'QuestionQuestionToken']),
+      expect.arrayContaining(['QuestionDotToken']),
     );
     expect(newerThanChrome79Syntax(production.code)).toEqual([]);
   });

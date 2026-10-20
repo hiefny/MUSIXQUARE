@@ -308,14 +308,14 @@ architectural limits by 5%; keep both entry limits, zero eager fonts, the
 secondary 500 kB chunk ceiling, and the mandatory 5% reserve unchanged. This is
 a reviewed capacity decision, not an exemption from conditional loading.
 
-| Metric | Current B | Prior limit B | Revised limit B | Revised 95% ceiling B |
-| --- | ---: | ---: | ---: | ---: |
-| Entry script raw | 427,322 | 1,677,500 | 1,677,500 | 1,593,625 |
-| Entry script gzip | 126,320 | 486,200 | 486,200 | 461,890 |
-| Eager JavaScript gzip | 468,087 | 492,800 | 517,440 | 491,568 |
-| Eager total raw | 2,042,992 | 2,161,500 | 2,269,575 | 2,156,096.25 |
-| Eager total gzip | 544,507 | 572,000 | 600,600 | 570,570 |
-| Eager fonts | 0 | 0 | 0 | 0 |
+| Metric                | Current B | Prior limit B | Revised limit B | Revised 95% ceiling B |
+| --------------------- | --------: | ------------: | --------------: | --------------------: |
+| Entry script raw      |   427,322 |     1,677,500 |       1,677,500 |             1,593,625 |
+| Entry script gzip     |   126,320 |       486,200 |         486,200 |               461,890 |
+| Eager JavaScript gzip |   468,087 |       492,800 |         517,440 |               491,568 |
+| Eager total raw       | 2,042,992 |     2,161,500 |       2,269,575 |          2,156,096.25 |
+| Eager total gzip      |   544,507 |       572,000 |         600,600 |               570,570 |
+| Eager fonts           |         0 |             0 |               0 |                     0 |
 
 The final source measurement, controlled startup observations, cold-cache and
 offline evidence are recorded in the
@@ -338,12 +338,12 @@ still selects. Only the type import stays static. The root is in
 caches its chunk for a cold offline launch, and the graph guard keeps it out of
 the static closure of `src/app.ts`.
 
-| Metric | Before B | After B | Unchanged 95% ceiling B |
-| --- | ---: | ---: | ---: |
-| Eager JavaScript gzip | 491,761 | 486,992 | 491,568 |
-| Eager total gzip | not recorded | 564,416 | 570,570 |
-| Eager total raw | not recorded | 2,108,323 | 2,156,096.25 |
-| Entry script gzip | not recorded | 126,767 | 461,890 |
+| Metric                |     Before B |   After B | Unchanged 95% ceiling B |
+| --------------------- | -----------: | --------: | ----------------------: |
+| Eager JavaScript gzip |      491,761 |   486,992 |                 491,568 |
+| Eager total gzip      | not recorded |   564,416 |                 570,570 |
+| Eager total raw       | not recorded | 2,108,323 |            2,156,096.25 |
+| Entry script gzip     | not recorded |   126,767 |                 461,890 |
 
 The deferred chunk is 19,233 B raw / 6,248 B gzip. Architectural limits, the 5%
 reserve, entry limits, and zero eager fonts are unchanged. These are local

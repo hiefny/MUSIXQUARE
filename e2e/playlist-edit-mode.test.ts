@@ -10,7 +10,13 @@ interface Point {
   y: number;
 }
 
-const FIXTURES = ['test01', 'test02', 'test03', 'test01', 'test02'];
+const FIXTURES: Parameters<typeof uploadFixtures>[1] = [
+  'test01',
+  'test02',
+  'test03',
+  'test01',
+  'test02',
+];
 
 async function openFiveTrackPlaylist(page: Page, phone: boolean): Promise<void> {
   await injectPeerServer(page);

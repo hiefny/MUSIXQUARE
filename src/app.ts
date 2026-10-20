@@ -1196,8 +1196,10 @@ async function bootstrap(): Promise<void> {
   safeInit('UiSounds', initUiSounds);
   safeInit('Visualizer', initVisualizer);
   safeInit('Chat', initChat);
-  safeInit('HoverPointer', initHoverPointer);
-  safeInit('PlaylistView', initPlaylistView);
+  safeInit('PlaylistView', () => {
+    initHoverPointer();
+    initPlaylistView();
+  });
   safeInit('PlayerControls', initPlayerControls);
   safeInit('KeepOpenNotice', initKeepOpenNotice);
   safeInit('GlobalFileDrop', initGlobalFileDrop);

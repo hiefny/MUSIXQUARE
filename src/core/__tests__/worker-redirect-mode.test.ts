@@ -10,7 +10,9 @@ describe('Worker fetch redirect mode', () => {
   it('never asks the Workers runtime for the unsupported error redirect mode', () => {
     const offenders: string[] = [];
     for (const file of readdirSync(resolve('cloudflare'), { recursive: true, encoding: 'utf8' })) {
-      if (!file.endsWith('.ts') || /(?:^|[\/])__tests__[\/]/u.test(file)) continue;
+      if (!file.endsWith('.ts') || file.replaceAll('\\', '/').split('/').includes('__tests__')) {
+        continue;
+      }
       const source = readFileSync(resolve(join('cloudflare', file)), 'utf8');
       if (/\bredirect\s*:\s*['"]error['"]/u.test(source)) offenders.push(file);
     }

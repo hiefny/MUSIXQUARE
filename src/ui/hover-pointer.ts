@@ -9,7 +9,11 @@
  * treats like `any-hover`; a touch press clears it so tapped rows never keep a
  * latched hover look.
  */
+let installed = false;
+
 export function initHoverPointer(): void {
+  if (installed) return;
+  installed = true;
   const root = document.documentElement;
   document.addEventListener(
     'pointermove',

@@ -51,8 +51,8 @@ async function connectSmokeToApp(handler: BridgeHandler): Promise<void> {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      // Cloudflare adds the client IP to the request and one Ray ID to both
-      // directions before the App Worker sees either.
+      // Cloudflare adds the client IP to the request, and the same Ray ID to
+      // the request the App Worker sees and to the response the client sees.
       const headers = new Headers(init?.headers);
       headers.set('CF-Connecting-IP', CLIENT_IP);
       headers.set('CF-Ray', RAY_ID);

@@ -583,6 +583,17 @@ const sv: Record<I18nKey, string> = {
   'toast.member_management_required': 'Behörighet att ta bort medlemmar krävs',
   'toast.chat_notice_required': 'Behörighet att publicera chattanslag krävs',
   'toast.room_owner_required': 'Bara rumsägaren kan ändra detta',
+  'toast.media_management_checking':
+    'Kontrollerar behörighet att hantera media\nFörsök igen om en stund',
+  'toast.playback_control_checking':
+    'Kontrollerar behörighet att styra uppspelningen\nFörsök igen om en stund',
+  'toast.member_management_checking':
+    'Kontrollerar behörighet att ta bort medlemmar\nFörsök igen om en stund',
+  'toast.chat_notice_checking':
+    'Kontrollerar behörighet att publicera chattanslag\nFörsök igen om en stund',
+  'toast.admin_permission_checking':
+    'Kontrollerar administratörsbehörighet\nFörsök igen om en stund',
+  'toast.room_owner_checking': 'Kontrollerar rumsägarens behörighet\nFörsök igen om en stund',
   'toast.system_audio_owner_required': 'Du kan bara dela ljud från fliken som öppnade rummet',
   'toast.host_setting_required': 'Bara värden kan ändra den här inställningen',
   'toast.no_tracks': 'Det finns inga spår att spela',

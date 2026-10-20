@@ -574,6 +574,18 @@ const pa: Record<I18nKey, string> = {
   'toast.member_management_required': 'ਮੈਂਬਰਾਂ ਨੂੰ ਕੱਢਣ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ',
   'toast.chat_notice_required': 'ਚੈਟ ਸੂਚਨਾਵਾਂ ਪੋਸਟ ਕਰਨ ਦੀ ਇਜਾਜ਼ਤ ਚਾਹੀਦੀ ਹੈ',
   'toast.room_owner_required': 'ਇਹ ਸਿਰਫ਼ ਰੂਮ ਦਾ ਮਾਲਕ ਬਦਲ ਸਕਦਾ ਹੈ',
+  'toast.media_management_checking':
+    'ਮੀਡੀਆ ਪ੍ਰਬੰਧ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.playback_control_checking':
+    'ਪਲੇਬੈਕ ਕੰਟਰੋਲ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.member_management_checking':
+    'ਮੈਂਬਰਾਂ ਨੂੰ ਕੱਢਣ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.chat_notice_checking':
+    'ਚੈਟ ਸੂਚਨਾਵਾਂ ਪੋਸਟ ਕਰਨ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.admin_permission_checking':
+    'ਪ੍ਰਬੰਧਕ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
+  'toast.room_owner_checking':
+    'ਰੂਮ ਦੇ ਮਾਲਕ ਦੀ ਇਜਾਜ਼ਤ ਦੀ ਜਾਂਚ ਹੋ ਰਹੀ ਹੈ\nਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ',
   'toast.system_audio_owner_required':
     'ਤੁਸੀਂ ਸਿਰਫ਼ ਉਸੇ ਟੈਬ ਤੋਂ ਆਡੀਓ ਸਾਂਝਾ ਕਰ ਸਕਦੇ ਹੋ ਜਿਸ ਨੇ ਰੂਮ ਖੋਲ੍ਹਿਆ ਸੀ',
   'toast.host_setting_required': 'ਇਹ ਸੈਟਿੰਗ ਸਿਰਫ਼ ਹੋਸਟ ਬਦਲ ਸਕਦਾ ਹੈ',

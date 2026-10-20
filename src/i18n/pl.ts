@@ -588,6 +588,18 @@ const pl: Record<I18nKey, string> = {
   'toast.member_management_required': 'Wymagane jest uprawnienie do wyrzucania uczestników',
   'toast.chat_notice_required': 'Wymagane jest uprawnienie do publikowania ogłoszeń na czacie',
   'toast.room_owner_required': 'Tylko właściciel pokoju może to zmienić',
+  'toast.media_management_checking':
+    'Sprawdzamy uprawnienie do zarządzania multimediami\nSpróbuj ponownie za chwilę',
+  'toast.playback_control_checking':
+    'Sprawdzamy uprawnienie do sterowania odtwarzaniem\nSpróbuj ponownie za chwilę',
+  'toast.member_management_checking':
+    'Sprawdzamy uprawnienie do wyrzucania uczestników\nSpróbuj ponownie za chwilę',
+  'toast.chat_notice_checking':
+    'Sprawdzamy uprawnienie do publikowania ogłoszeń na czacie\nSpróbuj ponownie za chwilę',
+  'toast.admin_permission_checking':
+    'Sprawdzamy uprawnienia administratora\nSpróbuj ponownie za chwilę',
+  'toast.room_owner_checking':
+    'Sprawdzamy uprawnienia właściciela pokoju\nSpróbuj ponownie za chwilę',
   'toast.system_audio_owner_required':
     'Możesz udostępniać dźwięk tylko z karty, w której utworzono pokój',
   'toast.host_setting_required': 'Tylko host może zmienić to ustawienie',

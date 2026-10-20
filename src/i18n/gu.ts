@@ -568,6 +568,16 @@ const gu: Record<I18nKey, string> = {
   'toast.member_management_required': 'સભ્યોને દૂર કરવાની પરવાનગી જરૂરી છે',
   'toast.chat_notice_required': 'ચૅટ સૂચના પોસ્ટ કરવાની પરવાનગી જરૂરી છે',
   'toast.room_owner_required': 'આ ફક્ત રૂમનો માલિક બદલી શકે છે',
+  'toast.media_management_checking':
+    'મીડિયા સંચાલનની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.playback_control_checking':
+    'પ્લેબૅક નિયંત્રણની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.member_management_checking':
+    'સભ્યોને દૂર કરવાની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.chat_notice_checking':
+    'ચૅટ સૂચના પોસ્ટ કરવાની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.admin_permission_checking': 'સંચાલક પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
+  'toast.room_owner_checking': 'રૂમના માલિકની પરવાનગી તપાસી રહ્યાં છીએ\nથોડી વારમાં ફરી પ્રયાસ કરો',
   'toast.system_audio_owner_required': 'તમે ફક્ત રૂમ ખોલનાર ટૅબમાંથી જ ઑડિયો શેર કરી શકો છો',
   'toast.host_setting_required': 'આ સેટિંગ ફક્ત હોસ્ટ બદલી શકે છે',
   'toast.no_tracks': 'ચલાવવા કોઈ ટ્રૅક નથી',

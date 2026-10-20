@@ -594,6 +594,18 @@ const fil: Record<I18nKey, string> = {
   'toast.member_management_required': 'Kailangan ang pahintulot na mag-alis ng mga miyembro',
   'toast.chat_notice_required': 'Kailangan ang pahintulot na mag-post ng mga abiso sa chat',
   'toast.room_owner_required': 'May-ari lang ng kuwarto ang makakapagbago nito',
+  'toast.media_management_checking':
+    'Sinusuri ang pahintulot na mamahala ng media\nPakisubukan muli maya-maya',
+  'toast.playback_control_checking':
+    'Sinusuri ang pahintulot na kontrolin ang pag-play\nPakisubukan muli maya-maya',
+  'toast.member_management_checking':
+    'Sinusuri ang pahintulot na mag-alis ng mga miyembro\nPakisubukan muli maya-maya',
+  'toast.chat_notice_checking':
+    'Sinusuri ang pahintulot na mag-post ng mga abiso sa chat\nPakisubukan muli maya-maya',
+  'toast.admin_permission_checking':
+    'Sinusuri ang pahintulot ng administrator\nPakisubukan muli maya-maya',
+  'toast.room_owner_checking':
+    'Sinusuri ang pahintulot ng may-ari ng kuwarto\nPakisubukan muli maya-maya',
   'toast.system_audio_owner_required':
     'Maaari mo lang ibahagi ang audio mula sa tab na nagbukas ng kuwarto',
   'toast.host_setting_required': 'Host lang ang makakapagbago ng setting na ito',

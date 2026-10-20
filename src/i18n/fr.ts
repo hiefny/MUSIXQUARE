@@ -550,6 +550,18 @@ const fr: Record<I18nKey, string> = {
   'toast.member_management_required': 'L’autorisation d’expulser des membres est requise',
   'toast.chat_notice_required': 'L’autorisation de publier des annonces dans le chat est requise',
   'toast.room_owner_required': 'Seul le propriétaire du salon peut modifier ceci',
+  'toast.media_management_checking':
+    'Vérification de l’autorisation de gérer les médias\nRéessayez dans un instant',
+  'toast.playback_control_checking':
+    'Vérification de l’autorisation de contrôler la lecture\nRéessayez dans un instant',
+  'toast.member_management_checking':
+    'Vérification de l’autorisation d’expulser des membres\nRéessayez dans un instant',
+  'toast.chat_notice_checking':
+    'Vérification de l’autorisation de publier des annonces dans le chat\nRéessayez dans un instant',
+  'toast.admin_permission_checking':
+    'Vérification des droits d’administrateur\nRéessayez dans un instant',
+  'toast.room_owner_checking':
+    'Vérification des droits du propriétaire du salon\nRéessayez dans un instant',
   'toast.system_audio_owner_required':
     'Vous ne pouvez partager l’audio que depuis l’onglet qui a ouvert le salon',
   'toast.host_setting_required': 'Seul l’hôte peut modifier ce réglage',

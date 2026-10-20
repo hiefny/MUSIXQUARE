@@ -585,6 +585,18 @@ const hu: Record<I18nKey, string> = {
   'toast.member_management_required': 'Résztvevő-eltávolítási jogosultság szükséges',
   'toast.chat_notice_required': 'Közlemény közzétételéhez jogosultság szükséges',
   'toast.room_owner_required': 'Ezt csak a szobatulajdonos módosíthatja',
+  'toast.media_management_checking':
+    'Médiakezelési jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.playback_control_checking':
+    'Lejátszásvezérlési jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.member_management_checking':
+    'Résztvevő-eltávolítási jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.chat_notice_checking':
+    'Közlemény-közzétételi jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.admin_permission_checking':
+    'Adminisztrátori jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
+  'toast.room_owner_checking':
+    'Szobatulajdonosi jogosultság ellenőrzése folyamatban\nPróbáld újra egy pillanat múlva',
   'toast.system_audio_owner_required':
     'Csak arról a lapról oszthatsz meg hangot, amelyik megnyitotta a szobát',
   'toast.host_setting_required': 'Ezt a beállítást csak a házigazda módosíthatja',

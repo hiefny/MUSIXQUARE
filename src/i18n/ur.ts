@@ -572,6 +572,18 @@ const ur: Record<I18nKey, string> = {
   'toast.member_management_required': 'ارکان کو نکالنے کی اجازت درکار ہے',
   'toast.chat_notice_required': 'چیٹ اطلاع پوسٹ کرنے کی اجازت درکار ہے',
   'toast.room_owner_required': 'صرف کمرے کا مالک یہ بدل سکتا ہے',
+  'toast.media_management_checking':
+    'میڈیا کے انتظام کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.playback_control_checking':
+    'پلے بیک کنٹرول کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.member_management_checking':
+    'ارکان کو نکالنے کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.chat_notice_checking':
+    'چیٹ اطلاع پوسٹ کرنے کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.admin_permission_checking':
+    'منتظم کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
+  'toast.room_owner_checking':
+    'کمرے کے مالک کی اجازت کی جانچ ہو رہی ہے\nکچھ دیر بعد دوبارہ کوشش کریں',
   'toast.system_audio_owner_required':
     'آپ صرف اسی ٹیب سے آڈیو شیئر کر سکتے ہیں جس نے کمرہ کھولا تھا',
   'toast.host_setting_required': 'صرف میزبان یہ ترتیب بدل سکتا ہے',

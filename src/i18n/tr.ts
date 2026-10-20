@@ -572,6 +572,13 @@ const tr: Record<I18nKey, string> = {
   'toast.member_management_required': 'Katılımcıları çıkarma izni gerekli',
   'toast.chat_notice_required': 'Sohbet duyurusu izni gerekli',
   'toast.room_owner_required': 'Bunu yalnızca oda sahibi değiştirebilir',
+  'toast.media_management_checking': 'Medya yönetimi izni kontrol ediliyor\nBirazdan tekrar dene',
+  'toast.playback_control_checking': 'Oynatma kontrolü izni kontrol ediliyor\nBirazdan tekrar dene',
+  'toast.member_management_checking':
+    'Katılımcıları çıkarma izni kontrol ediliyor\nBirazdan tekrar dene',
+  'toast.chat_notice_checking': 'Sohbet duyurusu izni kontrol ediliyor\nBirazdan tekrar dene',
+  'toast.admin_permission_checking': 'Yönetici yetkisi kontrol ediliyor\nBirazdan tekrar dene',
+  'toast.room_owner_checking': 'Oda sahibi yetkisi kontrol ediliyor\nBirazdan tekrar dene',
   'toast.system_audio_owner_required': 'Yalnızca odayı doğrudan açan sekmeden ses paylaşabilirsin',
   'toast.host_setting_required': 'Bu ayarı yalnızca oda sahibi değiştirebilir',
   'toast.no_tracks': 'Oynatılacak medya bulunmuyor',

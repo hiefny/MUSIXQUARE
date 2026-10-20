@@ -593,6 +593,17 @@ const el: Record<I18nKey, string> = {
   'toast.member_management_required': 'Απαιτείται δικαίωμα αφαίρεσης μελών',
   'toast.chat_notice_required': 'Απαιτείται δικαίωμα δημοσίευσης ανακοινώσεων συνομιλίας',
   'toast.room_owner_required': 'Μόνο ο κάτοχος του δωματίου μπορεί να το αλλάξει',
+  'toast.media_management_checking':
+    'Ελέγχεται το δικαίωμα διαχείρισης πολυμέσων\nΔοκιμάστε ξανά σε λίγο',
+  'toast.playback_control_checking':
+    'Ελέγχεται το δικαίωμα ελέγχου αναπαραγωγής\nΔοκιμάστε ξανά σε λίγο',
+  'toast.member_management_checking':
+    'Ελέγχεται το δικαίωμα αφαίρεσης μελών\nΔοκιμάστε ξανά σε λίγο',
+  'toast.chat_notice_checking':
+    'Ελέγχεται το δικαίωμα δημοσίευσης ανακοινώσεων συνομιλίας\nΔοκιμάστε ξανά σε λίγο',
+  'toast.admin_permission_checking': 'Ελέγχονται τα δικαιώματα διαχειριστή\nΔοκιμάστε ξανά σε λίγο',
+  'toast.room_owner_checking':
+    'Ελέγχονται τα δικαιώματα του κατόχου του δωματίου\nΔοκιμάστε ξανά σε λίγο',
   'toast.system_audio_owner_required':
     'Μπορείτε να κοινοποιήσετε ήχο μόνο από την καρτέλα που άνοιξε το δωμάτιο',
   'toast.host_setting_required': 'Μόνο ο οικοδεσπότης μπορεί να αλλάξει αυτή τη ρύθμιση',

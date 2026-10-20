@@ -584,6 +584,17 @@ const ru: Record<I18nKey, string> = {
   'toast.member_management_required': 'Требуется право на исключение участников',
   'toast.chat_notice_required': 'Требуется право на публикацию объявлений в чате',
   'toast.room_owner_required': 'Изменить это может только владелец комнаты',
+  'toast.media_management_checking':
+    'Проверяем право на управление медиа\nПопробуйте ещё раз через минуту',
+  'toast.playback_control_checking':
+    'Проверяем право на управление воспроизведением\nПопробуйте ещё раз через минуту',
+  'toast.member_management_checking':
+    'Проверяем право на исключение участников\nПопробуйте ещё раз через минуту',
+  'toast.chat_notice_checking':
+    'Проверяем право на публикацию объявлений в чате\nПопробуйте ещё раз через минуту',
+  'toast.admin_permission_checking':
+    'Проверяем права администратора\nПопробуйте ещё раз через минуту',
+  'toast.room_owner_checking': 'Проверяем права владельца комнаты\nПопробуйте ещё раз через минуту',
   'toast.system_audio_owner_required':
     'Транслировать аудио можно только из вкладки, в которой была создана комната',
   'toast.host_setting_required': 'Изменять эту настройку может только хост комнаты',

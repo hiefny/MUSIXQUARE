@@ -575,6 +575,16 @@ const hi: Record<I18nKey, string> = {
   'toast.member_management_required': 'सदस्यों को निकालने की अनुमति चाहिए',
   'toast.chat_notice_required': 'चैट सूचना पोस्ट करने की अनुमति चाहिए',
   'toast.room_owner_required': 'इसे केवल रूम का मालिक बदल सकता है',
+  'toast.media_management_checking':
+    'मीडिया प्रबंधन की अनुमति जाँची जा रही है\nकुछ देर बाद फिर कोशिश करें',
+  'toast.playback_control_checking':
+    'प्लेबैक नियंत्रण की अनुमति जाँची जा रही है\nकुछ देर बाद फिर कोशिश करें',
+  'toast.member_management_checking':
+    'सदस्यों को निकालने की अनुमति जाँची जा रही है\nकुछ देर बाद फिर कोशिश करें',
+  'toast.chat_notice_checking':
+    'चैट सूचना पोस्ट करने की अनुमति जाँची जा रही है\nकुछ देर बाद फिर कोशिश करें',
+  'toast.admin_permission_checking': 'एडमिन अनुमति जाँची जा रही है\nकुछ देर बाद फिर कोशिश करें',
+  'toast.room_owner_checking': 'रूम के मालिक की अनुमति जाँची जा रही है\nकुछ देर बाद फिर कोशिश करें',
   'toast.system_audio_owner_required':
     'आप केवल उसी टैब से ऑडियो साझा कर सकते हैं, जिसमें रूम खोला गया था',
   'toast.host_setting_required': 'यह सेटिंग केवल होस्ट बदल सकता है',

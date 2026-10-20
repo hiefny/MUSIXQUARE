@@ -19,6 +19,7 @@ import {
   setSystemAudioReceiving,
 } from '../../player/ownership.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
+import { markStandardRoomAuthorityConfirmed } from '../../rooms/authority.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import {
@@ -2949,9 +2950,12 @@ describe('initPlayerControls volume icon', () => {
     'explains locked volume without changing or publishing settings for a %s',
     (role) => {
       renderVolumeControls();
+      const hostConn = makeConnection('host');
       setState('setup.sessionStarted', true);
       setState('network.appRole', 'guest');
-      setState('network.hostConn', makeConnection('host'));
+      setState('network.hostConn', hostConn);
+      // The host's role projection has arrived; the lock is a final answer.
+      markStandardRoomAuthorityConfirmed(hostConn);
       setState('audio.settingsSyncEnabled', true);
       setState('audio.masterVolume', 0.65);
       if (role === 'standard restricted admin') {

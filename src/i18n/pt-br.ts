@@ -554,6 +554,18 @@ const ptBr: Record<I18nKey, string> = {
   'toast.member_management_required': 'É necessária permissão para remover membros',
   'toast.chat_notice_required': 'É necessária permissão para publicar avisos no chat',
   'toast.room_owner_required': 'Só o proprietário da sala pode alterar isso',
+  'toast.media_management_checking':
+    'Verificando a permissão para gerenciar mídia\nTente novamente em instantes',
+  'toast.playback_control_checking':
+    'Verificando a permissão para controlar a reprodução\nTente novamente em instantes',
+  'toast.member_management_checking':
+    'Verificando a permissão para remover membros\nTente novamente em instantes',
+  'toast.chat_notice_checking':
+    'Verificando a permissão para publicar avisos no chat\nTente novamente em instantes',
+  'toast.admin_permission_checking':
+    'Verificando a permissão de administrador\nTente novamente em instantes',
+  'toast.room_owner_checking':
+    'Verificando a permissão do proprietário da sala\nTente novamente em instantes',
   'toast.system_audio_owner_required': 'Você só pode compartilhar áudio da aba que abriu a sala',
   'toast.host_setting_required': 'Só o anfitrião pode alterar esta configuração',
   'toast.no_tracks': 'Não há faixas para reproduzir',

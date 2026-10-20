@@ -516,8 +516,12 @@ describe('Chat Module', () => {
     document.body.innerHTML =
       '<div id="chat-messages"></div><div id="chat-input" contenteditable="true"></div>';
     document.getElementById('chat-input')!.textContent = '/notice ' + 'denied '.repeat(100);
+    const hostConn = { open: true, peer: 'host-denied-notice' } as DataConnection;
     setState('network.appRole', 'guest');
-    setState('network.hostConn', { open: true, peer: 'host-denied-notice' } as DataConnection);
+    setState('network.hostConn', hostConn);
+    // The host has already projected this guest as a plain participant.
+    const { markStandardRoomAuthorityConfirmed } = await import('../../rooms/authority.ts');
+    markStandardRoomAuthorityConfirmed(hostConn);
     const sent = vi.fn();
     bus.on('network:broadcast', sent);
     const { sendChatMessage } = await import('../chat.ts');

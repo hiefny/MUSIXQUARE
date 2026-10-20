@@ -267,3 +267,5 @@ export const RESERVED_NAMES = [
 export const PRO_GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
 
 // ─── Misc ──────────────────────────────────────────────────────────
+
+export const PLAYLIST_SLOT_COUNT = 3;

@@ -138,9 +138,6 @@ export type YouTubeSyncLoadingOwner = 'rendezvous' | 'clock-action' | 'zero-star
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
-/** A room has this many playlists: "Playlist", "Playlist 2", "Playlist 3". */
-export const PLAYLIST_SLOT_COUNT = 3;
-
 /** One playlist's summary. `bytes` is null when its size is unknown. */
 export interface PlaylistSlotSummary {
   readonly count: number;

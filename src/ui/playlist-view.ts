@@ -194,7 +194,11 @@ function ensureFollowController(
         scrollContainer,
         getSelection: currentFollowSelection,
         isVisible: () => playlistIsVisible() && getState('playback.mode') !== 'system-audio',
-        isBlocked: () => isInteractionBlocked() || !!_followController?.isFollowing,
+        // The locator shares the bottom-centre slot with the Undo pill.
+        isBlocked: () =>
+          isInteractionBlocked() ||
+          !!_removalController?.hasPendingDeletion ||
+          !!_followController?.isFollowing,
         onActivate: (selection) => {
           _followController?.forceSelection(selection.queueItemId, selection.subIndex);
           _followController?.afterRender();
@@ -779,12 +783,12 @@ export function updatePlaylistUI(): void {
   const focusSnapshot = capturePlaylistFocus(list);
   cancelSubPlaylistProgressiveRenders();
 
-  const playlist = getState('playlist.items');
-  if (!Array.isArray(playlist)) {
+  const canonicalPlaylist = getState('playlist.items');
+  if (!Array.isArray(canonicalPlaylist)) {
     log.warn('[Playlist] playlist is not an array; render skipped');
     return;
   }
-  const committedIds = new Set(playlist.map((item) => item.queueItemId));
+  const committedIds = new Set(canonicalPlaylist.map((item) => item.queueItemId));
   // A server commit may outlive both its append response and the immediate
   // reconciliation request. A later authoritative playlist snapshot settles
   // that ambiguous failure and owns the row, so retire the matching temporary
@@ -795,7 +799,11 @@ export function updatePlaylistUI(): void {
       upload.phase === 'waiting' || upload.phase === 'uploading' || upload.phase === 'confirming',
   );
 
-  pruneExpansionOverrides(playlist);
+  pruneExpansionOverrides(canonicalPlaylist);
+  // Rows waiting out their Undo window (or a remote removal) are not part of
+  // the rendered list, so reorder, follow and the current-row locator never
+  // target them.
+  const playlist = visiblePlaylistItems(canonicalPlaylist);
   const scrollContainer = list.closest<HTMLElement>('.tab-body') ?? list;
   const followController = ensureFollowController(list, scrollContainer);
   const savedScrollTop = scrollContainer.scrollTop;
@@ -895,6 +903,12 @@ export function updatePlaylistUI(): void {
   followController.afterRender();
   _currentJumpController?.afterRender();
   schedulePlaylistTitleMarqueeMeasure(list);
+}
+
+function visiblePlaylistItems(items: readonly PlaylistItem[]): readonly PlaylistItem[] {
+  const controller = _removalController;
+  if (!controller) return items;
+  return items.filter((item) => !controller.isHidden(item.queueItemId));
 }
 
 function queueItemIdFromElement(element: Element | null): QueueItemId | null {
@@ -1014,7 +1028,7 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
       canEditQueueStructure() &&
       getState('playback.mode') !== 'system-audio' &&
       !_removalController?.isActive &&
-      getState('playlist.items').length > 1,
+      visiblePlaylistItems(getState('playlist.items')).length > 1,
     isPlaylistVisible: playlistIsVisible,
     onCommit: (queueItemId, beforeQueueItemId) => {
       bus.emit(
@@ -1110,6 +1124,11 @@ export function initPlaylistView(): void {
       isPlaylistVisible: playlistIsVisible,
       getItems: () => getState('playlist.items'),
       onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
+      onHiddenChange: () => updatePlaylistUI(),
+      // Only the Standard host removes synchronously; PRO and Standard
+      // guests wait for the authoritative snapshot.
+      isRemovalLocal: () => getRoomContext().kind !== 'pro' && !getState('network.hostConn'),
+      onUndoChange: () => _currentJumpController?.refresh(),
       onSelectionStart: () => {
         _reorderController?.cancel();
         _currentJumpController?.refresh();
@@ -1145,6 +1164,7 @@ export function initPlaylistView(): void {
   _busScope.on('state:network.hostConn', () => {
     _reorderController?.cancel();
     _removalController?.cancel();
+    _removalController?.dropPendingDeletion();
     schedulePlaylistUpdate();
   });
   _busScope.on('state:network.isOperator', (isOperator) => {
@@ -1155,6 +1175,7 @@ export function initPlaylistView(): void {
     if (!isOperator || !canEditQueueStructure()) {
       _reorderController?.cancel();
       _removalController?.cancel();
+      _removalController?.dropPendingDeletion();
     }
     schedulePlaylistUpdate();
   });
@@ -1162,6 +1183,7 @@ export function initPlaylistView(): void {
     if (!canEditQueueStructure()) {
       _reorderController?.cancel();
       _removalController?.cancel();
+      _removalController?.dropPendingDeletion();
     }
     schedulePlaylistUpdate();
   });
@@ -1185,6 +1207,7 @@ export function initPlaylistView(): void {
     if (roomChanged || editAuthorityLost) {
       _reorderController?.cancel();
       _removalController?.cancel();
+      _removalController?.dropPendingDeletion();
     }
     if (roomChanged || queueEditBoundary.canEdit !== nextBoundary.canEdit) {
       schedulePlaylistUpdate();
@@ -1197,7 +1220,13 @@ export function initPlaylistView(): void {
     const crossesSystemAudioBoundary =
       (renderedPlaybackMode === 'system-audio') !== (mode === 'system-audio');
     renderedPlaybackMode = mode;
-    if (mode === 'system-audio') _removalController?.cancel();
+    if (mode === 'system-audio') {
+      // Queue edits are disabled while system audio is shared. Sending a
+      // pending removal now could replace the shared source with a successor
+      // track, so the rows come back instead.
+      _removalController?.cancel();
+      _removalController?.dropPendingDeletion();
+    }
     if (crossesSystemAudioBoundary) {
       schedulePlaylistUpdate();
     } else {
@@ -1235,13 +1264,17 @@ export function initPlaylistView(): void {
     if (tabId !== 'playlist') {
       _reorderController?.notifyPlaylistHidden();
       if (!playlistIsVisible()) {
-        // Narrow layouts genuinely park the playlist off-screen. The wide
-        // desktop dashboard keeps it visible, so a playback-driven logical
-        // tab change must not discard an in-progress deletion selection.
+        // Narrow layouts park the playlist off-screen, so focus follows the
+        // destination tab.
         const destination = Array.from(
           document.querySelectorAll<HTMLElement>('.nav-item[data-tab]'),
         ).find((item) => item.dataset.tab === tabId);
         _removalController?.notifyPlaylistHidden(destination ?? null);
+      } else {
+        // The wide dashboard keeps the playlist on screen, but moving to
+        // another tab still ends deletion mode. Sequential playback opts out
+        // of tab switches, so this only follows a real navigation.
+        _removalController?.cancel();
       }
     }
     _currentJumpController?.refresh();
@@ -1252,6 +1285,7 @@ export function initPlaylistView(): void {
       _expansionOverrides.clear();
       _reorderController?.cancel();
       _removalController?.cancel();
+      _removalController?.dropPendingDeletion();
       _currentJumpController?.refresh();
     }
   });

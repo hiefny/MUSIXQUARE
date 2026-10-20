@@ -14,6 +14,8 @@ const th: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ตกลง',
   'common.cancel': 'ยกเลิก',
+  'common.delete': 'ลบ',
+  'common.undo': 'ย้อนกลับ',
   'common.close': 'ปิด',
   'common.skip_to_content': 'ข้ามไปยังเนื้อหา',
   'common.reset': 'รีเซ็ต',
@@ -154,6 +156,7 @@ const th: Record<I18nKey, string> = {
   'playlist.deselect_all': 'ยกเลิกการเลือกทั้งหมด',
   'playlist.select_all': 'เลือกทั้งหมด',
   'playlist.delete_selected': 'ลบ {{count}} รายการที่เลือก',
+  'playlist.selected_count': '{{count}} รายการที่เลือก',
   'playlist.video_fallback': 'กำลังโหลด...',
   'playlist.track_fallback': 'รายการที่ {{idx}}',
   'playlist.deferred_load_hint': 'กดเล่นเพื่อโหลดรายการทั้งหมด',

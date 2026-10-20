@@ -17,6 +17,8 @@ const ptBr: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Cancelar',
+  'common.delete': 'Excluir',
+  'common.undo': 'Desfazer',
   'common.close': 'Fechar',
   'common.skip_to_content': 'Pular para o conteúdo',
   'common.reset': 'Redefinir',
@@ -251,6 +253,7 @@ const ptBr: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Desmarcar tudo',
   'playlist.select_all': 'Selecionar tudo',
   'playlist.delete_selected': 'Excluir {{count}} faixas selecionadas',
+  'playlist.selected_count': '{{count}} selecionados',
   'playlist.video_fallback': 'Carregando...',
   'playlist.track_fallback': 'Faixa {{idx}}',
   'playlist.deferred_load_hint': 'Reproduza para carregar a lista completa de faixas',
@@ -945,6 +948,7 @@ const ptBr: Record<I18nKey, string> = {
 export default ptBr;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} selecionado' },
   'connect.administrator_list': { one: '{{count}} administrador' },
   'playlist.delete_selected': { one: 'Excluir {{count}} faixa selecionada' },
   'connect.device_list': { one: '{{count}} dispositivo conectado' },

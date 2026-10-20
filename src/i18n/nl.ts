@@ -18,6 +18,8 @@ const nl: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Annuleren',
+  'common.delete': 'Verwijderen',
+  'common.undo': 'Ongedaan maken',
   'common.close': 'Sluiten',
   'common.skip_to_content': 'Ga naar de inhoud',
   'common.reset': 'Resetten',
@@ -158,6 +160,7 @@ const nl: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Alles deselecteren',
   'playlist.select_all': 'Alles selecteren',
   'playlist.delete_selected': '{{count}} geselecteerde tracks verwijderen',
+  'playlist.selected_count': '{{count}} geselecteerd',
   'playlist.video_fallback': 'Laden...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Speel af om de volledige tracklijst te laden',
@@ -943,6 +946,7 @@ const nl: Record<I18nKey, string> = {
 export default nl;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} geselecteerd' },
   'connect.administrator_list': { one: '{{count}} beheerder' },
   'playlist.delete_selected': { one: '{{count}} geselecteerde track verwijderen' },
   'connect.device_list': { one: '{{count}} verbonden apparaat' },

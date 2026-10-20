@@ -15,6 +15,8 @@ const cs: Record<I18nKey, string> = {
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Zrušit',
+  'common.delete': 'Odstranit',
+  'common.undo': 'Zpět',
   'common.close': 'Zavřít',
   'common.skip_to_content': 'Přejít k obsahu',
   'common.reset': 'Resetovat',
@@ -158,6 +160,7 @@ const cs: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Zrušit výběr všeho',
   'playlist.select_all': 'Vybrat vše',
   'playlist.delete_selected': 'Smazat vybrané skladby: {{count}}',
+  'playlist.selected_count': 'Vybráno: {{count}}',
   'playlist.video_fallback': 'Načítání...',
   'playlist.track_fallback': 'Skladba {{idx}}',
   'playlist.deferred_load_hint': 'Spuštěním přehrávání načtete celý seznam skladeb',

@@ -16,6 +16,8 @@ const fi: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Peruuta',
+  'common.delete': 'Poista',
+  'common.undo': 'Kumoa',
   'common.close': 'Sulje',
   'common.skip_to_content': 'Siirry sisältöön',
   'common.reset': 'Palauta',
@@ -159,6 +161,7 @@ const fi: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Poista kaikki valinnat',
   'playlist.select_all': 'Valitse kaikki',
   'playlist.delete_selected': 'Poista {{count}} valittua kappaletta',
+  'playlist.selected_count': '{{count}} valittu',
   'playlist.video_fallback': 'Ladataan…',
   'playlist.track_fallback': 'Kappale {{idx}}',
   'playlist.deferred_load_hint': 'Lataa koko kappalelista aloittamalla toisto',

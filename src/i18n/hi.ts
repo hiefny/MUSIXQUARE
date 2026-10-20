@@ -16,6 +16,8 @@ const hi: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ठीक है',
   'common.cancel': 'रद्द करें',
+  'common.delete': 'मिटाएं',
+  'common.undo': 'पहले जैसा',
   'common.close': 'बंद करें',
   'common.skip_to_content': 'सामग्री पर जाएं',
   'common.reset': 'रीसेट करें',
@@ -159,6 +161,7 @@ const hi: Record<I18nKey, string> = {
   'playlist.deselect_all': 'सभी का चयन हटाएँ',
   'playlist.select_all': 'सभी चुनें',
   'playlist.delete_selected': 'चुने गए {{count}} ट्रैक मिटाएँ',
+  'playlist.selected_count': '{{count}} चयन किया गया',
   'playlist.video_fallback': 'लोड हो रहा है...',
   'playlist.track_fallback': 'ट्रैक {{idx}}',
   'playlist.deferred_load_hint': 'ट्रैक की पूरी सूची लोड करने के लिए चलाएँ',

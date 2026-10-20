@@ -17,6 +17,8 @@ const ja: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'キャンセル',
+  'common.delete': '削除',
+  'common.undo': '元に戻す',
   'common.close': '閉じる',
   'common.skip_to_content': 'コンテンツへスキップ',
   'common.reset': 'リセット',
@@ -250,6 +252,7 @@ const ja: Record<I18nKey, string> = {
   'playlist.deselect_all': 'すべて選択解除',
   'playlist.select_all': 'すべて選択',
   'playlist.delete_selected': '選択したトラック{{count}}件を削除',
+  'playlist.selected_count': '{{count}}個を選択中',
   'playlist.video_fallback': '読み込み中...',
   'playlist.track_fallback': 'トラック{{idx}}',
   'playlist.deferred_load_hint': '再生すると全トラック情報を読み込みます',

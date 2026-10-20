@@ -16,6 +16,8 @@ const ta: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'சரி',
   'common.cancel': 'ரத்துசெய்',
+  'common.delete': 'நீக்கு',
+  'common.undo': 'செயல்தவிர்',
   'common.close': 'மூடு',
   'common.skip_to_content': 'உள்ளடக்கத்திற்கு செல்க',
   'common.reset': 'மீட்டமை',
@@ -160,6 +162,7 @@ const ta: Record<I18nKey, string> = {
   'playlist.deselect_all': 'அனைத்துத் தேர்வுகளையும் நீக்கு',
   'playlist.select_all': 'அனைத்தையும் தேர்ந்தெடு',
   'playlist.delete_selected': 'தேர்ந்தெடுத்த {{count}} டிராக்குகளை நீக்கு',
+  'playlist.selected_count': '{{count}} தேர்வுகள்',
   'playlist.video_fallback': 'ஏற்றப்படுகிறது...',
   'playlist.track_fallback': 'டிராக் {{idx}}',
   'playlist.deferred_load_hint': 'முழு டிராக் பட்டியலை ஏற்ற இயக்கவும்',

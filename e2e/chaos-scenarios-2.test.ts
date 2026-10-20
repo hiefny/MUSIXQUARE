@@ -174,6 +174,7 @@ async function removeFirstTrack(page: Page, remaining: number): Promise<void> {
   await navigateToTab(page, 'playlist');
   await page.locator('.btn-playlist-remove').first().click();
   await page.locator('.playlist-selection-delete').click();
+  await expect(page.locator('.playlist-selection-bar')).toBeHidden();
   await waitForPlaylistCount(page, remaining);
 }
 

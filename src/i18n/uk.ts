@@ -15,6 +15,8 @@ const uk: Record<I18nKey, string> = {
   // ─── Загальні ────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Скасувати',
+  'common.delete': 'Видалити',
+  'common.undo': 'Скасувати',
   'common.close': 'Закрити',
   'common.skip_to_content': 'Перейти до вмісту',
   'common.reset': 'Скинути',
@@ -158,6 +160,7 @@ const uk: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Зняти всі позначення',
   'playlist.select_all': 'Вибрати все',
   'playlist.delete_selected': 'Видалити вибрані треки: {{count}}',
+  'playlist.selected_count': 'Вибрано: {{count}}',
   'playlist.video_fallback': 'Завантаження...',
   'playlist.track_fallback': 'Трек {{idx}}',
   'playlist.deferred_load_hint': 'Почніть відтворення, щоб завантажити весь список треків',

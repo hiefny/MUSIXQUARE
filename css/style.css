@@ -2215,7 +2215,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     transition: padding-bottom 0.2s ease;
   }
 
-  .playlist-ul.has-removal-selection {
+  .playlist-ul.has-removal-selection,
+  .playlist-ul.has-removal-undo {
     padding-bottom: calc(88px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
   }
 
@@ -2836,8 +2837,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     .playlist-reorder-grip,
     .playlist-reorder-ghost,
     .playlist-reorder-settle,
+    .playlist-selection-bar,
     .playlist-selection-pill,
-    .playlist-selection-action,
+    .playlist-selection-pill-label,
+    .playlist-selection-toggle,
     .playlist-ul,
     .btn-playlist-remove,
     .btn-playlist-remove svg,
@@ -2942,132 +2945,186 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  .playlist-selection-pill {
+  /* Deletion mode: the playlist title becomes the selected count and one
+     text-only action toggles select all. The tab's icon actions step aside
+     until the mode ends. */
+  .tab-header.is-removal-selecting > .tab-title:not(.playlist-selection-title),
+  .tab-header.is-removal-selecting .playlist-title-area > .tab-action-btn {
+    display: none;
+  }
+
+  .playlist-selection-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .playlist-selection-title[hidden],
+  .playlist-selection-toggle[hidden] {
+    display: none;
+  }
+
+  .playlist-selection-toggle {
+    appearance: none;
+    -webkit-appearance: none;
+    flex: 0 0 auto;
+    /* Same -4px trick as .tab-action-btn: a 44px touch box that occupies the
+       36px header row, so entering the mode never moves the title. */
+    height: 44px;
+    margin: -4px 0 -4px 16px;
+    padding: 0 4px;
+    display: inline-flex;
+    align-items: center;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--primary);
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s ease;
+  }
+
+  .playlist-selection-toggle:active {
+    opacity: 0.6;
+  }
+
+  .playlist-selection-toggle:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  @media (hover: hover) {
+    .playlist-selection-toggle:hover {
+      opacity: 0.8;
+    }
+  }
+
+  /* Delete and Cancel use the dialog pill family (54px, pill radius, 700
+     label) and float over the list in the old selection pill's slot. */
+  .playlist-selection-bar {
     position: absolute;
     z-index: 100;
     left: calc(var(--safe-left) + 16px);
     right: calc(var(--safe-right) + 16px);
     bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 14px);
     width: max-content;
-    min-height: 56px;
+    max-width: calc(100% - var(--safe-left) - var(--safe-right) - 32px);
     margin-inline: auto;
-    box-sizing: border-box;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 3px;
-    padding: 6px;
-    color: #fff;
-    background: var(--primary-filled);
-    border: 0;
-    border-radius: var(--radius-pill);
-    box-shadow: none;
-    opacity: 0;
-    visibility: hidden;
+    gap: 10px;
     pointer-events: none;
-    transform: translateY(18px);
-    transform-origin: center bottom;
-    transition:
-      opacity 0.18s ease,
-      visibility 0s linear 0.2s,
-      transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: playlist-selection-bar-in 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
-  .playlist-selection-pill.is-visible {
-    opacity: 1;
-    visibility: visible;
-    pointer-events: auto;
-    transform: translateY(0);
-    transition-delay: 0s;
+  .playlist-selection-bar[hidden] {
+    display: none;
   }
 
-  .playlist-selection-action {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 44px;
-    height: 44px;
-    flex: 0 0 44px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 5px;
-    color: rgba(255, 255, 255, 0.94);
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-    transition:
-      background 0.15s ease,
-      opacity 0.15s ease,
-      transform 0.15s ease;
-    border-radius: var(--radius-pill);
-  }
+  @keyframes playlist-selection-bar-in {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
 
-  .playlist-selection-action svg {
-    width: 21px;
-    height: 21px;
-    flex: 0 0 21px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.8;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .playlist-selection-action:active {
-    background: rgba(255, 255, 255, 0.18);
-    transform: scale(0.94);
-  }
-
-  .playlist-selection-action:focus-visible {
-    outline: 2px solid rgba(255, 255, 255, 0.95);
-    outline-offset: -3px;
-  }
-
-  .playlist-selection-action:disabled {
-    opacity: 0.38;
-    cursor: default;
-  }
-
-  .playlist-selection-action.is-selected {
-    background: rgba(255, 255, 255, 0.18);
-  }
-
-  @media (hover: hover) {
-    .playlist-selection-action:not(:disabled):hover {
-      background: rgba(255, 255, 255, 0.14);
+    to {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 
-  .playlist-selection-delete {
-    width: auto;
-    min-width: 58px;
-    flex-basis: auto;
-    padding: 0 9px;
-    background: rgba(255, 255, 255, 0.12);
-  }
-
-  .playlist-selection-delete svg {
-    fill: currentColor;
-    stroke: none;
-  }
-
-  .playlist-selection-count {
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
+  .playlist-selection-pill {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    min-width: 100px;
+    min-height: 54px;
     box-sizing: border-box;
+    padding: 0 28px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: 8px;
+    overflow: hidden;
+    border: 1px solid transparent;
     border-radius: var(--radius-pill);
-    background: rgba(255, 255, 255, 0.2);
-    color: #fff;
-    font-size: 11px;
+    font-family: inherit;
+    font-size: 15px;
     font-weight: 700;
-    line-height: 1;
-    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+    pointer-events: auto;
+    -webkit-tap-highlight-color: transparent;
+    transition:
+      background-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+      border-color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+      color 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+      scale 0.2s ease;
+  }
+
+  .playlist-selection-pill[hidden] {
+    display: none;
+  }
+
+  .playlist-selection-pill:active {
+    scale: 0.97;
+  }
+
+  .playlist-selection-pill:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 3px;
+  }
+
+  .playlist-selection-delete {
+    background: var(--primary-filled);
+    color: #fff;
+  }
+
+  .playlist-selection-cancel,
+  .playlist-selection-delete.is-undo {
+    background: var(--surface-2);
+    border-color: var(--glass-border);
+    color: var(--text-main);
+  }
+
+  .playlist-selection-cancel.is-exiting {
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .playlist-selection-delete.is-leaving {
+    pointer-events: none;
+  }
+
+  .playlist-selection-delete > svg {
+    display: none;
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    fill: currentColor;
+  }
+
+  .playlist-selection-delete.is-undo > svg {
+    display: block;
+  }
+
+  /* The undo arrow points backwards in reading order. */
+  [dir='rtl'] .playlist-selection-delete > svg {
+    transform: scaleX(-1);
+  }
+
+  .playlist-selection-delete.is-undo {
+    padding-inline: 24px 28px;
   }
 
   .playlist-ul.has-removal-selection .playlist-reorder-handle {
@@ -4603,7 +4660,7 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   @media (max-width: 719px) {
-    body:has(#tab-playlist.active .playlist-selection-pill.is-visible) .toast {
+    body:has(#tab-playlist.active .playlist-selection-bar:not([hidden])) .toast {
       bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px) + 84px);
     }
   }
@@ -11359,7 +11416,6 @@ Safety is declared first because important layer precedence is reversed; its acc
 /* Responsive layout owns geometry. Component tokens describe shape; active playback/overlay/entrance states are defined separately. */
 
 @layer responsive {
-
   /* Only a short portrait stack needs to sacrifice the subtitle row.
      Landscape has enough horizontal room to keep TRACK / ARTIST visible. */
   @media (max-width: 1279px) and (max-height: 720px) and (orientation: portrait) {
@@ -11599,7 +11655,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       scroll-padding-bottom: 0;
     }
 
-    #tab-playlist > .playlist-selection-pill {
+    #tab-playlist > .playlist-selection-bar {
       left: calc(var(--safe-left) + 24px);
       right: 24px;
       bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));

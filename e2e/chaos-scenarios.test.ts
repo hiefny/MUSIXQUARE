@@ -576,6 +576,7 @@ test.describe('Playlist + Disconnect Storm', () => {
         setup.hostPage.locator('.playlist-selection-delete').click(),
         setup.guestContexts[0].close(),
       ]);
+      await expect(setup.hostPage.locator('.playlist-selection-bar')).toBeHidden();
       await waitForPlaylistCount(setup.hostPage, 2);
 
       await waitForPeerCountAtMost(setup.hostPage, 1);

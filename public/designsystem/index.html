@@ -979,40 +979,12 @@
                   </ul>
                 </li>
               </ul>
-              <div
-                class="playlist-selection-pill is-visible"
-                role="group"
-                aria-label="Remove playlist items"
-              >
-                <button
-                  type="button"
-                  class="playlist-selection-action"
-                  aria-label="Select all"
-                  aria-pressed="false"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"
-                    />
-                    <path d="m8.5 12 2.2 2.2 4.8-5" />
-                  </svg>
+              <div class="playlist-selection-bar" role="group" aria-label="Remove from playlist">
+                <button type="button" class="playlist-selection-pill playlist-selection-delete">
+                  Delete
                 </button>
-                <button
-                  type="button"
-                  class="playlist-selection-action playlist-selection-delete"
-                  aria-label="Delete 1 selected track"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12Zm2-10h8v10H8V9Zm7.5-5-1-1h-5l-1 1H5v2h14V4h-3.5Z"
-                    />
-                  </svg>
-                  <span class="playlist-selection-count" aria-hidden="true">1</span>
-                </button>
-                <button type="button" class="playlist-selection-action" aria-label="Cancel">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="m7 7 10 10M17 7 7 17" />
-                  </svg>
+                <button type="button" class="playlist-selection-pill playlist-selection-cancel">
+                  Cancel
                 </button>
               </div>
             </div>

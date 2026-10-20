@@ -16,6 +16,8 @@ const en: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Cancel',
+  'common.delete': 'Delete',
+  'common.undo': 'Undo',
   'common.close': 'Close',
   'common.skip_to_content': 'Skip to content',
   'common.reset': 'Reset',
@@ -158,6 +160,7 @@ const en: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Deselect all',
   'playlist.select_all': 'Select all',
   'playlist.delete_selected': 'Delete {{count}} selected tracks',
+  'playlist.selected_count': '{{count}} selected',
   'playlist.video_fallback': 'Loading...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Play to load the full track list',

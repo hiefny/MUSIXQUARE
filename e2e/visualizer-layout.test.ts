@@ -459,7 +459,7 @@ test.describe('mobile visualizer layout', () => {
       const tabBody = document.querySelector<HTMLElement>('#tab-play > .tab-body');
       const secondary = document.querySelector<HTMLElement>('.play-secondary-area');
       const toast = document.querySelector<HTMLElement>('.toast');
-      const selection = document.querySelector<HTMLElement>('.playlist-selection-pill');
+      const selection = document.querySelector<HTMLElement>('.playlist-selection-bar');
 
       if (!nav || !tabBody || !secondary || !toast || !selection) {
         throw new Error('Mobile nav-clearance elements are missing');

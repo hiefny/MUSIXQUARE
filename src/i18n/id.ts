@@ -16,6 +16,8 @@ const id: Record<I18nKey, string> = {
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Batal',
+  'common.delete': 'Hapus',
+  'common.undo': 'Batalkan',
   'common.close': 'Tutup',
   'common.skip_to_content': 'Lewati ke konten',
   'common.reset': 'Atur ulang',
@@ -252,6 +254,7 @@ const id: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Batalkan semua pilihan',
   'playlist.select_all': 'Pilih semua',
   'playlist.delete_selected': 'Hapus {{count}} media terpilih',
+  'playlist.selected_count': '{{count}} dipilih',
   'playlist.video_fallback': 'Memuat...',
   'playlist.track_fallback': 'Media {{idx}}',
   'playlist.deferred_load_hint': 'Putar untuk memuat daftar media lengkap',

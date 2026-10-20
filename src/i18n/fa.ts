@@ -14,6 +14,8 @@ const fa: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'تأیید',
   'common.cancel': 'لغو',
+  'common.delete': 'حذف',
+  'common.undo': 'بازگردانی',
   'common.close': 'بستن',
   'common.skip_to_content': 'پرش به محتوا',
   'common.reset': 'بازنشانی',
@@ -157,6 +159,7 @@ const fa: Record<I18nKey, string> = {
   'playlist.deselect_all': 'برداشتن انتخاب همه',
   'playlist.select_all': 'انتخاب همه',
   'playlist.delete_selected': 'حذف {{count}} قطعهٔ انتخاب‌شده',
+  'playlist.selected_count': 'گزینش‌شده: {{count}}',
   'playlist.video_fallback': 'در حال بارگیری...',
   'playlist.track_fallback': 'قطعهٔ {{idx}}',
   'playlist.deferred_load_hint': 'برای بارگیری فهرست کامل قطعه‌ها، پخش را شروع کنید',

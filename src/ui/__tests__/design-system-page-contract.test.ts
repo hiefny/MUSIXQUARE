@@ -395,7 +395,7 @@ describe('public design-system page contract', () => {
     const playlistActions = [
       ...components.querySelectorAll<HTMLButtonElement>('.tab-action-btn-sample'),
     ];
-    const selectionPanel = components.querySelector<HTMLElement>('.playlist-selection-pill');
+    const selectionPanel = components.querySelector<HTMLElement>('.playlist-selection-bar');
     const rowDividers = [...components.querySelectorAll<HTMLElement>('.component-row-divider')];
     const controlLayout = components.querySelector<HTMLElement>('.component-control-layout');
     const controlStack = controlLayout?.querySelector<HTMLElement>('.component-control-stack');
@@ -427,12 +427,10 @@ describe('public design-system page contract', () => {
     expect(selectionPanel?.getAttribute('role')).toBe('group');
     expect(
       [...(selectionPanel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].map((button) =>
-        button.getAttribute('aria-label'),
+        button.textContent?.trim(),
       ),
-    ).toEqual(['Select all', 'Delete 1 selected track', 'Cancel']);
-    expect(selectionPanel?.querySelector('.playlist-selection-count')?.textContent?.trim()).toBe(
-      '1',
-    );
+    ).toEqual(['Delete', 'Cancel']);
+    expect(selectionPanel?.querySelector('.playlist-selection-count')).toBeNull();
     expect(
       [...(controlLayout?.children ?? [])].map((child) => (child as HTMLElement).className),
     ).toEqual(['component-control-stack', 'comp ranges-comp']);

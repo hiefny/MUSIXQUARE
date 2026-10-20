@@ -397,6 +397,7 @@ async function removeLastTrack(page: Page, remaining: number): Promise<void> {
   await navigateToTab(page, 'playlist');
   await page.locator('.btn-playlist-remove').last().click();
   await page.locator('.playlist-selection-delete').click();
+  await expect(page.locator('.playlist-selection-bar')).toBeHidden();
   await waitForPlaylistCount(page, remaining);
 }
 

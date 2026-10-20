@@ -317,8 +317,8 @@ test.describe('Playlist Management', () => {
     await removeBtns.last().click();
     await expect(removeBtns.first()).toHaveAttribute('aria-pressed', 'true');
     await expect(removeBtns.last()).toHaveAttribute('aria-pressed', 'true');
-    await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
-    await expect(pair.hostPage.locator('.playlist-selection-count')).toHaveText('2');
+    await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeVisible();
+    await expect(pair.hostPage.locator('.playlist-selection-title')).toHaveText('2 selected');
     await expect(pair.hostPage.locator('#dialog-overlay')).toBeHidden();
 
     const guestBeforeDelete = await readQueueSnapshot(pair.guestPage);

@@ -16,6 +16,8 @@ const zhHans: Record<I18nKey, string> = {
   // Common
   'common.ok': '确定',
   'common.cancel': '取消',
+  'common.delete': '删除',
+  'common.undo': '撤销',
   'common.close': '关闭',
   'common.skip_to_content': '跳至内容',
   'common.reset': '重置',
@@ -241,6 +243,7 @@ const zhHans: Record<I18nKey, string> = {
   'playlist.deselect_all': '取消全选',
   'playlist.select_all': '全选',
   'playlist.delete_selected': '删除已选择的 {{count}} 项',
+  'playlist.selected_count': '已选择 {{count}} 项',
   'playlist.video_fallback': '正在加载...',
   'playlist.track_fallback': '媒体 {{idx}}',
   'playlist.deferred_load_hint': '播放后加载完整的媒体列表',

@@ -16,6 +16,8 @@ const gu: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ઠીક છે',
   'common.cancel': 'રદ કરો',
+  'common.delete': 'કાઢી નાખો',
+  'common.undo': 'પૂર્વવત્ કરો',
   'common.close': 'બંધ કરો',
   'common.skip_to_content': 'કંટેન્ટ પર જાઓ',
   'common.reset': 'મૂળ સ્થિતિમાં લાવો',
@@ -159,6 +161,7 @@ const gu: Record<I18nKey, string> = {
   'playlist.deselect_all': 'બધી પસંદગી હટાવો',
   'playlist.select_all': 'બધું પસંદ કરો',
   'playlist.delete_selected': 'પસંદ કરેલા {{count}} ટ્રૅક કાઢી નાખો',
+  'playlist.selected_count': '{{count}} પસંદ કરેલ છે',
   'playlist.video_fallback': 'લોડ થઈ રહ્યું છે...',
   'playlist.track_fallback': 'ટ્રૅક {{idx}}',
   'playlist.deferred_load_hint': 'ટ્રૅકની સંપૂર્ણ યાદી લોડ કરવા ચલાવો',

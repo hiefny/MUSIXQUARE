@@ -15,6 +15,8 @@ const ms: Record<I18nKey, string> = {
   // ─── Umum ────────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Batal',
+  'common.delete': 'Padam',
+  'common.undo': 'Buat asal',
   'common.close': 'Tutup',
   'common.skip_to_content': 'Langkau ke kandungan',
   'common.reset': 'Set semula',
@@ -160,6 +162,7 @@ const ms: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Nyahpilih semua',
   'playlist.select_all': 'Pilih semua',
   'playlist.delete_selected': 'Padam {{count}} trek yang dipilih',
+  'playlist.selected_count': '{{count}} dipilih',
   'playlist.video_fallback': 'Memuatkan...',
   'playlist.track_fallback': 'Trek {{idx}}',
   'playlist.deferred_load_hint': 'Mainkan untuk memuatkan senarai penuh trek',

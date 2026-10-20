@@ -15,6 +15,8 @@ const fil: Record<I18nKey, string> = {
   // ─── Pangkalahatan ───────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Kanselahin',
+  'common.delete': 'Burahin',
+  'common.undo': 'Ibalik',
   'common.close': 'Isara',
   'common.skip_to_content': 'Lumaktaw patungo sa content',
   'common.reset': 'I-reset',
@@ -160,6 +162,7 @@ const fil: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Alisin sa pagpili ang lahat',
   'playlist.select_all': 'Piliin lahat',
   'playlist.delete_selected': 'I-delete ang {{count}} na napiling track',
+  'playlist.selected_count': '{{count}} pinili',
   'playlist.video_fallback': 'Nilo-load...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'I-play para i-load ang buong listahan ng track',

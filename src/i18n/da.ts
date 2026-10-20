@@ -16,6 +16,8 @@ const da: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Annuller',
+  'common.delete': 'Slet',
+  'common.undo': 'Fortryd',
   'common.close': 'Luk',
   'common.skip_to_content': 'Fortsæt til indhold',
   'common.reset': 'Nulstil',
@@ -158,6 +160,7 @@ const da: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Fjern alle markeringer',
   'playlist.select_all': 'Markér alle',
   'playlist.delete_selected': 'Slet {{count}} markerede numre',
+  'playlist.selected_count': '{{count}} valgt',
   'playlist.video_fallback': 'Indlæser…',
   'playlist.track_fallback': 'Nummer {{idx}}',
   'playlist.deferred_load_hint': 'Afspil for at indlæse hele nummerlisten',

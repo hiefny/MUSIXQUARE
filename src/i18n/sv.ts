@@ -16,6 +16,8 @@ const sv: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Avbryt',
+  'common.delete': 'Ta bort',
+  'common.undo': 'Ångra',
   'common.close': 'Stäng',
   'common.skip_to_content': 'Hoppa till innehåll',
   'common.reset': 'Återställ',
@@ -159,6 +161,7 @@ const sv: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Avmarkera alla',
   'playlist.select_all': 'Markera alla',
   'playlist.delete_selected': 'Radera {{count}} markerade spår',
+  'playlist.selected_count': '{{count}} valda',
   'playlist.video_fallback': 'Läser in…',
   'playlist.track_fallback': 'Spår {{idx}}',
   'playlist.deferred_load_hint': 'Spela upp för att läsa in hela spårlistan',
@@ -940,6 +943,7 @@ const sv: Record<I18nKey, string> = {
 export default sv;
 
 export const pluralMessages = {
+  'playlist.selected_count': { one: '{{count}} vald' },
   'playlist.delete_selected': {
     one: 'Radera {{count}} markerat spår',
   },

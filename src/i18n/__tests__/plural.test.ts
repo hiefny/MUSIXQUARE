@@ -30,7 +30,7 @@ describe('count-sensitive translations', () => {
   });
 
   it('registers every audited count-sensitive message', () => {
-    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(14);
+    expect(Object.keys(PLURAL_PARAM_BY_KEY)).toHaveLength(15);
   });
 
   it('uses natural English singular and plural copy for all count-sensitive messages', async () => {

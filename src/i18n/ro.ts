@@ -16,6 +16,8 @@ const ro: Record<I18nKey, string> = {
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Anulează',
+  'common.delete': 'Șterge',
+  'common.undo': 'Anulează',
   'common.close': 'Închide',
   'common.skip_to_content': 'Sari la conținut',
   'common.reset': 'Resetează',
@@ -159,6 +161,7 @@ const ro: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Deselectează tot',
   'playlist.select_all': 'Selectează tot',
   'playlist.delete_selected': 'Șterge pistele selectate: {{count}}',
+  'playlist.selected_count': 'Selectate: {{count}}',
   'playlist.video_fallback': 'Se încarcă...',
   'playlist.track_fallback': 'Pista {{idx}}',
   'playlist.deferred_load_hint': 'Pornește redarea pentru a încărca lista completă de piste',

@@ -16,6 +16,8 @@ const nb: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Avbryt',
+  'common.delete': 'Slett',
+  'common.undo': 'Angre',
   'common.close': 'Lukk',
   'common.skip_to_content': 'Gå til innhold',
   'common.reset': 'Tilbakestill',
@@ -159,6 +161,7 @@ const nb: Record<I18nKey, string> = {
   'playlist.deselect_all': 'Fjern all merking',
   'playlist.select_all': 'Merk alle',
   'playlist.delete_selected': 'Slett {{count}} merkede spor',
+  'playlist.selected_count': '{{count}} er valgt',
   'playlist.video_fallback': 'Laster inn…',
   'playlist.track_fallback': 'Spor {{idx}}',
   'playlist.deferred_load_hint': 'Spill av for å laste inn hele sporlisten',

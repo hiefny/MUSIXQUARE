@@ -4,6 +4,7 @@ import type { LocalePluralMessages } from './plural-contract.ts';
 export const EN_PLURAL_MESSAGES = {
   'connect.administrator_list': { one: '{{count}} Administrator' },
   'playlist.delete_selected': { one: 'Delete {{count}} selected track' },
+  'playlist.selected_count': { one: '{{count}} selected' },
   'connect.device_list': { one: '{{count}} Connected Device' },
   'demo.session_body_connected': {
     one: '{{count}} device is connected right now.\nSet a role for this device.',

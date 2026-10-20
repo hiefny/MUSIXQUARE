@@ -96,6 +96,11 @@ runbooks. Neither belongs in a general setup document.
   Standard YouTube host, a retried rendezvous on a Standard YouTube guest (also while the connection is being
   probed), and a forced re-sync on a Standard file guest, playing or paused. Local evidence at `5e8d8623`; not
   released, real devices untested.
+- [Playlist delete mode with an Undo window — 2026-10-20](design/playlist-delete-mode-undo-2026-10-20.md) —
+  selecting rows turns the playlist title into the selected count with one Select all / Deselect all text button,
+  and a blue Delete and grey Cancel pill replace the icon pill; tapping outside the list or changing tabs ends the
+  mode. Delete hides the rows and morphs into an Undo pill for 3 s before `playlist:remove-tracks` runs. Three new
+  keys use WordPress core translations in 42 locales. Unit, lint and screenshot checks pass; e2e not run.
 - [Skip link translation — 2026-10-20](design/skip-link-translation-2026-10-20.md) —
   the keyboard skip link at the top of the app read "Skip to content" in English for all 42 locales; 8.11.31 binds
   it to `common.skip_to_content`, using the WordPress community translation of the same source string (theme

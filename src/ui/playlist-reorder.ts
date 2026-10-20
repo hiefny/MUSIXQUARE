@@ -198,7 +198,7 @@ export function createPlaylistReorderController(
   let lastScrollAt = Number.NEGATIVE_INFINITY;
   let suppressClicksUntil = 0;
   let scopedClickSuppression: ScopedClickSuppression | null = null;
-  let heldPointerSelection: { pointerId: number; sourceId: string } | null = null;
+  let heldSelection: { pointerId?: number; touchId?: number; sourceId: string } | null = null;
   let touchSequenceBlocked = false;
   let pendingFocusId: string | null = null;
   let pendingFocusOrigin: Element | null = null;
@@ -381,14 +381,30 @@ export function createPlaylistReorderController(
 
   // A hold that the owner takes (edit mode's select) ends here instead of
   // starting a drag; the click its release would send is swallowed.
-  function longPressTaken(sourceId: string): boolean {
-    if (!options.onLongPress?.(sourceId)) return false;
+  function longPressTaken(hold: NonNullable<typeof heldSelection>): boolean {
+    if (!options.onLongPress?.(hold.sourceId)) return false;
+    // Taking the hold may cancel this controller, so its release is tracked
+    // on its own.
+    heldSelection = hold;
+    buzz();
+    return true;
+  }
+
+  function releaseHeldSelection(): void {
+    if (!heldSelection) return;
+    scopedClickSuppression = {
+      sourceId: heldSelection.sourceId,
+      until: performance.now() + CLICK_SUPPRESSION_MS,
+    };
+    heldSelection = null;
+  }
+
+  function buzz(): void {
     try {
       navigator.vibrate?.(10);
     } catch {
       /* Haptics are optional. */
     }
-    return true;
   }
 
   function clearLongPressTimer(): void {
@@ -658,13 +674,7 @@ export function createPlaylistReorderController(
     updateGhostPosition();
     syncAutoScroll();
 
-    if (input === 'long-press') {
-      try {
-        navigator.vibrate?.(10);
-      } catch {
-        /* Haptics are optional. */
-      }
-    }
+    if (input === 'long-press') buzz();
   }
 
   function clearSourceState(sourceEntry: HTMLElement | null): void {
@@ -995,10 +1005,7 @@ export function createPlaylistReorderController(
         if (!sourceEntry || scrollContainer.scrollTop !== hold.startScrollTop || !reorderable()) {
           return;
         }
-        if (longPressTaken(hold.sourceId)) {
-          heldPointerSelection = { pointerId, sourceId: hold.sourceId };
-          return;
-        }
+        if (longPressTaken({ pointerId, sourceId: hold.sourceId })) return;
         try {
           // Capture only once the hold becomes a drag. Capturing at press
           // time would retarget the click of an ordinary short press.
@@ -1096,9 +1103,8 @@ export function createPlaylistReorderController(
           probe.suppressClickOnEnd = true;
         }
         if (probe.disqualified) return;
-        if (longPressTaken(probe.sourceId)) {
+        if (longPressTaken({ touchId: probe.touchId, sourceId: probe.sourceId })) {
           probe.disqualified = true;
-          probe.suppressClickOnEnd = true;
           return;
         }
         startDrag(probe.sourceEntry, probe.lastX, probe.lastY, 'long-press', null, probe.touchId);
@@ -1180,6 +1186,10 @@ export function createPlaylistReorderController(
 
   function onDocumentTouchFinish(event: TouchEvent): void {
     if (event.touches.length === 0) touchSequenceBlocked = false;
+    const touchId = heldSelection?.touchId;
+    if (touchId !== undefined && getTouchById(event.changedTouches, touchId)) {
+      releaseHeldSelection();
+    }
   }
 
   function onDocumentPointerMove(event: PointerEvent): void {
@@ -1197,13 +1207,7 @@ export function createPlaylistReorderController(
 
   function onDocumentPointerFinish(event: PointerEvent): void {
     if (event.pointerId === pointerHold?.pointerId) clearPointerHold();
-    if (event.pointerId === heldPointerSelection?.pointerId) {
-      scopedClickSuppression = {
-        sourceId: heldPointerSelection.sourceId,
-        until: performance.now() + CLICK_SUPPRESSION_MS,
-      };
-      heldPointerSelection = null;
-    }
+    if (event.pointerId === heldSelection?.pointerId) releaseHeldSelection();
   }
 
   function onScroll(): void {

@@ -524,8 +524,15 @@ describe('playlist reorder interaction controller', () => {
   });
 
   it('hands a held row to onLongPress instead of moving it, and swallows its release click', () => {
-    const onLongPress = vi.fn(() => true);
-    const { commit, list, rows } = create(true, true, { onLongPress });
+    let controller: ReturnType<typeof createPlaylistReorderController> | null = null;
+    // Taking the hold starts edit mode, which cancels any reorder in progress.
+    const onLongPress = vi.fn(() => {
+      controller?.cancel();
+      return true;
+    });
+    const created = create(true, true, { onLongPress });
+    controller = created.controller;
+    const { commit, list, rows } = created;
     const rowClick = vi.fn();
     list.addEventListener('click', rowClick);
     const title = rows[0].querySelector<HTMLElement>('.track-name')!;

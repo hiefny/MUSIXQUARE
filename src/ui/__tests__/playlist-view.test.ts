@@ -1168,7 +1168,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(selectionBarVisible()).toBe(false);
   });
 
-  it('keeps an active PRO reorder mounted through revision-only context pulses', () => {
+  it('keeps an active PRO reorder mounted through revision-only context pulses', async () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
     const context = {
@@ -1183,6 +1183,8 @@ describe('playlist queue identity rendering and actions', () => {
     setState('room.context', context);
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    // The reorder controller loads after the list mounts.
+    await vi.dynamicImportSettled();
 
     const rows = Array.from(document.querySelectorAll<HTMLElement>('.track-item'));
     rows.forEach((row, index) => {
@@ -2034,9 +2036,11 @@ describe('playlist queue identity rendering and actions', () => {
     }
   });
 
-  it('reveals all host handles when an add batch completes', () => {
+  it('reveals all host handles when an add batch completes', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    // The reorder controller loads after the list mounts.
+    await vi.dynamicImportSettled();
 
     bus.emit('playlist:items-added', [YT_B]);
 
@@ -2045,10 +2049,12 @@ describe('playlist queue identity rendering and actions', () => {
     );
   });
 
-  it('emits a reorder commit with stable IDs and the latest base revision', () => {
+  it('emits a reorder commit with stable IDs and the latest base revision', async () => {
     setState('playlist.items', sampleItems());
     setState('playlist.revision', 7);
     initPlaylistView();
+    // The reorder controller loads after the list mounts.
+    await vi.dynamicImportSettled();
     const reorder = vi.fn();
     bus.on('playlist:reorder-track', reorder);
 
@@ -2090,7 +2096,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(reorder).toHaveBeenCalledWith(FILE_A, null, 7);
   });
 
-  it('keeps the committed source handle mounted through its return fade before rendering', () => {
+  it('keeps the committed source handle mounted through its return fade before rendering', async () => {
     const FRAME_MS = 16;
     const DROP_SETTLE_MS = 302;
     const HANDLE_RETURN_WITH_SAFETY_MS = 172;
@@ -2111,6 +2117,8 @@ describe('playlist queue identity rendering and actions', () => {
       setState('playlist.items', initial);
       setState('playlist.revision', 7);
       initPlaylistView();
+      // The reorder controller loads after the list mounts.
+      await vi.dynamicImportSettled();
 
       const commit = vi.fn(() => setState('playlist.items', committed));
       unsubscribe = bus.on('playlist:reorder-track', commit);

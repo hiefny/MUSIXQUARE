@@ -18,10 +18,7 @@ import { safeSend } from '../network/peer.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getYouTubePlayer, setSubItemsLoadError } from '../youtube/_state.ts';
 import { getPlaylistSubItems, getPlaylistSubItemsKey } from '../youtube/queue-manifest.ts';
-import {
-  createPlaylistReorderController,
-  type PlaylistReorderController,
-} from './playlist-reorder.ts';
+import type { PlaylistReorderController } from './playlist-reorder.ts';
 import {
   createPlaylistRemovalController,
   type PlaylistRemovalController,
@@ -89,6 +86,7 @@ let _pendingProgressiveFocus: {
 } | null = null;
 let _domAbort: AbortController | null = null;
 let _reorderController: PlaylistReorderController | null = null;
+let _reorderLoad = 0;
 let _removalController: PlaylistRemovalController | null = null;
 let _followController: PlaylistFollowController | null = null;
 let _currentJumpController: PlaylistCurrentJumpController | null = null;
@@ -974,24 +972,17 @@ function installDomDelegation(list: HTMLElement): void {
         if (id) toggleExpansion(id);
         return;
       }
-      const select = target.closest<HTMLElement>('[data-action="select"]');
-      if (select) {
-        event.preventDefault();
-        event.stopPropagation();
-        const id = queueItemIdFromElement(select);
-        if (id) _removalController?.toggle(id);
-        return;
-      }
       // While tracks are being picked, the rest of the row picks it too
       // instead of playing it.
-      if (_removalController?.isActive) {
+      const picking = _removalController?.isActive;
+      const select =
+        target.closest('[data-action="select"]') ??
+        (picking ? target.closest('.track-item')?.querySelector('[data-action="select"]') : null);
+      if (select || picking) {
         event.preventDefault();
         event.stopPropagation();
-        const rowSelect = target
-          .closest('.track-item[data-queue-item-id]')
-          ?.querySelector('[data-action="select"]');
-        const id = queueItemIdFromElement(rowSelect ?? null);
-        if (id) _removalController.toggle(id);
+        const id = queueItemIdFromElement(select ?? null);
+        if (id) _removalController?.toggle(id);
         return;
       }
       const subItem = target.closest<HTMLElement>('.sub-track-item[data-sub-index]');
@@ -1024,9 +1015,27 @@ function installDomDelegation(list: HTMLElement): void {
   );
 }
 
-function createReorderController(list: HTMLElement): PlaylistReorderController {
-  _reorderController?.destroy();
-  const controller = createPlaylistReorderController({
+// Reordering starts only from a held press, the handle, or the keyboard, never
+// in the first frame, so its controller loads after the list mounts
+// (docs/design/initial-bundle-loading-policy.md). Until then the rows are
+// plain: taps still play and the minus still selects.
+function loadReorderController(list: HTMLElement): void {
+  const load = ++_reorderLoad;
+  void import('./playlist-reorder.ts').then(
+    ({ createPlaylistReorderController }) => {
+      if (load !== _reorderLoad) return;
+      _reorderController = createReorderController(createPlaylistReorderController, list);
+      _reorderController.afterRender();
+    },
+    () => {},
+  );
+}
+
+function createReorderController(
+  create: typeof import('./playlist-reorder.ts').createPlaylistReorderController,
+  list: HTMLElement,
+): PlaylistReorderController {
+  return create({
     list,
     canReorder: () =>
       canEditQueueStructure() &&
@@ -1071,8 +1080,6 @@ function createReorderController(list: HTMLElement): PlaylistReorderController {
       schedulePlaylistUpdate();
     },
   });
-  _reorderController = controller;
-  return controller;
 }
 
 function schedulePlaylistUpdate(): void {
@@ -1106,6 +1113,7 @@ export function initPlaylistView(): void {
   _domAbort = null;
   _reorderController?.destroy();
   _reorderController = null;
+  _reorderLoad += 1;
   _removalController?.destroy();
   _removalController = null;
   _followController?.destroy();
@@ -1128,7 +1136,7 @@ export function initPlaylistView(): void {
   if (list) {
     _playlistTitleMarqueeList = list;
     installDomDelegation(list);
-    createReorderController(list);
+    loadReorderController(list);
     _removalController = createPlaylistRemovalController({
       list,
       canRemove: () => canEditQueueStructure() && getState('playback.mode') !== 'system-audio',

@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Background-return Sync — 2026-10-20](design/background-return-sync-2026-10-20.md) — every return from the
+  background (hidden 1 s or longer) in an active room now runs the Sync button's room alignment without its panel
+  or toasts: PRO full reconciliation merged into the runtime's own foreground repair, a manual broadcast on a
+  Standard YouTube host, a retried rendezvous on a Standard YouTube guest (also while the connection is being
+  probed), and a forced re-sync on a Standard file guest, playing or paused. Local evidence at `5e8d8623`; not
+  released, real devices untested.
 - [Skip link translation — 2026-10-20](design/skip-link-translation-2026-10-20.md) —
   the keyboard skip link at the top of the app read "Skip to content" in English for all 42 locales; 8.11.31 binds
   it to `common.skip_to_content`, using the WordPress community translation of the same source string (theme

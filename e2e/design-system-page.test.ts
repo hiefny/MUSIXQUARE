@@ -407,15 +407,31 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           actionCount: document.querySelectorAll('.playlist-selection-bar button').length,
           labels: Array.from(
             document.querySelectorAll('.playlist-selection-bar button'),
-            (button) => button.textContent?.trim(),
+            (button) => button.getAttribute('aria-label'),
+          ),
+          sizes: Array.from(
+            document.querySelectorAll<HTMLElement>('.playlist-selection-bar button'),
+            (button) => {
+              const rect = button.getBoundingClientRect();
+              return { width: rect.width, height: rect.height };
+            },
           ),
           selectedState: (() => {
             const selected = document.querySelector<HTMLElement>(
-              '.btn-playlist-remove.is-selected',
+              '.playlist-select[aria-pressed="true"]',
             );
+            const blocks = [
+              ...document.querySelectorAll<HTMLElement>(
+                '.playlist-entry-sample.is-removal-selected',
+              ),
+            ].map((entry) => {
+              const fill = getComputedStyle(entry, '::before');
+              return { radius: fill.borderRadius, top: fill.top };
+            });
             return {
               selected: !!selected,
-              shadow: selected ? getComputedStyle(selected, '::before').boxShadow : '',
+              shadow: selected ? getComputedStyle(selected).boxShadow : '',
+              blocks,
             };
           })(),
         },
@@ -507,7 +523,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           action: expand.dataset.action,
           ariaExpanded: expand.getAttribute('aria-expanded'),
           ariaLabel: expand.getAttribute('aria-label'),
-          beforeRemove: remove?.classList.contains('playlist-remove') ?? false,
+          beforeCheck: remove?.classList.contains('playlist-select') ?? false,
           height: expandRect.height,
           svgHeight: expandSvgRect.height,
           svgWidth: expandSvgRect.width,
@@ -630,7 +646,18 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.playlistRemoval).toEqual({
       actionCount: 2,
       labels: ['Delete', 'Cancel'],
-      selectedState: { selected: true, shadow: 'none' },
+      sizes: [
+        { width: 54, height: 54 },
+        { width: 54, height: 54 },
+      ],
+      selectedState: {
+        selected: true,
+        shadow: 'none',
+        blocks: [
+          { radius: '28px 28px 0px 0px', top: '0px' },
+          { radius: '0px 0px 28px 28px', top: '-8px' },
+        ],
+      },
     });
     expect(components.expandedLists).toEqual({
       deviceCount: 4,
@@ -666,7 +693,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       action: 'expand',
       ariaExpanded: 'true',
       ariaLabel: 'Expand/collapse playlist',
-      beforeRemove: true,
+      beforeCheck: true,
       height: 44,
       svgHeight: 22,
       svgWidth: 22,

@@ -51,8 +51,8 @@ describe('app UX markup contract', () => {
 
     for (const selector of [
       '.invite-code-value.copied',
-      '.btn-playlist-remove::before',
-      '.btn-playlist-remove.is-selected::before',
+      '.btn-playlist-select',
+      '.playlist-entry.is-removal-selected::before',
       '.dialog-primary',
       '.btn-ob-primary',
       '#setup-role-grid .ch-opt.selected',

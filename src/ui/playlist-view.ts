@@ -841,16 +841,17 @@ export function updatePlaylistUI(): void {
         </button>`
       : '';
     const isRemovalSelected = _removalController?.isSelected(item.queueItemId) ?? false;
-    const removeLabel = t(
+    const selectLabel = t(
       isRemovalSelected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
       { title: displayName },
     );
-    const removeButton = canEditPlaylist
-      ? `<button type="button" class="btn-playlist-remove${isRemovalSelected ? ' is-selected' : ''}" data-action="remove"
+    // A check circle; its check mark is the language list's, scaled into it.
+    const selectButton = canEditPlaylist
+      ? `<button type="button" class="btn-playlist-select" data-action="select"
           data-queue-item-id="${escapeHtml(item.queueItemId)}"
           aria-pressed="${isRemovalSelected}"
-          aria-label="${escapeHtml(removeLabel)}" title="${escapeHtml(removeLabel)}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg>
+          aria-label="${escapeHtml(selectLabel)}" title="${escapeHtml(selectLabel)}">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="playlist-select-ring" cx="12" cy="12" r="9"/><path class="playlist-select-mark" d="M5 12.5l4.2 4.2L19 6.9" transform="translate(4.8 4.8) scale(.6)"/></svg>
         </button>`
       : '';
 
@@ -860,7 +861,7 @@ export function updatePlaylistUI(): void {
         data-queue-item-id="${escapeHtml(item.queueItemId)}"
         ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text" dir="auto"><span class="playlist-title-marquee-content">${escapeHtml(displayName)}</span></span></button>
       ${expandButton}
-      ${removeButton}
+      ${selectButton}
     `;
     const renderedName = row.querySelector<HTMLElement>('.track-name-text');
     if (renderedName) applyUserTextFontFallback(renderedName, displayName);
@@ -973,11 +974,11 @@ function installDomDelegation(list: HTMLElement): void {
         if (id) toggleExpansion(id);
         return;
       }
-      const remove = target.closest<HTMLElement>('[data-action="remove"]');
-      if (remove) {
+      const select = target.closest<HTMLElement>('[data-action="select"]');
+      if (select) {
         event.preventDefault();
         event.stopPropagation();
-        const id = queueItemIdFromElement(remove);
+        const id = queueItemIdFromElement(select);
         if (id) _removalController?.toggle(id);
         return;
       }

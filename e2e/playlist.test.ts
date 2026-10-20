@@ -308,7 +308,7 @@ test.describe('Playlist Management', () => {
       await navigateToTab(pair.hostPage, 'play');
     }
 
-    const removeBtns = pair.hostPage.locator('#playlist-ui .btn-playlist-remove');
+    const removeBtns = pair.hostPage.locator('#playlist-ui .btn-playlist-select');
     const btnCount = await removeBtns.count();
     expect(btnCount).toBe(3);
     const before = await readQueueSnapshot(pair.hostPage);

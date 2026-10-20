@@ -2,7 +2,7 @@ import type { PlaylistItem, QueueItemId } from '../types/index.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { t } from '../i18n/index.ts';
 
-const REMOVE_BUTTON_SELECTOR = '.btn-playlist-remove[data-queue-item-id]';
+const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
 
 /** Shared length of the survivors' glide and the pills' exit. */
 const MORPH_MS = 300;
@@ -78,9 +78,10 @@ function createBar(list: HTMLElement): {
   bar.className = 'playlist-selection-bar';
   bar.setAttribute('role', 'group');
   bar.hidden = true;
+  // Material "delete" and "close" icons; their names come from renderBarLabels.
   bar.innerHTML = `
-    <button type="button" class="playlist-selection-pill playlist-selection-delete" data-selection-action="delete"></button>
-    <button type="button" class="playlist-selection-pill playlist-selection-cancel" data-selection-action="cancel"></button>`;
+    <button type="button" class="playlist-selection-action playlist-selection-delete" data-selection-action="delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
+    <button type="button" class="playlist-selection-action playlist-selection-cancel" data-selection-action="cancel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg></button>`;
   // The bar follows the last track in the scrolling list body; CSS makes it
   // sticky, so a list taller than the view keeps it floating at the bottom.
   list.insertAdjacentElement('afterend', bar);
@@ -124,9 +125,12 @@ function queueItemIdFromButton(button: Element | null): QueueItemId | null {
 /**
  * Multi-select deletion for the playlist.
  *
- * Selecting a row's X enters the mode: the tab title becomes the selected
- * count, one text button toggles select all, and a Delete/Cancel pill pair
- * follows the last track. Delete sends `onDelete` at once through the PRO,
+ * Selecting a row's check circle enters edit mode: the tab title becomes the
+ * selected count, one text button toggles select all, and a trash/close icon
+ * pair follows the last track. Selected rows share one fill, and CSS joins
+ * consecutive ones into a single block. Dragging along the check column or
+ * panning with two fingers selects ranges (playlist-selection-gestures.ts,
+ * loaded after start). Delete sends `onDelete` at once through the PRO,
  * Standard guest/operator or host removal path and ends the mode. Whenever
  * the mode ends, the bar slides down and fades out as one unit.
  *
@@ -179,7 +183,7 @@ export function createPlaylistRemovalController(
     if (!options.isPlaylistVisible()) return;
     if (queueItemId) {
       const button = list.querySelector<HTMLButtonElement>(
-        `${REMOVE_BUTTON_SELECTOR}[data-queue-item-id="${queueItemId}"]`,
+        `${SELECT_BUTTON_SELECTOR}[data-queue-item-id="${queueItemId}"]`,
       );
       if (button) {
         button.focus();
@@ -214,8 +218,8 @@ export function createPlaylistRemovalController(
   }
 
   function renderBarLabels(): void {
-    deleteButton.textContent = t('common.delete');
-    cancelButton.textContent = t('common.cancel');
+    setButtonLabel(deleteButton, t('common.delete'));
+    setButtonLabel(cancelButton, t('common.cancel'));
     bar.setAttribute('aria-label', t('playlist.remove_title'));
   }
 
@@ -333,7 +337,7 @@ export function createPlaylistRemovalController(
     const allSelected = active && items.length > 0 && selectedCount === items.length;
     list.classList.toggle('has-removal-selection', active);
 
-    for (const button of list.querySelectorAll<HTMLButtonElement>(REMOVE_BUTTON_SELECTOR)) {
+    for (const button of list.querySelectorAll<HTMLButtonElement>(SELECT_BUTTON_SELECTOR)) {
       const queueItemId = queueItemIdFromButton(button);
       const selected = !!queueItemId && selectedQueueItemIds.has(queueItemId);
       const item = queueItemId ? itemsById.get(queueItemId) : undefined;
@@ -342,9 +346,9 @@ export function createPlaylistRemovalController(
         selected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
         { title: rowTitle },
       );
-      button.classList.toggle('is-selected', selected);
       button.setAttribute('aria-pressed', String(selected));
       setButtonLabel(button, label);
+      // CSS joins consecutive selected entries into one painted block.
       button.closest('.playlist-entry')?.classList.toggle('is-removal-selected', selected);
     }
 
@@ -547,6 +551,22 @@ export function createPlaylistRemovalController(
 
   syncDom();
 
+  // Drag selection is an accelerator over the check circles, which already
+  // work by tap, click and keyboard, so it loads off the critical path.
+  let removeGestures: (() => void) | null = null;
+  void import('./playlist-selection-gestures.ts').then(
+    ({ installPlaylistSelectionGestures }) => {
+      if (destroyed) return;
+      removeGestures = installPlaylistSelectionGestures({
+        list,
+        canSelect: options.canRemove,
+        isSelected: (queueItemId) => selectedQueueItemIds.has(queueItemId),
+        toggle,
+      });
+    },
+    () => {},
+  );
+
   return {
     get isActive() {
       return selectedQueueItemIds.size > 0;
@@ -562,6 +582,7 @@ export function createPlaylistRemovalController(
       for (const deletion of sentDeletions) window.clearTimeout(deletion.timer);
       sentDeletions.length = 0;
       stopBarAnimations();
+      removeGestures?.();
       abortController.abort();
       selectedQueueItemIds.clear();
       list.classList.remove('has-removal-selection', 'has-removal-exit');

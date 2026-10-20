@@ -89,6 +89,7 @@ test.describe('desktop layout height bands', () => {
     page,
   }) => {
     await startRoom(page, 1440, 900);
+    let desktopTitleOffset: number | null = null;
 
     for (const { width, height, band } of VIEWPORTS) {
       await resizeTo(page, width, height);
@@ -122,6 +123,7 @@ test.describe('desktop layout height bands', () => {
         near(header.width, width, `${size} header width`);
         near(playlist.top, header.bottom, `${size} playlist top`);
         near(settings.top, header.bottom, `${size} settings top`);
+        desktopTitleOffset ??= layout.playlistTitle!.top - playlist.top;
         continue;
       }
 
@@ -131,10 +133,10 @@ test.describe('desktop layout height bands', () => {
       near(playlist.top, 0, `${size} playlist top`);
       near(settings.top, 0, `${size} settings top`);
       near(settings.height, height, `${size} settings height`);
-      const headerCenter = header.top + header.height / 2;
-      for (const title of [layout.playlistTitle!, layout.settingsTitle!]) {
-        near(title.top + title.height / 2, headerCenter, `${size} title row`);
-      }
+      // The title rows keep the full dashboard's top spacing below the edge.
+      expect(desktopTitleOffset, 'desktop band measured first').not.toBeNull();
+      near(layout.playlistTitle!.top - playlist.top, desktopTitleOffset!, `${size} playlist title`);
+      near(layout.settingsTitle!.top - settings.top, desktopTitleOffset!, `${size} settings title`);
     }
   });
 

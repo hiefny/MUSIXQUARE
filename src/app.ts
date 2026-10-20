@@ -141,6 +141,7 @@ import { initAccountRoomIdentity } from './account/room-identity.ts';
 import { initVisualizer } from './ui/visualizer.ts';
 import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
+import { initHoverPointer } from './ui/hover-pointer.ts';
 import { initPlayerControls } from './ui/player-controls.ts';
 import { initKeepOpenNotice } from './ui/keep-open-notice.ts';
 import { initGlobalFileDrop } from './ui/file-drop.ts';
@@ -1195,7 +1196,10 @@ async function bootstrap(): Promise<void> {
   safeInit('UiSounds', initUiSounds);
   safeInit('Visualizer', initVisualizer);
   safeInit('Chat', initChat);
-  safeInit('PlaylistView', initPlaylistView);
+  safeInit('PlaylistView', () => {
+    initHoverPointer();
+    initPlaylistView();
+  });
   safeInit('PlayerControls', initPlayerControls);
   safeInit('KeepOpenNotice', initKeepOpenNotice);
   safeInit('GlobalFileDrop', initGlobalFileDrop);

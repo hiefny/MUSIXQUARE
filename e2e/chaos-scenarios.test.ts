@@ -571,7 +571,7 @@ test.describe('Playlist + Disconnect Storm', () => {
       }
 
       await navigateToTab(setup.hostPage, 'playlist');
-      await setup.hostPage.locator('.btn-playlist-remove').first().click();
+      await setup.hostPage.locator('.btn-playlist-select').first().click();
       await Promise.all([
         setup.hostPage.locator('.playlist-selection-delete').click(),
         setup.guestContexts[0].close(),

@@ -16,6 +16,8 @@ const FILE_PATH =
 const CLOSE_PATH =
   'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z';
 const EXPAND_PATH = 'm6.5 9 5.5 5.5L17.5 9';
+const CHECK_PATH = 'M5 12.5l4.2 4.2L19 6.9';
+const DELETE_PATH = 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z';
 const CROWN_PATH = 'M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z';
 const REPEAT_PATH = 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z';
 const SHUFFLE_PATH =
@@ -260,7 +262,7 @@ describe('public design-system page contract', () => {
     expect(designSource).not.toContain('The only accent');
   });
 
-  it('shows the current playlist leading state, source icons, disclosure, and remove action', () => {
+  it('shows the current playlist leading state, source icons, disclosure, and check circles', () => {
     const playlist = sectionWithHeading('Components').querySelector<HTMLElement>('.pl');
     expect(playlist).toBeTruthy();
 
@@ -273,8 +275,8 @@ describe('public design-system page contract', () => {
     const sourcePaths = items.map((item) =>
       normalizedPath(item.querySelector('.playlist-source path')?.getAttribute('d') ?? null),
     );
-    const removePaths = items.map((item) =>
-      normalizedPath(item.querySelector('.playlist-remove path')?.getAttribute('d') ?? null),
+    const checkPaths = items.map((item) =>
+      normalizedPath(item.querySelector('.playlist-select path')?.getAttribute('d') ?? null),
     );
     const trackTitles = items.map((item) =>
       item.querySelector('.playlist-name')?.textContent?.trim(),
@@ -286,7 +288,7 @@ describe('public design-system page contract', () => {
     const thirdEntry = entries[2];
     const thirdSource = thirdItem?.querySelector<SVGElement>('.playlist-source.youtube-playlist');
     const thirdExpand = thirdItem?.querySelector<HTMLButtonElement>('.expand-toggle');
-    const thirdRemove = thirdItem?.querySelector<HTMLButtonElement>('.playlist-remove');
+    const thirdCheck = thirdItem?.querySelector<HTMLButtonElement>('.playlist-select');
     const subTracks = [...(thirdEntry?.querySelectorAll<HTMLElement>('.sub-track-item') ?? [])];
 
     expect(entries).toHaveLength(3);
@@ -324,11 +326,24 @@ describe('public design-system page contract', () => {
     expect(normalizedPath(thirdExpand?.querySelector('path')?.getAttribute('d') ?? null)).toBe(
       normalizedPath(EXPAND_PATH),
     );
-    expect(thirdExpand?.nextElementSibling).toBe(thirdRemove);
-    expect(removePaths).toEqual(items.map(() => normalizedPath(CLOSE_PATH)));
+    expect(thirdExpand?.nextElementSibling).toBe(thirdCheck);
+    expect(checkPaths).toEqual(items.map(() => normalizedPath(CHECK_PATH)));
     expect(
-      items.every((item) => item.lastElementChild?.classList.contains('playlist-remove')),
+      items.every(
+        (item) =>
+          item.lastElementChild?.classList.contains('playlist-select') &&
+          item.lastElementChild.querySelector('circle.playlist-select-ring') !== null,
+      ),
     ).toBe(true);
+    // Rows 1 and 2 are selected and join into one block; row 3 is not.
+    expect(entries.map((entry) => entry.classList.contains('is-removal-selected'))).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    expect(
+      items.map((item) => item.querySelector('.playlist-select')?.getAttribute('aria-pressed')),
+    ).toEqual(['true', 'true', 'false']);
     expect(subTracks).toHaveLength(4);
     expect(subTracks.map((track) => track.dataset.subIndex)).toEqual(['0', '1', '2', '3']);
     expect(
@@ -421,15 +436,21 @@ describe('public design-system page contract', () => {
     expect(playlist?.querySelector('.lbl')?.textContent?.trim()).toBe('Playlist area');
     expect(playback?.querySelector('.tab-action-btn-sample')).toBeNull();
     expect(playlist?.querySelectorAll('.tab-action-btn-sample')).toHaveLength(3);
-    expect(
-      components.querySelector('.btn-playlist-remove.is-selected[aria-pressed="true"]'),
-    ).toBeTruthy();
+    expect(components.querySelector('.playlist-select[aria-pressed="true"]')).toBeTruthy();
     expect(selectionPanel?.getAttribute('role')).toBe('group');
+    const selectionActions = [
+      ...(selectionPanel?.querySelectorAll<HTMLButtonElement>('button') ?? []),
+    ];
+    expect(selectionActions.map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Delete',
+      'Cancel',
+    ]);
+    expect(selectionActions.map((button) => button.textContent?.trim())).toEqual(['', '']);
     expect(
-      [...(selectionPanel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].map((button) =>
-        button.textContent?.trim(),
+      selectionActions.map((button) =>
+        normalizedPath(button.querySelector('path')?.getAttribute('d') ?? null),
       ),
-    ).toEqual(['Delete', 'Cancel']);
+    ).toEqual([DELETE_PATH, CLOSE_PATH].map(normalizedPath));
     expect(selectionPanel?.querySelector('.playlist-selection-count')).toBeNull();
     expect(
       [...(controlLayout?.children ?? [])].map((child) => (child as HTMLElement).className),

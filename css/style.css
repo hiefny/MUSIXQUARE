@@ -2216,10 +2216,18 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* The deletion pills sit right after the last track, so the list stops
-     stretching to the bottom of the body while they are shown. */
+     stretching to the bottom of the body while they are shown. The pills take
+     the free space below them instead (margin-bottom: auto), which keeps the
+     body's scroll height, and so its scroll position, the same as outside the
+     mode. */
   .playlist-ul.has-removal-selection,
   .playlist-ul.has-removal-exit {
     flex: 0 0 auto;
+  }
+
+  .playlist-ul.has-removal-selection ~ .playlist-selection-bar,
+  .playlist-ul.has-removal-exit ~ .playlist-selection-bar {
+    margin-bottom: auto;
   }
 
   .is-playlist-reordering {
@@ -2438,6 +2446,24 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
+  /* A pen or mouse seen at runtime (src/ui/hover-pointer.ts) counts as a hover
+     pointer even when the device reports none, e.g. a convertible in tablet
+     posture whose touchpad is off. */
+  html[data-hover-pointer] .playlist-reorder-handle:hover {
+    color: var(--primary);
+  }
+
+  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .track-idx,
+  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .track-playback-state-icon {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .playlist-reorder-grip {
+    opacity: 1;
+    transform: scale(1);
+  }
+
   .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
     .playlist-entry:not(.is-reorder-source)
     .playlist-reorder-handle
@@ -2543,6 +2569,26 @@ Safety is declared first because important layer precedence is reversed; its acc
       will-change: transform;
       --marquee-offset: var(--playlist-marquee-offset);
     }
+  }
+
+  html[data-hover-pointer]
+    .track-item:hover
+    .track-name-text.is-playlist-title-overflowing
+    > .playlist-title-marquee-content,
+  html[data-hover-pointer]
+    .sub-track-item:hover
+    .sub-name.is-playlist-title-overflowing
+    > .playlist-title-marquee-content {
+    animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
+      infinite;
+    /* Hover is an explicit request to read the hidden title: skip the hold. */
+    --playlist-marquee-wait: 0s;
+    animation-delay: calc(
+      var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
+    );
+    display: inline-block;
+    will-change: transform;
+    --marquee-offset: var(--playlist-marquee-offset);
   }
 
   .track-name:focus-visible
@@ -2841,12 +2887,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     .playlist-reorder-ghost,
     .playlist-reorder-settle,
     .playlist-selection-bar,
-    .playlist-selection-pill,
+    .playlist-selection-action,
     .playlist-selection-toggle,
     .playlist-ul,
+    .playlist-entry::before,
     .btn-playlist-remove,
     .btn-playlist-remove svg,
-    .btn-playlist-remove::before,
+    .btn-playlist-select,
+    .btn-playlist-select svg *,
     .expand-toggle,
     .expand-toggle svg {
       transition: none !important;
@@ -2866,9 +2914,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  /* ── Playlist Remove Button (host only) ────────────────────────── */
-  /* Keep removal visible because touch and hybrid devices cannot depend on
-     hover discovery. */
+  /* ── Playlist row X (PRO upload cancel) ────────────────────────── */
+  /* Keep it visible because touch and hybrid devices cannot depend on hover
+     discovery. */
   .btn-playlist-remove {
     position: relative;
     display: flex;
@@ -2888,22 +2936,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       color 0.15s;
     color: var(--text-muted);
     padding: 0;
-    isolation: isolate;
     -webkit-tap-highlight-color: transparent;
-  }
-
-  .btn-playlist-remove::before {
-    content: '';
-    position: absolute;
-    inset: 8px;
-    z-index: -1;
-    border-radius: 50%;
-    background: #ff4d4f;
-    opacity: 0;
-    transform: scale(0.72);
-    transition:
-      opacity 0.16s ease,
-      transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .btn-playlist-remove svg {
@@ -2913,23 +2946,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     stroke: currentColor;
     stroke-width: 0.5;
     stroke-linejoin: round;
-    transition:
-      color 0.16s ease,
-      transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-
-  .btn-playlist-remove.is-selected {
-    color: #fff;
-    opacity: 1;
-  }
-
-  .btn-playlist-remove.is-selected::before {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  .btn-playlist-remove.is-selected svg {
-    transform: scale(0.92);
   }
 
   .track-item:focus-within .btn-playlist-remove:not(.is-selected):not(:disabled) {
@@ -2941,10 +2957,128 @@ Safety is declared first because important layer precedence is reversed; its acc
       opacity: 1;
       color: #ff4d4f;
     }
+  }
 
-    .btn-playlist-remove.is-selected:not(:disabled):hover {
-      color: #fff;
+  /* ── Playlist row selection (queue editors only) ─────────────────── */
+  /* A check circle where the row's X used to be. Unselected it is a muted
+     ring; selected it fills with the brand blue and shows the language
+     list's check mark in white. The column never starts a native scroll, so
+     a vertical drag along it selects rows instead
+     (playlist-selection-gestures.ts). */
+  .btn-playlist-select {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin: -8px;
+    flex: 0 0 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s ease;
+  }
+
+  .btn-playlist-select svg {
+    width: 22px;
+    height: 22px;
+    overflow: visible;
+  }
+
+  .playlist-select-ring {
+    fill: transparent;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    transition:
+      fill 0.16s ease,
+      stroke 0.16s ease;
+  }
+
+  .playlist-select-mark {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 3.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0;
+    transition: opacity 0.16s ease;
+  }
+
+  .btn-playlist-select[aria-pressed='true'] .playlist-select-ring {
+    fill: var(--primary-filled);
+    stroke: var(--primary-filled);
+  }
+
+  .btn-playlist-select[aria-pressed='true'] .playlist-select-mark {
+    opacity: 1;
+  }
+
+  .btn-playlist-select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+    outline-offset: 1px;
+  }
+
+  @media (any-hover: hover) {
+    .btn-playlist-select:hover {
+      color: var(--primary);
     }
+  }
+
+  /* Selected rows share one translucent blue fill. A lone row is a pill.
+     Consecutive rows join into one block: the first keeps the pill's top
+     corners (half the row height), the last its bottom corners, and each
+     joining row's fill reaches up through the 8px gap above it, square, so
+     the block has no seams. The browser derives start/middle/end from the
+     siblings, so the shape follows every selection change and re-render.
+     Only top and bottom corners differ, so RTL needs nothing extra; the fill
+     eases in and out by its color. */
+  .playlist-entry {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .playlist-entry::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    pointer-events: none;
+    transition: background-color 0.16s ease;
+  }
+
+  .playlist-entry.is-removal-selected::before {
+    background: var(--control-active);
+  }
+
+  .playlist-entry.is-removal-selected:has(+ .playlist-entry.is-removal-selected)::before {
+    border-radius: calc(var(--list-row-height) / 2) calc(var(--list-row-height) / 2) 0 0;
+  }
+
+  .playlist-entry.is-removal-selected + .playlist-entry.is-removal-selected::before {
+    top: -8px;
+    border-radius: 0 0 calc(var(--list-row-height) / 2) calc(var(--list-row-height) / 2);
+  }
+
+  .playlist-entry.is-removal-selected
+    + .playlist-entry.is-removal-selected:has(+ .playlist-entry.is-removal-selected)::before {
+    border-radius: 0;
+  }
+
+  /* Edit mode folds YouTube playlists: their track lists and disclosure
+     chevrons step aside, and each one's own expansion returns afterwards. */
+  .playlist-ul.has-removal-selection .sub-playlist,
+  .playlist-ul.has-removal-selection .expand-toggle {
+    display: none;
   }
 
   /* Deletion mode: the playlist title becomes the selected count and one
@@ -2963,6 +3097,9 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .playlist-selection-title {
+    /* The 36px row the hidden icon actions normally set, with the text centred
+       in it as before, so the header keeps its height in both modes. */
+    line-height: 36px;
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
@@ -2980,10 +3117,11 @@ Safety is declared first because important layer precedence is reversed; its acc
     appearance: none;
     -webkit-appearance: none;
     flex: 0 0 auto;
-    /* Same -4px trick as .tab-action-btn: a 44px touch box that occupies the
-       36px header row, so entering the mode never moves the title. */
+    /* A 44px touch box whose margin box is only 16px tall, so sitting on the
+       title's baseline never makes the header row taller than its normal
+       36px and entering the mode never moves the title or the list. */
     height: 44px;
-    margin: -4px 0 -4px 16px;
+    margin: -14px 0 -14px 16px;
     padding: 0 4px;
     display: inline-flex;
     align-items: center;
@@ -3016,8 +3154,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  /* Delete and Cancel use the dialog pill family (54px, pill radius, 700
-     label) inside one container pill. It follows the last track; a list
+  /* Delete (trash) and Cancel (close) are 54px circular icon buttons, the
+     dialog pill family's height, inside one container pill. It follows the last track; a list
      taller than the view keeps it floating at the bottom (sticky), above the
      bottom navigation. The container carries the light dialog grey button's
      faint token stroke (transparent in dark, its own value in the
@@ -3048,7 +3186,7 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   /* On its way out after the mode ends, taps reach the rows underneath. */
   .playlist-selection-bar[data-state='leaving'],
-  .playlist-selection-bar[data-state='leaving'] .playlist-selection-pill {
+  .playlist-selection-bar[data-state='leaving'] .playlist-selection-action {
     pointer-events: none;
   }
 
@@ -3068,26 +3206,19 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  .playlist-selection-pill {
+  .playlist-selection-action {
     appearance: none;
     -webkit-appearance: none;
     position: relative;
-    min-width: 100px;
-    min-height: 54px;
+    width: 54px;
+    height: 54px;
+    flex: 0 0 54px;
     box-sizing: border-box;
-    padding: 0 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    overflow: hidden;
+    padding: 0;
+    display: inline-grid;
+    place-items: center;
     border: 1px solid transparent;
     border-radius: var(--radius-pill);
-    font-family: inherit;
-    font-size: 15px;
-    font-weight: 700;
-    line-height: 1.2;
-    white-space: nowrap;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition:
@@ -3097,11 +3228,17 @@ Safety is declared first because important layer precedence is reversed; its acc
       scale 0.2s ease;
   }
 
-  .playlist-selection-pill:active {
-    scale: 0.97;
+  .playlist-selection-action svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
   }
 
-  .playlist-selection-pill:focus-visible {
+  .playlist-selection-action:active {
+    scale: 0.94;
+  }
+
+  .playlist-selection-action:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 3px;
   }
@@ -4172,8 +4309,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: #007aff;
   }
 
-  /* Help tab actions: the neutral tour button above the accent screensaver
-     button. Both size like the invite-link button so long labels wrap. */
+  /* Help tab actions: the tour button above the screensaver button, both in
+     the accent style. They size like the invite-link button so long labels
+     wrap. */
   .help-actions {
     display: flex;
     flex-direction: column;
@@ -4268,8 +4406,7 @@ Safety is declared first because important layer precedence is reversed; its acc
     padding: 32px 0;
   }
 
-  /* Copy Invite Link Button (and the neutral action that shares its look) */
-  .neutral-action-btn,
+  /* Copy Invite Link Button */
   .btn-copy-invite-link {
     display: flex;
     align-items: center;
@@ -4296,7 +4433,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     -webkit-tap-highlight-color: transparent;
   }
 
-  .neutral-action-btn > svg,
   .btn-copy-invite-link > svg {
     width: 20px;
     height: 20px;
@@ -4304,7 +4440,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: currentColor;
   }
 
-  .neutral-action-btn > span[data-i18n],
   .btn-copy-invite-link > span[data-i18n] {
     min-width: 0;
     max-width: 100%;
@@ -4318,9 +4453,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     word-break: keep-all;
   }
 
-  .neutral-action-btn > span[data-i18n]:lang(ja),
-  .neutral-action-btn > span[data-i18n]:lang(zh-hans),
-  .neutral-action-btn > span[data-i18n]:lang(zh-hant),
   .btn-copy-invite-link > span[data-i18n]:lang(ja),
   .btn-copy-invite-link > span[data-i18n]:lang(zh-hans),
   .btn-copy-invite-link > span[data-i18n]:lang(zh-hant) {
@@ -4328,12 +4460,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     line-break: strict;
   }
 
-  .neutral-action-btn:hover,
   .btn-copy-invite-link:hover {
     background: var(--surface-3);
   }
 
-  .neutral-action-btn:active,
   .btn-copy-invite-link:active {
     background: var(--surface-3);
     transform: scale(0.97);
@@ -10020,14 +10150,12 @@ Safety is declared first because important layer precedence is reversed; its acc
   /* Light Mode — hover/active for surface-2 buttons */
   [data-theme='light'] .chat-preview-btn:hover,
   [data-theme='light'] .file-select-btn:hover,
-  [data-theme='light'] .neutral-action-btn:hover,
   [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover {
     background: #f0f0f0;
   }
 
   [data-theme='light'] .chat-preview-btn:active,
   [data-theme='light'] .file-select-btn:active,
-  [data-theme='light'] .neutral-action-btn:active,
   [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:active {
     background: #e8e8e8;
   }
@@ -10124,7 +10252,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
 
     #media-source-overlay .file-select-btn-large:hover:not(:active),
-    .neutral-action-btn:hover:not(:active),
     .btn-copy-invite-link[data-mode='copy']:hover:not(:active),
     #btn-sync:hover:not(:active),
     #btn-media-source:hover:not(:active) {
@@ -10154,7 +10281,6 @@ Safety is declared first because important layer precedence is reversed; its acc
       background: var(--play-action-surface);
     }
 
-    [data-theme='light'] .neutral-action-btn:hover:not(:active),
     [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover:not(:active) {
       background: var(--surface-2);
     }
@@ -12624,6 +12750,18 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   .dialog-choice-radio:checked:focus-visible + .dialog-choice-surface {
     outline-color: HighlightText !important;
+  }
+
+  /* A selected playlist check sits on its Highlight button; its mark takes
+     the icon color. Selected rows keep a faint Highlight block behind their
+     backplated text so joined groups still read. */
+  .btn-playlist-select[aria-pressed='true'] .playlist-select-mark {
+    stroke: currentColor;
+  }
+
+  .playlist-entry.is-removal-selected::before {
+    background: Highlight;
+    opacity: 0.35;
   }
 
   :is(button, [role='button'], [role='switch'], [role='tab']):is(:disabled, [aria-disabled='true']),

@@ -29,7 +29,7 @@ function item(queueItemId: QueueItemId, title: string): PlaylistItem {
 
 function row(queueItemId: QueueItemId): string {
   return `<li class="playlist-entry" data-queue-item-id="${queueItemId}">
-    <button type="button" class="btn-playlist-remove" data-queue-item-id="${queueItemId}"></button>
+    <button type="button" class="btn-playlist-select" data-queue-item-id="${queueItemId}"></button>
   </li>`;
 }
 
@@ -49,7 +49,7 @@ describe('playlist removal controller', () => {
     controller = null;
   });
 
-  it('names each X as a selection toggle and updates its pressed-state action', () => {
+  it('names each check circle as a selection toggle and updates its pressed-state action', () => {
     const items = [item(A, 'Alpha'), item(B, 'Beta')];
     const list = document.getElementById('playlist-ui')!;
     controller = createPlaylistRemovalController({
@@ -61,7 +61,7 @@ describe('playlist removal controller', () => {
     });
 
     const button = list.querySelector<HTMLButtonElement>(
-      `.btn-playlist-remove[data-queue-item-id="${A}"]`,
+      `.btn-playlist-select[data-queue-item-id="${A}"]`,
     )!;
     expect(button.getAttribute('aria-pressed')).toBe('false');
     expect(button.getAttribute('aria-label')).toBe(

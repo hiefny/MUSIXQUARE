@@ -9,8 +9,10 @@ import {
 } from '../../../scripts/classic-runtime-assets.ts';
 import {
   assertLegacyCss,
+  assertTouchSelectionCss,
   findUnpolyfilledRuntimeCall,
 } from '../../../scripts/check-legacy-tv-build.mts';
+import { APP_CSS_BROWSER_TARGETS } from '../../../scripts/browser-target.ts';
 import {
   createViteConfig,
   LEGACY_APP_BROWSER_TARGET,
@@ -36,6 +38,13 @@ describe('legacy smart-TV app compatibility', () => {
     expect(() => assertLegacyCss(css.replace('top:0;bottom:0;left:0;right:0', 'inset:0'))).toThrow(
       'physical fullscreen overlay edges',
     );
+  });
+
+  it('requires the prefixed selection block that iOS Safari reads', () => {
+    expect(() =>
+      assertTouchSelectionCss('*{-webkit-user-select:none;user-select:none}'),
+    ).not.toThrow();
+    expect(() => assertTouchSelectionCss('*{user-select:none}')).toThrow('-webkit-user-select');
   });
 
   it('flags runtime calls the TV engines lack, not a spread of a minifier-named function', () => {
@@ -83,7 +92,9 @@ describe('legacy smart-TV app compatibility', () => {
     const config = createViteConfig({});
     expect(LEGACY_APP_BROWSER_TARGET).toBe('chrome79');
     expect(config.build?.target).toBe(LEGACY_APP_BROWSER_TARGET);
-    expect(config.build?.cssTarget).toBe(LEGACY_APP_BROWSER_TARGET);
+    expect(config.build?.cssTarget).toEqual(APP_CSS_BROWSER_TARGETS);
+    expect(APP_CSS_BROWSER_TARGETS).toContain(LEGACY_APP_BROWSER_TARGET);
+    expect(APP_CSS_BROWSER_TARGETS).toEqual(expect.arrayContaining(['safari15', 'ios15']));
     const cleanupAsset = CLASSIC_RUNTIME_ASSETS.find(
       ({ outputPath }) => outputPath === 'fouc-cleanup.js',
     );

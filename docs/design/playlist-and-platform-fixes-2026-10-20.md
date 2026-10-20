@@ -86,7 +86,17 @@
 
 ## 검증
 
-{{VERIFICATION}}
+로컬 Windows, Node 24.20.0 / npm 12.0.2. 코드는 병합 커밋 `1342ca99`(이후 `63624734`는 서비스 워커 캐시 v742 한 줄)이다.
+
+- 통과: `npm run typecheck`, 린트, 포맷, 가드(bus-pairing, dead-exports, import-graph, room-authority-boundaries,
+  source-complexity, standard-room-hot-path), unit 603 files / 13,580 pass / 0 fail / 0 skip.
+- 통과: committed `build:checked` at `63624734`(release identity 8.11.32 / v742, sw-cache-version, legacy-tv-build와
+  iOS 선택 차단 가드, 초기 전송 예산: eager JS 479.7 KiB gzip).
+- 통과: Chromium e2e 135개. 이번 묶음이 바꾼 e2e 파일 9개 전체와 critical-browser, release-smoke,
+  background-resume, back-navigation, adaptive-actions.
+- 화면 확인(Playwright Chromium): 삭제 모드 휴대폰·데스크톱(짧은 목록에서 마지막 곡 아래 16 px, 긴 목록에서 하단 고정,
+  끝까지 스크롤하면 겹침 없음), 도움말 탭 버튼, 시계만 남은 화면 보호기, 화면 높이별 데스크톱 레이아웃.
+- 로컬 결과는 exact-main CI 후보를 대신하지 않는다.
 
 ## 한계
 

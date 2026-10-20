@@ -167,7 +167,7 @@ test.describe('Playlist Manipulation During Playback', () => {
     await navigateToTab(pair.hostPage, 'playlist');
     const currentIndex = await readCurrentQueueIndex(pair.hostPage);
 
-    const removeBtns = pair.hostPage.locator('#playlist-ui .btn-playlist-remove');
+    const removeBtns = pair.hostPage.locator('#playlist-ui .btn-playlist-select');
     const btnForCurrent = removeBtns.nth(currentIndex);
 
     await btnForCurrent.click();
@@ -768,7 +768,7 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
 
     await navigateToTab(pair.hostPage, 'playlist');
 
-    const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first();
+    const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-select').first();
 
     await removeBtn.click();
     await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeVisible();
@@ -846,7 +846,7 @@ test.describe('State Consistency After Complex Flows', () => {
 
     await navigateToTab(pair.hostPage, 'playlist');
 
-    const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').last();
+    const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-select').last();
 
     await removeBtn.click();
     await pair.hostPage.locator('.playlist-selection-delete').click();

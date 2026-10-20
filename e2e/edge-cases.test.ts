@@ -466,7 +466,7 @@ test.describe('Edge Cases', () => {
 
     await navigateToTab(pair.hostPage, 'playlist');
 
-    await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
+    await pair.hostPage.locator('#playlist-ui .btn-playlist-select').first().click();
     await expect(pair.hostPage.locator('.playlist-selection-bar')).toBeVisible();
     await expect(pair.hostPage.locator('#dialog-overlay')).toBeHidden();
     await pair.hostPage.locator('[data-selection-action="cancel"]').click();
@@ -531,7 +531,7 @@ test.describe('Edge Cases', () => {
     await waitForPlaylistCount(pair.hostPage, 1);
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
 
-    const removeBtns = pair.guestPage.locator('#playlist-ui .btn-playlist-remove');
+    const removeBtns = pair.guestPage.locator('#playlist-ui .btn-playlist-select');
     const count = await removeBtns.count();
     expect(count).toBe(0);
   });
@@ -687,7 +687,7 @@ test.describe('Stress Tests', () => {
       return document.getElementById('playlist-ui')?.children.length ?? 0;
     });
 
-    await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
+    await pair.hostPage.locator('#playlist-ui .btn-playlist-select').first().click();
     await pair.hostPage.locator('.playlist-selection-delete').click();
 
     await pair.hostPage.waitForFunction(
@@ -703,7 +703,7 @@ test.describe('Stress Tests', () => {
       return document.getElementById('playlist-ui')?.children.length ?? 0;
     });
     expect(countAfter).toBe(1);
-    await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
+    await pair.hostPage.locator('#playlist-ui .btn-playlist-select').first().click();
     await pair.hostPage.locator('.playlist-selection-delete').click();
     await waitForPlaylistCount(pair.hostPage, 0);
   });

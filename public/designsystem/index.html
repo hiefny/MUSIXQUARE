@@ -825,7 +825,10 @@
                 </div>
               </div>
               <ul class="pl" role="list" aria-label="Playlist component examples">
-                <li class="playlist-entry playlist-entry-sample" role="listitem">
+                <li
+                  class="playlist-entry playlist-entry-sample is-removal-selected"
+                  role="listitem"
+                >
                   <div class="playlist-item">
                     <span class="playlist-leading">1</span>
                     <span class="playlist-name">
@@ -838,18 +841,25 @@
                     </span>
                     <button
                       type="button"
-                      class="playlist-remove"
-                      aria-label="Remove Goldberg Aria.wav"
+                      class="playlist-select"
+                      aria-label="Deselect Goldberg Aria.wav for deletion"
+                      aria-pressed="true"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle class="playlist-select-ring" cx="12" cy="12" r="9" />
                         <path
-                          d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          class="playlist-select-mark"
+                          d="M5 12.5l4.2 4.2L19 6.9"
+                          transform="translate(4.8 4.8) scale(.6)"
                         />
                       </svg>
                     </button>
                   </div>
                 </li>
-                <li class="playlist-entry playlist-entry-sample" role="listitem">
+                <li
+                  class="playlist-entry playlist-entry-sample is-removal-selected"
+                  role="listitem"
+                >
                   <div class="playlist-item active" aria-current="true">
                     <span class="playlist-leading playing" aria-label="Playing">
                       <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -866,13 +876,16 @@
                     </span>
                     <button
                       type="button"
-                      class="playlist-remove btn-playlist-remove is-selected"
+                      class="playlist-select"
                       aria-label="Deselect Cello Suite No. 1 Prelude for deletion"
                       aria-pressed="true"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle class="playlist-select-ring" cx="12" cy="12" r="9" />
                         <path
-                          d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          class="playlist-select-mark"
+                          d="M5 12.5l4.2 4.2L19 6.9"
+                          transform="translate(4.8 4.8) scale(.6)"
                         />
                       </svg>
                     </button>
@@ -905,12 +918,16 @@
                     </button>
                     <button
                       type="button"
-                      class="playlist-remove"
-                      aria-label="Remove Well-Tempered Clavier Book I playlist"
+                      class="playlist-select"
+                      aria-label="Select Well-Tempered Clavier Book I for deletion"
+                      aria-pressed="false"
                     >
                       <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle class="playlist-select-ring" cx="12" cy="12" r="9" />
                         <path
-                          d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          class="playlist-select-mark"
+                          d="M5 12.5l4.2 4.2L19 6.9"
+                          transform="translate(4.8 4.8) scale(.6)"
                         />
                       </svg>
                     </button>
@@ -980,11 +997,29 @@
                 </li>
               </ul>
               <div class="playlist-selection-bar" role="group" aria-label="Remove from playlist">
-                <button type="button" class="playlist-selection-pill playlist-selection-delete">
-                  Delete
+                <button
+                  type="button"
+                  class="playlist-selection-action playlist-selection-delete"
+                  aria-label="Delete"
+                  title="Delete"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+                    />
+                  </svg>
                 </button>
-                <button type="button" class="playlist-selection-pill playlist-selection-cancel">
-                  Cancel
+                <button
+                  type="button"
+                  class="playlist-selection-action playlist-selection-cancel"
+                  aria-label="Cancel"
+                  title="Cancel"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                    />
+                  </svg>
                 </button>
               </div>
             </div>

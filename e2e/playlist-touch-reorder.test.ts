@@ -106,9 +106,10 @@ test.describe('Playlist touch reorder', () => {
     const rows = page.locator('.playlist-entry[data-queue-item-id] .track-item');
     const ghost = page.locator('.playlist-reorder-ghost');
 
-    // The row X is an interactive child: holding it past the reorder threshold
-    // must only toggle deletion selection after release, never arm a drag.
-    const firstRemoveButton = page.locator('.btn-playlist-remove').first();
+    // The row check circle is an interactive child: holding it past the
+    // reorder threshold must only toggle selection after release, never arm a
+    // drag.
+    const firstRemoveButton = page.locator('.btn-playlist-select').first();
     const firstHandle = page.locator('.playlist-reorder-handle').first();
     const controlGeometry = await Promise.all(
       [firstHandle, firstRemoveButton].map((control) =>
@@ -135,7 +136,7 @@ test.describe('Playlist touch reorder', () => {
     await expect(page.locator('.playlist-selection-bar')).toBeVisible();
     await expect(page.locator('.playlist-selection-title')).toHaveText('1 selected');
 
-    const actionSizes = await page.locator('.playlist-selection-pill').evaluateAll((buttons) =>
+    const actionSizes = await page.locator('.playlist-selection-action').evaluateAll((buttons) =>
       buttons.map((button) => {
         const rect = button.getBoundingClientRect();
         return { width: rect.width, height: rect.height };

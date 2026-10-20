@@ -2849,12 +2849,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     .playlist-reorder-ghost,
     .playlist-reorder-settle,
     .playlist-selection-bar,
-    .playlist-selection-pill,
+    .playlist-selection-action,
     .playlist-selection-toggle,
     .playlist-ul,
+    .playlist-entry::before,
     .btn-playlist-remove,
     .btn-playlist-remove svg,
-    .btn-playlist-remove::before,
+    .btn-playlist-select,
+    .btn-playlist-select svg *,
     .expand-toggle,
     .expand-toggle svg {
       transition: none !important;
@@ -2874,9 +2876,9 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  /* ── Playlist Remove Button (host only) ────────────────────────── */
-  /* Keep removal visible because touch and hybrid devices cannot depend on
-     hover discovery. */
+  /* ── Playlist row X (PRO upload cancel) ────────────────────────── */
+  /* Keep it visible because touch and hybrid devices cannot depend on hover
+     discovery. */
   .btn-playlist-remove {
     position: relative;
     display: flex;
@@ -2896,22 +2898,7 @@ Safety is declared first because important layer precedence is reversed; its acc
       color 0.15s;
     color: var(--text-muted);
     padding: 0;
-    isolation: isolate;
     -webkit-tap-highlight-color: transparent;
-  }
-
-  .btn-playlist-remove::before {
-    content: '';
-    position: absolute;
-    inset: 8px;
-    z-index: -1;
-    border-radius: 50%;
-    background: #ff4d4f;
-    opacity: 0;
-    transform: scale(0.72);
-    transition:
-      opacity 0.16s ease,
-      transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .btn-playlist-remove svg {
@@ -2921,23 +2908,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     stroke: currentColor;
     stroke-width: 0.5;
     stroke-linejoin: round;
-    transition:
-      color 0.16s ease,
-      transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-
-  .btn-playlist-remove.is-selected {
-    color: #fff;
-    opacity: 1;
-  }
-
-  .btn-playlist-remove.is-selected::before {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  .btn-playlist-remove.is-selected svg {
-    transform: scale(0.92);
   }
 
   .track-item:focus-within .btn-playlist-remove:not(.is-selected):not(:disabled) {
@@ -2949,10 +2919,128 @@ Safety is declared first because important layer precedence is reversed; its acc
       opacity: 1;
       color: #ff4d4f;
     }
+  }
 
-    .btn-playlist-remove.is-selected:not(:disabled):hover {
-      color: #fff;
+  /* ── Playlist row selection (queue editors only) ─────────────────── */
+  /* A check circle where the row's X used to be. Unselected it is a muted
+     ring; selected it fills with the brand blue and shows the language
+     list's check mark in white. The column never starts a native scroll, so
+     a vertical drag along it selects rows instead
+     (playlist-selection-gestures.ts). */
+  .btn-playlist-select {
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin: -8px;
+    flex: 0 0 44px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s ease;
+  }
+
+  .btn-playlist-select svg {
+    width: 22px;
+    height: 22px;
+    overflow: visible;
+  }
+
+  .playlist-select-ring {
+    fill: transparent;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    transition:
+      fill 0.16s ease,
+      stroke 0.16s ease;
+  }
+
+  .playlist-select-mark {
+    fill: none;
+    stroke: #fff;
+    stroke-width: 3.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    opacity: 0;
+    transition: opacity 0.16s ease;
+  }
+
+  .btn-playlist-select[aria-pressed='true'] .playlist-select-ring {
+    fill: var(--primary-filled);
+    stroke: var(--primary-filled);
+  }
+
+  .btn-playlist-select[aria-pressed='true'] .playlist-select-mark {
+    opacity: 1;
+  }
+
+  .btn-playlist-select:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);
+    outline-offset: 1px;
+  }
+
+  @media (any-hover: hover) {
+    .btn-playlist-select:hover {
+      color: var(--primary);
     }
+  }
+
+  /* Selected rows share one translucent blue fill. A lone row is a pill.
+     Consecutive rows join into one block: the first keeps the pill's top
+     corners (half the row height), the last its bottom corners, and each
+     joining row's fill reaches up through the 8px gap above it, square, so
+     the block has no seams. The browser derives start/middle/end from the
+     siblings, so the shape follows every selection change and re-render.
+     Only top and bottom corners differ, so RTL needs nothing extra; the fill
+     eases in and out by its color. */
+  .playlist-entry {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .playlist-entry::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: var(--radius-pill);
+    background: transparent;
+    pointer-events: none;
+    transition: background-color 0.16s ease;
+  }
+
+  .playlist-entry.is-removal-selected::before {
+    background: var(--control-active);
+  }
+
+  .playlist-entry.is-removal-selected:has(+ .playlist-entry.is-removal-selected)::before {
+    border-radius: calc(var(--list-row-height) / 2) calc(var(--list-row-height) / 2) 0 0;
+  }
+
+  .playlist-entry.is-removal-selected + .playlist-entry.is-removal-selected::before {
+    top: -8px;
+    border-radius: 0 0 calc(var(--list-row-height) / 2) calc(var(--list-row-height) / 2);
+  }
+
+  .playlist-entry.is-removal-selected
+    + .playlist-entry.is-removal-selected:has(+ .playlist-entry.is-removal-selected)::before {
+    border-radius: 0;
+  }
+
+  /* Edit mode folds YouTube playlists: their track lists and disclosure
+     chevrons step aside, and each one's own expansion returns afterwards. */
+  .playlist-ul.has-removal-selection .sub-playlist,
+  .playlist-ul.has-removal-selection .expand-toggle {
+    display: none;
   }
 
   /* Deletion mode: the playlist title becomes the selected count and one
@@ -3028,8 +3116,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  /* Delete and Cancel use the dialog pill family (54px, pill radius, 700
-     label) inside one container pill. It follows the last track; a list
+  /* Delete (trash) and Cancel (close) are 54px circular icon buttons, the
+     dialog pill family's height, inside one container pill. It follows the last track; a list
      taller than the view keeps it floating at the bottom (sticky), above the
      bottom navigation. The container carries the light dialog grey button's
      faint token stroke (transparent in dark, its own value in the
@@ -3060,7 +3148,7 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   /* On its way out after the mode ends, taps reach the rows underneath. */
   .playlist-selection-bar[data-state='leaving'],
-  .playlist-selection-bar[data-state='leaving'] .playlist-selection-pill {
+  .playlist-selection-bar[data-state='leaving'] .playlist-selection-action {
     pointer-events: none;
   }
 
@@ -3080,26 +3168,19 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  .playlist-selection-pill {
+  .playlist-selection-action {
     appearance: none;
     -webkit-appearance: none;
     position: relative;
-    min-width: 100px;
-    min-height: 54px;
+    width: 54px;
+    height: 54px;
+    flex: 0 0 54px;
     box-sizing: border-box;
-    padding: 0 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    overflow: hidden;
+    padding: 0;
+    display: inline-grid;
+    place-items: center;
     border: 1px solid transparent;
     border-radius: var(--radius-pill);
-    font-family: inherit;
-    font-size: 15px;
-    font-weight: 700;
-    line-height: 1.2;
-    white-space: nowrap;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition:
@@ -3109,11 +3190,17 @@ Safety is declared first because important layer precedence is reversed; its acc
       scale 0.2s ease;
   }
 
-  .playlist-selection-pill:active {
-    scale: 0.97;
+  .playlist-selection-action svg {
+    width: 24px;
+    height: 24px;
+    fill: currentColor;
   }
 
-  .playlist-selection-pill:focus-visible {
+  .playlist-selection-action:active {
+    scale: 0.94;
+  }
+
+  .playlist-selection-action:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 3px;
   }
@@ -12625,6 +12712,18 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   .dialog-choice-radio:checked:focus-visible + .dialog-choice-surface {
     outline-color: HighlightText !important;
+  }
+
+  /* A selected playlist check sits on its Highlight button; its mark takes
+     the icon color. Selected rows keep a faint Highlight block behind their
+     backplated text so joined groups still read. */
+  .btn-playlist-select[aria-pressed='true'] .playlist-select-mark {
+    stroke: currentColor;
+  }
+
+  .playlist-entry.is-removal-selected::before {
+    background: Highlight;
+    opacity: 0.35;
   }
 
   :is(button, [role='button'], [role='switch'], [role='tab']):is(:disabled, [aria-disabled='true']),

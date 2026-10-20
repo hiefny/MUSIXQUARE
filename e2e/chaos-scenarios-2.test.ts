@@ -172,7 +172,7 @@ async function loadYouTube(setup: ChaosSetup, url: string): Promise<void> {
 
 async function removeFirstTrack(page: Page, remaining: number): Promise<void> {
   await navigateToTab(page, 'playlist');
-  await page.locator('.btn-playlist-remove').first().click();
+  await page.locator('.btn-playlist-select').first().click();
   await page.locator('.playlist-selection-delete').click();
   await waitForPlaylistCount(page, remaining);
 }

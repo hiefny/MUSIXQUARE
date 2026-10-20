@@ -395,7 +395,7 @@ async function seekHost(page: Page): Promise<number> {
 
 async function removeLastTrack(page: Page, remaining: number): Promise<void> {
   await navigateToTab(page, 'playlist');
-  await page.locator('.btn-playlist-remove').last().click();
+  await page.locator('.btn-playlist-select').last().click();
   await page.locator('.playlist-selection-delete').click();
   await waitForPlaylistCount(page, remaining);
 }

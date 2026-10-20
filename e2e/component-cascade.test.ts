@@ -57,6 +57,8 @@ for (const mode of [
             <button class="sync-nudge-btn" data-shape="pill">+</button>
             <button class="playlist-reorder-handle" data-shape="pill">Reorder</button>
             <button class="btn-playlist-remove" data-shape="pill">Remove</button>
+            <button class="btn-playlist-select" data-shape="pill">Select</button>
+            <button class="playlist-selection-action" data-shape="pill">Delete</button>
             <button class="dialog-primary" data-shape="pill">Confirm</button>
             <div class="track-item" data-shape="pill">Track</div>
             <div class="sub-track-item" data-shape="pill">Track details</div>
@@ -120,7 +122,7 @@ for (const mode of [
           : 'block',
       );
       expect(shapes.emptyArtist, `${label} keeps empty metadata hidden`).toBe('none');
-      expect(shapes.pills, label).toHaveLength(13);
+      expect(shapes.pills, label).toHaveLength(15);
       for (const pill of shapes.pills) {
         expect(pill.radius, `${label} ${pill.component}`).toEqual(Array(4).fill('999px'));
       }

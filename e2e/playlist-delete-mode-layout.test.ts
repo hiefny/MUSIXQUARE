@@ -37,7 +37,7 @@ for (const [label, viewport] of [
     // Let the list's entrance motion settle before taking the reference.
     await page.waitForTimeout(1500);
     const before = await playlistGeometry(page);
-    await page.locator('.btn-playlist-remove').nth(1).click();
+    await page.locator('.btn-playlist-select').nth(1).click();
     await expect(page.locator('.playlist-selection-title')).toBeVisible();
     const during = await playlistGeometry(page);
     await page.locator('[data-selection-action="cancel"]').click();

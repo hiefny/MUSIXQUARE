@@ -673,9 +673,9 @@
 .fab:focus-visible,
 .choice-card:focus-visible,
 .expand-toggle:focus-visible,
-.playlist-remove:focus-visible,
+.playlist-select:focus-visible,
 .tab-action-btn-sample:focus-visible,
-.playlist-selection-pill:focus-visible,
+.playlist-selection-action:focus-visible,
 .toggle-sample:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
@@ -1118,7 +1118,7 @@
   white-space: nowrap;
 }
 
-.playlist-remove {
+.playlist-select {
   width: 44px;
   height: 44px;
   margin: -8px;
@@ -1133,46 +1133,69 @@
   cursor: pointer;
 }
 
-.playlist-remove:hover {
-  color: #ff4d4f;
+.playlist-select:hover {
+  color: var(--primary);
 }
 
-.playlist-remove svg {
-  width: 16px;
-  height: 16px;
-  fill: currentColor;
+.playlist-select svg {
+  width: 22px;
+  height: 22px;
+  overflow: visible;
 }
 
-.btn-playlist-remove {
+.playlist-select-ring {
+  fill: transparent;
+  stroke: currentColor;
+  stroke-width: 1.6;
+}
+
+.playlist-select-mark {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0;
+}
+
+.playlist-select[aria-pressed='true'] .playlist-select-ring {
+  fill: var(--primary-filled);
+  stroke: var(--primary-filled);
+}
+
+.playlist-select[aria-pressed='true'] .playlist-select-mark {
+  opacity: 1;
+}
+
+/* Selected rows: one translucent fill; consecutive rows join into a block
+   with the pill's top and bottom corners, a lone row is a pill. */
+.playlist-entry-sample {
   position: relative;
   isolation: isolate;
 }
 
-.btn-playlist-remove::before {
+.playlist-entry-sample.is-removal-selected::before {
   content: '';
   position: absolute;
-  inset: 8px;
+  inset: 0;
   z-index: -1;
-  border-radius: 50%;
-  background: #ff4d4f;
-  opacity: 0;
-  transform: scale(0.72);
-  transition:
-    opacity 0.16s ease,
-    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  border-radius: 999px;
+  background: var(--control-active);
+  pointer-events: none;
 }
 
-.btn-playlist-remove.is-selected {
-  color: #fff;
+.playlist-entry-sample.is-removal-selected:has(+ .is-removal-selected)::before {
+  border-radius: 28px 28px 0 0;
 }
 
-.btn-playlist-remove.is-selected::before {
-  opacity: 1;
-  transform: scale(1);
+.playlist-entry-sample.is-removal-selected + .is-removal-selected::before {
+  top: -8px;
+  border-radius: 0 0 28px 28px;
 }
 
-.btn-playlist-remove.is-selected svg {
-  transform: scale(0.92);
+.playlist-entry-sample.is-removal-selected
+  + .is-removal-selected:has(+ .is-removal-selected)::before {
+  border-radius: 0;
 }
 
 .playlist-selection-bar {
@@ -1190,21 +1213,23 @@
   background: var(--surface-1);
 }
 
-.playlist-selection-pill {
-  min-width: 100px;
-  min-height: 54px;
-  padding: 0 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.playlist-selection-action {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 54px;
+  box-sizing: border-box;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
   border: 1px solid transparent;
   border-radius: 999px;
-  font: inherit;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.2;
-  white-space: nowrap;
   cursor: pointer;
+}
+
+.playlist-selection-action svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
 }
 
 .playlist-selection-delete {

@@ -109,3 +109,9 @@
 0 skip, committed `build:checked`(초기 전송 예산 eager JS 491,520 / 491,568 B gzip) 통과, Chromium e2e 229 pass(이번 묶음이
 바꾼 e2e 전체와 critical-browser, release-smoke, background-resume, back-navigation, adaptive-actions). 초기 JS 예산 여유가
 48 B라 다음 초기 로딩 코드 추가 전에 다른 곳을 줄여야 한다. 로컬 결과는 exact-main CI 후보를 대신하지 않는다.
+
+## 선택 아이콘을 마이너스와 언어 선택 체크로 (오너 지시)
+
+새 컴포넌트를 만들지 않도록, 선택 전 아이콘은 동그라미 대신 "−"(가로선 하나)로, 선택 후는 언어 선택 창의 체크 표시(`M5 12.5l4.2
+4.2L19 6.9`, 굵기 2.4, 둥근 끝)를 그대로 쓴다. 두 아이콘은 같은 획 스타일이고 선택되면 파란색이다. 프로젝트에 마이너스 아이콘은
+없어 같은 획 스타일의 가로선으로 그렸다. 디자인시스템 페이지 예시도 맞췄다.

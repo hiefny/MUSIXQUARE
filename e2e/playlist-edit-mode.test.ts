@@ -124,11 +124,18 @@ test.describe('Playlist edit mode (mouse)', () => {
     // The single pill's corners equal the block's: half the 56px row.
     expect(fills[3]!.entryBottom - fills[3]!.entryTop).toBeCloseTo(56, 0);
 
-    const selectedRing = await checks
-      .nth(0)
-      .locator('.playlist-select-ring')
-      .evaluate((ring) => getComputedStyle(ring).fill);
-    expect(selectedRing).toBe(await cssColor(page, 'var(--primary-filled)'));
+    // A selected row shows the language list's check in the brand blue and
+    // hides its minus.
+    const selectedLook = await checks.nth(0).evaluate((button) => ({
+      color: getComputedStyle(button).color,
+      minus: getComputedStyle(button.querySelector('.playlist-select-minus')!).opacity,
+      mark: getComputedStyle(button.querySelector('.playlist-select-mark')!).opacity,
+    }));
+    expect(selectedLook).toEqual({
+      color: await cssColor(page, 'var(--primary)'),
+      minus: '0',
+      mark: '1',
+    });
 
     // The panel holds two circular icon buttons.
     const actions = page.locator('.playlist-selection-bar .playlist-selection-action');

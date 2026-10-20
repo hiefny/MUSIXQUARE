@@ -845,13 +845,14 @@ export function updatePlaylistUI(): void {
       isRemovalSelected ? 'playlist.deselect_for_deletion' : 'playlist.select_for_deletion',
       { title: displayName },
     );
-    // A check circle; its check mark is the language list's, scaled into it.
+    // A minus marks a row that can be selected; once selected it shows the
+    // language list's check mark in the same stroke style.
     const selectButton = canEditPlaylist
       ? `<button type="button" class="btn-playlist-select" data-action="select"
           data-queue-item-id="${escapeHtml(item.queueItemId)}"
           aria-pressed="${isRemovalSelected}"
           aria-label="${escapeHtml(selectLabel)}" title="${escapeHtml(selectLabel)}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><circle class="playlist-select-ring" cx="12" cy="12" r="9"/><path class="playlist-select-mark" d="M5 12.5l4.2 4.2L19 6.9" transform="translate(4.8 4.8) scale(.6)"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="playlist-select-minus" d="M6 12h12"/><path class="playlist-select-mark" d="M5 12.5l4.2 4.2L19 6.9"/></svg>
         </button>`
       : '';
 

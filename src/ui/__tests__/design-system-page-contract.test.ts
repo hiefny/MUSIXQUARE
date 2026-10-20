@@ -276,7 +276,9 @@ describe('public design-system page contract', () => {
       normalizedPath(item.querySelector('.playlist-source path')?.getAttribute('d') ?? null),
     );
     const checkPaths = items.map((item) =>
-      normalizedPath(item.querySelector('.playlist-select path')?.getAttribute('d') ?? null),
+      normalizedPath(
+        item.querySelector('.playlist-select .playlist-select-mark')?.getAttribute('d') ?? null,
+      ),
     );
     const trackTitles = items.map((item) =>
       item.querySelector('.playlist-name')?.textContent?.trim(),
@@ -332,7 +334,7 @@ describe('public design-system page contract', () => {
       items.every(
         (item) =>
           item.lastElementChild?.classList.contains('playlist-select') &&
-          item.lastElementChild.querySelector('circle.playlist-select-ring') !== null,
+          item.lastElementChild.querySelector('path.playlist-select-minus') !== null,
       ),
     ).toBe(true);
     // Rows 1 and 2 are selected and join into one block; row 3 is not.

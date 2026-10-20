@@ -2960,9 +2960,9 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* ── Playlist row selection (queue editors only) ─────────────────── */
-  /* A check circle where the row's X used to be. Unselected it is a muted
-     ring; selected it fills with the brand blue and shows the language
-     list's check mark in white. The column never starts a native scroll, so
+  /* A minus where the row's X used to be. Unselected it is a muted minus;
+     selected it becomes the language list's check mark in the brand blue,
+     drawn with the same stroke. The column never starts a native scroll, so
      a vertical drag along it selects rows instead
      (playlist-selection-gestures.ts). */
   .btn-playlist-select {
@@ -2993,28 +2993,26 @@ Safety is declared first because important layer precedence is reversed; its acc
     overflow: visible;
   }
 
-  .playlist-select-ring {
-    fill: transparent;
-    stroke: currentColor;
-    stroke-width: 1.6;
-    transition:
-      fill 0.16s ease,
-      stroke 0.16s ease;
-  }
-
+  .playlist-select-minus,
   .playlist-select-mark {
     fill: none;
-    stroke: #fff;
-    stroke-width: 3.6;
+    stroke: currentColor;
+    stroke-width: 2.4;
     stroke-linecap: round;
     stroke-linejoin: round;
-    opacity: 0;
     transition: opacity 0.16s ease;
   }
 
-  .btn-playlist-select[aria-pressed='true'] .playlist-select-ring {
-    fill: var(--primary-filled);
-    stroke: var(--primary-filled);
+  .playlist-select-mark {
+    opacity: 0;
+  }
+
+  .btn-playlist-select[aria-pressed='true'] {
+    color: var(--primary);
+  }
+
+  .btn-playlist-select[aria-pressed='true'] .playlist-select-minus {
+    opacity: 0;
   }
 
   .btn-playlist-select[aria-pressed='true'] .playlist-select-mark {

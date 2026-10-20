@@ -1320,7 +1320,7 @@ describe('playlist queue identity rendering and actions', () => {
     }
   });
 
-  it('puts a check circle after each title that enters edit mode for its own row', () => {
+  it('puts a select minus after each title that enters edit mode for its own row', () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
 
@@ -1330,9 +1330,9 @@ describe('playlist queue identity rendering and actions', () => {
     expect(row.querySelector('.btn-playlist-remove')).toBeNull();
     expect(check.previousElementSibling?.classList.contains('track-name')).toBe(true);
     expect(
-      check.querySelector('svg[aria-hidden="true"] circle.playlist-select-ring'),
-    ).not.toBeNull();
-    // The language list's check mark, scaled into the circle.
+      check.querySelector('svg[aria-hidden="true"] path.playlist-select-minus')?.getAttribute('d'),
+    ).toBe('M6 12h12');
+    // The language list's check mark, shown once the row is selected.
     expect(check.querySelector('path.playlist-select-mark')?.getAttribute('d')).toBe(
       'M5 12.5l4.2 4.2L19 6.9',
     );

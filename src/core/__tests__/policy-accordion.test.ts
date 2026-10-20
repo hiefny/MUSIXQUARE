@@ -268,7 +268,7 @@ describe('policy-page accordions', () => {
       ].map((path) => readFile(path, 'utf8')),
     );
 
-    expect(privacyText).toContain('Effective date: October 16, 2026');
+    expect(privacyText).toContain('Effective date: October 21, 2026');
     expect(termsText).toContain('Effective date: October 10, 2026');
     expect(faqText).toContain('Last updated: October 10, 2026');
     expect(faqText).toContain('New PRO rooms start without an entry password');

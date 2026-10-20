@@ -11,7 +11,7 @@ const XHTML_NAMESPACE = 'http://www.w3.org/1999/xhtml';
 const ENGLISH_ONLY_PAGES = [
   { path: '/blog', lastmod: '2026-07-18', changefreq: 'weekly', priority: '0.8' },
   { path: '/history', lastmod: '2026-08-23', changefreq: 'monthly', priority: '0.8' },
-  { path: '/privacy', lastmod: '2026-10-16', changefreq: 'yearly', priority: '0.6' },
+  { path: '/privacy', lastmod: '2026-10-21', changefreq: 'yearly', priority: '0.6' },
   { path: '/terms', lastmod: '2026-10-10', changefreq: 'yearly', priority: '0.6' },
   { path: '/faq', lastmod: '2026-10-10', changefreq: 'monthly', priority: '0.7' },
   { path: '/developers', lastmod: '2026-08-17', changefreq: 'monthly', priority: '0.7' },

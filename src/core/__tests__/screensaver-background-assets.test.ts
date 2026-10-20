@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CLOCK_BACKGROUND } from '../../../browser/screensaver-backgrounds.ts';
@@ -39,5 +39,12 @@ describe('screensaver background asset contract', () => {
     );
     expect(source).not.toMatch(/photo-|air-[a-z]|assets\/backgrounds\//u);
     expect(source).not.toMatch(/open-meteo|geolocation/iu);
+  });
+
+  it('ships only the clock background folder', async () => {
+    const folders = await readdir(
+      new URL('../../../public/assets/screensaver/backgrounds/', import.meta.url),
+    );
+    expect(folders).toEqual(['clock']);
   });
 });

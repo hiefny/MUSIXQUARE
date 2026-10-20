@@ -2438,6 +2438,24 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
+  /* A pen or mouse seen at runtime (src/ui/hover-pointer.ts) counts as a hover
+     pointer even when the device reports none, e.g. a convertible in tablet
+     posture whose touchpad is off. */
+  html[data-hover-pointer] .playlist-reorder-handle:hover {
+    color: var(--primary);
+  }
+
+  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .track-idx,
+  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .track-playback-state-icon {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+
+  html[data-hover-pointer] .track-item:hover .playlist-reorder-handle .playlist-reorder-grip {
+    opacity: 1;
+    transform: scale(1);
+  }
+
   .playlist-ul:is(.is-reordering, .is-keyboard-reordering)
     .playlist-entry:not(.is-reorder-source)
     .playlist-reorder-handle
@@ -2543,6 +2561,26 @@ Safety is declared first because important layer precedence is reversed; its acc
       will-change: transform;
       --marquee-offset: var(--playlist-marquee-offset);
     }
+  }
+
+  html[data-hover-pointer]
+    .track-item:hover
+    .track-name-text.is-playlist-title-overflowing
+    > .playlist-title-marquee-content,
+  html[data-hover-pointer]
+    .sub-track-item:hover
+    .sub-name.is-playlist-title-overflowing
+    > .playlist-title-marquee-content {
+    animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
+      infinite;
+    /* Hover is an explicit request to read the hidden title: skip the hold. */
+    --playlist-marquee-wait: 0s;
+    animation-delay: calc(
+      var(--playlist-marquee-wait) - var(--playlist-marquee-duration, 10s) * 0.2
+    );
+    display: inline-block;
+    will-change: transform;
+    --marquee-offset: var(--playlist-marquee-offset);
   }
 
   .track-name:focus-visible

@@ -242,6 +242,13 @@ test.describe('Playlist edit mode (mouse)', () => {
     expect(await pressedStates(page)).toEqual(selected([0, 2]));
     await titles.nth(0).click();
     expect(await pressedStates(page)).toEqual(selected([2]));
+    // The number column is part of the row while picking. It takes no pointer
+    // events then, so click its spot rather than the element.
+    const number = await centerOf(page.locator('#playlist-ui .playlist-reorder-handle').nth(4));
+    await page.mouse.click(number.x, number.y);
+    expect(await pressedStates(page)).toEqual(selected([2, 4]));
+    await page.mouse.click(number.x, number.y);
+    expect(await pressedStates(page)).toEqual(selected([2]));
     expect(await currentQueueItemId(page)).toBe(currentBefore);
 
     // Deselecting the last row by its title ends edit mode, and titles play again.

@@ -816,7 +816,7 @@ export function updatePlaylistUI(): void {
 
   const currentQueueItemId = getState('playlist.currentQueueItemId');
   const currentYouTubeSubIndex = getState('youtube.currentSubIndex') ?? -1;
-  const canEditPlaylist = canEditQueueStructure() && getState('playback.mode') !== 'system-audio';
+  const canEditPlaylist = canRemoveRows();
   const canReorder = canEditPlaylist && playlist.length > 1;
 
   playlist.forEach((item, idx) => {
@@ -1015,6 +1015,10 @@ function installDomDelegation(list: HTMLElement): void {
   );
 }
 
+function canRemoveRows(): boolean {
+  return canEditQueueStructure() && getState('playback.mode') !== 'system-audio';
+}
+
 // Reordering starts only from a held press, the handle, or the keyboard, never
 // in the first frame, so its controller loads after the list mounts
 // (docs/design/initial-bundle-loading-policy.md). Until then the rows are
@@ -1044,8 +1048,9 @@ function createReorderController(
     // In edit mode the number column is for picking, and a long press moves
     // the held track. Outside it a long press starts edit mode with that track.
     canUseHandle: () => !_removalController?.isActive,
+    canTakeLongPress: () => canRemoveRows() && !_removalController?.isActive,
     onLongPress: (queueItemId) => {
-      if (!_removalController || _removalController.isActive) return false;
+      if (!_removalController || _removalController.isActive || !canRemoveRows()) return false;
       _removalController.toggle(queueItemId as QueueItemId);
       return true;
     },
@@ -1139,7 +1144,7 @@ export function initPlaylistView(): void {
     loadReorderController(list);
     _removalController = createPlaylistRemovalController({
       list,
-      canRemove: () => canEditQueueStructure() && getState('playback.mode') !== 'system-audio',
+      canRemove: canRemoveRows,
       isPlaylistVisible: playlistIsVisible,
       getItems: () => getState('playlist.items'),
       onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),

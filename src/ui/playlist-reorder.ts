@@ -116,6 +116,8 @@ interface PlaylistReorderOptions {
   canUseHandle?: () => boolean;
   /** Returns true when it took the held row for itself instead of moving it. */
   onLongPress?: (queueItemId: string) => boolean;
+  /** True when onLongPress can take a hold, even on a list too short to reorder. */
+  canTakeLongPress?: () => boolean;
   onCommit: (queueItemId: string, beforeQueueItemId: string | null) => void;
   getAnnouncement: (queueItemId: string, position: number, total: number) => string;
   getHandleLabel?: (queueItemId: string, position: number) => string;
@@ -373,6 +375,11 @@ export function createPlaylistReorderController(
 
   function reorderable(): boolean {
     return !destroyed && !settling && options.canReorder() && entries().length > 1;
+  }
+
+  // A hold arms when it can move the row or when the owner can take it.
+  function holdable(): boolean {
+    return reorderable() || (!destroyed && !!options.canTakeLongPress?.());
   }
 
   function handleUsable(): boolean {
@@ -984,7 +991,7 @@ export function createPlaylistReorderController(
     // Touch contacts arm through the touch probe, which also owns native
     // scroll disqualification and the synthetic-click policy.
     if (event.pointerType !== 'mouse' && event.pointerType !== 'pen') return;
-    if (drag || keyboard || !reorderable()) return;
+    if (drag || keyboard || !holdable()) return;
     const sourceId = getEntryId(longPressSourceEntry(target));
     if (!sourceId) return;
     const pointerId = event.pointerId;
@@ -1002,10 +1009,8 @@ export function createPlaylistReorderController(
         pointerHold = null;
         // Resolve by ID: an authoritative render during the hold replaces rows.
         const sourceEntry = entryForId(hold.sourceId);
-        if (!sourceEntry || scrollContainer.scrollTop !== hold.startScrollTop || !reorderable()) {
-          return;
-        }
-        if (longPressTaken({ pointerId, sourceId: hold.sourceId })) return;
+        if (!sourceEntry || scrollContainer.scrollTop !== hold.startScrollTop) return;
+        if (longPressTaken({ pointerId, sourceId: hold.sourceId }) || !reorderable()) return;
         try {
           // Capture only once the hold becomes a drag. Capturing at press
           // time would retarget the click of an ordinary short press.
@@ -1066,7 +1071,7 @@ export function createPlaylistReorderController(
   }
 
   function onTouchStart(event: TouchEvent): void {
-    if (touchSequenceBlocked || !reorderable() || drag || keyboard || event.touches.length !== 1) {
+    if (touchSequenceBlocked || !holdable() || drag || keyboard || event.touches.length !== 1) {
       return;
     }
     const entry = longPressSourceEntry(asElement(event.target));

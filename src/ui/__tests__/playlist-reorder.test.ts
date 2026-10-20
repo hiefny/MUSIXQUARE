@@ -148,7 +148,7 @@ describe('playlist reorder interaction controller', () => {
     initiallyVisible = true,
     extra: Pick<
       Parameters<typeof createPlaylistReorderController>[0],
-      'canUseHandle' | 'onLongPress'
+      'canUseHandle' | 'onLongPress' | 'canTakeLongPress'
     > = {},
   ) {
     const commit = vi.fn();
@@ -567,6 +567,30 @@ describe('playlist reorder interaction controller', () => {
     vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS);
     expect(document.querySelector('.playlist-reorder-ghost')).not.toBeNull();
     dispatchPointer(list, 'pointerup', 20, 4);
+  });
+
+  it('lets onLongPress take a hold on a list that cannot reorder', () => {
+    const onLongPress = vi.fn(() => true);
+    const { list, rows } = create(false, true, { onLongPress, canTakeLongPress: () => true });
+    const rowClick = vi.fn();
+    list.addEventListener('click', rowClick);
+    const title = rows[0].querySelector<HTMLElement>('.track-name')!;
+
+    const hold = { identifier: 51, clientX: 140, clientY: 20 };
+    dispatchTouch(title, 'touchstart', [hold]);
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS);
+    expect(onLongPress).toHaveBeenCalledExactlyOnceWith(IDS.a);
+    dispatchTouch(title, 'touchend', [], [hold]);
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    title.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
+    expect(rowClick).not.toHaveBeenCalled();
+
+    dispatchPointer(title, 'pointerdown', 20, 6, { clientX: 140 });
+    vi.advanceTimersByTime(PLAYLIST_LONG_PRESS_MS);
+    expect(onLongPress).toHaveBeenCalledTimes(2);
+    expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+    dispatchPointer(title, 'pointerup', 20, 6, { clientX: 140 });
   });
 
   it('keeps the handle out of reordering while canUseHandle is false, but a hold still moves', () => {

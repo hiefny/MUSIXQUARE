@@ -3237,8 +3237,10 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: var(--text-main);
   }
 
+  /* While picking, the number column is part of the row: a tap there selects
+     the row like the rest of it does. */
   .playlist-ul.has-removal-selection .playlist-reorder-handle {
-    cursor: default;
+    pointer-events: none;
   }
 
   .playlist-ul.has-removal-selection .playlist-reorder-handle .track-idx {

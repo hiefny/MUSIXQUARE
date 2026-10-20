@@ -15378,9 +15378,20 @@ async function serveSoroImage(request: Request, env: AppEnv, key: string) {
     return withSecurityHeaders(new Response('Not found', { status: 404 }));
   }
 
-  let object = await env.SORO_IMAGE_BUCKET.get(key);
+  const bucket = env.SORO_IMAGE_BUCKET;
   let article: SoroArticle | null = null;
   let mirrorStatus = '';
+  // An R2 outage must reach the source fallback below instead of failing the
+  // request, so a read error counts as a missing object.
+  const readObject = async (objectKey: string) => {
+    try {
+      return await bucket.get(objectKey);
+    } catch {
+      mirrorStatus = 'read-error';
+      return null;
+    }
+  };
+  let object = await readObject(key);
   if (!object && request.method !== 'HEAD') {
     article = await findSoroImageArticleForKey(env, key);
     if (article) {
@@ -15394,7 +15405,7 @@ async function serveSoroImage(request: Request, env: AppEnv, key: string) {
           },
         );
       }
-      object = await env.SORO_IMAGE_BUCKET.get(currentKey);
+      object = await readObject(currentKey);
     }
   }
   if (!object) {

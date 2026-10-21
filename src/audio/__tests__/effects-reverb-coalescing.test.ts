@@ -26,7 +26,9 @@ vi.mock('../../network/protocol.ts', () => ({
 }));
 
 let engine: typeof import('../engine.ts');
+let effects: typeof import('../effects.ts');
 let bus: (typeof import('../../core/events.ts'))['bus'];
+let setState: (typeof import('../../core/state.ts'))['setState'];
 
 const preview = (param: string, value: number) =>
   bus.emit('audio:update-effect', 'reverb', param, value, true);
@@ -41,8 +43,9 @@ describe('reverb impulse', () => {
     h.ctx = createFakeAudioContext();
     h.generateReverbIR.mockClear();
     engine = await import('../engine.ts');
-    await import('../effects.ts');
+    effects = await import('../effects.ts');
     ({ bus } = await import('../../core/events.ts'));
+    ({ setState } = await import('../../core/state.ts'));
     await engine.initAudio();
   });
 
@@ -122,5 +125,24 @@ describe('reverb impulse', () => {
     bus.emit('audio:reverb-type-change', 'off');
     vi.runAllTimers();
     expect(h.generateReverbIR).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a failed impulse disconnected without blocking the other settings', async () => {
+    h.generateReverbIR.mockImplementationOnce(() => {
+      throw new RangeError('impulse allocation failed');
+    });
+    setState('audio.virtualBass', 0.5);
+    setState('audio.reverbMix', 0.4);
+    const eqNodes = engine.getEqNodes();
+    const eqOut = eqNodes[eqNodes.length - 1] as unknown as FakeNode;
+    const preDelay = engine.getRvbPreDelay() as unknown as FakeNode;
+
+    await expect(effects.applySettings()).rejects.toThrow('impulse allocation failed');
+    expect([...eqOut.outputs].some((node) => node.type === 'lowpass')).toBe(true);
+    expect(eqOut.outputs.has(preDelay)).toBe(false);
+
+    await effects.applySettings();
+    expect(h.generateReverbIR).toHaveBeenCalledTimes(2);
+    expect(eqOut.outputs.has(preDelay)).toBe(true);
   });
 });

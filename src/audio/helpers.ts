@@ -141,10 +141,8 @@ export function generateReverbIR(decay: number): AudioBuffer {
   );
   const cutoffRatio = endCutoff / startCutoff;
   const rt60 = Math.log(1000);
-  const decayCoeffL = Math.exp(-rt60 / decaySamples);
-  const decayCoeffR = decayCoeffL;
-  let envelopeL = 1;
-  let envelopeR = 1;
+  const decayCoeff = Math.exp(-rt60 / decaySamples);
+  let envelope = 1;
   let filteredL = 0;
   let filteredR = 0;
   let filterAlpha = 1 - Math.exp((-2 * Math.PI * startCutoff) / sampleRate);
@@ -162,10 +160,9 @@ export function generateReverbIR(decay: number): AudioBuffer {
     filteredL += (Math.random() * 2 - 1 - filteredL) * filterAlpha;
     filteredR += (Math.random() * 2 - 1 - filteredR) * filterAlpha;
 
-    left[n] = filteredL * envelopeL;
-    right[n] = filteredR * envelopeR;
-    envelopeL *= decayCoeffL;
-    envelopeR *= decayCoeffR;
+    left[n] = filteredL * envelope;
+    right[n] = filteredR * envelope;
+    envelope *= decayCoeff;
   }
 
   return buffer;

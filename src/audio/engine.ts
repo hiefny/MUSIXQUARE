@@ -261,7 +261,7 @@ export function applyMasterVolume(rampTime: number): void {
 export const REVERB_TAP = 0;
 export const VIRTUAL_BASS_TAP = 1;
 export const EXCITER_TAP = 2;
-const EFFECT_GATE_TIMER = 'audio-effect-input-gate';
+const EFFECT_GATE_TIMER = 'audio-input-gate';
 // Longer than RAMP_TIME, so a running context has finished the ramp by then.
 const EFFECT_GATE_CHECK_MS = 150;
 // Holds a reconnected wet gain at 0 while its filters and compressors settle.

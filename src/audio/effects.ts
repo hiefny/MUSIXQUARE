@@ -84,15 +84,6 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   const surroundChannelIndex = getState('audio.surroundChannelIndex');
   const subFreq = getState('audio.subFreq');
 
-  // Reverb Mix (CrossFade). An audible mix first builds the impulse for the
-  // current decay, then reconnects the reverb input, and only then starts
-  // the crossfade ramp; mix 0 disconnects the input once the ramp is silent.
-  const crossFade = getRvbCrossFade();
-  if (crossFade) {
-    gateEffectInput(REVERB_TAP, reverbMix, refreshReverbImpulse);
-    setCrossFade(crossFade, reverbMix, RAMP_TIME);
-  }
-
   // Reverb pre-delay is a DelayNode, so a change applies instantly without
   // rebuilding the impulse.
   const preDelay = getRvbPreDelay();
@@ -183,10 +174,20 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   // Master Volume
   applyMasterVolume(RAMP_TIME);
 
+  // Reverb Mix (CrossFade), last so an impulse failure cannot block the
+  // settings above. An audible mix first builds the impulse for the current
+  // decay, then reconnects the reverb input, and only then starts the
+  // crossfade ramp; mix 0 disconnects the input once the ramp is silent.
+  const crossFade = getRvbCrossFade();
+  if (crossFade) {
+    gateEffectInput(REVERB_TAP, reverbMix, refreshReverbImpulse);
+    setCrossFade(crossFade, reverbMix, RAMP_TIME);
+  }
+
   // Decay previews arrive at pointer-event cadence. Mix, damping, EQ, and
   // every other cheap AudioParam above still apply immediately, while the
-  // expensive impulse rebuild is coalesced. The slider's final `change`
-  // event calls the non-deferred path and commits the exact final value.
+  // expensive rebuild of an audible impulse is coalesced. The slider's final
+  // `change` event calls the non-deferred path and commits the exact value.
   if (deferReverbImpulse) scheduleReverbImpulseRefresh();
   else {
     clearManagedTimer(REVERB_IR_REFRESH_TIMER);

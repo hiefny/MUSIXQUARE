@@ -1,5 +1,10 @@
 # 재생목록 선택 블록 변형·머리글 크로스페이드·선택 막대 제자리 퇴장 8.11.35 (2026-10-21)
 
+후속 #435의 목록 재그리기 위치 수정은 8.11.37/v762에 포함되어 배포됐다.
+Exact-main `56721c76`의 CI 39580783569와 Release 39581781117이 성공했다.
+원래 8.11.35 배포와 후속 수정의 검증 범위는 아래에 구분해 유지한다.
+[후속 배포·운영·복구 근거](preload-recovery-and-db256-multi-2026-10-21.md#production-release-and-recovery)
+
 - Status: 8.11.35 UI 수정·검증 기록이다. 배포 결과의 정본은 [릴리스 기록](../release-record.md)과
   [릴리스 이력](../release-history.md)이다.
 - 계기: 8.11.34 배포 뒤 오너가 네 가지를 요청했다. 곡 이동 아이콘을 Material Symbols "Place Item"으로 바꾸기,

@@ -374,6 +374,53 @@ test.describe('Playlist delete slide-out', () => {
       await waitForPlaylistCount(page, 3);
     });
   }
+
+  test('the pills shrink away where they were and the header crossfades', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, true);
+    await page.locator('#playlist-ui .btn-playlist-select').nth(1).click();
+    await page.waitForTimeout(600);
+    const frames = await page.evaluate(async () => {
+      const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+      const header = document.querySelector<HTMLElement>('#tab-playlist .tab-header')!;
+      const center = () => {
+        const rect = bar.getBoundingClientRect();
+        return rect.top + rect.height / 2;
+      };
+      const before = { center: center(), header: header.getBoundingClientRect().height };
+      document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+      const copies = header.querySelectorAll('.playlist-header-fade > *').length;
+      const samples: { center: number; opacity: number; header: number }[] = [];
+      const start = performance.now();
+      await new Promise<void>((resolve) => {
+        const step = () => {
+          if (!bar.hidden) {
+            samples.push({
+              center: center(),
+              opacity: Number(getComputedStyle(bar).opacity),
+              header: header.getBoundingClientRect().height,
+            });
+          }
+          if (performance.now() - start < 260) requestAnimationFrame(step);
+          else resolve();
+        };
+        requestAnimationFrame(step);
+      });
+      return { before, copies, samples, hidden: bar.hidden };
+    });
+    // The count title and its toggle fade out as copies over the restored
+    // playlist title and icon actions; the header keeps its height.
+    expect(frames.copies).toBe(2);
+    expect(frames.samples.length).toBeGreaterThan(3);
+    for (const sample of frames.samples) {
+      // Shrinking about its centre: no slide toward the bottom of the screen.
+      expect(Math.abs(sample.center - frames.before.center)).toBeLessThan(1);
+      expect(sample.header).toBeCloseTo(frames.before.header, 0);
+    }
+    expect(frames.samples.at(-1)!.opacity).toBeLessThan(0.5);
+    expect(frames.hidden).toBe(true);
+    await expect(page.locator('.playlist-header-fade')).toHaveCount(0);
+  });
 });
 
 test.describe('Playlist edit mode (touch)', () => {

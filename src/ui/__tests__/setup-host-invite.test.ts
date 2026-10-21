@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -160,6 +161,80 @@ describe('host setup invitation QR', () => {
 
     expect(stage?.classList.contains('is-room-qr-loading')).toBe(false);
     expect(stage?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  describe('hidden loading spinner', () => {
+    function spinner(): HTMLElement {
+      return document.querySelector<HTMLElement>('.setup-host-qr-loading-spinner')!;
+    }
+
+    function endTransition(propertyName: string): void {
+      const event = new Event('transitionend');
+      Object.defineProperty(event, 'propertyName', { value: propertyName });
+      spinner().dispatchEvent(event);
+    }
+
+    it('holds both the rotation and the stroke of a paused spinner', () => {
+      expect(readFileSync('css/style.css', 'utf8')).toMatch(
+        /\.setup-host-qr-loading-spinner\.is-paused > svg,\s*\.setup-host-qr-loading-spinner\.is-paused circle \{\s*animation-play-state: paused;/u,
+      );
+    });
+
+    it('pauses its animations only once the fade-out has hidden it', async () => {
+      mocks.toString.mockResolvedValueOnce('<svg><path d="M0 0h1v1z"/></svg>');
+      await expect(revealHostInviteQr('654321', () => true)).resolves.toBe(true);
+      expect(spinner().classList.contains('is-paused')).toBe(false);
+
+      endTransition('opacity');
+      expect(spinner().classList.contains('is-paused')).toBe(false);
+      endTransition('visibility');
+      expect(spinner().classList.contains('is-paused')).toBe(true);
+    });
+
+    it('pauses after the fade-out time when no transition reports its end', () => {
+      vi.useFakeTimers();
+      try {
+        // Reduced motion turns the transition off, so transitionend never comes.
+        finishHostInviteLoading();
+        vi.advanceTimersByTime(249);
+        expect(spinner().classList.contains('is-paused')).toBe(false);
+        vi.advanceTimersByTime(1);
+        expect(spinner().classList.contains('is-paused')).toBe(true);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('runs again before the loading class brings it back', () => {
+      finishHostInviteLoading();
+      endTransition('visibility');
+      const stage = document.getElementById('setup-host-invite-stage')!;
+      const observer = new MutationObserver(() => {});
+      observer.observe(stage, { attributes: true, attributeFilter: ['class'], subtree: true });
+
+      resetHostInviteVisual();
+
+      const order = observer
+        .takeRecords()
+        .map((record) => (record.target === stage ? 'stage' : 'spinner'));
+      observer.disconnect();
+      expect(order.slice(-2)).toEqual(['spinner', 'stage']);
+      expect(spinner().classList.contains('is-paused')).toBe(false);
+      expect(stage.classList.contains('is-room-qr-loading')).toBe(true);
+    });
+
+    it('never pauses a spinner that is loading again', () => {
+      vi.useFakeTimers();
+      try {
+        finishHostInviteLoading();
+        resetHostInviteVisual();
+        endTransition('visibility');
+        vi.advanceTimersByTime(1_000);
+        expect(spinner().classList.contains('is-paused')).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it('rejects a non-canonical code without loading the encoder', async () => {

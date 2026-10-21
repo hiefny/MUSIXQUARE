@@ -7124,6 +7124,13 @@ Safety is declared first because important layer precedence is reversed; its acc
       visibility 0s linear 0s;
   }
 
+  /* Set after the fade-out (setup-host-invite.ts): the hidden loop holds its
+     place and continues from it on the next fade-in. */
+  .setup-host-qr-loading-spinner.is-paused > svg,
+  .setup-host-qr-loading-spinner.is-paused circle {
+    animation-play-state: paused;
+  }
+
   .setup-host-qr {
     width: min(272px, 56vw, 36vh);
     width: min(272px, 56vw, 36dvh);

@@ -160,6 +160,14 @@ async function touchStroke(
       });
       await page.waitForTimeout(24);
     }
+    // End this drag at rest, not as a fling. Chromium otherwise consumes the
+    // immediately following tab tap to stop inertia without dispatching click.
+    // This is part of the input gesture, not a wait for the app to recover.
+    await page.waitForTimeout(250);
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ ...to, id: 1, radiusX: 1, radiusY: 1, force: 1 }],
+    });
   } finally {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   }
@@ -172,32 +180,53 @@ async function swipeScroller(page: Page, cdp: CDPSession, scroller: Locator): Pr
   await scroller.evaluate((element) => {
     element.scrollTop = 0;
   });
-  const box = await scroller.boundingBox();
-  if (!box) throw new Error('Scroll surface has no touch target');
-  const start = { x: box.x + box.width / 2, y: box.y + box.height * 0.75 };
   const readHitTarget = () =>
-    scroller.evaluate((element, point) => {
+    scroller.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      const box = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+      const point = { x: box.x + box.width / 2, y: box.y + box.height * 0.75 };
       const hit = document.elementFromPoint(point.x, point.y);
       return {
         scroller: element.id || element.className,
+        box,
         point,
         hit: hit ? `${hit.tagName}#${hit.id}.${hit.className}` : null,
         receivesTouch: hit !== null && element.contains(hit),
       };
-    }, start);
+    });
   const initialHit = await readHitTarget();
+  let readyHit = initialHit;
   // The tab's active class commits before its native View Transition ends.
   // Raw CDP bypasses Locator actionability: a contact begun against the
   // transition snapshot cannot switch to the scroller midway through a swipe.
-  await expect
-    .poll(async () => (await readHitTarget()).receivesTouch, {
-      message: 'The native swipe must start on the scroller, after tab snapshots release input',
-    })
-    .toBe(true);
-  await test.info().attach(`native-swipe-${initialHit.scroller}`, {
-    body: JSON.stringify({ box, initialHit, readyHit: await readHitTarget() }, null, 2),
-    contentType: 'application/json',
-  });
+  // The drawer also opens from outside the viewport. Recompute the target
+  // while it moves; retaining its first coordinates can wait offscreen forever.
+  try {
+    await expect
+      .poll(
+        async () => {
+          const previous = readyHit.box;
+          readyHit = await readHitTarget();
+          return (
+            readyHit.receivesTouch &&
+            Object.entries(previous).every(
+              ([key, value]) => readyHit.box[key as keyof typeof previous] === value,
+            )
+          );
+        },
+        {
+          message:
+            'The native swipe must start on the settled scroller after snapshots release input',
+        },
+      )
+      .toBe(true);
+  } finally {
+    await test.info().attach(`native-swipe-${initialHit.scroller}`, {
+      body: JSON.stringify({ initialHit, readyHit }, null, 2),
+      contentType: 'application/json',
+    });
+  }
+  const { box, point: start } = readyHit;
   await touchStroke(page, cdp, start, { x: start.x, y: start.y - Math.min(150, box.height / 2) });
   await expect.poll(() => scroller.evaluate((element) => element.scrollTop)).toBeGreaterThan(30);
   expect(await page.evaluate(() => window.scrollY)).toBe(0);

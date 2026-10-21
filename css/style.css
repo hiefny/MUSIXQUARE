@@ -1908,6 +1908,27 @@ Safety is declared first because important layer precedence is reversed; its acc
     will-change: transform;
   }
 
+  /* Set after the screensaver's fade-in and cleared before its fade-out, so
+     the title holds its place unseen and moves on from it. */
+  body[data-visualizer-covered] .track-title.marquee {
+    animation-play-state: paused;
+  }
+
+  /* Without motion, an overflowing title stays still and ends in an ellipsis,
+     as playlist titles do. */
+  @media (prefers-reduced-motion: reduce) {
+    .track-title {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .track-title.marquee {
+      animation: none;
+      will-change: auto;
+    }
+  }
+
   /* One bounded metadata row keeps the title/transport group stable on short
      screens while still exposing source details when they are available. */
   .track-artist {

@@ -26,6 +26,7 @@ import type { ConnectedPeer, DeviceInfo } from '../types/index.ts';
 import { groupConnectedRoomMembers } from '../rooms/member-directory.ts';
 import {
   beginLocalBotChatRequest,
+  expireBotChatRequest,
   publishBotChatResult,
   rememberPinnedNotice,
   type BotChatResult,
@@ -695,6 +696,9 @@ async function runBotCommand(rawArgs: string, requestId?: string): Promise<void>
       typeof error === 'object' &&
       (error as { code?: unknown }).code === 'BOT_SESSION_SUPERSEDED'
     ) {
+      // No result will follow, and a superseded session must not relay one.
+      // Settle only this device's own bubble; the others reach their TTL.
+      expireBotChatRequest(resolvedRequestId);
       return;
     }
     const retryAfterSeconds = getBotRateLimitRetryAfter(error);

@@ -77,6 +77,24 @@ describe('standard host playlists', () => {
     expect(getState('playlist.items')).toEqual([]);
   });
 
+  it('publishes the summary after any active-playlist commit, such as a YouTube add', async () => {
+    const items = populate(2);
+    await Promise.resolve();
+    expect(getState('playlist.slots')?.slots[0]).toEqual({ count: 2, bytes: 3 });
+    setState('playlist.items', [
+      ...items,
+      {
+        queueItemId: '30000000-0000-4000-8000-000000000001',
+        type: 'youtube' as const,
+        name: 'video',
+        videoId: 'dQw4w9WgXcQ',
+        playlistId: null,
+      },
+    ]);
+    await Promise.resolve();
+    expect(getState('playlist.slots')?.slots[0]).toEqual({ count: 3, bytes: 3 });
+  });
+
   it('moves tracks out of the active playlist like a deletion', () => {
     const items = populate(3);
     expect(transferTracks([items[1]!.queueItemId], [2], 'move')).toBe(true);

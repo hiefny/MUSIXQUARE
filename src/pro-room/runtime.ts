@@ -1426,7 +1426,7 @@ function installMediaHooks(
       void manager.switchPlaylist(slot, { signal }).catch(reportCurrentPlaylistError(signal));
       return true;
     },
-    transferTracks(queueItemIds, targetSlots, mode) {
+    transferTracks(queueItemIds, targetSlots, mode, onDone) {
       const signal = captureMutationSignal();
       if (
         !signal ||
@@ -1440,6 +1440,9 @@ function installMediaHooks(
       }
       void manager
         .transferTracks(queueItemIds, targetSlots, mode, { signal })
+        .then(() => {
+          if (!signal.aborted) onDone?.();
+        })
         .catch(reportCurrentPlaylistError(signal));
       return true;
     },

@@ -2124,7 +2124,6 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
 
 function broadcastPlaylistSnapshot(): void {
   broadcast({ type: MSG.PLAYLIST_UPDATE, ...createPlaylistSnapshot() });
-  publishPlaylistSlots();
 }
 
 // ─── Playlists (docs/design/multi-playlist-2026-10-21.md) ────────
@@ -2137,6 +2136,9 @@ function isStandardRoomHost(): boolean {
 function publishPlaylistSlots(): void {
   if (!isStandardRoomHost()) return;
   const summary = createPlaylistSlotsSummary();
+  const previous = getState('playlist.slots');
+  // Title refreshes and reorders keep every count and size; send nothing then.
+  if (previous && JSON.stringify(previous) === JSON.stringify(summary)) return;
   setState('playlist.slots', summary);
   broadcast({
     type: MSG.PLAYLIST_SLOTS,
@@ -2189,6 +2191,7 @@ function switchActivePlaylistAsHost(slot: number): boolean {
   resetShuffleOrder();
   if (getState('playlist.isShuffle')) generateShuffleOrder();
   broadcastPlaylistSnapshot();
+  publishPlaylistSlots();
   return true;
 }
 
@@ -2211,7 +2214,7 @@ function transferTracksAsHost(
   if (mode === 'move' && isCurrentRemovalBlockedByManualOffset(queueItemIds)) return false;
   if (!appendToInactivePlaylists(selected, targetSlots)) return false;
   if (mode === 'move') removeQueueItems(selected.map((item) => item.queueItemId));
-  else publishPlaylistSlots();
+  publishPlaylistSlots();
   return true;
 }
 
@@ -2254,7 +2257,10 @@ export function transferTracks(
   const targets = [...new Set(targetSlots)];
   if (ids.length === 0 || targets.length === 0) return false;
   if (getRoomContext().kind === 'pro') {
-    return canMutateRoomQueue() && handleProRoomTrackTransfer(ids, targets, mode);
+    return (
+      canMutateRoomQueue() &&
+      handleProRoomTrackTransfer(ids, targets, mode, () => showTransferDone(mode, ids.length))
+    );
   }
   if (getState('network.hostConn')) {
     return (
@@ -3149,6 +3155,18 @@ export function initPlaylist(): void {
     publishPlaylistSlots();
   };
   bus.on('state:room.context', syncPlaylistSlotsOwner);
+  // Every commit of the active playlist changes its summary, whichever path
+  // made it (file adds, YouTube adds, removals, title refreshes). One summary
+  // per task covers a batch of commits.
+  let slotsPublishQueued = false;
+  bus.on('state:playlist.items', () => {
+    if (slotsPublishQueued) return;
+    slotsPublishQueued = true;
+    queueMicrotask(() => {
+      slotsPublishQueued = false;
+      publishPlaylistSlots();
+    });
+  });
   bus.on('state:network.sessionCode', syncPlaylistSlotsOwner);
   bus.on('state:network.hostConn', (conn) => {
     // A new host connection announces its own playlists, if it has any.

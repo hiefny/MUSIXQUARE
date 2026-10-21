@@ -25,6 +25,8 @@ const MINUS_PATH = 'M7 12h10';
 
 let _pendingSlot = 0;
 let _transferIds: readonly QueueItemId[] = [];
+/** The playlist the tracks to move come from; another switch ends the dialog. */
+let _transferSource = 0;
 let _transferTargets = new Set<number>();
 let _onTransferred: (() => void) | null = null;
 let _previousFocus: HTMLElement | null = null;
@@ -184,6 +186,10 @@ function renderTransfer(): void {
 
 function runTransfer(mode: PlaylistTransferMode): void {
   if (_transferTargets.size === 0) return;
+  if ((getState('playlist.slots')?.activeSlot ?? 0) !== _transferSource) {
+    closeOverlay(TRANSFER_OVERLAY_ID);
+    return;
+  }
   const done = transferTracks(_transferIds, [..._transferTargets], mode);
   closeOverlay(TRANSFER_OVERLAY_ID);
   if (done) _onTransferred?.();
@@ -196,6 +202,7 @@ export function openPlaylistTransferDialog(
 ): void {
   bindDialogs();
   _transferIds = [...queueItemIds];
+  _transferSource = getState('playlist.slots')?.activeSlot ?? 0;
   _transferTargets = new Set();
   _onTransferred = onTransferred;
   renderTransfer();
@@ -239,8 +246,10 @@ function bindDialogs(): void {
     }
     if (getUiElement(SLOTS_OVERLAY_ID)?.classList.contains('show')) renderSlots();
     if (getUiElement(TRANSFER_OVERLAY_ID)?.classList.contains('show')) {
-      _transferTargets.delete(slots.activeSlot);
-      renderTransfer();
+      // The selected tracks belong to the playlist that was active; once the
+      // room switches away from it there is nothing left to move.
+      if (slots.activeSlot !== _transferSource) closeOverlay(TRANSFER_OVERLAY_ID);
+      else renderTransfer();
     }
   });
 }

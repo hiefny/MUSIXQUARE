@@ -15,11 +15,15 @@ export interface ProRoomMediaHooks {
   removeTracks(queueItemIds: readonly QueueItemId[]): boolean;
   /** Make another playlist the room's active one; playback stops. */
   switchPlaylist?(slot: number): boolean;
-  /** Copy or move active-playlist tracks to the end of other playlists. */
+  /**
+   * Copy or move active-playlist tracks to the end of other playlists.
+   * `onDone` runs once the room accepted the transfer.
+   */
   transferTracks?(
     queueItemIds: readonly QueueItemId[],
     targetSlots: readonly number[],
     mode: PlaylistTransferMode,
+    onDone?: () => void,
   ): boolean;
   reorderTrack(
     queueItemId: QueueItemId,
@@ -217,8 +221,11 @@ export function handleProRoomTrackTransfer(
   queueItemIds: readonly QueueItemId[],
   targetSlots: readonly number[],
   mode: PlaylistTransferMode,
+  onDone?: () => void,
 ): boolean {
-  return activeMediaHookSession?.hooks.transferTracks?.(queueItemIds, targetSlots, mode) ?? false;
+  return (
+    activeMediaHookSession?.hooks.transferTracks?.(queueItemIds, targetSlots, mode, onDone) ?? false
+  );
 }
 
 export function handleProRoomTrackReorder(

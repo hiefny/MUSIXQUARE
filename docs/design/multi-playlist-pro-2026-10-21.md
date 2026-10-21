@@ -71,7 +71,9 @@ ROOM_STATE_CAPACITY_EXCEEDED`, `403 PERMISSION_REQUIRED`. Replays use the snapsh
 - `cloudflare/pro-bot.ts` reads a room playlist number from the request ("playlist 2",
   "플레이리스트 2", "2번 플레이리스트", ...), resolves track ordinals and deletion targets
   against that playlist, refuses ambiguous or unavailable playlists, and sends `playlist` only
-  for a non-active playlist (an older Worker never sees it).
+  for a non-active playlist (an older Worker never sees it). Since 2026-10-22 a named playlist is
+  sent even when it is active, also on additions and playback commands, and a number the room
+  lacks is refused ([report](pro-playlist-targets-2026-10-22.md)).
 - `play_existing` with `playlist` switches the room and plays the item in one Developer command;
   it also needs the `media.add` permission because it replaces the room's queue.
   `remove_items` with `playlist` removes from that inactive playlist without touching playback.

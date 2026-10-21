@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO playlist targets for uploads, BOT and copy/move — 2026-10-22](design/pro-playlist-targets-2026-10-22.md) —
+  An upload, a BOT addition or playback command and a copy/move keep the playlist they were made for
+  when another administrator switches playlists, or stop with the existing failure; a playlist
+  number the room lacks is refused. Unit and real-Worker tests, PRO-before-App deploy order.
+
 - [RAM file assembly memory reduction — 2026-10-22](design/ramstore-blob-assembly-2026-10-22.md) —
   Immutable chunk Blobs avoid a file-sized BufferSource copy at completion; transfer/preload
   regressions, native browser checks and explicit device/memory measurement limits.

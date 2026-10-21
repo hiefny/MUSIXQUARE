@@ -206,6 +206,11 @@ function requirePlaylistSlots(snapshot: ProRoomSnapshot): PlaylistSlotsSummary {
   return snapshot.playlistSlots;
 }
 
+/** A room without playlist summaries has one playlist, as the Worker treats it. */
+function activePlaylistSlot(snapshot: ProRoomSnapshot): number {
+  return snapshot.playlistSlots?.activeSlot ?? 0;
+}
+
 function cloneSnapshot(snapshot: ProRoomSnapshot): ProRoomSnapshot {
   const cloned = parseProRoomSnapshot(snapshot);
   if (!cloned) throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SNAPSHOT_INVALID');
@@ -789,6 +794,7 @@ export class ProRoomPlaylistStateManager {
   async #appendCanonicalItem(
     item: ProRoomPlaylistWireItem,
     signal?: AbortSignal,
+    targetSlot?: number,
   ): Promise<ProRoomSnapshot> {
     let firstSelectionRequest: ProRoomFirstAppendSelectionRequest | null = null;
     const accepted = await this.#mutate((snapshot) => {
@@ -802,6 +808,12 @@ export class ProRoomPlaylistStateManager {
       if (existing) {
         if (jsonEqual(existing, item)) return null;
         throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
+      }
+      // The compact append always edits the active playlist. When another
+      // playlist became active since `targetSlot` was chosen, adding the row
+      // would put it in that one, so the append stops instead.
+      if (targetSlot !== undefined && activePlaylistSlot(snapshot) !== targetSlot) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SWITCHED');
       }
       this.#assertCapacity(snapshot, 1);
       const canSelectFirstItem =
@@ -874,6 +886,9 @@ export class ProRoomPlaylistStateManager {
       const refreshed = await this.#api.getSnapshot(this.#code, options.signal);
       accepted = await this.#accept(refreshed, true);
     }
+    // The file belongs to the playlist that is active when its upload starts,
+    // not to whichever one another administrator made active by its end.
+    const targetSlot = activePlaylistSlot(accepted);
     const queueItemId =
       input.queueItemId === undefined
         ? this.#nextQueueItemId()
@@ -903,7 +918,7 @@ export class ProRoomPlaylistStateManager {
         ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
         source: upload.asset,
       });
-      accepted = await this.#appendCanonicalItem(item, options.signal);
+      accepted = await this.#appendCanonicalItem(item, options.signal, targetSlot);
       return { snapshot: cloneSnapshot(accepted), queueItemId };
     } catch (error) {
       // The snapshot request may have committed on the server even when its

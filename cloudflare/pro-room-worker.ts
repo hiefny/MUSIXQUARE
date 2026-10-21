@@ -715,7 +715,13 @@ type DeveloperQueueMutation =
   | { type: 'reorder'; basePlaylistRevision: number; queueItemIds: string[] };
 
 type BotPlan =
-  | { intent: 'add_youtube'; trackQueries: string[]; playAddedIndex: number; answer?: string }
+  | {
+      intent: 'add_youtube';
+      trackQueries: string[];
+      playAddedIndex: number;
+      playlist?: number;
+      answer?: string;
+    }
   | {
       intent: 'play_existing';
       queueItemId: string;
@@ -726,7 +732,12 @@ type BotPlan =
     }
   | { intent: 'remove_items'; queueItemIds: string[]; playlist?: number; answer?: string }
   | { intent: 'clear_queue'; basePlaylistRevision: number; answer?: string }
-  | { intent: 'playback'; playbackCommand: 'play' | 'pause' | 'next'; answer?: string }
+  | {
+      intent: 'playback';
+      playbackCommand: 'play' | 'pause' | 'next';
+      playlist?: number;
+      answer?: string;
+    }
   | {
       intent: 'queue_mode';
       repeatMode?: 'off' | 'all' | 'one';
@@ -2821,9 +2832,14 @@ function parseBotPlan(value: unknown): BotPlan | null {
         'answer',
       ],
     ) ||
+    // Only additions, selections, removals and playback commands carry the
+    // playlist their request named.
     (value.playlist !== undefined &&
       (!isDeveloperPlaylistNumber(value.playlist) ||
-        (value.intent !== 'play_existing' && value.intent !== 'remove_items'))) ||
+        (value.intent !== 'add_youtube' &&
+          value.intent !== 'play_existing' &&
+          value.intent !== 'remove_items' &&
+          value.intent !== 'playback'))) ||
     ![
       'add_youtube',
       'play_existing',
@@ -2860,6 +2876,7 @@ function parseBotPlan(value: unknown): BotPlan | null {
       intent: value.intent,
       trackQueries: value.trackQueries.map((query) => boundedString(query, 160)).filter(isString),
       playAddedIndex,
+      ...(isDeveloperPlaylistNumber(value.playlist) ? { playlist: value.playlist } : {}),
       ...(answer ? { answer } : {}),
     };
   }
@@ -2932,6 +2949,7 @@ function parseBotPlan(value: unknown): BotPlan | null {
       ? {
           intent: value.intent,
           playbackCommand: value.playbackCommand,
+          ...(isDeveloperPlaylistNumber(value.playlist) ? { playlist: value.playlist } : {}),
           ...(answer ? { answer } : {}),
         }
       : null;
@@ -8113,7 +8131,9 @@ export class MusixquareProRoom {
         plan.intent === 'clear_queue' ||
         plan.intent === 'queue_mode' ||
         // Playing from another playlist switches the room's queue first.
-        (plan.intent === 'play_existing' && plan.playlist !== undefined)) &&
+        (plan.intent === 'play_existing' &&
+          plan.playlist !== undefined &&
+          plan.playlist - 1 !== this.activePlaylistSlot())) &&
       !this.sessionHasPermission(auth.session, 'media.add')
     ) {
       return errorResponse('PERMISSION_REQUIRED', 403);
@@ -8155,6 +8175,17 @@ export class MusixquareProRoom {
     const contextLeaseExpiresAtMs = contextReceipt.body?.leaseExpiresAtMs;
     if (!isSafeInteger(contextLeaseExpiresAtMs) || contextLeaseExpiresAtMs <= Date.now()) {
       return errorResponse('BOT_CONTEXT_REQUIRED', 409);
+    }
+    // Another administrator can switch playlists while BOT plans and searches.
+    // A plan runs on the playlist its request named: selecting or removing an
+    // existing item reaches it while inactive, but an addition or a playback
+    // command acts on the active playlist, so that must still be the named one.
+    if (
+      (plan.intent === 'add_youtube' || plan.intent === 'playback') &&
+      plan.playlist !== undefined &&
+      plan.playlist - 1 !== this.activePlaylistSlot()
+    ) {
+      return errorResponse('BOT_ACTION_FAILED', 409);
     }
 
     // The terminal browser receipt has a separate ledger from Developer
@@ -17227,14 +17258,17 @@ export class MusixquareProRoom {
       targetSlots.length < 1 ||
       targetSlots.length >= PRO_ROOM_PLAYLIST_SLOT_COUNT ||
       !targetSlots.every(isPlaylistSlot) ||
-      new Set(targetSlots).size !== targetSlots.length ||
-      targetSlots.includes(activeSlot)
+      new Set(targetSlots).size !== targetSlots.length
     ) {
       return errorResponse('INVALID_PLAYLIST_SLOT', 400);
     }
     if (body.baseRevision !== this.activeRoom.revision) {
       return errorResponse('REVISION_CONFLICT', 409);
     }
+    // The active playlist is room state: a request made before another
+    // administrator switched to a target gets the conflict above, so the
+    // client refreshes instead of failing on this check.
+    if (targetSlots.includes(activeSlot)) return errorResponse('INVALID_PLAYLIST_SLOT', 400);
     // A copy adds tracks, so it needs the same permission as adding them.
     if (!this.sessionHasPermission(auth.session, 'media.add')) {
       return errorResponse('PERMISSION_REQUIRED', 403);

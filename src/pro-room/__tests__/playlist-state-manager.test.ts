@@ -1965,4 +1965,128 @@ describe('PRO room playlist slots', () => {
     expect(api.switchPlaylist).not.toHaveBeenCalled();
     expect(api.transferPlaylistTracks).not.toHaveBeenCalled();
   });
+
+  /** The Worker's compact append: a CAS on the room revision that edits the active playlist. */
+  function uploadServer(initial: ProRoomSnapshot) {
+    let server = initial;
+    const lists: ProRoomPlaylistWireItem[][] = [[], [], []];
+    lists[initial.playlistSlots!.activeSlot] = [...initial.playlist];
+    const counts = () => lists.map((list) => list.length) as [number, number, number];
+    const api = {
+      getSnapshot: vi.fn(async () => server),
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
+        if (input.baseRevision !== server.revision) {
+          throw new ProRoomApiError('REVISION_CONFLICT', 409);
+        }
+        const active = server.playlistSlots!.activeSlot;
+        lists[active] = applyCompactPlaylist(server, input);
+        server = slotted(active, lists[active]!, counts(), {
+          revision: server.revision + 1,
+          playlistRevision: server.playlistRevision + 1,
+        });
+        return server;
+      }),
+    } satisfies ProRoomPlaylistStateApi;
+    /** Another administrator makes `slot` the active playlist. */
+    const switchTo = (slot: number) => {
+      server = slotted(slot, lists[slot]!, counts(), {
+        revision: server.revision + 1,
+        playlistRevision: server.playlistRevision + 1,
+      });
+      return server;
+    };
+    return { api, lists, switchTo };
+  }
+
+  function uploadedFile() {
+    return { asset: asset('asset_00000000001'), quota: activeSnapshot().quota };
+  }
+
+  it('does not add a finished upload to a playlist another administrator switched to', async () => {
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const { api, lists, switchTo } = uploadServer(initial);
+    const media = mediaTransfer({
+      upload: vi.fn(async () => {
+        switchTo(1);
+        return uploadedFile();
+      }),
+    });
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories([B]),
+    });
+    await manager.acceptSnapshot(initial);
+
+    await expect(
+      manager.addLocalFile({ file: new File(['aaaa'], 'one.flac', { type: 'audio/flac' }) }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_PLAYLIST_SWITCHED' });
+
+    // The append was based on the room before the switch, and its refresh
+    // found another playlist active, so neither playlist gained the file.
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
+    expect(lists).toEqual([[youtube(A)], [], []]);
+    expect(manager.snapshot?.playlistSlots?.activeSlot).toBe(1);
+    expect(media.deleteAsset).toHaveBeenCalledWith({
+      code: ROOM_CODE,
+      assetId: 'asset_00000000001',
+    });
+  });
+
+  it('stops the append when a heartbeat already showed the switch', async () => {
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const { api, lists, switchTo } = uploadServer(initial);
+    const upload = deferred<ReturnType<typeof uploadedFile>>();
+    const media = mediaTransfer({ upload: vi.fn(() => upload.promise) });
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories([B]),
+    });
+    await manager.acceptSnapshot(initial);
+    const adding = manager.addLocalFile({
+      file: new File(['aaaa'], 'one.flac', { type: 'audio/flac' }),
+    });
+    await flushMicrotasks();
+    await manager.acceptSnapshot(switchTo(1));
+    upload.resolve(uploadedFile());
+
+    await expect(adding).rejects.toMatchObject({ code: 'PRO_ROOM_PLAYLIST_SWITCHED' });
+    expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
+    expect(lists).toEqual([[youtube(A)], [], []]);
+    expect(media.deleteAsset).toHaveBeenCalledOnce();
+  });
+
+  it('adds a finished upload to its playlist when that playlist is active again', async () => {
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const { api, lists, switchTo } = uploadServer(initial);
+    const media = mediaTransfer({
+      upload: vi.fn(async () => {
+        switchTo(1);
+        switchTo(0);
+        return uploadedFile();
+      }),
+    });
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories([B]),
+    });
+    await manager.acceptSnapshot(initial);
+
+    const result = await manager.addLocalFile({
+      file: new File(['aaaa'], 'one.flac', { type: 'audio/flac' }),
+    });
+
+    expect(result.queueItemId).toBe(B);
+    expect(api.updateCompactSnapshot).toHaveBeenCalledTimes(2);
+    expect(lists.map((list) => list.map((item) => item.queueItemId))).toEqual([[A, B], [], []]);
+    expect(media.deleteAsset).not.toHaveBeenCalled();
+  });
 });

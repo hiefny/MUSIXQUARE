@@ -329,6 +329,8 @@ let acceptedProPresence:
   | null = null;
 let acceptedProAdministrators: ProRoomAdministrator[] = [];
 let publishedProMembershipSnapshot: ProRoomSnapshot | null = null;
+/** The caller's object behind publishedProMembershipSnapshot. */
+let publishedProMembershipSource: ProRoomSnapshot | null = null;
 const seenQueueAdditionEventIds = new Set<string>();
 const pendingQueueAdditions = new Map<string, ProQueueAdditionFrame>();
 let lastAnnouncedQueueAdditionOrder = 0;
@@ -1202,6 +1204,8 @@ function publishProRoomAdministratorDirectory(
 }
 
 function publishProRoomMembership(snapshot: ProRoomSnapshot): void {
+  // An unchanged heartbeat hands back the object published last time.
+  if (snapshot === publishedProMembershipSource) return;
   // Session reads and committed mutations have separate acceptance lanes. An
   // older heartbeat must not resurrect a participant already removed by a
   // successful kick, or roll the administrator directory back with it.
@@ -1210,8 +1214,10 @@ function publishProRoomMembership(snapshot: ProRoomSnapshot): void {
     log.warn(`[PRO] Membership snapshot rejected: ${result.outcome}`);
     return;
   }
+  if (result.outcome === 'duplicate') publishedProMembershipSource = snapshot;
   if (result.outcome !== 'applied' || !result.snapshot) return;
   publishedProMembershipSnapshot = result.snapshot;
+  publishedProMembershipSource = snapshot;
   setState('network.roomPasswordRequired', result.snapshot.passwordRequired !== false);
   reconcileAuthoritativePeers(result.snapshot);
   const administrators =
@@ -2623,6 +2629,7 @@ const observer: ProRoomSessionObserver = {
     acceptedProPresence = null;
     acceptedProAdministrators = [];
     publishedProMembershipSnapshot = null;
+    publishedProMembershipSource = null;
     setState('network.roomPasswordRequired', false);
     bus.emit('pro-room:administrators-updated', []);
     stopLifecycle();

@@ -222,6 +222,41 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('PRO room playlist state manager', () => {
+  it('accepts the same heartbeat object again without re-reading or copying it', async () => {
+    const sink = vi.fn();
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api: updatingApi(activeSnapshot()).api,
+      mediaTransfer: mediaTransfer(),
+      sink,
+      ...factories(),
+    });
+    let reads = 0;
+    const installed = new Proxy(activeSnapshot(), {
+      get(target, key, receiver) {
+        // Resolving a promise with the object probes its `then`.
+        if (key !== 'then') reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+    await manager.acceptSnapshot(installed);
+    expect(sink).toHaveBeenCalledOnce();
+
+    reads = 0;
+    await expect(manager.acceptSnapshot(installed)).resolves.toBe(installed);
+    expect(reads).toBe(0);
+    expect(sink).toHaveBeenCalledOnce();
+
+    // An equal but distinct object still takes the full comparison, and a
+    // newer revision still projects; the old object is then merely stale.
+    await expect(manager.acceptSnapshot(activeSnapshot())).resolves.toEqual(activeSnapshot());
+    await manager.acceptSnapshot(activeSnapshot({ revision: 2 }));
+    expect(sink).toHaveBeenCalledTimes(2);
+    await expect(manager.acceptSnapshot(installed)).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SNAPSHOT_STALE',
+    });
+  });
+
   it('accepts fresh authority during an upload while retaining mixed user-action FIFO', async () => {
     const initial = activeSnapshot();
     let server = initial;

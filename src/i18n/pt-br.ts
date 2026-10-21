@@ -256,7 +256,7 @@ const ptBr: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} selecionados',
   'playlist.slots_title': 'Várias playlists',
   'playlist.slots_subtitle':
-    'Use várias playlists para alternar rapidamente entre conjuntos de músicas',
+    'Você pode usar várias playlists para alternar rapidamente entre conjuntos de faixas.',
   'playlist.slot_tracks': '{{count}} faixas',
   'playlist.move_title': 'Mover {{count}} faixas',
   'playlist.copy_action': 'Copiar',

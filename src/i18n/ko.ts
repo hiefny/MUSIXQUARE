@@ -160,7 +160,7 @@ const ko = {
   'playlist.delete_selected': '선택한 트랙 {{count}}개 삭제',
   'playlist.selected_count': '{{count}}개 선택됨',
   'playlist.slots_title': '다중 목록 기능',
-  'playlist.slots_subtitle': '재생목록을 여러 개 사용하여 빠르게 곡 세트를 전환하세요',
+  'playlist.slots_subtitle': '재생목록을 여러 개 사용하여 빠르게 트랙 묶음을 전환할 수 있어요.',
   'playlist.slot_tracks': '트랙 {{count}}개',
   'playlist.move_title': '트랙 {{count}}개 이동',
   'playlist.copy_action': '복사',

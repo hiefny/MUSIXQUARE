@@ -256,7 +256,7 @@ const es: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} seleccionados',
   'playlist.slots_title': 'Varias listas',
   'playlist.slots_subtitle':
-    'Usa varias listas de reproducción para cambiar rápido entre grupos de canciones',
+    'Puedes usar varias listas de reproducción para cambiar rápido entre grupos de pistas.',
   'playlist.slot_tracks': '{{count}} pistas',
   'playlist.move_title': 'Mover {{count}} pistas',
   'playlist.copy_action': 'Copiar',

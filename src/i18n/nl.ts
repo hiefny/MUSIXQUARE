@@ -163,7 +163,7 @@ const nl: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} geselecteerd',
   'playlist.slots_title': 'Meerdere afspeellijsten',
   'playlist.slots_subtitle':
-    'Gebruik meerdere afspeellijsten om snel tussen sets nummers te wisselen',
+    'Je kunt meerdere afspeellijsten gebruiken om snel tussen sets tracks te wisselen.',
   'playlist.slot_tracks': '{{count}} tracks',
   'playlist.move_title': '{{count}} tracks verplaatsen',
   'playlist.copy_action': 'Kopiëren',

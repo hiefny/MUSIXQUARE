@@ -160,7 +160,7 @@ const ar: Record<I18nKey, string> = {
   'playlist.delete_selected': 'حذف {{count}} من المقاطع المحددة',
   'playlist.selected_count': 'عدد العناصر المحدّدة: {{count}}',
   'playlist.slots_title': 'قوائم تشغيل متعددة',
-  'playlist.slots_subtitle': 'استخدم عدة قوائم تشغيل للتبديل بسرعة بين مجموعات الأغاني',
+  'playlist.slots_subtitle': 'يمكنك استخدام عدة قوائم تشغيل للتبديل بسرعة بين مجموعات المقاطع.',
   'playlist.slot_tracks': '{{count}} من المقاطع',
   'playlist.move_title': 'نقل {{count}} من المقاطع',
   'playlist.copy_action': 'نسخ',

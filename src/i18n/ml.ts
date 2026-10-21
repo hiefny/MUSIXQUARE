@@ -164,7 +164,7 @@ const ml: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} തെരഞ്ഞെടുത്തു',
   'playlist.slots_title': 'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ',
   'playlist.slots_subtitle':
-    'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ ഉപയോഗിച്ച് പാട്ടുകളുടെ സെറ്റുകൾ വേഗത്തിൽ മാറ്റുക',
+    'ഒന്നിലധികം പ്ലേലിസ്റ്റുകൾ ഉപയോഗിച്ച് ട്രാക്കുകളുടെ സെറ്റുകൾ വേഗത്തിൽ മാറ്റാം.',
   'playlist.slot_tracks': '{{count}} ട്രാക്കുകൾ',
   'playlist.move_title': '{{count}} ട്രാക്കുകൾ നീക്കുക',
   'playlist.copy_action': 'പകർത്തുക',

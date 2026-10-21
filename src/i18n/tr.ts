@@ -160,7 +160,7 @@ const tr: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} seçilmiş',
   'playlist.slots_title': 'Birden fazla çalma listesi',
   'playlist.slots_subtitle':
-    'Şarkı grupları arasında hızlıca geçiş yapmak için birden fazla çalma listesi kullan',
+    'Birden fazla çalma listesi kullanarak parça grupları arasında hızlıca geçiş yapabilirsin.',
   'playlist.slot_tracks': '{{count}} medya öğesi',
   'playlist.move_title': '{{count}} medya öğesini taşı',
   'playlist.copy_action': 'Kopyala',

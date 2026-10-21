@@ -165,7 +165,7 @@ const fil: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} pinili',
   'playlist.slots_title': 'Maraming playlist',
   'playlist.slots_subtitle':
-    'Gumamit ng ilang playlist para mabilis na makalipat sa ibang set ng kanta',
+    'Puwede kang gumamit ng ilang playlist para mabilis na makalipat sa ibang set ng track.',
   'playlist.slot_tracks': '{{count}} track',
   'playlist.move_title': 'Ilipat ang {{count}} track',
   'playlist.copy_action': 'Kopyahin',

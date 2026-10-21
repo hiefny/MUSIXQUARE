@@ -162,7 +162,7 @@ const mr: Record<I18nKey, string> = {
   'playlist.delete_selected': 'निवडलेले {{count}} ट्रॅक हटवा',
   'playlist.selected_count': '{{count}} निवडले आहे',
   'playlist.slots_title': 'अनेक प्लेलिस्ट',
-  'playlist.slots_subtitle': 'अनेक प्लेलिस्ट वापरून गाण्यांचे संच पटकन बदला',
+  'playlist.slots_subtitle': 'अनेक प्लेलिस्ट वापरून तुम्ही ट्रॅकचे संच पटकन बदलू शकता.',
   'playlist.slot_tracks': '{{count}} ट्रॅक',
   'playlist.move_title': '{{count}} ट्रॅक हलवा',
   'playlist.copy_action': 'कॉपी करा',

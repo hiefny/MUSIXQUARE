@@ -164,7 +164,7 @@ const ro: Record<I18nKey, string> = {
   'playlist.selected_count': 'Selectate: {{count}}',
   'playlist.slots_title': 'Mai multe liste de redare',
   'playlist.slots_subtitle':
-    'Folosește mai multe liste de redare ca să comuți rapid între seturi de melodii',
+    'Poți folosi mai multe liste de redare ca să comuți rapid între seturi de piste.',
   'playlist.slot_tracks': '{{count}} piste',
   'playlist.move_title': 'Mută {{count}} piste',
   'playlist.copy_action': 'Copiază',

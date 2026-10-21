@@ -254,7 +254,8 @@ const ja: Record<I18nKey, string> = {
   'playlist.delete_selected': '選択したトラック{{count}}件を削除',
   'playlist.selected_count': '{{count}}個を選択中',
   'playlist.slots_title': '複数のプレイリスト',
-  'playlist.slots_subtitle': '複数のプレイリストを使って、曲のセットをすばやく切り替えましょう',
+  'playlist.slots_subtitle':
+    '複数のプレイリストを使って、トラックのセットをすばやく切り替えられます。',
   'playlist.slot_tracks': 'トラック{{count}}件',
   'playlist.move_title': 'トラック{{count}}件を移動',
   'playlist.copy_action': 'コピー',

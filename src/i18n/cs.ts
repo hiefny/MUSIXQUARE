@@ -163,7 +163,7 @@ const cs: Record<I18nKey, string> = {
   'playlist.selected_count': 'Vybráno: {{count}}',
   'playlist.slots_title': 'Více seznamů skladeb',
   'playlist.slots_subtitle':
-    'Používejte více seznamů skladeb a rychle přepínejte mezi sadami písní',
+    'Můžete používat více seznamů skladeb a rychle tak přepínat mezi sadami skladeb.',
   'playlist.slot_tracks': 'Skladby: {{count}}',
   'playlist.move_title': 'Přesunout skladby: {{count}}',
   'playlist.copy_action': 'Kopírovat',

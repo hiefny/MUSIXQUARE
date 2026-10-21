@@ -165,7 +165,7 @@ const ms: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} dipilih',
   'playlist.slots_title': 'Berbilang senarai main',
   'playlist.slots_subtitle':
-    'Gunakan beberapa senarai main untuk bertukar antara set lagu dengan pantas',
+    'Anda boleh menggunakan beberapa senarai main untuk bertukar antara set trek dengan pantas.',
   'playlist.slot_tracks': '{{count}} trek',
   'playlist.move_title': 'Alihkan {{count}} trek',
   'playlist.copy_action': 'Salin',

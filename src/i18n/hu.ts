@@ -163,7 +163,7 @@ const hu: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} kijelölve',
   'playlist.slots_title': 'Több lejátszási lista',
   'playlist.slots_subtitle':
-    'Használj több lejátszási listát, és válts gyorsan a dalcsoportok között',
+    'Több lejátszási listát is használhatsz, így gyorsan válthatsz a számcsoportok között.',
   'playlist.slot_tracks': '{{count}} szám',
   'playlist.move_title': '{{count}} szám áthelyezése',
   'playlist.copy_action': 'Másolás',

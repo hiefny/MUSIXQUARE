@@ -107,13 +107,13 @@ test.describe('Playlist edit mode (mouse)', () => {
     // Reorder stays off while editing.
     await expect(page.locator('.playlist-reorder-handle').first()).toBeDisabled();
 
-    // Let the fill's color transition finish.
-    await page.waitForTimeout(400);
+    // Let the fill's color and shape transitions finish.
+    await page.waitForTimeout(600);
     const fills = await selectionFills(page);
     const transparent = 'rgba(0, 0, 0, 0)';
     expect(fills[0]).toMatchObject({ radius: '28px 28px 0px 0px', top: '0px' });
     expect(fills[1]).toMatchObject({ radius: '0px 0px 28px 28px', top: '-8px' });
-    expect(fills[3]).toMatchObject({ radius: '999px', top: '0px' });
+    expect(fills[3]).toMatchObject({ radius: '28px', top: '0px' });
     expect(fills[2]!.background).toBe(transparent);
     expect(fills[4]!.background).toBe(transparent);
     expect(fills[0]!.background).not.toBe(transparent);

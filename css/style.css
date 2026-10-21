@@ -3095,9 +3095,16 @@ Safety is declared first because important layer precedence is reversed; its acc
      joining row's fill reaches up through the 8px gap above it, square, so
      the block has no seams. The browser derives start/middle/end from the
      siblings, so the shape follows every selection change and re-render.
-     Only top and bottom corners differ, so RTL needs nothing extra; the fill
-     eases in and out by its color. */
+     Only top and bottom corners differ, so RTL needs nothing extra.
+
+     Joining is fluid. An unselected row next to a block keeps a collapsed,
+     clear fill on the block's edge; selecting it grows that fill out of the
+     block while the corners it meets ease square, and the block's gap fills
+     as it goes. Deselecting runs the other way and keeps the color until the
+     fill has drawn back. A row with no selected neighbour fades in place. */
   .playlist-entry {
+    --playlist-fill-radius: calc(var(--list-row-height) / 2);
+    --playlist-fill-morph: 0.36s cubic-bezier(0.3, 1.25, 0.5, 1);
     position: relative;
     isolation: isolate;
   }
@@ -3107,10 +3114,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     position: absolute;
     inset: 0;
     z-index: -1;
-    border-radius: var(--radius-pill);
+    border-radius: var(--playlist-fill-radius);
     background: transparent;
     pointer-events: none;
-    transition: background-color 0.16s ease;
+    transition:
+      background-color 0.16s ease,
+      top var(--playlist-fill-morph),
+      bottom var(--playlist-fill-morph),
+      border-radius var(--playlist-fill-morph);
   }
 
   .playlist-entry.is-removal-selected::before {
@@ -3118,17 +3129,83 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   .playlist-entry.is-removal-selected:has(+ .playlist-entry.is-removal-selected)::before {
-    border-radius: calc(var(--list-row-height) / 2) calc(var(--list-row-height) / 2) 0 0;
+    border-radius: var(--playlist-fill-radius) var(--playlist-fill-radius) 0 0;
   }
 
   .playlist-entry.is-removal-selected + .playlist-entry.is-removal-selected::before {
     top: -8px;
-    border-radius: 0 0 calc(var(--list-row-height) / 2) calc(var(--list-row-height) / 2);
+    border-radius: 0 0 var(--playlist-fill-radius) var(--playlist-fill-radius);
   }
 
   .playlist-entry.is-removal-selected
     + .playlist-entry.is-removal-selected:has(+ .playlist-entry.is-removal-selected)::before {
     border-radius: 0;
+  }
+
+  /* Collapsed fills waiting on a block's edge: above a block on this row's
+     bottom edge, below one on the block's bottom edge across the gap. The
+     clear color waits for the shape, so a retreating fill stays visible. */
+  .playlist-entry:not(.is-removal-selected):has(+ .playlist-entry.is-removal-selected)::before {
+    top: 100%;
+    border-radius: var(--playlist-fill-radius) var(--playlist-fill-radius) 0 0;
+    transition:
+      background-color 0s linear 0.36s,
+      top var(--playlist-fill-morph),
+      bottom var(--playlist-fill-morph),
+      border-radius var(--playlist-fill-morph);
+  }
+
+  .playlist-entry.is-removal-selected + .playlist-entry:not(.is-removal-selected)::before {
+    top: -8px;
+    bottom: calc(100% + 8px);
+    border-radius: 0 0 var(--playlist-fill-radius) var(--playlist-fill-radius);
+    transition:
+      background-color 0s linear 0.36s,
+      top var(--playlist-fill-morph),
+      bottom var(--playlist-fill-morph),
+      border-radius var(--playlist-fill-morph);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .playlist-entry {
+      --playlist-fill-morph: 0s;
+    }
+  }
+
+  /* Deleted rows leave as frozen copies sliding toward the inline end. The
+     layer sits over the list in the scrolling body and clips the slide to the
+     list's width; each copy keeps the block shape its row had. */
+  .playlist-exit-layer {
+    position: absolute;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .playlist-entry.playlist-exit-ghost {
+    position: absolute;
+    margin: 0;
+  }
+
+  .playlist-entry.playlist-exit-ghost::before {
+    top: var(--exit-fill-top);
+    bottom: var(--exit-fill-bottom);
+    border-radius: var(--exit-fill-radius);
+    background: var(--control-active);
+    transition: none;
+  }
+
+  .playlist-exit-layer :is(.sub-playlist, .expand-toggle) {
+    display: none;
+  }
+
+  .playlist-exit-layer .playlist-reorder-handle .track-idx {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .playlist-exit-layer .playlist-reorder-handle .playlist-reorder-grip {
+    opacity: 0;
   }
 
   /* Edit mode folds YouTube playlists: their track lists and disclosure

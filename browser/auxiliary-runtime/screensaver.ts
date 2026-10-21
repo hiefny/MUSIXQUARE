@@ -87,6 +87,14 @@ function context(canvas: HTMLCanvasElement): CanvasContext {
   if (!ctx) throw new Error('Canvas is unavailable');
   return ctx;
 }
+interface ScratchCanvas {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasContext;
+}
+function scratchCanvas(): ScratchCanvas {
+  const canvas = document.createElement('canvas');
+  return { canvas, ctx: context(canvas) };
+}
 
 const blurEngine = (() => {
   const PAIRS = 32;
@@ -122,8 +130,7 @@ const blurEngine = (() => {
     a: Float32Array;
     b: Float32Array;
   } | null = null;
-  let solidCanvas: HTMLCanvasElement | null = null;
-  let solidContext: CanvasContext | null = null;
+  let solidScratch: ScratchCanvas | null = null;
 
   function kernel(sigma: number) {
     const key = sigma.toFixed(6);
@@ -536,20 +543,22 @@ const blurEngine = (() => {
   }
 
   return {
-    solid(source: HTMLCanvasElement, sigmaBackingPixels: number, opaqueTint = '#ffffff') {
+    /** Blurs into `scratch` when given, otherwise into the engine's own shared canvas. */
+    solid(
+      source: HTMLCanvasElement,
+      sigmaBackingPixels: number,
+      opaqueTint = '#ffffff',
+      scratch: ScratchCanvas | null = null,
+    ) {
       if (!source.width || !source.height) return source;
-      if (!solidCanvas) {
-        solidCanvas = document.createElement('canvas');
-        solidContext = context(solidCanvas);
-      }
+      const { canvas, ctx } = scratch || (solidScratch ||= scratchCanvas());
       const sigma = Math.max(0, Number(sigmaBackingPixels) || 0);
       const width = source.width,
         height = source.height;
-      if (solidCanvas.width !== width || solidCanvas.height !== height) {
-        solidCanvas.width = width;
-        solidCanvas.height = height;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
       }
-      const ctx = solidContext || context(solidCanvas);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
@@ -565,7 +574,7 @@ const blurEngine = (() => {
       ctx.shadowOffsetX = 0;
       stats.solidCalls++;
       backend = 'Canvas shadow Gaussian';
-      return solidCanvas;
+      return canvas;
     },
     blur(source: HTMLCanvasElement, sigmaBackingPixels: number) {
       const sigma = Math.max(0, Number(sigmaBackingPixels) || 0);
@@ -604,11 +613,10 @@ const blurEngine = (() => {
         cpu.input.width = cpu.input.height = 0;
         cpu.output.width = cpu.output.height = 0;
       }
-      if (solidCanvas) solidCanvas.width = solidCanvas.height = 0;
+      if (solidScratch) solidScratch.canvas.width = solidScratch.canvas.height = 0;
       gpu = null;
       cpu = null;
-      solidCanvas = null;
-      solidContext = null;
+      solidScratch = null;
       attemptedGpu = false;
       gpuLost = false;
       kernels.clear();
@@ -629,6 +637,21 @@ interface CompositorEntry {
   lastFrame: number;
   originalStyle: string;
   removed: boolean;
+  /** Values last written to the node, compared before any style string is built. */
+  applied: {
+    width: number;
+    height: number;
+    matrix: number[];
+    opacity: number;
+    blur: number;
+    order: number;
+  };
+}
+/** Layers drawn from one source; `uses` counts this frame's draws of it so far. */
+interface CompositorSlots {
+  entries: CompositorEntry[];
+  frame: number;
+  uses: number;
 }
 interface CompositorState {
   canvas: HTMLCanvasElement;
@@ -636,11 +659,12 @@ interface CompositorState {
   frame: number;
   order: number;
   entries: Set<CompositorEntry>;
-  bySource: WeakMap<HTMLCanvasElement, CompositorEntry[]>;
-  uses: WeakMap<HTMLCanvasElement, number>;
+  bySource: WeakMap<HTMLCanvasElement, CompositorSlots>;
   ratioX: number;
   ratioY: number;
   defaultOpacity: string;
+  /** The root's last written left, top, width and height. */
+  bounds: number[];
 }
 type CompositorStyle =
   | 'display'
@@ -685,10 +709,10 @@ const compositor = (() => {
       order: 0,
       entries: new Set(),
       bySource: new WeakMap(),
-      uses: new WeakMap(),
       ratioX: 1,
       ratioY: 1,
       defaultOpacity: computed.opacity,
+      bounds: [NaN, NaN, NaN, NaN],
     };
     targets.set(canvas, state);
     states.add(state);
@@ -706,19 +730,28 @@ const compositor = (() => {
       canvas.hidden || canvas.style.display === 'none' ? 'none' : 'block',
     );
   }
-  function begin(target: CanvasContext) {
+  /**
+   * Starts a frame. `backingWidth` and `backingHeight` are the bitmap size the target's
+   * transform is written for; they default to the canvas's own bitmap.
+   */
+  function begin(
+    target: CanvasContext,
+    backingWidth = target.canvas.width,
+    backingHeight = target.canvas.height,
+  ) {
     const state = stateFor(target),
-      { canvas, root } = state;
+      { canvas, root, bounds } = state;
     const rect = canvas.getBoundingClientRect();
     state.frame++;
     state.order = 0;
-    state.uses = new WeakMap();
-    state.ratioX = canvas.width / Math.max(0.001, rect.width);
-    state.ratioY = canvas.height / Math.max(0.001, rect.height);
-    assign(root.style, 'left', canvas.offsetLeft + 'px');
-    assign(root.style, 'top', canvas.offsetTop + 'px');
-    assign(root.style, 'width', rect.width + 'px');
-    assign(root.style, 'height', rect.height + 'px');
+    state.ratioX = backingWidth / Math.max(0.001, rect.width);
+    state.ratioY = backingHeight / Math.max(0.001, rect.height);
+    const left = canvas.offsetLeft,
+      top = canvas.offsetTop;
+    if (bounds[0] !== left) assign(root.style, 'left', (bounds[0] = left) + 'px');
+    if (bounds[1] !== top) assign(root.style, 'top', (bounds[1] = top) + 'px');
+    if (bounds[2] !== rect.width) assign(root.style, 'width', (bounds[2] = rect.width) + 'px');
+    if (bounds[3] !== rect.height) assign(root.style, 'height', (bounds[3] = rect.height) + 'px');
     sync(target);
   }
   function remove(entry: CompositorEntry) {
@@ -748,6 +781,7 @@ const compositor = (() => {
       lastFrame: state.frame,
       originalStyle: image.style.cssText,
       removed: false,
+      applied: { width: NaN, height: NaN, matrix: [], opacity: NaN, blur: NaN, order: NaN },
     };
     if (!copied) owners.set(source, entry);
     image.style.cssText =
@@ -778,12 +812,15 @@ const compositor = (() => {
     )
       return;
     const state = stateFor(target);
-    const occurrence = state.uses.get(source) || 0;
-    state.uses.set(source, occurrence + 1);
-    let list = state.bySource.get(source);
-    if (!list) state.bySource.set(source, (list = []));
-    let entry = list[occurrence];
-    if (!entry || entry.removed) list[occurrence] = entry = createEntry(state, source);
+    let slots = state.bySource.get(source);
+    if (!slots) state.bySource.set(source, (slots = { entries: [], frame: state.frame, uses: 0 }));
+    else if (slots.frame !== state.frame) {
+      slots.frame = state.frame;
+      slots.uses = 0;
+    }
+    const occurrence = slots.uses++;
+    let entry = slots.entries[occurrence];
+    if (!entry || entry.removed) slots.entries[occurrence] = entry = createEntry(state, source);
     entry.lastFrame = state.frame;
     if (entry.copied) {
       const image = entry.image;
@@ -804,13 +841,22 @@ const compositor = (() => {
     const ty = (matrix.b * x + matrix.d * y + matrix.f) / state.ratioY;
     const sigma = Math.max(0, blur) / Math.max(0.001, Math.hypot(matrix.a, matrix.b));
     const style = entry.node.style;
+    const applied = entry.applied;
     assign(style, 'display', 'block');
-    assign(style, 'width', width + 'px');
-    assign(style, 'height', height + 'px');
-    assign(style, 'transform', `matrix(${a},${b},${c},${d},${tx},${ty}) translateZ(0)`);
-    assign(style, 'opacity', String(Math.min(1, target.globalAlpha)));
-    assign(style, 'filter', sigma > 0.005 ? `blur(${sigma}px)` : 'none');
-    assign(style, 'zIndex', String(++state.order));
+    if (applied.width !== width) assign(style, 'width', (applied.width = width) + 'px');
+    if (applied.height !== height) assign(style, 'height', (applied.height = height) + 'px');
+    const m = applied.matrix;
+    if (m[0] !== a || m[1] !== b || m[2] !== c || m[3] !== d || m[4] !== tx || m[5] !== ty) {
+      applied.matrix = [a, b, c, d, tx, ty];
+      assign(style, 'transform', `matrix(${a},${b},${c},${d},${tx},${ty}) translateZ(0)`);
+    }
+    const opacity = Math.min(1, target.globalAlpha);
+    if (applied.opacity !== opacity) assign(style, 'opacity', String((applied.opacity = opacity)));
+    const filterSigma = sigma > 0.005 ? sigma : 0;
+    if (applied.blur !== filterSigma)
+      assign(style, 'filter', (applied.blur = filterSigma) ? `blur(${filterSigma}px)` : 'none');
+    const order = ++state.order;
+    if (applied.order !== order) assign(style, 'zIndex', String((applied.order = order)));
   }
   function forget(source: HTMLCanvasElement) {
     const entries = sourceEntries.get(source);
@@ -838,6 +884,9 @@ const compositor = (() => {
 })();
 const compatPaintCanvas = document.createElement('canvas');
 const compatPaintContext = context(compatPaintCanvas);
+// Clock tiles blur into a canvas of their own. The seconds tile blurs into the engine's shared
+// one on every frame of its morph, so building tiles in between must not resize that one.
+const tileBlurScratch = scratchCanvas();
 function opaqueCompatColor(color: string) {
   if (!color.startsWith('rgba(')) return color;
   return 'rgb(' + color.slice(5, -1).split(',').slice(0, 3).join(',') + ')';
@@ -883,7 +932,7 @@ function paintCompatBlur(
   paint(temporary);
   temporary.restore();
   const blurred = solidTint
-    ? blurEngine.solid(compatPaintCanvas, sigma, solidTint)
+    ? blurEngine.solid(compatPaintCanvas, sigma, solidTint, tileBlurScratch)
     : blurEngine.blur(compatPaintCanvas, sigma);
   target.save();
   target.resetTransform();
@@ -899,6 +948,7 @@ function drawCompatImage(
   height: number,
   sigma = 0,
   solidTint: string | null = null,
+  solidScratch: ScratchCanvas | null = null,
 ) {
   if (target === clockCtx) {
     compositor.draw(target, source, x, y, width, height, sigma);
@@ -912,7 +962,7 @@ function drawCompatImage(
   const physicalScale = (Math.hypot(transform.a, transform.b) * width) / source.width;
   const radius = sigma / Math.max(0.0001, physicalScale);
   const blurred = solidTint
-    ? blurEngine.solid(source, radius, solidTint)
+    ? blurEngine.solid(source, radius, solidTint, solidScratch)
     : blurEngine.blur(source, radius);
   target.drawImage(blurred, x, y, width, height);
 }
@@ -1071,6 +1121,7 @@ window.addEventListener('pagehide', () => {
   if (fontWarmupTimer !== null) clearTimeout(fontWarmupTimer);
   if (clockTransition) releaseClockTransition(clockTransition);
   releaseClockScene(currentClockScene);
+  discardNextClockScene();
   if (currentSecondsTile) {
     compositor.forget(currentSecondsTile.canvas);
     currentSecondsTile.canvas.width = currentSecondsTile.canvas.height = 0;
@@ -1080,6 +1131,7 @@ window.addEventListener('pagehide', () => {
   compositor.dispose();
   blurEngine.dispose();
   compatPaintCanvas.width = compatPaintCanvas.height = 0;
+  tileBlurScratch.canvas.width = tileBlurScratch.canvas.height = 0;
   imageBackgrounds.dispose();
 });
 
@@ -1091,6 +1143,7 @@ window.addEventListener('pageshow', (event) => {
   currentSecondsTile = null;
   secondsMorph = null;
   secondsLastFrame = null;
+  speckleLastFrame = null;
   invalidateFontLayouts();
   showControls();
   startAnimationLoop();
@@ -1125,8 +1178,15 @@ function createFilmGrainTile() {
 
 const clockCanvas = element('opticalClockCanvas', 'canvas');
 const clockCtx = context(clockCanvas);
+// Every draw aimed at the clock canvas becomes a DOM layer (drawCompatImage), and its context
+// is otherwise only measured with, so it keeps a 1×1 bitmap. Its transform still carries the
+// pixel ratio, and the compositor is told the backing size that transform is written for.
+clockCanvas.width = clockCanvas.height = 1;
 
 const DIGIT_TRANSITION_MS = 1000;
+// Toolbar animations resize the page many times in a row; the tiles wait for the size to hold.
+const RESIZE_SETTLE_MS = 150;
+const NEXT_SCENE_FROM_SECOND = 55;
 const SECONDS_FONT_SCALE = 0.24;
 const SECONDS_GAP_SCALE = 0.16;
 const SECONDS_CENTER_WEIGHT = 0.7;
@@ -1900,11 +1960,21 @@ let currentSecondStr = '';
 let currentSecondsTile: SecondsTile | null = null;
 let secondsMorph: SecondsMorph | null = null;
 let secondsLastFrame: number | null = null;
+// The size and pixel ratio the current scene's tiles were built for.
 let lastViewportW = 0;
 let lastViewportH = 0;
 let lastDpr = 0;
+// The size seen on the latest frame, and when it last changed.
+let observedViewportW = 0;
+let observedViewportH = 0;
+let observedDpr = 0;
+let viewportChangedAt = 0;
+// Rebuild on the next frame without waiting for the size to settle (start, fonts).
+let clockRebuildPending = true;
 let currentClockScene: ClockScene | null = null;
 let clockTransition: ClockTransition | null = null;
+// The next minute's scene, built a tile at a time during seconds 55–59.
+let nextClockScene: ClockSceneBuild | null = null;
 let fittedFont: FittedFont | null = null;
 
 function getFormattedTimeParts() {
@@ -2153,6 +2223,7 @@ function buildDigitTile(digit: ClockDigit, layout: ClockLayout, dpr: number) {
       scratch.height,
       blur,
       opaqueCompatColor(color),
+      tileBlurScratch,
     );
     ink.ctx.restore();
   }
@@ -2191,15 +2262,117 @@ function buildColonTile(layout: ClockLayout, dpr: number) {
   return { ...tile, offsetX: -halfW, offsetY: -halfH };
 }
 
-function buildClockScene(hoursStr: string, minutesStr: string, w: number, h: number, dpr: number) {
-  const layout = buildClockLayout(hoursStr, minutesStr, w, h);
+interface ClockSceneBuild {
+  hoursStr: string;
+  minutesStr: string;
+  width: number;
+  height: number;
+  dpr: number;
+  layout: ClockLayout;
+  digits: DigitTile[];
+  colon: ColonTile | null;
+  /** The clock second in which the latest tile was built ahead of time. */
+  tileSecond: number;
+}
+
+function startClockScene(
+  hoursStr: string,
+  minutesStr: string,
+  w: number,
+  h: number,
+  dpr: number,
+): ClockSceneBuild {
   return {
     hoursStr,
     minutesStr,
-    layout,
-    digits: layout.digits.map((digit) => buildDigitTile(digit, layout, dpr)),
-    colon: buildColonTile(layout, dpr),
+    width: w,
+    height: h,
+    dpr,
+    layout: buildClockLayout(hoursStr, minutesStr, w, h),
+    digits: [],
+    colon: null,
+    tileSecond: -1,
   };
+}
+
+/** Builds the scene's next tile: the four digits in order, then the colon. */
+function buildNextClockTile(build: ClockSceneBuild) {
+  const { layout, dpr, digits } = build;
+  if (digits.length < layout.digits.length)
+    digits.push(buildDigitTile(layout.digits[digits.length], layout, dpr));
+  else if (!build.colon) build.colon = buildColonTile(layout, dpr);
+}
+
+function finishClockScene(build: ClockSceneBuild) {
+  while (!build.colon) buildNextClockTile(build);
+  const { hoursStr, minutesStr, layout, digits, colon } = build;
+  return { hoursStr, minutesStr, layout, digits, colon };
+}
+
+function buildClockScene(hoursStr: string, minutesStr: string, w: number, h: number, dpr: number) {
+  return finishClockScene(startClockScene(hoursStr, minutesStr, w, h, dpr));
+}
+
+/** The prebuilt scene is valid only for the same time, size, pixel ratio and fitted font. */
+function clockBuildMatches(
+  build: ClockSceneBuild,
+  hoursStr: string,
+  minutesStr: string,
+  w: number,
+  h: number,
+  dpr: number,
+) {
+  return (
+    build.hoursStr === hoursStr &&
+    build.minutesStr === minutesStr &&
+    build.width === w &&
+    build.height === h &&
+    build.dpr === dpr &&
+    build.layout.fontSpec === fittedFont?.fontSpec
+  );
+}
+
+function discardNextClockScene() {
+  releaseClockScene(nextClockScene);
+  nextClockScene = null;
+}
+
+/**
+ * Builds the next minute's scene during seconds 55–59, so the minute change itself does not
+ * build every tile in one frame. Every digit is rebuilt, because the glyph masks span the whole
+ * group and move when any digit's width changes. It builds one tile per second, so no two heavy
+ * frames run back to back, then one per frame in the last second if any are still missing.
+ */
+function prepareNextClockScene(
+  hours: string,
+  minutes: string,
+  seconds: string,
+  w: number,
+  h: number,
+  dpr: number,
+) {
+  const second = Number(seconds);
+  if (second < NEXT_SCENE_FROM_SECOND || nextClockScene?.colon) return;
+  const next = (Number(hours) * 60 + Number(minutes) + 1) % 1440;
+  const nextHours = String(Math.floor(next / 60)).padStart(2, '0');
+  const nextMinutes = String(next % 60).padStart(2, '0');
+  if (nextClockScene && !clockBuildMatches(nextClockScene, nextHours, nextMinutes, w, h, dpr))
+    discardNextClockScene();
+  nextClockScene ||= startClockScene(nextHours, nextMinutes, w, h, dpr);
+  if (nextClockScene.tileSecond === second && second < 59) return;
+  nextClockScene.tileSecond = second;
+  buildNextClockTile(nextClockScene);
+}
+
+/** Takes the prebuilt scene for this minute, finishing any tiles it still lacks. */
+function takeNextClockScene(hours: string, minutes: string, w: number, h: number, dpr: number) {
+  const build = nextClockScene;
+  if (!build || !clockBuildMatches(build, hours, minutes, w, h, dpr)) {
+    discardNextClockScene();
+    return null;
+  }
+  nextClockScene = null;
+  return finishClockScene(build);
 }
 
 const buildSecondsMorphPair = (() => {
@@ -2736,7 +2909,7 @@ function drawSeconds(text: string, layout: ClockLayout, dpr: number, now: number
   clockCtx.restore();
 }
 
-function releaseClockScene(scene: ClockScene | null) {
+function releaseClockScene(scene: ClockScene | ClockSceneBuild | null) {
   if (!scene) return;
   for (const tile of scene.digits) {
     compositor.forget(tile.ink.canvas);
@@ -2744,6 +2917,7 @@ function releaseClockScene(scene: ClockScene | null) {
     compositor.forget(tile.glow.canvas);
     tile.glow.canvas.width = tile.glow.canvas.height = 0;
   }
+  if (!scene.colon) return;
   compositor.forget(scene.colon.canvas);
   scene.colon.canvas.width = scene.colon.canvas.height = 0;
 }
@@ -2800,23 +2974,23 @@ function blendUnchangedDigit(transition: ClockTransition, index: number, progres
   return mixed;
 }
 
-function updateClockMetrics(layout: ClockLayout, offsetX = 0) {
+function updateClockMetrics(layout: ClockLayout, offsetX = 0, offsetY = 0) {
   const height = layout.glyphBottom - layout.glyphTop;
   const next = {
     topRightEdgeX: layout.glyphRight + offsetX - layout.fontSize * 0.1,
-    topRightEdgeY: layout.glyphTop + height * 0.24,
+    topRightEdgeY: layout.glyphTop + offsetY + height * 0.24,
     bottomLeftEdgeX: layout.glyphLeft + offsetX + layout.fontSize * 0.08,
-    bottomLeftEdgeY: layout.glyphBottom - height * 0.22,
+    bottomLeftEdgeY: layout.glyphBottom + offsetY - height * 0.22,
     glyphLeft: layout.glyphLeft + offsetX,
     glyphRight: layout.glyphRight + offsetX,
     groupLeft: layout.glyphLeft + offsetX,
     groupRight: layout.glyphRight + offsetX + layout.secondsGap + layout.secondsWidth,
-    glyphTop: layout.glyphTop,
-    glyphBottom: layout.glyphBottom,
+    glyphTop: layout.glyphTop + offsetY,
+    glyphBottom: layout.glyphBottom + offsetY,
     glyphWidth: layout.glyphRight - layout.glyphLeft,
     glyphHeight: height,
     colonCenterX: layout.colonCenterX + offsetX,
-    colonCenterY: layout.anchorY,
+    colonCenterY: layout.anchorY + offsetY,
     colonDotRadius: layout.colonDotRadius,
     colonDotOffset: layout.colonDotOffset,
     ready: true,
@@ -2871,12 +3045,17 @@ function drawColonTile(tile: ColonTile, x: number, y: number, wave: number) {
   clockCtx.restore();
 }
 
-function drawClockScene(scene: ClockScene, offsetX: number, wave: number) {
+function drawClockScene(scene: ClockScene, offsetX: number, offsetY: number, wave: number) {
   scene.digits.forEach((tile, index) => {
-    drawDigitTile(tile, scene.layout.digits[index].x + offsetX, scene.layout.drawY, wave);
+    drawDigitTile(tile, scene.layout.digits[index].x + offsetX, scene.layout.drawY + offsetY, wave);
   });
-  drawColonTile(scene.colon, scene.layout.colonCenterX + offsetX, scene.layout.anchorY, wave);
-  updateClockMetrics(scene.layout, offsetX);
+  drawColonTile(
+    scene.colon,
+    scene.layout.colonCenterX + offsetX,
+    scene.layout.anchorY + offsetY,
+    wave,
+  );
+  updateClockMetrics(scene.layout, offsetX, offsetY);
 }
 
 function drawDigitTransition(transition: ClockTransition, progress: number, wave: number) {
@@ -2929,8 +3108,24 @@ function renderFrame(now: number) {
   const rect = clockCanvas.getBoundingClientRect();
   if (!rect.width || !rect.height) return;
   const dpr = getRenderDpr(rect.width, rect.height);
-  const resized = rect.width !== lastViewportW || rect.height !== lastViewportH || dpr !== lastDpr;
+  if (
+    rect.width !== observedViewportW ||
+    rect.height !== observedViewportH ||
+    dpr !== observedDpr
+  ) {
+    observedViewportW = rect.width;
+    observedViewportH = rect.height;
+    observedDpr = dpr;
+    viewportChangedAt = now;
+    resizeSpeckleCanvas();
+  }
+  const viewportChanged =
+    rect.width !== lastViewportW || rect.height !== lastViewportH || dpr !== lastDpr;
   const timeChanged = hours !== currentHourStr || minutes !== currentMinuteStr;
+  // A new size is built once it has held; a minute change rebuilds every tile anyway.
+  const resized =
+    clockRebuildPending ||
+    (viewportChanged && (timeChanged || now - viewportChangedAt >= RESIZE_SETTLE_MS));
   const minuteStep =
     (Number(hours) * 60 +
       Number(minutes) -
@@ -2943,7 +3138,10 @@ function renderFrame(now: number) {
     timeChanged &&
     !(minuteStep === 1 && currentSecondStr === '59' && seconds === '00');
   if (resized || timeChanged || !currentClockScene) {
-    const next = buildClockScene(hours, minutes, rect.width, rect.height, dpr);
+    if (resized || clockJump) discardNextClockScene();
+    const next =
+      takeNextClockScene(hours, minutes, rect.width, rect.height, dpr) ||
+      buildClockScene(hours, minutes, rect.width, rect.height, dpr);
     if (currentClockScene && !resized && !reducedMotion.matches && !clockTransition) {
       clockTransition = {
         start: now,
@@ -2961,38 +3159,44 @@ function renderFrame(now: number) {
     lastViewportW = rect.width;
     lastViewportH = rect.height;
     lastDpr = dpr;
-    if (resized) {
-      clockCanvas.width = Math.round(rect.width * dpr);
-      clockCanvas.height = Math.round(rect.height * dpr);
-      resizeSpeckleCanvas();
-    }
+    clockRebuildPending = false;
   }
-  if (clockTransition && reducedMotion.matches) {
+  // Until a new size settles, the current tiles keep their size, centered in the new viewport.
+  const settling = rect.width !== lastViewportW || rect.height !== lastViewportH || dpr !== lastDpr;
+  if (clockTransition && (settling || reducedMotion.matches)) {
     releaseClockTransition(clockTransition);
     clockTransition = null;
   }
+  // The compositor reads this transform; nothing is painted into the canvas itself.
   clockCtx.setTransform(1, 0, 0, 1, 0, 0);
-  clockCtx.clearRect(0, 0, clockCanvas.width, clockCanvas.height);
   clockCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  compositor.begin(clockCtx);
+  compositor.begin(clockCtx, Math.round(rect.width * dpr), Math.round(rect.height * dpr));
   const wave = 0.5 + 0.5 * Math.cos((now * Math.PI) / 1000);
   if (clockTransition) {
     const elapsed = now - clockTransition.start;
     if (elapsed < DIGIT_TRANSITION_MS) {
       drawDigitTransition(clockTransition, elapsed / DIGIT_TRANSITION_MS, wave);
     } else {
-      drawClockScene(currentClockScene, 0, wave);
+      drawClockScene(currentClockScene, 0, 0, wave);
       releaseClockTransition(clockTransition);
       clockTransition = null;
     }
   } else {
-    drawClockScene(currentClockScene, 0, wave);
+    drawClockScene(
+      currentClockScene,
+      (rect.width - lastViewportW) / 2,
+      (rect.height - lastViewportH) / 2,
+      wave,
+    );
   }
   if (timeChanged || resized || seconds !== currentSecondStr)
     clockCanvas.setAttribute('aria-label', `${hours}:${minutes}:${seconds}`);
-  drawSeconds(seconds, currentClockScene.layout, dpr, now, resized || clockJump);
+  drawSeconds(seconds, currentClockScene.layout, lastDpr, now, resized || clockJump);
   if (!speckles.length) initSpeckles();
   compositor.end(clockCtx);
+  // Tiles are built ahead only in otherwise quiet frames: no scene build, resize or animation.
+  if (!resized && !timeChanged && !settling && !secondsMorph && !clockTransition)
+    prepareNextClockScene(hours, minutes, seconds, rect.width, rect.height, dpr);
 }
 
 const speckleCanvas = element('speckleFieldCanvas', 'canvas');
@@ -3056,6 +3260,22 @@ function initSpeckles() {
   }
 }
 
+const SPECKLE_FRAME_MS = 1000 / 60;
+let speckleLastFrame: number | null = null;
+let speckleTwinkleTime = 0;
+const speckleFills = new Map<string, string[]>();
+
+/** The particle fill, cached per tint and thousandth of alpha (the precision it is written at). */
+function speckleFill(tint: string, alpha: number) {
+  const scaled = alpha * 1000;
+  const key = Math.round(scaled);
+  // toFixed() rounds the exact value, so a product that lands on a half can round down.
+  if (key - scaled === 0.5) return `rgba(${tint}, ${alpha.toFixed(3)})`;
+  let fills = speckleFills.get(tint);
+  if (!fills) speckleFills.set(tint, (fills = []));
+  return (fills[key] ??= `rgba(${tint}, ${alpha.toFixed(3)})`);
+}
+
 function updateAndDrawSpeckles(now: number) {
   sctx.clearRect(0, 0, sw, sh);
 
@@ -3065,10 +3285,20 @@ function updateAndDrawSpeckles(now: number) {
   const bottomLeftOriginY = clockMetrics.ready ? clockMetrics.bottomLeftEdgeY : sh * 0.62;
   const spanH = clockMetrics.ready ? clockMetrics.glyphHeight : sh * 0.26;
 
+  const last = speckleLastFrame;
+  speckleLastFrame = now;
+  const elapsed = last === null ? SPECKLE_FRAME_MS : Math.max(0, now - last);
+  // With reduced motion the particles hold still: no drift and no twinkle.
+  const still = reducedMotion.matches;
+  // The twinkle adds up frame time, so it resumes where reduced motion stopped it.
+  speckleTwinkleTime = last === null ? now : speckleTwinkleTime + (still ? 0 : elapsed);
+  // Velocities are per 60 Hz frame, at that speed on any display; a long gap counts as 50 ms.
+  const step = still ? 0 : Math.min(50, elapsed) / SPECKLE_FRAME_MS;
+
   for (let i = 0; i < speckles.length; i++) {
     const p = speckles[i];
-    p.x += p.vx;
-    p.y += p.vy;
+    p.x += p.vx * step;
+    p.y += p.vy * step;
 
     if (p.isBottomLeft) {
       if (p.x < bottomLeftOriginX - sw * 0.11 || p.y > bottomLeftOriginY + sh * 0.1) {
@@ -3082,11 +3312,11 @@ function updateAndDrawSpeckles(now: number) {
       }
     }
 
-    const twinkle = 0.68 + 0.32 * Math.sin(now * 0.002 + p.phase);
+    const twinkle = 0.68 + 0.32 * Math.sin(speckleTwinkleTime * 0.002 + p.phase);
     const finalAlpha = Math.max(0, Math.min(1, p.alpha * twinkle));
 
     sctx.beginPath();
-    sctx.fillStyle = `rgba(${p.tint}, ${finalAlpha.toFixed(3)})`;
+    sctx.fillStyle = speckleFill(p.tint, finalAlpha);
     sctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
     sctx.fill();
   }
@@ -3118,7 +3348,10 @@ const imageBackgrounds = (() => {
     fromGrain: number;
     toGrain: number;
   } | null = null;
+  // apply() asks on every frame, so the choice is kept until the next resize.
+  let viewportVariant: BackgroundImageVariant | null = null;
   function variantFor() {
+    if (viewportVariant) return viewportVariant;
     const width = Math.max(1, innerWidth),
       height = Math.max(1, innerHeight);
     let best = CLOCK_BACKGROUND.variants[0],
@@ -3135,7 +3368,7 @@ const imageBackgrounds = (() => {
         best = variant;
       }
     }
-    return best;
+    return (viewportVariant = best);
   }
   function initialize() {
     if (root) return;
@@ -3272,6 +3505,8 @@ const imageBackgrounds = (() => {
       };
   }
   function resize() {
+    // The next frame measures the new viewport; the timer still prepares it once resizing stops.
+    viewportVariant = null;
     if (resizeTimer !== null) clearTimeout(resizeTimer);
     if (disposed) return;
     resizeTimer = setTimeout(() => {
@@ -3284,6 +3519,7 @@ const imageBackgrounds = (() => {
     resizeTimer = null;
     transition = null;
     active = false;
+    viewportVariant = null;
     for (const record of cache.values()) record.cancel();
     cache.clear();
     slots[0] = slots[1] = null;
@@ -3358,10 +3594,10 @@ for (const type of ['gesturestart', 'gesturechange', 'gestureend'] as const) {
   document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
 }
 
+// The clock tiles follow in renderFrame, once the new size has settled.
 window.addEventListener('resize', () => {
   imageBackgrounds.resize();
   resizeSpeckleCanvas();
-  lastViewportW = 0;
 });
 
 function loadGoogleSansStylesheet(): Promise<boolean> {
@@ -3431,13 +3667,14 @@ async function initializeScreensaver() {
   for (let digit = 0; digit < 10; digit++)
     buildSecondsMorphPair(String(digit), String((digit + 1) % 10));
   buildSecondsMorphPair('5', '0');
-  lastViewportW = 0;
+  clockRebuildPending = true;
   startAnimationLoop();
 }
 
 function invalidateFontLayouts() {
   fittedFont = null;
-  lastViewportW = 0;
+  clockRebuildPending = true;
+  discardNextClockScene();
 }
 
 document.fonts?.addEventListener('loadingdone', () => {

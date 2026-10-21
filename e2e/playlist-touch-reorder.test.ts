@@ -142,7 +142,7 @@ test.describe('Playlist touch reorder', () => {
         return { width: rect.width, height: rect.height };
       }),
     );
-    expect(actionSizes).toHaveLength(2);
+    expect(actionSizes).toHaveLength(3);
     expect(actionSizes.every(({ width, height }) => width >= 44 && height >= 44)).toBe(true);
 
     const selectAllAction = page.locator('.playlist-selection-toggle');

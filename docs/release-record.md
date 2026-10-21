@@ -47,12 +47,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ### 비주얼라이저·화면 보호기 후보
 
-- [ ] App 8.11.39/v764 후보: 저음 반응 확대, 독립 시간 기반 smoothing,
+- [ ] App 8.11.40/v765 후보: 저음 반응 확대, 독립 시간 기반 smoothing,
       가림/동작 줄이기 처리, 스펙트럼 peak 집계와 조건부 로딩을 수정한다.
       신규 의존성·서버 계약·스키마·비밀·바인딩 변경 없음. 최초 미캐시
       스펙트럼 선택에는 추가 로딩이 가능하며 설치 완료 후 offline 자산을 보존한다.
       로컬 검증은 exact-main 후보가 아니며 배포하지 않았다. 물리 기기의 음악별
       시각 체감·전력/GPU 및 Safari 오디오 확인은 남는다.
+      초기 JS는 유지 상한보다 20 B 작고 별도 5% reserve는 유지한다. 후속 변경은
+      용량을 다시 측정해야 한다.
       [변경·검증 한계](design/visualizer-response-optimization-2026-10-22.md).
 
 ### YouTube 목록·관리자 iframe 조작

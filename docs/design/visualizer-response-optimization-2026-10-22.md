@@ -3,8 +3,9 @@
 | 항목 | 범위 |
 | --- | --- |
 | 기준 SHA | `a1548d90d5e68573d19696dfd2bdd5a6efe29bce` |
-| 검증 코드 SHA | `b252772b2b6867577623be89bca7bb3abc2c53a7` (후속 문서 커밋은 runtime을 바꾸지 않음) |
-| 후보 버전 | App 8.11.39 / SW v764. 프로덕션 미배포 |
+| 통합 브라우저 검증 SHA | `b252772b2b6867577623be89bca7bb3abc2c53a7` |
+| 최종 코드 SHA | `34758757c44af01c20ce2d07397e2c74078945b5` — `3fc111d7`의 최신 main을 합치고 버전·원형 공통 계수·로그를 정리함 |
+| 후보 버전 | App 8.11.40 / SW v765. 프로덕션 미배포 |
 | 환경 | Windows, Node 24.13.1, Chromium 153.0.8010.12, Playwright WebKit 26.6 |
 | 선행 근거 | [최적화 조사](visualizer-optimization-audit-2026-10-22.md), [UI·UX·호환성 재검증](visualizer-ux-compatibility-preflight-2026-10-22.md) |
 
@@ -54,13 +55,35 @@
 
 전체 typecheck·lint·format 검사 통과. Lazy 분리 뒤 변경한 제품·테스트·tooling
 TypeScript도 다시 통과했다. 집중 단위 테스트 7개 파일 160/160 통과.
-프로덕션 빌드의 eager JS는 gzip 479.9 KiB로 기존 한도와 5% reserve를 유지한다.
-SW app-shell 102개 자산(주입 47개, 시작 Worker 1개) 검사가 통과했다.
+최신 main 통합과 mock factory 경합 수정 뒤 전체 단위 테스트는
+**614개 파일, 13,739/13,739 통과**했다(`--maxWorkers=8`, 241.99초).
+최종 `build:checked` 통과: eager JS gzip 491,548 B, 유지 상한 491,568 B로
+20 B의 작업 여유가 남는다. 별도 5% architectural reserve는 유지하며 이후
+추가 변경은 다시 측정해야 한다. eager total gzip 570,056 B, entry raw 435,861 B.
+SW app-shell 102개 자산(주입 47개, 시작 Worker 1개), Chromium 79 정적 호환성,
+캐시 이력·릴리스 ID·보안·프로덕션 hook 검사도 통과했다.
 
 첫 전체 단위 실행에서는 별도 릴리스 fixture가 과부하 중 30초 timeout에 걸렸고,
 bootstrap의 cache query를 v764로 바꾸지 않은 누락을 찾았다. query를 수정한 뒤
-해당 두 파일 137/137이 통과했다. 최종 전체 실행 결과와 browser 결과는 아래에
-별도로 기록한다. 실패를 처음부터 통과한 것으로 취급하지 않는다.
+해당 두 파일 137/137이 통과했다. 다음 전체 실행은 13,737 pass / 1 fail이었으며,
+실패는 비동기 mock factory의 완료 전에 검증하던 테스트 경합으로 단독 실행에서도
+재현했다. factory 완료를 명시적으로 기다리게 수정한 뒤 해당 파일은 5회 연속
+29/29 통과했다. 제품 조건이나 assertion을 완화하지 않았다. 실패를 처음부터
+통과한 것으로 취급하지 않는다.
+
+- `b252772b` E2E 빌드에서 Chromium 정규 29/29 통과: visualizer-layout와 screensaver.
+  별도 cold-import pause/mode 전환 2개와 실제 시계의 −60 dB 저음 표시 1개도
+  통과해 총 32/32였다. 밝기 >1.08, 위치·크기 변화 없음. 정지시킨 시계의 두
+  캡처에서 배경 밝기 변화도 확인했다. 합성 analyser 입력이며 실제 가청 음악
+  전체에 대한 체감 평가로 확대하지 않는다.
+- 이후 main의 8.11.39/v764가 추가되어 해당 변경을 보존해 합치고 후보를
+  8.11.40/v765로 올렸다. 병합 후 초기 JS가 유지 상한을 28 B 초과해 같은
+  원형 smoothing 계수의 중복 계산·wrapper·중복 로그를 정리했다. 한도는
+  올리지 않았다. 위 32개를 최종 병합 SHA의 결과로 바꾸어 적지 않는다.
+- 최종 `34758757`의 같은 프로덕션 산출물에서 candidate Chromium 17/17 통과
+  (51.5초, 재시도 0). 프로덕션 hook 미노출, SW offline fallback에서 온라인
+  복귀, 초기 언어·온보딩, host/guest 언어 전환, 번역 재시도·동일성을 검사했다.
+  재빌드 없이 실행했으며 운영 환경·exact-main CI 검증을 대신하지 않는다.
 
 - Lazy 파일 분리 전 실제 구현의 Canvas renderer를 기존 SHA와 비교: Chromium 24/24,
   WebKit 24/24 RGBA 완전 일치. 두 크기, DPR 1/2/3, 밝은/어두운 테마,

@@ -2341,6 +2341,13 @@ Safety is declared first because important layer precedence is reversed; its acc
     background: var(--surface-2);
   }
 
+  /* In selection mode a press selects, and the blue selection fill is the
+     feedback. The grey press tint gives way, fading out when the press began
+     before the mode (a long press, or a slide that starts the selection). */
+  .playlist-ul.has-removal-selection .track-item:active {
+    background: transparent;
+  }
+
   .track-item.active {
     --playlist-indicator-color: var(--primary);
   }

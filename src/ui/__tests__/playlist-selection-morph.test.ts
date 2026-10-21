@@ -169,6 +169,41 @@ describe('playlist selection morph', () => {
     expect(list.classList.contains('is-fill-morphing')).toBe(false);
   });
 
+  it('clears and draws a block of several rows as one shape', async () => {
+    const morph = createPlaylistSelectionMorph(list);
+    // Deselect all: the block fades where it is instead of falling into pills.
+    select(0, 1, 2);
+    morph.capture();
+    select();
+    await Promise.resolve();
+    expect(animations.map(({ keyframes }) => keyframes.map((frame) => frame.opacity))).toEqual([
+      [1, 0],
+    ]);
+    expect(spans()).toEqual([{ from: [top(0), height(3)], to: [top(0), height(3)] }]);
+    expect(list.classList.contains('is-fill-morphing')).toBe(true);
+    morph.stop();
+
+    // Select all from nothing: the block fades in whole.
+    animations = [];
+    morph.capture();
+    select(0, 1, 2, 3);
+    await Promise.resolve();
+    expect(animations.map(({ keyframes }) => keyframes.map((frame) => frame.opacity))).toEqual([
+      [0, 1],
+    ]);
+    expect(spans()).toEqual([{ from: [top(0), height(4)], to: [top(0), height(4)] }]);
+    morph.stop();
+
+    // A lone row is already a pill; its own fill fades.
+    animations = [];
+    select(2);
+    morph.capture();
+    select();
+    await Promise.resolve();
+    expect(animations).toHaveLength(0);
+    expect(document.querySelector('.playlist-fill-morph')).toBeNull();
+  });
+
   it('keeps drawing a morph in progress through a change that reshapes nothing', async () => {
     const morph = createPlaylistSelectionMorph(list);
     select(0);

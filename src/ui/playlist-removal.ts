@@ -562,8 +562,11 @@ export function createPlaylistRemovalController(
     layer.inert = true;
     // After the bar, so no list or bar sibling rule sees the layer.
     bar.after(layer);
-    // The layer clips the slide to the list's width; place it over the rows
-    // from wherever its containing block puts it.
+    // The layer clips the slide to the list's width. Pin it to its containing
+    // block's origin first, so the measured point is where top/left count
+    // from whichever ancestor that is, then move it over the rows.
+    layer.style.left = '0px';
+    layer.style.top = '0px';
     const origin = layer.getBoundingClientRect();
     layer.style.left = `${listRect.left - origin.left}px`;
     layer.style.top = `${top - origin.top}px`;

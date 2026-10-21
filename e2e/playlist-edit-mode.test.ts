@@ -325,6 +325,57 @@ test.describe('Playlist edit mode (mouse)', () => {
   });
 });
 
+test.describe('Playlist delete slide-out', () => {
+  // Short enough that the five tracks scroll under the tab header.
+  test.use({ viewport: { width: 390, height: 520 } });
+
+  for (const scrolled of [false, true]) {
+    test(`deleted rows leave from exactly where they were${scrolled ? ' in a scrolled list' : ''}`, async ({
+      page,
+    }) => {
+      test.setTimeout(90_000);
+      await openFiveTrackPlaylist(page, true);
+      const checks = page.locator('#playlist-ui .btn-playlist-select');
+      await checks.nth(2).click();
+      await checks.nth(3).click();
+      await page.waitForTimeout(600);
+      if (scrolled) {
+        await page
+          .locator('#tab-playlist .tab-body')
+          .evaluate((body) => body.scrollTo({ top: body.scrollHeight }));
+        await page.waitForTimeout(200);
+      }
+      const result = await page.evaluate(() => {
+        const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
+        // Read before deleting: the shorter list then clamps the scroll.
+        const scrollTop = body.scrollTop;
+        const rows = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '#playlist-ui > .playlist-entry.is-removal-selected',
+          ),
+          (entry) => entry.getBoundingClientRect().toJSON() as DOMRect,
+        );
+        document.querySelector<HTMLButtonElement>('.playlist-selection-delete')!.click();
+        const ghosts = Array.from(
+          document.querySelectorAll<HTMLElement>('.playlist-exit-ghost'),
+          (ghost) => ghost.getBoundingClientRect().toJSON() as DOMRect,
+        );
+        return { scrollTop, rows, ghosts };
+      });
+      if (scrolled) expect(result.scrollTop).toBeGreaterThan(0);
+      expect(result.ghosts).toHaveLength(2);
+      result.ghosts.forEach((ghost, index) => {
+        const row = result.rows[index]!;
+        expect(Math.abs(ghost.top - row.top)).toBeLessThan(1);
+        expect(Math.abs(ghost.left - row.left)).toBeLessThan(1);
+        expect(Math.abs(ghost.width - row.width)).toBeLessThan(1);
+      });
+      await expect(page.locator('.playlist-exit-layer')).toHaveCount(0);
+      await waitForPlaylistCount(page, 3);
+    });
+  }
+});
+
 test.describe('Playlist edit mode (touch)', () => {
   test.use({
     viewport: { width: 390, height: 844 },

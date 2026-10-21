@@ -62,14 +62,14 @@ pill은 불투명 색이고, 층 전체가 채움의 알파값(`--control-active
 Google 공식 저장소의 Material Symbols(24 px outlined, 960 격자)로 바꿨다.
 
 - 곡 이동: "place_item"
-- 도움말 탭의 앱 체험하기: "travel_explore"
+- 도움말 탭의 앱 체험하기: "explore"(나침반). 처음 고른 "travel_explore"는 시작 화면의 언어 지구본과 겹쳐 보여, 아래 시계와 같은 원형인 이 아이콘으로 바꿨다
 - 화면 보호기 켜기: "schedule"
 
 앱 체험하기와 화면 보호기 켜기는 휴대폰·데스크톱 배치 모두 바꿨다.
 
 ## 검증 (로컬, Windows, Node 24.20.0 / npm 12.0.2)
 
-검증한 코드 SHA는 `37b13396`이다(8.11.35 / v759, 이 문서 커밋 직전).
+검증한 코드 SHA는 `37b13396`이다(8.11.35 / v759, 이 문서 커밋 직전. 이후 앱 체험 아이콘만 explore로 바꾸고 캐시를 v760으로 올렸다).
 
 - 통과:
   - typecheck, typecheck:tests, lint, format:check
@@ -90,7 +90,7 @@ Google 공식 저장소의 Material Symbols(24 px outlined, 960 격자)로 바�
   - 선택 막대 위치를 읽는 순서
 - 프레임 확인(1/20 속도, 6가지 경우): 수정 전 쪼개기에서 보이던 네모 모서리와 쐐기가 사라졌다. 다리 놓기와 가운데
   쪼개기는 오너가 정한 모양(두 pill이 늘어나 하나가 됨, 허리가 생기며 찢어짐)으로 그려진다.
-- 아이콘: 휴대폰 도움말 탭에서 travel_explore·schedule이 그려지는 것을 확인했다. 데스크톱 버튼은 같은
+- 아이콘: 휴대폰 도움말 탭에서 travel_explore·schedule이 그려지는 것을 확인했다(explore로 바꾼 뒤에는 화면으로 다시 확인하지 않았다). 데스크톱 버튼은 같은
   마크업이지만 화면으로 확인하지 않았다.
 
 - 다루지 않은 것: 실기기(iOS Safari·Android Chrome)의 체감과 프레임, WebKit·Firefox(특히 의사 요소 위 층 겹침과

@@ -2,8 +2,8 @@
  * MUSIXQUARE — RAM-only storage adapter
  *
  * Routes STORAGE_* commands to the in-memory ramstore. Encoded chunks
- * live in `Map<number, Uint8Array>` per session, blobs are built with `new Blob([…])`
- * on finalize, and reads slice from the cached blob. There is no worker
+ * are snapshotted as Blobs per session; finalization joins immutable Blob parts,
+ * and reads slice from the cached blob. There is no worker
  * hop, no `navigator.storage.getDirectory()` writes, no disk persistence.
  *
  * Memory scales with the encoded active/preload blobs and the decoded PCM

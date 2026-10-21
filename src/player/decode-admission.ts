@@ -475,9 +475,10 @@ interface EncodedReceiveAdmissionOptions extends Pick<
 
 /**
  * Reserve a RAM-only P2P receive before the first payload chunk is accepted.
- * Typed-array chunks and Blob construction can coexist at finalization, hence
- * the two-copy assembly peak. Once finalized, the lease shrinks to one retained
- * encoded Blob and stays live until storage cleanup/reset releases it.
+ * Keep a conservative two-representation allowance for received buffers,
+ * incremental Blob snapshots and browser reclamation lag. This accounting is
+ * not a physical-memory measurement. Finalization retains one encoded Blob;
+ * its lease stays live until storage cleanup/reset releases it.
  */
 export function reserveEncodedReceiveMemoryWithinBudget(
   encodedBytes: number,

@@ -223,6 +223,66 @@ describe('ramWrite', () => {
     expect(ramWrite('a.mp3', false, 1, 0, u8(0xaa)).ok).toBe(true);
     expect(ramWrite('a.mp3', false, 1, 1, u8(0xbb)).ok).toBe(true);
   });
+
+  it.each(['ordinary', 'shared'] as const)(
+    'snapshots only the supplied %s buffer view before its source changes',
+    async (backing) => {
+      const buffer = backing === 'shared' ? new SharedArrayBuffer(8) : new ArrayBuffer(8);
+      const source = new Uint8Array(buffer);
+      source.set([99, 98, 11, 22, 33, 97, 96, 95]);
+      ramStart('a.mp3', false, 1, 3, false);
+
+      expect(ramWrite('a.mp3', false, 1, 0, source.subarray(2, 5)).ok).toBe(true);
+      source.fill(0);
+
+      expect(await ramReadChunk('a.mp3', false, 1, 0)).toEqual(u8(11, 22, 33));
+      expect(ramStats().mainBytes).toBe(3);
+      const { blob } = ramEnd('a.mp3', false, 1, 3, 1);
+      expect(blob?.size).toBe(3);
+      expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(u8(11, 22, 33));
+    },
+  );
+
+  it('preserves overwritten out-of-order bytes across an exact-session resume', async () => {
+    ramStart('a.mp3', false, 1, 4, false);
+    ramWrite('a.mp3', false, 1, 2, u8(9, 10));
+    ramWrite('a.mp3', false, 1, 0, u8(99));
+    expect(ramContiguousCount('a.mp3', false, 1)).toBe(1);
+
+    ramStart('a.mp3', false, 1, 4, true);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2, 3, 4));
+    ramWrite('a.mp3', false, 1, 1, u8(5, 6, 7, 8));
+
+    expect(ramContiguousCount('a.mp3', false, 1)).toBe(3);
+    expect(ramStats().mainBytes).toBe(10);
+    expect(await ramReadChunk('a.mp3', false, 1, 0)).toEqual(u8(1, 2, 3, 4));
+    const { blob } = ramEnd('a.mp3', false, 1, 10, 3);
+    expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(u8(1, 2, 3, 4, 5, 6, 7, 8, 9, 10));
+  });
+
+  it('keeps the existing chunk when an overwrite cannot create its Blob snapshot', async () => {
+    ramStart('a.mp3', false, 1, 3, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2, 3));
+    const NativeBlob = globalThis.Blob;
+    class FailingBlob extends NativeBlob {
+      constructor() {
+        super();
+        throw new Error('snapshot allocation failed');
+      }
+    }
+    vi.stubGlobal('Blob', FailingBlob);
+    try {
+      expect(() => ramWrite('a.mp3', false, 1, 0, u8(4, 5, 6, 7))).toThrow(
+        'snapshot allocation failed',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(ramStats().mainBytes).toBe(3);
+    expect(ramContiguousCount('a.mp3', false, 1)).toBe(1);
+    expect(await ramReadChunk('a.mp3', false, 1, 0)).toEqual(u8(1, 2, 3));
+  });
 });
 
 // ─── ramEnd ────────────────────────────────────────────────────────
@@ -353,6 +413,77 @@ describe('ramEnd', () => {
     expect(c0).not.toBeNull();
     expect(Array.from(c0!)).toEqual([0xaa, 0xbb]);
   });
+
+  it('finalizes many writes from Blob parts without another file-sized buffer snapshot', async () => {
+    const NativeBlob = globalThis.Blob;
+    const calls: Array<{ buffers: number; blobs: number; count: number }> = [];
+    class ObservedBlob extends NativeBlob {
+      constructor(parts: BlobPart[] = [], options?: BlobPropertyBag) {
+        calls.push({
+          buffers: parts.reduce(
+            (bytes, part) =>
+              bytes +
+              (part instanceof ArrayBuffer || ArrayBuffer.isView(part) ? part.byteLength : 0),
+            0,
+          ),
+          blobs: parts.reduce(
+            (bytes, part) => bytes + (part instanceof NativeBlob ? part.size : 0),
+            0,
+          ),
+          count: parts.length,
+        });
+        super(parts, options);
+      }
+    }
+    vi.stubGlobal('Blob', ObservedBlob);
+    try {
+      const chunkCount = 128;
+      const chunkSize = 1024;
+      const expected = new Uint8Array(chunkCount * chunkSize);
+      ramStart('a.mp3', false, 1, chunkSize, false);
+      for (let index = 0; index < chunkCount; index++) {
+        const chunk = new Uint8Array(chunkSize).fill(index);
+        ramWrite('a.mp3', false, 1, index, chunk);
+        expected.set(chunk, index * chunkSize);
+      }
+      expect(calls).toHaveLength(chunkCount);
+      expect(calls.every((call) => call.buffers === chunkSize && call.blobs === 0)).toBe(true);
+
+      const { blob } = ramEnd('a.mp3', false, 1, expected.byteLength, chunkCount);
+
+      expect(calls).toHaveLength(chunkCount + 1);
+      expect(calls.at(-1)).toEqual({ buffers: 0, blobs: expected.byteLength, count: chunkCount });
+      expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(expected);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('retains readable chunks without publishing when final Blob construction fails', async () => {
+    ramStart('a.mp3', false, 1, 3, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2, 3));
+    ramWrite('a.mp3', false, 1, 1, u8(4, 5, 6));
+    const NativeBlob = globalThis.Blob;
+    class FailingBlob extends NativeBlob {
+      constructor() {
+        super();
+        throw new Error('final allocation failed');
+      }
+    }
+    vi.stubGlobal('Blob', FailingBlob);
+    try {
+      expect(() => ramEnd('a.mp3', false, 1, 6, 2)).toThrow('final allocation failed');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(ramReadBlob('a.mp3', false, 1)).toBeNull();
+    expect(ramStats().mainBytes).toBe(6);
+    expect(ramContiguousCount('a.mp3', false, 1)).toBe(2);
+    expect(await ramReadChunk('a.mp3', false, 1, 0)).toEqual(u8(1, 2, 3));
+    const { blob } = ramEnd('a.mp3', false, 1, 6, 2);
+    expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(u8(1, 2, 3, 4, 5, 6));
+  });
 });
 
 // ─── ramContiguousCount ────────────────────────────────────────────
@@ -425,6 +556,47 @@ describe('ramReadChunk', () => {
     const r = await ramReadChunk('a.mp3', false, 1, 5);
     expect(r).not.toBeNull();
     expect(Array.from(r!)).toEqual([7, 8, 9]);
+  });
+
+  it('does not let a caller mutate the stored bytes through a live read', async () => {
+    ramStart('a.mp3', false, 1, 3, false);
+    ramWrite('a.mp3', false, 1, 0, u8(7, 8, 9));
+    const firstRead = await ramReadChunk('a.mp3', false, 1, 0);
+    firstRead!.fill(0);
+
+    expect(await ramReadChunk('a.mp3', false, 1, 0)).toEqual(u8(7, 8, 9));
+    const { blob } = ramEnd('a.mp3', false, 1, 3, 1);
+    expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(u8(7, 8, 9));
+  });
+
+  it('finishes a captured live read with its original bytes after session replacement', async () => {
+    ramStart('a.mp3', false, 1, 3, false);
+    ramWrite('a.mp3', false, 1, 0, u8(1, 2, 3));
+    let resumeRead!: () => void;
+    const pendingRead = new Promise<void>((resolve) => {
+      resumeRead = resolve;
+    });
+    const nativeArrayBuffer = Blob.prototype.arrayBuffer;
+    const read = vi.spyOn(Blob.prototype, 'arrayBuffer').mockImplementationOnce(function (
+      this: Blob,
+    ) {
+      return pendingRead.then(() => nativeArrayBuffer.call(this));
+    });
+    try {
+      const originalRead = ramReadChunk('a.mp3', false, 1, 0);
+      ramResetSession(1, false);
+      ramStart('a.mp3', false, 2, 3, false);
+      ramWrite('a.mp3', false, 2, 0, u8(4, 5, 6));
+      resumeRead();
+
+      expect(await originalRead).toEqual(u8(1, 2, 3));
+      expect(await ramReadChunk('a.mp3', false, 1, 0)).toBeNull();
+      expect(await ramReadChunk('a.mp3', false, 2, 0)).toEqual(u8(4, 5, 6));
+      expect(ramStats().mainBytes).toBe(3);
+    } finally {
+      resumeRead();
+      read.mockRestore();
+    }
   });
 
   it('does not read a same-name live main chunk through another session', async () => {
@@ -510,6 +682,23 @@ describe('ramCleanup', () => {
     ramCleanup('p.mp3', true);
     expect(ramReadBlob('p.mp3', true)).toBeNull();
     expect(ramWrite('p.mp3', true, 7, 1, u8(2)).ok).toBe(false);
+  });
+
+  it('cleans only the exact preload session when the same item has a replacement', async () => {
+    ramStart('p.mp3', true, 7, 2, false);
+    ramWrite('p.mp3', true, 7, 0, u8(1, 2));
+    ramStart('p.mp3', true, 8, 2, false);
+    ramWrite('p.mp3', true, 8, 0, u8(3, 4));
+
+    ramCleanup('p.mp3', true, 7);
+
+    expect(await ramReadChunk('p.mp3', true, 7, 0)).toBeNull();
+    expect(ramContiguousCount('p.mp3', true, 7)).toBe(0);
+    expect(await ramReadChunk('p.mp3', true, 8, 0)).toEqual(u8(3, 4));
+    expect(ramContiguousCount('p.mp3', true, 8)).toBe(1);
+    expect(ramStats()).toMatchObject({ preloadCount: 1, preloadBytes: 2 });
+    const { blob } = ramEnd('p.mp3', true, 8, 2, 1);
+    expect(new Uint8Array(await blob!.arrayBuffer())).toEqual(u8(3, 4));
   });
 });
 

@@ -1,8 +1,9 @@
 /**
  * MUSIXQUARE — RAM-only chunk store
  *
- * Sessions accumulate chunks until STORAGE_END, after which a Blob is
- * available for read. No `navigator.storage` access, no worker.
+ * Each received chunk becomes an immutable Blob. STORAGE_END joins those
+ * Blobs without assembling a second file-sized byte buffer. No worker or
+ * browser-local persistent media storage is used.
  *
  * Memory use scales with the active encoded blob, retained preload blobs, and
  * the decoded AudioBuffer owned by playback. The store has no persistent
@@ -26,8 +27,8 @@ interface RamSlot {
   sessionId: number;
   /** Declared media type, or a conservative filename-extension fallback. */
   mime: string;
-  /** Chunks indexed by chunk index. Out-of-order arrival is normal here. */
-  chunks: Map<number, Uint8Array>;
+  /** Immutable chunk snapshots. Out-of-order arrival and replacement are supported. */
+  chunks: Map<number, Blob>;
   /** Set on the first STORAGE_START, used to compute byte offsets for reads. */
   chunkSize: number;
   /** Set on STORAGE_END; null while writing. */
@@ -35,8 +36,8 @@ interface RamSlot {
   /** True after STORAGE_END has produced a finalizedBlob. */
   finalized: boolean;
   /**
-   * Concatenated final blob. Created lazily by ramEnd; reused on read.
-   * Chunks are dropped after this is set so we don't double-account.
+   * Final Blob composed from chunk Blobs; reused on read. Dropping the map
+   * releases the individual wrappers after their backing is retained here.
    */
   finalizedBlob: Blob | null;
 }
@@ -176,7 +177,10 @@ export function ramWrite(
   if (slot.finalized) {
     return { ok: false, reason: 'Already finalized' };
   }
-  slot.chunks.set(chunkIndex, chunk);
+  // Snapshot only this chunk while receiving. Joining raw typed arrays at END
+  // makes WebKit build a second contiguous file-sized buffer before the first
+  // can be released. Blob parts let finalization reference immutable backing.
+  slot.chunks.set(chunkIndex, new Blob([blobPartFromChunk(chunk)]));
   return { ok: true };
 }
 
@@ -223,11 +227,9 @@ export function ramEnd(
   }
 
   const sortedKeys = Array.from(slot.chunks.keys()).sort((a, b) => a - b);
-  // BlobPart accepts only ArrayBuffer-backed views. Preserve ordinary views
-  // without copying and materialize a regular ArrayBuffer only for SAB input.
   const parts: BlobPart[] = [];
   for (const k of sortedKeys) {
-    parts.push(blobPartFromChunk(slot.chunks.get(k)!));
+    parts.push(slot.chunks.get(k)!);
   }
   let blob = new Blob(parts, { type: slot.mime });
 
@@ -243,8 +245,7 @@ export function ramEnd(
   slot.finalizedBlob = blob;
   slot.finalized = true;
   slot.totalSize = blob.size;
-  // Drop chunk map — reads come from finalizedBlob. Keeps memory honest:
-  // the same bytes shouldn't sit in both `chunks` and `finalizedBlob`.
+  // Reads now come from finalizedBlob; individual chunk wrappers can go.
   slot.chunks.clear();
 
   return { blob };
@@ -293,16 +294,11 @@ export async function ramReadChunk(
   const slot = findSlotForRead(queueItemId, isPreload, sessionId);
   if (!slot) return null;
 
-  if (slot.finalizedBlob) {
-    const offset = chunkIndex * slot.chunkSize;
-    const slice = slot.finalizedBlob.slice(offset, offset + slot.chunkSize);
-    const buf = await slice.arrayBuffer();
-    return new Uint8Array(buf);
-  }
-
-  // Live read — return the chunk if we have it.
-  const live = slot.chunks.get(chunkIndex);
-  return live ? live : null;
+  const offset = chunkIndex * slot.chunkSize;
+  const chunk = slot.finalizedBlob
+    ? slot.finalizedBlob.slice(offset, offset + slot.chunkSize)
+    : slot.chunks.get(chunkIndex);
+  return chunk ? new Uint8Array(await chunk.arrayBuffer()) : null;
 }
 
 /**
@@ -392,7 +388,7 @@ export function ramStats(): {
   let mainBytes = 0;
   if (mainSlot) {
     if (mainSlot.finalizedBlob) mainBytes = mainSlot.finalizedBlob.size;
-    else for (const c of mainSlot.chunks.values()) mainBytes += c.byteLength;
+    else for (const c of mainSlot.chunks.values()) mainBytes += c.size;
   }
   let preloadBytes = 0;
   let finalizedCount = 0;
@@ -402,7 +398,7 @@ export function ramStats(): {
       preloadBytes += slot.finalizedBlob.size;
       finalizedCount++;
     } else {
-      for (const c of slot.chunks.values()) preloadBytes += c.byteLength;
+      for (const c of slot.chunks.values()) preloadBytes += c.size;
       inFlightCount++;
     }
   }

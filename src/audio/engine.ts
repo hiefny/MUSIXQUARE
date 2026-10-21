@@ -4,7 +4,7 @@
  * Manages the entire audio graph:
  *   Player → Widener → Preamp → Split → Channel Routing → Merge
  *     → GlobalLowPass → EQ(5-band) → Reverb(wet/dry) → MasterGain → Analyser → Destination
- *     + Virtual Bass parallel chain
+ *     + Virtual Bass and Exciter parallel chains
  * The graph uses native Web Audio nodes and the shared context from context.ts.
  */
 
@@ -12,6 +12,7 @@ import { log } from '../core/log.ts';
 import { EQ_FREQUENCIES } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
+import { getManagedTimer, setManagedTimer } from '../core/timers.ts';
 
 import { getAudioContext, ensureRunning } from './context.ts';
 import { bindAudioContextInterruptionRecovery } from './context-recovery.ts';
@@ -31,8 +32,6 @@ import {
 import {
   ANALYSER_FFT_SIZE,
   ANALYSER_SMOOTHING,
-  REVERB_DEFAULT_DECAY,
-  REVERB_DEFAULT_PREDELAY,
   REVERB_LOWCUT_BASE,
   EXCITER_HPF_FREQ,
   EXCITER_HPF_Q,
@@ -61,6 +60,21 @@ import {
 import { FilePlaybackRoute } from './file-playback-route.ts';
 
 // ─── AudioGraph Struct ────────────────────────────────────────────
+
+/**
+ * A parallel effect fed from the post-EQ bus. Chromium renders every node a
+ * connected destination pulls, even behind a zero gain, so the input stays
+ * connected only while the effect's target gain is audible.
+ */
+interface EffectTap {
+  source: AudioNode;
+  inputs: AudioNode[];
+  // Wet gain; its real value shows when a ramp to silence has finished.
+  gain: AudioParam;
+  wanted: boolean;
+  connected: boolean;
+}
+
 interface AudioGraph {
   // Stable input for AudioBuffer file playback.
   filePlaybackRoute: FilePlaybackRoute | null;
@@ -73,7 +87,10 @@ interface AudioGraph {
 
   // Effects chain
   masterGain: GainNode | null;
+  rvbPreDelay: DelayNode | null;
   reverb: ConvolverNode | null;
+  // Decay of the impulse in reverb.buffer; null until the reverb is first audible
+  rvbDecay: number | null;
   rvbLowCut: BiquadFilterNode | null;
   rvbHighCut: BiquadFilterNode | null;
   rvbCrossFade: CrossFadeGraph | null;
@@ -113,6 +130,9 @@ interface AudioGraph {
   // Surround
   surroundSplitter: ChannelSplitterNode | null;
   surroundGain: GainNode | null;
+
+  // Reverb, virtual bass and exciter inputs, indexed by the *_TAP constants
+  taps: EffectTap[];
 }
 
 function createEmptyGraph(): AudioGraph {
@@ -123,7 +143,9 @@ function createEmptyGraph(): AudioGraph {
     gainL: null,
     gainR: null,
     masterGain: null,
+    rvbPreDelay: null,
     reverb: null,
+    rvbDecay: null,
     rvbLowCut: null,
     rvbHighCut: null,
     rvbCrossFade: null,
@@ -157,6 +179,7 @@ function createEmptyGraph(): AudioGraph {
     exGain: null,
     surroundSplitter: null,
     surroundGain: null,
+    taps: [],
   };
 }
 
@@ -192,8 +215,8 @@ export function getWidener(): StereoWidenerGraph | null {
 export function getFilePlaybackDestination(): GainNode | null {
   return _graph.filePlaybackRoute?.input ?? null;
 }
-export function getReverb(): ConvolverNode | null {
-  return _graph.reverb;
+export function getRvbPreDelay(): DelayNode | null {
+  return _graph.rvbPreDelay;
 }
 export function getRvbLowCut(): BiquadFilterNode | null {
   return _graph.rvbLowCut;
@@ -231,6 +254,70 @@ export function applyMasterVolume(rampTime: number): void {
   if (!_graph.masterGain) return;
   const volume = Math.max(0, Math.min(1, getState('audio.masterVolume') ?? 1));
   rampParam(_graph.masterGain.gain, _proPlaybackPauseGateToken === null ? volume : 0, rampTime);
+}
+
+// ─── Effect Input Gating ────────────────────────────────────────
+
+export const REVERB_TAP = 0;
+export const VIRTUAL_BASS_TAP = 1;
+export const EXCITER_TAP = 2;
+const EFFECT_GATE_TIMER = 'audio-effect-input-gate';
+// Longer than RAMP_TIME, so a running context has finished the ramp by then.
+const EFFECT_GATE_CHECK_MS = 150;
+// Holds a reconnected wet gain at 0 while its filters and compressors settle.
+const EFFECT_ONSET_DELAY = 0.02;
+
+function connectEffectInput(tap: EffectTap, connected: boolean): void {
+  // Targeted connect/disconnect: the dry path and the other taps share the
+  // source, and a targeted disconnect throws for a missing connection.
+  for (const input of tap.inputs) {
+    if (connected) tap.source.connect(input);
+    else tap.source.disconnect(input);
+  }
+  tap.connected = connected;
+}
+
+function closeSilentEffectInputs(): void {
+  let pending = false;
+  for (const tap of _graph.taps) {
+    if (tap.wanted || !tap.connected) continue;
+    if (tap.gain.value <= 1e-4) connectEffectInput(tap, false);
+    else pending = true;
+  }
+  // A suspended context has not advanced the ramp, so keep checking.
+  if (pending) setManagedTimer(EFFECT_GATE_TIMER, closeSilentEffectInputs, EFFECT_GATE_CHECK_MS);
+}
+
+/**
+ * Point one parallel effect's input at its new target gain, before the
+ * caller ramps that gain. An audible target reconnects the input at once,
+ * after `prepare` (the reverb builds its impulse there), and returns the
+ * delay in seconds the ramp should wait so the restarted nodes' onset stays
+ * masked. A silent target keeps the input until the gain's real value has
+ * reached silence. Only the input is disconnected: the effect's output stays
+ * connected, so its tail flushes with silence and the nodes go idle.
+ */
+export function gateEffectInput(index: number, target: number, prepare?: () => void): number {
+  const tap = _graph.taps[index];
+  if (!tap) return 0;
+  tap.wanted = target > 0;
+  if (tap.wanted === tap.connected) return 0;
+  if (!tap.wanted) {
+    if (!getManagedTimer(EFFECT_GATE_TIMER)) {
+      setManagedTimer(EFFECT_GATE_TIMER, closeSilentEffectInputs, EFFECT_GATE_CHECK_MS);
+    }
+    return 0;
+  }
+  prepare?.();
+  connectEffectInput(tap, true);
+  return EFFECT_ONSET_DELAY;
+}
+
+/** Install the reverb impulse for `decay` unless the convolver already holds it. */
+export function buildReverbImpulse(decay: number): void {
+  if (!_graph.reverb || _graph.rvbDecay === decay) return;
+  _graph.reverb.buffer = generateReverbIR(decay);
+  _graph.rvbDecay = decay;
 }
 
 // Public audio-domain facade for the shared context helpers.
@@ -343,9 +430,11 @@ async function _doInitAudio(): Promise<void> {
     _graph.filePlaybackRoute.connectStereo(_graph.widener.input);
   }
 
-  // Reverb uses a synchronously generated impulse response.
+  // Reverb: pre-delay → convolver. The impulse is generated synchronously
+  // when the reverb first becomes audible (buildReverbImpulse), so a reverb
+  // left at mix 0 never builds one.
+  _graph.rvbPreDelay = ctx.createDelay(2);
   _graph.reverb = ctx.createConvolver();
-  _graph.reverb.buffer = generateReverbIR(REVERB_DEFAULT_DECAY, REVERB_DEFAULT_PREDELAY);
 
   // Damping filters
   _graph.rvbLowCut = ctx.createBiquadFilter();
@@ -451,9 +540,11 @@ async function _doInitAudio(): Promise<void> {
     eqIn = fx;
   }
 
-  // Wet/Dry Routing with Damping
+  // Wet/Dry Routing with Damping. eqIn feeds the wet path, the virtual bass
+  // and the exciter only through gateEffectInput(), which applySettings()
+  // drives; every tap starts disconnected and silent.
   eqIn.connect(_graph.rvbCrossFade.a); // Dry path
-  eqIn.connect(_graph.reverb); // Wet path
+  _graph.rvbPreDelay.connect(_graph.reverb); // Wet path
   _graph.reverb.connect(_graph.rvbLowCut);
   _graph.rvbLowCut.connect(_graph.rvbHighCut);
   _graph.rvbHighCut.connect(_graph.rvbCrossFade.b);
@@ -461,7 +552,6 @@ async function _doInitAudio(): Promise<void> {
 
   // Virtual Bass — dual-band parallel tap after EQ
   // Sub-bass path
-  eqIn.connect(_graph.vbSubLP.input);
   _graph.vbSubLP.output.connect(_graph.vbSubHP);
   _graph.vbSubHP.connect(_graph.vbSubComp);
   _graph.vbSubComp.connect(_graph.vbSubTrim);
@@ -471,7 +561,6 @@ async function _doInitAudio(): Promise<void> {
   _graph.vbSubPostLP.output.connect(_graph.vbSubMix);
   _graph.vbSubMix.connect(_graph.vbSum);
   // Mid-bass path
-  eqIn.connect(_graph.vbMidLP.input);
   _graph.vbMidLP.output.connect(_graph.vbMidHP);
   _graph.vbMidHP.connect(_graph.vbMidComp);
   _graph.vbMidComp.connect(_graph.vbMidTrim);
@@ -490,8 +579,8 @@ async function _doInitAudio(): Promise<void> {
   // (cymbals, snare top, breath, fricatives). A symmetric tanh WaveShaper
   // creates focused upper harmonics, then the post-HPF keeps the wet
   // return on the air band. 4x oversampling reduces aliasing in
-  // the shaper. Gain rides 0 ↔ EXCITER_MIX_GAIN to toggle the effect
-  // without re-wiring the graph.
+  // the shaper. Gain rides 0 ↔ EXCITER_MIX_GAIN to toggle the effect,
+  // and the input gate stops the chain once that gain is silent.
   _graph.exHpf = ctx.createBiquadFilter();
   _graph.exHpf.type = 'highpass';
   _graph.exHpf.frequency.value = EXCITER_HPF_FREQ;
@@ -507,11 +596,23 @@ async function _doInitAudio(): Promise<void> {
   );
   _graph.exGain = ctx.createGain();
   _graph.exGain.gain.value = 0;
-  eqIn.connect(_graph.exHpf);
   _graph.exHpf.connect(_graph.exShaper);
   _graph.exShaper.connect(_graph.exHpfPost.input);
   _graph.exHpfPost.output.connect(_graph.exGain);
   _graph.exGain.connect(_graph.masterGain);
+
+  const tap = (gain: AudioParam, ...inputs: AudioNode[]): EffectTap => ({
+    source: eqIn,
+    inputs,
+    gain,
+    wanted: false,
+    connected: false,
+  });
+  _graph.taps = [
+    tap(_graph.rvbCrossFade.b.gain, _graph.rvbPreDelay),
+    tap(_graph.vbGain.gain, _graph.vbSubLP.input, _graph.vbMidLP.input),
+    tap(_graph.exGain.gain, _graph.exHpf),
+  ];
 
   // Visualizer analyser for accurate frequency mapping
   _graph.analyser = ctx.createAnalyser();
@@ -556,6 +657,7 @@ function _cleanupAllNodes(): void {
     _graph.gainL,
     _graph.gainR,
     _graph.masterGain,
+    _graph.rvbPreDelay,
     _graph.reverb,
     _graph.preamp,
     _graph.rvbLowCut,

@@ -1,26 +1,21 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { FakeAudioContext, FakeNode, FakeParam } from './__helpers__/fake-audio-context.ts';
 
-vi.mock('../context.ts', () => ({
-  getAudioContext: () => ({
-    currentTime: 0,
-    sampleRate: 48_000,
-    createBuffer: (channels: number, length: number, sampleRate: number) => {
-      const channelData = Array.from({ length: channels }, () => new Float32Array(length));
-      return {
-        length,
-        numberOfChannels: channels,
-        sampleRate,
-        getChannelData: (channel: number) => channelData[channel],
-      } as AudioBuffer;
-    },
-  }),
-}));
+const h = vi.hoisted(() => ({ ctx: null as unknown as FakeAudioContext }));
+
+vi.mock('../context.ts', async () => {
+  const { createFakeAudioContext } = await import('./__helpers__/fake-audio-context.ts');
+  h.ctx = createFakeAudioContext(48_000);
+  return { getAudioContext: () => h.ctx };
+});
 
 import {
   clampFilterFrequency,
+  createStereoWidener,
   generateReverbIR,
   getFullRangeFrequency,
   makeExciterCurve,
+  rampParam,
 } from '../helpers.ts';
 
 afterEach(() => {
@@ -72,7 +67,7 @@ describe('generateReverbIR', () => {
       return sampleIndex % 2 === 0 ? 0 : 1;
     });
 
-    const buffer = generateReverbIR(1, 0);
+    const buffer = generateReverbIR(1);
     const left = buffer.getChannelData(0);
 
     const normalizedDelta = (start: number, length: number) => {
@@ -86,5 +81,46 @@ describe('generateReverbIR', () => {
     };
 
     expect(normalizedDelta(left.length - 4096, 4096)).toBeLessThan(normalizedDelta(256, 4096));
+  });
+
+  it('holds only the decay, so pre-delay cannot change its normalization', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(1);
+
+    const buffer = generateReverbIR(0.5);
+
+    expect(buffer.length).toBe(24_000);
+    expect(buffer.getChannelData(0)[0]).toBeGreaterThan(0);
+    expect(buffer.getChannelData(1)[0]).toBeGreaterThan(0);
+  });
+});
+
+describe('rampParam', () => {
+  it('holds the current value for the delay before a positive ramp', () => {
+    h.ctx.currentTime = 2;
+    const gain = (h.ctx.createGain as () => FakeNode)().gain as FakeParam;
+    gain.value = 0;
+    h.ctx.trace.length = 0;
+
+    rampParam(gain as unknown as AudioParam, 0.5, 0.1, 0.02);
+
+    expect(h.ctx.trace).toEqual([
+      { op: 'set', param: gain, value: 0, time: 2.02 },
+      { op: 'ramp', param: gain, value: 0.5, time: expect.closeTo(2.12) },
+    ]);
+  });
+});
+
+describe('createStereoWidener', () => {
+  it('renders two speaker channels so mono reaches both sides and 5.1 keeps its centre', () => {
+    const widener = createStereoWidener();
+    const input = widener.input as unknown as FakeNode;
+
+    // The splitter behind the input is explicit/discrete. A max/discrete
+    // input would pass mono through to the left only and keep only the first
+    // two of six 5.1 channels.
+    expect(input.channelCount).toBe(2);
+    expect(input.channelCountMode).toBe('explicit');
+    expect(input.channelInterpretation).toBe('speakers');
+    expect([...input.outputs].map((node) => node.kind)).toEqual(['ChannelSplitter']);
   });
 });

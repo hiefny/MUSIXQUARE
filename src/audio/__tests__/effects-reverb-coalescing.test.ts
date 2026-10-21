@@ -2,69 +2,125 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  createFakeAudioContext,
+  type FakeAudioContext,
+  type FakeNode,
+} from './__helpers__/fake-audio-context.ts';
 
-const mocks = vi.hoisted(() => ({
-  generateReverbIR: vi.fn(() => ({ id: Symbol('ir') })),
-  reverb: { buffer: null as unknown },
+const h = vi.hoisted(() => ({
+  ctx: null as unknown as FakeAudioContext,
+  generateReverbIR: vi.fn((decay: number) => ({ decay })),
 }));
 
-vi.mock('../engine.ts', () => ({
-  applyMasterVolume: vi.fn(),
-  getMasterGain: () => ({ gain: {} }),
-  getReverb: () => mocks.reverb,
-  getRvbLowCut: () => null,
-  getRvbHighCut: () => null,
-  getRvbCrossFade: () => null,
-  getEqNodes: () => [],
-  getPreamp: () => null,
-  getWidener: () => null,
-  getGlobalLowPass: () => null,
-  getVbGain: () => null,
-  getExciterGain: () => null,
+vi.mock('../context.ts', () => ({ getAudioContext: () => h.ctx, ensureRunning: async () => {} }));
+vi.mock('../context-recovery.ts', () => ({ bindAudioContextInterruptionRecovery: () => () => {} }));
+vi.mock('../helpers.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../helpers.ts')>()),
+  generateReverbIR: h.generateReverbIR,
+}));
+vi.mock('../../network/peer.ts', () => ({ broadcast: vi.fn() }));
+vi.mock('../../network/protocol.ts', () => ({
+  registerHandlers: vi.fn(),
+  verifyOperator: () => true,
 }));
 
-vi.mock('../helpers.ts', () => ({
-  rampParam: vi.fn(),
-  setCrossFade: vi.fn(),
-  generateReverbIR: mocks.generateReverbIR,
-  getFullRangeFrequency: () => 20_000,
-  clampFilterFrequency: (value: number) => value,
-}));
+let engine: typeof import('../engine.ts');
+let bus: (typeof import('../../core/events.ts'))['bus'];
 
-import { resetState } from '../../core/state.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
-import { setReverbParam } from '../effects.ts';
+const preview = (param: string, value: number) =>
+  bus.emit('audio:update-effect', 'reverb', param, value, true);
+const commit = (param: string, value: number) =>
+  bus.emit('audio:update-effect', 'reverb', param, value, false);
+const preDelayTime = () => (engine.getRvbPreDelay() as unknown as FakeNode).delayTime.value;
 
-describe('reverb impulse preview coalescing', () => {
-  beforeEach(() => {
+describe('reverb impulse', () => {
+  beforeEach(async () => {
+    vi.resetModules();
     vi.useFakeTimers();
-    clearAllManagedTimers();
-    resetState();
-    mocks.generateReverbIR.mockClear();
-    mocks.reverb.buffer = null;
+    h.ctx = createFakeAudioContext();
+    h.generateReverbIR.mockClear();
+    engine = await import('../engine.ts');
+    await import('../effects.ts');
+    ({ bus } = await import('../../core/events.ts'));
+    await engine.initAudio();
   });
 
   afterEach(() => {
-    clearAllManagedTimers();
+    vi.clearAllTimers();
     vi.useRealTimers();
   });
 
-  it('coalesces shape previews and commits the exact final change immediately', () => {
-    setReverbParam('decay', 4, false, true);
-    setReverbParam('decay', 5, false, true);
-    setReverbParam('decay', 6, false, true);
-
-    expect(mocks.generateReverbIR).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(140);
-    expect(mocks.generateReverbIR).toHaveBeenCalledTimes(1);
-    expect(mocks.generateReverbIR).toHaveBeenLastCalledWith(6, 0.1);
-
-    setReverbParam('predelay', 0.2, false, true);
-    setReverbParam('predelay', 0.25);
-    expect(mocks.generateReverbIR).toHaveBeenCalledTimes(2);
-    expect(mocks.generateReverbIR).toHaveBeenLastCalledWith(6, 0.25);
-
+  it('builds nothing at mix 0, then the current decay before the input and the ramp', () => {
+    preview('decay', 2);
+    commit('decay', 3);
+    commit('predelay', 0.3);
     vi.runAllTimers();
-    expect(mocks.generateReverbIR).toHaveBeenCalledTimes(2);
+    expect(h.generateReverbIR).not.toHaveBeenCalled();
+    expect(preDelayTime()).toBeCloseTo(0.3);
+
+    h.ctx.trace.length = 0;
+    commit('mix', 40);
+
+    expect(h.generateReverbIR).toHaveBeenCalledTimes(1);
+    expect(h.generateReverbIR).toHaveBeenLastCalledWith(3);
+    const eqNodes = engine.getEqNodes();
+    const eqOut = eqNodes[eqNodes.length - 1] as unknown as FakeNode;
+    const preDelay = engine.getRvbPreDelay() as unknown as FakeNode;
+    const wetGain = (engine.getRvbCrossFade()!.b as unknown as FakeNode).gain;
+    const trace = h.ctx.trace;
+    const built = trace.findIndex((entry) => entry.op === 'buffer');
+    const connected = trace.findIndex(
+      (entry) => entry.op === 'connect' && entry.from === eqOut && entry.to === preDelay,
+    );
+    const ramped = trace.findIndex((entry) => entry.op === 'ramp' && entry.param === wetGain);
+    expect(built).toBeGreaterThanOrEqual(0);
+    expect(built).toBeLessThan(connected);
+    expect(connected).toBeLessThan(ramped);
+  });
+
+  it('coalesces audible decay previews and never rebuilds for pre-delay', () => {
+    commit('mix', 40);
+    expect(h.generateReverbIR).toHaveBeenLastCalledWith(5);
+    h.generateReverbIR.mockClear();
+
+    preview('decay', 4);
+    preview('decay', 5);
+    preview('decay', 6);
+    expect(h.generateReverbIR).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(140);
+    expect(h.generateReverbIR).toHaveBeenCalledTimes(1);
+    expect(h.generateReverbIR).toHaveBeenLastCalledWith(6);
+
+    preview('predelay', 0.2);
+    expect(preDelayTime()).toBeCloseTo(0.2);
+    commit('predelay', 0.25);
+    expect(preDelayTime()).toBeCloseTo(0.25);
+    vi.runAllTimers();
+    expect(h.generateReverbIR).toHaveBeenCalledTimes(1);
+
+    preview('decay', 7);
+    commit('decay', 7.5);
+    expect(h.generateReverbIR).toHaveBeenCalledTimes(2);
+    expect(h.generateReverbIR).toHaveBeenLastCalledWith(7.5);
+    vi.runAllTimers();
+    expect(h.generateReverbIR).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps Off and the demo toggle from rebuilding at mix 0', () => {
+    bus.emit('audio:reverb-type-change', 'off');
+    vi.runAllTimers();
+    expect(h.generateReverbIR).not.toHaveBeenCalled();
+
+    bus.emit('audio:reverb-type-change', 'arena');
+    expect(h.generateReverbIR).toHaveBeenCalledTimes(1);
+    expect(h.generateReverbIR).toHaveBeenLastCalledWith(5);
+    expect(preDelayTime()).toBeCloseTo(0.12);
+
+    bus.emit('audio:reverb-type-change', 'off');
+    bus.emit('audio:reverb-type-change', 'arena');
+    bus.emit('audio:reverb-type-change', 'off');
+    vi.runAllTimers();
+    expect(h.generateReverbIR).toHaveBeenCalledTimes(1);
   });
 });

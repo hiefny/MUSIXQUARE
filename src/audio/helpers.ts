@@ -35,17 +35,23 @@ export function clampFilterFrequency(frequency: number, sampleRate?: number): nu
 // ─── Parameter Ramping ──────────────────────────────────────────
 
 /**
- * Smoothly ramp an AudioParam to a target value over time.
+ * Smoothly ramp an AudioParam to a target value over time. A positive ramp
+ * may first hold the current value for `delay` seconds.
  */
-export function rampParam(param: AudioParam, targetValue: number, rampTime: number): void {
+export function rampParam(
+  param: AudioParam,
+  targetValue: number,
+  rampTime: number,
+  delay = 0,
+): void {
   const ctx = getAudioContext();
   const now = ctx.currentTime;
   param.cancelScheduledValues(now);
-  param.setValueAtTime(param.value, now);
+  param.setValueAtTime(param.value, now + delay);
   if (rampTime <= 0) {
     param.value = targetValue;
   } else {
-    param.linearRampToValueAtTime(targetValue, now + rampTime);
+    param.linearRampToValueAtTime(targetValue, now + delay + rampTime);
   }
 }
 
@@ -65,15 +71,6 @@ export function safeDisconnect(node: AudioNode | null): void {
 }
 
 // ─── Reverb IR Generation ───────────────────────────────────────
-
-/**
- * Generate a stereo impulse response buffer for ConvolverNode.
- * Generation is synchronous.
- *
- * @param decay - Reverb tail length in seconds (e.g. 5.0)
- * @param preDelay - Silence before reverb onset in seconds (e.g. 0.1)
- * @returns AudioBuffer with exponentially decaying noise
- */
 
 /**
  * Build a tanh saturation curve for the harmonic exciter's
@@ -112,29 +109,30 @@ export function makeExciterCurve(
   return curve as Float32Array<ArrayBuffer>;
 }
 
-export function generateReverbIR(decay: number, preDelay: number): AudioBuffer {
+/**
+ * Generate a stereo impulse response buffer for ConvolverNode.
+ * Generation is synchronous.
+ *
+ * The buffer holds only the decay. Pre-delay is a DelayNode in front of the
+ * convolver: leading zeros would enter ConvolverNode normalization and raise
+ * the wet level as the pre-delay grows.
+ *
+ * @param decay - Reverb tail length in seconds (e.g. 5.0)
+ * @returns AudioBuffer with exponentially decaying noise
+ */
+export function generateReverbIR(decay: number): AudioBuffer {
   const ctx = getAudioContext();
   const sampleRate = ctx.sampleRate;
 
-  // Clamp inputs to prevent excessive memory allocation
+  // Clamp to prevent excessive memory allocation
   // (30s decay @ 48kHz = ~2.88M samples × 2ch ≈ 23MB — cap at 30s)
   const clampedDecay = Math.max(0.01, Math.min(30, decay));
-  const clampedPreDelay = Math.max(0, Math.min(2, preDelay));
-
-  const preDelaySamples = Math.floor(clampedPreDelay * sampleRate);
   const decaySamples = Math.max(1, Math.floor(clampedDecay * sampleRate));
-  const totalSamples = preDelaySamples + decaySamples;
 
-  const buffer = ctx.createBuffer(2, totalSamples, sampleRate);
+  const buffer = ctx.createBuffer(2, decaySamples, sampleRate);
 
   const left = buffer.getChannelData(0);
   const right = buffer.getChannelData(1);
-
-  // Fill pre-delay period with absolute silence
-  for (let i = 0; i < preDelaySamples; i++) {
-    left[i] = 0;
-    right[i] = 0;
-  }
 
   const startCutoff = clampFilterFrequency(REVERB_IR_DAMPING_START_FREQ, sampleRate);
   const endCutoff = Math.min(
@@ -154,8 +152,6 @@ export function generateReverbIR(decay: number, preDelay: number): AudioBuffer {
   // White noise through a time-varying one-pole low-pass gives the tail
   // frequency-dependent air absorption instead of only turning down volume.
   for (let n = 0; n < decaySamples; n++) {
-    const i = preDelaySamples + n;
-
     if (n % REVERB_IR_DAMPING_BLOCK_SIZE === 0) {
       const progress = n / Math.max(1, decaySamples - 1);
       const cutoffProgress = Math.pow(progress, 0.72);
@@ -166,8 +162,8 @@ export function generateReverbIR(decay: number, preDelay: number): AudioBuffer {
     filteredL += (Math.random() * 2 - 1 - filteredL) * filterAlpha;
     filteredR += (Math.random() * 2 - 1 - filteredR) * filterAlpha;
 
-    left[i] = filteredL * envelopeL;
-    right[i] = filteredR * envelopeR;
+    left[n] = filteredL * envelopeL;
+    right[n] = filteredR * envelopeR;
     envelopeL *= decayCoeffL;
     envelopeR *= decayCoeffR;
   }
@@ -222,11 +218,23 @@ export interface StereoWidenerGraph {
   dispose(): void; // Disconnect all internal nodes
 }
 
+/** A gain that always renders two speaker channels: mono up-mixes, 5.1 down-mixes. */
+export function createStereoGain(): GainNode {
+  const node = getAudioContext().createGain();
+  node.channelCount = 2;
+  node.channelCountMode = 'explicit';
+  node.channelInterpretation = 'speakers';
+  return node;
+}
+
 export function createStereoWidener(initialWidth = 0.5): StereoWidenerGraph {
   const ctx = getAudioContext();
 
-  // Input (stereo)
-  const input = ctx.createGain();
+  // Input (stereo). The splitter below is fixed at explicit/discrete, and the
+  // file route stays discrete for surround mode, so this input owns the
+  // speaker mix: mono reaches both channels and 5.1 keeps its centre and
+  // surrounds instead of keeping only the first two channels.
+  const input = createStereoGain();
   const splitter = ctx.createChannelSplitter(2);
   input.connect(splitter);
 

@@ -22,8 +22,10 @@ import { broadcastExcept } from '../network/peer-state.ts';
 import type { DataConnection, AnyProtocolMsg, RoomSettingsSyncState } from '../types/index.ts';
 import {
   applyMasterVolume,
+  buildReverbImpulse,
+  gateEffectInput,
   getMasterGain,
-  getReverb,
+  getRvbPreDelay,
   getRvbLowCut,
   getRvbHighCut,
   getRvbCrossFade,
@@ -33,14 +35,11 @@ import {
   getGlobalLowPass,
   getVbGain,
   getExciterGain,
+  EXCITER_TAP,
+  REVERB_TAP,
+  VIRTUAL_BASS_TAP,
 } from './engine.ts';
-import {
-  rampParam,
-  setCrossFade,
-  generateReverbIR,
-  getFullRangeFrequency,
-  clampFilterFrequency,
-} from './helpers.ts';
+import { rampParam, setCrossFade, getFullRangeFrequency, clampFilterFrequency } from './helpers.ts';
 import { showToast } from '../ui/toast.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
@@ -72,6 +71,7 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   if (!getMasterGain()) return;
 
   const reverbMix = getState('audio.reverbMix');
+  const reverbPreDelay = getState('audio.reverbPreDelay');
   const reverbLowCut = getState('audio.reverbLowCut');
   const reverbHighCut = getState('audio.reverbHighCut');
   const stereoWidth = getState('audio.stereoWidth');
@@ -84,9 +84,19 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   const surroundChannelIndex = getState('audio.surroundChannelIndex');
   const subFreq = getState('audio.subFreq');
 
-  // Reverb Mix (CrossFade)
+  // Reverb Mix (CrossFade). An audible mix first builds the impulse for the
+  // current decay, then reconnects the reverb input, and only then starts
+  // the crossfade ramp; mix 0 disconnects the input once the ramp is silent.
   const crossFade = getRvbCrossFade();
-  if (crossFade) setCrossFade(crossFade, reverbMix, RAMP_TIME);
+  if (crossFade) {
+    gateEffectInput(REVERB_TAP, reverbMix, refreshReverbImpulse);
+    setCrossFade(crossFade, reverbMix, RAMP_TIME);
+  }
+
+  // Reverb pre-delay is a DelayNode, so a change applies instantly without
+  // rebuilding the impulse.
+  const preDelay = getRvbPreDelay();
+  if (preDelay) rampParam(preDelay.delayTime, reverbPreDelay, 0);
 
   // Reverb damping filters
   const rlc = getRvbLowCut();
@@ -140,23 +150,27 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   const pre = getPreamp();
   if (pre) rampParam(pre.gain, userPreampGain * compensation, RAMP_TIME);
 
-  // Virtual Bass
+  // Virtual Bass. A reconnected input starts while the gain is still 0; the
+  // ramp waits a few ms so the filters' and compressors' onset stays masked.
   const isWooferRole = channelMode === 2 || (isSurroundMode && surroundChannelIndex === 3);
   const vbg = getVbGain();
   if (vbg) {
     const targetGain = isWooferRole ? 0 : virtualBass;
-    rampParam(vbg.gain, targetGain, RAMP_TIME);
+    const onsetDelay = gateEffectInput(VIRTUAL_BASS_TAP, targetGain);
+    rampParam(vbg.gain, targetGain, RAMP_TIME, onsetDelay);
   }
 
   // Harmonic Exciter (toggle-only)
   // Suppress on the woofer role — the saturator's harmonics live above
-  // 6 kHz, which the woofer's lowpass would chop out anyway, and feeding
-  // the WaveShaper for nothing just wastes CPU on the device that needs
-  // the most headroom for the sub-bass band.
+  // 6 kHz, which the woofer's lowpass would chop out anyway. A zero gain
+  // alone still renders the WaveShaper; the CPU saving for the device that
+  // needs the most headroom for the sub-bass band comes from the input gate,
+  // which disconnects the chain once that gain is silent.
   const exg = getExciterGain();
   if (exg) {
     const targetExGain = !isWooferRole && exciterOn ? EXCITER_MIX_GAIN : 0;
-    rampParam(exg.gain, targetExGain, RAMP_TIME);
+    const onsetDelay = gateEffectInput(EXCITER_TAP, targetExGain);
+    rampParam(exg.gain, targetExGain, RAMP_TIME, onsetDelay);
   }
 
   // Global LowPass
@@ -169,9 +183,9 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   // Master Volume
   applyMasterVolume(RAMP_TIME);
 
-  // Decay/pre-delay previews arrive at pointer-event cadence. Mix, damping,
-  // EQ, and every other cheap AudioParam above still apply immediately, while
-  // the expensive impulse rebuild is coalesced. The slider's final `change`
+  // Decay previews arrive at pointer-event cadence. Mix, damping, EQ, and
+  // every other cheap AudioParam above still apply immediately, while the
+  // expensive impulse rebuild is coalesced. The slider's final `change`
   // event calls the non-deferred path and commits the exact final value.
   if (deferReverbImpulse) scheduleReverbImpulseRefresh();
   else {
@@ -180,31 +194,13 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   }
 }
 
-// Track last reverb params to avoid unnecessary IR regeneration
-let _lastReverbDecay = REVERB_DEFAULT_DECAY;
-let _lastReverbPreDelay = REVERB_DEFAULT_PREDELAY;
-let _lastReverbNode: ConvolverNode | null = null;
 const REVERB_IR_REFRESH_TIMER = 'audio-reverb-ir-refresh';
 const REVERB_IR_COALESCE_MS = 140;
 
+// At mix 0 the reverb input is disconnected, so a decay change only leaves
+// the impulse stale; the reverb rebuilds it before its input reconnects.
 function refreshReverbImpulse(): void {
-  const rev = getReverb();
-  if (!rev) return;
-  const decay = getState('audio.reverbDecay');
-  const preDelay = getState('audio.reverbPreDelay');
-  const graphChanged = _lastReverbNode !== rev;
-  _lastReverbNode = rev;
-  // Engine initialization already installs the default impulse. Remember the
-  // new graph without generating that same multi-megabyte buffer twice.
-  if (graphChanged && decay === REVERB_DEFAULT_DECAY && preDelay === REVERB_DEFAULT_PREDELAY) {
-    _lastReverbDecay = decay;
-    _lastReverbPreDelay = preDelay;
-    return;
-  }
-  if (!graphChanged && _lastReverbDecay === decay && _lastReverbPreDelay === preDelay) return;
-  _lastReverbDecay = decay;
-  _lastReverbPreDelay = preDelay;
-  rev.buffer = generateReverbIR(decay, preDelay);
+  if (getState('audio.reverbMix') > 0) buildReverbImpulse(getState('audio.reverbDecay'));
 }
 
 function scheduleReverbImpulseRefresh(): void {
@@ -1118,7 +1114,7 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
 
   switch (type) {
     case 'reverb': {
-      const deferImpulse = !!isPreview && (param === 'decay' || param === 'predelay');
+      const deferImpulse = !!isPreview && param === 'decay';
       setReverbParam(param, value, false, deferImpulse);
       if (!isPreview) {
         const REVERB_MSG_MAP: Record<string, string> = {

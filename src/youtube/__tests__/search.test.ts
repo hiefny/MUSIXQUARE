@@ -25,6 +25,9 @@ import {
 import { fetchOEmbedTitle, fetchWithTimeout } from '../oembed.ts';
 import { OEMBED_INITIAL_BATCH_SIZE } from '../constants.ts';
 
+/** search.ts's guest quiet window (module-private OEMBED_GUEST_QUIET_MS). */
+const GUEST_QUIET_MS = 15_000;
+
 const animationFrames = new Map<number, FrameRequestCallback>();
 let nextAnimationFrameId = 0;
 
@@ -80,6 +83,7 @@ describe('YouTube playlist title batch completion', () => {
   afterEach(() => {
     cancelSubTitleFetch();
     setState('youtube.subItemsMap', {});
+    setState('network.connectedPeers', []);
     vi.restoreAllMocks();
   });
 
@@ -172,6 +176,8 @@ describe('YouTube playlist title batch completion', () => {
 
     // Initial state has NO title for index 0, so index 0 is included in pendingIndices
     const pending = fetchPlaylistSubTitles(playlistId, ids);
+    // A guest first waits out a quiet window with no host titles.
+    await vi.advanceTimersByTimeAsync(GUEST_QUIET_MS);
 
     // Host title arrives while index 0 oEmbed fetch is pending in flight
     const subItemsMap = getState('youtube.subItemsMap');
@@ -189,6 +195,79 @@ describe('YouTube playlist title batch completion', () => {
     expect(getState('youtube.subItemsMap')[playlistId]?.titles[1]).toBe('Guest Title 1');
     // Guest did not broadcast sub-title update
     expect(broadcast).not.toHaveBeenCalled();
+  });
+
+  it('lets a guest wait while host titles keep arriving, then fetch only the missing ones', async () => {
+    const { fetch } = prepareTitleFetch((index) =>
+      Response.json({ title: `Guest Title ${index}` }),
+    );
+    setState('network.hostConn', { open: true } as never);
+    const hostTitles = (count: number) =>
+      ids.map((_, index) => (index < count ? `Host Title ${index}` : ''));
+    const publishHostTitles = (count: number) =>
+      setState('youtube.subItemsMap', {
+        [playlistId]: { ids: [...ids], titles: hostTitles(count) },
+      });
+
+    const pending = fetchPlaylistSubTitles(playlistId, ids);
+    // The host's flushes keep landing inside each quiet window.
+    for (const count of [1, 6, OEMBED_INITIAL_BATCH_SIZE]) {
+      await vi.advanceTimersByTimeAsync(GUEST_QUIET_MS - 1_000);
+      publishHostTitles(count);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(fetch).not.toHaveBeenCalled();
+    }
+
+    // Once a whole window passes without one, only the gaps are fetched.
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(
+      fetch.mock.calls.map(([input]) =>
+        new URL(new URL(String(input)).searchParams.get('url')!).searchParams.get('v'),
+      ),
+    ).toEqual(ids.slice(OEMBED_INITIAL_BATCH_SIZE));
+    expect(getState('youtube.subItemsMap')[playlistId]?.titles).toEqual([
+      ...hostTitles(OEMBED_INITIAL_BATCH_SIZE).slice(0, OEMBED_INITIAL_BATCH_SIZE),
+      ...ids.slice(OEMBED_INITIAL_BATCH_SIZE).map((_, offset) => {
+        return `Guest Title ${OEMBED_INITIAL_BATCH_SIZE + offset}`;
+      }),
+    ]);
+  });
+
+  it('pauses a hidden crawl until the page is visible again', async () => {
+    const { fetch } = prepareTitleFetch();
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+
+    const pending = fetchPlaylistSubTitles(playlistId, ids);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).not.toHaveBeenCalled();
+
+    hidden.mockReturnValue(false);
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(fetch).toHaveBeenCalledTimes(ids.length);
+  });
+
+  it('keeps a hidden host crawling for its connected guests, and pauses once they leave', async () => {
+    const { fetch } = prepareTitleFetch();
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    setState('network.connectedPeers', [{ id: 'guest-a', status: 'connected' } as never]);
+
+    const pending = fetchPlaylistSubTitles(playlistId, ids);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    setState('network.connectedPeers', []);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch.mock.calls.length).toBeLessThan(ids.length);
+    const fetchedWhileAlone = fetch.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetch).toHaveBeenCalledTimes(fetchedWhileAlone);
+
+    setState('network.connectedPeers', [{ id: 'guest-b', status: 'connected' } as never]);
+    await vi.runAllTimersAsync();
+    await pending;
+    expect(fetch).toHaveBeenCalledTimes(ids.length);
   });
 });
 

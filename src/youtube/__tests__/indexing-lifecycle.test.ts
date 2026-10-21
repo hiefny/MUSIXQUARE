@@ -595,11 +595,11 @@ describe('YouTube indexing session lifecycle', () => {
     );
     expect(player.cuePlaylist).not.toHaveBeenCalled();
     expect(player.loadPlaylist).not.toHaveBeenCalled();
-    expect(fetchPlaylistSubTitles).toHaveBeenCalledWith(
-      'PL_CACHED',
-      ['cachedFirst', 'cachedSecond', 'cachedThird'],
-      { fullFetch: true },
-    );
+    expect(fetchPlaylistSubTitles).toHaveBeenCalledWith('PL_CACHED', [
+      'cachedFirst',
+      'cachedSecond',
+      'cachedThird',
+    ]);
     expect(vi.mocked(cancelSubTitleFetch).mock.invocationCallOrder.at(-1)!).toBeLessThan(
       vi.mocked(fetchPlaylistSubTitles).mock.invocationCallOrder.at(-1)!,
     );

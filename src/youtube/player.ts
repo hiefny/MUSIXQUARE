@@ -4490,7 +4490,6 @@ export function initYouTube(): void {
         });
       }
       fetchPlaylistSubTitles(playlistId, currentItem.youtubeVideoIds, {
-        fullFetch: true,
         queueItemId,
       }).catch((error) => {
         log.warn(`[YouTube] Background title fetch failed for ${playlistId}`, error);
@@ -4538,13 +4537,10 @@ export function initYouTube(): void {
       return;
     }
 
-    // 3. Trigger background title fetcher (All roles)
-    // Full fetch when user explicitly expands the sub-playlist UI
+    // 3. Trigger background title fetcher (All roles; a guest defers to the host)
     const currentSubMap = getState('youtube.subItemsMap') || {};
     if (currentSubMap[playlistId]?.ids?.length > 0) {
-      fetchPlaylistSubTitles(playlistId, currentSubMap[playlistId].ids, {
-        fullFetch: true,
-      }).catch((error) => {
+      fetchPlaylistSubTitles(playlistId, currentSubMap[playlistId].ids).catch((error) => {
         log.warn(`[YouTube] Background title fetch failed for ${playlistId}`, error);
       });
     }

@@ -209,8 +209,8 @@ export const YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS = 1500;
 export const UNAVAILABLE_STUCK_THRESHOLD_MS = 18000;
 
 // The crash-detection window and the hidden idle UI cadence are module-private
-// in iframe.ts, beside the loop that uses them: an export here costs the eager
-// bundle even once it is inlined.
+// in iframe.ts, beside the loop that uses them, and the title-crawl waits in
+// search.ts: an export here costs the eager bundle even once it is inlined.
 
 /** YouTube API script load timeout — guards against infinite "loading..." UI. */
 export const SCRIPT_LOAD_TIMEOUT_MS = 15000;

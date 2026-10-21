@@ -22,6 +22,12 @@ export function applyProRoomSnapshotMonotonically(
   current: ProRoomSnapshot | null,
   incoming: unknown,
 ): ProRoomSnapshotApplyResult {
+  // A compact "not modified" heartbeat resolves to the installed snapshot
+  // object itself. It cannot differ from itself, so skip the re-parse and the
+  // deep comparison on every unchanged 15-second heartbeat.
+  if (current !== null && incoming === current) {
+    return { outcome: 'duplicate', snapshot: current };
+  }
   const parsed = parseProRoomSnapshot(incoming);
   if (!parsed) return { outcome: 'invalid', snapshot: current };
   if (!current) return { outcome: 'applied', snapshot: parsed };

@@ -20,6 +20,7 @@ import {
 } from '../media-hooks.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { joinProRoom } from '../runtime.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM = '012345';
 const ITEM = '5a000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -130,7 +131,7 @@ async function join(canonical: ProRoomSnapshot): Promise<void> {
     statsScope: 'a'.repeat(43),
   });
   vi.spyOn(ProRoomApiClient.prototype, 'createSession').mockResolvedValue(canonical);
-  vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(canonical);
+  vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(proHeartbeat(canonical));
   vi.spyOn(ProRoomApiClient.prototype, 'getSnapshot').mockResolvedValue(canonical);
   vi.spyOn(ProRoomApiClient.prototype, 'attachCurrentAccount').mockResolvedValue(canonical);
   vi.spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease').mockImplementation(async () => ({

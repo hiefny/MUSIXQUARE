@@ -3,7 +3,9 @@ import { ProRoomApiError, type ProRoomSignalingAccess } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_QUOTA_BYTES,
+  type ProRoomHeartbeat,
   type ProRoomSnapshot,
+  type ProRoomSystemAudioState,
 } from '../contracts.ts';
 import {
   ProRoomSessionController,
@@ -11,6 +13,7 @@ import {
   type ProRoomSessionObserver,
   type ProRoomTransportBridge,
 } from '../session-controller.ts';
+import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_00001';
@@ -198,7 +201,7 @@ function fixtures() {
       snapshot: initial,
     })),
     getSnapshot: vi.fn(async () => initial),
-    heartbeat: vi.fn(async () => initial),
+    heartbeat: vi.fn<ProRoomSessionApi['heartbeat']>(async () => proHeartbeat(initial)),
     leavePresence: vi.fn(async () => initial),
     createSignalingTicket: vi.fn(async () => signaling()),
     closeSession: vi.fn(async () => undefined),
@@ -214,6 +217,7 @@ function fixtures() {
     snapshot: vi.fn(),
     authority: vi.fn(),
     cleared: vi.fn(),
+    systemAudio: vi.fn<NonNullable<ProRoomSessionObserver['systemAudio']>>(),
   } satisfies ProRoomSessionObserver;
   return {
     api,
@@ -719,7 +723,7 @@ describe('PRO room session controller', () => {
       },
       playback: { ...snapshot().playback, coordinatorEpoch: 2, revision: 0 },
     });
-    api.heartbeat.mockResolvedValue(changed);
+    api.heartbeat.mockResolvedValue(proHeartbeat(changed));
     api.createSignalingTicket.mockResolvedValue(signaling('member', 2));
 
     await controller.heartbeat();
@@ -749,7 +753,7 @@ describe('PRO room session controller', () => {
       },
     });
     const replacementAccess = { ...signaling(), ticketSequence: 2 };
-    api.heartbeat.mockResolvedValue(projected);
+    api.heartbeat.mockResolvedValue(proHeartbeat(projected));
     api.createSignalingTicket.mockResolvedValue(replacementAccess);
 
     await expect(controller.heartbeat()).resolves.toEqual(projected);
@@ -786,7 +790,7 @@ describe('PRO room session controller', () => {
         displayName: 'Account Owner',
       },
     });
-    api.heartbeat.mockResolvedValue(projected);
+    api.heartbeat.mockResolvedValue(proHeartbeat(projected));
     api.createSignalingTicket
       .mockResolvedValueOnce({ ...signaling(), ticketSequence: 2 })
       .mockResolvedValueOnce({ ...signaling(), ticketSequence: 3 });
@@ -816,6 +820,70 @@ describe('PRO room session controller', () => {
     expect(observer.authority).not.toHaveBeenCalled();
     expect(observer.snapshot).not.toHaveBeenCalled();
     expect(transport.reconfigure).not.toHaveBeenCalled();
+  });
+
+  it('publishes system audio from every accepted heartbeat, including a compact reply', async () => {
+    const { api, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
+    const live: ProRoomSystemAudioState = {
+      generation: 2,
+      status: 'live',
+      ownerParticipantId: 'participant_00002',
+      claimExpiresAt: null,
+      liveExpiresAt: Date.now() + 60_000,
+      publication: {
+        publicationId: 'publication_000000001',
+        transport: 'lan-direct',
+        protocolVersion: 2,
+      },
+    };
+    // A compact reply resolves to the installed snapshot object itself.
+    api.heartbeat.mockImplementationOnce(async (_code, _signal, known) =>
+      proHeartbeat(known!, live),
+    );
+
+    const installed = controller.snapshot;
+    await expect(controller.heartbeat()).resolves.toBe(installed);
+
+    expect(observer.systemAudio).toHaveBeenCalledOnce();
+    expect(observer.systemAudio).toHaveBeenCalledWith(live, installed);
+    expect(observer.snapshot).toHaveBeenCalledOnce();
+  });
+
+  it('keeps rebuilding a lost channel and still publishes system audio when the rebuild fails', async () => {
+    const { api, transport, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
+    transport.reconfigure.mockClear();
+    api.heartbeat.mockImplementation(async (_code, _signal, known) => proHeartbeat(known!));
+    transport.reconfigure.mockRejectedValueOnce(new Error('SOCKET_OPEN_FAILED'));
+
+    controller.invalidateControlChannel();
+    await expect(controller.heartbeat()).rejects.toThrow('SOCKET_OPEN_FAILED');
+    expect(observer.systemAudio).toHaveBeenCalledWith(idleProSystemAudio(), controller.snapshot);
+
+    // The unchanged-heartbeat shortcut must not skip the retried rebuild.
+    await controller.heartbeat();
+    expect(transport.reconfigure).toHaveBeenCalledTimes(2);
+    expect(observer.systemAudio).toHaveBeenCalledTimes(2);
+    await controller.heartbeat();
+    expect(transport.reconfigure).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not publish system audio from a heartbeat that resolves after leave', async () => {
+    const { api, observer, controller } = fixtures();
+    await controller.join({ code: ROOM_CODE, pin: '12345678' });
+    let resolveHeartbeat!: (value: ProRoomHeartbeat) => void;
+    api.heartbeat.mockImplementationOnce(
+      () => new Promise<ProRoomHeartbeat>((resolve) => (resolveHeartbeat = resolve)),
+    );
+    const heartbeat = controller.heartbeat();
+    await vi.waitFor(() => expect(api.heartbeat).toHaveBeenCalledOnce());
+
+    await controller.leave();
+    resolveHeartbeat(proHeartbeat(snapshot()));
+
+    await expect(heartbeat).rejects.toThrow('PRO_ROOM_SESSION_SUPERSEDED');
+    expect(observer.systemAudio).not.toHaveBeenCalled();
   });
 
   it('rebuilds a lost server channel on the same room incarnation without clearing the session', async () => {
@@ -868,7 +936,7 @@ describe('PRO room session controller', () => {
       },
       playback: { ...snapshot().playback, coordinatorEpoch: 2, revision: 0 },
     });
-    api.heartbeat.mockResolvedValue(changed);
+    api.heartbeat.mockResolvedValue(proHeartbeat(changed));
     api.createSignalingTicket.mockResolvedValue(signaling('member', 2));
     transport.reconfigure
       .mockRejectedValueOnce(new Error('HOST_NOT_AVAILABLE'))
@@ -902,7 +970,7 @@ describe('PRO room session controller', () => {
         presenceIncarnationId: 'presence_0000000002',
       },
     });
-    api.heartbeat.mockResolvedValueOnce(replacement);
+    api.heartbeat.mockResolvedValueOnce(proHeartbeat(replacement));
 
     const error = await controller.heartbeat().catch((reason: unknown) => reason);
     expect(error).toBeInstanceOf(ProRoomApiError);
@@ -1275,8 +1343,8 @@ describe('PRO room session controller', () => {
     let resolveHeartbeat!: (value: ProRoomSnapshot) => void;
     api.heartbeat.mockImplementation(
       async () =>
-        new Promise<ProRoomSnapshot>((resolve) => {
-          resolveHeartbeat = resolve;
+        new Promise<ProRoomHeartbeat>((resolve) => {
+          resolveHeartbeat = (value) => resolve(proHeartbeat(value));
         }),
     );
     const heartbeat = controller.heartbeat();
@@ -1296,13 +1364,21 @@ describe('PRO room session controller', () => {
       const { api, observer, transport, controller } = fixtures();
       await controller.join({ code: ROOM_CODE, pin: '12345678' });
       let resolveOld!: (value: ProRoomSnapshot) => void;
-      const method = operation === 'refresh' ? api.getSnapshot : api.heartbeat;
-      method.mockImplementationOnce(
-        () => new Promise<ProRoomSnapshot>((resolve) => (resolveOld = resolve)),
-      );
+      if (operation === 'refresh') {
+        api.getSnapshot.mockImplementationOnce(
+          () => new Promise<ProRoomSnapshot>((resolve) => (resolveOld = resolve)),
+        );
+      } else {
+        api.heartbeat.mockImplementationOnce(
+          () =>
+            new Promise<ProRoomHeartbeat>(
+              (resolve) => (resolveOld = (value) => resolve(proHeartbeat(value))),
+            ),
+        );
+      }
       const oldRequest = controller[operation]();
       const current = snapshot({ revision: 3 });
-      api.heartbeat.mockResolvedValueOnce(current);
+      api.heartbeat.mockResolvedValueOnce(proHeartbeat(current));
       await controller.heartbeat();
 
       resolveOld(snapshot({ revision: 2 }));
@@ -1322,7 +1398,7 @@ describe('PRO room session controller', () => {
     let rejectHeartbeat!: (reason: unknown) => void;
     api.heartbeat.mockImplementationOnce(
       async () =>
-        new Promise<ProRoomSnapshot>((_resolve, reject) => {
+        new Promise<ProRoomHeartbeat>((_resolve, reject) => {
           rejectHeartbeat = reject;
         }),
     );

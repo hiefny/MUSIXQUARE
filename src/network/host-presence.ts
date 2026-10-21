@@ -152,11 +152,22 @@ function watchHostConnection(): void {
   // A new or closed connection resets quietly: the join and disconnect flows
   // own that UI.
   setPresence('ok', 'reset');
-  if (next) {
-    setManagedTimer(WATCHDOG_TIMER, tick, WATCHDOG_INTERVAL_MS, { interval: true });
-  } else {
+  syncWatchdog();
+}
+
+/**
+ * The host is judged only while this page is on screen, so the watchdog runs
+ * only then. Showing the page again restarts it with an immediate check.
+ */
+function syncWatchdog(): void {
+  if (!watchedConn || isPageHidden()) {
     clearManagedTimer(WATCHDOG_TIMER);
+    return;
   }
+  setManagedTimer(WATCHDOG_TIMER, tick, WATCHDOG_INTERVAL_MS, { interval: true });
+  // Back on screen, this page's own pings resume; restart the silence window.
+  if (armed) lastHostFrameAt = Date.now();
+  tick();
 }
 
 function tick(): void {
@@ -268,17 +279,12 @@ export function refuseWhileHostHidden(
 
 let initialized = false;
 
-function handleVisibilityChange(): void {
-  // Back on screen, this page's own pings resume; restart the silence window.
-  if (watchedConn && armed && !isPageHidden()) lastHostFrameAt = Date.now();
-}
-
 export function initHostPresence(): void {
   if (initialized) return;
   initialized = true;
   subscribeRoomAuthorityLifecycle(watchHostConnection);
   bus.on('network:peer-connected', armAfterJoin);
-  document.addEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener('visibilitychange', syncWatchdog);
 }
 
 export const hostPresenceTimingForTests = {

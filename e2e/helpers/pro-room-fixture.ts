@@ -95,6 +95,21 @@ export function ownerSnapshot(): Record<string, unknown> {
   };
 }
 
+/** A presence heartbeat reply, which carries the room's system-audio state. */
+export function heartbeatReply(snapshot: object): Record<string, unknown> {
+  return {
+    snapshot,
+    systemAudio: {
+      generation: 0,
+      status: 'idle',
+      ownerParticipantId: null,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: null,
+    },
+  };
+}
+
 export function proCorsHeaders(page: Page): Record<string, string> {
   return {
     'access-control-allow-origin': new URL(page.url()).origin,

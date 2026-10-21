@@ -20359,6 +20359,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
       presenceRevision: known.presence.revision,
       playbackRevision: known.playback.revision,
       coordinatorEpoch: known.presence.coordinatorEpoch,
+      systemAudio: {
+        generation: 0,
+        status: 'idle',
+        ownerParticipantId: null,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication: null,
+      },
     });
 
     const rejectedIdentity = await worker.fetch(
@@ -20397,12 +20405,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
         ownerCookie,
       ),
     );
-    expect(Object.keys(await responseJson(stale))).toEqual(['snapshot']);
+    expect(Object.keys(await responseJson(stale)).sort()).toEqual(['snapshot', 'systemAudio']);
 
     const bodyless = await worker.fetch(
       request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
     );
-    expect(Object.keys(await responseJson(bodyless))).toEqual(['snapshot']);
+    expect(Object.keys(await responseJson(bodyless)).sort()).toEqual(['snapshot', 'systemAudio']);
   });
 
   it('durably retries a presence snapshot after transient signaling failures and isolate restart', async () => {
@@ -23763,7 +23771,7 @@ describe('PRO room system-audio ownership lease', () => {
     return responseJson(response);
   }
 
-  it('keeps the v1 snapshot shape unchanged and exposes live state only through its own API', async () => {
+  it('keeps the v1 snapshot shape unchanged and exposes live state through its API and heartbeats', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const snapshotResponse = await worker.fetch(request('/snapshot', {}, ownerCookie));
     const snapshotEnvelope = await responseJson(snapshotResponse);
@@ -23783,6 +23791,39 @@ describe('PRO room system-audio ownership lease', () => {
         publication: null,
       },
     });
+
+    // Every heartbeat reply carries the exact GET payload next to its
+    // snapshot or compact receipt, while the snapshot itself stays v1.
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const state = await responseJson(await worker.fetch(request('/system-audio', {}, ownerCookie)));
+    expect(state.systemAudio).toEqual(acquired.systemAudio);
+    const full = await responseJson(
+      await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    );
+    expect(full.systemAudio).toEqual(state.systemAudio);
+    expect(full.snapshot).not.toHaveProperty('systemAudio');
+    expect(parseProRoomSnapshot(full.snapshot)).not.toBeNull();
+    const known = full.snapshot;
+    const compact = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/presence/heartbeat',
+          'POST',
+          {
+            revision: known.revision,
+            playlistRevision: known.playlistRevision,
+            presenceRevision: known.presence.revision,
+            playbackRevision: known.playback.revision,
+            coordinatorEpoch: known.presence.coordinatorEpoch,
+          },
+          ownerCookie,
+        ),
+      ),
+    );
+    expect(compact.notModified).toBe(true);
+    expect(compact.systemAudio).toEqual(state.systemAudio);
+    expect(compact.systemAudio).not.toHaveProperty('leaseId');
+    expect(compact.systemAudio).not.toHaveProperty('ownerPresenceIncarnationId');
   });
 
   it('commits an exact LAN-direct publication and permits only its one-way SFU promotion', async () => {

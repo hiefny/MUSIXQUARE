@@ -4,6 +4,7 @@ import {
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
   type ProRoomAdministrator,
+  type ProRoomHeartbeat,
   type ProRoomPlaybackCheckpoint,
   type ProRoomPermissionSet,
   type ProRoomPlaylistWireItem,
@@ -894,8 +895,9 @@ function validateAdministratorPermissions(value: ProRoomPermissionSet): ProRoomP
   };
 }
 
-function parseHeartbeatEnvelope(
-  value: unknown,
+/** The snapshot a heartbeat reply resolves to, once its system-audio state is removed. */
+function parseHeartbeatSnapshot(
+  value: JsonRecord,
   expectedCode: string,
   knownSnapshot: ProRoomSnapshot | null,
 ): ProRoomSnapshot | null {
@@ -903,7 +905,6 @@ function parseHeartbeatEnvelope(
   if (snapshot) return snapshot;
   if (
     knownSnapshot === null ||
-    !isRecord(value) ||
     !hasExactKeys(value, [
       'notModified',
       'revision',
@@ -929,6 +930,24 @@ function parseHeartbeatEnvelope(
     knownSnapshot.presence.coordinatorEpoch === value.coordinatorEpoch
     ? knownSnapshot
     : null;
+}
+
+/**
+ * Both heartbeat replies, the full snapshot envelope and the compact "not
+ * modified" receipt, carry exactly one more key in 9.0.0: the room's
+ * system-audio state. A reply without it, or with any other key, is invalid.
+ */
+function parseHeartbeatEnvelope(
+  value: unknown,
+  expectedCode: string,
+  knownSnapshot: ProRoomSnapshot | null,
+): ProRoomHeartbeat | null {
+  if (!isRecord(value)) return null;
+  const { systemAudio: rawSystemAudio, ...reply } = value;
+  const systemAudio = parseProRoomSystemAudioState(rawSystemAudio);
+  if (!systemAudio) return null;
+  const snapshot = parseHeartbeatSnapshot(reply, expectedCode, knownSnapshot);
+  return snapshot ? { snapshot, systemAudio } : null;
 }
 
 function parseSystemAudioEnvelope(value: unknown): ProRoomSystemAudioState | null {
@@ -1877,7 +1896,7 @@ export class ProRoomApiClient {
     code: string,
     signal?: AbortSignal,
     knownSnapshot?: ProRoomSnapshot,
-  ): Promise<ProRoomSnapshot> {
+  ): Promise<ProRoomHeartbeat> {
     const path = roomPath(code);
     return this.#request(`${path}/presence/heartbeat`, {
       method: 'POST',

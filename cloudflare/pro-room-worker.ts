@@ -16126,6 +16126,9 @@ export class MusixquareProRoom {
       await this.persist({ retainEarlierAlarm: true });
     }
     if (displayIdentityChanged) this.scheduleServerEvent(this.presenceEvent());
+    // Both replies carry the exact GET /system-audio payload. The 9.0.0 client
+    // reads it from every heartbeat instead of polling that resource, which
+    // makes this reply the backstop for a lost system-audio invalidation.
     if (
       known !== null &&
       known.revision === this.activeRoom.revision &&
@@ -16134,7 +16137,7 @@ export class MusixquareProRoom {
       known.playbackRevision === this.activeRoom.playback.revision &&
       known.coordinatorEpoch === this.activeRoom.presence.coordinatorEpoch
     ) {
-      return jsonResponse({
+      return this.systemAudioResponse({
         notModified: true,
         revision: this.activeRoom.revision,
         playlistRevision: this.activeRoom.playlistRevision,
@@ -16143,7 +16146,7 @@ export class MusixquareProRoom {
         coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
       });
     }
-    return jsonResponse({
+    return this.systemAudioResponse({
       snapshot: publicSnapshot(this.activeRoom, auth.session),
     });
   }

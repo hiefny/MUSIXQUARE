@@ -10,7 +10,7 @@ import {
   type RecoverProRoomOwnerInput,
   type TransferProRoomOwnerInput,
 } from './api.ts';
-import type { ProRoomSnapshot } from './contracts.ts';
+import type { ProRoomHeartbeat, ProRoomSnapshot, ProRoomSystemAudioState } from './contracts.ts';
 import { projectProRoomContext } from './context.ts';
 import { applyProRoomSnapshotMonotonically } from './revision.ts';
 import type { RoomContext } from '../types/index.ts';
@@ -28,7 +28,7 @@ interface ProRoomSessionApi {
     code: string,
     signal?: AbortSignal,
     knownSnapshot?: ProRoomSnapshot,
-  ): Promise<ProRoomSnapshot>;
+  ): Promise<ProRoomHeartbeat>;
   leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess>;
   closeSession(code: string, signal?: AbortSignal): Promise<void>;
@@ -61,6 +61,8 @@ export interface ProRoomSessionObserver {
   snapshot(snapshot: ProRoomSnapshot): void;
   authority(context: RoomContext): void;
   cleared(): void;
+  /** The system-audio state of a heartbeat whose snapshot was just committed. */
+  systemAudio?(state: ProRoomSystemAudioState, snapshot: ProRoomSnapshot): void;
 }
 
 function controlChannelIdentityChanged(previous: RoomContext | null, next: RoomContext): boolean {
@@ -191,7 +193,7 @@ export class ProRoomSessionController {
   async heartbeat(signal?: AbortSignal): Promise<ProRoomSnapshot> {
     const operationEpoch = this.#operationEpoch;
     const roomCode = this.#requireRoomCode();
-    let incoming: ProRoomSnapshot;
+    let incoming: ProRoomHeartbeat;
     try {
       incoming = await this.api.heartbeat(roomCode, signal, this.#snapshot ?? undefined);
     } catch (error) {
@@ -199,7 +201,12 @@ export class ProRoomSessionController {
       throw error;
     }
     this.#assertOperationCurrent(operationEpoch);
-    return this.#accept(incoming, true, signal, operationEpoch);
+    // The heartbeat is the backstop for a lost system-audio invalidation.
+    // Publish its state once the snapshot commits, so a control-channel
+    // rebuild that fails afterwards cannot discard it.
+    return this.#accept(incoming.snapshot, true, signal, operationEpoch, (accepted) =>
+      this.observer.systemAudio?.(incoming.systemAudio, accepted),
+    );
   }
 
   async attachCurrentAccount(

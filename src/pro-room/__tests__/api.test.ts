@@ -16,6 +16,7 @@ import {
   type ProRoomSystemAudioPublication,
 } from '../contracts.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
+import { idleProSystemAudio } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM_CODE = '000001';
 const PRO_ROOM_PRODUCTION_PATH = new URL(PRO_ROOM_PRODUCTION_ENDPOINT).pathname;
@@ -834,12 +835,17 @@ describe('PRO room cookie session API', () => {
     await establishPresence(client, fetchMock);
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
-      .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
+      .mockResolvedValueOnce(
+        jsonResponse({ snapshot: activeSnapshot(), systemAudio: idleProSystemAudio(3) }),
+      )
       .mockResolvedValueOnce(jsonResponse({ ok: true, passwordRequired: true }))
       .mockResolvedValueOnce(jsonResponse({ ok: true }));
 
     await expect(client.getSnapshot(ROOM_CODE)).resolves.toEqual(activeSnapshot());
-    await expect(client.heartbeat(ROOM_CODE)).resolves.toEqual(activeSnapshot());
+    await expect(client.heartbeat(ROOM_CODE)).resolves.toEqual({
+      snapshot: activeSnapshot(),
+      systemAudio: idleProSystemAudio(3),
+    });
     await expect(client.changePin(ROOM_CODE, '87654321')).resolves.toBeUndefined();
     await expect(
       client.closeSessionFenced({
@@ -1021,6 +1027,18 @@ describe('PRO room cookie session API', () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock, snapshot);
+    const live = {
+      generation: 4,
+      status: 'live',
+      ownerParticipantId: 'participant_00002',
+      claimExpiresAt: null,
+      liveExpiresAt: 1_800_000,
+      publication: {
+        publicationId: 'publication_000000001',
+        sessionId: 'session_0000000000001',
+        track: { trackName: 'system-audio', mid: '0' },
+      },
+    } as const;
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         notModified: true,
@@ -1029,10 +1047,14 @@ describe('PRO room cookie session API', () => {
         presenceRevision: snapshot.presence.revision,
         playbackRevision: snapshot.playback.revision,
         coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+        systemAudio: live,
       }),
     );
 
-    await expect(client.heartbeat(ROOM_CODE, undefined, snapshot)).resolves.toBe(snapshot);
+    const heartbeat = await client.heartbeat(ROOM_CODE, undefined, snapshot);
+    // The installed object itself, so callers can skip re-reading it.
+    expect(heartbeat.snapshot).toBe(snapshot);
+    expect(heartbeat.systemAudio).toEqual(live);
     expect(JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))).toEqual({
       revision: snapshot.revision,
       playlistRevision: snapshot.playlistRevision,
@@ -1055,12 +1077,43 @@ describe('PRO room cookie session API', () => {
         presenceRevision: snapshot.presence.revision,
         playbackRevision: snapshot.playback.revision,
         coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+        systemAudio: idleProSystemAudio(),
       }),
     );
 
     await expect(client.heartbeat(ROOM_CODE, undefined, snapshot)).rejects.toMatchObject({
       code: 'INVALID_RESPONSE',
     });
+  });
+
+  it('requires the exact 9.0.0 heartbeat envelope with its system-audio state', async () => {
+    const snapshot = activeSnapshot();
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock, snapshot);
+    const compact = {
+      notModified: true,
+      revision: snapshot.revision,
+      playlistRevision: snapshot.playlistRevision,
+      presenceRevision: snapshot.presence.revision,
+      playbackRevision: snapshot.playback.revision,
+      coordinatorEpoch: snapshot.presence.coordinatorEpoch,
+    };
+    for (const body of [
+      // Pre-9.0.0 replies carried no system-audio state.
+      { snapshot },
+      compact,
+      { snapshot, systemAudio: { ...idleProSystemAudio(), status: 'paused' } },
+      { snapshot, systemAudio: { ...idleProSystemAudio(), leaseId: 'private' } },
+      { ...compact, systemAudio: null },
+      { snapshot, systemAudio: idleProSystemAudio(), notModified: true },
+      { ...compact, systemAudio: idleProSystemAudio(), snapshot },
+    ]) {
+      fetchMock.mockResolvedValueOnce(jsonResponse(body));
+      await expect(client.heartbeat(ROOM_CODE, undefined, snapshot)).rejects.toMatchObject({
+        code: 'INVALID_RESPONSE',
+      });
+    }
   });
 
   it('keeps the activation/enter lease tab-local and never adopts identity from refresh data', async () => {
@@ -1076,7 +1129,9 @@ describe('PRO room cookie session API', () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(jsonResponse({ snapshot: activeSnapshot() }))
       .mockResolvedValueOnce(jsonResponse({ snapshot: replacement }))
-      .mockResolvedValueOnce(jsonResponse({ snapshot: replacement }));
+      .mockResolvedValueOnce(
+        jsonResponse({ snapshot: replacement, systemAudio: idleProSystemAudio() }),
+      );
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
     await expect(client.getSnapshot(ROOM_CODE)).rejects.toMatchObject({

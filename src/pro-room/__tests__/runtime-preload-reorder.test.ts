@@ -31,6 +31,7 @@ import {
   createProPlaybackAuthorityToken,
   prepareProPlaybackAuthority,
 } from '../playback-authority-hooks.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const downloadMedia = ProRoomMediaTransfer.prototype.download;
 
@@ -200,7 +201,9 @@ describe('PRO preload target changes', { concurrent: false }, () => {
     downloads = [];
     restoreSpies.push(
       vi.spyOn(ProRoomApiClient.prototype, 'createSession').mockResolvedValue(roomSnapshot()),
-      vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(roomSnapshot()),
+      vi
+        .spyOn(ProRoomApiClient.prototype, 'heartbeat')
+        .mockResolvedValue(proHeartbeat(roomSnapshot())),
       vi
         .spyOn(ProRoomApiClient.prototype, 'createSignalingTicket')
         .mockResolvedValue(signalingAccess()),

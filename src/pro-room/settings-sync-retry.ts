@@ -1,6 +1,9 @@
 import { ProRoomApiError } from './api.ts';
 
-const SETTINGS_SYNC_RETRY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
+// There is deliberately no attempt cap: giving up would strand the room's
+// effects edit. Back off to a minute instead; the runtime also retries a
+// waiting save at once on reconnect and when the page is shown again.
+const SETTINGS_SYNC_RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000, 60_000] as const;
 const SETTINGS_SYNC_RETRY_MAX_DELAY_MS = 5 * 60_000;
 
 export interface SettingsSyncCheckpointToken {
@@ -71,7 +74,7 @@ export class SettingsSyncCheckpointState {
   nextRetryDelay(token: SettingsSyncCheckpointToken, minimumDelayMs = 0): number | null {
     if (!this.#dirty || token.revision !== this.#revision) return null;
     const index = Math.min(this.#retryAttempt, SETTINGS_SYNC_RETRY_DELAYS_MS.length - 1);
-    const backoff = SETTINGS_SYNC_RETRY_DELAYS_MS[index] ?? 10_000;
+    const backoff = SETTINGS_SYNC_RETRY_DELAYS_MS[index] ?? 60_000;
     this.#retryAttempt = Math.min(this.#retryAttempt + 1, SETTINGS_SYNC_RETRY_DELAYS_MS.length);
     return Math.min(
       SETTINGS_SYNC_RETRY_MAX_DELAY_MS,

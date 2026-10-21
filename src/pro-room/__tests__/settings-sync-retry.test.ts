@@ -80,7 +80,7 @@ describe('settings sync checkpoint retry state', () => {
     expect(isTransientSettingsSyncFailure(new ProRoomApiError('HTTP_503', 503))).toBe(true);
   });
 
-  it('caps exponential backoff while honoring Retry-After', () => {
+  it('backs off to a minute without an attempt cap while honoring Retry-After', () => {
     const state = new SettingsSyncCheckpointState();
     state.markDirty();
     const token = state.begin()!;
@@ -88,8 +88,14 @@ describe('settings sync checkpoint retry state', () => {
     expect(state.nextRetryDelay(token)).toBe(1_000);
     expect(state.nextRetryDelay(token)).toBe(3_000);
     expect(state.nextRetryDelay(token)).toBe(10_000);
-    expect(state.nextRetryDelay(token)).toBe(10_000);
-    expect(state.nextRetryDelay(token, 30_000)).toBe(30_000);
+    expect(state.nextRetryDelay(token)).toBe(30_000);
+    expect(state.nextRetryDelay(token)).toBe(60_000);
+    // Giving up would strand the room-effects edit, so it keeps retrying.
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      expect(state.nextRetryDelay(token)).toBe(60_000);
+    }
+    expect(state.nextRetryDelay(token, 90_000)).toBe(90_000);
+    expect(state.nextRetryDelay(token, 10 * 60_000)).toBe(5 * 60_000);
   });
 
   it('does not let an older success consume a newer dirty edit', () => {

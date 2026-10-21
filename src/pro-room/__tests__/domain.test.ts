@@ -694,6 +694,23 @@ describe('monotonic PRO snapshot application', () => {
     });
   });
 
+  it('resolves the installed snapshot object itself as a duplicate without re-reading it', () => {
+    let reads = 0;
+    const current = new Proxy(activeSnapshot(), {
+      get(target, key, receiver) {
+        reads += 1;
+        return Reflect.get(target, key, receiver);
+      },
+    });
+
+    const result = applyProRoomSnapshotMonotonically(current, current);
+
+    // A compact heartbeat hands back exactly this object every 15 seconds.
+    expect(reads).toBe(0);
+    expect(result.outcome).toBe('duplicate');
+    expect(result.snapshot).toBe(current);
+  });
+
   it('rejects component rollback but permits a reset revision after a coordinator epoch change', () => {
     const current = activeSnapshot();
     const rollback = activeSnapshot();

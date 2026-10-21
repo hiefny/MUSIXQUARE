@@ -227,6 +227,15 @@ export class ProRoomSystemAudioController {
     return this.#acceptParsedState(incoming, false);
   }
 
+  /**
+   * A presence heartbeat reads the same authenticated resource as
+   * refreshProSystemAudioState(), so its state is accepted the same way. The
+   * caller fences it to the presence incarnation this session is bound to.
+   */
+  acceptHeartbeatProSystemAudioState(value: unknown): ProRoomSystemAudioState {
+    return this.#acceptAuthenticatedProSystemAudioState(value);
+  }
+
   #acceptAuthenticatedProSystemAudioState(value: unknown): ProRoomSystemAudioState {
     if (!this.#session) throw new ProRoomSystemAudioControllerError('SESSION_INACTIVE');
     const incoming = parseProRoomSystemAudioState(value);

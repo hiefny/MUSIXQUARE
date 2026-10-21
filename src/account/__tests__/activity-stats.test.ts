@@ -94,6 +94,9 @@ interface Harness {
   advance(seconds: number): void;
   jump(milliseconds: number): void;
   sample(): void;
+  /** Whether the tracker currently has its interval sampler armed. */
+  isSampling(): boolean;
+  sampleIntervalMs(): number | null;
   setVisible(visible: boolean): void;
   pageHide(): void;
   dispose(): Promise<void>;
@@ -135,6 +138,7 @@ function createHarness(
   const pageHideListeners = new Set<() => void>();
   const scheduled = new Map<string, () => void>();
   let sampleCallback: (() => void) | null = null;
+  let sampleInterval: number | null = null;
 
   const storage = new Map<string, string>();
   if (options.storedSessionCounted) {
@@ -175,8 +179,9 @@ function createHarness(
     isVisible: () => visible,
     addStats,
     scheduler: {
-      startSampling(callback) {
+      startSampling(callback, intervalMs) {
         sampleCallback = callback;
+        sampleInterval = intervalMs;
         return () => {
           if (sampleCallback === callback) sampleCallback = null;
         };
@@ -232,6 +237,12 @@ function createHarness(
     },
     sample() {
       tracker.sample();
+    },
+    isSampling() {
+      return sampleCallback !== null;
+    },
+    sampleIntervalMs() {
+      return sampleCallback === null ? null : sampleInterval;
     },
     setVisible(nextVisible) {
       visible = nextVisible;
@@ -793,6 +804,64 @@ describe('account activity playback counters', () => {
       },
       STATS_SCOPE_A,
     );
+  });
+
+  it('samples only while an interval can count', () => {
+    const harness = createHarness();
+    expect(harness.isSampling()).toBe(false);
+
+    harness.patchRuntime({
+      sessionStarted: true,
+      playbackMode: 'file',
+      playbackActivity: 'playing',
+      currentQueueItemId: 'queue-1',
+    });
+    // Playback started before this device's leadership settled.
+    expect(harness.isSampling()).toBe(false);
+    harness.settleLeadership();
+    expect(harness.isSampling()).toBe(true);
+    expect(harness.sampleIntervalMs()).toBeLessThanOrEqual(
+      __accountActivityStatsForTests.MAX_OBSERVED_SAMPLE_GAP_MS,
+    );
+
+    harness.patchRuntime({ playbackActivity: 'paused' });
+    expect(harness.isSampling()).toBe(false);
+    harness.patchRuntime({ playbackActivity: 'playing' });
+    expect(harness.isSampling()).toBe(true);
+
+    harness.setVisible(false);
+    expect(harness.isSampling()).toBe(false);
+    harness.setVisible(true);
+    expect(harness.isSampling()).toBe(true);
+
+    harness.setAuthenticated(false);
+    expect(harness.isSampling()).toBe(false);
+  });
+
+  it('never samples on a device that lost the leadership election', () => {
+    const harness = createHarness({
+      runtime: {
+        myJoinOrder: 2,
+        connectedDevices: [
+          {
+            id: 'device-earlier',
+            memberId: 'member-own',
+            joinOrder: 1,
+            status: 'connected',
+            isAuthenticated: true,
+          },
+        ],
+      },
+    });
+    harness.patchRuntime({
+      sessionStarted: true,
+      playbackMode: 'youtube',
+      playbackActivity: 'playing',
+      currentQueueItemId: 'queue-youtube',
+    });
+    harness.settleLeadership();
+
+    expect(harness.isSampling()).toBe(false);
   });
 });
 

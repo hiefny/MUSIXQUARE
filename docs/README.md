@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Playlist dialog inset, liquid selection join and delete slide 8.11.34 — 2026-10-21](design/playlist-dialog-inset-and-selection-motion-2026-10-21.md) —
+  the playlist switcher and move dialogs reuse the language picker, whose buttons took their bottom inset from the
+  picker's translate link, so without that footer they sat on the dialog edge; the picker dialog now owns the 30 px
+  inset. Selected rows join by easing corners and the gap while a collapsed fill grows out of the block, deleted rows
+  slide out as frozen copies, and survivors' glide now survives the list's second render after a delete.
 - [Multiple playlists per room — 2026-10-21](design/multi-playlist-2026-10-21.md) — three playlists per room
   ("Playlist", "Playlist 2", "Playlist 3"): the tab title becomes the switcher (room-wide switch, playback stops),
   edit mode copies or moves tracks between playlists, PRO rooms show storage use, and the bot and developer API can

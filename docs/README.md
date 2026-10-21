@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Selection clear fade, press tint and two-finger deselect 8.11.38 — 2026-10-21](design/selection-clear-fade-press-tint-two-finger-2026-10-21.md) —
+  ending selection mode split every multi-row block into pills (`cancel()` cleared without capturing the drawn
+  blocks); a block of several rows clearing or appearing at once now morphs as one fading shape. In selection mode the
+  grey `:active` press tint gives way to the blue fill, and a two-finger pan deselects from a selected starting row
+  like the check-column drag.
 - [Preload recovery and current adaptive-window multi-receiver validation — 2026-10-21](design/preload-recovery-and-db256-multi-2026-10-21.md) —
   reproduces two recovery gaps, retains exact current/next residents across repeated interruptions,
   and checks ordinary/preload transfers with mixed receivers and a shared host uplink under the

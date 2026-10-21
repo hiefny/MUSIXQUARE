@@ -354,6 +354,7 @@ import {
   getProYouTubeAuthorityPreparationGeneration,
   proYouTubeAuthorityOwnsHardMute,
   updateProYouTubeAuthorityDesiredAudioState,
+  paceYouTubeUILoop,
 } from './iframe.ts';
 import { showLoader } from '../ui/toast.ts';
 
@@ -883,6 +884,9 @@ let proYouTubeLeadVisibilityGeneration = 0;
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     proYouTubeLeadVisibilityGeneration += 1;
+    // Showing or hiding the page restores the UI loop's normal cadence at
+    // once; its next tick decides whether the hidden idle cadence applies.
+    paceYouTubeUILoop();
   });
 }
 

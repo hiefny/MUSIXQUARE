@@ -39,7 +39,8 @@ export const HEARTBEAT_INTERVAL_MS = 3000;
  *  (manual syncs, future additions) emit the event rapidly. */
 export const BROADCAST_SYNC_MIN_INTERVAL_MS = 500;
 
-/** UI poll interval (updateYouTubeUI — seekbar, title, crash detection). */
+/** UI poll interval (updateYouTubeUI — seekbar, title, crash detection).
+ *  A hidden, idle player drops to iframe.ts's UI_LOOP_IDLE_INTERVAL_MS. */
 export const UI_LOOP_INTERVAL_MS = 500;
 
 /**
@@ -47,7 +48,8 @@ export const UI_LOOP_INTERVAL_MS = 500;
  * A local manual offset is neutralized this far before either the physical or
  * canonical end so native ENDED/playlist transitions cannot move the room by
  * that offset. Four UI-loop ticks leave enough room for the normal poll even
- * at the maximum allowed local delta.
+ * at the maximum allowed local delta. Media only advances outside the hidden
+ * idle cadence, so these are always UI_LOOP_INTERVAL_MS ticks.
  */
 export const STANDARD_HOST_MANUAL_OFFSET_END_GUARD_SEC = 2;
 
@@ -206,10 +208,9 @@ export const YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS = 1500;
  *  won't false-trigger. Ads are PLAYING-state so they never reach here. */
 export const UNAVAILABLE_STUCK_THRESHOLD_MS = 18000;
 
-/** Number of consecutive getCurrentTime() throws before we assume the iframe
- *  has crashed (sad-face icon) and rebuild the player.
- *  N × UI_LOOP_INTERVAL_MS = detection window (default: 6 × 500ms = 3s). */
-export const CRASH_FAIL_THRESHOLD = 6;
+// The crash-detection window and the hidden idle UI cadence are module-private
+// in iframe.ts, beside the loop that uses them: an export here costs the eager
+// bundle even once it is inlined.
 
 /** YouTube API script load timeout — guards against infinite "loading..." UI. */
 export const SCRIPT_LOAD_TIMEOUT_MS = 15000;
@@ -245,7 +246,8 @@ export const FIRST_TRACK_FISHER_MAX_POLLS = 20;
 
 /** getVideoData() cross-iframe poll frequency: every Nth UI tick.
  *  Calling it on every tick is a major memory-pressure contributor on
- *  weaker devices, so we batch it — N × UI_LOOP_INTERVAL_MS = ~5s. */
+ *  weaker devices, so we batch it — N × UI_LOOP_INTERVAL_MS = ~5s
+ *  (longer only while the hidden idle cadence applies). */
 export const VIDEO_DATA_POLL_EVERY_NTH_TICK = 10;
 
 /** Duration-cache commit threshold. getDuration() jitters by ±0.01s even

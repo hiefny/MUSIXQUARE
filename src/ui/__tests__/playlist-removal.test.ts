@@ -11,8 +11,8 @@ import {
 
 /** Matches the controller's remote confirmation window. */
 const REMOTE_CONFIRMATION_TIMEOUT_MS = 10_000;
-/** Matches the controller's exit slide. */
-const MORPH_MS = 300;
+/** Matches the controller's in-place exit of the pills. */
+const BAR_EXIT_MS = 220;
 const A = '00000000-0000-4000-8000-000000000001';
 const B = '00000000-0000-4000-8000-000000000002';
 
@@ -294,7 +294,7 @@ describe('playlist removal controller', () => {
       controller.toggle(A);
     }
 
-    it('slides the whole bar away after Delete without delaying the deletion', () => {
+    it('shrinks the whole bar away in place after Delete without delaying the deletion', () => {
       const { onDelete, list } = deleteFirstRow();
       expect(onDelete).toHaveBeenCalledOnce();
       expect(bar().hidden).toBe(false);
@@ -303,24 +303,44 @@ describe('playlist removal controller', () => {
       expect(barAnimations()).toHaveLength(1);
       const [keyframes, timing] = barAnimations()[0] as [Keyframe[], KeyframeAnimationOptions];
       expect(keyframes.map((frame) => frame.opacity)).toEqual([1, 0]);
-      expect(timing).toMatchObject({ duration: MORPH_MS, fill: 'forwards' });
+      expect(keyframes.map((frame) => frame.transform)).toEqual([
+        'translateY(0px) scale(1)',
+        'translateY(0px) scale(0.72)',
+      ]);
+      expect(timing).toMatchObject({ duration: BAR_EXIT_MS, fill: 'forwards' });
 
       // Pills on their way out no longer act.
       document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
       expect(bar().dataset.state).toBe('leaving');
 
-      vi.advanceTimersByTime(MORPH_MS);
+      vi.advanceTimersByTime(BAR_EXIT_MS);
       expect(bar().hidden).toBe(true);
       expect(list.classList.contains('has-removal-exit')).toBe(false);
     });
 
-    it('slides the bar away when Cancel ends the mode', () => {
+    it('shrinks the bar away where it was when Cancel ends the mode', () => {
       selectFirstRow();
+      // Outside the mode the list stretches and the pills would sit at the
+      // bottom; their start must be read while the mode still holds them.
+      const list = document.getElementById('playlist-ui')!;
+      const rect = vi.spyOn(bar(), 'getBoundingClientRect').mockImplementation(
+        () =>
+          ({
+            top:
+              list.classList.contains('has-removal-selection') ||
+              list.classList.contains('has-removal-exit')
+                ? 300
+                : 600,
+          }) as DOMRect,
+      );
       document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
       expect(bar().dataset.state).toBe('leaving');
       expect(barAnimations()).toHaveLength(1);
-      vi.advanceTimersByTime(MORPH_MS);
+      const [keyframes] = barAnimations()[0] as [Keyframe[]];
+      expect(keyframes[0]!.transform).toBe('translateY(0px) scale(1)');
+      vi.advanceTimersByTime(BAR_EXIT_MS);
       expect(bar().hidden).toBe(true);
+      rect.mockRestore();
     });
 
     it('cancels the exit cleanly when a new selection starts during it', () => {
@@ -333,7 +353,7 @@ describe('playlist removal controller', () => {
       expect(exit.cancel).toHaveBeenCalled();
       expect(bar().dataset.state).toBe('select');
       expect(bar().hidden).toBe(false);
-      vi.advanceTimersByTime(MORPH_MS);
+      vi.advanceTimersByTime(BAR_EXIT_MS);
       expect(bar().hidden).toBe(false);
       expect(bar().dataset.state).toBe('select');
     });
@@ -378,6 +398,58 @@ describe('playlist removal controller', () => {
 
         vi.advanceTimersByTime(280);
         expect(document.querySelector('.playlist-exit-layer')).toBeNull();
+      } finally {
+        rects.mockRestore();
+      }
+    });
+
+    it('crossfades the header between its playlist and selection controls', () => {
+      document
+        .getElementById('tab-playlist')!
+        .insertAdjacentHTML(
+          'afterbegin',
+          '<div class="tab-header"><span class="tab-title">Playlist</span><div class="playlist-title-area"><button class="tab-action-btn" id="btn-repeat"></button></div></div>',
+        );
+      const rects = vi
+        .spyOn(Element.prototype, 'getClientRects')
+        .mockReturnValue([{}] as unknown as DOMRectList);
+      try {
+        selectFirstRow();
+        const header = document.querySelector<HTMLElement>('.tab-header')!;
+        const title = header.querySelector<HTMLElement>('.playlist-selection-title')!;
+        const toggle = header.querySelector<HTMLElement>('.playlist-selection-toggle')!;
+        const fadedIn = (element: Element) =>
+          animate.mock.calls.some(
+            (call, index) =>
+              animate.mock.contexts[index] === element &&
+              (call[0] as Keyframe[]).map((frame) => frame.opacity).join() === '0,1',
+          );
+        let layer = header.querySelector<HTMLElement>('.playlist-header-fade')!;
+        expect(layer.getAttribute('aria-hidden')).toBe('true');
+        // The playlist title and its icon actions leave as copies without ids.
+        expect(Array.from(layer.children, (copy) => copy.className)).toEqual([
+          'tab-title',
+          'tab-action-btn',
+        ]);
+        expect(layer.querySelector('[id]')).toBeNull();
+        expect(fadedIn(title)).toBe(true);
+        expect(fadedIn(toggle)).toBe(true);
+        vi.advanceTimersByTime(180);
+        expect(header.querySelector('.playlist-header-fade')).toBeNull();
+
+        // Leaving copies the count title before the mode empties it.
+        document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+        layer = header.querySelector<HTMLElement>('.playlist-header-fade')!;
+        expect(layer.children[0]!.textContent).toBe(t('playlist.selected_count', { count: 1 }));
+        expect(layer.children[0]!.hasAttribute('aria-live')).toBe(false);
+        expect(fadedIn(header.querySelector('.tab-action-btn')!)).toBe(true);
+        // A count change inside the mode is not a crossfade.
+        controller!.toggle(A);
+        controller!.toggle(B);
+        vi.advanceTimersByTime(180);
+        controller!.toggle(A);
+        expect(header.querySelector('.playlist-header-fade')).toBeNull();
+        expect(title.textContent).toBe(t('playlist.selected_count', { count: 1 }));
       } finally {
         rects.mockRestore();
       }

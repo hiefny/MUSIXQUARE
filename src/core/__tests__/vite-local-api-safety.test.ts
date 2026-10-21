@@ -498,6 +498,13 @@ describe('service-worker build entry manifest', () => {
         imports: ['assets/vendor.js'],
         modules: { 'C:/repo/src/ui/playlist-reorder.ts': {} },
       },
+      'assets/playlist-selection-morph.js': {
+        type: 'chunk',
+        fileName: 'assets/playlist-selection-morph.js',
+        isEntry: false,
+        imports: ['assets/vendor.js'],
+        modules: { 'C:/repo/src/ui/playlist-selection-morph.ts': {} },
+      },
       'assets/standard-host-manual-offset.js': {
         type: 'chunk',
         fileName: 'assets/standard-host-manual-offset.js',
@@ -530,6 +537,7 @@ describe('service-worker build entry manifest', () => {
       './assets/manual-sync-overlay.js',
       './assets/media-session.js',
       './assets/playlist-reorder.js',
+      './assets/playlist-selection-morph.js',
       './assets/room-audio.js',
       './assets/room-features.js',
       './assets/standard-host-manual-offset.js',

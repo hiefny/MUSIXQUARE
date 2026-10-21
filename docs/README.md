@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Playlist selection morph, header crossfade and in-place pill exit 8.11.35 — 2026-10-21](design/playlist-selection-morph-and-header-crossfade-2026-10-21.md) —
+  splitting a row off a selection block showed a square corner past the block's rounding one, which per-row fills
+  cannot avoid; reshaping now draws each block as one pill keeping its radius (stretch, merge through a waist, pinch
+  apart) in a lazily loaded layer whose alpha makes overlaps one shape. Entering and leaving selection mode crossfades
+  the header, the pills shrink away where they were instead of jumping to the screen bottom (their start was read after
+  the list had stretched), and the move action uses the "place_item" icon.
 - [Playlist dialog inset, liquid selection join and delete slide 8.11.34 — 2026-10-21](design/playlist-dialog-inset-and-selection-motion-2026-10-21.md) —
   the playlist switcher and move dialogs reuse the language picker, whose buttons took their bottom inset from the
   picker's translate link, so without that footer they sat on the dialog edge; the picker dialog now owns the 30 px

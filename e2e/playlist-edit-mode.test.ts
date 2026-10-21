@@ -325,6 +325,159 @@ test.describe('Playlist edit mode (mouse)', () => {
   });
 });
 
+test.describe('Playlist delete slide-out', () => {
+  // Short enough that the five tracks scroll under the tab header.
+  test.use({ viewport: { width: 390, height: 520 } });
+
+  for (const scrolled of [false, true]) {
+    test(`deleted rows leave from exactly where they were${scrolled ? ' in a scrolled list' : ''}`, async ({
+      page,
+    }) => {
+      test.setTimeout(90_000);
+      await openFiveTrackPlaylist(page, true);
+      const checks = page.locator('#playlist-ui .btn-playlist-select');
+      await checks.nth(2).click();
+      await checks.nth(3).click();
+      await page.waitForTimeout(600);
+      if (scrolled) {
+        await page
+          .locator('#tab-playlist .tab-body')
+          .evaluate((body) => body.scrollTo({ top: body.scrollHeight }));
+        await page.waitForTimeout(200);
+      }
+      const result = await page.evaluate(() => {
+        const body = document.querySelector<HTMLElement>('#tab-playlist .tab-body')!;
+        // Read before deleting: the shorter list then clamps the scroll.
+        const scrollTop = body.scrollTop;
+        const rows = Array.from(
+          document.querySelectorAll<HTMLElement>(
+            '#playlist-ui > .playlist-entry.is-removal-selected',
+          ),
+          (entry) => entry.getBoundingClientRect().toJSON() as DOMRect,
+        );
+        document.querySelector<HTMLButtonElement>('.playlist-selection-delete')!.click();
+        const ghosts = Array.from(
+          document.querySelectorAll<HTMLElement>('.playlist-exit-ghost'),
+          (ghost) => ghost.getBoundingClientRect().toJSON() as DOMRect,
+        );
+        return { scrollTop, rows, ghosts };
+      });
+      if (scrolled) expect(result.scrollTop).toBeGreaterThan(0);
+      expect(result.ghosts).toHaveLength(2);
+      result.ghosts.forEach((ghost, index) => {
+        const row = result.rows[index]!;
+        expect(Math.abs(ghost.top - row.top)).toBeLessThan(1);
+        expect(Math.abs(ghost.left - row.left)).toBeLessThan(1);
+        expect(Math.abs(ghost.width - row.width)).toBeLessThan(1);
+      });
+      await expect(page.locator('.playlist-exit-layer')).toHaveCount(0);
+      await waitForPlaylistCount(page, 3);
+    });
+  }
+
+  test('blocks bridge and split as whole pills, then hand back to the rows', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, true);
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    await checks.nth(0).click();
+    await checks.nth(2).click();
+    // The morph loads after the list mounts.
+    await page.waitForTimeout(800);
+
+    // The layer is built once the click's task ends; read it right after.
+    const sample = async (row: number) => {
+      await page.evaluate((index) => {
+        document
+          .querySelectorAll<HTMLButtonElement>('#playlist-ui .btn-playlist-select')
+          [index]!.click();
+      }, row);
+      return page.evaluate(() => {
+        const list = document.getElementById('playlist-ui')!;
+        const layer = document.querySelector<HTMLElement>('.playlist-fill-morph');
+        return {
+          before: layer?.nextElementSibling === list,
+          pills: layer?.children.length ?? 0,
+          alpha: Number(layer?.style.opacity ?? 0),
+          hiding: list.classList.contains('is-fill-morphing'),
+        };
+      });
+    };
+    const settled = () =>
+      page.waitForFunction(
+        () =>
+          !document.querySelector('.playlist-fill-morph') &&
+          !document.getElementById('playlist-ui')!.classList.contains('is-fill-morphing'),
+      );
+
+    // Rows 1 and 3 reach for row 2 as two pills becoming one block.
+    const bridge = await sample(1);
+    expect(bridge).toMatchObject({ before: true, pills: 2, hiding: true });
+    expect(bridge.alpha).toBeGreaterThan(0);
+    expect(bridge.alpha).toBeLessThan(1);
+    await settled();
+    let fills = await selectionFills(page);
+    expect(fills[0]).toMatchObject({ radius: '28px 28px 0px 0px', top: '0px' });
+    expect(fills[1]).toMatchObject({ radius: '0px', top: '-8px' });
+    expect(fills[2]).toMatchObject({ radius: '0px 0px 28px 28px', top: '-8px' });
+
+    // Deselecting row 2 pinches the block back into rows 1 and 3.
+    const split = await sample(1);
+    expect(split).toMatchObject({ before: true, pills: 2, hiding: true });
+    await settled();
+    fills = await selectionFills(page);
+    expect(fills[0]).toMatchObject({ radius: '28px', top: '0px' });
+    expect(fills[2]).toMatchObject({ radius: '28px', top: '0px' });
+    expect(fills[1]!.background).toBe('rgba(0, 0, 0, 0)');
+  });
+
+  test('the pills shrink away where they were and the header crossfades', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, true);
+    await page.locator('#playlist-ui .btn-playlist-select').nth(1).click();
+    await page.waitForTimeout(600);
+    const frames = await page.evaluate(async () => {
+      const bar = document.querySelector<HTMLElement>('.playlist-selection-bar')!;
+      const header = document.querySelector<HTMLElement>('#tab-playlist .tab-header')!;
+      const center = () => {
+        const rect = bar.getBoundingClientRect();
+        return rect.top + rect.height / 2;
+      };
+      const before = { center: center(), header: header.getBoundingClientRect().height };
+      document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+      const copies = header.querySelectorAll('.playlist-header-fade > *').length;
+      const samples: { center: number; opacity: number; header: number }[] = [];
+      const start = performance.now();
+      await new Promise<void>((resolve) => {
+        const step = () => {
+          if (!bar.hidden) {
+            samples.push({
+              center: center(),
+              opacity: Number(getComputedStyle(bar).opacity),
+              header: header.getBoundingClientRect().height,
+            });
+          }
+          if (performance.now() - start < 260) requestAnimationFrame(step);
+          else resolve();
+        };
+        requestAnimationFrame(step);
+      });
+      return { before, copies, samples, hidden: bar.hidden };
+    });
+    // The count title and its toggle fade out as copies over the restored
+    // playlist title and icon actions; the header keeps its height.
+    expect(frames.copies).toBe(2);
+    expect(frames.samples.length).toBeGreaterThan(3);
+    for (const sample of frames.samples) {
+      // Shrinking about its centre: no slide toward the bottom of the screen.
+      expect(Math.abs(sample.center - frames.before.center)).toBeLessThan(1);
+      expect(sample.header).toBeCloseTo(frames.before.header, 0);
+    }
+    expect(frames.samples.at(-1)!.opacity).toBeLessThan(0.5);
+    expect(frames.hidden).toBe(true);
+    await expect(page.locator('.playlist-header-fade')).toHaveCount(0);
+  });
+});
+
 test.describe('Playlist edit mode (touch)', () => {
   test.use({
     viewport: { width: 390, height: 844 },

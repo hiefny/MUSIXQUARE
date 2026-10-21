@@ -1,6 +1,7 @@
 import type { PlaylistItem, QueueItemId } from '../types/index.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { t } from '../i18n/index.ts';
+import type { PlaylistSelectionMorph } from './playlist-selection-morph.ts';
 
 const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
 
@@ -13,6 +14,12 @@ const EXIT_EASING = 'cubic-bezier(0.5, 0, 0.75, 0)';
 const EXIT_STAGGER_MS = 24;
 const EXIT_STAGGER_LIMIT = 8;
 const SURVIVOR_DELAY_MS = 90;
+/** The pills shrink and fade where they are when the mode ends. */
+const BAR_EXIT_MS = 220;
+const BAR_EXIT_EASING = 'cubic-bezier(0.4, 0, 0.9, 0.6)';
+/** The tab header crossfades between its normal and selection controls. */
+const HEADER_FADE_OUT_MS = 180;
+const HEADER_FADE_IN_MS = 240;
 /**
  * Remote paths (PRO server, Standard host) answer asynchronously. Keep the
  * deleted rows hidden until the canonical playlist drops them, but give a
@@ -79,6 +86,14 @@ function canAnimate(element: Element): boolean {
   return typeof (element as HTMLElement).animate === 'function' && !prefersReducedMotion();
 }
 
+function forcedColors(): boolean {
+  try {
+    return window.matchMedia('(forced-colors: active)').matches;
+  } catch {
+    return false;
+  }
+}
+
 function createBar(list: HTMLElement): {
   bar: HTMLElement;
   moveButton: HTMLButtonElement;
@@ -89,10 +104,10 @@ function createBar(list: HTMLElement): {
   bar.className = 'playlist-selection-bar';
   bar.setAttribute('role', 'group');
   bar.hidden = true;
-  // Material "drive_file_move", "delete" and "close" icons; their names come
-  // from renderBarLabels.
+  // Material Symbols "place_item" (its own 960 grid) and Material "delete"
+  // and "close" icons; their names come from renderBarLabels.
   bar.innerHTML = `
-    <button type="button" class="playlist-selection-action playlist-selection-move" data-selection-action="move" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6 12v-3h-4v-4h4V8l5 5-5 5z"/></svg></button>
+    <button type="button" class="playlist-selection-action playlist-selection-move" data-selection-action="move" hidden><svg viewBox="0 -960 960 960" aria-hidden="true"><path d="M200-120q-33 0-56.5-23.5T120-200v-400q0-33 23.5-56.5T200-680h160v80H200v400h560v-400H600v-80h160q33 0 56.5 23.5T840-600v400q0 33-23.5 56.5T760-120H200Zm280-200L320-480l56-56 64 63v-487h80v487l64-63 56 56-160 160Z"/></svg></button>
     <button type="button" class="playlist-selection-action playlist-selection-delete" data-selection-action="delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
     <button type="button" class="playlist-selection-action playlist-selection-cancel" data-selection-action="cancel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg></button>`;
   // The bar follows the last track in the scrolling list body; CSS makes it
@@ -169,6 +184,24 @@ export function createPlaylistRemovalController(
   let barAnimations: Animation[] = [];
   let barExitTimer = 0;
   let exitLayer: HTMLElement | null = null;
+  let headerFadeLayer: HTMLElement | null = null;
+  let headerFadeTimer = 0;
+  // Selection blocks morph as whole pills once this loads after the list
+  // mounts (docs/design/initial-bundle-loading-policy.md); until then, and
+  // with reduced motion or forced colors, each row's fill changes in place.
+  let morph: PlaylistSelectionMorph | null = null;
+  void import('./playlist-selection-morph.ts').then(
+    ({ createPlaylistSelectionMorph }) => {
+      if (!destroyed) morph = createPlaylistSelectionMorph(list);
+    },
+    () => {},
+  );
+
+  function captureMorph(): void {
+    if (morph && options.isPlaylistVisible() && canAnimate(list) && !forcedColors()) {
+      morph.capture();
+    }
+  }
   let exitTimer = 0;
   /** Survivors' offsets from their old rows while they glide into place. */
   let glide: {
@@ -275,24 +308,109 @@ export function createPlaylistRemovalController(
    */
   function animateBarExit(barTopBefore: number): void {
     if (barState !== 'leaving') return;
-    // Hiding deleted rows moves the last track, and the bar with it, up.
+    // Hiding deleted rows moves the last track, and the bar with it, up; the
+    // pills stay where they were and shrink away there.
     const dy = barTopBefore - bar.getBoundingClientRect().top;
     barAnimations.push(
       bar.animate(
         [
-          { transform: `translateY(${dy}px)`, opacity: 1 },
-          { transform: `translateY(${dy + 24}px)`, opacity: 0 },
+          { transform: `translateY(${dy}px) scale(1)`, opacity: 1 },
+          { transform: `translateY(${dy}px) scale(0.72)`, opacity: 0 },
         ],
-        { duration: MORPH_MS, easing: MORPH_EASING, fill: 'forwards' },
+        { duration: BAR_EXIT_MS, easing: BAR_EXIT_EASING, fill: 'forwards' },
       ),
     );
     barExitTimer = window.setTimeout(() => {
       barExitTimer = 0;
       if (barState === 'leaving') setBarState('hidden');
-    }, MORPH_MS);
+    }, BAR_EXIT_MS);
+  }
+
+  // The header's visible controls in each mode: the playlist title (or its
+  // switcher) with the icon actions, or the count title with its toggle.
+  function headerControls(selecting: boolean): HTMLElement[] {
+    if (!header) return [];
+    const controls = selecting
+      ? [title, toggleButton]
+      : [
+          header.querySelector<HTMLElement>(':scope > .tab-title:not(.playlist-selection-title)'),
+          header.querySelector<HTMLElement>(':scope > .playlist-switch-button'),
+          ...header.querySelectorAll<HTMLElement>('.playlist-title-area > .tab-action-btn'),
+        ];
+    return controls.filter(
+      (control): control is HTMLElement => !!control && control.getClientRects().length > 0,
+    );
+  }
+
+  function removeHeaderFade(): void {
+    window.clearTimeout(headerFadeTimer);
+    headerFadeLayer?.remove();
+    headerFadeLayer = null;
+  }
+
+  // Entering or leaving the mode swaps the header's controls in one layout
+  // step. The outgoing ones stay as frozen copies fading out where they were
+  // while the incoming ones fade in, so the swap reads as a crossfade.
+  function crossfadeHeader(selecting: boolean, swap: () => void): void {
+    if (!header || !canAnimate(header) || !options.isPlaylistVisible()) {
+      removeHeaderFade();
+      swap();
+      return;
+    }
+    removeHeaderFade();
+    // Copy before the swap, which empties the count title it hides.
+    const outgoing = headerControls(!selecting).map((control) => ({
+      copy: control.cloneNode(true) as HTMLElement,
+      rect: control.getBoundingClientRect(),
+    }));
+    swap();
+
+    const layer = document.createElement('div');
+    layer.className = 'playlist-header-fade';
+    layer.setAttribute('aria-hidden', 'true');
+    layer.inert = true;
+    header.appendChild(layer);
+    layer.style.left = '0px';
+    layer.style.top = '0px';
+    const origin = layer.getBoundingClientRect();
+    for (const { copy, rect } of outgoing) {
+      copy.removeAttribute('id');
+      copy.removeAttribute('aria-live');
+      for (const element of copy.querySelectorAll('[id]')) element.removeAttribute('id');
+      copy.hidden = false;
+      copy.style.left = `${rect.left - origin.left}px`;
+      copy.style.top = `${rect.top - origin.top}px`;
+      copy.style.width = `${rect.width}px`;
+      copy.style.height = `${rect.height}px`;
+      layer.appendChild(copy);
+      copy.animate([{ opacity: 1 }, { opacity: 0 }], {
+        duration: HEADER_FADE_OUT_MS,
+        easing: 'ease-out',
+        fill: 'forwards',
+      });
+    }
+    for (const control of headerControls(selecting)) {
+      control.animate([{ opacity: 0 }, { opacity: 1 }], {
+        duration: HEADER_FADE_IN_MS,
+        easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+      });
+    }
+    headerFadeLayer = layer;
+    headerFadeTimer = window.setTimeout(removeHeaderFade, HEADER_FADE_OUT_MS);
   }
 
   function syncHeader(
+    active: boolean,
+    selectedCount: number,
+    totalCount: number,
+    allSelected: boolean,
+  ): void {
+    if (header && active !== header.classList.contains('is-removal-selecting')) {
+      crossfadeHeader(active, () => applyHeader(active, selectedCount, totalCount, allSelected));
+    } else applyHeader(active, selectedCount, totalCount, allSelected);
+  }
+
+  function applyHeader(
     active: boolean,
     selectedCount: number,
     totalCount: number,
@@ -358,6 +476,12 @@ export function createPlaylistRemovalController(
     const selectionEnded = wasSelectionActive && !active;
     wasSelectionActive = active;
     const allSelected = active && items.length > 0 && selectedCount === items.length;
+    // Where the pills are now, read before the list and header leave the mode:
+    // without the mode the list stretches and would put them at the bottom.
+    const barTopBefore =
+      !active && barState === 'select' && canAnimateBarExit()
+        ? bar.getBoundingClientRect().top
+        : null;
     list.classList.toggle('has-removal-selection', active);
     moveButton.hidden = !(options.canMove?.() ?? false);
 
@@ -385,11 +509,10 @@ export function createPlaylistRemovalController(
 
     syncHeader(active, selectedCount, items.length, allSelected);
     if (active) setBarState('select');
-    else if (barState === 'select' && canAnimateBarExit()) {
+    else if (barTopBefore !== null) {
       // Cancel, Deselect all, an outside tap or a tab change.
-      const barTop = bar.getBoundingClientRect().top;
       setBarState('leaving');
-      animateBarExit(barTop);
+      animateBarExit(barTopBefore);
     } else if (barState !== 'leaving') setBarState('hidden');
 
     if (selectionEnded && options.isPlaylistVisible()) {
@@ -411,6 +534,7 @@ export function createPlaylistRemovalController(
   }
 
   function cancel(cancelOptions: { restoreFocus?: boolean } = {}): void {
+    morph?.stop();
     const focusTarget = cancelOptions.restoreFocus ? lastTriggerQueueItemId : null;
     const hadSelection = selectedQueueItemIds.size > 0;
     if (cancelOptions.restoreFocus || (hadSelection && focusIsInsideControls())) {
@@ -428,6 +552,7 @@ export function createPlaylistRemovalController(
         bar.contains(activeElement) ||
         !!toggleButton?.contains(activeElement));
 
+    morph?.stop();
     selectedQueueItemIds.clear();
     syncDom();
 
@@ -441,6 +566,7 @@ export function createPlaylistRemovalController(
     if (!visibleItems().some((item) => item.queueItemId === queueItemId)) return;
     const wasActive = selectedQueueItemIds.size > 0;
     lastTriggerQueueItemId = queueItemId;
+    captureMorph();
     if (selectedQueueItemIds.has(queueItemId)) selectedQueueItemIds.delete(queueItemId);
     else selectedQueueItemIds.add(queueItemId);
     if (!wasActive && selectedQueueItemIds.size > 0) options.onSelectionStart?.();
@@ -456,12 +582,14 @@ export function createPlaylistRemovalController(
       cancel({ restoreFocus: true });
       return;
     }
+    captureMorph();
     for (const item of items) selectedQueueItemIds.add(item.queueItemId);
     syncDom();
   }
 
   function deleteSelected(): void {
     if (!options.canRemove() || selectedQueueItemIds.size === 0) return;
+    morph?.stop();
     const items = visibleItems();
     const orderedQueueItemIds = items
       .filter((item) => selectedQueueItemIds.has(item.queueItemId))
@@ -562,8 +690,11 @@ export function createPlaylistRemovalController(
     layer.inert = true;
     // After the bar, so no list or bar sibling rule sees the layer.
     bar.after(layer);
-    // The layer clips the slide to the list's width; place it over the rows
-    // from wherever its containing block puts it.
+    // The layer clips the slide to the list's width. Pin it to its containing
+    // block's origin first, so the measured point is where top/left count
+    // from whichever ancestor that is, then move it over the rows.
+    layer.style.left = '0px';
+    layer.style.top = '0px';
     const origin = layer.getBoundingClientRect();
     layer.style.left = `${listRect.left - origin.left}px`;
     layer.style.top = `${top - origin.top}px`;
@@ -734,6 +865,9 @@ export function createPlaylistRemovalController(
       sentDeletions.length = 0;
       stopBarAnimations();
       removeExitLayer();
+      removeHeaderFade();
+      morph?.destroy();
+      morph = null;
       glide = null;
       removeGestures?.();
       abortController.abort();

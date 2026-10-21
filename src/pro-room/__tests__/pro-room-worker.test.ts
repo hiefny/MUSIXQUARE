@@ -26991,6 +26991,79 @@ describe('PRO room multiple playlists', () => {
     expect(internal.room.revision).toBe(revision);
   });
 
+  it.each(['copy', 'move'] as const)(
+    'reports a stale %s as a revision conflict after its target became active',
+    async (mode) => {
+      const context = await activatedRoom();
+      const internal = context.worker as unknown as Internal;
+      const [first] = await seedYouTube(context, `playlist-slots-stale-${mode}-01`, ['One', 'Two']);
+      const staleRevision = internal.room.revision;
+      expect(
+        (await switchAsAnotherAdministrator(context, 1, `playlist-slots-stale-${mode}-02`)).status,
+      ).toBe(200);
+      const revision = internal.room.revision;
+
+      const stale = await transfer(
+        context,
+        { baseRevision: staleRevision, queueItemIds: [first], targetSlots: [1], mode },
+        `playlist-slots-stale-${mode}-03`,
+      );
+      expect(stale.status).toBe(409);
+      expect(await responseJson(stale)).toEqual({ error: 'REVISION_CONFLICT' });
+      // A current request that targets the active playlist is still invalid.
+      const current = await transfer(
+        context,
+        { baseRevision: revision, queueItemIds: [first], targetSlots: [1], mode },
+        `playlist-slots-stale-${mode}-04`,
+      );
+      expect(current.status).toBe(400);
+      expect(await responseJson(current)).toEqual({ error: 'INVALID_PLAYLIST_SLOT' });
+      expect(internal.room.revision).toBe(revision);
+      expect(internal.room.playlist).toEqual([]);
+      expect(internal.room.playlistSlots.inactive[0]).toHaveLength(2);
+    },
+  );
+
+  it.each(['copy', 'move'] as const)(
+    'refreshes a %s whose target another administrator just made active',
+    async (mode) => {
+      const context = await activatedRoom();
+      const internal = context.worker as unknown as Internal;
+      const [first, second] = await seedYouTube(context, `playlist-slots-refresh-${mode}-01`, [
+        'One',
+        'Two',
+      ]);
+      const api = slotWorkerApi(context);
+      const manager = slotManager(
+        api,
+        inertPlaylistMediaTransfer(),
+        `playlist-slots-refresh-${mode}`,
+      );
+      await manager.acceptSnapshot(await api.getSnapshot());
+      expect(
+        (await switchAsAnotherAdministrator(context, 1, `playlist-slots-refresh-${mode}-02`))
+          .status,
+      ).toBe(200);
+
+      const accepted = await manager.transferTracks([first!], [1], mode);
+
+      expect(api.transferPlaylistTracks).toHaveBeenCalledOnce();
+      await expect(api.transferPlaylistTracks.mock.results[0]?.value).rejects.toMatchObject({
+        status: 409,
+        code: 'REVISION_CONFLICT',
+      });
+      expect(api.getSnapshot).toHaveBeenCalledTimes(2);
+      // The tracks left the active playlist with the switch, so the rebase
+      // has nothing left to copy or move.
+      expect(accepted.playlistSlots?.activeSlot).toBe(1);
+      expect(internal.room.playlist).toEqual([]);
+      expect(internal.room.playlistSlots.inactive[0].map((item: any) => item.queueItemId)).toEqual([
+        first,
+        second,
+      ]);
+    },
+  );
+
   it('serves playlist projections, playlist-scoped removal and switching to the Developer API', async () => {
     const context = await activatedRoom();
     const internal = context.worker as unknown as Internal;

@@ -17258,14 +17258,17 @@ export class MusixquareProRoom {
       targetSlots.length < 1 ||
       targetSlots.length >= PRO_ROOM_PLAYLIST_SLOT_COUNT ||
       !targetSlots.every(isPlaylistSlot) ||
-      new Set(targetSlots).size !== targetSlots.length ||
-      targetSlots.includes(activeSlot)
+      new Set(targetSlots).size !== targetSlots.length
     ) {
       return errorResponse('INVALID_PLAYLIST_SLOT', 400);
     }
     if (body.baseRevision !== this.activeRoom.revision) {
       return errorResponse('REVISION_CONFLICT', 409);
     }
+    // The active playlist is room state: a request made before another
+    // administrator switched to a target gets the conflict above, so the
+    // client refreshes instead of failing on this check.
+    if (targetSlots.includes(activeSlot)) return errorResponse('INVALID_PLAYLIST_SLOT', 400);
     // A copy adds tracks, so it needs the same permission as adding them.
     if (!this.sessionHasPermission(auth.session, 'media.add')) {
       return errorResponse('PERMISSION_REQUIRED', 403);

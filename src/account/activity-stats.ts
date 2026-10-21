@@ -114,6 +114,8 @@ interface ForegroundFlush {
   promise: Promise<AccountActivityStatsFlushResult>;
 }
 
+// The sampler runs only while an interval can count. While it runs it must
+// stay below the gap limit, which #advance treats as a suspended page.
 const SAMPLE_INTERVAL_MS = 1_000;
 const MAX_OBSERVED_SAMPLE_GAP_MS = 2_500;
 const TRACK_COUNT_MAX_THRESHOLD_MS = 10_000;
@@ -327,7 +329,7 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
       deps.subscribeVisibility(() => this.sync()),
       deps.subscribePageHide(() => this.#handlePageHide()),
     ];
-    this.#restartSampling();
+    this.#syncSampling();
     if (this.#sessionActive && this.#authenticated && this.#statsScope !== null) {
       this.#rescheduleLeadershipDecision();
     }
@@ -386,7 +388,7 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
 
     // leaveSession() clears every managed timer before publishing its reset
     // batch. Re-arm both tracker timers from any relevant state edge.
-    this.#restartSampling();
+    this.#syncSampling();
     if (hasDelta(this.#pending)) {
       if (wasSessionActive && !this.#sessionActive) this.#rescheduleFlush();
       else this.#scheduleFlush();
@@ -703,6 +705,8 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
         if (this.#participationLeader) this.#countSessionOnce();
         this.#refreshEligibility();
         this.#lastSampleAt = now;
+        // Leadership is an eligibility edge without a state publication.
+        this.#syncSampling();
       },
       LEADERSHIP_SETTLE_MS,
     );
@@ -735,12 +739,16 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
     this.#cancelFlushTimer();
   }
 
-  #restartSampling(): void {
+  /**
+   * Sample only while an interval can count. Every eligibility edge calls
+   * this; #advance already skips ineligible time, so an idle, hidden or
+   * signed-out page has nothing to sample.
+   */
+  #syncSampling(): void {
     this.#stopSampling?.();
-    this.#stopSampling = this.#deps.scheduler.startSampling(
-      () => this.sample(),
-      SAMPLE_INTERVAL_MS,
-    );
+    this.#stopSampling = this.#eligible
+      ? this.#deps.scheduler.startSampling(() => this.sample(), SAMPLE_INTERVAL_MS)
+      : null;
   }
 
   #scheduleFlush(): void {

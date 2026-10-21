@@ -601,16 +601,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  @keyframes graphic-pulse {
-    0% {
-      stroke-dashoffset: 0;
-    }
-
-    100% {
-      stroke-dashoffset: -20;
-    }
-  }
-
   @keyframes fadeInScale {
     from {
       opacity: 0;
@@ -7444,15 +7434,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: #000000;
     stroke: var(--surface-3);
     stroke-width: 1;
-  }
-
-  .graphic-line-active {
-    stroke: var(--primary);
-    stroke-width: 2;
-    stroke-dasharray: 5 5;
-    opacity: 0.4;
-    fill: none;
-    animation: graphic-pulse 2s infinite;
   }
 
   .graphic-text {

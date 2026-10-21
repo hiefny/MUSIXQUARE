@@ -101,7 +101,7 @@ export function proCorsHeaders(page: Page): Record<string, string> {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy',
+      'content-type,idempotency-key,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots',
     'content-type': 'application/json; charset=utf-8',
   };
 }

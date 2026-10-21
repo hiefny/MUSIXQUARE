@@ -214,6 +214,8 @@ function createInitialState(): StateTree {
       revision: 0,
       repeatMode: 0,
       isShuffle: false,
+      slots: null,
+      storageUsage: null,
     },
 
     files: {

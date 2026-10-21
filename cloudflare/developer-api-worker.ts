@@ -18,7 +18,8 @@ type JsonRecord = Record<string, unknown>;
 type HeaderRecord = Record<string, string>;
 type BodyReader = ReadableStreamDefaultReader<Uint8Array>;
 type CancellableBody = { cancel(reason?: unknown): Promise<void> };
-type Projection = 'room' | 'playback' | 'queue' | 'effects' | 'queue-mode';
+type Projection =
+  'room' | 'playback' | 'queue' | 'effects' | 'queue-mode' | 'playlists' | 'playlist-queue';
 
 interface DeveloperApiEnvPort {
   readonly CF_VERSION_METADATA?: unknown;
@@ -170,6 +171,8 @@ const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/
 const COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const QUEUE_ITEM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ASSET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+// Room playlists are numbered from 1 ("Playlist", "Playlist 2", "Playlist 3").
+const PLAYLIST_COUNT = 3;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
@@ -889,7 +892,8 @@ async function hasNonEmptyRequestBody(request: Request): Promise<boolean> {
 type DeveloperCommand =
   | { type: 'play' | 'pause' | 'next' }
   | { type: 'seek'; positionSeconds: number }
-  | { type: 'play_item'; queueItemId: string; youtubeSubIndex?: number }
+  | { type: 'play_item'; queueItemId: string; youtubeSubIndex?: number; playlist?: number }
+  | { type: 'switch_playlist'; playlist: number }
   | { type: 'set_effects'; effects: JsonRecord };
 
 function parseDeveloperCommand(value: unknown): DeveloperCommand | null {
@@ -907,19 +911,28 @@ function parseDeveloperCommand(value: unknown): DeveloperCommand | null {
       : null;
   }
   if (value.type === 'play_item') {
-    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex']) &&
+    // `playlist` is optional and 1-based. Without it the command plays an
+    // item of the active playlist exactly as in 1.0.
+    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex', 'playlist']) &&
       typeof value.queueItemId === 'string' &&
       QUEUE_ITEM_UUID_RE.test(value.queueItemId) &&
       (value.youtubeSubIndex === undefined ||
         (isSafeNonNegativeInteger(value.youtubeSubIndex) &&
-          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS))
+          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS)) &&
+      (value.playlist === undefined || isPlaylistNumber(value.playlist))
       ? {
           type: 'play_item',
           queueItemId: value.queueItemId,
           ...(value.youtubeSubIndex === undefined
             ? {}
             : { youtubeSubIndex: value.youtubeSubIndex }),
+          ...(value.playlist === undefined ? {} : { playlist: value.playlist }),
         }
+      : null;
+  }
+  if (value.type === 'switch_playlist') {
+    return hasExactKeys(value, ['type', 'playlist']) && isPlaylistNumber(value.playlist)
+      ? { type: 'switch_playlist', playlist: value.playlist }
       : null;
   }
   if (value.type === 'set_effects') {
@@ -1326,6 +1339,22 @@ function validateCommandPayload(value: unknown, roomCode: string): JsonRecord | 
   return value;
 }
 
+function isPlaylistNumber(value: unknown): value is number {
+  return isSafeNonNegativeInteger(value) && value >= 1 && value <= PLAYLIST_COUNT;
+}
+
+function validPlaylistSummary(value: unknown, playlist: number, activePlaylist: number): boolean {
+  return (
+    hasExactKeys(value, ['playlist', 'active', 'itemCount', 'byteLength']) &&
+    value.playlist === playlist &&
+    value.active === (playlist === activePlaylist) &&
+    isSafeNonNegativeInteger(value.itemCount) &&
+    value.itemCount <= 1_000 &&
+    (value.byteLength === null ||
+      (isSafeNonNegativeInteger(value.byteLength) && value.byteLength > 0))
+  );
+}
+
 function validQueueItem(value: unknown): value is QueueItem {
   if (
     !hasExactKeys(
@@ -1475,6 +1504,60 @@ function validateFacadePayload(
       !isSafeNonNegativeInteger(value.playlistRevision) ||
       (value.currentQueueItemId !== null &&
         (typeof value.currentQueueItemId !== 'string' ||
+          !/^[A-Za-z0-9_-]{16,128}$/.test(value.currentQueueItemId))) ||
+      !Array.isArray(value.items) ||
+      value.items.length > 1_000 ||
+      !value.items.every(validQueueItem) ||
+      new Set(value.items.map((item) => item.queueItemId)).size !== value.items.length ||
+      (value.currentQueueItemId !== null &&
+        !value.items.some((item) => item.queueItemId === value.currentQueueItemId))
+    ) {
+      return null;
+    }
+    return value;
+  }
+  if (expectedView === 'playlists') {
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'playlistRevision',
+        'activePlaylist',
+        'playlists',
+      ]) ||
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      !isPlaylistNumber(value.activePlaylist) ||
+      !Array.isArray(value.playlists) ||
+      value.playlists.length !== PLAYLIST_COUNT
+    ) {
+      return null;
+    }
+    const activePlaylist = value.activePlaylist;
+    return value.playlists.every((entry: unknown, index) =>
+      validPlaylistSummary(entry, index + 1, activePlaylist),
+    )
+      ? value
+      : null;
+  }
+  if (expectedView === 'playlist-queue') {
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'playlist',
+        'active',
+        'playlistRevision',
+        'currentQueueItemId',
+        'items',
+      ]) ||
+      !isPlaylistNumber(value.playlist) ||
+      typeof value.active !== 'boolean' ||
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      (value.currentQueueItemId !== null &&
+        (!value.active ||
+          typeof value.currentQueueItemId !== 'string' ||
           !/^[A-Za-z0-9_-]{16,128}$/.test(value.currentQueueItemId))) ||
       !Array.isArray(value.items) ||
       value.items.length > 1_000 ||
@@ -1677,7 +1760,7 @@ interface BaseApiRoute {
 }
 
 type ApiRoute =
-  | (BaseApiRoute & { kind: 'read'; view: Projection })
+  | (BaseApiRoute & { kind: 'read'; view: Projection; playlist?: number })
   | (BaseApiRoute & { kind: 'command-status'; commandId: string })
   | (BaseApiRoute & { kind: 'command-create' })
   | (BaseApiRoute & { kind: 'queue-add' })
@@ -1687,7 +1770,7 @@ type ApiRoute =
   | (BaseApiRoute & { kind: 'queue-clear' })
   | (BaseApiRoute & { kind: 'queue-clear-owned' })
   | (BaseApiRoute & { kind: 'queue-reorder' })
-  | (BaseApiRoute & { kind: 'queue-remove'; queueItemId: string })
+  | (BaseApiRoute & { kind: 'queue-remove'; queueItemId: string; playlist?: number })
   | (BaseApiRoute & { kind: 'queue-mode-update' });
 
 function parseRoute(method: string, url: URL): ApiRoute | null {
@@ -1719,6 +1802,30 @@ function parseRoute(method: string, url: URL): ApiRoute | null {
                 : readView === 'effects'
                   ? SCOPE_EFFECTS_READ
                   : SCOPE_PLAYBACK_READ,
+      };
+    }
+    const playlistsMatch = url.pathname.match(/^\/v1\/rooms\/(0\d{5})\/playlists$/);
+    const playlistsRoomCode = playlistsMatch?.[1];
+    if (typeof playlistsRoomCode === 'string') {
+      return {
+        kind: 'read',
+        roomCode: playlistsRoomCode,
+        view: 'playlists',
+        requiredScope: SCOPE_QUEUE_READ,
+      };
+    }
+    const playlistQueueMatch = url.pathname.match(
+      /^\/v1\/rooms\/(0\d{5})\/playlists\/([1-3])\/queue$/,
+    );
+    const playlistQueueRoomCode = playlistQueueMatch?.[1];
+    const playlistQueueNumber = Number(playlistQueueMatch?.[2]);
+    if (typeof playlistQueueRoomCode === 'string' && isPlaylistNumber(playlistQueueNumber)) {
+      return {
+        kind: 'read',
+        roomCode: playlistQueueRoomCode,
+        view: 'playlist-queue',
+        playlist: playlistQueueNumber,
+        requiredScope: SCOPE_QUEUE_READ,
       };
     }
     const statusMatch = url.pathname.match(
@@ -1810,6 +1917,25 @@ function parseRoute(method: string, url: URL): ApiRoute | null {
       return {
         kind: 'queue-clear-owned',
         roomCode: clearOwnedRoomCode,
+        requiredScope: SCOPE_QUEUE_WRITE,
+      };
+    }
+    const playlistRemoveMatch = url.pathname.match(
+      /^\/v1\/rooms\/(0\d{5})\/playlists\/([1-3])\/queue\/items\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
+    );
+    const playlistRemoveRoomCode = playlistRemoveMatch?.[1];
+    const playlistRemoveNumber = Number(playlistRemoveMatch?.[2]);
+    const playlistRemoveQueueItemId = playlistRemoveMatch?.[3];
+    if (
+      typeof playlistRemoveRoomCode === 'string' &&
+      isPlaylistNumber(playlistRemoveNumber) &&
+      typeof playlistRemoveQueueItemId === 'string'
+    ) {
+      return {
+        kind: 'queue-remove',
+        roomCode: playlistRemoveRoomCode,
+        queueItemId: playlistRemoveQueueItemId,
+        playlist: playlistRemoveNumber,
         requiredScope: SCOPE_QUEUE_WRITE,
       };
     }
@@ -2040,6 +2166,7 @@ async function facadeRead(
             keyId: principal.keyId,
             projection: route.view,
             ...(route.view === 'effects' ? { effectsVersion } : {}),
+            ...(route.playlist === undefined ? {} : { playlist: route.playlist }),
           }),
         }),
       FACADE_RESPONSE_MAX_BYTES,
@@ -2059,7 +2186,9 @@ async function facadeRead(
       return { backendError: true };
     }
     const payload = validateFacadePayload(value, route.view, route.roomCode);
-    return payload ? { payload, facadeWorkerVersionId } : { invalidResponse: true };
+    return payload && (route.playlist === undefined || payload.playlist === route.playlist)
+      ? { payload, facadeWorkerVersionId }
+      : { invalidResponse: true };
   } catch {
     return { backendError: true };
   }
@@ -2502,10 +2631,22 @@ async function handleApiRequest(
         keyId: principal.keyId,
         roomCode: route.roomCode,
         idempotencyKey,
-        mutation: { type: 'remove', queueItemId: route.queueItemId },
+        mutation: {
+          type: 'remove',
+          queueItemId: route.queueItemId,
+          ...(route.playlist === undefined ? {} : { playlist: route.playlist }),
+        },
       };
       expectedStatus = 200;
-      validator = (value, roomCode) => validateFacadePayload(value, 'queue', roomCode);
+      const removalPlaylist = route.playlist;
+      // A removal from a named playlist answers with that playlist's queue.
+      validator =
+        removalPlaylist === undefined
+          ? (value, roomCode) => validateFacadePayload(value, 'queue', roomCode)
+          : (value, roomCode) => {
+              const payload = validateFacadePayload(value, 'playlist-queue', roomCode);
+              return payload?.playlist === removalPlaylist ? payload : null;
+            };
       auditAction = 'queue.remove';
     } else if (route.kind === 'queue-reorder') {
       const mutation = parseQueueOrder(

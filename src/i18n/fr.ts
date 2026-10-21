@@ -253,6 +253,13 @@ const fr: Record<I18nKey, string> = {
   'playlist.select_all': 'Tout sélectionner',
   'playlist.delete_selected': 'Supprimer {{count}} pistes sélectionnées',
   'playlist.selected_count': '{{count}} sélectionnés',
+  'playlist.slots_title': 'Plusieurs playlists',
+  'playlist.slots_subtitle':
+    'Utilisez plusieurs playlists pour passer rapidement d’une sélection de morceaux à l’autre',
+  'playlist.slot_tracks': '{{count}} pistes',
+  'playlist.move_title': 'Déplacer {{count}} pistes',
+  'playlist.copy_action': 'Copier',
+  'playlist.move_action': 'Déplacer',
   'playlist.video_fallback': 'Chargement…',
   'playlist.track_fallback': 'Piste {{idx}}',
   'playlist.deferred_load_hint': 'Lancez la lecture pour charger la liste complète',
@@ -292,9 +299,11 @@ const fr: Record<I18nKey, string> = {
   'connect.kicked_message': 'L’hôte a déconnecté cet appareil du salon.',
   'connect.copy_invite_link': 'Copier l’invitation',
   'connect.link_copied': 'Lien d’invitation copié',
-  'connect.room_password_title': 'Exiger un mot de passe pour rejoindre le salon',
+  'connect.room_password_title': 'Mot de passe du salon',
   'connect.room_password_toggle_aria': 'Activer/désactiver le mot de passe du salon',
   'connect.room_password_on': 'Mot de passe appliqué',
+  'connect.room_password_show': 'Afficher le mot de passe',
+  'connect.room_password_hide': 'Masquer le mot de passe',
   'connect.room_password_invalid': 'Saisissez 8 chiffres',
   'connect.room_password_disabled': 'Les participants n’ont plus besoin du mot de passe du salon',
   'connect.room_password_apply_pending':
@@ -521,6 +530,8 @@ const fr: Record<I18nKey, string> = {
   'toast.invite_code_info': '{{count}} connectés | Code {{code}}',
   'toast.added_tracks': '{{count}} pistes ajoutées',
   'toast.deleted_tracks': '{{count}} pistes supprimées',
+  'toast.copied_tracks': '{{count}} pistes copiées',
+  'toast.moved_tracks': '{{count}} pistes déplacées',
   'toast.preparing': 'Préparation : {{name}}',
   'toast.file_save_error': 'Erreur d’enregistrement du fichier : {{name}}',
   'toast.decoding_audio': 'Décodage audio…',
@@ -947,6 +958,8 @@ export default fr;
 
 export const pluralMessages = {
   'playlist.selected_count': { one: '{{count}} sélectionné' },
+  'playlist.slot_tracks': { one: '{{count}} piste' },
+  'playlist.move_title': { one: 'Déplacer {{count}} piste' },
   'connect.administrator_list': { one: '{{count}} administrateur' },
   'playlist.delete_selected': { one: 'Supprimer {{count}} piste sélectionnée' },
   'connect.device_list': { one: '{{count}} appareil connecté' },
@@ -961,6 +974,8 @@ export const pluralMessages = {
   },
   'toast.added_tracks': { one: '{{count}} piste ajoutée' },
   'toast.deleted_tracks': { one: '{{count}} piste supprimée' },
+  'toast.copied_tracks': { one: '{{count}} piste copiée' },
+  'toast.moved_tracks': { one: '{{count}} piste déplacée' },
   'toast.unsupported_files_excluded': {
     one: 'Fichier non pris en charge ignoré : {{count}}',
   },

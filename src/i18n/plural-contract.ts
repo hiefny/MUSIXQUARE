@@ -5,6 +5,8 @@ export type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';
 export const PLURAL_PARAM_BY_KEY = {
   'playlist.delete_selected': 'count',
   'playlist.selected_count': 'count',
+  'playlist.slot_tracks': 'count',
+  'playlist.move_title': 'count',
   'connect.device_list': 'count',
   'connect.administrator_list': 'count',
   'demo.session_body_connected': 'count',
@@ -14,6 +16,8 @@ export const PLURAL_PARAM_BY_KEY = {
   'chat.tracks_added_named': 'count',
   'toast.added_tracks': 'count',
   'toast.deleted_tracks': 'count',
+  'toast.copied_tracks': 'count',
+  'toast.moved_tracks': 'count',
   'toast.unsupported_files_excluded': 'count',
   'dialog.file_drop.message': 'count',
   'dialog.file_drop.unsupported_notice': 'count',

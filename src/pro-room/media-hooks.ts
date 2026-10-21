@@ -1,4 +1,9 @@
-import type { PlaylistItem, PlaylistRevision, QueueItemId } from '../types/index.ts';
+import type {
+  PlaylistItem,
+  PlaylistRevision,
+  PlaylistTransferMode,
+  QueueItemId,
+} from '../types/index.ts';
 
 export interface ProRoomMediaHooks {
   addFiles(files: readonly File[], rejectedCount: number): boolean;
@@ -8,6 +13,18 @@ export interface ProRoomMediaHooks {
     metadata: Pick<PlaylistItem, 'name' | 'title' | 'artist' | 'thumbnail'>,
   ): boolean;
   removeTracks(queueItemIds: readonly QueueItemId[]): boolean;
+  /** Make another playlist the room's active one; playback stops. */
+  switchPlaylist?(slot: number): boolean;
+  /**
+   * Copy or move active-playlist tracks to the end of other playlists.
+   * `onDone` runs once the room accepted the transfer.
+   */
+  transferTracks?(
+    queueItemIds: readonly QueueItemId[],
+    targetSlots: readonly number[],
+    mode: PlaylistTransferMode,
+    onDone?: () => void,
+  ): boolean;
   reorderTrack(
     queueItemId: QueueItemId,
     beforeQueueItemId: QueueItemId | null,
@@ -194,6 +211,21 @@ export function handleProRoomTrackMetadataForSession(
 
 export function handleProRoomTrackRemoval(queueItemIds: readonly QueueItemId[]): boolean {
   return activeMediaHookSession?.hooks.removeTracks(queueItemIds) ?? false;
+}
+
+export function handleProRoomPlaylistSwitch(slot: number): boolean {
+  return activeMediaHookSession?.hooks.switchPlaylist?.(slot) ?? false;
+}
+
+export function handleProRoomTrackTransfer(
+  queueItemIds: readonly QueueItemId[],
+  targetSlots: readonly number[],
+  mode: PlaylistTransferMode,
+  onDone?: () => void,
+): boolean {
+  return (
+    activeMediaHookSession?.hooks.transferTracks?.(queueItemIds, targetSlots, mode, onDone) ?? false
+  );
 }
 
 export function handleProRoomTrackReorder(

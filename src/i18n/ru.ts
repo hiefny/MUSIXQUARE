@@ -159,6 +159,13 @@ const ru: Record<I18nKey, string> = {
   'playlist.select_all': 'Выбрать все',
   'playlist.delete_selected': 'Удалить выбранные материалы: {{count}}',
   'playlist.selected_count': 'Выбрано: {{count}}',
+  'playlist.slots_title': 'Несколько плейлистов',
+  'playlist.slots_subtitle':
+    'Используйте несколько плейлистов, чтобы быстро переключаться между подборками песен',
+  'playlist.slot_tracks': 'Материалы: {{count}}',
+  'playlist.move_title': 'Переместить материалы: {{count}}',
+  'playlist.copy_action': 'Копировать',
+  'playlist.move_action': 'Переместить',
   'playlist.video_fallback': 'Загрузка...',
   'playlist.track_fallback': 'Материал {{idx}}',
   'playlist.deferred_load_hint':
@@ -292,9 +299,11 @@ const ru: Record<I18nKey, string> = {
   'connect.kicked_message': 'Хост исключил вас из комнаты.',
   'connect.copy_invite_link': 'Скопировать ссылку',
   'connect.link_copied': 'Ссылка для приглашения скопирована',
-  'connect.room_password_title': 'Требовать пароль для входа в комнату',
+  'connect.room_password_title': 'Пароль комнаты',
   'connect.room_password_toggle_aria': 'Переключить требование пароля для комнаты',
   'connect.room_password_on': 'Пароль установлен',
+  'connect.room_password_show': 'Показать пароль',
+  'connect.room_password_hide': 'Скрыть пароль',
   'connect.room_password_invalid': 'Введите 8-значный пароль',
   'connect.room_password_disabled': 'Для входа в эту комнату больше не требуется пароль',
   'connect.room_password_apply_pending':
@@ -555,6 +564,8 @@ const ru: Record<I18nKey, string> = {
   'toast.invite_code_info': 'Устройств: {{count}} | Код: {{code}}',
   'toast.added_tracks': 'Добавлено материалов: {{count}}',
   'toast.deleted_tracks': 'Удалено материалов: {{count}}',
+  'toast.copied_tracks': 'Скопировано материалов: {{count}}',
+  'toast.moved_tracks': 'Перемещено материалов: {{count}}',
   'toast.preparing': 'Готовится: {{name}}',
   'toast.file_save_error': 'Ошибка сохранения файла: {{name}}',
   'toast.decoding_audio': 'Декодирование аудио...',
@@ -957,6 +968,16 @@ export const pluralMessages = {
     few: 'Выбрано: {{count}}',
     many: 'Выбрано: {{count}}',
   },
+  'playlist.slot_tracks': {
+    one: '{{count}} материал',
+    few: '{{count}} материала',
+    many: '{{count}} материалов',
+  },
+  'playlist.move_title': {
+    one: 'Переместить {{count}} материал',
+    few: 'Переместить {{count}} материала',
+    many: 'Переместить {{count}} материалов',
+  },
   'connect.administrator_list': {
     one: '{{count}} администратор',
     few: '{{count}} администратора',
@@ -1006,6 +1027,16 @@ export const pluralMessages = {
     one: 'Удалён {{count}} материал',
     few: 'Удалено {{count}} материала',
     many: 'Удалено {{count}} материалов',
+  },
+  'toast.copied_tracks': {
+    one: 'Скопирован {{count}} материал',
+    few: 'Скопировано {{count}} материала',
+    many: 'Скопировано {{count}} материалов',
+  },
+  'toast.moved_tracks': {
+    one: 'Перемещён {{count}} материал',
+    few: 'Перемещено {{count}} материала',
+    many: 'Перемещено {{count}} материалов',
   },
   'toast.unsupported_files_excluded': {
     one: 'Пропущен {{count}} неподдерживаемый файл',

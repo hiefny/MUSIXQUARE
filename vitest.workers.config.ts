@@ -25,7 +25,7 @@ export default defineConfig({
       'src/core/__tests__/translation-community-route.test.ts',
       'src/developer-api/__tests__/{developer-api-credential,developer-api-facade-worker,developer-api-worker}.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker,signaling-liveness}.test.ts',
-      'src/pro-room/__tests__/{pro-room-claims,pro-room-generation,pro-room-grants,pro-room-permissions,pro-room-queue-mode,pro-room-worker,service-control,youtube-occurrence-manifest}.test.ts',
+      'src/pro-room/__tests__/{pro-room-claims,pro-room-generation,pro-room-grants,pro-room-permissions,pro-room-playlists,pro-room-queue-mode,pro-room-worker,service-control,youtube-occurrence-manifest}.test.ts',
       'src/pro-room/__tests__/pro-youtube-duration.test.ts',
       'src/pro-room/__tests__/pro-room-diagnostics.test.ts',
       'src/pro-room/__tests__/pro-room-do-diagnostics.test.ts',

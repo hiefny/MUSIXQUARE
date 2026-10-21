@@ -82,6 +82,69 @@ describe('standard operator queue request protocol', () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it('bounds playlist switch and transfer requests to the room playlists', async () => {
+    const switchHandler = vi.fn();
+    const transferHandler = vi.fn();
+    registerHandler(MSG.REQUEST_PLAYLIST_SWITCH, switchHandler);
+    registerHandler(MSG.REQUEST_PLAYLIST_TRANSFER, transferHandler);
+    const conn = liveConnection();
+    const switchRequest = {
+      type: MSG.REQUEST_PLAYLIST_SWITCH,
+      requestId: REQUEST_ID,
+      baseRevision: 2,
+      slot: 2,
+    } as const;
+    await handleData(switchRequest, conn);
+    await handleData({ ...switchRequest, slot: 3 }, conn);
+    await handleData({ ...switchRequest, slot: 1.5 }, conn);
+    await handleData({ ...switchRequest, extra: true }, conn);
+    expect(switchHandler).toHaveBeenCalledTimes(1);
+
+    const transfer = {
+      type: MSG.REQUEST_PLAYLIST_TRANSFER,
+      requestId: REQUEST_ID,
+      baseRevision: 2,
+      queueItemIds: [QID_A, QID_B],
+      targetSlots: [1, 2],
+      mode: 'copy',
+    } as const;
+    await handleData(transfer, conn);
+    await handleData({ ...transfer, mode: 'move' }, conn);
+    await handleData({ ...transfer, mode: 'swap' }, conn);
+    await handleData({ ...transfer, targetSlots: [] }, conn);
+    await handleData({ ...transfer, targetSlots: [0, 1, 2] }, conn);
+    await handleData({ ...transfer, targetSlots: [1, 1] }, conn);
+    await handleData({ ...transfer, queueItemIds: [QID_A, QID_A] }, conn);
+    expect(transferHandler).toHaveBeenCalledTimes(2);
+  });
+
+  it('accepts only an exact three-playlist summary from the host', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.PLAYLIST_SLOTS, handler);
+    const conn = liveHostConnection();
+    const summary = {
+      type: MSG.PLAYLIST_SLOTS,
+      activeSlot: 1,
+      slots: [
+        { count: 3, bytes: 1024 },
+        { count: 0, bytes: null },
+        { count: 2, bytes: null },
+      ],
+    } as const;
+    await handleData(summary, conn);
+    await handleData({ ...summary, slots: summary.slots.slice(0, 2) }, conn);
+    await handleData({ ...summary, activeSlot: 3 }, conn);
+    await handleData(
+      { ...summary, slots: [{ count: -1, bytes: null }, ...summary.slots.slice(1)] },
+      conn,
+    );
+    await handleData(
+      { ...summary, slots: [{ count: 1, bytes: null, extra: 1 }, ...summary.slots.slice(1)] },
+      conn,
+    );
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts only coherent exact queue mutation result phases', async () => {
     const handler = vi.fn();
     registerHandler(MSG.OPERATOR_QUEUE_MUTATION_RESULT, handler);

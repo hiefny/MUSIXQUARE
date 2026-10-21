@@ -160,6 +160,12 @@ const he: Record<I18nKey, string> = {
   'playlist.select_all': 'בחירת הכול',
   'playlist.delete_selected': 'מחיקת {{count}} הרצועות שנבחרו',
   'playlist.selected_count': '{{count}} נבחרו',
+  'playlist.slots_title': 'רשימות השמעה מרובות',
+  'playlist.slots_subtitle': 'השתמשו בכמה רשימות השמעה כדי לעבור במהירות בין אוספי שירים',
+  'playlist.slot_tracks': '{{count}} רצועות',
+  'playlist.move_title': 'העברת {{count}} רצועות',
+  'playlist.copy_action': 'העתקה',
+  'playlist.move_action': 'העברה',
   'playlist.video_fallback': 'בטעינה...',
   'playlist.track_fallback': 'רצועה {{idx}}',
   'playlist.deferred_load_hint': 'יש להפעיל כדי לטעון את רשימת הרצועות המלאה',
@@ -287,9 +293,11 @@ const he: Record<I18nKey, string> = {
   'connect.kicked_message': 'המארח הסיר אותך מהחדר.',
   'connect.copy_invite_link': 'העתקת קישור ההזמנה',
   'connect.link_copied': 'קישור ההזמנה הועתק',
-  'connect.room_password_title': 'דרישת סיסמה להצטרפות',
+  'connect.room_password_title': 'סיסמת החדר',
   'connect.room_password_toggle_aria': 'הפעלה או כיבוי של דרישת סיסמה לחדר',
   'connect.room_password_on': 'הסיסמה הוחלה',
+  'connect.room_password_show': 'הצגת הסיסמה',
+  'connect.room_password_hide': 'הסתרת הסיסמה',
   'connect.room_password_invalid': 'יש להזין 8 ספרות',
   'connect.room_password_disabled': 'משתתפים אינם צריכים עוד את סיסמת החדר',
   'connect.room_password_apply_pending': 'הסיסמה החדשה תיכנס לתוקף כשהחיבור יחזור',
@@ -537,6 +545,8 @@ const he: Record<I18nKey, string> = {
   'toast.invite_code_info': 'מחוברים: {{count}} | קוד {{code}}',
   'toast.added_tracks': 'נוספו {{count}} רצועות',
   'toast.deleted_tracks': 'נמחקו {{count}} רצועות',
+  'toast.copied_tracks': 'הועתקו {{count}} רצועות',
+  'toast.moved_tracks': 'הועברו {{count}} רצועות',
   'toast.preparing': 'בהכנה: {{name}}',
   'toast.file_save_error': 'שגיאה בשמירת הקובץ: {{name}}',
   'toast.decoding_audio': 'השמע מפוענח...',
@@ -902,6 +912,8 @@ export default he;
 
 export const pluralMessages = {
   'playlist.selected_count': { one: 'נבחר פריט {{count}}' },
+  'playlist.slot_tracks': { one: '{{count}} רצועה' },
+  'playlist.move_title': { one: 'העברת {{count}} רצועה' },
   'playlist.delete_selected': {
     one: 'מחיקת {{count}} רצועה שנבחרה',
   },
@@ -926,6 +938,8 @@ export const pluralMessages = {
   'toast.deleted_tracks': {
     one: 'נמחקה {{count}} רצועה',
   },
+  'toast.copied_tracks': { one: 'הועתקה {{count}} רצועה' },
+  'toast.moved_tracks': { one: 'הועברה {{count}} רצועה' },
   'dialog.file_drop.message': {
     one: 'להוסיף {{count}} קובץ?',
   },

@@ -36,6 +36,10 @@ interface PlaylistRemovalControllerOptions {
   isRemovalLocal?: () => boolean;
   onSelectionStart?: () => void;
   onSelectionEnd?: () => void;
+  /** True when the room has other playlists to copy or move tracks to. */
+  canMove?: () => boolean;
+  /** Open the move dialog for the selected tracks, in playlist order. */
+  onMove?: (queueItemIds: readonly QueueItemId[]) => void;
 }
 
 export interface PlaylistRemovalController {
@@ -71,6 +75,7 @@ function canAnimate(element: Element): boolean {
 
 function createBar(list: HTMLElement): {
   bar: HTMLElement;
+  moveButton: HTMLButtonElement;
   deleteButton: HTMLButtonElement;
   cancelButton: HTMLButtonElement;
 } {
@@ -78,8 +83,10 @@ function createBar(list: HTMLElement): {
   bar.className = 'playlist-selection-bar';
   bar.setAttribute('role', 'group');
   bar.hidden = true;
-  // Material "delete" and "close" icons; their names come from renderBarLabels.
+  // Material "drive_file_move", "delete" and "close" icons; their names come
+  // from renderBarLabels.
   bar.innerHTML = `
+    <button type="button" class="playlist-selection-action playlist-selection-move" data-selection-action="move" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6h-8l-2-2H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-6 12v-3h-4v-4h4V8l5 5-5 5z"/></svg></button>
     <button type="button" class="playlist-selection-action playlist-selection-delete" data-selection-action="delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button>
     <button type="button" class="playlist-selection-action playlist-selection-cancel" data-selection-action="cancel"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"/></svg></button>`;
   // The bar follows the last track in the scrolling list body; CSS makes it
@@ -87,6 +94,7 @@ function createBar(list: HTMLElement): {
   list.insertAdjacentElement('afterend', bar);
   return {
     bar,
+    moveButton: bar.querySelector<HTMLButtonElement>('.playlist-selection-move')!,
     deleteButton: bar.querySelector<HTMLButtonElement>('.playlist-selection-delete')!,
     cancelButton: bar.querySelector<HTMLButtonElement>('.playlist-selection-cancel')!,
   };
@@ -145,7 +153,7 @@ export function createPlaylistRemovalController(
   const { list } = options;
   const container = list.closest('#tab-playlist') ?? list.parentElement;
   const selectedQueueItemIds = new Set<QueueItemId>();
-  const { bar, deleteButton, cancelButton } = createBar(list);
+  const { bar, moveButton, deleteButton, cancelButton } = createBar(list);
   const { header, title, toggleButton } = createHeaderControls(container);
   const abortController = new AbortController();
   let lastTriggerQueueItemId: QueueItemId | null = null;
@@ -218,6 +226,7 @@ export function createPlaylistRemovalController(
   }
 
   function renderBarLabels(): void {
+    setButtonLabel(moveButton, t('playlist.move_action'));
     setButtonLabel(deleteButton, t('common.delete'));
     setButtonLabel(cancelButton, t('common.cancel'));
     bar.setAttribute('aria-label', t('playlist.remove_title'));
@@ -336,6 +345,7 @@ export function createPlaylistRemovalController(
     wasSelectionActive = active;
     const allSelected = active && items.length > 0 && selectedCount === items.length;
     list.classList.toggle('has-removal-selection', active);
+    moveButton.hidden = !(options.canMove?.() ?? false);
 
     for (const button of list.querySelectorAll<HTMLButtonElement>(SELECT_BUTTON_SELECTOR)) {
       const queueItemId = queueItemIdFromButton(button);
@@ -534,7 +544,12 @@ export function createPlaylistRemovalController(
     const action = target?.closest<HTMLElement>('[data-selection-action]')?.dataset.selectionAction;
     if (action === 'select-all' || action === 'deselect-all') toggleSelectAll();
     else if (action === 'delete') deleteSelected();
-    else if (action === 'cancel') cancel({ restoreFocus: true });
+    else if (action === 'move') {
+      const selected = visibleItems()
+        .map((item) => item.queueItemId)
+        .filter((queueItemId) => selectedQueueItemIds.has(queueItemId));
+      if (selected.length > 0) options.onMove?.(selected);
+    } else if (action === 'cancel') cancel({ restoreFocus: true });
   };
   bar.addEventListener('click', handleAction, { signal: abortController.signal });
   toggleButton?.addEventListener('click', handleAction, { signal: abortController.signal });

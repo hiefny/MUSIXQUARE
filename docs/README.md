@@ -90,6 +90,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Multiple playlists per room — 2026-10-21](design/multi-playlist-2026-10-21.md) — three playlists per room
+  ("Playlist", "Playlist 2", "Playlist 3"): the tab title becomes the switcher (room-wide switch, playback stops),
+  edit mode copies or moves tracks between playlists, PRO rooms show storage use, and the bot and developer API can
+  address a track in a given playlist. `playlist.items` stays the active playlist on every existing wire path, so
+  older clients see only that one; standard hosts announce summaries in a new frame and PRO clients opt in by header.
+  [PRO implementation](design/multi-playlist-pro-2026-10-21.md)
 - [Worker fetch redirect mode — 2026-10-21](design/worker-redirect-mode-2026-10-21.md) — the Workers runtime throws
   "Invalid redirect value" for `redirect: 'error'`, so the blog image R2 mirror (since 2026-09-04) and both hops of the
   PRO YouTube duration lookup (since 8.9.5) failed before any request; all three use `manual` (3xx still refused) and a

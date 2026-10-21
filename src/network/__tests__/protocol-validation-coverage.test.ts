@@ -19,7 +19,7 @@ describe('protocol validation coverage', () => {
   it('classifies every declared message type', () => {
     const types = Object.values(MSG);
 
-    expect(types).toHaveLength(118);
+    expect(types).toHaveLength(121);
     expect(new Set(types).size).toBe(types.length);
   });
 });

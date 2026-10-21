@@ -159,6 +159,13 @@ const pl: Record<I18nKey, string> = {
   'playlist.select_all': 'Zaznacz wszystko',
   'playlist.delete_selected': 'Usuń zaznaczone materiały: {{count}}',
   'playlist.selected_count': 'Wybrano {{count}}',
+  'playlist.slots_title': 'Kilka playlist',
+  'playlist.slots_subtitle':
+    'Korzystaj z kilku playlist, aby szybko przełączać się między zestawami utworów',
+  'playlist.slot_tracks': 'Materiały: {{count}}',
+  'playlist.move_title': 'Przenieś materiały: {{count}}',
+  'playlist.copy_action': 'Kopiuj',
+  'playlist.move_action': 'Przenieś',
   'playlist.video_fallback': 'Ładowanie…',
   'playlist.track_fallback': 'Materiał {{idx}}',
   'playlist.deferred_load_hint':
@@ -293,9 +300,11 @@ const pl: Record<I18nKey, string> = {
   'connect.kicked_message': 'Host wyrzucił to urządzenie z pokoju.',
   'connect.copy_invite_link': 'Kopiuj zaproszenie',
   'connect.link_copied': 'Link zaproszenia skopiowany',
-  'connect.room_password_title': 'Wymagaj hasła przy wejściu do pokoju',
+  'connect.room_password_title': 'Hasło pokoju',
   'connect.room_password_toggle_aria': 'Przełącz wymaganie hasła do pokoju',
   'connect.room_password_on': 'Hasło aktywne',
+  'connect.room_password_show': 'Pokaż hasło',
+  'connect.room_password_hide': 'Ukryj hasło',
   'connect.room_password_invalid': 'Wpisz 8-cyfrowe hasło',
   'connect.room_password_disabled': 'Wejście do tego pokoju nie wymaga już hasła',
   'connect.room_password_apply_pending':
@@ -558,6 +567,8 @@ const pl: Record<I18nKey, string> = {
   'toast.invite_code_info': 'Urządzenia: {{count}} | Kod: {{code}}',
   'toast.added_tracks': 'Dodane materiały: {{count}}',
   'toast.deleted_tracks': 'Usunięte materiały: {{count}}',
+  'toast.copied_tracks': 'Skopiowane materiały: {{count}}',
+  'toast.moved_tracks': 'Przeniesione materiały: {{count}}',
   'toast.preparing': 'Przygotowanie: {{name}}',
   'toast.file_save_error': 'Błąd zapisu pliku: {{name}}',
   'toast.decoding_audio': 'Dekodowanie dźwięku w toku…',
@@ -959,6 +970,16 @@ export const pluralMessages = {
     few: 'Wybrano {{count}}',
     many: 'Wybrano {{count}}',
   },
+  'playlist.slot_tracks': {
+    one: '{{count}} materiał',
+    few: '{{count}} materiały',
+    many: '{{count}} materiałów',
+  },
+  'playlist.move_title': {
+    one: 'Przenieś {{count}} materiał',
+    few: 'Przenieś {{count}} materiały',
+    many: 'Przenieś {{count}} materiałów',
+  },
   'connect.administrator_list': {
     one: 'Administrator: {{count}}',
     few: 'Administratorzy: {{count}}',
@@ -1008,6 +1029,16 @@ export const pluralMessages = {
     one: 'Usunięto {{count}} materiał',
     few: 'Usunięto {{count}} materiały',
     many: 'Usunięto {{count}} materiałów',
+  },
+  'toast.copied_tracks': {
+    one: 'Skopiowano {{count}} materiał',
+    few: 'Skopiowano {{count}} materiały',
+    many: 'Skopiowano {{count}} materiałów',
+  },
+  'toast.moved_tracks': {
+    one: 'Przeniesiono {{count}} materiał',
+    few: 'Przeniesiono {{count}} materiały',
+    many: 'Przeniesiono {{count}} materiałów',
   },
   'toast.unsupported_files_excluded': {
     one: 'Pominięto {{count}} nieobsługiwany plik',

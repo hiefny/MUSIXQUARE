@@ -354,6 +354,8 @@ const OVERLAYS = [
   { id: 'account-dialog-overlay', cls: 'show', fullscreen: false },
   { id: 'administrator-permissions-overlay', cls: 'show', fullscreen: false },
   { id: 'language-dialog-overlay', cls: 'show', fullscreen: false },
+  { id: 'playlist-slots-overlay', cls: 'show', fullscreen: false },
+  { id: 'playlist-transfer-overlay', cls: 'show', fullscreen: false },
   { id: 'manual-sync-overlay', cls: 'show', fullscreen: false },
   {
     id: 'onboarding-diagnostics-overlay',

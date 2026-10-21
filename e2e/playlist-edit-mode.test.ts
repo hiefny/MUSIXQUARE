@@ -137,9 +137,10 @@ test.describe('Playlist edit mode (mouse)', () => {
       mark: '1',
     });
 
-    // The panel holds two circular icon buttons.
+    // The panel holds three circular icon buttons: move (the room has other
+    // playlists), delete and close.
     const actions = page.locator('.playlist-selection-bar .playlist-selection-action');
-    await expect(actions).toHaveCount(2);
+    await expect(actions).toHaveCount(3);
     const actionLooks = await actions.evaluateAll((buttons) =>
       buttons.map((button) => {
         const rect = button.getBoundingClientRect();
@@ -158,6 +159,17 @@ test.describe('Playlist edit mode (mouse)', () => {
       }),
     );
     expect(actionLooks).toEqual([
+      {
+        label: 'Move',
+        title: 'Move',
+        text: '',
+        width: 54,
+        height: 54,
+        radius: '999px',
+        background: await cssColor(page, 'var(--primary-filled)'),
+        color: 'rgb(255, 255, 255)',
+        icon: true,
+      },
       {
         label: 'Delete',
         title: 'Delete',

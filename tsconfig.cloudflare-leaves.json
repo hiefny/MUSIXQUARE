@@ -27,6 +27,7 @@
     "cloudflare/pro-room-claims.ts",
     "cloudflare/pro-room-crypto.ts",
     "cloudflare/pro-room-effects.ts",
+    "cloudflare/pro-room-playlists.ts",
     "cloudflare/pro-room-queue-mode.ts",
     "cloudflare/pro-youtube-duration.ts",
     "cloudflare/service-maintenance.ts"

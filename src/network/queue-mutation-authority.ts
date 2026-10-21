@@ -34,7 +34,9 @@ export type StandardQueueMutationResultCode = NonNullable<QueueMutationResult['c
 type StandardQueueMutationRequest =
   | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_ADD_YOUTUBE>
   | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REMOVE>
-  | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REORDER>;
+  | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_REORDER>
+  | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_SWITCH>
+  | ProtocolMsg<typeof MSG.REQUEST_PLAYLIST_TRANSFER>;
 
 function requiredQueueMutationCapability(
   messageOrName: StandardQueueMutationRequest | StandardQueueMutationRequest['type'],
@@ -61,6 +63,7 @@ interface HostMutationSettlement {
 interface PendingGuestMutation {
   conn: DataConnection;
   accepted: boolean;
+  onApplied?: () => void;
 }
 
 const requestsByConnection = new WeakMap<DataConnection, Map<string, HostMutationRecord>>();
@@ -296,7 +299,10 @@ export function settleStandardQueueMutationRequest(
  * No automatic retry is performed: a silent old host gets a compatibility
  * timeout, while the UI re-renders from its last authoritative snapshot.
  */
-export function sendStandardQueueMutationRequest(message: StandardQueueMutationRequest): boolean {
+export function sendStandardQueueMutationRequest(
+  message: StandardQueueMutationRequest,
+  onApplied?: () => void,
+): boolean {
   const conn = getState('network.hostConn');
   if (
     getRoomContext().kind !== 'standard' ||
@@ -319,7 +325,7 @@ export function sendStandardQueueMutationRequest(message: StandardQueueMutationR
     return false;
   }
 
-  pendingGuestMutations.set(message.requestId, { conn, accepted: false });
+  pendingGuestMutations.set(message.requestId, { conn, accepted: false, onApplied });
   const scope = ensureGuestMutationScope();
   scope.timer(
     acceptTimerKey(message.requestId),
@@ -354,6 +360,8 @@ function handleQueueMutationResult(data: QueueMutationResult, conn: DataConnecti
   if (data.outcome === 'rejected') {
     bus.emit('playlist:refresh-requested');
     bus.emit('standard-room:queue-mutation-failed', 'rejected', data.code);
+  } else {
+    pending.onApplied?.();
   }
 }
 

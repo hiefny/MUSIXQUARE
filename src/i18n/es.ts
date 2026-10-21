@@ -104,7 +104,7 @@ const es: Record<I18nKey, string> = {
 
   // Navigation
   'nav.home': 'Inicio',
-  'nav.playlist': 'Lista de reproducción',
+  'nav.playlist': 'Lista',
   'nav.settings': 'Ajustes',
   'nav.help': 'Ayuda',
   'nav.connect': 'Conectar',
@@ -254,6 +254,13 @@ const es: Record<I18nKey, string> = {
   'playlist.select_all': 'Seleccionar todo',
   'playlist.delete_selected': 'Eliminar {{count}} pistas seleccionadas',
   'playlist.selected_count': '{{count}} seleccionados',
+  'playlist.slots_title': 'Varias listas',
+  'playlist.slots_subtitle':
+    'Usa varias listas de reproducción para cambiar rápido entre grupos de canciones',
+  'playlist.slot_tracks': '{{count}} pistas',
+  'playlist.move_title': 'Mover {{count}} pistas',
+  'playlist.copy_action': 'Copiar',
+  'playlist.move_action': 'Mover',
   'playlist.video_fallback': 'Cargando...',
   'playlist.track_fallback': 'Pista {{idx}}',
   'playlist.deferred_load_hint': 'Reproduce para cargar la lista completa de pistas',
@@ -294,9 +301,11 @@ const es: Record<I18nKey, string> = {
   'connect.kicked_message': 'El anfitrión te expulsó de la sala.',
   'connect.copy_invite_link': 'Copiar enlace',
   'connect.link_copied': 'Enlace de invitación copiado',
-  'connect.room_password_title': 'Exigir contraseña para entrar',
+  'connect.room_password_title': 'Contraseña de la sala',
   'connect.room_password_toggle_aria': 'Cambiar requisito de contraseña de la sala',
   'connect.room_password_on': 'Contraseña aplicada',
+  'connect.room_password_show': 'Mostrar contraseña',
+  'connect.room_password_hide': 'Ocultar contraseña',
   'connect.room_password_invalid': 'Ingresa 8 dígitos',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
   'connect.room_password_apply_pending':
@@ -528,6 +537,8 @@ const es: Record<I18nKey, string> = {
   'toast.invite_code_info': '{{count}} conectados | Código {{code}}',
   'toast.added_tracks': '{{count}} pistas añadidas',
   'toast.deleted_tracks': '{{count}} pistas eliminadas',
+  'toast.copied_tracks': '{{count}} pistas copiadas',
+  'toast.moved_tracks': '{{count}} pistas movidas',
   'toast.preparing': 'Preparando: {{name}}',
   'toast.file_save_error': 'Error al guardar archivo: {{name}}',
   'toast.decoding_audio': 'Decodificando audio...',
@@ -957,6 +968,8 @@ export default es;
 
 export const pluralMessages = {
   'playlist.selected_count': { one: '{{count}} seleccionado' },
+  'playlist.slot_tracks': { one: '{{count}} pista' },
+  'playlist.move_title': { one: 'Mover {{count}} pista' },
   'connect.administrator_list': { one: '{{count}} administrador' },
   'playlist.delete_selected': { one: 'Eliminar {{count}} pista seleccionada' },
   'connect.device_list': { one: '{{count}} dispositivo conectado' },
@@ -971,6 +984,8 @@ export const pluralMessages = {
   },
   'toast.added_tracks': { one: '{{count}} pista añadida' },
   'toast.deleted_tracks': { one: '{{count}} pista eliminada' },
+  'toast.copied_tracks': { one: '{{count}} pista copiada' },
+  'toast.moved_tracks': { one: '{{count}} pista movida' },
   'toast.unsupported_files_excluded': {
     one: 'Archivo no compatible omitido: {{count}}',
   },

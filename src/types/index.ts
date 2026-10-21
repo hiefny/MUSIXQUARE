@@ -138,6 +138,26 @@ export type YouTubeSyncLoadingOwner = 'rendezvous' | 'clock-action' | 'zero-star
 export type FileRequestId = number;
 export type PlaylistRevision = number;
 
+/** One playlist's summary. `bytes` is null when its size is unknown. */
+export interface PlaylistSlotSummary {
+  readonly count: number;
+  readonly bytes: number | null;
+}
+
+/** Every playlist of the room, by slot index (0 = the unnumbered default). */
+export interface PlaylistSlotsSummary {
+  readonly activeSlot: number;
+  readonly slots: readonly PlaylistSlotSummary[];
+}
+
+export interface PlaylistStorageUsage {
+  readonly usedBytes: number;
+  readonly limitBytes: number;
+}
+
+/** Copy keeps the tracks in the current playlist; move takes them out. */
+export type PlaylistTransferMode = 'copy' | 'move';
+
 export type ProPlaybackUiControlKind = 'play' | 'pause' | 'seek';
 
 /**
@@ -622,6 +642,25 @@ export interface ProtocolMap {
     baseRevision: PlaylistRevision;
     queueItemIds: QueueItemId[];
   };
+  /** Standard-room operator request: make another playlist the active one. */
+  'request-playlist-switch': {
+    requestId: string;
+    baseRevision: PlaylistRevision;
+    slot: number;
+  };
+  /** Standard-room operator request: copy or move tracks to other playlists. */
+  'request-playlist-transfer': {
+    requestId: string;
+    baseRevision: PlaylistRevision;
+    queueItemIds: QueueItemId[];
+    targetSlots: number[];
+    mode: PlaylistTransferMode;
+  };
+  /** Host→guest summary of every playlist; older guests drop it unread. */
+  'playlist-slots': {
+    activeSlot: number;
+    slots: PlaylistSlotSummary[];
+  };
   /** Standard-room operator request; insertion is expressed by stable queue IDs. */
   'request-playlist-reorder': {
     requestId: string;
@@ -1056,6 +1095,14 @@ export interface StateTree {
     revision: PlaylistRevision;
     repeatMode: number;
     isShuffle: boolean;
+    /**
+     * The room's playlists as summaries; `items` above is always the active
+     * one. Null while the room authority has not announced playlists (an
+     * older host or Worker), which hides the playlist switcher.
+     */
+    slots: PlaylistSlotsSummary | null;
+    /** PRO room storage use across all playlists; null outside PRO rooms. */
+    storageUsage: PlaylistStorageUsage | null;
   };
   files: { current: ResidentFile | null };
   youtube: {

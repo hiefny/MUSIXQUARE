@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ProRoomApiError, type UpdateProRoomCompactSnapshotInput } from '../api.ts';
+import {
+  ProRoomApiError,
+  type SwitchProRoomPlaylistInput,
+  type TransferProRoomPlaylistTracksInput,
+  type UpdateProRoomCompactSnapshotInput,
+} from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
@@ -1796,5 +1801,168 @@ describe('PRO room playlist state manager', () => {
     expect(media.upload).not.toHaveBeenCalled();
     expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
     expect(createIdempotencyKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('PRO room playlist slots', () => {
+  function slotted(
+    activeSlot: number,
+    playlist: ProRoomPlaylistWireItem[],
+    counts: [number, number, number],
+    overrides: Partial<ProRoomSnapshot> = {},
+  ): ProRoomSnapshot {
+    return activeSnapshot({
+      playlist,
+      playlistSlots: {
+        activeSlot,
+        slots: counts.map((count, slot) => ({
+          count: slot === activeSlot ? playlist.length : count,
+          bytes: null,
+        })),
+      },
+      ...overrides,
+    });
+  }
+
+  function slotApi(initial: ProRoomSnapshot) {
+    let server = initial;
+    const api = {
+      getSnapshot: vi.fn(async () => server),
+      updateCompactSnapshot: vi.fn(async () => server),
+      switchPlaylist: vi.fn(async (input: SwitchProRoomPlaylistInput) => {
+        if (input.baseRevision !== server.revision) {
+          throw new ProRoomApiError('REVISION_CONFLICT', 409);
+        }
+        server = slotted(input.slot, [], [0, 0, 0], { revision: server.revision + 1 });
+        return server;
+      }),
+      transferPlaylistTracks: vi.fn(async (input: TransferProRoomPlaylistTracksInput) => {
+        if (input.baseRevision !== server.revision) {
+          throw new ProRoomApiError('REVISION_CONFLICT', 409);
+        }
+        const moved = new Set(input.queueItemIds);
+        const playlist =
+          input.mode === 'move'
+            ? server.playlist.filter((item) => !moved.has(item.queueItemId))
+            : server.playlist;
+        server = slotted(server.playlistSlots!.activeSlot, playlist, [0, 1, 1], {
+          revision: server.revision + 1,
+        });
+        return server;
+      }),
+      setServer(next: ProRoomSnapshot) {
+        server = next;
+      },
+    };
+    return api;
+  }
+
+  async function managerFor(initial: ProRoomSnapshot, api: ReturnType<typeof slotApi>) {
+    const sink = vi.fn();
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink,
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+    return { manager, sink };
+  }
+
+  it('switches against the local room revision and projects the reply', async () => {
+    const initial = slotted(0, [youtube(A)], [1, 3, 0]);
+    const api = slotApi(initial);
+    const { manager, sink } = await managerFor(initial, api);
+
+    const accepted = await manager.switchPlaylist(1);
+
+    expect(api.switchPlaylist).toHaveBeenCalledWith(
+      { code: ROOM_CODE, baseRevision: 1, slot: 1, idempotencyKey: 'idempotency-1' },
+      undefined,
+    );
+    expect(accepted.playlistSlots?.activeSlot).toBe(1);
+    expect(manager.snapshot?.revision).toBe(2);
+    expect(sink).toHaveBeenCalledTimes(2);
+  });
+
+  it('treats switching to the active playlist as a no-op', async () => {
+    const initial = slotted(2, [youtube(A)], [0, 0, 1]);
+    const api = slotApi(initial);
+    const { manager } = await managerFor(initial, api);
+
+    await expect(manager.switchPlaylist(2)).resolves.toMatchObject({ revision: 1 });
+    expect(api.switchPlaylist).not.toHaveBeenCalled();
+  });
+
+  it('refreshes once after a revision conflict and retries the switch', async () => {
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const api = slotApi(initial);
+    const { manager } = await managerFor(initial, api);
+    api.setServer(slotted(0, [youtube(A), youtube(B)], [2, 0, 0], { revision: 5 }));
+
+    const accepted = await manager.switchPlaylist(2);
+
+    expect(api.getSnapshot).toHaveBeenCalledOnce();
+    expect(api.switchPlaylist).toHaveBeenCalledTimes(2);
+    expect(api.switchPlaylist.mock.calls[1]?.[0]).toMatchObject({ baseRevision: 5, slot: 2 });
+    expect(accepted).toMatchObject({ revision: 6, playlistSlots: { activeSlot: 2 } });
+  });
+
+  it('skips the retry when the refreshed room already switched', async () => {
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const api = slotApi(initial);
+    const { manager } = await managerFor(initial, api);
+    api.setServer(slotted(1, [], [1, 0, 0], { revision: 4 }));
+
+    await expect(manager.switchPlaylist(1)).resolves.toMatchObject({ revision: 4 });
+    expect(api.switchPlaylist).toHaveBeenCalledOnce();
+  });
+
+  it('transfers rows in active order and rebases away rows and targets that left', async () => {
+    const initial = slotted(0, [youtube(A), youtube(B), youtube(C)], [3, 0, 0]);
+    const api = slotApi(initial);
+    const { manager } = await managerFor(initial, api);
+
+    await manager.transferTracks([C, A], [1], 'copy');
+    expect(api.transferPlaylistTracks.mock.calls[0]?.[0]).toEqual({
+      code: ROOM_CODE,
+      baseRevision: 1,
+      queueItemIds: [A, C],
+      targetSlots: [1],
+      mode: 'copy',
+      idempotencyKey: 'idempotency-1',
+    });
+
+    // Another participant removed A and made slot 1 active meanwhile.
+    api.setServer(slotted(1, [youtube(B), youtube(C)], [3, 0, 0], { revision: 9 }));
+    const accepted = await manager.transferTracks([A, B], [1, 2], 'move');
+
+    expect(api.getSnapshot).toHaveBeenCalledOnce();
+    expect(api.transferPlaylistTracks.mock.calls.at(-1)?.[0]).toMatchObject({
+      baseRevision: 9,
+      queueItemIds: [B],
+      targetSlots: [2],
+      mode: 'move',
+    });
+    expect(accepted.playlist.map((item) => item.queueItemId)).toEqual([C]);
+  });
+
+  it('fails closed without playlist summaries or with invalid arguments', async () => {
+    const legacy = activeSnapshot({ playlist: [youtube(A)] });
+    const api = slotApi(legacy);
+    const { manager } = await managerFor(legacy, api);
+
+    await expect(manager.switchPlaylist(1)).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SLOTS_UNAVAILABLE',
+    });
+    await expect(manager.switchPlaylist(3)).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SLOT_INVALID',
+    });
+    await expect(manager.transferTracks([A], [], 'copy')).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_TRANSFER_INVALID',
+    });
+    expect(api.switchPlaylist).not.toHaveBeenCalled();
+    expect(api.transferPlaylistTracks).not.toHaveBeenCalled();
   });
 });

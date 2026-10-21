@@ -371,6 +371,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-room-generation.ts',
     'cloudflare/pro-room-effects.ts',
     'cloudflare/pro-room-permissions.ts',
+    'cloudflare/pro-room-playlists.ts',
     'cloudflare/pro-room-queue-mode.ts',
     'cloudflare/pro-room-validation.ts',
     'cloudflare/account-assertion.ts',

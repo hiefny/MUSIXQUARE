@@ -161,6 +161,13 @@ const nl: Record<I18nKey, string> = {
   'playlist.select_all': 'Alles selecteren',
   'playlist.delete_selected': '{{count}} geselecteerde tracks verwijderen',
   'playlist.selected_count': '{{count}} geselecteerd',
+  'playlist.slots_title': 'Meerdere afspeellijsten',
+  'playlist.slots_subtitle':
+    'Gebruik meerdere afspeellijsten om snel tussen sets nummers te wisselen',
+  'playlist.slot_tracks': '{{count}} tracks',
+  'playlist.move_title': '{{count}} tracks verplaatsen',
+  'playlist.copy_action': 'Kopiëren',
+  'playlist.move_action': 'Verplaatsen',
   'playlist.video_fallback': 'Laden...',
   'playlist.track_fallback': 'Track {{idx}}',
   'playlist.deferred_load_hint': 'Speel af om de volledige tracklijst te laden',
@@ -293,9 +300,11 @@ const nl: Record<I18nKey, string> = {
   'connect.kicked_message': 'De host heeft je uit de kamer verwijderd.',
   'connect.copy_invite_link': 'Uitnodiging kopiëren',
   'connect.link_copied': 'Uitnodigingslink gekopieerd',
-  'connect.room_password_title': 'Wachtwoord vereisen',
+  'connect.room_password_title': 'Kamerwachtwoord',
   'connect.room_password_toggle_aria': 'Kamerwachtwoord in- of uitschakelen',
   'connect.room_password_on': 'Wachtwoord toegepast',
+  'connect.room_password_show': 'Wachtwoord tonen',
+  'connect.room_password_hide': 'Wachtwoord verbergen',
   'connect.room_password_invalid': 'Voer 8 cijfers in',
   'connect.room_password_disabled': 'Deelnemers hebben geen wachtwoord meer nodig',
   'connect.room_password_apply_pending':
@@ -562,6 +571,8 @@ const nl: Record<I18nKey, string> = {
   'toast.invite_code_info': '{{count}} verbonden | Code {{code}}',
   'toast.added_tracks': '{{count}} tracks toegevoegd',
   'toast.deleted_tracks': '{{count}} tracks verwijderd',
+  'toast.copied_tracks': '{{count}} tracks gekopieerd',
+  'toast.moved_tracks': '{{count}} tracks verplaatst',
   'toast.preparing': 'Voorbereiden: {{name}}',
   'toast.file_save_error': 'Bestand opslaan mislukt: {{name}}',
   'toast.decoding_audio': 'Audio decoderen...',
@@ -948,6 +959,8 @@ export default nl;
 
 export const pluralMessages = {
   'playlist.selected_count': { one: '{{count}} geselecteerd' },
+  'playlist.slot_tracks': { one: '{{count}} track' },
+  'playlist.move_title': { one: '{{count}} track verplaatsen' },
   'connect.administrator_list': { one: '{{count}} beheerder' },
   'playlist.delete_selected': { one: '{{count}} geselecteerde track verwijderen' },
   'connect.device_list': { one: '{{count}} verbonden apparaat' },
@@ -964,6 +977,8 @@ export const pluralMessages = {
   },
   'toast.added_tracks': { one: '{{count}} track toegevoegd' },
   'toast.deleted_tracks': { one: '{{count}} track verwijderd' },
+  'toast.copied_tracks': { one: '{{count}} track gekopieerd' },
+  'toast.moved_tracks': { one: '{{count}} track verplaatst' },
   'toast.unsupported_files_excluded': {
     one: 'Niet-ondersteund bestand overgeslagen: {{count}}',
   },

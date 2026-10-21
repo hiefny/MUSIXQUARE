@@ -141,6 +141,7 @@ export const MSG = {
   PAUSE: 'pause',
   PLAY: 'play',
   PLAYLIST_UPDATE: 'playlist-update',
+  PLAYLIST_SLOTS: 'playlist-slots',
   PRO_FILE_PRELOAD: 'pro-file-preload',
   PRO_ROOM_INVALIDATED: 'pro-room-invalidated',
   PRO_SYSTEM_AUDIO_HINT: 'pro-system-audio-hint',
@@ -165,6 +166,8 @@ export const MSG = {
   REQUEST_PLAYLIST_ADD_YOUTUBE: 'request-playlist-add-youtube',
   REQUEST_PLAYLIST_REMOVE: 'request-playlist-remove',
   REQUEST_PLAYLIST_REORDER: 'request-playlist-reorder',
+  REQUEST_PLAYLIST_SWITCH: 'request-playlist-switch',
+  REQUEST_PLAYLIST_TRANSFER: 'request-playlist-transfer',
   OPERATOR_QUEUE_MUTATION_RESULT: 'operator-queue-mutation-result',
   REQUEST_PLAY: 'request-play',
   REQUEST_PREV_TRACK: 'request-prev-track',
@@ -267,3 +270,6 @@ export const RESERVED_NAMES = [
 export const PRO_GENERATED_PEER_NAME_RE = /^peer(?: \d+)?$/i;
 
 // ─── Misc ──────────────────────────────────────────────────────────
+
+/** A room has this many playlists: "Playlist", "Playlist 2", "Playlist 3". */
+export const PLAYLIST_SLOT_COUNT = 3;

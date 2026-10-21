@@ -5,6 +5,8 @@ export const EN_PLURAL_MESSAGES = {
   'connect.administrator_list': { one: '{{count}} Administrator' },
   'playlist.delete_selected': { one: 'Delete {{count}} selected track' },
   'playlist.selected_count': { one: '{{count}} selected' },
+  'playlist.slot_tracks': { one: '{{count}} track' },
+  'playlist.move_title': { one: 'Move {{count}} track' },
   'connect.device_list': { one: '{{count}} Connected Device' },
   'demo.session_body_connected': {
     one: '{{count}} device is connected right now.\nSet a role for this device.',
@@ -17,6 +19,8 @@ export const EN_PLURAL_MESSAGES = {
   },
   'toast.added_tracks': { one: '{{count}} track added' },
   'toast.deleted_tracks': { one: 'Deleted {{count}} track' },
+  'toast.copied_tracks': { one: 'Copied {{count}} track' },
+  'toast.moved_tracks': { one: 'Moved {{count}} track' },
   'toast.unsupported_files_excluded': { one: 'Unsupported file skipped: {{count}}' },
   'dialog.file_drop.message': { one: 'Add {{count}} file?' },
   'dialog.file_drop.unsupported_notice': {

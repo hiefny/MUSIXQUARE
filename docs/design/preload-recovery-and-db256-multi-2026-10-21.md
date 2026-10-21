@@ -1,6 +1,6 @@
 # Preload recovery and current adaptive-window multi-receiver validation
 
-Date: 2026-10-21. Local branch validation and approved release preparation.
+Date: 2026-10-21. Local validation and completed production release.
 
 ## Scope and source
 
@@ -268,3 +268,56 @@ valid filenames and passed; the wrapper's stale exit value is not evidence.
 No full serial browser suite or physical-device session was added in this round.
 Final source review found no additional blocking defect. Main CI and deployment
 evidence must be recorded separately after the normal PR merge.
+
+## Production release and recovery
+
+The owner explicitly approved deployment after the held validation round.
+PR [#436](https://github.com/hiefny/MUSIXQUARE/pull/436) merged as
+`56721c7687cd2078b8deba103440549e78f67757`; its tree matches reviewed PR head
+`1f7c9dd635ea865b3777d6a1d00cec1044f4c1e0`. Both PR CI
+[39579487446](https://github.com/hiefny/MUSIXQUARE/actions/runs/39579487446)
+and exact-main push CI
+[39580783569](https://github.com/hiefny/MUSIXQUARE/actions/runs/39580783569)
+completed all 11 jobs successfully. Main CI ran 13,680 passing unit tests;
+the one skip is `pro-grant-campaign-cli.test.ts`'s Windows-only rejection of
+another drive, which passed in the full Windows suite. Candidate browser 17
+and critical browser 56 tests passed. Full serial E2E was not rerun.
+
+The immutable main candidate is artifact `12336441033`, SHA-256
+`54493d8ceafb4b73ba81699705be223cc851e13fe6b862bcfa935e7b162d82a3`.
+Its manifest identifies App 8.11.37 / cache v762 and the exact main SHA above.
+[Production Release 39581781117](https://github.com/hiefny/MUSIXQUARE/actions/runs/39581781117)
+attempt 1 completed at **2026-10-21 19:06:11 KST**, target `app`, Developer API
+D1 application `false`. Existing App D1 contract checks passed; no new schema,
+binding, secret, dependency, protocol, or compatibility floor was introduced.
+The other five Workers remain at compatible `b93bed72` provenance.
+
+All four selected operational smokes passed: app generation (31 assets),
+anonymous account boundary, existing PRO public boundary, and Standard HTTPS
+signaling (host/guest bridge open 1,083/497 ms). Nonselected Worker smokes and
+the unnecessary recovery job were skipped. Final ownership was verified at
+19:06:04 KST: deployment `3e6931ae-d9e3-486e-8648-2477c66180bf`, version
+`163d422b-062d-40bd-8c5e-0fe4207c1c9d`, 100%, exact release Git message.
+Deployment artifact `12337950482` and coherent marker `12338005460` preserve
+the original evidence. An independent public check at 19:06:31 KST fetched
+seven assets (HTML, bootstrap, SW, main JS/CSS, preload and preload-helper JS):
+all HTTP 200 and exact candidate byte count/SHA-256 matches.
+
+[Drift Audit 39582150554](https://github.com/hiefny/MUSIXQUARE/actions/runs/39582150554)
+completed with 31 pass, 0 fail, and 5 manual-only checks. Those manual controls,
+the physical-device/real-provider limitations above, and the historical full
+E2E limitation are not closed by this deployment.
+The fresh workflow listing identifies the latest scheduled main full-E2E run
+as [39334520177](https://github.com/hiefny/MUSIXQUARE/actions/runs/39334520177),
+source `3d409c9a`, created 2026-10-19 22:22:49 UTC, with conclusion `failure`.
+This replaces the older run cited in the previous operational record; no
+claim is made that the full suite passed on the new release SHA.
+
+Recovery checkpoint artifact `12336407596` retains the previous App 8.11.35 /
+v760, source `e028ec65`, version `f303892b-3310-4406-82b4-038a8ed096ac`,
+deployment `21fc7b72-2fcf-4322-8d63-edf0e4673d54`. No rollback was needed.
+Returning to that App would lose both preload recovery fixes and the #435
+playlist-morph rebuild correction; existing stored data and protocol remain
+compatible. Existing repository forward-only recovery boundaries still apply.
+The follow-up record PR changes documentation only and requires no second
+Cloudflare release.

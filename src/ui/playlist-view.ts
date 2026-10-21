@@ -19,10 +19,7 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getYouTubePlayer, setSubItemsLoadError } from '../youtube/_state.ts';
 import { getPlaylistSubItems, getPlaylistSubItemsKey } from '../youtube/queue-manifest.ts';
 import type { PlaylistReorderController } from './playlist-reorder.ts';
-import {
-  createPlaylistRemovalController,
-  type PlaylistRemovalController,
-} from './playlist-removal.ts';
+import type { PlaylistRemovalController } from './playlist-removal.ts';
 import {
   createPlaylistFollowController,
   type PlaylistFollowController,
@@ -89,6 +86,8 @@ let _domAbort: AbortController | null = null;
 let _reorderController: PlaylistReorderController | null = null;
 let _reorderLoad = 0;
 let _removalController: PlaylistRemovalController | null = null;
+let _removalLoad = 0;
+let _pendingRemovalToggle: QueueItemId | null = null;
 let _followController: PlaylistFollowController | null = null;
 let _currentJumpController: PlaylistCurrentJumpController | null = null;
 let _followList: HTMLElement | null = null;
@@ -983,7 +982,8 @@ function installDomDelegation(list: HTMLElement): void {
         event.preventDefault();
         event.stopPropagation();
         const id = queueItemIdFromElement(select ?? null);
-        if (id) _removalController?.toggle(id);
+        if (id && _removalController) _removalController.toggle(id);
+        else if (id) _pendingRemovalToggle = id;
         return;
       }
       const subItem = target.closest<HTMLElement>('.sub-track-item[data-sub-index]');
@@ -1024,6 +1024,49 @@ function canRemoveRows(): boolean {
 // in the first frame, so its controller loads after the list mounts
 // (docs/design/initial-bundle-loading-policy.md). Until then the rows are
 // plain: taps still play and the minus still selects.
+// Selection, deletion and their motion start from a tap on a row's minus or a
+// held press, so this controller also loads after the list mounts. A minus
+// tapped before it arrives is replayed once it does.
+function loadRemovalController(list: HTMLElement): void {
+  const load = ++_removalLoad;
+  void import('./playlist-removal.ts').then(
+    ({ createPlaylistRemovalController }) => {
+      if (load !== _removalLoad) return;
+      _removalController = createPlaylistRemovalController({
+        list,
+        canRemove: canRemoveRows,
+        isPlaylistVisible: playlistIsVisible,
+        getItems: () => getState('playlist.items'),
+        onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
+        // Only the deleting device hears this; nothing is broadcast.
+        onDeleted: (count) => bus.emit('ui:show-toast', t('toast.deleted_tracks', { count })),
+        onHiddenChange: () => updatePlaylistUI(),
+        // Only the Standard host removes synchronously; PRO and Standard
+        // guests wait for the authoritative snapshot.
+        isRemovalLocal: () => getRoomContext().kind !== 'pro' && !getState('network.hostConn'),
+        onSelectionStart: () => {
+          _reorderController?.cancel();
+          _currentJumpController?.refresh();
+        },
+        // Selection mode blocks follow without discarding its pending request.
+        // Resume only that request: forcing the current row here would recenter
+        // an unchanged playlist and fight deletion's survivor-focus restore.
+        onSelectionEnd: () => {
+          _followController?.afterRender();
+          _currentJumpController?.refresh();
+        },
+        canMove: () => getState('playlist.slots') !== null,
+        onMove: openPlaylistTransferDialogLazily,
+      });
+      _removalController.afterRender();
+      const pending = _pendingRemovalToggle;
+      _pendingRemovalToggle = null;
+      if (pending) _removalController.toggle(pending);
+    },
+    () => {},
+  );
+}
+
 function loadReorderController(list: HTMLElement): void {
   const load = ++_reorderLoad;
   void import('./playlist-reorder.ts').then(
@@ -1153,6 +1196,8 @@ export function initPlaylistView(): void {
   _reorderLoad += 1;
   _removalController?.destroy();
   _removalController = null;
+  _removalLoad += 1;
+  _pendingRemovalToggle = null;
   _followController?.destroy();
   _followController = null;
   _currentJumpController?.destroy();
@@ -1174,32 +1219,7 @@ export function initPlaylistView(): void {
     _playlistTitleMarqueeList = list;
     installDomDelegation(list);
     loadReorderController(list);
-    _removalController = createPlaylistRemovalController({
-      list,
-      canRemove: canRemoveRows,
-      isPlaylistVisible: playlistIsVisible,
-      getItems: () => getState('playlist.items'),
-      onDelete: (queueItemIds) => bus.emit('playlist:remove-tracks', queueItemIds),
-      // Only the deleting device hears this; nothing is broadcast.
-      onDeleted: (count) => bus.emit('ui:show-toast', t('toast.deleted_tracks', { count })),
-      onHiddenChange: () => updatePlaylistUI(),
-      // Only the Standard host removes synchronously; PRO and Standard
-      // guests wait for the authoritative snapshot.
-      isRemovalLocal: () => getRoomContext().kind !== 'pro' && !getState('network.hostConn'),
-      onSelectionStart: () => {
-        _reorderController?.cancel();
-        _currentJumpController?.refresh();
-      },
-      // Selection mode blocks follow without discarding its pending request.
-      // Resume only that request: forcing the current row here would recenter
-      // an unchanged playlist and fight deletion's survivor-focus restore.
-      onSelectionEnd: () => {
-        _followController?.afterRender();
-        _currentJumpController?.refresh();
-      },
-      canMove: () => getState('playlist.slots') !== null,
-      onMove: openPlaylistTransferDialogLazily,
-    });
+    loadRemovalController(list);
   }
 
   const switchButton = document.getElementById('btn-playlist-switch');

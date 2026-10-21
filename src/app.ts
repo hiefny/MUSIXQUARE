@@ -1052,7 +1052,7 @@ function recordCachedNavigationFallback(): void {
 }
 
 type LazyFeatureFailure = {
-  feature: 'announcement' | 'connect' | 'pro-room' | 'room-session';
+  feature: 'announcement' | 'connect' | 'pro-room' | 'room-session' | 'visualizer-spectrum';
   error: unknown;
 };
 
@@ -1092,7 +1092,7 @@ const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
 });
 
 function reportLazyFeatureLoadFailure(
-  feature: 'announcement' | 'connect' | 'pro-room' | 'room-session',
+  feature: 'announcement' | 'connect' | 'pro-room' | 'room-session' | 'visualizer-spectrum',
   error: unknown,
 ): void {
   log.error(`[App] ${feature} feature load failed; reload required:`, error);

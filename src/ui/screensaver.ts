@@ -12,6 +12,7 @@ import { startScreensaverBassGlow } from './screensaver-bass.ts';
 
 const OVERLAY_ID = 'screensaver-overlay';
 const CLOSE_TIMER = 'screensaver-close';
+const COVER_TIMER = 'screensaver-cover';
 let activeCleanup: (() => void) | null = null;
 
 function youtubeIsSelected(): boolean {
@@ -110,6 +111,16 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   let entryFrame: number | null = null;
   let stopBassGlow: (() => void) | null = null;
   let lastPayload = '';
+  const setVisualizerCovered = (covered: boolean): void => {
+    if ((document.body.dataset.visualizerCovered === 'true') === covered) return;
+    if (covered) document.body.dataset.visualizerCovered = 'true';
+    else delete document.body.dataset.visualizerCovered;
+    document.dispatchEvent(new Event('mxqr:visualizer-visibility'));
+  };
+  const finishCover = (): void => {
+    clearManagedTimer(COVER_TIMER);
+    if (!disposed && !closing && overlay.style.opacity === '1') setVisualizerCovered(true);
+  };
   const sendUpdate = (force = false): void => {
     if (disposed || closing || !ready) return;
     const lang = getResolvedLanguage();
@@ -139,6 +150,8 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
     disposed = true;
     if (entryFrame !== null) cancelAnimationFrame(entryFrame);
     clearManagedTimer(CLOSE_TIMER);
+    clearManagedTimer(COVER_TIMER);
+    setVisualizerCovered(false);
     scope.dispose();
     subtitleObserver.disconnect();
     stopBassGlow?.();
@@ -162,6 +175,10 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   const cleanup = (immediate = false): void => {
     if (disposed) return;
     if (closing && !immediate && !motion?.matches) return;
+    clearManagedTimer(COVER_TIMER);
+    // The underlying canvas becomes visible during the exit fade, so wake it
+    // before changing opacity instead of waiting for removal from the modal stack.
+    setVisualizerCovered(false);
     if (immediate || motion?.matches || overlay.style.opacity === '0') {
       finishClose();
       return;
@@ -173,13 +190,18 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
     setManagedTimer(CLOSE_TIMER, finishClose, 500);
   };
   const onTransitionEnd = (event: TransitionEvent): void => {
-    if (closing && event.target === overlay && event.propertyName === 'opacity') finishClose();
+    if (event.target !== overlay || event.propertyName !== 'opacity') return;
+    if (closing) finishClose();
+    else finishCover();
   };
   const onMotionChange = (): void => {
     if (!motion?.matches) return;
     overlay.style.transition = 'none';
     if (closing) finishClose();
-    else overlay.style.opacity = '1';
+    else {
+      overlay.style.opacity = '1';
+      finishCover();
+    }
   };
   const onPageHide = (): void => cleanup(true);
   const removeExitListener = entry.onExit(() => cleanup());
@@ -246,13 +268,19 @@ export function openScreensaver(pendingEntry?: ScreensaverEntry): void {
   motion?.addEventListener('change', onMotionChange);
   activeCleanup = cleanup;
   entry.container.appendChild(overlay);
+  if (motion?.matches) finishCover();
   syncOverlayState(OVERLAY_ID);
   fallbackBack.focus({ preventScroll: true });
   if (!motion?.matches) {
     void overlay.offsetWidth;
     entryFrame = requestAnimationFrame(() => {
       entryFrame = null;
-      if (!disposed && !closing) overlay.style.opacity = '1';
+      if (!disposed && !closing) {
+        overlay.style.opacity = '1';
+        // transitionend is authoritative; the bounded fallback covers engines
+        // that suppress it without freezing the canvas during the 420ms fade.
+        setManagedTimer(COVER_TIMER, finishCover, 500);
+      }
     });
   }
 }

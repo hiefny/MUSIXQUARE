@@ -505,6 +505,13 @@ describe('service-worker build entry manifest', () => {
         imports: ['assets/vendor.js'],
         modules: { 'C:/repo/src/ui/playlist-selection-morph.ts': {} },
       },
+      'assets/visualizer-spectrum.js': {
+        type: 'chunk',
+        fileName: 'assets/visualizer-spectrum.js',
+        isEntry: false,
+        imports: ['assets/vendor.js'],
+        modules: { 'C:/repo/src/ui/visualizer-spectrum.ts': {} },
+      },
       'assets/standard-host-manual-offset.js': {
         type: 'chunk',
         fileName: 'assets/standard-host-manual-offset.js',
@@ -547,6 +554,7 @@ describe('service-worker build entry manifest', () => {
       './assets/sync.worker.js',
       './assets/vendor.css',
       './assets/vendor.js',
+      './assets/visualizer-spectrum.js',
     ]);
     const { 'assets/sync-flight-recorder.js': _recorder, ...withoutRecorder } = bundle;
     expect(() => collectStaticAppEntryAssets(withoutRecorder)).toThrow(

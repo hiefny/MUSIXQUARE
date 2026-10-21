@@ -832,7 +832,7 @@ test.describe('touch', () => {
   });
 });
 
-test('brightens subtly with the visualizer bass while a file plays and not with reduced motion', async ({
+test('brightens visibly and smoothly with ordinary bass while a file plays, except with reduced motion', async ({
   page,
 }, testInfo) => {
   await openHost(page);
@@ -842,7 +842,8 @@ test('brightens subtly with the visualizer bass while a file plays and not with 
     AnalyserNode.prototype.getFloatFrequencyData = function (array: Float32Array<ArrayBuffer>) {
       original.call(this, array);
       const bass = (window as unknown as { __syntheticBassDb?: number }).__syntheticBassDb;
-      if (typeof bass === 'number') for (let i = 0; i < 12; i++) array[i] = bass;
+      if (typeof bass === 'number')
+        for (let i = 0; (i * this.context.sampleRate) / this.fftSize < 140; i++) array[i] = bass;
     };
     Object.assign(window, { __syntheticBassDb: -100 });
   });
@@ -864,7 +865,7 @@ test('brightens subtly with the visualizer bass while a file plays and not with 
         const t = now - start;
         // Three 150 ms kicks, 750 ms apart, then silence.
         kick = t < 2_250 && t % 750 < 150;
-        Object.assign(window, { __syntheticBassDb: kick ? -2 : -100 });
+        Object.assign(window, { __syntheticBassDb: kick ? -60 : -100 });
         const match = /brightness\(([\d.]+)\)/u.exec(node.style.filter);
         values.push({ t, kick, brightness: match ? Number(match[1]) : 1 });
         if (t < 4_000) requestAnimationFrame(step);
@@ -879,8 +880,8 @@ test('brightens subtly with the visualizer bass while a file plays and not with 
     contentType: 'application/json',
   });
   const peak = Math.max(...samples.map((sample) => sample.brightness));
-  expect(peak).toBeGreaterThan(1.03);
-  expect(peak).toBeLessThanOrEqual(1.06);
+  expect(peak).toBeGreaterThan(1.06);
+  expect(peak).toBeLessThanOrEqual(1.16);
   let largestStep = 0;
   for (let i = 1; i < samples.length; i++)
     largestStep = Math.max(
@@ -904,7 +905,7 @@ test('brightens subtly with the visualizer bass while a file plays and not with 
   expect(await readState(page, 'playback.activity')).toBe('playing');
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.evaluate(() => Object.assign(window, { __syntheticBassDb: -2 }));
+  await page.evaluate(() => Object.assign(window, { __syntheticBassDb: -60 }));
   await page.waitForTimeout(600);
   await expect(frame).toHaveCSS('filter', 'none');
   await page.keyboard.press('Escape');

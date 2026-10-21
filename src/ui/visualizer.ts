@@ -5,14 +5,22 @@
  */
 
 import { log } from '../core/log.ts';
-import { createBusScope } from '../core/events.ts';
+import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
-import { BASS_BIN_COUNT, averageBassLevel, bassPunch as toBassPunch } from '../audio/bass-level.ts';
+import {
+  bassBinCount,
+  averageBassLevel,
+  averageFrequencyLevel,
+  bassPunch as toBassPunch,
+} from '../audio/bass-level.ts';
+import { createSpectrumReader } from '../audio/visualizer-analysis.ts';
+import { watchVisualizerVisibility } from './visualizer-visibility.ts';
+import { drawSpectrumGrid, drawSpectrumRestingLine, dbToY } from './visualizer-spectrum-static.ts';
+import type { SpectrumPoint } from './visualizer-spectrum.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import { isPlaybackModeYouTube, isPlaybackPaused, isPlaybackPlaying } from '../player/ownership.ts';
-import { buildSpectrumDitherStrip, SPECTRUM_DITHER_TILE_SIZE } from './spectrum-dither.ts';
 import { t, type I18nKey } from '../i18n/index.ts';
 
 // ─── State ───────────────────────────────────────────────────────
@@ -27,19 +35,41 @@ let _vizMode: VisualizerMode = 'circular';
 let _appVizMode: VisualizerMode | null = null;
 let _visualizerControlCanvas: HTMLCanvasElement | null = null;
 let _isVisualizerStartCoalescing = false;
-let _visualizerLoopState: 'idle' | 'active' | 'settling' = 'idle';
+let _visualizerLoopState: 'idle' | 'active' | 'settling' | 'suspended' = 'idle';
 let _canvasPixelRatio = 1;
 
-interface SpectrumDitherPatternCache {
-  context: CanvasRenderingContext2D;
-  physicalHeight: number;
-  logicalHeight: number;
-  padY: number;
-  maxAlpha: number;
-  pattern: CanvasPattern;
-}
+let _visibility: ReturnType<typeof watchVisualizerVisibility> | null = null;
+let _resumeFrame: FrameRequestCallback | null = null;
+let _spectrumRenderer: typeof import('./visualizer-spectrum.ts') | null = null;
+let _spectrumLoad: Promise<void> | null = null;
+let _spectrumLoadFailed = false;
+let _spectrumLoadError: unknown;
+let _spectrumRequestedRun: number | null = null;
 
-let _spectrumDitherPatternCache: SpectrumDitherPatternCache | null = null;
+function requestSpectrumRenderer(): void {
+  if (_spectrumRenderer) return;
+  if (_spectrumLoadFailed) {
+    bus.emit('app:lazy-feature-load-failed', 'visualizer-spectrum', _spectrumLoadError);
+    return;
+  }
+  _spectrumLoad ??= import('./visualizer-spectrum.ts')
+    .then((renderer) => {
+      _spectrumRenderer = renderer;
+      // Loading never owns playback. Resolve the current source and all gates
+      // again, only for a start request that has not since been cancelled.
+      if (_spectrumRequestedRun === _visualizerRunToken && _vizMode === 'spectrum') {
+        startVisualizer();
+      }
+    })
+    .catch((error: unknown) => {
+      // A failed ESM evaluation can remain cached until this document reloads.
+      _spectrumLoadFailed = true;
+      _spectrumLoadError = error;
+      if (_vizMode === 'spectrum') {
+        bus.emit('app:lazy-feature-load-failed', 'visualizer-spectrum', error);
+      }
+    });
+}
 
 function readPersistedVisualizerMode(): VisualizerMode {
   try {
@@ -76,6 +106,7 @@ function applyVisualizerMode(mode: VisualizerMode): void {
   document.body.classList.toggle('viz-spectrum', mode === 'spectrum');
   document.body.classList.toggle('viz-circular', mode === 'circular');
   syncVisualizerControlAccessibility(mode);
+  if (mode === 'spectrum') requestSpectrumRenderer();
 }
 
 function persistVisualizerMode(mode: VisualizerMode): void {
@@ -91,11 +122,6 @@ function setVisualizerMode(mode: VisualizerMode, persist: boolean): void {
   if (persist) persistVisualizerMode(mode);
 
   cancelVisualizerAnimation();
-
-  const analyser = getAnalyser();
-  if (analyser) {
-    analyser.smoothingTimeConstant = mode === 'spectrum' ? 0.8 : 0.3;
-  }
 
   drawRestingVisualizerFrame();
   startVisualizer();
@@ -136,36 +162,13 @@ function bindVisualizerModeControl(): void {
   canvas?.addEventListener('keydown', handleVisualizerControlKeydown);
 }
 
-// ─── Spectrum constants ─────────────────────────────────────────
-const MIN_FREQ = 20;
-const MAX_FREQ = 20000;
 const MIN_DB = -100;
-const MAX_DB = 0;
-const SLOPE_DB_PER_OCTAVE = 4.5;
-const SLOPE_REF_FREQ = 1000;
-const LOG_GAMMA = 1.0; // neutral log-scale spacing
-const LOG_MIN_FREQ = Math.log10(MIN_FREQ);
-const LOG_FREQ_RANGE = Math.log10(MAX_FREQ) - LOG_MIN_FREQ;
-const SPECTRUM_GRID_FREQS = [100, 1000, 10000] as const;
 
 // ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
 const BASS_SMOOTH = 0.8;
 const HIGH_SMOOTH = 0.8;
 const VIZ_SETTLE_MS = 180;
-const SPECTRUM_START_WARMUP_FRAMES = 2;
-
-type SpectrumPoint = { x: number; y: number };
-
-interface SpectrumBinLayout {
-  bufferLength: number;
-  sampleRate: number;
-  logicalW: number;
-  padX: number;
-  indices: number[];
-  xValues: number[];
-  slopeValues: number[];
-  gridXValues: number[];
-}
+const SPECTRUM_START_WARMUP_MS = 1000 / 30;
 
 interface CircularFrame {
   bassPunch: number;
@@ -302,6 +305,33 @@ function cancelVisualizerAnimation(): void {
     _animationId = null;
   }
   _visualizerLoopState = 'idle';
+  _resumeFrame = null;
+  _spectrumRequestedRun = null;
+}
+
+function suspendVisualizer(): void {
+  if (_visualizerLoopState !== 'active') return;
+  if (_animationId !== null) cancelAnimationFrame(_animationId);
+  _animationId = null;
+  _visualizerLoopState = 'suspended';
+}
+
+function queueActiveFrame(draw: FrameRequestCallback): void {
+  _resumeFrame = draw;
+  _animationId = requestAnimationFrame(draw);
+}
+
+function reconcileVisualizerVisibility(): void {
+  if (_visibility?.reduced) {
+    cancelVisualizerAnimation();
+    if (_isHoldingPauseFrame) redrawHeldFrame();
+    else drawRestingVisualizerFrame();
+  } else if (_visibility && !_visibility.visible) {
+    if (_visualizerLoopState === 'settling') {
+      cancelVisualizerAnimation();
+      drawRestingVisualizerFrame();
+    } else suspendVisualizer();
+  } else startVisualizer();
 }
 
 function clearLastVisualizerFrames(): void {
@@ -351,128 +381,6 @@ function drawCircularVisualizerFrame(
   ctx.beginPath();
   ctx.arc(centerX, centerY, highRadius, 0, twoPi);
   ctx.fill();
-}
-
-function drawSpectrumRestingLine(
-  ctx: CanvasRenderingContext2D,
-  logicalW: number,
-  logicalH: number,
-  padX: number,
-  padY: number,
-): void {
-  const restY = dbToY(MIN_DB, logicalH, padY);
-  ctx.strokeStyle = 'rgba(59, 130, 246, 0.38)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(padX, restY);
-  ctx.lineTo(logicalW - padX, restY);
-  ctx.stroke();
-}
-
-function getSpectrumDitherPattern(
-  ctx: CanvasRenderingContext2D,
-  logicalHeight: number,
-  padY: number,
-  isLight: boolean,
-): CanvasPattern | null {
-  if (typeof document === 'undefined' || typeof ctx.createPattern !== 'function') return null;
-
-  const physicalHeight = ctx.canvas.height;
-  const maxAlpha = isLight ? 0.15 : 0.12;
-  const cached = _spectrumDitherPatternCache;
-  if (
-    cached?.context === ctx &&
-    cached.physicalHeight === physicalHeight &&
-    cached.logicalHeight === logicalHeight &&
-    cached.padY === padY &&
-    cached.maxAlpha === maxAlpha
-  ) {
-    return cached.pattern;
-  }
-
-  try {
-    const tile = document.createElement('canvas');
-    tile.width = SPECTRUM_DITHER_TILE_SIZE;
-    tile.height = physicalHeight;
-    const tileContext = tile.getContext('2d');
-    if (!tileContext) return null;
-
-    const imageData = tileContext.createImageData(tile.width, tile.height);
-    imageData.data.set(buildSpectrumDitherStrip(physicalHeight, logicalHeight, padY, maxAlpha));
-    tileContext.putImageData(imageData, 0, 0);
-
-    const pattern = ctx.createPattern(tile, 'repeat');
-    if (!pattern) return null;
-    _spectrumDitherPatternCache = {
-      context: ctx,
-      physicalHeight,
-      logicalHeight,
-      padY,
-      maxAlpha,
-      pattern,
-    };
-    return pattern;
-  } catch (error) {
-    log.debug('[Visualizer] spectrum dither unavailable:', error);
-    return null;
-  }
-}
-
-function drawSpectrumCurve(
-  ctx: CanvasRenderingContext2D,
-  points: SpectrumPoint[],
-  logicalH: number,
-  padX: number,
-  padY: number,
-  isLight: boolean,
-): void {
-  if (points.length < 2) return;
-
-  ctx.globalCompositeOperation = isLight ? 'source-over' : 'lighter';
-  ctx.beginPath();
-  ctx.moveTo(padX, logicalH - padY);
-  ctx.lineTo(padX, points[0].y);
-  for (let i = 0; i < points.length - 1; i++) {
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
-    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-  }
-  const last = points[points.length - 1];
-  ctx.lineTo(last.x, last.y);
-  ctx.lineTo(last.x, logicalH - padY);
-  ctx.closePath();
-
-  const ditherPattern = getSpectrumDitherPattern(ctx, logicalH, padY, isLight);
-  if (ditherPattern) {
-    ctx.save();
-    ctx.clip();
-    // The strip is generated in backing pixels. Fill under an identity
-    // transform so its 8x8 threshold remains one physical pixel per cell,
-    // including on high-DPI and desktop-density-scaled canvases.
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = ditherPattern;
-    ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-    ctx.restore();
-  } else {
-    // Compatibility fallback for constrained Canvas implementations.
-    const grad = ctx.createLinearGradient(0, padY, 0, logicalH - padY);
-    grad.addColorStop(0, isLight ? 'rgba(59, 130, 246, 0.15)' : 'rgba(59, 130, 246, 0.12)');
-    grad.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
-    ctx.fillStyle = grad;
-    ctx.fill();
-  }
-
-  ctx.strokeStyle = 'rgba(59, 130, 246, 0.9)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(padX, points[0].y);
-  for (let i = 0; i < points.length - 1; i++) {
-    const mx = (points[i].x + points[i + 1].x) / 2;
-    const my = (points[i].y + points[i + 1].y) / 2;
-    ctx.quadraticCurveTo(points[i].x, points[i].y, mx, my);
-  }
-  ctx.lineTo(last.x, last.y);
-  ctx.stroke();
 }
 
 function drawRestingVisualizerFrame(): void {
@@ -547,7 +455,7 @@ function redrawHeldFrame(): void {
     ctx.clearRect(0, 0, logicalW, logicalH);
     ctx.shadowBlur = 0;
     drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
-    drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
+    _spectrumRenderer!.drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
     _lastSpectrumFrame = { points, width: logicalW, height: logicalH, padX, padY };
     return;
   }
@@ -564,6 +472,10 @@ function fadeVisualizerOut(): void {
 
 function settleVisualizerToRest(): void {
   cancelVisualizerAnimation();
+  if (_visibility?.reduced || (_visibility && !_visibility.visible)) {
+    drawRestingVisualizerFrame();
+    return;
+  }
   _visualizerLoopState = 'settling';
   const runToken = _visualizerRunToken;
 
@@ -605,7 +517,7 @@ function settleVisualizerToRest(): void {
       ctx.clearRect(0, 0, logicalW, logicalH);
       ctx.shadowBlur = 0;
       drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight);
-      drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
+      _spectrumRenderer!.drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
       _lastSpectrumFrame = { points, width: logicalW, height: logicalH, padX, padY };
       _lastCircularFrame = null;
 
@@ -661,6 +573,26 @@ function settleVisualizerToRest(): void {
 // ─── Start Active Visualizer ─────────────────────────────────────
 
 export function startVisualizer(): void {
+  _visibility?.refresh();
+  if (isPlaybackModeYouTube()) {
+    cancelVisualizerAnimation();
+    return;
+  }
+  if (_visibility?.reduced) {
+    cancelVisualizerAnimation();
+    if (_isHoldingPauseFrame) redrawHeldFrame();
+    else drawRestingVisualizerFrame();
+    return;
+  }
+  if (_visibility && !_visibility.visible) {
+    suspendVisualizer();
+    return;
+  }
+  if (_visualizerLoopState === 'suspended' && _resumeFrame && isPlaybackPlaying()) {
+    _visualizerLoopState = 'active';
+    queueActiveFrame(_resumeFrame);
+    return;
+  }
   if (_visualizerLoopState === 'active' && _animationId !== null) return;
 
   // Activity gate — the single chokepoint for every entry point (resize,
@@ -684,6 +616,12 @@ export function startVisualizer(): void {
   if (!claimVisualizerStart()) return;
 
   if (_vizMode === 'spectrum') {
+    if (!_spectrumRenderer) {
+      _spectrumRequestedRun = _visualizerRunToken;
+      drawRestingVisualizerFrame();
+      requestSpectrumRenderer();
+      return;
+    }
     startSpectrumVisualizer();
     return;
   }
@@ -722,7 +660,8 @@ export function startVisualizer(): void {
   _visualizerLoopState = 'active';
 
   const bufferLength = analyser.frequencyBinCount;
-  const _freqData = new Float32Array(bufferLength);
+  const reader = createSpectrumReader(0.3);
+  let previousDraw: number | null = null;
 
   let smoothedBass = 0;
   let smoothedHigh = 0;
@@ -732,16 +671,13 @@ export function startVisualizer(): void {
   let logicalSize = syncCanvasSize(canvas, ctx, wrapper);
 
   // Pre-compute constants outside draw loop
-  const highStart = Math.floor(bufferLength * 0.7);
-  const highEnd = bufferLength;
-  let highCountVal = highEnd - highStart;
-  if (highCountVal < 1) highCountVal = 1;
-  const bassCount = Math.min(BASS_BIN_COUNT, bufferLength);
+  const sampleRate = analyser.context.sampleRate;
+  const bassCount = bassBinCount(sampleRate, bufferLength * 2);
 
   // Cache theme on start
   refreshThemeCache();
 
-  function draw(): void {
+  function draw(now = performance.now()): void {
     if (runToken !== _visualizerRunToken) return;
 
     // YouTube mode: analyser isn't connected or canvas is CSS-hidden, skip draw
@@ -759,27 +695,22 @@ export function startVisualizer(): void {
     }
 
     try {
-      analyser!.getFloatFrequencyData(_freqData);
-      const dbData = _freqData;
+      const dbData = reader.read(analyser!, now);
+      const elapsed =
+        previousDraw === null ? 1000 / 60 : Math.min(100, Math.max(0, now - previousDraw));
+      previousDraw = now;
+      const bassSmooth = Math.pow(BASS_SMOOTH, elapsed / (1000 / 60));
+      const highSmooth = Math.pow(HIGH_SMOOTH, elapsed / (1000 / 60));
 
       // Bass: lowest analyser bins, shared with the screensaver glow.
       const bassAverage = averageBassLevel(dbData, bassCount);
 
-      smoothedBass = smoothedBass * BASS_SMOOTH + bassAverage * (1 - BASS_SMOOTH);
+      smoothedBass = smoothedBass * bassSmooth + bassAverage * (1 - bassSmooth);
       const bassPunch = toBassPunch(smoothedBass);
       const bassPunchOpacity = Math.pow(smoothedBass / 255, 1.5);
 
-      // High: 7.5kHz~20kHz (0.7~1.0 of buffer)
-      let highSum = 0;
-      for (let i = highStart; i < highEnd; i++) {
-        let val = (dbData[i] + 100) * 2.5;
-        if (!isFinite(val)) val = 0;
-        if (val < 0) val = 0;
-        if (val > 255) val = 255;
-        highSum += val;
-      }
-      const highAverage = highSum / highCountVal;
-      smoothedHigh = smoothedHigh * HIGH_SMOOTH + highAverage * (1 - HIGH_SMOOTH);
+      const highAverage = averageFrequencyLevel(dbData, sampleRate, 7500, 20000);
+      smoothedHigh = smoothedHigh * highSmooth + highAverage * (1 - highSmooth);
       let highPunch = smoothedHigh / 255;
       if (!isFinite(highPunch)) highPunch = 0;
 
@@ -789,7 +720,7 @@ export function startVisualizer(): void {
       _lastCircularFrame = frame;
       _lastSpectrumFrame = null;
 
-      _animationId = requestAnimationFrame(draw);
+      queueActiveFrame(draw);
     } catch (e) {
       log.warn('[Visualizer] draw() error. Stopping animation loop:', e);
       _animationId = null;
@@ -800,86 +731,10 @@ export function startVisualizer(): void {
   draw();
 }
 
-// ─── Spectrum Helpers ────────────────────────────────────────────
-
-function freqToX(freq: number, w: number, padX: number): number {
-  const norm = (Math.log10(freq) - LOG_MIN_FREQ) / LOG_FREQ_RANGE;
-  const compressed = Math.pow(norm, LOG_GAMMA);
-  return padX + compressed * (w - 2 * padX);
-}
-
-function dbToY(db: number, h: number, padY: number): number {
-  const clamped = Math.max(MIN_DB, Math.min(MAX_DB, db));
-  const norm = (clamped - MIN_DB) / (MAX_DB - MIN_DB);
-  return padY + (1 - norm) * (h - 2 * padY);
-}
-
-function slopeCompensation(freq: number): number {
-  if (freq <= 0) return 0;
-  return SLOPE_DB_PER_OCTAVE * Math.log2(freq / SLOPE_REF_FREQ);
-}
-
-function createSpectrumBinLayout(
-  bufferLength: number,
-  sampleRate: number,
-  logicalW: number,
-  padX: number,
-): SpectrumBinLayout {
-  const indices: number[] = [];
-  const xValues: number[] = [];
-  const slopeValues: number[] = [];
-
-  for (let i = 1; i < bufferLength; i += Math.max(1, Math.floor(i / 64))) {
-    const freq = (i * sampleRate) / (bufferLength * 2);
-    if (freq < MIN_FREQ) continue;
-    if (freq > MAX_FREQ) break;
-    indices.push(i);
-    xValues.push(freqToX(freq, logicalW, padX));
-    slopeValues.push(slopeCompensation(freq));
-  }
-
-  return {
-    bufferLength,
-    sampleRate,
-    logicalW,
-    padX,
-    indices,
-    xValues,
-    slopeValues,
-    gridXValues: SPECTRUM_GRID_FREQS.map((freq) => freqToX(freq, logicalW, padX)),
-  };
-}
-
-function drawSpectrumGrid(
-  ctx: CanvasRenderingContext2D,
-  w: number,
-  h: number,
-  padX: number,
-  padY: number,
-  isLight: boolean,
-  gridXValues?: readonly number[],
-): void {
-  const alpha = isLight ? 0.06 : 0.06;
-  ctx.lineWidth = 1;
-  const xValues = gridXValues ?? SPECTRUM_GRID_FREQS.map((freq) => freqToX(freq, w, padX));
-  for (const x of xValues) {
-    const grad = ctx.createLinearGradient(0, padY, 0, h - padY);
-    const col = isLight ? '0,0,0' : '255,255,255';
-    grad.addColorStop(0, `rgba(${col},0)`);
-    grad.addColorStop(0.15, `rgba(${col},${alpha})`);
-    grad.addColorStop(0.85, `rgba(${col},${alpha})`);
-    grad.addColorStop(1, `rgba(${col},0)`);
-    ctx.strokeStyle = grad;
-    ctx.beginPath();
-    ctx.moveTo(x, padY);
-    ctx.lineTo(x, h - padY);
-    ctx.stroke();
-  }
-}
-
 // ─── Spectrum Active Drawing ────────────────────────────────────
 
 function startSpectrumVisualizer(): void {
+  const { createSpectrumBinLayout, updateSpectrumPoints, drawSpectrumCurve } = _spectrumRenderer!;
   clearManagedTimer('viz-retry');
   _holdNextPauseFrame = false;
   _isHoldingPauseFrame = false;
@@ -907,10 +762,8 @@ function startSpectrumVisualizer(): void {
   _visualizerRetryCount = 0;
   _visualizerLoopState = 'active';
 
-  const targetSmoothingTimeConstant = 0.8;
-  analyser.smoothingTimeConstant = 0;
+  const reader = createSpectrumReader(0.8);
   const bufferLength = analyser.frequencyBinCount;
-  const freqData = new Float32Array(bufferLength);
   const sampleRate = analyser.context.sampleRate;
 
   // Sync size
@@ -922,12 +775,12 @@ function startSpectrumVisualizer(): void {
   const padX = 4;
   const padY = 8;
   refreshThemeCache();
-  let warmupFrames = SPECTRUM_START_WARMUP_FRAMES;
+  const warmupUntil = performance.now() + SPECTRUM_START_WARMUP_MS;
+  let warmingUp = true;
   let binLayout = createSpectrumBinLayout(bufferLength, sampleRate, logicalW, padX);
   const points: SpectrumPoint[] = [];
-  const lastSpectrumPoints: SpectrumPoint[] = [];
 
-  function draw(): void {
+  function draw(now = performance.now()): void {
     if (runToken !== _visualizerRunToken) return;
 
     if (isPlaybackModeYouTube()) {
@@ -948,41 +801,28 @@ function startSpectrumVisualizer(): void {
     }
 
     try {
-      analyser!.getFloatFrequencyData(freqData);
+      // Startup samples can contain the previous source. Do not carry their
+      // smoothing history into the first visible curve, including at 120 Hz.
+      if (warmingUp) reader.reset();
+      const freqData = reader.read(analyser!, now);
       ctx.globalCompositeOperation = 'source-over';
       ctx.clearRect(0, 0, logicalW, logicalH);
       drawSpectrumGrid(ctx, logicalW, logicalH, padX, padY, _cachedIsLight, binLayout.gridXValues);
 
-      if (warmupFrames > 0) {
-        warmupFrames--;
+      if (now < warmupUntil) {
         drawSpectrumRestingLine(ctx, logicalW, logicalH, padX, padY);
         clearLastVisualizerFrames();
-        if (warmupFrames === 0) {
-          analyser!.smoothingTimeConstant = targetSmoothingTimeConstant;
-        }
-        _animationId = requestAnimationFrame(draw);
+        queueActiveFrame(draw);
         return;
       }
+      warmingUp = false;
 
-      points.length = binLayout.indices.length;
-      for (let i = 0; i < binLayout.indices.length; i++) {
-        const point = points[i] ?? { x: 0, y: 0 };
-        point.x = binLayout.xValues[i];
-        point.y = dbToY(freqData[binLayout.indices[i]] + binLayout.slopeValues[i], logicalH, padY);
-        points[i] = point;
-      }
+      updateSpectrumPoints(points, freqData, binLayout, logicalH, padY);
 
       if (points.length >= 2) {
         drawSpectrumCurve(ctx, points, logicalH, padX, padY, _cachedIsLight);
-        lastSpectrumPoints.length = points.length;
-        for (let i = 0; i < points.length; i++) {
-          const point = lastSpectrumPoints[i] ?? { x: 0, y: 0 };
-          point.x = points[i].x;
-          point.y = points[i].y;
-          lastSpectrumPoints[i] = point;
-        }
         _lastSpectrumFrame = {
-          points: lastSpectrumPoints,
+          points,
           width: logicalW,
           height: logicalH,
           padX,
@@ -992,7 +832,7 @@ function startSpectrumVisualizer(): void {
       } else {
         _lastSpectrumFrame = null;
       }
-      _animationId = requestAnimationFrame(draw);
+      queueActiveFrame(draw);
     } catch (e) {
       log.warn('[Visualizer] spectrum draw() error:', e);
       _animationId = null;
@@ -1008,6 +848,11 @@ const _busScope = createBusScope();
 
 export function initVisualizer(): void {
   _busScope.dispose();
+  _visibility?.dispose();
+  _visibility = watchVisualizerVisibility(
+    document.querySelector('.vinyl-wrapper'),
+    reconcileVisualizerVisibility,
+  );
 
   refreshThemeCache();
   _initThemeListeners();
@@ -1026,6 +871,10 @@ export function initVisualizer(): void {
       const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
       const ctx = canvas?.getContext('2d');
       const wrapper = document.querySelector('.vinyl-wrapper') as HTMLElement | null;
+      _visibility?.refresh();
+      // A hidden wrapper has no authoritative size. Keep the frame and loop
+      // closure so returning to the same size does not replay startup warmup.
+      if (wrapper && (wrapper.clientWidth < 10 || wrapper.clientHeight < 10)) return;
       if (canvas && ctx && wrapper) {
         const previousWidth = canvas.width;
         const previousHeight = canvas.height;
@@ -1035,8 +884,7 @@ export function initVisualizer(): void {
         // changing this canvas. Keep their live analyser history and drawing
         // loop instead of replaying the fresh-start spectrum warmup at zero.
         if (
-          _visualizerLoopState === 'active' &&
-          _animationId !== null &&
+          (_visualizerLoopState === 'active' || _visualizerLoopState === 'suspended') &&
           wrapper.clientWidth > 10 &&
           wrapper.clientHeight > 10 &&
           canvas.width === previousWidth &&
@@ -1132,6 +980,11 @@ export function initVisualizer(): void {
 
   // Listen for visualizer start command from playback
   _busScope.on('visualizer:start', () => {
+    startVisualizer();
+  });
+
+  _busScope.on('audio:ready', () => {
+    cancelVisualizerAnimation();
     startVisualizer();
   });
 

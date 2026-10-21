@@ -971,6 +971,26 @@ describe('updateRoleBadge', () => {
     expect(document.getElementById('role-text')?.textContent).toBe('Living Room');
   });
 
+  it('does not re-render the badge for sync latency samples', () => {
+    renderBadge();
+    initPlayerControls();
+    const text = document.getElementById('role-text');
+    const before = text?.textContent;
+
+    // The account change has its own refresh event; a latency sample alone
+    // carries nothing the badge displays.
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Living Room', profileComplete: true },
+      statsScope: 's'.repeat(43),
+    });
+    bus.emit('sync:latency-update', 42);
+
+    expect(text?.textContent).toBe(before);
+    expect(text?.textContent).not.toBe('Living Room');
+  });
+
   it('does not let PRO transport identity replace the account identity', () => {
     const badge = renderBadge();
     applyAccountSession({

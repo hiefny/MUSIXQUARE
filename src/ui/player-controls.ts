@@ -1675,10 +1675,9 @@ export function initPlayerControls(): void {
     updateRoleBadge();
     syncVolumeAuthorityUI();
   });
-  // Latency update → refresh role badge. Automatic clock correction remains
-  // active but is intentionally no longer exposed as a second panel column.
+  // The badge shows only the account nickname or HOST/PEER/LOGIN, so sync
+  // latency samples never change it. Clock correction stays off the panel.
   _busScope.on('state:network.myDeviceLabel', updateRoleBadge);
-  _busScope.on('sync:latency-update', updateRoleBadge);
 
   // Connection type updated (e.g. ICE resolved) → Re-trigger title update to check for Wi-Fi warning
   _busScope.on('state:network.connectionType', () => {

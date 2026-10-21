@@ -2468,14 +2468,33 @@ describe('PRO BOT room playlist selection', () => {
       'play the fourth video in the YouTube playlist',
       'play YouTube playlist 2',
       'play track 2',
-      'play playlist 4',
       '플레이리스트 23번 곡 재생해줘',
+      // A count of playlists names none of them.
+      '플레이리스트 5개 추천해줘',
+      '플리 10가지만 골라줘',
     ]) {
       expect(parseRoomPlaylistSelection(prompt), prompt).toEqual({
         playlist: null,
         ambiguous: false,
         prompt,
       });
+    }
+    // A number the room has no playlist for still names a playlist.
+    expect(parseRoomPlaylistSelection('play playlist 4')).toEqual({
+      playlist: 4,
+      ambiguous: false,
+      prompt: 'play queue',
+    });
+    for (const [prompt, playlist] of [
+      ['play track 1 of playlist 0', 0],
+      ['Play track 1 in the 4th playlist', 4],
+      ['play track 1 of the fifth playlist', 5],
+      ['플레이리스트 4의 1번 곡 재생해줘', 4],
+      ['4번 플레이리스트 1번 곡 틀어줘', 4],
+      ['네 번째 플레이리스트 1번 곡 틀어줘', 4],
+      ['재생목록 10번의 1번 곡 틀어줘', 10],
+    ] as const) {
+      expect(parseRoomPlaylistSelection(prompt).playlist, prompt).toBe(playlist);
     }
     expect(parseRoomPlaylistSelection('play track 1 of playlist 2 and playlist 3')).toMatchObject({
       playlist: null,
@@ -2634,6 +2653,32 @@ describe('PRO BOT room playlist selection', () => {
     await expect(
       executedBotPlan('play track 1 of playlist 2', { ...room, playlists: [{ playlist: 1 }] }),
     ).resolves.toEqual({ intent: 'answer', answer: 'That playlist is not available.' });
+  });
+
+  it('refuses a playlist number the room does not have instead of using the active one', async () => {
+    const room = multiPlaylistRoom(1, [3, 3, 3]);
+    for (const prompt of [
+      'play track 1 of playlist 4',
+      'Play track 1 in the 4th playlist',
+      'play track 1 of the fourth playlist',
+      'delete track 2 of playlist 0',
+    ]) {
+      await expect(executedBotPlan(prompt, room), prompt).resolves.toEqual({
+        intent: 'answer',
+        answer: 'That playlist is not available.',
+      });
+    }
+    for (const prompt of [
+      '플레이리스트 4의 1번 곡 재생해줘',
+      '4번 플레이리스트 1번 곡 틀어줘',
+      '네 번째 플레이리스트 1번 곡 틀어줘',
+      '재생목록 10번의 1번 곡 틀어줘',
+    ]) {
+      await expect(executedBotPlan(prompt, room), prompt).resolves.toEqual({
+        intent: 'answer',
+        answer: '해당 플레이리스트를 찾을 수 없어요.',
+      });
+    }
   });
 
   it('keeps track ordinals in the active playlist and binds model playlist claims to the request', async () => {

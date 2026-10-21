@@ -255,29 +255,47 @@ const YOUTUBE_SUB_ITEM_WORD_NUMBERS: Readonly<Record<string, number>> = Object.f
   다섯: 5,
 });
 // A room has three playlists: "Playlist" (1), "Playlist 2" and "Playlist 3".
-// These selectors name one of them by number. A number followed by a track
-// term ("재생목록 2번 곡") is a track ordinal, and "YouTube playlist" stays
-// the YouTube aggregate container, so neither selects a room playlist.
+// These selectors name a playlist by number, also one the room does not have
+// ("playlist 4"), so that request is refused instead of running on the active
+// playlist as if it named none. A number followed by a track term
+// ("재생목록 2번 곡") is a track ordinal, and "YouTube playlist" stays the
+// YouTube aggregate container, so neither selects a room playlist.
 const ENGLISH_ROOM_PLAYLIST_NUMBER_RE =
-  /(?<!youtube\s{1,2})\b(?:the\s+)?playlist\s*#?([1-3])(?![\p{L}\p{N}_])/giu;
+  /(?<!youtube\s{1,2})\b(?:the\s+)?playlist\s*#?(\d{1,3})(?![\p{L}\p{N}_])/giu;
 const ENGLISH_ROOM_PLAYLIST_ORDINAL_RE =
-  /\b(?:the\s+)?(first|second|third|1st|2nd|3rd)\s+playlist\b(?!\s+(?:tracks?|songs?|items?|videos?)\b)/giu;
+  /\b(?:the\s+)?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|\d{1,3}(?:st|nd|rd|th))\s+playlist\b(?!\s+(?:tracks?|songs?|items?|videos?)\b)/giu;
 const KOREAN_ROOM_PLAYLIST_SUFFIX_NUMBER_RE =
-  /(?<!유튜브\s{0,2})(?:플레이리스트|플리|재생\s*목록)\s*#?([1-3])(?!\p{N})(?!\s*(?:번\s*(?:째\s*)?)?(?:곡|노래|트랙|영상|항목))(?:\s*번)?/gu;
+  /(?<!유튜브\s{0,2})(?:플레이리스트|플리|재생\s*목록)\s*#?(\d{1,3})(?!\p{N})(?!\s*(?:번\s*(?:째\s*)?)?(?:곡|노래|트랙|영상|항목))(?:\s*번)?/gu;
 const KOREAN_ROOM_PLAYLIST_PREFIX_NUMBER_RE =
-  /(?<!\p{N})#?([1-3])\s*번(?:\s*째)?\s*(?:플레이리스트|플리|재생\s*목록)/gu;
+  /(?<!\p{N})#?(\d{1,3})\s*번(?:\s*째)?\s*(?:플레이리스트|플리|재생\s*목록)/gu;
 const KOREAN_ROOM_PLAYLIST_PREFIX_WORD_RE =
-  /(첫|두|세)\s*번째\s*(?:플레이리스트|플리|재생\s*목록)/gu;
+  /(첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째\s*(?:플레이리스트|플리|재생\s*목록)/gu;
+// "플레이리스트 5개" counts playlists rather than naming one.
+const KOREAN_PLAYLIST_COUNT_SUFFIX_RE = /^\s*(?:개|가지)/u;
 const ROOM_PLAYLIST_ORDINAL_NUMBERS: Readonly<Record<string, number>> = Object.freeze({
   first: 1,
   second: 2,
   third: 3,
+  fourth: 4,
+  fifth: 5,
+  sixth: 6,
+  seventh: 7,
+  eighth: 8,
+  ninth: 9,
+  tenth: 10,
   '1st': 1,
   '2nd': 2,
   '3rd': 3,
   첫: 1,
   두: 2,
   세: 3,
+  네: 4,
+  다섯: 5,
+  여섯: 6,
+  일곱: 7,
+  여덟: 8,
+  아홉: 9,
+  열: 10,
 });
 const ADD_ACTION_NEGATION_RE =
   /(?:\b(?:do\s+not|don['’]?t|dont|never)\b.{0,24}\b(?:add|queue)\b|(?:추가|담).{0,10}(?:하지\s*마|지\s*마|말고|않|마세요|금지)|(?:添加|追加).{0,8}(?:不要|しない|しないで))/iu;
@@ -1579,7 +1597,10 @@ function youtubeSubItemCountForQueueItem(
 }
 
 interface RoomPlaylistSelection {
-  /** The room playlist USER_REQUEST names, or null when it names none. */
+  /**
+   * The playlist number USER_REQUEST names, or null when it names none. It
+   * can be one the room does not have, which refuses the request.
+   */
   playlist: number | null;
   /** True when USER_REQUEST names two different room playlists. */
   ambiguous: boolean;
@@ -1596,14 +1617,23 @@ function parseRoomPlaylistSelection(prompt: string): RoomPlaylistSelection {
   const collect = (expression: RegExp, replacement: string, toNumber: (raw: string) => number) => {
     for (const match of prompt.matchAll(expression)) {
       const playlist = toNumber((match[1] ?? '').toLocaleLowerCase('en-US'));
-      if (!isRoomPlaylistNumber(playlist)) continue;
       const start = match.index ?? 0;
       const end = start + match[0].length;
+      if (!Number.isSafeInteger(playlist)) continue;
+      // A count ("플레이리스트 5개") is not refused as an unknown playlist.
+      // Numbers 1 to 3 keep selecting their playlist here, as before.
+      if (
+        !isRoomPlaylistNumber(playlist) &&
+        KOREAN_PLAYLIST_COUNT_SUFFIX_RE.test(prompt.slice(end))
+      ) {
+        continue;
+      }
       if (matches.some((other) => start < other.end && other.start < end)) continue;
       matches.push({ start, end, playlist, replacement });
     }
   };
-  const ordinalNumber = (raw: string) => ROOM_PLAYLIST_ORDINAL_NUMBERS[raw] ?? 0;
+  const ordinalNumber = (raw: string) =>
+    ROOM_PLAYLIST_ORDINAL_NUMBERS[raw] ?? Number.parseInt(raw, 10);
   collect(ENGLISH_ROOM_PLAYLIST_NUMBER_RE, 'queue', Number);
   collect(ENGLISH_ROOM_PLAYLIST_ORDINAL_RE, 'queue', ordinalNumber);
   collect(KOREAN_ROOM_PLAYLIST_PREFIX_NUMBER_RE, '대기열', Number);

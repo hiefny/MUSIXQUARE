@@ -84,3 +84,38 @@
   its garbage collection would treat files referenced only by inactive playlists as unreferenced.
   Rolling the Worker back therefore requires accepting loss of inactive-playlist files, or deploying a
   forward fix. This is recorded as a forward-only data floor in the release record.
+
+## Other changes in this release
+
+- Room password: the setting is titled "Room password" ("방 암호 설정") in all 42 languages. In standard rooms the
+  host can show or hide the PIN this tab set with an eye button (masked by default); PRO rooms keep the pencil.
+  Changing a standard-room PIN is now off then on.
+- Spanish `nav.playlist` is "Lista".
+- New strings (switcher, move dialog, copied/moved toasts) in 42 languages, derived from each language's existing
+  playlist, track and toast wording; not reviewed by native speakers.
+
+## Review fixes
+
+An independent review of the merged code found, and this change fixes:
+
+- PRO (P1): a participant could reuse an inactive playlist's queue item ID in a compact edit, which made the room fail
+  to load on its next cold start. Adds now refuse IDs held by inactive playlists, and persistence refuses any ID
+  collision across playlists.
+- Standard (P2): inactive playlists outlived the room because standard rooms carry no room ID. They now reset per
+  session (session code and role) and when the playlist module initializes.
+- A guest's switch or transfer while the host is hidden is held like other commands; switching to a playlist whose
+  file is being deleted leaves that item out (PRO).
+
+## Verification (local, `cba800a5`, cache v756)
+
+Windows, Node 24.20.0 / npm 12.0.2.
+
+- Pass: typecheck, lint, format, guards (bus-pairing, dead-exports, import-graph, room-authority-boundaries,
+  source-complexity, sw-cache-version), unit 13,661 pass / 0 fail / 0 skip, `build:checked` (eager JS 478.4 KiB gzip,
+  under the unchanged ceiling).
+- Chromium e2e: 41 run, 39 pass; the 2 failures were the edit bar's button count (now three with Move), updated in the
+  next commit and rerun with `pro-entry-password`: 16 pass. `playlist-slots` covers copy, room-wide switch, move and a
+  guest following every step.
+- Not covered: a real PRO room against the deployed Worker (worker tests use the Workers test runtime), real devices,
+  WebKit, screen readers, and native-speaker review of the translations. Local results do not replace the exact-main
+  CI candidate.

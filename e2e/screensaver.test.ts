@@ -202,6 +202,7 @@ interface ClockProbeFrame {
   second: number;
   passes: number;
 }
+type ClockProbeWindow = Window & { __clockFrames: ClockProbeFrame[] };
 
 /**
  * Starts the screensaver's clock at `second` past a minute, and records for every animation
@@ -244,6 +245,15 @@ async function probeScreensaverClock(page: Page, second: number): Promise<void> 
       });
     Object.assign(window, { __clockFrames: frames });
   }, second);
+}
+
+async function probedClockFrames(frame: Frame): Promise<ClockProbeFrame[]> {
+  return frame.evaluate(() => (window as unknown as ClockProbeWindow).__clockFrames.slice());
+}
+
+/** Frames that built a whole clock scene at once. */
+async function sceneBuilds(frame: Frame): Promise<number> {
+  return (await probedClockFrames(frame)).filter((entry) => entry.passes >= 40).length;
 }
 
 test('loads only on the local command and keeps connected file playback running', async ({
@@ -769,6 +779,73 @@ test('renders glow without Canvas filter and recreates bounded layers after page
   await expect(child.locator('#imageBackgroundRoot img')).toHaveCount(1);
   await expect(compositor).toHaveCount(1);
   await expect.poll(() => visibleForegroundSources(child, 'opticalClockCanvas')).toBeGreaterThan(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+});
+
+test('builds the next minute a tile at a time and rebuilds a resized clock once it settles', async ({
+  page,
+}) => {
+  await openHost(page);
+  await disableFullscreenForLayoutProbe(page);
+  await probeScreensaverClock(page, 48);
+  const child = await openScreensaver(page);
+  const frame = screensaverFrame(page);
+  await expect
+    .poll(
+      async () => {
+        const frames = await probedClockFrames(frame);
+        return frames.some((entry) => entry.minute !== frames[0]?.minute && entry.second >= 1);
+      },
+      { timeout: 25_000 },
+    )
+    .toBe(true);
+  const frames = await probedClockFrames(frame);
+  const change = frames.findIndex((entry) => entry.minute !== frames[0]!.minute);
+  const lastSeconds = frames.slice(1, change).filter((entry) => entry.second >= 54);
+  // Every tile of the next minute was built ahead of it, at most one tile per frame (plus a
+  // seconds repaint), and the frame of the change itself only repainted the seconds.
+  expect(lastSeconds.reduce((sum, entry) => sum + entry.passes, 0)).toBeGreaterThanOrEqual(42);
+  expect(
+    Math.max(...[...lastSeconds, ...frames.slice(change)].map((entry) => entry.passes)),
+  ).toBeLessThanOrEqual(11);
+  expect(frames[change]!.passes).toBeLessThanOrEqual(1);
+
+  // Toolbar-like resizing: the frame shrinks on twelve consecutive animation frames.
+  await frame.evaluate(() => {
+    (window as unknown as ClockProbeWindow).__clockFrames.length = 0;
+  });
+  await page.evaluate(async () => {
+    const iframe = document.querySelector<HTMLIFrameElement>('#screensaver-overlay iframe')!;
+    for (let step = 1; step <= 12; step++) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      iframe.style.height = `calc(100% - ${step * 6}px)`;
+    }
+  });
+  await expect.poll(() => sceneBuilds(frame)).toBeGreaterThan(0);
+  await page.waitForTimeout(400);
+  // The tiles wait for the size to hold instead of being rebuilt on every frame of it.
+  expect(await sceneBuilds(frame)).toBeLessThanOrEqual(2);
+  const layers = () =>
+    child.locator('[data-compat-compositor="opticalClockCanvas"] > div').evaluateAll((nodes) =>
+      nodes
+        .map((node) => (node as HTMLElement).style)
+        .filter((style) => style.display !== 'none')
+        .map(({ zIndex, width, height, transform }) => ({
+          zIndex: Number(zIndex),
+          width,
+          height,
+          transform,
+        }))
+        .sort((a, b) => a.zIndex - b.zIndex),
+    );
+  const settled = await layers();
+  expect(settled.length).toBeGreaterThanOrEqual(10);
+  // After settling, the clock matches a fresh build at the final size (as a font load forces).
+  const builds = await sceneBuilds(frame);
+  await frame.evaluate(() => document.fonts.dispatchEvent(new Event('loadingdone')));
+  await expect.poll(() => sceneBuilds(frame)).toBe(builds + 1);
+  await expect.poll(layers).toEqual(settled);
   await page.keyboard.press('Escape');
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
 });

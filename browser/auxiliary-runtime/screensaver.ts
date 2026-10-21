@@ -87,6 +87,14 @@ function context(canvas: HTMLCanvasElement): CanvasContext {
   if (!ctx) throw new Error('Canvas is unavailable');
   return ctx;
 }
+interface ScratchCanvas {
+  canvas: HTMLCanvasElement;
+  ctx: CanvasContext;
+}
+function scratchCanvas(): ScratchCanvas {
+  const canvas = document.createElement('canvas');
+  return { canvas, ctx: context(canvas) };
+}
 
 const blurEngine = (() => {
   const PAIRS = 32;
@@ -122,8 +130,7 @@ const blurEngine = (() => {
     a: Float32Array;
     b: Float32Array;
   } | null = null;
-  let solidCanvas: HTMLCanvasElement | null = null;
-  let solidContext: CanvasContext | null = null;
+  let solidScratch: ScratchCanvas | null = null;
 
   function kernel(sigma: number) {
     const key = sigma.toFixed(6);
@@ -536,20 +543,22 @@ const blurEngine = (() => {
   }
 
   return {
-    solid(source: HTMLCanvasElement, sigmaBackingPixels: number, opaqueTint = '#ffffff') {
+    /** Blurs into `scratch` when given, otherwise into the engine's own shared canvas. */
+    solid(
+      source: HTMLCanvasElement,
+      sigmaBackingPixels: number,
+      opaqueTint = '#ffffff',
+      scratch: ScratchCanvas | null = null,
+    ) {
       if (!source.width || !source.height) return source;
-      if (!solidCanvas) {
-        solidCanvas = document.createElement('canvas');
-        solidContext = context(solidCanvas);
-      }
+      const { canvas, ctx } = scratch || (solidScratch ||= scratchCanvas());
       const sigma = Math.max(0, Number(sigmaBackingPixels) || 0);
       const width = source.width,
         height = source.height;
-      if (solidCanvas.width !== width || solidCanvas.height !== height) {
-        solidCanvas.width = width;
-        solidCanvas.height = height;
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
       }
-      const ctx = solidContext || context(solidCanvas);
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
@@ -565,7 +574,7 @@ const blurEngine = (() => {
       ctx.shadowOffsetX = 0;
       stats.solidCalls++;
       backend = 'Canvas shadow Gaussian';
-      return solidCanvas;
+      return canvas;
     },
     blur(source: HTMLCanvasElement, sigmaBackingPixels: number) {
       const sigma = Math.max(0, Number(sigmaBackingPixels) || 0);
@@ -604,11 +613,10 @@ const blurEngine = (() => {
         cpu.input.width = cpu.input.height = 0;
         cpu.output.width = cpu.output.height = 0;
       }
-      if (solidCanvas) solidCanvas.width = solidCanvas.height = 0;
+      if (solidScratch) solidScratch.canvas.width = solidScratch.canvas.height = 0;
       gpu = null;
       cpu = null;
-      solidCanvas = null;
-      solidContext = null;
+      solidScratch = null;
       attemptedGpu = false;
       gpuLost = false;
       kernels.clear();
@@ -876,6 +884,9 @@ const compositor = (() => {
 })();
 const compatPaintCanvas = document.createElement('canvas');
 const compatPaintContext = context(compatPaintCanvas);
+// Clock tiles blur into a canvas of their own. The seconds tile blurs into the engine's shared
+// one on every frame of its morph, so building tiles in between must not resize that one.
+const tileBlurScratch = scratchCanvas();
 function opaqueCompatColor(color: string) {
   if (!color.startsWith('rgba(')) return color;
   return 'rgb(' + color.slice(5, -1).split(',').slice(0, 3).join(',') + ')';
@@ -921,7 +932,7 @@ function paintCompatBlur(
   paint(temporary);
   temporary.restore();
   const blurred = solidTint
-    ? blurEngine.solid(compatPaintCanvas, sigma, solidTint)
+    ? blurEngine.solid(compatPaintCanvas, sigma, solidTint, tileBlurScratch)
     : blurEngine.blur(compatPaintCanvas, sigma);
   target.save();
   target.resetTransform();
@@ -937,6 +948,7 @@ function drawCompatImage(
   height: number,
   sigma = 0,
   solidTint: string | null = null,
+  solidScratch: ScratchCanvas | null = null,
 ) {
   if (target === clockCtx) {
     compositor.draw(target, source, x, y, width, height, sigma);
@@ -950,7 +962,7 @@ function drawCompatImage(
   const physicalScale = (Math.hypot(transform.a, transform.b) * width) / source.width;
   const radius = sigma / Math.max(0.0001, physicalScale);
   const blurred = solidTint
-    ? blurEngine.solid(source, radius, solidTint)
+    ? blurEngine.solid(source, radius, solidTint, solidScratch)
     : blurEngine.blur(source, radius);
   target.drawImage(blurred, x, y, width, height);
 }
@@ -1109,6 +1121,7 @@ window.addEventListener('pagehide', () => {
   if (fontWarmupTimer !== null) clearTimeout(fontWarmupTimer);
   if (clockTransition) releaseClockTransition(clockTransition);
   releaseClockScene(currentClockScene);
+  discardNextClockScene();
   if (currentSecondsTile) {
     compositor.forget(currentSecondsTile.canvas);
     currentSecondsTile.canvas.width = currentSecondsTile.canvas.height = 0;
@@ -1118,6 +1131,7 @@ window.addEventListener('pagehide', () => {
   compositor.dispose();
   blurEngine.dispose();
   compatPaintCanvas.width = compatPaintCanvas.height = 0;
+  tileBlurScratch.canvas.width = tileBlurScratch.canvas.height = 0;
   imageBackgrounds.dispose();
 });
 
@@ -1170,6 +1184,9 @@ const clockCtx = context(clockCanvas);
 clockCanvas.width = clockCanvas.height = 1;
 
 const DIGIT_TRANSITION_MS = 1000;
+// Toolbar animations resize the page many times in a row; the tiles wait for the size to hold.
+const RESIZE_SETTLE_MS = 150;
+const NEXT_SCENE_FROM_SECOND = 55;
 const SECONDS_FONT_SCALE = 0.24;
 const SECONDS_GAP_SCALE = 0.16;
 const SECONDS_CENTER_WEIGHT = 0.7;
@@ -1943,11 +1960,21 @@ let currentSecondStr = '';
 let currentSecondsTile: SecondsTile | null = null;
 let secondsMorph: SecondsMorph | null = null;
 let secondsLastFrame: number | null = null;
+// The size and pixel ratio the current scene's tiles were built for.
 let lastViewportW = 0;
 let lastViewportH = 0;
 let lastDpr = 0;
+// The size seen on the latest frame, and when it last changed.
+let observedViewportW = 0;
+let observedViewportH = 0;
+let observedDpr = 0;
+let viewportChangedAt = 0;
+// Rebuild on the next frame without waiting for the size to settle (start, fonts).
+let clockRebuildPending = true;
 let currentClockScene: ClockScene | null = null;
 let clockTransition: ClockTransition | null = null;
+// The next minute's scene, built a tile at a time during seconds 55–59.
+let nextClockScene: ClockSceneBuild | null = null;
 let fittedFont: FittedFont | null = null;
 
 function getFormattedTimeParts() {
@@ -2196,6 +2223,7 @@ function buildDigitTile(digit: ClockDigit, layout: ClockLayout, dpr: number) {
       scratch.height,
       blur,
       opaqueCompatColor(color),
+      tileBlurScratch,
     );
     ink.ctx.restore();
   }
@@ -2234,15 +2262,117 @@ function buildColonTile(layout: ClockLayout, dpr: number) {
   return { ...tile, offsetX: -halfW, offsetY: -halfH };
 }
 
-function buildClockScene(hoursStr: string, minutesStr: string, w: number, h: number, dpr: number) {
-  const layout = buildClockLayout(hoursStr, minutesStr, w, h);
+interface ClockSceneBuild {
+  hoursStr: string;
+  minutesStr: string;
+  width: number;
+  height: number;
+  dpr: number;
+  layout: ClockLayout;
+  digits: DigitTile[];
+  colon: ColonTile | null;
+  /** The clock second in which the latest tile was built ahead of time. */
+  tileSecond: number;
+}
+
+function startClockScene(
+  hoursStr: string,
+  minutesStr: string,
+  w: number,
+  h: number,
+  dpr: number,
+): ClockSceneBuild {
   return {
     hoursStr,
     minutesStr,
-    layout,
-    digits: layout.digits.map((digit) => buildDigitTile(digit, layout, dpr)),
-    colon: buildColonTile(layout, dpr),
+    width: w,
+    height: h,
+    dpr,
+    layout: buildClockLayout(hoursStr, minutesStr, w, h),
+    digits: [],
+    colon: null,
+    tileSecond: -1,
   };
+}
+
+/** Builds the scene's next tile: the four digits in order, then the colon. */
+function buildNextClockTile(build: ClockSceneBuild) {
+  const { layout, dpr, digits } = build;
+  if (digits.length < layout.digits.length)
+    digits.push(buildDigitTile(layout.digits[digits.length], layout, dpr));
+  else if (!build.colon) build.colon = buildColonTile(layout, dpr);
+}
+
+function finishClockScene(build: ClockSceneBuild) {
+  while (!build.colon) buildNextClockTile(build);
+  const { hoursStr, minutesStr, layout, digits, colon } = build;
+  return { hoursStr, minutesStr, layout, digits, colon };
+}
+
+function buildClockScene(hoursStr: string, minutesStr: string, w: number, h: number, dpr: number) {
+  return finishClockScene(startClockScene(hoursStr, minutesStr, w, h, dpr));
+}
+
+/** The prebuilt scene is valid only for the same time, size, pixel ratio and fitted font. */
+function clockBuildMatches(
+  build: ClockSceneBuild,
+  hoursStr: string,
+  minutesStr: string,
+  w: number,
+  h: number,
+  dpr: number,
+) {
+  return (
+    build.hoursStr === hoursStr &&
+    build.minutesStr === minutesStr &&
+    build.width === w &&
+    build.height === h &&
+    build.dpr === dpr &&
+    build.layout.fontSpec === fittedFont?.fontSpec
+  );
+}
+
+function discardNextClockScene() {
+  releaseClockScene(nextClockScene);
+  nextClockScene = null;
+}
+
+/**
+ * Builds the next minute's scene during seconds 55–59, so the minute change itself does not
+ * build every tile in one frame. Every digit is rebuilt, because the glyph masks span the whole
+ * group and move when any digit's width changes. It builds one tile per second, so no two heavy
+ * frames run back to back, then one per frame in the last second if any are still missing.
+ */
+function prepareNextClockScene(
+  hours: string,
+  minutes: string,
+  seconds: string,
+  w: number,
+  h: number,
+  dpr: number,
+) {
+  const second = Number(seconds);
+  if (second < NEXT_SCENE_FROM_SECOND || nextClockScene?.colon) return;
+  const next = (Number(hours) * 60 + Number(minutes) + 1) % 1440;
+  const nextHours = String(Math.floor(next / 60)).padStart(2, '0');
+  const nextMinutes = String(next % 60).padStart(2, '0');
+  if (nextClockScene && !clockBuildMatches(nextClockScene, nextHours, nextMinutes, w, h, dpr))
+    discardNextClockScene();
+  nextClockScene ||= startClockScene(nextHours, nextMinutes, w, h, dpr);
+  if (nextClockScene.tileSecond === second && second < 59) return;
+  nextClockScene.tileSecond = second;
+  buildNextClockTile(nextClockScene);
+}
+
+/** Takes the prebuilt scene for this minute, finishing any tiles it still lacks. */
+function takeNextClockScene(hours: string, minutes: string, w: number, h: number, dpr: number) {
+  const build = nextClockScene;
+  if (!build || !clockBuildMatches(build, hours, minutes, w, h, dpr)) {
+    discardNextClockScene();
+    return null;
+  }
+  nextClockScene = null;
+  return finishClockScene(build);
 }
 
 const buildSecondsMorphPair = (() => {
@@ -2779,7 +2909,7 @@ function drawSeconds(text: string, layout: ClockLayout, dpr: number, now: number
   clockCtx.restore();
 }
 
-function releaseClockScene(scene: ClockScene | null) {
+function releaseClockScene(scene: ClockScene | ClockSceneBuild | null) {
   if (!scene) return;
   for (const tile of scene.digits) {
     compositor.forget(tile.ink.canvas);
@@ -2787,6 +2917,7 @@ function releaseClockScene(scene: ClockScene | null) {
     compositor.forget(tile.glow.canvas);
     tile.glow.canvas.width = tile.glow.canvas.height = 0;
   }
+  if (!scene.colon) return;
   compositor.forget(scene.colon.canvas);
   scene.colon.canvas.width = scene.colon.canvas.height = 0;
 }
@@ -2843,23 +2974,23 @@ function blendUnchangedDigit(transition: ClockTransition, index: number, progres
   return mixed;
 }
 
-function updateClockMetrics(layout: ClockLayout, offsetX = 0) {
+function updateClockMetrics(layout: ClockLayout, offsetX = 0, offsetY = 0) {
   const height = layout.glyphBottom - layout.glyphTop;
   const next = {
     topRightEdgeX: layout.glyphRight + offsetX - layout.fontSize * 0.1,
-    topRightEdgeY: layout.glyphTop + height * 0.24,
+    topRightEdgeY: layout.glyphTop + offsetY + height * 0.24,
     bottomLeftEdgeX: layout.glyphLeft + offsetX + layout.fontSize * 0.08,
-    bottomLeftEdgeY: layout.glyphBottom - height * 0.22,
+    bottomLeftEdgeY: layout.glyphBottom + offsetY - height * 0.22,
     glyphLeft: layout.glyphLeft + offsetX,
     glyphRight: layout.glyphRight + offsetX,
     groupLeft: layout.glyphLeft + offsetX,
     groupRight: layout.glyphRight + offsetX + layout.secondsGap + layout.secondsWidth,
-    glyphTop: layout.glyphTop,
-    glyphBottom: layout.glyphBottom,
+    glyphTop: layout.glyphTop + offsetY,
+    glyphBottom: layout.glyphBottom + offsetY,
     glyphWidth: layout.glyphRight - layout.glyphLeft,
     glyphHeight: height,
     colonCenterX: layout.colonCenterX + offsetX,
-    colonCenterY: layout.anchorY,
+    colonCenterY: layout.anchorY + offsetY,
     colonDotRadius: layout.colonDotRadius,
     colonDotOffset: layout.colonDotOffset,
     ready: true,
@@ -2914,12 +3045,17 @@ function drawColonTile(tile: ColonTile, x: number, y: number, wave: number) {
   clockCtx.restore();
 }
 
-function drawClockScene(scene: ClockScene, offsetX: number, wave: number) {
+function drawClockScene(scene: ClockScene, offsetX: number, offsetY: number, wave: number) {
   scene.digits.forEach((tile, index) => {
-    drawDigitTile(tile, scene.layout.digits[index].x + offsetX, scene.layout.drawY, wave);
+    drawDigitTile(tile, scene.layout.digits[index].x + offsetX, scene.layout.drawY + offsetY, wave);
   });
-  drawColonTile(scene.colon, scene.layout.colonCenterX + offsetX, scene.layout.anchorY, wave);
-  updateClockMetrics(scene.layout, offsetX);
+  drawColonTile(
+    scene.colon,
+    scene.layout.colonCenterX + offsetX,
+    scene.layout.anchorY + offsetY,
+    wave,
+  );
+  updateClockMetrics(scene.layout, offsetX, offsetY);
 }
 
 function drawDigitTransition(transition: ClockTransition, progress: number, wave: number) {
@@ -2972,8 +3108,24 @@ function renderFrame(now: number) {
   const rect = clockCanvas.getBoundingClientRect();
   if (!rect.width || !rect.height) return;
   const dpr = getRenderDpr(rect.width, rect.height);
-  const resized = rect.width !== lastViewportW || rect.height !== lastViewportH || dpr !== lastDpr;
+  if (
+    rect.width !== observedViewportW ||
+    rect.height !== observedViewportH ||
+    dpr !== observedDpr
+  ) {
+    observedViewportW = rect.width;
+    observedViewportH = rect.height;
+    observedDpr = dpr;
+    viewportChangedAt = now;
+    resizeSpeckleCanvas();
+  }
+  const viewportChanged =
+    rect.width !== lastViewportW || rect.height !== lastViewportH || dpr !== lastDpr;
   const timeChanged = hours !== currentHourStr || minutes !== currentMinuteStr;
+  // A new size is built once it has held; a minute change rebuilds every tile anyway.
+  const resized =
+    clockRebuildPending ||
+    (viewportChanged && (timeChanged || now - viewportChangedAt >= RESIZE_SETTLE_MS));
   const minuteStep =
     (Number(hours) * 60 +
       Number(minutes) -
@@ -2986,7 +3138,10 @@ function renderFrame(now: number) {
     timeChanged &&
     !(minuteStep === 1 && currentSecondStr === '59' && seconds === '00');
   if (resized || timeChanged || !currentClockScene) {
-    const next = buildClockScene(hours, minutes, rect.width, rect.height, dpr);
+    if (resized || clockJump) discardNextClockScene();
+    const next =
+      takeNextClockScene(hours, minutes, rect.width, rect.height, dpr) ||
+      buildClockScene(hours, minutes, rect.width, rect.height, dpr);
     if (currentClockScene && !resized && !reducedMotion.matches && !clockTransition) {
       clockTransition = {
         start: now,
@@ -3004,9 +3159,11 @@ function renderFrame(now: number) {
     lastViewportW = rect.width;
     lastViewportH = rect.height;
     lastDpr = dpr;
-    if (resized) resizeSpeckleCanvas();
+    clockRebuildPending = false;
   }
-  if (clockTransition && reducedMotion.matches) {
+  // Until a new size settles, the current tiles keep their size, centered in the new viewport.
+  const settling = rect.width !== lastViewportW || rect.height !== lastViewportH || dpr !== lastDpr;
+  if (clockTransition && (settling || reducedMotion.matches)) {
     releaseClockTransition(clockTransition);
     clockTransition = null;
   }
@@ -3020,18 +3177,26 @@ function renderFrame(now: number) {
     if (elapsed < DIGIT_TRANSITION_MS) {
       drawDigitTransition(clockTransition, elapsed / DIGIT_TRANSITION_MS, wave);
     } else {
-      drawClockScene(currentClockScene, 0, wave);
+      drawClockScene(currentClockScene, 0, 0, wave);
       releaseClockTransition(clockTransition);
       clockTransition = null;
     }
   } else {
-    drawClockScene(currentClockScene, 0, wave);
+    drawClockScene(
+      currentClockScene,
+      (rect.width - lastViewportW) / 2,
+      (rect.height - lastViewportH) / 2,
+      wave,
+    );
   }
   if (timeChanged || resized || seconds !== currentSecondStr)
     clockCanvas.setAttribute('aria-label', `${hours}:${minutes}:${seconds}`);
-  drawSeconds(seconds, currentClockScene.layout, dpr, now, resized || clockJump);
+  drawSeconds(seconds, currentClockScene.layout, lastDpr, now, resized || clockJump);
   if (!speckles.length) initSpeckles();
   compositor.end(clockCtx);
+  // Tiles are built ahead only in otherwise quiet frames: no scene build, resize or animation.
+  if (!resized && !timeChanged && !settling && !secondsMorph && !clockTransition)
+    prepareNextClockScene(hours, minutes, seconds, rect.width, rect.height, dpr);
 }
 
 const speckleCanvas = element('speckleFieldCanvas', 'canvas');
@@ -3429,10 +3594,10 @@ for (const type of ['gesturestart', 'gesturechange', 'gestureend'] as const) {
   document.addEventListener(type, (event) => event.preventDefault(), { passive: false });
 }
 
+// The clock tiles follow in renderFrame, once the new size has settled.
 window.addEventListener('resize', () => {
   imageBackgrounds.resize();
   resizeSpeckleCanvas();
-  lastViewportW = 0;
 });
 
 function loadGoogleSansStylesheet(): Promise<boolean> {
@@ -3502,13 +3667,14 @@ async function initializeScreensaver() {
   for (let digit = 0; digit < 10; digit++)
     buildSecondsMorphPair(String(digit), String((digit + 1) % 10));
   buildSecondsMorphPair('5', '0');
-  lastViewportW = 0;
+  clockRebuildPending = true;
   startAnimationLoop();
 }
 
 function invalidateFontLayouts() {
   fittedFont = null;
-  lastViewportW = 0;
+  clockRebuildPending = true;
+  discardNextClockScene();
 }
 
 document.fonts?.addEventListener('loadingdone', () => {

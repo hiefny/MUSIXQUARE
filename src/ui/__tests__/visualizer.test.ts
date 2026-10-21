@@ -98,6 +98,7 @@ beforeEach(async () => {
   const wrapper = document.createElement('div');
   wrapper.className = 'vinyl-wrapper';
   Object.defineProperty(wrapper, 'clientWidth', { value: 240, configurable: true });
+  Object.defineProperty(wrapper, 'clientHeight', { value: 240, configurable: true });
   document.body.appendChild(wrapper);
 });
 
@@ -107,7 +108,182 @@ afterEach(() => {
   vi.restoreAllMocks();
   document.body.className = '';
   document.body.innerHTML = '';
+  delete document.body.dataset.visualizerCovered;
+  vi.doUnmock('../visualizer-spectrum.ts');
 });
+
+async function visibilityHarness(
+  mode: 'circular' | 'spectrum',
+  options: { hidden?: boolean; reduced?: boolean; deferLoad?: boolean } = {},
+) {
+  vi.resetModules();
+  const { setState } = await import('../../core/state.ts');
+  const { getAnalyser } = await import('../../audio/engine.ts');
+  const { bus } = await import('../../core/events.ts');
+  bus.clear();
+  setState('playback.mode', 'file');
+  setState('playback.activity', 'playing');
+  localStorage.setItem('musixquare-viz-mode', mode);
+  let size = options.hidden ? 0 : 240;
+  let hidden = false;
+  let reduced = options.reduced ?? false;
+  let motionChange: (() => void) | undefined;
+  vi.spyOn(document, 'hidden', 'get').mockImplementation(() => hidden);
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: vi.fn((query: string) => ({
+      get matches() {
+        return query.includes('reduced-motion') && reduced;
+      },
+      addEventListener: (_event: string, callback: () => void) => {
+        if (query.includes('reduced-motion')) motionChange = callback;
+      },
+      removeEventListener: vi.fn(),
+    })),
+  });
+  vi.stubGlobal('IntersectionObserver', undefined);
+  vi.stubGlobal('devicePixelRatio', 1);
+  const wrapper = document.querySelector<HTMLElement>('.vinyl-wrapper')!;
+  Object.defineProperties(wrapper, {
+    clientWidth: { configurable: true, get: () => size },
+    clientHeight: { configurable: true, get: () => size },
+  });
+  const canvas = document.createElement('canvas');
+  canvas.id = 'visualizerCanvas';
+  wrapper.append(canvas);
+  const ctx = {
+    canvas,
+    setTransform: vi.fn(),
+    clearRect: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    moveTo: vi.fn(),
+    lineTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
+    closePath: vi.fn(),
+    stroke: vi.fn(),
+    createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+  };
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+    ctx as unknown as CanvasRenderingContext2D,
+  );
+  const analyser = {
+    context: { sampleRate: 48000 },
+    frequencyBinCount: 64,
+    fftSize: 128,
+    getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-20)),
+  };
+  vi.mocked(getAnalyser).mockReturnValue(analyser as unknown as AnalyserNode);
+  const pending = new Map<number, FrameRequestCallback>();
+  let frameId = 0;
+  let now = performance.now();
+  vi.stubGlobal(
+    'requestAnimationFrame',
+    vi.fn((callback: FrameRequestCallback) => {
+      pending.set(++frameId, callback);
+      return frameId;
+    }),
+  );
+  vi.stubGlobal(
+    'cancelAnimationFrame',
+    vi.fn((id: number) => pending.delete(id)),
+  );
+  let resize: ResizeObserverCallback | undefined;
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+      observe() {}
+      disconnect() {}
+    },
+  );
+  const documentListeners = vi.spyOn(document, 'addEventListener');
+  const mod = await import('../visualizer.ts');
+  mod.initVisualizer();
+  if (!options.deferLoad) await vi.dynamicImportSettled();
+  await Promise.resolve();
+  const visibility = documentListeners.mock.calls.findLast(
+    ([event]) => event === 'visibilitychange',
+  )![1] as EventListener;
+  const cover = documentListeners.mock.calls.findLast(
+    ([event]) => event === 'mxqr:visualizer-visibility',
+  )![1] as EventListener;
+  return {
+    ctx,
+    canvas,
+    analyser,
+    pending,
+    bus,
+    mod,
+    step() {
+      vi.advanceTimersByTime(17);
+      now = performance.now();
+      const callbacks = [...pending.values()];
+      pending.clear();
+      for (const callback of callbacks) callback(now);
+    },
+    setSize(next: number) {
+      size = next;
+      resize?.([], {} as ResizeObserver);
+    },
+    setCovered(next: boolean) {
+      if (next) document.body.dataset.visualizerCovered = 'true';
+      else delete document.body.dataset.visualizerCovered;
+      cover(new Event('mxqr:visualizer-visibility'));
+    },
+    setHidden(next: boolean) {
+      hidden = next;
+      visibility(new Event('visibilitychange'));
+    },
+    setReduced(next: boolean) {
+      reduced = next;
+      motionChange?.();
+    },
+    setActivity(activity: 'playing' | 'paused') {
+      setState('playback.activity', activity);
+      bus.emit('state:playback.activity', activity, 'playback.activity');
+    },
+    replaceAnalyser() {
+      const replacement = {
+        ...analyser,
+        getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-60)),
+      };
+      vi.mocked(getAnalyser).mockReturnValue(replacement as unknown as AnalyserNode);
+      bus.emit('audio:ready');
+      return replacement;
+    },
+  };
+}
+
+function deferredSpectrum() {
+  let release!: () => void;
+  let reject!: (error: Error) => void;
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const wait = new Promise<void>((resolve, fail) => {
+    release = resolve;
+    reject = fail;
+  });
+  const load = vi.fn(async () => {
+    try {
+      await wait;
+      return await vi.importActual<typeof import('../visualizer-spectrum.ts')>(
+        '../visualizer-spectrum.ts',
+      );
+    } finally {
+      // Vitest's module-settled helper can observe an empty evaluator queue
+      // while this asynchronous mock factory still awaits importActual.
+      finish();
+    }
+  });
+  vi.doMock('../visualizer-spectrum.ts', load);
+  return { release, reject, load, finished };
+}
 
 describe('Visualizer', () => {
   describe('runtime behavior', () => {
@@ -153,6 +329,7 @@ describe('Visualizer', () => {
       } as unknown as CanvasRenderingContext2D;
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
       vi.mocked(getAnalyser).mockReturnValue({
+        context: { sampleRate: 48000 },
         frequencyBinCount: 16,
         getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-20)),
       } as unknown as AnalyserNode);
@@ -168,6 +345,7 @@ describe('Visualizer', () => {
 
       const mod = await import('../visualizer.ts');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
       for (let frame = 0; frame < 16; frame++) {
         frameCallbacks.shift()?.(frame * 16);
       }
@@ -248,6 +426,7 @@ describe('Visualizer', () => {
       } as unknown as CanvasRenderingContext2D;
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
       vi.mocked(getAnalyser).mockReturnValue({
+        context: { sampleRate: 48000 },
         frequencyBinCount: 16,
         getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-20)),
       } as unknown as AnalyserNode);
@@ -260,6 +439,7 @@ describe('Visualizer', () => {
 
       const mod = await import('../visualizer.ts');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
 
       expect(observe).toHaveBeenCalledWith(wrapper);
       expect(visualViewport.addEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
@@ -345,7 +525,8 @@ describe('Visualizer', () => {
         );
         const mod = await import('../visualizer.ts');
         mod.initVisualizer();
-        for (let frame = 0; frame < 3; frame++) frames.shift()?.(frame * 16);
+        await vi.dynamicImportSettled();
+        for (let frame = 0; frame < 4; frame++) frames.shift()?.(frame * 16);
         expect(ctx.fill).toHaveBeenCalled();
         const windowResize = windowListeners.mock.calls.findLast(
           ([type]) => type === 'resize',
@@ -367,7 +548,7 @@ describe('Visualizer', () => {
         expect(ctx.clearRect).not.toHaveBeenCalled();
         frames.shift()?.(64);
         expect(ctx.clearRect).toHaveBeenCalled();
-        expect(analyser.smoothingTimeConstant).toBe(0.8);
+        expect(analyser.smoothingTimeConstant).toBe(0);
 
         // Same backing dimensions do not imply the same logical coordinates.
         size = 120;
@@ -405,6 +586,7 @@ describe('Visualizer', () => {
       } as unknown as CanvasRenderingContext2D;
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
       vi.mocked(getAnalyser).mockReturnValue({
+        context: { sampleRate: 48000 },
         frequencyBinCount: 16,
         getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(Number.NaN)),
       } as unknown as AnalyserNode);
@@ -416,6 +598,7 @@ describe('Visualizer', () => {
 
       const mod = await import('../visualizer.ts');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
 
       expect(ctx.arc).toHaveBeenCalled();
       for (const call of vi.mocked(ctx.arc).mock.calls) {
@@ -449,6 +632,7 @@ describe('Visualizer', () => {
 
       const mod = await import('../visualizer.ts');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
 
       expect(document.body.classList.contains('viz-spectrum')).toBe(true);
       expect(document.body.classList.contains('viz-circular')).toBe(false);
@@ -482,7 +666,9 @@ describe('Visualizer', () => {
 
       const mod = await import('../visualizer.ts');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
 
       restingCanvas.click();
 
@@ -540,7 +726,9 @@ describe('Visualizer', () => {
 
         const mod = await import('../visualizer.ts');
         mod.initVisualizer();
+        await vi.dynamicImportSettled();
         mod.initVisualizer();
+        await vi.dynamicImportSettled();
         expect(document.body.classList.contains('viz-spectrum')).toBe(true);
         expect(restingCanvas.getAttribute('role')).toBe('img');
         expect(restingCanvas.getAttribute('tabindex')).toBe('-1');
@@ -605,6 +793,7 @@ describe('Visualizer', () => {
         throw new Error('Storage unavailable');
       });
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
       restingCanvas.click();
       expect(restingCanvas.dataset.visualizerMode).toBe('spectrum');
       restingCanvas.click();
@@ -622,6 +811,7 @@ describe('Visualizer', () => {
       expect(localStorage.getItem('musixquare-viz-mode')).toBe('circular');
 
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
       setState('demo.active', false);
       bus.emit('state:demo.active', false, 'demo.active');
       expect(restingCanvas.dataset.visualizerMode).toBe('circular');
@@ -630,6 +820,7 @@ describe('Visualizer', () => {
       setState('demo.active', true);
       bus.emit('state:demo.active', true, 'demo.active');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
       setState('demo.active', false);
       bus.emit('state:demo.active', false, 'demo.active');
       expect(restingCanvas.dataset.visualizerMode).toBe('spectrum');
@@ -662,6 +853,7 @@ describe('Visualizer', () => {
 
       const mod = await import('../visualizer.ts');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
 
       expect(ctx.arc).toHaveBeenCalled();
     });
@@ -692,6 +884,7 @@ describe('Visualizer', () => {
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
 
       const analyser = {
+        context: { sampleRate: 48000 },
         frequencyBinCount: 16,
         getFloatFrequencyData: vi.fn((data: Float32Array) => data.fill(-20)),
       } as unknown as AnalyserNode;
@@ -709,6 +902,7 @@ describe('Visualizer', () => {
       bus.clear();
       const mod = await import('../visualizer.ts');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
 
       vi.mocked(ctx.arc).mockClear();
       requestAnimationFrameMock.mockClear();
@@ -768,6 +962,7 @@ describe('Visualizer', () => {
 
       const mod = await import('../visualizer.ts');
       mod.initVisualizer();
+      await vi.dynamicImportSettled();
 
       expect(ctx.fill).not.toHaveBeenCalled();
       expect(analyser.smoothingTimeConstant).toBe(0);
@@ -777,11 +972,223 @@ describe('Visualizer', () => {
       }
 
       expect(ctx.fill).not.toHaveBeenCalled();
-      expect(analyser.smoothingTimeConstant).toBe(0.8);
+      expect(analyser.smoothingTimeConstant).toBe(0);
 
-      rafCallbacks.at(-1)?.(performance.now() + 32);
+      rafCallbacks.at(-1)?.(performance.now() + 34);
 
       expect(ctx.fill).toHaveBeenCalled();
+    });
+  });
+
+  describe('visibility and motion lifecycle', () => {
+    it.each(['circular', 'spectrum'] as const)(
+      'does not start %s while hidden and wakes at its real size',
+      async (mode) => {
+        const h = await visibilityHarness(mode, { hidden: true });
+        expect(h.pending.size).toBe(0);
+        expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+        h.mod.startVisualizer();
+        expect(h.pending.size).toBe(0);
+        h.setSize(240);
+        h.step();
+        h.step();
+        h.step();
+        expect(h.canvas.width).toBe(240);
+        expect(h.canvas.height).toBe(240);
+        expect(h.analyser.getFloatFrequencyData).toHaveBeenCalled();
+        expect(h.ctx.fill).toHaveBeenCalled();
+        expect(h.pending.size).toBe(1);
+      },
+    );
+
+    it.each(['cover', 'zero-size', 'document'] as const)(
+      'resumes the existing spectrum after %s without a new warmup',
+      async (boundary) => {
+        const h = await visibilityHarness('spectrum');
+        h.step();
+        h.step();
+        h.step();
+        expect(h.ctx.quadraticCurveTo).toHaveBeenCalled();
+        const change = (hide: boolean) => {
+          if (boundary === 'cover') h.setCovered(hide);
+          else if (boundary === 'zero-size') h.setSize(hide ? 0 : 240);
+          else h.setHidden(hide);
+        };
+        change(true);
+        h.analyser.getFloatFrequencyData.mockClear();
+        h.ctx.quadraticCurveTo.mockClear();
+        expect(h.pending.size).toBe(0);
+        h.mod.startVisualizer();
+        h.step();
+        expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+        expect(h.ctx.quadraticCurveTo).not.toHaveBeenCalled();
+        change(false);
+        expect(h.pending.size).toBe(1);
+        h.step();
+        // A restarted spectrum would draw only its resting line for 33 ms.
+        expect(h.ctx.quadraticCurveTo).toHaveBeenCalled();
+        expect(h.pending.size).toBe(1);
+      },
+    );
+
+    it.each(['circular', 'spectrum'] as const)(
+      'keeps a deliberately paused %s frame through visibility changes',
+      async (mode) => {
+        const h = await visibilityHarness(mode);
+        h.step();
+        h.step();
+        h.step();
+        const arcs = h.ctx.arc.mock.calls.slice(-2);
+        h.bus.emit('visualizer:hold-frame');
+        h.setActivity('paused');
+        expect(h.pending.size).toBe(0);
+        h.analyser.getFloatFrequencyData.mockClear();
+        h.ctx.arc.mockClear();
+        h.ctx.quadraticCurveTo.mockClear();
+        h.setCovered(true);
+        h.setSize(0);
+        h.setSize(240);
+        h.setCovered(false);
+        expect(h.pending.size).toBe(0);
+        expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+        if (mode === 'circular') expect(h.ctx.arc.mock.calls.slice(-2)).toEqual(arcs);
+        else expect(h.ctx.quadraticCurveTo).toHaveBeenCalled();
+      },
+    );
+
+    it.each(['circular', 'spectrum'] as const)(
+      'keeps %s static under reduced motion and resumes when disabled',
+      async (mode) => {
+        const h = await visibilityHarness(mode, { reduced: true });
+        expect(h.pending.size).toBe(0);
+        expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+        h.setReduced(false);
+        await Promise.resolve();
+        h.step();
+        h.step();
+        h.step();
+        expect(h.ctx.fill).toHaveBeenCalled();
+        expect(h.pending.size).toBe(1);
+        h.setReduced(true);
+        h.analyser.getFloatFrequencyData.mockClear();
+        h.step();
+        expect(h.pending.size).toBe(0);
+        expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+        h.setReduced(false);
+        h.step();
+        expect(h.pending.size).toBe(1);
+      },
+    );
+
+    it('replaces a suspended analyser without resuming the previous source closure', async () => {
+      const h = await visibilityHarness('spectrum');
+      h.step();
+      h.step();
+      h.step();
+      h.setCovered(true);
+      const replacement = h.replaceAnalyser();
+      h.analyser.getFloatFrequencyData.mockClear();
+      expect(replacement.getFloatFrequencyData).not.toHaveBeenCalled();
+      expect(h.pending.size).toBe(0);
+      h.setCovered(false);
+      h.step();
+      h.step();
+      h.step();
+      expect(replacement.getFloatFrequencyData).toHaveBeenCalled();
+      expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+      expect(h.pending.size).toBe(1);
+    });
+  });
+
+  describe('lazy spectrum renderer', () => {
+    it('does not request the optional renderer during default circular startup', async () => {
+      const deferred = deferredSpectrum();
+      const h = await visibilityHarness('circular', { deferLoad: true });
+      await Promise.resolve();
+      expect(deferred.load).not.toHaveBeenCalled();
+      expect(h.pending.size).toBe(1);
+      expect(h.ctx.arc).toHaveBeenCalled();
+      deferred.release();
+    });
+
+    it('presents the spectrum control and resting line immediately and fences a later mode change', async () => {
+      const deferred = deferredSpectrum();
+      const h = await visibilityHarness('spectrum', { deferLoad: true });
+      expect(h.canvas.getAttribute('data-visualizer-mode')).toBe('spectrum');
+      expect(h.canvas.getAttribute('aria-pressed')).toBe('true');
+      expect(h.ctx.stroke).toHaveBeenCalled();
+      expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+      expect(h.pending.size).toBe(0);
+      h.canvas.click();
+      expect(h.canvas.getAttribute('data-visualizer-mode')).toBe('circular');
+      deferred.release();
+      await deferred.finished;
+      await vi.dynamicImportSettled();
+      h.step();
+      expect(h.ctx.quadraticCurveTo).not.toHaveBeenCalled();
+      expect(h.ctx.arc).toHaveBeenCalled();
+      expect(h.pending.size).toBe(1);
+    });
+
+    it('does not turn a pause during loading back into playback and reuses the loaded renderer', async () => {
+      const deferred = deferredSpectrum();
+      const h = await visibilityHarness('spectrum', { deferLoad: true });
+      h.bus.emit('visualizer:hold-frame');
+      h.setActivity('paused');
+      deferred.release();
+      await deferred.finished;
+      await vi.dynamicImportSettled();
+      expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+      expect(h.pending.size).toBe(0);
+      h.setActivity('playing');
+      h.step();
+      h.step();
+      h.step();
+      expect(h.ctx.quadraticCurveTo).toHaveBeenCalled();
+      expect(h.pending.size).toBe(1);
+      h.canvas.click();
+      await Promise.resolve();
+      h.canvas.click();
+      expect(h.pending.size).toBe(1);
+      expect(deferred.load).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses the current analyser and keeps the visibility gate when loading resolves', async () => {
+      const deferred = deferredSpectrum();
+      const h = await visibilityHarness('spectrum', { deferLoad: true });
+      h.setCovered(true);
+      const replacement = h.replaceAnalyser();
+      deferred.release();
+      await deferred.finished;
+      await vi.dynamicImportSettled();
+      expect(h.pending.size).toBe(0);
+      expect(replacement.getFloatFrequencyData).not.toHaveBeenCalled();
+      h.setCovered(false);
+      h.step();
+      h.step();
+      h.step();
+      expect(replacement.getFloatFrequencyData).toHaveBeenCalled();
+      expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
+      expect(h.pending.size).toBe(1);
+    });
+
+    it('reports terminal import failure and never retries the same module in this document', async () => {
+      const deferred = deferredSpectrum();
+      const h = await visibilityHarness('spectrum', { deferLoad: true });
+      const failure = new Error('Spectrum chunk unavailable');
+      deferred.reject(failure);
+      await deferred.finished;
+      await vi.dynamicImportSettled();
+      expect(h.bus.emit).toHaveBeenCalledWith(
+        'app:lazy-feature-load-failed',
+        'visualizer-spectrum',
+        expect.objectContaining({ cause: failure }),
+      );
+      expect(h.pending.size).toBe(0);
+      h.mod.startVisualizer();
+      await vi.dynamicImportSettled();
+      expect(deferred.load).toHaveBeenCalledTimes(1);
+      expect(h.pending.size).toBe(0);
     });
   });
 });

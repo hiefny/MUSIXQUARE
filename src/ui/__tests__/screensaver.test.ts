@@ -414,6 +414,93 @@ describe('screensaver frame bridge', () => {
 });
 
 describe('screensaver lifecycle', () => {
+  it.each(['transition', 'fallback'] as const)(
+    'covers the visualizer after its entrance %s and wakes it before fading out',
+    async (completion) => {
+      enableMotion();
+      const changes: { covered: boolean; opacity: string | undefined }[] = [];
+      const onChange = () =>
+        changes.push({
+          covered: document.body.dataset.visualizerCovered === 'true',
+          opacity: overlay()?.style.opacity,
+        });
+      document.addEventListener('mxqr:visualizer-visibility', onChange);
+      try {
+        openFrame();
+        expect(document.body.dataset.visualizerCovered).toBeUndefined();
+        await vi.advanceTimersByTimeAsync(16);
+        await vi.advanceTimersByTimeAsync(419);
+        expect(changes).toEqual([]);
+        if (completion === 'transition') {
+          await vi.advanceTimersByTimeAsync(1);
+          const event = new Event('transitionend');
+          Object.defineProperty(event, 'propertyName', { value: 'opacity' });
+          overlay()!.dispatchEvent(event);
+        } else {
+          await vi.advanceTimersByTimeAsync(81);
+        }
+        expect(changes).toEqual([{ covered: true, opacity: '1' }]);
+        expect(getManagedTimer('screensaver-cover')).toBeNull();
+
+        escape();
+        expect(changes).toEqual([
+          { covered: true, opacity: '1' },
+          { covered: false, opacity: '1' },
+        ]);
+        expect(overlay()?.style.opacity).toBe('0');
+        await vi.advanceTimersByTimeAsync(500);
+        expect(overlay()).toBeNull();
+        expect(changes).toHaveLength(2);
+      } finally {
+        document.removeEventListener('mxqr:visualizer-visibility', onChange);
+      }
+    },
+  );
+
+  it('cancels a pending cover when closed during the entrance fade', async () => {
+    enableMotion();
+    openFrame();
+    await vi.advanceTimersByTimeAsync(16);
+    expect(getManagedTimer('screensaver-cover')).not.toBeNull();
+    escape();
+    expect(getManagedTimer('screensaver-cover')).toBeNull();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(document.body.dataset.visualizerCovered).toBeUndefined();
+    expect(overlay()).toBeNull();
+  });
+
+  it('covers immediately with reduced motion and releases on forced teardown', () => {
+    openFrame();
+    expect(document.body.dataset.visualizerCovered).toBe('true');
+    expect(getManagedTimer('screensaver-cover')).toBeNull();
+    setState('setup.sessionStarted', false);
+    expect(document.body.dataset.visualizerCovered).toBeUndefined();
+    expect(getManagedTimer('screensaver-cover')).toBeNull();
+  });
+
+  it('finishes the cover when reduced motion is enabled during the entrance', async () => {
+    enableMotion();
+    const changes = new Set<() => void>();
+    const motion = {
+      matches: false,
+      addEventListener: (_event: string, listener: () => void) => changes.add(listener),
+      removeEventListener: (_event: string, listener: () => void) => changes.delete(listener),
+    };
+    vi.stubGlobal('matchMedia', () => motion);
+    openFrame();
+    await vi.advanceTimersByTimeAsync(16);
+    expect(document.body.dataset.visualizerCovered).toBeUndefined();
+    motion.matches = true;
+    for (const change of changes) change();
+    expect(overlay()?.style.transition).toBe('none');
+    expect(document.body.dataset.visualizerCovered).toBe('true');
+    expect(getManagedTimer('screensaver-cover')).toBeNull();
+    escape();
+    expect(overlay()).toBeNull();
+    expect(document.body.dataset.visualizerCovered).toBeUndefined();
+    expect(changes.size).toBe(0);
+  });
+
   it.each(['webkitFullscreenElement', 'webkitCurrentFullScreenElement'] as const)(
     'preserves an existing prefixed root fullscreen from %s',
     (property) => {

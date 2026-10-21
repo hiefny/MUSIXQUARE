@@ -1353,6 +1353,192 @@ describe('PLAY_PRELOADED guard', () => {
   });
 });
 
+describe('PLAY_PRELOADED receiving progress', () => {
+  const sessionId = 41;
+  const total = 25;
+  let hostConn: DataConnection;
+
+  async function startPreload(sid = sessionId, queueItemId = Q1): Promise<void> {
+    await handleData(
+      {
+        type: MSG.PRELOAD_START,
+        sessionId: sid,
+        queueItemId,
+        name: 'next.mp3',
+        mime: 'audio/mpeg',
+        total,
+        size: total * CHUNK_SIZE,
+      },
+      hostConn,
+    );
+  }
+
+  async function receiveChunk(
+    chunkIndex: number,
+    sid = sessionId,
+    queueItemId = Q1,
+  ): Promise<void> {
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        sessionId: sid,
+        queueItemId,
+        chunkIndex,
+        chunk: new Uint8Array(CHUNK_SIZE).fill(chunkIndex + 1),
+      },
+      hostConn,
+    );
+  }
+
+  async function receiveTo84Percent(): Promise<void> {
+    await startPreload();
+    for (let chunkIndex = 0; chunkIndex < 21; chunkIndex++) {
+      await receiveChunk(chunkIndex);
+    }
+  }
+
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
+    const { ramReset } = await import('../ramstore.ts');
+    resetStoredFileAdmissionsForTests();
+    ramReset(true);
+    initPreload();
+    document.body.innerHTML = `
+      <header id="main-header">
+        <span id="header-loading-text"></span>
+        <span id="header-progress-bg"></span>
+      </header>
+    `;
+    hostConn = {
+      open: true,
+      peer: 'host-preload-progress',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('playlist.items', [
+      makeFileTrack('current.mp3', Q0),
+      makeFileTrack('next.mp3', Q1),
+      makeFileTrack('next.mp3', Q2),
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+  });
+
+  afterEach(async () => {
+    const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
+    const { ramReset } = await import('../ramstore.ts');
+    resetStoredFileAdmissionsForTests();
+    ramReset(true);
+  });
+
+  it('promotes the existing 84% prefix and keeps the foreground percentage moving', async () => {
+    const toast = await import('../../ui/toast.ts');
+    const show = vi.spyOn(toast, 'showLoader');
+    const update = vi.spyOn(toast, 'updateLoader');
+    const { ramContiguousCount, ramReadChunk } = await import('../ramstore.ts');
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
+    await receiveTo84Percent();
+
+    expect(update).toHaveBeenLastCalledWith(84, 'preload-receive');
+    expect(ramContiguousCount(Q1, true, sessionId)).toBe(21);
+    const firstChunk = await ramReadChunk(Q1, true, sessionId, 0);
+    const sessionBeforePromotion = getState('preload.sessionState').get(sessionId);
+    show.mockClear();
+    update.mockClear();
+    storageMocks.postCommand.mockClear();
+
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'next.mp3' }, hostConn);
+
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(getState('preload.sessionState').get(sessionId)).toBe(sessionBeforePromotion);
+    expect(usePreloaded).toHaveBeenCalledExactlyOnceWith(Q1, 'next.mp3', sessionId);
+    expect(show).toHaveBeenLastCalledWith(true, 'Finishing download... 84%', undefined);
+    expect(update).toHaveBeenLastCalledWith(84, undefined);
+    expect(document.querySelector('.header-loading-text-content')?.textContent).toBe(
+      'Finishing download... 84%',
+    );
+    expect(storageMocks.postCommand).not.toHaveBeenCalled();
+
+    // A stale main-transfer state must not mask the exact preload now awaited.
+    setState('transfer.state', TRANSFER_STATE.RECEIVING);
+    for (const [chunkIndex, pct] of [
+      [21, 88],
+      [22, 92],
+    ] as const) {
+      await receiveChunk(chunkIndex);
+      expect(show).toHaveBeenLastCalledWith(true, `Finishing download... ${pct}%`, undefined);
+      expect(update).toHaveBeenLastCalledWith(pct, undefined);
+      expect(document.querySelector('.header-loading-text-content')?.textContent).toBe(
+        `Finishing download... ${pct}%`,
+      );
+    }
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(getState('preload.sessionState').get(sessionId)).toMatchObject({
+      queueItemId: Q1,
+      nextExpectedChunk: 23,
+      progress: 23,
+      total,
+      finalized: false,
+    });
+    expect(ramContiguousCount(Q1, true, sessionId)).toBe(23);
+    expect(await ramReadChunk(Q1, true, sessionId, 0)).toBe(firstChunk);
+    expect((await ramReadChunk(Q1, true, sessionId, 22))?.[0]).toBe(23);
+    expect(storageMocks.postCommand.mock.calls.map(([command]) => command)).toEqual([
+      expect.objectContaining({
+        command: 'STORAGE_WRITE',
+        queueItemId: Q1,
+        sessionId,
+        chunkIndex: 21,
+      }),
+      expect.objectContaining({
+        command: 'STORAGE_WRITE',
+        queueItemId: Q1,
+        sessionId,
+        chunkIndex: 22,
+      }),
+    ]);
+    expect(hostConn.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY }),
+    );
+  });
+
+  it('keeps other queue items and older same-item sessions out of the awaited foreground', async () => {
+    await startPreload(40);
+    await receiveTo84Percent();
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'next.mp3' }, hostConn);
+    // A prior watchdog may have released this holder. A new background START
+    // must not recreate it above the awaited track's foreground operation.
+    showLoader(false, undefined, 'preload-receive');
+    const toast = await import('../../ui/toast.ts');
+    const show = vi.spyOn(toast, 'showLoader');
+    const update = vi.spyOn(toast, 'updateLoader');
+
+    await receiveChunk(0, 40);
+    await startPreload(42, Q2);
+    await receiveChunk(0, 42, Q2);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getState('preload.sessionState').get(40)?.progress).toBe(1);
+    expect(getState('preload.sessionState').get(42)?.progress).toBe(1);
+    expect(getState('preload.sessionState').get(sessionId)?.progress).toBe(21);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+    expect(show).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(document.querySelector('.header-loading-text-content')?.textContent).toBe(
+      'Finishing download... 84%',
+    );
+
+    await receiveChunk(21);
+    expect(update).toHaveBeenLastCalledWith(88, undefined);
+    expect(document.querySelector('.header-loading-text-content')?.textContent).toBe(
+      'Finishing download... 88%',
+    );
+  });
+});
+
 describe('PLAY_PRELOADED exact track identity', () => {
   function makeHostConnection(): DataConnection {
     return {

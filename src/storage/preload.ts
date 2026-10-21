@@ -88,6 +88,26 @@ import { armPreloadAdmissionWatchdog } from './preload-watchdog.ts';
 const PRO_ROOM_FILE_PRELOAD_ENABLED = true;
 const PRELOAD_RECEIVE_LOADER_ID = 'preload-receive';
 
+function canShowBackgroundPreload(): boolean {
+  const state = getState('transfer.state');
+  return (
+    getState('playback.lifecycle') !== PLAYBACK_STATE.AWAITING_PRELOAD &&
+    (state === TRANSFER_STATE.READY || state === TRANSFER_STATE.IDLE || !state)
+  );
+}
+
+function showPreloadProgress(pct: number, awaited: boolean): void {
+  const id = awaited ? undefined : PRELOAD_RECEIVE_LOADER_ID;
+  showLoader(
+    true,
+    awaited
+      ? `${t('transfer.download_finishing')} ${pct}%`
+      : t('toast.preparing_next_pct', { pct }),
+    id,
+  );
+  updateLoader(pct, id);
+}
+
 // ─── Reorder Buffer ──────────────────────────────────────────────────
 // sessionId → Map(chunkIndex → Uint8Array)
 const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
@@ -1887,13 +1907,8 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     `[Preload] Start: ${data.name} (queueItemId: ${incomingQueueItemId}, total: ${data.total})`,
   );
 
-  // Show loader only if main transfer is not in progress
-  const transferState = getState('transfer.state');
-  if (
-    transferState === TRANSFER_STATE.READY ||
-    transferState === TRANSFER_STATE.IDLE ||
-    !transferState
-  ) {
+  // A new background holder must not cover a selected track's finishing loader.
+  if (canShowBackgroundPreload()) {
     showLoader(
       true,
       t('toast.preparing_next', { name: data.name as string }),
@@ -2035,31 +2050,18 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     );
   }
 
-  // Update preload progress UI (only if main transfer is not active)
-  // To avoid UI flickering when a superseded session finishes in the background,
-  // we must be mutually exclusive. If we're blocked waiting for a track, ONLY show
-  // that track's progress. Otherwise, show the latest broadcast preload.
-  const lifecycle = getState('playback.lifecycle');
-  const recoveryTarget = getState('playback.pendingRecoveryTarget');
-  const shouldUpdateUI =
-    lifecycle === PLAYBACK_STATE.AWAITING_PRELOAD
-      ? updatedSession.queueItemId === recoveryTarget?.queueItemId
-      : sessionId === latestPreloadSessionId;
-
-  if (shouldUpdateUI && updatedSession.total > 0) {
+  // The selected tuple updates the foreground holder acquired on promotion.
+  // Speculative progress stays behind it, including another SID for the same track.
+  const awaited = isExactAwaitedPreload({ sessionId, queueItemId: updatedSession.queueItemId });
+  if (
+    updatedSession.total > 0 &&
+    (awaited || (sessionId === latestPreloadSessionId && canShowBackgroundPreload()))
+  ) {
     const pct = Math.round((updatedSession.progress / updatedSession.total) * 100);
-    const transferState = getState('transfer.state');
-    if (
-      transferState === TRANSFER_STATE.READY ||
-      transferState === TRANSFER_STATE.IDLE ||
-      !transferState
-    ) {
-      if (lastPreloadUiSessionId !== sessionId || lastPreloadUiPercent !== pct) {
-        lastPreloadUiSessionId = sessionId;
-        lastPreloadUiPercent = pct;
-        showLoader(true, t('toast.preparing_next_pct', { pct }), PRELOAD_RECEIVE_LOADER_ID);
-        updateLoader(pct, PRELOAD_RECEIVE_LOADER_ID);
-      }
+    if (lastPreloadUiSessionId !== sessionId || lastPreloadUiPercent !== pct) {
+      lastPreloadUiSessionId = sessionId;
+      lastPreloadUiPercent = pct;
+      showPreloadProgress(pct, awaited);
     }
   }
 
@@ -2386,8 +2388,6 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
     return;
   }
 
-  log.debug(`[Guest] Command: Play Preloaded Track, queueItemId: ${queueItemId}`);
-
   // Dedup: ignore duplicate commands for same track
   if (_activePlayPreloadedQueueItemId === queueItemId) {
     log.debug(`[PlayPreloaded] Already processing ${queueItemId}, ignoring duplicate`);
@@ -2441,13 +2441,16 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   // the serialized transfer finalizes.
   if (downloadingIdentity) {
     _awaitedPreloadIdentity = downloadingIdentity;
-    log.debug('[Guest] Preload in progress. Delegating to waiter (storage:use-preloaded)');
     // Lifecycle: enter AWAITING_PRELOAD. A subsequent
     // PLAY arrival in this state must NOT fire stale-audio-recovery — that
     // logic is gated in playback.ts::handlePlay on the lifecycle check.
     transition({ type: 'PLAY_PRELOADED', variant: 'blob-waiting', queueItemId, name });
     setPendingRecoveryTarget({ queueItemId, indexHint, name });
-    showLoader(true, t('transfer.download_finishing'));
+    const session = sessionState.get(downloadingIdentity.sessionId)!;
+    showPreloadProgress(
+      session.total > 0 ? Math.round((session.progress / session.total) * 100) : 0,
+      true,
+    );
     bus.emit('storage:use-preloaded', queueItemId, name, downloadingIdentity.sessionId);
     _activePlayPreloadedQueueItemId = undefined;
 

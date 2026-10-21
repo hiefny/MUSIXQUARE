@@ -641,6 +641,7 @@ const REVIEWED_DEFERRED_APP_SHELL_ROOTS = [
   '/src/ui/manual-sync-overlay-runtime.ts',
   '/src/ui/playlist-reorder.ts',
   '/src/ui/playlist-selection-morph.ts',
+  '/src/ui/visualizer-spectrum.ts',
   '/src/youtube/standard-host-manual-offset-runtime.ts',
 ] as const;
 

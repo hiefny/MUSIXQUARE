@@ -106,5 +106,15 @@ Codex 리뷰(#434, P2): 블록 변형(0.32초) 도중에 원격 재생목록 변
 변형을 즉시 끝내고 행 채움을 다시 보인다. 위치가 같으면 변형을 계속한다. 같은 작업 안에서 아직 시작하지 않은 변형은
 다시 그려진 행을 직접 재므로 건드리지 않는다.
 
-검증: 단위 테스트를 추가했다. 같은 행으로 다시 그리면 변형이 이어지고, 선택 위에 행이 생기면 변형이 끝난다.
-playlist-selection-morph·playlist-removal·playlist-view 91 pass, typecheck·eslint 통과. 전체 검사는 PR CI에 맡긴다.
+검증 (로컬, Windows, Node 24.20.0 / npm 12.0.2). 코드 수정 커밋은 `5f0cc024`, 출시 식별자는 8.11.36 / v761 커밋
+`43a71a37`이다.
+
+- 통과:
+  - 단위 테스트 3 files(playlist-selection-morph, playlist-removal, playlist-view) 91 pass / 0 fail / 0 skip. 새
+    테스트는 같은 행으로 다시 그리면 변형이 이어지고, 선택 위에 행이 생기면 변형이 끝나는 것을 확인한다.
+  - typecheck, eslint, format:check
+  - guard sw-cache-version, release-identity
+- 로컬에서 돌리지 않은 것: 전체 단위 테스트, `build:checked`, 브라우저 테스트. PR #435 head CI(11 jobs)가 이를
+  돌렸고 통과했다.
+- 다루지 않은 것: 변형 중 원격 변경으로 다시 그려지는 상황의 실제 브라우저 재현(단위 테스트의 모의 좌표로만 확인),
+  실기기. 로컬과 PR 결과는 exact-main CI 후보를 대신하지 않는다.

@@ -891,6 +891,16 @@ export function fetchYouTubePreview(url: string): void {
 
 let _subTitleAbort: AbortController | null = null;
 
+/** A guest's title crawl starts only once host titles have stopped arriving
+ *  for this long, then fetches just the titles still missing. Past its first
+ *  items the host flushes them in batches of OEMBED_INITIAL_BATCH_SIZE, one
+ *  per ~10 × (throttle + fetch) ≈ 9-13s, so a shorter window could mistake a
+ *  gap between batches for a finished host. */
+const OEMBED_GUEST_QUIET_MS = 15_000;
+
+/** Re-check interval while a hidden page's title crawl is paused. */
+const OEMBED_HIDDEN_RECHECK_MS = 1_000;
+
 /**
  * Cancel any in-flight background title fetch loop. Called by stopYouTubeMode
  * so a 100+ item playlist doesn't keep firing oEmbed requests + broadcasts
@@ -905,11 +915,16 @@ export function cancelSubTitleFetch(): void {
 
 /**
  * Background oEmbed fetcher for YouTube playlist sub-item titles.
+ *
+ * The host crawls for the whole room and shares every title it finds, so a
+ * guest waits until those stop arriving and then fetches only what is still
+ * missing. A hidden page pauses its crawl until it is visible again, except
+ * a host with connected guests: a host phone with its screen off is normal.
  */
 export async function fetchPlaylistSubTitles(
   playlistId: string,
   ids: string[],
-  options?: { fullFetch?: boolean; queueItemId?: QueueItemId },
+  options?: { queueItemId?: QueueItemId },
 ): Promise<void> {
   if (!ids || ids.length === 0) return;
 
@@ -918,7 +933,7 @@ export async function fetchPlaylistSubTitles(
   if (!cacheKey || (item && item.playlistId !== playlistId)) return;
 
   const subMap = getState('youtube.subItemsMap') || {};
-  const data = subMap[cacheKey];
+  let data = subMap[cacheKey];
   if (!data) return;
 
   // Abort any previous fetch loop
@@ -930,25 +945,34 @@ export async function fetchPlaylistSubTitles(
   _subTitleAbort = abort;
   const expectedIds = [...ids];
 
-  const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
-
-  // Collect all indices that need fetching (missing titles)
-  const pendingIndices = expectedIds
-    .map((_, index) => index)
-    .filter((index) => !data.titles[index])
-    // Priority sort: closest to current playback first
-    .sort((a, b) => Math.abs(a - currentSubIndex) - Math.abs(b - currentSubIndex));
-
-  if (pendingIndices.length === 0) {
-    if (_subTitleAbort === abort) _subTitleAbort = null;
-    return;
-  }
-
-  log.debug(
-    `[YouTube Feed] Background title fetch for ${playlistId}: ${pendingIndices.length} items pending`,
-  );
-
   try {
+    // Guest: the host is crawling this same list in the same order. Every
+    // title update replaces the entry's titles array, so an unchanged array
+    // across a whole quiet window means the host has stopped supplying them.
+    while (getState('network.hostConn')) {
+      const hostTitles = data.titles;
+      await delay(OEMBED_GUEST_QUIET_MS);
+      if (abort.signal.aborted) return;
+      data = getState('youtube.subItemsMap')[cacheKey];
+      if (!data) return;
+      if (data.titles === hostTitles) break;
+    }
+    const { titles } = data;
+    const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
+
+    // Collect all indices that need fetching (missing titles)
+    const pendingIndices = expectedIds
+      .map((_, index) => index)
+      .filter((index) => !titles[index])
+      // Priority sort: closest to current playback first
+      .sort((a, b) => Math.abs(a - currentSubIndex) - Math.abs(b - currentSubIndex));
+
+    if (pendingIndices.length === 0) return;
+
+    log.debug(
+      `[YouTube Feed] Background title fetch for ${playlistId}: ${pendingIndices.length} items pending`,
+    );
+
     let processedCount = 0;
     let batchBuffer: { index: number; title: string }[] = [];
     const lastPendingIdx = pendingIndices[pendingIndices.length - 1];
@@ -984,6 +1008,15 @@ export async function fetchPlaylistSubTitles(
     };
 
     for (const i of pendingIndices) {
+      // Pause while hidden unless this host's guests rely on it. Peers leave
+      // the list on disconnect, so any entry is a connected or joining guest.
+      while (
+        !abort.signal.aborted &&
+        document.hidden &&
+        (getState('network.hostConn') || !getState('network.connectedPeers').length)
+      ) {
+        await delay(OEMBED_HIDDEN_RECHECK_MS);
+      }
       if (abort.signal.aborted) return;
 
       // Double-check map entry still exists

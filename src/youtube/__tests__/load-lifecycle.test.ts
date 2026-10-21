@@ -215,7 +215,11 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
   };
 }
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { SCRIPT_LOAD_TIMEOUT_MS } from '../constants.ts';
+import {
+  SCRIPT_LOAD_TIMEOUT_MS,
+  UI_LOOP_INTERVAL_MS,
+  VIDEO_DATA_POLL_EVERY_NTH_TICK,
+} from '../constants.ts';
 import { initYouTube, setPendingAutoSyncOnReady } from '../player.ts';
 import {
   handoffSameVideoOccurrenceRestart,
@@ -694,4 +698,119 @@ describe('QA3 R17 actual registered lifecycle probes', () => {
       expect(getManagedTimer('youtubeUILoop')).toBeNull();
     },
   );
+});
+
+describe('YouTube UI loop cadence', () => {
+  /** iframe.ts's module-private UI_LOOP_IDLE_INTERVAL_MS. */
+  const IDLE_INTERVAL_MS = 2_000;
+
+  function readyHost(initialState: number) {
+    let state = initialState;
+    const player = createMockYtPlayer();
+    vi.mocked(player.getPlayerState).mockImplementation(() => state);
+    vi.mocked(player.getVideoData).mockReturnValue({ video_id: 'vidA000000A' });
+    const handle = installYtNamespace(player);
+    registeredLoad();
+    handle.fireReady();
+    const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    // Every completed UI tick publishes one time update.
+    let ticks = 0;
+    bus.on('ui:time-update', () => {
+      ticks += 1;
+    });
+    return {
+      player,
+      hidden,
+      /** Completed UI ticks since the last call. */
+      takeTicks(): number {
+        const count = ticks;
+        ticks = 0;
+        return count;
+      },
+      setState(next: number) {
+        state = next;
+      },
+      emit(next: number) {
+        state = next;
+        handle.fireStateChange(next);
+      },
+      setVisibility(isHidden: boolean) {
+        hidden.mockReturnValue(isHidden);
+        document.dispatchEvent(new Event('visibilitychange'));
+      },
+    };
+  }
+
+  it('slows a hidden paused player and restores the normal cadence on any change', () => {
+    const h = readyHost(2);
+    h.emit(2);
+    h.takeTicks();
+    vi.advanceTimersByTime(4 * UI_LOOP_INTERVAL_MS);
+    // Visible and paused keeps the normal cadence (native seek needs <1.5s gaps).
+    expect(h.takeTicks()).toBe(4);
+
+    h.setVisibility(true);
+    vi.advanceTimersByTime(UI_LOOP_INTERVAL_MS);
+    expect(h.takeTicks()).toBe(1); // still the normal cadence; this tick re-decides
+    vi.advanceTimersByTime(4 * IDLE_INTERVAL_MS);
+    expect(h.takeTicks()).toBe(4);
+
+    // A state change restores the normal cadence at once, hidden or not.
+    ytState.setYtAutoplayIntent(true);
+    h.emit(1);
+    vi.advanceTimersByTime(4 * UI_LOOP_INTERVAL_MS);
+    expect(h.takeTicks()).toBe(4);
+
+    h.emit(2);
+    vi.advanceTimersByTime(UI_LOOP_INTERVAL_MS + 2 * IDLE_INTERVAL_MS);
+    expect(h.takeTicks()).toBe(3);
+    // So does showing the page again.
+    h.setVisibility(false);
+    vi.advanceTimersByTime(4 * UI_LOOP_INTERVAL_MS);
+    expect(h.takeTicks()).toBe(4);
+  });
+
+  it.each([
+    { state: 1, intent: true, idle: false },
+    { state: 3, intent: true, idle: false },
+    { state: 0, intent: false, idle: false },
+    { state: 5, intent: true, idle: false },
+    { state: -1, intent: true, idle: false },
+    { state: 5, intent: false, idle: true },
+    { state: -1, intent: false, idle: true },
+    { state: 2, intent: true, idle: true },
+  ])('ticks a hidden player in state $state (play intent $intent) idly: $idle', (c) => {
+    const h = readyHost(5);
+    ytState.setYtAutoplayIntent(c.intent);
+    h.setState(c.state);
+    h.setVisibility(true);
+    vi.advanceTimersByTime(UI_LOOP_INTERVAL_MS);
+    h.takeTicks();
+    vi.advanceTimersByTime(4 * IDLE_INTERVAL_MS);
+    expect(h.takeTicks()).toBe(c.idle ? 4 : (4 * IDLE_INTERVAL_MS) / UI_LOOP_INTERVAL_MS);
+  });
+
+  it('never revives a stopped UI loop when pacing it', () => {
+    const h = readyHost(2);
+    h.emit(2);
+    h.setVisibility(true);
+    vi.advanceTimersByTime(UI_LOOP_INTERVAL_MS);
+    stopAllMedia({ silent: true, cancelInFlight: true });
+    expect(getManagedTimer('youtubeUILoop')).toBeNull();
+    h.setVisibility(false);
+    expect(getManagedTimer('youtubeUILoop')).toBeNull();
+  });
+
+  it('shares one getVideoData() read per host tick, including the title poll', () => {
+    const h = readyHost(2);
+    h.emit(2);
+    const reads = vi.mocked(h.player.getVideoData);
+    for (let tick = 0; tick < VIDEO_DATA_POLL_EVERY_NTH_TICK; tick += 1) {
+      reads.mockClear();
+      updateYouTubeUIForTests();
+      // The host title sync and the every-Nth-tick metadata poll read it once.
+      expect(reads).toHaveBeenCalledOnce();
+    }
+    expect(h.takeTicks()).toBe(VIDEO_DATA_POLL_EVERY_NTH_TICK);
+  });
 });

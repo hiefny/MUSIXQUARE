@@ -2977,11 +2977,10 @@ describe('YouTube Player', () => {
         name: 'Gesture-ready playlist',
         isExpanded: true,
       });
-      expect(search.fetchPlaylistSubTitles).toHaveBeenCalledWith(
-        'PL_GESTURE_READY',
-        ['AAAAAAAAAAA', 'BBBBBBBBBBB'],
-        { fullFetch: true },
-      );
+      expect(search.fetchPlaylistSubTitles).toHaveBeenCalledWith('PL_GESTURE_READY', [
+        'AAAAAAAAAAA',
+        'BBBBBBBBBBB',
+      ]);
       expect(vi.mocked(search.cancelSubTitleFetch).mock.invocationCallOrder.at(-1)!).toBeLessThan(
         vi.mocked(search.fetchPlaylistSubTitles).mock.invocationCallOrder.at(-1)!,
       );

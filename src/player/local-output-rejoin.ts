@@ -6,6 +6,7 @@
  * alignment primitive. None of these branches publishes a room command.
  */
 
+import { MSG } from '../core/constants.ts';
 import { bus, createBusScope, type BusScope } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
@@ -52,12 +53,15 @@ interface RejoinRequest extends RejoinRequestPayload {
 interface RejoinResult {
   rejoined: boolean;
   retryAfterMs?: number;
+  /** Retry on the host's next heartbeat or state message instead of a timer. */
+  retryOnHostSnapshot?: boolean;
 }
 
 let scope: BusScope | null = null;
 let rejoinInFlight: Promise<boolean> | null = null;
 let pendingRejoinRequest: RejoinRequest | null = null;
 let scheduledRetryRequest: RejoinRequest | null = null;
+let stopAwaitingHostSnapshot: (() => void) | null = null;
 let awaitingAuthoritativeResumeMode: 'file' | 'youtube' | null = null;
 let lastSuccessfulRejoinAt = 0;
 let lastSuccessfulRejoinIdentity: (RejoinIdentity & { mode: 'file' | 'youtube' }) | null = null;
@@ -241,9 +245,13 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
   }
   if (result.status === 'busy') {
     // Busy is not success: retain the desired local state and retry after the
-    // rendezvous/cooldown owner releases it.
+    // rendezvous/cooldown owner releases it. A host that is BUFFERING/CUED or
+    // on another occurrence can stay busy indefinitely; only its next snapshot
+    // can change the answer, so wait for that instead of polling.
     awaitingAuthoritativeResumeMode = 'youtube';
-    return { rejoined: false, retryAfterMs: result.retryAfterMs ?? 250 };
+    return result.awaitHostSnapshot
+      ? { rejoined: false, retryOnHostSnapshot: true }
+      : { rejoined: false, retryAfterMs: result.retryAfterMs ?? 250 };
   }
   awaitingAuthoritativeResumeMode = null;
   if (wasLocallyPaused) setLocalPause(mode, true);
@@ -263,19 +271,45 @@ function preferRequest(current: RejoinRequest | null, incoming: RejoinRequest): 
   return current;
 }
 
-function scheduleRetry(request: RejoinRequest, delayMs: number): void {
+function cancelScheduledRetry(): void {
+  scheduledRetryRequest = null;
+  clearManagedTimer(RETRY_TIMER);
+  stopAwaitingHostSnapshot?.();
+  stopAwaitingHostSnapshot = null;
+}
+
+function runScheduledRetry(): Promise<boolean> | undefined {
+  const retry = scheduledRetryRequest;
+  cancelScheduledRetry();
+  if (retry && requestStillCurrent(retry)) return requestLocalOutputRejoin(retry);
+}
+
+/** Retry after `delayMs`, or with none on the host's next heartbeat/state message. */
+function scheduleRetry(request: RejoinRequest, delayMs?: number): void {
   if (!requestStillCurrent(request)) return;
   const retryRequest = { ...request, retryAttempt: request.retryAttempt + 1 };
-  scheduledRetryRequest = preferRequest(scheduledRetryRequest, retryRequest);
-  setManagedTimer(
-    RETRY_TIMER,
-    () => {
-      const retry = scheduledRetryRequest;
-      scheduledRetryRequest = null;
-      if (retry && requestStillCurrent(retry)) return requestLocalOutputRejoin(retry);
-    },
-    Math.max(10, delayMs),
-  );
+  const retry = preferRequest(scheduledRetryRequest, retryRequest);
+  cancelScheduledRetry();
+  scheduledRetryRequest = retry;
+  if (delayMs !== undefined) {
+    setManagedTimer(RETRY_TIMER, runScheduledRetry, Math.max(10, delayMs));
+    return;
+  }
+  // Frames keep arriving while hidden, and lock-screen PLAY is the usual
+  // source of these requests, so this wait has no visibility gate.
+  stopAwaitingHostSnapshot = bus.on('network:data', (data, conn) => {
+    const type = (data as { type?: unknown } | null)?.type;
+    if (
+      conn !== getState('network.hostConn') ||
+      (type !== MSG.YOUTUBE_SYNC && type !== MSG.YOUTUBE_STATE)
+    ) {
+      return;
+    }
+    stopAwaitingHostSnapshot?.();
+    stopAwaitingHostSnapshot = null;
+    // Run after this frame's handler has recorded the new snapshot.
+    setManagedTimer(RETRY_TIMER, runScheduledRetry, 10);
+  });
 }
 
 function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
@@ -290,8 +324,7 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
       return Promise.resolve(false);
     }
     request = preferRequest(scheduledRetryRequest, request);
-    scheduledRetryRequest = null;
-    clearManagedTimer(RETRY_TIMER);
+    cancelScheduledRetry();
   }
   if (
     request.reason !== 'media-session-play' &&
@@ -307,7 +340,9 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
       if (result.rejoined) {
         lastSuccessfulRejoinAt = Date.now();
         lastSuccessfulRejoinIdentity = { ...request.identity, mode: request.mode };
-      } else if (result.retryAfterMs !== undefined) scheduleRetry(request, result.retryAfterMs);
+      } else if (result.retryAfterMs !== undefined || result.retryOnHostSnapshot) {
+        scheduleRetry(request, result.retryAfterMs);
+      }
       return result.rejoined;
     })
     .catch((error) => {
@@ -345,8 +380,7 @@ function resetLocalOutputRejoinState(): void {
   rejoinGeneration += 1;
   rejoinInFlight = null;
   pendingRejoinRequest = null;
-  scheduledRetryRequest = null;
-  clearManagedTimer(RETRY_TIMER);
+  cancelScheduledRetry();
   awaitingAuthoritativeResumeMode = null;
   lastSuccessfulRejoinAt = 0;
   lastSuccessfulRejoinIdentity = null;
@@ -376,8 +410,7 @@ export function initLocalOutputRejoin(): void {
     // already returned and left a timer behind. A later PLAY captures anew.
     rejoinGeneration += 1;
     pendingRejoinRequest = null;
-    scheduledRetryRequest = null;
-    clearManagedTimer(RETRY_TIMER);
+    cancelScheduledRetry();
     awaitingAuthoritativeResumeMode = null;
   });
   scope.on('state:setup.sessionStarted', (started) => {

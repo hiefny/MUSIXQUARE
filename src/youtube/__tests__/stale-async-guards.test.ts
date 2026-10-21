@@ -18,7 +18,7 @@ import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import {
   IOS_WATCHDOG_MS,
-  CRASH_FAIL_THRESHOLD,
+  UI_LOOP_INTERVAL_MS,
   UNAVAILABLE_STUCK_THRESHOLD_MS,
   YOUTUBE_PRIME_VIDEO_ID,
 } from '../constants.ts';
@@ -173,6 +173,21 @@ function lastTimerCallback(name: string): (() => void) | undefined {
 
 function timerArmCount(name: string): number {
   return setManagedTimerMock.mock.calls.filter(([timerName]) => timerName === name).length;
+}
+
+/** Six failing UI ticks at the normal cadence, spanning 2.5s: the former
+ *  six-failure threshold, which the time-based crash window preserves. */
+function tickThroughCrashWindow(tick: () => void): void {
+  const firstFailureAt = Date.now();
+  const clock = vi.spyOn(Date, 'now');
+  try {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      clock.mockReturnValue(firstFailureAt + attempt * UI_LOOP_INTERVAL_MS);
+      tick();
+    }
+  } finally {
+    clock.mockRestore();
+  }
 }
 
 function createMockYtPlayer(playlistIds: string[] = []): YouTubePlayerInstance {
@@ -368,7 +383,7 @@ describe('IFrame runtime readiness identity', () => {
     // reset of the local pause flag during the replacement load.
     const resetSync = vi.fn(realSync.resetYouTubeSyncState);
     vi.mocked(sync.resetYouTubeSyncState).mockImplementationOnce(resetSync);
-    for (let attempt = 0; attempt < CRASH_FAIL_THRESHOLD; attempt += 1) tick();
+    tickThroughCrashWindow(tick);
     replacementHandle.fireReady();
 
     expect(resetSync).toHaveBeenCalledOnce();
@@ -414,7 +429,7 @@ describe('IFrame runtime readiness identity', () => {
       vi.mocked(previousPlayer.getCurrentTime).mockImplementation(() => {
         throw new Error('iframe unavailable');
       });
-      for (let attempt = 0; attempt < CRASH_FAIL_THRESHOLD; attempt += 1) tick!();
+      tickThroughCrashWindow(tick!);
       replacementHandle.fireReady();
 
       expect(previousPlayer.destroy).toHaveBeenCalled();
@@ -422,6 +437,90 @@ describe('IFrame runtime readiness identity', () => {
       if (state === 2) expect(replacement.pauseVideo).toHaveBeenCalled();
     },
   );
+
+  it('measures the crash window in time, so sparse idle ticks keep its threshold', async () => {
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { initYouTube } = await import('../player.ts');
+    initYouTube();
+    wireStopAllMediaChain();
+    const item: PlaylistItem = {
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Recoverable video',
+      videoId: 'recoverVid1',
+      playlistId: null,
+    };
+    setState('playlist.items', [item]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setPlaybackTrackMeta({ ...item, title: item.name } as TrackMeta);
+    const previousPlayer = createMockYtPlayer();
+    vi.mocked(previousPlayer.getVideoData!).mockReturnValue({ video_id: item.videoId! });
+    const previousHandle = installYtNamespace(previousPlayer);
+    loadYouTubeVideo(item.videoId, null, true, 0);
+    previousHandle.fireReady();
+    previousHandle.fireStateChange(2);
+    const tick = lastTimerCallback('youtubeUILoop')!;
+    tick();
+    installYtNamespace(createMockYtPlayer());
+    vi.mocked(previousPlayer.getCurrentTime).mockImplementation(() => {
+      throw new Error('iframe unavailable');
+    });
+
+    const firstFailureAt = Date.now();
+    const clock = vi.spyOn(Date, 'now');
+    // Two failures 2s apart, as the hidden idle cadence samples them: the
+    // iframe has not been unresponsive as long as six normal ticks span.
+    clock.mockReturnValue(firstFailureAt);
+    tick();
+    clock.mockReturnValue(firstFailureAt + 4 * UI_LOOP_INTERVAL_MS);
+    tick();
+    expect(previousPlayer.destroy).not.toHaveBeenCalled();
+
+    // The third failure, at the former sixth tick's 2.5s, rebuilds it.
+    clock.mockReturnValue(firstFailureAt + 5 * UI_LOOP_INTERVAL_MS);
+    tick();
+    expect(previousPlayer.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('restarts the crash window after any successful read', async () => {
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { initYouTube } = await import('../player.ts');
+    initYouTube();
+    wireStopAllMediaChain();
+    const item: PlaylistItem = {
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Recoverable video',
+      videoId: 'recoverVid1',
+      playlistId: null,
+    };
+    setState('playlist.items', [item]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setPlaybackTrackMeta({ ...item, title: item.name } as TrackMeta);
+    const player = createMockYtPlayer();
+    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: item.videoId! });
+    const handle = installYtNamespace(player);
+    loadYouTubeVideo(item.videoId, null, true, 0);
+    handle.fireReady();
+    handle.fireStateChange(1);
+    const tick = lastTimerCallback('youtubeUILoop')!;
+    const failRead = (): number => {
+      throw new Error('transient iframe miss');
+    };
+
+    const firstFailureAt = Date.now();
+    const clock = vi.spyOn(Date, 'now');
+    vi.mocked(player.getCurrentTime).mockImplementationOnce(failRead);
+    clock.mockReturnValue(firstFailureAt);
+    tick();
+    clock.mockReturnValue(firstFailureAt + UI_LOOP_INTERVAL_MS);
+    tick(); // recovers
+    vi.mocked(player.getCurrentTime).mockImplementationOnce(failRead);
+    clock.mockReturnValue(firstFailureAt + 5 * UI_LOOP_INTERVAL_MS);
+    tick();
+
+    expect(player.destroy).not.toHaveBeenCalled();
+  });
 
   it('does not expose the synchronous player facade as ready before onReady', async () => {
     const player = createMockYtPlayer();

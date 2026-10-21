@@ -161,7 +161,7 @@ const he: Record<I18nKey, string> = {
   'playlist.delete_selected': 'מחיקת {{count}} הרצועות שנבחרו',
   'playlist.selected_count': '{{count}} נבחרו',
   'playlist.slots_title': 'רשימות השמעה מרובות',
-  'playlist.slots_subtitle': 'השתמשו בכמה רשימות השמעה כדי לעבור במהירות בין אוספי שירים',
+  'playlist.slots_subtitle': 'אפשר להשתמש בכמה רשימות השמעה כדי לעבור במהירות בין אוספי רצועות.',
   'playlist.slot_tracks': '{{count}} רצועות',
   'playlist.move_title': 'העברת {{count}} רצועות',
   'playlist.copy_action': 'העתקה',

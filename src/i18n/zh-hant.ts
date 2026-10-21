@@ -244,7 +244,7 @@ const zhHant: Record<I18nKey, string> = {
   'playlist.delete_selected': '刪除已選取的 {{count}} 項',
   'playlist.selected_count': '{{count}} 個項目已選取',
   'playlist.slots_title': '多個播放清單',
-  'playlist.slots_subtitle': '使用多個播放清單，快速切換不同的歌曲組合',
+  'playlist.slots_subtitle': '使用多個播放清單，就能快速切換不同的曲目組合。',
   'playlist.slot_tracks': '{{count}} 項',
   'playlist.move_title': '移動 {{count}} 項',
   'playlist.copy_action': '複製',

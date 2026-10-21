@@ -255,7 +255,8 @@ const de: Record<I18nKey, string> = {
   'playlist.delete_selected': '{{count}} ausgewählte Titel löschen',
   'playlist.selected_count': '{{count}} ausgewählt',
   'playlist.slots_title': 'Mehrere Playlists',
-  'playlist.slots_subtitle': 'Nutze mehrere Playlists, um schnell zwischen Song-Sets zu wechseln',
+  'playlist.slots_subtitle':
+    'Du kannst mehrere Playlists nutzen, um schnell zwischen Titelsammlungen zu wechseln.',
   'playlist.slot_tracks': '{{count}} Titel',
   'playlist.move_title': '{{count}} Titel verschieben',
   'playlist.copy_action': 'Kopieren',

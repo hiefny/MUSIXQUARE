@@ -25,6 +25,8 @@ interface Block {
   left: number;
   width: number;
   opacity: number;
+  /** Rows the block spans; a drawn pill counts as a block of several. */
+  rows: number;
 }
 
 export interface PlaylistSelectionMorph {
@@ -91,14 +93,17 @@ export function createPlaylistSelectionMorph(list: HTMLElement): PlaylistSelecti
         continue;
       }
       const rect = entry.getBoundingClientRect();
-      if (run) run.bottom = rect.bottom;
-      else {
+      if (run) {
+        run.bottom = rect.bottom;
+        run.rows += 1;
+      } else {
         run = {
           top: rect.top,
           bottom: rect.bottom,
           left: rect.left,
           width: rect.width,
           opacity: 1,
+          rows: 1,
         };
         runs.push(run);
       }
@@ -118,6 +123,7 @@ export function createPlaylistSelectionMorph(list: HTMLElement): PlaylistSelecti
         left: rect.left,
         width: rect.width,
         opacity: Number.parseFloat(getComputedStyle(child).opacity) || 0,
+        rows: 2,
       };
     }).filter((block) => block.opacity > 0.01);
   }
@@ -144,9 +150,12 @@ export function createPlaylistSelectionMorph(list: HTMLElement): PlaylistSelecti
     const leaving = from.filter((start) => !to.some((end) => overlaps(start, end)));
     const arriving = to.filter((end) => !from.some((start) => overlaps(start, end)));
     const reshapes = moves.some((move) => !sameSpan(move.from, move.to));
-    // A lone row fading in or out needs no morph; its own fill fades. A morph
-    // in progress keeps drawing until it settles.
-    if (!reshapes && !layer) return;
+    // A block of several rows appearing or clearing at once (Select all,
+    // Deselect all, Cancel) fades as one shape: the rows' own fills would
+    // turn into separate pills on the way. A lone row needs no morph; its
+    // own fill fades. A morph in progress keeps drawing until it settles.
+    const wholeBlock = [...leaving, ...arriving].some((block) => block.rows > 1);
+    if (!reshapes && !wholeBlock && !layer) return;
 
     const probe = document.createElement('span');
     probe.hidden = true;

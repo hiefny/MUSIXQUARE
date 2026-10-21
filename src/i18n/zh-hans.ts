@@ -245,7 +245,7 @@ const zhHans: Record<I18nKey, string> = {
   'playlist.delete_selected': '删除已选择的 {{count}} 项',
   'playlist.selected_count': '已选择 {{count}} 项',
   'playlist.slots_title': '多个播放列表',
-  'playlist.slots_subtitle': '使用多个播放列表，快速切换不同的歌曲组合',
+  'playlist.slots_subtitle': '使用多个播放列表，就能快速切换不同的曲目组合。',
   'playlist.slot_tracks': '{{count}} 个媒体项',
   'playlist.move_title': '移动 {{count}} 个媒体项',
   'playlist.copy_action': '复制',

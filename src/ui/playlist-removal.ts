@@ -197,10 +197,13 @@ export function createPlaylistRemovalController(
     () => {},
   );
 
-  function captureMorph(): void {
-    if (morph && options.isPlaylistVisible() && canAnimate(list) && !forcedColors()) {
-      morph.capture();
+  /** Note the drawn blocks before a selection change; false if none can morph. */
+  function captureMorph(): boolean {
+    if (!morph || !options.isPlaylistVisible() || !canAnimate(list) || forcedColors()) {
+      return false;
     }
+    morph.capture();
+    return true;
   }
   let exitTimer = 0;
   /** Survivors' offsets from their old rows while they glide into place. */
@@ -534,7 +537,8 @@ export function createPlaylistRemovalController(
   }
 
   function cancel(cancelOptions: { restoreFocus?: boolean } = {}): void {
-    morph?.stop();
+    // Cancel, Deselect all and an outside tap clear the blocks as they are.
+    if (!captureMorph()) morph?.stop();
     const focusTarget = cancelOptions.restoreFocus ? lastTriggerQueueItemId : null;
     const hadSelection = selectedQueueItemIds.size > 0;
     if (cancelOptions.restoreFocus || (hadSelection && focusIsInsideControls())) {

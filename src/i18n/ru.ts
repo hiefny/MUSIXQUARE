@@ -161,7 +161,7 @@ const ru: Record<I18nKey, string> = {
   'playlist.selected_count': 'Выбрано: {{count}}',
   'playlist.slots_title': 'Несколько плейлистов',
   'playlist.slots_subtitle':
-    'Используйте несколько плейлистов, чтобы быстро переключаться между подборками песен',
+    'Вы можете использовать несколько плейлистов, чтобы быстро переключаться между подборками треков.',
   'playlist.slot_tracks': 'Материалы: {{count}}',
   'playlist.move_title': 'Переместить материалы: {{count}}',
   'playlist.copy_action': 'Копировать',

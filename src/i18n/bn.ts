@@ -162,7 +162,7 @@ const bn: Record<I18nKey, string> = {
   'playlist.delete_selected': 'নির্বাচিত {{count}}টি ট্র্যাক মুছুন',
   'playlist.selected_count': '{{count}}টি নির্বাচিত',
   'playlist.slots_title': 'একাধিক প্লেলিস্ট',
-  'playlist.slots_subtitle': 'একাধিক প্লেলিস্ট ব্যবহার করে দ্রুত গানের সেট বদলান',
+  'playlist.slots_subtitle': 'একাধিক প্লেলিস্ট ব্যবহার করে আপনি দ্রুত ট্র্যাকের সেট বদলাতে পারেন।',
   'playlist.slot_tracks': '{{count}}টি ট্র্যাক',
   'playlist.move_title': '{{count}}টি ট্র্যাক সরান',
   'playlist.copy_action': 'কপি করুন',

@@ -162,7 +162,7 @@ const bg: Record<I18nKey, string> = {
   'playlist.selected_count': 'Избрани: {{count}}',
   'playlist.slots_title': 'Няколко плейлиста',
   'playlist.slots_subtitle':
-    'Използвай няколко плейлиста, за да превключваш бързо между подборки от песни',
+    'Можеш да използваш няколко плейлиста, за да превключваш бързо между подборки от песни.',
   'playlist.slot_tracks': 'Песни: {{count}}',
   'playlist.move_title': 'Преместване на песни ({{count}})',
   'playlist.copy_action': 'Копиране',

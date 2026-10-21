@@ -161,7 +161,7 @@ const ur: Record<I18nKey, string> = {
   'playlist.delete_selected': 'منتخب کیے گئے {{count}} ٹریک حذف کریں',
   'playlist.selected_count': '{{count}} منتخب شدہ',
   'playlist.slots_title': 'متعدد پلے لسٹس',
-  'playlist.slots_subtitle': 'متعدد پلے لسٹس استعمال کر کے گانوں کے سیٹ تیزی سے بدلیں',
+  'playlist.slots_subtitle': 'متعدد پلے لسٹس استعمال کر کے آپ ٹریکس کے سیٹ تیزی سے بدل سکتے ہیں۔',
   'playlist.slot_tracks': '{{count}} ٹریک',
   'playlist.move_title': '{{count}} ٹریک منتقل کریں',
   'playlist.copy_action': 'کاپی کریں',

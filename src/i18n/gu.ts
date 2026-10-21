@@ -163,7 +163,7 @@ const gu: Record<I18nKey, string> = {
   'playlist.delete_selected': 'પસંદ કરેલા {{count}} ટ્રૅક કાઢી નાખો',
   'playlist.selected_count': '{{count}} પસંદ કરેલ છે',
   'playlist.slots_title': 'એકથી વધુ પ્લેલિસ્ટ',
-  'playlist.slots_subtitle': 'એકથી વધુ પ્લેલિસ્ટ વાપરીને ગીતોના સેટ ઝડપથી બદલો',
+  'playlist.slots_subtitle': 'એકથી વધુ પ્લેલિસ્ટ વાપરીને તમે ટ્રૅકના સેટ ઝડપથી બદલી શકો છો.',
   'playlist.slot_tracks': '{{count}} ટ્રૅક',
   'playlist.move_title': '{{count}} ટ્રૅક ખસેડો',
   'playlist.copy_action': 'કૉપિ કરો',

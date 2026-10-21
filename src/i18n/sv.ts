@@ -164,7 +164,7 @@ const sv: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} valda',
   'playlist.slots_title': 'Flera spellistor',
   'playlist.slots_subtitle':
-    'Använd flera spellistor för att snabbt växla mellan olika låtsamlingar',
+    'Du kan använda flera spellistor för att snabbt växla mellan olika spårsamlingar.',
   'playlist.slot_tracks': '{{count}} spår',
   'playlist.move_title': 'Flytta {{count}} spår',
   'playlist.copy_action': 'Kopiera',

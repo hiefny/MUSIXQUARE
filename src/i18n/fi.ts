@@ -164,7 +164,7 @@ const fi: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} valittu',
   'playlist.slots_title': 'Useita soittolistoja',
   'playlist.slots_subtitle':
-    'Käytä useita soittolistoja ja vaihda nopeasti kappalekokoelmasta toiseen',
+    'Voit käyttää useita soittolistoja ja vaihtaa nopeasti kappalekokoelmasta toiseen.',
   'playlist.slot_tracks': '{{count}} kappaletta',
   'playlist.move_title': 'Siirrä {{count}} kappaletta',
   'playlist.copy_action': 'Kopioi',

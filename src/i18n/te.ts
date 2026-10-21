@@ -163,7 +163,8 @@ const te: Record<I18nKey, string> = {
   'playlist.delete_selected': 'ఎంచుకున్న {{count}} ట్రాక్‌లను తొలగించు',
   'playlist.selected_count': 'ఎంచుకున్నవి: {{count}}',
   'playlist.slots_title': 'అనేక ప్లేలిస్ట్‌లు',
-  'playlist.slots_subtitle': 'అనేక ప్లేలిస్ట్‌లను ఉపయోగించి పాటల సెట్‌లను వేగంగా మార్చుకోండి',
+  'playlist.slots_subtitle':
+    'అనేక ప్లేలిస్ట్‌లను ఉపయోగించి మీరు ట్రాక్‌ల సెట్‌లను వేగంగా మార్చుకోవచ్చు.',
   'playlist.slot_tracks': '{{count}} ట్రాక్‌లు',
   'playlist.move_title': '{{count}} ట్రాక్‌లను తరలించు',
   'playlist.copy_action': 'కాపీ చేయి',

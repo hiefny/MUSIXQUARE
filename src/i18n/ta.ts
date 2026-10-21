@@ -165,7 +165,7 @@ const ta: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} தேர்வுகள்',
   'playlist.slots_title': 'பல பிளேலிஸ்ட்கள்',
   'playlist.slots_subtitle':
-    'பல பிளேலிஸ்ட்களைப் பயன்படுத்தி பாடல் தொகுப்புகளுக்கு இடையே விரைவாக மாறலாம்',
+    'பல பிளேலிஸ்ட்களைப் பயன்படுத்தி டிராக் தொகுப்புகளுக்கு இடையே விரைவாக மாறலாம்.',
   'playlist.slot_tracks': '{{count}} டிராக்குகள்',
   'playlist.move_title': '{{count}} டிராக்குகளை நகர்த்து',
   'playlist.copy_action': 'நகலெடு',

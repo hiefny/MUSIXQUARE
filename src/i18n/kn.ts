@@ -163,7 +163,8 @@ const kn: Record<I18nKey, string> = {
   'playlist.delete_selected': 'ಆರಿಸಿದ {{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಳಿಸಿ',
   'playlist.selected_count': 'ಆರಿಸಿದವುಗಳು: {{count}}',
   'playlist.slots_title': 'ಹಲವು ಪ್ಲೇಲಿಸ್ಟ್‌ಗಳು',
-  'playlist.slots_subtitle': 'ಹಲವು ಪ್ಲೇಲಿಸ್ಟ್‌ಗಳನ್ನು ಬಳಸಿ ಹಾಡುಗಳ ಸೆಟ್‌ಗಳನ್ನು ವೇಗವಾಗಿ ಬದಲಿಸಿ',
+  'playlist.slots_subtitle':
+    'ಹಲವು ಪ್ಲೇಲಿಸ್ಟ್‌ಗಳನ್ನು ಬಳಸಿ ನೀವು ಟ್ರ್ಯಾಕ್‌ಗಳ ಸೆಟ್‌ಗಳನ್ನು ವೇಗವಾಗಿ ಬದಲಿಸಬಹುದು.',
   'playlist.slot_tracks': '{{count}} ಟ್ರ್ಯಾಕ್‌ಗಳು',
   'playlist.move_title': '{{count}} ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಸರಿಸಿ',
   'playlist.copy_action': 'ನಕಲಿಸಿ',

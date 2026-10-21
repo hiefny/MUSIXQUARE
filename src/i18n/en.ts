@@ -162,7 +162,8 @@ const en: Record<I18nKey, string> = {
   'playlist.delete_selected': 'Delete {{count}} selected tracks',
   'playlist.selected_count': '{{count}} selected',
   'playlist.slots_title': 'Multiple playlists',
-  'playlist.slots_subtitle': 'Use several playlists to switch between sets of songs quickly',
+  'playlist.slots_subtitle':
+    'You can use multiple playlists to quickly switch between sets of tracks.',
   'playlist.slot_tracks': '{{count}} tracks',
   'playlist.move_title': 'Move {{count}} tracks',
   'playlist.copy_action': 'Copy',

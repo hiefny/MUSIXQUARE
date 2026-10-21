@@ -163,7 +163,7 @@ const hi: Record<I18nKey, string> = {
   'playlist.delete_selected': 'चुने गए {{count}} ट्रैक मिटाएँ',
   'playlist.selected_count': '{{count}} चयन किया गया',
   'playlist.slots_title': 'कई प्लेलिस्ट',
-  'playlist.slots_subtitle': 'कई प्लेलिस्ट इस्तेमाल करके गानों के सेट तेज़ी से बदलें',
+  'playlist.slots_subtitle': 'कई प्लेलिस्ट इस्तेमाल करके आप ट्रैक के सेट तेज़ी से बदल सकते हैं।',
   'playlist.slot_tracks': '{{count}} ट्रैक',
   'playlist.move_title': '{{count}} ट्रैक ले जाएँ',
   'playlist.copy_action': 'कॉपी करें',

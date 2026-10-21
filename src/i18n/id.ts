@@ -257,7 +257,7 @@ const id: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} dipilih',
   'playlist.slots_title': 'Beberapa daftar putar',
   'playlist.slots_subtitle':
-    'Gunakan beberapa daftar putar untuk beralih antarkumpulan lagu dengan cepat',
+    'Anda bisa menggunakan beberapa daftar putar untuk beralih antarkumpulan media dengan cepat.',
   'playlist.slot_tracks': '{{count}} media',
   'playlist.move_title': 'Pindahkan {{count}} media',
   'playlist.copy_action': 'Salin',

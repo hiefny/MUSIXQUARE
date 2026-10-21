@@ -161,7 +161,7 @@ const pl: Record<I18nKey, string> = {
   'playlist.selected_count': 'Wybrano {{count}}',
   'playlist.slots_title': 'Kilka playlist',
   'playlist.slots_subtitle':
-    'Korzystaj z kilku playlist, aby szybko przełączać się między zestawami utworów',
+    'Możesz korzystać z kilku playlist, aby szybko przełączać się między zestawami utworów.',
   'playlist.slot_tracks': 'Materiały: {{count}}',
   'playlist.move_title': 'Przenieś materiały: {{count}}',
   'playlist.copy_action': 'Kopiuj',

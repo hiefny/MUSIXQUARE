@@ -163,7 +163,7 @@ const da: Record<I18nKey, string> = {
   'playlist.selected_count': '{{count}} valgt',
   'playlist.slots_title': 'Flere afspilningslister',
   'playlist.slots_subtitle':
-    'Brug flere afspilningslister til hurtigt at skifte mellem sæt af sange',
+    'Du kan bruge flere afspilningslister til hurtigt at skifte mellem sæt af numre.',
   'playlist.slot_tracks': '{{count}} numre',
   'playlist.move_title': 'Flyt {{count}} numre',
   'playlist.copy_action': 'Kopiér',

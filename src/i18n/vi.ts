@@ -251,7 +251,8 @@ const vi: Record<I18nKey, string> = {
   'playlist.delete_selected': 'Xóa {{count}} mục đã chọn',
   'playlist.selected_count': '{{count}} được chọn',
   'playlist.slots_title': 'Nhiều danh sách phát',
-  'playlist.slots_subtitle': 'Dùng nhiều danh sách phát để chuyển nhanh giữa các bộ bài hát',
+  'playlist.slots_subtitle':
+    'Bạn có thể dùng nhiều danh sách phát để chuyển nhanh giữa các bộ bản nhạc.',
   'playlist.slot_tracks': '{{count}} mục',
   'playlist.move_title': 'Di chuyển {{count}} mục',
   'playlist.copy_action': 'Sao chép',

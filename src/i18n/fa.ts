@@ -161,7 +161,7 @@ const fa: Record<I18nKey, string> = {
   'playlist.delete_selected': 'حذف {{count}} قطعهٔ انتخاب‌شده',
   'playlist.selected_count': 'گزینش‌شده: {{count}}',
   'playlist.slots_title': 'چند فهرست پخش',
-  'playlist.slots_subtitle': 'با چند فهرست پخش، سریع بین مجموعه‌های آهنگ جابه‌جا شوید',
+  'playlist.slots_subtitle': 'می‌توانید با چند فهرست پخش، سریع بین مجموعه‌های قطعه جابه‌جا شوید.',
   'playlist.slot_tracks': '{{count}} قطعه',
   'playlist.move_title': 'جابه‌جایی {{count}} قطعه',
   'playlist.copy_action': 'کپی',

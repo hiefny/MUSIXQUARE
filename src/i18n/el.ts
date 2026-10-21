@@ -164,7 +164,7 @@ const el: Record<I18nKey, string> = {
   'playlist.selected_count': 'Επιλεγμένα: {{count}}',
   'playlist.slots_title': 'Πολλές λίστες αναπαραγωγής',
   'playlist.slots_subtitle':
-    'Χρησιμοποιήστε πολλές λίστες αναπαραγωγής για γρήγορη εναλλαγή μεταξύ ομάδων τραγουδιών',
+    'Μπορείτε να χρησιμοποιείτε πολλές λίστες αναπαραγωγής για να εναλλάσσετε γρήγορα ομάδες κομματιών.',
   'playlist.slot_tracks': 'Κομμάτια: {{count}}',
   'playlist.move_title': 'Μετακίνηση κομματιών: {{count}}',
   'playlist.copy_action': 'Αντιγραφή',

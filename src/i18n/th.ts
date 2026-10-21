@@ -158,7 +158,7 @@ const th: Record<I18nKey, string> = {
   'playlist.delete_selected': 'ลบ {{count}} รายการที่เลือก',
   'playlist.selected_count': '{{count}} รายการที่เลือก',
   'playlist.slots_title': 'หลายเพลย์ลิสต์',
-  'playlist.slots_subtitle': 'ใช้หลายเพลย์ลิสต์เพื่อสลับชุดเพลงได้อย่างรวดเร็ว',
+  'playlist.slots_subtitle': 'คุณสามารถใช้หลายเพลย์ลิสต์เพื่อสลับชุดแทร็กได้อย่างรวดเร็ว',
   'playlist.slot_tracks': '{{count}} รายการ',
   'playlist.move_title': 'ย้าย {{count}} รายการ',
   'playlist.copy_action': 'คัดลอก',

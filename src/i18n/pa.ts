@@ -164,7 +164,7 @@ const pa: Record<I18nKey, string> = {
   'playlist.delete_selected': 'ਚੁਣੇ ਹੋਏ {{count}} ਟਰੈਕ ਮਿਟਾਓ',
   'playlist.selected_count': '{{count}} ਚੁਣੇ ਹੋਏ',
   'playlist.slots_title': 'ਕਈ ਪਲੇਲਿਸਟਾਂ',
-  'playlist.slots_subtitle': 'ਕਈ ਪਲੇਲਿਸਟਾਂ ਵਰਤ ਕੇ ਗੀਤਾਂ ਦੇ ਸੈੱਟ ਜਲਦੀ ਬਦਲੋ',
+  'playlist.slots_subtitle': 'ਕਈ ਪਲੇਲਿਸਟਾਂ ਵਰਤ ਕੇ ਤੁਸੀਂ ਟਰੈਕਾਂ ਦੇ ਸੈੱਟ ਜਲਦੀ ਬਦਲ ਸਕਦੇ ਹੋ।',
   'playlist.slot_tracks': '{{count}} ਟਰੈਕ',
   'playlist.move_title': '{{count}} ਟਰੈਕ ਲਿਜਾਓ',
   'playlist.copy_action': 'ਕਾਪੀ ਕਰੋ',

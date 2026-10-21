@@ -163,7 +163,7 @@ const uk: Record<I18nKey, string> = {
   'playlist.selected_count': 'Вибрано: {{count}}',
   'playlist.slots_title': 'Кілька плейлистів',
   'playlist.slots_subtitle':
-    'Використовуйте кілька плейлистів, щоб швидко перемикатися між добірками пісень',
+    'Ви можете використовувати кілька плейлистів, щоб швидко перемикатися між добірками треків.',
   'playlist.slot_tracks': 'Треки: {{count}}',
   'playlist.move_title': 'Перемістити треки: {{count}}',
   'playlist.copy_action': 'Копіювати',

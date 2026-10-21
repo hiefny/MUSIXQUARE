@@ -163,7 +163,8 @@ const nb: Record<I18nKey, string> = {
   'playlist.delete_selected': 'Slett {{count}} merkede spor',
   'playlist.selected_count': '{{count}} er valgt',
   'playlist.slots_title': 'Flere spillelister',
-  'playlist.slots_subtitle': 'Bruk flere spillelister for å bytte raskt mellom sett med sanger',
+  'playlist.slots_subtitle':
+    'Du kan bruke flere spillelister for å bytte raskt mellom sett med spor.',
   'playlist.slot_tracks': '{{count}} spor',
   'playlist.move_title': 'Flytt {{count}} spor',
   'playlist.copy_action': 'Kopier',

@@ -242,6 +242,48 @@ test.describe('Playlist edit mode (mouse)', () => {
     await expect(page.locator('.playlist-selection-bar')).toBeHidden();
   });
 
+  test('a press that starts selecting gives way to the blue, and ending the mode fades the block whole', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    const firstRow = page.locator('#playlist-ui > .playlist-entry').first().locator('.track-item');
+    const start = await centerOf(checks.nth(0));
+    const end = await centerOf(checks.nth(2));
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    for (let step = 1; step <= 8; step += 1) {
+      await page.mouse.move(start.x, start.y + ((end.y - start.y) * step) / 8);
+    }
+    // Still pressed: the first row is :active, but in selection mode its grey
+    // press tint has faded so the selection fill shows.
+    await expect(page.locator('.playlist-selection-title')).toHaveText('3 selected');
+    await page.waitForTimeout(400);
+    expect(await firstRow.evaluate((row) => getComputedStyle(row).backgroundColor)).toBe(
+      'rgba(0, 0, 0, 0)',
+    );
+    await page.mouse.up();
+    await page.waitForTimeout(500);
+
+    // Cancel clears the three-row block as one shape, not as three pills.
+    const layer = await page.evaluate(() => {
+      document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+      return new Promise<{ pills: number; hiding: boolean }>((resolve) =>
+        queueMicrotask(() =>
+          resolve({
+            pills: document.querySelector('.playlist-fill-morph')?.children.length ?? 0,
+            hiding: document.getElementById('playlist-ui')!.classList.contains('is-fill-morphing'),
+          }),
+        ),
+      );
+    });
+    expect(layer).toEqual({ pills: 1, hiding: true });
+    await page.waitForFunction(() => !document.querySelector('.playlist-fill-morph'));
+    const fills = await selectionFills(page);
+    for (const fill of fills.slice(0, 3)) expect(fill.background).toBe('rgba(0, 0, 0, 0)');
+  });
+
   test('in edit mode a title tap selects the row instead of playing it', async ({ page }) => {
     test.setTimeout(90_000);
     await openFiveTrackPlaylist(page, false);

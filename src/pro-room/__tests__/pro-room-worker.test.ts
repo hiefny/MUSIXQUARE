@@ -29,6 +29,8 @@ import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../cor
 import {
   ProRoomApiClient,
   ProRoomApiError,
+  type SwitchProRoomPlaylistInput,
+  type TransferProRoomPlaylistTracksInput,
   type UpdateProRoomCompactSnapshotInput,
 } from '../api.ts';
 import type { ProRoomR2Source, ProRoomSnapshot } from '../contracts.ts';
@@ -26621,6 +26623,124 @@ describe('PRO room multiple playlists', () => {
     expect(await responseJson(deleted)).toEqual({ error: 'ASSET_IN_USE' });
     expect(internal.room.assets[assetId].status).toBe('ready');
     expect(internal.room.quota.usedBytes).toBe(usedBytes);
+  });
+
+  /** The browser API's playlist calls against this Worker, with playlist summaries. */
+  function slotWorkerApi(context: RoomContext) {
+    const send = async (input: Request): Promise<ProRoomSnapshot> => {
+      const response = await context.worker.fetch(withSlots(input));
+      const value = await responseJson(response);
+      if (!response.ok) {
+        throw new ProRoomApiError(String(value.error || 'UNKNOWN'), response.status);
+      }
+      const snapshot = parseProRoomSnapshot(value.snapshot);
+      if (!snapshot) throw new Error('invalid real Worker snapshot');
+      return snapshot;
+    };
+    const post = (path: string, body: Record<string, unknown>, key: string) =>
+      send(jsonRequest(path, 'POST', body, context.ownerCookie, key));
+    return {
+      getSnapshot: vi.fn(async () => send(request('/snapshot', {}, context.ownerCookie))),
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) =>
+        post(
+          '/snapshot/compact',
+          {
+            baseRevision: input.baseRevision,
+            playlistOrder: input.playlistOrder,
+            upserts: input.upserts,
+            currentQueueItemId: input.currentQueueItemId,
+            playback: input.playback,
+          },
+          input.idempotencyKey,
+        ),
+      ),
+      switchPlaylist: vi.fn(async (input: SwitchProRoomPlaylistInput) =>
+        post(
+          '/playlists/switch',
+          { baseRevision: input.baseRevision, slot: input.slot },
+          input.idempotencyKey,
+        ),
+      ),
+      transferPlaylistTracks: vi.fn(async (input: TransferProRoomPlaylistTracksInput) =>
+        post(
+          '/playlists/transfer',
+          {
+            baseRevision: input.baseRevision,
+            queueItemIds: [...input.queueItemIds],
+            targetSlots: [...input.targetSlots],
+            mode: input.mode,
+          },
+          input.idempotencyKey,
+        ),
+      ),
+    } satisfies ProRoomPlaylistStateApiForTests;
+  }
+
+  function slotManager(
+    api: ProRoomPlaylistStateApiForTests,
+    media: ProRoomPlaylistMediaTransferForTests,
+    suffix: string,
+  ) {
+    let key = 0;
+    return new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      createIdempotencyKey: () => `${IDEMPOTENCY_KEY}-${suffix}-${++key}`,
+      createQueueItemId: () => '5c111111-1111-4111-8111-111111111111',
+    });
+  }
+
+  function switchAsAnotherAdministrator(context: RoomContext, slot: number, key: string) {
+    const internal = context.worker as unknown as Internal;
+    return switchTo(context, { baseRevision: internal.room.revision, slot }, key);
+  }
+
+  it('keeps a finished upload out of the playlist another administrator switched to', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const { asset } = await completeReadyAsset(context, 'playlist-slots-upload');
+    const api = slotWorkerApi(context);
+    const initial = await api.getSnapshot();
+    const media = {
+      upload: vi.fn(async () => {
+        const switched = await switchAsAnotherAdministrator(
+          context,
+          1,
+          'playlist-slots-upload-switch',
+        );
+        expect(switched.status).toBe(200);
+        const source: ProRoomR2Source = {
+          kind: 'pro-r2',
+          assetId: asset.assetId,
+          version: asset.version,
+          byteLength: asset.byteLength,
+          mime: asset.mime,
+          ...(asset.sha256 ? { sha256: asset.sha256 } : {}),
+        };
+        return { asset: source, quota: initial.quota };
+      }),
+      deleteAsset: vi.fn(async () => undefined),
+    } satisfies ProRoomPlaylistMediaTransferForTests;
+    const manager = slotManager(api, media, 'playlist-slots-upload');
+    await manager.acceptSnapshot(initial);
+
+    await expect(
+      manager.addLocalFile({ file: new File(['audio'], 'upload.flac', { type: 'audio/flac' }) }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_PLAYLIST_SWITCHED' });
+
+    // The Worker refuses an append based on the room before the switch; only
+    // the client's refresh could have moved it to the other playlist.
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
+    await expect(api.updateCompactSnapshot.mock.results[0]?.value).rejects.toMatchObject({
+      status: 409,
+      code: 'REVISION_CONFLICT',
+    });
+    expect(internal.room.playlistSlots.activeSlot).toBe(1);
+    expect(internal.room.playlist).toEqual([]);
+    expect(internal.room.playlistSlots.inactive[0]).toEqual([]);
+    expect(media.deleteAsset).toHaveBeenCalledWith({ code: ROOM_CODE, assetId: asset.assetId });
   });
 
   it('drops inactive items whose file an older Worker already collected', async () => {

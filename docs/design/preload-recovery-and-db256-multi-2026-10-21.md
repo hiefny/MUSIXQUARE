@@ -252,3 +252,19 @@ cache/bootstrap to v762. That main change only fixes playlist-selection morph
 geometry after a rebuild; transfer runtime is unchanged from the native source
 above. The four native results retain their original source identity and do
 not substitute for the final exact-main CI candidate or operational smokes.
+
+## Integrated release preparation
+
+Integrated code SHA: `f0f955db002720d44ac14da2524d614547668a8e`, Windows,
+Node 24.20.0. Full unit suite: **611 files, 13,681 passed, 0 failed, 0 skipped**
+in 271.03 seconds. This includes the preload ownership and integrated playlist
+morph regression tests. Typecheck, full lint and formatting, Worker syntax,
+Developer API boundary, D1 migration, and operations drift contract guards all
+passed. The committed `build:checked` passed, including cache history, release
+identity, production security, transfer budgets, and 101 app-shell assets.
+The first wrapper used colons in Windows log filenames for four static commands;
+redirection failed before those commands ran. All four were then executed with
+valid filenames and passed; the wrapper's stale exit value is not evidence.
+No full serial browser suite or physical-device session was added in this round.
+Final source review found no additional blocking defect. Main CI and deployment
+evidence must be recorded separately after the normal PR merge.

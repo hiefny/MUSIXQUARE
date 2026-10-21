@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { setupGuest, setupHostAndStart } from '../helpers/setup-flow.ts';
 import { waitForDeviceCount, waitForPlaylistCount } from '../helpers/wait.ts';
+import { acceptLargeRoomUploadConsent } from '../helpers/production-r2-dialogs.ts';
 import {
   observeProductionIceTopology,
   type CandidatePairObservation,
@@ -118,6 +119,8 @@ async function dismissFirstRunDialogIfPresent(page: Page): Promise<void> {
   if (!(await secondary.isVisible())) {
     throw new Error(`Unexpected pre-existing production dialog: ${text}`);
   }
+  await expect(dialog.locator('#dialog-title')).toHaveText('Experience MUSIXQUARE');
+  await expect(secondary).toHaveText('Later');
   console.log(`[production-live] dismissing first-run dialog: ${text}`);
   await secondary.click();
   await expect(dialog).not.toHaveClass(/show/u, { timeout: 10_000 });
@@ -134,15 +137,7 @@ async function uploadProbeFiles(page: Page): Promise<void> {
 
   // The ninth confirmed-local guest must cross the product's direct-transfer
   // boundary and surface the real Cloudflare R2 consent dialog.
-  const dialog = page.locator('#dialog-overlay');
-  await expect(dialog).toHaveClass(/show/u, { timeout: 10_000 });
-  const text = ((await dialog.textContent()) ?? '').trim().replace(/\s+/gu, ' ');
-  if (!text.includes('Cloudflare R2') || !/(^|\D)8(\D|$)/u.test(text)) {
-    throw new Error(`Expected the large-room Cloudflare R2 consent dialog, got: ${text}`);
-  }
-  console.log(`[production-live] large-room consent: ${text}`);
-  await page.locator('#btn-dialog-ok').click();
-  await expect(dialog).not.toHaveClass(/show/u, { timeout: 10_000 });
+  await acceptLargeRoomUploadConsent(page);
 }
 
 async function waitForTrackTitle(page: Page, fragment: string, timeout = 60_000): Promise<void> {

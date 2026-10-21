@@ -93,6 +93,7 @@ function nativeContextFixture() {
     createChannelMerger: createNode,
     createBiquadFilter: createNode,
     createConvolver: createNode,
+    createDelay: createNode,
     createDynamicsCompressor: createNode,
     createWaveShaper: createNode,
     createAnalyser: createNode,

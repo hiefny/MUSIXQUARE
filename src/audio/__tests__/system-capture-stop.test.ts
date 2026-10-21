@@ -5,7 +5,7 @@
  * playback flow is taking ownership, so only explicit stops may restore the
  * pre-share snapshot.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -18,7 +18,7 @@ import {
   setPlaybackYouTubePaused,
   setPlaybackYouTubePlaying,
 } from '../../player/ownership.ts';
-import { getWidener, initAudio } from '../engine.ts';
+import { getAnalyser, getWidener, initAudio } from '../engine.ts';
 import {
   isSystemAudioActive,
   registerSystemCaptureListeners,
@@ -70,6 +70,7 @@ const h = vi.hoisted(() => {
         channelCount: 0,
         channelCountMode: '',
         channelInterpretation: '',
+        gain: { value: 1 },
         connect: vi.fn(),
         disconnect: vi.fn(),
       }),
@@ -133,6 +134,7 @@ vi.mock('../../storage/transfer.ts', async (importOriginal) => ({
 
 vi.mock('../engine.ts', () => ({
   initAudio: vi.fn(async () => {}),
+  getAnalyser: vi.fn(() => ({})),
   getWidener: vi.fn(() => ({ input: {} })),
   getMasterGain: vi.fn(() => null),
 }));
@@ -897,6 +899,47 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
   );
 });
 
+describe('host local graph', () => {
+  it.each(['stop', 'force-stop', 'publication failure'] as const)(
+    'feeds only the analyser at the default-width level and removes it on %s',
+    async (ending) => {
+      const analyser = { id: 'analyser' } as unknown as AnalyserNode;
+      vi.mocked(getAnalyser).mockReturnValueOnce(analyser);
+      const createGain = h.ctx.createGain;
+      const gains: ReturnType<typeof createGain>[] = [];
+      const spy = vi.spyOn(h.ctx, 'createGain').mockImplementation(() => {
+        const gain = createGain();
+        gains.push(gain);
+        return gain;
+      });
+      onTestFinished(() => spy.mockRestore());
+      if (ending === 'publication failure') {
+        setProRoom();
+        proAudio.publish.mockRejectedValueOnce(new Error('publish unavailable'));
+      }
+      stubDisplayMedia();
+
+      await startSystemAudioCapture();
+
+      // The effects chain gets no host input, so it idles for the whole share.
+      expect(getWidener).not.toHaveBeenCalled();
+      expect(gains).toHaveLength(1);
+      const [upmix] = gains;
+      expect(upmix).toMatchObject({
+        channelCount: 2,
+        channelCountMode: 'explicit',
+        channelInterpretation: 'speakers',
+        gain: { value: 0.5 },
+      });
+      expect(upmix!.connect.mock.calls).toEqual([[analyser]]);
+      if (ending === 'stop') bus.emit('system-audio:stop');
+      if (ending === 'force-stop') bus.emit('system-audio:force-stop');
+      expect(upmix!.disconnect).toHaveBeenCalledWith();
+      expect(isSystemAudioActive()).toBe(false);
+    },
+  );
+});
+
 describe('system audio start failure rollback', () => {
   it.each([
     ['picker', 'resolve'],
@@ -1044,9 +1087,9 @@ describe('system audio start failure rollback', () => {
     expect(isSystemAudioActive()).toBe(false);
   });
 
-  it('restores the prior snapshot when the prepared graph has no widener', async () => {
+  it('restores the prior snapshot when the prepared graph has no analyser', async () => {
     const restoreSpy = preparePriorYouTubePlayback();
-    vi.mocked(getWidener).mockReturnValueOnce(null);
+    vi.mocked(getAnalyser).mockReturnValueOnce(null);
     stubDisplayMedia();
 
     await startSystemAudioCapture();
@@ -1098,7 +1141,7 @@ describe('system audio start failure rollback', () => {
       capabilities: ['playback.control'],
     });
     const restoreSpy = preparePriorYouTubePlayback();
-    vi.mocked(getWidener).mockReturnValueOnce(null);
+    vi.mocked(getAnalyser).mockReturnValueOnce(null);
     stubDisplayMedia();
 
     await startSystemAudioCapture();

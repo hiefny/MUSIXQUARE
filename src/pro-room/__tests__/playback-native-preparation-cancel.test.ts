@@ -226,16 +226,14 @@ describe('PRO canonical commits while native preparation is superseded', () => {
           }
         },
       });
-      const node = () => ({ connect: vi.fn(), disconnect: vi.fn() });
+      const node = () => ({ connect: vi.fn(), disconnect: vi.fn(), gain: { value: 1 } });
       vi.spyOn(audioContext, 'getAudioContext').mockReturnValue({
         currentTime: 10,
         createMediaStreamSource: node,
         createGain: node,
         createChannelSplitter: node,
       } as unknown as AudioContext);
-      vi.spyOn(audioEngine, 'getWidener').mockReturnValue({ input: {} } as ReturnType<
-        typeof audioEngine.getWidener
-      >);
+      vi.spyOn(audioEngine, 'getAnalyser').mockReturnValue({} as AnalyserNode);
       vi.spyOn(audioEngine, 'getMasterGain').mockReturnValue(null);
       const track = {
         id: 'capture',

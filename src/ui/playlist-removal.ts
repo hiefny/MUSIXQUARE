@@ -1,6 +1,7 @@
 import type { PlaylistItem, QueueItemId } from '../types/index.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { t } from '../i18n/index.ts';
+import type { PlaylistSelectionMorph } from './playlist-selection-morph.ts';
 
 const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
 
@@ -83,6 +84,14 @@ function prefersReducedMotion(): boolean {
 
 function canAnimate(element: Element): boolean {
   return typeof (element as HTMLElement).animate === 'function' && !prefersReducedMotion();
+}
+
+function forcedColors(): boolean {
+  try {
+    return window.matchMedia('(forced-colors: active)').matches;
+  } catch {
+    return false;
+  }
 }
 
 function createBar(list: HTMLElement): {
@@ -177,6 +186,22 @@ export function createPlaylistRemovalController(
   let exitLayer: HTMLElement | null = null;
   let headerFadeLayer: HTMLElement | null = null;
   let headerFadeTimer = 0;
+  // Selection blocks morph as whole pills once this loads after the list
+  // mounts (docs/design/initial-bundle-loading-policy.md); until then, and
+  // with reduced motion or forced colors, each row's fill changes in place.
+  let morph: PlaylistSelectionMorph | null = null;
+  void import('./playlist-selection-morph.ts').then(
+    ({ createPlaylistSelectionMorph }) => {
+      if (!destroyed) morph = createPlaylistSelectionMorph(list);
+    },
+    () => {},
+  );
+
+  function captureMorph(): void {
+    if (morph && options.isPlaylistVisible() && canAnimate(list) && !forcedColors()) {
+      morph.capture();
+    }
+  }
   let exitTimer = 0;
   /** Survivors' offsets from their old rows while they glide into place. */
   let glide: {
@@ -509,6 +534,7 @@ export function createPlaylistRemovalController(
   }
 
   function cancel(cancelOptions: { restoreFocus?: boolean } = {}): void {
+    morph?.stop();
     const focusTarget = cancelOptions.restoreFocus ? lastTriggerQueueItemId : null;
     const hadSelection = selectedQueueItemIds.size > 0;
     if (cancelOptions.restoreFocus || (hadSelection && focusIsInsideControls())) {
@@ -526,6 +552,7 @@ export function createPlaylistRemovalController(
         bar.contains(activeElement) ||
         !!toggleButton?.contains(activeElement));
 
+    morph?.stop();
     selectedQueueItemIds.clear();
     syncDom();
 
@@ -539,6 +566,7 @@ export function createPlaylistRemovalController(
     if (!visibleItems().some((item) => item.queueItemId === queueItemId)) return;
     const wasActive = selectedQueueItemIds.size > 0;
     lastTriggerQueueItemId = queueItemId;
+    captureMorph();
     if (selectedQueueItemIds.has(queueItemId)) selectedQueueItemIds.delete(queueItemId);
     else selectedQueueItemIds.add(queueItemId);
     if (!wasActive && selectedQueueItemIds.size > 0) options.onSelectionStart?.();
@@ -554,12 +582,14 @@ export function createPlaylistRemovalController(
       cancel({ restoreFocus: true });
       return;
     }
+    captureMorph();
     for (const item of items) selectedQueueItemIds.add(item.queueItemId);
     syncDom();
   }
 
   function deleteSelected(): void {
     if (!options.canRemove() || selectedQueueItemIds.size === 0) return;
+    morph?.stop();
     const items = visibleItems();
     const orderedQueueItemIds = items
       .filter((item) => selectedQueueItemIds.has(item.queueItemId))
@@ -836,6 +866,8 @@ export function createPlaylistRemovalController(
       stopBarAnimations();
       removeExitLayer();
       removeHeaderFade();
+      morph?.destroy();
+      morph = null;
       glide = null;
       removeGestures?.();
       abortController.abort();

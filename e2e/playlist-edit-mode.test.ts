@@ -375,6 +375,61 @@ test.describe('Playlist delete slide-out', () => {
     });
   }
 
+  test('blocks bridge and split as whole pills, then hand back to the rows', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, true);
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    await checks.nth(0).click();
+    await checks.nth(2).click();
+    // The morph loads after the list mounts.
+    await page.waitForTimeout(800);
+
+    // The layer is built once the click's task ends; read it right after.
+    const sample = async (row: number) => {
+      await page.evaluate((index) => {
+        document
+          .querySelectorAll<HTMLButtonElement>('#playlist-ui .btn-playlist-select')
+          [index]!.click();
+      }, row);
+      return page.evaluate(() => {
+        const list = document.getElementById('playlist-ui')!;
+        const layer = document.querySelector<HTMLElement>('.playlist-fill-morph');
+        return {
+          before: layer?.nextElementSibling === list,
+          pills: layer?.children.length ?? 0,
+          alpha: Number(layer?.style.opacity ?? 0),
+          hiding: list.classList.contains('is-fill-morphing'),
+        };
+      });
+    };
+    const settled = () =>
+      page.waitForFunction(
+        () =>
+          !document.querySelector('.playlist-fill-morph') &&
+          !document.getElementById('playlist-ui')!.classList.contains('is-fill-morphing'),
+      );
+
+    // Rows 1 and 3 reach for row 2 as two pills becoming one block.
+    const bridge = await sample(1);
+    expect(bridge).toMatchObject({ before: true, pills: 2, hiding: true });
+    expect(bridge.alpha).toBeGreaterThan(0);
+    expect(bridge.alpha).toBeLessThan(1);
+    await settled();
+    let fills = await selectionFills(page);
+    expect(fills[0]).toMatchObject({ radius: '28px 28px 0px 0px', top: '0px' });
+    expect(fills[1]).toMatchObject({ radius: '0px', top: '-8px' });
+    expect(fills[2]).toMatchObject({ radius: '0px 0px 28px 28px', top: '-8px' });
+
+    // Deselecting row 2 pinches the block back into rows 1 and 3.
+    const split = await sample(1);
+    expect(split).toMatchObject({ before: true, pills: 2, hiding: true });
+    await settled();
+    fills = await selectionFills(page);
+    expect(fills[0]).toMatchObject({ radius: '28px', top: '0px' });
+    expect(fills[2]).toMatchObject({ radius: '28px', top: '0px' });
+    expect(fills[1]!.background).toBe('rgba(0, 0, 0, 0)');
+  });
+
   test('the pills shrink away where they were and the header crossfades', async ({ page }) => {
     test.setTimeout(90_000);
     await openFiveTrackPlaylist(page, true);

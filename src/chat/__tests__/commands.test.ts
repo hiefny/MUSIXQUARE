@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
   requestActiveProRoomBotCommand: vi.fn(),
   beginLocalBotChatRequest: vi.fn(() => true),
+  expireBotChatRequest: vi.fn(),
   publishBotChatResult: vi.fn(() => true),
 }));
 
@@ -41,6 +42,7 @@ vi.mock('../debug-console.ts', () => ({ cmdDebug: mocks.cmdDebug }));
 vi.mock('../protocol.ts', () => ({
   rememberPinnedNotice: mocks.rememberPinnedNotice,
   beginLocalBotChatRequest: mocks.beginLocalBotChatRequest,
+  expireBotChatRequest: mocks.expireBotChatRequest,
   publishBotChatResult: mocks.publishBotChatResult,
 }));
 vi.mock('../../ui/toast.ts', () => ({ showToast: mocks.showToast }));
@@ -847,6 +849,18 @@ describe('/bot PRO-room command', () => {
     expect(mocks.publishBotChatResult.mock.calls.flat().join(' ')).not.toContain(
       'secret upstream detail',
     );
+  });
+
+  it('settles its own bubble without publishing when the BOT session was superseded', async () => {
+    enterBotRoom();
+    mocks.requestActiveProRoomBotCommand.mockRejectedValueOnce({ code: 'BOT_SESSION_SUPERSEDED' });
+
+    executeCommand({ name: 'bot', args: ['next'], rawArgs: 'next' }, { botRequestId: requestId });
+
+    await vi.waitFor(() => {
+      expect(mocks.expireBotChatRequest).toHaveBeenCalledExactlyOnceWith(requestId);
+    });
+    expect(mocks.publishBotChatResult).not.toHaveBeenCalled();
   });
 
   it('does not publish a late result after moving to another PRO room', async () => {

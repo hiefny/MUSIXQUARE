@@ -26,8 +26,14 @@
   const CSS_URL = '/primary-font.css';
   const FONT_URL = '/designsystem/fonts/PretendardVariable.woff2';
   const RECOVERY_FAMILY = 'MUSIXQUARE Pretendard Recovery';
+  // Without the PWA cache every attempt downloads the 2 MiB face again. Each
+  // later attempt doubles its deadline so a slow link can finish one download
+  // instead of being aborted at the same point every time.
   const ATTEMPT_TIMEOUT_MS = 8000;
-  const RETRY_DELAYS_MS = [1000, 3000, 10000, 30000] as const;
+  const MAX_ATTEMPT_TIMEOUT_MS = 60000;
+  // Back off to a few minutes. Coming online, pageshow and a visible page
+  // still retry at once.
+  const RETRY_DELAYS_MS = [1000, 3000, 10000, 30000, 60000, 120000, 300000] as const;
   let attempt = 0;
   let retryTimer = 0;
   let running = false;
@@ -102,7 +108,7 @@
 
   function scheduleRetry(): void {
     if (complete || retryTimer || document.visibilityState === 'hidden') return;
-    const delay = RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ?? 30000;
+    const delay = RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ?? 300000;
     retryTimer = window.setTimeout(() => {
       retryTimer = 0;
       startAttemptInBackground();
@@ -124,10 +130,13 @@
     const controller = new AbortController();
     let timeout = 0;
     const deadline = new Promise<never>((_resolve, reject) => {
-      timeout = window.setTimeout(() => {
-        controller.abort();
-        reject(new Error('PRIMARY_FONT_LOAD_TIMEOUT'));
-      }, ATTEMPT_TIMEOUT_MS);
+      timeout = window.setTimeout(
+        () => {
+          controller.abort();
+          reject(new Error('PRIMARY_FONT_LOAD_TIMEOUT'));
+        },
+        Math.min(ATTEMPT_TIMEOUT_MS * 2 ** (attempt - 1), MAX_ATTEMPT_TIMEOUT_MS),
+      );
     });
     const work =
       attempt === 1 ? loadCssFace(controller.signal) : loadRecoveryFace(controller.signal);

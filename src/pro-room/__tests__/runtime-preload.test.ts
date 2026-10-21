@@ -23,6 +23,7 @@ import { ProRoomMediaTransfer } from '../media-transfer.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_00001';
@@ -246,7 +247,9 @@ describe('PRO room runtime preload adoption', { concurrent: false }, () => {
 
   it('refreshes the authoritative snapshot from an exact server invalidation hint', async () => {
     const next = { ...roomSnapshot(), revision: 2, playlistRevision: 2 };
-    const refresh = vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(next);
+    const refresh = vi
+      .spyOn(ProRoomApiClient.prototype, 'heartbeat')
+      .mockResolvedValue(proHeartbeat(next));
 
     acceptProRoomRealtimeFrameForTests({
       type: 'pro-server-event',
@@ -304,7 +307,9 @@ describe('PRO room runtime preload adoption', { concurrent: false }, () => {
     });
 
     const accepted = { ...roomSnapshot(), revision: 6, playlistRevision: 4 };
-    const refresh = vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(accepted);
+    const refresh = vi
+      .spyOn(ProRoomApiClient.prototype, 'heartbeat')
+      .mockResolvedValue(proHeartbeat(accepted));
     acceptProRoomRealtimeFrameForTests(serverFrame(later));
     acceptProRoomRealtimeFrameForTests(serverFrame(earlier));
     acceptProRoomRealtimeFrameForTests(serverFrame(later));

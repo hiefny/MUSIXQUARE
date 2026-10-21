@@ -1190,8 +1190,10 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   // Service-worker polling belongs to the page, not to a room. Registration
   // runs once at bootstrap, so cancelling it here would disable hourly update
   // checks for the rest of this tab's lifetime after its first room exit.
+  // The effect input gate also belongs to the page's audio graph: an effect
+  // switched off just before leaving still has to disconnect after its ramp.
   cancelConnectionTypeWaiters();
-  clearAllManagedTimers({ except: ['sw-update-check'] });
+  clearAllManagedTimers({ except: ['sw-update-check', 'audio-input-gate'] });
   resetSignalingHealth();
 
   // ── 2. Stop media playback ──

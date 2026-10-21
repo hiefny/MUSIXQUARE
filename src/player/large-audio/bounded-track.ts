@@ -8,7 +8,7 @@ import {
 } from './bounded-playback.ts';
 import { beginLargeAudioResource } from './diagnostics.ts';
 
-const PRIME_SECONDS = 1;
+export const PRIME_SECONDS = 1;
 const PRIME_BYTES = 2 * 1024 * 1024;
 
 function aborted(): DOMException {

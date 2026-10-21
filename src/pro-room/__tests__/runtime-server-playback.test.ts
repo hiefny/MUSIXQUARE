@@ -60,6 +60,7 @@ import {
   requestFirstAppendSelectionForTests,
   requestProRoomBackgroundReturnSync,
 } from '../runtime.ts';
+import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const nativeCreateSessionForQa20 = ProRoomApiClient.prototype.createSession;
 const nativeHeartbeatForQa20 = ProRoomApiClient.prototype.heartbeat;
@@ -267,7 +268,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       vi
         .spyOn(ProRoomApiClient.prototype, 'createSignalingTicket')
         .mockResolvedValue(signalingAccess()),
-      vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial),
+      vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(proHeartbeat(initial)),
       vi.spyOn(ProRoomApiClient.prototype, 'reportMediaDuration').mockResolvedValue(undefined),
       vi.spyOn(ProRoomApiClient.prototype, 'getSettingsSync').mockResolvedValue({
         schemaVersion: 1,
@@ -403,7 +404,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   it('restores saved YouTube manifests atomically on a cache-empty PRO reentry', async () => {
     const saved = savedYouTubePlaylists();
     vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(saved);
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(saved);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(saved));
     // A just-added playlist has this preview cache, hiding a lost local manifest.
     updateSubItemIds('PL_SHARED_SAVED', [VIDEO_ID, ADDED_VIDEO_ID], { manifestComplete: true });
     for (let reentry = 0; reentry < 2; reentry++) {
@@ -450,7 +451,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
   it('preserves occurrence manifests through snapshot reorder, stale replies and cache eviction', async () => {
     const saved = savedYouTubePlaylists();
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
-    heartbeat.mockResolvedValue(saved);
+    heartbeat.mockResolvedValue(proHeartbeat(saved));
     acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
     await vi.waitFor(() => expect(getState('playlist.revision')).toBe(2));
     const reordered = {
@@ -459,7 +460,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       playlistRevision: 3,
       playlist: [...saved.playlist].reverse(),
     };
-    heartbeat.mockResolvedValue(reordered);
+    heartbeat.mockResolvedValue(proHeartbeat(reordered));
     acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
     await vi.waitFor(() => expect(getState('playlist.revision')).toBe(3));
     const acceptedItems = getState('playlist.items');
@@ -470,7 +471,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
     const acceptance = vi.spyOn(ProRoomSessionController.prototype, 'heartbeat');
     restoreSpies.push(acceptance);
-    heartbeat.mockResolvedValue(saved);
+    heartbeat.mockResolvedValue(proHeartbeat(saved));
     acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
     await vi.waitFor(() => expect(acceptance).toHaveBeenCalled());
     await expect(acceptance.mock.results.at(-1)?.value).rejects.toThrow('PRO_ROOM_SNAPSHOT_STALE');
@@ -493,24 +494,26 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       revision: 2,
       presence: { ...snapshot().presence, revision: 2 },
     };
-    heartbeat.mockResolvedValue(open);
+    heartbeat.mockResolvedValue(proHeartbeat(open));
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
     );
     await vi.waitFor(() => expect(getState('network.roomPasswordRequired')).toBe(false));
-    heartbeat.mockResolvedValue(snapshot());
+    heartbeat.mockResolvedValue(proHeartbeat(snapshot()));
     const callCount = heartbeat.mock.calls.length;
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
     );
     await vi.waitFor(() => expect(heartbeat.mock.calls.length).toBeGreaterThan(callCount));
     expect(getState('network.roomPasswordRequired')).toBe(false);
-    heartbeat.mockResolvedValue({
-      ...open,
-      passwordRequired: true,
-      revision: 3,
-      presence: { ...open.presence, revision: 3 },
-    });
+    heartbeat.mockResolvedValue(
+      proHeartbeat({
+        ...open,
+        passwordRequired: true,
+        revision: 3,
+        presence: { ...open.presence, revision: 3 },
+      }),
+    );
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
     );
@@ -555,7 +558,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         ...snapshot(playback(1, { state, positionSeconds: 37.5, updatedAtMs: Date.now() })),
         revision: 2,
       };
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
       acceptProRoomRealtimeFrameForTests(
         serverFrame({ ...commitEvent(null, 1), playback: current.playback }),
       );
@@ -620,7 +623,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       ...snapshot(playback(1, { positionSeconds: 40, updatedAtMs: 10_000 })),
       revision: 2,
     };
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     acceptProRoomRealtimeFrameForTests(
       serverFrame({
         ...commitEvent(null, 1),
@@ -655,7 +658,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     };
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     heartbeat.mockClear();
-    heartbeat.mockResolvedValue(newer);
+    heartbeat.mockResolvedValue(proHeartbeat(newer));
     waitForClock.mockClear();
     prepareMedia.mockClear();
     commitMedia.mockClear();
@@ -1204,7 +1207,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         },
       ],
     };
-    heartbeat.mockResolvedValue(hydrated);
+    heartbeat.mockResolvedValue(proHeartbeat(hydrated));
     prepareMedia.mockImplementationOnce(async (request): Promise<ProPlaybackPrepareResult> => {
       expect(
         getState('playlist.items').some((item) => item.queueItemId === ADDED_QUEUE_ITEM_ID),
@@ -1267,7 +1270,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         },
       ],
     };
-    heartbeat.mockResolvedValueOnce(snapshot()).mockResolvedValue(hydrated);
+    heartbeat
+      .mockResolvedValueOnce(proHeartbeat(snapshot()))
+      .mockResolvedValue(proHeartbeat(hydrated));
     systemAudio.mockImplementationOnce(() => new Promise(() => {}));
 
     // A realtime invalidation owns the independent system-audio refresh. Even
@@ -1334,7 +1339,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
             rejectOlderHeartbeat = reject;
           }),
       )
-      .mockResolvedValue(hydrated);
+      .mockResolvedValue(proHeartbeat(hydrated));
     prepareMedia.mockImplementationOnce(async (request): Promise<ProPlaybackPrepareResult> => {
       expect(
         getState('playlist.items').some((item) => item.queueItemId === ADDED_QUEUE_ITEM_ID),
@@ -1406,12 +1411,14 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           shuffleOrder: input.shuffleOrder,
         }));
       restoreSpies.push(update);
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue({
-        ...snapshot(),
-        revision: 2,
-        queueModeRevision: 1,
-        presence: { ...snapshot().presence, revision: 2 },
-      });
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+        proHeartbeat({
+          ...snapshot(),
+          revision: 2,
+          queueModeRevision: 1,
+          presence: { ...snapshot().presence, revision: 2 },
+        }),
+      );
       if (timing === 'before') setState('playlist.repeatMode', 1);
       acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
       await vi.waitFor(() => expect(resolveRead).toBeTypeOf('function'));
@@ -1449,7 +1456,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       shuffleEnabled: false,
       shuffleOrder: [] as QueueItemId[],
     };
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockImplementation(async () => canonical);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockImplementation(async () =>
+      proHeartbeat(canonical),
+    );
     const read = vi
       .mocked(ProRoomApiClient.prototype.getQueueMode)
       .mockImplementation(async () => mode);
@@ -1543,12 +1552,14 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
       setState('playlist.repeatMode', 2);
       vi.mocked(ProRoomApiClient.prototype.getQueueMode).mockResolvedValue(mode);
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue({
-        ...snapshot(),
-        revision: 2,
-        queueModeRevision: 1,
-        presence: { ...snapshot().presence, revision: 2 },
-      });
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+        proHeartbeat({
+          ...snapshot(),
+          revision: 2,
+          queueModeRevision: 1,
+          presence: { ...snapshot().presence, revision: 2 },
+        }),
+      );
       acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
       await new Promise((resolve) => setTimeout(resolve, 0));
       if (conflict) rejectUpdate(new ProRoomApiError('QUEUE_MODE_REVISION_CONFLICT', 409));
@@ -1583,12 +1594,14 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         setState('playlist.repeatMode', 1);
         await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
       } else {
-        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue({
-          ...snapshot(),
-          revision: 2,
-          queueModeRevision: 1,
-          presence: { ...snapshot().presence, revision: 2 },
-        });
+        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+          proHeartbeat({
+            ...snapshot(),
+            revision: 2,
+            queueModeRevision: 1,
+            presence: { ...snapshot().presence, revision: 2 },
+          }),
+        );
         acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
       }
       await vi.waitFor(() => expect(getState('playlist.repeatMode')).toBe(2));
@@ -1613,12 +1626,14 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     };
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     const read = vi.mocked(ProRoomApiClient.prototype.getQueueMode).mockResolvedValue(mode);
-    heartbeat.mockResolvedValue({
-      ...snapshot(),
-      revision: 2,
-      queueModeRevision: 1,
-      presence: { ...snapshot().presence, revision: 2 },
-    });
+    heartbeat.mockResolvedValue(
+      proHeartbeat({
+        ...snapshot(),
+        revision: 2,
+        queueModeRevision: 1,
+        presence: { ...snapshot().presence, revision: 2 },
+      }),
+    );
     acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
     await vi.waitFor(() => expect(getState('playlist.isShuffle')).toBe(true));
     let resolveRead!: (value: typeof mode) => void;
@@ -1638,12 +1653,14 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         shuffleOrder: input.shuffleOrder,
       }));
     restoreSpies.push(update);
-    heartbeat.mockResolvedValue({
-      ...snapshot(),
-      revision: 3,
-      queueModeRevision: 2,
-      presence: { ...snapshot().presence, revision: 3 },
-    });
+    heartbeat.mockResolvedValue(
+      proHeartbeat({
+        ...snapshot(),
+        revision: 3,
+        queueModeRevision: 2,
+        presence: { ...snapshot().presence, revision: 3 },
+      }),
+    );
     acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
     await vi.waitFor(() => expect(resolveRead).toBeTypeOf('function'));
     setState('playlist.isShuffle', false);
@@ -1712,9 +1729,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       },
     });
     heartbeat
-      .mockResolvedValueOnce(invalidatedSnapshot(2, 1))
-      .mockResolvedValueOnce(invalidatedSnapshot(3, 2))
-      .mockResolvedValue(invalidatedSnapshot(4, 2));
+      .mockResolvedValueOnce(proHeartbeat(invalidatedSnapshot(2, 1)))
+      .mockResolvedValueOnce(proHeartbeat(invalidatedSnapshot(3, 2)))
+      .mockResolvedValue(proHeartbeat(invalidatedSnapshot(4, 2)));
 
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
@@ -1782,12 +1799,14 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       masterVolume: 1,
       effects,
     });
-    heartbeat.mockResolvedValueOnce({
-      ...snapshot(),
-      revision: 2,
-      effectsRevision: 1,
-      presence: { ...snapshot().presence, revision: 2 },
-    });
+    heartbeat.mockResolvedValueOnce(
+      proHeartbeat({
+        ...snapshot(),
+        revision: 2,
+        effectsRevision: 1,
+        presence: { ...snapshot().presence, revision: 2 },
+      }),
+    );
 
     expect(getState('audio.exciter')).toBe(false);
     acceptProRoomRealtimeFrameForTests(
@@ -1836,7 +1855,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
     const before = getSettingsSync.mock.calls.length;
     getSettingsSync.mockResolvedValue(canonicalSettings(revision, masterVolume, reverbMix));
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(settingsHead(revision));
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+      proHeartbeat(settingsHead(revision)),
+    );
     acceptProRoomRealtimeFrameForTests(
       serverFrame({
         type: 'pro-room-invalidated',
@@ -2023,7 +2044,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     requestProRoomLeave();
     await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
     vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(settingsHead(1));
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(settingsHead(1));
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+      proHeartbeat(settingsHead(1)),
+    );
     vi.mocked(ProRoomApiClient.prototype.getSettingsSync).mockResolvedValue(
       canonicalSettings(2, 0.35, 29),
     );
@@ -2039,7 +2062,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       .spyOn(ServerProRoomNetworkBridge.prototype, 'reconfigure')
       .mockResolvedValue(undefined);
     restoreSpies.push(reconfigure);
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(settingsHead(1));
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+      proHeartbeat(settingsHead(1)),
+    );
     vi.mocked(ProRoomApiClient.prototype.getSettingsSync).mockResolvedValue(
       canonicalSettings(2, 0.35, 29),
     );
@@ -2096,7 +2121,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           resolveRead = resolve;
         }),
     );
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(settingsHead(1));
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+      proHeartbeat(settingsHead(1)),
+    );
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
     );
@@ -2129,7 +2156,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           resolveRead = resolve;
         }),
     );
-    heartbeat.mockResolvedValue(settingsHead(1));
+    heartbeat.mockResolvedValue(proHeartbeat(settingsHead(1)));
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
     );
@@ -2140,7 +2167,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     await refreshUnchangedSettingsHead();
 
     getSettingsSync.mockResolvedValue(canonicalSettings(2, 0.6, 29));
-    heartbeat.mockResolvedValue(settingsHead(2));
+    heartbeat.mockResolvedValue(proHeartbeat(settingsHead(2)));
     const heartbeatsBefore = heartbeat.mock.calls.length;
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-room-invalidated', roomRevision: 3, effectsRevision: 2 }),
@@ -2255,7 +2282,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       heartbeat.mockImplementationOnce(
         () =>
           new Promise((resolve, reject) => {
-            resolveHeartbeat = resolve;
+            resolveHeartbeat = (snapshot) => resolve(proHeartbeat(snapshot));
             rejectHeartbeat = reject;
           }),
       );
@@ -2318,7 +2345,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
       const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
       const heartbeatCalls = heartbeat.mock.calls.length;
-      heartbeat.mockResolvedValueOnce(settingsHead(1));
+      heartbeat.mockResolvedValueOnce(proHeartbeat(settingsHead(1)));
       acceptProRoomRealtimeFrameForTests(
         serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
       );
@@ -2368,7 +2395,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
             rejectGet = reject;
           }),
       );
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce(settingsHead(1));
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce(
+        proHeartbeat(settingsHead(1)),
+      );
       acceptProRoomRealtimeFrameForTests(
         serverFrame({ type: 'pro-room-invalidated', roomRevision: 2, effectsRevision: 1 }),
       );
@@ -2494,9 +2523,9 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       presence: { ...snapshot().presence, revision },
     });
     heartbeat
-      .mockResolvedValueOnce(invalidatedSnapshot(2))
-      .mockResolvedValueOnce(invalidatedSnapshot(3))
-      .mockResolvedValue(invalidatedSnapshot(4));
+      .mockResolvedValueOnce(proHeartbeat(invalidatedSnapshot(2)))
+      .mockResolvedValueOnce(proHeartbeat(invalidatedSnapshot(3)))
+      .mockResolvedValue(proHeartbeat(invalidatedSnapshot(4)));
 
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
@@ -2529,7 +2558,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     heartbeat.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
-          resolveHeartbeat = resolve;
+          resolveHeartbeat = (snapshot) => resolve(proHeartbeat(snapshot));
         }),
     );
     const event = {
@@ -2619,7 +2648,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           participants: [...snapshot().presence.participants, peerTwo],
         },
       };
-      heartbeat.mockResolvedValue(joined);
+      heartbeat.mockResolvedValue(proHeartbeat(joined));
       acceptProRoomRealtimeFrameForTests(
         serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
       );
@@ -2651,7 +2680,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           ],
         },
       };
-      heartbeat.mockResolvedValue(renamed);
+      heartbeat.mockResolvedValue(proHeartbeat(renamed));
       acceptProRoomRealtimeFrameForTests(
         serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
       );
@@ -2674,7 +2703,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           participants: [renamed.presence.participants[0]],
         },
       };
-      heartbeat.mockResolvedValue(departed);
+      heartbeat.mockResolvedValue(proHeartbeat(departed));
       acceptProRoomRealtimeFrameForTests(
         serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
       );
@@ -3196,10 +3225,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     heartbeat.mockClear();
-    heartbeat.mockResolvedValueOnce({
-      ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
-      revision: 2,
-    });
+    heartbeat.mockResolvedValueOnce(
+      proHeartbeat({
+        ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
+        revision: 2,
+      }),
+    );
     const loading: boolean[] = [];
     const off = bus.on('pro-playback:transition-loading', (value) => loading.push(value));
     try {
@@ -3237,10 +3268,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     heartbeat.mockClear();
-    heartbeat.mockResolvedValueOnce({
-      ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: 10_000 })),
-      revision: 2,
-    });
+    heartbeat.mockResolvedValueOnce(
+      proHeartbeat({
+        ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: 10_000 })),
+        revision: 2,
+      }),
+    );
     waitForClock.mockClear();
     const serverNow = vi
       .spyOn(ServerProRoomNetworkBridge.prototype, 'serverNowMs', 'get')
@@ -3277,10 +3310,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         .spyOn(ServerProRoomNetworkBridge.prototype, 'serverNowMs', 'get')
         .mockImplementation(() => localNowMs - 8_988_000);
       restoreSpies.push(serverNow, localNow);
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce({
-        ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: 10_000 })),
-        revision: 2,
-      });
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce(
+        proHeartbeat({
+          ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: 10_000 })),
+          revision: 2,
+        }),
+      );
       prepareMedia.mockClear();
       commitMedia.mockClear();
       cancelMedia.mockClear();
@@ -3315,10 +3350,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         serverFrame(commitEvent(null, 1) as unknown as Record<string, unknown>),
       );
       await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce({
-        ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
-        revision: 2,
-      });
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce(
+        proHeartbeat({
+          ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
+          revision: 2,
+        }),
+      );
       prepareMedia.mockClear();
       commitMedia.mockClear();
       prepareMedia.mockImplementationOnce(async (request) => ({
@@ -3361,10 +3398,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     );
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
 
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce({
-      ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
-      revision: 2,
-    });
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce(
+      proHeartbeat({
+        ...snapshot(playback(1, { positionSeconds: 23, updatedAtMs: Date.now() })),
+        revision: 2,
+      }),
+    );
     let resolveLocal!: (result: ProPlaybackPrepareResult) => void;
     prepareMedia.mockImplementationOnce(
       (_request) =>
@@ -3408,10 +3447,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     );
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
 
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce({
-      ...snapshot(paused),
-      revision: 2,
-    });
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValueOnce(
+      proHeartbeat({
+        ...snapshot(paused),
+        revision: 2,
+      }),
+    );
     waitForClock.mockClear();
 
     await expect(requestActiveProRoomPlaybackReconciliation()).resolves.toBe(true);
@@ -3430,7 +3471,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       playback(1, { positionSeconds: 18, updatedAtMs: Date.now(), state: 'playing' }),
     );
     vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValueOnce(resumed);
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(resumed);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(resumed));
     setDocumentVisibility('hidden', false);
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
@@ -3456,7 +3497,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       >),
     );
     await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     commitMedia.mockClear();
     const loading: boolean[] = [];
     const duringPrepare: boolean[][] = [];
@@ -3499,13 +3540,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     commitMedia.mockClear();
     let resolveVisibilityHeartbeat!: (value: ProRoomSnapshot) => void;
     heartbeat
-      .mockImplementationOnce(
-        () =>
-          new Promise<ProRoomSnapshot>((resolve) => {
-            resolveVisibilityHeartbeat = resolve;
-          }),
+      .mockImplementationOnce(() =>
+        new Promise<ProRoomSnapshot>((resolve) => {
+          resolveVisibilityHeartbeat = resolve;
+        }).then(proHeartbeat),
       )
-      .mockResolvedValue(current);
+      .mockResolvedValue(proHeartbeat(current));
 
     setDocumentVisibility('hidden');
     setDocumentVisibility('visible');
@@ -3562,7 +3602,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
     it('does not re-apply a YouTube checkpoint the visibility pass already re-applied', async () => {
       const current = await establishCurrentPlayingCheckpoint();
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
 
       setDocumentVisibility('hidden');
       setDocumentVisibility('visible');
@@ -3591,13 +3631,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
       let resolveVisibilityHeartbeat!: (value: ProRoomSnapshot) => void;
       heartbeat
-        .mockImplementationOnce(
-          () =>
-            new Promise<ProRoomSnapshot>((resolve) => {
-              resolveVisibilityHeartbeat = resolve;
-            }),
+        .mockImplementationOnce(() =>
+          new Promise<ProRoomSnapshot>((resolve) => {
+            resolveVisibilityHeartbeat = resolve;
+          }).then(proHeartbeat),
         )
-        .mockResolvedValue(current);
+        .mockResolvedValue(proHeartbeat(current));
 
       setDocumentVisibility('hidden');
       setDocumentVisibility('visible');
@@ -3620,7 +3659,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       async (state) => {
         await establishCurrentPlayingCheckpoint();
         const current = fileSnapshot(state);
-        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
         prepareMedia.mockImplementation(async (request) => ({
           status: 'ready',
           authority: request.authority,
@@ -3655,13 +3694,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     let resolveAHeartbeat!: (value: ProRoomSnapshot) => void;
     heartbeat
-      .mockImplementationOnce(
-        () =>
-          new Promise<ProRoomSnapshot>((resolve) => {
-            resolveAHeartbeat = resolve;
-          }),
+      .mockImplementationOnce(() =>
+        new Promise<ProRoomSnapshot>((resolve) => {
+          resolveAHeartbeat = resolve;
+        }).then(proHeartbeat),
       )
-      .mockResolvedValue(current);
+      .mockResolvedValue(proHeartbeat(current));
     const ownerA = createReconciliationLiveness();
     const ownerB = createReconciliationLiveness();
 
@@ -3690,13 +3728,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     let rejectAHeartbeat!: (reason: unknown) => void;
     heartbeat
-      .mockImplementationOnce(
-        () =>
-          new Promise<ProRoomSnapshot>((_resolve, reject) => {
-            rejectAHeartbeat = reject;
-          }),
+      .mockImplementationOnce(() =>
+        new Promise<ProRoomSnapshot>((_resolve, reject) => {
+          rejectAHeartbeat = reject;
+        }).then(proHeartbeat),
       )
-      .mockResolvedValue(current);
+      .mockResolvedValue(proHeartbeat(current));
     const ownerA = createReconciliationLiveness();
     const ownerB = createReconciliationLiveness();
 
@@ -3721,7 +3758,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('drops A after a late clock calibration and runs B from a fresh heartbeat', async () => {
     const current = await establishCurrentPlayingCheckpoint();
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     let resolveAClock!: (value: boolean) => void;
     waitForClock
       .mockImplementationOnce(
@@ -3756,7 +3793,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('returns false without preparing when the current clock wait reports unavailable', async () => {
     const current = await establishCurrentPlayingCheckpoint();
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     waitForClock.mockResolvedValueOnce(false);
     const owner = createReconciliationLiveness();
 
@@ -3773,7 +3810,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('runs B after a rejected A clock wait', async () => {
     const current = await establishCurrentPlayingCheckpoint();
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     let rejectAClock!: (reason: unknown) => void;
     waitForClock
       .mockImplementationOnce(
@@ -3855,13 +3892,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     let resolveHeartbeat!: (value: ProRoomSnapshot) => void;
     heartbeat.mockClear();
-    heartbeat.mockImplementationOnce(
-      () =>
-        new Promise<ProRoomSnapshot>((resolve) => {
-          resolveHeartbeat = resolve;
-        }),
+    heartbeat.mockImplementationOnce(() =>
+      new Promise<ProRoomSnapshot>((resolve) => {
+        resolveHeartbeat = resolve;
+      }).then(proHeartbeat),
     );
-    heartbeat.mockResolvedValue(newer);
+    heartbeat.mockResolvedValue(proHeartbeat(newer));
     prepareMedia.mockClear();
     commitMedia.mockClear();
     cancelMedia.mockClear();
@@ -3908,13 +3944,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     let resolveHeartbeat!: (value: ProRoomSnapshot) => void;
     let resolveAPrepare!: (value: ProPlaybackPrepareResult) => void;
     heartbeat.mockClear();
-    heartbeat.mockImplementationOnce(
-      () =>
-        new Promise<ProRoomSnapshot>((resolve) => {
-          resolveHeartbeat = resolve;
-        }),
+    heartbeat.mockImplementationOnce(() =>
+      new Promise<ProRoomSnapshot>((resolve) => {
+        resolveHeartbeat = resolve;
+      }).then(proHeartbeat),
     );
-    heartbeat.mockResolvedValue(newer);
+    heartbeat.mockResolvedValue(proHeartbeat(newer));
     prepareMedia.mockClear();
     commitMedia.mockClear();
     cancelMedia.mockClear();
@@ -3960,7 +3995,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('drops A after late preparation resolves and gives B its own rendezvous', async () => {
     const current = await establishCurrentPlayingCheckpoint();
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     let resolveAPrepare!: (value: ProPlaybackPrepareResult) => void;
     prepareMedia.mockImplementationOnce(
       () =>
@@ -4001,7 +4036,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('returns false and releases preparation when the current endpoint is not ready', async () => {
     const current = await establishCurrentPlayingCheckpoint();
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     prepareResult = 'failed';
     const owner = createReconciliationLiveness();
 
@@ -4019,7 +4054,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('releases rejected A preparation and runs B instead of inheriting the failed owner', async () => {
     const current = await establishCurrentPlayingCheckpoint();
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     let rejectAPrepare!: (reason: unknown) => void;
     prepareMedia.mockImplementationOnce(
       () =>
@@ -4052,7 +4087,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('checks exact ownership after commit resolves before starting B', async () => {
     const current = await establishCurrentPlayingCheckpoint();
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     let resolveACommit!: (value: ProPlaybackCommitResult) => void;
     commitMedia.mockImplementationOnce(
       () =>
@@ -4085,7 +4120,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
   it('releases rejected A commit ownership before B prepares', async () => {
     const current = await establishCurrentPlayingCheckpoint();
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(current));
     let rejectACommit!: (reason: unknown) => void;
     commitMedia.mockImplementationOnce(
       () =>
@@ -4124,10 +4159,12 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
 
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     heartbeat.mockClear();
-    heartbeat.mockRejectedValueOnce(new ProRoomApiError('NETWORK_ERROR')).mockResolvedValue({
-      ...snapshot(playback(1, { updatedAtMs: Date.now() })),
-      revision: 2,
-    });
+    heartbeat.mockRejectedValueOnce(new ProRoomApiError('NETWORK_ERROR')).mockResolvedValue(
+      proHeartbeat({
+        ...snapshot(playback(1, { updatedAtMs: Date.now() })),
+        revision: 2,
+      }),
+    );
     setDocumentVisibility('hidden');
     setDocumentVisibility('visible');
 
@@ -4499,7 +4536,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       );
       await vi.waitFor(() => expect(finishBody).toBeDefined());
       const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
-      heartbeat.mockResolvedValue(superseded ? latest : granted);
+      heartbeat.mockResolvedValue(proHeartbeat(superseded ? latest : granted));
       if (superseded) {
         acceptProRoomRealtimeFrameForTests(
           serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 3 }),
@@ -4556,7 +4593,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         capabilities: [],
         joinedAtMs: 2,
       });
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(withTarget);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(withTarget));
       acceptProRoomRealtimeFrameForTests(
         serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
       );
@@ -4628,7 +4665,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       );
       await vi.waitFor(() => expect(finishBody).toBeDefined());
       vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
-        superseded ? latest : kicked,
+        proHeartbeat(superseded ? latest : kicked),
       );
       if (superseded) {
         acceptProRoomRealtimeFrameForTests(
@@ -4666,7 +4703,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
       inheritedPermissions: [],
     };
     beforeRevoke.administrators.push(target);
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(beforeRevoke);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(beforeRevoke));
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
     );
@@ -4715,7 +4752,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
     regranted.revision = 4;
     regranted.presence.revision = 4;
     regranted.administrators[1]!.permissions['media.add'] = false;
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(regranted);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(regranted));
     acceptProRoomRealtimeFrameForTests(
       serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 4 }),
     );
@@ -4771,8 +4808,13 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
           });
         if (path.endsWith('/presence/heartbeat')) {
           heartbeatRequests++;
-          if (heartbeatRequests > 1) return Response.json({ snapshot: granted });
-          const encoded = JSON.stringify({ snapshot: oldSnapshot });
+          if (heartbeatRequests > 1) {
+            return Response.json({ snapshot: granted, systemAudio: idleProSystemAudio() });
+          }
+          const encoded = JSON.stringify({
+            snapshot: oldSnapshot,
+            systemAudio: idleProSystemAudio(),
+          });
           return new Response(
             new ReadableStream<Uint8Array>({
               start(body) {
@@ -4927,7 +4969,7 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
         joinedAtMs: 2,
       });
       const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
-      heartbeat.mockResolvedValue(withTarget);
+      heartbeat.mockResolvedValue(proHeartbeat(withTarget));
       acceptProRoomRealtimeFrameForTests(
         serverFrame({ type: 'pro-presence-snapshot', presenceRevision: 2 }),
       );
@@ -4950,7 +4992,10 @@ describe('coordinator-free PRO playback runtime', { concurrent: false }, () => {
               session: { expiresAtMs: Date.now() + 60_000 },
             });
           if (path.endsWith('/presence/heartbeat')) {
-            const encoded = JSON.stringify({ snapshot: oldHeartbeat });
+            const encoded = JSON.stringify({
+              snapshot: oldHeartbeat,
+              systemAudio: idleProSystemAudio(),
+            });
             return new Response(
               new ReadableStream<Uint8Array>({
                 start(body) {

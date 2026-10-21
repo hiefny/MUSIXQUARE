@@ -1,4 +1,4 @@
-import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { expect, test, type Frame, type FrameLocator, type Page } from '@playwright/test';
 import { fileURLToPath } from 'node:url';
 import {
   cleanupContexts,
@@ -187,6 +187,73 @@ async function visibleForegroundSources(child: FrameLocator, canvasId: string): 
     }
     return nonempty;
   });
+}
+
+function screensaverFrame(page: Page): Frame {
+  const frame = page
+    .frames()
+    .find((candidate) => new URL(candidate.url()).pathname === '/screensaver.html');
+  if (!frame) throw new Error('The screensaver frame is not attached');
+  return frame;
+}
+
+interface ClockProbeFrame {
+  minute: number;
+  second: number;
+  passes: number;
+}
+type ClockProbeWindow = Window & { __clockFrames: ClockProbeFrame[] };
+
+/**
+ * Starts the screensaver's clock at `second` past a minute, and records for every animation
+ * frame its clock time and how many canvas shadow blurs it drew. Each Gaussian pass of a clock
+ * tile is one: a digit takes ten and the colon two, so a whole scene takes 42.
+ */
+async function probeScreensaverClock(page: Page, second: number): Promise<void> {
+  await page.addInitScript((second) => {
+    if (location.pathname !== '/screensaver.html') return;
+    const RealDate = Date;
+    const start = new RealDate();
+    start.setSeconds(second, 0);
+    const shift = start.getTime() - RealDate.now();
+    // The screensaver only ever asks for the current time.
+    window.Date = class extends RealDate {
+      constructor() {
+        super(RealDate.now() + shift);
+      }
+      static now() {
+        return RealDate.now() + shift;
+      }
+    } as unknown as DateConstructor;
+    let passes = 0;
+    const drawImage = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function (
+      this: CanvasRenderingContext2D,
+      ...args: unknown[]
+    ) {
+      if (this.shadowBlur > 0) passes++;
+      Reflect.apply(drawImage, this, args);
+    } as CanvasRenderingContext2D['drawImage'];
+    const frames: ClockProbeFrame[] = [];
+    const requestFrame = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) =>
+      requestFrame((time) => {
+        const now = new Date();
+        passes = 0;
+        callback(time);
+        frames.push({ minute: now.getMinutes(), second: now.getSeconds(), passes });
+      });
+    Object.assign(window, { __clockFrames: frames });
+  }, second);
+}
+
+async function probedClockFrames(frame: Frame): Promise<ClockProbeFrame[]> {
+  return frame.evaluate(() => (window as unknown as ClockProbeWindow).__clockFrames.slice());
+}
+
+/** Frames that built a whole clock scene at once. */
+async function sceneBuilds(frame: Frame): Promise<number> {
+  return (await probedClockFrames(frame)).filter((entry) => entry.passes >= 40).length;
 }
 
 test('loads only on the local command and keeps connected file playback running', async ({
@@ -714,6 +781,178 @@ test('renders glow without Canvas filter and recreates bounded layers after page
   await expect.poll(() => visibleForegroundSources(child, 'opticalClockCanvas')).toBeGreaterThan(0);
   await page.keyboard.press('Escape');
   await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+});
+
+test('builds the next minute a tile at a time and rebuilds a resized clock once it settles', async ({
+  page,
+}) => {
+  await openHost(page);
+  await disableFullscreenForLayoutProbe(page);
+  await probeScreensaverClock(page, 48);
+  const child = await openScreensaver(page);
+  const frame = screensaverFrame(page);
+  await expect
+    .poll(
+      async () => {
+        const frames = await probedClockFrames(frame);
+        return frames.some((entry) => entry.minute !== frames[0]?.minute && entry.second >= 1);
+      },
+      { timeout: 25_000 },
+    )
+    .toBe(true);
+  const frames = await probedClockFrames(frame);
+  const change = frames.findIndex((entry) => entry.minute !== frames[0]!.minute);
+  const lastSeconds = frames.slice(1, change).filter((entry) => entry.second >= 54);
+  // Every tile of the next minute was built ahead of it, at most one tile per frame (plus a
+  // seconds repaint), and the frame of the change itself only repainted the seconds.
+  expect(lastSeconds.reduce((sum, entry) => sum + entry.passes, 0)).toBeGreaterThanOrEqual(42);
+  expect(
+    Math.max(...[...lastSeconds, ...frames.slice(change)].map((entry) => entry.passes)),
+  ).toBeLessThanOrEqual(11);
+  expect(frames[change]!.passes).toBeLessThanOrEqual(1);
+
+  // Toolbar-like resizing: the frame shrinks on twelve consecutive animation frames.
+  await frame.evaluate(() => {
+    (window as unknown as ClockProbeWindow).__clockFrames.length = 0;
+  });
+  await page.evaluate(async () => {
+    const iframe = document.querySelector<HTMLIFrameElement>('#screensaver-overlay iframe')!;
+    for (let step = 1; step <= 12; step++) {
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      iframe.style.height = `calc(100% - ${step * 6}px)`;
+    }
+  });
+  await expect.poll(() => sceneBuilds(frame)).toBeGreaterThan(0);
+  await page.waitForTimeout(400);
+  // The tiles wait for the size to hold instead of being rebuilt on every frame of it.
+  expect(await sceneBuilds(frame)).toBeLessThanOrEqual(2);
+  const layers = () =>
+    child.locator('[data-compat-compositor="opticalClockCanvas"] > div').evaluateAll((nodes) =>
+      nodes
+        .map((node) => (node as HTMLElement).style)
+        .filter((style) => style.display !== 'none')
+        .map(({ zIndex, width, height, transform }) => ({
+          zIndex: Number(zIndex),
+          width,
+          height,
+          transform,
+        }))
+        .sort((a, b) => a.zIndex - b.zIndex),
+    );
+  const settled = await layers();
+  expect(settled.length).toBeGreaterThanOrEqual(10);
+  // After settling, the clock matches a fresh build at the final size (as a font load forces).
+  const builds = await sceneBuilds(frame);
+  await frame.evaluate(() => document.fonts.dispatchEvent(new Event('loadingdone')));
+  await expect.poll(() => sceneBuilds(frame)).toBe(builds + 1);
+  await expect.poll(layers).toEqual(settled);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+});
+
+test('holds the particles still with reduced motion and lets them drift again without it', async ({
+  page,
+}) => {
+  await openHost(page);
+  await disableFullscreenForLayoutProbe(page);
+  await probeScreensaverClock(page, 5);
+  const child = await openScreensaver(page);
+  const frame = screensaverFrame(page);
+  await expect.poll(() => visibleForegroundSources(child, 'opticalClockCanvas')).toBeGreaterThan(0);
+  const particles = () =>
+    frame.evaluate(() =>
+      document.querySelector<HTMLCanvasElement>('#speckleFieldCanvas')!.toDataURL(),
+    );
+  const clockLabel = () => child.locator('#opticalClockCanvas').getAttribute('aria-label');
+  const drifting = await particles();
+  await expect.poll(particles).not.toBe(drifting);
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForTimeout(200);
+  const still = await particles();
+  const time = await clockLabel();
+  // The clock keeps counting while the particles neither drift nor twinkle.
+  await expect.poll(clockLabel).not.toBe(time);
+  expect(await particles()).toBe(still);
+
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await expect.poll(particles).not.toBe(still);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+});
+
+test('drifts the particles as far in a second at 120 frames per second as at 60', async ({
+  page,
+}) => {
+  await openHost(page);
+  await disableFullscreenForLayoutProbe(page);
+  await page.addInitScript(() => {
+    if (location.pathname !== '/screensaver.html') return;
+    // The same particles on every opening, a clock that stands still, and frames the test runs.
+    let seed = 0x2f6b3a1d;
+    Math.random = () => {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let value = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    };
+    const RealDate = Date;
+    const fixed = new RealDate(2026, 9, 22, 12, 34, 20).getTime();
+    window.Date = class extends RealDate {
+      constructor() {
+        super(fixed);
+      }
+      static now() {
+        return fixed;
+      }
+    } as unknown as DateConstructor;
+    let callbacks: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = (callback) => callbacks.push(callback);
+    window.cancelAnimationFrame = () => {};
+    Object.assign(window, {
+      __framesQueued: () => callbacks.length,
+      __runFrames(count: number, interval: number) {
+        for (let index = 0; index <= count; index++) {
+          const due = callbacks;
+          callbacks = [];
+          for (const callback of due) callback(1_000 + index * interval);
+        }
+      },
+    });
+  });
+  type FrameDriverWindow = Window & {
+    __framesQueued(): number;
+    __runFrames(count: number, interval: number): void;
+  };
+  const fieldAfterOneSecond = async (fps: number) => {
+    const frame = screensaverFrame(page);
+    await expect
+      .poll(() => frame.evaluate(() => (window as unknown as FrameDriverWindow).__framesQueued()))
+      .toBeGreaterThan(0);
+    const lit = await frame.evaluate((fps) => {
+      (window as unknown as FrameDriverWindow).__runFrames(fps, 1000 / fps);
+      const canvas = document.querySelector<HTMLCanvasElement>('#speckleFieldCanvas')!;
+      const { data } = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height);
+      const pixels: number[] = [];
+      for (let index = 3; index < data.length; index += 4)
+        if (data[index]) pixels.push(index, data[index]);
+      return pixels;
+    }, fps);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#screensaver-overlay')).toHaveCount(0);
+    const field = new Map<number, number>();
+    for (let index = 0; index < lit.length; index += 2) field.set(lit[index]!, lit[index + 1]!);
+    return field;
+  };
+  await openScreensaver(page);
+  const at60 = await fieldAfterOneSecond(60);
+  await openScreensaverFromBus(page);
+  const at120 = await fieldAfterOneSecond(120);
+  const pixels = new Set([...at60.keys(), ...at120.keys()]);
+  const differing = [...pixels].filter((pixel) => at60.get(pixel) !== at120.get(pixel)).length;
+  expect(at60.size).toBeGreaterThan(200);
+  // Frame-counted motion would move every particle twice as far at 120 fps.
+  expect(differing / pixels.size).toBeLessThan(0.1);
 });
 
 test('opens from the Help tab and shows only the clock without asking for location', async ({

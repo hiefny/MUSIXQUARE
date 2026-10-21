@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PcmChunk, PcmIterator } from '../bounded-playback.ts';
+import { clearAllManagedTimers } from '../../../core/timers.ts';
+import { BoundedPlayback, type PcmChunk, type PcmIterator } from '../bounded-playback.ts';
+import { BoundedAudioTrack, PRIME_SECONDS } from '../bounded-track.ts';
 import { guardPcmChunkBoundaries } from '../pcm-chunk-guards.ts';
 
 class TestAudioBuffer {
@@ -43,6 +45,29 @@ function chunk(timestamp: number, channels: number[][], sampleRate = 48_000): Pc
 
 async function* chunks(values: PcmChunk[]): PcmIterator {
   yield* values;
+}
+
+// At 48 Hz a merged quarter second is 12 frames and half a second is 24.
+const RATE = 48;
+
+/** Contiguous chunks whose samples count frames from one, negated on a second channel. */
+function counted(sizes: number[], numberOfChannels = 1): PcmChunk[] {
+  let frame = 0;
+  return sizes.map((size) => {
+    const values = Array.from({ length: size }, (_, index) => frame + index + 1);
+    const channels = [values, values.map((value) => -value)].slice(0, numberOfChannels);
+    const value = chunk(frame / RATE, channels, RATE);
+    frame += size;
+    return value;
+  });
+}
+
+function range(first: number, last: number): number[] {
+  return Array.from({ length: last - first + 1 }, (_, index) => first + index);
+}
+
+function samples(value: PcmChunk, channel = 0): number[] {
+  return Array.from(value.buffer.getChannelData(channel));
 }
 
 beforeEach(() => vi.stubGlobal('AudioBuffer', TestAudioBuffer));
@@ -270,5 +295,315 @@ describe('bounded PCM interpolation guards', () => {
     await expect(reader.next()).rejects.toThrow('next frame corrupted');
     expect(closed).toHaveBeenCalledOnce();
     expect((await reader.next()).done).toBe(true);
+  });
+});
+
+describe('merged bounded PCM', () => {
+  it('joins contiguous chunks from mergeFrom into quarter-second buffers guarded by the next chunk', async () => {
+    const originals = counted([4, 4, 4, 4, 4, 4, 4], 2);
+    let reads = 0;
+    const raw = (async function* (): PcmIterator {
+      for (const value of originals) {
+        reads++;
+        yield value;
+      }
+    })();
+    const reader = guardPcmChunkBoundaries(raw, Infinity, 0);
+    const first = (await reader.next()).value!;
+    // Three joined chunks, then the next one only for its first two samples.
+    expect(reads).toBe(4);
+    expect(first.timestamp).toBe(0);
+    expect(first.duration).toBe(originals[3].timestamp);
+    expect(first.buffer.duration).toBe(14 / RATE);
+    expect(samples(first)).toEqual(range(1, 14));
+    expect(samples(first, 1)).toEqual(range(1, 14).map((value) => -value));
+    const second = (await reader.next()).value!;
+    expect(second.timestamp).toBe(originals[3].timestamp);
+    expect(second.duration).toBe(originals[6].timestamp - originals[3].timestamp);
+    expect(samples(second)).toEqual(range(13, 26));
+    // End of stream flushes the remainder without waiting for a full buffer.
+    const last = (await reader.next()).value!;
+    expect(last.timestamp).toBe(originals[6].timestamp);
+    expect(last.duration).toBe(4 / RATE);
+    expect(samples(last)).toEqual([25, 26, 27, 28, 0, 0]);
+    expect((await reader.next()).done).toBe(true);
+    expect(samples(originals[0])).toEqual([1, 2, 3, 4]);
+  });
+
+  it('yields and reads chunks before mergeFrom exactly as an unmerged reader does', async () => {
+    const originals = counted(Array.from({ length: 10 }, () => 4));
+    const read = async (mergeFrom: number) => {
+      let reads = 0;
+      const raw = (async function* (): PcmIterator {
+        for (const value of originals) {
+          reads++;
+          yield value;
+        }
+      })();
+      const yields: Array<{
+        reads: number;
+        timestamp: number;
+        duration?: number;
+        samples: number[];
+      }> = [];
+      for await (const value of guardPcmChunkBoundaries(raw, Infinity, mergeFrom)) {
+        const { timestamp, duration } = value;
+        yields.push({ reads, timestamp, duration, samples: samples(value) });
+      }
+      return yields;
+    };
+    const unmerged = await read(Infinity);
+    const merged = await read(originals[2].timestamp);
+    expect(merged.slice(0, 2)).toEqual(unmerged.slice(0, 2));
+    expect(merged.slice(2).map((value) => value.samples)).toEqual([
+      range(9, 22),
+      range(21, 34),
+      [...range(33, 40), 0, 0],
+    ]);
+  });
+
+  it.each(['gap', 'rate', 'channels'] as const)(
+    'ends a merged buffer at a %s without guard samples across it',
+    async (kind) => {
+      const next =
+        kind === 'rate'
+          ? chunk(8 / RATE, [[9, 10, 11, 12]], 44)
+          : kind === 'channels'
+            ? chunk(
+                8 / RATE,
+                [
+                  [9, 10, 11, 12],
+                  [9, 10, 11, 12],
+                ],
+                RATE,
+              )
+            : chunk(1, [[9, 10, 11, 12]], RATE);
+      const reader = guardPcmChunkBoundaries(chunks([...counted([4, 4]), next]), Infinity, 0);
+      const first = (await reader.next()).value!;
+      expect(first.timestamp).toBe(0);
+      expect(first.duration).toBe(8 / RATE);
+      expect(samples(first)).toEqual([...range(1, 8), 0, 0]);
+      const second = (await reader.next()).value!;
+      expect(second.timestamp).toBe(next.timestamp);
+      expect(second.buffer.sampleRate).toBe(next.buffer.sampleRate);
+      expect(second.buffer.numberOfChannels).toBe(next.buffer.numberOfChannels);
+      expect(samples(second)).toEqual([9, 10, 11, 12, 0, 0]);
+      expect((await reader.next()).done).toBe(true);
+    },
+  );
+
+  it('does not let tolerated timestamp rounding accumulate inside a merged buffer', async () => {
+    // Every boundary is 0.9 microseconds late: tolerable against the previous
+    // chunk, but the second late chunk is 1.8 microseconds from the joined end.
+    const originals = counted([4, 4, 4, 4]).map((value, index) => ({
+      ...value,
+      timestamp: value.timestamp + index * 0.0000009,
+    }));
+    const reader = guardPcmChunkBoundaries(chunks(originals), Infinity, 0);
+    const first = (await reader.next()).value!;
+    expect(samples(first)).toEqual(range(1, 10));
+    expect(first.timestamp + first.duration!).toBe(originals[2].timestamp);
+    const second = (await reader.next()).value!;
+    expect(second.timestamp).toBe(originals[2].timestamp);
+    expect(samples(second)).toEqual([...range(9, 16), 0, 0]);
+    expect((await reader.next()).done).toBe(true);
+  });
+
+  it('caps merged buffers at half a second and at 1 MiB of PCM', async () => {
+    const [short, long] = counted([4, 22]);
+    const reader = guardPcmChunkBoundaries(chunks([short, long]), Infinity, 0);
+    const first = (await reader.next()).value!;
+    expect(samples(first)).toEqual(range(1, 6));
+    expect(first.duration).toBe(long.timestamp);
+    const second = (await reader.next()).value!;
+    expect(second.timestamp).toBe(long.timestamp);
+    expect(samples(second)).toEqual([...range(5, 26), 0, 0]);
+    expect((await reader.next()).done).toBe(true);
+    // 32 channels of float PCM reach 1 MiB at 8192 frames, before a quarter second.
+    const surround = Array.from({ length: 6 }, (_, index) => ({
+      timestamp: (index * 2048) / 48_000,
+      buffer: new AudioBuffer({ length: 2048, numberOfChannels: 32, sampleRate: 48_000 }),
+    }));
+    const wide = guardPcmChunkBoundaries(chunks(surround), Infinity, 0);
+    expect((await wide.next()).value!.buffer.length).toBe(4 * 2048 + 2);
+    expect((await wide.next()).value!.buffer.length).toBe(2 * 2048 + 2);
+    expect((await wide.next()).done).toBe(true);
+  });
+
+  it.each([
+    { end: 6, expectedReads: 2, tail: [0, 0] },
+    { end: 7, expectedReads: 3, tail: [9, 0] },
+    { end: 8, expectedReads: 3, tail: [9, 10] },
+  ])(
+    'flushes the buffer reaching audible frame $end without decoding past its guards',
+    async ({ end, expectedReads, tail }) => {
+      let reads = 0;
+      const raw = (async function* (): PcmIterator {
+        for (const value of counted([4, 4, 4])) {
+          reads++;
+          yield value;
+        }
+        reads++;
+        throw new Error('unneeded encoded tail must not be decoded');
+      })();
+      const reader = guardPcmChunkBoundaries(raw, end / RATE, 0);
+      try {
+        const last = (await reader.next()).value!;
+        expect(samples(last)).toEqual([...range(1, 8), ...tail]);
+        expect(last.duration).toBe(8 / RATE);
+        expect((await reader.next()).done).toBe(true);
+        expect(reads).toBe(expectedReads);
+      } finally {
+        await reader.return();
+      }
+    },
+  );
+
+  describe('scheduling', () => {
+    afterEach(() => {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    });
+
+    it.each([
+      { now: 0, startsAt: 2, sourceOffset: 0.05 },
+      { now: 2.1, startsAt: 2.1, sourceOffset: 0.15 },
+    ])(
+      'starts inside a merged buffer at $now on the original timeline and completes on time',
+      async ({ now, startsAt, sourceOffset }) => {
+        vi.useFakeTimers();
+        const sources: Array<{
+          buffer: AudioBuffer | null;
+          onended: (() => void) | null;
+          start: ReturnType<typeof vi.fn>;
+          stop: ReturnType<typeof vi.fn>;
+        }> = [];
+        const context = {
+          currentTime: now,
+          createBufferSource: () => {
+            const source = {
+              buffer: null,
+              onended: null,
+              start: vi.fn(),
+              stop: vi.fn(),
+              connect: vi.fn(),
+              disconnect: vi.fn(),
+            };
+            sources.push(source);
+            return source;
+          },
+        };
+        const onended = vi.fn();
+        const playback = new BoundedPlayback({
+          context: context as unknown as AudioContext,
+          destination: {} as AudioNode,
+          when: 2,
+          offset: 0.3,
+          duration: 1,
+          iterator: guardPcmChunkBoundaries(
+            chunks(counted(Array.from({ length: 12 }, () => 4))),
+            1,
+            0,
+          ),
+          firstChunk: null,
+          onended,
+          onerror: vi.fn(),
+          onreleased: vi.fn(),
+        });
+        try {
+          await vi.advanceTimersByTimeAsync(1);
+          // The first quarter second ends before the offset and is never scheduled.
+          expect(sources.map((source) => source.buffer!.length)).toEqual([14, 14, 14]);
+          const [at, offset] = sources[0].start.mock.calls[0] as [number, number];
+          expect(at).toBeCloseTo(startsAt, 12);
+          expect(offset).toBeCloseTo(sourceOffset, 12);
+          // Each merged source stops at the sample-clock time the next one starts.
+          expect(sources[1].start).toHaveBeenCalledWith(sources[0].stop.mock.calls[0][0], 0);
+          expect(sources[2].start).toHaveBeenCalledWith(sources[1].stop.mock.calls[0][0], 0);
+          expect(sources[0].stop.mock.calls[0][0]).toBeCloseTo(2.2, 12);
+          expect(sources[2].stop).toHaveBeenCalledWith(2 + 1 - 0.3);
+          context.currentTime = 2 + 1 - 0.3;
+          for (const source of sources) source.onended?.();
+          await vi.advanceTimersByTimeAsync(100);
+          expect(onended).toHaveBeenCalledOnce();
+          expect(playback.ended).toBe(true);
+        } finally {
+          playback.stop();
+        }
+      },
+    );
+
+    it('prepares from the same codec frames and schedules far fewer sources across the lookahead', async () => {
+      vi.useFakeTimers();
+      const frame = 1152 / 48_000;
+      const play = async (merge: boolean) => {
+        let reads = 0;
+        const track = new BoundedAudioTrack(
+          600,
+          48_000,
+          2,
+          (position) => {
+            const raw = (async function* (): PcmIterator {
+              // MP3 decodes half a second of seek preroll before the position.
+              for (let index = Math.floor((position - 0.5) / frame); ; index++) {
+                reads++;
+                yield {
+                  timestamp: index * frame,
+                  buffer: new AudioBuffer({
+                    length: 1152,
+                    numberOfChannels: 2,
+                    sampleRate: 48_000,
+                  }),
+                };
+              }
+            })();
+            return guardPcmChunkBoundaries(raw, 600, merge ? position + PRIME_SECONDS : Infinity);
+          },
+          vi.fn(),
+        );
+        const scheduled: AudioBuffer[] = [];
+        try {
+          await track.prepare(100);
+          const prepareReads = reads;
+          const playback = track.createPlayback({
+            context: {
+              currentTime: 0,
+              createBufferSource() {
+                const source = {
+                  buffer: null as AudioBuffer | null,
+                  connect() {},
+                  disconnect() {},
+                  stop() {},
+                  start() {
+                    scheduled.push(source.buffer!);
+                  },
+                };
+                return source;
+              },
+            } as unknown as AudioContext,
+            destination: {} as AudioNode,
+            when: 0,
+            offset: 100,
+            onended: vi.fn(),
+            onerror: vi.fn(),
+          });
+          await vi.advanceTimersByTimeAsync(100);
+          playback.stop();
+          return { prepareReads, lengths: scheduled.map((buffer) => buffer.length) };
+        } finally {
+          track.dispose();
+        }
+      };
+      const unmerged = await play(false);
+      const merged = await play(true);
+      expect(merged.prepareReads).toBe(unmerged.prepareReads);
+      // 43 primed codec frames, then sources through the eight-second horizon:
+      // 292 more frames unmerged, or 27 merged runs of 11 frames (0.264 s).
+      expect(unmerged.lengths).toEqual(Array.from({ length: 335 }, () => 1154));
+      expect(merged.lengths).toEqual([
+        ...unmerged.lengths.slice(0, 43),
+        ...Array.from({ length: 27 }, () => 11 * 1152 + 2),
+      ]);
+    });
   });
 });

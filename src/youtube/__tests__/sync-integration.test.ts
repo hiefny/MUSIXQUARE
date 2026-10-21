@@ -37,6 +37,7 @@ import {
 import { setPlaybackIdle, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { makeFakeYtPlayer, type FakeYtPlayer, mutationOps } from './__helpers__/fake-yt-player.ts';
+import { MANUAL_RENDEZVOUS_RETRY_MS } from '../constants.ts';
 
 const QUEUE_ITEM_ID = '22222222-2222-4222-8222-222222222222';
 const SECOND_QUEUE_ITEM_ID = '33333333-3333-4333-8333-333333333333';
@@ -3268,6 +3269,41 @@ describe('YouTube Sync — Regression Integration', () => {
       },
     );
 
+    it('marks only the busy results that a newer host snapshot alone can clear', async () => {
+      const { guestRendezvousSync } = await importSync();
+      const snapshotBound = {
+        status: 'busy',
+        retryAfterMs: MANUAL_RENDEZVOUS_RETRY_MS,
+        awaitHostSnapshot: true,
+      };
+
+      // The host snapshot is CUED, then names another video than this iframe.
+      const player = seedPlayingSnapshot();
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        { time: 10, state: 5, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+        mockHostConn,
+      );
+      expect(guestRendezvousSync({ silent: true })).toEqual(snapshotBound);
+      capturedHandlers[MSG.YOUTUBE_SYNC](
+        { time: 10, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+        mockHostConn,
+      );
+      const readVideo = player.getVideoData;
+      player.getVideoData = () => ({ video_id: 'OTHER_VIDEO' });
+      expect(guestRendezvousSync({ silent: true })).toEqual(snapshotBound);
+      player.getVideoData = readVideo;
+
+      // Media-edge and in-progress waits keep their own retry timers.
+      seedPlayingSnapshot(299);
+      const nearEnd = guestRendezvousSync({ silent: true });
+      expect(nearEnd.status).toBe('busy');
+      expect(nearEnd.awaitHostSnapshot).toBeUndefined();
+      seedPlayingSnapshot();
+      expect(guestRendezvousSync({ silent: true }).status).toBe('started');
+      const inProgress = guestRendezvousSync({ silent: true });
+      expect(inProgress).toEqual({ status: 'busy', retryAfterMs: 250 });
+    });
+
     it('leaves near-end playback alone and gives the repeated seek its own final precision sync', () => {
       const player = seedPlayingSnapshot(299);
       capturedHandlers[MSG.YOUTUBE_SYNC](
@@ -4054,6 +4090,40 @@ describe('YouTube Sync — Regression Integration', () => {
         expect(mutationOps(guest)).toEqual(['stopVideo']);
       },
     );
+
+    it.each([
+      { hostState: 0, guestState: 0, stops: false },
+      { hostState: -1, guestState: 5, stops: false },
+      { hostState: 0, guestState: -1, stops: true },
+      { hostState: -1, guestState: 2, stops: true },
+    ])(
+      'stops a guest in state $guestState on terminal host heartbeat $hostState unless already stopped',
+      ({ hostState, guestState, stops }) => {
+        // UNSTARTED may be a load in flight that would autoplay; ENDED and CUED
+        // are already stopped, so repeating the call only churns the iframe.
+        const guest = installPlayer({ __state: guestState, __currentTime: 0 });
+        setState('network.hostConn', mockHostConn);
+        capturedHandlers[MSG.YOUTUBE_SYNC](
+          { time: 0, state: hostState, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+          mockHostConn,
+        );
+        expect(mutationOps(guest)).toEqual(stops ? ['stopVideo'] : []);
+      },
+    );
+
+    it('stops a playing guest once across repeated terminal host heartbeats', () => {
+      const guest = installPlayer({ __state: 1, __currentTime: 298 });
+      setState('network.hostConn', mockHostConn);
+      for (let heartbeat = 0; heartbeat < 3; heartbeat += 1) {
+        capturedHandlers[MSG.YOUTUBE_SYNC](
+          { time: 300, state: 0, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+          mockHostConn,
+        );
+      }
+      // The fake iframe settles ENDED after stopVideo(), one of the not-playing
+      // states a real iframe may report; later heartbeats leave it alone.
+      expect(mutationOps(guest)).toEqual(['stopVideo']);
+    });
 
     it.each(
       [MSG.YOUTUBE_STATE, MSG.YOUTUBE_SYNC].flatMap((type) =>

@@ -912,7 +912,7 @@ Also verify:
   path only with a valid PRO Worker-issued signed ticket offered after the
   stable `mxqr.pro-signaling.v1` WebSocket subprotocol marker;
 - `cloudflare/pro-system-audio-contract-version.txt` contains exactly
-  `single-stereo-v3`, and the PRO, signaling, and app runtime inventories all
+  `single-stereo-v3+heartbeat-state-v1`, and the PRO, signaling, and app runtime inventories all
   include that marker;
 - the `system-audio-signal` channel relays only exact, generation/publication/
   negotiation-fenced offer, answer, candidate, or close payloads to one current
@@ -996,8 +996,11 @@ mutating request. The App keeps maintenance refreshes off the public request
 path: a cold isolate may admit traffic before its first canonical snapshot, so
 the dashboard switch is not a strict global freeze.
 
-The current PRO system-audio contract marker is `single-stereo-v3`. Its
-single-original-track cutover, like the earlier direct-descriptor and
+The current PRO system-audio contract marker is `single-stereo-v3+heartbeat-state-v1`. Its
+`heartbeat-state-v1` part (9.0.0) carries the exact system-audio state on both
+PRO heartbeat reply envelopes and removes the client's periodic safety GET;
+clients before 9.0.0 reject the extra reply key and Workers before 9.0.0 omit
+it. That cutover, like the single-original-track, direct-descriptor and
 unmetered-direct cutovers, is a
 matched `all` release because the PRO authority, signaling relay, and app/client
 must agree on direct-expiry semantics and one-way promotion.
@@ -1182,11 +1185,13 @@ co-located announcement store instead of the dedicated instance. Use target
 `all` to repair forward when the release workflow reports that compatibility
 floor; do not improvise a partial rollback for that pair.
 
-`single-stereo-v3` is the current PRO system-audio rollback floor across
+`single-stereo-v3+heartbeat-state-v1` is the current PRO system-audio rollback floor across
 the App, PRO, and signaling Workers. After any component of the marker-changing
-release has become live, do not restore one of those three to a pre-v3
-system-audio contract: old clients publish or expect two channel tracks and old
-authorities accept the incompatible descriptor. Let the recovery workflow
+release has become live, do not restore one of those three to an earlier
+system-audio contract: pre-v3 clients publish or expect two channel tracks and
+old authorities accept the incompatible descriptor, while pre-9.0.0 clients
+reject heartbeat replies that carry the system-audio state and pre-9.0.0 PRO
+Workers omit it. Let the recovery workflow
 preserve all three and repair forward. Only an exact checkpoint proving that no
 cutover component became live may roll back below the marker. The earlier
 direct-descriptor, unmetered-direct, and same-ID promotion floors remain

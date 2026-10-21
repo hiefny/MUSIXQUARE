@@ -7,11 +7,15 @@ const HOST_INVITE_PLACEHOLDER_QR_ID = 'setup-host-qr-placeholder';
 const HOST_INVITE_QR_ID = 'setup-host-qr';
 const INVITE_CODE_RE = /^\d{6}$/;
 const HOST_INVITE_ROOT = 'MUSIXQUARE.COM';
+// The spinner's 0.18 s fade-out, plus a margin. Reduced motion turns the
+// transition off, so no transitionend arrives there.
+const HOST_INVITE_SPINNER_PAUSE_FALLBACK_MS = 250;
 
 const importQrEncoder = () => import('qrcode');
 
 let hostInviteRenderGeneration = 0;
 let qrEncoderLoad: ReturnType<typeof importQrEncoder> | null = null;
+let cancelHostInviteSpinnerPause: (() => void) | null = null;
 
 function hostInviteElements(): {
   stage: HTMLElement;
@@ -83,9 +87,36 @@ function mountQrSvg(container: HTMLElement, svgString: string): boolean {
   return true;
 }
 
+// Opacity and visibility hide the spinner but keep its rotation and its
+// main-thread dash animation running while the host waits. Pause both once
+// the fade-out ends. display:none would skip the fade-in and restart the loop.
+function pauseHostInviteSpinnerAfterHide(spinner: HTMLElement): () => void {
+  const pause = (): void => {
+    cancel();
+    spinner.classList.add('is-paused');
+  };
+  // Only the fade-out moves visibility; the fade-in shows it at once.
+  const onTransitionEnd = (event: TransitionEvent): void => {
+    if (event.target === spinner && event.propertyName === 'visibility') pause();
+  };
+  const timer = window.setTimeout(pause, HOST_INVITE_SPINNER_PAUSE_FALLBACK_MS);
+  const cancel = (): void => {
+    window.clearTimeout(timer);
+    spinner.removeEventListener('transitionend', onTransitionEnd);
+  };
+  spinner.addEventListener('transitionend', onTransitionEnd);
+  return cancel;
+}
+
 function setHostInviteLoading(elements: { stage: HTMLElement }, loading: boolean): void {
+  cancelHostInviteSpinnerPause?.();
+  cancelHostInviteSpinnerPause = null;
+  const spinner = elements.stage.querySelector<HTMLElement>('.setup-host-qr-loading-spinner');
+  // Resume in the same style change as the fade-in, from where the loop stopped.
+  if (loading) spinner?.classList.remove('is-paused');
   elements.stage.classList.toggle('is-room-qr-loading', loading);
   elements.stage.setAttribute('aria-busy', String(loading));
+  if (!loading && spinner) cancelHostInviteSpinnerPause = pauseHostInviteSpinnerAfterHide(spinner);
 }
 
 export function finishHostInviteLoading(): void {

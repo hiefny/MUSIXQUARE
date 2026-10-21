@@ -139,6 +139,8 @@ describe('host heartbeat monitor', () => {
   });
 
   it('starts from an already-started setup snapshot and stops when the session ends', async () => {
+    const conn = makeConnection('guest');
+    installPeers([makePeer(conn.peer, conn, Date.now())]);
     setState('setup.sessionStarted', true);
     const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
 
@@ -146,7 +148,63 @@ describe('host heartbeat monitor', () => {
 
     expect(getManagedTimer('heartbeat-monitor')).not.toBeNull();
 
-    bus.emit('state:setup.sessionStarted', false, 'setup.sessionStarted');
+    // Leaving clears every managed timer; the next tick also stops by itself.
+    setState('setup.sessionStarted', false);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(getManagedTimer('heartbeat-monitor')).toBeNull();
+    expect(mocks.detachHostPeerConnection).not.toHaveBeenCalled();
+  });
+
+  it('runs only while a guest is connected and re-arms for the first guest', async () => {
+    setState('setup.sessionStarted', true);
+    const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
+    initHeartbeatMonitor();
+    expect(getManagedTimer('heartbeat-monitor')).toBeNull();
+
+    const conn = makeConnection('guest');
+    const guest = makePeer(conn.peer, conn, Date.now(), { status: 'connecting' });
+    installPeers([guest]);
+    expect(getManagedTimer('heartbeat-monitor')).toBeNull();
+
+    installPeers([{ ...guest, status: 'connected' }]);
+    expect(getManagedTimer('heartbeat-monitor')).not.toBeNull();
+
+    installPeers([]);
+    expect(getManagedTimer('heartbeat-monitor')).toBeNull();
+  });
+
+  it('keeps its cadence while ping replies republish the peer list', async () => {
+    const conn = makeConnection('guest', { open: false });
+    const guest = makePeer(conn.peer, conn, Date.now() - 4_000);
+    installPeers([guest]);
+    setState('setup.sessionStarted', true);
+    const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
+    initHeartbeatMonitor();
+
+    for (let second = 0; second < 5; second += 1) {
+      await vi.advanceTimersByTimeAsync(1_000);
+      setState('network.connectedPeers', [{ ...guest }]);
+    }
+
+    expect(mocks.detachHostPeerConnection).toHaveBeenCalledWith(conn.peer, conn);
+  });
+
+  it('does not run in a PRO room, whose runtime keeps the peer list empty', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('setup.sessionStarted', true);
+    const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
+    initHeartbeatMonitor();
+    // The server-owned PRO directory is projected without transport peers.
+    setState('network.connectedPeers', []);
 
     expect(getManagedTimer('heartbeat-monitor')).toBeNull();
   });

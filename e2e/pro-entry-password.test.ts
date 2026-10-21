@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import {
+  heartbeatReply,
   ownerSnapshot,
   PRO_ROOM_CODE,
   PRO_SIGNALING_ORIGIN,
@@ -134,11 +135,8 @@ async function openRoom(
             : { existingParticipants: body.existingParticipants }),
         });
       }
-      if (
-        url.pathname.endsWith('/snapshot') ||
-        url.pathname.endsWith('/presence/heartbeat') ||
-        url.pathname.endsWith('/sessions/current/account')
-      )
+      if (url.pathname.endsWith('/presence/heartbeat')) return reply(heartbeatReply(snapshot));
+      if (url.pathname.endsWith('/snapshot') || url.pathname.endsWith('/sessions/current/account'))
         return reply({ snapshot });
       if (url.pathname.endsWith('/sessions/current/account/lease'))
         return reply({ leaseExpiresAtMs: Date.now() + 60_000 });

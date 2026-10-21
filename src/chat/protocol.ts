@@ -8,6 +8,7 @@
 
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import {
   MSG,
   PEER_NAME_PREFIX,
@@ -116,6 +117,8 @@ type BotChatRequest = {
 const BOT_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 const BOT_REQUEST_TTL_MS = 60_000;
 const BOT_REQUEST_MAX_ITEMS = 100;
+// Managed timers replace by name, so every pending request owns its own.
+const BOT_REQUEST_TIMER_PREFIX = 'chat-bot-request-ttl:';
 const _botChatRequests = new Map<string, BotChatRequest>();
 
 function getBotRoomId(): string | null {
@@ -157,8 +160,31 @@ function rememberBotChatRequest(
     state: 'pending',
     expiresAt: now + BOT_REQUEST_TTL_MS,
   });
+  setManagedTimer(
+    BOT_REQUEST_TIMER_PREFIX + requestId,
+    () => expireBotChatRequest(requestId),
+    BOT_REQUEST_TTL_MS,
+  );
   cleanupBotChatRequests(now);
   return true;
+}
+
+/**
+ * End a request that will get no result: its pending window ran out, or the
+ * requester's BOT session was superseded. Its typing bubble shows the failure
+ * without a render event, because every device expires the request on its
+ * own and would otherwise bump the chat preview and unread count each time.
+ */
+export function expireBotChatRequest(requestId: string): void {
+  clearManagedTimer(BOT_REQUEST_TIMER_PREFIX + requestId);
+  const request = _botChatRequests.get(requestId);
+  if (request?.state === 'complete') return;
+  // A late result for this request is dropped like any other replay.
+  if (request) {
+    request.state = 'complete';
+    request.expiresAt = Date.now() + BOT_REQUEST_TTL_MS;
+  }
+  upsertBotChatMessage(requestId, 'expired', t('chat.bot_failed'));
 }
 
 function normalizeBotChatResult(result: BotChatResult): BotChatResult | null {
@@ -215,6 +241,7 @@ function completeBotChatRequest(requestId: string, result: BotChatResult, roomId
   }
   request.state = 'complete';
   request.expiresAt = now + BOT_REQUEST_TTL_MS;
+  clearManagedTimer(BOT_REQUEST_TIMER_PREFIX + requestId);
   upsertBotChatMessage(requestId, 'complete', localizeBotChatResult(result));
   return true;
 }

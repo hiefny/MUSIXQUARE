@@ -23,6 +23,7 @@ import {
 import { ProRoomPlaybackController } from '../playback-controller.ts';
 import { joinProRoom } from '../runtime.ts';
 import { getProSystemAudioViewState, refreshProSystemAudioState } from '../system-audio-service.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM_CODE = '000001';
 const ROOM_EPOCH = 7;
@@ -164,7 +165,7 @@ describe('PRO join playback while a system-audio track is still arriving', () =>
     initialShare = deferred<ProRoomSystemAudioState>();
     const snapshot = roomSnapshot();
     vi.spyOn(ProRoomApiClient.prototype, 'createSession').mockResolvedValue(snapshot);
-    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(snapshot);
+    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(proHeartbeat(snapshot));
     vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockResolvedValue({
       ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
       expiresAtMs: Date.now() + 60_000,

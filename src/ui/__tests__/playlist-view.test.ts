@@ -144,6 +144,7 @@ it('renders and patches titles for each saved PRO manifest independently, includ
   );
   hydrateProRoomYouTubeManifests({ playlist } as ProRoomSnapshot);
   initPlaylistView();
+  await vi.dynamicImportSettled();
   updatePlaylistUI();
   for (let batch = 0; batch < 5; batch++) await nextAnimationFrame();
   for (const { queueItemId, ids } of manifests) {
@@ -222,6 +223,7 @@ describe('playlist empty state i18n', () => {
 
   it('refreshes playlist-rendered copy when the language changes', async () => {
     initPlaylistView();
+    await vi.dynamicImportSettled();
     updatePlaylistUI();
 
     setLanguageMode('en');
@@ -280,6 +282,7 @@ describe('playlist title marquee markup', () => {
       PL_TEST: { ids, titles: [] },
     });
     initPlaylistView();
+    await vi.dynamicImportSettled();
     await vi.waitFor(() => expect(playlistTitleMarqueeMocks.schedule).toHaveBeenCalled());
     playlistTitleMarqueeMocks.schedule.mockClear();
 
@@ -314,6 +317,7 @@ describe('PRO upload rows', () => {
     });
     setActiveProRoomUploadQueue(proRoomUploadQueue);
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac'), new File(['bb'], 'two.flac')]);
     await nextAnimationFrame();
@@ -449,6 +453,7 @@ describe('PRO upload rows', () => {
       });
       setActiveProRoomUploadQueue(proRoomUploadQueue);
       initPlaylistView();
+      await vi.dynamicImportSettled();
       proRoomUploadQueue.enqueueFiles([new File(['a'], 'continuous.flac')]);
       await nextAnimationFrame();
 
@@ -478,6 +483,7 @@ describe('PRO upload rows', () => {
     });
     setActiveProRoomUploadQueue(proRoomUploadQueue);
     initPlaylistView();
+    await vi.dynamicImportSettled();
     proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
     await proRoomUploadQueue.whenIdle();
     await nextAnimationFrame();
@@ -502,6 +508,7 @@ describe('PRO upload rows', () => {
     setActiveProRoomUploadQueue(proRoomUploadQueue);
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
     await nextAnimationFrame();
 
@@ -535,6 +542,7 @@ describe('PRO upload rows', () => {
     });
     setActiveProRoomUploadQueue(proRoomUploadQueue);
     initPlaylistView();
+    await vi.dynamicImportSettled();
     proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
     await proRoomUploadQueue.whenIdle();
     await nextAnimationFrame();
@@ -555,6 +563,7 @@ describe('PRO upload rows', () => {
     });
     setActiveProRoomUploadQueue(proRoomUploadQueue);
     initPlaylistView();
+    await vi.dynamicImportSettled();
     proRoomUploadQueue.enqueueFiles([new File(['a'], 'one.flac')]);
     await proRoomUploadQueue.whenIdle();
     await nextAnimationFrame();
@@ -605,6 +614,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('playback.mode', 'file');
     setState('playback.activity', 'paused');
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const list = document.getElementById('playlist-ui')!;
     const replaceChildren = vi.spyOn(list, 'replaceChildren');
     const currentLeading = list.querySelector<HTMLElement>('.playlist-current-leading')!;
@@ -654,6 +664,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('playback.mode', 'file');
     setState('playback.activity', 'paused');
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     const list = document.getElementById('playlist-ui')!;
     const replaceChildren = vi.spyOn(list, 'replaceChildren');
@@ -683,6 +694,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('playlist.currentQueueItemId', FILE_A);
     setState('playback.mode', 'file');
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     const spinner = document.querySelector<HTMLElement>(
       '.track-playback-loading-indicator.material-elastic-spinner',
@@ -842,6 +854,7 @@ describe('playlist queue identity rendering and actions', () => {
   it('uses a blue glyph-only hover for playlist disclosure while preserving its state', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     const expanded = document.querySelector<HTMLButtonElement>(
       `.expand-toggle[data-queue-item-id="${YT_B}"]`,
@@ -1116,6 +1129,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('room.context', context);
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const list = document.getElementById('playlist-ui')!;
     const replaceChildren = vi.spyOn(list, 'replaceChildren');
 
@@ -1149,6 +1163,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('room.context', context);
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     document.querySelector<HTMLButtonElement>('.btn-playlist-select')!.click();
     setState('room.context', { ...context, snapshotRevision: 2, capabilities: [] });
@@ -1183,6 +1198,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('room.context', context);
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     // The reorder controller loads after the list mounts.
     await vi.dynamicImportSettled();
 
@@ -1233,6 +1249,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('network.hostConn', { open: true, peer: 'host' } as DataConnection);
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
     expect(document.querySelectorAll('.btn-playlist-select')).toHaveLength(0);
@@ -1292,6 +1309,7 @@ describe('playlist queue identity rendering and actions', () => {
         PL_TEST: { ids: ['video-a'], titles: ['First'] },
       });
       initPlaylistView();
+      await vi.dynamicImportSettled();
 
       const play = vi.fn();
       const remove = vi.fn();
@@ -1329,9 +1347,10 @@ describe('playlist queue identity rendering and actions', () => {
     }
   });
 
-  it('puts a select minus after each title that enters edit mode for its own row', () => {
+  it('puts a select minus after each title that enters edit mode for its own row', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     const row = document.querySelector<HTMLElement>(`.track-item[data-queue-item-id="${FILE_A}"]`)!;
     const check = row.querySelector<HTMLButtonElement>('.btn-playlist-select')!;
@@ -1369,6 +1388,7 @@ describe('playlist queue identity rendering and actions', () => {
       })),
     );
     initPlaylistView();
+    await vi.dynamicImportSettled();
     for (const index of [0, 1, 3]) clickSelect(ids[index]!);
     const selectedEntries = () =>
       Array.from(
@@ -1425,6 +1445,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('playlist.items', items);
     setState('youtube.subItemsMap', { PL_TEST: { ids: ['video-a'], titles: ['First'] } });
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const list = document.getElementById('playlist-ui')!;
     const expansion = () =>
       Array.from(list.querySelectorAll<HTMLElement>('.expand-toggle'), (toggle) =>
@@ -1446,9 +1467,10 @@ describe('playlist queue identity rendering and actions', () => {
     expect(list.querySelectorAll('.sub-playlist')).toHaveLength(1);
   });
 
-  it('uses the row check circles as stable multi-selection toggles', () => {
+  it('uses the row check circles as stable multi-selection toggles', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     const buttons = Array.from(
       document.querySelectorAll<HTMLButtonElement>('.btn-playlist-select'),
@@ -1475,10 +1497,11 @@ describe('playlist queue identity rendering and actions', () => {
     expect(selectionTitle()).toBeNull();
   });
 
-  it('turns the header into the selected count with one select-all text toggle', () => {
+  it('turns the header into the selected count with one select-all text toggle', async () => {
     setLanguageMode('en');
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const header = document.querySelector<HTMLElement>('#tab-playlist .tab-header')!;
     const toggle = header.querySelector<HTMLButtonElement>('.playlist-selection-toggle')!;
     const live = header.querySelector<HTMLElement>('.playlist-selection-title')!;
@@ -1518,9 +1541,10 @@ describe('playlist queue identity rendering and actions', () => {
     expect(cancelButton.hidden).toBe(false);
   });
 
-  it('cancels selection with Escape and disables reorder controls only while active', () => {
+  it('cancels selection with Escape and disables reorder controls only while active', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const removeButton = document.querySelector<HTMLButtonElement>('.btn-playlist-select')!;
     const handles = Array.from(
       document.querySelectorAll<HTMLButtonElement>('.playlist-reorder-handle'),
@@ -1545,9 +1569,10 @@ describe('playlist queue identity rendering and actions', () => {
     expect(selectionBarVisible()).toBe(false);
   });
 
-  it('selects every live row, then ends deletion mode from Deselect all', () => {
+  it('selects every live row, then ends deletion mode from Deselect all', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const remove = vi.fn();
     bus.on('playlist:remove-tracks', remove);
 
@@ -1577,9 +1602,10 @@ describe('playlist queue identity rendering and actions', () => {
     ).toEqual(['false', 'false']);
   });
 
-  it('clears selection and closes the pills from the explicit cancel action', () => {
+  it('clears selection and closes the pills from the explicit cancel action', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const remove = vi.fn();
     bus.on('playlist:remove-tracks', remove);
 
@@ -1599,9 +1625,10 @@ describe('playlist queue identity rendering and actions', () => {
     ).toEqual(['false', 'false']);
   });
 
-  it('ends deletion mode on a tap outside the track list but not on its own controls', () => {
+  it('ends deletion mode on a tap outside the track list but not on its own controls', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
 
     clickSelect(FILE_A);
     document.querySelector<HTMLButtonElement>('.playlist-selection-toggle')!.click();
@@ -1632,6 +1659,7 @@ describe('playlist queue identity rendering and actions', () => {
     try {
       setState('playlist.items', sampleItems());
       initPlaylistView();
+      await vi.dynamicImportSettled();
       clickSelect(FILE_A);
       expect(selectionBarVisible()).toBe(true);
 
@@ -1648,7 +1676,7 @@ describe('playlist queue identity rendering and actions', () => {
     }
   });
 
-  it('deletes non-contiguous selections at once in playlist order and tells only this device', () => {
+  it('deletes non-contiguous selections at once in playlist order and tells only this device', async () => {
     const third: PlaylistItem = {
       queueItemId: '00000000-0000-4000-8000-000000000003',
       type: 'file',
@@ -1659,6 +1687,7 @@ describe('playlist queue identity rendering and actions', () => {
     };
     setState('playlist.items', [...sampleItems(), third]);
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const remove = vi.fn((ids: string[]) =>
       setState(
         'playlist.items',
@@ -1684,9 +1713,10 @@ describe('playlist queue identity rendering and actions', () => {
     expect(t('toast.deleted_tracks', { count: 2 })).toBe('트랙 2개를 삭제했어요');
   });
 
-  it('does not report a deletion the host refused', () => {
+  it('does not report a deletion the host refused', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const remove = vi.fn();
     const toast = vi.fn();
     bus.on('playlist:remove-tracks', remove);
@@ -1716,7 +1746,7 @@ describe('playlist queue identity rendering and actions', () => {
     });
   }
 
-  it('keeps a remote deletion hidden until the authoritative snapshot drops it', () => {
+  it('keeps a remote deletion hidden until the authoritative snapshot drops it', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       joinProRoomAsMediaManager();
@@ -1731,6 +1761,7 @@ describe('playlist queue identity rendering and actions', () => {
       const items = [...sampleItems(), third];
       setState('playlist.items', items);
       initPlaylistView();
+      await vi.dynamicImportSettled();
       const remove = vi.fn();
       const toast = vi.fn();
       bus.on('playlist:remove-tracks', remove);
@@ -1762,12 +1793,13 @@ describe('playlist queue identity rendering and actions', () => {
     }
   });
 
-  it('gives a rejected or lost remote deletion its rows back without a toast', () => {
+  it('gives a rejected or lost remote deletion its rows back without a toast', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     try {
       joinProRoomAsMediaManager();
       setState('playlist.items', sampleItems());
       initPlaylistView();
+      await vi.dynamicImportSettled();
       const toast = vi.fn();
       bus.on('ui:show-toast', toast);
 
@@ -1784,10 +1816,11 @@ describe('playlist queue identity rendering and actions', () => {
     }
   });
 
-  it('does not report a remote deletion settled after the room is gone', () => {
+  it('does not report a remote deletion settled after the room is gone', async () => {
     joinProRoomAsMediaManager();
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const toast = vi.fn();
     bus.on('ui:show-toast', toast);
 
@@ -1799,10 +1832,11 @@ describe('playlist queue identity rendering and actions', () => {
     expect(toast).not.toHaveBeenCalled();
   });
 
-  it('keeps selection attached to queueItemId across rerenders and prunes lost authority', () => {
+  it('keeps selection attached to queueItemId across rerenders and prunes lost authority', async () => {
     const items = sampleItems();
     setState('playlist.items', items);
     initPlaylistView();
+    await vi.dynamicImportSettled();
     document
       .querySelector<HTMLButtonElement>(`.btn-playlist-select[data-queue-item-id="${FILE_A}"]`)!
       .click();
@@ -1833,6 +1867,7 @@ describe('playlist queue identity rendering and actions', () => {
       setState('playlist.items', items);
       setState('playlist.currentQueueItemId', FILE_A);
       initPlaylistView();
+      await vi.dynamicImportSettled();
 
       for (const queueItemId of [FILE_A, YT_B]) clickSelect(queueItemId);
 
@@ -1870,6 +1905,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', FILE_A);
     initPlaylistView();
+    await vi.dynamicImportSettled();
     const scrollTo = configurePlaylistFollowLayout();
     await nextAnimationFrame();
     scrollTo.mockClear();
@@ -1897,6 +1933,7 @@ describe('playlist queue identity rendering and actions', () => {
       setState('playlist.items', sampleItems());
       setState('playlist.currentQueueItemId', YT_B);
       initPlaylistView();
+      await vi.dynamicImportSettled();
       const scrollTo = configurePlaylistFollowLayout();
       await nextAnimationFrame();
       expect(scrollTo).not.toHaveBeenCalled();
@@ -1943,6 +1980,7 @@ describe('playlist queue identity rendering and actions', () => {
       setState('playlist.items', sampleItems());
       setState('playlist.currentQueueItemId', YT_B);
       initPlaylistView();
+      await vi.dynamicImportSettled();
       const scrollTo = configurePlaylistFollowLayout();
       await nextAnimationFrame();
 
@@ -1964,6 +2002,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', FILE_A);
     initPlaylistView();
+    await vi.dynamicImportSettled();
     configurePlaylistFollowLayout();
     await nextAnimationFrame();
 
@@ -1990,6 +2029,7 @@ describe('playlist queue identity rendering and actions', () => {
       setState('playlist.items', items);
       setState('playlist.currentQueueItemId', FILE_A);
       initPlaylistView();
+      await vi.dynamicImportSettled();
       const scrollTo = configurePlaylistFollowLayout();
       await nextAnimationFrame();
       scrollTo.mockClear();
@@ -2024,6 +2064,7 @@ describe('playlist queue identity rendering and actions', () => {
     try {
       setState('playlist.items', sampleItems());
       initPlaylistView();
+      await vi.dynamicImportSettled();
       clickSelect(FILE_A);
       const deleteButton = document.querySelector<HTMLButtonElement>(
         '[data-selection-action="delete"]',
@@ -2046,6 +2087,7 @@ describe('playlist queue identity rendering and actions', () => {
   it('reveals all host handles when an add batch completes', async () => {
     setState('playlist.items', sampleItems());
     initPlaylistView();
+    await vi.dynamicImportSettled();
     // The reorder controller loads after the list mounts.
     await vi.dynamicImportSettled();
 
@@ -2060,6 +2102,7 @@ describe('playlist queue identity rendering and actions', () => {
     setState('playlist.items', sampleItems());
     setState('playlist.revision', 7);
     initPlaylistView();
+    await vi.dynamicImportSettled();
     // The reorder controller loads after the list mounts.
     await vi.dynamicImportSettled();
     const reorder = vi.fn();
@@ -2124,6 +2167,7 @@ describe('playlist queue identity rendering and actions', () => {
       setState('playlist.items', initial);
       setState('playlist.revision', 7);
       initPlaylistView();
+      await vi.dynamicImportSettled();
       // The reorder controller loads after the list mounts.
       await vi.dynamicImportSettled();
 

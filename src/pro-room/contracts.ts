@@ -261,8 +261,8 @@ interface ProRoomSystemAudioLiveState extends ProRoomSystemAudioStateBase {
 
 /**
  * Authoritative PRO live-share ownership returned by the dedicated
- * `/system-audio` resource. It deliberately stays outside snapshot v1 so old
- * strict clients can keep joining during a rolling deployment.
+ * `/system-audio` resource and, since 9.0.0, by every presence heartbeat. It
+ * stays outside snapshot v1, whose strict key set other replies still share.
  */
 export type ProRoomSystemAudioState =
   ProRoomSystemAudioIdleState | ProRoomSystemAudioPreparingState | ProRoomSystemAudioLiveState;
@@ -296,3 +296,14 @@ interface ProRoomSnapshotV1 {
 }
 
 export type ProRoomSnapshot = ProRoomSnapshotV1;
+
+/**
+ * One presence heartbeat reply. A compact "not modified" reply resolves to
+ * the caller's installed snapshot. Both forms carry the same system-audio
+ * payload as GET `/system-audio`, so the 15-second heartbeat replaces a
+ * separate periodic read as the backstop for a lost invalidation.
+ */
+export interface ProRoomHeartbeat {
+  snapshot: ProRoomSnapshot;
+  systemAudio: ProRoomSystemAudioState;
+}

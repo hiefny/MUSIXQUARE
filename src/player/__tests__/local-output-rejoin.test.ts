@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
     }): {
       status: 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
       retryAfterMs?: number;
+      awaitHostSnapshot?: true;
     } => ({
       status: 'started',
     }),
@@ -31,8 +32,9 @@ vi.mock('../../youtube/sync.ts', () => ({
   guestRendezvousSync: mocks.rendezvous,
 }));
 
+import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
-import { resetState, setState } from '../../core/state.ts';
+import { getState, resetState, setState } from '../../core/state.ts';
 import { setLocalYouTubePaused, isLocalYouTubePaused } from '../../youtube/_state.ts';
 import {
   setLocalFilePaused,
@@ -457,6 +459,76 @@ describe('participant-local output rejoin', () => {
     await vi.advanceTimersByTimeAsync(25);
     expect(mocks.rendezvous).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+
+  it('waits for the next host heartbeat or state message while only a new snapshot can help', async () => {
+    vi.useFakeTimers();
+    // Lock-screen PLAY is the usual source, so the wait must not need focus.
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(true);
+    try {
+      const snapshotBound = {
+        status: 'busy' as const,
+        retryAfterMs: 250,
+        awaitHostSnapshot: true as const,
+      };
+      mocks.rendezvous
+        .mockReturnValueOnce(snapshotBound)
+        .mockReturnValueOnce(snapshotBound)
+        .mockReturnValueOnce({ status: 'started' });
+      startSession();
+      setStandardGuest();
+      setPlaybackYouTubePlaying();
+      setLocalYouTubePaused(true);
+      const hostConn = getState('network.hostConn')!;
+
+      bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.rendezvous).toHaveBeenCalledOnce();
+
+      // Unrelated frames, and snapshots from any other connection, do not count.
+      bus.emit('network:data', { type: MSG.CHAT }, hostConn);
+      bus.emit('network:data', { type: MSG.YOUTUBE_SYNC }, { open: true } as never);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.rendezvous).toHaveBeenCalledOnce();
+
+      bus.emit('network:data', { type: MSG.YOUTUBE_SYNC }, hostConn);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(mocks.rendezvous).toHaveBeenCalledTimes(2);
+
+      // Still bound to the snapshot: the following state message retries again.
+      bus.emit('network:data', { type: MSG.YOUTUBE_STATE }, hostConn);
+      bus.emit('network:data', { type: MSG.YOUTUBE_STATE }, hostConn);
+      await vi.advanceTimersByTimeAsync(10);
+      expect(mocks.rendezvous).toHaveBeenCalledTimes(3);
+      expect(isLocalYouTubePaused()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a host-snapshot wait on explicit PAUSE', async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.rendezvous.mockReturnValueOnce({
+        status: 'busy',
+        retryAfterMs: 250,
+        awaitHostSnapshot: true,
+      });
+      startSession();
+      setStandardGuest();
+      setPlaybackYouTubePlaying();
+      setLocalYouTubePaused(true);
+      bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.rendezvous).toHaveBeenCalledOnce();
+
+      bus.emit('youtube:set-local-paused', true);
+      bus.emit('network:data', { type: MSG.YOUTUBE_SYNC }, getState('network.hostConn')!);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.rendezvous).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('drops a scheduled busy retry after the queue occurrence changes', async () => {

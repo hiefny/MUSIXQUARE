@@ -309,6 +309,7 @@ function initSyncClock(): void {
   const FADE_OUT_END = 32_000;
   const CYCLE_MS = 32_500;
   const start = performance.now();
+  let frame = 0;
 
   function render(): void {
     const elapsed = (performance.now() - start) % CYCLE_MS;
@@ -340,10 +341,27 @@ function initSyncClock(): void {
       el.style.opacity = opacity.toFixed(2);
     });
 
-    requestAnimationFrame(render);
+    frame = requestAnimationFrame(render);
   }
 
-  requestAnimationFrame(render);
+  frame = requestAnimationFrame(render);
+  if (!('IntersectionObserver' in window)) return;
+
+  // Offscreen frames change nothing anyone sees. The clock reads its time
+  // from performance.now(), so a resumed frame shows what a running one
+  // would have; the margin resumes it before it scrolls into view.
+  new IntersectionObserver(
+    (entries) => {
+      const visible = entries[entries.length - 1]?.isIntersecting ?? true;
+      if (!visible) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      } else if (!frame) {
+        render();
+      }
+    },
+    { rootMargin: '50% 0px' },
+  ).observe(root);
 }
 
 function initCodeCycle(): void {

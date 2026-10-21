@@ -148,6 +148,7 @@ function installYtNamespace(player: YouTubePlayerInstance) {
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initYouTube } from '../player.ts';
 import { updateYouTubeUIForTests } from '../iframe.ts';
+import { VIDEO_DATA_POLL_EVERY_NTH_TICK } from '../constants.ts';
 import { initPlayback } from '../../player/playback.ts';
 import * as ytState from '../_state.ts';
 
@@ -361,6 +362,25 @@ describe('Standard operator native iframe integration', () => {
     h.emit(2);
     expect(vi.mocked(safeSend).mock.calls.map(([, frame]) => frame)).toContainEqual({
       type: MSG.REQUEST_YOUTUBE_PAUSE,
+      queueItemId: QUEUE_ITEM_ID,
+    });
+  });
+
+  it('reads getVideoData once per UI tick for a focused guest, sharing it with the metadata poll', () => {
+    const h = readyOperator(1);
+    h.focus();
+    const reads = vi.spyOn(h.player, 'getVideoData');
+    for (let tick = 0; tick < VIDEO_DATA_POLL_EVERY_NTH_TICK; tick += 1) {
+      reads.mockClear();
+      h.poll();
+      expect(reads).toHaveBeenCalledOnce();
+    }
+    // The shared read still feeds the native seek observer.
+    h.setTime(50);
+    h.poll();
+    expect(vi.mocked(safeSend).mock.calls.map(([, frame]) => frame)).toContainEqual({
+      type: MSG.REQUEST_SEEK,
+      time: 50,
       queueItemId: QUEUE_ITEM_ID,
     });
   });

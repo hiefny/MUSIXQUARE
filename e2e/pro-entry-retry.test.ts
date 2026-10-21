@@ -3,6 +3,7 @@ import type { ProRoomSnapshot } from '../src/pro-room/contracts.ts';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { installFakeYt } from './helpers/fake-yt.ts';
 import {
+  heartbeatReply,
   ownerSnapshot,
   PRESENCE_INCARNATION_ID,
   PRO_ROOM_CODE,
@@ -105,11 +106,8 @@ async function installFailedFirstConnection(page: Page) {
           ticketSequence: admissions,
           pendingPlaybackTransition: null,
         });
-      if (
-        url.pathname.endsWith('/snapshot') ||
-        url.pathname.endsWith('/presence/heartbeat') ||
-        url.pathname.endsWith('/sessions/current/account')
-      )
+      if (url.pathname.endsWith('/presence/heartbeat')) return reply(heartbeatReply(snapshot));
+      if (url.pathname.endsWith('/snapshot') || url.pathname.endsWith('/sessions/current/account'))
         return reply({ snapshot });
       return reply({ error: 'TEST_ADJUNCT_UNAVAILABLE' }, 503);
     }

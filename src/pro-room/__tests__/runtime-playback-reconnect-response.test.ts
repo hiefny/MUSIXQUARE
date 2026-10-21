@@ -27,6 +27,7 @@ import {
   type ProPlaybackCommitRequest,
 } from '../playback-authority-hooks.ts';
 import { joinProRoom } from '../runtime.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 type SocketEvent = { data?: unknown; reason: string };
 class FakeWebSocket {
@@ -305,7 +306,9 @@ describe('PRO pending command responses across real channel recovery', () => {
     vi.spyOn(ProRoomApiClient.prototype, 'executePlaybackCommand').mockImplementation(
       (input, signal) => nativeExecuteCommand.call(controlClient, input, signal),
     );
-    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation(async () => canonical);
+    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation(async () =>
+      proHeartbeat(canonical),
+    );
     vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockImplementation(async () => {
       if (ticketWait) await ticketWait;
       return {

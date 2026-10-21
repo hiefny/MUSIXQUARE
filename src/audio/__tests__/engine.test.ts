@@ -13,7 +13,7 @@ import {
   getPreamp,
   getWidener,
   getFilePlaybackDestination,
-  getReverb,
+  getRvbPreDelay,
   getRvbLowCut,
   getRvbHighCut,
   getRvbCrossFade,
@@ -62,9 +62,9 @@ describe('getEqNodes', () => {
   });
 });
 
-describe('getReverb', () => {
+describe('getRvbPreDelay', () => {
   it('returns null before init', () => {
-    expect(getReverb()).toBeNull();
+    expect(getRvbPreDelay()).toBeNull();
   });
 });
 

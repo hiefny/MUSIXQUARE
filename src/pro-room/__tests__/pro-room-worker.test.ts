@@ -9,6 +9,7 @@ import {
   createAccountAssertion,
 } from '../../../cloudflare/account-assertion.ts';
 import appWorker from '../../../cloudflare/app-worker.ts';
+import { handleProBotRequest } from '../../../cloudflare/pro-bot.ts';
 import { normalizeStoredEffects } from '../../../cloudflare/pro-room-effects.ts';
 import * as fileDuration from '../../../cloudflare/pro-room-media-duration.ts';
 import {
@@ -29,6 +30,8 @@ import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../cor
 import {
   ProRoomApiClient,
   ProRoomApiError,
+  type SwitchProRoomPlaylistInput,
+  type TransferProRoomPlaylistTracksInput,
   type UpdateProRoomCompactSnapshotInput,
 } from '../api.ts';
 import type { ProRoomR2Source, ProRoomSnapshot } from '../contracts.ts';
@@ -20356,6 +20359,14 @@ describe('persistent PRO room authentication, presence, and state', () => {
       presenceRevision: known.presence.revision,
       playbackRevision: known.playback.revision,
       coordinatorEpoch: known.presence.coordinatorEpoch,
+      systemAudio: {
+        generation: 0,
+        status: 'idle',
+        ownerParticipantId: null,
+        claimExpiresAt: null,
+        liveExpiresAt: null,
+        publication: null,
+      },
     });
 
     const rejectedIdentity = await worker.fetch(
@@ -20394,12 +20405,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
         ownerCookie,
       ),
     );
-    expect(Object.keys(await responseJson(stale))).toEqual(['snapshot']);
+    expect(Object.keys(await responseJson(stale)).sort()).toEqual(['snapshot', 'systemAudio']);
 
     const bodyless = await worker.fetch(
       request('/presence/heartbeat', { method: 'POST' }, ownerCookie),
     );
-    expect(Object.keys(await responseJson(bodyless))).toEqual(['snapshot']);
+    expect(Object.keys(await responseJson(bodyless)).sort()).toEqual(['snapshot', 'systemAudio']);
   });
 
   it('durably retries a presence snapshot after transient signaling failures and isolate restart', async () => {
@@ -23760,7 +23771,7 @@ describe('PRO room system-audio ownership lease', () => {
     return responseJson(response);
   }
 
-  it('keeps the v1 snapshot shape unchanged and exposes live state only through its own API', async () => {
+  it('keeps the v1 snapshot shape unchanged and exposes live state through its API and heartbeats', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     const snapshotResponse = await worker.fetch(request('/snapshot', {}, ownerCookie));
     const snapshotEnvelope = await responseJson(snapshotResponse);
@@ -23780,6 +23791,39 @@ describe('PRO room system-audio ownership lease', () => {
         publication: null,
       },
     });
+
+    // Every heartbeat reply carries the exact GET payload next to its
+    // snapshot or compact receipt, while the snapshot itself stays v1.
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const state = await responseJson(await worker.fetch(request('/system-audio', {}, ownerCookie)));
+    expect(state.systemAudio).toEqual(acquired.systemAudio);
+    const full = await responseJson(
+      await worker.fetch(request('/presence/heartbeat', { method: 'POST' }, ownerCookie)),
+    );
+    expect(full.systemAudio).toEqual(state.systemAudio);
+    expect(full.snapshot).not.toHaveProperty('systemAudio');
+    expect(parseProRoomSnapshot(full.snapshot)).not.toBeNull();
+    const known = full.snapshot;
+    const compact = await responseJson(
+      await worker.fetch(
+        jsonRequest(
+          '/presence/heartbeat',
+          'POST',
+          {
+            revision: known.revision,
+            playlistRevision: known.playlistRevision,
+            presenceRevision: known.presence.revision,
+            playbackRevision: known.playback.revision,
+            coordinatorEpoch: known.presence.coordinatorEpoch,
+          },
+          ownerCookie,
+        ),
+      ),
+    );
+    expect(compact.notModified).toBe(true);
+    expect(compact.systemAudio).toEqual(state.systemAudio);
+    expect(compact.systemAudio).not.toHaveProperty('leaseId');
+    expect(compact.systemAudio).not.toHaveProperty('ownerPresenceIncarnationId');
   });
 
   it('commits an exact LAN-direct publication and permits only its one-way SFU promotion', async () => {
@@ -26623,6 +26667,124 @@ describe('PRO room multiple playlists', () => {
     expect(internal.room.quota.usedBytes).toBe(usedBytes);
   });
 
+  /** The browser API's playlist calls against this Worker, with playlist summaries. */
+  function slotWorkerApi(context: RoomContext) {
+    const send = async (input: Request): Promise<ProRoomSnapshot> => {
+      const response = await context.worker.fetch(withSlots(input));
+      const value = await responseJson(response);
+      if (!response.ok) {
+        throw new ProRoomApiError(String(value.error || 'UNKNOWN'), response.status);
+      }
+      const snapshot = parseProRoomSnapshot(value.snapshot);
+      if (!snapshot) throw new Error('invalid real Worker snapshot');
+      return snapshot;
+    };
+    const post = (path: string, body: Record<string, unknown>, key: string) =>
+      send(jsonRequest(path, 'POST', body, context.ownerCookie, key));
+    return {
+      getSnapshot: vi.fn(async () => send(request('/snapshot', {}, context.ownerCookie))),
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) =>
+        post(
+          '/snapshot/compact',
+          {
+            baseRevision: input.baseRevision,
+            playlistOrder: input.playlistOrder,
+            upserts: input.upserts,
+            currentQueueItemId: input.currentQueueItemId,
+            playback: input.playback,
+          },
+          input.idempotencyKey,
+        ),
+      ),
+      switchPlaylist: vi.fn(async (input: SwitchProRoomPlaylistInput) =>
+        post(
+          '/playlists/switch',
+          { baseRevision: input.baseRevision, slot: input.slot },
+          input.idempotencyKey,
+        ),
+      ),
+      transferPlaylistTracks: vi.fn(async (input: TransferProRoomPlaylistTracksInput) =>
+        post(
+          '/playlists/transfer',
+          {
+            baseRevision: input.baseRevision,
+            queueItemIds: [...input.queueItemIds],
+            targetSlots: [...input.targetSlots],
+            mode: input.mode,
+          },
+          input.idempotencyKey,
+        ),
+      ),
+    } satisfies ProRoomPlaylistStateApiForTests;
+  }
+
+  function slotManager(
+    api: ProRoomPlaylistStateApiForTests,
+    media: ProRoomPlaylistMediaTransferForTests,
+    suffix: string,
+  ) {
+    let key = 0;
+    return new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      createIdempotencyKey: () => `${IDEMPOTENCY_KEY}-${suffix}-${++key}`,
+      createQueueItemId: () => '5c111111-1111-4111-8111-111111111111',
+    });
+  }
+
+  function switchAsAnotherAdministrator(context: RoomContext, slot: number, key: string) {
+    const internal = context.worker as unknown as Internal;
+    return switchTo(context, { baseRevision: internal.room.revision, slot }, key);
+  }
+
+  it('keeps a finished upload out of the playlist another administrator switched to', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const { asset } = await completeReadyAsset(context, 'playlist-slots-upload');
+    const api = slotWorkerApi(context);
+    const initial = await api.getSnapshot();
+    const media = {
+      upload: vi.fn(async () => {
+        const switched = await switchAsAnotherAdministrator(
+          context,
+          1,
+          'playlist-slots-upload-switch',
+        );
+        expect(switched.status).toBe(200);
+        const source: ProRoomR2Source = {
+          kind: 'pro-r2',
+          assetId: asset.assetId,
+          version: asset.version,
+          byteLength: asset.byteLength,
+          mime: asset.mime,
+          ...(asset.sha256 ? { sha256: asset.sha256 } : {}),
+        };
+        return { asset: source, quota: initial.quota };
+      }),
+      deleteAsset: vi.fn(async () => undefined),
+    } satisfies ProRoomPlaylistMediaTransferForTests;
+    const manager = slotManager(api, media, 'playlist-slots-upload');
+    await manager.acceptSnapshot(initial);
+
+    await expect(
+      manager.addLocalFile({ file: new File(['audio'], 'upload.flac', { type: 'audio/flac' }) }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_PLAYLIST_SWITCHED' });
+
+    // The Worker refuses an append based on the room before the switch; only
+    // the client's refresh could have moved it to the other playlist.
+    expect(api.updateCompactSnapshot).toHaveBeenCalledOnce();
+    await expect(api.updateCompactSnapshot.mock.results[0]?.value).rejects.toMatchObject({
+      status: 409,
+      code: 'REVISION_CONFLICT',
+    });
+    expect(internal.room.playlistSlots.activeSlot).toBe(1);
+    expect(internal.room.playlist).toEqual([]);
+    expect(internal.room.playlistSlots.inactive[0]).toEqual([]);
+    expect(media.deleteAsset).toHaveBeenCalledWith({ code: ROOM_CODE, assetId: asset.assetId });
+  });
+
   it('drops inactive items whose file an older Worker already collected', async () => {
     const context = await activatedRoom();
     const internal = context.worker as unknown as Internal;
@@ -26870,6 +27032,79 @@ describe('PRO room multiple playlists', () => {
     expect(internal.room.revision).toBe(revision);
   });
 
+  it.each(['copy', 'move'] as const)(
+    'reports a stale %s as a revision conflict after its target became active',
+    async (mode) => {
+      const context = await activatedRoom();
+      const internal = context.worker as unknown as Internal;
+      const [first] = await seedYouTube(context, `playlist-slots-stale-${mode}-01`, ['One', 'Two']);
+      const staleRevision = internal.room.revision;
+      expect(
+        (await switchAsAnotherAdministrator(context, 1, `playlist-slots-stale-${mode}-02`)).status,
+      ).toBe(200);
+      const revision = internal.room.revision;
+
+      const stale = await transfer(
+        context,
+        { baseRevision: staleRevision, queueItemIds: [first], targetSlots: [1], mode },
+        `playlist-slots-stale-${mode}-03`,
+      );
+      expect(stale.status).toBe(409);
+      expect(await responseJson(stale)).toEqual({ error: 'REVISION_CONFLICT' });
+      // A current request that targets the active playlist is still invalid.
+      const current = await transfer(
+        context,
+        { baseRevision: revision, queueItemIds: [first], targetSlots: [1], mode },
+        `playlist-slots-stale-${mode}-04`,
+      );
+      expect(current.status).toBe(400);
+      expect(await responseJson(current)).toEqual({ error: 'INVALID_PLAYLIST_SLOT' });
+      expect(internal.room.revision).toBe(revision);
+      expect(internal.room.playlist).toEqual([]);
+      expect(internal.room.playlistSlots.inactive[0]).toHaveLength(2);
+    },
+  );
+
+  it.each(['copy', 'move'] as const)(
+    'refreshes a %s whose target another administrator just made active',
+    async (mode) => {
+      const context = await activatedRoom();
+      const internal = context.worker as unknown as Internal;
+      const [first, second] = await seedYouTube(context, `playlist-slots-refresh-${mode}-01`, [
+        'One',
+        'Two',
+      ]);
+      const api = slotWorkerApi(context);
+      const manager = slotManager(
+        api,
+        inertPlaylistMediaTransfer(),
+        `playlist-slots-refresh-${mode}`,
+      );
+      await manager.acceptSnapshot(await api.getSnapshot());
+      expect(
+        (await switchAsAnotherAdministrator(context, 1, `playlist-slots-refresh-${mode}-02`))
+          .status,
+      ).toBe(200);
+
+      const accepted = await manager.transferTracks([first!], [1], mode);
+
+      expect(api.transferPlaylistTracks).toHaveBeenCalledOnce();
+      await expect(api.transferPlaylistTracks.mock.results[0]?.value).rejects.toMatchObject({
+        status: 409,
+        code: 'REVISION_CONFLICT',
+      });
+      expect(api.getSnapshot).toHaveBeenCalledTimes(2);
+      // The tracks left the active playlist with the switch, so the rebase
+      // has nothing left to copy or move.
+      expect(accepted.playlistSlots?.activeSlot).toBe(1);
+      expect(internal.room.playlist).toEqual([]);
+      expect(internal.room.playlistSlots.inactive[0].map((item: any) => item.queueItemId)).toEqual([
+        first,
+        second,
+      ]);
+    },
+  );
+
   it('serves playlist projections, playlist-scoped removal and switching to the Developer API', async () => {
     const context = await activatedRoom();
     const internal = context.worker as unknown as Internal;
@@ -27079,5 +27314,243 @@ describe('PRO room multiple playlists', () => {
       second,
     ]);
     expect(internal.room.playlist.map((item: any) => item.queueItemId)).toEqual([clone]);
+  });
+
+  function botStep(context: RoomContext, cookie = context.ownerCookie) {
+    return {
+      async read(requestId: string, prompt: string) {
+        const response = await internalBotRequest(
+          context.worker,
+          'context',
+          { roomCode: ROOM_CODE, requestId, prompt },
+          cookie,
+        );
+        expect(response.status).toBe(200);
+        return responseJson(response);
+      },
+      execute(
+        requestId: string,
+        leaseToken: string,
+        plan: Record<string, unknown>,
+        tracks: Record<string, unknown>[] = [],
+      ) {
+        return internalBotRequest(
+          context.worker,
+          'execute',
+          { roomCode: ROOM_CODE, requestId, leaseToken, plan, tracks },
+          cookie,
+        );
+      },
+    };
+  }
+
+  const NAMED_TRACK = { videoId: VIDEO_IDS[2], name: 'Named song' };
+  const NAMED_ADD_PLAN = {
+    intent: 'add_youtube',
+    trackQueries: ['Named song official audio'],
+    playAddedIndex: -1,
+    playlist: 1,
+  };
+
+  it('runs a BOT plan on the playlist its request named after another administrator switched', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first, second] = await seedYouTube(context, 'playlist-slots-bot-named-01', [
+      'One',
+      'Two',
+    ]);
+    const bot = botStep(context);
+    // Each request read the room while playlist 1 was active.
+    const add = await bot.read('bot-named-playlist-add-01', 'add one song to playlist 1');
+    const remove = await bot.read('bot-named-playlist-remove-1', 'delete track 1 of playlist 1');
+    const play = await bot.read('bot-named-playlist-play-01', 'play track 2 of playlist 1');
+    expect([add, remove, play].map((step) => step.room.activePlaylist)).toEqual([1, 1, 1]);
+    expect(
+      (await switchAsAnotherAdministrator(context, 1, 'playlist-slots-bot-named-02')).status,
+    ).toBe(200);
+
+    const refused = await bot.execute('bot-named-playlist-add-01', add.leaseToken, NAMED_ADD_PLAN, [
+      NAMED_TRACK,
+    ]);
+    expect(refused.status).toBe(409);
+    expect(await responseJson(refused)).toEqual({ error: 'BOT_ACTION_FAILED' });
+    expect(internal.room.playlist).toEqual([]);
+    expect(internal.room.playlistSlots.inactive[0].map((item: any) => item.queueItemId)).toEqual([
+      first,
+      second,
+    ]);
+
+    const removed = await bot.execute('bot-named-playlist-remove-1', remove.leaseToken, {
+      intent: 'remove_items',
+      queueItemIds: [first],
+      playlist: 1,
+    });
+    expect(removed.status).toBe(200);
+    expect(internal.room.playlistSlots.inactive[0].map((item: any) => item.queueItemId)).toEqual([
+      second,
+    ]);
+    expect(internal.room.playlist).toEqual([]);
+
+    const played = await bot.execute('bot-named-playlist-play-01', play.leaseToken, {
+      intent: 'play_existing',
+      queueItemId: second,
+      playlist: 1,
+    });
+    expect(played.status).toBe(200);
+    expect(await responseJson(played)).toMatchObject({ ok: true, playbackChanged: true });
+    expect(internal.room.playlistSlots.activeSlot).toBe(0);
+    expect(internal.room.playlist.map((item: any) => item.queueItemId)).toEqual([second]);
+  });
+
+  it('adds BOT tracks to a named active playlist and plays it without switching rights', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first] = await seedYouTube(context, 'playlist-slots-bot-rights-01', ['One']);
+    const owner = botStep(context);
+    const add = await owner.read('bot-named-rights-add-0001', 'add one song to playlist 1');
+    const added = await owner.execute('bot-named-rights-add-0001', add.leaseToken, NAMED_ADD_PLAN, [
+      NAMED_TRACK,
+    ]);
+    expect(added.status).toBe(200);
+    expect(await responseJson(added)).toMatchObject({ ok: true, addedCount: 1 });
+    expect(internal.room.playlist.map((item: any) => item.name)).toEqual(['One', 'Named song']);
+
+    // A delegated administrator who may play but not add or switch playlists.
+    const joined = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+    );
+    expect(joined.status).toBe(200);
+    const envelope = await responseJson(joined);
+    const cookie = cookieFrom(joined);
+    bindCookiePresence(cookie, envelope);
+    const permissions = {
+      'media.add': false,
+      'playback.control': true,
+      'members.kick': true,
+      'chat.notice': true,
+    };
+    expect(
+      (
+        await context.worker.fetch(
+          jsonRequest(
+            `/administrators/${envelope.snapshot.viewer.memberId}`,
+            'PUT',
+            { permissions },
+            context.ownerCookie,
+          ),
+        )
+      ).status,
+    ).toBe(200);
+    const administrator = botStep(context, cookie);
+    const playPlan = { intent: 'play_existing', queueItemId: first, playlist: 1 };
+    const play = await administrator.read(
+      'bot-named-rights-play-0001',
+      'play track 1 of playlist 1',
+    );
+    const played = await administrator.execute(
+      'bot-named-rights-play-0001',
+      play.leaseToken,
+      playPlan,
+    );
+    expect(played.status).toBe(200);
+    expect(await responseJson(played)).toMatchObject({ ok: true, playbackChanged: true });
+
+    const replay = await administrator.read(
+      'bot-named-rights-play-0002',
+      'play track 1 of playlist 1',
+    );
+    expect(
+      (await switchAsAnotherAdministrator(context, 1, 'playlist-slots-bot-rights-02')).status,
+    ).toBe(200);
+    const refused = await administrator.execute(
+      'bot-named-rights-play-0002',
+      replay.leaseToken,
+      playPlan,
+    );
+    expect(refused.status).toBe(403);
+    expect(await responseJson(refused)).toEqual({ error: 'PERMISSION_REQUIRED' });
+    expect(internal.room.playlistSlots.activeSlot).toBe(1);
+  });
+
+  it('refuses BOT tracks for a named playlist that was switched away while the BOT searched', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as Internal;
+    const [first] = await seedYouTube(context, 'playlist-slots-bot-search-01', ['One']);
+    const presence = presenceByCookie.get(context.ownerCookie)!;
+    const requestId = 'bot-search-switch-0001';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        if (url.hostname === 'generativelanguage.googleapis.com') {
+          const args = {
+            intent: 'add_youtube',
+            trackQueries: ['Test Artist Test Song official audio'],
+            playAddedIndex: -1,
+            answer: 'Adding it.',
+          };
+          return Response.json({
+            candidates: [
+              {
+                content: { parts: [{ functionCall: { name: 'execute_music_request', args } }] },
+              },
+            ],
+          });
+        }
+        if (url.hostname === 'www.googleapis.com') {
+          expect(
+            (await switchAsAnotherAdministrator(context, 1, 'playlist-slots-bot-search-02')).status,
+          ).toBe(200);
+          return Response.json({
+            items: [
+              {
+                id: { videoId: VIDEO_IDS[1] },
+                snippet: { title: 'Test Song', channelTitle: 'Test Artist' },
+              },
+            ],
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    let response: Response;
+    try {
+      response = await handleProBotRequest(
+        new Request(`https://musixquare.com/api/pro-room/v1/rooms/${ROOM_CODE}/bot/commands`, {
+          method: 'POST',
+          headers: {
+            origin: 'https://musixquare.com',
+            'content-type': 'application/json',
+            'idempotency-key': requestId,
+            'x-mxqr-pro-participant-id': presence.participantId,
+            'x-mxqr-pro-presence-incarnation': presence.presenceIncarnationId,
+          },
+          body: JSON.stringify({ prompt: 'add Test Song by Test Artist to playlist 1', requestId }),
+        }),
+        {
+          GEMINI_API_KEY: 'test-gemini-key-'.padEnd(32, 'g'),
+          YOUTUBE_API_KEY: 'test-youtube-key',
+          PRO_ROOM_ADMIN_ROOMS: {
+            idFromName: (name: string) => name,
+            get: () => ({ fetch: (input: Request) => context.worker.fetch(input) }),
+          },
+        },
+        {
+          roomCode: ROOM_CODE,
+          preflightRoom: async () => ({ roomGeneration: 0 }),
+          forwardedCookies: context.ownerCookie,
+        },
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_ACTION_FAILED' });
+    expect(internal.room.playlistSlots.activeSlot).toBe(1);
+    expect(internal.room.playlist).toEqual([]);
+    expect(internal.room.playlistSlots.inactive[0].map((item: any) => item.queueItemId)).toEqual([
+      first,
+    ]);
   });
 });

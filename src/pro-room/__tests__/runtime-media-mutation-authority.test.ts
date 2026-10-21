@@ -31,6 +31,7 @@ import {
 import { ProRoomMediaTransfer } from '../media-transfer.ts';
 import { getProRoomUploadRows } from '../upload-queue.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM = '000001';
 const ITEM = '58000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -217,7 +218,9 @@ describe('PRO queued media mutations across authority changes', () => {
     vi.spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot').mockImplementation(
       (input, signal) => nativeMutation.call(client, input, signal),
     );
-    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation(async () => canonical);
+    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation(async () =>
+      proHeartbeat(canonical),
+    );
     vi.spyOn(ProRoomApiClient.prototype, 'getSnapshot').mockImplementation(async () => canonical);
     vi.spyOn(ProRoomApiClient.prototype, 'attachCurrentAccount').mockImplementation(
       async () => canonical,

@@ -601,16 +601,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     }
   }
 
-  @keyframes graphic-pulse {
-    0% {
-      stroke-dashoffset: 0;
-    }
-
-    100% {
-      stroke-dashoffset: -20;
-    }
-  }
-
   @keyframes fadeInScale {
     from {
       opacity: 0;
@@ -1906,6 +1896,27 @@ Safety is declared first because important layer precedence is reversed; its acc
        so every title begins moving after exactly one second, at any length. */
     animation-delay: calc(1s - var(--marquee-duration, 10s) * 0.2);
     will-change: transform;
+  }
+
+  /* Set after the screensaver's fade-in and cleared before its fade-out, so
+     the title holds its place unseen and moves on from it. */
+  body[data-visualizer-covered] .track-title.marquee {
+    animation-play-state: paused;
+  }
+
+  /* Without motion, an overflowing title stays still and ends in an ellipsis,
+     as playlist titles do. */
+  @media (prefers-reduced-motion: reduce) {
+    .track-title {
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .track-title.marquee {
+      animation: none;
+      will-change: auto;
+    }
   }
 
   /* One bounded metadata row keeps the title/transport group stable on short
@@ -7124,6 +7135,13 @@ Safety is declared first because important layer precedence is reversed; its acc
       visibility 0s linear 0s;
   }
 
+  /* Set after the fade-out (setup-host-invite.ts): the hidden loop holds its
+     place and continues from it on the next fade-in. */
+  .setup-host-qr-loading-spinner.is-paused > svg,
+  .setup-host-qr-loading-spinner.is-paused circle {
+    animation-play-state: paused;
+  }
+
   .setup-host-qr {
     width: min(272px, 56vw, 36vh);
     width: min(272px, 56vw, 36dvh);
@@ -7416,15 +7434,6 @@ Safety is declared first because important layer precedence is reversed; its acc
     fill: #000000;
     stroke: var(--surface-3);
     stroke-width: 1;
-  }
-
-  .graphic-line-active {
-    stroke: var(--primary);
-    stroke-width: 2;
-    stroke-dasharray: 5 5;
-    opacity: 0.4;
-    fill: none;
-    animation: graphic-pulse 2s infinite;
   }
 
   .graphic-text {

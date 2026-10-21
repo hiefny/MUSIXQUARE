@@ -11,10 +11,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, PEER_NAME_PREFIX } from '../../core/constants.ts';
+import { clearAllManagedTimers } from '../../core/timers.ts';
+import { t } from '../../i18n/index.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
   beginLocalBotChatRequest,
   broadcastSystemMessage,
+  expireBotChatRequest,
   publishBotChatResult,
   receiveProRoomRealtimeChat,
   registerChatProtocolHandlers,
@@ -972,13 +975,15 @@ describe('PRO BOT chat correlation', () => {
     });
   });
 
-  it('drops terminal results after the bounded pending window expires', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+  it('fails a bubble quietly when its pending window expires, then drops the late result', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
     try {
       enterBotRoom('coordinator');
       setState('network.myId', 'host-bot');
       const owner = { peer: 'guest-bot-stale', open: true } as DataConnection;
       const id = requestId('g');
+      const relayed: unknown[] = [];
+      bus.on('network:broadcast-except', (_peerId, data) => relayed.push(data));
 
       await handleData(
         {
@@ -991,7 +996,14 @@ describe('PRO BOT chat correlation', () => {
         },
         owner,
       );
-      now.mockReturnValue(1_060_001);
+      vi.advanceTimersByTime(59_999);
+      expect(upsertBotChatMessage).toHaveBeenCalledTimes(1);
+      expect(upsertBotChatMessage).toHaveBeenCalledWith(id, 'typing');
+
+      vi.advanceTimersByTime(1);
+      expect(upsertBotChatMessage).toHaveBeenCalledTimes(2);
+      expect(upsertBotChatMessage).toHaveBeenLastCalledWith(id, 'expired', t('chat.bot_failed'));
+
       await handleData(
         {
           type: MSG.CHAT_BOT_RESULT,
@@ -1002,10 +1014,63 @@ describe('PRO BOT chat correlation', () => {
         owner,
       );
 
-      expect(upsertBotChatMessage).toHaveBeenCalledTimes(1);
-      expect(upsertBotChatMessage).toHaveBeenCalledWith(id, 'typing');
+      expect(upsertBotChatMessage).toHaveBeenCalledTimes(2);
+      // Only the original CHAT row was relayed, never the late result.
+      expect(relayed).toHaveLength(1);
     } finally {
-      now.mockRestore();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('times each pending request separately and stops a completed one', () => {
+    vi.useFakeTimers();
+    try {
+      enterBotRoom('member');
+      setState('network.myId', 'member-bot-timers');
+      setState('network.hostConn', {
+        peer: 'remote-host',
+        open: true,
+        send: vi.fn(),
+      } as unknown as DataConnection);
+      const answered = requestId('m');
+      const unanswered = requestId('n');
+      const expired = (id: string) =>
+        vi
+          .mocked(upsertBotChatMessage)
+          .mock.calls.filter(([callId, state]) => callId === id && state === 'expired');
+
+      expect(beginLocalBotChatRequest(answered)).toBe(true);
+      vi.advanceTimersByTime(30_000);
+      expect(beginLocalBotChatRequest(unanswered)).toBe(true);
+      expect(publishBotChatResult(answered, { kind: 'answer', text: '켰어요' })).toBe(true);
+      vi.advanceTimersByTime(30_000);
+      expect(expired(answered)).toHaveLength(0);
+      expect(expired(unanswered)).toHaveLength(0);
+
+      vi.advanceTimersByTime(30_000);
+      expect(expired(unanswered)).toEqual([[unanswered, 'expired', t('chat.bot_failed')]]);
+      expect(expired(answered)).toHaveLength(0);
+    } finally {
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles a superseded request without relaying anything', () => {
+    enterBotRoom('member');
+    setState('network.myId', 'member-bot-superseded');
+    const id = requestId('p');
+    try {
+      expect(beginLocalBotChatRequest(id)).toBe(true);
+      expireBotChatRequest(id);
+      expect(publishBotChatResult(id, { kind: 'answer', text: 'stale result' })).toBe(false);
+
+      expect(upsertBotChatMessage).toHaveBeenCalledTimes(2);
+      expect(upsertBotChatMessage).toHaveBeenLastCalledWith(id, 'expired', t('chat.bot_failed'));
+      expect(realtimeMocks.send).not.toHaveBeenCalled();
+    } finally {
+      clearAllManagedTimers();
     }
   });
 

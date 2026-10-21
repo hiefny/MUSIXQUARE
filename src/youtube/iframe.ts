@@ -133,7 +133,6 @@ import {
   LOAD_DRIFT_SUPPRESS_MS,
   IOS_WATCHDOG_MS,
   UNAVAILABLE_STUCK_THRESHOLD_MS,
-  CRASH_FAIL_THRESHOLD,
   SCRIPT_LOAD_TIMEOUT_MS,
   REFRESH_DISPLAY_DELAY_MS,
   GUEST_ENDED_FALLBACK_MS,
@@ -172,6 +171,16 @@ const REUSED_FEEDBACK_TIMEOUT_TIMER = 'yt-reused-feedback-timeout';
 const STANDARD_HOST_MANUAL_REPEAT_ONE_TIMER = 'yt-standard-host-manual-repeat-one';
 const STANDARD_HOST_MANUAL_REPEAT_ONE_POLL_MS = 100;
 const STANDARD_HOST_MANUAL_REPEAT_ONE_METADATA_TIMEOUT_MS = 2_000;
+/** UI poll interval while the page is hidden and the player is paused, or
+ *  CUED/UNSTARTED without play intent. Any player state or visibility change
+ *  restores UI_LOOP_INTERVAL_MS (see paceYouTubeUILoop). */
+const UI_LOOP_IDLE_INTERVAL_MS = 2_000;
+/** How long getCurrentTime() must keep throwing on every UI tick before we
+ *  assume the iframe has crashed (sad-face icon) and rebuild the player.
+ *  Time-based so the UI-loop cadence cannot move it: at UI_LOOP_INTERVAL_MS
+ *  the sixth consecutive failure (2.5s after the first) trips it, as the
+ *  former six-failure count did, with half a tick of timer-jitter margin. */
+const CRASH_FAIL_WINDOW_MS = 2_250;
 let guestEndedFallbackGeneration = 0;
 let retriedProEndedTimeline: {
   player: YouTubePlayerInstance;
@@ -1080,12 +1089,31 @@ function startYouTubeHostHeartbeat(): void {
   );
 }
 
+/** Period of the armed youtubeUILoop interval. */
+let uiLoopIntervalMs = UI_LOOP_INTERVAL_MS;
+
+function armYouTubeUILoop(intervalMs: number): void {
+  uiLoopIntervalMs = intervalMs;
+  setManagedTimer('youtubeUILoop', updateYouTubeUI, intervalMs, { interval: true });
+}
+
+/**
+ * Re-arm a running UI loop at the normal cadence, or at the idle one when
+ * `idle`. Every player state and visibility change calls this with no
+ * argument, so the next tick re-decides at the normal cadence. A stopped
+ * loop stays stopped; only its owners arm it.
+ */
+export function paceYouTubeUILoop(idle = false): void {
+  const intervalMs = idle ? UI_LOOP_IDLE_INTERVAL_MS : UI_LOOP_INTERVAL_MS;
+  if (intervalMs !== uiLoopIntervalMs && getManagedTimer('youtubeUILoop')) {
+    armYouTubeUILoop(intervalMs);
+  }
+}
+
 function ensureYouTubePlaybackRuntime(): void {
   if (!isPlaybackModeYouTube()) return;
 
-  if (!getManagedTimer('youtubeUILoop')) {
-    setManagedTimer('youtubeUILoop', updateYouTubeUI, UI_LOOP_INTERVAL_MS, { interval: true });
-  }
+  if (!getManagedTimer('youtubeUILoop')) armYouTubeUILoop(UI_LOOP_INTERVAL_MS);
 
   const hostConn = getState('network.hostConn');
   if (getState('room.context').kind === 'pro') {
@@ -1149,8 +1177,9 @@ interface IframeRuntime {
   lastStateBroadcast: number;
   /** Last broadcast player state (for state-aware dedup). */
   lastBroadcastState: number;
-  /** Consecutive getCurrentTime() failures — trips the crash-recovery rebuild. */
-  crashFailCount: number;
+  /** When the current run of getCurrentTime() failures began (0 = none);
+   *  CRASH_FAIL_WINDOW_MS later it trips the crash-recovery rebuild. */
+  crashFailSince: number;
   /** Last playlist index that was preempted for auto-advance. Prevents infinite looping within 0.8s */
   lastPreemptIdx: number;
   /** True if we are intercepting a native playlist load via cuePlaylist purely to scrape IDs. */
@@ -1187,7 +1216,7 @@ const _ifr: IframeRuntime = {
   expectedMetadataVideoId: null,
   lastStateBroadcast: 0,
   lastBroadcastState: -1,
-  crashFailCount: 0,
+  crashFailSince: 0,
   lastPreemptIdx: -1,
   isScrapingPlaylist: false,
   scrapeStartSubIndex: null,
@@ -3004,6 +3033,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   // already claimed the global slot. Never project that retired player's
   // state into the new queue occurrence.
   if (event.target !== getYouTubePlayer()) return;
+  paceYouTubeUILoop();
   if (event.target === resettingResidentPlayer) return;
   const indexing = isYtIndexing();
   const player = getYouTubePlayer();
@@ -3397,14 +3427,16 @@ function updateYouTubeUI(): void {
     if (Number.isFinite(currentTime) && currentTime >= 0) {
       _ifr.lastRecoverableTime = toCanonicalYouTubeTime(currentTime, player.getDuration?.() || 0);
     }
-    _ifr.crashFailCount = 0; // Reset on success
+    _ifr.crashFailSince = 0; // Reset on success
   } catch {
-    _ifr.crashFailCount++;
-    if (_ifr.crashFailCount >= CRASH_FAIL_THRESHOLD) {
-      log.error(
-        `[YouTube] iframe unresponsive (${_ifr.crashFailCount} failures). Rebuilding player`,
-      );
-      _ifr.crashFailCount = 0;
+    // A throwing iframe cannot prove it is idle: sample it at the normal
+    // cadence, so the window below trips as soon as it did before.
+    paceYouTubeUILoop();
+    const failedAt = Date.now();
+    _ifr.crashFailSince ||= failedAt;
+    if (failedAt - _ifr.crashFailSince >= CRASH_FAIL_WINDOW_MS) {
+      log.error('[YouTube] iframe unresponsive. Rebuilding player');
+      _ifr.crashFailSince = 0;
 
       // Reset guestPlayLatency — the last calibration before the crash may
       // have been measured against a dying iframe (stale getCurrentTime),
@@ -3487,7 +3519,22 @@ function updateYouTubeUI(): void {
     const playlistIdx = player.getPlaylistIndex?.() ?? -1;
     const state = player.getPlayerState?.() ?? -1;
 
-    observeYouTubeNativeControlPosition(player);
+    // Hidden while paused, or CUED/UNSTARTED with no play intent, nothing
+    // below needs the normal cadence: media cannot advance, native seeks are
+    // only observed while visible, and the unavailable-skip is foreground
+    // only. Crash detection is time-based. Playing, buffering, ENDED and
+    // every visible state keep UI_LOOP_INTERVAL_MS.
+    paceYouTubeUILoop(
+      document.hidden && (state === 2 || ((state === -1 || state === 5) && !getYtAutoplayIntent())),
+    );
+
+    // getVideoData() crosses into the iframe. Read it at most once per tick
+    // and share that result with every consumer below.
+    let tickVideoData: ReturnType<YouTubePlayerInstance['getVideoData']> | null = null;
+    const readVideoData = () =>
+      tickVideoData === null ? (tickVideoData = player.getVideoData?.()) : tickVideoData;
+
+    observeYouTubeNativeControlPosition(player, false, { getVideoData: readVideoData });
 
     if (state === YT.PlayerState.ENDED) {
       retryProEndedAtCanonicalBoundary(player, currentTime, rawDuration);
@@ -3561,7 +3608,7 @@ function updateYouTubeUI(): void {
     // call is a no-op when nothing changed (same-ref check inside).
     let hostVideoDataHasExactAuthor = false;
     if (!getState('network.hostConn')) {
-      const videoData = player.getVideoData?.();
+      const videoData = readVideoData();
       const vTitle = videoData?.title;
       if (vTitle && isVideoDataForCurrentSelection(videoData?.video_id, playlistIdx)) {
         hostVideoDataHasExactAuthor = typeof videoData.author === 'string';
@@ -3726,18 +3773,19 @@ function updateYouTubeUI(): void {
     }
 
     // Update track title and videoId cache.
-    // getVideoData() is an expensive cross-iframe call. Only call it when
+    // getVideoData() is an expensive cross-iframe call. Only consume it when
     // the sub-index changed (detected above) or every Nth tick as a fallback
     // for single videos. Calling it on every UI tick (twice per second) caused
-    // iframe memory pressure in long sessions.
+    // iframe memory pressure in long sessions. A host already read it above;
+    // this shares that read.
     _ifr.videoDataPollCount = (_ifr.videoDataPollCount + 1) % VIDEO_DATA_POLL_EVERY_NTH_TICK;
     const shouldPollVideoData = subIndexJustChanged
       ? false // sub-index branch above already ran; title was set from subItemsMap
       : _ifr.videoDataPollCount === 0; // every Nth tick for title/videoId sync
 
     let currentVideoId = _ifr.lastDurationVideoId; // reuse cached value by default
-    if (shouldPollVideoData && player.getVideoData) {
-      const vData = player.getVideoData();
+    if (shouldPollVideoData) {
+      const vData = readVideoData();
       const videoDataMatchesSelection = isVideoDataForCurrentSelection(
         vData?.video_id,
         playlistIdx,

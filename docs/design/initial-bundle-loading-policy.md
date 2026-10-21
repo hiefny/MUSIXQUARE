@@ -368,6 +368,32 @@ build measurements, not an exact-main CI release candidate. Implementation and
 test evidence are in the
 [8.11.33 report](short-desktop-title-and-delete-mode-stability-2026-10-21.md).
 
+### 2026-10-22 playlist selection boundary addendum
+
+After 8.11.41 the eager JavaScript gzip was 491,523 B, 45 B under the unchanged
+491,568 B maintenance ceiling, which left no room for the 9.0.0 idle-work fixes.
+Instead of raising capacity, the playlist selection and deletion controller
+(`src/ui/playlist-removal.ts`) became a reviewed deferred app-shell root, the
+same boundary as the reorder controller. Selection starts only from a tap on a
+row's minus or a held press, never in the first frame, so `playlist-view.ts`
+imports the controller after the list mounts and drops a stale load when the
+view is initialized again. A minus tapped before the chunk arrives is replayed
+once it does, so the control never goes dead. Only the type import stays static,
+and the root is in `REVIEWED_DEFERRED_APP_SHELL_ROOTS` for the offline install
+manifest and the static-graph guard.
+
+| Metric                |  Before B |   After B | Unchanged 95% ceiling B |
+| --------------------- | --------: | --------: | ----------------------: |
+| Eager JavaScript gzip |   491,523 |   488,240 |                 491,568 |
+| Eager total gzip      |   570,030 |   566,782 |                 570,570 |
+| Eager total raw       | 2,132,463 | 2,119,554 |            2,156,096.25 |
+| Entry script gzip     |   129,438 |   125,450 |                 461,890 |
+
+The deferred chunk is 14,569 B raw / 5,201 B gzip. Architectural limits, the 5%
+reserve, entry limits, and zero eager fonts are unchanged. These are local
+build measurements taken before the rest of the 9.0.0 batch; the final release
+numbers are in the [9.0.0 report](idle-compute-optimization-2026-10-22.md).
+
 ## Consequences
 
 Setup, the lightweight demo protocol bridge, visualizer, file-drop, and

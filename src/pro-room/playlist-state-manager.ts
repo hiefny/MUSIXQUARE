@@ -206,6 +206,11 @@ function requirePlaylistSlots(snapshot: ProRoomSnapshot): PlaylistSlotsSummary {
   return snapshot.playlistSlots;
 }
 
+/** A room without playlist summaries has one playlist, as the Worker treats it. */
+function activePlaylistSlot(snapshot: ProRoomSnapshot): number {
+  return snapshot.playlistSlots?.activeSlot ?? 0;
+}
+
 function cloneSnapshot(snapshot: ProRoomSnapshot): ProRoomSnapshot {
   const cloned = parseProRoomSnapshot(snapshot);
   if (!cloned) throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SNAPSHOT_INVALID');
@@ -333,6 +338,8 @@ export class ProRoomPlaylistStateManager {
   readonly #issuedIdempotencyKeys = new Set<string>();
   readonly #issuedIdempotencyKeyOrder: string[] = [];
   #snapshot: ProRoomSnapshot | null = null;
+  /** The caller's object that #snapshot was accepted from (or confirmed equal to). */
+  #snapshotSource: ProRoomSnapshot | null = null;
   #operationTail: Promise<void> = Promise.resolve();
   #acceptanceTail: Promise<void> = Promise.resolve();
 
@@ -789,6 +796,7 @@ export class ProRoomPlaylistStateManager {
   async #appendCanonicalItem(
     item: ProRoomPlaylistWireItem,
     signal?: AbortSignal,
+    targetSlot?: number,
   ): Promise<ProRoomSnapshot> {
     let firstSelectionRequest: ProRoomFirstAppendSelectionRequest | null = null;
     const accepted = await this.#mutate((snapshot) => {
@@ -802,6 +810,12 @@ export class ProRoomPlaylistStateManager {
       if (existing) {
         if (jsonEqual(existing, item)) return null;
         throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
+      }
+      // The compact append always edits the active playlist. When another
+      // playlist became active since `targetSlot` was chosen, adding the row
+      // would put it in that one, so the append stops instead.
+      if (targetSlot !== undefined && activePlaylistSlot(snapshot) !== targetSlot) {
+        throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SWITCHED');
       }
       this.#assertCapacity(snapshot, 1);
       const canSelectFirstItem =
@@ -874,6 +888,9 @@ export class ProRoomPlaylistStateManager {
       const refreshed = await this.#api.getSnapshot(this.#code, options.signal);
       accepted = await this.#accept(refreshed, true);
     }
+    // The file belongs to the playlist that is active when its upload starts,
+    // not to whichever one another administrator made active by its end.
+    const targetSlot = activePlaylistSlot(accepted);
     const queueItemId =
       input.queueItemId === undefined
         ? this.#nextQueueItemId()
@@ -903,7 +920,7 @@ export class ProRoomPlaylistStateManager {
         ...(input.thumbnail === undefined ? {} : { thumbnail: input.thumbnail }),
         source: upload.asset,
       });
-      accepted = await this.#appendCanonicalItem(item, options.signal);
+      accepted = await this.#appendCanonicalItem(item, options.signal, targetSlot);
       return { snapshot: cloneSnapshot(accepted), queueItemId };
     } catch (error) {
       // The snapshot request may have committed on the server even when its
@@ -1067,6 +1084,10 @@ export class ProRoomPlaylistStateManager {
     incoming: ProRoomSnapshot,
     acceptSuperseded: boolean,
   ): Promise<ProRoomSnapshot> {
+    // An unchanged heartbeat hands back the very object accepted last time,
+    // whose content #snapshot already holds. Skip the re-parse, the deep
+    // comparison and the defensive copy: the caller already owns that object.
+    if (this.#snapshot && incoming === this.#snapshotSource) return incoming;
     const result = applyProRoomSnapshotMonotonically(this.#snapshot, incoming);
     if (result.outcome === 'stale' && acceptSuperseded && result.snapshot) {
       // A validated response from this room can arrive after a newer heartbeat
@@ -1088,7 +1109,10 @@ export class ProRoomPlaylistStateManager {
     if (!accepted || accepted.roomCode !== this.#code) {
       throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SNAPSHOT_MISMATCH');
     }
-    if (result.outcome === 'duplicate') return cloneSnapshot(accepted);
+    if (result.outcome === 'duplicate') {
+      this.#snapshotSource = incoming;
+      return cloneSnapshot(accepted);
+    }
 
     const projected = this.#projection.project(accepted.playlist);
 
@@ -1099,6 +1123,7 @@ export class ProRoomPlaylistStateManager {
     // be projected on retry.
     await this.#sink({ snapshot: cloneSnapshot(accepted), playlist: projected });
     this.#snapshot = accepted;
+    this.#snapshotSource = incoming;
     return cloneSnapshot(accepted);
   }
 

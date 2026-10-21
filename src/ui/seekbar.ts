@@ -8,6 +8,7 @@
  */
 
 import { bus, createBusScope } from '../core/events.ts';
+import { DESKTOP_LAYOUT_QUERY, isDesktopLayout } from '../core/layout-breakpoints.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import {
@@ -104,6 +105,13 @@ function setSeekSliderValue(slider: HTMLInputElement, value: string): void {
 function setSeekSliderMax(slider: HTMLInputElement, value: string): void {
   slider.max = value;
   syncRangeProgress(slider);
+}
+
+// index.html gives the seek range step="0.1". The browser rounds every value
+// to that step, one step lower past a max between steps, so this string is
+// exactly what slider.value reads back.
+function snapSeekValue(seconds: number, max: number): string {
+  return String(Math.min(Math.round(seconds * 10), Math.floor(max * 10)) / 10);
 }
 
 const SEEK_DRAFT_RELEASE_TIMER = 'seekbar-draft-release';
@@ -358,6 +366,8 @@ function initSeekBarInput(signal?: AbortSignal): void {
 
 let _rafId: number | null = null;
 let _systemAudioPollTimer: number | null = null;
+// Playback wants the loop; frames run only while the seek bar can be seen.
+let _seekLoopActive = false;
 let _rafAnchorTime = 0;
 let _rafAnchorTs = 0;
 let _rafLastFmtSec = -1;
@@ -444,8 +454,13 @@ function _seekRafLoop(now: number): void {
     const tc = document.getElementById('time-curr');
     if (slider) {
       const dt = (now - _rafAnchorTs) / 1000;
-      const interpolated = Math.min(_rafAnchorTime + dt, parseFloat(slider.max) || 0);
-      setSeekSliderValue(slider, String(interpolated));
+      const max = parseFloat(slider.max) || 0;
+      const interpolated = Math.min(_rafAnchorTime + dt, max);
+      // Most frames land on the step already shown. Skip only those, never
+      // sub-pixel moves: keyboard and VoiceOver stepping and drag anchoring
+      // read slider.value.
+      const value = snapSeekValue(interpolated, max);
+      if (value !== slider.value) setSeekSliderValue(slider, value);
 
       const sec = Math.floor(interpolated);
       if (sec !== _rafLastFmtSec) {
@@ -460,14 +475,53 @@ function _seekRafLoop(now: number): void {
 }
 
 function _startSeekRaf(): void {
-  if (_rafId !== null || _systemAudioPollTimer !== null) return;
+  if (_seekLoopActive) return;
+  _seekLoopActive = true;
   _rafAnchorTime = getPendingSeekProjection()?.targetSeconds ?? getTrackPosition();
   _rafAnchorTs = performance.now();
   _rafLastFmtSec = -1;
+  if (isSeekBarShown()) _rafId = requestAnimationFrame(_seekRafLoop);
+}
+
+// The wide dashboard always shows the Play panel; narrower layouts show only
+// the active tab. A hidden page or the screensaver's cover shows neither.
+function isSeekBarShown(): boolean {
+  const playTab = document.getElementById('tab-play');
+  return (
+    !document.hidden &&
+    !document.body.hasAttribute('data-visualizer-covered') &&
+    (!playTab || playTab.classList.contains('active') || isDesktopLayout())
+  );
+}
+
+function syncSeekLoopVisibility(): void {
+  if (!_seekLoopActive) return;
+  if (!isSeekBarShown()) {
+    _cancelSeekFrames();
+    return;
+  }
+  if (_rafId !== null || _systemAudioPollTimer !== null) return;
+  // Repaint before the next frame. A tab switch captures its View Transition
+  // snapshot right after ui:tab-changed, and the screensaver's exit fade
+  // starts with its uncover signal. A 0 can be transient, as in the 250 ms
+  // poll; the frame then interpolates from the previous anchor.
+  if (!getState('player.isSeeking') && !getPendingSeekProjection() && isFileActivelyPlaying()) {
+    const position = getTrackPosition();
+    if (position > 0 && Number.isFinite(position)) {
+      _rafAnchorTime = position;
+      _rafAnchorTs = performance.now();
+      renderSeekPosition(position);
+    }
+  }
   _rafId = requestAnimationFrame(_seekRafLoop);
 }
 
 function _stopSeekRaf(): void {
+  _seekLoopActive = false;
+  _cancelSeekFrames();
+}
+
+function _cancelSeekFrames(): void {
   if (_rafId !== null) {
     cancelAnimationFrame(_rafId);
     _rafId = null;
@@ -532,6 +586,9 @@ function initSeekBarBusHandlers(): void {
     if (loading) finishSeekDraft();
     refreshAvailability();
   });
+  // Emitted inside the tab switch's View Transition callback, after the panel
+  // classes change.
+  _busScope.on('ui:tab-changed', syncSeekLoopVisibility);
 
   const renderPausedFilePosition = (): void => {
     const playback = getPlaybackModeActivitySnapshot();
@@ -626,7 +683,11 @@ function initSeekBarBusHandlers(): void {
         //    until the next 250ms tick collapses it again. Treat 0 as
         //    transient and let the existing anchor (set by _startSeekRaf
         //    or by the previous valid tick) keep advancing via dt.
-        if (!getPendingSeekProjection() && isFileActivelyPlaying()) {
+        //
+        // A hidden seek bar parks its frames (_rafId stays null) and
+        // re-anchors when it resumes, so it skips this refresh. The ended
+        // check below still runs.
+        if (_rafId !== null && !getPendingSeekProjection() && isFileActivelyPlaying()) {
           const pos = getTrackPosition();
           if (pos > 0 && Number.isFinite(pos)) {
             _rafAnchorTime = pos;
@@ -735,7 +796,10 @@ function initSeekBarBusHandlers(): void {
     }
   });
 
-  // YouTube time update (seek bar + time display)
+  // YouTube time update (seek bar + time display). The 500 ms poll repeats
+  // values while paused. Seek input, renderSeekPosition, ui:seek-reset and
+  // renderUnavailableTimeline also write these nodes, so compare with the live
+  // DOM, not a private cache, and write only what differs.
   _busScope.on('ui:time-update', (currentFormatted, totalFormatted, currentTime, duration) => {
     const timelineReason = getTimelineUnavailableReason();
     if (timelineReason) {
@@ -745,21 +809,24 @@ function initSeekBarBusHandlers(): void {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     const tt = document.getElementById('time-dur');
-    const isSeeking = getState('player.isSeeking');
+    const projected = getState('player.isSeeking') || getPendingSeekProjection() !== null;
 
-    if (slider) {
-      if (duration > 0) {
-        setSeekSliderMax(slider, String(duration));
-      }
-      if (!isSeeking && !getPendingSeekProjection() && duration > 0) {
-        setSeekSliderValue(slider, String(currentTime));
-        slider.setAttribute('aria-valuetext', currentFormatted);
+    if (slider && duration > 0) {
+      // A new max can move the value, so compare the value after it.
+      if (slider.max !== String(duration)) setSeekSliderMax(slider, String(duration));
+      if (!projected) {
+        const value = snapSeekValue(currentTime, duration);
+        if (slider.value !== value) setSeekSliderValue(slider, value);
+        if (slider.getAttribute('aria-valuetext') !== currentFormatted) {
+          slider.setAttribute('aria-valuetext', currentFormatted);
+        }
       }
     }
     // Always update time text — even during duration=0 (new video loading),
     // so the user sees "0:03" ticking instead of a frozen display.
-    if (tc && !isSeeking && !getPendingSeekProjection()) tc.innerText = currentFormatted;
-    if (tt && duration > 0) tt.innerText = totalFormatted;
+    // textContent reads without the layout flush that innerText needs.
+    if (tc && !projected && tc.textContent !== currentFormatted) tc.innerText = currentFormatted;
+    if (tt && duration > 0 && tt.textContent !== totalFormatted) tt.innerText = totalFormatted;
   });
 }
 
@@ -768,6 +835,17 @@ function initSeekBarBusHandlers(): void {
 export function initSeekBar(signal?: AbortSignal): void {
   initSeekBarInput(signal);
   initSeekBarBusHandlers();
+  // Resume from these signals, not from an observer callback that lands after
+  // the frame has already been captured or painted.
+  document.addEventListener('visibilitychange', syncSeekLoopVisibility, { signal });
+  document.addEventListener('mxqr:visualizer-visibility', syncSeekLoopVisibility, { signal });
+  try {
+    window
+      .matchMedia(DESKTOP_LAYOUT_QUERY)
+      .addEventListener('change', syncSeekLoopVisibility, { signal });
+  } catch {
+    /* matchMedia may be unavailable in tests or very old browsers. */
+  }
   const timelineReason = getTimelineUnavailableReason();
   if (timelineReason) renderUnavailableTimeline(timelineReason);
 }

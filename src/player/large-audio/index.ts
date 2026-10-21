@@ -19,7 +19,7 @@ import {
 import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import type { LargeAudioTrack } from '../file-playback-resource.ts';
 import type { PcmIterator } from './bounded-playback.ts';
-import { BoundedAudioTrack } from './bounded-track.ts';
+import { BoundedAudioTrack, PRIME_SECONDS } from './bounded-track.ts';
 import { readMp3GaplessTrim } from './mp3-gapless.ts';
 import { registerIncrementalAudioDecoders } from './wasm-decoders.ts';
 import { IncrementalAacDecoder } from './aac-decoder.ts';
@@ -167,7 +167,11 @@ export async function openLargeAudioTrack(
       duration,
       sampleRate,
       numberOfChannels,
-      (position) => guardPcmChunkBoundaries(openReader(position), duration),
+      // Keep codec-frame chunks through the primed second, so preparing, cold
+      // starts and stale-window recovery decode and schedule exactly as before.
+      // Later PCM is merged into fewer, longer sources.
+      (position) =>
+        guardPcmChunkBoundaries(openReader(position), duration, position + PRIME_SECONDS),
       () => input.dispose(),
     );
   } catch (error) {

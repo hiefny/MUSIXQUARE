@@ -240,10 +240,12 @@ export function observeYouTubeNativeControlState(
 /** There is no cross-origin iframe seek event. Keep a recent baseline before
  * the first click enters the iframe, but only promote a jump while that exact
  * visible iframe has focus. Ambiguous gaps/ads/owned operations reset the
- * baseline instead of moving the room. */
+ * baseline instead of moving the room. The UI tick passes its shared
+ * getVideoData() reader as `videoDataSource`, so a tick reads the iframe once. */
 export function observeYouTubeNativeControlPosition(
   player: YouTubePlayerInstance,
   programmaticCallback = false,
+  videoDataSource: Pick<YouTubePlayerInstance, 'getVideoData'> = player,
 ): boolean {
   const hostConn = getState('network.hostConn');
   if (
@@ -265,14 +267,15 @@ export function observeYouTubeNativeControlPosition(
   }
   try {
     const queueItemId = getCurrentQueueItemId();
-    const videoId = player.getVideoData?.()?.video_id || '';
+    const videoId = videoDataSource.getVideoData?.()?.video_id || '';
     const state = player.getPlayerState();
     const position = player.getCurrentTime();
     const duration = player.getDuration();
     if (
       !queueItemId ||
       !videoId ||
-      !playerMatchesCurrentOccurrence(player, queueItemId) ||
+      // playerMatchesCurrentOccurrence() without a second getVideoData() read.
+      (resolveIntendedVideoId(queueItemId) || videoId) !== videoId ||
       ![1, 2, 3].includes(state) ||
       !Number.isFinite(position) ||
       !Number.isFinite(duration) ||

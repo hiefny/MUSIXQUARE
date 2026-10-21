@@ -224,11 +224,14 @@ describe('leaveSession', () => {
 
   it('preserves page-lifetime service-worker polling while clearing session timers', () => {
     setManagedTimer('sw-update-check', vi.fn(), 60_000, { interval: true });
+    setManagedTimer('audio-input-gate', vi.fn(), 150);
     setManagedTimer('session-only-test', vi.fn(), 60_000, { interval: true });
 
     leaveSession();
 
     expect(getManagedTimer('sw-update-check')).not.toBeNull();
+    // An effect switched off just before leaving still disconnects after its ramp.
+    expect(getManagedTimer('audio-input-gate')).not.toBeNull();
     expect(getManagedTimer('session-only-test')).toBeNull();
   });
 

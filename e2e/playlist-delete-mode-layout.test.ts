@@ -37,11 +37,14 @@ for (const [label, viewport] of [
     // Let the list's entrance motion settle before taking the reference.
     await page.waitForTimeout(1500);
     const before = await playlistGeometry(page);
+    // The header crossfade keeps an inert, aria-hidden copy of the controls
+    // while it fades, so target only the live title.
+    const selectionTitle = page.locator('.playlist-selection-title:not(.playlist-header-fade *)');
     await page.locator('.btn-playlist-select').nth(1).click();
-    await expect(page.locator('.playlist-selection-title')).toBeVisible();
+    await expect(selectionTitle).toBeVisible();
     const during = await playlistGeometry(page);
     await page.locator('[data-selection-action="cancel"]').click();
-    await expect(page.locator('.playlist-selection-title')).toBeHidden();
+    await expect(selectionTitle).toBeHidden();
     const after = await playlistGeometry(page);
 
     for (const state of [during, after]) {

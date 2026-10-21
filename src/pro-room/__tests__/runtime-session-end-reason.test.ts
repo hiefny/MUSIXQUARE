@@ -25,6 +25,7 @@ import {
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { changeActiveProRoomPin, joinProRoom } from '../runtime.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_ended_1';
@@ -150,7 +151,7 @@ async function join(role: ProRoomRole, presenceIncarnationId = PRESENCE_ID): Pro
   vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
     signalingAccess(presenceIncarnationId),
   );
-  vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(next);
+  vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(next));
   vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(next);
   vi.mocked(ProRoomApiClient.prototype.enterPresence).mockResolvedValue(next);
   await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
@@ -197,7 +198,7 @@ describe('PRO runtime session-end reasons', { concurrent: false }, () => {
     vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockResolvedValue(
       signalingAccess(),
     );
-    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial);
+    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(proHeartbeat(initial));
     vi.spyOn(ProRoomApiClient.prototype, 'attachCurrentAccount').mockResolvedValue(initial);
     vi.spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease').mockImplementation(
       async () => ({ leaseExpiresAtMs: Date.now() + 120_000 }),

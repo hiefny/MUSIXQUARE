@@ -41,6 +41,7 @@ vi.mock('../../network/protocol.ts', () => ({
 
 vi.mock('../../audio/engine.ts', () => ({
   initAudio: vi.fn(async () => {}),
+  getAnalyser: () => ({}),
   getWidener: () => ({ input: {} }),
   getMasterGain: () => ({ disconnect() {}, connect() {} }),
 }));

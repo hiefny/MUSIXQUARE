@@ -1,6 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { bus } from '../../core/events.ts';
 import {
@@ -186,6 +187,19 @@ describe('updateTitleWithMarquee', () => {
 
     expect(title.style.getPropertyValue('--marquee-offset')).toBe('92px');
     expect(title.style.getPropertyValue('--marquee-duration')).toBe('8.6s');
+  });
+
+  it('holds under the screensaver and, without motion, stays still with an ellipsis', () => {
+    const stylesheet = readFileSync('css/style.css', 'utf8');
+
+    expect(stylesheet).toMatch(
+      /body\[data-visualizer-covered\] \.track-title\.marquee \{\s*animation-play-state: paused;/u,
+    );
+    const reduced = stylesheet.match(
+      /@media \(prefers-reduced-motion: reduce\) \{\s*\.track-title \{([^}]*)\}\s*\.track-title\.marquee \{([^}]*)\}/u,
+    );
+    expect(reduced?.[1]).toMatch(/overflow: hidden;\s*text-overflow: ellipsis;/u);
+    expect(reduced?.[2]).toContain('animation: none;');
   });
 });
 

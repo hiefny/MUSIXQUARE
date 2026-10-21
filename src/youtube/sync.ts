@@ -1534,8 +1534,12 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
 
     // Heartbeats can observe ENDED/UNSTARTED before the host's iframe callback
     // advances the queue. They carry no permission to load or resume a video.
+    // An ENDED or CUED iframe is already stopped, so repeating the call on
+    // every heartbeat only churns it. UNSTARTED is still stopped: a load in
+    // flight would autoplay, audibly, before the pause-back guard caught it.
     if (hostState === 0 || hostState === -1) {
-      player.stopVideo?.();
+      const guestState = player.getPlayerState?.();
+      if (guestState !== 0 && guestState !== 5) player.stopVideo?.();
       return;
     }
 
@@ -1744,6 +1748,9 @@ type GuestRendezvousStatus =
 interface GuestRendezvousResult {
   status: GuestRendezvousStatus;
   retryAfterMs?: number;
+  /** Busy only until a newer host snapshot: the host was BUFFERING/CUED, or
+   *  its snapshot names another occurrence. Polling cannot change that. */
+  awaitHostSnapshot?: true;
 }
 
 export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRendezvousResult {
@@ -1803,7 +1810,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   const snapshot = _rt.lastHostSnapshot;
   const manualOffsetSec = getYouTubeManualOffsetSec();
   if (snapshot.hostState === 3 || snapshot.hostState === 5) {
-    return { status: 'busy', retryAfterMs: MANUAL_RENDEZVOUS_RETRY_MS };
+    return { status: 'busy', retryAfterMs: MANUAL_RENDEZVOUS_RETRY_MS, awaitHostSnapshot: true };
   }
   if (snapshot.hostState !== 1 && snapshot.hostState !== 2) return { status: 'not-ready' };
   let duration: number;
@@ -1817,7 +1824,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   }
   const subIndex = getState('youtube.currentSubIndex');
   if (!snapshotMatchesOccurrence(snapshot, videoId, subIndex)) {
-    return { status: 'busy', retryAfterMs: MANUAL_RENDEZVOUS_RETRY_MS };
+    return { status: 'busy', retryAfterMs: MANUAL_RENDEZVOUS_RETRY_MS, awaitHostSnapshot: true };
   }
   const attempt: GuestRendezvousAttempt = {
     player,

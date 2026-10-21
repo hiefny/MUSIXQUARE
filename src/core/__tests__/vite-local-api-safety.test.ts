@@ -491,6 +491,13 @@ describe('service-worker build entry manifest', () => {
         imports: ['assets/vendor.js'],
         modules: { 'C:/repo/src/ui/manual-sync-overlay-runtime.ts': {} },
       },
+      'assets/playlist-removal.js': {
+        type: 'chunk',
+        fileName: 'assets/playlist-removal.js',
+        isEntry: false,
+        imports: ['assets/vendor.js'],
+        modules: { 'C:/repo/src/ui/playlist-removal.ts': {} },
+      },
       'assets/playlist-reorder.js': {
         type: 'chunk',
         fileName: 'assets/playlist-reorder.js',
@@ -543,6 +550,7 @@ describe('service-worker build entry manifest', () => {
       './assets/localized-app-head.js',
       './assets/manual-sync-overlay.js',
       './assets/media-session.js',
+      './assets/playlist-removal.js',
       './assets/playlist-reorder.js',
       './assets/playlist-selection-morph.js',
       './assets/room-audio.js',

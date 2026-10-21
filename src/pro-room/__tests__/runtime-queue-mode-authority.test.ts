@@ -18,6 +18,7 @@ import { captureProRoomMediaHookSession, handleProRoomYouTubeForSession } from '
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import type { ProRoomQueueModeSnapshot } from '../queue-mode.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM = '000001';
 const ITEM = '56000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -222,7 +223,9 @@ describe('PRO queue-mode checkpoint authority across pending HTTP responses', ()
     vi.spyOn(ProRoomApiClient.prototype, 'updateQueueMode').mockImplementation((input, signal) =>
       nativeUpdateQueueMode.call(controlClient, input, signal),
     );
-    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation(async () => canonical);
+    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation(async () =>
+      proHeartbeat(canonical),
+    );
     vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockResolvedValue({
       ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
       expiresAtMs: Date.now() + 60_000,

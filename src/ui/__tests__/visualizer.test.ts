@@ -261,16 +261,28 @@ async function visibilityHarness(
 function deferredSpectrum() {
   let release!: () => void;
   let reject!: (error: Error) => void;
+  let finish!: () => void;
+  const finished = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
   const wait = new Promise<void>((resolve, fail) => {
     release = resolve;
     reject = fail;
   });
   const load = vi.fn(async () => {
-    await wait;
-    return vi.importActual<typeof import('../visualizer-spectrum.ts')>('../visualizer-spectrum.ts');
+    try {
+      await wait;
+      return await vi.importActual<typeof import('../visualizer-spectrum.ts')>(
+        '../visualizer-spectrum.ts',
+      );
+    } finally {
+      // Vitest's module-settled helper can observe an empty evaluator queue
+      // while this asynchronous mock factory still awaits importActual.
+      finish();
+    }
   });
   vi.doMock('../visualizer-spectrum.ts', load);
-  return { release, reject, load };
+  return { release, reject, load, finished };
 }
 
 describe('Visualizer', () => {
@@ -1110,6 +1122,7 @@ describe('Visualizer', () => {
       h.canvas.click();
       expect(h.canvas.getAttribute('data-visualizer-mode')).toBe('circular');
       deferred.release();
+      await deferred.finished;
       await vi.dynamicImportSettled();
       h.step();
       expect(h.ctx.quadraticCurveTo).not.toHaveBeenCalled();
@@ -1123,6 +1136,7 @@ describe('Visualizer', () => {
       h.bus.emit('visualizer:hold-frame');
       h.setActivity('paused');
       deferred.release();
+      await deferred.finished;
       await vi.dynamicImportSettled();
       expect(h.analyser.getFloatFrequencyData).not.toHaveBeenCalled();
       expect(h.pending.size).toBe(0);
@@ -1145,6 +1159,7 @@ describe('Visualizer', () => {
       h.setCovered(true);
       const replacement = h.replaceAnalyser();
       deferred.release();
+      await deferred.finished;
       await vi.dynamicImportSettled();
       expect(h.pending.size).toBe(0);
       expect(replacement.getFloatFrequencyData).not.toHaveBeenCalled();
@@ -1162,6 +1177,7 @@ describe('Visualizer', () => {
       const h = await visibilityHarness('spectrum', { deferLoad: true });
       const failure = new Error('Spectrum chunk unavailable');
       deferred.reject(failure);
+      await deferred.finished;
       await vi.dynamicImportSettled();
       expect(h.bus.emit).toHaveBeenCalledWith(
         'app:lazy-feature-load-failed',

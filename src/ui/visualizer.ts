@@ -8,7 +8,7 @@ import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
-import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
+import { getAnalyser } from '../audio/engine.ts';
 import {
   bassBinCount,
   averageBassLevel,
@@ -165,8 +165,7 @@ function bindVisualizerModeControl(): void {
 const MIN_DB = -100;
 
 // ─── Smoothing coefficients (0 = instant, 1 = frozen) ───
-const BASS_SMOOTH = 0.8;
-const HIGH_SMOOTH = 0.8;
+const CIRCULAR_SMOOTH = 0.8;
 const VIZ_SETTLE_MS = 180;
 const SPECTRUM_START_WARMUP_MS = 1000 / 30;
 
@@ -239,10 +238,6 @@ function _initThemeListeners(): void {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
-
-function getAnalyser(): AnalyserNode | null {
-  return getEngineAnalyser();
-}
 
 /**
  * Unified sizing helper to ensure canvas matches the parent container perfectly (High DPI).
@@ -643,11 +638,7 @@ export function startVisualizer(): void {
 
   if (!analyser) {
     if (++_visualizerRetryCount > MAX_VISUALIZER_RETRIES) {
-      log.warn(
-        '[Visualizer] Gave up waiting for analyser after',
-        MAX_VISUALIZER_RETRIES,
-        'retries',
-      );
+      log.warn('[Visualizer] Analyser unavailable:', MAX_VISUALIZER_RETRIES);
       _visualizerRetryCount = 0;
       _visualizerLoopState = 'idle';
       return;
@@ -699,18 +690,17 @@ export function startVisualizer(): void {
       const elapsed =
         previousDraw === null ? 1000 / 60 : Math.min(100, Math.max(0, now - previousDraw));
       previousDraw = now;
-      const bassSmooth = Math.pow(BASS_SMOOTH, elapsed / (1000 / 60));
-      const highSmooth = Math.pow(HIGH_SMOOTH, elapsed / (1000 / 60));
+      const smooth = Math.pow(CIRCULAR_SMOOTH, elapsed / (1000 / 60));
 
       // Bass: lowest analyser bins, shared with the screensaver glow.
       const bassAverage = averageBassLevel(dbData, bassCount);
 
-      smoothedBass = smoothedBass * bassSmooth + bassAverage * (1 - bassSmooth);
+      smoothedBass = smoothedBass * smooth + bassAverage * (1 - smooth);
       const bassPunch = toBassPunch(smoothedBass);
       const bassPunchOpacity = Math.pow(smoothedBass / 255, 1.5);
 
       const highAverage = averageFrequencyLevel(dbData, sampleRate, 7500, 20000);
-      smoothedHigh = smoothedHigh * highSmooth + highAverage * (1 - highSmooth);
+      smoothedHigh = smoothedHigh * smooth + highAverage * (1 - smooth);
       let highPunch = smoothedHigh / 255;
       if (!isFinite(highPunch)) highPunch = 0;
 
@@ -722,7 +712,7 @@ export function startVisualizer(): void {
 
       queueActiveFrame(draw);
     } catch (e) {
-      log.warn('[Visualizer] draw() error. Stopping animation loop:', e);
+      log.warn('[Visualizer] draw error:', e);
       _animationId = null;
       _visualizerLoopState = 'idle';
     }
@@ -834,7 +824,7 @@ function startSpectrumVisualizer(): void {
       }
       queueActiveFrame(draw);
     } catch (e) {
-      log.warn('[Visualizer] spectrum draw() error:', e);
+      log.warn('[Visualizer] draw error:', e);
       _animationId = null;
       _visualizerLoopState = 'idle';
     }
@@ -1000,6 +990,4 @@ export function initVisualizer(): void {
   // exit signal also covers exits that deliberately skip media restoration.
   _busScope.on('state:demo.active', refreshVisualizerPresentation);
   _busScope.on('visualizer:refresh-presentation', refreshVisualizerPresentation);
-
-  log.info('[Visualizer] Initialized');
 }

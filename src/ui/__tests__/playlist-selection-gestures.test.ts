@@ -251,6 +251,36 @@ describe('playlist drag selection gestures', () => {
     expect(selection()).toEqual(['r0', 'r1']);
   });
 
+  it('sets a two-finger range like the starting row: select from unselected, deselect from selected', () => {
+    const fingers = (y: number): TestTouch[] => [
+      { identifier: 1, clientX: 100, clientY: y - 6, target: button(1) },
+      { identifier: 2, clientX: 160, clientY: y + 6, target: button(1) },
+    ];
+    const pan = (from: number, to: number) => {
+      dispatchTouch(list, 'touchstart', fingers(rowCenter(from)));
+      dispatchTouch(list, 'touchmove', fingers(rowCenter(from) + 12));
+      dispatchTouch(list, 'touchmove', fingers(rowCenter(to)));
+      dispatchTouch(list, 'touchend', [], fingers(rowCenter(to)));
+    };
+
+    // Rows 2, 3 and 5 selected; a pan from the unselected row 1 to the end
+    // selects everything it passes.
+    selected = new Set(['r1', 'r2', 'r4']);
+    pan(0, 4);
+    expect(selection()).toEqual(['r0', 'r1', 'r2', 'r3', 'r4']);
+    // From the selected row 2 down to the end it deselects: only row 1 stays.
+    pan(1, 4);
+    expect(selection()).toEqual(['r0']);
+
+    // Rows 2, 4 and 5 selected; from row 2 the pan clears them and leaves the
+    // unselected row 3 as it was.
+    selected = new Set(['r1', 'r3', 'r4']);
+    toggle.mockClear();
+    pan(1, 4);
+    expect(selection()).toEqual([]);
+    expect(toggle.mock.calls.map(([id]) => id).sort()).toEqual(['r1', 'r3', 'r4']);
+  });
+
   it('lets a pinch and an already scrolling page keep their native behavior', () => {
     const pair = (y: number, spread: number): TestTouch[] => [
       { identifier: 1, clientX: 100, clientY: y - spread, target: button(2) },

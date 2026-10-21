@@ -9,10 +9,11 @@
  *   (select from an unselected row, deselect from a selected one). Mouse, pen
  *   and touch share Pointer Events; the column is `touch-action: none`, so it
  *   never starts a native scroll.
- * - On touch screens, two fingers moving vertically over the list select
- *   every row between the starting row and the current one. While they move,
- *   native scrolling (and zoom, which the app shell already blocks) is
- *   prevented; one-finger scrolling is untouched.
+ * - On touch screens, two fingers moving vertically over the list set every
+ *   row between the starting row and the current one the same way: selected
+ *   from an unselected starting row, deselected from a selected one. While
+ *   they move, native scrolling (and zoom, which the app shell already
+ *   blocks) is prevented; one-finger scrolling is untouched.
  *
  * Both gestures recompute the selection from the selection that existed when
  * they began, so moving back un-selects rows the gesture added. Holding near
@@ -339,7 +340,7 @@ export function installPlaylistSelectionGestures(
       const midY = (first.clientY + second.clientY) / 2;
       const anchorId = rowIdAt(midY);
       if (!anchorId) return;
-      const state = newGesture('two-finger', anchorId, midY, true);
+      const state = newGesture('two-finger', anchorId, midY, !options.isSelected(anchorId));
       state.touchIds = [first.identifier, second.identifier];
       state.startSpread = Math.hypot(
         first.clientX - second.clientX,

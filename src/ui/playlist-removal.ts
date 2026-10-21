@@ -856,6 +856,7 @@ export function createPlaylistRemovalController(
     afterRender: () => {
       syncDom();
       continueGlide();
+      morph?.afterRender();
     },
     cancel,
     notifyPlaylistHidden,

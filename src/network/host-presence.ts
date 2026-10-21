@@ -152,7 +152,15 @@ function watchHostConnection(): void {
   // A new or closed connection resets quietly: the join and disconnect flows
   // own that UI.
   setPresence('ok', 'reset');
-  if (next) {
+  syncWatchdog();
+}
+
+/**
+ * The host is judged only while this page is on screen, so the watchdog runs
+ * only then. The visibility handler restarts it with an immediate check.
+ */
+function syncWatchdog(): void {
+  if (watchedConn && !isPageHidden()) {
     setManagedTimer(WATCHDOG_TIMER, tick, WATCHDOG_INTERVAL_MS, { interval: true });
   } else {
     clearManagedTimer(WATCHDOG_TIMER);
@@ -269,8 +277,12 @@ export function refuseWhileHostHidden(
 let initialized = false;
 
 function handleVisibilityChange(): void {
-  // Back on screen, this page's own pings resume; restart the silence window.
-  if (watchedConn && armed && !isPageHidden()) lastHostFrameAt = Date.now();
+  syncWatchdog();
+  if (!watchedConn || isPageHidden()) return;
+  // Back on screen, this page's own pings resume; restart the silence window
+  // and settle the presence now instead of on the next tick.
+  if (armed) lastHostFrameAt = Date.now();
+  tick();
 }
 
 export function initHostPresence(): void {

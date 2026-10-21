@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
+import { getManagedTimer } from '../../core/timers.ts';
 import { t } from '../../i18n/index.ts';
 import type {
   ConnectedPeer,
@@ -30,6 +31,7 @@ import { safeSend } from '../peer-state.ts';
 const FILE_ITEM = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const YOUTUBE_ITEM = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const { silenceMs, longSilenceMs } = hostPresenceTimingForTests;
+const WATCHDOG_TIMER = 'host-presence-watchdog';
 
 type FakeConnection = DataConnection & { send: ReturnType<typeof vi.fn> };
 
@@ -224,6 +226,36 @@ describe('guest view of a Standard host', () => {
     setVisibility('visible');
     vi.advanceTimersByTime(1_000);
     expect(getHostPresence()).toBe('ok');
+  });
+
+  it('stops the watchdog while hidden and checks at once when shown again', () => {
+    const host = connection('host');
+    joinAsGuest(host);
+    expect(getManagedTimer(WATCHDOG_TIMER)).not.toBeNull();
+    vi.advanceTimersByTime(silenceMs);
+    expect(getHostPresence()).toBe('unresponsive');
+
+    setVisibility('hidden');
+    expect(getManagedTimer(WATCHDOG_TIMER)).toBeNull();
+
+    setVisibility('visible');
+    expect(getManagedTimer(WATCHDOG_TIMER)).not.toBeNull();
+    // The silence window restarted and was judged without waiting a tick.
+    expect(getHostPresence()).toBe('ok');
+    vi.advanceTimersByTime(silenceMs);
+    expect(getHostPresence()).toBe('unresponsive');
+  });
+
+  it('starts the watchdog for a link that opened while hidden only once shown', () => {
+    setVisibility('hidden');
+    const host = connection('host');
+    joinAsGuest(host);
+    expect(getManagedTimer(WATCHDOG_TIMER)).toBeNull();
+
+    setVisibility('visible');
+    expect(getManagedTimer(WATCHDOG_TIMER)).not.toBeNull();
+    vi.advanceTimersByTime(silenceMs);
+    expect(getHostPresence()).toBe('unresponsive');
   });
 
   it('resets quietly when the host connection closes', () => {

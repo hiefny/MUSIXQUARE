@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Preload finishing progress — 2026-10-22](design/preload-finishing-progress-2026-10-22.md) —
+  A selected partial preload keeps its percentage and foreground progress updates; exact-session
+  ownership, retained RAM bytes and no restart on normal promotion, with local validation limits.
+
 - [Visualizer response and screensaver optimization — 2026-10-22](design/visualizer-response-optimization-2026-10-22.md) —
   Independent time-based analysis, visibility suspension, bass response, spectrum peak coverage,
   drawing caches and conditional spectrum loading; local validation and explicit device limits.

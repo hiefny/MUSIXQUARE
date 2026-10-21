@@ -663,8 +663,9 @@ state. Recovery must restore a matched Worker/client/data checkpoint or
 forward-fix the current protocol.
 
 The checked-in PRO system-audio contract marker is
-`single-stereo-v3`. Its cutover requires one full PRO/signaling/app
-release. If any component of that marker-changing candidate became live,
+`single-stereo-v3+heartbeat-state-v1`; its `heartbeat-state-v1` part (9.0.0) moves the
+system-audio state onto the PRO heartbeat replies. Each cutover requires one
+full PRO/signaling/app release. If any component of that marker-changing candidate became live,
 recovery treats the v3 system-audio contract as a forward floor:
 it preserves all three components and repairs forward instead of restoring an
 older app that can stop direct at its compatibility timestamp or an older PRO

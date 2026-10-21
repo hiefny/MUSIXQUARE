@@ -1245,11 +1245,14 @@ export function configureProSystemAudioService(
   });
 }
 
+function sessionKeyFor(snapshot: ProRoomSnapshot): string | null {
+  return snapshot.status === 'active' && snapshot.viewer
+    ? `${snapshot.roomCode}:${snapshot.viewer.participantId}:${snapshot.viewer.presenceIncarnationId}`
+    : null;
+}
+
 export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
-  const nextSessionKey =
-    snapshot.status === 'active' && snapshot.viewer
-      ? `${snapshot.roomCode}:${snapshot.viewer.participantId}:${snapshot.viewer.presenceIncarnationId}`
-      : null;
+  const nextSessionKey = sessionKeyFor(snapshot);
   if (boundSessionKey !== nextSessionKey) {
     // A request issued for the previous tab incarnation must never suppress
     // the first authoritative refresh for the newly bound incarnation.
@@ -1380,6 +1383,26 @@ export function refreshProSystemAudioState(
     });
   queuedForcedRefresh = queued;
   return queued;
+}
+
+/**
+ * Apply the system-audio state that every authenticated presence heartbeat
+ * carries. It is the same payload GET /system-audio returns and is accepted
+ * the same way, so the 15-second heartbeat backstops a lost realtime
+ * invalidation and a rebuilt control channel without a separate poll.
+ */
+export function acceptProSystemAudioHeartbeatState(
+  state: ProRoomSystemAudioState,
+  snapshot: ProRoomSnapshot,
+): void {
+  // Only the presence incarnation this service is bound to owns the reply.
+  const sessionKey = sessionKeyFor(snapshot);
+  if (!controller || sessionKey === null || sessionKey !== boundSessionKey) return;
+  try {
+    controller.acceptHeartbeatProSystemAudioState(state);
+  } catch (error) {
+    log.warn('[PRO SystemAudio] Heartbeat state was not applied', error);
+  }
 }
 
 export async function acquireLocalProSystemAudioLease(
@@ -1914,10 +1937,9 @@ export function registerProSystemAudioServiceListeners(): void {
     cleanupSystemAudioSfuGuestRoute();
     const state = controller?.getCurrentState();
     if (state) reconcileCoordinatorState(state);
-    // The PRO runtime owns the authoritative initial read and its safety
-    // deadline. Fetching here as well races that read and can issue a second
-    // request after a fast response without registering the result with the
-    // runtime's realtime-first refresh schedule.
+    // The PRO runtime owns the authoritative initial read, and every presence
+    // heartbeat carries the state afterwards. Fetching here as well would
+    // only race those reads.
   });
 
   onProSystemAudioSfuEvent((event) => {

@@ -12,6 +12,7 @@ import {
   ownerSnapshot,
   proCorsHeaders,
   fulfillProJson,
+  heartbeatReply,
 } from './helpers/pro-room-fixture.ts';
 
 test.describe('Critical browser release gate', () => {
@@ -211,7 +212,7 @@ test.describe('Critical browser release gate', () => {
         return;
       }
       if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/presence/heartbeat`)) {
-        await fulfillProJson(page, route, { snapshot });
+        await fulfillProJson(page, route, heartbeatReply(snapshot));
         return;
       }
       await fulfillProJson(page, route, { error: 'TEST_ADJUNCT_UNAVAILABLE' }, 503);
@@ -365,11 +366,10 @@ test.describe('Critical browser release gate', () => {
         await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
       } else if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/bootstrap`)) {
         await fulfillProJson(page, route, { roomCode: PRO_ROOM_CODE, status: 'pin_required' });
-      } else if (
-        pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/owner-recovery`) ||
-        pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/presence/heartbeat`)
-      ) {
+      } else if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/owner-recovery`)) {
         await fulfillProJson(page, route, { snapshot });
+      } else if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/presence/heartbeat`)) {
+        await fulfillProJson(page, route, heartbeatReply(snapshot));
       } else if (pathname.endsWith(`/v1/rooms/${PRO_ROOM_CODE}/signaling-tickets`)) {
         await fulfillProJson(page, route, {
           ticket: `${'c'.repeat(32)}.${'D'.repeat(43)}`,
@@ -494,8 +494,10 @@ test.describe('Critical browser release gate', () => {
           await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
         } else if (path.endsWith('/bootstrap')) {
           await fulfillProJson(page, route, { roomCode: PRO_ROOM_CODE, status: 'pin_required' });
-        } else if (path.endsWith('/owner-recovery') || path.endsWith('/presence/heartbeat')) {
+        } else if (path.endsWith('/owner-recovery')) {
           await fulfillProJson(page, route, { snapshot });
+        } else if (path.endsWith('/presence/heartbeat')) {
+          await fulfillProJson(page, route, heartbeatReply(snapshot));
         } else if (path.endsWith('/signaling-tickets')) {
           ticketCount++;
           if (ticketCount > 1) {

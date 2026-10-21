@@ -26,6 +26,7 @@ import * as serverClock from '../network-bridge.ts';
 import { installProClockSnapshotMocks } from './__helpers__/pro-clock-fixture.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM = '000001';
 const PARTICIPANT = 'participant_00001';
@@ -190,7 +191,9 @@ describe('PRO queue projection during persistent media preparation', { concurren
       quota: canonical.quota,
     });
     vi.spyOn(ProRoomApiClient.prototype, 'createSession').mockImplementation(async () => canonical);
-    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation(async () => canonical);
+    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation(async () =>
+      proHeartbeat(canonical),
+    );
     vi.spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot').mockImplementation(
       async (input) => {
         expect(input.currentQueueItemId).toBe(canonical.currentQueueItemId);
@@ -541,7 +544,7 @@ describe('PRO queue projection during persistent media preparation', { concurren
     const acceptedSnapshot = canonical;
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     const count = heartbeat.mock.calls.length;
-    heartbeat.mockResolvedValueOnce(olderSnapshot);
+    heartbeat.mockResolvedValueOnce(proHeartbeat(olderSnapshot));
     deliver({ type: 'pro-room-invalidated' });
     await vi.waitFor(() => expect(heartbeat.mock.calls.length).toBeGreaterThan(count));
     await new Promise<void>((resolve) => setTimeout(resolve, 0));

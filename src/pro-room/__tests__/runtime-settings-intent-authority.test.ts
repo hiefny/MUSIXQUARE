@@ -18,6 +18,7 @@ import {
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import { joinProRoom } from '../runtime.ts';
+import { idleProSystemAudio } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM = '000001';
 const ITEM = '56000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -209,7 +210,9 @@ describe('PRO settings field intent across authority and HTTP responses', () => 
             snapshot: canonical,
             session: { expiresAtMs: Date.now() + 60000 },
           });
-        if (path.endsWith('/presence/heartbeat')) return Response.json({ snapshot: canonical });
+        if (path.endsWith('/presence/heartbeat')) {
+          return Response.json({ snapshot: canonical, systemAudio: idleProSystemAudio() });
+        }
         expect(path.endsWith('/settings-sync')).toBe(true);
         if (init?.method === 'GET') {
           const payload = readStatus === 200 ? settings : { error: 'CAPABILITY_REQUIRED' };

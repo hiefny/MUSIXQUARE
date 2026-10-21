@@ -153,6 +153,7 @@ vi.mock('../../core/state.ts', () => ({
 }));
 
 import {
+  acceptProSystemAudioHeartbeatState,
   acquireLocalProSystemAudioLease,
   bindProSystemAudioSession,
   configureProSystemAudioService,
@@ -637,6 +638,33 @@ describe('PRO system-audio service orchestration', () => {
     expect(liveness.isCurrent()).toBe(false);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mocks.restorePlayback).toHaveBeenCalledTimes(7);
+  });
+
+  it('applies heartbeat system audio like the GET, only for the bound presence', async () => {
+    await observeState(directLive());
+    expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', generation: 1 });
+
+    // Another incarnation's heartbeat cannot end this tab's view of the share.
+    acceptProSystemAudioHeartbeatState(idle(2), snapshot('presence_local_02'));
+    expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', generation: 1 });
+
+    // An authenticated reply may carry the one-way LAN-direct -> SFU promotion,
+    // which a peer fanout could not apply.
+    acceptProSystemAudioHeartbeatState(live(), snapshot());
+    expect(getProSystemAudioViewState().publication).toEqual(live().publication);
+    await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalled());
+
+    // An older or conflicting reply is contained instead of thrown.
+    acceptProSystemAudioHeartbeatState(idle(0), snapshot());
+    acceptProSystemAudioHeartbeatState(
+      { ...live(), publication: { ...live().publication, sessionId: 'realtime_session_02' } },
+      snapshot(),
+    );
+    expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', generation: 1 });
+
+    acceptProSystemAudioHeartbeatState(idle(2), snapshot());
+    expect(getProSystemAudioViewState()).toMatchObject({ phase: 'idle', generation: 2 });
+    expect(api.getSystemAudioState).toHaveBeenCalledOnce();
   });
 
   it.each(['new-share', 'room-reset', 'new-incarnation', 'capture-cancelled'] as const)(

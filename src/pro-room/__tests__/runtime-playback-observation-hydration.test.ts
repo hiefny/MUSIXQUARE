@@ -38,6 +38,7 @@ import {
   type YouTubePlayerInstance,
 } from '../../youtube/_state.ts';
 import { makeFakeYtPlayer } from '../../youtube/__tests__/__helpers__/fake-yt-player.ts';
+import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM = '000001';
 const ITEM = '58000000-0000-4000-8000-000000000001' as QueueItemId;
@@ -203,7 +204,12 @@ describe('PRO exact media observations across COMMIT and HTTP hydration', () => 
               start(controller) {
                 heartbeatBody = controller;
                 controller.enqueue(
-                  new TextEncoder().encode(JSON.stringify({ snapshot: canonical }).slice(0, -1)),
+                  new TextEncoder().encode(
+                    JSON.stringify({
+                      snapshot: canonical,
+                      systemAudio: idleProSystemAudio(),
+                    }).slice(0, -1),
+                  ),
                 );
               },
               cancel() {
@@ -248,7 +254,9 @@ describe('PRO exact media observations across COMMIT and HTTP hydration', () => 
       (input, signal) => nativeExecuteCommand.call(controlClient, input, signal),
     );
     vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockImplementation((...args) =>
-      holdHeartbeat ? nativeHeartbeat.call(controlClient, ...args) : Promise.resolve(canonical),
+      holdHeartbeat
+        ? nativeHeartbeat.call(controlClient, ...args)
+        : Promise.resolve(proHeartbeat(canonical)),
     );
     vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockResolvedValue({
       ticket: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}` as ProRoomSignalingAccess['ticket'],

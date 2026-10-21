@@ -4,6 +4,7 @@ import {
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
   type ProRoomAdministrator,
+  type ProRoomHeartbeat,
   type ProRoomPlaybackCheckpoint,
   type ProRoomPermissionSet,
   type ProRoomPlaylistWireItem,
@@ -894,16 +895,25 @@ function validateAdministratorPermissions(value: ProRoomPermissionSet): ProRoomP
   };
 }
 
+/**
+ * Both heartbeat replies carry the room's system-audio state next to either
+ * a full snapshot or a compact "not modified" receipt. The 9.0.0 contract is
+ * exact: a reply without that state, or with any other key, is invalid.
+ */
 function parseHeartbeatEnvelope(
   value: unknown,
   expectedCode: string,
   knownSnapshot: ProRoomSnapshot | null,
-): ProRoomSnapshot | null {
-  const snapshot = parseSnapshotEnvelope(value, expectedCode);
-  if (snapshot) return snapshot;
+): ProRoomHeartbeat | null {
+  if (!isRecord(value)) return null;
+  const systemAudio = parseProRoomSystemAudioState(value.systemAudio);
+  if (!systemAudio) return null;
+  if (hasExactKeys(value, ['snapshot', 'systemAudio'])) {
+    const snapshot = parseProRoomSnapshot(value.snapshot);
+    return snapshot?.roomCode === expectedCode ? { snapshot, systemAudio } : null;
+  }
   if (
     knownSnapshot === null ||
-    !isRecord(value) ||
     !hasExactKeys(value, [
       'notModified',
       'revision',
@@ -911,6 +921,7 @@ function parseHeartbeatEnvelope(
       'presenceRevision',
       'playbackRevision',
       'coordinatorEpoch',
+      'systemAudio',
     ]) ||
     value.notModified !== true ||
     !isSafeNonNegativeInteger(value.revision) ||
@@ -927,7 +938,7 @@ function parseHeartbeatEnvelope(
     knownSnapshot.presence.revision === value.presenceRevision &&
     knownSnapshot.playback.revision === value.playbackRevision &&
     knownSnapshot.presence.coordinatorEpoch === value.coordinatorEpoch
-    ? knownSnapshot
+    ? { snapshot: knownSnapshot, systemAudio }
     : null;
 }
 
@@ -1877,7 +1888,7 @@ export class ProRoomApiClient {
     code: string,
     signal?: AbortSignal,
     knownSnapshot?: ProRoomSnapshot,
-  ): Promise<ProRoomSnapshot> {
+  ): Promise<ProRoomHeartbeat> {
     const path = roomPath(code);
     return this.#request(`${path}/presence/heartbeat`, {
       method: 'POST',

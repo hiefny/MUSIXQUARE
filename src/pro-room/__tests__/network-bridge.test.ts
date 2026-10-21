@@ -29,6 +29,7 @@ import {
   resetProPlaybackAuthorityHooks,
   type ProPlaybackMediaEndpoint,
 } from '../playback-authority-hooks.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 type SocketListener = (event: { data?: unknown; reason?: string }) => void;
 
@@ -257,7 +258,7 @@ it.each(['same epoch', 'advanced epoch'] as const)(
     const api = {
       createSession: vi.fn(async () => snapshot()),
       attachCurrentAccount: vi.fn(async () => renamedSnapshot),
-      heartbeat: vi.fn(async () => latestSnapshot),
+      heartbeat: vi.fn(async () => proHeartbeat(latestSnapshot)),
       createSignalingTicket: vi
         .fn()
         .mockResolvedValueOnce(access())

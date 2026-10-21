@@ -104,7 +104,6 @@ import type {
   ProRoomPresenceParticipant,
   ProRoomR2Source,
   ProRoomSnapshot,
-  ProRoomSystemAudioState,
 } from './contracts.ts';
 import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
 import { applyProRoomSnapshotMonotonically } from './revision.ts';
@@ -178,6 +177,7 @@ import {
 } from './transport-recovery.ts';
 import { onProRoomTabTakeover } from './tab-handoff.ts';
 import {
+  acceptProSystemAudioHeartbeatState,
   bindProSystemAudioSession,
   configureProSystemAudioService,
   refreshProSystemAudioState,
@@ -186,10 +186,6 @@ import {
 } from './system-audio-service.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
-const SYSTEM_AUDIO_SAFETY_REFRESH_INTERVAL_MS = 60_000;
-const SYSTEM_AUDIO_REFRESH_RETRY_MS = 15_000;
-const SYSTEM_AUDIO_EXPIRY_RECHECK_GRACE_MS = 1_000;
-const SYSTEM_AUDIO_SAFETY_REFRESH_TIMER = 'pro-room-system-audio-safety-refresh';
 const VISIBILITY_PLAYBACK_RECOVERY_RETRY_MS = [1_000, 3_000, 10_000, 15_000] as const;
 const VISIBILITY_PLAYBACK_RECOVERY_TIMER = 'pro-room-visibility-playback-recovery';
 const CONTROL_CHANNEL_RECOVERY_RETRY_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
@@ -318,7 +314,6 @@ let acceptedAccountIdentityProjectionKey = proRoomAccountIdentityProjectionKey(
   getAccountSnapshot(),
   getAccountStatsScope(),
 );
-let systemAudioSafetyRefreshAtMs = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
 const playlistProjectionListeners = new Set<() => void>();
 let acceptedProPresence:
@@ -2602,7 +2597,6 @@ function stopLifecycle(): void {
   accountLeaseRenewalOwner = null;
   accountIdentityLeaseExpiresAtMs = null;
   accountIdentityLeaseRetryAttempt = 0;
-  systemAudioSafetyRefreshAtMs = 0;
   heartbeatSingleFlight.reset();
   refreshInFlight = false;
   controlChannelRecoveryAttempt = 0;
@@ -2610,7 +2604,6 @@ function stopLifecycle(): void {
   clearManagedTimer(HEARTBEAT_TIMER);
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
   clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
-  clearManagedTimer(SYSTEM_AUDIO_SAFETY_REFRESH_TIMER);
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
 }
 
@@ -2624,6 +2617,9 @@ const observer: ProRoomSessionObserver = {
   },
   authority(context) {
     applyAuthority(context);
+  },
+  systemAudio(state, snapshot) {
+    acceptProSystemAudioHeartbeatState(state, snapshot);
   },
   cleared() {
     acceptedProPresence = null;
@@ -3036,58 +3032,14 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   }
 }
 
-function nextSystemAudioSafetyRefreshAtMs(state: ProRoomSystemAudioState, nowMs: number): number {
-  const fallbackAtMs = nowMs + SYSTEM_AUDIO_SAFETY_REFRESH_INTERVAL_MS;
-  const expiresAtMs =
-    state.status === 'preparing'
-      ? state.claimExpiresAt
-      : state.status === 'live'
-        ? state.liveExpiresAt
-        : null;
-  // Re-read shortly after a known ownership fence expires so a lost realtime
-  // invalidation cannot strand the old owner in this tab. A past timestamp can
-  // also be simple client clock skew, so retain the one-minute fallback rather
-  // than turning it into a request loop.
-  if (expiresAtMs === null || expiresAtMs <= nowMs) return fallbackAtMs;
-  return Math.min(fallbackAtMs, expiresAtMs + SYSTEM_AUDIO_EXPIRY_RECHECK_GRACE_MS);
-}
-
-async function refreshSystemAudioState(force = false): Promise<void> {
-  const lease = playlistRuntimeLease;
-  if (!active || !lease) return;
-  const startedAtMs = Date.now();
-  if (!force && systemAudioSafetyRefreshAtMs > startedAtMs) return;
-
-  // Throttle repeated event/timer callers before entering the service's
-  // single-flight. A transient failure gets a bounded 15-second retry; a
-  // healthy response installs the longer safety/expiry deadline below.
-  clearManagedTimer(SYSTEM_AUDIO_SAFETY_REFRESH_TIMER);
-  systemAudioSafetyRefreshAtMs = startedAtMs + SYSTEM_AUDIO_REFRESH_RETRY_MS;
-  try {
-    const state = await refreshProSystemAudioState(undefined, force);
-    if (!active || !isPlaylistLeaseCurrent(lease)) return;
-    scheduleSystemAudioSafetyRefresh(nextSystemAudioSafetyRefreshAtMs(state, Date.now()));
-  } catch (error) {
-    if (active && isPlaylistLeaseCurrent(lease)) {
-      scheduleSystemAudioSafetyRefresh(Date.now() + SYSTEM_AUDIO_REFRESH_RETRY_MS);
-    }
-    throw error;
-  }
-}
-
-function scheduleSystemAudioSafetyRefresh(refreshAtMs: number): void {
-  if (!active) return;
-  systemAudioSafetyRefreshAtMs = refreshAtMs;
-  clearManagedTimer(SYSTEM_AUDIO_SAFETY_REFRESH_TIMER);
-  setManagedTimer(
-    SYSTEM_AUDIO_SAFETY_REFRESH_TIMER,
-    () => {
-      void refreshSystemAudioState().catch((error) => {
-        log.warn('[PRO] System-audio safety refresh failed', error);
-      });
-    },
-    Math.max(0, refreshAtMs - Date.now()),
-  );
+/**
+ * One forced authenticated read, for joining and for a realtime invalidation.
+ * Every presence heartbeat carries the same state, which replaces the former
+ * periodic safety read as the backstop for a lost invalidation.
+ */
+async function refreshSystemAudioState(): Promise<void> {
+  if (!active || !playlistRuntimeLease) return;
+  await refreshProSystemAudioState(undefined, true);
 }
 
 function refreshHeartbeatAdjunctState(
@@ -3593,14 +3545,6 @@ function bindVisibilityRefresh(): void {
     } else {
       observeProRoomRuntimeTask(runHeartbeat(), 'foreground heartbeat');
     }
-    // WebKit may suspend timeout delivery for a long background interval.
-    // Reconcile an overdue safety read immediately on foreground resume while
-    // preserving the realtime-first path during normal visible operation.
-    if (systemAudioSafetyRefreshAtMs <= Date.now()) {
-      void refreshSystemAudioState().catch((error) => {
-        log.warn('[PRO] Foreground system-audio safety refresh failed', error);
-      });
-    }
     clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
     observeProRoomRuntimeTask(renewAccountIdentityLease(), 'foreground account lease renewal');
   });
@@ -3770,7 +3714,7 @@ async function finalizeOpenedRoom(snapshot: ProRoomSnapshot): Promise<ProRoomSna
   });
   const pendingTransition = bridge.consumePendingPlaybackTransition();
   if (pendingTransition) playbackController.acceptPrepare(pendingTransition);
-  void refreshSystemAudioState(true).catch((error) => {
+  void refreshSystemAudioState().catch((error) => {
     log.warn('[PRO] Initial system-audio state refresh failed', error);
   });
   if (!pendingTransition) {
@@ -4122,14 +4066,14 @@ function acceptProRoomRealtimeFrame(
       Number.isSafeInteger(frame.event.systemAudioGeneration) &&
       frame.event.systemAudioGeneration >= 0
     ) {
-      void refreshSystemAudioState(true).catch((error) => {
+      void refreshSystemAudioState().catch((error) => {
         log.warn('[PRO] Realtime system-audio compatibility refresh failed', error);
       });
     }
     return;
   }
   if (frame.event.type === 'system-audio-invalidated') {
-    void refreshSystemAudioState(true).catch((error) => {
+    void refreshSystemAudioState().catch((error) => {
       log.warn('[PRO] Realtime system-audio refresh failed', error);
     });
   }

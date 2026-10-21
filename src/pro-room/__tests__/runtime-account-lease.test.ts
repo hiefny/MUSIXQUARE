@@ -15,7 +15,7 @@ import {
   type ProRoomSnapshot,
   type ProRoomSystemAudioState,
 } from '../contracts.ts';
-import { requestProRoomLeave } from '../lifecycle-hook.ts';
+import { requestProRoomLeave, requestProRoomSignalingEpochAdvance } from '../lifecycle-hook.ts';
 import {
   captureProRoomMediaHookSession,
   handleProRoomFiles,
@@ -25,6 +25,7 @@ import { ProRoomMediaTransfer, type ProRoomMediaUploadResult } from '../media-tr
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { ProRoomPlaylistStateManager } from '../playlist-state-manager.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
+import { idleProSystemAudio, proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_lease_1';
@@ -219,7 +220,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockResolvedValue(
       signalingAccess(),
     );
-    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial);
+    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(proHeartbeat(initial));
     vi.spyOn(ProRoomApiClient.prototype, 'attachCurrentAccount').mockResolvedValue(initial);
     vi.spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease').mockImplementation(
       async () => ({ leaseExpiresAtMs: Date.now() + 120_000 }),
@@ -289,7 +290,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     await vi.advanceTimersByTimeAsync(0);
     vi.mocked(ProRoomApiClient.prototype.heartbeat)
       .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_EXPIRED', 409))
-      .mockResolvedValue(recovered);
+      .mockResolvedValue(proHeartbeat(recovered));
     vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(recovered);
     vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
       signalingAccess('presence_recovered_1'),
@@ -383,7 +384,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
       requestProRoomLeave();
       if (action !== 'leave') {
         vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(next);
-        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(next);
+        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(next));
         vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(next);
         vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
           signalingAccess(next.viewer!.presenceIncarnationId),
@@ -546,16 +547,28 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     expect(getState('network.isConnecting')).toBe(false);
   });
 
-  it('uses realtime invalidation plus a one-minute system-audio safety read', async () => {
+  it('reads system audio from every heartbeat instead of a periodic safety read', async () => {
     const refresh = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
 
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+    const heartbeatsAfterJoin = heartbeat.mock.calls.length;
 
-    // Presence still heartbeats every 15 seconds, but a healthy system-audio
-    // resource is no longer fetched alongside every heartbeat.
-    await vi.advanceTimersByTimeAsync(45_000);
+    // Each 15-second heartbeat carries the state, so an idle room issues no
+    // separate system-audio read however long it stays open.
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
     expect(refresh).toHaveBeenCalledOnce();
+    expect(heartbeat.mock.calls.length).toBeGreaterThanOrEqual(heartbeatsAfterJoin + 20);
+
+    acceptProRoomRealtimeFrameForTests({
+      type: 'pro-server-event',
+      version: 1,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: 1,
+      event: { type: 'system-audio-invalidated', generation: 1 },
+    });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
 
     acceptProRoomRealtimeFrameForTests({
       type: 'pro-server-event',
@@ -566,12 +579,11 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
       // the generic room invalidation rather than the dedicated event.
       event: { type: 'pro-room-invalidated', systemAudioGeneration: 1 },
     });
-    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
-
-    await vi.advanceTimersByTimeAsync(59_999);
-    expect(refresh).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(1);
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
+
+    // An invalidation read schedules nothing after it.
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(refresh).toHaveBeenCalledTimes(3);
   });
 
   it('queues a fresh authenticated read when invalidation races the initial system-audio read', async () => {
@@ -610,32 +622,66 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
   });
 
-  it('rechecks system-audio promptly after a known preparing lease expires', async () => {
+  it('applies a share end from the next heartbeat when its invalidation is lost', async () => {
     const refresh = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
-    refresh
-      .mockResolvedValueOnce({
-        generation: 1,
-        status: 'preparing',
-        ownerParticipantId: 'participant_remote_audio',
-        claimExpiresAt: Date.now() + 20_000,
-        liveExpiresAt: null,
-        publication: null,
-      })
-      .mockResolvedValue({
-        generation: 2,
-        status: 'idle',
-        ownerParticipantId: null,
-        claimExpiresAt: null,
-        liveExpiresAt: null,
-        publication: null,
-      });
+    refresh.mockResolvedValue({
+      generation: 1,
+      status: 'preparing',
+      ownerParticipantId: 'participant_remote_audio',
+      claimExpiresAt: Date.now() + 20_000,
+      liveExpiresAt: null,
+      publication: null,
+    });
+    const phases: string[] = [];
+    const unsubscribe = bus.on('pro-system-audio:state-changed', (view) => {
+      phases.push(view.phase);
+    });
+    try {
+      await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      await vi.waitFor(() => expect(phases.at(-1)).toBe('preparing'));
 
-    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
-    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
-    await vi.advanceTimersByTimeAsync(15_000);
-    expect(refresh).toHaveBeenCalledOnce();
-    await vi.advanceTimersByTimeAsync(15_000);
-    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+      // The claim expired on the server; the realtime invalidation never
+      // arrived. The next ordinary heartbeat carries the fenced idle state.
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+        proHeartbeat(snapshot(), idleProSystemAudio(2)),
+      );
+      await vi.advanceTimersByTimeAsync(15_000);
+      await vi.waitFor(() => expect(phases.at(-1)).toBe('idle'));
+      expect(refresh).toHaveBeenCalledOnce();
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it('keeps applying heartbeat system audio while its control channel is rebuilt', async () => {
+    const refresh = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
+    const phases: string[] = [];
+    const unsubscribe = bus.on('pro-system-audio:state-changed', (view) => {
+      phases.push(view.phase);
+    });
+    try {
+      await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+      // A new ticket for the same room incarnation keeps failing to install.
+      vi.mocked(ServerProRoomNetworkBridge.prototype.reconfigure).mockRejectedValue(
+        new Error('SOCKET_OPEN_FAILED'),
+      );
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(
+        proHeartbeat(snapshot(), {
+          generation: 1,
+          status: 'preparing',
+          ownerParticipantId: 'participant_remote_audio',
+          claimExpiresAt: Date.now() + 60_000,
+          liveExpiresAt: null,
+          publication: null,
+        }),
+      );
+      requestProRoomSignalingEpochAdvance();
+      await vi.waitFor(() => expect(phases.at(-1)).toBe('preparing'));
+      expect(refresh).toHaveBeenCalledOnce();
+    } finally {
+      unsubscribe();
+    }
   });
 
   it('publishes unchanged heartbeat directories zero times and real changes once', async () => {
@@ -680,7 +726,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     };
     vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValueOnce(initial);
     vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(initial);
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(initial);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(initial));
     const administratorEvents: ProRoomSnapshot['administrators'][] = [];
     let deviceEventCount = 0;
     const unsubscribeAdministrators = bus.on('pro-room:administrators-updated', (administrators) =>
@@ -701,7 +747,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
       expect(administratorEvents).toHaveLength(1);
       expect(deviceEventCount).toBe(1);
 
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(changed);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(changed));
       await vi.advanceTimersByTimeAsync(15_000);
       await vi.waitFor(() => expect(ProRoomApiClient.prototype.heartbeat).toHaveBeenCalledTimes(2));
       expect(administratorEvents).toHaveLength(2);
@@ -781,7 +827,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
       },
     };
     vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValueOnce(delegated);
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(delegated);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(delegated));
     const detach = vi
       .spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount')
       .mockResolvedValue({ ok: true, detached: true, snapshot: delegated });
@@ -1034,8 +1080,8 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     reconfigure.mockImplementationOnce(() => finishDetachReconfigure.promise);
     heartbeat.mockClear();
     heartbeat
-      .mockResolvedValueOnce(newerAuthenticated)
-      .mockImplementationOnce(() => holdRecoveryHeartbeat.promise);
+      .mockResolvedValueOnce(proHeartbeat(newerAuthenticated))
+      .mockImplementationOnce(() => holdRecoveryHeartbeat.promise.then(proHeartbeat));
 
     setAccountAnonymous(true);
     await vi.waitFor(() => expect(detach).toHaveBeenCalledOnce());
@@ -1081,7 +1127,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     attach.mockClear();
     attach.mockResolvedValueOnce(committedB).mockImplementationOnce(() => finishCAttach.promise);
     heartbeat.mockClear();
-    heartbeat.mockResolvedValue(canonicalAnonymous);
+    heartbeat.mockResolvedValue(proHeartbeat(canonicalAnonymous));
     const reconfigure = vi.mocked(ServerProRoomNetworkBridge.prototype.reconfigure);
     reconfigure.mockClear();
     reconfigure
@@ -1137,7 +1183,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
       .mockRejectedValueOnce(new Error('attachment response lost after commit'))
       .mockResolvedValueOnce(retryB);
     heartbeat.mockClear();
-    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise);
+    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise.then(proHeartbeat));
 
     applyAccountSession({
       configured: true,
@@ -1173,7 +1219,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     expect(isProRoomMediaHookSessionCurrent(sessionA)).toBe(false);
     expect(captureProRoomMediaHookSession()).toBeNull();
 
-    heartbeat.mockResolvedValue(retryB);
+    heartbeat.mockResolvedValue(proHeartbeat(retryB));
     await vi.advanceTimersByTimeAsync(60_000);
     await vi.waitFor(() => expect(attach).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
@@ -1197,7 +1243,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
       new Error('detach response lost after commit'),
     );
     heartbeat.mockClear();
-    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise);
+    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise.then(proHeartbeat));
 
     setAccountAnonymous(true);
     await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
@@ -1272,7 +1318,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
       .spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount')
       .mockRejectedValueOnce(new Error('incomplete-account detach response lost'));
     heartbeat.mockClear();
-    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise);
+    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise.then(proHeartbeat));
 
     applyAccountSession({
       configured: true,
@@ -1350,7 +1396,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
       signalingAccess(nextPresence),
     );
     vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValueOnce(nextSnapshot);
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(nextSnapshot);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(nextSnapshot));
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
     await vi.advanceTimersByTimeAsync(60_000);
     expect(renew).toHaveBeenCalledTimes(2);
@@ -1420,7 +1466,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     expect(oldSignal?.aborted).toBe(true);
     const successor = snapshot('presence_successor_1');
     vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(successor);
-    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(successor);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(successor));
     vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(successor);
     vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
       signalingAccess('presence_successor_1'),

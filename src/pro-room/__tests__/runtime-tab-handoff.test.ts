@@ -19,6 +19,7 @@ import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { ProRoomPlaylistStateManager } from '../playlist-state-manager.ts';
 import { joinProRoom } from '../runtime.ts';
 import { ProRoomSessionController } from '../session-controller.ts';
+import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 
 const ROOM_CODE = '000001';
 const PARTICIPANT_ID = 'participant_lease_1';
@@ -148,7 +149,7 @@ async function join(presenceIncarnationId = PRESENCE_ID): Promise<void> {
   vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
     signalingAccess(presenceIncarnationId),
   );
-  vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(next);
+  vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(proHeartbeat(next));
   vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(next);
   await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
   await vi.advanceTimersByTimeAsync(0);
@@ -169,7 +170,7 @@ describe('PRO runtime takeover validation', { concurrent: false }, () => {
     vi.spyOn(ProRoomApiClient.prototype, 'createSignalingTicket').mockResolvedValue(
       signalingAccess(),
     );
-    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(initial);
+    vi.spyOn(ProRoomApiClient.prototype, 'heartbeat').mockResolvedValue(proHeartbeat(initial));
     vi.spyOn(ProRoomApiClient.prototype, 'attachCurrentAccount').mockResolvedValue(initial);
     vi.spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease').mockImplementation(
       async () => ({ leaseExpiresAtMs: Date.now() + 120_000 }),
@@ -271,7 +272,7 @@ describe('PRO runtime takeover validation', { concurrent: false }, () => {
     const recovered = snapshot('presence_expiry_handoff');
     vi.mocked(ProRoomApiClient.prototype.heartbeat)
       .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_EXPIRED', 409))
-      .mockResolvedValue(recovered);
+      .mockResolvedValue(proHeartbeat(recovered));
     vi.mocked(ProRoomApiClient.prototype.enterPresence).mockResolvedValue(recovered);
     vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(recovered);
     vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
@@ -293,7 +294,9 @@ describe('PRO runtime takeover validation', { concurrent: false }, () => {
     async (code) => {
       await join();
       const validation = deferred<ProRoomSnapshot>();
-      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockReturnValueOnce(validation.promise);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockReturnValueOnce(
+        validation.promise.then(proHeartbeat),
+      );
       notifyTakeover();
       await vi.advanceTimersByTimeAsync(0);
       requestProRoomLeave();
@@ -347,7 +350,7 @@ describe('PRO runtime takeover validation', { concurrent: false }, () => {
     const pending = deferred<ProRoomSnapshot>();
     heartbeat
       .mockClear()
-      .mockReturnValueOnce(pending.promise)
+      .mockReturnValueOnce(pending.promise.then(proHeartbeat))
       .mockRejectedValueOnce(new ProRoomApiError('PRESENCE_SUPERSEDED', 409));
     await vi.advanceTimersByTimeAsync(15_000);
     expect(heartbeat).toHaveBeenCalledOnce();

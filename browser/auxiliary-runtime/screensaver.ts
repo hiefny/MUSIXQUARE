@@ -629,6 +629,21 @@ interface CompositorEntry {
   lastFrame: number;
   originalStyle: string;
   removed: boolean;
+  /** Values last written to the node, compared before any style string is built. */
+  applied: {
+    width: number;
+    height: number;
+    matrix: number[];
+    opacity: number;
+    blur: number;
+    order: number;
+  };
+}
+/** Layers drawn from one source; `uses` counts this frame's draws of it so far. */
+interface CompositorSlots {
+  entries: CompositorEntry[];
+  frame: number;
+  uses: number;
 }
 interface CompositorState {
   canvas: HTMLCanvasElement;
@@ -636,11 +651,12 @@ interface CompositorState {
   frame: number;
   order: number;
   entries: Set<CompositorEntry>;
-  bySource: WeakMap<HTMLCanvasElement, CompositorEntry[]>;
-  uses: WeakMap<HTMLCanvasElement, number>;
+  bySource: WeakMap<HTMLCanvasElement, CompositorSlots>;
   ratioX: number;
   ratioY: number;
   defaultOpacity: string;
+  /** The root's last written left, top, width and height. */
+  bounds: number[];
 }
 type CompositorStyle =
   | 'display'
@@ -685,10 +701,10 @@ const compositor = (() => {
       order: 0,
       entries: new Set(),
       bySource: new WeakMap(),
-      uses: new WeakMap(),
       ratioX: 1,
       ratioY: 1,
       defaultOpacity: computed.opacity,
+      bounds: [NaN, NaN, NaN, NaN],
     };
     targets.set(canvas, state);
     states.add(state);
@@ -706,19 +722,28 @@ const compositor = (() => {
       canvas.hidden || canvas.style.display === 'none' ? 'none' : 'block',
     );
   }
-  function begin(target: CanvasContext) {
+  /**
+   * Starts a frame. `backingWidth` and `backingHeight` are the bitmap size the target's
+   * transform is written for; they default to the canvas's own bitmap.
+   */
+  function begin(
+    target: CanvasContext,
+    backingWidth = target.canvas.width,
+    backingHeight = target.canvas.height,
+  ) {
     const state = stateFor(target),
-      { canvas, root } = state;
+      { canvas, root, bounds } = state;
     const rect = canvas.getBoundingClientRect();
     state.frame++;
     state.order = 0;
-    state.uses = new WeakMap();
-    state.ratioX = canvas.width / Math.max(0.001, rect.width);
-    state.ratioY = canvas.height / Math.max(0.001, rect.height);
-    assign(root.style, 'left', canvas.offsetLeft + 'px');
-    assign(root.style, 'top', canvas.offsetTop + 'px');
-    assign(root.style, 'width', rect.width + 'px');
-    assign(root.style, 'height', rect.height + 'px');
+    state.ratioX = backingWidth / Math.max(0.001, rect.width);
+    state.ratioY = backingHeight / Math.max(0.001, rect.height);
+    const left = canvas.offsetLeft,
+      top = canvas.offsetTop;
+    if (bounds[0] !== left) assign(root.style, 'left', (bounds[0] = left) + 'px');
+    if (bounds[1] !== top) assign(root.style, 'top', (bounds[1] = top) + 'px');
+    if (bounds[2] !== rect.width) assign(root.style, 'width', (bounds[2] = rect.width) + 'px');
+    if (bounds[3] !== rect.height) assign(root.style, 'height', (bounds[3] = rect.height) + 'px');
     sync(target);
   }
   function remove(entry: CompositorEntry) {
@@ -748,6 +773,7 @@ const compositor = (() => {
       lastFrame: state.frame,
       originalStyle: image.style.cssText,
       removed: false,
+      applied: { width: NaN, height: NaN, matrix: [], opacity: NaN, blur: NaN, order: NaN },
     };
     if (!copied) owners.set(source, entry);
     image.style.cssText =
@@ -778,12 +804,15 @@ const compositor = (() => {
     )
       return;
     const state = stateFor(target);
-    const occurrence = state.uses.get(source) || 0;
-    state.uses.set(source, occurrence + 1);
-    let list = state.bySource.get(source);
-    if (!list) state.bySource.set(source, (list = []));
-    let entry = list[occurrence];
-    if (!entry || entry.removed) list[occurrence] = entry = createEntry(state, source);
+    let slots = state.bySource.get(source);
+    if (!slots) state.bySource.set(source, (slots = { entries: [], frame: state.frame, uses: 0 }));
+    else if (slots.frame !== state.frame) {
+      slots.frame = state.frame;
+      slots.uses = 0;
+    }
+    const occurrence = slots.uses++;
+    let entry = slots.entries[occurrence];
+    if (!entry || entry.removed) slots.entries[occurrence] = entry = createEntry(state, source);
     entry.lastFrame = state.frame;
     if (entry.copied) {
       const image = entry.image;
@@ -804,13 +833,22 @@ const compositor = (() => {
     const ty = (matrix.b * x + matrix.d * y + matrix.f) / state.ratioY;
     const sigma = Math.max(0, blur) / Math.max(0.001, Math.hypot(matrix.a, matrix.b));
     const style = entry.node.style;
+    const applied = entry.applied;
     assign(style, 'display', 'block');
-    assign(style, 'width', width + 'px');
-    assign(style, 'height', height + 'px');
-    assign(style, 'transform', `matrix(${a},${b},${c},${d},${tx},${ty}) translateZ(0)`);
-    assign(style, 'opacity', String(Math.min(1, target.globalAlpha)));
-    assign(style, 'filter', sigma > 0.005 ? `blur(${sigma}px)` : 'none');
-    assign(style, 'zIndex', String(++state.order));
+    if (applied.width !== width) assign(style, 'width', (applied.width = width) + 'px');
+    if (applied.height !== height) assign(style, 'height', (applied.height = height) + 'px');
+    const m = applied.matrix;
+    if (m[0] !== a || m[1] !== b || m[2] !== c || m[3] !== d || m[4] !== tx || m[5] !== ty) {
+      applied.matrix = [a, b, c, d, tx, ty];
+      assign(style, 'transform', `matrix(${a},${b},${c},${d},${tx},${ty}) translateZ(0)`);
+    }
+    const opacity = Math.min(1, target.globalAlpha);
+    if (applied.opacity !== opacity) assign(style, 'opacity', String((applied.opacity = opacity)));
+    const filterSigma = sigma > 0.005 ? sigma : 0;
+    if (applied.blur !== filterSigma)
+      assign(style, 'filter', (applied.blur = filterSigma) ? `blur(${filterSigma}px)` : 'none');
+    const order = ++state.order;
+    if (applied.order !== order) assign(style, 'zIndex', String((applied.order = order)));
   }
   function forget(source: HTMLCanvasElement) {
     const entries = sourceEntries.get(source);
@@ -1125,6 +1163,10 @@ function createFilmGrainTile() {
 
 const clockCanvas = element('opticalClockCanvas', 'canvas');
 const clockCtx = context(clockCanvas);
+// Every draw aimed at the clock canvas becomes a DOM layer (drawCompatImage), and its context
+// is otherwise only measured with, so it keeps a 1×1 bitmap. Its transform still carries the
+// pixel ratio, and the compositor is told the backing size that transform is written for.
+clockCanvas.width = clockCanvas.height = 1;
 
 const DIGIT_TRANSITION_MS = 1000;
 const SECONDS_FONT_SCALE = 0.24;
@@ -2961,20 +3003,16 @@ function renderFrame(now: number) {
     lastViewportW = rect.width;
     lastViewportH = rect.height;
     lastDpr = dpr;
-    if (resized) {
-      clockCanvas.width = Math.round(rect.width * dpr);
-      clockCanvas.height = Math.round(rect.height * dpr);
-      resizeSpeckleCanvas();
-    }
+    if (resized) resizeSpeckleCanvas();
   }
   if (clockTransition && reducedMotion.matches) {
     releaseClockTransition(clockTransition);
     clockTransition = null;
   }
+  // The compositor reads this transform; nothing is painted into the canvas itself.
   clockCtx.setTransform(1, 0, 0, 1, 0, 0);
-  clockCtx.clearRect(0, 0, clockCanvas.width, clockCanvas.height);
   clockCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  compositor.begin(clockCtx);
+  compositor.begin(clockCtx, Math.round(rect.width * dpr), Math.round(rect.height * dpr));
   const wave = 0.5 + 0.5 * Math.cos((now * Math.PI) / 1000);
   if (clockTransition) {
     const elapsed = now - clockTransition.start;
@@ -3056,6 +3094,19 @@ function initSpeckles() {
   }
 }
 
+const speckleFills = new Map<string, string[]>();
+
+/** The particle fill, cached per tint and thousandth of alpha (the precision it is written at). */
+function speckleFill(tint: string, alpha: number) {
+  const scaled = alpha * 1000;
+  const key = Math.round(scaled);
+  // toFixed() rounds the exact value, so a product that lands on a half can round down.
+  if (key - scaled === 0.5) return `rgba(${tint}, ${alpha.toFixed(3)})`;
+  let fills = speckleFills.get(tint);
+  if (!fills) speckleFills.set(tint, (fills = []));
+  return (fills[key] ??= `rgba(${tint}, ${alpha.toFixed(3)})`);
+}
+
 function updateAndDrawSpeckles(now: number) {
   sctx.clearRect(0, 0, sw, sh);
 
@@ -3086,7 +3137,7 @@ function updateAndDrawSpeckles(now: number) {
     const finalAlpha = Math.max(0, Math.min(1, p.alpha * twinkle));
 
     sctx.beginPath();
-    sctx.fillStyle = `rgba(${p.tint}, ${finalAlpha.toFixed(3)})`;
+    sctx.fillStyle = speckleFill(p.tint, finalAlpha);
     sctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
     sctx.fill();
   }
@@ -3118,7 +3169,10 @@ const imageBackgrounds = (() => {
     fromGrain: number;
     toGrain: number;
   } | null = null;
+  // apply() asks on every frame, so the choice is kept until the next resize.
+  let viewportVariant: BackgroundImageVariant | null = null;
   function variantFor() {
+    if (viewportVariant) return viewportVariant;
     const width = Math.max(1, innerWidth),
       height = Math.max(1, innerHeight);
     let best = CLOCK_BACKGROUND.variants[0],
@@ -3135,7 +3189,7 @@ const imageBackgrounds = (() => {
         best = variant;
       }
     }
-    return best;
+    return (viewportVariant = best);
   }
   function initialize() {
     if (root) return;
@@ -3272,6 +3326,8 @@ const imageBackgrounds = (() => {
       };
   }
   function resize() {
+    // The next frame measures the new viewport; the timer still prepares it once resizing stops.
+    viewportVariant = null;
     if (resizeTimer !== null) clearTimeout(resizeTimer);
     if (disposed) return;
     resizeTimer = setTimeout(() => {
@@ -3284,6 +3340,7 @@ const imageBackgrounds = (() => {
     resizeTimer = null;
     transition = null;
     active = false;
+    viewportVariant = null;
     for (const record of cache.values()) record.cancel();
     cache.clear();
     slots[0] = slots[1] = null;

@@ -1,6 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
@@ -854,5 +855,305 @@ describe('initSeekBar playback mode gates', () => {
     expect(slider.getAttribute('aria-valuetext')).toBe(t('player.seek_unavailable_system_audio'));
     expect(document.getElementById('time-curr')?.innerText).toBe('-:--');
     expect(document.getElementById('time-dur')?.innerText).toBe('-:--');
+  });
+});
+
+describe('seek bar work while nothing changes on screen', () => {
+  interface FrameQueue {
+    readonly size: number;
+    run(timestamp: number): void;
+  }
+
+  function installFrameQueue(): FrameQueue {
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 1;
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn((callback: FrameRequestCallback) => {
+        frames.set(nextFrameId, callback);
+        return nextFrameId++;
+      }),
+    );
+    vi.stubGlobal(
+      'cancelAnimationFrame',
+      vi.fn((id: number) => frames.delete(id)),
+    );
+    return {
+      get size() {
+        return frames.size;
+      },
+      run(timestamp) {
+        const pending = [...frames.values()];
+        frames.clear();
+        for (const callback of pending) callback(timestamp);
+      },
+    };
+  }
+
+  function recordWrites(target: object, property: string, prototype: object): string[] {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, property)!;
+    const writes: string[] = [];
+    Object.defineProperty(target, property, {
+      configurable: true,
+      get() {
+        return descriptor.get!.call(this);
+      },
+      set(value: string) {
+        writes.push(value);
+        descriptor.set!.call(this, value);
+      },
+    });
+    return writes;
+  }
+
+  // jsdom has no innerText. Give these nodes the browser's plain-text behavior.
+  function recordTextWrites(element: HTMLElement): string[] {
+    const writes: string[] = [];
+    Object.defineProperty(element, 'innerText', {
+      configurable: true,
+      get: () => element.textContent,
+      set: (value: string) => {
+        writes.push(value);
+        element.textContent = value;
+      },
+    });
+    return writes;
+  }
+
+  function renderPlayPanel(active: boolean): void {
+    document.body.innerHTML = `
+      <div id="tab-play" class="tab-content${active ? ' active' : ''}">
+        <input id="seek-slider" type="range" value="0" max="120" />
+        <span id="time-curr"></span>
+        <span id="time-dur"></span>
+      </div>
+    `;
+  }
+
+  function startFilePlayback(position: number): void {
+    vi.mocked(getTrackPosition).mockReturnValue(position);
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    initSeekBar();
+    bus.emit('ui:loop-start');
+  }
+
+  function cleanup(): void {
+    bus.emit('ui:seek-reset');
+    clearAllManagedTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  }
+
+  it('snaps to the step that the seek range declares', () => {
+    const markup = readFileSync('index.html', 'utf8');
+    const parsed = new DOMParser().parseFromString(markup, 'text/html');
+    expect(parsed.getElementById('seek-slider')?.getAttribute('step')).toBe('0.1');
+  });
+
+  it('writes the interpolated position only when it reaches another step', () => {
+    const frames = installFrameQueue();
+    vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    try {
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      const writes = recordWrites(slider, 'value', HTMLInputElement.prototype);
+      startFilePlayback(12);
+
+      for (const timestamp of [1_000, 1_016, 1_033, 1_049, 1_051, 1_066, 1_149, 1_151]) {
+        frames.run(timestamp);
+      }
+
+      expect(writes).toEqual(['12', '12.1', '12.2']);
+      expect(slider.style.getPropertyValue('--range-progress')).toBe(`${(12.2 / 120) * 100}%`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps a max between steps on the value the range clamps to', () => {
+    const frames = installFrameQueue();
+    vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    try {
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      slider.max = '30.06';
+      const writes = recordWrites(slider, 'value', HTMLInputElement.prototype);
+      startFilePlayback(30);
+
+      // The range cannot hold 30.1 above a 30.06 max, so 30 stays its value.
+      for (const timestamp of [1_000, 1_100, 1_500, 2_000]) frames.run(timestamp);
+
+      expect(writes).toEqual(['30']);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parks the loop behind another mobile tab and repaints before the switch back is captured', () => {
+    renderPlayPanel(true);
+    const frames = installFrameQueue();
+    try {
+      startFilePlayback(12);
+      expect(frames.size).toBe(1);
+
+      document.getElementById('tab-play')!.classList.remove('active');
+      bus.emit('ui:tab-changed', 'playlist');
+      expect(frames.size).toBe(0);
+      frames.run(5_000);
+
+      vi.mocked(getTrackPosition).mockReturnValue(47.25);
+      document.getElementById('tab-play')!.classList.add('active');
+      bus.emit('ui:tab-changed', 'play');
+
+      // Synchronous: the View Transition captures the new tab after this callback.
+      expect((document.getElementById('seek-slider') as HTMLInputElement).value).toBe('47.25');
+      expect(document.getElementById('time-curr')?.innerText).toBe('fmt:47');
+      expect(frames.size).toBe(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps the dashboard Play panel live across tabs and follows breakpoint changes', () => {
+    renderPlayPanel(false);
+    const frames = installFrameQueue();
+    const listeners = new Set<() => void>();
+    const desktop = {
+      matches: true,
+      addEventListener: (_type: string, listener: () => void) => listeners.add(listener),
+    };
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => desktop),
+    );
+    try {
+      startFilePlayback(12);
+      expect(frames.size).toBe(1);
+      bus.emit('ui:tab-changed', 'settings');
+      expect(frames.size).toBe(1);
+
+      desktop.matches = false;
+      for (const listener of listeners) listener();
+      expect(frames.size).toBe(0);
+
+      vi.mocked(getTrackPosition).mockReturnValue(33);
+      desktop.matches = true;
+      for (const listener of listeners) listener();
+      expect((document.getElementById('seek-slider') as HTMLInputElement).value).toBe('33');
+      expect(frames.size).toBe(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['page', 'screensaver'] as const)(
+    'parks the loop while the %s hides the seek bar and repaints as it returns',
+    (cover) => {
+      const frames = installFrameQueue();
+      let hidden = false;
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden });
+      const setHidden = (next: boolean): void => {
+        if (cover === 'page') {
+          hidden = next;
+          document.dispatchEvent(new Event('visibilitychange'));
+        } else {
+          if (next) document.body.dataset.visualizerCovered = 'true';
+          else delete document.body.dataset.visualizerCovered;
+          document.dispatchEvent(new Event('mxqr:visualizer-visibility'));
+        }
+      };
+      try {
+        startFilePlayback(12);
+        setHidden(true);
+        expect(frames.size).toBe(0);
+
+        vi.mocked(getTrackPosition).mockReturnValue(64.5);
+        setHidden(false);
+        expect((document.getElementById('seek-slider') as HTMLInputElement).value).toBe('64.5');
+        expect(frames.size).toBe(1);
+      } finally {
+        delete (document as { hidden?: boolean }).hidden;
+        delete document.body.dataset.visualizerCovered;
+        cleanup();
+      }
+    },
+  );
+
+  it('keeps the ended check while hidden and skips only the anchor refresh', () => {
+    vi.useFakeTimers();
+    renderPlayPanel(true);
+    const frames = installFrameQueue();
+    const endedChecks = vi.fn();
+    try {
+      startFilePlayback(12);
+      bus.on('player:check-ended', endedChecks);
+      document.getElementById('tab-play')!.classList.remove('active');
+      bus.emit('ui:tab-changed', 'playlist');
+      vi.mocked(getTrackPosition).mockClear();
+
+      vi.advanceTimersByTime(1_000);
+
+      expect(endedChecks).toHaveBeenCalledTimes(2);
+      expect(getTrackPosition).not.toHaveBeenCalled();
+      expect(frames.size).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('starts parked when playback begins behind another tab', () => {
+    renderPlayPanel(false);
+    const frames = installFrameQueue();
+    try {
+      startFilePlayback(12);
+      expect(frames.size).toBe(0);
+
+      vi.mocked(getTrackPosition).mockReturnValue(15);
+      document.getElementById('tab-play')!.classList.add('active');
+      bus.emit('ui:tab-changed', 'play');
+      expect((document.getElementById('seek-slider') as HTMLInputElement).value).toBe('15');
+      expect(frames.size).toBe(1);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('writes only the YouTube timeline values that differ from the page', () => {
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initSeekBar();
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    const values = recordWrites(slider, 'value', HTMLInputElement.prototype);
+    const maxima = recordWrites(slider, 'max', HTMLInputElement.prototype);
+    const attributes = vi.spyOn(slider, 'setAttribute');
+    const current = recordTextWrites(document.getElementById('time-curr')!);
+    const total = recordTextWrites(document.getElementById('time-dur')!);
+    try {
+      bus.emit('ui:time-update', '1:23', '4:56', 83.04, 296);
+      expect(values).toEqual(['83']);
+      expect(maxima).toEqual(['296']);
+      expect(slider.getAttribute('aria-valuetext')).toBe('1:23');
+      expect(current).toEqual(['1:23']);
+      expect(total).toEqual(['4:56']);
+
+      // A paused video repeats the same sample every poll.
+      attributes.mockClear();
+      bus.emit('ui:time-update', '1:23', '4:56', 83.04, 296);
+      expect(values).toEqual(['83']);
+      expect(maxima).toEqual(['296']);
+      expect(attributes).not.toHaveBeenCalled();
+      expect(current).toEqual(['1:23']);
+      expect(total).toEqual(['4:56']);
+
+      // Another writer changed the shared nodes, so the next sample repaints them.
+      bus.emit('ui:seek-reset');
+      bus.emit('ui:time-update', '1:23', '4:56', 83.04, 296);
+      expect(values).toEqual(['83', '0', '83']);
+      expect(current).toEqual(['1:23', '0:00', '1:23']);
+      expect(total).toEqual(['4:56']);
+      expect(maxima).toEqual(['296']);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

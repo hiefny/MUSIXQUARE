@@ -1129,6 +1129,7 @@ window.addEventListener('pageshow', (event) => {
   currentSecondsTile = null;
   secondsMorph = null;
   secondsLastFrame = null;
+  speckleLastFrame = null;
   invalidateFontLayouts();
   showControls();
   startAnimationLoop();
@@ -3094,6 +3095,9 @@ function initSpeckles() {
   }
 }
 
+const SPECKLE_FRAME_MS = 1000 / 60;
+let speckleLastFrame: number | null = null;
+let speckleTwinkleTime = 0;
 const speckleFills = new Map<string, string[]>();
 
 /** The particle fill, cached per tint and thousandth of alpha (the precision it is written at). */
@@ -3116,10 +3120,20 @@ function updateAndDrawSpeckles(now: number) {
   const bottomLeftOriginY = clockMetrics.ready ? clockMetrics.bottomLeftEdgeY : sh * 0.62;
   const spanH = clockMetrics.ready ? clockMetrics.glyphHeight : sh * 0.26;
 
+  const last = speckleLastFrame;
+  speckleLastFrame = now;
+  const elapsed = last === null ? SPECKLE_FRAME_MS : Math.max(0, now - last);
+  // With reduced motion the particles hold still: no drift and no twinkle.
+  const still = reducedMotion.matches;
+  // The twinkle adds up frame time, so it resumes where reduced motion stopped it.
+  speckleTwinkleTime = last === null ? now : speckleTwinkleTime + (still ? 0 : elapsed);
+  // Velocities are per 60 Hz frame, at that speed on any display; a long gap counts as 50 ms.
+  const step = still ? 0 : Math.min(50, elapsed) / SPECKLE_FRAME_MS;
+
   for (let i = 0; i < speckles.length; i++) {
     const p = speckles[i];
-    p.x += p.vx;
-    p.y += p.vy;
+    p.x += p.vx * step;
+    p.y += p.vy * step;
 
     if (p.isBottomLeft) {
       if (p.x < bottomLeftOriginX - sw * 0.11 || p.y > bottomLeftOriginY + sh * 0.1) {
@@ -3133,7 +3147,7 @@ function updateAndDrawSpeckles(now: number) {
       }
     }
 
-    const twinkle = 0.68 + 0.32 * Math.sin(now * 0.002 + p.phase);
+    const twinkle = 0.68 + 0.32 * Math.sin(speckleTwinkleTime * 0.002 + p.phase);
     const finalAlpha = Math.max(0, Math.min(1, p.alpha * twinkle));
 
     sctx.beginPath();

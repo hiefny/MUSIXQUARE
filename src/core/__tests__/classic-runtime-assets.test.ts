@@ -757,6 +757,77 @@ describe('strict TypeScript classic browser runtimes', () => {
     },
   );
 
+  it('runs the About sync clock only near the viewport, resuming at the current time', async () => {
+    const { code } = await transformWithEsbuild(
+      await readFile(resolve(REPO_ROOT, '.workshop/landing/main.ts'), 'utf8'),
+      'landing-main.ts',
+      { loader: 'ts', format: 'iife', target: 'es2018' },
+    );
+    const html = await readFile(resolve(REPO_ROOT, '.workshop/landing/landing.html'), 'utf8');
+    const dom = new JSDOM(html, {
+      url: 'https://musixquare.com/about',
+      runScripts: 'outside-only',
+    });
+    try {
+      const { window } = dom;
+      Object.defineProperty(window.document, 'readyState', {
+        configurable: true,
+        value: 'complete',
+      });
+      // Keep the phone tilt's own frames out of this clock's frame count.
+      window.document.querySelector('[data-phone-tilt]')?.remove();
+      const frames = new Map<number, FrameRequestCallback>();
+      let nextFrame = 1;
+      window.requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+        frames.set(nextFrame, callback);
+        return nextFrame++;
+      });
+      window.cancelAnimationFrame = vi.fn((id: number) => void frames.delete(id));
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: vi.fn(() => ({ matches: false, addEventListener: vi.fn() })),
+      });
+      let now = 0;
+      Object.defineProperty(window.performance, 'now', { configurable: true, value: () => now });
+      const observers: Array<{ callback: IntersectionObserverCallback; targets: Element[] }> = [];
+      Object.defineProperty(window, 'IntersectionObserver', {
+        configurable: true,
+        value: class {
+          readonly targets: Element[] = [];
+          constructor(callback: IntersectionObserverCallback) {
+            observers.push({ callback, targets: this.targets });
+          }
+          observe(target: Element): void {
+            this.targets.push(target);
+          }
+          unobserve(): void {}
+          disconnect(): void {}
+        },
+      });
+      window.eval(code);
+
+      const root = window.document.querySelector('[data-sync-clock]')!;
+      const clock = observers.find(({ targets }) => targets.includes(root))!;
+      const report = (isIntersecting: boolean): void =>
+        clock.callback([{ isIntersecting } as IntersectionObserverEntry], {} as never);
+      const host = root.querySelector<HTMLElement>('[data-sync-tc="host"]')!;
+      expect(frames.size).toBe(1);
+
+      report(false);
+      expect(frames.size).toBe(0);
+
+      now = 12_345;
+      report(true);
+      // The first visible frame is already painted with the current time.
+      expect(host.textContent).toBe('00:12.345');
+      expect(frames.size).toBe(1);
+      report(true);
+      expect(frames.size).toBe(1);
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it('preserves keyboard pagination focus across rebuilt blog controls', async () => {
     const { code } = await compiledAsset('blog-pagination.js');
     const dom = new JSDOM(

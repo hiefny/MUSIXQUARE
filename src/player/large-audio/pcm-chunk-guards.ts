@@ -2,15 +2,43 @@ import { pcmChunkDuration, type PcmChunk, type PcmIterator } from './bounded-pla
 
 export const PCM_INTERPOLATION_GUARD_FRAMES = 2;
 const TIMESTAMP_TOLERANCE_SECONDS = 0.000001;
+// Decoders emit one codec frame per chunk. As separate sources, 300-750 would
+// be pending across the eight-second lookahead; quarter-second sources leave
+// about 32, each well under a second.
+const MERGE_SECONDS = 0.25;
+const MAX_MERGE_SECONDS = 0.5;
+// High-rate surround PCM reaches this before a quarter second, keeping each
+// merged source a small share of the schedule budget.
+const MAX_MERGE_BYTES = 1024 * 1024;
+
+/** Same format, starting where the preceding PCM ends within timestamp rounding. */
+function continuesAt(
+  next: PcmChunk | undefined,
+  timestamp: number,
+  sampleRate: number,
+  numberOfChannels: number,
+): next is PcmChunk {
+  return (
+    next !== undefined &&
+    next.buffer.sampleRate === sampleRate &&
+    next.buffer.numberOfChannels === numberOfChannels &&
+    Math.abs(next.timestamp - timestamp) <= TIMESTAMP_TOLERANCE_SECONDS
+  );
+}
 
 /**
  * Preserve the real next samples for native resampling at a chunk boundary.
  * The scheduler stops at duration, so these samples never extend the timeline.
  * Normally one next chunk supplies both samples; one-sample chunks need two.
+ *
+ * Chunks that start at or after mergeFrom are first joined, while contiguous
+ * and of one format, into one buffer of about a quarter second. The next
+ * unjoined chunk still supplies its guard samples and shared boundary.
  */
 export async function* guardPcmChunkBoundaries(
   reader: PcmIterator,
   audibleEnd = Infinity,
+  mergeFrom = Infinity,
 ): PcmIterator {
   const pending: PcmChunk[] = [];
   let finished = false;
@@ -30,19 +58,46 @@ export async function* guardPcmChunkBoundaries(
       let current = await peek(0);
       if (!current) return;
       if (current.timestamp >= audibleEnd) return;
-      pending.shift();
       let duration = pcmChunkDuration(current);
-      const { sampleRate, numberOfChannels, length } = current.buffer;
+      const { sampleRate, numberOfChannels } = current.buffer;
+      const timestamp = current.timestamp;
+      let nextTimestamp = timestamp + duration;
+      let length = current.buffer.length;
+      let count = 1;
+      if (timestamp >= mergeFrom) {
+        const maxLength = Math.min(
+          MAX_MERGE_SECONDS * sampleRate,
+          MAX_MERGE_BYTES / (numberOfChannels * Float32Array.BYTES_PER_ELEMENT),
+        );
+        // At the audible end, a gap or end of stream, yield the shorter buffer
+        // instead of waiting for a full quarter second.
+        while (length < MERGE_SECONDS * sampleRate && nextTimestamp < audibleEnd) {
+          const next = await peek(count);
+          // Joined samples are placed by frame count. Compare with the end of
+          // the joined frames so tolerated timestamp rounding cannot accumulate.
+          if (
+            !continuesAt(next, timestamp + length / sampleRate, sampleRate, numberOfChannels) ||
+            length + next.buffer.length > maxLength
+          )
+            break;
+          length += next.buffer.length;
+          nextTimestamp = next.timestamp + pcmChunkDuration(next);
+          duration = nextTimestamp - timestamp;
+          count++;
+        }
+      }
       const buffer = new AudioBuffer({
         length: length + PCM_INTERPOLATION_GUARD_FRAMES,
         numberOfChannels,
         sampleRate,
       });
-      for (let channel = 0; channel < numberOfChannels; channel++) {
-        buffer.copyToChannel(current.buffer.getChannelData(channel), channel);
+      let frame = 0;
+      for (const chunk of pending.splice(0, count)) {
+        for (let channel = 0; channel < numberOfChannels; channel++) {
+          buffer.copyToChannel(chunk.buffer.getChannelData(channel), channel, frame);
+        }
+        frame += chunk.buffer.length;
       }
-      const timestamp = current.timestamp;
-      let nextTimestamp = timestamp + duration;
       let neighborFrames = PCM_INTERPOLATION_GUARD_FRAMES;
       if (Number.isFinite(audibleEnd)) {
         const missingFrames =
@@ -63,13 +118,7 @@ export async function* guardPcmChunkBoundaries(
       // chunk must not force another read after it supplies the missing samples.
       for (let index = 0; copied < neighborFrames; index++) {
         const next = await peek(index);
-        if (
-          !next ||
-          next.buffer.sampleRate !== sampleRate ||
-          next.buffer.numberOfChannels !== numberOfChannels ||
-          Math.abs(next.timestamp - nextTimestamp) > TIMESTAMP_TOLERANCE_SECONDS
-        )
-          break;
+        if (!continuesAt(next, nextTimestamp, sampleRate, numberOfChannels)) break;
         // Packet timestamps can be rounded to integer microseconds while PCM
         // durations remain sample-exact. Use one shared boundary so native
         // output-frame rounding cannot leave a one-frame gap or overlap.

@@ -157,14 +157,17 @@ function watchHostConnection(): void {
 
 /**
  * The host is judged only while this page is on screen, so the watchdog runs
- * only then. The visibility handler restarts it with an immediate check.
+ * only then. Showing the page again restarts it with an immediate check.
  */
 function syncWatchdog(): void {
-  if (watchedConn && !isPageHidden()) {
-    setManagedTimer(WATCHDOG_TIMER, tick, WATCHDOG_INTERVAL_MS, { interval: true });
-  } else {
+  if (!watchedConn || isPageHidden()) {
     clearManagedTimer(WATCHDOG_TIMER);
+    return;
   }
+  setManagedTimer(WATCHDOG_TIMER, tick, WATCHDOG_INTERVAL_MS, { interval: true });
+  // Back on screen, this page's own pings resume; restart the silence window.
+  if (armed) lastHostFrameAt = Date.now();
+  tick();
 }
 
 function tick(): void {
@@ -276,21 +279,12 @@ export function refuseWhileHostHidden(
 
 let initialized = false;
 
-function handleVisibilityChange(): void {
-  syncWatchdog();
-  if (!watchedConn || isPageHidden()) return;
-  // Back on screen, this page's own pings resume; restart the silence window
-  // and settle the presence now instead of on the next tick.
-  if (armed) lastHostFrameAt = Date.now();
-  tick();
-}
-
 export function initHostPresence(): void {
   if (initialized) return;
   initialized = true;
   subscribeRoomAuthorityLifecycle(watchHostConnection);
   bus.on('network:peer-connected', armAfterJoin);
-  document.addEventListener('visibilitychange', handleVisibilityChange);
+  document.addEventListener('visibilitychange', syncWatchdog);
 }
 
 export const hostPresenceTimingForTests = {

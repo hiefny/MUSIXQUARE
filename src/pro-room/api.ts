@@ -895,23 +895,14 @@ function validateAdministratorPermissions(value: ProRoomPermissionSet): ProRoomP
   };
 }
 
-/**
- * Both heartbeat replies carry the room's system-audio state next to either
- * a full snapshot or a compact "not modified" receipt. The 9.0.0 contract is
- * exact: a reply without that state, or with any other key, is invalid.
- */
-function parseHeartbeatEnvelope(
-  value: unknown,
+/** The snapshot a heartbeat reply resolves to, once its system-audio state is removed. */
+function parseHeartbeatSnapshot(
+  value: JsonRecord,
   expectedCode: string,
   knownSnapshot: ProRoomSnapshot | null,
-): ProRoomHeartbeat | null {
-  if (!isRecord(value)) return null;
-  const systemAudio = parseProRoomSystemAudioState(value.systemAudio);
-  if (!systemAudio) return null;
-  if (hasExactKeys(value, ['snapshot', 'systemAudio'])) {
-    const snapshot = parseProRoomSnapshot(value.snapshot);
-    return snapshot?.roomCode === expectedCode ? { snapshot, systemAudio } : null;
-  }
+): ProRoomSnapshot | null {
+  const snapshot = parseSnapshotEnvelope(value, expectedCode);
+  if (snapshot) return snapshot;
   if (
     knownSnapshot === null ||
     !hasExactKeys(value, [
@@ -921,7 +912,6 @@ function parseHeartbeatEnvelope(
       'presenceRevision',
       'playbackRevision',
       'coordinatorEpoch',
-      'systemAudio',
     ]) ||
     value.notModified !== true ||
     !isSafeNonNegativeInteger(value.revision) ||
@@ -938,8 +928,26 @@ function parseHeartbeatEnvelope(
     knownSnapshot.presence.revision === value.presenceRevision &&
     knownSnapshot.playback.revision === value.playbackRevision &&
     knownSnapshot.presence.coordinatorEpoch === value.coordinatorEpoch
-    ? { snapshot: knownSnapshot, systemAudio }
+    ? knownSnapshot
     : null;
+}
+
+/**
+ * Both heartbeat replies, the full snapshot envelope and the compact "not
+ * modified" receipt, carry exactly one more key in 9.0.0: the room's
+ * system-audio state. A reply without it, or with any other key, is invalid.
+ */
+function parseHeartbeatEnvelope(
+  value: unknown,
+  expectedCode: string,
+  knownSnapshot: ProRoomSnapshot | null,
+): ProRoomHeartbeat | null {
+  if (!isRecord(value)) return null;
+  const { systemAudio: rawSystemAudio, ...reply } = value;
+  const systemAudio = parseProRoomSystemAudioState(rawSystemAudio);
+  if (!systemAudio) return null;
+  const snapshot = parseHeartbeatSnapshot(reply, expectedCode, knownSnapshot);
+  return snapshot ? { snapshot, systemAudio } : null;
 }
 
 function parseSystemAudioEnvelope(value: unknown): ProRoomSystemAudioState | null {

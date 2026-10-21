@@ -36,17 +36,17 @@ registration resolves that address to an immutable non-negative
 `roomGeneration`. Existing rooms are generation `0`; a manually re-registered
 code advances to a fresh generation and never revives the deleted incarnation.
 
-| Component                                | Responsibility                                                                                             |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Component                                | Responsibility                                                                                           |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | App route                                | Detect a leading-zero PRO code, confirm activation account, collect an optional entry PIN, render playback |
-| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2                                |
-| One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state                                 |
-| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock/chat/event fan-out, and targeted system-audio SDP/ICE relay   |
-| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                                                     |
-| Browser                                  | RAM-only transfer, decode, preload, and playback working set                                               |
-| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state                                   |
-| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint                                 |
-| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router                                    |
+| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2                              |
+| One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state                               |
+| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock/chat/event fan-out, and targeted system-audio SDP/ICE relay |
+| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                                                   |
+| Browser                                  | RAM-only transfer, decode, preload, and playback working set                                             |
+| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state                                 |
+| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint                               |
+| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router                                  |
 
 The regular signaling path reserves the complete `0xxxxx` namespace before
 Durable Object lookup. `000000` is seeded in the admin registry; an operator may

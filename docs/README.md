@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Preload recovery and current adaptive-window multi-receiver validation — 2026-10-21](design/preload-recovery-and-db256-multi-2026-10-21.md) —
+  reproduces two recovery gaps, retains exact current/next residents across repeated interruptions,
+  and checks ordinary/preload transfers with mixed receivers and a shared host uplink under the
+  unchanged adaptive 256 KiB maximum. Local branch evidence only; deployment remains on hold.
 - [Playlist selection morph, header crossfade and in-place pill exit 8.11.35 — 2026-10-21](design/playlist-selection-morph-and-header-crossfade-2026-10-21.md) —
   splitting a row off a selection block showed a square corner past the block's rounding one, which per-row fills
   cannot avoid; reshaping now draws each block as one pill keeping its radius (stretch, merge through a waist, pinch

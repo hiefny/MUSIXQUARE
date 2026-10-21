@@ -23,7 +23,8 @@ import {
 } from '../core/system-audio-profile.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
-import { initAudio, getWidener, getMasterGain } from './engine.ts';
+import { initAudio, getAnalyser, getMasterGain } from './engine.ts';
+import { createStereoGain } from './helpers.ts';
 import { getTrackPosition, stopAllMediaAsync } from '../player/transport.ts';
 import { getCurrentLoadEpoch, isCurrentLoadEpoch } from '../player/_state.ts';
 import {
@@ -754,23 +755,24 @@ async function performSystemAudioCaptureStartWithSuspendedBroadcast(
     const ctx = getAudioContext();
     _sourceNode = ctx.createMediaStreamSource(stream);
 
-    // 5. Local graph: upmix mono capture sources for effects while preserving
-    // the untouched native capture track for every network transport.
-    _stereoUpmix = ctx.createGain();
+    // 5. Local graph: local output stays muted (step 6), so the capture only
+    // feeds the visualizer analyser. Bypassing the widener leaves the effects
+    // chain without input, so it flushes and idles for the whole share, while
+    // every network transport still sends the untouched native capture track.
+    // The 0.5 gain matches the level the default-width widener delivered.
+    _stereoUpmix = createStereoGain();
     const stereoUpmix = _stereoUpmix;
-    stereoUpmix.channelCount = 2;
-    stereoUpmix.channelCountMode = 'explicit';
-    stereoUpmix.channelInterpretation = 'speakers';
+    stereoUpmix.gain.value = 0.5;
     _sourceNode.connect(stereoUpmix);
 
-    const widener = getWidener();
-    if (!widener) {
-      log.error('[SystemAudio] No widener found');
+    const analyser = getAnalyser();
+    if (!analyser) {
+      log.error('[SystemAudio] No analyser found');
       abortPreparedStart();
       if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
       return;
     }
-    stereoUpmix.connect(widener.input);
+    stereoUpmix.connect(analyser);
   } catch (error) {
     abortPreparedStart();
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
@@ -1050,7 +1052,8 @@ function cleanupCapture(): void {
     }
     _sourceNode = null;
   }
-  // Disconnect every intermediate node retained for this capture session.
+  // Disconnect every intermediate node retained for this capture session,
+  // including the upmix's visualizer connection to the analyser.
   if (_stereoUpmix) {
     try {
       _stereoUpmix.disconnect();

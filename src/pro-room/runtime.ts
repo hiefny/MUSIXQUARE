@@ -1,7 +1,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { PLAYLIST_SLOT_COUNT } from '../core/constants.ts';
 import {
   restoreSessionReset,
@@ -183,6 +183,8 @@ import {
   refreshProSystemAudioState,
   releaseLocalProSystemAudioLease,
   resetProSystemAudioService,
+  resetProSystemAudioSubscriberRetry,
+  resumeHiddenProSystemAudioPlaybackRestore,
 } from './system-audio-service.ts';
 
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -1889,6 +1891,16 @@ function armEffectsCheckpoint(delayMs: number, lease = playlistRuntimeLease): vo
   );
 }
 
+/**
+ * A failed room-effects save waits out a backoff of up to a minute. A
+ * reconnect or a page shown again is a better moment, so a waiting save
+ * retries at once. Its backoff continues if that attempt fails as well.
+ */
+function retryWaitingEffectsCheckpoint(): void {
+  if (!effectsCheckpointState.dirty || !getManagedTimer(EFFECTS_CHECKPOINT_DEBOUNCE_TIMER)) return;
+  armEffectsCheckpoint(EFFECTS_CHECKPOINT_DEBOUNCE_MS);
+}
+
 function scheduleEffectsCheckpointRetry(
   token: SettingsSyncCheckpointToken,
   error: unknown,
@@ -3534,6 +3546,9 @@ function bindVisibilityRefresh(): void {
     }
     if (!active) return;
     const recoverPlayback = visibilityPlaybackRecoveryPending;
+    retryWaitingEffectsCheckpoint();
+    // A playback restoration after a share ended waits while hidden.
+    resumeHiddenProSystemAudioPlaybackRestore();
     clearManagedTimer(HEARTBEAT_TIMER);
     // A hidden WebKit iframe may be locally paused while the exact same server
     // revision keeps advancing. A normal heartbeat intentionally deduplicates
@@ -4016,6 +4031,9 @@ onProRoomRealtimeConnection((connected) => {
   if (!active) return;
   if (connected) {
     markProRoomTransportRecovered();
+    // The network is likely back: restart waiting retries from their start.
+    retryWaitingEffectsCheckpoint();
+    resetProSystemAudioSubscriberRetry();
     return;
   }
   requestProRoomTransportRecovery();

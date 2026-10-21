@@ -81,6 +81,9 @@ const LEASE_HEARTBEAT_MS = 15_000;
 // heartbeat intervals allow brief edge/API recovery while remaining bounded.
 const DIRECT_AUTHORITY_LOSS_GRACE_MS = LEASE_HEARTBEAT_MS * 4;
 const RECOVERY_DELAY_MS = 2_500;
+// Each SFU re-subscribe fetches TURN credentials and opens a new Realtime
+// session, so its retry doubles from RECOVERY_DELAY_MS up to this delay.
+const SUBSCRIBER_RETRY_MAX_DELAY_MS = 30_000;
 const MAX_DIRECT_TARGETS = MAX_SYSTEM_AUDIO_DEVICES - 1;
 
 let controller: ProRoomSystemAudioController | null = null;
@@ -106,6 +109,11 @@ let boundSessionKey: string | null = null;
 let leaseHeartbeatFailureNotified = false;
 let directAuthorityHeartbeatFailureStartedAt: number | null = null;
 let subscriberFailureGeneration: number | null = null;
+let subscriberRetryAttempt = 0;
+/** Publication whose re-subscribe backoff `subscriberRetryAttempt` counts. */
+let subscriberRetryKey: string | null = null;
+/** The re-subscribe waiting on SUBSCRIBER_RETRY_TIMER, if any. */
+let pendingSubscriberRetry: CoordinatorPublicationIdentity | null = null;
 let localLeaseAttemptOwner: LocalLeaseAttemptOwner | null = null;
 let directPromotionFlight: Promise<void> | null = null;
 let activeLocalDirectPublicationKey: string | null = null;
@@ -120,6 +128,8 @@ let pendingLocalPlaybackRestore: {
   isCurrent: () => boolean;
 } | null = null;
 let playbackRestore: ProRoomPlaybackReconciliationLiveness | null = null;
+/** A playback restoration retry that waits for the page to be shown. */
+let hiddenPlaybackRestoreRetry: (() => void) | null = null;
 let interruptedReceiverPlayback: { roomCode: string | null; generation: number } | null = null;
 
 let coordinatorSource: MediaStreamAudioSourceNode | null = null;
@@ -489,7 +499,7 @@ function cleanupCoordinatorAudioNodes(): void {
 }
 
 function cleanupCoordinatorGraph(): void {
-  clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
+  clearSubscriberRetry();
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
   cleanupCoordinatorAudioNodes();
   coordinatorSubscriptionKey = null;
@@ -501,7 +511,7 @@ function cleanupCoordinatorGraph(): void {
 }
 
 function cleanupCoordinatorSubscriptionForRetry(): void {
-  clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
+  clearSubscriberRetry();
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
   cleanupCoordinatorAudioNodes();
   coordinatorSubscriptionKey = null;
@@ -827,6 +837,7 @@ async function ensureCoordinatorSubscription(
     });
     if (!coordinatorPublicationMatches(identity)) return;
     subscriberFailureGeneration = null;
+    subscriberRetryAttempt = 0;
     return;
   }
   resetProSystemAudioDirectTransport({ notifyPeers: false });
@@ -848,6 +859,7 @@ async function ensureCoordinatorSubscription(
   }
   if (!coordinatorPublicationMatches(identity)) return;
   subscriberFailureGeneration = null;
+  subscriberRetryAttempt = 0;
 }
 
 function notifySubscriberFailure(
@@ -857,6 +869,58 @@ function notifySubscriberFailure(
   subscriberFailureGeneration = state.generation;
   const name = ownerDisplayName(state) ?? state.ownerParticipantId;
   bus.emit('ui:show-toast', t('system_audio.connection_unstable', { name }));
+}
+
+function clearSubscriberRetry(): void {
+  clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
+  pendingSubscriberRetry = null;
+}
+
+/**
+ * Re-subscribe after a failed SFU subscription. Every attempt fetches TURN
+ * credentials and opens a new Realtime session, so the delay doubles from
+ * 2.5 to 30 seconds for the same publication. It deliberately keeps running
+ * while the page is hidden, because a background receiver must keep playing.
+ */
+function scheduleCoordinatorSubscriptionRetry(identity: CoordinatorPublicationIdentity): void {
+  const key = coordinatorPublicationKey(identity);
+  if (subscriberRetryKey !== key) {
+    subscriberRetryKey = key;
+    subscriberRetryAttempt = 0;
+  }
+  const delay = Math.min(
+    RECOVERY_DELAY_MS * 2 ** subscriberRetryAttempt,
+    SUBSCRIBER_RETRY_MAX_DELAY_MS,
+  );
+  subscriberRetryAttempt += 1;
+  pendingSubscriberRetry = identity;
+  setManagedTimer(
+    SUBSCRIBER_RETRY_TIMER,
+    () => {
+      pendingSubscriberRetry = null;
+      if (!coordinatorPublicationMatches(identity)) return;
+      const current = controller?.getCurrentState();
+      if (current?.status === 'live') {
+        void ensureCoordinatorSubscription(current, identity).catch((error) =>
+          log.warn('[PRO SystemAudio] Coordinator subscription retry failed', error),
+        );
+      }
+    },
+    delay,
+  );
+}
+
+/**
+ * The room's control channel is connected again, so the network is likely
+ * back. Restart the re-subscribe backoff and retry a waiting subscription
+ * after the first, shortest delay.
+ */
+export function resetProSystemAudioSubscriberRetry(): void {
+  subscriberRetryAttempt = 0;
+  const identity = pendingSubscriberRetry;
+  if (identity && coordinatorPublicationMatches(identity)) {
+    scheduleCoordinatorSubscriptionRetry(identity);
+  }
 }
 
 function retryCoordinatorSubscription(identity: CoordinatorPublicationIdentity): void {
@@ -870,19 +934,7 @@ function retryCoordinatorSubscription(identity: CoordinatorPublicationIdentity):
   cleanupCoordinatorSubscriptionForRetry();
   setSystemAudioReceiving(false);
   notifySubscriberFailure(state);
-  setManagedTimer(
-    SUBSCRIBER_RETRY_TIMER,
-    () => {
-      if (!coordinatorPublicationMatches(identity)) return;
-      const current = controller?.getCurrentState();
-      if (current?.status === 'live') {
-        void ensureCoordinatorSubscription(current, identity).catch((error) =>
-          log.warn('[PRO SystemAudio] Coordinator subscription retry failed', error),
-        );
-      }
-    },
-    RECOVERY_DELAY_MS,
-  );
+  scheduleCoordinatorSubscriptionRetry(identity);
 }
 
 function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): void {
@@ -1025,20 +1077,15 @@ function reconcileCoordinatorState(state: ProRoomSystemAudioState): void {
       if (!coordinatorPublicationMatches(identity)) return;
       log.warn('[PRO SystemAudio] Coordinator subscription failed', error);
       notifySubscriberFailure(state);
-      clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
-      setManagedTimer(
-        SUBSCRIBER_RETRY_TIMER,
-        () => {
-          if (!coordinatorPublicationMatches(identity)) return;
-          const latest = controller?.getCurrentState();
-          if (latest?.status === 'live') {
-            void ensureCoordinatorSubscription(latest, identity).catch((retryError) =>
-              log.warn('[PRO SystemAudio] Coordinator subscription retry failed', retryError),
-            );
-          }
-        },
-        RECOVERY_DELAY_MS,
-      );
+      // A failed SFU subscription reports `failed` before it rejects, and that
+      // event already scheduled this publication's next backed-off attempt.
+      if (
+        pendingSubscriberRetry &&
+        coordinatorPublicationKey(pendingSubscriberRetry) === coordinatorPublicationKey(identity)
+      ) {
+        return;
+      }
+      scheduleCoordinatorSubscriptionRetry(identity);
     });
   } else {
     cleanupCoordinatorGraph();
@@ -1049,7 +1096,19 @@ function reconcileCoordinatorState(state: ProRoomSystemAudioState): void {
 
 function cancelPlaybackRestore(): void {
   playbackRestore = null;
+  hiddenPlaybackRestoreRetry = null;
   clearManagedTimer(PLAYBACK_RESTORE_TIMER);
+}
+
+function isPageHidden(): boolean {
+  return typeof document !== 'undefined' && document.visibilityState === 'hidden';
+}
+
+/** The page is shown again: run a playback restoration retry it held back. */
+export function resumeHiddenProSystemAudioPlaybackRestore(): void {
+  const retry = hiddenPlaybackRestoreRetry;
+  hiddenPlaybackRestoreRetry = null;
+  retry?.();
 }
 
 function restorePlaybackAfterRelease(isCurrent: () => boolean): void {
@@ -1085,6 +1144,9 @@ function resumePlaybackAfterShare(
   };
   playbackRestore = liveness;
   let retry = 0;
+  const retryRestore = () => {
+    observeSystemAudioTask(restore(), 'playback restoration retry');
+  };
   const restore = async (): Promise<void> => {
     if (!liveness.isCurrent()) return;
     let complete = false;
@@ -1101,12 +1163,18 @@ function resumePlaybackAfterShare(
     }
     // A briefly unavailable API/clock must not leave the renderer permanently
     // cued. Keep one owned retry, capped at the normal lease heartbeat interval.
+    // A hidden page waits to be shown instead of retrying in the background.
+    if (isPageHidden()) {
+      hiddenPlaybackRestoreRetry = retryRestore;
+      return;
+    }
     const delay =
       PLAYBACK_RESTORE_DELAYS_MS[Math.min(retry++, PLAYBACK_RESTORE_DELAYS_MS.length - 1)];
     setManagedTimer(
       PLAYBACK_RESTORE_TIMER,
       () => {
-        observeSystemAudioTask(restore(), 'playback restoration retry');
+        if (isPageHidden()) hiddenPlaybackRestoreRetry = retryRestore;
+        else retryRestore();
       },
       delay,
     );
@@ -1310,10 +1378,11 @@ export function resetProSystemAudioService(): void {
   cancelPublisherRecovery();
   clearManagedTimer(LEASE_HEARTBEAT_TIMER);
   clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-  clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
   clearManagedTimer(PUBLISHER_RETRY_TIMER);
   clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
   cleanupCoordinatorGraph();
+  subscriberRetryAttempt = 0;
+  subscriberRetryKey = null;
   stopProSystemAudioSfuPublisher();
   resetProSystemAudioDirectTransport({ notifyPeers: false });
   directPromotionFlight = null;

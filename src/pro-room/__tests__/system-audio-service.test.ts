@@ -163,6 +163,8 @@ import {
   releaseLocalProSystemAudioLease,
   registerProSystemAudioServiceListeners,
   resetProSystemAudioService,
+  resetProSystemAudioSubscriberRetry,
+  resumeHiddenProSystemAudioPlaybackRestore,
 } from '../system-audio-service.ts';
 import {
   beginLocalProSystemAudioLeaseAttempt,
@@ -638,6 +640,39 @@ describe('PRO system-audio service orchestration', () => {
     expect(liveness.isCurrent()).toBe(false);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mocks.restorePlayback).toHaveBeenCalledTimes(7);
+  });
+
+  it('holds restoration retries while hidden and resumes them when shown, without a cap', async () => {
+    vi.useFakeTimers();
+    const page = { visibilityState: 'visible' as DocumentVisibilityState };
+    vi.stubGlobal('document', page);
+    mocks.restorePlayback.mockResolvedValue(false);
+    await observeState(live());
+    page.visibilityState = 'hidden';
+    await observeState(idle(2));
+    await vi.advanceTimersByTimeAsync(0);
+    // A share that ends in the background still gets its first attempt.
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('pro-system-audio-playback-restore')).toBeNull();
+
+    page.visibilityState = 'visible';
+    resumeHiddenProSystemAudioPlaybackRestore();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(2);
+    // A retry timer that fires while hidden waits for the page as well.
+    page.visibilityState = 'hidden';
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(2);
+    page.visibilityState = 'visible';
+    mocks.restorePlayback.mockResolvedValue(true);
+    resumeHiddenProSystemAudioPlaybackRestore();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(3);
+    resumeHiddenProSystemAudioPlaybackRestore();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.restorePlayback).toHaveBeenCalledTimes(3);
   });
 
   it('applies heartbeat system audio like the GET, only for the bound presence', async () => {
@@ -1771,6 +1806,46 @@ describe('PRO system-audio service orchestration', () => {
       if (boundary === 'trusted-boundary') expect(mocks.initAudio).not.toHaveBeenCalled();
     },
   );
+
+  it('backs SFU re-subscribe attempts off to 30 seconds and restarts them on reconnect', async () => {
+    const descriptor = sfuEventDescriptor();
+    // Like the real SFU module: report `failed`, then reject the attempt.
+    mocks.subscribe.mockImplementation(async () => {
+      mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+      throw new Error('REALTIME_SESSION_FAILED');
+    });
+    vi.useFakeTimers();
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(1);
+
+    for (const delay of [2_500, 5_000, 10_000, 20_000, 30_000, 30_000]) {
+      const attempts = mocks.subscribe.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      expect(mocks.subscribe).toHaveBeenCalledTimes(attempts);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1);
+    }
+
+    // The room's control channel reconnected: start over at 2.5 seconds.
+    const attempts = mocks.subscribe.mock.calls.length;
+    resetProSystemAudioSubscriberRetry();
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 2);
+
+    // A working subscription resets the backoff for the next failure.
+    mocks.subscribe.mockResolvedValue(undefined);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 3);
+    mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 4);
+  });
 
   it('returns a failed playing SFU subscription to pending until the retry track attaches', async () => {
     const graph = installAudioGraphHarness();

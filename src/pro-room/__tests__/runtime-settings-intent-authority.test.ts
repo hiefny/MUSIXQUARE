@@ -167,6 +167,7 @@ describe('PRO settings field intent across authority and HTTP responses', () => 
   let readStatus: number;
   let readBody: ReadableStreamDefaultController<Uint8Array> | undefined;
   let readCancelled: boolean;
+  let failingPuts: number;
   const settle = async () => {
     await Promise.resolve();
     await Promise.resolve();
@@ -202,6 +203,7 @@ describe('PRO settings field intent across authority and HTTP responses', () => 
     readStatus = 200;
     readBody = undefined;
     readCancelled = false;
+    failingPuts = 0;
     const client = new ProRoomApiClient({
       fetch: async (input, init) => {
         const path = new URL(String(input)).pathname;
@@ -235,6 +237,10 @@ describe('PRO settings field intent across authority and HTTP responses', () => 
         }
         const request = JSON.parse(String(init?.body)) as SettingsPut;
         puts.push(request);
+        if (failingPuts > 0) {
+          failingPuts -= 1;
+          return Response.json({ error: 'TEMPORARILY_UNAVAILABLE' }, { status: 503 });
+        }
         if (holdPut) {
           holdPut = false;
           const payload =
@@ -662,6 +668,46 @@ describe('PRO settings field intent across authority and HTTP responses', () => 
     expect(puts).toHaveLength(2);
     expect(settings.masterVolume).toBe(0.4);
     expect(settings.effects.reverb.mixPercent).toBe(31);
+  });
+
+  it('backs a failing save off to a minute and retries it when shown or reconnected', async () => {
+    holdPut = false;
+    failingPuts = Number.POSITIVE_INFINITY;
+    setState('audio.masterVolume', 0.4);
+    // The edit's 350 ms debounce sends the first save.
+    await vi.advanceTimersByTimeAsync(350);
+    expect(puts).toHaveLength(1);
+    // No attempt cap: a capped retry would strand this room-effects edit.
+    for (const delay of [1_000, 3_000, 10_000, 30_000, 60_000, 60_000]) {
+      await vi.advanceTimersByTimeAsync(delay - 1);
+      const before = puts.length;
+      await vi.advanceTimersByTimeAsync(1);
+      expect(puts).toHaveLength(before + 1);
+    }
+
+    let visibility: DocumentVisibilityState = 'visible';
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      get: () => visibility,
+    });
+    try {
+      visibility = 'hidden';
+      document.dispatchEvent(new Event('visibilitychange'));
+      visibility = 'visible';
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(400);
+      expect(puts).toHaveLength(8);
+    } finally {
+      delete (document as { visibilityState?: DocumentVisibilityState }).visibilityState;
+    }
+
+    // A reconnected control channel retries the waiting save as well.
+    failingPuts = 0;
+    FakeWebSocket.instances.at(-1)!.dispatch('close');
+    await vi.waitFor(() => expect(FakeWebSocket.instances.at(-1)!.readyState).toBe(1));
+    await vi.advanceTimersByTimeAsync(400);
+    expect(puts).toHaveLength(9);
+    expect(settings.masterVolume).toBe(0.4);
   });
 
   it('isolates an old denied PUT from fresh edits after leaving and rejoining the same room', async () => {

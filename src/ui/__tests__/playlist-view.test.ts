@@ -1389,17 +1389,32 @@ describe('playlist queue identity rendering and actions', () => {
       )?.[1] ?? '';
     const sel = '.playlist-entry.is-removal-selected';
     expect(rule(`${sel}::before`)).toContain('background: var(--control-active)');
-    expect(rule('.playlist-entry::before')).toContain('border-radius: var(--radius-pill)');
+    expect(stylesheet).toContain('--playlist-fill-radius: calc(var(--list-row-height) / 2);');
+    expect(rule('.playlist-entry::before')).toContain('border-radius: var(--playlist-fill-radius)');
     expect(rule(`${sel}:has(+ ${sel})::before`)).toContain(
-      'border-radius: calc(var(--list-row-height) / 2) calc(var(--list-row-height) / 2) 0 0',
+      'border-radius: var(--playlist-fill-radius) var(--playlist-fill-radius) 0 0',
     );
     expect(rule(`${sel} + ${sel}::before`)).toContain('top: -8px');
     expect(rule(`${sel} + ${sel}::before`)).toContain(
-      'border-radius: 0 0 calc(var(--list-row-height) / 2) calc(var(--list-row-height) / 2)',
+      'border-radius: 0 0 var(--playlist-fill-radius) var(--playlist-fill-radius)',
     );
     expect(stylesheet).toMatch(
       /\.playlist-entry\.is-removal-selected\s*\+ \.playlist-entry\.is-removal-selected:has\(\+ \.playlist-entry\.is-removal-selected\)::before\s*\{\s*border-radius: 0;/,
     );
+
+    // Joining is fluid: the shape eases, and an unselected neighbour waits
+    // collapsed on the block's edge, clear until its shape has settled.
+    for (const property of ['top', 'bottom', 'border-radius']) {
+      expect(rule('.playlist-entry::before')).toContain(`${property} var(--playlist-fill-morph)`);
+    }
+    const unselected = '.playlist-entry:not(.is-removal-selected)';
+    const above = rule(`${unselected}:has(+ ${sel})::before`);
+    expect(above).toContain('top: 100%');
+    expect(above).toContain('background-color 0s linear 0.36s');
+    const below = rule(`${sel} + ${unselected}::before`);
+    expect(below).toContain('top: -8px');
+    expect(below).toContain('bottom: calc(100% + 8px)');
+    expect(below).toContain('background-color 0s linear 0.36s');
   });
 
   it('folds YouTube playlists in edit mode and keeps each expansion for afterwards', async () => {

@@ -346,6 +346,42 @@ describe('playlist removal controller', () => {
       expect(bar().hidden).toBe(true);
       expect(barAnimations()).toHaveLength(0);
     });
+
+    it('slides a frozen copy of each deleted row out to the right', () => {
+      const rects = vi
+        .spyOn(Element.prototype, 'getClientRects')
+        .mockReturnValue([{}] as unknown as DOMRectList);
+      try {
+        const { list } = deleteFirstRow();
+        const layer = document.querySelector<HTMLElement>('.playlist-exit-layer')!;
+        expect(layer).not.toBeNull();
+        expect(layer.getAttribute('aria-hidden')).toBe('true');
+        // After the bar, outside the list that re-renders from scratch.
+        expect(layer.previousElementSibling).toBe(bar());
+        const ghosts = layer.querySelectorAll<HTMLElement>('.playlist-exit-ghost');
+        expect(Array.from(ghosts, (ghost) => ghost.dataset.queueItemId)).toEqual([A]);
+        // The copy carries the shape, not the class other rows' rules read.
+        expect(ghosts[0]!.classList.contains('is-removal-selected')).toBe(false);
+
+        const ghostCall = animate.mock.contexts.indexOf(ghosts[0]);
+        const [frames, timing] = animate.mock.calls[ghostCall] as [
+          Keyframe[],
+          KeyframeAnimationOptions,
+        ];
+        expect(frames.map((frame) => frame.transform)).toEqual([
+          'translateX(0)',
+          'translateX(100%)',
+        ]);
+        expect(frames.map((frame) => frame.opacity)).toEqual([1, 0]);
+        expect(timing).toMatchObject({ duration: 280, fill: 'forwards' });
+        expect(list.contains(ghosts[0]!)).toBe(false);
+
+        vi.advanceTimersByTime(280);
+        expect(document.querySelector('.playlist-exit-layer')).toBeNull();
+      } finally {
+        rects.mockRestore();
+      }
+    });
   });
 
   it('builds and removes its header controls with the controller', () => {

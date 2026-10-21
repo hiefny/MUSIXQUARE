@@ -7,6 +7,12 @@ const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
 /** Shared length of the survivors' glide and the pills' exit. */
 const MORPH_MS = 300;
 const MORPH_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+/** Deleted rows slide out toward the inline end; survivors close up behind them. */
+const EXIT_MS = 280;
+const EXIT_EASING = 'cubic-bezier(0.5, 0, 0.75, 0)';
+const EXIT_STAGGER_MS = 24;
+const EXIT_STAGGER_LIMIT = 8;
+const SURVIVOR_DELAY_MS = 90;
 /**
  * Remote paths (PRO server, Standard host) answer asynchronously. Keep the
  * deleted rows hidden until the canonical playlist drops them, but give a
@@ -162,6 +168,14 @@ export function createPlaylistRemovalController(
   let barState: BarState = 'hidden';
   let barAnimations: Animation[] = [];
   let barExitTimer = 0;
+  let exitLayer: HTMLElement | null = null;
+  let exitTimer = 0;
+  /** Survivors' offsets from their old rows while they glide into place. */
+  let glide: {
+    offsets: ReadonlyMap<string, number | null>;
+    startedAt: number;
+    delay: number;
+  } | null = null;
 
   interface SentDeletion {
     queueItemIds: ReadonlySet<QueueItemId>;
@@ -463,6 +477,7 @@ export function createPlaylistRemovalController(
       survivors[Math.min(firstRemovedIndex, Math.max(0, survivors.length - 1))]?.queueItemId ??
       null;
     const rowsBefore = rowTops();
+    const exitRows = captureExitRows(new Set(orderedQueueItemIds));
     const barTopBefore = canAnimateBarExit() ? bar.getBoundingClientRect().top : null;
     selectedQueueItemIds.clear();
     if (barTopBefore !== null) setBarState('leaving');
@@ -483,7 +498,8 @@ export function createPlaylistRemovalController(
     const focusWasOnBar = takeControlFocus();
     options.onHiddenChange?.();
     if (!destroyed) syncDom();
-    glideRows(rowsBefore);
+    const exiting = !destroyed && exitRows !== null && slideOutRows(exitRows);
+    glideRows(rowsBefore, exiting ? SURVIVOR_DELAY_MS : 0);
     if (barTopBefore !== null) animateBarExit(barTopBefore);
     if (focusWasOnBar) releaseControlFocus(survivorQueueItemId);
   }
@@ -502,22 +518,139 @@ export function createPlaylistRemovalController(
     return tops;
   }
 
-  function glideRows(before: Map<string, number> | null): void {
+  interface ExitRow {
+    entry: HTMLElement;
+    rect: DOMRect;
+    fill: { top: string; bottom: string; radius: string };
+  }
+
+  // The list re-renders from scratch, so deleted rows leave as copies frozen
+  // where they were, painted with the selection block shape they had.
+  function captureExitRows(queueItemIds: ReadonlySet<QueueItemId>): ExitRow[] | null {
+    if (!canAnimate(list)) return null;
+    const rows: ExitRow[] = [];
+    for (const entry of list.querySelectorAll<HTMLElement>(':scope > .playlist-entry')) {
+      const id = entry.dataset.queueItemId;
+      if (!id || !queueItemIds.has(id) || !entry.getClientRects().length) continue;
+      const fill = getComputedStyle(entry, '::before');
+      rows.push({
+        entry,
+        rect: entry.getBoundingClientRect(),
+        fill: { top: fill.top, bottom: fill.bottom, radius: fill.borderRadius },
+      });
+    }
+    return rows.length > 0 ? rows : null;
+  }
+
+  function removeExitLayer(): void {
+    window.clearTimeout(exitTimer);
+    exitLayer?.remove();
+    exitLayer = null;
+  }
+
+  /** Slide the captured rows out; false when nothing could be shown. */
+  function slideOutRows(rows: readonly ExitRow[]): boolean {
+    removeExitLayer();
+    const parent = bar.parentElement;
+    if (!parent) return false;
+    const listRect = list.getBoundingClientRect();
+    const top = Math.min(listRect.top, ...rows.map((row) => row.rect.top));
+    const bottom = Math.max(...rows.map((row) => row.rect.bottom));
+    const layer = document.createElement('div');
+    layer.className = 'playlist-exit-layer';
+    layer.setAttribute('aria-hidden', 'true');
+    layer.inert = true;
+    // After the bar, so no list or bar sibling rule sees the layer.
+    bar.after(layer);
+    // The layer clips the slide to the list's width; place it over the rows
+    // from wherever its containing block puts it.
+    const origin = layer.getBoundingClientRect();
+    layer.style.left = `${listRect.left - origin.left}px`;
+    layer.style.top = `${top - origin.top}px`;
+    layer.style.width = `${listRect.width}px`;
+    layer.style.height = `${bottom - top}px`;
+
+    const direction = getComputedStyle(list).direction === 'rtl' ? -1 : 1;
+    rows.forEach((row, index) => {
+      const ghost = row.entry.cloneNode(true) as HTMLElement;
+      ghost.classList.remove('is-removal-selected');
+      ghost.classList.add('playlist-exit-ghost');
+      ghost.removeAttribute('id');
+      for (const element of ghost.querySelectorAll('[id]')) element.removeAttribute('id');
+      ghost.style.left = `${row.rect.left - listRect.left}px`;
+      ghost.style.top = `${row.rect.top - top}px`;
+      ghost.style.width = `${row.rect.width}px`;
+      ghost.style.height = `${row.rect.height}px`;
+      ghost.style.setProperty('--exit-fill-top', row.fill.top);
+      ghost.style.setProperty('--exit-fill-bottom', row.fill.bottom);
+      ghost.style.setProperty('--exit-fill-radius', row.fill.radius);
+      layer.appendChild(ghost);
+      ghost.animate(
+        [
+          { transform: 'translateX(0)', opacity: 1 },
+          { transform: `translateX(${direction * 100}%)`, opacity: 0 },
+        ],
+        {
+          duration: EXIT_MS,
+          delay: Math.min(index, EXIT_STAGGER_LIMIT) * EXIT_STAGGER_MS,
+          easing: EXIT_EASING,
+          fill: 'forwards',
+        },
+      );
+    });
+    exitLayer = layer;
+    const lastDelay = Math.min(rows.length - 1, EXIT_STAGGER_LIMIT) * EXIT_STAGGER_MS;
+    exitTimer = window.setTimeout(removeExitLayer, EXIT_MS + lastDelay);
+    return true;
+  }
+
+  function glideRows(before: Map<string, number> | null, delay = 0): void {
     if (!before) return;
-    const timing = { duration: MORPH_MS, easing: MORPH_EASING };
+    const offsets = new Map<string, number | null>();
     for (const handle of list.querySelectorAll<HTMLElement>('.playlist-reorder-handle')) {
       const entry = handle.closest<HTMLElement>('.playlist-entry');
       const id = handle.dataset.queueItemId;
       if (!entry || !id || !entry.getClientRects().length) continue;
       const top = before.get(id);
       if (top === undefined) {
-        entry.animate([{ opacity: 0 }, { opacity: 1 }], timing);
+        offsets.set(id, null);
         continue;
       }
       const dy = top - entry.getBoundingClientRect().top;
-      if (Math.abs(dy) >= 1) {
-        entry.animate([{ transform: `translateY(${dy}px)` }, { transform: 'none' }], timing);
-      }
+      if (Math.abs(dy) >= 1) offsets.set(id, dy);
+    }
+    glide = { offsets, startedAt: performance.now(), delay };
+    continueGlide();
+  }
+
+  // The committed playlist usually re-renders the list again a frame later,
+  // which replaces every row. Each render picks the glide up at the same
+  // point on the new rows, so survivors finish closing the gap.
+  function continueGlide(): void {
+    if (!glide) return;
+    const elapsed = performance.now() - glide.startedAt;
+    if (elapsed >= glide.delay + MORPH_MS) {
+      glide = null;
+      return;
+    }
+    const timing: KeyframeAnimationOptions = {
+      duration: MORPH_MS,
+      easing: MORPH_EASING,
+      delay: glide.delay,
+      fill: 'backwards',
+    };
+    for (const handle of list.querySelectorAll<HTMLElement>('.playlist-reorder-handle')) {
+      const entry = handle.closest<HTMLElement>('.playlist-entry');
+      const id = handle.dataset.queueItemId;
+      if (!entry || !id || !glide.offsets.has(id)) continue;
+      const dy = glide.offsets.get(id);
+      const animation = entry.animate(
+        dy == null
+          ? [{ opacity: 0 }, { opacity: 1 }]
+          : [{ transform: `translateY(${dy}px)` }, { transform: 'none' }],
+        timing,
+      );
+      if (elapsed > 0) animation.currentTime = elapsed;
     }
   }
 
@@ -589,7 +722,10 @@ export function createPlaylistRemovalController(
     isSelected: (queueItemId) => selectedQueueItemIds.has(queueItemId),
     isHidden,
     toggle,
-    afterRender: syncDom,
+    afterRender: () => {
+      syncDom();
+      continueGlide();
+    },
     cancel,
     notifyPlaylistHidden,
     destroy: () => {
@@ -597,6 +733,8 @@ export function createPlaylistRemovalController(
       for (const deletion of sentDeletions) window.clearTimeout(deletion.timer);
       sentDeletions.length = 0;
       stopBarAnimations();
+      removeExitLayer();
+      glide = null;
       removeGestures?.();
       abortController.abort();
       selectedQueueItemIds.clear();

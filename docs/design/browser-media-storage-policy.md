@@ -52,6 +52,17 @@ also block diagnostics and legitimate future metadata work.
 
 ## Consequences
 
+**Receive assembly update (2026-10-22, App 8.11.41 source):** each incoming RAM
+chunk is snapshotted as a Blob. Finalization composes those immutable Blob parts
+instead of passing every retained typed array into a single Blob constructor.
+This removes the app's file-sized BufferSource snapshot at completion; it does
+not cap browser memory or change the full encoded-file retention policy.
+Wrapper overhead, browser reclamation lag and the original receive buffers can
+still overlap. The conservative two-representation receive ledger remains.
+Existing async reads, exact-session resume and preload ownership are preserved;
+no persistent media API or new browser requirement is introduced.
+See the [implementation and verification limits](ramstore-blob-assembly-2026-10-22.md).
+
 RAM-only media still has a device-dependent physical capacity ceiling.
 Persistent storage alone would not remove the PCM required by a whole-track
 AudioBuffer. Ordinary files continue to use that engine. P2P receive/preload

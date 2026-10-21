@@ -47,18 +47,35 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ### 비주얼라이저·화면 보호기·프리로드 표시 후보
 
-- [ ] App 8.11.40/v766 후보: 저음 반응 확대, 독립 시간 기반 smoothing,
+- [ ] App 8.11.40/v766은 [PR #442](https://github.com/hiefny/MUSIXQUARE/pull/442)로
+      main `264fd5db`에 병합했으며 미배포다. 저음 반응 확대, 독립 시간 기반 smoothing,
       가림/동작 줄이기 처리, 스펙트럼 peak 집계와 조건부 로딩을 수정한다.
       미완료 프리로드 선택 시 완료 대기 문구와 진행 막대가 같은 세션의
       퍼센트를 이어서 표시한다. 정상 선택의 받은 바이트 재사용을 유지한다.
       신규 의존성·서버 계약·스키마·비밀·바인딩 변경 없음. 최초 미캐시
       스펙트럼 선택에는 추가 로딩이 가능하며 설치 완료 후 offline 자산을 보존한다.
-      로컬 검증은 exact-main 후보가 아니며 배포하지 않았다. 물리 기기의 음악별
+      병합 SHA의 [main CI 39646353420](https://github.com/hiefny/MUSIXQUARE/actions/runs/39646353420)
+      11 jobs가 통과했으며 배포하지 않았다. 물리 기기의 음악별
       시각 체감·전력/GPU 및 Safari 오디오 확인은 남는다.
-      초기 JS는 유지 상한보다 30 B 작고 별도 5% reserve는 유지한다. 후속 변경은
+      8.11.40 초기 JS는 유지 상한보다 30 B 작고 별도 5% reserve는 유지한다. 후속 변경은
       용량을 다시 측정해야 한다.
       [비주얼라이저 변경·검증 한계](design/visualizer-response-optimization-2026-10-22.md),
       [프리로드 표시 수정·검증](design/preload-finishing-progress-2026-10-22.md).
+
+### 수신 파일 조립 메모리
+
+- [ ] App 8.11.41/v767 후보: 수신 청크를 작은 Blob으로 보관하고 완료 시 Blob
+      조각을 합쳐 파일 크기의 BufferSource 재복사를 줄인다. 전체 encoded 원본
+      보관·디코더·이어받기·프리로드 소유권과 기존 메모리 장부 예산은 유지한다.
+      신규 의존성·서버 계약·스키마·비밀·바인딩·최소 브라우저 요구사항 변경 없음.
+      실제 iPhone Safari/PWA의 대용량 수신·재생과 물리 메모리 한계는 미검증이며
+      데스크톱 결과로 닫지 않는다. 700 MiB 비교의 전체 메모리 최대는 감소했지만
+      관측 Proxy 없는 비교에서도 Chromium 쓰기 구간은 약 1.68초 늘었다.
+      완료 호출은 두 엔진 모두 단축됐다. 최초 Proxy 포함 시간은 제품 자체
+      비용에서 제외한다. 각 1회인 모듈 측정이며 실제 망/기기 성능 확인은 남는다.
+      초기 JS gzip은 491,523 B로 유지 상한보다
+      45 B 작으며 별도 5% reserve는 유지한다. 배포하지 않았다.
+      [변경·검증·측정 한계](design/ramstore-blob-assembly-2026-10-22.md).
 
 ### YouTube 목록·관리자 iframe 조작
 

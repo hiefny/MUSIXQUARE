@@ -1399,6 +1399,10 @@ describe('PLAY_PRELOADED receiving progress', () => {
 
   beforeEach(async () => {
     vi.useFakeTimers();
+    // jsdom's Blob lacks arrayBuffer(); use the native implementation only
+    // for this fixture, which verifies real in-flight storage reads.
+    const { Blob } = await import('node:buffer');
+    vi.stubGlobal('Blob', Blob);
     const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
     const { ramReset } = await import('../ramstore.ts');
     resetStoredFileAdmissionsForTests();
@@ -1430,6 +1434,7 @@ describe('PLAY_PRELOADED receiving progress', () => {
     const { ramReset } = await import('../ramstore.ts');
     resetStoredFileAdmissionsForTests();
     ramReset(true);
+    vi.unstubAllGlobals();
   });
 
   it('promotes the existing 84% prefix and keeps the foreground percentage moving', async () => {
@@ -1444,6 +1449,7 @@ describe('PLAY_PRELOADED receiving progress', () => {
     expect(update).toHaveBeenLastCalledWith(84, 'preload-receive');
     expect(ramContiguousCount(Q1, true, sessionId)).toBe(21);
     const firstChunk = await ramReadChunk(Q1, true, sessionId, 0);
+    expect(firstChunk).toEqual(new Uint8Array(CHUNK_SIZE).fill(1));
     const sessionBeforePromotion = getState('preload.sessionState').get(sessionId);
     show.mockClear();
     update.mockClear();
@@ -1484,7 +1490,7 @@ describe('PLAY_PRELOADED receiving progress', () => {
       finalized: false,
     });
     expect(ramContiguousCount(Q1, true, sessionId)).toBe(23);
-    expect(await ramReadChunk(Q1, true, sessionId, 0)).toBe(firstChunk);
+    expect(await ramReadChunk(Q1, true, sessionId, 0)).toEqual(firstChunk);
     expect((await ramReadChunk(Q1, true, sessionId, 22))?.[0]).toBe(23);
     expect(storageMocks.postCommand.mock.calls.map(([command]) => command)).toEqual([
       expect.objectContaining({

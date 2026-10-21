@@ -90,6 +90,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [RAM file assembly memory reduction — 2026-10-22](design/ramstore-blob-assembly-2026-10-22.md) —
+  Immutable chunk Blobs avoid a file-sized BufferSource copy at completion; transfer/preload
+  regressions, native browser checks and explicit device/memory measurement limits.
+
 - [Preload finishing progress — 2026-10-22](design/preload-finishing-progress-2026-10-22.md) —
   A selected partial preload keeps its percentage and foreground progress updates; exact-session
   ownership, retained RAM bytes and no restart on normal promotion, with local validation limits.

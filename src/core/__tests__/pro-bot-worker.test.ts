@@ -2405,8 +2405,19 @@ async function executedBotPlan(
     }
     return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
   });
-  const fetchMock = vi.fn(async () => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     if (!geminiPlan) throw new Error('unexpected provider call');
+    const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+    if (url.hostname === 'www.googleapis.com') {
+      return Response.json({
+        items: [
+          {
+            id: { videoId: 'dQw4w9WgXcQ' },
+            snippet: { title: 'Test Song', channelTitle: 'Test Artist' },
+          },
+        ],
+      });
+    }
     return geminiPlanResponse(geminiPlan);
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -2497,12 +2508,67 @@ describe('PRO BOT room playlist selection', () => {
     });
   });
 
-  it('sends no playlist field when the request names the active playlist', async () => {
+  it('keeps the named playlist in the plan when the request names the active one', async () => {
     const room = multiPlaylistRoom(2, [3, 4, 0]);
     await expect(executedBotPlan('play track 4 of playlist 2', room)).resolves.toEqual({
       intent: 'play_existing',
       queueItemId: slotQueueItemId(2, 4),
       answer: 'Playing track 4 of playlist 2.',
+      playlist: 2,
+    });
+  });
+
+  it('keeps a named active playlist on additions and playback so the room can verify it', async () => {
+    const room = multiPlaylistRoom(1, [3, 3, 0]);
+    const addition = {
+      intent: 'add_youtube',
+      trackQueries: ['Test Artist Test Song official audio'],
+      playAddedIndex: -1,
+      answer: 'Adding it.',
+    };
+    const added = {
+      intent: 'add_youtube',
+      trackQueries: ['Test Artist Test Song official audio'],
+      playAddedIndex: -1,
+    };
+    await expect(
+      executedBotPlan('add Test Song by Test Artist to playlist 1', room, addition),
+    ).resolves.toEqual({ ...added, answer: 'Tracks added.', playlist: 1 });
+    await expect(
+      executedBotPlan('1번 플레이리스트에 테스트 노래 추가해줘', room, addition),
+    ).resolves.toEqual({ ...added, answer: '트랙을 추가했어요.', playlist: 1 });
+    await expect(
+      executedBotPlan('next track in playlist 1', room, {
+        intent: 'playback',
+        playbackCommand: 'next',
+        answer: 'Next.',
+      }),
+    ).resolves.toEqual({
+      intent: 'playback',
+      playbackCommand: 'next',
+      answer: 'Playback updated.',
+      playlist: 1,
+    });
+    // A request that names no playlist runs on the one active when it runs.
+    await expect(executedBotPlan('add Test Song by Test Artist', room, addition)).resolves.toEqual({
+      ...added,
+      answer: 'Tracks added.',
+    });
+    // Additions to another playlist are still not run, and room-wide
+    // settings belong to no playlist.
+    await expect(
+      executedBotPlan('add Test Song by Test Artist to playlist 2', room, addition),
+    ).resolves.toEqual({ intent: 'answer', answer: ACTION_NOT_CONFIRMED_EN });
+    await expect(
+      executedBotPlan('turn shuffle on for playlist 1', room, {
+        intent: 'queue_mode',
+        shuffleEnabled: true,
+        answer: 'Shuffling.',
+      }),
+    ).resolves.toEqual({
+      intent: 'queue_mode',
+      shuffleEnabled: true,
+      answer: 'Playback settings updated.',
     });
   });
 

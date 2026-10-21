@@ -12,6 +12,8 @@ interface AddYouTubePlan extends PlanBase {
   intent: 'add_youtube';
   trackQueries: string[];
   playAddedIndex: number;
+  /** One-based room playlist the request named; it must still be the active one. */
+  playlist?: number;
 }
 
 interface PlayExistingPlan extends PlanBase {
@@ -19,13 +21,15 @@ interface PlayExistingPlan extends PlanBase {
   queueItemId: string;
   youtubeSubItemNumber?: number;
   basePlaylistRevision?: number;
-  /** One-based room playlist; sent only when it is not the active one. */
+  /** One-based room playlist the request named, active or not. */
   playlist?: number;
 }
 
 interface PlaybackPlan extends PlanBase {
   intent: 'playback';
   playbackCommand: 'play' | 'pause' | 'next';
+  /** One-based room playlist the request named; it must still be the active one. */
+  playlist?: number;
 }
 
 interface QueueModePlan extends PlanBase {
@@ -42,7 +46,7 @@ interface VirtualTreblePlan extends PlanBase {
 interface RemoveItemsPlan extends PlanBase {
   intent: 'remove_items';
   queueItemIds: string[];
-  /** One-based room playlist; sent only when it is not the active one. */
+  /** One-based room playlist the request named, active or not. */
   playlist?: number;
 }
 
@@ -1716,8 +1720,13 @@ function withoutRoomPlaylist(plan: ProBotPlan): ProBotPlan {
 /**
  * Bind a validated plan to the named room playlist. Only playing or removing
  * existing items can target an inactive playlist; anything else that the
- * request scoped to one is not run. Naming the active playlist sends nothing,
- * so an older room never receives the field.
+ * request scoped to one is not run. A named playlist stays in the plan even
+ * when it is active, because another administrator can switch playlists
+ * while BOT plans and searches; the room then runs the plan on the named
+ * playlist or refuses it. Clearing and an inner YouTube item are fenced to
+ * the context's playlist revision instead, repeat, shuffle and virtual
+ * treble apply to the whole room, and an older room, which announces one
+ * playlist, never receives the field.
  */
 function bindRoomPlaylistTarget(
   prompt: string,
@@ -1725,25 +1734,25 @@ function bindRoomPlaylistTarget(
   selection: RoomPlaylistSelection,
   playlists: RoomPlaylistContext,
 ): ProBotPlan {
-  if (plan.intent !== 'play_existing' && plan.intent !== 'remove_items') {
-    if (
-      plan.intent === 'answer' ||
-      selection.playlist === null ||
-      selection.playlist === playlists.activePlaylist
-    ) {
-      return plan;
-    }
-    return { intent: 'answer', answer: actionNotConfirmedAnswer(prompt) };
-  }
+  if (plan.intent === 'answer' || selection.playlist === null) return plan;
   const unbound = withoutRoomPlaylist(plan);
-  if (unbound.intent !== 'play_existing' && unbound.intent !== 'remove_items') return unbound;
-  if (selection.playlist === null || selection.playlist === playlists.activePlaylist) {
-    return unbound;
-  }
-  if (unbound.intent === 'play_existing' && unbound.youtubeSubItemNumber !== undefined) {
+  const innerYouTubeItem =
+    unbound.intent === 'play_existing' && unbound.youtubeSubItemNumber !== undefined;
+  const reachesInactive =
+    (unbound.intent === 'play_existing' && !innerYouTubeItem) || unbound.intent === 'remove_items';
+  if (selection.playlist !== playlists.activePlaylist && !reachesInactive) {
     return { intent: 'answer', answer: actionNotConfirmedAnswer(prompt) };
   }
-  return { ...unbound, playlist: selection.playlist };
+  if (innerYouTubeItem || playlists.summaries.length === 1) return unbound;
+  if (
+    unbound.intent === 'add_youtube' ||
+    unbound.intent === 'play_existing' ||
+    unbound.intent === 'remove_items' ||
+    unbound.intent === 'playback'
+  ) {
+    return { ...unbound, playlist: selection.playlist };
+  }
+  return unbound;
 }
 
 async function buildPlan(

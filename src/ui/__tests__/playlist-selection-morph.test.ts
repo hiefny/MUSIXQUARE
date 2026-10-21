@@ -141,6 +141,34 @@ describe('playlist selection morph', () => {
     expect(document.querySelector('.playlist-fill-morph')).toBeNull();
   });
 
+  it('ends a morph when a rebuilt list moved the blocks it was heading for', async () => {
+    const morph = createPlaylistSelectionMorph(list);
+    select(0, 2);
+    morph.capture();
+    select(0, 1, 2);
+    await Promise.resolve();
+    const rebuild = (shift: number) => {
+      list.innerHTML = Array.from(
+        { length: 4 },
+        (_, index) =>
+          `<li class="playlist-entry${index < 3 ? ' is-removal-selected' : ''}" data-index="${index + shift}"></li>`,
+      ).join('');
+    };
+
+    // The same rows rendered again: the morph carries on.
+    rebuild(0);
+    morph.afterRender();
+    expect(document.querySelector('.playlist-fill-morph')).not.toBeNull();
+    expect(list.classList.contains('is-fill-morphing')).toBe(true);
+
+    // A remote change put a row above the selection: stop instead of drawing
+    // the pills over the wrong rows.
+    rebuild(1);
+    morph.afterRender();
+    expect(document.querySelector('.playlist-fill-morph')).toBeNull();
+    expect(list.classList.contains('is-fill-morphing')).toBe(false);
+  });
+
   it('keeps drawing a morph in progress through a change that reshapes nothing', async () => {
     const morph = createPlaylistSelectionMorph(list);
     select(0);

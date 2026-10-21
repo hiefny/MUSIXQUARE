@@ -33,6 +33,12 @@ export interface PlaylistSelectionMorph {
    * task morph together once the task ends.
    */
   capture(): void;
+  /**
+   * The list was rebuilt. If the selected blocks no longer sit where the morph
+   * is heading (a remote change added, removed or moved rows), it ends at once
+   * instead of drawing over the wrong rows.
+   */
+  afterRender(): void;
   /** End any morph at once and show the rows' own fills. */
   stop(): void;
   destroy(): void;
@@ -40,6 +46,10 @@ export interface PlaylistSelectionMorph {
 
 function sameSpan(from: Block, to: Block): boolean {
   return Math.abs(from.top - to.top) < 0.5 && Math.abs(from.bottom - to.bottom) < 0.5;
+}
+
+function samePlace(a: Block, b: Block): boolean {
+  return sameSpan(a, b) && Math.abs(a.left - b.left) < 0.5 && Math.abs(a.width - b.width) < 0.5;
 }
 
 function overlaps(a: Block, b: Block): boolean {
@@ -61,6 +71,8 @@ function splitAlpha(color: string): { solid: string; alpha: number } | null {
 export function createPlaylistSelectionMorph(list: HTMLElement): PlaylistSelectionMorph {
   let before: Block[] | null = null;
   let layer: HTMLElement | null = null;
+  /** Where the running morph's pills end. */
+  let targets: Block[] = [];
   let timer = 0;
   let destroyed = false;
 
@@ -186,6 +198,7 @@ export function createPlaylistSelectionMorph(list: HTMLElement): PlaylistSelecti
     for (const block of arriving) pill(block, [frame(block, 0), frame(block, 1)]);
 
     layer = next;
+    targets = to;
     list.classList.add(MORPHING_CLASS);
     // The rows show again when the pills arrive, however the page clock runs.
     const finished = animations[0]?.finished;
@@ -204,6 +217,17 @@ export function createPlaylistSelectionMorph(list: HTMLElement): PlaylistSelecti
       if (destroyed || before) return;
       before = layer ? drawnPills() : selectedRuns();
       queueMicrotask(run);
+    },
+    afterRender() {
+      // A change still waiting to morph measures the rebuilt rows itself.
+      if (!layer || before) return;
+      const now = selectedRuns();
+      if (
+        now.length !== targets.length ||
+        now.some((block, index) => !samePlace(block, targets[index]!))
+      ) {
+        stop();
+      }
     },
     stop,
     destroy() {

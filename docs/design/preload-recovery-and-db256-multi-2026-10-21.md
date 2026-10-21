@@ -1,6 +1,6 @@
 # Preload recovery and current adaptive-window multi-receiver validation
 
-Date: 2026-10-21. Local branch validation; deployment is explicitly on hold.
+Date: 2026-10-21. Local branch validation and approved release preparation.
 
 ## Scope and source
 
@@ -246,4 +246,9 @@ two guests are not a large-room soak or a repeatability/speed-improvement A/B.
 Physical Android/iOS, Wi-Fi/mobile changes, TURN, live providers, acoustics,
 mixed deployed versions, and production operational smokes remain outside
 this round. Existing release-record field limitations stay open.
-Deployment remains on hold by the owner's instruction.
+The owner lifted the deployment hold after reviewing these results. Release
+preparation incorporates main `89dd02a7` and advances the product to 8.11.37,
+cache/bootstrap to v762. That main change only fixes playlist-selection morph
+geometry after a rebuild; transfer runtime is unchanged from the native source
+above. The four native results retain their original source identity and do
+not substitute for the final exact-main CI candidate or operational smokes.

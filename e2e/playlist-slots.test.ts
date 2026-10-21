@@ -22,6 +22,19 @@ async function readSlots(page: Page): Promise<unknown> {
   );
 }
 
+/** Gap between the dialog's last button and its bottom edge. */
+async function bottomInset(page: Page, overlayId: string, buttonId: string): Promise<number> {
+  return page.evaluate(
+    ([overlay, button]) => {
+      const dialog = document.querySelector(`#${overlay} .dialog`)!.getBoundingClientRect();
+      return Math.round(
+        dialog.bottom - document.getElementById(button)!.getBoundingClientRect().bottom,
+      );
+    },
+    [overlayId, buttonId],
+  );
+}
+
 async function selectRows(page: Page, indices: number[]): Promise<void> {
   const checks = page.locator('#playlist-ui .btn-playlist-select');
   for (const index of indices) await checks.nth(index).click();
@@ -73,6 +86,10 @@ test.describe('Multiple playlists', () => {
       await expect(host.locator('#btn-playlist-transfer-copy')).toBeDisabled();
       await targets.nth(0).click();
       await expect(targets.nth(0)).toHaveAttribute('aria-pressed', 'true');
+      // Like every dialog, the buttons keep a 30px inset from the bottom edge.
+      expect(
+        await bottomInset(host, 'playlist-transfer-overlay', 'btn-playlist-transfer-close'),
+      ).toBe(30);
       await snap(host, '03-transfer-dialog');
       await host.locator('#btn-playlist-transfer-copy').click();
       await expect(transfer).not.toHaveClass(/\bshow\b/);
@@ -99,6 +116,9 @@ test.describe('Multiple playlists', () => {
       await expect(rows.nth(1)).toContainText('2 tracks');
       await rows.nth(1).click();
       await snap(host, '04-switcher');
+      // Standard rooms show no storage line under OK; the inset stays.
+      await expect(host.locator('#playlist-storage-usage')).toBeHidden();
+      expect(await bottomInset(host, 'playlist-slots-overlay', 'btn-playlist-slots-done')).toBe(30);
       await host.locator('#btn-playlist-slots-done').click();
       await expect(switcher).not.toHaveClass(/\bshow\b/);
       await waitForPlaylistCount(host, 2);

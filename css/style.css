@@ -6074,9 +6074,13 @@ Safety is declared first because important layer precedence is reversed; its acc
     flex: 0 0 auto;
   }
 
+  /* The dialog owns its 30px bottom inset like every other dialog, so the
+     buttons keep it whether or not a footer line (translate link, storage
+     usage) follows them. */
   .language-dialog {
     width: min(380px, 100%);
     max-height: min(500px, calc(var(--app-height, 100dvh) - 48px));
+    padding-bottom: 30px;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -6159,7 +6163,7 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   .language-translate-link {
     flex: 0 0 auto;
-    margin: 16px 32px 30px;
+    margin: 16px 32px 0;
     text-align: center;
   }
 
@@ -6171,10 +6175,6 @@ Safety is declared first because important layer precedence is reversed; its acc
   @media not all and (min-height: 420px) {
     .language-translate-link {
       display: none;
-    }
-
-    .language-dialog .dialog-actions {
-      padding-bottom: 30px;
     }
   }
 

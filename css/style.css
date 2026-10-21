@@ -2299,6 +2299,13 @@ Safety is declared first because important layer precedence is reversed; its acc
     flex: 0 0 auto;
   }
 
+  /* A list emptied by a deletion takes its full height at once, so the hint
+     fades in where it stays; the leaving pills keep their place by their own
+     exit offset. */
+  .playlist-ul.has-removal-exit:has(> .list-empty-state) {
+    flex: 1;
+  }
+
   .playlist-ul.has-removal-selection ~ .playlist-selection-bar,
   .playlist-ul.has-removal-exit ~ .playlist-selection-bar {
     margin-bottom: auto;
@@ -2716,8 +2723,13 @@ Safety is declared first because important layer precedence is reversed; its acc
     color: var(--text-muted);
   }
 
+  /* One fixed 16px cell, so every icon it holds centres on the same point. An
+     auto track would grow to its largest icon (the 18px playing bars) and push
+     the current row's icons 1px down and to the inline end; a fixed track lets
+     the larger icon overflow evenly instead. */
   .track-type-slot {
     display: grid;
+    grid-template: 16px / 16px;
     place-items: center;
     width: 16px;
     height: 16px;
@@ -3172,6 +3184,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     overflow: hidden;
     pointer-events: none;
     z-index: 1;
+  }
+
+  /* A joined block's copies travel together in one run, so the block leaves
+     whole instead of breaking at its rows' square joins. */
+  .playlist-exit-run {
+    position: absolute;
   }
 
   .playlist-entry.playlist-exit-ghost {

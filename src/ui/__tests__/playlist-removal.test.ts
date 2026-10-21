@@ -378,26 +378,63 @@ describe('playlist removal controller', () => {
         expect(layer.getAttribute('aria-hidden')).toBe('true');
         // After the bar, outside the list that re-renders from scratch.
         expect(layer.previousElementSibling).toBe(bar());
-        const ghosts = layer.querySelectorAll<HTMLElement>('.playlist-exit-ghost');
+        const runs = layer.querySelectorAll<HTMLElement>(':scope > .playlist-exit-run');
+        expect(runs).toHaveLength(1);
+        const ghosts = runs[0]!.querySelectorAll<HTMLElement>('.playlist-exit-ghost');
         expect(Array.from(ghosts, (ghost) => ghost.dataset.queueItemId)).toEqual([A]);
         // The copy carries the shape, not the class other rows' rules read.
         expect(ghosts[0]!.classList.contains('is-removal-selected')).toBe(false);
-
-        const ghostCall = animate.mock.contexts.indexOf(ghosts[0]);
-        const [frames, timing] = animate.mock.calls[ghostCall] as [
-          Keyframe[],
-          KeyframeAnimationOptions,
-        ];
-        expect(frames.map((frame) => frame.transform)).toEqual([
-          'translateX(0)',
-          'translateX(100%)',
-        ]);
-        expect(frames.map((frame) => frame.opacity)).toEqual([1, 0]);
-        expect(timing).toMatchObject({ duration: 280, fill: 'forwards' });
         expect(list.contains(ghosts[0]!)).toBe(false);
 
-        vi.advanceTimersByTime(280);
+        // The run slides on for 260 ms and fades out within the first 200.
+        const runCalls = animate.mock.calls.filter(
+          (_call, index) => animate.mock.contexts[index] === runs[0],
+        ) as [Keyframe[], KeyframeAnimationOptions][];
+        expect(
+          runCalls.map(([frames]) => frames.map((frame) => frame.transform ?? frame.opacity)),
+        ).toEqual([
+          ['translateX(0)', 'translateX(100%)'],
+          [1, 0],
+        ]);
+        expect(runCalls.map(([, timing]) => timing.duration)).toEqual([260, 200]);
+
+        vi.advanceTimersByTime(260);
         expect(document.querySelector('.playlist-exit-layer')).toBeNull();
+      } finally {
+        rects.mockRestore();
+      }
+    });
+
+    it('moves a joined block out as one run', () => {
+      const rects = vi
+        .spyOn(Element.prototype, 'getClientRects')
+        .mockReturnValue([{}] as unknown as DOMRectList);
+      try {
+        const items = [item(A, 'Alpha'), item(B, 'Beta')];
+        controller = createPlaylistRemovalController({
+          list: document.getElementById('playlist-ui')!,
+          canRemove: () => true,
+          isPlaylistVisible: () => true,
+          getItems: () => items,
+          onDelete: vi.fn(),
+        });
+        controller.toggle(A);
+        controller.toggle(B);
+        document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+        const runs = document.querySelectorAll<HTMLElement>(
+          '.playlist-exit-layer > .playlist-exit-run',
+        );
+        expect(runs).toHaveLength(1);
+        expect(
+          Array.from(
+            runs[0]!.querySelectorAll<HTMLElement>('.playlist-exit-ghost'),
+            (ghost) => ghost.dataset.queueItemId,
+          ),
+        ).toEqual([A, B]);
+        // The rows inside the run do not move on their own.
+        for (const ghost of runs[0]!.querySelectorAll('.playlist-exit-ghost')) {
+          expect(animate.mock.contexts).not.toContain(ghost);
+        }
       } finally {
         rects.mockRestore();
       }

@@ -432,7 +432,7 @@ export function addSystemChatMessage(text: string): void {
 
 // ─── Render: BOT Message ─────────────────────────────────────────
 
-type BotChatMessageState = 'typing' | 'complete';
+type BotChatMessageState = 'typing' | 'complete' | 'expired';
 
 function findBotChatGroup(container: HTMLElement, requestId: string): HTMLElement | null {
   for (const candidate of container.querySelectorAll<HTMLElement>('.chat-group.bot')) {
@@ -503,6 +503,8 @@ function createBotChatGroup(requestId: string): HTMLElement {
  * Typing calls are idempotent. The first terminal call replaces the typing
  * indicator in the existing bubble and emits one render event; later terminal
  * replays are ignored so retries cannot duplicate preview/unread updates.
+ * An expired request settles only a bubble that is still shown, and quietly:
+ * it emits no render event.
  */
 export function upsertBotChatMessage(
   requestId: string,
@@ -514,15 +516,16 @@ export function upsertBotChatMessage(
 
   const container = document.getElementById('chat-messages');
   if (!container) return;
+  let group = findBotChatGroup(container, normalizedRequestId);
+  if (!group && state === 'expired') return;
   const isAtBottom = prepareChatMessageContainer(container);
 
-  let group = findBotChatGroup(container, normalizedRequestId);
   if (!group) {
     group = createBotChatGroup(normalizedRequestId);
     container.appendChild(group);
   }
 
-  if (state === 'complete' && group.dataset.botState !== 'complete') {
+  if (state !== 'typing' && group.dataset.botState !== 'complete') {
     const bubble = group.querySelector<HTMLElement>('.chat-bubble.bot');
     const chatText = bubble?.querySelector<HTMLElement>('.chat-text');
     if (bubble && chatText) {
@@ -535,7 +538,7 @@ export function upsertBotChatMessage(
       bubble.setAttribute('aria-busy', 'false');
       bubble.removeAttribute('aria-label');
       group.dataset.botState = 'complete';
-      bus.emit('chat:message-rendered', 'BOT', text, false);
+      if (state === 'complete') bus.emit('chat:message-rendered', 'BOT', text, false);
     }
   }
 

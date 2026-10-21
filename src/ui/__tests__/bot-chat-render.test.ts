@@ -92,6 +92,36 @@ describe('BOT chat bubble renderer', () => {
     expect(rendered).toHaveBeenCalledWith('BOT', '셔플 재생을 켰어요', false);
   });
 
+  it('settles an expired typing bubble quietly', () => {
+    renderShell();
+    const rendered = vi.fn();
+    bus.on('chat:message-rendered', rendered);
+
+    upsertBotChatMessage('request-expired', 'typing');
+    const group = document.querySelector<HTMLElement>('.chat-group.bot');
+    upsertBotChatMessage('request-expired', 'expired', 'BOT 요청을 처리하지 못했어요');
+    upsertBotChatMessage('request-expired', 'complete', 'late result');
+
+    const bubble = group?.querySelector<HTMLElement>('.chat-bubble.bot');
+    expect(document.querySelector('.chat-group.bot')).toBe(group);
+    expect(group?.dataset.botState).toBe('complete');
+    expect(bubble?.classList.contains('is-typing')).toBe(false);
+    expect(bubble?.getAttribute('aria-busy')).toBe('false');
+    expect(bubble?.hasAttribute('aria-label')).toBe(false);
+    expect(bubble?.querySelector('.chat-bot-typing')).toBeNull();
+    expect(bubble?.querySelector('.chat-text')?.textContent).toBe('BOT 요청을 처리하지 못했어요');
+    expect(rendered).not.toHaveBeenCalled();
+  });
+
+  it('does not bring back an expired bubble that is no longer shown', () => {
+    const container = renderShell();
+
+    upsertBotChatMessage('request-gone', 'expired', 'BOT 요청을 처리하지 못했어요');
+
+    expect(container.querySelector('.chat-group.bot')).toBeNull();
+    expect(container.querySelector('.chat-empty')).not.toBeNull();
+  });
+
   it('keeps model-authored markup inert', () => {
     renderShell();
     const payload = '<img src=x onerror=alert(1)><script>alert(2)</script>';

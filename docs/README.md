@@ -90,6 +90,14 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Icon slot cell and delete sequence 8.11.39 — 2026-10-21](design/icon-slot-cell-and-delete-sequence-2026-10-21.md) —
+  the current row's icon slot grew to the 18 px playing bars (auto grid tracks) and sat its icons 1 px low; it is one
+  fixed 16 px cell now. Joined deleted rows leave as one run instead of breaking at their joins, and survivors and an
+  emptied list's hint wait until the leaving copies have faded; the hint no longer jumps from the top.
+- [Full E2E dialog and touch-input repair — 2026-10-21](design/full-e2e-dialog-touch-repair-2026-10-21.md) —
+  separates the queued keep-open notice in the production R2 smoke from the synthetic touch-release and stale
+  drawer-coordinate failures. Focused Windows/Linux repeats and a live R2 check pass; final full-suite checks
+  were deferred before starting. Local test commits only, with no main merge or product deployment.
 - [Selection clear fade, press tint and two-finger deselect 8.11.38 — 2026-10-21](design/selection-clear-fade-press-tint-two-finger-2026-10-21.md) —
   ending selection mode split every multi-row block into pills (`cancel()` cleared without capturing the drawn
   blocks); a block of several rows clearing or appearing at once now morphs as one fading shape. In selection mode the

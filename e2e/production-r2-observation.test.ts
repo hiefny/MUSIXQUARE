@@ -2,10 +2,63 @@ import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { createServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { acceptLargeRoomUploadConsent } from './helpers/production-r2-dialogs.ts';
 import {
   observeRemoteDownloads,
   waitForTrackPlaybackProgress,
 } from './helpers/production-r2-observation.ts';
+
+for (const scenario of [
+  'expected-guidance',
+  'unexpected-consent',
+  'unexpected-followup',
+] as const) {
+  test(`R2 consent dialog handling: ${scenario}`, async ({ page }) => {
+    await page.setContent(`<!doctype html>
+      <div id="dialog-overlay" class="dialog-overlay show">
+        <h2 id="dialog-title">File sharing in a large room</h2>
+        <p id="dialog-message">Direct transfer supports 8 guests; larger rooms use Cloudflare R2.</p>
+        <button id="btn-dialog-ok">Continue</button>
+      </div>`);
+    await page.evaluate((kind) => {
+      const overlay = document.getElementById('dialog-overlay')!;
+      const title = document.getElementById('dialog-title')!;
+      const message = document.getElementById('dialog-message')!;
+      const button = document.getElementById('btn-dialog-ok')!;
+      if (kind === 'unexpected-consent') title.textContent = 'Unexpected permission request';
+      let clicks = 0;
+      button.addEventListener('click', () => {
+        clicks += 1;
+        overlay.dataset.clicks = String(clicks);
+        if (clicks === 1) {
+          // Reuse the still-open overlay, as the production dialog queue does.
+          title.textContent =
+            kind === 'unexpected-followup' ? 'Upload failed' : 'Please keep the app open';
+          message.textContent = 'Switching apps or turning off the screen can stop the sound.';
+          button.textContent = 'Got it';
+        } else {
+          overlay.classList.remove('show');
+        }
+      });
+    }, scenario);
+
+    const dialog = page.locator('#dialog-overlay');
+    if (scenario === 'expected-guidance') {
+      await acceptLargeRoomUploadConsent(page, 1_000);
+      await expect(dialog).toHaveAttribute('data-clicks', '2');
+      await expect(dialog).not.toHaveClass(/\bshow\b/u);
+    } else {
+      await expect(acceptLargeRoomUploadConsent(page, 500)).rejects.toThrow('toHaveText');
+      await expect(dialog).toHaveClass(/\bshow\b/u);
+      if (scenario === 'unexpected-consent') {
+        await expect(dialog).not.toHaveAttribute('data-clicks');
+      } else {
+        await expect(dialog).toHaveAttribute('data-clicks', '1');
+        await expect(page.locator('#dialog-title')).toHaveText('Upload failed');
+      }
+    }
+  });
+}
 
 test('R2 monitoring rejects incomplete and failed bodies but accepts a completed retry', async ({
   context,

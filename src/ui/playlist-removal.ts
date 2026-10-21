@@ -4,16 +4,19 @@ import { t } from '../i18n/index.ts';
 import type { PlaylistSelectionMorph } from './playlist-selection-morph.ts';
 
 const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
+const ENTRY_SELECTOR = ':scope > .playlist-entry[data-queue-item-id]';
 
 /** Shared length of the survivors' glide and the pills' exit. */
 const MORPH_MS = 300;
 const MORPH_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 /** Deleted rows slide out toward the inline end; survivors close up behind them. */
-const EXIT_MS = 280;
+const EXIT_MS = 260;
 const EXIT_EASING = 'cubic-bezier(0.5, 0, 0.75, 0)';
+/** The copies are gone from sight before what follows moves in. */
+const EXIT_FADE_MS = 200;
+const EXIT_FADE_EASING = 'cubic-bezier(0.3, 0, 0.6, 1)';
 const EXIT_STAGGER_MS = 24;
 const EXIT_STAGGER_LIMIT = 8;
-const SURVIVOR_DELAY_MS = 90;
 /** The pills shrink and fade where they are when the mode ends. */
 const BAR_EXIT_MS = 220;
 const BAR_EXIT_EASING = 'cubic-bezier(0.4, 0, 0.9, 0.6)';
@@ -630,8 +633,10 @@ export function createPlaylistRemovalController(
     const focusWasOnBar = takeControlFocus();
     options.onHiddenChange?.();
     if (!destroyed) syncDom();
-    const exiting = !destroyed && exitRows !== null && slideOutRows(exitRows);
-    glideRows(rowsBefore, exiting ? SURVIVOR_DELAY_MS : 0);
+    // What follows the deletion (survivors closing up, an emptied list's
+    // hint) waits until the leaving rows have faded.
+    const exitDelay = !destroyed && exitRows !== null ? slideOutRows(exitRows) : 0;
+    glideRows(rowsBefore, exitDelay);
     if (barTopBefore !== null) animateBarExit(barTopBefore);
     if (focusWasOnBar) releaseControlFocus(survivorQueueItemId);
   }
@@ -640,12 +645,9 @@ export function createPlaylistRemovalController(
   function rowTops(): Map<string, number> | null {
     if (!canAnimate(list)) return null;
     const tops = new Map<string, number>();
-    for (const handle of list.querySelectorAll<HTMLElement>('.playlist-reorder-handle')) {
-      const entry = handle.closest<HTMLElement>('.playlist-entry');
-      const id = handle.dataset.queueItemId;
-      if (entry && id && entry.getClientRects().length) {
-        tops.set(id, entry.getBoundingClientRect().top);
-      }
+    for (const entry of list.querySelectorAll<HTMLElement>(ENTRY_SELECTOR)) {
+      const id = entry.dataset.queueItemId;
+      if (id && entry.getClientRects().length) tops.set(id, entry.getBoundingClientRect().top);
     }
     return tops;
   }
@@ -654,6 +656,8 @@ export function createPlaylistRemovalController(
     entry: HTMLElement;
     rect: DOMRect;
     fill: { top: string; bottom: string; radius: string };
+    /** Rows that touch share a run: a joined block leaves in one piece. */
+    run: number;
   }
 
   // The list re-renders from scratch, so deleted rows leave as copies frozen
@@ -661,14 +665,20 @@ export function createPlaylistRemovalController(
   function captureExitRows(queueItemIds: ReadonlySet<QueueItemId>): ExitRow[] | null {
     if (!canAnimate(list)) return null;
     const rows: ExitRow[] = [];
+    let run = -1;
+    let previous: Element | null = null;
     for (const entry of list.querySelectorAll<HTMLElement>(':scope > .playlist-entry')) {
       const id = entry.dataset.queueItemId;
       if (!id || !queueItemIds.has(id) || !entry.getClientRects().length) continue;
+      // Consecutive siblings are the rows the selection CSS joins.
+      if (!previous || entry.previousElementSibling !== previous) run += 1;
+      previous = entry;
       const fill = getComputedStyle(entry, '::before');
       rows.push({
         entry,
         rect: entry.getBoundingClientRect(),
         fill: { top: fill.top, bottom: fill.bottom, radius: fill.borderRadius },
+        run,
       });
     }
     return rows.length > 0 ? rows : null;
@@ -680,11 +690,14 @@ export function createPlaylistRemovalController(
     exitLayer = null;
   }
 
-  /** Slide the captured rows out; false when nothing could be shown. */
-  function slideOutRows(rows: readonly ExitRow[]): boolean {
+  /**
+   * Slide the captured rows out, each joined block in one piece. Returns how
+   * long what follows should wait, or 0 when nothing could be shown.
+   */
+  function slideOutRows(rows: readonly ExitRow[]): number {
     removeExitLayer();
     const parent = bar.parentElement;
-    if (!parent) return false;
+    if (!parent) return 0;
     const listRect = list.getBoundingClientRect();
     const top = Math.min(listRect.top, ...rows.map((row) => row.rect.top));
     const bottom = Math.max(...rows.map((row) => row.rect.bottom));
@@ -706,46 +719,59 @@ export function createPlaylistRemovalController(
     layer.style.height = `${bottom - top}px`;
 
     const direction = getComputedStyle(list).direction === 'rtl' ? -1 : 1;
-    rows.forEach((row, index) => {
-      const ghost = row.entry.cloneNode(true) as HTMLElement;
-      ghost.classList.remove('is-removal-selected');
-      ghost.classList.add('playlist-exit-ghost');
-      ghost.removeAttribute('id');
-      for (const element of ghost.querySelectorAll('[id]')) element.removeAttribute('id');
-      ghost.style.left = `${row.rect.left - listRect.left}px`;
-      ghost.style.top = `${row.rect.top - top}px`;
-      ghost.style.width = `${row.rect.width}px`;
-      ghost.style.height = `${row.rect.height}px`;
-      ghost.style.setProperty('--exit-fill-top', row.fill.top);
-      ghost.style.setProperty('--exit-fill-bottom', row.fill.bottom);
-      ghost.style.setProperty('--exit-fill-radius', row.fill.radius);
-      layer.appendChild(ghost);
-      ghost.animate(
-        [
-          { transform: 'translateX(0)', opacity: 1 },
-          { transform: `translateX(${direction * 100}%)`, opacity: 0 },
-        ],
-        {
-          duration: EXIT_MS,
-          delay: Math.min(index, EXIT_STAGGER_LIMIT) * EXIT_STAGGER_MS,
-          easing: EXIT_EASING,
-          fill: 'forwards',
-        },
+    const runs = rows[rows.length - 1]!.run + 1;
+    for (let run = 0; run < runs; run += 1) {
+      const members = rows.filter((row) => row.run === run);
+      const first = members[0]!.rect;
+      const runBottom = members[members.length - 1]!.rect.bottom;
+      const group = document.createElement('div');
+      group.className = 'playlist-exit-run';
+      group.style.left = `${first.left - listRect.left}px`;
+      group.style.top = `${first.top - top}px`;
+      group.style.width = `${first.width}px`;
+      group.style.height = `${runBottom - first.top}px`;
+      for (const row of members) {
+        const ghost = row.entry.cloneNode(true) as HTMLElement;
+        ghost.classList.remove('is-removal-selected');
+        ghost.classList.add('playlist-exit-ghost');
+        ghost.removeAttribute('id');
+        for (const element of ghost.querySelectorAll('[id]')) element.removeAttribute('id');
+        ghost.style.left = `${row.rect.left - first.left}px`;
+        ghost.style.top = `${row.rect.top - first.top}px`;
+        ghost.style.width = `${row.rect.width}px`;
+        ghost.style.height = `${row.rect.height}px`;
+        ghost.style.setProperty('--exit-fill-top', row.fill.top);
+        ghost.style.setProperty('--exit-fill-bottom', row.fill.bottom);
+        ghost.style.setProperty('--exit-fill-radius', row.fill.radius);
+        group.appendChild(ghost);
+      }
+      layer.appendChild(group);
+      // The block slides on, accelerating, while it fades out sooner, so it is
+      // gone from sight before the survivors move into its place.
+      const delay = Math.min(run, EXIT_STAGGER_LIMIT) * EXIT_STAGGER_MS;
+      group.animate(
+        [{ transform: 'translateX(0)' }, { transform: `translateX(${direction * 100}%)` }],
+        { duration: EXIT_MS, delay, easing: EXIT_EASING, fill: 'forwards' },
       );
-    });
+      group.animate([{ opacity: 1 }, { opacity: 0 }], {
+        duration: EXIT_FADE_MS,
+        delay,
+        easing: EXIT_FADE_EASING,
+        fill: 'forwards',
+      });
+    }
     exitLayer = layer;
-    const lastDelay = Math.min(rows.length - 1, EXIT_STAGGER_LIMIT) * EXIT_STAGGER_MS;
+    const lastDelay = Math.min(runs - 1, EXIT_STAGGER_LIMIT) * EXIT_STAGGER_MS;
     exitTimer = window.setTimeout(removeExitLayer, EXIT_MS + lastDelay);
-    return true;
+    return EXIT_FADE_MS + lastDelay;
   }
 
   function glideRows(before: Map<string, number> | null, delay = 0): void {
     if (!before) return;
     const offsets = new Map<string, number | null>();
-    for (const handle of list.querySelectorAll<HTMLElement>('.playlist-reorder-handle')) {
-      const entry = handle.closest<HTMLElement>('.playlist-entry');
-      const id = handle.dataset.queueItemId;
-      if (!entry || !id || !entry.getClientRects().length) continue;
+    for (const entry of list.querySelectorAll<HTMLElement>(ENTRY_SELECTOR)) {
+      const id = entry.dataset.queueItemId;
+      if (!id || !entry.getClientRects().length) continue;
       const top = before.get(id);
       if (top === undefined) {
         offsets.set(id, null);
@@ -774,15 +800,26 @@ export function createPlaylistRemovalController(
       delay: glide.delay,
       fill: 'backwards',
     };
-    for (const handle of list.querySelectorAll<HTMLElement>('.playlist-reorder-handle')) {
-      const entry = handle.closest<HTMLElement>('.playlist-entry');
-      const id = handle.dataset.queueItemId;
-      if (!entry || !id || !glide.offsets.has(id)) continue;
+    for (const entry of list.querySelectorAll<HTMLElement>(ENTRY_SELECTOR)) {
+      const id = entry.dataset.queueItemId;
+      if (!id || !glide.offsets.has(id)) continue;
       const dy = glide.offsets.get(id);
       const animation = entry.animate(
         dy == null
           ? [{ opacity: 0 }, { opacity: 1 }]
           : [{ transform: `translateY(${dy}px)` }, { transform: 'none' }],
+        timing,
+      );
+      if (elapsed > 0) animation.currentTime = elapsed;
+    }
+    // An emptied list's hint arrives after the leaving rows, not over them.
+    const hint = list.querySelector<HTMLElement>(':scope > .list-empty-state');
+    if (hint) {
+      const animation = hint.animate(
+        [
+          { opacity: 0, transform: 'translateY(6px)' },
+          { opacity: 1, transform: 'none' },
+        ],
         timing,
       );
       if (elapsed > 0) animation.currentTime = elapsed;

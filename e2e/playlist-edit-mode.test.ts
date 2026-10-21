@@ -417,6 +417,77 @@ test.describe('Playlist delete slide-out', () => {
     });
   }
 
+  test('a joined block leaves in one piece and the rows below wait for it', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, true);
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    for (const index of [1, 2, 4]) await checks.nth(index).click();
+    await page.waitForTimeout(600);
+    const result = await page.evaluate(async () => {
+      const list = document.getElementById('playlist-ui')!;
+      const survivorId = list.querySelectorAll<HTMLElement>(':scope > .playlist-entry')[3]!.dataset
+        .queueItemId!;
+      const top = () =>
+        list
+          .querySelector<HTMLElement>(
+            `:scope > .playlist-entry[data-queue-item-id="${survivorId}"]`,
+          )
+          ?.getBoundingClientRect().top ?? NaN;
+      const before = top();
+      document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+      const runs = Array.from(
+        document.querySelectorAll('.playlist-exit-layer > .playlist-exit-run'),
+        (run) => run.querySelectorAll('.playlist-exit-ghost').length,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const waiting = top();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return { runs, before, waiting, after: top() };
+    });
+    // Rows 2 and 3 leave as one run, row 5 as another.
+    expect(result.runs).toEqual([2, 1]);
+    // The surviving row 4 holds its place while the copies fade, then moves up.
+    expect(Math.abs(result.waiting - result.before)).toBeLessThan(1);
+    expect(result.before - result.after).toBeGreaterThan(100);
+    await expect(page.locator('.playlist-exit-layer')).toHaveCount(0);
+  });
+
+  test("the current row's icon slot is one fixed 16px cell", async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, true);
+    const cells = await page.evaluate(() =>
+      Array.from(
+        document.querySelectorAll<HTMLElement>('#playlist-ui .track-type-slot'),
+        (slot) => {
+          const style = getComputedStyle(slot);
+          const box = slot.getBoundingClientRect();
+          const center = (selector: string) => {
+            const icon = slot.querySelector(selector)?.getBoundingClientRect();
+            return icon
+              ? [
+                  +(icon.left + icon.width / 2 - box.left).toFixed(1),
+                  +(icon.top + icon.height / 2 - box.top).toFixed(1),
+                ]
+              : null;
+          };
+          return {
+            current: slot.classList.contains('playlist-current-leading'),
+            tracks: `${style.gridTemplateRows}/${style.gridTemplateColumns}`,
+            type: center('.type-icon'),
+            playing: center('.track-playing-indicator'),
+          };
+        },
+      ),
+    );
+    expect(cells[0]!.current).toBe(true);
+    for (const cell of cells) {
+      expect(cell.tracks).toBe('16px/16px');
+      expect(cell.type).toEqual([8, 8]);
+    }
+    // The larger playing bars centre on the same point, overflowing evenly.
+    expect(cells[0]!.playing).toEqual([8, 8]);
+  });
+
   test('blocks bridge and split as whole pills, then hand back to the rows', async ({ page }) => {
     test.setTimeout(90_000);
     await openFiveTrackPlaylist(page, true);

@@ -9,7 +9,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../types/index.ts';
 import { broadcastDeviceList } from './peer-state.ts';
 import { detachHostPeerConnection } from './host-peer-departure.ts';
@@ -18,6 +18,7 @@ const HEARTBEAT_STALE_THRESHOLD = 8_000;
 const HEARTBEAT_CHECK_INTERVAL = 5_000;
 const HEARTBEAT_LIVE_TRANSPORT_GRACE = 90_000;
 const HEARTBEAT_RECOVERING_TRANSPORT_GRACE = 30_000;
+const HEARTBEAT_MONITOR_TIMER = 'heartbeat-monitor';
 
 // Keying by the live connection prevents a reconnect that reuses a peer id
 // from inheriting the previous connection's heartbeat lease.
@@ -65,21 +66,33 @@ function heartbeatTransportGrace(conn: DataConnection | undefined): number {
   return HEARTBEAT_STALE_THRESHOLD;
 }
 
-function stopHeartbeatMonitor(): void {
-  clearManagedTimer('heartbeat-monitor');
+/**
+ * Only a Standard host with a connected guest has peer liveness to watch.
+ * PRO rooms are server-authoritative and keep their peer list empty.
+ */
+function heartbeatMonitorNeeded(): boolean {
+  return (
+    getState('setup.sessionStarted') &&
+    !getState('network.hostConn') &&
+    getState('room.context').kind !== 'pro' &&
+    getState('network.connectedPeers').some((peer) => peer.status === 'connected')
+  );
 }
 
-function startHeartbeatMonitor(): void {
-  stopHeartbeatMonitor();
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return;
+/** Re-armed on every relevant state edge, e.g. when the first guest connects. */
+function syncHeartbeatMonitor(): void {
+  if (!heartbeatMonitorNeeded()) {
+    clearManagedTimer(HEARTBEAT_MONITOR_TIMER);
+    return;
+  }
+  // Ping replies republish the peer list; keep the running cadence.
+  if (getManagedTimer(HEARTBEAT_MONITOR_TIMER)) return;
 
   setManagedTimer(
-    'heartbeat-monitor',
+    HEARTBEAT_MONITOR_TIMER,
     () => {
-      const currentHostConn = getState('network.hostConn');
-      if (currentHostConn) {
-        stopHeartbeatMonitor();
+      if (!heartbeatMonitorNeeded()) {
+        clearManagedTimer(HEARTBEAT_MONITOR_TIMER);
         return;
       }
 
@@ -147,15 +160,15 @@ function startHeartbeatMonitor(): void {
 }
 
 export function initHeartbeatMonitor(): void {
-  bus.on('state:setup.sessionStarted', (started) => {
-    if (started) startHeartbeatMonitor();
-    else stopHeartbeatMonitor();
-  });
+  bus.on('state:setup.sessionStarted', syncHeartbeatMonitor);
+  bus.on('state:network.hostConn', syncHeartbeatMonitor);
+  bus.on('state:room.context', syncHeartbeatMonitor);
+  bus.on('state:network.connectedPeers', syncHeartbeatMonitor);
 
   // initSync may run after setup state was already projected in tests, hot
   // recovery, or a retained page. Reconcile the current snapshot as well as
   // future state events.
-  if (getState('setup.sessionStarted')) startHeartbeatMonitor();
+  syncHeartbeatMonitor();
 
   log.info('[Heartbeat] Lifecycle handlers registered');
 }

@@ -177,7 +177,9 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   // Reverb Mix (CrossFade), last so an impulse failure cannot block the
   // settings above. An audible mix first builds the impulse for the current
   // decay, then reconnects the reverb input, and only then starts the
-  // crossfade ramp; mix 0 disconnects the input once the ramp is silent.
+  // crossfade ramp, at once: the convolver's output starts from silence, so
+  // it needs no onset delay. Mix 0 disconnects the input once the ramp is
+  // silent.
   const crossFade = getRvbCrossFade();
   if (crossFade) {
     gateEffectInput(REVERB_TAP, reverbMix, refreshReverbImpulse);

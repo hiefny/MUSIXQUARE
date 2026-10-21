@@ -178,8 +178,3 @@ export function createFakeAudioContext(sampleRate = 48_000): FakeAudioContext {
   }
   return context;
 }
-
-/** Inputs that `source` currently feeds, by node kind. */
-export function connectedKinds(source: FakeNode): string[] {
-  return [...source.outputs].map((node) => node.kind).sort();
-}

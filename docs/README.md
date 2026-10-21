@@ -90,6 +90,18 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Visualizer response and screensaver optimization — 2026-10-22](design/visualizer-response-optimization-2026-10-22.md) —
+  Independent time-based analysis, visibility suspension, bass response, spectrum peak coverage,
+  drawing caches and conditional spectrum loading; local validation and explicit device limits.
+
+- [Visualizer UI/UX and compatibility preflight — 2026-10-22](design/visualizer-ux-compatibility-preflight-2026-10-22.md) —
+  one bounded recheck per proposal: 144 pixel-exact Canvas comparisons, 19 signal conditions, and Chromium
+  lifecycle checks distinguish appearance-preserving work from changed music response; preserves two failed
+  notification-count assumptions and the Windows WebKit AudioContext limitation. No product implementation.
+- [Visualizer optimization audit — 2026-10-22](design/visualizer-optimization-audit-2026-10-22.md) —
+  source review and 28 passing tests; isolated Chromium probes reproduce rendering behind the screensaver
+  and after playback restarts while hidden. Records sample-rate-dependent bands, frame-based smoothing,
+  spectrum follow-up options, and measurement limits; no product change or deployment.
 - [Selection clear fade, press tint and two-finger deselect 8.11.38 — 2026-10-21](design/selection-clear-fade-press-tint-two-finger-2026-10-21.md) —
   ending selection mode split every multi-row block into pills (`cancel()` cleared without capturing the drawn
   blocks); a block of several rows clearing or appearing at once now morphs as one fading shape. In selection mode the

@@ -7,6 +7,23 @@
 
 ## Context
 
+### 2026-10-22: conditional spectrum rendering
+
+The active spectrum renderer (`src/ui/visualizer-spectrum.ts`) is loaded when
+the spectrum presentation is selected, including the persisted preference and
+guided demo. Default circular startup does not request it. The static grid,
+resting line, mode controls and accessibility stay eager. A first uncached
+spectrum selection can wait on this small chunk before its live curve appears;
+later selections reuse the evaluated module. Loading completion rechecks the
+current playback source, visibility and mode, and cannot revive a cancelled
+render loop. A terminal load failure uses the existing explicit reload recovery.
+
+The renderer is a reviewed deferred app-shell root, preserving both the static
+graph exclusion and the installed service worker's offline closure. This is
+conditional evaluation and critical-path reduction, not a claim that total
+first-install wire bytes decrease. Architectural budgets and the 5% reserve
+remain unchanged. See the [implementation and validation report](visualizer-response-optimization-2026-10-22.md).
+
 The checked production build remained below its architectural transfer limits,
 but several metrics had effectively no maintenance reserve. In particular, the
 entry raw size was within roughly 1 KiB of its ceiling. A passing build could

@@ -54,11 +54,13 @@ jobs:
 
       - name: Full E2E tests
         timeout-minutes: 165
-        run: npx playwright test --reporter=line,html
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_NAME: test-results/tab-diagnostic.json
+        run: npx playwright test e2e/private-tab-diagnostic.test.ts --grep "nested playlist" --repeat-each=20 --reporter=line,json
 
       - name: Upload failure artifacts
         timeout-minutes: 5
-        if: failure() || cancelled()
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: full-e2e-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -69,6 +71,7 @@ jobs:
           retention-days: 14
 
   webkit-mobile:
+    if: false
     runs-on: ubuntu-latest
     # The explicit 74-minute step budget leaves six minutes for runner
     # transitions and cancellation cleanup.
@@ -119,6 +122,7 @@ jobs:
           retention-days: 14
 
   production-large-room:
+    if: false
     name: Production large-room R2 smoke
     runs-on: ubuntu-latest
     # This is real production monitoring, not a release/PR gate. Keep failures

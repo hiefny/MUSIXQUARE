@@ -20,6 +20,11 @@ export default defineConfig({
       'src/core/__tests__/worker-shared-read-lifetime.test.ts',
       'src/core/__tests__/standard-room-burst.test.ts',
       'src/core/__tests__/pro-room-burst.test.ts',
+      // C7-0 owner-boundary characterization (resource ownership RO-07..RO-09).
+      'src/core/__tests__/owner-transfer-saga-convergence-sqlite.test.ts',
+      'src/core/__tests__/pro-room-signaling-contract-workerd.test.ts',
+      'src/pro-room/__tests__/pro-room-signaling-delivery.test.ts',
+      'src/pro-room/__tests__/pro-room-duration-reads.test.ts',
       'src/core/__tests__/translation-community.test.ts',
       'src/core/__tests__/translation-community-catalog.test.ts',
       'src/core/__tests__/translation-community-route.test.ts',

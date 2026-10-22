@@ -23,6 +23,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { setPlaybackYouTubePaused, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { PlaylistItem, QueueItemId } from '../../types/index.ts';
 import {
+  isLocalYouTubePaused,
   markYtPlayerReady,
   resetYouTubeModuleState,
   setLocalYouTubePaused,
@@ -159,6 +160,52 @@ describe('iframe-native YouTube control authority', () => {
       { wasPlaying: true },
     );
   });
+
+  it.each([
+    { room: 'standard', visibility: 'visible', published: true },
+    { room: 'standard', visibility: 'hidden', published: false },
+    { room: 'pro', visibility: 'visible', published: false },
+  ] as const)(
+    'records a $visibility $room listener iframe PAUSE as a local pause, published as intent: $published',
+    ({ room, visibility, published }) => {
+      // WebKit stops a hidden iframe by itself; only a visible PAUSE is the
+      // participant's own, like a lock-screen or media-key PAUSE. A PRO
+      // listener keeps its iframe PLAY able to rejoin, so nothing is published.
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: visibility });
+      try {
+        const player = createPlayer();
+        if (room === 'pro') {
+          setState('room.context', {
+            kind: 'pro',
+            roomId: '000001',
+            role: 'member',
+            coordinatorId: null,
+            epoch: 7,
+            snapshotRevision: 11,
+            capabilities: [],
+          });
+        } else {
+          setState('network.appRole', 'guest');
+          setState('network.hostConn', { open: true, peer: 'host', send: vi.fn() } as never);
+          setState('network.isOperator', false);
+          setState('network.standardRoomCapabilities', []);
+        }
+        installCurrentYouTube(player);
+        const localPause = vi.fn();
+        bus.on('youtube:set-local-paused', localPause);
+
+        player.state = 2;
+        setPlaybackYouTubePaused();
+
+        expect(isLocalYouTubePaused()).toBe(true);
+        if (published) expect(localPause).toHaveBeenCalledExactlyOnceWith(true);
+        else expect(localPause).not.toHaveBeenCalled();
+        expect(mocks.safeSend).not.toHaveBeenCalled();
+      } finally {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+    },
+  );
 
   it('does not promote an application-owned pauseVideo transition', () => {
     const player = createPlayer();

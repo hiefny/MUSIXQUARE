@@ -18,7 +18,8 @@
  *   Standard host, YouTube .............. manual YouTube sync broadcast
  *   Standard guest, YouTube ............. guest rendezvous, retried while busy
  *                                          or still waiting for a live host
- *                                          snapshot
+ *                                          snapshot; an explicit local pause
+ *                                          during the wait ends the retries
  *   Standard guest, file ................ forced file re-sync
  *   Standard host, file ................. nothing room-wide: the button only
  *                                          opens the nudge panel. Audio
@@ -84,6 +85,7 @@ interface RendezvousRetryIdentity {
 
 // Each return replaces the previous return's retry chain.
 let rendezvousChain = 0;
+let stopRetiringOnLocalPause: (() => void) | null = null;
 
 function captureRendezvousIdentity(): RendezvousRetryIdentity {
   const room = getRoomContext();
@@ -145,6 +147,15 @@ function attemptGuestRendezvous(
   }
   const delayMs =
     result.status === 'busy' ? (result.retryAfterMs ?? scheduledDelay) : scheduledDelay;
+  // An explicit local PAUSE during the wait (lock screen, media key, the
+  // iframe's own controls) wins over this automatic alignment and ends the
+  // chain, the same intent that retires a pending local-output rejoin. The
+  // local pause bit cannot stand in for it: a browser stop of the hidden
+  // iframe and a pause put back after a failed local PLAY also set it, and
+  // the return aligns whatever the play/pause state.
+  stopRetiringOnLocalPause ??= bus.on('youtube:set-local-paused', (paused) => {
+    if (paused) cancelGuestRendezvousRetry();
+  });
   setManagedTimer(
     RENDEZVOUS_RETRY_TIMER,
     () => attemptGuestRendezvous(chain, identity, attempt + 1),
@@ -154,6 +165,8 @@ function attemptGuestRendezvous(
 
 function cancelGuestRendezvousRetry(): number {
   clearManagedTimer(RENDEZVOUS_RETRY_TIMER);
+  stopRetiringOnLocalPause?.();
+  stopRetiringOnLocalPause = null;
   return ++rendezvousChain;
 }
 

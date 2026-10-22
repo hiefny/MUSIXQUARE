@@ -801,6 +801,9 @@ interface PlaybackBroadcastRecord {
   createdAtMs: number;
 }
 
+/** What a signaling broadcast carries besides the room address (RO-07). */
+type SignalingBroadcast = Pick<PlaybackBroadcastRecord, 'coordinatorEpoch' | 'targets' | 'event'>;
+
 interface PresenceBroadcastRecord {
   coordinatorEpoch: number;
   presenceRevision: number;
@@ -12650,10 +12653,18 @@ export class MusixquareProRoom {
       .sort();
   }
 
-  async broadcastServerEvent(
-    event: JsonRecord,
-    targets: string[] = this.realtimePresenceTargets(),
-    coordinatorEpoch = this.activeRoom.presence.coordinatorEpoch,
+  /**
+   * The one request to the room's signaling object (RO-07): one endpoint,
+   * header set, body and SIGNALING_BROADCAST_TIMEOUT_MS deadline for every
+   * lane. Signaling answers 400 to any extra or missing body key. Only an HTTP
+   * 200 can count as delivered: `http-ok-json` (presence and the no-retry
+   * lane) takes any non-null JSON body, `full-fanout` (the playback outbox)
+   * only `{broadcast: true, eligible, sent}` with sent === eligible. A thrown
+   * call, a timeout or a missing binding is undelivered. Lanes own retries.
+   */
+  async postSignalingBroadcast(
+    { coordinatorEpoch, targets, event }: SignalingBroadcast,
+    acceptance: 'http-ok-json' | 'full-fanout',
   ) {
     const namespace = this.env.PRO_SIGNALING_ROOMS;
     if (!namespace || typeof namespace.idFromName !== 'function') return false;
@@ -12682,10 +12693,33 @@ export class MusixquareProRoom {
         }),
         SIGNALING_BROADCAST_TIMEOUT_MS,
       );
-      return response.status === 200 && parseInternalJsonResponse(bytes) !== null;
+      if (response.status !== 200) return false;
+      const body = parseInternalJsonResponse(bytes);
+      if (acceptance === 'http-ok-json') return body !== null;
+      return !!(
+        hasExactKeys(body, ['broadcast', 'eligible', 'sent']) &&
+        body.broadcast === true &&
+        isSafeNonNegativeInteger(body.eligible) &&
+        isSafeNonNegativeInteger(body.sent) &&
+        body.sent <= body.eligible &&
+        body.sent === body.eligible
+      );
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Presence snapshots and the no-retry invalidation lane. Not async, so the
+   * caller awaits the transport's own promise; each call site picks awaited
+   * or `waitUntil` delivery.
+   */
+  broadcastServerEvent(
+    event: JsonRecord,
+    targets: string[] = this.realtimePresenceTargets(),
+    coordinatorEpoch = this.activeRoom.presence.coordinatorEpoch,
+  ) {
+    return this.postSignalingBroadcast({ coordinatorEpoch, targets, event }, 'http-ok-json');
   }
 
   playbackBroadcastRecord(
@@ -12832,47 +12866,9 @@ export class MusixquareProRoom {
     return changed;
   }
 
-  async dispatchPlaybackBroadcast(record: PlaybackBroadcastRecord) {
-    const namespace = this.env.PRO_SIGNALING_ROOMS;
-    if (!namespace || typeof namespace.idFromName !== 'function') return false;
-    try {
-      const stub = namespace.get(
-        namespace.idFromName(
-          proRoomObjectName(this.activeRoom.roomCode, this.activeRoom.roomGeneration),
-        ),
-      );
-      const { response, bytes } = await fetchWithDeadline(
-        (boundedRequest) => stub.fetch(boundedRequest),
-        new Request('https://signaling.internal/internal/realtime/v1/broadcast', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            'x-mxqr-pro-room-code': this.activeRoom.roomCode,
-            ...proRoomGenerationWireHeaders(this.activeRoom.roomGeneration),
-          },
-          body: JSON.stringify({
-            roomCode: this.activeRoom.roomCode,
-            ...proRoomGenerationWireFields(this.activeRoom.roomGeneration),
-            coordinatorEpoch: record.coordinatorEpoch,
-            targets: record.targets,
-            event: record.event,
-          }),
-        }),
-        SIGNALING_BROADCAST_TIMEOUT_MS,
-      );
-      if (response.status !== 200) return false;
-      const body = parseInternalJsonResponse(bytes);
-      return !!(
-        hasExactKeys(body, ['broadcast', 'eligible', 'sent']) &&
-        body.broadcast === true &&
-        isSafeNonNegativeInteger(body.eligible) &&
-        isSafeNonNegativeInteger(body.sent) &&
-        body.sent <= body.eligible &&
-        body.sent === body.eligible
-      );
-    } catch {
-      return false;
-    }
+  /** The playback outbox head, awaited by flushPendingPlaybackBroadcasts. */
+  dispatchPlaybackBroadcast(record: PlaybackBroadcastRecord) {
+    return this.postSignalingBroadcast(record, 'full-fanout');
   }
 
   async flushPendingPlaybackBroadcasts(nowMs = Date.now()) {

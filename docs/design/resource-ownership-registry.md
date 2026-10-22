@@ -481,17 +481,21 @@ RO-46 accepted-exception
 - **Resource:** the room incarnation's signaling endpoint `/internal/realtime/v1/broadcast` and the
   coordinator-epoch fence it advances in `cloudflare/signaling-worker.ts`.
 - **Current owners/flows:** three lanes in `cloudflare/pro-room-worker.ts`, routed by
-  `scheduleServerEvent`. Their only coordination is the epoch fence: `bumpRoomEpoch` empties the
-  outbox, and signaling lets only a presence snapshot advance the epoch, answering any other event
-  for a newer epoch with 409 `PRO_ROOM_EPOCH_STALE`. The outbox retries that refusal; the no-retry
-  lane drops it, together with any added-tracks notice the event carries (RO-46). The alarm
-  orders presence before playback; the flush after each persist does not.
+  `scheduleServerEvent`. Since Phase 1 (C7-3) they send through one request builder,
+  `postSignalingBroadcast`: one endpoint, header set, body and deadline, with the lane's acceptance
+  rule passed in (`http-ok-json`: any HTTP 200 with a non-null JSON body; `full-fanout`: an HTTP
+  200 of exactly `{broadcast: true, eligible, sent}` with `sent` equal to `eligible`). Their only
+  coordination is the epoch fence: `bumpRoomEpoch` empties the outbox, and signaling lets only a
+  presence snapshot advance the epoch, answering any other event for a newer epoch with 409
+  `PRO_ROOM_EPOCH_STALE`. The outbox retries that refusal; the no-retry lane drops it, together
+  with any added-tracks notice the event carries (RO-46). The alarm orders presence before
+  playback; the flush after each persist does not.
   - presence delivery (`pendingPresenceBroadcast`, `deliverPresenceBroadcast`,
-    `rememberFailedPresenceBroadcast`, `retryPendingPresenceBroadcast`), which sends through the
-    generic request builder `broadcastServerEvent`;
+    `rememberFailedPresenceBroadcast`, `retryPendingPresenceBroadcast`), which sends through
+    `broadcastServerEvent` (`http-ok-json`);
   - the playback outbox (`pendingPlaybackBroadcasts`, `enqueuePlaybackBroadcast`,
-    `dispatchPlaybackBroadcast`, `flushPendingPlaybackBroadcasts`), which builds its own request
-    in `dispatchPlaybackBroadcast`;
+    `dispatchPlaybackBroadcast`, `flushPendingPlaybackBroadcasts`), which sends its head through
+    `dispatchPlaybackBroadcast` (`full-fanout`);
   - a no-retry lane for `pro-room-invalidated` and `system-audio-invalidated` events: one
     `broadcastServerEvent` call and no record. `scheduleServerEvent` sends it through `waitUntil`
     for `scheduleDeveloperInvalidationHint`, `handleInternalDeveloperQueueModeUpdate` and
@@ -508,13 +512,13 @@ RO-46 accepted-exception
 - **Allowed requesters:** the presence and playback reducers enqueue; the invalidation senders
   listed above send once through the request builder; `scheduleServerEvent` stays the router;
   `scheduleAlarm` asks the outbox for one due time. Worker caller allowlist for
-  `/internal/realtime/v1/broadcast`: `pro-room-worker.ts` only (the route itself is `handleFetch`
-  in `signaling-worker.ts`).
+  `/internal/realtime/v1/broadcast`: `postSignalingBroadcast` in `pro-room-worker.ts` only (the
+  route itself is `handleFetch` in `signaling-worker.ts`).
 - **Lifecycle operations:** enqueue, dispatch, back off, drop on an epoch change, persist the
   retry marker; send once (no-retry lane).
 - **Deadline owner:** each path's backoff; the no-retry lane has none. `scheduleAlarm` stays the
-  single alarm owner. Both request builders use `SIGNALING_BROADCAST_TIMEOUT_MS` (900 ms), so
-  each awaited invalidation send can add up to 900 ms to its HTTP response.
+  single alarm owner. The request builder uses `SIGNALING_BROADCAST_TIMEOUT_MS` (900 ms) for every
+  lane, so each awaited invalidation send can add up to 900 ms to its HTTP response.
 - **Timing-constant home:** `cloudflare/pro-room-worker.ts`: `SIGNALING_BROADCAST_TIMEOUT_MS`,
   `SIGNALING_BROADCAST_RETRY_BASE_MS`, `SIGNALING_BROADCAST_RETRY_MAX_MS`,
   `SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS` (900 ms, 1 s, 60 s, 16) and one delay function,
@@ -528,9 +532,12 @@ RO-46 accepted-exception
     after transient signaling failures and isolate restart"; "keeps a failed playback dispatch
     durable and clears it after a restarted alarm retry".
   - Visibility: n/a.
-- **Status:** `duplicated`. Phase 0d named the constants once (C7-1); Phase 1 (one request
-  builder, outbox owner) remains. Durable record shapes freeze across the change. Exceptions
-  RO-31, RO-46.
+- **Status:** `duplicated`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the two
+  request builders into `postSignalingBroadcast` with no behaviour change; its request bytes,
+  acceptance rules and deadline are pinned in `pro-room-worker.test.ts` ("one signaling broadcast
+  transport") and against the real signaling Worker in `pro-room-signaling-contract-workerd`
+  ([report](pro-room-signaling-transport-2026-10-23.md)). The outbox owner (C7-4) remains.
+  Durable record shapes freeze across the change. Exceptions RO-31, RO-46.
 
 ### RO-08 PRO asset duration read
 

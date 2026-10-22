@@ -200,12 +200,12 @@ const BROADCAST_ENDPOINT = '/internal/realtime/v1/broadcast';
 /** RO-07: string literals naming the signaling broadcast endpoint. */
 const BROADCAST_ENDPOINT_BASELINE: Baseline = new Map<string, Allowance>([
   [
-    'cloudflare/pro-room-worker.ts :: broadcastServerEvent',
-    { count: 1, reason: 'presence and no-retry lanes (Phase 1 keeps one request builder)' },
-  ],
-  [
-    'cloudflare/pro-room-worker.ts :: dispatchPlaybackBroadcast',
-    { count: 1, reason: 'playback outbox request (Phase 1 merges it into the builder)' },
+    'cloudflare/pro-room-worker.ts :: postSignalingBroadcast',
+    {
+      count: 1,
+      reason:
+        'the one request builder for every lane (C7-3 merged broadcastServerEvent and dispatchPlaybackBroadcast, 2 to 1)',
+    },
   ],
   ['cloudflare/signaling-worker.ts :: handleFetch', { count: 1, reason: 'the endpoint route' }],
 ]);

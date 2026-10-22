@@ -777,7 +777,16 @@ afterEach(() => {
 });
 
 (nodeSqlite ? describe : describe.skip)('owner-transfer saga: target deleted mid-transfer', () => {
-  it('request, after the DO commit: purges, finalizes, terminalizes, then audits target_deleted_after_commit', async () => {
+  // Known gap (audit timing), pinned by the two request tests below: the
+  // request writes its deleted-target audit AFTER the terminal 'target_deleted'
+  // advance, while every cron site audits BEFORE it. A terminal row leaves the
+  // cron listing, so if the request's audit insert fails it answers 503
+  // PRO_ROOM_AUDIT_UNAVAILABLE and no executor ever writes that row: the
+  // request's audit is at-most-once, the cron's at-least-once. Plan step C7-8
+  // (shared terminator helper) must keep this order; C7-9 (roadmap Phase 1
+  // app B, "audit before terminal advance", owner decision D3) moves the audit
+  // ahead of the advance. Update these pins then.
+  it('request, after the DO commit (today): purges, finalizes, terminalizes, and only then audits target_deleted_after_commit', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     test.deleteTargetBefore(sagaWrite('committed'));
@@ -805,7 +814,8 @@ afterEach(() => {
     });
   });
 
-  it('request, at the final recheck: same sequence, audited target_deleted_during_finalize', async () => {
+  // Same audit-after-terminal gap as above (C7-9 flips it).
+  it('request, at the final recheck (today): same sequence, audited target_deleted_during_finalize after the terminal advance', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     test.deleteTargetBefore(sagaWrite('old_owner_edge_retired'));

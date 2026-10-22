@@ -113,4 +113,46 @@ describe('local E2E report contract', () => {
       ['Upload critical browser failure artifacts', 5],
     ]);
   });
+
+  it('runs every browser job in the Playwright image for the locked version, without apt', () => {
+    const lock = JSON.parse(readFileSync(resolve('package-lock.json'), 'utf8')) as {
+      packages: Record<string, { version?: string }>;
+    };
+    const lockedVersion = lock.packages['node_modules/@playwright/test']?.version;
+    expect(lockedVersion).toBe(lock.packages['node_modules/playwright-core']?.version);
+
+    const jobsOf = (path: string): Map<string, string> => {
+      const source = readFileSync(resolve(path), 'utf8');
+      const workflow = source.slice(source.indexOf('\njobs:\n'));
+      const starts = [...workflow.matchAll(/^ {2}([a-z][a-z0-9-]*):$/gmu)];
+      return new Map(
+        starts.map((match, index) => [
+          match[1],
+          workflow.slice(match.index, starts[index + 1]?.index ?? workflow.length),
+        ]),
+      );
+    };
+    const browserJobs = [
+      ...[...jobsOf('.github/workflows/ci.yml')].map(([name, job]) => [`ci.yml ${name}`, job]),
+      ...[...jobsOf('.github/workflows/e2e.yml')].map(([name, job]) => [`e2e.yml ${name}`, job]),
+    ].filter(([, job]) => job.includes('npx playwright install'));
+
+    expect(browserJobs.map(([name]) => name)).toEqual([
+      'ci.yml browser-gate',
+      'e2e.yml e2e',
+      'e2e.yml webkit-mobile',
+      'e2e.yml production-large-room',
+    ]);
+    for (const [name, job] of browserJobs) {
+      const image = job.match(
+        /^ {6}image: mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble$/mu,
+      );
+      // Bump the image tag in the same change that bumps @playwright/test.
+      expect(image?.[1], name).toBe(lockedVersion);
+      expect(job, name).toMatch(/^ {6}options: --user 1001 --ipc=host$/mu);
+      expect(job, name).toMatch(/^ {6}TZ: Etc\/UTC$/mu);
+      expect(job, name).toMatch(/^ {8}run: npx playwright install (chromium|webkit)$/mu);
+      expect(job, name).not.toContain('--with-deps');
+    }
+  });
 });

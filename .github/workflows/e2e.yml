@@ -24,6 +24,14 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-latest
+    # Browsers, fonts and system libraries come from the official Playwright
+    # image (tag = locked @playwright/test version), not from apt on Azure's
+    # Ubuntu mirrors, whose stalls often broke the browser install step.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --user 1001 --ipc=host
+    env:
+      TZ: Etc/UTC
     # Every step has its own diagnostic bound. The 211-minute step budget
     # leaves nine minutes for runner transitions and cancellation cleanup.
     timeout-minutes: 220
@@ -50,7 +58,7 @@ jobs:
 
       - name: Install Playwright Browsers
         timeout-minutes: 15
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Full E2E tests
         timeout-minutes: 165
@@ -70,6 +78,12 @@ jobs:
 
   webkit-mobile:
     runs-on: ubuntu-latest
+    # Same Playwright image as the e2e job above.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --user 1001 --ipc=host
+    env:
+      TZ: Etc/UTC
     # The explicit 74-minute step budget leaves six minutes for runner
     # transitions and cancellation cleanup.
     timeout-minutes: 80
@@ -96,7 +110,7 @@ jobs:
 
       - name: Install WebKit
         timeout-minutes: 15
-        run: npx playwright install --with-deps webkit
+        run: npx playwright install webkit
 
       - name: Targeted iPhone WebKit smoke
         timeout-minutes: 20
@@ -121,6 +135,12 @@ jobs:
   production-large-room:
     name: Production large-room R2 smoke
     runs-on: ubuntu-latest
+    # Same Playwright image as the e2e job above.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --user 1001 --ipc=host
+    env:
+      TZ: Etc/UTC
     # This is real production monitoring, not a release/PR gate. Keep failures
     # visible in the job while allowing the weekly/manual workflow to continue.
     continue-on-error: true
@@ -144,7 +164,7 @@ jobs:
 
       - name: Install Chromium
         timeout-minutes: 7
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Run production 9-local-guest R2 smoke
         timeout-minutes: 5

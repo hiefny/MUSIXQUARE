@@ -379,10 +379,23 @@ async function transferFixture() {
         }
       });
     },
-    deleteTarget() {
+    /** The account-deletion job starts for `accountId` (default: the target). */
+    deleteTarget(accountId = TARGET) {
       auth.database
         .prepare('INSERT INTO mxqr_account_deletions (account_id, started_at) VALUES (?, ?)')
-        .run(TARGET, Date.now());
+        .run(accountId, Date.now());
+    },
+    /** One account-deletion purge attempt, as the deletion job runs it. */
+    purge(accountId: string) {
+      return purgeProRoomAccountAuthorityForTests(
+        { accountId, roomCode: ROOM_CODE, roomGeneration: ROOM_GENERATION },
+        appEnv,
+      );
+    },
+    fenceDigest() {
+      return developer.rows<{ fence_digest: string }>(
+        'SELECT fence_digest FROM mxqr_developer_api_room_authority_fences',
+      )[0]?.fence_digest;
     },
     saga() {
       return admin.rows<Record<string, unknown>>(
@@ -1005,5 +1018,120 @@ afterEach(() => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: 'OWNER_TRANSFER_RECONCILIATION_REQUIRED' });
     expect(test.saga()).toBe('committed');
+  });
+});
+
+/** Whichever comes first: the parked statement, or the request's answer. */
+async function stalledOrAnswered(
+  reached: Promise<void>,
+  request: Promise<unknown>,
+): Promise<unknown> {
+  return Promise.race([reached.then(() => 'stalled'), request]);
+}
+
+/**
+ * Fence-write policy per caller (plan step C7-11 moves these four callers of
+ * revokeDeveloperApiKeysForAuthorityChange to a typed policy). Today the
+ * account-deletion purge compares and swaps on the digest it captured before
+ * asking the DO (null when no fence existed), while both transfer executors
+ * and the legacy duplicate-owner detach write without a compare-and-swap
+ * (`expectedFenceDigest` undefined). The difference shows only when the write
+ * lands on an existing fence row with another digest, so each case below
+ * starts from one. Mutation check on 8e647e2e: passing null at either transfer
+ * site, or dropping the purge's expected digest, fails a case here.
+ *
+ * The legacy detach is not driven here: its first detach requires a DO with
+ * no owner-authority removal and no transfer record, and every fence writer
+ * leaves one of those behind for the rest of the incarnation (a completed
+ * transfer record is never pruned), so today it only ever writes onto an
+ * empty row or, on replay, its own digest. Its policy is unobservable through
+ * the route; C7-11 keeps it at "any" with identical SQL.
+ */
+(nodeSqlite ? describe : describe.skip)('owner-transfer saga: fence-write policy by caller', () => {
+  it('a transfer relabels an active deletion fence, a stale purge refuses, and the purge retry converges', async () => {
+    const test = await transferFixture();
+    test.deleteTarget(OLD_OWNER);
+    // Two runs of the deletion job overlap. The first captures "no fence yet"
+    // and stalls on D1 at its fence write; the duplicate finishes the purge.
+    const stale = test.pauseOnce(stepIs('fence:owner_account_deleted'));
+    const stalePurge = test.purge(OLD_OWNER);
+    await stale.reached;
+    expect(await test.purge(OLD_OWNER)).toBe(true);
+    expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
+    expect(test.keyStatus()).toBe('revoked');
+    const deletionDigest = test.fenceDigest();
+    expect(await test.canonical()).toMatchObject({
+      status: 'suspended',
+      suspensionReason: 'owner_account_deleted',
+      owner: null,
+    });
+
+    // The ownerless room is handed to a new owner. The transfer's fence write
+    // lands on the active deletion fence without a compare-and-swap: it
+    // relabels reason and digest, and the key stays revoked.
+    const claim = await issueClaim(test);
+    const relabelled = test.pauseOnce(stepIs('fence:clear'));
+    const mark = test.mark();
+    const request = requestTransfer(test, claim);
+    expect(await stalledOrAnswered(relabelled.reached, request)).toBe('stalled');
+    expect(test.fence()).toEqual({ status: 'active', reason: 'ownership_transfer_pending' });
+    expect(test.fenceDigest()).not.toBe(deletionDigest);
+    expect(test.keyStatus()).toBe('revoked');
+    relabelled.release();
+    expect((await request).status).toBe(200);
+    expect(test.steps(mark)).toContain('fence:ownership_transfer_pending');
+    const transferDigest = test.fenceDigest();
+    expect(test.fence()).toEqual({ status: 'cleared', reason: 'ownership_transfer_pending' });
+    expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'target' });
+
+    // The stalled purge resumes. Its compare-and-swap against "no fence"
+    // misses the newer transfer fence, so it writes nothing and reports false.
+    stale.release();
+    expect(await stalePurge).toBe(false);
+    expect(test.fence()).toEqual({ status: 'cleared', reason: 'ownership_transfer_pending' });
+    expect(test.fenceDigest()).toBe(transferDigest);
+
+    // The deletion job's next retry finds the old owner no longer holds owner
+    // authority: it converges without touching the fence.
+    const retryMark = test.mark();
+    expect(await test.purge(OLD_OWNER)).toBe(true);
+    expect(test.steps(retryMark).filter((entry) => entry.startsWith('fence:'))).toEqual([]);
+    expect(test.fenceDigest()).toBe(transferDigest);
+    expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'target' });
+  });
+
+  it('the cron, adopting a prepared transfer, relabels an active deletion fence the same way', async () => {
+    const test = await transferFixture();
+    test.deleteTarget(OLD_OWNER);
+    expect(await test.purge(OLD_OWNER)).toBe(true);
+    const deletionDigest = test.fenceDigest();
+    const claim = await issueClaim(test);
+    // The request stops at its own fence write; the DO keeps the PREPARE.
+    test.failOnce(stepIs('fence:ownership_transfer_pending'));
+    expect(await requestTransfer(test, claim)).toEqual({
+      status: 503,
+      error: 'DEVELOPER_API_ADMIN_UNAVAILABLE',
+      cookies: [],
+    });
+    expect(test.saga()).toBe('prepared');
+    expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
+
+    vi.setSystemTime(START + 60_000);
+    const mark = test.mark();
+    expect(await test.cron()).toBe(1);
+    // The adopted commit writes the transfer fence over the deletion fence
+    // before the DO commits. The adopt branch and the shared tail each advance
+    // 'committed' (the second is a compare-and-swap that changes no row).
+    expect(test.steps(mark).slice(0, 4)).toEqual([
+      'link:+target',
+      'fence:ownership_transfer_pending',
+      'saga:committed',
+      'saga:committed',
+    ]);
+    expect(test.saga()).toBe('complete');
+    expect(test.fenceDigest()).not.toBe(deletionDigest);
+    expect(test.fence()).toEqual({ status: 'cleared', reason: 'ownership_transfer_pending' });
+    expect(test.keyStatus()).toBe('revoked');
+    expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'target' });
   });
 });

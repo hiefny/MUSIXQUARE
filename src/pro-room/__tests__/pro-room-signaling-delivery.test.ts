@@ -20,7 +20,8 @@ import {
  * Observation points: requests the room sends to signaling (FencedSignaling,
  * see the fixture header for what it models), the durable `pro-room:v2:core`
  * record (`pendingPresenceBroadcast`, `pendingPlaybackBroadcasts`, whose
- * shapes are a frozen rollback contract), the platform alarm slot, and
+ * shapes are a frozen rollback contract, pinned key by key in "durable record
+ * shapes"), the platform alarm slot, and
  * whether an HTTP response waits for a held signaling answer (the awaited
  * versus background execution mode of each no-retry send).
  *
@@ -349,6 +350,141 @@ describe('PRO signaling delivery lanes: ordering', () => {
     expect(outbox(test)).toEqual([{ kind: 'commit', attempts: 1, retryInMs: 1_000 }]);
     await test.alarmAt(NOW + 14_000);
     expect(trace(test.signaling.deliveries).slice(2)).toEqual(['14000 playback-commit e3 200']);
+    expect(outbox(test)).toEqual([]);
+  });
+});
+
+/**
+ * Today's durable record shapes. The loaders accept only these exact key sets
+ * (hasExactKeys in normalizeLoadedPresenceBroadcast and
+ * normalizeStoredPlaybackBroadcastRecord): a record with any other key set is
+ * nulled or dropped on load. A Worker rolled back across a shape change would
+ * therefore silently lose the presence retry and the PREPARE/CANCEL/COMMIT
+ * records written by the newer one. Plan step C7-4 (and any Phase 1 outbox
+ * owner) must keep these lists, or add a versioned shape on purpose.
+ */
+const PRESENCE_MARKER_KEYS = [
+  'attempts',
+  'coordinatorEpoch',
+  'presenceRevision',
+  'retryAtMs',
+  'roomRevision',
+];
+const PLAYBACK_RECORD_KEYS = [
+  'attempts',
+  'basePlaybackRevision',
+  'coordinatorEpoch',
+  'createdAtMs',
+  'event',
+  'kind',
+  'playbackRevision',
+  'retryAtMs',
+  'targets',
+  'transitionId',
+];
+const PLAYBACK_EVENT_KEYS: Record<string, string[]> = {
+  prepare: [
+    'basePlaybackRevision',
+    'deadlineAtMs',
+    'serverTimeMs',
+    'target',
+    'transitionId',
+    'type',
+  ],
+  cancel: ['reason', 'serverTimeMs', 'transitionId', 'type'],
+  commit: ['executeAtMs', 'playback', 'serverTimeMs', 'transitionId', 'type'],
+};
+
+const sortedKeys = (value: unknown) => Object.keys(value as Record<string, unknown>).sort();
+
+describe('PRO signaling delivery lanes: durable record shapes (rollback contract)', () => {
+  it('stores the presence marker and every playback record kind with exactly today’s keys', async () => {
+    const { test } = await playingRoom();
+    test.signaling.failAll('pro-presence-snapshot', 'throw');
+    test.signaling.failAll('pro-playback-prepare', 503);
+    test.signaling.failAll('pro-playback-cancel', 503);
+    test.signaling.failAll('pro-playback-commit', 503);
+    await test.addMember();
+    expect(sortedKeys(test.storedCore().pendingPresenceBroadcast)).toEqual(PRESENCE_MARKER_KEYS);
+
+    await test.select(SECOND);
+    const [prepare] = test.storedCore().pendingPlaybackBroadcasts as Array<Record<string, any>>;
+    expect(prepare!.kind).toBe('prepare');
+    expect(sortedKeys(prepare)).toEqual(PLAYBACK_RECORD_KEYS);
+    expect(sortedKeys(prepare!.event)).toEqual(PLAYBACK_EVENT_KEYS.prepare);
+
+    // Pausing over the undelivered PREPARE queues the CANCEL then COMMIT pair.
+    const current = await test.snapshot();
+    const paused = await test.json('/playback/commands', {
+      type: 'pause',
+      baseRevision: current.playback.revision,
+    });
+    expect(paused.status, await paused.clone().text()).toBe(200);
+    await test.settle();
+    const pair = test.storedCore().pendingPlaybackBroadcasts as Array<Record<string, any>>;
+    expect(pair.map((record) => record.kind)).toEqual(['cancel', 'commit']);
+    for (const record of pair) {
+      expect(sortedKeys(record)).toEqual(PLAYBACK_RECORD_KEYS);
+      expect(sortedKeys(record.event)).toEqual(PLAYBACK_EVENT_KEYS[record.kind]);
+    }
+  });
+
+  it('keeps and delivers a presence marker and PREPARE written in today’s literal shape across a cold restart', async () => {
+    const { test } = await playingRoom();
+    test.signaling.failAll('pro-presence-snapshot', 'throw');
+    await test.addMember();
+    test.signaling.restore();
+    test.signaling.failNext('pro-playback-prepare', 503);
+    await test.select(SECOND);
+
+    // The records an older Worker of today's shape leaves behind, spelled out
+    // key by key (old-to-new fixture). Equality with what today's writer
+    // stored pins the writer; loading them through a cold restart pins the
+    // loaders.
+    const stored = test.storage.data.get('pro-room:v2:core') as { core: Record<string, any> };
+    const marker = stored.core.pendingPresenceBroadcast as Record<string, any>;
+    const transition = stored.core.pendingPlaybackTransition as Record<string, any>;
+    const literalMarker = {
+      coordinatorEpoch: 1,
+      presenceRevision: marker.presenceRevision,
+      roomRevision: marker.roomRevision,
+      retryAtMs: NOW + 1_000,
+      attempts: 0,
+    };
+    const literalPrepare = {
+      kind: 'prepare',
+      coordinatorEpoch: 1,
+      transitionId: transition.transitionId,
+      basePlaybackRevision: transition.basePlaybackRevision,
+      playbackRevision: transition.basePlaybackRevision + 1,
+      targets: [...transition.cohort],
+      event: {
+        type: 'pro-playback-prepare',
+        transitionId: transition.transitionId,
+        serverTimeMs: NOW,
+        deadlineAtMs: transition.deadlineAtMs,
+        basePlaybackRevision: transition.basePlaybackRevision,
+        target: structuredClone(transition.target),
+      },
+      createdAtMs: NOW,
+      attempts: 1,
+      retryAtMs: NOW + 1_000,
+    };
+    expect(marker).toStrictEqual(literalMarker);
+    expect(stored.core.pendingPlaybackBroadcasts).toStrictEqual([literalPrepare]);
+    stored.core.pendingPresenceBroadcast = literalMarker;
+    stored.core.pendingPlaybackBroadcasts = [literalPrepare];
+    test.storage.data.set('pro-room:v2:core', stored);
+    test.signaling.deliveries.length = 0;
+
+    test.restart();
+    await test.alarmAt(NOW + 1_000);
+    expect(trace(test.signaling.deliveries)).toEqual([
+      '1000 presence-snapshot e1 200',
+      '1000 playback-prepare e1 200',
+    ]);
+    expect(test.signaling.deliveries[1]!.transitionId).toBe(transition.transitionId);
+    expect(presenceMarker(test)).toBeNull();
     expect(outbox(test)).toEqual([]);
   });
 });

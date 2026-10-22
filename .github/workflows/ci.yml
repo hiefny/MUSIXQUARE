@@ -333,8 +333,19 @@ jobs:
     name: Critical browser gate
     needs: candidate
     runs-on: ubuntu-latest
+    # The official Playwright image already carries the browsers, fonts and
+    # system libraries that installing Playwright's system dependencies used to
+    # fetch from Azure's Ubuntu mirrors, which stalled for over seven minutes
+    # several times on 2026-10-22. Keep its tag equal to the locked @playwright/test version;
+    # e2e-report-contract.test.ts enforces that.
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --user 1001 --ipc=host
+    env:
+      # Match the hosted runner's clock zone; the image may set its own.
+      TZ: Etc/UTC
     # The explicit 47-minute step budget leaves eight minutes for runner
-    # transitions and cancellation cleanup.
+    # transitions, the image pull and cancellation cleanup.
     timeout-minutes: 55
 
     steps:
@@ -355,10 +366,10 @@ jobs:
 
       - name: Install Chromium
         timeout-minutes: 7
-        # Azure's Ubuntu mirrors occasionally take several minutes to deliver
-        # Playwright's font dependencies. Bound setup independently so mirror
-        # slowness cannot consume the browser-test timeout or hang indefinitely.
-        run: npx playwright install --with-deps chromium
+        # The image's Chromium matches the locked version, so this normally
+        # finds it installed. It never touches apt: system dependencies come
+        # from the image, and a missing browser downloads from Playwright's CDN.
+        run: npx playwright install chromium
 
       - name: Download exact production candidate
         timeout-minutes: 3

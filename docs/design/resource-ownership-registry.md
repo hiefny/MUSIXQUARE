@@ -582,7 +582,11 @@ RO-46 accepted-exception
   audit (`auditSystemOwnerTransfer`) without deduplication, so duplicate audit rows are possible
   (inferred, not reproduced).
 - **Target single owner:** one post-commit executor with the request and the cron as entry
-  adapters. The finalize-before-verified order is an owner decision.
+  adapters. Owner decision (2026-10-23, D3): both entries use that executor's single order. The
+  entitlement is finalized before `verified`, so `verified` means the room is active and the
+  entitlement has moved; the cron's current verified-then-finalize order is retired. The audit row is
+  written before any terminal advance (`complete` or `target_deleted`), at least once, with a
+  transfer-scoped deduplication instead of today's possible loss after a terminal advance.
 - **Allowed requesters:** the transfer request and the minute cron, as entry adapters.
 - **Lifecycle operations:** link, fence, Durable Object commit or reconcile, committed, registry,
   old-owner edge, fence clear, complete; terminate for a deleted target.

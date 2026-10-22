@@ -3,7 +3,7 @@
 | 항목     | 범위                                                                                                                   |
 | -------- | ---------------------------------------------------------------------------------------------------------------------- |
 | 기준 SHA | `d84f53f5` (main, 9.0.3 머지본: 자원 소유권 장부·가드, C7-0 서버 특성 테스트 포함)                                     |
-| 코드 SHA | (작성 중)                                                                                                              |
+| 코드 SHA | `26c8b24a`                                                                                                             |
 | 후보     | PRO Worker는 target `pro-room`, App Worker는 target `app`. App 버전·SW 캐시(9.0.3 / v771)와 버전 표기는 그대로. 미배포 |
 | 열차     | 구조 개선 Phase 0d 서버 상수: C7-1, C7-2a(PRO Worker), C7-2b(App Worker). 동작 변경 없음                               |
 | 환경     | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(node), node:sqlite                                                  |
@@ -110,7 +110,11 @@ Durable Object를 다시 시작하므로(메모리에만 있는 백오프 초기
   `pro-room-generation-registry-sqlite`, `developer-api-authority-fence-sqlite`,
   `d1-migration-contract`, `resource-ownership-guard`(7개 파일 362개) 통과. `check:workers`,
   테스트 타입 검사, 소유권 가드, 쓰이지 않는 export 검사도 통과.
-- 전체 검사: (작성 중)
+- 전체 검사(`26c8b24a`, 로컬): 타입 검사, lint, 서식, 빌드 통과. 단위 테스트 625개 파일 14,049개,
+  Worker 테스트 57개 파일 2,741개 통과. 가드(dead-exports, bus-pairing, import-graph,
+  lifecycle-writes, release-identity, sw-cache-version, source-complexity, d1-migrations,
+  `check:workers`, resource-ownership) 통과. 브라우저 앱이 바뀌지 않아 브라우저 검사는 돌리지
+  않았다.
 - 배포 뒤 smoke(signaling, pro-room)는 PRO 방에서 시그널링으로 가는 broadcast를 직접 타지
   않는다. 실제 시그널링 Worker와의 계약은 C7-0의 `pro-room-signaling-contract-workerd`가
   확인한다. 로컬 결과는 정확한 main SHA 배포 후보를 대신하지 않는다.

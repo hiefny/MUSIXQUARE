@@ -6,6 +6,7 @@ import type { DataConnection, MediaConnection, TrackMeta } from '../../types/ind
 import { handleData } from '../protocol.ts';
 import { markQueueAuthorityReady } from '../queue-authority.ts';
 import {
+  beginTrustedSystemAudioReception,
   cleanupGuestSystemAudio,
   registerSystemAudioGuestListeners,
 } from '../system-audio-guest.ts';
@@ -507,6 +508,18 @@ describe('system audio guest receive watchdog', () => {
     expect(getState('player.currentTrackMeta')?.name).toBe('system-audio-receiving');
     expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
     expect(getState('systemAudio.isReceiving')).toBe(true);
+  });
+
+  it('leaves the receive deadline to a caller that retries its own subscription', async () => {
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    // Another owner replaced the placeholder without receive cleanup.
+    setState('player.currentTrackMeta', { type: 'file', name: 'successor-track' });
+    expect(timerMocks.timers.has(watchdogName)).toBe(true);
+
+    expect(beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false })).toBe(true);
+
+    expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+    expect(timerMocks.timers.has(watchdogName)).toBe(false);
   });
 
   it('re-arms the watchdog while preserving the placeholder during adapter handoff', async () => {

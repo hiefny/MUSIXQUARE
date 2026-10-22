@@ -239,6 +239,7 @@ afterEach(() => {
     consumePendingAutoSyncOnReady: () => null,
     isYouTubeZeroStartExternalFallbackActive: () => false,
     isYouTubeZeroStartExternalFallbackPending: () => false,
+    isProPlaybackPauseGatePending: () => false,
     setPendingAutoSyncOnReady: () => undefined,
   });
   unregisterProTimeline?.();
@@ -281,6 +282,7 @@ describe.each([0, 250])('Standard-host local scheduled rendezvous (output %ims)'
         consumePendingAutoSyncOnReady: () => null,
         isYouTubeZeroStartExternalFallbackActive: () => false,
         isYouTubeZeroStartExternalFallbackPending: () => false,
+        isProPlaybackPauseGatePending: () => false,
         setPendingAutoSyncOnReady: () => undefined,
       });
       vi.advanceTimersByTime(1_000);

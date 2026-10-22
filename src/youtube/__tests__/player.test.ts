@@ -574,6 +574,216 @@ describe('YouTube Player', () => {
       expect(player.setVolume).toHaveBeenLastCalledWith(80);
       expect(player.unMute).toHaveBeenCalledOnce();
     });
+
+    describe('PRO pause gate across authority preparation', () => {
+      async function setupAuthorityPlayer(masterVolume: number) {
+        const { initYouTube } = await import('../player.ts');
+        const { markYtPlayerReady, setYouTubePlayer, setYouTubeSubIndex, setYtLoadInProgress } =
+          await import('../_state.ts');
+        const audio = { muted: false, volume: Math.round(masterVolume * 100) };
+        let playerState = 2;
+        let currentTime = 3;
+        const player = {
+          loadVideoById: vi.fn(),
+          playVideo: vi.fn(() => {
+            playerState = 1;
+          }),
+          pauseVideo: vi.fn(() => {
+            playerState = 2;
+          }),
+          seekTo: vi.fn((seconds: number) => {
+            currentTime = seconds;
+          }),
+          mute: vi.fn(() => {
+            audio.muted = true;
+          }),
+          unMute: vi.fn(() => {
+            audio.muted = false;
+          }),
+          isMuted: vi.fn(() => audio.muted),
+          setVolume: vi.fn((next: number) => {
+            audio.volume = next;
+          }),
+          getVolume: vi.fn(() => audio.volume),
+          getCurrentTime: vi.fn(() => currentTime),
+          getDuration: vi.fn(() => 120),
+          getPlayerState: vi.fn(() => playerState),
+          getVideoData: vi.fn(() => ({ video_id: 'video-1', title: 'Video' })),
+        } as unknown as YouTubePlayerInstance;
+        setYouTubePlayer(player);
+        markYtPlayerReady(player);
+        setYouTubeSubIndex(0);
+        setYtLoadInProgress(false);
+        setPlaybackYouTubePlaying();
+        setState('audio.masterVolume', masterVolume);
+        setState('playlist.items', [
+          {
+            queueItemId: QUEUE_ITEM_ID,
+            type: 'youtube',
+            videoId: 'video-1',
+            playlistId: null,
+            name: 'Video',
+          },
+        ] satisfies PlaylistItem[]);
+        setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+        setState('room.context', {
+          kind: 'pro',
+          roomId: '000001',
+          role: 'member',
+          coordinatorId: null,
+          epoch: 1,
+          snapshotRevision: 1,
+          capabilities: ['playback.control'],
+        });
+        initYouTube();
+        return { audio, player };
+      }
+
+      let openPauseToken: number | null = null;
+
+      function pausePending(token: number): void {
+        openPauseToken = token;
+        bus.emit('pro-playback:ui-control-pending', {
+          token,
+          kind: 'pause',
+          queueItemId: QUEUE_ITEM_ID,
+          targetSeconds: 3,
+          wasPlaying: true,
+        });
+      }
+
+      function pauseSettled(token: number): void {
+        bus.emit('pro-playback:ui-control-settled', {
+          token,
+          kind: 'pause',
+          queueItemId: QUEUE_ITEM_ID,
+          status: 'applied',
+          positionSeconds: 3,
+        });
+        if (openPauseToken === token) openPauseToken = null;
+      }
+
+      // The player.ts gate token and the iframe.ts authority arm outlive
+      // resetState()/bus.clear(), so release them even after a failed assertion.
+      afterEach(async () => {
+        if (openPauseToken !== null) pauseSettled(openPauseToken);
+        (await import('../iframe.ts')).cancelYouTubeAuthorityPreparation();
+      });
+
+      it('keeps another transition silent from PREPARE through COMMIT until the pause settles', async () => {
+        const { commitYouTubeAuthorityOccurrence, prepareYouTubeAuthorityOccurrence } =
+          await import('../iframe.ts');
+        const { audio, player } = await setupAuthorityPlayer(0.8);
+        pausePending(201);
+        expect(audio.muted).toBe(true);
+
+        const preparing = prepareYouTubeAuthorityOccurrence({
+          authorityKey: 'transition-during-pause',
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: 'video-1',
+          subIndex: 0,
+          positionSeconds: 3,
+        });
+        await vi.runAllTimersAsync();
+        await expect(preparing).resolves.toMatchObject({ ready: true });
+        expect(player.unMute).not.toHaveBeenCalled();
+        expect(audio.muted).toBe(true);
+
+        vi.mocked(player.playVideo!).mockClear();
+        const committing = commitYouTubeAuthorityOccurrence({
+          authorityKey: 'transition-during-pause',
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: 'video-1',
+          subIndex: 0,
+          targetSeconds: 3,
+          executeDelayMs: 0,
+          timingMode: 'scheduled-control',
+        });
+        await vi.runAllTimersAsync();
+        await expect(committing).resolves.toMatchObject({ status: 'applied' });
+        expect(player.playVideo).toHaveBeenCalledOnce();
+        expect(player.unMute).not.toHaveBeenCalled();
+        expect(audio.muted).toBe(true);
+
+        pauseSettled(201);
+        expect(audio).toEqual({ muted: false, volume: 80 });
+      });
+
+      it('adopts a pause gate that arrives during an in-flight preparation', async () => {
+        const { prepareYouTubeAuthorityOccurrence } = await import('../iframe.ts');
+        const { audio, player } = await setupAuthorityPlayer(0.8);
+
+        const preparing = prepareYouTubeAuthorityOccurrence({
+          authorityKey: 'transition-before-pause',
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: 'video-1',
+          subIndex: 0,
+          positionSeconds: 3,
+        });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(audio.muted).toBe(true);
+        // The production pending path emits no volume change; only the gate
+        // event itself may keep the arm's restore closed.
+        pausePending(202);
+
+        await vi.runAllTimersAsync();
+        await expect(preparing).resolves.toMatchObject({ ready: true });
+        expect(player.unMute).not.toHaveBeenCalled();
+        expect(audio).toEqual({ muted: true, volume: 80 });
+
+        pauseSettled(202);
+        expect(audio).toEqual({ muted: false, volume: 80 });
+      });
+
+      it('keeps the gate closed when the volume changes during a pending pause and an in-flight preparation', async () => {
+        const { prepareYouTubeAuthorityOccurrence } = await import('../iframe.ts');
+        const { audio, player } = await setupAuthorityPlayer(0.8);
+
+        const preparing = prepareYouTubeAuthorityOccurrence({
+          authorityKey: 'volume-during-pause',
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: 'video-1',
+          subIndex: 0,
+          positionSeconds: 3,
+        });
+        await vi.advanceTimersByTimeAsync(1);
+        expect(audio.muted).toBe(true);
+        pausePending(204);
+        setState('audio.masterVolume', 0.73);
+        bus.emit('youtube:set-volume', 73);
+
+        await vi.runAllTimersAsync();
+        await expect(preparing).resolves.toMatchObject({ ready: true });
+        expect(player.unMute).not.toHaveBeenCalled();
+        expect(audio).toEqual({ muted: true, volume: 73 });
+
+        pauseSettled(204);
+        expect(audio).toEqual({ muted: false, volume: 73 });
+      });
+
+      it('restores audio after warm-up when the pause settles while preparation owns hard mute', async () => {
+        const { prepareYouTubeAuthorityOccurrence } = await import('../iframe.ts');
+        const { audio, player } = await setupAuthorityPlayer(0.8);
+        pausePending(203);
+
+        const preparing = prepareYouTubeAuthorityOccurrence({
+          authorityKey: 'pause-settles-during-warm-up',
+          queueItemId: QUEUE_ITEM_ID,
+          videoId: 'video-1',
+          subIndex: 0,
+          positionSeconds: 3,
+        });
+        await vi.advanceTimersByTimeAsync(1);
+        pauseSettled(203);
+        // Warm-up still owns the hard mute; it must adopt the reopened gate.
+        expect(player.unMute).not.toHaveBeenCalled();
+
+        await vi.runAllTimersAsync();
+        await expect(preparing).resolves.toMatchObject({ ready: true });
+        expect(player.unMute).toHaveBeenCalled();
+        expect(audio).toEqual({ muted: false, volume: 80 });
+      });
+    });
   });
 
   describe('synchronized pause ownership', () => {

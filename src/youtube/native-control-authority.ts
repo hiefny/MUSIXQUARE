@@ -405,6 +405,15 @@ function routeNativeAction(
 
   if (route === 'local-pause') {
     setLocalYouTubePaused(true);
+    // A visible Standard guest's own iframe PAUSE is an explicit pause, like
+    // a lock-screen or media-key PAUSE: publish the same intent so pending
+    // automatic alignment retires. WebKit stops a hidden iframe by itself,
+    // so a hidden stop only records the local pause. A PRO listener's intent
+    // handler drops autoplay intent, which would pause back its next iframe
+    // PLAY before it can rejoin, so PRO keeps recording only.
+    if (room.kind === 'standard' && document.visibilityState === 'visible') {
+      bus.emit('youtube:set-local-paused', true);
+    }
     log.info('[YouTube Native Control] Applied endpoint-local pause');
     return;
   }

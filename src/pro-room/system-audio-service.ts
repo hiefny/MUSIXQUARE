@@ -844,11 +844,22 @@ async function ensureCoordinatorSubscription(
   if (coordinatorSubscriptionKey !== key) {
     cleanupCoordinatorGraph();
     coordinatorSubscriptionKey = key;
-    beginTrustedSystemAudioReception();
+    // This subscription and its backed-off retries own the receive deadline;
+    // the guest receive watchdog would fire while a longer retry still waits.
+    beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });
   }
   let flight = coordinatorSubscriptionFlight;
   if (!flight || flight.key !== key) {
-    const promise = subscribeProSystemAudioSfu(sfuDescriptor(state));
+    let promise: Promise<void>;
+    try {
+      promise = subscribeProSystemAudioSfu(sfuDescriptor(state));
+    } catch (error) {
+      // A descriptor rejected before the attempt starts (for example one the
+      // local clock already sees as expired) reports no `failed` event. Take
+      // the same backed-off retry path, or nothing would end the placeholder.
+      retryCoordinatorSubscription(identity);
+      throw error;
+    }
     flight = { key, promise };
     coordinatorSubscriptionFlight = flight;
   }

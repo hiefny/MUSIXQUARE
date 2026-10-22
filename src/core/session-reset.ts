@@ -11,9 +11,11 @@
 import { clearIntentionalNav, markIntentionalNav } from './page-lifecycle.ts';
 import { log } from './log.ts';
 import { requestDocumentReload } from './document-reload.ts';
+import { setElementInertForOwner } from './inert-ownership.ts';
 
 const OVERLAY_ID = 'session-reset-overlay';
 const MESSAGE_ID = 'session-reset-message';
+const INERT_OWNER = 'session-reset';
 const FALLBACK_DELAY_MS = 120;
 const NAVIGATION_COMMIT_TIMEOUT_MS = 2_000;
 const INTERACTION_EVENTS = [
@@ -35,7 +37,7 @@ interface ResetAttempt {
   fallbackTimer: number;
   recoveryTimer: number;
   animationFrames: number[];
-  inertStates: Map<HTMLElement, boolean>;
+  inertElements: HTMLElement[];
   previousFocus: HTMLElement | null;
 }
 
@@ -50,6 +52,15 @@ interface SessionResetHandle {
 
 let _resetPending = false;
 let _activeAttempt: ResetAttempt | null = null;
+let _releaseHandler: (() => void) | null = null;
+
+/**
+ * Let the window layer re-derive its state after an abandoned reset releases
+ * its locks. The app shell injects it so this core module stays below the UI.
+ */
+export function setSessionResetReleaseHandler(handler: () => void): void {
+  _releaseHandler = handler;
+}
 
 function blockInteraction(event: Event): void {
   event.preventDefault();
@@ -133,10 +144,15 @@ function showResetOverlay(message: string, attempt: ResetAttempt): void {
     activeElement.blur();
   }
 
+  // Claim through the shared ledger: a dialog that opens or closes while the
+  // reset is pending owns its own lock, so neither release can strand the
+  // shell inert or re-enable it behind the other. Claim inert only: windows
+  // write their own aria-hidden while the reset holds them, and the release
+  // must not put back a value saved before they opened or closed.
   for (const child of document.body.children) {
     if (child === overlay || !(child instanceof HTMLElement)) continue;
-    attempt.inertStates.set(child, child.inert);
-    child.inert = true;
+    setElementInertForOwner(child, INERT_OWNER, true, { ariaHidden: false });
+    attempt.inertElements.push(child);
   }
 
   document.documentElement.classList.add('session-reset-pending');
@@ -169,8 +185,8 @@ export function restoreSessionReset(): void {
     if (typeof window.cancelAnimationFrame === 'function') {
       for (const frame of attempt.animationFrames) window.cancelAnimationFrame(frame);
     }
-    for (const [element, wasInert] of attempt.inertStates) {
-      element.inert = wasInert;
+    for (const element of attempt.inertElements) {
+      setElementInertForOwner(element, INERT_OWNER, false);
     }
   }
 
@@ -183,12 +199,22 @@ export function restoreSessionReset(): void {
   const previousFocus = attempt?.previousFocus;
   // Restore focus while the status overlay is still exposed. Safari/VoiceOver
   // can discard focus when the currently focused overlay is hidden first,
-  // even if the destination has already had its inert state restored.
-  if (previousFocus?.isConnected) {
+  // even if the destination has already had its inert state restored. Skip
+  // a target that a window opened during the reset still covers.
+  if (previousFocus?.isConnected && !previousFocus.closest('[inert]')) {
     try {
       previousFocus.focus({ preventScroll: true });
     } catch {
       previousFocus.focus();
+    }
+  }
+  if (attempt && _releaseHandler) {
+    // A window that opened or closed while the reset held it wrote state the
+    // modal stack could not apply yet, and could not take focus.
+    try {
+      _releaseHandler();
+    } catch (error) {
+      log.error('[SessionReset] Release handler failed:', error);
     }
   }
 
@@ -235,7 +261,7 @@ export function scheduleSessionReset(
     fallbackTimer: 0,
     recoveryTimer: 0,
     animationFrames: [],
-    inertStates: new Map(),
+    inertElements: [],
     previousFocus: null,
   };
   _activeAttempt = attempt;

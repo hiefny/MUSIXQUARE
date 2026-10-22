@@ -90,6 +90,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Competing recovery flows: four ownership gaps — 9.0.1, 2026-10-22](design/ownership-gap-fixes-2026-10-22.md) —
+  PRO system-audio SFU retries own their receive deadline, an explicit local YouTube pause ends the
+  return re-align retries, the PRO pause gate holds through authority arming, and the session reset
+  locks the page through the shared inert ledger; failing-first tests, three-lens reviews and device limits.
+
 - [Idle computation cleanup and PRO heartbeat state — 9.0.0, 2026-10-22](design/idle-compute-optimization-2026-10-22.md) —
   Effects that are off stop computing, large files schedule quarter-second buffers, hidden or
   covered UI stops redrawing, and PRO heartbeats carry system-audio state instead of a 60 s poll;

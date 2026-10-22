@@ -106,6 +106,7 @@ import {
 } from './authority-arm.ts';
 import {
   consumePendingAutoSyncOnReadyFromIframe,
+  isProPlaybackPauseGatePendingFromIframe,
   isYouTubeZeroStartExternalFallbackActiveFromIframe,
   setPendingAutoSyncOnReadyFromIframe,
 } from './player-runtime-bridge.ts';
@@ -2187,7 +2188,10 @@ export async function prepareYouTubeAuthorityOccurrence(
             // The app volume is the user intent. During initial iOS entry the
             // persistent iframe can still report the silent-prime hard mute;
             // capturing that transient player bit would make it permanent.
-            desiredMuted: (getState('audio.masterVolume') ?? 1) <= 0,
+            // A pending local PRO pause stays closed until its own settlement.
+            desiredMuted:
+              (getState('audio.masterVolume') ?? 1) <= 0 ||
+              isProPlaybackPauseGatePendingFromIframe(),
             desiredVolume: Math.max(
               0,
               Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),

@@ -213,7 +213,7 @@ import {
 
 function readyOperator(
   initialState: 1 | 2,
-  options: { readonlySeek?: boolean; throwingSeek?: boolean } = {},
+  options: { readonlySeek?: boolean; throwingSeek?: boolean; listener?: 'standard' | 'pro' } = {},
 ) {
   const calls: Array<[string, number?]> = [];
   let state: number = initialState;
@@ -275,8 +275,19 @@ function readyOperator(
   const conn = { peer: 'host', open: true, send() {} } as never;
   setState('network.appRole', 'guest');
   setState('network.hostConn', conn);
-  setState('network.isOperator', true);
-  setState('network.standardRoomCapabilities', ['playback.control']);
+  setState('network.isOperator', !options.listener);
+  setState('network.standardRoomCapabilities', options.listener ? [] : ['playback.control']);
+  if (options.listener === 'pro') {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 7,
+      snapshotRevision: 11,
+      capabilities: [],
+    });
+  }
   ytState.setYtAutoplayIntent(initialState === 1);
   if (initialState === 1) setPlaybackYouTubePlaying();
   else setPlaybackYouTubePaused();
@@ -588,4 +599,26 @@ describe('Standard operator native iframe integration', () => {
       queueItemId: QUEUE_ITEM_ID,
     });
   });
+});
+
+describe('listener native iframe integration', () => {
+  it.each(['standard', 'pro'] as const)(
+    'rejoins a visible %s listener whose iframe PAUSE is followed by iframe PLAY',
+    (listener) => {
+      vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      const h = readyOperator(1, { listener });
+      const rejoin = vi.fn();
+      bus.on('playback:local-output-rejoin', rejoin);
+
+      h.emit(2);
+      expect(ytState.getYtAutoplayIntent()).toBe(true);
+      h.emit(1);
+      vi.advanceTimersByTime(300);
+
+      expect(rejoin).toHaveBeenCalledExactlyOnceWith({
+        reason: 'media-session-play',
+        mode: 'youtube',
+      });
+    },
+  );
 });

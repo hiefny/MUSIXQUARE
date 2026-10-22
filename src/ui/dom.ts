@@ -8,6 +8,7 @@
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
+import { setElementInertForOwner } from '../core/inert-ownership.ts';
 import { FULLSCREEN_CHANGE_EVENTS, getFullscreenElement } from './fullscreen.ts';
 
 /** Look up replaceable UI elements when each operation runs; never cache nodes. */
@@ -419,6 +420,9 @@ function notifyOverlayStackChange(): void {
 const CENTERED_OVERLAY_Z_INDEX_BASE = 6000;
 const CENTERED_OVERLAY_Z_INDEX_STEP = 10;
 const OVERLAY_INERT_OWNER = 'overlay-stack';
+// The session reset overlay blocks the page above every window. Locking it
+// would leave the next reset's status unannounced and unable to take focus.
+const SESSION_RESET_OVERLAY_ID = 'session-reset-overlay';
 const _overlayInertElements = new Set<HTMLElement>();
 const _fullscreenModalPortals = new Map<HTMLElement, { parent: Node; next: Node | null }>();
 let _portalFullscreenListenerInstalled = false;
@@ -469,61 +473,6 @@ function syncFullscreenModalPortal(top: OverlayId | null): void {
       document.removeEventListener(event, onPortalFullscreenChange);
     _portalFullscreenListenerInstalled = false;
   }
-}
-
-interface ManagedInertState {
-  readonly owners: Set<string>;
-  readonly initiallyInert: boolean;
-  readonly initialAriaHidden: string | null;
-}
-
-const _managedInert = new WeakMap<HTMLElement, ManagedInertState>();
-
-/**
- * Own an element's inert state without clearing another surface's lock.
- *
- * Mobile chat and the modal stack can overlap. Directly toggling `inert`
- * from either subsystem lets the first one that closes re-enable the page
- * behind the other. Owners release only their own claim; a pre-existing
- * unmanaged inert state is also preserved.
- */
-export function setElementInertForOwner(
-  element: HTMLElement,
-  owner: string,
-  makeInert: boolean,
-): void {
-  let state = _managedInert.get(element);
-  if (makeInert) {
-    if (!state) {
-      state = {
-        owners: new Set<string>(),
-        initiallyInert: Boolean(element.inert || element.hasAttribute('inert')),
-        initialAriaHidden: element.getAttribute('aria-hidden'),
-      };
-      _managedInert.set(element, state);
-    }
-    state.owners.add(owner);
-    element.inert = true;
-    element.setAttribute('inert', '');
-    element.setAttribute('aria-hidden', 'true');
-    return;
-  }
-
-  if (!state) return;
-  state.owners.delete(owner);
-  if (state.owners.size > 0) {
-    element.inert = true;
-    element.setAttribute('inert', '');
-    element.setAttribute('aria-hidden', 'true');
-    return;
-  }
-
-  element.inert = state.initiallyInert;
-  if (state.initiallyInert) element.setAttribute('inert', '');
-  else element.removeAttribute('inert');
-  if (state.initialAriaHidden === null) element.removeAttribute('aria-hidden');
-  else element.setAttribute('aria-hidden', state.initialAriaHidden);
-  _managedInert.delete(element);
 }
 
 const LEGACY_INERT_FOCUSABLE_SELECTOR = [
@@ -677,7 +626,7 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
       for (const child of Array.from(parent.children)) {
         if (!(child instanceof HTMLElement)) continue;
         if (child === topElement || child.contains(topElement)) nextParent = child;
-        else nextInert.add(child);
+        else if (child.id !== SESSION_RESET_OVERLAY_ID) nextInert.add(child);
       }
       parent = nextParent;
     }
@@ -787,6 +736,19 @@ function topWindowElement(): HTMLElement | null {
 /** Whether a window that history Back should reach first is open. */
 export function hasOpenWindow(): boolean {
   return topWindowElement() !== null;
+}
+
+/**
+ * Re-derive the stack after a lock outside it, such as an abandoned session
+ * reset, releases the page. A window that opened under that lock could not
+ * take focus then, or only parked it on its own container, so move focus
+ * into it unless a control inside already holds it.
+ */
+export function syncOverlayStateAfterExternalLock(): void {
+  syncOverlayState();
+  const top = _topModalId && _topModalId !== BASE_SCREEN_ID ? topModalElement() : null;
+  const active = document.activeElement;
+  if (top && (active === top || !top.contains(active))) focusTopModal();
 }
 
 /** Offer Back to one window, preserving that owner's actual closing boundary. */

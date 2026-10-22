@@ -4378,7 +4378,10 @@ export function initYouTube(): void {
       zeroStartFallbackAudioIntent.volume = clampedVolume;
     }
     updateYouTubeZeroStartDesiredAudioState({ muted: shouldMute, volume: clampedVolume });
-    updateProYouTubeAuthorityDesiredAudioState({ muted: shouldMute, volume: clampedVolume });
+    updateProYouTubeAuthorityDesiredAudioState({
+      muted: shouldMute || _proPlaybackPauseGateToken !== null,
+      volume: clampedVolume,
+    });
     const player = getYouTubePlayer();
     if (player?.setVolume) {
       player.setVolume(clampedVolume);
@@ -4414,25 +4417,29 @@ export function initYouTube(): void {
   // Match the WebAudio output gate: pause feels immediate on the initiating
   // PRO participant without changing iframe playback state before the server's
   // revisioned commit. Volume changes remain stored but cannot open the gate.
+  // The gate is part of the desired audio that a PRO authority arm restores
+  // after warm-up or failure, so another transition cannot reopen it early.
   bus.on('pro-playback:ui-control-pending', (event) => {
     if (event.kind !== 'pause') return;
     _proPlaybackPauseGateToken = event.token;
+    updateProYouTubeAuthorityDesiredAudioState({ muted: true });
     getYouTubePlayer()?.mute?.();
   });
 
   bus.on('pro-playback:ui-control-settled', (event) => {
     if (event.kind !== 'pause' || _proPlaybackPauseGateToken !== event.token) return;
     _proPlaybackPauseGateToken = null;
+    const volume = Math.max(
+      0,
+      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
+    );
+    updateProYouTubeAuthorityDesiredAudioState({ muted: volume === 0, volume });
     const player = getYouTubePlayer();
     if (!player) return;
     if (isRetainedYouTubePlayerParked(player)) {
       ensureRetainedYouTubePlayerHardMuted(player);
       return;
     }
-    const volume = Math.max(
-      0,
-      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-    );
     player.setVolume?.(volume);
     if (volume === 0) player.mute?.();
     else if (
@@ -4769,5 +4776,6 @@ configureYouTubePlayerRuntimeHooks({
   consumePendingAutoSyncOnReady: consumePendingAutoSyncOnReadyOwned,
   isYouTubeZeroStartExternalFallbackActive: isYouTubeZeroStartExternalFallbackActiveOwned,
   isYouTubeZeroStartExternalFallbackPending: isYouTubeZeroStartExternalFallbackPendingOwned,
+  isProPlaybackPauseGatePending: () => _proPlaybackPauseGateToken !== null,
   setPendingAutoSyncOnReady,
 });

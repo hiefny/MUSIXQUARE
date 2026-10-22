@@ -36,8 +36,19 @@ import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearManagedTimer } from '../../core/timers.ts';
 import type { TransportBackgroundRecoveryResult } from '../../network/transport/types.ts';
+import type { PlaylistItem } from '../../types/index.ts';
+import {
+  isLocalYouTubePaused,
+  markYtPlayerReady,
+  resetYouTubeModuleState,
+  setLocalYouTubePaused,
+  setYouTubePlayer,
+  type YouTubePlayerInstance,
+} from '../../youtube/_state.ts';
+import { initYouTubeNativeControlAuthority } from '../../youtube/native-control-authority.ts';
 import { setCurrentAudioBuffer } from '../_state.ts';
 import { runBackgroundReturnSync } from '../background-return-sync.ts';
+import { initLocalOutputRejoin } from '../local-output-rejoin.ts';
 import {
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
@@ -142,6 +153,104 @@ function installApp(
   });
 }
 
+const VIDEO_ID = 'abcdefghijk';
+
+interface FakePlayer extends YouTubePlayerInstance {
+  state: number;
+}
+
+/** A current guest iframe under the real native-control authority. */
+function installGuestIframe(): FakePlayer {
+  let state = 1;
+  const player: FakePlayer = {
+    get state() {
+      return state;
+    },
+    set state(value: number) {
+      state = value;
+    },
+    playVideo: () => {
+      state = 1;
+    },
+    pauseVideo: () => {
+      state = 2;
+    },
+    loadVideoById: () => {
+      state = 1;
+    },
+    loadPlaylist: () => {
+      state = 1;
+    },
+    cueVideoById: () => {
+      state = 2;
+    },
+    cuePlaylist: () => {
+      state = 2;
+    },
+    stopVideo: () => {
+      state = 0;
+    },
+    destroy: () => undefined,
+    seekTo: () => undefined,
+    getCurrentTime: () => 42.25,
+    getDuration: () => 300,
+    getPlayerState: () => state,
+    getPlaylistIndex: () => 0,
+    getVideoData: () => ({ video_id: VIDEO_ID, title: 'Video' }),
+    getPlaylist: () => [VIDEO_ID],
+    setVolume: () => undefined,
+  };
+  setState('playlist.items', [
+    {
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Video',
+      title: 'Video',
+      videoId: VIDEO_ID,
+      playlistId: null,
+    } as PlaylistItem,
+  ]);
+  setYouTubePlayer(player);
+  markYtPlayerReady(player);
+  initYouTubeNativeControlAuthority();
+  bus.emit('youtube:player-ready');
+  return player;
+}
+
+/** The iframe reports PAUSED without an application pauseVideo call. */
+function nativeIframePause(player: FakePlayer): void {
+  player.state = 2;
+  setPlaybackYouTubePaused();
+}
+
+/** The iframe reports PLAYING without an application playVideo call. */
+function nativeIframePlay(player: FakePlayer): void {
+  player.state = 1;
+  setPlaybackYouTubePlaying();
+}
+
+/**
+ * The real local-output rejoin router behind player.ts's resume branch, which
+ * hands a local PLAY to it instead of calling playVideo early.
+ */
+function installLocalPlayRejoin(): void {
+  initLocalOutputRejoin();
+  bus.on('youtube:set-local-paused', (paused, reason) => {
+    if (paused) return;
+    bus.emit('playback:local-output-rejoin', {
+      reason: reason ?? 'media-session-play',
+      mode: 'youtube',
+    });
+  });
+}
+
+/** Rendezvous attempts by the return's chain, the only caller that defers. */
+function chainAttempts(): number {
+  return mocks.rendezvous.mock.calls.filter(
+    ([options]) => options?.deferMissingHostSnapshot === true,
+  ).length;
+}
+
 async function returnFromBackground(hiddenMs: number): Promise<void> {
   setVisibility('hidden');
   document.dispatchEvent(new Event('visibilitychange'));
@@ -170,6 +279,8 @@ afterEach(() => {
   guard = null;
   clearManagedTimer('background-return-sync-rendezvous-retry');
   setCurrentAudioBuffer(null);
+  resetYouTubeModuleState();
+  setLocalYouTubePaused(false);
   vi.useRealTimers();
 });
 
@@ -348,6 +459,140 @@ describe('background-return Sync ownership and coalescing', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     // The first attempt plus five bounded retries.
     expect(mocks.rendezvous).toHaveBeenCalledTimes(6);
+  });
+
+  it('lets a local YouTube pause during the retry wait end the chain', async () => {
+    arrange('standard', 'youtube', 'guest', 'playing');
+    const player = installGuestIframe();
+    // The live heartbeat has not arrived yet, so the chain waits to retry.
+    mocks.rendezvous.mockReturnValue({ status: 'awaiting-snapshot' });
+    guard = installApp();
+
+    await returnFromBackground(5_000);
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+
+    // The guest pauses from the lock screen, a media key or the iframe's own
+    // controls before the next retry, and the heartbeat then arrives.
+    nativeIframePause(player);
+    expect(isLocalYouTubePaused()).toBe(true);
+    mocks.rendezvous.mockReturnValue({ status: 'started' });
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+  });
+
+  it('lets a lock-screen or media-key pause during the retry wait end the chain', async () => {
+    arrange('standard', 'youtube', 'guest', 'playing');
+    mocks.rendezvous.mockReturnValue({ status: 'awaiting-snapshot' });
+    guard = installApp();
+
+    await returnFromBackground(5_000);
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+
+    // media-session.ts delivers a non-operator guest's PAUSE as this intent.
+    bus.emit('youtube:set-local-paused', true);
+    mocks.rendezvous.mockReturnValue({ status: 'started' });
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+  });
+
+  it('lets a repeated local pause end the chain even while the pause bit is stale', async () => {
+    arrange('standard', 'youtube', 'guest', 'playing');
+    const player = installGuestIframe();
+    // For example the guest's own Sync played past an earlier local pause and
+    // left the bit set. The return still aligns ...
+    setLocalYouTubePaused(true);
+    mocks.rendezvous.mockReturnValue({ status: 'awaiting-snapshot' });
+    guard = installApp();
+
+    await returnFromBackground(5_000);
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+
+    // ... and a new pause during the wait still wins.
+    nativeIframePause(player);
+    mocks.rendezvous.mockReturnValue({ status: 'started' });
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+  });
+
+  it('still aligns a guest whose hidden iframe the browser stopped while away', async () => {
+    arrange('standard', 'youtube', 'guest', 'playing');
+    const player = installGuestIframe();
+    guard = installApp();
+
+    setVisibility('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(1_000);
+    // WebKit stops the hidden iframe; nothing in the app called pauseVideo, so
+    // the native-control route records it as a local pause.
+    nativeIframePause(player);
+    expect(isLocalYouTubePaused()).toBe(true);
+    await vi.advanceTimersByTimeAsync(29_000);
+    setVisibility('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+  });
+
+  it.each(['iframe native PLAY', 'lock-screen PLAY'] as const)(
+    'stale snapshot, guest presses PLAY (%s) while the local rejoin returns no-data, then the heartbeat arrives: the background chain still aligns',
+    async (play) => {
+      arrange('standard', 'youtube', 'guest', 'playing');
+      const player = installGuestIframe();
+      installLocalPlayRejoin();
+      // Until the live heartbeat arrives the chain waits for it, and a local
+      // PLAY's rejoin finds no fresh host time.
+      mocks.rendezvous.mockImplementation((options) =>
+        options?.deferMissingHostSnapshot ? { status: 'awaiting-snapshot' } : { status: 'no-data' },
+      );
+      guard = installApp();
+
+      setVisibility('hidden');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(1_000);
+      // WebKit stops the hidden iframe.
+      nativeIframePause(player);
+      await vi.advanceTimersByTimeAsync(29_000);
+      setVisibility('visible');
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(chainAttempts()).toBe(1);
+
+      if (play === 'iframe native PLAY') {
+        nativeIframePlay(player);
+        // The native-control route pauses the iframe back and rejoins on the
+        // resulting PAUSED callback.
+        setPlaybackYouTubePaused();
+      } else {
+        // media-session.ts delivers a non-operator guest's PLAY as this request.
+        bus.emit('youtube:set-local-paused', false, 'media-session-play');
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      // The rejoin found no fresh host time and put the local pause back.
+      expect(mocks.rendezvous.mock.calls.length - chainAttempts()).toBe(1);
+      expect(isLocalYouTubePaused()).toBe(true);
+
+      mocks.rendezvous.mockReturnValue({ status: 'started' });
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(chainAttempts()).toBe(2);
+    },
+  );
+
+  it('still aligns a guest who held a local pause across the return', async () => {
+    arrange('standard', 'youtube', 'guest', 'paused');
+    setLocalYouTubePaused(true);
+    guard = installApp();
+
+    await returnFromBackground(5_000);
+    await vi.advanceTimersByTimeAsync(10);
+
+    // Owner decision 2026-10-20: every return aligns, whatever the play/pause
+    // state; only a pause made after the return started ends its chain.
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
   });
 
   it('replaces the previous return retry chain instead of stacking a second one', async () => {

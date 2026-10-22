@@ -9,6 +9,7 @@ import {
   createAccountAssertion,
 } from '../../../cloudflare/account-assertion.ts';
 import { issueProRoomActivationClaim } from '../../../cloudflare/pro-room-claims.ts';
+import { SIGNALING_BROADCAST_BODY_KEYS } from '../../pro-room/__tests__/__helpers__/signaling-broadcast-contract.ts';
 import { localWorkerdPort } from './helpers/local-workerd-port.ts';
 
 /**
@@ -35,7 +36,6 @@ const accountId = 'acct_ContractOwner000000001';
 const videoId = 'dQw4w9WgXcQ';
 const queueItemId = '11111111-1111-4111-8111-111111111111';
 const secret = (purpose: string) => `local-contract-${purpose}-`.padEnd(48, 'x');
-const BROADCAST_KEYS = ['coordinatorEpoch', 'event', 'roomCode', 'roomGeneration', 'targets'];
 const date = (name: string) =>
   readFileSync(new URL(`../../../cloudflare/wrangler.${name}.toml`, import.meta.url), 'utf8').match(
     /compatibility_date = "([^"]+)"/,
@@ -416,6 +416,10 @@ async function harness() {
         },
       });
       expect(compact.status, JSON.stringify(compact.body)).toBe(200);
+      return this.select();
+    },
+    /** Select the playlist's one track and report ready: one PREPARE, then one COMMIT. */
+    async select() {
       const after = await request('/snapshot');
       const selected = await request('/playback/commands', {
         headers: { 'idempotency-key': crypto.randomUUID() },
@@ -471,7 +475,7 @@ describe('PRO room to signaling broadcast contract (real workerd)', () => {
     );
     for (const entry of entries) {
       expect(entry.path).toBe('/internal/realtime/v1/broadcast');
-      expect(Object.keys(entry.body).sort()).toEqual(BROADCAST_KEYS);
+      expect(Object.keys(entry.body).sort()).toEqual(SIGNALING_BROADCAST_BODY_KEYS);
       expect(entry.status, JSON.stringify(entry)).toBe(200);
       expect(entry.response).toMatchObject({ broadcast: true });
     }
@@ -533,5 +537,56 @@ describe('PRO room to signaling broadcast contract (real workerd)', () => {
       status: 409,
       response: { error: 'PRO_ROOM_EPOCH_STALE' },
     });
+  }, 60_000);
+
+  it('advances the fence with the room’s own presence snapshot, then refuses the old epoch', async () => {
+    const test = await harness();
+    await test.waitFor('pro-presence-snapshot');
+    await test.selectAndCommit();
+    const before = await test.waitFor('pro-playback-commit');
+    const oldPresence = before.find((entry) => entry.body.event.type === 'pro-presence-snapshot')!;
+    const oldPrepare = before.find((entry) => entry.body.event.type === 'pro-playback-prepare')!;
+    const epoch = oldPrepare.body.coordinatorEpoch as number;
+    expect(oldPresence.body.coordinatorEpoch).toBe(epoch);
+
+    // A PIN rotation advances the room-incarnation fence once (bumpRoomEpoch)
+    // and the room sends the new epoch's presence snapshot itself.
+    const rotated = await test.request('/pin', { body: { pin: '24681357' } });
+    expect(rotated.status, JSON.stringify(rotated.body)).toBe(200);
+    const presences = (await test.waitFor('pro-presence-snapshot', 2)).filter(
+      (entry) => entry.body.event.type === 'pro-presence-snapshot',
+    );
+    expect(presences[1]).toMatchObject({
+      body: { coordinatorEpoch: epoch + 1, event: { type: 'pro-presence-snapshot' } },
+      status: 200,
+      response: { broadcast: true },
+    });
+    expect(Object.keys(presences[1]!.body).sort()).toEqual(SIGNALING_BROADCAST_BODY_KEYS);
+
+    // The new epoch's PREPARE and COMMIT pass the moved fence and reach a
+    // socket opened at that epoch.
+    await test.connect();
+    const transitionId = await test.select();
+    const after = (await test.waitFor('pro-playback-commit', 2)).filter(
+      (entry) => entry.body.event.transitionId === transitionId,
+    );
+    expect(after.map((entry) => entry.body.event.type)).toEqual([
+      'pro-playback-prepare',
+      'pro-playback-commit',
+    ]);
+    for (const entry of after) {
+      expect(entry.body.coordinatorEpoch).toBe(epoch + 1);
+      expect(Object.keys(entry.body).sort()).toEqual(SIGNALING_BROADCAST_BODY_KEYS);
+      expect(entry.status, JSON.stringify(entry)).toBe(200);
+      expect(entry.response).toEqual({ broadcast: true, eligible: 1, sent: 1 });
+    }
+
+    // Behind the fence, the old epoch is refused, presence included.
+    for (const old of [oldPrepare, oldPresence]) {
+      expect(await test.sendToSignaling(old.body)).toEqual({
+        status: 409,
+        body: { error: 'PRO_ROOM_EPOCH_STALE' },
+      });
+    }
   }, 60_000);
 });

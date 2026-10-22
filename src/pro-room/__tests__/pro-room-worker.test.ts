@@ -43,6 +43,7 @@ import {
 } from '../playlist-state-manager.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
 import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
+import { signalingBroadcastContract } from './__helpers__/signaling-broadcast-contract.ts';
 
 interface ProMediaCorsRule {
   allowed: {
@@ -187,12 +188,17 @@ function expectProMediaUploadContract(upload: {
   }
 }
 
-afterEach(() => {
+// Every signaling fake below that answers broadcasts is wrapped, so a request
+// builder change that sends a body or header signaling would refuse fails here.
+const signalingBroadcasts = signalingBroadcastContract();
+
+afterEach(async () => {
   vi.useRealTimers();
   if (vi.isMockFunction(fileDuration.readProRoomFileDuration))
     vi.mocked(fileDuration.readProRoomFileDuration).mockRestore();
   for (const database of entitlementDatabases) database.close();
   entitlementDatabases.clear();
+  await signalingBroadcasts.assertClean();
 });
 
 describe('PRO room server-authoritative playback', () => {
@@ -315,7 +321,7 @@ describe('PRO room server-authoritative playback', () => {
     };
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(fetch) })),
     };
     return { internal, fetch, messages };
   }
@@ -3048,7 +3054,7 @@ describe('PRO room server-authoritative playback', () => {
     });
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatch) })),
     };
 
     const response = await context.worker.fetch(
@@ -3102,10 +3108,10 @@ describe('PRO room server-authoritative playback', () => {
       internal.env.PRO_SIGNALING_ROOMS = {
         idFromName: (value: string) => value,
         get: () => ({
-          fetch: () => {
+          fetch: signalingBroadcasts.wrap(() => {
             enteredDispatch();
             return dispatchResponse;
-          },
+          }),
         }),
       };
       const command = context.worker.fetch(
@@ -3172,7 +3178,7 @@ describe('PRO room server-authoritative playback', () => {
     });
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: failedDispatch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(failedDispatch) })),
     };
 
     const response = await context.worker.fetch(
@@ -3206,7 +3212,7 @@ describe('PRO room server-authoritative playback', () => {
         ...environment(context.bucket),
         PRO_SIGNALING_ROOMS: {
           idFromName: vi.fn((value: string) => value),
-          get: vi.fn(() => ({ fetch: successfulDispatch })),
+          get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(successfulDispatch) })),
         },
       } as never,
     );
@@ -3242,7 +3248,7 @@ describe('PRO room server-authoritative playback', () => {
       .mockResolvedValue(Response.json({ broadcast: true, eligible: 1, sent: 1 }));
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatch) })),
     };
 
     const response = await context.worker.fetch(
@@ -3266,6 +3272,259 @@ describe('PRO room server-authoritative playback', () => {
 
     expect(dispatch).toHaveBeenCalledTimes(2);
     expect(internal.room.pendingPlaybackBroadcasts).toEqual([]);
+  });
+
+  describe('one signaling broadcast transport (RO-07, plan step C7-3)', () => {
+    // The presence and no-retry lanes (broadcastServerEvent) and the playback
+    // outbox (dispatchPlaybackBroadcast) send the same request and differ only
+    // in what answer counts as delivered.
+    const transportEvent = { type: 'pro-room-invalidated', roomRevision: 7 };
+    const transportTargets = ['target-incarnation-a', 'target-incarnation-b'];
+
+    function playbackRecord(coordinatorEpoch: number) {
+      return {
+        kind: 'commit',
+        coordinatorEpoch,
+        transitionId: null,
+        playbackRevision: 4,
+        basePlaybackRevision: 3,
+        event: transportEvent,
+        targets: transportTargets,
+        attempts: 0,
+        retryAtMs: 0,
+        createdAtMs: 0,
+      };
+    }
+
+    async function transportRoom(answer: (request: Request) => Response | Promise<Response>) {
+      const context = await activatedRoom();
+      const requests: Array<{
+        url: string;
+        method: string;
+        headers: Record<string, string>;
+        body: string;
+      }> = [];
+      const signals: AbortSignal[] = [];
+      const fetch = vi.fn(async (request: Request) => {
+        signals.push(request.signal);
+        requests.push({
+          url: request.url,
+          method: request.method,
+          headers: Object.fromEntries(request.headers),
+          body: await request.clone().text(),
+        });
+        return answer(request);
+      });
+      const internal = context.worker as unknown as {
+        env: Record<string, any>;
+        room: Record<string, any>;
+        realtimePresenceTargets(): string[];
+        broadcastServerEvent(
+          event: Record<string, unknown>,
+          targets?: string[],
+          coordinatorEpoch?: number,
+        ): Promise<boolean>;
+        dispatchPlaybackBroadcast(record: Record<string, unknown>): Promise<boolean>;
+      };
+      internal.env.PRO_SIGNALING_ROOMS = {
+        idFromName: vi.fn((value: string) => value),
+        get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(fetch) })),
+      };
+      return { internal, requests, signals, fetch };
+    }
+
+    it('builds the same request bytes, headers and room address for every lane', async () => {
+      const { internal, requests } = await transportRoom(() =>
+        Response.json({ broadcast: true, eligible: 2, sent: 2 }),
+      );
+      const room = internal.room;
+      const defaultEpoch = room.presence.coordinatorEpoch as number;
+      const defaultTargets = internal.realtimePresenceTargets();
+      expect(defaultTargets.length).toBeGreaterThan(0);
+
+      await expect(
+        internal.broadcastServerEvent(transportEvent, transportTargets, 5),
+      ).resolves.toBe(true);
+      await expect(internal.dispatchPlaybackBroadcast(playbackRecord(5))).resolves.toBe(true);
+      await expect(internal.broadcastServerEvent(transportEvent)).resolves.toBe(true);
+
+      const expected = (coordinatorEpoch: number, targets: string[]) => ({
+        url: 'https://signaling.internal/internal/realtime/v1/broadcast',
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '0',
+        },
+        // Key order is part of the bytes.
+        body: JSON.stringify({
+          roomCode: ROOM_CODE,
+          roomGeneration: 0,
+          coordinatorEpoch,
+          targets,
+          event: transportEvent,
+        }),
+      });
+      expect(requests).toEqual([
+        expected(5, transportTargets),
+        expected(5, transportTargets),
+        // Defaults: the live presence incarnations at the room's current epoch.
+        expected(defaultEpoch, defaultTargets),
+      ]);
+      expect(internal.env.PRO_SIGNALING_ROOMS.idFromName.mock.calls).toEqual([
+        [`${ROOM_CODE}:generation:0`],
+        [`${ROOM_CODE}:generation:0`],
+        [`${ROOM_CODE}:generation:0`],
+      ]);
+    });
+
+    const answers: Array<{
+      name: string;
+      answer: () => Response;
+      httpOkJson: boolean;
+      fullFanout: boolean;
+    }> = [
+      {
+        name: '200 full fan-out',
+        answer: () => Response.json({ broadcast: true, eligible: 2, sent: 2 }),
+        httpOkJson: true,
+        fullFanout: true,
+      },
+      {
+        name: '200 with no eligible socket',
+        answer: () => Response.json({ broadcast: true, eligible: 0, sent: 0 }),
+        httpOkJson: true,
+        fullFanout: true,
+      },
+      {
+        name: '200 partial fan-out (sent < eligible)',
+        answer: () => Response.json({ broadcast: true, eligible: 2, sent: 1 }),
+        httpOkJson: true,
+        fullFanout: false,
+      },
+      {
+        name: '200 with sent > eligible',
+        answer: () => Response.json({ broadcast: true, eligible: 1, sent: 2 }),
+        httpOkJson: true,
+        fullFanout: false,
+      },
+      {
+        name: '200 with broadcast false',
+        answer: () => Response.json({ broadcast: false, eligible: 1, sent: 1 }),
+        httpOkJson: true,
+        fullFanout: false,
+      },
+      {
+        name: '200 with an extra answer key',
+        answer: () => Response.json({ broadcast: true, eligible: 1, sent: 1, queued: 0 }),
+        httpOkJson: true,
+        fullFanout: false,
+      },
+      {
+        name: '200 with non-integer counts',
+        answer: () => Response.json({ broadcast: true, eligible: 1.5, sent: 1.5 }),
+        httpOkJson: true,
+        fullFanout: false,
+      },
+      {
+        name: '200 empty JSON object',
+        answer: () => Response.json({}),
+        httpOkJson: true,
+        fullFanout: false,
+      },
+      {
+        name: '200 JSON null',
+        answer: () => new Response('null', { status: 200 }),
+        httpOkJson: false,
+        fullFanout: false,
+      },
+      {
+        name: '200 non-JSON body',
+        answer: () => new Response('ok', { status: 200 }),
+        httpOkJson: false,
+        fullFanout: false,
+      },
+      {
+        name: '200 empty body',
+        answer: () => new Response(null, { status: 200 }),
+        httpOkJson: false,
+        fullFanout: false,
+      },
+      {
+        name: '202 full fan-out',
+        answer: () => Response.json({ broadcast: true, eligible: 1, sent: 1 }, { status: 202 }),
+        httpOkJson: false,
+        fullFanout: false,
+      },
+      {
+        name: '409 epoch stale',
+        answer: () => Response.json({ error: 'PRO_ROOM_EPOCH_STALE' }, { status: 409 }),
+        httpOkJson: false,
+        fullFanout: false,
+      },
+      {
+        name: '503 unavailable',
+        answer: () =>
+          Response.json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, { status: 503 }),
+        httpOkJson: false,
+        fullFanout: false,
+      },
+    ];
+
+    it.each(answers)(
+      'accepts $name as http-ok-json $httpOkJson, full-fanout $fullFanout',
+      async ({ answer, httpOkJson, fullFanout }) => {
+        const { internal, fetch } = await transportRoom(answer);
+        await expect(
+          internal.broadcastServerEvent(transportEvent, transportTargets, 5),
+        ).resolves.toBe(httpOkJson);
+        await expect(internal.dispatchPlaybackBroadcast(playbackRecord(5))).resolves.toBe(
+          fullFanout,
+        );
+        // One attempt each: retries belong to the lanes, not the transport.
+        expect(fetch).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it('treats a thrown signaling call or a missing binding as undelivered on both lanes', async () => {
+      const { internal } = await transportRoom(() => {
+        throw new Error('signaling unavailable');
+      });
+      await expect(
+        internal.broadcastServerEvent(transportEvent, transportTargets, 5),
+      ).resolves.toBe(false);
+      await expect(internal.dispatchPlaybackBroadcast(playbackRecord(5))).resolves.toBe(false);
+
+      delete internal.env.PRO_SIGNALING_ROOMS;
+      await expect(
+        internal.broadcastServerEvent(transportEvent, transportTargets, 5),
+      ).resolves.toBe(false);
+      await expect(internal.dispatchPlaybackBroadcast(playbackRecord(5))).resolves.toBe(false);
+    });
+
+    it.each(['broadcastServerEvent', 'dispatchPlaybackBroadcast'] as const)(
+      'gives up %s at the 900 ms deadline and aborts the request',
+      async (lane) => {
+        vi.useFakeTimers();
+        const { internal, signals } = await transportRoom(() => new Promise<Response>(() => {}));
+        let delivered: boolean | null = null;
+        const delivery = (
+          lane === 'broadcastServerEvent'
+            ? internal.broadcastServerEvent(transportEvent, transportTargets, 5)
+            : internal.dispatchPlaybackBroadcast(playbackRecord(5))
+        ).then((value) => {
+          delivered = value;
+        });
+        await vi.advanceTimersByTimeAsync(899);
+        expect(delivered).toBeNull();
+        expect(signals).toHaveLength(1);
+        expect(signals[0]!.aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await delivery;
+        expect(delivered).toBe(false);
+        expect(signals[0]!.aborted).toBe(true);
+      },
+    );
   });
 
   it('supersedes an undelivered PREPARE with a durable CANCEL then COMMIT FIFO pair', async () => {
@@ -4655,7 +4914,7 @@ async function preparedDeveloperCommandRoom(
   };
   internal.env.PRO_SIGNALING_ROOMS = {
     idFromName: vi.fn((value: string) => value),
-    get: vi.fn(() => ({ fetch: dispatchFetch })),
+    get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
   };
   const queueItemId = '44444444-4444-4444-8444-444444444444';
   internal.room.playlistRevision = 2;
@@ -4835,7 +5094,9 @@ describe('PRO room server BOT boundary', () => {
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
       get: vi.fn(() => ({
-        fetch: vi.fn(async () => Response.json({ broadcast: true, eligible: 2, sent: 2 })),
+        fetch: signalingBroadcasts.wrap(
+          vi.fn(async () => Response.json({ broadcast: true, eligible: 2, sent: 2 })),
+        ),
       })),
     };
     const requestId = 'bot-virtual-treble-control-0001';
@@ -5303,13 +5564,15 @@ describe('PRO room server BOT boundary', () => {
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
       get: vi.fn(() => ({
-        fetch: vi.fn(async (request: Request) => {
-          dispatched.push({
-            path: new URL(request.url).pathname,
-            body: (await request.json()) as Record<string, any>,
-          });
-          return Response.json({ dispatched: true });
-        }),
+        fetch: signalingBroadcasts.wrap(
+          vi.fn(async (request: Request) => {
+            dispatched.push({
+              path: new URL(request.url).pathname,
+              body: (await request.json()) as Record<string, any>,
+            });
+            return Response.json({ dispatched: true });
+          }),
+        ),
       })),
     };
     const capability = await worker.fetch(
@@ -7440,7 +7703,7 @@ describe('PRO room private Developer API projections', () => {
     });
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const before = {
       revision: internal.room.revision,
@@ -7589,7 +7852,7 @@ describe('PRO room private Developer API projections', () => {
     });
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const before = {
       revision: internal.room.revision,
@@ -8208,7 +8471,7 @@ describe('PRO room private Developer API projections', () => {
     });
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
 
     const queueResponse = await mutateInternalDeveloperQueue(
@@ -8570,7 +8833,7 @@ describe('PRO room private Developer API projections', () => {
     };
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const queueItemId = '44444444-4444-4444-8444-444444444444';
     internal.room.playlistRevision = 2;
@@ -20427,7 +20690,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
     const signalingNamespace = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const internal = context.worker as unknown as {
       env: Record<string, any>;
@@ -24357,10 +24620,12 @@ describe('PRO room system-audio ownership lease', () => {
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
       get: vi.fn(() => ({
-        fetch: vi.fn(async (request: Request) => {
-          dispatchedBodies.push((await request.json()) as Record<string, any>);
-          return Response.json({ dispatched: true });
-        }),
+        fetch: signalingBroadcasts.wrap(
+          vi.fn(async (request: Request) => {
+            dispatchedBodies.push((await request.json()) as Record<string, any>);
+            return Response.json({ dispatched: true });
+          }),
+        ),
       })),
     };
 
@@ -24594,7 +24859,7 @@ describe('persistent PRO room audio effects', () => {
     };
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
 
@@ -24956,7 +25221,7 @@ describe('persistent PRO room audio effects', () => {
     const internal = context.worker as unknown as { env: Record<string, any> };
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const before = await responseJson(
       await context.worker.fetch(request('/effects', {}, context.ownerCookie)),
@@ -25053,7 +25318,7 @@ describe('persistent PRO room audio effects', () => {
     const internal = context.worker as unknown as { env: Record<string, any> };
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const epoch = context.activationEnvelope.snapshot.presence.coordinatorEpoch as number;
 
@@ -25158,7 +25423,7 @@ describe('persistent PRO room audio effects', () => {
     };
     internal.env.PRO_SIGNALING_ROOMS = {
       idFromName: vi.fn((value: string) => value),
-      get: vi.fn(() => ({ fetch: dispatchFetch })),
+      get: vi.fn(() => ({ fetch: signalingBroadcasts.wrap(dispatchFetch) })),
     };
     const legacyCapability = await context.worker.fetch(
       jsonRequest(

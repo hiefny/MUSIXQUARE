@@ -16,6 +16,10 @@ import {
   createSqlJournal,
   trackedSql,
 } from '../../../core/__tests__/helpers/worker-test-bindings.ts';
+import {
+  SIGNALING_BROADCAST_PATH,
+  signalingBroadcastViolations,
+} from './signaling-broadcast-contract.ts';
 
 /**
  * Owner-boundary fixture for the PRO room Durable Object (C7-0).
@@ -28,9 +32,10 @@ import {
  *
  * Fakes and what they model (calibrated against the cited code):
  * - FencedSignaling models `handleInternalProRealtimeBroadcast` in
- *   cloudflare/signaling-worker.ts: an exact body key set (else 400; signaling
- *   treats `roomGeneration` as optional, the fake requires it because the room
- *   always sends it), the coordinator-epoch fence that only a presence
+ *   cloudflare/signaling-worker.ts: an exact body key set and matching
+ *   room-code and generation headers (else 400 and a contract violation that
+ *   `dispose()` fails on; see signaling-broadcast-contract.ts), the
+ *   coordinator-epoch fence that only a presence
  *   snapshot may advance (any other event for a newer epoch, and any event for
  *   an older one, gets 409 PRO_ROOM_EPOCH_STALE), monotonic presence revisions
  *   per epoch (`advanceProPresenceAuthority`: stale or conflicting snapshots
@@ -87,10 +92,10 @@ export interface SignalingDelivery {
   readonly at: number;
 }
 
-const BROADCAST_KEYS = ['coordinatorEpoch', 'event', 'roomCode', 'roomGeneration', 'targets'];
-
 class FencedSignaling {
   readonly deliveries: SignalingDelivery[] = [];
+  /** Why signaling refused a body (400); `dispose()` fails the test on any. */
+  readonly contractViolations: string[] = [];
   private epoch: number | null = null;
   private presence: { epoch: number; revision: number; targets: string } | null = null;
   private readonly faults: Array<{ type: string | null; fault: SignalingFault }> = [];
@@ -147,7 +152,7 @@ class FencedSignaling {
   };
 
   private async fetch(request: Request): Promise<Response> {
-    expect(new URL(request.url).pathname).toBe('/internal/realtime/v1/broadcast');
+    expect(new URL(request.url).pathname).toBe(SIGNALING_BROADCAST_PATH);
     const body = (await request.json()) as Record<string, unknown>;
     const event = (body.event ?? {}) as Record<string, unknown>;
     const type = String(event.type);
@@ -185,9 +190,11 @@ class FencedSignaling {
       record(503, 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE');
       return Response.json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, { status: 503 });
     }
-    // Signaling rejects any extra or missing body key (hasExactKeys).
-    const keys = Object.keys(body).sort();
-    if (JSON.stringify(keys) !== JSON.stringify(BROADCAST_KEYS)) {
+    // Signaling rejects any extra or missing body key (hasExactKeys) and a
+    // room-code or generation header that disagrees with the body.
+    const violations = signalingBroadcastViolations(request, body);
+    if (violations.length > 0) {
+      this.contractViolations.push(...violations);
       record(400, 'INVALID_REQUEST');
       return Response.json({ error: 'INVALID_REQUEST' }, { status: 400 });
     }
@@ -808,6 +815,9 @@ export async function activatedProRoom(
       }
       admin.close();
       auth.close();
+      // The room catches a refused broadcast as undelivered, so a body outside
+      // the signaling contract would otherwise only show up as a retry.
+      expect(signaling.contractViolations).toEqual([]);
     },
   };
 

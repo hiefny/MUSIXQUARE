@@ -222,3 +222,118 @@ describe('PRO SFU subscriber retry and the guest receive watchdog', () => {
     expect(isReceivingPlaceholder()).toBe(true);
   });
 });
+
+describe('PRO SFU subscription that rejects synchronously', () => {
+  // subscribeProSystemAudioSfu() validates the descriptor before it starts:
+  // a publication already expired by the local clock (clock skew, or a retry
+  // in the last seconds of the share) throws before any `failed` event.
+  function rejectSynchronously(): never {
+    throw new TypeError('PRO system-audio SFU publication has expired');
+  }
+
+  async function sampleThreeMinutes(): Promise<number[]> {
+    const idleAtSeconds: number[] = [];
+    for (let elapsed = 250; elapsed <= 180_000; elapsed += 250) {
+      await vi.advanceTimersByTimeAsync(250);
+      if (!isReceivingPlaceholder()) idleAtSeconds.push(elapsed / 1_000);
+    }
+    return idleAtSeconds;
+  }
+
+  function expectBackedOffRetriesWithOneNotice(idleAtSeconds: number[]): void {
+    // 2.5, 5, 10, 20 and then 30 seconds apart: a retry keeps coming, but
+    // never faster than the backoff allows.
+    expect(mocks.subscribe.mock.calls.length).toBeGreaterThanOrEqual(8);
+    expect(mocks.subscribe.mock.calls.length).toBeLessThanOrEqual(11);
+    expect(idleAtSeconds).toEqual([]);
+    expect(receiveTimeouts).toBe(0);
+    expect(toasts).toEqual(['system_audio.connection_unstable']);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+  }
+
+  it('retries a first subscription that rejects synchronously', async () => {
+    mocks.subscribe.mockImplementation(rejectSynchronously);
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(1);
+    expect(isReceivingPlaceholder()).toBe(true);
+
+    expectBackedOffRetriesWithOneNotice(await sampleThreeMinutes());
+  });
+
+  it('keeps retrying when a backed-off retry rejects synchronously', async () => {
+    mocks.subscribe
+      .mockImplementationOnce(async (descriptor) => {
+        await new Promise((resolve) => setTimeout(resolve, ATTEMPT_MS));
+        mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+        throw new Error('REALTIME_SESSION_FAILED');
+      })
+      .mockImplementation(rejectSynchronously);
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(isReceivingPlaceholder()).toBe(true);
+
+    expectBackedOffRetriesWithOneNotice(await sampleThreeMinutes());
+  });
+
+  it('keeps retrying when a reconcile during the retry wait rejects synchronously', async () => {
+    mocks.subscribe.mockImplementation(async (descriptor) => {
+      await new Promise((resolve) => setTimeout(resolve, ATTEMPT_MS));
+      mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+      throw new Error('REALTIME_SESSION_FAILED');
+    });
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(ATTEMPT_MS);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(1);
+
+    // A presence heartbeat re-reconciles the same publication while the
+    // first retry waits, and that attempt rejects synchronously.
+    mocks.subscribe.mockImplementation(rejectSynchronously);
+    bindProSystemAudioSession(snapshot());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(2);
+    expect(isReceivingPlaceholder()).toBe(true);
+
+    expectBackedOffRetriesWithOneNotice(await sampleThreeMinutes());
+  });
+
+  it('turns an attached subscription into backed-off retries when a later reconcile rejects synchronously', async () => {
+    mocks.subscribe.mockImplementation(async (descriptor) => {
+      mocks.sfuListener?.({
+        type: 'subscriber-track',
+        descriptor,
+        track: { id: 'stereo' } as MediaStreamTrack,
+        isCurrent: () => true,
+      });
+      mocks.sfuListener?.({ type: 'subscriber-state', state: 'subscribed', descriptor });
+    });
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+
+    // The local clock passes the share's expiry, so the next heartbeat
+    // reconcile is rejected before any request goes out.
+    mocks.subscribe.mockImplementation(rejectSynchronously);
+    bindProSystemAudioSession(snapshot());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(2);
+
+    expectBackedOffRetriesWithOneNotice(await sampleThreeMinutes());
+
+    // Once the coordinator ends the share, the retries stop and the receiver leaves.
+    api.getSystemAudioState.mockResolvedValue({
+      generation: 2,
+      status: 'idle',
+      ownerParticipantId: null,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: null,
+    });
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    const callsAtIdle = mocks.subscribe.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(callsAtIdle);
+    expect(isReceivingPlaceholder()).toBe(false);
+  });
+});

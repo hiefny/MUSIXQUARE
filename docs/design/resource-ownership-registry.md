@@ -36,9 +36,10 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
 5. **Different contracts stay separate.** Equal values or similar steps are not copies when the
    contract differs: a failed-PLAY retry publishes a room PLAY, an output rejoin never does; the
    30 s heartbeat recovering-transport grace is not the 30 s side-route cap.
-6. **A new module needs a shared multi-consumer contract**, as
-   [Source complexity safety limits](source-complexity-ratchet.md) requires. A second machine on a
-   resource that already has a record is not such a contract.
+6. **A record here outranks a new machine.** A new module still needs one of the justifications in
+   [Source complexity safety limits](source-complexity-ratchet.md). Its "independent state and
+   start/stop/recovery lifecycle" reason does not cover a second machine on a resource that
+   already has a record here.
 
 ## Terms
 
@@ -279,21 +280,33 @@ RO-45 accepted-exception
   settle, audio restore, release.
 - **Current owners/flows:** `YouTubeZeroStartController` (`src/youtube/zero-start.ts`) and the PRO
   copy `YouTubeAuthorityArmController` (`src/youtube/authority-arm.ts`, phase union
-  `YouTubeAuthorityArmPhase`, instance `proAuthorityArm` in `src/youtube/iframe.ts`). Their timing
-  values and most phase names are identical, and `zero-start.ts`'s header still says it can serve
-  a coordinator-free PRO endpoint although PRO uses the copy. Only the room kind separates them;
-  `stopYouTubeMode` cancels both.
+  `YouTubeAuthorityArmPhase`, instance `proAuthorityArm` in `src/youtube/iframe.ts`, driven by the
+  `iframe.ts` prepare seam `prepareYouTubeAuthorityOccurrence` with its
+  `proAuthorityPreparationGeneration` fence). Their arm and settle values (hard-mute poll, warm
+  play, pause-seek gap, settle poll and epsilon, release acknowledgement) and most phase names are
+  identical; their prepare budgets are not (10 s Standard, 2.3 s barriered PRO). `zero-start.ts`'s
+  header still says it can serve a coordinator-free PRO endpoint although PRO uses the copy. Only
+  the room kind separates them; `stopYouTubeMode` cancels both.
 - **Target single owner:** shared arm steps used by both protocol shells; `authority-arm.ts` stays
   the PRO protocol facade with its own tokens.
-- **Allowed requesters:** Standard: the zero-start wiring in `player.ts`. PRO: server PREPARE and
-  COMMIT through `iframe.ts` (`updateProYouTubeAuthorityDesiredAudioState`) and
-  `applyProPlaybackYouTubeCommit`.
+- **Allowed requesters:** Standard: the zero-start wiring in `player.ts`. PRO: PREPARE through
+  `prepareYouTubeAuthorityOccurrence` (`iframe.ts`, called from `src/player/playlist.ts`) and
+  COMMIT through `commitYouTubeAuthorityOccurrence` (`iframe.ts`, called from
+  `applyProPlaybackYouTubeCommit` in `player.ts`). Desired-audio pushes are RO-12 requesters.
 - **Lifecycle operations:** as RO-02, plus detached audio restore and the re-seek on every sixth
   settle poll.
-- **Deadline owner:** each controller. The PRO `prepareTimeoutMs` (2.3 s) leaves room inside the
-  server's 3 s transition barrier.
-- **Timing-constant home:** `YOUTUBE_ZERO_START_TIMING` and `authority-arm.ts` `TIMING` (copies).
-  Target: `src/youtube/constants.ts` (Phase 0d, C2-1).
+- **Deadline owner:** each controller. The PRO prepare deadline is set by the `iframe.ts` prepare
+  seam, which passes its remaining budget to `proAuthorityArm.prepare`; `authority-arm.ts`
+  `TIMING.prepareTimeoutMs` is only the fallback when no budget is passed. A server PREPARE gets
+  the barriered 2.3 s, which leaves room inside the server's 3 s transition barrier; restores,
+  catch-ups and participant-local rejoins get the unbarriered 10 s.
+- **Timing-constant home:** arm and settle values: `YOUTUBE_ZERO_START_TIMING` and
+  `authority-arm.ts` `TIMING` (copies). PRO prepare budgets:
+  `PRO_YOUTUBE_BARRIERED_PREPARE_TIMEOUT_MS` (2.3 s, repeated as `authority-arm.ts`
+  `TIMING.prepareTimeoutMs`) and the exported
+  `PRO_YOUTUBE_UNBARRIERED_PREPARE_TIMEOUT_MS` (10 s, equal to the Standard `prepareTimeoutMs`,
+  imported by `playlist.ts`), both in `iframe.ts`; these are the effective values. Target:
+  `src/youtube/constants.ts` (Phase 0d, C2-1).
 - **Anchor tests:**
   - Supersession: `src/youtube/__tests__/authority-arm.test.ts` "supersedes a prepared occurrence
     when the iframe instance is replaced".
@@ -594,8 +607,10 @@ RO-45 accepted-exception
 - **Target single owner:** one iframe-audio module (planned `src/youtube/iframe-audio.ts`) holding
   the desired state, holds and one verified restore; the retained player and prime only register
   a parking hold or keep their gesture-bound write.
-- **Allowed requesters:** master volume through `youtube:set-volume`, the start machines, the PRO
-  pause gate events.
+- **Allowed requesters:** master volume through `youtube:set-volume` and the PRO pause-gate events
+  (`pro-playback:ui-control-pending` and `-settled`), whose handlers in `player.ts` push desired
+  audio into the start machines through `updateYouTubeZeroStartDesiredAudioState` and
+  `updateProYouTubeAuthorityDesiredAudioState`; the start machines.
 - **Lifecycle operations:** `mute`, `unMute`, `setVolume`, verified restore.
 - **Deadline owner:** each writer's own retry (for example the zero-start release unmute retry).
 - **Timing-constant home:** the audio-restore 120 ms and 8 attempts repeated in `zero-start.ts`,

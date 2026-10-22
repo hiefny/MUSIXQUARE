@@ -379,10 +379,14 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(realInput().sources.get('src/pro-room/upload-duration.ts')).toContain(
         'readProRoomFileDuration(',
       );
+      // Joined so this fixture text is not a relative Worker import literal: the
+      // suite never loads Worker code, so it stays out of the Worker coverage
+      // ratchet (ci-quality-gates.test.ts).
+      const durationModule = ['..', '..', 'cloudflare', 'pro-room-media-duration.ts'].join('/');
       const input = withSources((sources) => {
         sources.set(
           'src/pro-room/local-duration.ts',
-          "import { readProRoomFileDuration } from '../../cloudflare/pro-room-media-duration.ts';\n" +
+          `import { readProRoomFileDuration } from '${durationModule}';\n` +
             'export async function readLocal(file: never): Promise<number | null> {\n' +
             "  return readProRoomFileDuration(file, 'local', 1);\n" +
             '}\n',

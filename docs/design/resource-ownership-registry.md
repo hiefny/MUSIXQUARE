@@ -128,6 +128,7 @@ each record also states the step in words.
 | RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | Revisit after a build check  |
 | RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                      |
 | RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round  |
+| RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision               |
 
 ## Machine-readable ID list
 
@@ -183,6 +184,7 @@ RO-42 accepted-exception
 RO-43 accepted-exception
 RO-44 accepted-exception
 RO-45 accepted-exception
+RO-46 accepted-exception
 ```
 
 ## Resource records
@@ -447,23 +449,40 @@ RO-45 accepted-exception
 
 - **Resource:** the room incarnation's signaling endpoint `/internal/realtime/v1/broadcast` and the
   coordinator-epoch fence it advances in `cloudflare/signaling-worker.ts`.
-- **Current owners/flows:** presence delivery (`pendingPresenceBroadcast`,
-  `deliverPresenceBroadcast`, `rememberFailedPresenceBroadcast`, `retryPendingPresenceBroadcast`)
-  and the playback outbox (`pendingPlaybackBroadcasts`, `enqueuePlaybackBroadcast`,
-  `dispatchPlaybackBroadcast`, `flushPendingPlaybackBroadcasts`), both in
-  `cloudflare/pro-room-worker.ts`, each with its own request builder. Their only coordination is
-  the epoch fence: `bumpRoomEpoch` empties the outbox and signaling lets only a presence snapshot
-  advance the epoch. The alarm orders presence before playback; the flush after each persist does
-  not.
+- **Current owners/flows:** three lanes in `cloudflare/pro-room-worker.ts`, routed by
+  `scheduleServerEvent`. Their only coordination is the epoch fence: `bumpRoomEpoch` empties the
+  outbox, and signaling lets only a presence snapshot advance the epoch, answering any other event
+  for a newer epoch with 409 `PRO_ROOM_EPOCH_STALE`. The outbox retries that refusal; the no-retry
+  lane drops it (RO-46). The alarm orders presence before playback; the flush after each persist
+  does not.
+  - presence delivery (`pendingPresenceBroadcast`, `deliverPresenceBroadcast`,
+    `rememberFailedPresenceBroadcast`, `retryPendingPresenceBroadcast`), which sends through the
+    generic request builder `broadcastServerEvent`;
+  - the playback outbox (`pendingPlaybackBroadcasts`, `enqueuePlaybackBroadcast`,
+    `dispatchPlaybackBroadcast`, `flushPendingPlaybackBroadcasts`), which builds its own request
+    in `dispatchPlaybackBroadcast`;
+  - a no-retry lane for `pro-room-invalidated` and `system-audio-invalidated` events: one
+    `broadcastServerEvent` call and no record. `scheduleServerEvent` sends it through `waitUntil`
+    for `scheduleDeveloperInvalidationHint`, `handleInternalDeveloperQueueModeUpdate` and
+    `reconcileSystemAudio`; twelve call sites await `broadcastServerEvent` directly after persist,
+    in `handleInternalDeveloperCommandCreate`, `handleUpdateEffects`, `handleUpdateSettingsSync`,
+    `handleUpdateQueueMode`, `handleAcquireSystemAudio`, `handleCommitSystemAudio`,
+    `handleReleaseSystemAudio`, `commitParticipantSnapshot` (from
+    `handleCompactSnapshotMutation`), `handlePlaylistSwitch` and `handlePlaylistTransfer`.
 - **Target single owner:** one signaling-outbox section of the PRO room Durable Object: one
-  request builder, one due time, one drain and an epoch hook.
-- **Allowed requesters:** the presence and playback reducers enqueue; `scheduleAlarm` asks the
-  outbox for one due time. Worker caller allowlist for `/internal/realtime/v1/broadcast`:
-  `pro-room-worker.ts` only.
+  request builder, one due time, one drain and an epoch hook. The no-retry lane stays best effort:
+  its senders use the same request builder, keep their current execution mode (awaited after
+  persist, or `waitUntil` through `scheduleServerEvent`) and get no outbox record. Making it
+  durable is a behaviour change and needs an owner decision.
+- **Allowed requesters:** the presence and playback reducers enqueue; the invalidation senders
+  listed above send once through the request builder; `scheduleServerEvent` stays the router;
+  `scheduleAlarm` asks the outbox for one due time. Worker caller allowlist for
+  `/internal/realtime/v1/broadcast`: `pro-room-worker.ts` only.
 - **Lifecycle operations:** enqueue, dispatch, back off, drop on an epoch change, persist the
-  retry marker.
-- **Deadline owner:** each path's backoff; `scheduleAlarm` stays the single alarm owner. Both
-  requests use `DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS` (900 ms, misnamed).
+  retry marker; send once (no-retry lane).
+- **Deadline owner:** each path's backoff; the no-retry lane has none. `scheduleAlarm` stays the
+  single alarm owner. Both request builders use `DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS` (900 ms,
+  misnamed), so each awaited invalidation send can add up to 900 ms to its HTTP response.
 - **Timing-constant home:** `PRESENCE_BROADCAST_RETRY_*` and `PLAYBACK_BROADCAST_RETRY_*`
   (identical 1 s, 60 s, 16) with `presenceBroadcastRetryDelayMs` and
   `playbackBroadcastRetryDelayMs`. Target: one constant set and one delay function (Phase 0d,
@@ -476,7 +495,7 @@ RO-45 accepted-exception
     durable and clears it after a restarted alarm retry".
   - Visibility: n/a.
 - **Status:** `duplicated`. Phase 0d (constants), Phase 1 (one request builder, outbox owner).
-  Durable record shapes freeze across the change. Exception RO-31.
+  Durable record shapes freeze across the change. Exceptions RO-31, RO-46.
 
 ### RO-08 PRO asset duration read
 
@@ -571,15 +590,19 @@ RO-45 accepted-exception
 
 ### RO-11 Deferred-start mailbox `playback.pendingPlayTime`
 
-- **Resource:** the scalar mailbox `playback.pendingPlayTime` with its set-at timestamps, read and
-  written through `getPendingPlayTime` and `setPendingPlayTime` (`src/player/_state.ts`).
+- **Resource:** the scalar mailbox `playback.pendingPlayTime` with its set-at timestamps, with
+  accessors `getPendingPlayTime` and `setPendingPlayTime` (`src/player/_state.ts`).
 - **Current owners/flows:** the play-lock queue in `transport.ts` (the busy path writes only the
   scalar; the lock's take clears it only when it owns a typed intent) and the decode-completion
-  consumers in `src/player/decode.ts`. Writers: `playback.ts`, `guest-file-pause.ts`,
+  consumers in `src/player/decode.ts`. Writers through the accessors: `playback.ts`,
   `device-track-failure.ts`, `src/storage/transfer-receive.ts`, `src/share/remote-share.ts`.
+  Teardown writer: `leaveSession` in `src/network/peer.ts` writes the three fields directly in its
+  session-reset `setState` batch. Reader only: `guest-file-pause.ts`.
 - **Target single owner:** unchanged. The asymmetric preserve and clear policy is deliberate:
   [Playback concurrency invariants §4](playback-concurrency-invariants.md#4-pendingplaytime-preserveclear-policy-asymmetric-by-design).
-- **Allowed requesters:** the writers above, through the accessors.
+- **Allowed requesters:** the writers above, through the accessors. The `leaveSession` reset is
+  the one allowed direct write: it sets the same cleared values as `setPendingPlayTime(undefined)`
+  in the batch that resets the rest of the session state. Readers use `getPendingPlayTime`.
 - **Lifecycle operations:** set, preserve, clear, consume.
 - **Deadline owner:** none; consumers age the value from its set-at timestamps.
 - **Timing-constant home:** n/a.
@@ -1349,6 +1372,25 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Behaviour risk:** a new independent machine can start without a record; the AGENTS.md rule is
   the only stop.
 - **Revisit when:** after the first guard round, as a file-level manifest.
+- **Status:** `accepted-exception`.
+
+### RO-46 Invalidation events are sent once
+
+- **Parent:** RO-07.
+- **Exception:** `pro-room-invalidated` and `system-audio-invalidated` events get one send and no
+  outbox record. A failed send is dropped, including the 409 `PRO_ROOM_EPOCH_STALE` refusal of a
+  send that reaches signaling before the presence snapshot of a new epoch.
+- **Evidence:** the events are refresh hints, not state. `acceptProRoomRealtimeFrame` in
+  `src/pro-room/runtime.ts` answers them with a heartbeat or a system-audio read, and every 15 s
+  presence heartbeat reconciles the playlist, effects, queue mode, playback and system audio (the
+  comment on `refreshSystemAudioState` names it the backstop for a lost invalidation).
+  `src/pro-room/__tests__/runtime-account-lease.test.ts` "applies a share end from the next
+  heartbeat when its invalidation is lost" pins that backstop. After an epoch bump, signaling also
+  closes the old-epoch sockets.
+- **Behaviour risk:** after a failed send, other participants see the change up to one heartbeat
+  (15 s) late; no known-accepted entry.
+- **Revisit when:** the owner wants these changes delivered faster than one heartbeat after a
+  failed send.
 - **Status:** `accepted-exception`.
 
 ## Checked side flows without a record

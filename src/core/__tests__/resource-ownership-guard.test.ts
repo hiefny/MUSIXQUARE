@@ -400,13 +400,26 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
 
   describe('CHECK 4 one deadline owner per PRO SFU attempt (G1)', () => {
     const service = 'src/pro-room/system-audio-service.ts';
-    const sfuStart = 'beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });';
+    const watchdogOffStart =
+      'beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });';
     const retryMax = 'const SUBSCRIBER_RETRY_MAX_DELAY_MS = 30_000;';
 
-    it('rejects an SFU reception start that re-arms the guest watchdog', () => {
-      const input = withSources((sources) =>
-        replaceIn(sources, service, sfuStart, 'beginTrustedSystemAudioReception();'),
+    // The LAN-direct branch (G5) passes the same options before the SFU start,
+    // so the SFU start is the last one in the file.
+    function armSfuStart(sources: Map<string, string>): void {
+      const source = sources.get(service) ?? '';
+      const at = source.lastIndexOf(watchdogOffStart);
+      expect(at).toBeGreaterThan(source.indexOf(watchdogOffStart));
+      sources.set(
+        service,
+        source.slice(0, at) +
+          'beginTrustedSystemAudioReception();' +
+          source.slice(at + watchdogOffStart.length),
       );
+    }
+
+    it('rejects an SFU reception start that re-arms the guest watchdog', () => {
+      const input = withSources(armSfuStart);
       const report = analyzeResourceOwnership(input);
       expect(report.deadline.mode).toBe('violated');
       expect(report.findings.join('\n')).toMatch(
@@ -457,7 +470,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
 
     it('needs a reasoned entry, not a deadline finding, once the retry maximum stays below it', () => {
       const input = withSources((sources) => {
-        replaceIn(sources, service, sfuStart, 'beginTrustedSystemAudioReception();');
+        armSfuStart(sources);
         replaceIn(sources, service, retryMax, 'const SUBSCRIBER_RETRY_MAX_DELAY_MS = 20_000;');
       });
       const report = analyzeResourceOwnership(input);
@@ -468,7 +481,20 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       });
       expect(report.findings).toEqual([
         expect.stringMatching(
-          /^RATCHET REGRESSION armed reception start \(RO-04\): src\/pro-room\/system-audio-service\.ts :: ensureCoordinatorSubscription has 2, baseline 1/u,
+          /^UNSANCTIONED armed reception start \(RO-04\): src\/pro-room\/system-audio-service\.ts :: ensureCoordinatorSubscription has 1/u,
+        ),
+      ]);
+    });
+
+    it('rejects a LAN-direct reception start that re-arms the guest watchdog (G5)', () => {
+      const input = withSources((sources) =>
+        replaceIn(sources, service, watchdogOffStart, 'beginTrustedSystemAudioReception();'),
+      );
+      const report = analyzeResourceOwnership(input);
+      expect(report.deadline.mode).toBe('watchdog-off');
+      expect(report.findings).toEqual([
+        expect.stringMatching(
+          /^UNSANCTIONED armed reception start \(RO-04\): src\/pro-room\/system-audio-service\.ts :: ensureCoordinatorSubscription has 1/u,
         ),
       ]);
     });

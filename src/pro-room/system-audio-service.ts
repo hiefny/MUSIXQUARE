@@ -36,6 +36,7 @@ import {
   awaitTrustedSystemAudioReceptionBoundary,
   beginTrustedSystemAudioReception,
   cleanupGuestSystemAudio,
+  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
 } from '../network/system-audio-guest.ts';
 import {
   cleanupWebRtcAudioDecoderPrimer,
@@ -43,7 +44,11 @@ import {
   primeWebRtcAudioDecoder,
   type WebRtcAudioDecoderPrimer,
 } from '../network/webrtc-audio-decoder-primer.ts';
-import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
+import {
+  claimPlaybackOwner,
+  isSystemAudioPlaceholderMeta,
+  setSystemAudioReceiving,
+} from '../player/ownership.ts';
 import type { ProRoomApiClient } from './api.ts';
 import type { ProRoomPlaybackReconciliationLiveness } from './playback-controller.ts';
 import type {
@@ -73,6 +78,7 @@ const SUBSCRIBER_RETRY_TIMER = 'pro-system-audio-subscriber-retry';
 const PUBLISHER_RETRY_TIMER = 'pro-system-audio-publisher-retry';
 const DIRECT_PROMOTION_RETRY_TIMER = 'pro-system-audio-direct-promotion-retry';
 const SUBSCRIBER_DISCONNECT_TIMER = 'pro-system-audio-subscriber-disconnect';
+const DIRECT_RECEIVE_DEADLINE_TIMER = 'pro-system-audio-direct-receive-deadline';
 const PLAYBACK_RESTORE_TIMER = 'pro-system-audio-playback-restore';
 const PLAYBACK_RESTORE_DELAYS_MS = [250, 1_000, 2_500, 5_000, 15_000] as const;
 const LEASE_HEARTBEAT_MS = 15_000;
@@ -501,6 +507,7 @@ function cleanupCoordinatorAudioNodes(): void {
 function cleanupCoordinatorGraph(): void {
   clearSubscriberRetry();
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
+  clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
   cleanupCoordinatorAudioNodes();
   coordinatorSubscriptionKey = null;
   coordinatorSubscriptionFlight = null;
@@ -513,6 +520,7 @@ function cleanupCoordinatorGraph(): void {
 function cleanupCoordinatorSubscriptionForRetry(): void {
   clearSubscriberRetry();
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
+  clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
   cleanupCoordinatorAudioNodes();
   coordinatorSubscriptionKey = null;
   coordinatorSubscriptionFlight = null;
@@ -563,6 +571,7 @@ async function attachCoordinatorTrack(
   const source = ctx.createMediaStreamSource(new MediaStream([track]));
   source.connect(widener.input);
   coordinatorSource = source;
+  clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
   setSystemAudioReceiving(true);
   claimPlaybackOwner('system-audio');
   bus.emit('visualizer:start');
@@ -828,7 +837,12 @@ async function ensureCoordinatorSubscription(
     if (coordinatorSubscriptionKey !== key) {
       cleanupCoordinatorGraph();
       coordinatorSubscriptionKey = key;
-      beginTrustedSystemAudioReception();
+      // The coordinator owns this publication's receive deadline. The guest
+      // receive watchdog would end the placeholder while a late offer is still
+      // on its way, and an unchanged live state never re-enters it, so that
+      // offer's track would attach nowhere.
+      beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });
+      armDirectReceiveDeadline(identity, key);
     }
     await activateProSystemAudioDirectPublication({
       ownerParticipantId: state.ownerParticipantId,
@@ -880,6 +894,34 @@ function notifySubscriberFailure(
   subscriberFailureGeneration = state.generation;
   const name = ownerDisplayName(state) ?? state.ownerParticipantId;
   bus.emit('ui:show-toast', t('system_audio.connection_unstable', { name }));
+}
+
+/**
+ * A LAN-direct listener waits in one receive placeholder for the publisher's
+ * offer, which can come late (a late join, or a page that slept). When no
+ * track has attached by the guest receive timeout, say so once per generation
+ * and keep the placeholder, so a late track still attaches; the publisher
+ * promotes a listener it cannot reach to the SFU, which is a new publication.
+ * An attached track, a failed route (which reports on its own), another
+ * publication or state, a force-stop, leaving and teardown end this deadline.
+ */
+function armDirectReceiveDeadline(identity: CoordinatorPublicationIdentity, key: string): void {
+  setManagedTimer(
+    DIRECT_RECEIVE_DEADLINE_TIMER,
+    () => {
+      const state = controller?.getCurrentState() ?? null;
+      if (
+        coordinatorSource ||
+        coordinatorSubscriptionKey !== key ||
+        !isSystemAudioPlaceholderMeta(getState('player.currentTrackMeta')) ||
+        !coordinatorPublicationMatches(identity, state)
+      ) {
+        return;
+      }
+      notifySubscriberFailure(state);
+    },
+    SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
+  );
 }
 
 function clearSubscriberRetry(): void {
@@ -963,6 +1005,7 @@ function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): vo
     return;
   }
   if (event.role === 'receiver' && state.ownerParticipantId !== localParticipantId()) {
+    clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
     cleanupCoordinatorAudioNodes();
     setSystemAudioReceiving(false);
     notifySubscriberFailure(state);
@@ -2020,6 +2063,12 @@ export function registerProSystemAudioServiceListeners(): void {
     // The PRO runtime owns the authoritative initial read, and every presence
     // heartbeat carries the state afterwards. Fetching here as well would
     // only race those reads.
+  });
+
+  bus.on('system-audio:force-stop', () => {
+    // The guest ends the receive placeholder for good; a direct track that
+    // turns up afterwards stays detached, so there is nothing left to warn about.
+    clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
   });
 
   onProSystemAudioSfuEvent((event) => {

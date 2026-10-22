@@ -91,6 +91,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO LAN-direct receive deadline owner — 9.0.2, 2026-10-22](design/pro-direct-receive-deadline-2026-10-22.md) —
+  A PRO LAN-direct listener stays in one receive placeholder so a late track attaches, and the coordinator
+  owns its deadline with one connection_unstable notice per generation; failing-first tests and device limits.
+
 - [Competing recovery flows: four ownership gaps — 9.0.1, 2026-10-22](design/ownership-gap-fixes-2026-10-22.md) —
   PRO system-audio SFU retries own their receive deadline, an explicit local YouTube pause ends the
   return re-align retries, the PRO pause gate holds through authority arming, and the session reset

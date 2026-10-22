@@ -362,9 +362,13 @@ RO-46 accepted-exception
   `system-audio:*` events.
 - **Lifecycle operations:** begin reception, attach, set receiving, claim the playback owner, arm
   or clear the receive deadline, cleanup with meta restore.
-- **Deadline owner:** per route today. Standard P2P and PRO LAN-direct: the guest 30 s watchdog.
-  PRO SFU: the subscription retry backoff (2.5 s doubling to 30 s); since 9.0.1 it begins with
-  `receiveWatchdog: false` (G1). Standard SFU guests also react to `system-audio:receive-timeout`.
+- **Deadline owner:** per route today. Standard P2P: the guest 30 s watchdog. PRO SFU: the
+  subscription retry backoff (2.5 s doubling to 30 s); since 9.0.1 it begins with
+  `receiveWatchdog: false` (G1). PRO LAN-direct: since 9.0.2 it also begins with
+  `receiveWatchdog: false`, and the service's direct receive deadline
+  (`DIRECT_RECEIVE_DEADLINE_TIMER`, 30 s from the guest's `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`) only
+  reports the failure once and keeps the listener in reception for a late track (G5).
+  Standard SFU guests also react to `system-audio:receive-timeout`.
   Target: one receive deadline per attempt in the slot.
 - **Timing-constant home:** none. `SYSTEM_AUDIO_PLAYOUT_DELAY_S` is defined in
   `system-audio-guest.ts`, `system-audio-sfu.ts` and `pro-system-audio-sfu.ts`;
@@ -387,11 +391,10 @@ RO-46 accepted-exception
     and when an armed `beginTrustedSystemAudioReception` start appears in a new function. The
     start returns early while the placeholder is active, so an armed start on the retry path
     would re-arm the watchdog before the SFU start runs.
-- **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrives after the
-  30 s watchdog stays silent; the fix needs a bounded re-begin per publication because an
-  unchanged controller state never re-emits) and G6 (each PRO SFU retry re-runs the reception
-  start, including `stopAllMedia` and the host-started notice); both are open release-record
-  items. Phase 0d (media constants), Phase 5 (slot). Exception RO-39.
+- **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrived after the
+  30 s watchdog stayed silent) is fixed in 9.0.2. G6 (each PRO SFU retry re-runs the reception
+  start, including `stopAllMedia` and the host-started notice) is an open release-record item.
+  Phase 0d (media constants), Phase 5 (slot). Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 

@@ -259,10 +259,6 @@ const ARMED_RECEPTION_START_BASELINE: Baseline = new Map<string, Allowance>([
     'src/network/system-audio-sfu.ts :: handleSfuReady',
     { count: 1, reason: 'Standard SFU after a direct-route failure handoff' },
   ],
-  [
-    'src/pro-room/system-audio-service.ts :: ensureCoordinatorSubscription',
-    { count: 1, reason: 'PRO LAN-direct branch: the watchdog is its deadline (fix lane G5)' },
-  ],
 ]);
 
 // ── CHECK 5: timing contracts the registry names, and their triaged pairs ─

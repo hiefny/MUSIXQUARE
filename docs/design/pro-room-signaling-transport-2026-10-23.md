@@ -3,7 +3,7 @@
 | 항목     | 범위                                                                                                   |
 | -------- | ------------------------------------------------------------------------------------------------------ |
 | 기준 SHA | `2ba4cbd6` (main, Phase 0d 서버 Worker 배포·기록본: C7-0 workerd 계약, 0d 서버 상수 포함)              |
-| 코드 SHA | (작성 중)                                                                                              |
+| 코드 SHA | `059778c1`                                                                                             |
 | 후보     | PRO Worker만, target `pro-room`. App 버전·SW 캐시(9.0.3 / v771)와 버전 표기는 그대로. 미배포           |
 | 열차     | 구조 개선 Phase 1 PRO Worker A: C7-3 시그널링 요청 빌더 하나. 동작 변경 없음                           |
 | 환경     | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(node), 로컬 workerd(Miniflare, 실제 두 Worker 번들) |
@@ -104,7 +104,11 @@ PRO Worker 배포는 살아 있는 PRO 방 Durable Object를 다시 시작하므
 - 대상 테스트: `src/pro-room`, `resource-ownership-guard`, `src/network/transport`(111개 파일
   3,243개)와 Worker 설정 `vitest.workers.config.ts`(57개 파일 2,760개, workerd 계약 포함)
   통과. `check:workers`, `guard:source-complexity`, 소유권 가드 통과.
-- 전체 검사: (작성 중)
+- 전체 검사(`059778c1`, 로컬): 타입 검사, lint, 서식, 빌드 통과. 단위 테스트 627개 파일 14,122개,
+  Worker 테스트 57개 파일 2,760개 통과. 가드(dead-exports, bus-pairing, import-graph,
+  lifecycle-writes, release-identity, sw-cache-version, source-complexity, d1-migrations,
+  `check:workers`, resource-ownership) 통과. 브라우저 앱이 바뀌지 않아 브라우저 검사는 돌리지
+  않았다. 로컬 결과는 정확한 main SHA 배포 후보를 대신하지 않는다.
 - 배포 뒤 smoke(`smoke:live:signaling`, pro-room)는 PRO 방에서 시그널링으로 가는 broadcast를
   타지 않는다. 근거는 실제 PRO Worker와 시그널링 Worker를 함께 띄우는 workerd 계약 테스트다.
   로컬 결과는 정확한 main SHA 배포 후보를 대신하지 않는다.

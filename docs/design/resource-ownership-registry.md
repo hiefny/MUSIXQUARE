@@ -5,7 +5,7 @@
 | Status             | Maintained contract                                                                                                                                                                                                                                                                                                         |
 | Applies to         | Every shared runtime resource in `src/`, `browser/` and `cloudflare/` that more than one recovery, retry, timeout, watchdog or lifecycle flow can drive                                                                                                                                                                     |
 | Last source review | 2026-10-22 (`main` `c08b6c39`, App 9.0.1)                                                                                                                                                                                                                                                                                   |
-| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the resource-ownership guard (Phase 0b, not yet added)                                                                                                                                                                                  |
+| Executable sources | The `resource-ownership` ID block below, the anchor tests named in each record, and the [resource-ownership guard](#resource-ownership-guard) (`scripts/check-resource-ownership.mts`, run in CI)                                                                                                                           |
 | Related documents  | [Realtime runtime ownership](realtime-runtime-ownership.md), [Playback concurrency invariants](playback-concurrency-invariants.md), [Source complexity safety limits](source-complexity-ratchet.md), [Known and accepted risks](../known-accepted.md), [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md) |
 
 This registry names one owner for each shared runtime resource and records where that is not
@@ -46,7 +46,8 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
 - **Owner, requester, reader:** as in principle 1. A **target single owner** is where the
   consolidating phase moves ownership; `owner-in-place` records already have it.
 - **Lifecycle operations:** the calls that change the resource (start, stop, resume, close,
-  write, retry). The upcoming guard counts their callers per file.
+  write, retry). The resource-ownership guard counts the callers of the distinctive ones per file
+  or function.
 - **Deadline owner:** the module allowed to time out an attempt on the resource.
 - **Timing-constant home:** the module and constant names that hold the resource's timing values.
 - **Anchor tests:** the tests that pin the four cancellation cases: supersession (a newer attempt
@@ -136,7 +137,8 @@ The fenced block tagged `resource-ownership` below is the machine-readable copy 
 holds one line per record, `RO-NN status`, in record order. `status` is one word: `duplicated`,
 `owner-in-place` or `accepted-exception`, and it must equal the first word of the record's
 **Status** field. The resource-ownership guard reads this block and fails when it disagrees with
-the record headings (`### RO-NN ...`) or with the guard's own manifest.
+the record headings (`### RO-NN ...`), their **Status** fields, the index, or the record IDs the
+guard's own manifest names.
 
 ```resource-ownership
 RO-01 duplicated
@@ -365,6 +367,8 @@ RO-46 accepted-exception
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module with the service (G1). `system-audio-service.test.ts` mocks the guest and SFU
     modules, so it cannot see their interplay.
+  - Guard: the resource-ownership guard fails when the PRO SFU reception start arms the guest
+    watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`.
 - **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrives after the
   30 s watchdog stays silent; the fix needs a bounded re-begin per publication because an
   unchanged controller state never re-emits) and G6 (each PRO SFU retry re-runs the reception
@@ -1430,6 +1434,32 @@ For a new recovery, retry, timeout, watchdog or lifecycle flow:
 6. Import timing from the record's home; derive mirrored values from the named constant.
 7. Add a failing interleaving test that runs the real sibling instead of mocking it.
 
+## Resource-ownership guard
+
+`scripts/check-resource-ownership.mts` runs in CI as `node scripts/check-resource-ownership.mts`
+over production code in `src/` and `cloudflare/`. It walks the TypeScript syntax tree, so comments
+and unrelated strings never count, and every baseline is an exact count or list with a reason:
+
+1. **Registry parity:** the ID block, the record headings and **Status** fields, the index, the
+   record IDs the guard names, and `Resource owner:` headers.
+2. **Guarded page state, per file:** `inert` writes, page-lock claims and walks over the body's
+   children (RO-24), aria-hidden writes in page-lock files, Fullscreen request and exit methods
+   (RO-26), history entry writes (RO-30), navigation through `location` (RO-23) and
+   `SKIP_WAITING` sends (RO-22).
+3. **Worker callers, per function:** the `/internal/realtime/v1/broadcast` endpoint (RO-07) and
+   `readProRoomFileDuration` (RO-08).
+4. **One deadline owner per PRO SFU attempt** (RO-04, principle 2): the subscriber retry maximum
+   stays below the guest receive watchdog, or the PRO SFU reception start passes
+   `receiveWatchdog: false`.
+5. **Copied timing constants** inside the files a record names as its timing home (principle 4):
+   same-named constants, identical numeric tuples and shared timing objects form a triaged list.
+   Constants that share only a value are report-only, because round values such as 1 s, 15 s and
+   30 s recur across different contracts; `--report` lists them.
+6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44).
+
+Not checked yet: receivers resolved by type (RO-44), module-level lifecycle slots (RO-45),
+timer-name manifests, shared phase unions and duplicated helper names.
+
 ## How to change this registry
 
 - **Same change.** A change that adds a resource, adds a machine to a resource, moves an owner,
@@ -1441,14 +1471,15 @@ For a new recovery, retry, timeout, watchdog or lifecycle flow:
   independent machine, citing that change's tests. An exception record is deleted (its number
   stays unused) by the change that meets its "Revisit when" condition, which also updates the
   parent record.
-- **Guard baselines.** The resource-ownership guard keeps exact, shrink-only counts. Change a
-  baseline (lower or raise a count, or edit an allowlist) only in the same pull request as the code
-  change that causes it, with the reason written in that pull request; never in a separate
-  baseline-only change. Lowering is expected when debt is removed; raising also needs the record
-  update that explains the new machine or owner.
+- **Guard baselines.** The resource-ownership guard's baselines are exact and shrink-only: it fails
+  when a count rises and also when it falls, until the baseline matches. Lower a baseline freely,
+  in the change that removes the debt. Raise one, or add an entry, only in the same pull request as
+  the code that needs it, with the reason written next to the entry and in that pull request, plus
+  the record update that explains the new machine or owner. Never change a baseline in a separate
+  baseline-only change.
 - **Owner headers.** Owner files carry a `Resource owner: RO-NN` header comment, added with each
-  area's first runtime change; the guard checks that every header names a record here and that no
-  ID is claimed by two files.
+  area's first runtime change; the guard checks that every header names a record here that is not
+  an exception, and that no ID is claimed by two files.
 - **Accepted behaviour risk.** An exception that leaves user-visible risk links its
   [known-accepted](../known-accepted.md) entry once the owner accepts it.
 - **Source review.** When a record is re-verified against the code, update `Last source review`.

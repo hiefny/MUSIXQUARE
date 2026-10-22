@@ -70,6 +70,11 @@ jobs:
       - name: Room authority compatibility boundary
         run: npm run guard:room-authority-boundaries
 
+      - name: Resource ownership registry and guarded sinks
+        # Called directly: an npm alias would edit package.json, a runtime path
+        # for guard:sw-cache-version, so it joins the next runtime change.
+        run: node scripts/check-resource-ownership.mts
+
       - name: Storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 

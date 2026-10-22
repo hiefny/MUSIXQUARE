@@ -47,6 +47,9 @@
   owner instead of adding an independent machine.
 - Import timing values from the home the registry names; never copy them.
 - A new resource or an owner change updates the registry in the same change.
+- `node scripts/check-resource-ownership.mts` enforces the registry with exact
+  baselines. Lower one when debt is removed; raise one only in the same pull
+  request as the code that needs it, with the reason.
 
 ## Public repository
 

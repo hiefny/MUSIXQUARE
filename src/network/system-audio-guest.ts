@@ -632,7 +632,7 @@ export function cleanupGuestSystemAudio(): void {
  *
  * `receiveWatchdog: false` leaves the receive deadline to the caller. The PRO
  * coordinator reports a failure once per generation on both routes: the SFU
- * subscription re-enters this placeholder on each backed-off retry, and the
+ * subscription keeps this placeholder through its backed-off retries, and the
  * LAN-direct listener keeps it past its own deadline, while the publisher
  * promotes a listener it cannot reach to the SFU. The watchdog would instead
  * show receive_failed and drop to idle while a longer retry waits, or before a

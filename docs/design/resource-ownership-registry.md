@@ -229,9 +229,11 @@ RO-46 accepted-exception
   `context-recovery.ts` and `ui-sounds.ts`), suspend lease create, settle and abandon,
   clock-health arm and consume, confirm, retire and cancel.
 - **Deadline owner:** each machine times its own gesture resume (750 ms) and suspend preparation
-  (500 ms). Fix lane G7: a gesture resume that settles after 750 ms reaches
-  `awaiting-clock-verification` in `handleNativeResumeSettlement` and no clock verification is
-  scheduled for it.
+  (500 ms). Fix lane G7: once that deadline has returned the gesture caller, the playback-scope
+  owner verifies a late `running` itself (`handleNativeResumeSettlement`), and its visible edge
+  verifies an attempt of either cause still awaiting clock verification
+  (`continueRecoveryInForeground`). Both use the owner's existing automatic probe, with no new
+  timer.
 - **Timing-constant home:** none shared. `context.ts` holds `AUDIO_RESUME_DEADLINE_MS`,
   `FOREGROUND_SUSPEND_PREPARE_DEADLINE_MS`, `FOREGROUND_GESTURE_RESUME_DEADLINE_MS`,
   `FOREGROUND_LATE_SUSPEND_FENCE_MS`, `MAX_FOREGROUND_SUSPEND_ATTEMPTS`; `context-recovery.ts`
@@ -243,11 +245,13 @@ RO-46 accepted-exception
     recovery after the playback identity changes"; `src/audio/__tests__/context-health.test.ts`
     "keeps a retired late gesture resume inert against a successor restart".
   - User pause/stop: `context-recovery.test.ts` "drops a pending rejoin when the room pauses
-    during interruption".
+    during interruption"; `src/audio/__tests__/audio-context-ownership.test.ts` "a user pause
+    before a late resume settles retires the attempt" (G7).
   - Teardown: `context-recovery.test.ts` "does not transfer a late gesture recovery after its exact
     binding is disposed".
   - Visibility: `context-recovery.test.ts` "never calls native resume while hidden without active
-    playback".
+    playback"; `audio-context-ownership.test.ts` "a late resume … that settles while hidden is
+    verified on the visible edge" (G7).
   - Missing: both machines and UI sounds together; no unit test imports `app.ts`.
 - **Status:** `duplicated`. Phase 0d (shared constants), Phase 7 (one lease, one `statechange`
   dispatcher, owner gesture functions, UI sounds yield). Fix lane G7. Exceptions RO-36, RO-37,

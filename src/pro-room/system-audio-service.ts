@@ -522,7 +522,10 @@ function cleanupCoordinatorSubscriptionForRetry(): void {
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
   clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
   cleanupCoordinatorAudioNodes();
-  coordinatorSubscriptionKey = null;
+  // Keep coordinatorSubscriptionKey: the retry re-subscribes the same
+  // publication inside the receive placeholder it already holds. Clearing the
+  // key made every retry tear the placeholder down and begin it again, which
+  // re-ran stopAllMedia, the transfer cancels and 'system-audio:host-started'.
   coordinatorSubscriptionFlight = null;
   stopProSystemAudioSfuSubscriber();
   cleanupSystemAudioSfuGuestRoute();

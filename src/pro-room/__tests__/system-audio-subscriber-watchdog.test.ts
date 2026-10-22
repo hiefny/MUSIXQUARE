@@ -180,11 +180,10 @@ describe('PRO SFU subscriber retry and the guest receive watchdog', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(isReceivingPlaceholder()).toBe(true);
 
-    // Retries wait 2.5, 5, 10, 20 and then 30 seconds. Each retry tears the
-    // placeholder down and re-enters it in the same turn (cleanupCoordinatorGraph
-    // -> cleanupGuestSystemAudio -> beginTrustedSystemAudioReception), so a
-    // sample between timer turns across three minutes of a persistent
-    // subscription failure must never find the receiver idle.
+    // Retries wait 2.5, 5, 10, 20 and then 30 seconds and keep the placeholder
+    // they re-subscribe in, so a sample between timer turns across three
+    // minutes of a persistent subscription failure must never find the
+    // receiver idle.
     const idleAtSeconds: number[] = [];
     for (let elapsed = 250; elapsed <= 180_000; elapsed += 250) {
       await vi.advanceTimersByTimeAsync(250);
@@ -222,6 +221,78 @@ describe('PRO SFU subscriber retry and the guest receive watchdog', () => {
     expect(getState('systemAudio.isReceiving')).toBe(true);
     expect(getState('playback.mode')).toBe('system-audio');
     expect(getState('playback.activity')).toBe('playing');
+    expect(isReceivingPlaceholder()).toBe(true);
+  });
+});
+
+describe('PRO SFU subscriber retry and the receive placeholder', () => {
+  async function failAfterAttempt(descriptor: Record<string, unknown>): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, ATTEMPT_MS));
+    mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+    throw new Error('REALTIME_SESSION_FAILED');
+  }
+
+  let hostStarted: number;
+  // Every `null` is the 'system-audio' owner released back to idle.
+  let modeChanges: unknown[];
+
+  beforeEach(() => {
+    hostStarted = 0;
+    modeChanges = [];
+    testListeners.on('system-audio:host-started', () => {
+      hostStarted += 1;
+    });
+    testListeners.on('state:playback.mode', (mode) => {
+      modeChanges.push(mode);
+    });
+  });
+
+  it('enters the placeholder once for one publication through three minutes of retries', async () => {
+    mocks.subscribe.mockImplementation(failAfterAttempt);
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(isReceivingPlaceholder()).toBe(true);
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(hostStarted).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(180_000);
+
+    // A retry re-subscribes the same publication inside the placeholder it
+    // already holds: it never stops media, announces the share again or
+    // releases the 'system-audio' owner.
+    expect(mocks.subscribe.mock.calls.length).toBeGreaterThanOrEqual(8);
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(hostStarted).toBe(1);
+    expect(modeChanges.filter((mode) => mode === null)).toHaveLength(0);
+    expect(isReceivingPlaceholder()).toBe(true);
+    expect(toasts).toEqual(['system_audio.connection_unstable']);
+  });
+
+  it('enters the placeholder again when the share moves to a new publication', async () => {
+    mocks.subscribe.mockImplementation(failAfterAttempt);
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(ATTEMPT_MS);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(1);
+
+    // The sharer republishes while this listener waits for its first retry.
+    const republished = live();
+    republished.generation = 2;
+    republished.publication = {
+      publicationId: 'publication_00002',
+      sessionId: 'realtime_session_02',
+      track: { trackName: 'audio-stereo', mid: '0' },
+    };
+    api.getSystemAudioState.mockResolvedValue(republished);
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.subscribe).toHaveBeenCalledTimes(2);
+    expect(mocks.subscribe.mock.calls[1]?.[0]).toMatchObject({ generation: 2 });
+
+    await vi.advanceTimersByTimeAsync(180_000);
+
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(2);
+    expect(hostStarted).toBe(2);
+    expect(modeChanges.filter((mode) => mode === null)).toHaveLength(1);
     expect(isReceivingPlaceholder()).toBe(true);
   });
 });
@@ -322,6 +393,8 @@ describe('PRO SFU subscription that rejects synchronously', () => {
     expect(mocks.subscribe).toHaveBeenCalledTimes(2);
 
     expectBackedOffRetriesWithOneNotice(await sampleThreeMinutes());
+    // The retries keep the placeholder the attached share entered with.
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
 
     // Once the coordinator ends the share, the retries stop and the receiver leaves.
     api.getSystemAudioState.mockResolvedValue({

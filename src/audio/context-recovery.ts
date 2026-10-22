@@ -585,7 +585,12 @@ function handleNativeResumeSettlement(
     recovery.activeResumeToken = null;
     recovery.phase = 'awaiting-clock-verification';
     recovery.clockVerified = false;
-    if (source === 'automatic') scheduleAutomaticClockVerification(recovery);
+    // A gesture caller probes its own token while its flight is open. Once the
+    // resume deadline has returned it running:false, this late `running` has
+    // no other prober, so the owner verifies it (fix lane G7).
+    if (source === 'automatic' || !recovery.gestureResume) {
+      scheduleAutomaticClockVerification(recovery);
+    }
     return;
   }
 
@@ -951,17 +956,23 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
       activeBindingToken !== bindingToken ||
       document.visibilityState !== 'visible' ||
       !recoveryStillOwnsAttempt(recovery) ||
-      !identityStillCurrent(recovery.identity) ||
-      recovery.cause !== 'state-interruption'
+      !identityStillCurrent(recovery.identity)
     ) {
       return;
     }
-    if (recovery.phase === 'awaiting-resume' && isPreparedState(context)) {
+    if (
+      recovery.cause === 'state-interruption' &&
+      recovery.phase === 'awaiting-resume' &&
+      isPreparedState(context)
+    ) {
       resumeContext(recovery, 'automatic').catch((error) => {
         log.warn('[Audio] Foreground automatic resume failed', error);
       });
       return;
     }
+    // Either cause: a running attempt that could not prove its clock while
+    // hidden has no other prober on return (fix lane G7). A stalled attempt is
+    // never resumed here; only its trusted gesture resumes it.
     if (recovery.phase === 'awaiting-clock-verification' && String(context.state) === 'running') {
       scheduleAutomaticClockVerification(recovery);
     }
@@ -1029,6 +1040,8 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
         } else {
           continueRecoveryInForeground(recovery);
         }
+      } else {
+        continueRecoveryInForeground(recovery);
       }
       return;
     }

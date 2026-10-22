@@ -91,6 +91,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO SFU retry placeholder and slow gesture resume — 9.0.3, 2026-10-23](design/pro-sfu-retry-and-slow-gesture-resume-2026-10-23.md) —
+  A PRO SFU retry keeps its receive placeholder, the AudioContext owner verifies a gesture resume that
+  outlives its 750 ms deadline, and the AudioContext lifecycle fake; failing-first tests and device limits.
+
 - [PRO LAN-direct receive deadline owner — 9.0.2, 2026-10-22](design/pro-direct-receive-deadline-2026-10-22.md) —
   A PRO LAN-direct listener stays in one receive placeholder so a late track attaches, and the coordinator
   owns its deadline with one connection_unstable notice per generation; failing-first tests and device limits.

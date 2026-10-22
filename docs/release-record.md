@@ -45,6 +45,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 9.0.2 PRO 같은 네트워크 직접 수신의 마감 주인
+
+- [ ] App 9.0.2/v770 후보(target `app`). PRO LAN-direct 수신도 게스트 30초 감시
+      없이 수신 대기에 들어가고, 늦게 온 트랙이 붙는다. 마감은 코디네이터가 가져
+      트랙이 붙지 않으면 "연결이 불안정"을 발행 세대마다 한 번 알린다. 실기기(늦게
+      들어온 청취자, 잠들었던 배포자 페이지)는 미검증이다.
+      [변경·검증·한계](design/pro-direct-receive-deadline-2026-10-22.md).
+
 ### 9.0.1 경쟁하는 복구 흐름 사이의 틈 4건
 
 - [ ] App 9.0.1/v769는 2026-10-22 18:25 KST [Release 39755032853](https://github.com/hiefny/MUSIXQUARE/actions/runs/39755032853)로 배포했다(target `app`). 9.0.0 회귀인 PRO 시스템 오디오 구독
@@ -54,10 +62,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
       시스템 오디오 구독 실패 지속, iPhone Safari 화면 복귀 직후 일시정지와 복귀 뒤
       일시정지 상태로 남지 않는지, PRO 일시정지 대기 중 다른 전환, 리셋 중 열린
       대화상자)는 미검증이다. [변경·검증·한계](design/ownership-gap-fixes-2026-10-22.md).
-- [ ] 후속 수정 후보: PRO 같은 네트워크 직접 연결(LAN-direct) 수신은 30초 수신 감시가
-      울린 뒤 트랙이 늦게 와도 붙지 않고 소리 없이 남을 수 있다. PRO SFU 재시도는
-      시도마다 재생 정지 처리와 수신 시작 알림을 다시 돈다(9.0.0 전부터). 둘 다 실패
-      테스트로 재현한 뒤 따로 고친다. [근거](design/ownership-gap-fixes-2026-10-22.md#그대로-둔-것).
+- [ ] 후속 수정 후보: PRO SFU 재시도는 시도마다 재생 정지 처리와 수신 시작 알림을
+      다시 돈다(9.0.0 전부터). 실패 테스트로 재현한 뒤 따로 고친다.
+      [근거](design/ownership-gap-fixes-2026-10-22.md#그대로-둔-것). LAN-direct 쪽
+      후보는 9.0.2에서 고쳤다([보고서](design/pro-direct-receive-deadline-2026-10-22.md)).
 
 ### 9.0.0 유휴 계산 정리·PRO 하트비트 계약
 

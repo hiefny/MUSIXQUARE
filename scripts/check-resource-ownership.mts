@@ -5,19 +5,26 @@
  * Static ratchet for docs/design/resource-ownership-registry.md: one owner per
  * shared runtime resource (Phase 0b of the 2026-10-22 structural plan).
  *
- *   CHECK 1 Registry parity. The `resource-ownership` ID block is well formed,
- *     unique and in record order; it matches the record headings, each
- *     record's Status field and the index table; every ID this guard names
- *     exists; every `Resource owner: RO-NN` header names a real, non-exception
- *     record, and no ID is claimed by two files.
+ *   CHECK 1 Registry parity. There is one `resource-ownership` ID block, its
+ *     lines are well formed `RO-NN status`, unique and in ascending ID order.
+ *     It lists the same IDs in the same order as the `### RO-NN` record
+ *     headings; the first word of each record's `- **Status:**` field, read
+ *     only inside that record's section and with backticks and surrounding
+ *     punctuation stripped, equals its block status; the index table has a
+ *     row with the same status for every block ID and no row for any other
+ *     ID; every ID this guard names has a block line. Every `Resource owner:
+ *     RO-NN` header names a real, non-exception record, and no ID is claimed
+ *     by two files.
  *   CHECK 2 Guarded page state (RO-22, RO-23, RO-24, RO-26, RO-30). Direct
  *     writes stay in their allowlisted files: `inert` writes, page-lock claims
  *     through setElementInertForOwner, walks over the body's children,
  *     aria-hidden writes in page-lock files, Fullscreen request/exit methods,
  *     history entry writes, location navigation and SKIP_WAITING sends.
  *   CHECK 3 Worker caller allowlists (RO-07, RO-08). The PRO signaling
- *     broadcast endpoint '/internal/realtime/v1/broadcast' and
- *     readProRoomFileDuration() appear only in the listed functions.
+ *     broadcast endpoint '/internal/realtime/v1/broadcast' (anywhere in
+ *     production code) and readProRoomFileDuration() (in cloudflare/; the
+ *     app's local-file parse is outside RO-08) appear only in the listed
+ *     functions.
  *   CHECK 4 One deadline owner per PRO SFU attempt (RO-04, the G1 lesson).
  *     The PRO subscriber retry maximum stays below the guest receive
  *     watchdog, or the PRO SFU reception start in the subscribing function
@@ -36,18 +43,19 @@
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
- * fails until the baseline is lowered to the measured count. Lower a baseline
- * freely, in the change that removes the debt. Raise one, or add an entry,
- * only in the same pull request as the code that needs it, with the reason
- * written next to the entry and in the pull request; never in a separate
- * baseline-only change (registry, "How to change this registry").
+ * fails until the baseline is lowered to the measured count. A baseline
+ * changes only in the pull request that changes the counted code, with the
+ * reason written next to the entry and in the pull request; never in a
+ * separate baseline-only change. Lowering one is routine; raising one, or
+ * adding an entry, also needs a registry record update (registry, "How to
+ * change this registry").
  *
  * Scope: production TypeScript under src/ and cloudflare/ (tests, *.d.ts and
  * generated Worker types excluded). The checks walk the TypeScript AST, so
  * comments and unrelated strings never count. Lifecycle-operation callers
  * are counted only for the names above (page-lock claims, SKIP_WAITING sends,
  * AudioContext resume/suspend, armed reception starts, the Worker broadcast
- * endpoint and the duration reader). Deliberately not checked yet (registry
+ * endpoint and the duration reader in cloudflare/). Deliberately not checked yet (registry
  * RO-44, RO-45 and "Resource-ownership guard"): callers of the other
  * records' lifecycle operations (YouTube player commands, claimPlaybackOwner,
  * setSystemAudioReceiving, scheduleSessionReset), receivers resolved by type,
@@ -204,7 +212,12 @@ const BROADCAST_ENDPOINT_BASELINE: Baseline = new Map<string, Allowance>([
 
 const DURATION_READER = 'readProRoomFileDuration';
 
-/** RO-08: value uses of readProRoomFileDuration (calls or the reader passed on). */
+/**
+ * RO-08: value uses of readProRoomFileDuration (calls or the reader passed on)
+ * in cloudflare/. The app's src/pro-room/upload-duration.ts runs the same
+ * parser on the uploader's local file, which is not an R2 read and is outside
+ * the resource, so src/ is not counted.
+ */
 const DURATION_READ_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'cloudflare/pro-room-worker.ts :: startAssetDurationProbe',
@@ -213,10 +226,6 @@ const DURATION_READ_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'cloudflare/pro-room-worker.ts :: startPlaybackDurationProbe',
     { count: 1, reason: 'playback probe' },
-  ],
-  [
-    'src/pro-room/upload-duration.ts :: probeProRoomUploadDuration',
-    { count: 1, reason: "the uploader's local file before upload, not an R2 read" },
   ],
 ]);
 
@@ -405,7 +414,12 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
   ['src/audio/context-recovery.ts', { count: 3, reason: 'interruption recovery, target owner' }],
   [
     'src/audio/ui-sounds.ts',
-    { count: 2, reason: 'resumes on trusted input without asking an owner (Phase 7 yields)' },
+    {
+      count: 2,
+      reason:
+        'resumes a non-running context on trusted pointerdown or Enter/Space and before a ' +
+        'UI sound, without asking an owner (Phase 7 yields)',
+    },
   ],
 ]);
 
@@ -930,7 +944,7 @@ function checkRegistry(
     if (!RECORD_STATUSES.has(status)) problem(`${id} has unknown status "${status}"`);
     if (ids.has(id)) problem(`${id} appears twice in the block`);
     const number = Number(digits);
-    if (number <= previousNumber) problem(`${id} is out of record order in the block`);
+    if (number <= previousNumber) problem(`${id} is out of ascending ID order in the block`);
     previousNumber = Math.max(previousNumber, number);
     ids.set(id, status);
   }
@@ -950,12 +964,17 @@ function checkRegistry(
     );
   }
   for (const [position, heading] of headings.entries()) {
+    // Only the record's own section: up to the next record heading or `##` heading.
     const end = headings[position + 1]?.index ?? registry.length;
     const sectionEnd = registry.indexOf('\n## ', heading.index);
     const body = registry.slice(heading.index, sectionEnd === -1 ? end : Math.min(end, sectionEnd));
-    const status = /^- \*\*Status:\*\* `([a-z-]+)`/mu.exec(body)?.[1];
-    if (!status) problem(`${heading.id} has no "- **Status:** \`...\`" field`);
-    else if (ids.has(heading.id) && ids.get(heading.id) !== status) {
+    const firstWord = /^- \*\*Status:\*\*[ \t]*(\S+)/mu.exec(body)?.[1];
+    // First word with backticks and surrounding punctuation stripped: "`duplicated`." -> duplicated.
+    const status = firstWord?.replace(/`/gu, '').replace(/^\p{P}+|\p{P}+$/gu, '');
+    if (!status) problem(`${heading.id} has no "- **Status:**" field in its record`);
+    else if (!RECORD_STATUSES.has(status)) {
+      problem(`${heading.id} Status field starts with unknown status "${status}"`);
+    } else if (ids.has(heading.id) && ids.get(heading.id) !== status) {
       problem(
         `${heading.id} Status field says "${status}" but the block says "${ids.get(heading.id)}"`,
       );
@@ -1301,6 +1320,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
   const registry = checkRegistry(input.registry, ownerHeaders, findings);
 
   const appOnly = (relPath: string): boolean => relPath.startsWith('src/');
+  const workerOnly = (relPath: string): boolean => relPath.startsWith('cloudflare/');
   const pageLockFiles = new Set<string>(['src/core/inert-ownership.ts']);
   for (const [relPath, fileFacts] of facts) {
     if (fileFacts.pageLockClaims > 0 || fileFacts.bodyChildrenWalks > 0) pageLockFiles.add(relPath);
@@ -1370,7 +1390,11 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
   for (const check of pageStateChecks) compareExact(check, findings);
 
   const broadcastSites = tally([...facts.values()].flatMap((f) => f.broadcastEndpointSites));
-  const durationSites = tally([...facts.values()].flatMap((f) => f.durationReadSites));
+  const durationSites = tally(
+    [...facts.entries()]
+      .filter(([relPath]) => workerOnly(relPath))
+      .flatMap(([, f]) => f.durationReadSites),
+  );
   compareExact(
     {
       label: 'signaling broadcast endpoint',

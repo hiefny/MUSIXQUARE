@@ -113,6 +113,72 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       ).toMatch(/malformed block line "RO-7 duplicated"/u);
     });
 
+    it('rejects block lines out of ascending ID order and headings in another order', () => {
+      const findings = findingsOf(
+        withRegistry((registry) =>
+          registry.replace(
+            'RO-01 duplicated\nRO-02 duplicated\n',
+            'RO-02 duplicated\nRO-01 duplicated\n',
+          ),
+        ),
+      );
+      expect(findings).toMatch(/RO-01 is out of ascending ID order in the block/u);
+      expect(findings).toMatch(/block IDs differ from the "### RO-NN" record headings/u);
+    });
+
+    it('reads the first Status word with backticks and surrounding punctuation stripped', () => {
+      const field = '- **Status:** `owner-in-place`. Phase 4 (optional naming).';
+      expect(
+        findingsOf(
+          withRegistry((registry) =>
+            registry.replace(field, '- **Status:** owner-in-place. Phase 4 (optional naming).'),
+          ),
+        ),
+      ).toBe('');
+      expect(
+        findingsOf(
+          withRegistry((registry) =>
+            registry.replace(field, '- **Status:** duplicated, Phase 4 (optional naming).'),
+          ),
+        ),
+      ).toMatch(/RO-10 Status field says "duplicated" but the block says "owner-in-place"/u);
+      expect(
+        findingsOf(
+          withRegistry((registry) =>
+            registry.replace(field, '- **Status:** `consolidated`. Phase 4 (optional naming).'),
+          ),
+        ),
+      ).toMatch(/RO-10 Status field starts with unknown status "consolidated"/u);
+    });
+
+    it('reads a Status field only inside its own record', () => {
+      const findings = findingsOf(
+        withRegistry((registry) =>
+          registry.replace(
+            '- **Status:** `accepted-exception`.\n\n## Checked side flows without a record\n',
+            '\n## Checked side flows without a record\n\n- **Status:** `accepted-exception`.\n',
+          ),
+        ),
+      );
+      expect(findings).toMatch(/RO-46 has no "- \*\*Status:\*\*" field in its record/u);
+    });
+
+    it('rejects a block ID missing from the index and an index row without a block line', () => {
+      const missing = findingsOf(
+        withRegistry((registry) => registry.replace(/^\| RO-46 .*\r?\n/mu, '')),
+      );
+      expect(missing).toMatch(/RO-46 is missing from the index table/u);
+      const extra = findingsOf(
+        withRegistry((registry) =>
+          registry.replace(
+            /^(\| RO-46 .*\r?\n)/mu,
+            '$1| RO-47 | Stray row | All | duplicated | None |\n',
+          ),
+        ),
+      );
+      expect(extra).toMatch(/index row RO-47 has no block line/u);
+    });
+
     it('rejects a block status that disagrees with the record and the index', () => {
       const findings = findingsOf(
         withRegistry((registry) =>
@@ -305,6 +371,26 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(findings).toMatch(
         /UNSANCTIONED PRO duration read \(RO-08\): cloudflare\/rogue-duration\.ts :: readAgain has 1/u,
       );
+    });
+
+    it('counts duration reads only in cloudflare/, where the R2 resource lives', () => {
+      // src/pro-room/upload-duration.ts parses the uploader's local file with
+      // the same reader; app code is outside RO-08 and is not counted.
+      expect(realInput().sources.get('src/pro-room/upload-duration.ts')).toContain(
+        'readProRoomFileDuration(',
+      );
+      const input = withSources((sources) => {
+        sources.set(
+          'src/pro-room/local-duration.ts',
+          "import { readProRoomFileDuration } from '../../cloudflare/pro-room-media-duration.ts';\n" +
+            'export async function readLocal(file: never): Promise<number | null> {\n' +
+            "  return readProRoomFileDuration(file, 'local', 1);\n" +
+            '}\n',
+        );
+      });
+      const report = analyzeResourceOwnership(input);
+      expect(report.findings).toEqual([]);
+      expect(report.workerSites['PRO duration read']).toBe(2);
     });
   });
 

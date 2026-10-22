@@ -32,14 +32,17 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
 3. **User pause or stop beats automatic recovery.** Every automatic recovery, retry or re-align
    chain retires on an explicit user pause or stop. G2 (9.0.1) broke this rule.
 4. **Timing values and phase unions have one named home.** Import them from the home the record
-   names; derive a mirrored value from the named constant instead of retyping it.
+   names and derive a mirrored value from the named constant; never retype them. Where a runtime
+   cannot import (another document or bundle), pin the copy with a parity test named in the
+   record.
 5. **Different contracts stay separate.** Equal values or similar steps are not copies when the
    contract differs: a failed-PLAY retry publishes a room PLAY, an output rejoin never does; the
    30 s heartbeat recovering-transport grace is not the 30 s side-route cap.
-6. **A record here outranks a new machine.** A new module still needs one of the justifications in
-   [Source complexity safety limits](source-complexity-ratchet.md). Its "independent state and
-   start/stop/recovery lifecycle" reason does not cover a second machine on a resource that
-   already has a record here.
+6. **Read the record before splitting out a machine.** Whether a new module is justified is decided
+   by [Source complexity safety limits](source-complexity-ratchet.md), not here. When the module
+   would hold state or lifecycle operations for a resource that has a record here, read that
+   record first: it names the owner to extend, and adding a second machine is a record change
+   (see [How to change this registry](#how-to-change-this-registry)).
 
 ## Terms
 
@@ -49,7 +52,7 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
   write, retry). The resource-ownership guard counts only some callers today: page-lock claims,
   `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()`, armed
   `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint and the duration
-  reader. See [what it does not check yet](#resource-ownership-guard).
+  reader in `cloudflare/`. See [what it does not check yet](#resource-ownership-guard).
 - **Deadline owner:** the module allowed to time out an attempt on the resource.
 - **Timing-constant home:** the module and constant names that hold the resource's timing values.
 - **Anchor tests:** the tests that pin the four cancellation cases: supersession (a newer attempt
@@ -58,10 +61,12 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
   page, background return). `missing` means no such test exists yet; `n/a` means the case cannot
   occur for that resource.
 - **Status:** `duplicated` (two or more independent machines still hold state or lifecycle
-  operations on the resource; a phase consolidates it), `owner-in-place` (one owner exists; the
-  record tells new work which owner to extend) or `accepted-exception` (a deliberate duplicate,
-  drop or deferral, with its evidence and what would reopen it). Exception records name a parent
-  record and inherit its other fields.
+  operations on the resource; a phase consolidates it, or an owner decision has to come first, as
+  for RO-21), `owner-in-place` (one owner exists; the record tells new work which owner to
+  extend) or `accepted-exception` (a deliberate duplicate, drop or deferral, with its evidence and
+  what would reopen it). Exception records name a parent record and inherit its other fields. A
+  primary record can itself be `accepted-exception` by design (RO-11): it keeps the full record
+  fields and names no parent.
 
 ## Consolidation phases
 
@@ -135,12 +140,18 @@ each record also states the step in words.
 
 ## Machine-readable ID list
 
-The fenced block tagged `resource-ownership` below is the machine-readable copy of the index. It
-holds one line per record, `RO-NN status`, in record order. `status` is one word: `duplicated`,
-`owner-in-place` or `accepted-exception`, and it must equal the first word of the record's
-**Status** field. The resource-ownership guard reads this block and fails when it disagrees with
-the record headings (`### RO-NN ...`), their **Status** fields, the index, or the record IDs the
-guard's own manifest names.
+The fenced block tagged `resource-ownership` below is the machine-readable copy of the index. The
+registry has exactly one such block. It holds one line per record, `RO-NN status`, in ascending
+ID order with no repeats; `status` is one word: `duplicated`, `owner-in-place` or
+`accepted-exception`. The resource-ownership guard reads the block and fails unless:
+
+- the block lists the same IDs, in the same order, as the `### RO-NN` record headings;
+- each record has a `- **Status:**` field inside its own section (from its heading to the next
+  record heading or `##` heading), and that field's first word, with backticks and surrounding
+  punctuation stripped, equals the block status;
+- the index has a row for every block ID, with a Status cell equal to the block status, and no row
+  for an ID the block lacks;
+- every record ID the guard's own manifests name has a block line.
 
 ```resource-ownership
 RO-01 duplicated
@@ -204,14 +215,16 @@ RO-46 accepted-exception
   `resumePendingAudioContextInterruptionFromGesture`, phase union `RecoveryPhase`). Each keeps its
   own suspend lease and `statechange` listeners. `src/app.ts` sequences both in the recovery
   dialog, and `src/player/media-session.ts` repeats the same gesture sequence (resume, requirement,
-  probe, escalate, confirm, rejoin). `src/audio/ui-sounds.ts` resumes the context on every trusted
-  pointerdown or keydown without asking either owner.
+  probe, escalate, confirm, rejoin). `src/audio/ui-sounds.ts` resumes the context, only while it
+  is not running, on a trusted pointerdown or Enter or Space keydown and before it plays a UI
+  sound, without asking either owner.
 - **Target single owner:** `src/audio/context-recovery.ts` as the only native resume and suspend
   owner; `context.ts` keeps the singleton.
 - **Allowed requesters:** `ensureRunning` callers (transport, decode, engine) and
-  `probeAudioContextHealth` (`src/audio/output-health.ts`) may resume only a context the owner does
-  not hold; the recovery dialog and media session call the owner's gesture functions; UI sounds
-  ask the owner before resuming.
+  `probeAudioContextHealth` (defined in `context.ts`; called from `output-health.ts`, `app.ts`,
+  `media-session.ts`, `context-recovery.ts` and `src/player/transport.ts`) may resume only a
+  context the owner does not hold; the recovery dialog and media session call the owner's gesture
+  functions; UI sounds ask the owner before resuming.
 - **Lifecycle operations:** native `resume()` and `suspend()` (today in `context.ts`,
   `context-recovery.ts` and `ui-sounds.ts`), suspend lease create, settle and abandon,
   clock-health arm and consume, confirm, retire and cancel.
@@ -462,8 +475,8 @@ RO-46 accepted-exception
   `scheduleServerEvent`. Their only coordination is the epoch fence: `bumpRoomEpoch` empties the
   outbox, and signaling lets only a presence snapshot advance the epoch, answering any other event
   for a newer epoch with 409 `PRO_ROOM_EPOCH_STALE`. The outbox retries that refusal; the no-retry
-  lane drops it (RO-46). The alarm orders presence before playback; the flush after each persist
-  does not.
+  lane drops it, together with any added-tracks notice the event carries (RO-46). The alarm
+  orders presence before playback; the flush after each persist does not.
   - presence delivery (`pendingPresenceBroadcast`, `deliverPresenceBroadcast`,
     `rememberFailedPresenceBroadcast`, `retryPendingPresenceBroadcast`), which sends through the
     generic request builder `broadcastServerEvent`;
@@ -486,7 +499,8 @@ RO-46 accepted-exception
 - **Allowed requesters:** the presence and playback reducers enqueue; the invalidation senders
   listed above send once through the request builder; `scheduleServerEvent` stays the router;
   `scheduleAlarm` asks the outbox for one due time. Worker caller allowlist for
-  `/internal/realtime/v1/broadcast`: `pro-room-worker.ts` only.
+  `/internal/realtime/v1/broadcast`: `pro-room-worker.ts` only (the route itself is `handleFetch`
+  in `signaling-worker.ts`).
 - **Lifecycle operations:** enqueue, dispatch, back off, drop on an epoch change, persist the
   retry marker; send once (no-retry lane).
 - **Deadline owner:** each path's backoff; the no-retry lane has none. `scheduleAlarm` stays the
@@ -519,7 +533,9 @@ RO-46 accepted-exception
 - **Target single owner:** one duration-reads section with one R2 slot predicate, one start and
   one alarm candidate. Two readers remain (RO-32).
 - **Allowed requesters:** registration completion, playback reconcile, the alarm. Worker caller
-  allowlist for `readProRoomFileDuration`: the two probes.
+  allowlist for `readProRoomFileDuration`, scoped to `cloudflare/`: the two probes.
+  `src/pro-room/upload-duration.ts` runs the same parser on the uploader's local file before
+  upload; that is not an R2 read and is outside this resource.
 - **Lifecycle operations:** enqueue, read outside the lane, revalidate inside it, roll back on
   capacity, persist, retry.
 - **Deadline owner:** each probe's retry ladder; the alarm's registration watchdog.
@@ -603,15 +619,19 @@ RO-46 accepted-exception
   accessors `getPendingPlayTime` and `setPendingPlayTime` (`src/player/_state.ts`).
 - **Current owners/flows:** the play-lock queue in `transport.ts` (the busy path writes only the
   scalar; the lock's take clears it only when it owns a typed intent) and the decode-completion
-  consumers in `src/player/decode.ts`. Writers through the accessors: `playback.ts`,
-  `device-track-failure.ts`, `src/storage/transfer-receive.ts`, `src/share/remote-share.ts`.
-  Teardown writer: `leaveSession` in `src/network/peer.ts` writes the three fields directly in its
-  session-reset `setState` batch. Reader only: `guest-file-pause.ts`.
-- **Target single owner:** unchanged. The asymmetric preserve and clear policy is deliberate:
-  [Playback concurrency invariants §4](playback-concurrency-invariants.md#4-pendingplaytime-preserveclear-policy-asymmetric-by-design).
-- **Allowed requesters:** the writers above, through the accessors. The `leaveSession` reset is
-  the one allowed direct write: it sets the same cleared values as `setPendingPlayTime(undefined)`
-  in the batch that resets the rest of the session state. Readers use `getPendingPlayTime`.
+  consumers in `src/player/decode.ts`. The authoritative writer list and per-path policy are
+  [Playback concurrency invariants §4](playback-concurrency-invariants.md#4-pendingplaytime-preserveclear-policy-asymmetric-by-design)
+  (its table and **Writers** paragraph); this record does not keep a second list. The 2026-10-22
+  re-check found two writers §4 does not list: the terminal clear in `markDeviceTrackUnavailable`
+  (`src/player/device-track-failure.ts`) and the session reset in `leaveSession`
+  (`src/network/peer.ts`), which writes the three fields directly in its `setState` batch. §4
+  also still names `tryFetchDemoForRemote`, which no longer exists. Reader only:
+  `guest-file-pause.ts`.
+- **Target single owner:** unchanged. The asymmetric preserve and clear policy is deliberate (§4).
+- **Allowed requesters:** the §4 writers and the two above, through the accessors. The
+  `leaveSession` reset is the one allowed direct write: it sets the same cleared values as
+  `setPendingPlayTime(undefined)` in the batch that resets the rest of the session state. Readers
+  use `getPendingPlayTime`.
 - **Lifecycle operations:** set, preserve, clear, consume.
 - **Deadline owner:** none; consumers age the value from its set-at timestamps.
 - **Timing-constant home:** n/a.
@@ -1042,7 +1062,10 @@ RO-46 accepted-exception
   job.
 - **Lifecycle operations:** activate, clear, delete.
 - **Deadline owner:** the deletion job's minute-cron retry; none for the transfer writes.
-- **Timing-constant home:** n/a; the digest pattern is repeated three times (Phase 0d, C7-2).
+- **Timing-constant home:** n/a. The fence-digest pattern `/^[A-Za-z0-9_-]{43}$/` is written
+  four times in `app-worker.ts`: the account-deletion purge (`purgeProRoomAccountAuthority`),
+  `revokeDeveloperApiKeysForAuthorityChange`, `clearDeveloperApiAuthorityFence` and the saga row
+  parse (`normalizeOwnerTransferSagaRow`). Target: one shared pattern (Phase 0d, C7-2).
 - **Anchor tests:**
   - Supersession: `app-worker-cors.test.ts` "acks each exact owner-removal projection and never
     replays a stale deletion over a new owner".
@@ -1388,18 +1411,29 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Parent:** RO-07.
 - **Exception:** `pro-room-invalidated` and `system-audio-invalidated` events get one send and no
   outbox record. A failed send is dropped, including the 409 `PRO_ROOM_EPOCH_STALE` refusal of a
-  send that reaches signaling before the presence snapshot of a new epoch.
+  send that reaches signaling before the presence snapshot of a new epoch. A
+  `pro-room-invalidated` event can also carry the one-shot added-tracks notice (`addition`, a
+  `pro-queue-addition` frame). `scheduleDeveloperInvalidationHint` attaches it for developer API
+  and bot additions and, from `commitParticipantSnapshot`, for every participant playlist
+  addition, and sends it through `scheduleServerEvent` to `broadcastServerEvent` with no retry.
+  The client announces it only from a realtime frame (`acceptProRoomRealtimeFrame` to
+  `acceptQueueAddition`, then `flushAcceptedQueueAdditions` to `announceTracksAddedLocally` in
+  `src/pro-room/runtime.ts`), and no heartbeat replays it. A failed or epoch-stale send therefore
+  drops the notice; it is not delayed.
 - **Evidence:** the events are refresh hints, not state. `acceptProRoomRealtimeFrame` in
   `src/pro-room/runtime.ts` answers them with a heartbeat or a system-audio read, and every 15 s
   presence heartbeat reconciles the playlist, effects, queue mode, playback and system audio (the
   comment on `refreshSystemAudioState` names it the backstop for a lost invalidation).
   `src/pro-room/__tests__/runtime-account-lease.test.ts` "applies a share end from the next
   heartbeat when its invalidation is lost" pins that backstop. After an epoch bump, signaling also
-  closes the old-epoch sockets.
+  closes the old-epoch sockets. The added-tracks notice has no backstop, and `runtime.ts` already
+  prefers omitting a stale notice to showing it late: `flushAcceptedQueueAdditions` skips a notice
+  older than one already announced.
 - **Behaviour risk:** after a failed send, other participants see the change up to one heartbeat
-  (15 s) late; no known-accepted entry.
+  (15 s) late and never see its added-tracks notice; no known-accepted entry; the owner may
+  confirm one.
 - **Revisit when:** the owner wants these changes delivered faster than one heartbeat after a
-  failed send.
+  failed send, or wants the added-tracks notice to survive one.
 - **Status:** `accepted-exception`.
 
 ## Checked side flows without a record
@@ -1427,7 +1461,10 @@ get a record only if a change adds a second machine:
 For a new recovery, retry, timeout, watchdog or lifecycle flow:
 
 1. Find the resource's record. Call or extend its owner; hold no pending, generation or timer
-   state outside it. If no record fits, add one in the same change.
+   state outside it. If no record fits, add one in the same change when your flow becomes the
+   second machine on that resource, including a resource listed under
+   [Checked side flows without a record](#checked-side-flows-without-a-record). A flow that is its
+   resource's only owner needs no record.
 2. Give each attempt one deadline. If a retry ladder's longest delay exceeds a watchdog on the same
    slot, decide which owns the deadline and write it in the record.
 3. Check the flow against every other machine in the record: an explicit user pause or stop, a
@@ -1436,7 +1473,9 @@ For a new recovery, retry, timeout, watchdog or lifecycle flow:
 4. When restoring audio, mute or play, read the same desired-state function as the sibling path,
    and check the Standard and PRO copies.
 5. Order catch branches abort, cancel, known, unknown.
-6. Import timing from the record's home; derive mirrored values from the named constant.
+6. Import timing from the record's home and derive mirrored values from the named constant; never
+   retype them. Where a runtime cannot import, pin the copy with a parity test named in the
+   record.
 7. Add a failing interleaving test that runs the real sibling instead of mocking it.
 
 ## Resource-ownership guard
@@ -1445,14 +1484,16 @@ For a new recovery, retry, timeout, watchdog or lifecycle flow:
 over production code in `src/` and `cloudflare/`. It walks the TypeScript syntax tree, so comments
 and unrelated strings never count, and every baseline is an exact count or list with a reason:
 
-1. **Registry parity:** the ID block, the record headings and **Status** fields, the index, the
-   record IDs the guard names, and `Resource owner:` headers.
+1. **Registry parity:** the ID block against the record headings, each record's **Status** field,
+   the index rows and the record IDs the guard names, as listed under
+   [Machine-readable ID list](#machine-readable-id-list); and the `Resource owner:` headers.
 2. **Guarded page state, per file:** `inert` writes, page-lock claims and walks over the body's
    children (RO-24), aria-hidden writes in page-lock files, Fullscreen request and exit methods
    (RO-26), history entry writes (RO-30), navigation through `location` (RO-23) and
    `SKIP_WAITING` sends (RO-22).
-3. **Worker callers, per function:** the `/internal/realtime/v1/broadcast` endpoint (RO-07) and
-   `readProRoomFileDuration` (RO-08).
+3. **Worker callers, per function:** the `/internal/realtime/v1/broadcast` endpoint anywhere in
+   production code (RO-07) and `readProRoomFileDuration` in `cloudflare/` (RO-08; the app's
+   local-file parse in `src/pro-room/upload-duration.ts` is outside that resource).
 4. **One deadline owner per PRO SFU attempt** (RO-04, principle 2): the subscriber retry maximum
    stays below the guest receive watchdog, or the PRO SFU reception start passes
    `receiveWatchdog: false`. Armed `beginTrustedSystemAudioReception` starts (any use without the
@@ -1472,21 +1513,22 @@ then, review those by hand against each record.
 
 ## How to change this registry
 
-- **Same change.** A change that adds a resource, adds a machine to a resource, moves an owner,
-  consolidates a duplicate or changes a timing home updates the record, the index and the
+- **Same change.** A change that adds a machine to a registered resource, makes a flow the second
+  machine on an unregistered resource (see [Before adding a flow](#before-adding-a-flow)), moves an
+  owner, consolidates a duplicate or changes a timing home updates the record, the index and the
   `resource-ownership` block in the same pull request.
 - **Stable IDs.** IDs are never renumbered or reused. A new record takes the next free number. When
   a resource disappears, delete its record and its block line and leave the number unused.
 - **Status changes.** `duplicated` becomes `owner-in-place` only in the change that removes the last
-  independent machine, citing that change's tests. An exception record is deleted (its number
-  stays unused) by the change that meets its "Revisit when" condition, which also updates the
-  parent record.
-- **Guard baselines.** The resource-ownership guard's baselines are exact and shrink-only: it fails
-  when a count rises and also when it falls, until the baseline matches. Lower a baseline freely,
-  in the change that removes the debt. Raise one, or add an entry, only in the same pull request as
-  the code that needs it, with the reason written next to the entry and in that pull request, plus
-  the record update that explains the new machine or owner. Never change a baseline in a separate
-  baseline-only change.
+  independent machine, citing that change's tests. When an exception's "Revisit when" condition
+  is met, the change that meets it either deletes the exception record (its number stays unused)
+  and updates the parent record, or re-evidences it with new evidence and a new "Revisit when".
+- **Guard baselines.** The resource-ownership guard's counts are exact: it fails when a count rises
+  and also when it falls, until the baseline matches. A baseline changes only in the pull request
+  that changes the counted code, with the reason written next to the entry and in that pull
+  request. Lowering one is routine, in the change that removes the debt. Raising one, or adding an
+  entry, also needs the record update that explains the new machine or owner. Never change a
+  baseline in a separate baseline-only change.
 - **Owner headers.** Owner files carry a `Resource owner: RO-NN` header comment, added with each
   area's first runtime change; the guard checks that every header names a record here that is not
   an exception, and that no ID is claimed by two files.

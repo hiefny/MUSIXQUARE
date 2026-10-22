@@ -87,6 +87,8 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks.
+
 ## Index
 
 | ID    | Resource                                                 | Area           | Status             | Consolidation                |
@@ -580,7 +582,11 @@ RO-46 accepted-exception
   audit (`auditSystemOwnerTransfer`) without deduplication, so duplicate audit rows are possible
   (inferred, not reproduced).
 - **Target single owner:** one post-commit executor with the request and the cron as entry
-  adapters. The finalize-before-verified order is an owner decision.
+  adapters. Owner decision (2026-10-23, D3): both entries use that executor's single order. The
+  entitlement is finalized before `verified`, so `verified` means the room is active and the
+  entitlement has moved; the cron's current verified-then-finalize order is retired. The audit row is
+  written before any terminal advance (`complete` or `target_deleted`), at least once, with a
+  transfer-scoped deduplication instead of today's possible loss after a terminal advance.
 - **Allowed requesters:** the transfer request and the minute cron, as entry adapters.
 - **Lifecycle operations:** link, fence, Durable Object commit or reconcile, committed, registry,
   old-owner edge, fence clear, complete; terminate for a deleted target.

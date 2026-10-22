@@ -234,7 +234,11 @@ export function createFakeAudioContext(sampleRate = 48_000): FakeAudioContext {
 export type FakeNativeState = 'running' | 'suspended' | 'interrupted' | 'closed';
 
 export interface FakeNativeCallPlan {
-  /** Fake-timer delay before the call takes effect; 0 settles on a microtask. */
+  /**
+   * Fake-timer delay before the call takes effect. 0 (the default) settles on
+   * a microtask, sooner than any browser; pass 1 or more where the call must
+   * land after a pending promise reaction, as it does in a real event loop.
+   */
   readonly latencyMs?: number;
   /** Promise outcome. Default 'resolve'. */
   readonly outcome?: 'resolve' | 'reject' | 'never';

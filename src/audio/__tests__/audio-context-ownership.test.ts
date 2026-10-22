@@ -45,7 +45,11 @@ const QUEUE_B = '00000000-0000-4000-8000-0000000000b2';
 const GESTURE_DEADLINE_MS = 750;
 const PARKED = { pending: true, current: true, gestureToken: 'same' };
 const STUCK = { pending: true, current: true, gestureToken: 'none' };
+/** Stuck in awaiting-clock-verification, but a state-interruption still accepts a gesture. */
+const STUCK_ACCEPTING_GESTURE = { pending: true, current: true, gestureToken: 'same' };
 const NO_ATTEMPT = { pending: false, current: false, gestureToken: 'none' };
+/** A committed attempt stays the active one until a newer attempt or a rebind. */
+const COMPLETED = { pending: false, current: true, gestureToken: 'none' };
 const QUIET_BUS = { needed: [], neededEvents: [], rejoins: [] };
 
 type Orders = NonNullable<FakeNativeCallPlan['statechange']>;
@@ -137,6 +141,39 @@ async function parkStalledPlayback(o: Owners, fake: FakeNativeAudioContext): Pro
   expect(fake.state).toBe('suspended');
   expect(o.recovery.getPendingAudioContextInterruptionAttempt()).toBe(token);
   return token!;
+}
+
+/**
+ * An OS interruption whose automatic resume was refused (visible, or hidden
+ * while a file plays): a state-interruption attempt in awaiting-resume.
+ */
+async function parkInterruptedPlayback(o: Owners, fake: FakeNativeAudioContext): Promise<object> {
+  fake.planResume({ outcome: 'reject' });
+  fake.transition('interrupted');
+  await vi.advanceTimersByTimeAsync(1_000);
+  const token = o.recovery.getPendingAudioContextInterruptionAttempt();
+  expect(token).toBeTypeOf('object');
+  expect(fake.state).toBe('interrupted');
+  expect(fake.calls('resume')).toBe(1);
+  return token!;
+}
+
+/** Install media-session.ts on a stub navigator.mediaSession; returns its PLAY handler. */
+async function loadMediaSession(): Promise<() => void> {
+  const handlers = new Map<string, MediaSessionActionHandler>();
+  Object.defineProperty(navigator, 'mediaSession', {
+    configurable: true,
+    value: {
+      metadata: null,
+      playbackState: 'none',
+      setActionHandler(action: string, handler: MediaSessionActionHandler | null) {
+        if (handler) handlers.set(action, handler);
+      },
+    },
+  });
+  const { initMediaSession } = await import('../../player/media-session.ts');
+  initMediaSession();
+  return () => handlers.get('play')!({ action: 'play' });
 }
 
 /** Prepare a play-request restart the way transport does on a foreground clock stall. */
@@ -440,6 +477,8 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7 inpu
       },
     },
     {
+      // The fake's zero-latency default; no browser applies suspend() inside
+      // the same microtask checkpoint. The 50 ms row is the realistic one.
       label: 'statechange before settlement, re-suspend on a microtask',
       resume: { statechange: 'before-settle' } as FakeNativeCallPlan,
       reSuspend: {} as FakeNativeCallPlan,
@@ -478,7 +517,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7 inpu
         resumes: 1,
       },
     },
-  ])('playback scope: resume settles at 1200 ms, $label', async ({ resume, reSuspend, end }) => {
+  ])('stalled cause: resume settles at 1200 ms, $label', async ({ resume, reSuspend, end }) => {
     const fake = new FakeNativeAudioContext();
     const o = await loadOwners(fake);
     stageFilePlayback(o);
@@ -502,13 +541,16 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7 inpu
 
     await vi.advanceTimersByTimeAsync(10_000);
 
-    // Known gap (fix lane G7): when the state is already running at
-    // settlement (no event, or an event after it), the attempt ends in
-    // awaiting-clock-verification with an exposed requirement, but a
-    // gesture-source promotion schedules no probe (context-recovery.ts
-    // handleNativeResumeSettlement) and a later running statechange keeps that
-    // phase, so nobody commits or rejoins. The 50 ms row retires the attempt
-    // and resumes without any clock proof.
+    // Known gap (fix lane G7): for the background-clock-stalled cause,
+    // awaiting-clock-verification has no prober other than the gesture caller
+    // that started the resume. When the state is already running at
+    // settlement (no event, or an event after it), the late gesture-source
+    // promotion (handleNativeResumeSettlement) schedules no probe, a later
+    // running statechange keeps the phase, the foreground bounce ignores this
+    // cause, and no gesture token is exposed, so nobody commits or rejoins.
+    // The same phase is reached with no slow resume at all through a hidden
+    // Media Session PLAY whose probe returns 'hidden' (below). The 50 ms row
+    // retires the attempt and resumes without any clock proof.
     const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
     expect(fake.state).toBe(end.state);
     expect(playbackScope(o, token)).toEqual(end.scope);
@@ -522,7 +564,7 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7 inpu
     expect(fake.calls('resume')).toBe(end.resumes);
   });
 
-  it('playback scope stuck row: a hidden/visible bounce leaves it stuck and the inspector defers to it', async () => {
+  it('stalled-cause stuck row: a hidden/visible bounce leaves it stuck and the inspector defers to it', async () => {
     const fake = new FakeNativeAudioContext();
     const o = await loadOwners(fake);
     const { inspectBackgroundFileOutput } = await import('../output-health.ts');
@@ -553,6 +595,187 @@ describe('RO-01 gesture resume slower than the 750 ms deadline (fix lane G7 inpu
     expect(bus).toEqual(QUIET_BUS);
     expect(fake.calls('resume')).toBe(1);
   });
+
+  // The C1 critique's G7 scenario (a slow Bluetooth or route-change resume)
+  // is this cause: the deadline falls back to awaiting-resume, not
+  // awaiting-gesture, so the gesture token stays exposed throughout.
+  it.each(
+    (
+      [
+        ['before-settle', 'recovered'],
+        ['after-settle', 'recovered'],
+        ['deferred-event', 'stuck'],
+        ['silent', 'stuck'],
+      ] as Array<[Orders, 'recovered' | 'stuck']>
+    ).flatMap(([order, end]) =>
+      (['dialog', 'Media Session PLAY'] as const).map((via) => ({ order, end, via })),
+    ),
+  )(
+    'state-interruption cause: $via resume settles at 1200 ms ($order) and ends $end',
+    async ({ order, end, via }) => {
+      const fake = new FakeNativeAudioContext();
+      const o = await loadOwners(fake);
+      stageFilePlayback(o);
+      const bus = recordBus(o);
+      bind(o, fake);
+      const play = await loadMediaSession();
+      const token = await parkInterruptedPlayback(o, fake);
+      expect(playbackScope(o, token)).toEqual(PARKED);
+      fake.planResume({ latencyMs: 1_200, statechange: order, stateDelayMs: 100 });
+
+      const before = fake.ops.length;
+      let gesture: Promise<unknown> | null = null;
+      if (via === 'dialog') gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+      else play();
+      expect(fake.ops.slice(before)).toEqual(['resume()']);
+      await vi.advanceTimersByTimeAsync(GESTURE_DEADLINE_MS);
+
+      // At the deadline both callers give up (media-session.ts returns on
+      // running:false); the attempt is back in awaiting-resume.
+      if (gesture) {
+        await expect(gesture).resolves.toEqual({
+          running: false,
+          rejoinEmitted: false,
+          fallbackEligible: false,
+        });
+      }
+      expect(fake.state).toBe('interrupted');
+      expect(playbackScope(o, token)).toEqual(PARKED);
+      // Safe to read: no promotion while the state is not running.
+      expect(o.recovery.getPendingAudioContextClockHealthRequirement()).toBeNull();
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(fake.state).toBe('running');
+      // Already in awaiting-clock-verification (or gone), so this read promotes nothing.
+      const requirement = o.recovery.getPendingAudioContextClockHealthRequirement();
+      if (end === 'recovered') {
+        // A running statechange that finds awaiting-resume starts the
+        // binding's automatic probe (scheduleAutomaticClockVerification).
+        expect(playbackScope(o, token)).toEqual(COMPLETED);
+        expect(requirement).toBeNull();
+        expect(bus.rejoins).toEqual(['audio-context-recovered']);
+      } else {
+        // Known gap (fix lane G7): the state is running at settlement, so the
+        // late gesture-source promotion (handleNativeResumeSettlement) moves
+        // the attempt to awaiting-clock-verification without a probe, and a
+        // later running statechange returns early in that phase. Unlike the
+        // stalled cause, the token stays exposed: one visibility bounce or one
+        // more PLAY recovers it (next test).
+        expect(playbackScope(o, token)).toEqual(STUCK_ACCEPTING_GESTURE);
+        expect(requirement?.attemptToken).toBe(token);
+        expect(requirement?.isCurrent()).toBe(true);
+        expect(bus.rejoins).toEqual([]);
+      }
+      expect(bus.needed).toEqual([]);
+      expect(fake.calls('resume')).toBe(2);
+      expect(fake.calls('suspend')).toBe(0);
+    },
+  );
+
+  it.each(
+    (['deferred-event', 'silent'] as Orders[]).flatMap((order) =>
+      (['visibility bounce', 'Media Session PLAY'] as const).map((exit) => ({ order, exit })),
+    ),
+  )('state-interruption stuck row ($order): one $exit recovers it', async ({ order, exit }) => {
+    const fake = new FakeNativeAudioContext();
+    const o = await loadOwners(fake);
+    stageFilePlayback(o);
+    const bus = recordBus(o);
+    bind(o, fake);
+    const play = await loadMediaSession();
+    const token = await parkInterruptedPlayback(o, fake);
+    fake.planResume({ latencyMs: 1_200, statechange: order, stateDelayMs: 100 });
+    const gesture = o.recovery.resumePendingAudioContextInterruptionFromGesture();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(gesture).resolves.toMatchObject({ running: false });
+    expect(playbackScope(o, token)).toEqual(STUCK_ACCEPTING_GESTURE);
+    expect(bus.rejoins).toEqual([]);
+
+    const before = fake.ops.length;
+    if (exit === 'visibility bounce') {
+      // The visible edge runs continueRecoveryInForeground for this cause.
+      setVisibility('hidden');
+      await vi.advanceTimersByTimeAsync(1_000);
+      setVisibility('visible');
+    } else {
+      // The gesture sees running, returns running:true, and media-session.ts
+      // probes the exposed requirement and confirms it.
+      play();
+    }
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    expect(bus.rejoins).toEqual(['audio-context-recovered']);
+    expect(playbackScope(o, token)).toEqual(COMPLETED);
+    // Proof only: no further native call.
+    expect(fake.ops.slice(before).filter((op) => op.endsWith('()'))).toEqual([]);
+    expect(bus.needed).toEqual([]);
+  });
+
+  it.each(['background-clock-stalled', 'state-interruption'] as const)(
+    'hidden Media Session PLAY (%s cause): the probe sees hidden, then the page returns',
+    async (cause) => {
+      const fake = new FakeNativeAudioContext();
+      const o = await loadOwners(fake);
+      const { inspectBackgroundFileOutput } = await import('../output-health.ts');
+      stageFilePlayback(o);
+      const bus = recordBus(o);
+      bind(o, fake);
+      const play = await loadMediaSession();
+      let token: object;
+      if (cause === 'background-clock-stalled') {
+        // Parked while visible, then the screen locks.
+        token = await parkStalledPlayback(o, fake);
+        setVisibility('hidden');
+      } else {
+        // Interrupted while locked; the hidden automatic resume is refused.
+        setVisibility('hidden');
+        token = await parkInterruptedPlayback(o, fake);
+      }
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(playbackScope(o, token)).toEqual(PARKED);
+
+      // Lock-screen PLAY: a prompt resume (default plan), then media-session.ts
+      // probes the exposed requirement while hidden and keeps the token.
+      const before = fake.ops.length;
+      play();
+      expect(fake.ops.slice(before)).toEqual(['resume()']);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(fake.state).toBe('running');
+      expect(o.recovery.getPendingAudioContextClockHealthRequirement()?.attemptToken).toBe(token);
+      expect(playbackScope(o, token)).toEqual(
+        cause === 'background-clock-stalled' ? STUCK : STUCK_ACCEPTING_GESTURE,
+      );
+      expect(bus.rejoins).toEqual([]);
+
+      setVisibility('visible');
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      if (cause === 'state-interruption') {
+        // The visible edge probes this cause (continueRecoveryInForeground).
+        expect(bus.rejoins).toEqual(['audio-context-recovered']);
+        expect(playbackScope(o, token)).toEqual(COMPLETED);
+      } else {
+        // Known gap (fix lane G7): the same no-prober phase as the slow
+        // gesture rows, reached without any slow resume. The visible edge
+        // ignores this cause (continueRecoveryInForeground), the background
+        // inspector defers to the attempt, and a visible PLAY finds no token.
+        expect(o.recovery.getPendingAudioContextClockHealthRequirement()?.attemptToken).toBe(token);
+        await expect(inspectBackgroundFileOutput()).resolves.toMatchObject({
+          status: 'stale',
+          reason: 'superseded',
+        });
+        const visibleBefore = fake.ops.length;
+        play();
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(fake.ops.slice(visibleBefore)).toEqual([]);
+        expect(playbackScope(o, token)).toEqual(STUCK);
+        expect(bus.rejoins).toEqual([]);
+      }
+      expect(bus.needed).toEqual([]);
+      expect(fake.state).toBe('running');
+    },
+  );
 
   it.each(['before-settle', 'deferred-event', 'after-settle', 'silent'] as Orders[])(
     'play-request scope: resume settles at 1200 ms (%s) and is promoted for the dialog poll',
@@ -663,20 +886,48 @@ describe('RO-01 resumes from outside the owners (C1-I4 b, d, e)', () => {
     },
   );
 
-  it('ensureRunning fails while a playback-scope attempt holds the context', async () => {
-    const fake = new FakeNativeAudioContext();
-    const o = await loadOwners(fake);
-    stageFilePlayback(o);
-    bind(o, fake);
-    await parkStalledPlayback(o, fake);
+  it.each([
+    // The fake's zero-latency default. No browser applies suspend() inside the
+    // same microtask checkpoint; kept to show the outcome hinges on that timing.
+    { reSuspend: 'on a microtask (fake only)', latencyMs: 0, outcome: 'rejected:suspended' },
+    { reSuspend: 'a task later (browsers)', latencyMs: 1, outcome: 'resolved:running' },
+  ])(
+    'ensureRunning while a playback-scope attempt holds the context, re-suspend $reSuspend',
+    async ({ latencyMs, outcome }) => {
+      const fake = new FakeNativeAudioContext();
+      const o = await loadOwners(fake);
+      stageFilePlayback(o);
+      const bus = recordBus(o);
+      bind(o, fake);
+      const token = await parkStalledPlayback(o, fake);
+      fake.planSuspend({ latencyMs });
 
-    // The binding re-suspends inside the same statechange, so the PLAY that
-    // called ensureRunning sees a suspended context after its own resume.
-    await expect(o.context.ensureRunning()).rejects.toMatchObject({
-      name: 'AudioContextNotRunningError',
-      state: 'suspended',
-    });
-  });
+      // The binding's running statechange re-prepares the attempt and calls
+      // suspend() before ensureRunning reads the state.
+      const seen = await o.context.ensureRunning().then(
+        () => `resolved:${fake.state}`,
+        (error: { name: string; state: string }) => {
+          expect(error.name).toBe('AudioContextNotRunningError');
+          return `rejected:${error.state}`;
+        },
+      );
+      expect(seen).toBe(outcome);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      // Known gap (C1-I4 e; C1-I13 decides it): with a real suspend latency
+      // the PLAY that called ensureRunning is told the context is running and
+      // goes on to start its source, then the re-prepare suspends the context
+      // under it and the prepared clock-stalled prompt follows.
+      expect(fake.state).toBe('suspended');
+      expect(fake.ops.filter((op) => op.endsWith('()'))).toEqual([
+        'suspend()',
+        'resume()',
+        'suspend()',
+      ]);
+      expect(playbackScope(o, token)).toEqual(PARKED);
+      expect(bus.needed).toEqual(['background-resume:clock-stalled']);
+    },
+  );
 
   it('a gesture during the re-suspend is refused, and the prepared event arrives after it', async () => {
     const fake = new FakeNativeAudioContext();
@@ -870,48 +1121,46 @@ describe('RO-01 supersession and teardown', () => {
     expect(newFake.statechangeListenerCount).toBe(1);
   });
 
-  it('a new track after a queue change pays one stale re-suspend before ensureRunning succeeds', async () => {
-    const fake = new FakeNativeAudioContext();
-    const o = await loadOwners(fake);
-    stageFilePlayback(o);
-    const bus = recordBus(o);
-    bind(o, fake);
-    const token = await parkStalledPlayback(o, fake);
+  it.each([
+    // The fake's zero-latency default (no browser orders it this way): the
+    // whole round trip lands before ensureRunning reads the state.
+    {
+      reSuspend: 'on a microtask (fake only)',
+      latencyMs: 0,
+      atResolve: ['resume()', 'suspend()', 'resume()'],
+    },
+    // Browsers: ensureRunning reads running before the stale suspend lands.
+    { reSuspend: 'a task later (browsers)', latencyMs: 1, atResolve: ['resume()', 'suspend()'] },
+  ])(
+    'a new track after a queue change pays one stale re-suspend, re-suspend $reSuspend',
+    async ({ latencyMs, atResolve }) => {
+      const fake = new FakeNativeAudioContext();
+      const o = await loadOwners(fake);
+      stageFilePlayback(o);
+      const bus = recordBus(o);
+      bind(o, fake);
+      const token = await parkStalledPlayback(o, fake);
+      fake.planSuspend({ latencyMs });
 
-    stageFilePlayback(o, QUEUE_B);
-    const before = fake.ops.length;
-    await expect(o.context.ensureRunning()).resolves.toBeUndefined();
-    await vi.advanceTimersByTimeAsync(1_000);
+      stageFilePlayback(o, QUEUE_B);
+      const before = fake.ops.length;
+      const callsSoFar = () => fake.ops.slice(before).filter((op) => op.endsWith('()'));
+      const seenAtResolve = await o.context.ensureRunning().then(callsSoFar);
+      expect(seenAtResolve).toEqual(atResolve);
+      await vi.advanceTimersByTimeAsync(1_000);
 
-    // The binding re-prepares the parked attempt without checking its
-    // identity, retires it when that suspend lands, and the retired-suspend
-    // cleanup resumes again before transport's ensureRunning reads the state.
-    const calls = fake.ops.slice(before).filter((op) => op.endsWith('()'));
-    expect(calls).toEqual(['resume()', 'suspend()', 'resume()']);
-    expect(fake.state).toBe('running');
-    expect(playbackScope(o, token)).toEqual(NO_ATTEMPT);
-    expect(bus).toEqual(QUIET_BUS);
-  });
+      // The binding re-prepares the parked attempt without checking its
+      // identity, retires it when that suspend lands, and the retired-suspend
+      // cleanup resumes the context again.
+      expect(callsSoFar()).toEqual(['resume()', 'suspend()', 'resume()']);
+      expect(fake.state).toBe('running');
+      expect(playbackScope(o, token)).toEqual(NO_ATTEMPT);
+      expect(bus).toEqual(QUIET_BUS);
+    },
+  );
 });
 
 describe('RO-01 Media Session PLAY gesture path', () => {
-  async function loadMediaSession(): Promise<() => void> {
-    const handlers = new Map<string, MediaSessionActionHandler>();
-    Object.defineProperty(navigator, 'mediaSession', {
-      configurable: true,
-      value: {
-        metadata: null,
-        playbackState: 'none',
-        setActionHandler(action: string, handler: MediaSessionActionHandler | null) {
-          if (handler) handlers.set(action, handler);
-        },
-      },
-    });
-    const { initMediaSession } = await import('../../player/media-session.ts');
-    initMediaSession();
-    return () => handlers.get('play')!({ action: 'play' });
-  }
-
   it('resumes a pending interruption inside the action and leaves one recovered rejoin', async () => {
     const fake = new FakeNativeAudioContext();
     const o = await loadOwners(fake);

@@ -61,8 +61,9 @@ const SYSTEM_AUDIO_CHANNEL = 'STEREO';
 // A 9+ device share can require one bounded SFU publication retry before the
 // guest subscription is ready. Keep the watchdog finite, but leave enough
 // headroom for a busy venue/NAT so a healthy large-room join is not mistaken
-// for a failed receive.
-const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 30_000;
+// for a failed receive. A PRO LAN-direct listener's coordinator uses the same
+// deadline for its own notice.
+export const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 30_000;
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -629,12 +630,13 @@ export function cleanupGuestSystemAudio(): void {
  * frame. PRO rooms call this only after authenticating the server-owned
  * live-share lease.
  *
- * `receiveWatchdog: false` leaves the receive deadline to the caller. Both PRO
- * routes report their own failure once per generation: the SFU subscription
- * re-enters this placeholder on each backed-off retry, and the LAN-direct
- * publisher promotes a listener it cannot reach to the SFU. The watchdog would
- * instead show receive_failed and drop to idle while a longer retry waits, or
- * before a slow attempt's track or a late direct offer arrives.
+ * `receiveWatchdog: false` leaves the receive deadline to the caller. The PRO
+ * coordinator reports a failure once per generation on both routes: the SFU
+ * subscription re-enters this placeholder on each backed-off retry, and the
+ * LAN-direct listener keeps it past its own deadline, while the publisher
+ * promotes a listener it cannot reach to the SFU. The watchdog would instead
+ * show receive_failed and drop to idle while a longer retry waits, or before a
+ * slow attempt's track or a late direct offer arrives.
  */
 export function beginTrustedSystemAudioReception(
   surface: unknown = 'display',

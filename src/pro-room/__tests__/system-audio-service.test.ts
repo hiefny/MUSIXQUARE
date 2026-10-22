@@ -124,6 +124,7 @@ vi.mock('../../network/system-audio-guest.ts', () => ({
   awaitTrustedSystemAudioReceptionBoundary: mocks.awaitTrustedReceptionBoundary,
   beginTrustedSystemAudioReception: mocks.beginReception,
   cleanupGuestSystemAudio: mocks.cleanupReception,
+  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS: 30_000,
 }));
 vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
   cleanupWebRtcAudioDecoderPrimer: vi.fn(),
@@ -132,6 +133,8 @@ vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
 }));
 vi.mock('../../player/ownership.ts', () => ({
   claimPlaybackOwner: mocks.claimPlaybackOwner,
+  isSystemAudioPlaceholderMeta: (meta: { systemAudioPlaceholder?: boolean } | null) =>
+    meta?.systemAudioPlaceholder === true,
   setSystemAudioReceiving: mocks.setSystemAudioReceiving,
 }));
 vi.mock('../../core/state.ts', () => ({

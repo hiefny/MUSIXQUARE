@@ -341,7 +341,7 @@ describe('PRO SFU subscription that rejects synchronously', () => {
   });
 });
 
-describe('PRO LAN-direct listener and the guest receive watchdog', () => {
+describe('PRO LAN-direct listener and its reception deadline', () => {
   beforeAll(() => {
     // The app registers the guest's bus listeners once beside the service's.
     registerSystemAudioGuestListeners();
@@ -396,8 +396,10 @@ describe('PRO LAN-direct listener and the guest receive watchdog', () => {
     await enterDirectReception();
 
     // The publisher reaches this listener late (it joined late, or its page
-    // slept), and an unchanged live state never reconciles it again.
+    // slept), and an unchanged live state never reconciles it again. The
+    // coordinator's deadline says so once at 30 seconds and keeps waiting.
     await vi.advanceTimersByTimeAsync(34_000);
+    expect(toasts).toEqual(['system_audio.connection_unstable']);
     const handoff = deliverDirectTrack('late-direct-stereo');
     // Long enough for a trusted-boundary wait to give up as well.
     await vi.advanceTimersByTimeAsync(35_000);
@@ -405,7 +407,7 @@ describe('PRO LAN-direct listener and the guest receive watchdog', () => {
 
     expect(getState('systemAudio.isReceiving')).toBe(true);
     expect(receiveTimeouts).toBe(0);
-    expect(toasts).toEqual([]);
+    expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(getState('playback.mode')).toBe('system-audio');
     expect(getState('playback.activity')).toBe('playing');
@@ -419,15 +421,53 @@ describe('PRO LAN-direct listener and the guest receive watchdog', () => {
     });
     await enterDirectReception();
 
-    // The LAN-direct route and its publisher own this deadline: an unreachable
-    // listener makes the publisher promote the share to the SFU, which is a
-    // new publication. Until then the listener waits in one placeholder.
+    // The coordinator owns this publication's deadline: at the guest receive
+    // timeout it says once that the share is not arriving, and the listener
+    // keeps waiting in one placeholder. An unreachable listener makes the
+    // publisher promote the share to the SFU, which is a new publication.
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(toasts).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(await idleSecondsOverThreeMinutes()).toEqual([]);
     expect(receiveTimeouts).toBe(0);
-    expect(toasts).toEqual([]);
+    expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(hostStarted).toBe(1);
     expect(getState('systemAudio.isReceiving')).toBe(false);
+  });
+
+  it('shows no notice when a direct track attaches before the deadline', async () => {
+    await enterDirectReception();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await deliverDirectTrack('direct-stereo');
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+
+    expect(await idleSecondsOverThreeMinutes()).toEqual([]);
+    expect(receiveTimeouts).toBe(0);
+    expect(toasts).toEqual([]);
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+  });
+
+  it('shows no notice when the share ends before the deadline', async () => {
+    await enterDirectReception();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    api.getSystemAudioState.mockResolvedValue({
+      generation: 2,
+      status: 'idle',
+      ownerParticipantId: null,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: null,
+    });
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(isReceivingPlaceholder()).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(toasts).toEqual([]);
   });
 
   it('shows one connection_unstable for a failed direct route and keeps the placeholder', async () => {
@@ -462,5 +502,7 @@ describe('PRO LAN-direct listener and the guest receive watchdog', () => {
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(getState('systemAudio.isReceiving')).toBe(false);
     expect(isReceivingPlaceholder()).toBe(false);
+    // The force-stop also ended the reception deadline.
+    expect(toasts).toEqual([]);
   });
 });

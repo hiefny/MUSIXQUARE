@@ -45,6 +45,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### Phase 0d 서버 Worker 상수의 집 하나(Worker 배포 대기)
+
+- [ ] PRO Worker(target `pro-room`)와 App Worker(target `app`) 배포 후보. 신호 broadcast
+      재시도, 파일 길이 읽기 재시도, 소유권 이전 사가 상태 목록, 펜스 다이제스트를 이름 하나로
+      모았고 동작은 그대로다. 앱 버전·SW 캐시(9.0.3/v771)는 바뀌지 않는다. target `all`은 쓰지
+      않고, PRO Worker 배포는 살아 있는 PRO 방 Durable Object를 다시 시작하므로 행사 시간을
+      피한다. [변경·검증·한계](design/server-constant-homes-2026-10-23.md).
+
 ### 9.0.3 PRO SFU 재시도의 수신 대기 유지·느린 제스처 재개 확인
 
 - [ ] App 9.0.3/v771은 2026-10-23 03:07 KST [Release 39828174957](https://github.com/hiefny/MUSIXQUARE/actions/runs/39828174957)로 배포했다(target `app`). 아래 9.0.2를 함께 실었다(오너 결정 2026-10-23). PRO SFU 재시도가 같은 발행이면 수신 대기를

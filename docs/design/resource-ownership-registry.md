@@ -511,12 +511,14 @@ RO-46 accepted-exception
 - **Lifecycle operations:** enqueue, dispatch, back off, drop on an epoch change, persist the
   retry marker; send once (no-retry lane).
 - **Deadline owner:** each path's backoff; the no-retry lane has none. `scheduleAlarm` stays the
-  single alarm owner. Both request builders use `DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS` (900 ms,
-  misnamed), so each awaited invalidation send can add up to 900 ms to its HTTP response.
-- **Timing-constant home:** `PRESENCE_BROADCAST_RETRY_*` and `PLAYBACK_BROADCAST_RETRY_*`
-  (identical 1 s, 60 s, 16) with `presenceBroadcastRetryDelayMs` and
-  `playbackBroadcastRetryDelayMs`. Target: one constant set and one delay function (Phase 0d,
-  C7-1, PRO room release).
+  single alarm owner. Both request builders use `SIGNALING_BROADCAST_TIMEOUT_MS` (900 ms), so
+  each awaited invalidation send can add up to 900 ms to its HTTP response.
+- **Timing-constant home:** `cloudflare/pro-room-worker.ts`: `SIGNALING_BROADCAST_TIMEOUT_MS`,
+  `SIGNALING_BROADCAST_RETRY_BASE_MS`, `SIGNALING_BROADCAST_RETRY_MAX_MS`,
+  `SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS` (900 ms, 1 s, 60 s, 16) and one delay function,
+  `signalingBroadcastRetryDelayMs`. The presence marker passes its stored attempts, the playback
+  outbox its attempts minus one; both durable record normalizers use the shared attempt cap. One
+  set since Phase 0d (C7-1); a lane that needs its own timing gets its own constants there.
 - **Anchor tests:**
   - Supersession: missing (an epoch change dropping a queued record).
   - User pause/stop: n/a (server).
@@ -524,8 +526,9 @@ RO-46 accepted-exception
     after transient signaling failures and isolate restart"; "keeps a failed playback dispatch
     durable and clears it after a restarted alarm retry".
   - Visibility: n/a.
-- **Status:** `duplicated`. Phase 0d (constants), Phase 1 (one request builder, outbox owner).
-  Durable record shapes freeze across the change. Exceptions RO-31, RO-46.
+- **Status:** `duplicated`. Phase 0d named the constants once (C7-1); Phase 1 (one request
+  builder, outbox owner) remains. Durable record shapes freeze across the change. Exceptions
+  RO-31, RO-46.
 
 ### RO-08 PRO asset duration read
 
@@ -546,9 +549,12 @@ RO-46 accepted-exception
 - **Lifecycle operations:** enqueue, read outside the lane, revalidate inside it, roll back on
   capacity, persist, retry.
 - **Deadline owner:** each probe's retry ladder; the alarm's registration watchdog.
-- **Timing-constant home:** the 5 s, 30 s, 5 min ladder in `deferAssetDurationRead` and an inline
-  copy in the playback probe whose 5 min literal duplicates `PLAYBACK_DURATION_FILE_RETRY_MS`.
-  Target: `FILE_DURATION_READ_RETRY_MS` (Phase 0d, C7-2).
+- **Timing-constant home:** `cloudflare/pro-room-worker.ts`: `FILE_DURATION_READ_RETRY_MS`
+  (5 s, 30 s, then `PLAYBACK_DURATION_FILE_RETRY_MS`, 5 min) with
+  `fileDurationReadRetryDelayMs`, used by `deferAssetDurationRead` and the playback probe's
+  failed file read (Phase 0d, C7-2). The YouTube lookup's quick retries are a separate
+  provider-quota policy, `PLAYBACK_DURATION_YOUTUBE_QUICK_RETRY_MS` (5 s, 30 s), before its
+  backoff to `PLAYBACK_DURATION_YOUTUBE_RETRY_MAX_MS`.
 - **Anchor tests:**
   - Supersession: `pro-room-worker.test.ts` "reuses private asset duration after queue
     replacement, cache eviction and cold restart".
@@ -558,7 +564,8 @@ RO-46 accepted-exception
   - Visibility: n/a.
   - Cross-owner: `pro-room-worker.test.ts` "uses the registration watchdog instead of hot-looping
     an overdue playback probe".
-- **Status:** `duplicated`. Phase 0d (ladder constant), Phase 1 (duration read owner).
+- **Status:** `duplicated`. Phase 0d named the ladder once (C7-2); Phase 1 (duration read owner)
+  remains.
 
 ### RO-09 Owner-transfer saga row
 
@@ -579,8 +586,20 @@ RO-46 accepted-exception
   old-owner edge, fence clear, complete; terminate for a deleted target.
 - **Deadline owner:** none per attempt; the cron adopts any incomplete saga every minute. An
   adoption lease is optional (a transfer-scoped audit deduplication is preferred).
-- **Timing-constant home:** the saga state lists are SQL literals next to
-  `OWNER_TRANSFER_SAGA_STATE_RANK`. Target: shared state-list constants (Phase 0d, C7-2).
+- **Timing-constant home:** n/a (no timing). Phase union: `cloudflare/app-worker.ts` names the
+  states once, `OWNER_TRANSFER_SAGA_STATES` with `OWNER_TRANSFER_SAGA_NONTERMINAL_STATES` (the
+  states the cron adopts), the derived terminal list, the derived
+  `OWNER_TRANSFER_SAGA_ABANDONED_STATES` (the terminal states other than `complete`, used by
+  `recordOwnerTransferIntent` and `advanceOwnerTransferSagaState`) and
+  `OWNER_TRANSFER_SAGA_STATE_RANK`, and builds every SQL state list from them through
+  `sqlStateList` (Phase 0d, C7-2). Three SQL copies of the full list stay as written: the state
+  CHECK in `admin-metrics.owner-transfer-saga.migration.sql`, in `admin-metrics.schema.sql` and
+  in the runtime DDL of `ensureAdminProRoomRegistry`.
+  `src/core/__tests__/owner-transfer-saga-states.test.ts` keeps all three equal to the
+  TypeScript list and runs the generated cron listing, rotation and decommission
+  terminalization SQL in node:sqlite, including a saga another executor ends during the sweep.
+  The states an unfilled row may hold (`intent`, `expired`, `superseded`) stay written out in
+  `normalizeOwnerTransferSagaRow`, as in the table's row CHECK they mirror.
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/app-worker-cors.test.ts` "adopts a prepared DO transfer after
     the D1 saga fill fails and reconciles without persisting secrets".
@@ -589,8 +608,8 @@ RO-46 accepted-exception
     exactly once during cron reconciliation".
   - Visibility: n/a.
   - Missing: the old request executor and the cron interleaved on one row.
-- **Status:** `duplicated`. Phase 0d (state lists), Phase 1 (saga helpers, single post-commit
-  executor).
+- **Status:** `duplicated`. Phase 0d named the state lists once (C7-2); Phase 1 (saga helpers,
+  single post-commit executor) remains.
 
 ### RO-10 Local-file source node restart
 
@@ -1079,10 +1098,13 @@ RO-46 accepted-exception
   job.
 - **Lifecycle operations:** activate, clear, delete.
 - **Deadline owner:** the deletion job's minute-cron retry; none for the transfer writes.
-- **Timing-constant home:** n/a. The fence-digest pattern `/^[A-Za-z0-9_-]{43}$/` is written
-  four times in `app-worker.ts`: the account-deletion purge (`purgeProRoomAccountAuthority`),
-  `revokeDeveloperApiKeysForAuthorityChange`, `clearDeveloperApiAuthorityFence` and the saga row
-  parse (`normalizeOwnerTransferSagaRow`). Target: one shared pattern (Phase 0d, C7-2).
+- **Timing-constant home:** n/a. The fence-digest pattern is `FENCE_DIGEST_RE`
+  (`/^[A-Za-z0-9_-]{43}$/`) in `app-worker.ts`, used by the account-deletion purge
+  (`purgeProRoomAccountAuthority`), `revokeDeveloperApiKeysForAuthorityChange`,
+  `clearDeveloperApiAuthorityFence` and the saga row parse (`normalizeOwnerTransferSagaRow`)
+  (Phase 0d, C7-2). The D1 CHECK constraints spell the same shape in SQL;
+  `owner-transfer-saga-states.test.ts` checks that every tracked SQL definition spells the same
+  CHECK and that the pattern accepts exactly the digests the fence and saga rows store.
 - **Anchor tests:**
   - Supersession: `app-worker-cors.test.ts` "acks each exact owner-removal projection and never
     replays a stale deletion over a new owner".
@@ -1091,7 +1113,8 @@ RO-46 accepted-exception
   - Visibility: n/a.
   - Legacy detach path: `app-worker-cors.test.ts` "detaches only the exact duplicate legacy owner
     and safely reconciles a signaling failure".
-- **Status:** `duplicated`. Phase 0d, Phase 1 (typed fence write and single-writer guard). See
+- **Status:** `duplicated`. Phase 0d named the digest pattern once (C7-2); Phase 1 (typed fence
+  write and single-writer guard) remains. See
   [Account authentication operations](../account-auth-operations.md) for the precedence (deletion
   suspends, a transfer reactivates).
 

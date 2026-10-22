@@ -1,4 +1,6 @@
 // MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
+// Resource owner: RO-09, RO-25 (owner-transfer saga row and Developer API
+// authority fence row; see docs/design/resource-ownership-registry.md).
 import { handleProBotRequest } from './pro-bot.ts';
 import { reportProRoomFrontDiagnostic } from './pro-room-diagnostics.ts';
 import { parseAnnouncementExpiry } from './announcement-expiry.ts';
@@ -434,6 +436,10 @@ const OWNER_TRANSFER_ID_RE = /^transfer_[A-Za-z0-9_-]{22}$/;
 const OWNER_TRANSFER_REQUEST_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const OWNER_TRANSFER_COMMIT_PROOF_RE = /^[A-Za-z0-9._-]{32,2048}$/;
 const OWNER_AUTHORITY_REMOVAL_ID_RE = /^removal_[A-Za-z0-9_-]{22}$/;
+// A Developer API authority fence digest (registry RO-25), as the fence row,
+// the owner-transfer saga row and every fence write check it. The D1 CHECK
+// constraints spell the same shape as length 43 over [A-Za-z0-9_-].
+const FENCE_DIGEST_RE = /^[A-Za-z0-9_-]{43}$/;
 const ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_MIN_AGE_MS = 60 * 1000;
 const ADMIN_PRO_ROOM_ACTIVATION_RECONCILE_BATCH_SIZE = 25;
 const ADMIN_PRO_ROOM_OWNER_STATE_BATCH_SIZE = 25;
@@ -4765,7 +4771,7 @@ async function purgeProRoomAccountAuthority(
     if (
       existingFence &&
       (typeof existingFence.fence_digest !== 'string' ||
-        !/^[A-Za-z0-9_-]{43}$/.test(existingFence.fence_digest))
+        !FENCE_DIGEST_RE.test(existingFence.fence_digest))
     ) {
       return false;
     }
@@ -5882,7 +5888,7 @@ async function revokeDeveloperApiKeysForAuthorityChange(
   }
   if (
     !['owner_account_deleted', 'ownership_transfer_pending'].includes(suspensionReason) ||
-    !/^[A-Za-z0-9_-]{43}$/.test(fenceDigest)
+    !FENCE_DIGEST_RE.test(fenceDigest)
   ) {
     throw new Error('Invalid Developer API authority fence');
   }
@@ -6012,7 +6018,7 @@ async function clearDeveloperApiAuthorityFence(
   fenceDigest: unknown,
 ) {
   const db = getDeveloperApiAdminDb(env);
-  if (!db?.prepare || typeof fenceDigest !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(fenceDigest)) {
+  if (!db?.prepare || typeof fenceDigest !== 'string' || !FENCE_DIGEST_RE.test(fenceDigest)) {
     return false;
   }
   await db
@@ -6037,6 +6043,10 @@ async function clearDeveloperApiAuthorityFence(
       ? await statement.first()
       : (await statement.all())?.results?.[0] || null;
   return row?.status === 'cleared' && row?.fence_digest === fenceDigest;
+}
+
+export function isFenceDigestForTests(value: unknown) {
+  return typeof value === 'string' && FENCE_DIGEST_RE.test(value);
 }
 
 function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
@@ -6352,6 +6362,48 @@ async function auditSystemOwnerTransfer(
   );
 }
 
+// Owner-transfer saga states (registry RO-09), in the order of the state CHECK
+// in admin-metrics.owner-transfer-saga.migration.sql, admin-metrics.schema.sql
+// and ensureAdminProRoomRegistry. Those SQL lists stay as written;
+// owner-transfer-saga-states.test.ts keeps all three equal to this list.
+const OWNER_TRANSFER_SAGA_STATES = Object.freeze([
+  'intent',
+  'prepared',
+  'committed',
+  'registry_active',
+  'old_owner_edge_retired',
+  'verified',
+  'complete',
+  'target_deleted',
+  'expired',
+  'superseded',
+] as const);
+
+type OwnerTransferSagaState = (typeof OWNER_TRANSFER_SAGA_STATES)[number];
+
+// The states the minute cron still adopts; the others are terminal.
+const OWNER_TRANSFER_SAGA_NONTERMINAL_STATES = Object.freeze([
+  'intent',
+  'prepared',
+  'committed',
+  'registry_active',
+  'old_owner_edge_retired',
+  'verified',
+] as const satisfies readonly OwnerTransferSagaState[]);
+
+const OWNER_TRANSFER_SAGA_TERMINAL_STATES = Object.freeze(
+  OWNER_TRANSFER_SAGA_STATES.filter(
+    (state) => !OWNER_TRANSFER_SAGA_NONTERMINAL_STATES.some((nonterminal) => nonterminal === state),
+  ),
+);
+
+// The terminal states in which the transfer did not complete.
+const OWNER_TRANSFER_SAGA_ABANDONED_STATES: readonly OwnerTransferSagaState[] = Object.freeze(
+  OWNER_TRANSFER_SAGA_TERMINAL_STATES.filter((state) => state !== 'complete'),
+);
+
+// The filled states, prepared to complete, ranked for the forward-only
+// compare-and-swap in advanceOwnerTransferSagaState.
 const OWNER_TRANSFER_SAGA_STATE_RANK = Object.freeze({
   prepared: 0,
   committed: 1,
@@ -6359,19 +6411,27 @@ const OWNER_TRANSFER_SAGA_STATE_RANK = Object.freeze({
   old_owner_edge_retired: 3,
   verified: 4,
   complete: 5,
-});
+} satisfies Partial<Record<OwnerTransferSagaState, number>>);
 
-type OwnerTransferSagaState =
-  | 'intent'
-  | 'prepared'
-  | 'committed'
-  | 'registry_active'
-  | 'old_owner_edge_retired'
-  | 'verified'
-  | 'complete'
-  | 'target_deleted'
-  | 'expired'
-  | 'superseded';
+/** A SQL `IN (...)` body for constant state names, such as `'intent', 'prepared'`. */
+function sqlStateList(states: readonly string[]) {
+  return states
+    .map((state) => {
+      if (!/^[a-z_]+$/.test(state)) throw new Error('Invalid SQL state name');
+      return `'${state}'`;
+    })
+    .join(', ');
+}
+
+export function ownerTransferSagaStatesForTests() {
+  return {
+    states: [...OWNER_TRANSFER_SAGA_STATES],
+    nonterminal: [...OWNER_TRANSFER_SAGA_NONTERMINAL_STATES],
+    terminal: [...OWNER_TRANSFER_SAGA_TERMINAL_STATES],
+    abandoned: [...OWNER_TRANSFER_SAGA_ABANDONED_STATES],
+    ranked: Object.keys(OWNER_TRANSFER_SAGA_STATE_RANK),
+  };
+}
 
 interface OwnerTransferSaga {
   roomCode: string;
@@ -6390,21 +6450,7 @@ interface OwnerTransferSaga {
 }
 
 function isOwnerTransferSagaState(value: unknown): value is OwnerTransferSagaState {
-  return (
-    typeof value === 'string' &&
-    [
-      'intent',
-      'prepared',
-      'committed',
-      'registry_active',
-      'old_owner_edge_retired',
-      'verified',
-      'complete',
-      'target_deleted',
-      'expired',
-      'superseded',
-    ].some((state) => state === value)
-  );
+  return typeof value === 'string' && OWNER_TRANSFER_SAGA_STATES.some((state) => state === value);
 }
 
 function normalizeOwnerTransferSagaRow(
@@ -6439,7 +6485,7 @@ function normalizeOwnerTransferSagaRow(
     Number.isSafeInteger(claimGeneration) &&
     claimGeneration >= 0 &&
     OWNER_TRANSFER_ID_RE.test(transferId || '') &&
-    /^[A-Za-z0-9_-]{43}$/.test(fenceDigest || '') &&
+    FENCE_DIGEST_RE.test(fenceDigest || '') &&
     typeof preparedAtMs === 'number' &&
     Number.isSafeInteger(preparedAtMs) &&
     preparedAtMs >= 0 &&
@@ -6551,7 +6597,7 @@ async function recordOwnerTransferIntent(
       existing.roomGeneration === roomGeneration &&
       existing.requestId === requestId &&
       existing.targetAccountId === targetAccountId &&
-      !['expired', 'superseded', 'target_deleted'].includes(existing.state)
+      !OWNER_TRANSFER_SAGA_ABANDONED_STATES.includes(existing.state)
       ? existing
       : null;
   }
@@ -6639,7 +6685,7 @@ async function recordOwnerTransferIntent(
     intent.roomGeneration === roomGeneration &&
     intent.requestId === requestId &&
     intent.targetAccountId === targetAccountId &&
-    !['expired', 'superseded', 'target_deleted'].includes(intent.state)
+    !OWNER_TRANSFER_SAGA_ABANDONED_STATES.includes(intent.state)
     ? intent
     : null;
 }
@@ -6792,8 +6838,7 @@ async function recordPreparedOwnerTransferSaga(
             (claim_generation = ?4 AND transfer_id = ?5
               AND previous_owner_account_id IS ?7 AND fence_digest = ?8
               AND prepared_at = ?9 AND expires_at = ?10
-              AND state IN ('prepared', 'committed', 'registry_active',
-                            'old_owner_edge_retired', 'verified', 'complete'))
+              AND state IN (${sqlStateList(Object.keys(OWNER_TRANSFER_SAGA_STATE_RANK))}))
           )`,
     )
     .bind(
@@ -6877,7 +6922,7 @@ async function advanceOwnerTransferSagaState(
 ) {
   if (
     !isRankedOwnerTransferSagaState(nextState) &&
-    !['target_deleted', 'expired', 'superseded'].includes(nextState)
+    !OWNER_TRANSFER_SAGA_ABANDONED_STATES.includes(nextState)
   ) {
     return false;
   }
@@ -6909,15 +6954,13 @@ async function advanceOwnerTransferSagaState(
   const nextRank = isRankedOwnerTransferSagaState(nextState)
     ? OWNER_TRANSFER_SAGA_STATE_RANK[nextState]
     : undefined;
-  const allowedStates =
+  const allowedStates = sqlStateList(
     typeof nextRank === 'number'
       ? Object.entries(OWNER_TRANSFER_SAGA_STATE_RANK)
           .filter(([, rank]) => rank <= nextRank)
-          .map(([state]) => `'${state}'`)
-          .join(', ')
-      : Object.keys(OWNER_TRANSFER_SAGA_STATE_RANK)
-          .map((state) => `'${state}'`)
-          .join(', ');
+          .map(([state]) => state)
+      : Object.keys(OWNER_TRANSFER_SAGA_STATE_RANK),
+  );
   await db
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
@@ -7124,10 +7167,7 @@ async function terminalizeDecommissionedOwnerTransferSagaRecords(
             SET state = 'superseded', updated_at = MAX(updated_at, ?6)
           WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3
             AND target_account_id = ?4 AND transfer_id IS ?5
-            AND state IN (
-              'intent', 'prepared', 'committed', 'registry_active',
-              'old_owner_edge_retired', 'verified'
-            )`,
+            AND state IN (${sqlStateList(OWNER_TRANSFER_SAGA_NONTERMINAL_STATES)})`,
       )
       .bind(
         saga.roomCode,
@@ -7288,11 +7328,8 @@ async function listIncompleteOwnerTransferSagas(db: D1Database) {
               target_account_id, previous_owner_account_id, fence_digest, state,
               intent_at, prepared_at, expires_at, updated_at
          FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
-        WHERE state NOT IN ('complete', 'target_deleted', 'expired', 'superseded')
-          AND state IN (
-                'intent', 'prepared', 'committed', 'registry_active',
-                'old_owner_edge_retired', 'verified'
-              )
+        WHERE state NOT IN (${sqlStateList(OWNER_TRANSFER_SAGA_TERMINAL_STATES)})
+          AND state IN (${sqlStateList(OWNER_TRANSFER_SAGA_NONTERMINAL_STATES)})
           AND typeof(room_generation) = 'integer'
           AND room_generation BETWEEN 0 AND ${Number.MAX_SAFE_INTEGER}
           AND (claim_generation IS NULL OR (
@@ -7365,7 +7402,7 @@ async function rotateIncompleteOwnerTransferSaga(
         WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3
           AND target_account_id = ?4 AND transfer_id IS ?5
           AND state = ?6 AND updated_at = ?7
-          AND state NOT IN ('complete', 'target_deleted', 'expired', 'superseded')`,
+          AND state NOT IN (${sqlStateList(OWNER_TRANSFER_SAGA_TERMINAL_STATES)})`,
     )
     .bind(
       saga.roomCode,

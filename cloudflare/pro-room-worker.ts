@@ -1,3 +1,5 @@
+// Resource owner: RO-07, RO-08 (signaling broadcast delivery and asset duration
+// reads; see docs/design/resource-ownership-registry.md).
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
   ACCOUNT_ASSERTION_HEADER,
@@ -1195,12 +1197,31 @@ const PRESENCE_HEARTBEAT_PERSIST_EXPIRY_GUARD_MS =
   PRESENCE_HEARTBEAT_EXPECTED_INTERVAL_MS +
   PRESENCE_HEARTBEAT_PERSIST_COALESCE_MS +
   PRESENCE_HEARTBEAT_PERSIST_RETRY_MS;
-const PRESENCE_BROADCAST_RETRY_BASE_MS = 1_000;
-const PRESENCE_BROADCAST_RETRY_MAX_MS = 60_000;
-const PRESENCE_BROADCAST_RETRY_MAX_ATTEMPTS = 16;
-const PLAYBACK_BROADCAST_RETRY_BASE_MS = 1_000;
-const PLAYBACK_BROADCAST_RETRY_MAX_MS = 60_000;
-const PLAYBACK_BROADCAST_RETRY_MAX_ATTEMPTS = 16;
+// Signaling broadcast delivery (registry RO-07). Every request to the
+// signaling object (the presence marker, the playback outbox and the no-retry
+// invalidation lane) waits at most SIGNALING_BROADCAST_TIMEOUT_MS, so an
+// awaited send adds up to that much to its HTTP response. The presence marker
+// and the playback outbox use the same transport and back off on the same
+// failures, so they share one schedule (signalingBroadcastRetryDelayMs) and
+// one attempt cap, which both durable record normalizers also enforce. To
+// retune one lane alone, give it its own constants here.
+const SIGNALING_BROADCAST_TIMEOUT_MS = 900;
+const SIGNALING_BROADCAST_RETRY_BASE_MS = 1_000;
+const SIGNALING_BROADCAST_RETRY_MAX_MS = 60_000;
+const SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS = 16;
+
+/**
+ * The wait after a failed signaling broadcast: 1 s, 2 s, 4 s and so on, capped
+ * at 60 s. The presence marker passes the attempt count it stores with the
+ * retry, the playback outbox that count minus one.
+ */
+function signalingBroadcastRetryDelayMs(failures: number) {
+  return Math.min(
+    SIGNALING_BROADCAST_RETRY_MAX_MS,
+    SIGNALING_BROADCAST_RETRY_BASE_MS * 2 ** Math.min(failures, 6),
+  );
+}
+
 // One undelivered canonical COMMIT may be the base for one newer PREPARE or
 // CANCEL. Newer COMMITs supersede both, so the durable playback outbox never
 // needs more than these two ordered records.
@@ -1319,10 +1340,23 @@ const PLAYBACK_DURATION_YOUTUBE_TTL_MS = 60 * 60 * 1000;
 const PLAYBACK_DURATION_PROBE_WATCHDOG_MS = 10_000;
 const PLAYBACK_DURATION_UNKNOWN_RETRY_MS = 60_000;
 const PLAYBACK_DURATION_YOUTUBE_RETRY_MAX_MS = 15 * 60_000;
+// A YouTube lookup that got no answer retries after 5 s, then 30 s, before it
+// joins the backoff above. This is the provider-quota policy, kept apart from
+// the file ladder below although the first values match.
+const PLAYBACK_DURATION_YOUTUBE_QUICK_RETRY_MS = [5_000, 30_000] as const;
 // Two "not found" answers this far apart (separate lookups; the App caches an
 // answer for 30 s) skip a deleted/private video. Live is never skipped.
 const PLAYBACK_DURATION_NOT_FOUND_CONFIRM_MS = 60_000;
 const PLAYBACK_DURATION_FILE_RETRY_MS = 5 * 60_000;
+// An R2 duration read with no answer (registry RO-08) waits 5 s, then 30 s,
+// then PLAYBACK_DURATION_FILE_RETRY_MS for every later attempt. The
+// registration memo and a failed playback-probe read share this ladder.
+const FILE_DURATION_READ_RETRY_MS = [5_000, 30_000, PLAYBACK_DURATION_FILE_RETRY_MS] as const;
+
+function fileDurationReadRetryDelayMs(attempts: number) {
+  return FILE_DURATION_READ_RETRY_MS[attempts] ?? PLAYBACK_DURATION_FILE_RETRY_MS;
+}
+
 // A due natural end whose commit is refused (room state capacity) would
 // otherwise re-arm the alarm at now+1 and repeat on every request's prune().
 const PLAYBACK_NATURAL_ADVANCE_RETRY_MS = 30_000;
@@ -1346,7 +1380,6 @@ const DEVELOPER_QUEUE_TITLE_CONTROL_VERSION = 4;
 const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_QUEUE_TITLE_CONTROL_VERSION;
 const DEVELOPER_COMMAND_TTL_MS = 30 * 1000;
 const DEVELOPER_COMMAND_MAX_ATTEMPTS = 3;
-const DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS = 900;
 const INTERNAL_SERVICE_RESPONSE_TIMEOUT_MS = 2_000;
 const INTERNAL_SERVICE_RESPONSE_MAX_BYTES = 16 * 1024;
 const DEVELOPER_COMMAND_RETENTION_MS = 10 * 60 * 1000;
@@ -3742,7 +3775,7 @@ function normalizeStoredPlaybackBroadcastRecord(
     value.targets.some((target) => !OPAQUE_ID_RE.test(target)) ||
     !isSafeNonNegativeInteger(value.createdAtMs) ||
     !isSafeNonNegativeInteger(value.attempts) ||
-    value.attempts > PLAYBACK_BROADCAST_RETRY_MAX_ATTEMPTS ||
+    value.attempts > SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS ||
     !isSafeInteger(value.retryAtMs) ||
     value.retryAtMs <= 0 ||
     !isRecord(value.event)
@@ -5557,14 +5590,12 @@ export class MusixquareProRoom {
     return `${asset.assetId}:${asset.version}:${asset.byteLength}:${asset.roomGeneration}`;
   }
 
-  /** A read with no answer: queue it again after 5 s, 30 s, then 5 minutes. */
+  /** A read with no answer: queue it again on FILE_DURATION_READ_RETRY_MS. */
   deferAssetDurationRead(read: string, nowMs: number) {
     const attempts = this.assetDurationReads.get(read)?.attempts ?? 0;
     this.assetDurationReads.set(read, {
-      retryAtMs:
-        nowMs +
-        (attempts === 0 ? 5_000 : attempts === 1 ? 30_000 : PLAYBACK_DURATION_FILE_RETRY_MS),
-      attempts: Math.min(attempts + 1, 2),
+      retryAtMs: nowMs + fileDurationReadRetryDelayMs(attempts),
+      attempts: Math.min(attempts + 1, FILE_DURATION_READ_RETRY_MS.length - 1),
     });
   }
 
@@ -5705,8 +5736,8 @@ export class MusixquareProRoom {
       // otherwise read only when a controller reports it again. Queue one
       // bounded read for the playing or target file only, not as a sweep. An
       // answer is final for this instance. A read that got no answer, or that
-      // the queue refused or lost to a rolled-back write, is queued again
-      // after 5 s, 30 s, then every PLAYBACK_DURATION_FILE_RETRY_MS (the alarm
+      // the queue refused or lost to a rolled-back write, is queued again on
+      // FILE_DURATION_READ_RETRY_MS (5 s, 30 s, then every 5 minutes; the alarm
       // wakes an idle room for it), never at once on the next persist.
       const unmeasured = this.unmeasuredControllerAsset(identity);
       if (unmeasured) {
@@ -6033,15 +6064,15 @@ export class MusixquareProRoom {
         }
       } catch {
         unanswered = true;
-        if (identity.mediaKind === 'file')
-          retryMs = probe.attempts === 0 ? 5_000 : probe.attempts === 1 ? 30_000 : 300_000;
+        if (identity.mediaKind === 'file') retryMs = fileDurationReadRetryDelayMs(probe.attempts);
         diagnostic = 'METADATA_LOOKUP_FAILED';
       }
       // A failed YouTube lookup is not an answer about the video. Keep the quick
       // first retries so one transient provider error does not leave the track
       // without a deadline for minutes; repeated failures join the backoff.
-      if (identity.mediaKind === 'youtube' && unanswered && probe.attempts < 2)
-        retryMs = probe.attempts === 0 ? 5_000 : 30_000;
+      const youtubeQuickRetryMs = PLAYBACK_DURATION_YOUTUBE_QUICK_RETRY_MS[probe.attempts];
+      if (identity.mediaKind === 'youtube' && unanswered && youtubeQuickRetryMs !== undefined)
+        retryMs = youtubeQuickRetryMs;
       await this.withMutation(async () => {
         if (!this.room || this.activeRoom.roomGeneration !== roomGeneration) return;
         const currentProbe = this.activeRoom.playbackDurationProbe;
@@ -6199,7 +6230,7 @@ export class MusixquareProRoom {
       !Number.isSafeInteger(pending.retryAtMs) ||
       pending.retryAtMs <= 0 ||
       !isSafeNonNegativeInteger(pending.attempts) ||
-      pending.attempts > PRESENCE_BROADCAST_RETRY_MAX_ATTEMPTS
+      pending.attempts > SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS
     ) {
       this.activeRoom.pendingPresenceBroadcast = null;
     }
@@ -12649,19 +12680,12 @@ export class MusixquareProRoom {
             event,
           }),
         }),
-        DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
+        SIGNALING_BROADCAST_TIMEOUT_MS,
       );
       return response.status === 200 && parseInternalJsonResponse(bytes) !== null;
     } catch {
       return false;
     }
-  }
-
-  playbackBroadcastRetryDelayMs(attempts: number) {
-    return Math.min(
-      PLAYBACK_BROADCAST_RETRY_MAX_MS,
-      PLAYBACK_BROADCAST_RETRY_BASE_MS * 2 ** Math.min(attempts, 6),
-    );
   }
 
   playbackBroadcastRecord(
@@ -12834,7 +12858,7 @@ export class MusixquareProRoom {
             event: record.event,
           }),
         }),
-        DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS,
+        SIGNALING_BROADCAST_TIMEOUT_MS,
       );
       if (response.status !== 200) return false;
       const body = parseInternalJsonResponse(bytes);
@@ -12876,9 +12900,9 @@ export class MusixquareProRoom {
       if (delivered) {
         this.activeRoom.pendingPlaybackBroadcasts.shift();
       } else {
-        const attempts = Math.min(PLAYBACK_BROADCAST_RETRY_MAX_ATTEMPTS, record.attempts + 1);
+        const attempts = Math.min(SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS, record.attempts + 1);
         record.attempts = attempts;
-        record.retryAtMs = nowMs + this.playbackBroadcastRetryDelayMs(record.attempts - 1);
+        record.retryAtMs = nowMs + signalingBroadcastRetryDelayMs(record.attempts - 1);
       }
       try {
         await this.persist({
@@ -12897,13 +12921,6 @@ export class MusixquareProRoom {
     return true;
   }
 
-  presenceBroadcastRetryDelayMs(attempts: number) {
-    return Math.min(
-      PRESENCE_BROADCAST_RETRY_MAX_MS,
-      PRESENCE_BROADCAST_RETRY_BASE_MS * 2 ** Math.min(attempts, 6),
-    );
-  }
-
   comparePresenceBroadcastRevision(left: PresenceRevision, right: PresenceRevision) {
     if (left.coordinatorEpoch !== right.coordinatorEpoch) {
       return left.coordinatorEpoch - right.coordinatorEpoch;
@@ -12916,7 +12933,7 @@ export class MusixquareProRoom {
       coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
       presenceRevision: this.activeRoom.presence.revision,
       roomRevision: this.activeRoom.revision,
-      retryAtMs: nowMs + this.presenceBroadcastRetryDelayMs(attempts),
+      retryAtMs: nowMs + signalingBroadcastRetryDelayMs(attempts),
       attempts,
     };
   }
@@ -13012,7 +13029,7 @@ export class MusixquareProRoom {
     if (delivered) {
       this.activeRoom.pendingPresenceBroadcast = null;
     } else {
-      const nextAttempts = Math.min(PRESENCE_BROADCAST_RETRY_MAX_ATTEMPTS, attempts + 1);
+      const nextAttempts = Math.min(SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS, attempts + 1);
       this.activeRoom.pendingPresenceBroadcast = this.currentPresenceBroadcastRecord(
         nowMs,
         nextAttempts,

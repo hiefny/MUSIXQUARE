@@ -1003,6 +1003,13 @@ afterEach(() => {
     expect(test.saga()).toBe('complete');
 
     const requestMark = test.mark();
+    // The saga state before each later admin statement: the forward-only
+    // compare-and-swap in advanceOwnerTransferSagaState keeps the completed
+    // row from moving back to the old request's earlier ranked states.
+    const sagaStates = new Set<unknown>();
+    test.journal.hooks.push((event) => {
+      if (event.db === 'admin') sagaStates.add(test.saga());
+    });
     stall.release();
     // Every ranked advance of the old request reports success against the
     // completed row, the fence clear is idempotent, and its success audit is
@@ -1013,6 +1020,7 @@ afterEach(() => {
       cookies: ['__Secure-mxqr_pro_session_000417', '__Secure-mxqr_pro_owner_000417'],
     });
     expect(test.steps(requestMark)).toEqual(REQUEST_TAIL.slice(2));
+    expect([...sagaStates]).toEqual(['complete']);
     await expectTransferred(test);
     expect(test.commitAudits()).toEqual(['success', 'success']);
   });

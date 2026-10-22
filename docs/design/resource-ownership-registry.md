@@ -511,12 +511,14 @@ RO-46 accepted-exception
 - **Lifecycle operations:** enqueue, dispatch, back off, drop on an epoch change, persist the
   retry marker; send once (no-retry lane).
 - **Deadline owner:** each path's backoff; the no-retry lane has none. `scheduleAlarm` stays the
-  single alarm owner. Both request builders use `DEVELOPER_COMMAND_DISPATCH_TIMEOUT_MS` (900 ms,
-  misnamed), so each awaited invalidation send can add up to 900 ms to its HTTP response.
-- **Timing-constant home:** `PRESENCE_BROADCAST_RETRY_*` and `PLAYBACK_BROADCAST_RETRY_*`
-  (identical 1 s, 60 s, 16) with `presenceBroadcastRetryDelayMs` and
-  `playbackBroadcastRetryDelayMs`. Target: one constant set and one delay function (Phase 0d,
-  C7-1, PRO room release).
+  single alarm owner. Both request builders use `SIGNALING_BROADCAST_TIMEOUT_MS` (900 ms), so
+  each awaited invalidation send can add up to 900 ms to its HTTP response.
+- **Timing-constant home:** `cloudflare/pro-room-worker.ts`: `SIGNALING_BROADCAST_TIMEOUT_MS`,
+  `SIGNALING_BROADCAST_RETRY_BASE_MS`, `SIGNALING_BROADCAST_RETRY_MAX_MS`,
+  `SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS` (900 ms, 1 s, 60 s, 16) and one delay function,
+  `signalingBroadcastRetryDelayMs`. The presence marker passes its stored attempts, the playback
+  outbox its attempts minus one; both durable record normalizers use the shared attempt cap. One
+  set since Phase 0d (C7-1); a lane that needs its own timing gets its own constants there.
 - **Anchor tests:**
   - Supersession: missing (an epoch change dropping a queued record).
   - User pause/stop: n/a (server).
@@ -524,8 +526,9 @@ RO-46 accepted-exception
     after transient signaling failures and isolate restart"; "keeps a failed playback dispatch
     durable and clears it after a restarted alarm retry".
   - Visibility: n/a.
-- **Status:** `duplicated`. Phase 0d (constants), Phase 1 (one request builder, outbox owner).
-  Durable record shapes freeze across the change. Exceptions RO-31, RO-46.
+- **Status:** `duplicated`. Phase 0d named the constants once (C7-1); Phase 1 (one request
+  builder, outbox owner) remains. Durable record shapes freeze across the change. Exceptions
+  RO-31, RO-46.
 
 ### RO-08 PRO asset duration read
 
@@ -546,9 +549,12 @@ RO-46 accepted-exception
 - **Lifecycle operations:** enqueue, read outside the lane, revalidate inside it, roll back on
   capacity, persist, retry.
 - **Deadline owner:** each probe's retry ladder; the alarm's registration watchdog.
-- **Timing-constant home:** the 5 s, 30 s, 5 min ladder in `deferAssetDurationRead` and an inline
-  copy in the playback probe whose 5 min literal duplicates `PLAYBACK_DURATION_FILE_RETRY_MS`.
-  Target: `FILE_DURATION_READ_RETRY_MS` (Phase 0d, C7-2).
+- **Timing-constant home:** `cloudflare/pro-room-worker.ts`: `FILE_DURATION_READ_RETRY_MS`
+  (5 s, 30 s, then `PLAYBACK_DURATION_FILE_RETRY_MS`, 5 min) with
+  `fileDurationReadRetryDelayMs`, used by `deferAssetDurationRead` and the playback probe's
+  failed file read (Phase 0d, C7-2). The YouTube lookup's quick retries are a separate
+  provider-quota policy, `PLAYBACK_DURATION_YOUTUBE_QUICK_RETRY_MS` (5 s, 30 s), before its
+  backoff to `PLAYBACK_DURATION_YOUTUBE_RETRY_MAX_MS`.
 - **Anchor tests:**
   - Supersession: `pro-room-worker.test.ts` "reuses private asset duration after queue
     replacement, cache eviction and cold restart".
@@ -558,7 +564,8 @@ RO-46 accepted-exception
   - Visibility: n/a.
   - Cross-owner: `pro-room-worker.test.ts` "uses the registration watchdog instead of hot-looping
     an overdue playback probe".
-- **Status:** `duplicated`. Phase 0d (ladder constant), Phase 1 (duration read owner).
+- **Status:** `duplicated`. Phase 0d named the ladder once (C7-2); Phase 1 (duration read owner)
+  remains.
 
 ### RO-09 Owner-transfer saga row
 

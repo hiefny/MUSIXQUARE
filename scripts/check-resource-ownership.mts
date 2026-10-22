@@ -20,8 +20,12 @@
  *     readProRoomFileDuration() appear only in the listed functions.
  *   CHECK 4 One deadline owner per PRO SFU attempt (RO-04, the G1 lesson).
  *     The PRO subscriber retry maximum stays below the guest receive
- *     watchdog, or every PRO SFU reception start passes
- *     `{ receiveWatchdog: false }`.
+ *     watchdog, or the PRO SFU reception start in the subscribing function
+ *     passes `{ receiveWatchdog: false }`. A start is a no-op while the receive
+ *     placeholder is active, so an armed start elsewhere (the retry path, a
+ *     new module) would also re-arm the watchdog: armed
+ *     beginTrustedSystemAudioReception() callers are an exact list per
+ *     `file :: function`.
  *   CHECK 5 Copied timing constants (principle 4). Inside each contract the
  *     registry names, top-level *_MS, *_S, *_DELAY(S) and *_TIMEOUT constants
  *     that share a name across files, identical numeric tuples, and timing
@@ -40,10 +44,17 @@
  *
  * Scope: production TypeScript under src/ and cloudflare/ (tests, *.d.ts and
  * generated Worker types excluded). The checks walk the TypeScript AST, so
- * comments and unrelated strings never count. Deliberately not checked yet
- * (registry RO-44, RO-45): receivers resolved by type, module-level lifecycle
- * slots, timer-name manifests, shared phase unions and duplicated helper
- * names.
+ * comments and unrelated strings never count. Lifecycle-operation callers
+ * are counted only for the names above (page-lock claims, SKIP_WAITING sends,
+ * AudioContext resume/suspend, armed reception starts, the Worker broadcast
+ * endpoint and the duration reader). Deliberately not checked yet (registry
+ * RO-44, RO-45 and "Resource-ownership guard"): callers of the other
+ * records' lifecycle operations (YouTube player commands, claimPlaybackOwner,
+ * setSystemAudioReceiving, scheduleSessionReset), receivers resolved by type,
+ * module-level lifecycle slots, timer-name manifests, shared phase unions,
+ * duplicated helper names, "mirrors" copy markers, and registered timings
+ * retyped as literals in requester files (the 15 s data-connection grace in
+ * heartbeat-monitor.ts).
  *
  * Exit code: 0 if clean, 1 if findings remain.
  */
@@ -217,6 +228,33 @@ const G1_RETRY_MAX_CONSTANT = 'SUBSCRIBER_RETRY_MAX_DELAY_MS';
 const G1_WATCHDOG_CONSTANT = 'SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS';
 const G1_SUBSCRIBE_CALL = 'subscribeProSystemAudioSfu';
 const G1_RECEPTION_START_CALL = 'beginTrustedSystemAudioReception';
+
+/**
+ * RO-04: armed reception starts, exact per `file :: function`. Any value use
+ * of beginTrustedSystemAudioReception counts unless it is a direct call whose
+ * options are the literal `{ receiveWatchdog: false }`, so passing the start
+ * around cannot hide an armed caller. The start returns early while the
+ * placeholder is active, so an armed start that runs before the PRO SFU
+ * start (for example in the retry path) re-arms the 30 s watchdog across the
+ * backoff, which is G1 again.
+ */
+const ARMED_RECEPTION_START_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/network/system-audio-guest.ts :: registerSystemAudioGuestListeners',
+    {
+      count: 1,
+      reason: 'host SYSTEM_AUDIO_START frame (Standard P2P): the watchdog is its deadline',
+    },
+  ],
+  [
+    'src/network/system-audio-sfu.ts :: handleSfuReady',
+    { count: 1, reason: 'Standard SFU after a direct-route failure handoff' },
+  ],
+  [
+    'src/pro-room/system-audio-service.ts :: ensureCoordinatorSubscription',
+    { count: 1, reason: 'PRO LAN-direct branch: the watchdog is its deadline (fix lane G5)' },
+  ],
+]);
 
 // ── CHECK 5: timing contracts the registry names, and their triaged pairs ─
 
@@ -656,6 +694,7 @@ interface FileFacts {
   audioContextNativeCalls: number;
   readonly broadcastEndpointSites: string[];
   readonly durationReadSites: string[];
+  readonly armedReceptionStartSites: string[];
   readonly ownerHeaders: string[];
 }
 
@@ -712,6 +751,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
     audioContextNativeCalls: 0,
     broadcastEndpointSites: [],
     durationReadSites: [],
+    armedReceptionStartSites: [],
     ownerHeaders: [],
   };
 
@@ -730,6 +770,21 @@ function collectFacts(relPath: string, text: string): FileFacts {
     } else if (ts.isIdentifier(node) && node.text === DURATION_READER && isValueReference(node)) {
       // Any value use, so passing the reader around cannot hide a caller.
       facts.durationReadSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
+    } else if (
+      ts.isIdentifier(node) &&
+      node.text === G1_RECEPTION_START_CALL &&
+      isValueReference(node)
+    ) {
+      const access =
+        ts.isPropertyAccessExpression(node.parent) && node.parent.name === node
+          ? node.parent
+          : node;
+      const call = access.parent;
+      const disarmed =
+        ts.isCallExpression(call) && call.expression === access && disablesWatchdog(call);
+      if (!disarmed) {
+        facts.armedReceptionStartSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
+      }
     }
 
     const member = memberName(node);
@@ -1212,6 +1267,7 @@ export interface ResourceOwnershipReport {
   readonly ariaHiddenWritesTotal: number;
   readonly workerSites: Readonly<Record<string, number>>;
   readonly deadline: DeadlineOwnership;
+  readonly armedReceptionStarts: number;
   readonly timingPairs: {
     readonly copies: number;
     readonly suspects: number;
@@ -1337,6 +1393,24 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
   );
 
   const deadline = checkDeadlineOwnership(input.sources, findings);
+  const armedStarts = tally(
+    [...facts.entries()]
+      .filter(([relPath]) => appOnly(relPath))
+      .flatMap(([, f]) => f.armedReceptionStartSites),
+  );
+  compareExact(
+    {
+      label: 'armed reception start',
+      record: 'RO-04',
+      hint:
+        `a ${G1_RECEPTION_START_CALL}() that runs before the PRO SFU start keeps the guest ` +
+        'watchdog armed through the retry backoff (G1); pass { receiveWatchdog: false } or ' +
+        'add a reasoned entry naming the deadline owner',
+      measured: armedStarts,
+      baseline: ARMED_RECEPTION_START_BASELINE,
+    },
+    findings,
+  );
   const pairs = checkTimingPairs(input.sources, findings);
 
   const audioContextCalls = perFile(facts, (f) => f.audioContextNativeCalls, appOnly);
@@ -1370,6 +1444,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       'PRO duration read': total(durationSites),
     },
     deadline,
+    armedReceptionStarts: total(armedStarts),
     timingPairs: {
       copies: triaged('copy'),
       suspects: triaged('suspect'),
@@ -1409,7 +1484,8 @@ function main(argv: readonly string[]): void {
       `${report.ariaHiddenWritesTotal} (report-only).\n` +
       `  Worker callers: ${summary(report.workerSites)}.\n` +
       `  G1 deadline owner: ${deadline.mode} (retry max ${deadline.retryMaxMs} ms, watchdog ` +
-      `${deadline.watchdogMs} ms, ${deadline.sfuReceptionStarts} SFU reception start).\n` +
+      `${deadline.watchdogMs} ms, ${deadline.sfuReceptionStarts} SFU reception start); ` +
+      `armed reception starts ${report.armedReceptionStarts}.\n` +
       `  copied timing constants: ${timingPairs.copies} copies, ${timingPairs.suspects} suspects; ` +
       `${timingPairs.reportOnly.length} same-value pairs (report-only` +
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +

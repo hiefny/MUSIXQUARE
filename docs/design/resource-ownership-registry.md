@@ -46,8 +46,10 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
 - **Owner, requester, reader:** as in principle 1. A **target single owner** is where the
   consolidating phase moves ownership; `owner-in-place` records already have it.
 - **Lifecycle operations:** the calls that change the resource (start, stop, resume, close,
-  write, retry). The resource-ownership guard counts the callers of the distinctive ones per file
-  or function.
+  write, retry). The resource-ownership guard counts only some callers today: page-lock claims,
+  `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()`, armed
+  `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint and the duration
+  reader. See [what it does not check yet](#resource-ownership-guard).
 - **Deadline owner:** the module allowed to time out an attempt on the resource.
 - **Timing-constant home:** the module and constant names that hold the resource's timing values.
 - **Anchor tests:** the tests that pin the four cancellation cases: supersession (a newer attempt
@@ -368,7 +370,10 @@ RO-46 accepted-exception
     guest module with the service (G1). `system-audio-service.test.ts` mocks the guest and SFU
     modules, so it cannot see their interplay.
   - Guard: the resource-ownership guard fails when the PRO SFU reception start arms the guest
-    watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`.
+    watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`,
+    and when an armed `beginTrustedSystemAudioReception` start appears in a new function. The
+    start returns early while the placeholder is active, so an armed start on the retry path
+    would re-arm the watchdog before the SFU start runs.
 - **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrives after the
   30 s watchdog stays silent; the fix needs a bounded re-begin per publication because an
   unchanged controller state never re-emits) and G6 (each PRO SFU retry re-runs the reception
@@ -1450,15 +1455,20 @@ and unrelated strings never count, and every baseline is an exact count or list 
    `readProRoomFileDuration` (RO-08).
 4. **One deadline owner per PRO SFU attempt** (RO-04, principle 2): the subscriber retry maximum
    stays below the guest receive watchdog, or the PRO SFU reception start passes
-   `receiveWatchdog: false`.
+   `receiveWatchdog: false`. Armed `beginTrustedSystemAudioReception` starts (any use without the
+   literal `{ receiveWatchdog: false }`) are an exact list per function.
 5. **Copied timing constants** inside the files a record names as its timing home (principle 4):
    same-named constants, identical numeric tuples and shared timing objects form a triaged list.
    Constants that share only a value are report-only, because round values such as 1 s, 15 s and
    30 s recur across different contracts; `--report` lists them.
 6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44).
 
-Not checked yet: receivers resolved by type (RO-44), module-level lifecycle slots (RO-45),
-timer-name manifests, shared phase unions and duplicated helper names.
+Not checked yet: callers of the other records' lifecycle operations (YouTube player commands,
+`claimPlaybackOwner`, `setSystemAudioReceiving`, `scheduleSessionReset`), receivers resolved by
+type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
+duplicated helper names, "mirrors" copy-marker comments, and registered timings retyped as
+literals in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`). Until
+then, review those by hand against each record.
 
 ## How to change this registry
 

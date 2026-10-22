@@ -324,18 +324,63 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
-    it('accepts an armed watchdog once the retry maximum stays below it', () => {
+    it('rejects an armed start in the retry path, which re-arms before the SFU start', () => {
+      // The later disarmed SFU start returns early while the placeholder is
+      // active, so this one line would bring G1 back.
+      const findings = findingsOf(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            service,
+            '  cleanupCoordinatorSubscriptionForRetry();\n  setSystemAudioReceiving(false);\n',
+            '  cleanupCoordinatorSubscriptionForRetry();\n  setSystemAudioReceiving(false);\n' +
+              '  beginTrustedSystemAudioReception();\n',
+          ),
+        ),
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED armed reception start \(RO-04\): src\/pro-room\/system-audio-service\.ts :: retryCoordinatorSubscription has 1/u,
+      );
+    });
+
+    it('rejects an armed start in a new module, called or passed on', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'src/pro-room/rogue-reception.ts',
+            "import { beginTrustedSystemAudioReception } from '../network/system-audio-guest.ts';\n" +
+              'export const starts = [beginTrustedSystemAudioReception];\n' +
+              'export function restart(): void {\n' +
+              "  beginTrustedSystemAudioReception('display', { receiveWatchdog: true });\n" +
+              '  beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });\n' +
+              '}\n',
+          );
+        }),
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED armed reception start \(RO-04\): src\/pro-room\/rogue-reception\.ts :: <module> has 1/u,
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED armed reception start \(RO-04\): src\/pro-room\/rogue-reception\.ts :: restart has 1/u,
+      );
+    });
+
+    it('needs a reasoned entry, not a deadline finding, once the retry maximum stays below it', () => {
       const input = withSources((sources) => {
         replaceIn(sources, service, sfuStart, 'beginTrustedSystemAudioReception();');
         replaceIn(sources, service, retryMax, 'const SUBSCRIBER_RETRY_MAX_DELAY_MS = 20_000;');
       });
       const report = analyzeResourceOwnership(input);
-      expect(report.findings).toEqual([]);
       expect(report.deadline).toMatchObject({
         mode: 'retry-below-watchdog',
         retryMaxMs: 20_000,
         watchdogMs: 30_000,
       });
+      expect(report.findings).toEqual([
+        expect.stringMatching(
+          /^RATCHET REGRESSION armed reception start \(RO-04\): src\/pro-room\/system-audio-service\.ts :: ensureCoordinatorSubscription has 2, baseline 1/u,
+        ),
+      ]);
     });
 
     it('fails closed when its anchors move', () => {

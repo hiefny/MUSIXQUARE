@@ -40,6 +40,14 @@
 - Follow `docs/hotfix-procedure.md` and `docs/release-versioning.md` for production
   changes, including the exact-commit CI candidate and release workflow.
 
+## Resource ownership
+
+- Before adding any recovery, retry, timeout, watchdog, or lifecycle flow, find
+  the resource in `docs/design/resource-ownership-registry.md` and extend its
+  owner instead of adding an independent machine.
+- Import timing values from the home the registry names; never copy them.
+- A new resource or an owner change updates the registry in the same change.
+
 ## Public repository
 
 - This repository is public. The owner's own details may appear, but write

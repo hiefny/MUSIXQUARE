@@ -113,4 +113,22 @@ describe('local E2E report contract', () => {
       ['Upload critical browser failure artifacts', 5],
     ]);
   });
+
+  it('runs the browser gate in the Playwright image for the locked version, without apt', () => {
+    const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
+    const lock = JSON.parse(readFileSync(resolve('package-lock.json'), 'utf8')) as {
+      packages: Record<string, { version?: string }>;
+    };
+    const browserGateJob = ciWorkflow.slice(ciWorkflow.indexOf('\n  browser-gate:'));
+    const image = browserGateJob.match(
+      /^ {6}image: mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble$/mu,
+    );
+
+    // Bump the image tag in the same change that bumps @playwright/test.
+    expect(image?.[1]).toBe(lock.packages['node_modules/@playwright/test']?.version);
+    expect(image?.[1]).toBe(lock.packages['node_modules/playwright-core']?.version);
+    expect(browserGateJob).toMatch(/^ {6}options: --user 1001 --ipc=host$/mu);
+    expect(browserGateJob).toMatch(/^ {8}run: npx playwright install chromium$/mu);
+    expect(browserGateJob).not.toContain('--with-deps');
+  });
 });

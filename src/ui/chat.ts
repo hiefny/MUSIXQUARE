@@ -14,6 +14,7 @@ import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG, PEER_NAME_PREFIX, MAX_MSG_LENGTH } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
+import { setElementInertForOwner } from '../core/inert-ownership.ts';
 import { sendToHost } from '../network/peer.ts';
 import { refuseHostCommand } from '../network/host-presence.ts';
 import { t } from '../i18n/index.ts';
@@ -50,7 +51,6 @@ import {
   getUiElement,
   normalizeEmptyContentEditable,
   onWindowBack,
-  setElementInertForOwner,
 } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import {

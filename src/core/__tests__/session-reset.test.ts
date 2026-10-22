@@ -359,4 +359,227 @@ describe('session reset coordinator', () => {
     expect(shortcutHandler).toHaveBeenCalledOnce();
     window.removeEventListener('keydown', shortcutHandler);
   });
+
+  describe('shared inert ownership with the modal stack', () => {
+    async function loadModalStack(): Promise<typeof import('../../ui/dom.ts')> {
+      // Same module registry as the coordinator, so both owners see one ledger.
+      const dom = await import('../../ui/dom.ts');
+      // Mirror app.ts: the window layer re-derives once the reset releases.
+      const { setSessionResetReleaseHandler } = await loadCoordinator();
+      setSessionResetReleaseHandler(dom.syncOverlayStateAfterExternalLock);
+      return dom;
+    }
+
+    // Mirror dialog.ts: the window writes its own aria-hidden on open and close.
+    function openDialog(dom: typeof import('../../ui/dom.ts'), dialog: HTMLElement): void {
+      dialog.classList.add('show');
+      dialog.setAttribute('aria-hidden', 'false');
+      dom.syncOverlayState('dialog-overlay');
+    }
+
+    function closeDialog(dom: typeof import('../../ui/dom.ts'), dialog: HTMLElement): void {
+      dialog.classList.remove('show');
+      dialog.setAttribute('aria-hidden', 'true');
+      dom.syncOverlayState();
+    }
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: undefined,
+      });
+      // Same initial attributes as index.html: a closed dialog is aria-hidden.
+      document.body.innerHTML =
+        '<main id="app"><button id="control">Control</button></main>' +
+        '<div id="dialog-overlay" aria-hidden="true"></div>';
+    });
+
+    it('locks with inert only and leaves aria-hidden to the windows', async () => {
+      const app = document.getElementById('app') as HTMLElement;
+      const dialog = document.getElementById('dialog-overlay') as HTMLElement;
+      const { scheduleSessionReset } = await loadCoordinator();
+
+      scheduleSessionReset('No-op', vi.fn());
+      expect(app.inert).toBe(true);
+      expect(dialog.inert).toBe(true);
+      expect(app.hasAttribute('aria-hidden')).toBe(false);
+      expect(dialog.getAttribute('aria-hidden')).toBe('true');
+
+      vi.advanceTimersByTime(120 + 2_000);
+      expect(app.inert).toBe(false);
+      expect(dialog.inert).toBe(false);
+      expect(app.hasAttribute('aria-hidden')).toBe(false);
+      expect(dialog.getAttribute('aria-hidden')).toBe('true');
+    });
+
+    it('leaves the shell interactive after a dialog opened during an abandoned reset closes', async () => {
+      const app = document.getElementById('app') as HTMLElement;
+      const dialog = document.getElementById('dialog-overlay') as HTMLElement;
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const dom = await loadModalStack();
+
+      try {
+        scheduleSessionReset('No-op', vi.fn());
+        openDialog(dom, dialog);
+        expect(app.inert).toBe(true);
+
+        // The navigation never commits, so the coordinator recovers the page.
+        vi.advanceTimersByTime(120 + 2_000);
+        expect(isSessionResetPending()).toBe(false);
+        // The still-open dialog keeps its own lock on the shell.
+        expect(app.inert).toBe(true);
+        expect(app.getAttribute('aria-hidden')).toBe('true');
+        // The recovered dialog keeps the value it wrote when it opened.
+        expect(dialog.inert).toBe(false);
+        expect(dialog.getAttribute('aria-hidden')).toBe('false');
+
+        closeDialog(dom, dialog);
+        expect(app.inert).toBe(false);
+        expect(app.hasAttribute('inert')).toBe(false);
+        expect(app.hasAttribute('aria-hidden')).toBe(false);
+        expect(dialog.getAttribute('aria-hidden')).toBe('true');
+      } finally {
+        dom.__resetModalStackForTests();
+      }
+    });
+
+    it('keeps the shell locked when a dialog closes mid-reset and unlocks it on recovery', async () => {
+      const app = document.getElementById('app') as HTMLElement;
+      const dialog = document.getElementById('dialog-overlay') as HTMLElement;
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const dom = await loadModalStack();
+
+      try {
+        openDialog(dom, dialog);
+        scheduleSessionReset('No-op', vi.fn());
+
+        closeDialog(dom, dialog);
+        // Closing the dialog must not re-enable the page behind the reset.
+        expect(app.inert).toBe(true);
+
+        vi.advanceTimersByTime(120 + 2_000);
+        expect(isSessionResetPending()).toBe(false);
+        expect(app.inert).toBe(false);
+        expect(app.hasAttribute('inert')).toBe(false);
+        expect(app.hasAttribute('aria-hidden')).toBe(false);
+        expect(dialog.inert).toBe(false);
+        // The closed dialog keeps the value it wrote when it closed.
+        expect(dialog.getAttribute('aria-hidden')).toBe('true');
+      } finally {
+        dom.__resetModalStackForTests();
+      }
+    });
+
+    it('re-derives a dialog that opened over the setup screen during an abandoned reset', async () => {
+      document.body.innerHTML =
+        '<main id="app"><button id="control">Control</button></main>' +
+        '<div id="setup-overlay" class="active"><button id="setup-start">Start</button></div>' +
+        '<div id="dialog-overlay" aria-hidden="true"><button id="dialog-ok">OK</button></div>';
+      const setup = document.getElementById('setup-overlay') as HTMLElement;
+      const dialog = document.getElementById('dialog-overlay') as HTMLElement;
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const dom = await loadModalStack();
+
+      try {
+        dom.syncOverlayState('setup-overlay');
+        (document.getElementById('setup-start') as HTMLButtonElement).focus();
+        scheduleSessionReset('No-op', vi.fn());
+        openDialog(dom, dialog);
+
+        vi.advanceTimersByTime(120 + 2_000);
+        expect(isSessionResetPending()).toBe(false);
+        // The dialog is on top: exposed, interactive and holding focus.
+        expect(dialog.inert).toBe(false);
+        expect(dialog.getAttribute('aria-hidden')).toBe('false');
+        expect(setup.inert).toBe(true);
+        expect(document.activeElement?.id).toBe('dialog-ok');
+
+        closeDialog(dom, dialog);
+        expect(setup.inert).toBe(false);
+        expect(setup.hasAttribute('inert')).toBe(false);
+        expect(setup.getAttribute('aria-hidden')).toBe('false');
+      } finally {
+        dom.__resetModalStackForTests();
+      }
+    });
+
+    it('moves focus into a dialog that opened during an abandoned reset after focus was lost', async () => {
+      const dialog = document.getElementById('dialog-overlay') as HTMLElement;
+      dialog.innerHTML = '<button id="dialog-ok">OK</button>';
+      const { scheduleSessionReset } = await loadCoordinator();
+      const dom = await loadModalStack();
+
+      try {
+        scheduleSessionReset('No-op', vi.fn());
+        openDialog(dom, dialog);
+        // Browsers drop focus from an element that becomes inert.
+        (document.activeElement as HTMLElement | null)?.blur();
+
+        vi.advanceTimersByTime(120 + 2_000);
+        expect(dialog.getAttribute('aria-hidden')).toBe('false');
+        expect(document.activeElement?.id).toBe('dialog-ok');
+      } finally {
+        dom.__resetModalStackForTests();
+      }
+    });
+
+    it('never locks the reset overlay when a retry follows an abandoned reset on the setup screen', async () => {
+      document.body.innerHTML =
+        '<main id="app"><button id="control">Control</button></main>' +
+        '<div id="setup-overlay" class="active"><button id="setup-start">Start</button></div>';
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const dom = await loadModalStack();
+
+      try {
+        dom.syncOverlayState('setup-overlay');
+        scheduleSessionReset('No-op', vi.fn());
+        const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
+
+        vi.advanceTimersByTime(120 + 2_000);
+        expect(isSessionResetPending()).toBe(false);
+        expect(overlay.hasAttribute('inert')).toBe(false);
+
+        scheduleSessionReset('Retry', vi.fn());
+        // The retry's status surface stays exposed and focusable.
+        expect(overlay.inert).not.toBe(true);
+        expect(overlay.hasAttribute('inert')).toBe(false);
+        expect(overlay.getAttribute('aria-hidden')).toBe('false');
+        expect(document.getElementById('app')?.inert).toBe(true);
+      } finally {
+        dom.__resetModalStackForTests();
+      }
+    });
+
+    it('keeps the mounted reset overlay exposed while windows open and close around it', async () => {
+      // Same order as index.html: the reset overlay is mounted from the start.
+      document.body.innerHTML =
+        '<main id="app"><button id="control">Control</button></main>' +
+        '<div id="setup-overlay" class="active"><button id="setup-start">Start</button></div>' +
+        '<div id="session-reset-overlay" aria-hidden="true" tabindex="-1" hidden>' +
+        '<p id="session-reset-message"></p></div>' +
+        '<div id="dialog-overlay" aria-hidden="true"><button id="dialog-ok">OK</button></div>';
+      const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
+      const dialog = document.getElementById('dialog-overlay') as HTMLElement;
+      const { scheduleSessionReset } = await loadCoordinator();
+      const dom = await loadModalStack();
+
+      try {
+        dom.syncOverlayState('setup-overlay');
+        expect(overlay.hasAttribute('inert')).toBe(false);
+        expect(overlay.getAttribute('aria-hidden')).toBe('true');
+
+        scheduleSessionReset('No-op', vi.fn());
+        openDialog(dom, dialog);
+        expect(overlay.hasAttribute('inert')).toBe(false);
+        expect(overlay.getAttribute('aria-hidden')).toBe('false');
+        expect(document.activeElement).toBe(overlay);
+
+        closeDialog(dom, dialog);
+        expect(overlay.hasAttribute('inert')).toBe(false);
+        expect(overlay.getAttribute('aria-hidden')).toBe('false');
+      } finally {
+        dom.__resetModalStackForTests();
+      }
+    });
+  });
 });

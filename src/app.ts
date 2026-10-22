@@ -43,6 +43,7 @@ import {
   restoreSessionReset,
   scheduleDocumentReload,
   scheduleSessionReset,
+  setSessionResetReleaseHandler,
 } from './core/session-reset.ts';
 import { createReloadRecoveryLatch } from './core/reload-recovery-latch.ts';
 
@@ -125,6 +126,7 @@ import {
   isAnyOverlayShown,
   offerBackToTopWindow,
   onOverlayStackChange,
+  syncOverlayStateAfterExternalLock,
   whenBackSurfaceSettled,
 } from './ui/dom.ts';
 import { initEmailCopyLinks } from './ui/copy-email.ts';
@@ -1296,7 +1298,10 @@ async function bootstrap(): Promise<void> {
       log,
     }),
   );
-  safeInit('PageLifecycle', () =>
+  safeInit('PageLifecycle', () => {
+    // Windows that opened or closed under an abandoned reset re-derive once
+    // it releases its locks.
+    setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);
     initPageLifecycleHandlers({
       getRole: () => getState('network.appRole'),
       // A confirmed pagehide may be the installed-PWA OAuth navigation. Keep
@@ -1309,8 +1314,8 @@ async function bootstrap(): Promise<void> {
       hasPendingReset: isSessionResetPending,
       restorePendingReset: restoreSessionReset,
       log,
-    }),
-  );
+    });
+  });
   safeInit('BackButtonGuard', initBackButtonGuard);
 
   // 12. System compatibility check (deferred to not block bootstrap)

@@ -15,9 +15,9 @@ import {
   syncOverlayState,
   initOverlayObservers,
   __resetModalStackForTests,
-  setElementInertForOwner,
   updateTitleWithMarquee,
 } from '../dom.ts';
+import { setElementInertForOwner } from '../../core/inert-ownership.ts';
 
 describe('escapeHtml', () => {
   it('escapes ampersands', () => {

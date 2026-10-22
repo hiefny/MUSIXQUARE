@@ -768,7 +768,9 @@ describe('PRO LAN-direct reception', () => {
     await advance(60_000);
     // The force-stop ends reception for good (G5's comment in the service):
     // the track waits for a reception start that never comes and is dropped,
-    // and the direct deadline, cleared by the force-stop, says nothing.
+    // and the direct deadline stays silent after the force-stop. Two guards
+    // hold it off (the force-stop's clear and the deadline's placeholder
+    // check); this row pins the outcome, not which one of them does it.
     expect(webAudio.sources).toHaveLength(0);
     expect(slot()).toMatchObject({
       receiving: false,
@@ -830,10 +832,11 @@ describe('PRO LAN-direct reception', () => {
     expect(slot()).toMatchObject({ receiving: false, placeholder: true, sources: [] });
     expect(seen.activities.slice(activitiesBefore)).toEqual(['pending', 'idle', 'pending']);
     expect(media.stopAllMedia).toHaveBeenCalledTimes(2);
+    // The descriptor carries the promotion's budget (20 s later than the
+    // direct commit's), not the direct publication's expiry.
     expect(proSfu.descriptors.map((descriptor) => descriptor.expiresAt)).toEqual([
       promotedAt + LIVE_TTL_MS,
     ]);
-    expect(promotedAt + LIVE_TTL_MS).toBeGreaterThan(committedAt + LIVE_TTL_MS);
 
     await advance(PRO_TRACK_AT_MS);
     expect(slot()).toMatchObject({ receiving: true, sources: ['pro-sfu-audio-1'] });

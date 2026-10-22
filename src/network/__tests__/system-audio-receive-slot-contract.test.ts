@@ -670,6 +670,34 @@ describe('Standard SFU guest receive', () => {
     });
   });
 
+  it('S8b (SFU): STOP while the SFU attach waits in initAudio after the boundary resolved never connects', async () => {
+    await start();
+    webAudio.suspend();
+    await ready('rt_host_session_1');
+    await advance(SFU_TRACK_AT_MS + 100);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
+    await stop();
+
+    webAudio.finishResume();
+    await advance(1_000);
+    // The Standard SFU half of S8b (the P2P half is in the P2P block): today
+    // only connectGuestTrack's post-initAudio subscriber-PC check keeps the
+    // retired attach out. C4-4 replaces this section with slot.attach and
+    // must keep the outcome.
+    expect(webAudio.sources).toHaveLength(0);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      mode: null,
+      activity: 'idle',
+      title: previousTitle,
+      placeholder: false,
+      sources: [],
+    });
+    expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
+    expect(realtime.count('tracks-close')).toBe(1);
+    expect(seen.toasts).toEqual([]);
+  });
+
   it('S3: a direct call that arrives mid-SFU disconnects the SFU source before the P2P source connects', async () => {
     await start();
     await ready('rt_host_session_1');

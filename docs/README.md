@@ -91,6 +91,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [One PRO signaling transport (Phase 1 PRO Worker A, 2026-10-23)](design/pro-room-signaling-transport-2026-10-23.md):
+  the PRO room's presence, no-retry and playback broadcasts to signaling share one request builder
+  with two acceptance rules. Unit fakes now refuse any body signaling would reject, and the workerd
+  contract covers an epoch advance the room sends itself. No behaviour change; Worker-only (target
+  `pro-room`), with no app version or service-worker change.
+
 - [Server constant homes for the PRO and App Workers — Phase 0d, 2026-10-23](design/server-constant-homes-2026-10-23.md) —
   The PRO room's signaling retry schedule and file duration ladder, the owner-transfer saga states and
   the Developer API fence digest each get one named home, with a drift test over the three SQL copies of

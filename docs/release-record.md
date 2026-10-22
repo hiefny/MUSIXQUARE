@@ -45,6 +45,15 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### Phase 1 PRO Worker A: 시그널링 전송 하나(Worker 배포 대기)
+
+- [ ] PRO Worker(target `pro-room`) 배포 후보. PRO 방이 시그널링으로 보내는 broadcast(프레즌스,
+      재시도 없는 무효화 알림, 재생 아웃박스)를 요청 빌더 하나(`postSignalingBroadcast`)로 합쳤고
+      동작은 그대로다. 앱 버전·SW 캐시(9.0.3/v771)는 바뀌지 않는다. App 소스가 그대로라 부분
+      릴리스 게이트가 `pro-room` 단독을 허용한다. PRO Worker 배포는 살아 있는 PRO 방 Durable
+      Object를 다시 시작하므로 행사 시간을 피한다. 배포 뒤 smoke는 이 경로를 타지 않아 근거는
+      workerd 계약 테스트다. [변경·검증·한계](design/pro-room-signaling-transport-2026-10-23.md).
+
 ### 9.0.3 PRO SFU 재시도의 수신 대기 유지·느린 제스처 재개 확인
 
 - [ ] App 9.0.3/v771은 2026-10-23 03:07 KST [Release 39828174957](https://github.com/hiefny/MUSIXQUARE/actions/runs/39828174957)로 배포했다(target `app`). 아래 9.0.2를 함께 실었다(오너 결정 2026-10-23). PRO SFU 재시도가 같은 발행이면 수신 대기를

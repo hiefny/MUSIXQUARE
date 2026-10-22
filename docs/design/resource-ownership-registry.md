@@ -535,8 +535,8 @@ RO-46 accepted-exception
 - **Status:** `duplicated`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the two
   request builders into `postSignalingBroadcast` with no behaviour change; its request bytes,
   acceptance rules and deadline are pinned in `pro-room-worker.test.ts` ("one signaling broadcast
-  transport") and against the real signaling Worker in `pro-room-signaling-contract-workerd`.
-  The outbox owner (C7-4) remains.
+  transport") and against the real signaling Worker in `pro-room-signaling-contract-workerd`
+  ([report](pro-room-signaling-transport-2026-10-23.md)). The outbox owner (C7-4) remains.
   Durable record shapes freeze across the change. Exceptions RO-31, RO-46.
 
 ### RO-08 PRO asset duration read

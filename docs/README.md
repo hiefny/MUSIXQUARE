@@ -91,6 +91,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Server constant homes for the PRO and App Workers — Phase 0d, 2026-10-23](design/server-constant-homes-2026-10-23.md) —
+  The PRO room's signaling retry schedule and file duration ladder, the owner-transfer saga states and
+  the Developer API fence digest each get one named home, with a drift test over the three SQL copies of
+  the saga states. No behaviour change; Worker-only, with no app version or service-worker change.
+
 - [PRO SFU retry placeholder and slow gesture resume — 9.0.3, 2026-10-23](design/pro-sfu-retry-and-slow-gesture-resume-2026-10-23.md) —
   A PRO SFU retry keeps its receive placeholder, the AudioContext owner verifies a gesture resume that
   outlives its 750 ms deadline, and the AudioContext lifecycle fake; failing-first tests and device limits.

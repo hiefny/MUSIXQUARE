@@ -6045,6 +6045,10 @@ async function clearDeveloperApiAuthorityFence(
   return row?.status === 'cleared' && row?.fence_digest === fenceDigest;
 }
 
+export function isFenceDigestForTests(value: unknown) {
+  return typeof value === 'string' && FENCE_DIGEST_RE.test(value);
+}
+
 function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return null;
   let body: unknown;
@@ -6393,6 +6397,11 @@ const OWNER_TRANSFER_SAGA_TERMINAL_STATES = Object.freeze(
   ),
 );
 
+// The terminal states in which the transfer did not complete.
+const OWNER_TRANSFER_SAGA_ABANDONED_STATES: readonly OwnerTransferSagaState[] = Object.freeze(
+  OWNER_TRANSFER_SAGA_TERMINAL_STATES.filter((state) => state !== 'complete'),
+);
+
 // The filled states, prepared to complete, ranked for the forward-only
 // compare-and-swap in advanceOwnerTransferSagaState.
 const OWNER_TRANSFER_SAGA_STATE_RANK = Object.freeze({
@@ -6419,6 +6428,7 @@ export function ownerTransferSagaStatesForTests() {
     states: [...OWNER_TRANSFER_SAGA_STATES],
     nonterminal: [...OWNER_TRANSFER_SAGA_NONTERMINAL_STATES],
     terminal: [...OWNER_TRANSFER_SAGA_TERMINAL_STATES],
+    abandoned: [...OWNER_TRANSFER_SAGA_ABANDONED_STATES],
     ranked: Object.keys(OWNER_TRANSFER_SAGA_STATE_RANK),
   };
 }
@@ -6587,7 +6597,7 @@ async function recordOwnerTransferIntent(
       existing.roomGeneration === roomGeneration &&
       existing.requestId === requestId &&
       existing.targetAccountId === targetAccountId &&
-      !['expired', 'superseded', 'target_deleted'].includes(existing.state)
+      !OWNER_TRANSFER_SAGA_ABANDONED_STATES.includes(existing.state)
       ? existing
       : null;
   }
@@ -6675,7 +6685,7 @@ async function recordOwnerTransferIntent(
     intent.roomGeneration === roomGeneration &&
     intent.requestId === requestId &&
     intent.targetAccountId === targetAccountId &&
-    !['expired', 'superseded', 'target_deleted'].includes(intent.state)
+    !OWNER_TRANSFER_SAGA_ABANDONED_STATES.includes(intent.state)
     ? intent
     : null;
 }
@@ -6912,7 +6922,7 @@ async function advanceOwnerTransferSagaState(
 ) {
   if (
     !isRankedOwnerTransferSagaState(nextState) &&
-    !['target_deleted', 'expired', 'superseded'].includes(nextState)
+    !OWNER_TRANSFER_SAGA_ABANDONED_STATES.includes(nextState)
   ) {
     return false;
   }

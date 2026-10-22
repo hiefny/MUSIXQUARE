@@ -588,15 +588,18 @@ RO-46 accepted-exception
   adoption lease is optional (a transfer-scoped audit deduplication is preferred).
 - **Timing-constant home:** n/a (no timing). Phase union: `cloudflare/app-worker.ts` names the
   states once, `OWNER_TRANSFER_SAGA_STATES` with `OWNER_TRANSFER_SAGA_NONTERMINAL_STATES` (the
-  states the cron adopts), the derived terminal list and `OWNER_TRANSFER_SAGA_STATE_RANK`, and
-  builds every SQL state list from them through `sqlStateList` (Phase 0d, C7-2). Three SQL
-  copies of the full list stay as written: the state CHECK in
-  `admin-metrics.owner-transfer-saga.migration.sql`, in `admin-metrics.schema.sql` and in the
-  runtime DDL of `ensureAdminProRoomRegistry`. `src/core/__tests__/owner-transfer-saga-states.test.ts`
-  keeps all three equal to the TypeScript list and runs the generated cron listing, rotation and
-  decommission terminalization SQL in node:sqlite. The terminal subset without `complete` is
-  still spelled inline three times (twice in `recordOwnerTransferIntent`, once in
-  `advanceOwnerTransferSagaState`); the Phase 1 saga helpers take it over.
+  states the cron adopts), the derived terminal list, the derived
+  `OWNER_TRANSFER_SAGA_ABANDONED_STATES` (the terminal states other than `complete`, used by
+  `recordOwnerTransferIntent` and `advanceOwnerTransferSagaState`) and
+  `OWNER_TRANSFER_SAGA_STATE_RANK`, and builds every SQL state list from them through
+  `sqlStateList` (Phase 0d, C7-2). Three SQL copies of the full list stay as written: the state
+  CHECK in `admin-metrics.owner-transfer-saga.migration.sql`, in `admin-metrics.schema.sql` and
+  in the runtime DDL of `ensureAdminProRoomRegistry`.
+  `src/core/__tests__/owner-transfer-saga-states.test.ts` keeps all three equal to the
+  TypeScript list and runs the generated cron listing, rotation and decommission
+  terminalization SQL in node:sqlite, including a saga another executor ends during the sweep.
+  The states an unfilled row may hold (`intent`, `expired`, `superseded`) stay written out in
+  `normalizeOwnerTransferSagaRow`, as in the table's row CHECK they mirror.
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/app-worker-cors.test.ts` "adopts a prepared DO transfer after
     the D1 saga fill fails and reconciles without persisting secrets".
@@ -1099,7 +1102,9 @@ RO-46 accepted-exception
   (`/^[A-Za-z0-9_-]{43}$/`) in `app-worker.ts`, used by the account-deletion purge
   (`purgeProRoomAccountAuthority`), `revokeDeveloperApiKeysForAuthorityChange`,
   `clearDeveloperApiAuthorityFence` and the saga row parse (`normalizeOwnerTransferSagaRow`)
-  (Phase 0d, C7-2). The D1 CHECK constraints spell the same shape in SQL.
+  (Phase 0d, C7-2). The D1 CHECK constraints spell the same shape in SQL;
+  `owner-transfer-saga-states.test.ts` checks that every tracked SQL definition spells the same
+  CHECK and that the pattern accepts exactly the digests the fence and saga rows store.
 - **Anchor tests:**
   - Supersession: `app-worker-cors.test.ts` "acks each exact owner-removal projection and never
     replays a stale deletion over a new owner".

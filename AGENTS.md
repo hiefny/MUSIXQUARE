@@ -9,11 +9,13 @@
   or a CLI rollback), overwrite all of its §1 and its `Last source review` line,
   and append exactly one row to the bottom of `docs/release-history.md`. Do not
   keep superseded values in the record.
-- At the end of each QA round or product/runtime change, write the tested code
-  SHA, environment, and pass/fail/skip limits in a dated report under
-  `docs/design/` and list it in the `docs/README.md` evidence section;
-  documentation- or audit-tooling-only changes need no report. For any change,
-  update the record in the same change only when release scope, dependencies,
+- Keep one dated report under `docs/design/` per release train (the increments
+  that ship in one production release) and list it in the `docs/README.md`
+  evidence section. The report lists each QA round and product/runtime
+  increment in the train with its tested code SHA, environment, and
+  pass/fail/skip limits. Tests-only, documentation-only, and guard- or
+  audit-tooling-only changes need no report. For any change, update the record
+  in the same change only when release scope, dependencies,
   schema/secrets/bindings, compatibility, version requirements, open items,
   recovery steps, or owner decisions change, and link the report from any open
   item it adds or changes. If none changed, leave the record alone.
@@ -39,6 +41,23 @@
   to completed-task cleanup; retain security updates, alerts, and checks.
 - Follow `docs/hotfix-procedure.md` and `docs/release-versioning.md` for production
   changes, including the exact-commit CI candidate and release workflow.
+
+## Resource ownership
+
+- Before adding any recovery, retry, timeout, watchdog, or lifecycle flow, find
+  its resource in `docs/design/resource-ownership-registry.md` and extend the
+  owner its record names instead of adding an independent machine.
+- Add a record in the same change when your flow becomes the second machine on
+  a resource the registry does not list yet, or on one of its checked side-flow
+  resources. A flow that is its resource's only owner needs none. An owner
+  change updates the registry in the same change.
+- Import timing values from the home the registry names; never retype them.
+  Where a runtime cannot import, pin the copy with a parity test named in the
+  record.
+- `node scripts/check-resource-ownership.mts` enforces the registry with exact
+  counts. A baseline changes only in the pull request that changes the counted
+  code, with the reason: lowering one is routine; raising one, or adding an
+  entry, also needs a record update.
 
 ## Public repository
 

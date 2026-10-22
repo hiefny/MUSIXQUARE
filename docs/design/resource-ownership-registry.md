@@ -619,19 +619,29 @@ RO-46 accepted-exception
   accessors `getPendingPlayTime` and `setPendingPlayTime` (`src/player/_state.ts`).
 - **Current owners/flows:** the play-lock queue in `transport.ts` (the busy path writes only the
   scalar; the lock's take clears it only when it owns a typed intent) and the decode-completion
-  consumers in `src/player/decode.ts`. The authoritative writer list and per-path policy are
+  consumers in `src/player/decode.ts`. The per-path policy is
   [Playback concurrency invariants §4](playback-concurrency-invariants.md#4-pendingplaytime-preserveclear-policy-asymmetric-by-design)
-  (its table and **Writers** paragraph); this record does not keep a second list. The 2026-10-22
-  re-check found two writers §4 does not list: the terminal clear in `markDeviceTrackUnavailable`
-  (`src/player/device-track-failure.ts`) and the session reset in `leaveSession`
-  (`src/network/peer.ts`), which writes the three fields directly in its `setState` batch. §4
-  also still names `tryFetchDemoForRemote`, which no longer exists. Reader only:
-  `guest-file-pause.ts`.
+  (its table and **Writers** paragraph). Writers through the accessors: `transport.ts`,
+  `decode.ts`, `playback.ts`, `device-track-failure.ts`, `src/storage/transfer-receive.ts`,
+  `src/share/remote-share.ts`. Teardown writer: `leaveSession` in `src/network/peer.ts` writes the
+  three fields directly in its session-reset `setState` batch. Reader only: `guest-file-pause.ts`.
+  §4's writer list lags the code. The 2026-10-22 re-check of every `setPendingPlayTime` call and
+  direct `playback.pendingPlayTime` write in `src/` found these writers §4 does not list: the
+  terminal clear in `markDeviceTrackUnavailable`; the `leaveSession` reset; the RAM-admission
+  rejection clear in `tryAdmitMainReceive` (`transfer-receive.ts`); the clear in
+  `selectUnavailableFile` (`playback.ts`), reached from `handlePlayMsg` for a locally unsupported
+  track and from the `player:unavailable-file-selected` event; and the lock-queue clear
+  `clearPendingPlayIntent` reached from stale-lock recovery (`recoverStalePlayLock`) and from
+  `invalidatePendingFilePlayIntent` (`pause`, `seekTo`, `skipTime`, `applyProPlaybackFileCommit`
+  and `handleRequestSeek` in `playback.ts`). §4 also names `tryFetchDemoForRemote`, which no
+  longer exists, and `capturePendingPlaySnapshot`/`restorePendingPlaySnapshot`, now
+  `capturePendingFileIntent`/`restorePendingFileIntent` with five restore sites: the three §4
+  names plus the route-pending file prepare and the PRO direct R2 prepare. This record does not
+  edit §4; its table still sets the policy for each path it lists.
 - **Target single owner:** unchanged. The asymmetric preserve and clear policy is deliberate (§4).
-- **Allowed requesters:** the §4 writers and the two above, through the accessors. The
-  `leaveSession` reset is the one allowed direct write: it sets the same cleared values as
-  `setPendingPlayTime(undefined)` in the batch that resets the rest of the session state. Readers
-  use `getPendingPlayTime`.
+- **Allowed requesters:** the writers above, through the accessors. The `leaveSession` reset is
+  the one allowed direct write: it sets the same cleared values as `setPendingPlayTime(undefined)`
+  in the batch that resets the rest of the session state. Readers use `getPendingPlayTime`.
 - **Lifecycle operations:** set, preserve, clear, consume.
 - **Deadline owner:** none; consumers age the value from its set-at timestamps.
 - **Timing-constant home:** n/a.

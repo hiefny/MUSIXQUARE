@@ -14,7 +14,9 @@
   evidence section. The report lists each QA round and product/runtime
   increment in the train with its tested code SHA, environment, and
   pass/fail/skip limits. Tests-only, documentation-only, and guard- or
-  audit-tooling-only changes need no report. For any change,
+  audit-tooling-only changes need no report. Until the owner aligns
+  `docs/release-record.md` §5, this bullet replaces its per-change report step
+  and exemptions. For any change,
   update the record in the same change only when release scope, dependencies,
   schema/secrets/bindings, compatibility, version requirements, open items,
   recovery steps, or owner decisions change, and link the report from any open

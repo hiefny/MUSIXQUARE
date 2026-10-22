@@ -629,11 +629,12 @@ export function cleanupGuestSystemAudio(): void {
  * frame. PRO rooms call this only after authenticating the server-owned
  * live-share lease.
  *
- * `receiveWatchdog: false` leaves the receive deadline to the caller. The PRO
- * SFU subscription reports its own failure once per generation and re-enters
- * this placeholder on each backed-off retry; the watchdog would instead show
- * receive_failed and drop to idle while a longer retry waits, or before a
- * slow attempt's track arrives.
+ * `receiveWatchdog: false` leaves the receive deadline to the caller. Both PRO
+ * routes report their own failure once per generation: the SFU subscription
+ * re-enters this placeholder on each backed-off retry, and the LAN-direct
+ * publisher promotes a listener it cannot reach to the SFU. The watchdog would
+ * instead show receive_failed and drop to idle while a longer retry waits, or
+ * before a slow attempt's track or a late direct offer arrives.
  */
 export function beginTrustedSystemAudioReception(
   surface: unknown = 'display',

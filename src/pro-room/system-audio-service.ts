@@ -828,7 +828,12 @@ async function ensureCoordinatorSubscription(
     if (coordinatorSubscriptionKey !== key) {
       cleanupCoordinatorGraph();
       coordinatorSubscriptionKey = key;
-      beginTrustedSystemAudioReception();
+      // The LAN-direct route owns the receive deadline: a failed route reports
+      // once per generation, and the publisher promotes a listener it cannot
+      // reach to the SFU. The guest receive watchdog would end the placeholder
+      // while a late offer is still on its way, and an unchanged live state
+      // never re-enters it, so that offer's track would attach nowhere.
+      beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });
     }
     await activateProSystemAudioDirectPublication({
       ownerParticipantId: state.ownerParticipantId,

@@ -1,13 +1,14 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBusScope, type BusScope } from '../../core/events.ts';
+import { bus, createBusScope, type BusScope } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ProRoomApiClient } from '../api.ts';
 import type { ProRoomSnapshot, ProRoomSystemAudioState } from '../contracts.ts';
 
 // The PRO coordinator and the real guest receive placeholder together: only
-// the native SFU transport, Web Audio and media teardown are replaced.
+// the native SFU and LAN-direct transports, Web Audio and media teardown are
+// replaced.
 const mocks = vi.hoisted(() => ({
   sfuListener: null as ((event: Record<string, unknown>) => void) | null,
   subscribe: vi.fn<(descriptor: Record<string, unknown>) => Promise<void>>(),
@@ -54,6 +55,8 @@ vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
   primeWebRtcAudioDecoder: vi.fn(() => null),
 }));
 
+import { configureProSystemAudioDirectTransport } from '../../network/pro-system-audio-direct.ts';
+import { registerSystemAudioGuestListeners } from '../../network/system-audio-guest.ts';
 import {
   bindProSystemAudioSession,
   configureProSystemAudioService,
@@ -334,6 +337,130 @@ describe('PRO SFU subscription that rejects synchronously', () => {
     const callsAtIdle = mocks.subscribe.mock.calls.length;
     await vi.advanceTimersByTimeAsync(60_000);
     expect(mocks.subscribe).toHaveBeenCalledTimes(callsAtIdle);
+    expect(isReceivingPlaceholder()).toBe(false);
+  });
+});
+
+describe('PRO LAN-direct listener and the guest receive watchdog', () => {
+  beforeAll(() => {
+    // The app registers the guest's bus listeners once beside the service's.
+    registerSystemAudioGuestListeners();
+  });
+
+  function directLive(): Extract<ProRoomSystemAudioState, { status: 'live' }> {
+    return {
+      ...live(),
+      publication: {
+        publicationId: 'publication_00001',
+        transport: 'lan-direct',
+        protocolVersion: 2,
+      },
+    };
+  }
+
+  function directCallbacks() {
+    return vi.mocked(configureProSystemAudioDirectTransport).mock.calls[0]?.[0];
+  }
+
+  /** The direct transport hands over the publisher's track once per route. */
+  function deliverDirectTrack(id: string): Promise<void> {
+    return Promise.resolve(
+      directCallbacks()?.onReceiverTrackReady({
+        ownerParticipantId: REMOTE_ID,
+        generation: 1,
+        publicationId: 'publication_00001',
+        negotiationId: 'negotiation_000000000001',
+        track: { id } as MediaStreamTrack,
+        isCurrent: () => true,
+      }),
+    );
+  }
+
+  async function enterDirectReception(): Promise<void> {
+    api.getSystemAudioState.mockResolvedValue(directLive());
+    await refreshProSystemAudioState();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(isReceivingPlaceholder()).toBe(true);
+  }
+
+  async function idleSecondsOverThreeMinutes(): Promise<number[]> {
+    const idleAtSeconds: number[] = [];
+    for (let elapsed = 250; elapsed <= 180_000; elapsed += 250) {
+      await vi.advanceTimersByTimeAsync(250);
+      if (!isReceivingPlaceholder()) idleAtSeconds.push(elapsed / 1_000);
+    }
+    return idleAtSeconds;
+  }
+
+  it('attaches a direct track whose offer arrives after 30 seconds', async () => {
+    await enterDirectReception();
+
+    // The publisher reaches this listener late (it joined late, or its page
+    // slept), and an unchanged live state never reconciles it again.
+    await vi.advanceTimersByTimeAsync(34_000);
+    const handoff = deliverDirectTrack('late-direct-stereo');
+    // Long enough for a trusted-boundary wait to give up as well.
+    await vi.advanceTimersByTimeAsync(35_000);
+    await handoff;
+
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(receiveTimeouts).toBe(0);
+    expect(toasts).toEqual([]);
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(getState('playback.mode')).toBe('system-audio');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(isReceivingPlaceholder()).toBe(true);
+  });
+
+  it('keeps one placeholder through three minutes without an offer', async () => {
+    let hostStarted = 0;
+    testListeners.on('system-audio:host-started', () => {
+      hostStarted += 1;
+    });
+    await enterDirectReception();
+
+    // The LAN-direct route and its publisher own this deadline: an unreachable
+    // listener makes the publisher promote the share to the SFU, which is a
+    // new publication. Until then the listener waits in one placeholder.
+    expect(await idleSecondsOverThreeMinutes()).toEqual([]);
+    expect(receiveTimeouts).toBe(0);
+    expect(toasts).toEqual([]);
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(hostStarted).toBe(1);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
+  });
+
+  it('shows one connection_unstable for a failed direct route and keeps the placeholder', async () => {
+    await enterDirectReception();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    directCallbacks()?.onLiveRouteFallback({
+      role: 'receiver',
+      reason: 'receiver-track-timeout',
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+    });
+
+    expect(await idleSecondsOverThreeMinutes()).toEqual([]);
+    expect(receiveTimeouts).toBe(0);
+    expect(toasts).toEqual(['system_audio.connection_unstable']);
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves a late direct track detached after a force-stop ended the placeholder', async () => {
+    await enterDirectReception();
+
+    // A force-stop is a transition to another owner, never something the
+    // receiver undoes when the publisher's track turns up afterwards.
+    bus.emit('system-audio:force-stop');
+    expect(isReceivingPlaceholder()).toBe(false);
+    const handoff = deliverDirectTrack('direct-stereo');
+    await vi.advanceTimersByTimeAsync(35_000);
+    await handoff;
+
+    expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(getState('systemAudio.isReceiving')).toBe(false);
     expect(isReceivingPlaceholder()).toBe(false);
   });
 });

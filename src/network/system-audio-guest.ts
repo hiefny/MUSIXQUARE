@@ -628,14 +628,23 @@ export function cleanupGuestSystemAudio(): void {
  * Enter the trusted receive placeholder without requiring a legacy host
  * frame. PRO rooms call this only after authenticating the server-owned
  * live-share lease.
+ *
+ * `receiveWatchdog: false` leaves the receive deadline to the caller. The PRO
+ * SFU subscription reports its own failure once per generation and re-enters
+ * this placeholder on each backed-off retry; the watchdog would instead show
+ * receive_failed and drop to idle while a longer retry waits, or before a
+ * slow attempt's track arrives.
  */
-export function beginTrustedSystemAudioReception(surface: unknown = 'display'): boolean {
+export function beginTrustedSystemAudioReception(
+  surface: unknown = 'display',
+  options: { receiveWatchdog?: boolean } = {},
+): boolean {
   if (isSystemAudioPlaceholder() || _pendingTrustedReceptionGeneration !== null) {
     return false;
   }
   const generation = ++_trustedReceptionGeneration;
   _pendingTrustedReceptionGeneration = generation;
-  const committed = commitTrustedSystemAudioReception(surface);
+  const committed = commitTrustedSystemAudioReception(surface, options.receiveWatchdog ?? true);
   if (_pendingTrustedReceptionGeneration === generation) {
     _pendingTrustedReceptionGeneration = null;
   }
@@ -643,7 +652,7 @@ export function beginTrustedSystemAudioReception(surface: unknown = 'display'): 
   return committed;
 }
 
-function commitTrustedSystemAudioReception(surface: unknown): boolean {
+function commitTrustedSystemAudioReception(surface: unknown, receiveWatchdog: boolean): boolean {
   if (isSystemAudioPlaceholder()) return false;
   _debugLastStartAt = Date.now();
   _debugLastStartIgnoredReason = '';
@@ -658,7 +667,8 @@ function commitTrustedSystemAudioReception(surface: unknown): boolean {
     currentTrackMeta: createSystemAudioTrackMeta('receiving', undefined, surface),
   });
   bus.emit('system-audio:host-started');
-  armReceiveWatchdog();
+  if (receiveWatchdog) armReceiveWatchdog();
+  else clearReceiveWatchdog();
   return true;
 }
 

@@ -844,7 +844,9 @@ async function ensureCoordinatorSubscription(
   if (coordinatorSubscriptionKey !== key) {
     cleanupCoordinatorGraph();
     coordinatorSubscriptionKey = key;
-    beginTrustedSystemAudioReception();
+    // This subscription and its backed-off retries own the receive deadline;
+    // the guest receive watchdog would fire while a longer retry still waits.
+    beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });
   }
   let flight = coordinatorSubscriptionFlight;
   if (!flight || flight.key !== key) {

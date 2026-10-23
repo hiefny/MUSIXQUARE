@@ -539,7 +539,7 @@ describe('PRO room to signaling broadcast contract (real workerd)', () => {
     });
   }, 60_000);
 
-  it('advances the fence with the room’s own presence snapshot, then refuses the old epoch', async () => {
+  it("advances the fence with the room's own presence snapshot, then refuses the old epoch", async () => {
     const test = await harness();
     await test.waitFor('pro-presence-snapshot');
     await test.selectAndCommit();

@@ -21,12 +21,15 @@ export const SIGNALING_BROADCAST_BODY_KEYS: readonly string[] = [
   'targets',
 ];
 
+/** The media types signaling reads as JSON (`readBoundedJson`): parameters allowed. */
+const JSON_CONTENT_TYPE = /^application\/json(?:\s*;|$)/i;
+
 /** Why signaling would refuse this broadcast; empty when it fits the contract. */
 export function signalingBroadcastViolations(request: Request, body: unknown): string[] {
   const violations: string[] = [];
   if (request.method !== 'POST') violations.push(`method ${request.method}`);
   const contentType = request.headers.get('content-type');
-  if (contentType !== 'application/json') violations.push(`content-type ${contentType}`);
+  if (!JSON_CONTENT_TYPE.test(contentType ?? '')) violations.push(`content-type ${contentType}`);
   if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return [...violations, 'body is not a JSON object'];
   }

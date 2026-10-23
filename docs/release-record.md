@@ -45,6 +45,18 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### Phase 1 PRO Worker B: 아웃박스·길이 읽기 주인 하나(Worker 배포 대기)
+
+- [ ] PRO Worker(target `pro-room`) 배포 후보. 시그널링 아웃박스(접속자 표시 레코드, 재생
+      아웃박스)에 알람 시각, 알람 처리, 에포크 훅, 저장 레코드 정리를 하나씩 두었고(C7-4), 파일
+      길이 읽기 두 개가 R2 자리 조건 둘(읽는 중, 대기 중)과 시작, 알람 후보를 함께 쓴다(C7-6).
+      동작과 저장 레코드 모양은 그대로다. 앱 버전·SW 캐시(9.0.3/v771)는 바뀌지 않는다. 배포된
+      SHA와 비교하면 PRO room 런타임 경로만 바뀌어 부분 릴리스 게이트가 `pro-room` 단독을
+      허용한다. App Worker A·B가 먼저 배포된 뒤에 낸다(두 Worker를 한꺼번에 머지하면 `all`이 필요하다).
+      PRO Worker 배포는 살아 있는 PRO 방 Durable Object를 다시 시작하므로 행사 시간을 피한다. 배포
+      뒤 smoke는 이 경로를 타지 않아 근거는 단위 경계 테스트와 workerd 계약 테스트다.
+      [변경·검증·한계](design/pro-room-outbox-duration-owners-2026-10-23.md).
+
 ### Phase 1 App Worker B: 사가 마무리 실행기 하나(Worker 배포 대기)
 
 - [ ] App Worker(target `app`) 배포 후보. 커밋된 소유권 이전을 요청과 1분 크론이 같은 사후

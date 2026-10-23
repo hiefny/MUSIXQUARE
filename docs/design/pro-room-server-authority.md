@@ -526,6 +526,19 @@ fan-out removes the record, while timeout, partial fan-out, or service failure
 is retried by alarm until a newer canonical revision supersedes it. Client
 revision and transition fences make duplicate delivery harmless.
 
+Signaling delivery has three classes and one outbox owner in the PRO object
+(registry RO-07). A `presence` snapshot goes out in the background with three
+immediate tries, then a durable marker the alarm retries; only it may advance
+the signaling epoch fence. `playback` PREPARE/CANCEL/COMMIT records enter the
+durable outbox before persist and leave after it: every persist that does not
+opt out flushes the head, and the request that persisted waits for it. A
+`transient` refresh hint is sent once with no record (RO-46), awaited after
+persist at twelve sites and in the background elsewhere. The alarm sends a due
+presence marker before the playback head; flushes triggered by an earlier
+persist in the same alarm (prune, heartbeat durability) can send the head
+first. An epoch change empties the outbox in its own persist, and the alarm
+wakes at the earlier of the marker and the outbox head.
+
 The canonical timeline advances mathematically from its stored timestamp; it
 does not require heartbeat writes, a ticking interval, or continuous Durable
 Object execution. Alarms are one-shot and used only for existing expiry/GC

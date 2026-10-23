@@ -91,6 +91,13 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO outbox and duration read owners (Phase 1 PRO Worker B, 2026-10-23)](design/pro-room-outbox-duration-owners-2026-10-23.md):
+  the PRO room's presence marker and playback outbox get one due time, alarm drain, epoch hook and
+  load normalizer, and its two file duration readers share one pair of R2 slot predicates, one
+  start and one alarm candidate, with both completion guards kept. Tests first pin every trigger's
+  execution mode and two-way stored records. No behaviour change; Worker-only (target
+  `pro-room`), with no app version or service-worker change.
+
 - [One owner-transfer saga executor (Phase 1 App Worker B, 2026-10-23)](design/app-worker-saga-executor-2026-10-23.md):
   the transfer request and the minute cron finish a committed owner transfer through one post-commit
   executor in the owner's D3 order (finalize the entitlement, then `verified`, the fence clear, the

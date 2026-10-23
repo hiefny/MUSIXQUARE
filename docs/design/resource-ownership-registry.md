@@ -100,8 +100,8 @@ each record also states the step in words.
 | RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5       |
 | RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 0d, 4                        |
 | RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 0d, 4                        |
-| RO-07 | PRO signaling broadcast delivery                         | Workers        | duplicated         | 0d, 1                        |
-| RO-08 | PRO asset duration read                                  | Workers        | duplicated         | 0d, 1                        |
+| RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                 |
+| RO-08 | PRO asset duration read                                  | Workers        | owner-in-place     | Done (0d, 1)                 |
 | RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                         |
 | RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | 4 (naming only)              |
 | RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)             |
@@ -163,8 +163,8 @@ RO-03 duplicated
 RO-04 duplicated
 RO-05 duplicated
 RO-06 duplicated
-RO-07 duplicated
-RO-08 duplicated
+RO-07 owner-in-place
+RO-08 owner-in-place
 RO-09 owner-in-place
 RO-10 owner-in-place
 RO-11 accepted-exception
@@ -481,22 +481,39 @@ RO-46 accepted-exception
 
 - **Resource:** the room incarnation's signaling endpoint `/internal/realtime/v1/broadcast` and the
   coordinator-epoch fence it advances in `cloudflare/signaling-worker.ts`.
-- **Current owners/flows:** three lanes in `cloudflare/pro-room-worker.ts`, routed by
-  `scheduleServerEvent`. Since Phase 1 (C7-3) they send through one request builder,
-  `postSignalingBroadcast`: one endpoint, header set, body and deadline, with the lane's acceptance
-  rule passed in (`http-ok-json`: any HTTP 200 with a non-null JSON body; `full-fanout`: an HTTP
-  200 of exactly `{broadcast: true, eligible, sent}` with `sent` equal to `eligible`). Their only
-  coordination is the epoch fence: `bumpRoomEpoch` empties the outbox, and signaling lets only a
-  presence snapshot advance the epoch, answering any other event for a newer epoch with 409
-  `PRO_ROOM_EPOCH_STALE`. The outbox retries that refusal; the no-retry lane drops it, together
-  with any added-tracks notice the event carries (RO-46). The alarm orders presence before
-  playback; the flush after each persist does not.
-  - presence delivery (`pendingPresenceBroadcast`, `deliverPresenceBroadcast`,
-    `rememberFailedPresenceBroadcast`, `retryPendingPresenceBroadcast`), which sends through
+- **Current owners/flows:** one signaling-outbox section of the PRO room Durable Object in
+  `cloudflare/pro-room-worker.ts` (Phase 1, C7-3 and C7-4). `scheduleServerEvent` routes every
+  server event by `signalingDeliveryClass` (`presence`, `playback` or `transient`). The owner's
+  single parts:
+  - one request builder, `postSignalingBroadcast`: one endpoint, header set, body and deadline,
+    with the lane's acceptance rule passed in (`http-ok-json`: any HTTP 200 with a non-null JSON
+    body; `full-fanout`: an HTTP 200 of exactly `{broadcast: true, eligible, sent}` with `sent`
+    equal to `eligible`);
+  - one due time, `signalingOutboxDueAtMs`: the earlier of the presence marker and the outbox
+    head (never a record behind the head), the one candidate `scheduleAlarm` takes;
+  - one alarm drain, `drainSignalingOutbox`: a due presence marker first, then the playback head;
+  - one epoch hook, `onCoordinatorEpochAdvanced`: `bumpRoomEpoch` calls it after
+    `cancelPendingPlayback`, and it empties the outbox in the epoch change's own persist.
+    Signaling lets only a presence snapshot advance the epoch and answers any other event for a
+    newer epoch with 409 `PRO_ROOM_EPOCH_STALE`. The outbox retries that refusal; the no-retry
+    lane drops it, together with any added-tracks notice the event carries (RO-46);
+  - one load normalizer, `normalizeLoadedSignalingOutbox`: both stored record shapes are frozen
+    and anything else is dropped, including a playback record of another epoch. It runs after
+    `normalizeLoadedPlaybackAuthority`, which can advance a legacy room's epoch on load.
+
+  The lanes keep their contracts and execution modes:
+  - presence (`pendingPresenceBroadcast`, `deliverPresenceBroadcast`, `settlePresenceBroadcast`,
+    `retryPendingPresenceBroadcast`): `waitUntil`, three immediate tries, then the durable marker
+    the alarm retries (`settlePresenceBroadcast` installs it after a failure and clears it after a
+    delivery that covers it); without a signaling binding one send and no marker. Sent through
     `broadcastServerEvent` (`http-ok-json`);
   - the playback outbox (`pendingPlaybackBroadcasts`, `enqueuePlaybackBroadcast`,
-    `dispatchPlaybackBroadcast`, `flushPendingPlaybackBroadcasts`), which sends its head through
-    `dispatchPlaybackBroadcast` (`full-fanout`);
+    `dispatchPlaybackBroadcast`, `flushPendingPlaybackBroadcasts`, at most two records): queued
+    before persist, sent after it (`full-fanout`). Every persist that does not pass
+    `flushPlaybackOutbox: false` flushes the head and the request that persisted waits for it:
+    command and request persists, prune (also in the alarm), heartbeat-durability flushes, and the
+    presence marker's write, clear and retry. So the alarm sends presence before playback only
+    when nothing else persists first;
   - a no-retry lane for `pro-room-invalidated` and `system-audio-invalidated` events: one
     `broadcastServerEvent` call and no record. `scheduleServerEvent` sends it through `waitUntil`
     for `scheduleDeveloperInvalidationHint`, `handleInternalDeveloperQueueModeUpdate` and
@@ -505,60 +522,87 @@ RO-46 accepted-exception
     `handleUpdateQueueMode`, `handleAcquireSystemAudio`, `handleCommitSystemAudio`,
     `handleReleaseSystemAudio`, `commitParticipantSnapshot` (from
     `handleCompactSnapshotMutation`), `handlePlaylistSwitch` and `handlePlaylistTransfer`.
-- **Target single owner:** one signaling-outbox section of the PRO room Durable Object: one
-  request builder, one due time, one drain and an epoch hook. The no-retry lane stays best effort:
-  its senders use the same request builder, keep their current execution mode (awaited after
-  persist, or `waitUntil` through `scheduleServerEvent`) and get no outbox record. Making it
-  durable is a behaviour change and needs an owner decision.
+
+- **Target single owner:** reached by C7-4 (the section above). The no-retry lane stays best
+  effort: its senders use the same request builder, keep their current execution mode and get no
+  outbox record. Making it durable is a behaviour change and needs an owner decision.
 - **Allowed requesters:** the presence and playback reducers enqueue; the invalidation senders
   listed above send once through the request builder; `scheduleServerEvent` stays the router;
-  `scheduleAlarm` asks the outbox for one due time. Worker caller allowlist for
-  `/internal/realtime/v1/broadcast`: `postSignalingBroadcast` in `pro-room-worker.ts` only (the
-  route itself is `handleFetch` in `signaling-worker.ts`).
+  `scheduleAlarm` asks the outbox for one due time and `alarm` runs its drain. Worker caller
+  allowlist for `/internal/realtime/v1/broadcast`: `postSignalingBroadcast` in
+  `pro-room-worker.ts` only (the route itself is `handleFetch` in `signaling-worker.ts`).
 - **Lifecycle operations:** enqueue, dispatch, back off, drop on an epoch change, persist the
-  retry marker; send once (no-retry lane).
-- **Deadline owner:** each path's backoff; the no-retry lane has none. `scheduleAlarm` stays the
-  single alarm owner. The request builder uses `SIGNALING_BROADCAST_TIMEOUT_MS` (900 ms) for every
-  lane, so each awaited invalidation send can add up to 900 ms to its HTTP response.
+  retry marker, normalize on load; send once (no-retry lane).
+- **Deadline owner:** each lane's backoff; the no-retry lane has none. `scheduleAlarm` stays the
+  single alarm owner and takes one candidate from the outbox. The request builder uses
+  `SIGNALING_BROADCAST_TIMEOUT_MS` (900 ms) for every lane, so each awaited send (an invalidation,
+  or the playback head a persist flushes) can add up to 900 ms to its HTTP response.
 - **Timing-constant home:** `cloudflare/pro-room-worker.ts`: `SIGNALING_BROADCAST_TIMEOUT_MS`,
   `SIGNALING_BROADCAST_RETRY_BASE_MS`, `SIGNALING_BROADCAST_RETRY_MAX_MS`,
   `SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS` (900 ms, 1 s, 60 s, 16) and one delay function,
   `signalingBroadcastRetryDelayMs`. The presence marker passes its stored attempts, the playback
-  outbox its attempts minus one; both durable record normalizers use the shared attempt cap. One
-  set since Phase 0d (C7-1); a lane that needs its own timing gets its own constants there.
+  outbox its attempts minus one; the load normalizer uses the shared attempt cap. One set since
+  Phase 0d (C7-1); a lane that needs its own timing gets its own constants there.
 - **Anchor tests:**
-  - Supersession: missing (an epoch change dropping a queued record).
+  - Supersession: `src/pro-room/__tests__/pro-room-signaling-delivery.test.ts` "drops a queued
+    playback record when a PIN rotation advances the epoch" and "drops a queued playback record
+    of an older epoch when the room sleeps" (both check every stored core write).
   - User pause/stop: n/a (server).
   - Teardown: `src/pro-room/__tests__/pro-room-worker.test.ts` "durably retries a presence snapshot
     after transient signaling failures and isolate restart"; "keeps a failed playback dispatch
     durable and clears it after a restarted alarm retry".
   - Visibility: n/a.
-- **Status:** `duplicated`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the two
-  request builders into `postSignalingBroadcast` with no behaviour change; its request bytes,
-  acceptance rules and deadline are pinned in `pro-room-worker.test.ts` ("one signaling broadcast
-  transport") and against the real signaling Worker in `pro-room-signaling-contract-workerd`
-  ([report](pro-room-signaling-transport-2026-10-23.md)). The outbox owner (C7-4) remains.
-  Durable record shapes freeze across the change. Exceptions RO-31, RO-46.
+  - Mixed versions: `pro-room-signaling-delivery.test.ts` "durable record shapes (rollback
+    contract)", against the frozen records in
+    `src/pro-room/__tests__/__helpers__/pro-room-outbox-records-51ab2be3.ts` (both directions,
+    and the 16-attempt cap on load).
+- **Status:** `owner-in-place`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the
+  two request builders ([report](pro-room-signaling-transport-2026-10-23.md)); C7-4 gave the
+  outbox one due time, one alarm drain, one epoch hook and one load normalizer, with no behaviour
+  change ([report](pro-room-outbox-duration-owners-2026-10-23.md)). The trigger modes, due time,
+  caps and epoch hook are pinned in `pro-room-signaling-delivery.test.ts`; the request against the
+  real signaling Worker in `pro-room-signaling-contract-workerd`. Durable record shapes are frozen.
+  Exceptions RO-31, RO-46.
 
 ### RO-08 PRO asset duration read
 
 - **Resource:** the R2 duration read of one PRO asset (`readProRoomFileDuration` in
   `cloudflare/pro-room-media-duration.ts`) and its stored `'server'` duration evidence.
-- **Current owners/flows:** the registration probe (`pendingAssetDurationProbes`,
-  `enqueueAssetDurationProbe`, `startAssetDurationProbe`, `deferAssetDurationRead`) and the playback
-  probe (`playbackDurationProbe`, `startPlaybackDurationProbe`, `reconcilePlaybackDurationProbe`) in
-  `cloudflare/pro-room-worker.ts`. Each starter checks the other synchronously inside the mutation
-  lane, `scheduleAlarm` branches on both, and each completion restarts both. The coupling caused
-  one alarm hot loop, since fixed ([registration](pro-file-duration-registration-2026-10-12.md)).
-- **Target single owner:** one duration-reads section with one R2 slot predicate, one start and
-  one alarm candidate. Two readers remain (RO-32).
-- **Allowed requesters:** registration completion, playback reconcile, the alarm. Worker caller
-  allowlist for `readProRoomFileDuration`, scoped to `cloudflare/`: the two probes.
-  `src/pro-room/upload-duration.ts` runs the same parser on the uploader's local file before
-  upload; that is not an R2 read and is outside this resource.
+- **Current owners/flows:** one duration-reads section of the PRO room Durable Object in
+  `cloudflare/pro-room-worker.ts` (Phase 1, C7-6) over two readers (RO-32): the registration
+  probe (`pendingAssetDurationProbes`, `enqueueAssetDurationProbe`, `startAssetDurationProbe`,
+  `deferAssetDurationRead`) and the playback probe (`playbackDurationProbe`,
+  `startPlaybackDurationProbe`, `reconcilePlaybackDurationProbe`). The owner's single parts:
+  - two slot predicates, kept apart because they answer different questions:
+    `fileDurationReadInFlight` (a registration read, or a playback lookup whose slot records
+    `mediaKind: 'file'`; a YouTube lookup leaves the R2 slot free) and
+    `fileDurationQueuedForRegistration` (the asset waits in the registration queue, read or not,
+    and the playback probe yields to it). `playbackDurationProbeBlocked` combines them with the
+    playback slot; `startAssetDurationProbe` waits only while a file read is in flight;
+  - one plain start, `startDurationWork` (playback probe, then registration), called after every
+    persist and by the alarm;
+  - one alarm candidate, `durationWorkAlarmAtMs`: a YouTube length's expiry, the playback
+    probe's retry (no earlier than `PLAYBACK_DURATION_PROBE_WATCHDOG_MS`, 10 s, while it is
+    blocked), a playing file's unanswered decode read, and a queued registration read (next tick,
+    or the watchdog while any lookup, a YouTube one included, is in flight).
+
+  Each completion keeps its own guarded restart, word for word: the registration completion
+  restarts both probes only `if (finished)`, the playback completion restarts the playback probe
+  only for a different probe key (then the registration probe). A completion that stores nothing
+  (service maintenance, a changed room generation) therefore never starts its own read again; the
+  next read waits for the alarm, a persist or the probe's retry time. Merging these restarts into
+  `startDurationWork` would bring back the alarm hot loop fixed once before
+  ([registration](pro-file-duration-registration-2026-10-12.md)).
+
+- **Target single owner:** reached by C7-6 (the section above). Two readers remain (RO-32).
+- **Allowed requesters:** registration completion, playback reconcile, persist and the alarm
+  (through `startDurationWork`). Worker caller allowlist for `readProRoomFileDuration`, scoped
+  to `cloudflare/`: the two probes. `src/pro-room/upload-duration.ts` runs the same parser on the
+  uploader's local file before upload; that is not an R2 read and is outside this resource.
 - **Lifecycle operations:** enqueue, read outside the lane, revalidate inside it, roll back on
   capacity, persist, retry.
-- **Deadline owner:** each probe's retry ladder; the alarm's registration watchdog.
+- **Deadline owner:** each probe's retry ladder; the alarm's registration watchdog
+  (`durationWorkAlarmAtMs`).
 - **Timing-constant home:** `cloudflare/pro-room-worker.ts`: `FILE_DURATION_READ_RETRY_MS`
   (5 s, 30 s, then `PLAYBACK_DURATION_FILE_RETRY_MS`, 5 min) with
   `fileDurationReadRetryDelayMs`, used by `deferAssetDurationRead` and the playback probe's
@@ -573,9 +617,17 @@ RO-46 accepted-exception
     and does not retry unsupported files in the background".
   - Visibility: n/a.
   - Cross-owner: `pro-room-worker.test.ts` "uses the registration watchdog instead of hot-looping
-    an overdue playback probe".
-- **Status:** `duplicated`. Phase 0d named the ladder once (C7-2); Phase 1 (duration read owner)
-  remains.
+    an overdue playback probe"; `src/pro-room/__tests__/pro-room-duration-reads.test.ts` "leaves a
+    queued desired file to the registration reader once nothing is in flight" (queued predicate)
+    and "lets a YouTube lookup in flight leave the R2 slot free, yet holds the queued read alarm at
+    the watchdog" (in-flight predicate and alarm).
+  - Continuation guards: `pro-room-duration-reads.test.ts` "refused completions do not restart a
+    read" (maintenance) and `natural-completion-integration.test.ts` "PRO duration completions
+    that store nothing do not restart their read" (a changed generation, evidence that does not
+    fit).
+- **Status:** `owner-in-place`. Phase 0d named the ladder once (C7-2); Phase 1 C7-6 gave the two
+  readers one predicate pair, one plain start and one alarm candidate, with no behaviour change
+  ([report](pro-room-outbox-duration-owners-2026-10-23.md)). Exception RO-32.
 
 ### RO-09 Owner-transfer saga row
 
@@ -1360,7 +1412,8 @@ entry needs the owner's acceptance and is not implied by this registry.
 
 - **Parent:** RO-08. Plan step C7-7 not scheduled.
 - **Exception:** the registration and playback probes both keep reading R2; the Phase 1 owner
-  shares only the slot predicate, start and alarm candidate.
+  (C7-6) shares only the slot predicates (in flight, queued), the plain start and the alarm
+  candidate, and each probe keeps its own guarded completion restart.
 - **Evidence:** one reader would have to carry over the first-failure diagnostic, the
   memory-held backoff after a refused write and the 5 min retry for a null file answer; the
   mutual-exclusion checks already prevent two concurrent reads of one object.

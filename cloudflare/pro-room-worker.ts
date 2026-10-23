@@ -802,7 +802,7 @@ interface PlaybackBroadcastRecord {
 }
 
 /** What a signaling broadcast carries besides the room address (RO-07). */
-type SignalingBroadcast = Pick<PlaybackBroadcastRecord, 'coordinatorEpoch' | 'targets' | 'event'>;
+type SignalingBroadcast = { coordinatorEpoch: number; targets: string[]; event: JsonRecord };
 
 interface PresenceBroadcastRecord {
   coordinatorEpoch: number;
@@ -1222,6 +1222,29 @@ function signalingBroadcastRetryDelayMs(failures: number) {
   return Math.min(
     SIGNALING_BROADCAST_RETRY_MAX_MS,
     SIGNALING_BROADCAST_RETRY_BASE_MS * 2 ** Math.min(failures, 6),
+  );
+}
+
+/** RO-07 delivery classes: presence marker, playback outbox, or one send (RO-46). */
+function signalingDeliveryClass(event: JsonRecord): 'presence' | 'playback' | 'transient' {
+  if (event?.type === 'pro-presence-snapshot') return 'presence';
+  return event?.type === 'pro-playback-prepare' ||
+    event?.type === 'pro-playback-cancel' ||
+    event?.type === 'pro-playback-commit'
+    ? 'playback'
+    : 'transient';
+}
+
+/**
+ * The earliest positive safe-integer candidate. A due one becomes the next tick
+ * (never dropped), so a late alarm install still prunes work already due.
+ */
+function earliestAlarmAtMs(candidates: ReadonlyArray<number | null | undefined>, nowMs: number) {
+  return (
+    candidates
+      .filter((value): value is number => isSafeInteger(value) && value > 0)
+      .map((value) => (value <= nowMs ? nowMs + 1 : value))
+      .sort((a, b) => a - b)[0] ?? null
   );
 }
 
@@ -4407,7 +4430,12 @@ export class MusixquareProRoom {
   alarmMaintenanceRetryTimer: ReturnType<typeof setTimeout> | null;
   scheduledAlarmMs: number | null | undefined;
   sessionAdmissionThrottle: SessionAdmissionThrottle | null;
-  playbackDurationLookup: { key: string; promise: Promise<void> } | null;
+  // In-flight duration lookups (RO-08); a playback one holds the R2 slot for a file.
+  playbackDurationLookup: {
+    key: string;
+    mediaKind: PlaybackDurationIdentity['mediaKind'];
+    promise: Promise<void>;
+  } | null;
   assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
   // Reads that playback queued for an unmeasured controller length in this
   // instance, by asset version: Infinity while queued or once answered,
@@ -4479,8 +4507,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedDeveloperCommands();
       this.normalizeLoadedSecurityLedgers();
       this.normalizeLoadedPlaybackAuthority();
-      this.normalizeLoadedPlaybackBroadcasts();
-      this.normalizeLoadedPresenceBroadcast();
+      this.normalizeLoadedSignalingOutbox();
       this.normalizeLoadedAssetDeletions();
       this.normalizeLoadedPlaylistSlots();
     };
@@ -4544,8 +4571,7 @@ export class MusixquareProRoom {
     this.normalizeLoadedDeveloperCommands();
     this.normalizeLoadedSecurityLedgers();
     this.normalizeLoadedPlaybackAuthority();
-    this.normalizeLoadedPlaybackBroadcasts();
-    this.normalizeLoadedPresenceBroadcast();
+    this.normalizeLoadedSignalingOutbox();
     this.normalizeLoadedAssetDeletions();
     this.normalizeLoadedPlaylistSlots();
     this.reconcileMemberAuthoritySessions();
@@ -5746,7 +5772,7 @@ export class MusixquareProRoom {
       if (unmeasured) {
         const read = this.assetDurationReadKey(unmeasured);
         const memo = this.assetDurationReads.get(read);
-        if (this.activeRoom.pendingAssetDurationProbes?.includes(unmeasured.assetId)) {
+        if (this.fileDurationQueuedForRegistration(unmeasured.assetId)) {
           // Queued, perhaps by a decode report: its completion decides.
           this.assetDurationReads.set(read, { retryAtMs: Infinity, attempts: memo?.attempts ?? 0 });
         } else if (memo?.retryAtMs === Infinity) {
@@ -5882,14 +5908,72 @@ export class MusixquareProRoom {
     return target ? this.directPlaybackCommit(target, nowMs) : null;
   }
 
+  // Duration reads (registry RO-08): the registration and playback probes share one R2
+  // slot (RO-32). Each completion keeps its own guarded restart, so one that stores
+  // nothing (maintenance, a changed generation) never starts its read again.
+
+  /** The R2 slot is taken: a registration read, or a playback read of a file. */
+  fileDurationReadInFlight() {
+    return this.assetDurationLookup !== null || this.playbackDurationLookup?.mediaKind === 'file';
+  }
+
+  /** The registration queue owns this asset, read or not; playback yields to it. */
+  fileDurationQueuedForRegistration(assetId: string) {
+    return this.activeRoom.pendingAssetDurationProbes?.includes(assetId) === true;
+  }
+
+  /** The playback probe cannot start: its own slot or, for a file, the R2 slot is taken. */
+  playbackDurationProbeBlocked(probe: PlaybackDurationProbe) {
+    return (
+      this.playbackDurationLookup !== null ||
+      (probe.identity.mediaKind === 'file' &&
+        (this.fileDurationReadInFlight() ||
+          this.fileDurationQueuedForRegistration(probe.identity.assetId)))
+    );
+  }
+
+  /** The plain start after every persist and in the alarm: playback first. */
+  startDurationWork() {
+    this.startPlaybackDurationProbe();
+    this.startAssetDurationProbe();
+  }
+
+  /**
+   * The one duration alarm candidate: a YouTube length's expiry, the playback probe's
+   * retry (a blocked probe waits for the watchdog), an unanswered decode read, and a queued
+   * registration read (next tick, or the watchdog while any lookup is in flight).
+   */
+  durationWorkAlarmAtMs(nowMs: number) {
+    const identity = this.desiredPlaybackDurationIdentity();
+    const evidence =
+      identity?.mediaKind === 'youtube'
+        ? this.activeRoom.playbackDurations[playbackDurationIdentityKey(identity)]
+        : null;
+    const expiresAtMs = evidence ? playbackDurationEvidenceExpiresAtMs(evidence) : null;
+    const watchdogAtMs = nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS;
+    const probe = this.activeRoom.playbackDurationProbe;
+    const unmeasured = this.unmeasuredControllerAsset();
+    return earliestAlarmAtMs(
+      [
+        expiresAtMs !== null && expiresAtMs > nowMs ? expiresAtMs : null,
+        probe &&
+          (this.playbackDurationProbeBlocked(probe)
+            ? Math.max(this.playbackDurationProbeRetryAtMs(probe), watchdogAtMs)
+            : this.playbackDurationProbeRetryAtMs(probe)),
+        unmeasured && this.assetDurationReads.get(this.assetDurationReadKey(unmeasured))?.retryAtMs,
+        this.activeRoom.pendingAssetDurationProbes?.length
+          ? this.assetDurationLookup || this.playbackDurationLookup
+            ? watchdogAtMs
+            : nowMs + 1
+          : null,
+      ],
+      nowMs,
+    );
+  }
+
   startAssetDurationProbe() {
     const queue = this.room?.pendingAssetDurationProbes;
-    if (
-      !queue?.length ||
-      this.assetDurationLookup ||
-      this.playbackDurationLookup?.key.includes(':file:')
-    )
-      return;
+    if (!queue?.length || this.fileDurationReadInFlight()) return;
     const desired = this.desiredPlaybackDurationIdentity();
     const assetId =
       desired?.mediaKind === 'file' && queue.includes(desired.assetId) ? desired.assetId : queue[0];
@@ -6003,13 +6087,7 @@ export class MusixquareProRoom {
     if (
       !probe ||
       this.playbackDurationProbeRetryAtMs(probe) > Date.now() ||
-      this.playbackDurationLookup
-    )
-      return;
-    if (
-      probe.identity.mediaKind === 'file' &&
-      (this.assetDurationLookup ||
-        this.activeRoom.pendingAssetDurationProbes?.includes(probe.identity.assetId))
+      this.playbackDurationProbeBlocked(probe)
     )
       return;
     const identity = structuredClone(probe.identity);
@@ -6198,11 +6276,15 @@ export class MusixquareProRoom {
           this.startAssetDurationProbe();
         }).catch(() => undefined);
       });
-    this.playbackDurationLookup = { key, promise: lookup };
+    this.playbackDurationLookup = { key, mediaKind: identity.mediaKind, promise: lookup };
     this.state.waitUntil?.(lookup);
   }
 
-  normalizeLoadedPlaybackBroadcasts() {
+  /**
+   * RO-07 load normalizer: drops a record outside the frozen shapes or a playback record
+   * of another epoch, so it runs after normalizeLoadedPlaybackAuthority (an epoch writer).
+   */
+  normalizeLoadedSignalingOutbox() {
     if (!this.room) return;
     const raw = this.activeRoom.pendingPlaybackBroadcasts;
     const normalized = normalizeStoredPlaybackBroadcasts(raw, this.activeRoom);
@@ -6210,16 +6292,10 @@ export class MusixquareProRoom {
       this.playbackAuthorityMigrationPending = true;
     }
     this.activeRoom.pendingPlaybackBroadcasts = normalized;
-  }
-
-  normalizeLoadedPresenceBroadcast() {
-    if (!this.room) return;
     const pending = this.activeRoom.pendingPresenceBroadcast;
-    if (pending === undefined || pending === null) {
-      this.activeRoom.pendingPresenceBroadcast = null;
-      return;
-    }
     if (
+      pending === undefined ||
+      pending === null ||
       !hasExactKeys(pending, [
         'coordinatorEpoch',
         'presenceRevision',
@@ -6713,8 +6789,7 @@ export class MusixquareProRoom {
       // this point may the cross-Worker dispatch begin.
       await this.flushPendingPlaybackBroadcasts(Date.now());
     }
-    this.startPlaybackDurationProbe();
-    this.startAssetDurationProbe();
+    this.startDurationWork();
     return true;
   }
 
@@ -6940,16 +7015,7 @@ export class MusixquareProRoom {
     for (const record of Object.values(this.activeRoom.botRateLimits || {})) {
       candidates.push(record.resetAtMs);
     }
-    if (this.activeRoom.pendingPresenceBroadcast) {
-      const retryAtMs = this.activeRoom.pendingPresenceBroadcast.retryAtMs;
-      candidates.push(retryAtMs <= nowMs ? nowMs + 1 : retryAtMs);
-    }
-    const playbackBroadcast = this.activeRoom.pendingPlaybackBroadcasts?.[0];
-    if (playbackBroadcast) {
-      candidates.push(
-        playbackBroadcast.retryAtMs <= nowMs ? nowMs + 1 : playbackBroadcast.retryAtMs,
-      );
-    }
+    candidates.push(this.signalingOutboxDueAtMs(nowMs));
     if (this.activeRoom.pendingPlaybackTransition) {
       const deadlineAtMs = this.activeRoom.pendingPlaybackTransition.deadlineAtMs;
       // Persistence can begin before the rendezvous deadline and finish after
@@ -6959,50 +7025,8 @@ export class MusixquareProRoom {
       candidates.push(deadlineAtMs <= nowMs ? nowMs + 1 : deadlineAtMs);
     }
     candidates.push(this.naturalPlaybackEndAtMs(nowMs));
-    const durationIdentity = this.desiredPlaybackDurationIdentity();
-    const durationEvidence =
-      durationIdentity && durationIdentity.mediaKind === 'youtube'
-        ? this.activeRoom.playbackDurations[playbackDurationIdentityKey(durationIdentity)]
-        : null;
-    if (durationEvidence && playbackDurationEvidenceExpiresAtMs(durationEvidence) > nowMs) {
-      candidates.push(playbackDurationEvidenceExpiresAtMs(durationEvidence));
-    }
-    if (this.activeRoom.playbackDurationProbe) {
-      const registrationBlocked =
-        this.activeRoom.playbackDurationProbe.identity.mediaKind === 'file' &&
-        (this.assetDurationLookup ||
-          this.activeRoom.pendingAssetDurationProbes?.includes(
-            this.activeRoom.playbackDurationProbe.identity.assetId,
-          ));
-      const retryAtMs = this.playbackDurationProbeRetryAtMs(this.activeRoom.playbackDurationProbe);
-      candidates.push(
-        this.playbackDurationLookup || registrationBlocked
-          ? Math.max(retryAtMs, nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS)
-          : retryAtMs,
-      );
-    }
-    // A playing file's decode whose read got no answer, or was refused.
-    const unmeasured = this.unmeasuredControllerAsset();
-    if (unmeasured) {
-      candidates.push(
-        this.assetDurationReads.get(this.assetDurationReadKey(unmeasured))?.retryAtMs,
-      );
-    }
-    if (this.activeRoom.pendingAssetDurationProbes?.length) {
-      candidates.push(
-        nowMs +
-          (this.assetDurationLookup || this.playbackDurationLookup
-            ? PLAYBACK_DURATION_PROBE_WATCHDOG_MS
-            : 1),
-      );
-    }
-    const next = candidates
-      // Alarm installation may recover after a cleanup deadline. Retain due
-      // work so the alarm can prune it instead of clearing a dirty schedule
-      // while expired sessions, reservations or replay ledgers remain stored.
-      .filter((value): value is number => isSafeInteger(value) && value > 0)
-      .map((value) => (value <= nowMs ? nowMs + 1 : value))
-      .sort((a, b) => a - b)[0];
+    candidates.push(this.durationWorkAlarmAtMs(nowMs));
+    const next = earliestAlarmAtMs(candidates, nowMs);
     // An earlier alarm is safe: it will wake, find that a renewed lease has
     // not expired, and schedule the later deadline. Avoid moving the alarm
     // forward on every heartbeat, which otherwise turns presence liveness
@@ -12625,10 +12649,7 @@ export class MusixquareProRoom {
 
   bumpRoomEpoch(nowMs: number) {
     this.cancelPendingPlayback('room-epoch-changed', nowMs);
-    // Signaling closes old-epoch sockets when the authoritative presence fence
-    // advances. Neither their CANCEL nor any older playback event may cross the
-    // new epoch.
-    this.activeRoom.pendingPlaybackBroadcasts = [];
+    this.onCoordinatorEpochAdvanced();
     this.activeRoom.presence.coordinatorEpoch += 1;
     this.activeRoom.playback.coordinatorEpoch = this.activeRoom.presence.coordinatorEpoch;
     this.activeRoom.playback.revision += 1;
@@ -12651,6 +12672,37 @@ export class MusixquareProRoom {
       .map((participant) => participant.presenceIncarnationId)
       .filter((incarnationId) => OPAQUE_ID_RE.test(incarnationId || ''))
       .sort();
+  }
+
+  // Signaling outbox (registry RO-07): one request builder, due time, alarm
+  // drain, epoch hook and load normalizer. Every persist not passing
+  // `flushPlaybackOutbox: false` also flushes the playback head, and its
+  // request waits for it; presence and scheduled transient sends use waitUntil.
+
+  /** The outbox's alarm candidate: the presence marker or the playback head. */
+  signalingOutboxDueAtMs(nowMs: number) {
+    return earliestAlarmAtMs(
+      [
+        this.activeRoom.pendingPresenceBroadcast?.retryAtMs,
+        this.activeRoom.pendingPlaybackBroadcasts?.[0]?.retryAtMs,
+      ],
+      nowMs,
+    );
+  }
+
+  /** The alarm's drain: a due presence marker first, then the playback head. */
+  async drainSignalingOutbox(nowMs: number) {
+    await this.retryPendingPresenceBroadcast(nowMs);
+    await this.flushPendingPlaybackBroadcasts(nowMs);
+  }
+
+  /**
+   * bumpRoomEpoch's hook, after cancelPendingPlayback. Signaling closes old-epoch
+   * sockets, so no queued playback record may cross the new epoch; the presence
+   * marker stays (its retry sends the current snapshot).
+   */
+  onCoordinatorEpochAdvanced() {
+    this.activeRoom.pendingPlaybackBroadcasts = [];
   }
 
   /**
@@ -12701,7 +12753,6 @@ export class MusixquareProRoom {
         body.broadcast === true &&
         isSafeNonNegativeInteger(body.eligible) &&
         isSafeNonNegativeInteger(body.sent) &&
-        body.sent <= body.eligible &&
         body.sent === body.eligible
       );
     } catch {
@@ -12794,39 +12845,27 @@ export class MusixquareProRoom {
     const current = (this.activeRoom.pendingPlaybackBroadcasts || []).filter(
       (candidate) => candidate.coordinatorEpoch === record.coordinatorEpoch,
     );
-    if (record.kind === 'commit') {
-      const matchingCancel = [...current]
-        .reverse()
-        .find(
-          (candidate) =>
-            candidate.kind === 'cancel' &&
-            candidate.basePlaybackRevision === record.basePlaybackRevision &&
-            candidate.playbackRevision === record.playbackRevision,
-        );
-      // Preserve the product's existing immediate cancellation feedback before
-      // a superseding direct COMMIT. The pair remains bounded and idempotent.
-      this.activeRoom.pendingPlaybackBroadcasts = matchingCancel
-        ? [matchingCancel, record]
-        : [record];
-      return true;
-    }
-    const baseCommit = [...current]
-      .reverse()
-      .find(
+    const latest = (match: (candidate: PlaybackBroadcastRecord) => boolean) =>
+      [...current].reverse().find(match);
+    const matchingCancel = latest(
+      (candidate) =>
+        candidate.kind === 'cancel' &&
+        candidate.basePlaybackRevision === record.basePlaybackRevision &&
+        candidate.playbackRevision === record.playbackRevision,
+    );
+    const baseCommit =
+      record.kind !== 'commit' &&
+      latest(
         (candidate) =>
           candidate.kind === 'commit' && candidate.playbackRevision === record.basePlaybackRevision,
       );
-    const matchingCancel = [...current]
-      .reverse()
-      .find(
-        (candidate) =>
-          candidate.kind === 'cancel' &&
-          candidate.basePlaybackRevision === record.basePlaybackRevision &&
-          candidate.playbackRevision === record.playbackRevision,
-      );
+    // A PREPARE or CANCEL keeps the undelivered COMMIT it is based on. Else a
+    // COMMIT or PREPARE keeps only its matching CANCEL ahead of it, the
+    // product's immediate cancellation feedback before a superseding direct
+    // COMMIT. The pair remains bounded and idempotent.
     this.activeRoom.pendingPlaybackBroadcasts = baseCommit
       ? [baseCommit, record]
-      : record.kind === 'prepare' && matchingCancel
+      : record.kind !== 'cancel' && matchingCancel
         ? [matchingCancel, record]
         : [record];
     return true;
@@ -12875,35 +12914,19 @@ export class MusixquareProRoom {
     while ((this.room?.pendingPlaybackBroadcasts?.length ?? 0) > 0) {
       const record = this.activeRoom.pendingPlaybackBroadcasts[0];
       if (!record) break;
-      if (record.coordinatorEpoch !== this.activeRoom.presence.coordinatorEpoch) {
-        const previous = structuredClone(this.activeRoom.pendingPlaybackBroadcasts);
-        this.activeRoom.pendingPlaybackBroadcasts.shift();
-        try {
-          await this.persist({
-            flushPlaybackOutbox: false,
-          });
-        } catch {
-          this.activeRoom.pendingPlaybackBroadcasts = previous;
-          await this.maintainAlarm();
-          return false;
-        }
-        continue;
-      }
-      if (record.retryAtMs > nowMs) return false;
-
+      // A head of an older epoch is dropped unsent, whenever it is due.
+      const current = record.coordinatorEpoch === this.activeRoom.presence.coordinatorEpoch;
+      if (current && record.retryAtMs > nowMs) return false;
       const previous = structuredClone(this.activeRoom.pendingPlaybackBroadcasts);
-      const delivered = await this.dispatchPlaybackBroadcast(record);
+      const delivered = !current || (await this.dispatchPlaybackBroadcast(record));
       if (delivered) {
         this.activeRoom.pendingPlaybackBroadcasts.shift();
       } else {
-        const attempts = Math.min(SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS, record.attempts + 1);
-        record.attempts = attempts;
+        record.attempts = Math.min(SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS, record.attempts + 1);
         record.retryAtMs = nowMs + signalingBroadcastRetryDelayMs(record.attempts - 1);
       }
       try {
-        await this.persist({
-          flushPlaybackOutbox: false,
-        });
+        await this.persist({ flushPlaybackOutbox: false });
       } catch {
         // The previous durable record is still authoritative. Restore the same
         // in-memory queue and let its already-maintained alarm redeliver it.
@@ -12912,7 +12935,7 @@ export class MusixquareProRoom {
         return false;
       }
       if (!delivered) return false;
-      nowMs = Date.now();
+      if (current) nowMs = Date.now();
     }
     return true;
   }
@@ -12934,7 +12957,12 @@ export class MusixquareProRoom {
     };
   }
 
-  async rememberFailedPresenceBroadcast(event: JsonRecord, coordinatorEpoch: number) {
+  /**
+   * The presence marker after a background delivery: a delivered snapshot
+   * clears a marker it covers, a failed one installs (or keeps) the marker of
+   * the current presence revision.
+   */
+  async settlePresenceBroadcast(event: JsonRecord, coordinatorEpoch: number, delivered: boolean) {
     if ((await readServiceMaintenance(this.env)).enabled) return;
     await this.withMutation(async () => {
       if ((await readServiceMaintenance(this.env)).enabled) return;
@@ -12945,53 +12973,32 @@ export class MusixquareProRoom {
       ) {
         return;
       }
-      const deliveredRevision = {
-        coordinatorEpoch,
-        presenceRevision: event.presenceRevision,
-      };
-      const currentRevision = {
-        coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
-        presenceRevision: this.activeRoom.presence.revision,
-      };
-      // A later full snapshot supersedes this failed attempt. Its own delivery
-      // path is responsible for installing a retry marker if it also fails.
-      if (this.comparePresenceBroadcastRevision(deliveredRevision, currentRevision) !== 0) return;
-
+      const sentRevision = { coordinatorEpoch, presenceRevision: event.presenceRevision };
       const existing = this.activeRoom.pendingPresenceBroadcast;
-      const attempts =
-        existing && this.comparePresenceBroadcastRevision(existing, currentRevision) === 0
-          ? existing.attempts
-          : 0;
-      const next = this.currentPresenceBroadcastRecord(Date.now(), attempts);
-      if (existing && this.comparePresenceBroadcastRevision(existing, next) > 0) return;
-      if (existing && this.comparePresenceBroadcastRevision(existing, next) === 0) {
-        next.retryAtMs = Math.min(existing.retryAtMs, next.retryAtMs);
+      if (delivered) {
+        if (!existing || this.comparePresenceBroadcastRevision(sentRevision, existing) < 0) return;
+        this.activeRoom.pendingPresenceBroadcast = null;
+      } else {
+        const currentRevision = {
+          coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
+          presenceRevision: this.activeRoom.presence.revision,
+        };
+        // A later full snapshot supersedes this failed attempt. Its own delivery
+        // path is responsible for installing a retry marker if it also fails.
+        if (this.comparePresenceBroadcastRevision(sentRevision, currentRevision) !== 0) return;
+        const attempts =
+          existing && this.comparePresenceBroadcastRevision(existing, currentRevision) === 0
+            ? existing.attempts
+            : 0;
+        const next = this.currentPresenceBroadcastRecord(Date.now(), attempts);
+        if (existing && this.comparePresenceBroadcastRevision(existing, next) > 0) return;
+        if (existing && this.comparePresenceBroadcastRevision(existing, next) === 0) {
+          next.retryAtMs = Math.min(existing.retryAtMs, next.retryAtMs);
+        }
+        this.activeRoom.pendingPresenceBroadcast = next;
       }
-      this.activeRoom.pendingPresenceBroadcast = next;
       // The retry marker and its alarm must survive isolate eviction. It is an
       // internal delivery concern, so avoid rewriting the legacy shadow.
-      await this.persist({ retainEarlierAlarm: true });
-    });
-  }
-
-  async clearDeliveredPresenceBroadcast(event: JsonRecord, coordinatorEpoch: number) {
-    if ((await readServiceMaintenance(this.env)).enabled) return;
-    await this.withMutation(async () => {
-      if ((await readServiceMaintenance(this.env)).enabled) return;
-      const pending = this.room?.pendingPresenceBroadcast;
-      if (
-        !pending ||
-        event.type !== 'pro-presence-snapshot' ||
-        !isSafeNonNegativeInteger(event.presenceRevision)
-      ) {
-        return;
-      }
-      const deliveredRevision = {
-        coordinatorEpoch,
-        presenceRevision: event.presenceRevision,
-      };
-      if (this.comparePresenceBroadcastRevision(deliveredRevision, pending) < 0) return;
-      this.activeRoom.pendingPresenceBroadcast = null;
       await this.persist({ retainEarlierAlarm: true });
     });
   }
@@ -12999,11 +13006,11 @@ export class MusixquareProRoom {
   async deliverPresenceBroadcast(event: JsonRecord, targets: string[], coordinatorEpoch: number) {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       if (await this.broadcastServerEvent(event, targets, coordinatorEpoch)) {
-        await this.clearDeliveredPresenceBroadcast(event, coordinatorEpoch);
+        await this.settlePresenceBroadcast(event, coordinatorEpoch, true);
         return true;
       }
     }
-    await this.rememberFailedPresenceBroadcast(event, coordinatorEpoch);
+    await this.settlePresenceBroadcast(event, coordinatorEpoch, false);
     return false;
   }
 
@@ -13017,30 +13024,22 @@ export class MusixquareProRoom {
     };
     const attempts =
       this.comparePresenceBroadcastRevision(pending, currentRevision) === 0 ? pending.attempts : 0;
-    const delivered = await this.broadcastServerEvent(
-      this.presenceEvent(),
-      this.realtimePresenceTargets(),
-      currentRevision.coordinatorEpoch,
-    );
-    if (delivered) {
-      this.activeRoom.pendingPresenceBroadcast = null;
-    } else {
-      const nextAttempts = Math.min(SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS, attempts + 1);
-      this.activeRoom.pendingPresenceBroadcast = this.currentPresenceBroadcastRecord(
-        nowMs,
-        nextAttempts,
-      );
-    }
+    // The current snapshot to the current targets at the current epoch.
+    const delivered = await this.broadcastServerEvent(this.presenceEvent());
+    this.activeRoom.pendingPresenceBroadcast = delivered
+      ? null
+      : this.currentPresenceBroadcastRecord(
+          nowMs,
+          Math.min(SIGNALING_BROADCAST_RETRY_MAX_ATTEMPTS, attempts + 1),
+        );
     await this.persist();
     return delivered;
   }
 
+  /** The router: every server event leaves through its delivery class. */
   scheduleServerEvent(event: JsonRecord, targets: string[] = this.realtimePresenceTargets()): void {
-    if (
-      event?.type === 'pro-playback-prepare' ||
-      event?.type === 'pro-playback-cancel' ||
-      event?.type === 'pro-playback-commit'
-    ) {
+    const deliveryClass = signalingDeliveryClass(event);
+    if (deliveryClass === 'playback') {
       // Playback events must be included in the caller's next canonical room
       // persist. Never start cross-Worker delivery from this pre-persist seam.
       this.enqueuePlaybackBroadcast(event, targets);
@@ -13049,8 +13048,9 @@ export class MusixquareProRoom {
     const coordinatorEpoch = this.activeRoom.presence.coordinatorEpoch;
     const hasSignalingNamespace =
       this.env.PRO_SIGNALING_ROOMS && typeof this.env.PRO_SIGNALING_ROOMS.idFromName === 'function';
+    // Presence and transient events go out in the background (waitUntil).
     const delivery =
-      event?.type === 'pro-presence-snapshot' && hasSignalingNamespace
+      deliveryClass === 'presence' && hasSignalingNamespace
         ? this.deliverPresenceBroadcast(event, targets, coordinatorEpoch)
         : this.broadcastServerEvent(event, targets, coordinatorEpoch);
     if (typeof this.state.waitUntil === 'function') {
@@ -18125,8 +18125,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedDeveloperCommands();
       this.normalizeLoadedSecurityLedgers();
       this.normalizeLoadedPlaybackAuthority();
-      this.normalizeLoadedPlaybackBroadcasts();
-      this.normalizeLoadedPresenceBroadcast();
+      this.normalizeLoadedSignalingOutbox();
       this.normalizeLoadedAssetDeletions();
       this.normalizeLoadedPlaylistSlots();
       const nowMs = Date.now();
@@ -18139,11 +18138,9 @@ export class MusixquareProRoom {
           return;
         }
       }
-      await this.retryPendingPresenceBroadcast(nowMs);
-      await this.flushPendingPlaybackBroadcasts(nowMs);
+      await this.drainSignalingOutbox(nowMs);
       await this.maintainAlarm();
-      this.startPlaybackDurationProbe();
-      this.startAssetDurationProbe();
+      this.startDurationWork();
     });
   }
 }

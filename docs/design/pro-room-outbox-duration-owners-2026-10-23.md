@@ -1,12 +1,12 @@
 # PRO 방 아웃박스·길이 읽기 주인 하나 (Phase 1 PRO Worker B, 2026-10-23)
 
-| 항목     | 범위                                                                                                        |
-| -------- | ----------------------------------------------------------------------------------------------------------- |
-| 기준 SHA | `51ab2be3` (main, Phase 1 PRO Worker A 배포·기록본. PRO Worker는 `ae5ac945`로 배포됨)                       |
-| 코드 SHA | (작성 중)                                                                                                   |
-| 후보     | PRO Worker만, target `pro-room`. App 버전·SW 캐시(9.0.3 / v771)와 버전 표기는 그대로. 미배포                |
-| 열차     | 구조 개선 Phase 1 PRO Worker B: C7-4 시그널링 아웃박스 주인, C7-6 길이 읽기 주인, C7-3 후속. 동작 변경 없음 |
-| 환경     | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(node), 로컬 workerd(Miniflare, 실제 두 Worker 번들)      |
+| 항목     | 범위                                                                                                                 |
+| -------- | -------------------------------------------------------------------------------------------------------------------- |
+| 기준 SHA | `10a5f32e` (main, Phase 1 App Worker B 머지본. 처음 작성은 `51ab2be3` 위에서 했다. PRO Worker는 `ae5ac945`로 배포됨) |
+| 코드 SHA | `85e143c9`(코드는 `970acdf7`와 같다)                                                                                 |
+| 후보     | PRO Worker만, target `pro-room`. App 버전·SW 캐시(9.0.3 / v771)와 버전 표기는 그대로. 미배포                         |
+| 열차     | 구조 개선 Phase 1 PRO Worker B: C7-4 시그널링 아웃박스 주인, C7-6 길이 읽기 주인, C7-3 후속. 동작 변경 없음          |
+| 환경     | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(node), 로컬 workerd(Miniflare, 실제 두 Worker 번들)               |
 
 ## 왜 고쳤나
 
@@ -139,7 +139,11 @@
 - 동작이 같다는 근거: 새 테스트와 기존 C7-0 특성 테스트, `pro-room-worker.test.ts`가 고치지 않은 채
   커밋마다 통과한다(`src/pro-room` 97개 파일 2,485개). 두 방향 레코드 fixture가 저장 레코드의
   바이트와 읽기를 확인한다.
-- 전체 검사: (작성 중)
+- 전체 검사(`85e143c9`, 로컬): 타입 검사, lint, 서식, 빌드 통과. 단위 테스트 628개 파일 14,219개,
+  Worker 테스트 59개 파일 2,857개 통과. 가드(dead-exports, bus-pairing, import-graph,
+  lifecycle-writes, release-identity, sw-cache-version, source-complexity, d1-migrations,
+  `check:workers`, resource-ownership) 통과. 브라우저 앱이 바뀌지 않아 브라우저 검사는 돌리지
+  않았다. 로컬 결과는 정확한 main SHA 배포 후보를 대신하지 않는다.
 - 배포 뒤 smoke(`smoke:live:signaling`, pro-room)는 PRO 방에서 시그널링으로 가는 broadcast와 길이
   읽기를 타지 않는다. 근거는 단위 경계 테스트와 실제 PRO·시그널링 Worker를 함께 띄우는 workerd 계약
   테스트다. 로컬 결과는 정확한 main SHA 배포 후보를 대신하지 않는다.

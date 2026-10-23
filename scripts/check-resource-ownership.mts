@@ -198,7 +198,7 @@ const HISTORY_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 
 /** RO-23: location.reload/replace/assign and writes to location or its properties. */
 const LOCATION_NAVIGATION_BASELINE: Baseline = new Map<string, Allowance>([
-  ['src/app.ts', { count: 1, reason: 'Back guard navigateHome port' }],
+  // C6-14 moved app.ts's Back guard navigateHome port to navigateToAppHome (1 to 0).
   [
     'src/core/navigation.ts',
     {

@@ -368,9 +368,11 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **방법:** 자동 / 브라우저 / 실기
 
+**소유 규칙:** [페이지 이동 소유권](design/page-navigation-ownership.md): 이동 소유자 하나(`session-reset.ts`), 바쁜 규칙, 시간 계약, 이탈 확인 면제 claim, reset 화면 최상단, Back 재무장, 이동 sink 가드
+
 **대표 구현:** [src/core/page-lifecycle.ts](../src/core/page-lifecycle.ts), [src/core/wake-lock.ts](../src/core/wake-lock.ts), [src/core/session-reset.ts](../src/core/session-reset.ts), [src/core/back-button-guard.ts](../src/core/back-button-guard.ts)
 
-**기존 검사 진입점:** [src/core/__tests__/page-lifecycle.test.ts](../src/core/__tests__/page-lifecycle.test.ts), [src/core/__tests__/wake-lock.test.ts](../src/core/__tests__/wake-lock.test.ts), [src/core/__tests__/session-reset.test.ts](../src/core/__tests__/session-reset.test.ts), [src/core/__tests__/back-button-guard.test.ts](../src/core/__tests__/back-button-guard.test.ts)
+**기존 검사 진입점:** [src/core/__tests__/page-lifecycle.test.ts](../src/core/__tests__/page-lifecycle.test.ts), [src/core/__tests__/wake-lock.test.ts](../src/core/__tests__/wake-lock.test.ts), [src/core/__tests__/session-reset.test.ts](../src/core/__tests__/session-reset.test.ts), [src/core/__tests__/back-button-guard.test.ts](../src/core/__tests__/back-button-guard.test.ts), [src/core/__tests__/page-navigation-owner.integration.test.ts](../src/core/__tests__/page-navigation-owner.integration.test.ts), [src/core/__tests__/navigation-sinks-guard.test.ts](../src/core/__tests__/navigation-sinks-guard.test.ts)
 
 ## 7. RAM·파일 복구·장시간 성능
 
@@ -1278,9 +1280,11 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **방법:** 자동 / 브라우저 / 실기
 
-**대표 구현:** [src/core/sw-hard-reset.ts](../src/core/sw-hard-reset.ts), [src/sw-register.ts](../src/sw-register.ts)
+**소유 규칙:** [페이지 이동 소유권](design/page-navigation-ownership.md): 로고 reset은 prepare(SW 승격, 2.5초 한도) 뒤 홈 이동, 2초 commit 기한은 마지막 이동 호출부터, reload 대기열
 
-**기존 검사 진입점:** [src/core/__tests__/sw-hard-reset.test.ts](../src/core/__tests__/sw-hard-reset.test.ts), [src/core/__tests__/sw-register-recovery.integration.test.ts](../src/core/__tests__/sw-register-recovery.integration.test.ts)
+**대표 구현:** [src/core/sw-hard-reset.ts](../src/core/sw-hard-reset.ts), [src/sw-register.ts](../src/sw-register.ts), [src/core/session-reset.ts](../src/core/session-reset.ts)
+
+**기존 검사 진입점:** [src/core/__tests__/sw-hard-reset.test.ts](../src/core/__tests__/sw-hard-reset.test.ts), [src/core/__tests__/sw-register-recovery.integration.test.ts](../src/core/__tests__/sw-register-recovery.integration.test.ts), [src/core/__tests__/page-navigation-owner.integration.test.ts](../src/core/__tests__/page-navigation-owner.integration.test.ts)
 
 ## 27. 공개 페이지·콘텐츠 전달
 

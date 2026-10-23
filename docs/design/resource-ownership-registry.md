@@ -1217,9 +1217,17 @@ RO-47 owner-in-place
     guard-first init order, re-arms the Back guard in a room only on the second pageshow-only
     return" and `src/core/__tests__/page-lifecycle.test.ts` "page navigation owner — back-forward
     cache return (initPageNavigation)".
+  - Sinks and requesters: `src/core/__tests__/navigation-sinks-guard.test.ts` (C6-14).
 - **Status:** `duplicated`. Phase 0d (names), Phase 2 (unload-exemption claims, C6-7; the
   navigation owner and Back fallback in a train of its own; page transitions in one dispatch,
-  C6-6).
+  C6-6). Since C6-14 `npm run guard:navigation-sinks` (`scripts/check-navigation-sinks.mts`, in
+  CI) pins every `location` sink, `SKIP_WAITING` send and history traversal to its function, lists
+  the requesters of `scheduleSessionReset` / `scheduleDocumentReload` and the
+  `claimUnloadExemption` callers per file, allow-lists the locale navigation in
+  `src/i18n/localized-app-document.ts` with its reason (owner decision 7, 2026-10-23), and keeps
+  the retired names gone; `app.ts`'s Back home port moved to `navigateToAppHome`. The second
+  machine left is the `sw-register.ts` reload latch (Phase 3). See
+  [Page navigation ownership](page-navigation-ownership.md).
 
 ### RO-24 `inert` page lock
 
@@ -1875,8 +1883,11 @@ and unrelated strings never count, and every baseline is an exact count or list 
    or any of these as its value); names match across the file, not by scope. Shows, hides and
    progress ticks all count; calls with a named holder do not.
 
+The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
+sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).
+
 Not checked yet: callers of the other records' lifecycle operations (YouTube player commands,
-`claimPlaybackOwner`, `setSystemAudioReceiving`, `scheduleSessionReset`), receivers resolved by
+`claimPlaybackOwner`, `setSystemAudioReceiving`), receivers resolved by
 type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
 duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
 in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`), and header loader

@@ -40,6 +40,7 @@
     "guard:index-hreflang": "node scripts/sync-index-hreflang.mts --check",
     "guard:sitemap": "node scripts/generate-sitemap.mts --check",
     "guard:lifecycle-writes": "node scripts/check-lifecycle-writes.mts",
+    "guard:navigation-sinks": "node scripts/check-navigation-sinks.mts",
     "guard:dead-exports": "node scripts/check-dead-exports.mts",
     "guard:font-assets": "node scripts/check-app-font.mts",
     "guard:font-build": "node scripts/check-app-font.mts --dist",

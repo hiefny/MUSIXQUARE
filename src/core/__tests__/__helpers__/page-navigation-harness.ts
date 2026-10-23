@@ -504,7 +504,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   // leave answer for showDialog, console for core/log, and the model's
   // listener sets for the bus.
   const backHistory = createBackButtonHistory({
-    navigateHome: () => window.location.replace('/'),
+    navigateHome: () => navigateToAppHome(),
     history,
     onNavigationError: (error) => console.warn('[App] Back navigation failed:', error),
   });

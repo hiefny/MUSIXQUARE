@@ -89,12 +89,12 @@ describe('app.ts wiring copied by the page navigation harness', () => {
     );
   });
 
-  it('wires the Back guard, its leave recovery and its listeners exactly as copied [keeps: C6-6] [updated: C6-12]', () => {
+  it('wires the Back guard, its leave recovery and its listeners exactly as copied [keeps: C6-6] [updated: C6-12, C6-14]', () => {
     expect(block(appSource, 'function initBackButtonGuard(): void {')).toBe(
       [
         'function initBackButtonGuard(): void {',
         'const backHistory = createBackButtonHistory({',
-        "navigateHome: () => window.location.replace('/'),",
+        'navigateHome: () => navigateToAppHome(),',
         "onNavigationError: (error) => log.warn('[App] Back navigation failed:', error), });",
         'const controller = createBackButtonGuardController({',
         'isSessionActive: () => isGuardedSession({',

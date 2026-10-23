@@ -31,6 +31,7 @@ import { delay, setManagedTimer } from './core/timers.ts';
 import { claimUnloadExemption, initPageLifecycleHandlers } from './core/page-lifecycle.ts';
 import { createBackButtonGuardController, isGuardedSession } from './core/back-button-guard.ts';
 import { createBackButtonHistory } from './core/back-button-history.ts';
+import { navigateToAppHome } from './core/navigation.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { runBackgroundResumeRecovery } from './core/background-resume-recovery.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
@@ -915,7 +916,7 @@ window.addEventListener('unhandledrejection', (e) => {
 // direct URL changes still route through the beforeunload confirmation.
 function initBackButtonGuard(): void {
   const backHistory = createBackButtonHistory({
-    navigateHome: () => window.location.replace('/'),
+    navigateHome: () => navigateToAppHome(),
     onNavigationError: (error) => log.warn('[App] Back navigation failed:', error),
   });
   const controller = createBackButtonGuardController({

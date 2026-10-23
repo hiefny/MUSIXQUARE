@@ -322,3 +322,54 @@ describe('exit method when only the prefixed element is set and both exits exist
     expect(native.exit).not.toHaveBeenCalled();
   });
 });
+
+// ─── One in-flight exit for the document (C8-I9) ────────────────────
+
+function setVisibility(state: DocumentVisibilityState): void {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+  Object.defineProperty(document, 'hidden', { configurable: true, value: state === 'hidden' });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
+describe('one in-flight fullscreen exit shared by both owners', () => {
+  afterEach(() => {
+    Reflect.deleteProperty(document, 'visibilityState');
+    Reflect.deleteProperty(document, 'hidden');
+  });
+
+  it('a YouTube exit of the same element joins the screensaver exit, also across a hidden page', async () => {
+    const native = nativeFullscreen('standard');
+    const screensaverSettled = await screensaverCaller.start(native);
+    expect(native.exit).toHaveBeenCalledOnce();
+    setState('playback.mode', 'youtube');
+    const youtubeSettled = vi.fn();
+    exitYouTubeFullscreen(youtubeSettled, { scope: 'document' });
+    expect(native.exit).toHaveBeenCalledOnce();
+
+    setVisibility('hidden');
+    setVisibility('visible');
+    await settleMicrotasks();
+    expect(screensaverSettled).not.toHaveBeenCalled();
+    expect(youtubeSettled).not.toHaveBeenCalled();
+    native.change(null);
+    await settleMicrotasks();
+    expect(screensaverSettled).toHaveBeenCalledOnce();
+    expect(youtubeSettled).toHaveBeenCalledOnce();
+  });
+
+  it('a stalled joined exit still settles every owner at the one native bound', async () => {
+    const native = nativeFullscreen('standard');
+    const screensaverSettled = await screensaverCaller.start(native);
+    const youtubeSettled = vi.fn();
+    exitYouTubeFullscreen(youtubeSettled, { scope: 'document' });
+    clearAllManagedTimers();
+    await vi.advanceTimersByTimeAsync(FULLSCREEN_SETTLEMENT_MS - 1);
+    expect(screensaverSettled).not.toHaveBeenCalled();
+    expect(youtubeSettled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await settleMicrotasks();
+    expect(screensaverSettled).toHaveBeenCalledOnce();
+    expect(youtubeSettled).toHaveBeenCalledOnce();
+    expect(native.exit).toHaveBeenCalledOnce();
+  });
+});

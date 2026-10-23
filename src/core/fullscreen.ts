@@ -69,13 +69,20 @@ function resolveFullscreenExit(order: FullscreenExitOrder): {
 }
 
 interface FullscreenExitAttempt {
+  /** The owner whose exit issued the native call; joiners do not replace it. */
+  readonly owner: FullscreenOwner;
   readonly element: Element | null;
   readonly observers: Set<() => void>;
   finish(): void;
 }
 
-/** In-flight exits, one per owner (C8-I8); a second exit for the same element joins. */
-const activeExits = new Map<FullscreenOwner, FullscreenExitAttempt>();
+/**
+ * The one exit in flight for the document (C8-I9). There is one top-document
+ * fullscreen state, so any owner's exit for the same element joins it instead
+ * of issuing a second native exit; an exit for another element means the
+ * earlier element already left, so it settles the earlier attempt first.
+ */
+let activeExit: FullscreenExitAttempt | null = null;
 
 function notifyExitObserver(observer: (() => void) | undefined): void {
   try {
@@ -91,8 +98,9 @@ function notifyExitObserver(observer: (() => void) | undefined): void {
  * once the exit settles: on the promise, on a change event that leaves the
  * element, on an error event of the exit method's own type at the document or
  * the element, on pagehide, or after FULLSCREEN_SETTLEMENT_MS. The bound is a
- * native timer because leaving a room clears every managed timer. Callers keep
- * their own request policy and ownership checks.
+ * native timer because leaving a room clears every managed timer. An exit for
+ * the element already being exited joins that one exit. Callers keep their own
+ * request policy and ownership checks; only this module calls a native exit.
  */
 export function exitFullscreenFor(
   owner: FullscreenOwner,
@@ -105,12 +113,11 @@ export function exitFullscreenFor(
     notifyExitObserver(onSettled);
     return;
   }
-  const active = activeExits.get(owner);
-  if (active?.element === element) {
-    if (onSettled) active.observers.add(onSettled);
+  if (activeExit && activeExit.element === element) {
+    if (onSettled) activeExit.observers.add(onSettled);
     return;
   }
-  active?.finish();
+  activeExit?.finish();
 
   let finished = false;
   let timer = 0;
@@ -125,7 +132,7 @@ export function exitFullscreenFor(
     for (const name of FULLSCREEN_CHANGE_EVENTS) document.removeEventListener(name, onChange);
     for (const name of FULLSCREEN_ERROR_EVENTS) document.removeEventListener(name, onError);
     window.removeEventListener('pagehide', finish);
-    if (activeExits.get(owner) === attempt) activeExits.delete(owner);
+    if (activeExit === attempt) activeExit = null;
     const observers = [...attempt.observers];
     attempt.observers.clear();
     for (const observer of observers) notifyExitObserver(observer);
@@ -141,11 +148,12 @@ export function exitFullscreenFor(
     if (event.target === document || (element !== null && event.target === element)) finish();
   };
   const attempt: FullscreenExitAttempt = {
+    owner,
     element,
     observers: new Set(onSettled ? [onSettled] : []),
     finish,
   };
-  activeExits.set(owner, attempt);
+  activeExit = attempt;
   for (const name of FULLSCREEN_CHANGE_EVENTS) document.addEventListener(name, onChange);
   for (const name of FULLSCREEN_ERROR_EVENTS) document.addEventListener(name, onError);
   window.addEventListener('pagehide', finish);

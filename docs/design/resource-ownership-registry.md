@@ -119,7 +119,7 @@ each record also states the step in words.
 | RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                        |
 | RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | 2 (reset surface on top)     |
 | RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)               |
-| RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2                            |
+| RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision   |
 | RO-27 | Playlist rows and scroll position                        | UI             | duplicated         | 2                            |
 | RO-28 | Account session reads and refresh pulses                 | Account        | duplicated         | 0d, 2                        |
 | RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | 0d (copy triage)             |
@@ -131,7 +131,6 @@ each record also states the step in words.
 | RO-35 | Side-route outage deadline stays in control isolation    | Transport      | accepted-exception | Revisit when #18 retires     |
 | RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7           |
 | RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7           |
-| RO-38 | Separate screensaver and YouTube fullscreen exit state   | UI             | accepted-exception | Owner decision               |
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check  |
 | RO-40 | Hand-copied PRO publication teardown blocks              | System audio   | accepted-exception | Phase 5 or later             |
 | RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit after the 0c test    |
@@ -194,7 +193,6 @@ RO-34 accepted-exception
 RO-35 accepted-exception
 RO-36 accepted-exception
 RO-37 accepted-exception
-RO-38 accepted-exception
 RO-39 accepted-exception
 RO-40 accepted-exception
 RO-41 accepted-exception
@@ -1249,17 +1247,19 @@ RO-46 accepted-exception
   in Phase 2, C8-I2) is the one bounded exit (C8-I8): it owns the change, error and pagehide
   listeners, promise and void-return handling, the native 1.5 s bound, observer isolation and
   error matching (only an error of the exit method's own type at the document or the exiting
-  element settles it), with one in-flight exit per owner that a second exit for the same element
-  joins. Its callers: the screensaver entry (`src/ui/screensaver-entry.ts`: entry lock, request
-  generation and bound, exit through the matching method) and the YouTube exit
-  (`src/player/video.ts`: ownership heuristic, fake-fullscreen teardown, standard exit first).
-  The YouTube toggle (`src/ui/player-controls.ts`) keeps its native request, fake fullscreen and
-  100 ms WebKit check. `getFullscreenElement` is the one prefixed-element reader for all of them
-  (C8-I5). Only playback mode separates the owners; read from the code (not reproduced), a
-  YouTube toggle tapped while a screensaver exit is in flight issues a second exit instead of
-  entering.
-- **Target single owner:** `src/core/fullscreen.ts` with one bounded-exit primitive; callers keep
-  their request policy.
+  element settles it). It holds the one exit in flight for the document (C8-I9): an exit by
+  either owner for the element already being exited joins it instead of issuing a second native
+  exit, and an exit for another element settles the earlier attempt first. Only this module
+  calls a native exit method (guard: "fullscreen exit"). Its callers: the screensaver entry
+  (`src/ui/screensaver-entry.ts`: entry lock, request generation and bound, exit through the
+  matching method) and the YouTube exit (`src/player/video.ts`: ownership heuristic,
+  fake-fullscreen teardown, standard exit first). Two request chains stay with their callers:
+  the screensaver's (standard, then WebKit) and the YouTube toggle's in
+  `src/ui/player-controls.ts` (standard then fake fullscreen, or WebKit with a 100 ms check then
+  fake). `getFullscreenElement` is the one prefixed-element reader for all of them (C8-I5).
+- **Target single owner:** `src/core/fullscreen.ts`: done for exits. Whether the two request
+  chains should become one is a separate owner decision; until then callers keep their request
+  policy.
 - **Allowed requesters:** the screensaver, the YouTube toggle and mode exit, Back.
 - **Lifecycle operations:** request, exit, settle.
 - **Deadline owner:** `exitFullscreenFor` for every exit and the screensaver entry for its
@@ -1280,11 +1280,15 @@ RO-46 accepted-exception
     pagehide and ignores late completion".
   - Both callers: `src/core/__tests__/fullscreen.test.ts` "bounded fullscreen exit" runs the
     promise, change event, legacy WebKit event, pagehide, failed exit and error-matching cases for
-    the screensaver and the YouTube player alike.
-  - Missing: a YouTube toggle during an in-flight screensaver exit.
-- **Status:** `duplicated`. Phase 2: shared helper and constants (C8-I2), one prefixed reader
-  (C8-I5) and one bounded exit (C8-I8) are done; one shared in-flight slot remains. See
-  [Screensaver integration](screensaver-integration-2026-10-16.md). Exception RO-38.
+    the screensaver and the YouTube player alike, and "one in-flight fullscreen exit shared by
+    both owners" pins the join, including across a hidden page.
+  - Hand-off: `src/ui/__tests__/fullscreen-handoff.test.ts` "shares the screensaver exit instead
+    of issuing a second one" (the screensaver closes on a YouTube takeover and the toggle is
+    tapped before `fullscreenchange`).
+- **Status:** `duplicated` for the request chains only (owner decision). Phase 2 finished the
+  exit side: shared helper and constants (C8-I2), one prefixed reader (C8-I5), one bounded exit
+  (C8-I8) and one in-flight exit slot (C8-I9, which retired exception RO-38). See
+  [Screensaver integration](screensaver-integration-2026-10-16.md).
 
 ### RO-27 Playlist rows and scroll position
 
@@ -1497,18 +1501,6 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Revisit when:** Phase 7 encodes the retry-versus-semantic exclusivity in the flight-result type.
 - **Status:** `accepted-exception`.
 
-### RO-38 Separate screensaver and YouTube fullscreen exit state
-
-- **Parent:** RO-26. Plan steps C8-I9 and C8-I13 deferred.
-- **Exception:** after Phase 2's shared bounded exit, the screensaver and YouTube still keep
-  separate in-flight state instead of one slot.
-- **Evidence:** a shared slot only matters for a behaviour the owner has not chosen: what a YouTube
-  fullscreen tap does while a screensaver exit is in flight.
-- **Behaviour risk:** that tap is lost (the duplicate exits settle harmlessly); no known-accepted
-  entry until the owner decides.
-- **Revisit when:** the owner chooses that behaviour.
-- **Status:** `accepted-exception`.
-
 ### RO-39 Two Cloudflare Realtime control clients
 
 - **Parent:** RO-04 and RO-20. Plan step C4-11 deferred.
@@ -1668,9 +1660,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
    the index rows and the record IDs the guard names, as listed under
    [Machine-readable ID list](#machine-readable-id-list); and the `Resource owner:` headers.
 2. **Guarded page state, per file:** `inert` writes, page-lock claims and walks over the body's
-   children (RO-24), aria-hidden writes in page-lock files, Fullscreen request and exit methods
-   (RO-26), history entry writes (RO-30), navigation through `location` (RO-23) and
-   `SKIP_WAITING` sends (RO-22).
+   children (RO-24), aria-hidden writes in page-lock files, Fullscreen request methods and
+   Fullscreen exit methods, the latter only in `src/core/fullscreen.ts` (RO-26), history entry
+   writes (RO-30), navigation through `location` (RO-23) and `SKIP_WAITING` sends (RO-22).
 3. **Worker callers, per function:** the `/internal/realtime/v1/broadcast` endpoint anywhere in
    production code (RO-07) and `readProRoomFileDuration` in `cloudflare/` (RO-08; the app's
    local-file parse in `src/pro-room/upload-duration.ts` is outside that resource).

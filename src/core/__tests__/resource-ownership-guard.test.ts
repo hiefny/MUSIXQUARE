@@ -280,7 +280,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         }),
       );
       expect(findings).toMatch(
-        /UNSANCTIONED fullscreen request\/exit \(RO-26\): src\/ui\/rogue-sinks\.ts has 1/u,
+        /UNSANCTIONED fullscreen request \(RO-26\): src\/ui\/rogue-sinks\.ts has 1/u,
       );
       expect(findings).toMatch(
         /UNSANCTIONED history entry write \(RO-30\): src\/ui\/rogue-sinks\.ts has 2/u,
@@ -291,6 +291,25 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(findings).toMatch(
         /UNSANCTIONED SKIP_WAITING send \(RO-22\): src\/ui\/rogue-sinks\.ts has 1/u,
       );
+    });
+
+    it('keeps every fullscreen exit inside the one bounded exit slot (C8-I9)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            'src/ui/player-controls.ts',
+            "  $on('btn-help', 'click', () => switchTab('guide'));",
+            "  $on('btn-help', 'click', () => switchTab('guide'));\n" +
+              '  const doc = document as FullscreenDocument;\n' +
+              '  void (doc.webkitExitFullscreen || doc.exitFullscreen);',
+          );
+        }),
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED fullscreen exit \(RO-26\): src\/ui\/player-controls\.ts has 2/u,
+      );
+      expect(findings).not.toMatch(/fullscreen request \(RO-26\)/u);
     });
 
     it('fails a raised count in an allowlisted file and a count that fell below its baseline', () => {

@@ -18,8 +18,10 @@
  *   CHECK 2 Guarded page state (RO-22, RO-23, RO-24, RO-26, RO-30). Direct
  *     writes stay in their allowlisted files: `inert` writes, page-lock claims
  *     through setElementInertForOwner, walks over the body's children,
- *     aria-hidden writes in page-lock files, Fullscreen request/exit methods,
- *     history entry writes, location navigation and SKIP_WAITING sends.
+ *     aria-hidden writes in page-lock files, Fullscreen request methods,
+ *     Fullscreen exit methods (only the one bounded exit in
+ *     src/core/fullscreen.ts), history entry writes, location navigation and
+ *     SKIP_WAITING sends.
  *   CHECK 3 Worker caller allowlists (RO-07, RO-08). The PRO signaling
  *     broadcast endpoint '/internal/realtime/v1/broadcast' (anywhere in
  *     production code) and readProRoomFileDuration() (in cloudflare/; the
@@ -156,21 +158,24 @@ const PAGE_LOCK_ARIA_HIDDEN_BASELINE: Baseline = new Map<string, Allowance>([
   ['src/ui/dom.ts', { count: 2, reason: 'overlay visibility and the clipboard textarea' }],
 ]);
 
-/** RO-26: references to Fullscreen request and exit methods (calls or resolvers). */
-const FULLSCREEN_SINK_BASELINE: Baseline = new Map<string, Allowance>([
-  [
-    'src/core/fullscreen.ts',
-    {
-      count: 3,
-      reason:
-        'the one bounded exit for the screensaver and YouTube (C8-I8; 7 to 3 when video.ts lost its resolver)',
-    },
-  ],
+/** RO-26: references to Fullscreen request methods (calls or resolvers). */
+const FULLSCREEN_REQUEST_SINK_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/ui/player-controls.ts',
-    { count: 4, reason: 'YouTube fullscreen toggle request (Phase 2 keeps the policy)' },
+    { count: 4, reason: 'YouTube fullscreen toggle request (callers keep their request policy)' },
   ],
   ['src/ui/screensaver-entry.ts', { count: 3, reason: 'screensaver entry request resolver' }],
+]);
+
+/**
+ * RO-26: references to Fullscreen exit methods. Only the one in-flight exit
+ * slot may leave fullscreen (C8-I9), so two owners never exit twice.
+ */
+const FULLSCREEN_EXIT_SINK_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/core/fullscreen.ts',
+    { count: 3, reason: 'exitFullscreenFor, the one bounded exit slot (C8-I8, C8-I9)' },
+  ],
 ]);
 
 /** RO-30, RO-23: history.pushState/replaceState/back/go/forward. */
@@ -727,13 +732,15 @@ function formatValue(value: ConstantValue): string {
 
 // ── Per-file facts ───────────────────────────────────────────────────────
 
-const FULLSCREEN_SINK_NAMES = new Set([
+const FULLSCREEN_REQUEST_SINK_NAMES = new Set([
   'requestFullscreen',
   'webkitRequestFullscreen',
   'webkitRequestFullScreen',
   'webkitEnterFullscreen',
   'mozRequestFullScreen',
   'msRequestFullscreen',
+]);
+const FULLSCREEN_EXIT_SINK_NAMES = new Set([
   'exitFullscreen',
   'webkitExitFullscreen',
   'webkitCancelFullScreen',
@@ -751,7 +758,8 @@ interface FileFacts {
   pageLockClaims: number;
   bodyChildrenWalks: number;
   ariaHiddenWrites: number;
-  fullscreenSinks: number;
+  fullscreenRequestSinks: number;
+  fullscreenExitSinks: number;
   historyWrites: number;
   locationNavigations: number;
   skipWaitingSends: number;
@@ -851,7 +859,8 @@ function collectFacts(relPath: string, text: string): FileFacts {
     pageLockClaims: 0,
     bodyChildrenWalks: 0,
     ariaHiddenWrites: 0,
-    fullscreenSinks: 0,
+    fullscreenRequestSinks: 0,
+    fullscreenExitSinks: 0,
     historyWrites: 0,
     locationNavigations: 0,
     skipWaitingSends: 0,
@@ -910,8 +919,9 @@ function collectFacts(relPath: string, text: string): FileFacts {
       if ((member === 'children' || member === 'childNodes') && receiverName(receiver) === 'body') {
         facts.bodyChildrenWalks += 1;
       }
-      if (FULLSCREEN_SINK_NAMES.has(member) && !isAssignmentTarget(node)) {
-        facts.fullscreenSinks += 1;
+      if (!isAssignmentTarget(node)) {
+        if (FULLSCREEN_REQUEST_SINK_NAMES.has(member)) facts.fullscreenRequestSinks += 1;
+        if (FULLSCREEN_EXIT_SINK_NAMES.has(member)) facts.fullscreenExitSinks += 1;
       }
       if (HISTORY_ENTRY_METHODS.has(member)) facts.historyWrites += 1;
       else if (HISTORY_TRAVERSAL_METHODS.has(member) && isHistoryReceiver(receiver)) {
@@ -1458,11 +1468,18 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       baseline: PAGE_LOCK_ARIA_HIDDEN_BASELINE,
     },
     {
-      label: 'fullscreen request/exit',
+      label: 'fullscreen request',
       record: 'RO-26',
-      hint: 'use the fullscreen helper in src/core/fullscreen.ts',
-      measured: perFile(facts, (f) => f.fullscreenSinks, appOnly),
-      baseline: FULLSCREEN_SINK_BASELINE,
+      hint: 'a new fullscreen surface needs a reasoned entry; read state through src/core/fullscreen.ts',
+      measured: perFile(facts, (f) => f.fullscreenRequestSinks, appOnly),
+      baseline: FULLSCREEN_REQUEST_SINK_BASELINE,
+    },
+    {
+      label: 'fullscreen exit',
+      record: 'RO-26',
+      hint: 'leave fullscreen through exitFullscreenFor in src/core/fullscreen.ts',
+      measured: perFile(facts, (f) => f.fullscreenExitSinks, appOnly),
+      baseline: FULLSCREEN_EXIT_SINK_BASELINE,
     },
     {
       label: 'history entry write',

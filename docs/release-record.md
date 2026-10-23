@@ -45,6 +45,16 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### Phase 1 App Worker A: 사가 도우미·펜스 쓰기 하나(Worker 배포 대기)
+
+- [ ] App Worker(target `app`) 배포 후보. 소유권 이전 사가의 권리 식별 정보와 삭제된 대상의
+      종료 네 자리를 도우미 하나씩으로 모았고(C7-8), Developer API 권한 펜스 쓰기가 타입이 있는
+      쓰기 객체를 받으며 소유권 가드가 쓰는 곳을 활성기·해제기·PRO 해체 셋으로 제한한다(C7-11).
+      순서와 SQL·바인딩은 그대로다(D3 순서 변경은 C7-9). 앱 버전·SW 캐시(9.0.3/v771)는 바뀌지
+      않는다. 다른 Worker 소스가 배포본과 같아 부분 릴리스 게이트가 `app` 단독을 허용한다. 배포
+      뒤 smoke는 이 경로를 타지 않아 근거는 node:sqlite 위의 실제 Worker 테스트다.
+      [변경·검증·한계](design/app-worker-saga-fence-2026-10-23.md).
+
 ### 9.0.3 PRO SFU 재시도의 수신 대기 유지·느린 제스처 재개 확인
 
 - [ ] App 9.0.3/v771은 2026-10-23 03:07 KST [Release 39828174957](https://github.com/hiefny/MUSIXQUARE/actions/runs/39828174957)로 배포했다(target `app`). 아래 9.0.2를 함께 실었다(오너 결정 2026-10-23). PRO SFU 재시도가 같은 발행이면 수신 대기를

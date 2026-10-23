@@ -4866,16 +4866,12 @@ async function purgeProRoomAccountAuthority(
       'owner-account-deleted',
       `${roomCode}\u0000${roomGeneration}\u0000${accountId}\u0000${removalId}\u0000${removedOwnerAuthorityEpoch}\u0000${fencedCoordinatorEpoch}`,
     );
-    await revokeDeveloperApiKeysForAuthorityChange(
-      env,
-      roomCode,
-      roomGeneration,
-      'system:account-delete',
-      'owner_account_deleted',
-      'owner_account_deleted',
+    await revokeDeveloperApiKeysForAuthorityChange(env, roomCode, roomGeneration, {
+      source: 'account-delete',
+      reason: 'owner_account_deleted',
       fenceDigest,
-      expectedFenceDigest,
-    );
+      expected: expectedFenceDigest,
+    });
     // The exact ACK serializes the registry projection with the next transfer
     // inside the canonical DO. Writing it here after a read would leave another
     // cross-database window even though the Developer fence above is protected.
@@ -5872,26 +5868,71 @@ async function runDeveloperApiAdminMutation(
   }
 }
 
+/**
+ * One write to the Developer API authority fence row of a room incarnation
+ * (registry RO-25). `source` names the writer; it fixes the fence reason and
+ * the key-revocation audit identity (`AUTHORITY_FENCE_WRITERS`).
+ * - `account-delete`: compare-and-swap on the digest the purge read before
+ *   asking the Durable Object (null when no row existed), so a stale purge
+ *   cannot overwrite a newer transfer's fence.
+ * - `owner-transfer` and `legacy-owner-detach`: no compare-and-swap
+ *   (`expected: 'any'`). Whether transfers should compare and swap too is an
+ *   open owner decision (D5); account-auth-operations.md lists every writer
+ *   and the precedence (deletion suspends, a transfer reactivates).
+ */
+type AuthorityFenceWrite =
+  | {
+      readonly source: 'account-delete';
+      readonly reason: 'owner_account_deleted';
+      readonly fenceDigest: string;
+      readonly expected: string | null;
+    }
+  | {
+      readonly source: 'owner-transfer' | 'legacy-owner-detach';
+      readonly reason: 'ownership_transfer_pending';
+      readonly fenceDigest: string;
+      readonly expected: 'any';
+    };
+
+/** Audit identity of each fence writer's key revocations. */
+const AUTHORITY_FENCE_WRITERS = Object.freeze({
+  'account-delete': { actorId: 'system:account-delete', auditResult: 'owner_account_deleted' },
+  'owner-transfer': { actorId: 'system:owner-transfer', auditResult: 'ownership_transfer' },
+  'legacy-owner-detach': {
+    actorId: 'system:legacy-owner-detach',
+    auditResult: 'legacy_duplicate_owner_detach',
+  },
+} satisfies Record<AuthorityFenceWrite['source'], { actorId: string; auditResult: string }>);
+
+/**
+ * The one activator of the Developer API authority fence (registry RO-25):
+ * activates the fence for the incarnation, revokes its active keys and audits
+ * each revocation, in one batch. `clearDeveloperApiAuthorityFence` is the one
+ * clearer; the PRO room decommission deletes the row with the incarnation.
+ */
 async function revokeDeveloperApiKeysForAuthorityChange(
   env: AppEnv,
   roomCode: string,
   roomGeneration: number,
-  actorId: string,
-  result: string,
-  suspensionReason: string,
-  fenceDigest: string,
-  expectedFenceDigest?: string | null,
+  write: AuthorityFenceWrite,
 ) {
   const db = getDeveloperApiAdminDb(env);
   if (!db?.prepare || typeof db.batch !== 'function') {
     throw new Error('Developer API admin database unavailable');
   }
+  const { fenceDigest, reason: suspensionReason } = write;
+  const writer = Object.hasOwn(AUTHORITY_FENCE_WRITERS, write.source)
+    ? AUTHORITY_FENCE_WRITERS[write.source]
+    : null;
   if (
+    !writer ||
     !['owner_account_deleted', 'ownership_transfer_pending'].includes(suspensionReason) ||
     !FENCE_DIGEST_RE.test(fenceDigest)
   ) {
     throw new Error('Invalid Developer API authority fence');
   }
+  const { actorId, auditResult: result } = writer;
+  const compareAndSwap = write.expected !== 'any';
   const revokedAtMs = Date.now();
   const statements = [
     db
@@ -5929,8 +5970,8 @@ async function revokeDeveloperApiKeysForAuthorityChange(
         suspensionReason,
         fenceDigest,
         revokedAtMs,
-        expectedFenceDigest === undefined ? 0 : 1,
-        expectedFenceDigest ?? null,
+        compareAndSwap ? 1 : 0,
+        compareAndSwap ? write.expected : null,
       ),
     db
       .prepare(
@@ -6011,6 +6052,11 @@ async function developerApiAuthorityFenceDigest(env: AppEnv, purpose: string, ma
   return hmacSha256(secret, `developer-api-authority-fence:v1\u0000${purpose}\u0000${material}`);
 }
 
+/**
+ * The one clearer of the Developer API authority fence (registry RO-25): the
+ * owner-transfer saga clears only its own digest, so a deletion fence written
+ * over it stays active.
+ */
 async function clearDeveloperApiAuthorityFence(
   env: AppEnv,
   roomCode: string,
@@ -6993,6 +7039,113 @@ async function advanceOwnerTransferSagaState(
   return typeof currentRank === 'number' && typeof nextRank === 'number' && currentRank >= nextRank;
 }
 
+/**
+ * The owner-transfer entitlement identity (pro-room-grants.ts) of one saga:
+ * its target account, room incarnation and request id. The cron passes its
+ * sweep time; the request passes none, so the entitlement module stamps its
+ * own clock (registry RO-09).
+ */
+function ownerTransferEntitlementInput(
+  saga: Pick<OwnerTransferSaga, 'targetAccountId' | 'roomCode' | 'roomGeneration' | 'requestId'>,
+  nowMs?: number,
+) {
+  return {
+    targetAccountId: saga.targetAccountId,
+    roomCode: saga.roomCode,
+    roomGeneration: saga.roomGeneration,
+    requestId: saga.requestId,
+    ...(nowMs === undefined ? {} : { nowMs }),
+  };
+}
+
+/**
+ * How one deleted-target site ends a committed transfer (registry RO-09):
+ * whether it purges the target's new owner authority first, and where its
+ * commit audit goes.
+ * - `before-finalize` (cron): `auditResult` is written before the finalize;
+ *   an insert failure throws and the next sweep audits again (at least once).
+ * - `after-terminal` (request): every step failure is caught; `auditResult` is
+ *   written after the terminal advance, or 'reconcile_required' when a step
+ *   did not complete. An insert failure after the advance loses the row.
+ * - `none` (cron final recheck): no audit row.
+ * Owner decision D3 moves every audit ahead of the terminal advance in the
+ * single post-commit executor (plan step C7-9); until then each site keeps
+ * its own placement.
+ */
+type OwnerTransferDeletedTargetTermination = {
+  readonly purge: boolean;
+  /** The cron's sweep time; the request uses each write's own clock. */
+  readonly nowMs?: number;
+} & (
+  | { readonly auditTiming: 'before-finalize' | 'after-terminal'; readonly auditResult: string }
+  | { readonly auditTiming: 'none' }
+);
+
+/**
+ * Ends a committed owner transfer whose target account is being deleted, as
+ * one sequence for the four sites that wrote it by hand (plan step C7-8):
+ * purge (optional), finalize the reserved entitlement, then advance the saga
+ * to 'target_deleted', with the audit placed as `auditTiming` says. Returns
+ * 'target_deleted' once the advance holds, 'incomplete' when a step stopped
+ * short, and 'audit_unavailable' when the request's closing audit failed.
+ */
+async function terminateOwnerTransferForDeletedTarget(
+  env: AppEnv,
+  db: D1Database,
+  saga: OwnerTransferSaga,
+  termination: OwnerTransferDeletedTargetTermination,
+): Promise<'target_deleted' | 'incomplete' | 'audit_unavailable'> {
+  const { nowMs } = termination;
+  const purge = () =>
+    purgeProRoomAccountAuthority(
+      {
+        accountId: saga.targetAccountId,
+        roomCode: saga.roomCode,
+        roomGeneration: saga.roomGeneration,
+      },
+      env,
+    ).catch(() => false);
+  const finalize = () =>
+    finalizeProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(saga, nowMs),
+    ).catch(() => false);
+  const audit = (result: string) =>
+    auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      result,
+      saga.roomCode,
+      saga.roomGeneration,
+    );
+
+  if (termination.auditTiming === 'after-terminal') {
+    let terminated = termination.purge ? await purge() : true;
+    if (terminated) {
+      try {
+        terminated =
+          (await finalize()) &&
+          (await advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs));
+      } catch {
+        terminated = false;
+      }
+    }
+    try {
+      await audit(terminated ? termination.auditResult : 'reconcile_required');
+    } catch {
+      return 'audit_unavailable';
+    }
+    return terminated ? 'target_deleted' : 'incomplete';
+  }
+
+  if (termination.purge && !(await purge())) return 'incomplete';
+  if (termination.auditTiming === 'before-finalize') await audit(termination.auditResult);
+  if (!(await finalize())) return 'incomplete';
+  return (await advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs))
+    ? 'target_deleted'
+    : 'incomplete';
+}
+
 interface OwnerTransferReconciliationMeta extends JsonObject {
   phase: 'pending' | 'completed';
   transferId: string;
@@ -7252,13 +7405,10 @@ async function reconcileDecommissionedOwnerTransferSaga(
   // An uncommitted transfer may still have a source/target reservation. Undo
   // it when possible, then use the exact-incarnation revoke as the canonical
   // cleanup barrier for committed, uncommitted, and source-less transfers.
-  await abortProRoomOwnershipTransferEntitlement(env, {
-    targetAccountId: saga.targetAccountId,
-    roomCode: saga.roomCode,
-    roomGeneration: saga.roomGeneration,
-    requestId: saga.requestId,
-    nowMs,
-  }).catch(() => false);
+  await abortProRoomOwnershipTransferEntitlement(
+    env,
+    ownerTransferEntitlementInput(saga, nowMs),
+  ).catch(() => false);
   if (
     !(await revokeProRoomEntitlement(env, {
       roomCode: saga.roomCode,
@@ -7453,10 +7603,12 @@ async function commitAdoptedOwnerTransferSaga(
       env,
       saga.roomCode,
       saga.roomGeneration,
-      'system:owner-transfer',
-      'ownership_transfer',
-      'ownership_transfer_pending',
-      saga.fenceDigest,
+      {
+        source: 'owner-transfer',
+        reason: 'ownership_transfer_pending',
+        fenceDigest: saga.fenceDigest,
+        expected: 'any',
+      },
     );
   } catch {
     return false;
@@ -7501,15 +7653,10 @@ async function reconcileOneOwnerTransferSaga(
   saga: OwnerTransferSaga,
   nowMs: number = Date.now(),
 ) {
-  const entitlementInput = () => ({
-    targetAccountId: saga.targetAccountId,
-    roomCode: saga.roomCode,
-    roomGeneration: saga.roomGeneration,
-    requestId: saga.requestId,
-    nowMs,
-  });
   const abortPendingEntitlement = () =>
-    abortProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false);
+    abortProRoomOwnershipTransferEntitlement(env, ownerTransferEntitlementInput(saga, nowMs)).catch(
+      () => false,
+    );
   const status = await callProRoomAdminObject(
     env,
     saga.roomCode,
@@ -7563,21 +7710,16 @@ async function reconcileOneOwnerTransferSaga(
         return false;
       }
       if (!target) {
-        await auditSystemOwnerTransfer(
-          env,
-          'owner_transfer.commit',
-          'target_deleted_during_reconcile',
-          saga.roomCode,
-          saga.roomGeneration,
+        // The room is already suspended for the target's deletion: audit and
+        // terminate without another purge.
+        return (
+          (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
+            purge: false,
+            auditTiming: 'before-finalize',
+            auditResult: 'target_deleted_during_reconcile',
+            nowMs,
+          })) === 'target_deleted'
         );
-        if (
-          !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
-            () => false,
-          ))
-        ) {
-          return false;
-        }
-        return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
       }
     }
     if (meta && typeof meta === 'object') {
@@ -7594,7 +7736,10 @@ async function reconcileOneOwnerTransferSaga(
     return false;
   }
   if (
-    !(await reserveProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false))
+    !(await reserveProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(saga, nowMs),
+    ).catch(() => false))
   ) {
     return false;
   }
@@ -7639,30 +7784,14 @@ async function reconcileOneOwnerTransferSaga(
     return false;
   }
   if (!target) {
-    const suspended = await purgeProRoomAccountAuthority(
-      {
-        accountId: saga.targetAccountId,
-        roomCode: saga.roomCode,
-        roomGeneration: saga.roomGeneration,
-      },
-      env,
-    ).catch(() => false);
-    if (!suspended) return false;
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'target_deleted_during_reconcile',
-      saga.roomCode,
-      saga.roomGeneration,
+    return (
+      (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
+        purge: true,
+        auditTiming: 'before-finalize',
+        auditResult: 'target_deleted_during_reconcile',
+        nowMs,
+      })) === 'target_deleted'
     );
-    if (
-      !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
-        () => false,
-      ))
-    ) {
-      return false;
-    }
-    return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
   }
 
   if (
@@ -7698,23 +7827,14 @@ async function reconcileOneOwnerTransferSaga(
     return false;
   }
   if (!target) {
-    const suspended = await purgeProRoomAccountAuthority(
-      {
-        accountId: saga.targetAccountId,
-        roomCode: saga.roomCode,
-        roomGeneration: saga.roomGeneration,
-      },
-      env,
-    ).catch(() => false);
-    if (!suspended) return false;
-    if (
-      !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
-        () => false,
-      ))
-    ) {
-      return false;
-    }
-    return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
+    // No audit row at this site today; C7-9 (owner decision D3) adds one.
+    return (
+      (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
+        purge: true,
+        auditTiming: 'none',
+        nowMs,
+      })) === 'target_deleted'
+    );
   }
   let room = await readAdminProRoom(db, saga.roomCode);
   if (!room || room.roomGeneration !== saga.roomGeneration) return false;
@@ -7732,7 +7852,10 @@ async function reconcileOneOwnerTransferSaga(
   }
   if (!(await advanceOwnerTransferSagaState(db, saga, 'verified', nowMs))) return false;
   if (
-    !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false))
+    !(await finalizeProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(saga, nowMs),
+    ).catch(() => false))
   ) {
     return false;
   }
@@ -7914,12 +8037,10 @@ async function handleProRoomOwnershipTransferSaga({
     return auditError || json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
   }
   if (
-    !(await reserveProRoomOwnershipTransferEntitlement(env, {
-      targetAccountId,
-      roomCode,
-      roomGeneration,
-      requestId,
-    }).catch(() => false))
+    !(await reserveProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(transferSaga),
+    ).catch(() => false))
   ) {
     const auditError = await failAudit('target_entitlement_conflict');
     return auditError || json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
@@ -8016,12 +8137,10 @@ async function handleProRoomOwnershipTransferSaga({
     return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
   }
   if (!currentTarget) {
-    await abortProRoomOwnershipTransferEntitlement(env, {
-      targetAccountId,
-      roomCode,
-      roomGeneration,
-      requestId,
-    }).catch(() => false);
+    await abortProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(transferSaga),
+    ).catch(() => false);
     try {
       await auditSystemOwnerTransfer(
         env,
@@ -8038,15 +8157,12 @@ async function handleProRoomOwnershipTransferSaga({
 
   let revocation;
   try {
-    revocation = await revokeDeveloperApiKeysForAuthorityChange(
-      env,
-      roomCode,
-      roomGeneration,
-      'system:owner-transfer',
-      'ownership_transfer',
-      'ownership_transfer_pending',
+    revocation = await revokeDeveloperApiKeysForAuthorityChange(env, roomCode, roomGeneration, {
+      source: 'owner-transfer',
+      reason: 'ownership_transfer_pending',
       fenceDigest,
-    );
+      expected: 'any',
+    });
   } catch {
     try {
       await auditSystemOwnerTransfer(
@@ -8125,44 +8241,15 @@ async function handleProRoomOwnershipTransferSaga({
   }
 
   const abortCommittedTransferForMissingTarget = async (result: string) => {
-    let suspended = false;
-    try {
-      suspended = await purgeProRoomAccountAuthority(
-        { accountId: targetAccountId, roomCode, roomGeneration },
-        env,
-      );
-    } catch {
-      suspended = false;
-    }
-    if (suspended) {
-      try {
-        if (
-          !(await finalizeProRoomOwnershipTransferEntitlement(env, {
-            targetAccountId,
-            roomCode,
-            roomGeneration,
-            requestId,
-          }).catch(() => false)) ||
-          !(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'target_deleted'))
-        ) {
-          suspended = false;
-        }
-      } catch {
-        suspended = false;
-      }
-    }
-    try {
-      await auditSystemOwnerTransfer(
-        env,
-        'owner_transfer.commit',
-        suspended ? result : 'reconcile_required',
-        roomCode,
-        roomGeneration,
-      );
-    } catch {
+    const termination = await terminateOwnerTransferForDeletedTarget(env, adminDb, transferSaga, {
+      purge: true,
+      auditTiming: 'after-terminal',
+      auditResult: result,
+    });
+    if (termination === 'audit_unavailable') {
       return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
     }
-    return suspended
+    return termination === 'target_deleted'
       ? json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409)
       : json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
   };
@@ -8311,12 +8398,10 @@ async function handleProRoomOwnershipTransferSaga({
     return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
   }
   if (
-    !(await finalizeProRoomOwnershipTransferEntitlement(env, {
-      targetAccountId,
-      roomCode,
-      roomGeneration,
-      requestId,
-    }).catch(() => false))
+    !(await finalizeProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(transferSaga),
+    ).catch(() => false))
   ) {
     await auditSystemOwnerTransfer(
       env,
@@ -10160,15 +10245,12 @@ async function handleAdminProRoomLegacyOwnerDetach(
       'legacy-owner-detach',
       `${roomCode}\u0000${room.roomGeneration}\u0000${previousOwnerAccountId}\u0000${result.removalId}\u0000${result.removedOwnerAuthorityEpoch}\u0000${result.fencedCoordinatorEpoch}`,
     );
-    await revokeDeveloperApiKeysForAuthorityChange(
-      env,
-      roomCode,
-      room.roomGeneration,
-      'system:legacy-owner-detach',
-      'legacy_duplicate_owner_detach',
-      'ownership_transfer_pending',
+    await revokeDeveloperApiKeysForAuthorityChange(env, roomCode, room.roomGeneration, {
+      source: 'legacy-owner-detach',
+      reason: 'ownership_transfer_pending',
       fenceDigest,
-    );
+      expected: 'any',
+    });
     if (!(await orphanProRoomOwnerEntitlement(env, entitlementInput))) {
       throw new Error('PRO owner entitlement orphaning unavailable');
     }

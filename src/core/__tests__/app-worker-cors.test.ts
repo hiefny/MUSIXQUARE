@@ -226,11 +226,19 @@ interface AppOwnershipTimestampHelpers {
     env: unknown,
     roomCode: string,
     roomGeneration: number,
-    actorId: string,
-    result: string,
-    suspensionReason: string,
-    fenceDigest: string,
-    expectedFenceDigest?: string | null,
+    write:
+      | {
+          source: 'account-delete';
+          reason: 'owner_account_deleted';
+          fenceDigest: string;
+          expected: string | null;
+        }
+      | {
+          source: 'owner-transfer' | 'legacy-owner-detach';
+          reason: 'ownership_transfer_pending';
+          fenceDigest: string;
+          expected: 'any';
+        },
   ) => Promise<{ revokedAtMs: number; revokedKeyCount: number; fenceStatus: string }>;
 }
 
@@ -438,16 +446,12 @@ describe('owner-transfer authority fence timestamp ordering', () => {
         .run('K'.repeat(16), 'S'.repeat(43), now, now, now + 60000);
       const oldRemovalDigest = 'R'.repeat(43);
       const invoke = (expected: string | null) =>
-        revoke(
-          { DEVELOPER_API_DB: db },
-          '000123',
-          7,
-          'system:account-delete',
-          'owner_account_deleted',
-          'owner_account_deleted',
-          oldRemovalDigest,
+        revoke({ DEVELOPER_API_DB: db }, '000123', 7, {
+          source: 'account-delete',
+          reason: 'owner_account_deleted',
+          fenceDigest: oldRemovalDigest,
           expected,
-        );
+        });
       await expect(invoke(capturedDigest)).rejects.toThrow('authority fence was not confirmed');
       expect(
         database
@@ -522,15 +526,12 @@ describe('owner-transfer authority fence timestamp ordering', () => {
         },
       };
       const invoke = () =>
-        revoke(
-          { DEVELOPER_API_DB: db },
-          '000123',
-          7,
-          'system:owner-transfer',
-          'ownership_transfer',
-          'ownership_transfer_pending',
-          'F'.repeat(43),
-        );
+        revoke({ DEVELOPER_API_DB: db }, '000123', 7, {
+          source: 'owner-transfer',
+          reason: 'ownership_transfer_pending',
+          fenceDigest: 'F'.repeat(43),
+          expected: 'any',
+        });
       const earlier = invoke();
       await waiting;
       try {
@@ -12360,6 +12361,9 @@ describe('Cloudflare app worker PRO room facade', () => {
     let abortBatches = 0;
     let revokeBatches = 0;
     let terminalBatches = 0;
+    // The owner-transfer entitlement identity each abort batch binds (plan
+    // step C7-8 names it once): the saga's ids and the sweep time.
+    const abortBindings: unknown[][] = [];
 
     const db = {
       prepare: vi.fn((sql: string) => {
@@ -12442,6 +12446,7 @@ describe('Cloudflare app worker PRO room facade', () => {
         async (
           statements: Array<{
             sql: string;
+            values?: unknown[];
             run: () => Promise<unknown>;
           }>,
         ) => {
@@ -12456,6 +12461,7 @@ describe('Cloudflare app worker PRO room facade', () => {
             revokeBatches += 1;
           } else {
             abortBatches += 1;
+            for (const statement of statements) abortBindings.push(statement.values ?? []);
           }
           const results = [];
           for (const statement of statements) results.push(await statement.run());
@@ -12540,6 +12546,13 @@ describe('Cloudflare app worker PRO room facade', () => {
       revokeBatches: 2,
       terminalBatches: 2,
     });
+    const abortIdentity = [saga.target_account_id, roomCode, roomGeneration, saga.request_id];
+    expect(abortBindings).toEqual([
+      [...abortIdentity, nowMs + 2],
+      [...abortIdentity, nowMs + 2],
+      [...abortIdentity, nowMs + 3],
+      [...abortIdentity, nowMs + 3],
+    ]);
     await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 4)).resolves.toBe(0);
     expect({ abortBatches, revokeBatches, terminalBatches }).toEqual({
       abortBatches: 2,

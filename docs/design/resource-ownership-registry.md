@@ -51,8 +51,9 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
 - **Lifecycle operations:** the calls that change the resource (start, stop, resume, close,
   write, retry). The resource-ownership guard counts only some callers today: page-lock claims,
   `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()`, armed
-  `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint and the duration
-  reader in `cloudflare/`. See [what it does not check yet](#resource-ownership-guard).
+  `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint, the duration
+  reader in `cloudflare/` and the Developer API authority fence writers. See
+  [what it does not check yet](#resource-ownership-guard).
 - **Deadline owner:** the module allowed to time out an attempt on the resource.
 - **Timing-constant home:** the module and constant names that hold the resource's timing values.
 - **Anchor tests:** the tests that pin the four cancellation cases: supersession (a newer attempt
@@ -117,7 +118,7 @@ each record also states the step in words.
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                        |
 | RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                        |
 | RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | 2 (reset surface on top)     |
-| RO-25 | Developer API authority fence row                        | Workers        | duplicated         | 0d, 1                        |
+| RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)               |
 | RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 0d, 2                        |
 | RO-27 | Playlist rows and scroll position                        | UI             | duplicated         | 2                            |
 | RO-28 | Account session reads and refresh pulses                 | Account        | duplicated         | 0d, 2                        |
@@ -180,7 +181,7 @@ RO-21 duplicated
 RO-22 duplicated
 RO-23 duplicated
 RO-24 owner-in-place
-RO-25 duplicated
+RO-25 owner-in-place
 RO-26 duplicated
 RO-27 duplicated
 RO-28 duplicated
@@ -586,8 +587,16 @@ RO-46 accepted-exception
   They coordinate through the ranked D1 compare-and-swap (`OWNER_TRANSFER_SAGA_STATE_RANK`) and a
   rotation compare-and-swap. The post-commit chain is written twice and has drifted: the request
   path finalizes the entitlement before `verified`, the cron path after it. Both write the success
-  audit (`auditSystemOwnerTransfer`) without deduplication, so duplicate audit rows are possible
-  (inferred, not reproduced).
+  audit (`auditSystemOwnerTransfer`) without deduplication, so a cron that finishes a transfer the
+  request already audited writes a second success row (reproduced in
+  `owner-transfer-saga-convergence-sqlite.test.ts`). Two parts are named once (Phase 1, C7-8):
+  `ownerTransferEntitlementInput` builds the entitlement identity every App Worker reserve, finalize
+  and abort passes (the cron adds its sweep time, the request none; the PRO room's PREPARE builds
+  its own reservation), and
+  `terminateOwnerTransferForDeletedTarget` ends a committed transfer whose target account is being
+  deleted (purge or not, finalize, `target_deleted`) for all four sites, each passing its own audit
+  placement: the cron audits before the finalize (or not at all at its final recheck), the request
+  after the terminal advance.
 - **Target single owner:** one post-commit executor with the request and the cron as entry
   adapters. Owner decision (2026-10-23, D3): both entries use that executor's single order. The
   entitlement is finalized before `verified`, so `verified` means the room is active and the
@@ -596,7 +605,8 @@ RO-46 accepted-exception
   transfer-scoped deduplication instead of today's possible loss after a terminal advance.
 - **Allowed requesters:** the transfer request and the minute cron, as entry adapters.
 - **Lifecycle operations:** link, fence, Durable Object commit or reconcile, committed, registry,
-  old-owner edge, fence clear, complete; terminate for a deleted target.
+  old-owner edge, fence clear, complete; terminate for a deleted target
+  (`terminateOwnerTransferForDeletedTarget`).
 - **Deadline owner:** none per attempt; the cron adopts any incomplete saga every minute. An
   adoption lease is optional (a transfer-scoped audit deduplication is preferred).
 - **Timing-constant home:** n/a (no timing). Phase union: `cloudflare/app-worker.ts` names the
@@ -620,9 +630,14 @@ RO-46 accepted-exception
   - Teardown: `app-worker-cors.test.ts` "naturally expires unopened claims and pending sagas
     exactly once during cron reconciliation".
   - Visibility: n/a.
+  - Deleted target: `owner-transfer-saga-convergence-sqlite.test.ts` "owner-transfer saga: target
+    deleted mid-transfer" and "deleted-target exits" (each site's order, failure exits and audit
+    placement); "entitlement identity" (the bound values of finalize and abort).
   - Missing: the old request executor and the cron interleaved on one row.
-- **Status:** `duplicated`. Phase 0d named the state lists once (C7-2); Phase 1 (saga helpers,
-  single post-commit executor) remains.
+- **Status:** `duplicated`. Phase 0d named the state lists once (C7-2). Phase 1 C7-8 named the
+  entitlement identity and the deleted-target terminator once, with no behaviour change
+  ([report](app-worker-saga-fence-2026-10-23.md)). The single post-commit executor (C7-9, with the
+  D3 order above) remains.
 
 ### RO-10 Local-file source node restart
 
@@ -1098,15 +1113,20 @@ RO-46 accepted-exception
 
 - **Resource:** one `mxqr_developer_api_room_authority_fences` row per room incarnation.
 - **Current owners/flows:** `revokeDeveloperApiKeysForAuthorityChange` in
-  `cloudflare/app-worker.ts` is called by the transfer request and the transfer cron (RO-09) and by
-  the legacy duplicate-owner detach without a compare-and-swap, and by the account-deletion purge
-  (`purgeProRoomAccountAuthority`) with one. `clearDeveloperApiAuthorityFence` clears by digest for
-  the transfer only. The PRO room Durable Object decommission deletes rows
-  (`cloudflare/pro-room-worker.ts`). The PRO room's `projectionAcked` gate arbitrates between
-  deletion and transfer.
-- **Target single owner:** the two fence functions with a typed fence-write policy, plus a
-  single-writer test over `cloudflare/*.ts` that allows only them and the decommission delete.
-  Whether transfers also compare-and-swap is an owner decision.
+  `cloudflare/app-worker.ts` is the one activator. Each caller passes a typed `AuthorityFenceWrite`
+  (Phase 1, C7-11) whose `source` fixes the fence reason and the key-revocation audit identity: the
+  transfer request and the transfer cron (RO-09) and the legacy duplicate-owner detach write
+  `ownership_transfer_pending` with `expected: 'any'` (no compare-and-swap), and the
+  account-deletion purge (`purgeProRoomAccountAuthority`) writes `owner_account_deleted` with a
+  compare-and-swap on the digest it captured (or `null` for no row). The emitted SQL and bindings
+  did not change (`?6 = 0` for `'any'`). `clearDeveloperApiAuthorityFence` clears by digest for
+  the transfer only. The PRO room Durable Object decommission (`deleteDeveloperRoomData` in
+  `cloudflare/pro-room-worker.ts`) deletes the row with the incarnation's keys and audit rows. The
+  PRO room's `projectionAcked` gate arbitrates between deletion and transfer.
+- **Target single owner:** the two fence functions with the typed fence-write policy, which is in
+  place; the resource-ownership guard (CHECK 7) allows writes only in them and the decommission
+  delete. Whether transfers also compare-and-swap is an open owner decision (D5 of the server-owner
+  design); transfers keep writing without one until it is made.
 - **Allowed requesters:** the transfer saga, legacy detach, the deletion purge, the decommission
   job.
 - **Lifecycle operations:** activate, clear, delete.
@@ -1126,10 +1146,21 @@ RO-46 accepted-exception
   - Visibility: n/a.
   - Legacy detach path: `app-worker-cors.test.ts` "detaches only the exact duplicate legacy owner
     and safely reconciles a signaling failure".
-- **Status:** `duplicated`. Phase 0d named the digest pattern once (C7-2); Phase 1 (typed fence
-  write and single-writer guard) remains. See
-  [Account authentication operations](../account-auth-operations.md) for the precedence (deletion
-  suspends, a transfer reactivates).
+  - Every writer: `src/core/__tests__/developer-api-authority-fence-sqlite.test.ts` "Developer API
+    authority fence writers (RO-25)" pins the SQL text and every bound value of each writer through
+    its real caller (the purge with a compare-and-swap on `null` or the captured digest, the
+    transfer request, the cron adoption and the legacy detach without one, and the transfer's
+    clear). `owner-transfer-saga-convergence-sqlite.test.ts` "fence-write policy by caller" pins
+    what the policies do when they meet.
+- **Status:** `owner-in-place`. Phase 0d named the digest pattern once (C7-2). Phase 1 C7-11 typed
+  the fence writes (`AuthorityFenceWrite`) and made the writer list exact in the resource-ownership
+  guard (CHECK 7, seeded in `resource-ownership-guard.test.ts`), with no behaviour change; the
+  "every writer" pins above passed before and after it
+  ([report](app-worker-saga-fence-2026-10-23.md)). New work writes the fence only through the
+  activator or the clearer. The compare-and-swap policy of transfer writes is the open owner
+  decision above, not a second machine. See
+  [Account authentication operations](../account-auth-operations.md) for every writer and the
+  precedence (deletion suspends, a transfer reactivates).
 
 ### RO-26 Top-document fullscreen state
 
@@ -1556,6 +1587,14 @@ and unrelated strings never count, and every baseline is an exact count or list 
    Constants that share only a value are report-only, because round values such as 1 s, 15 s and
    30 s recur across different contracts; `--report` lists them.
 6. **AudioContext native calls, per file:** `resume()` and `suspend()` (RO-01, RO-44).
+7. **Developer API authority fence writers, per function** (RO-25): a string or template literal
+   that inserts into, replaces into, updates or deletes from
+   `mxqr_developer_api_room_authority_fences`, or names it in any other way (a bare table name can
+   become the target of template-built SQL such as the decommission's `DELETE FROM ${table}`), is
+   allowed only in `revokeDeveloperApiKeysForAuthorityChange`, `clearDeveloperApiAuthorityFence`
+   and the PRO room's `deleteDeveloperRoomData` loop list. Reads (FROM or JOIN) and qualified
+   columns do not count; the match ignores case, and a literal holding the name's tail
+   (`authority_fences`) outside a full name counts too.
 
 Not checked yet: callers of the other records' lifecycle operations (YouTube player commands,
 `claimPlaybackOwner`, `setSystemAudioReceiving`, `scheduleSessionReset`), receivers resolved by

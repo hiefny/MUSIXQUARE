@@ -3093,8 +3093,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 0;
   }
 
-  /* The minus matches the old remove X's size with a thinner stroke: its ink
-     is 10.9px wide at 22px (11.9 of 24 units). */
+  /* The minus is slightly wider than the old 16px remove X (about 9.3px) with
+     a thinner stroke: its ink is 10.9px wide at 22px (11.9 of 24 units). */
   .playlist-select-minus {
     stroke-width: 1.9;
   }

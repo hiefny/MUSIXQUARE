@@ -1105,8 +1105,9 @@ RO-47 owner-in-place
   `controllerchange` wait, called from the logo reset in `src/ui/player-controls.ts`), which does
   not consult the update machine. The update machine reads that activation as a passive
   controller change. Since Phase 3 C6-9 the update machine keeps one typed `activationState`
-  (`passive`, `prompting`, `awaiting-local-controller`, or `reload-scheduled` holding the reload it
-  asked the navigation owner for, so only that reload's own recovery releases it; the module
+  (`passive`, `prompting`, `awaiting-local-controller`, or `reload-scheduled` holding a local
+  identity token for the reload it asked the navigation owner for, since the owner returns no
+  handle, so only that reload's own recovery releases it; the module
   reload latch `_swReloading` is gone) and sends `SKIP_WAITING` through one sink,
   `activateWaitingWorker` (Apply, Apply to a replacement, and the quiet cooldown and
   same-generation promotions; the callers write the next-document markers, and the quiet
@@ -1150,9 +1151,12 @@ RO-47 owner-in-place
   - Visibility: `src/core/__tests__/sw-update-transitions.integration.test.ts` rows X3b (the
     document is made visible again after the update reload's pagehide) and X5 (a back-forward
     cache return of a pending update reload).
-  - Every `SKIP_WAITING` send and every exit from `reload-scheduled`, with the navigations,
+  - Every `SKIP_WAITING` send and the listed exits from `reload-scheduled`, with the navigations,
     dialogs and next-document markers each produces: the transition table in
-    `sw-update-transitions.integration.test.ts` (on the real navigation owner). The machine's
+    `sw-update-transitions.integration.test.ts` (on the real navigation owner). A fallback
+    reload held behind the PRO claim fence and a throwing `/CODE` href sink have no row; they
+    reach the machine through the same owner queue and recovery callback as rows X10a/X10b and
+    X2 (by reading). The machine's
     state is private, so a row checks its resulting state only through a later step: rows X12b
     to X19 send the next event while the reload is still latched, X20 to X22 answer a prompt
     after the reload recovered under it, and S1b and S2b end with a probe. Every row has the same

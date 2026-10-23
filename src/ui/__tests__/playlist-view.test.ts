@@ -2562,6 +2562,23 @@ describe('playlist interaction gate (RO-27)', () => {
     expect(reorder).not.toHaveBeenCalled();
   });
 
+  it('ends the selection but lets a drag run on through a switch to system audio', async () => {
+    await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    clickSelect(FILE_A);
+    const lifted = longPress(FILE_C, 132);
+    pointer(lifted, 'pointermove', 10);
+
+    setState('playback.mode', 'system-audio');
+
+    expect(selectionBarVisible()).toBe(false);
+    expect(liftedRow()).not.toBeNull();
+    // The drop itself commits nothing once the queue cannot be edited.
+    pointer(lifted, 'pointerup', 10);
+    expect(reorder).not.toHaveBeenCalled();
+  });
+
   // Owner decision O4 (2026-10-23): Delete tapped during a drop settle
   // finishes the settle at once, then deletes, so the leaving rows go and the
   // survivors close up from where they are.

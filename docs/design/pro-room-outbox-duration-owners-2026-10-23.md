@@ -115,14 +115,14 @@
 (`scripts/release-deployment-state.mts`의 `runtimePathsForWorker`, `changedRuntimePaths`)로 이 브랜치를
 배포된 SHA와 비교했다. PRO room(`ae5ac945`)은 `cloudflare/pro-room-worker.ts` 하나만 바뀌었고, 나머지
 다섯 Worker(`86ccefe6`)는 런타임 경로 변경이 없으며 App 의존성 목록도 그대로다. 그래서 release target은
-`pro-room` 단독이다. 단, Phase 1 App Worker A(C7-8, C7-11)가 먼저 main에 합쳐지고 배포되지 않은
-상태라면 App에 배포 안 된 런타임 변경이 생겨 게이트가 `pro-room` 단독을 막는다. 그때는 App Worker A를
+`pro-room` 단독이다. 이 브랜치를 올린 뒤 App Worker A(C7-8, C7-11, 12:50 배포)와 B(C7-9)가 main에
+들어왔다. App에 배포 안 된 런타임 변경이 남아 있으면 게이트가 `pro-room` 단독을 막으므로, App Worker B를
 먼저 배포한 뒤 이 열차를 배포한다. PRO Worker 배포는 살아 있는 PRO 방 Durable Object를 다시
 시작하므로(메모리에만 있는 백오프, 길이 읽기 자리, 하트비트 저장 타이머 초기화) 행사 시간은 피한다.
 
 ## 검증과 한계
 
-- 테스트 먼저: 테스트 커밋(`8932a7d8`)은 바꾸지 않은 Worker에서 통과했다(PRO 단위 4개 파일 570개).
+- 테스트 먼저: 테스트 커밋(`acf045e5`)은 바꾸지 않은 Worker에서 통과했다(PRO 단위 4개 파일 570개).
 - 실패 확인: 테스트 커밋만 둔 채 옛 Worker를 하나씩 바꿔 PRO 단위 4개 파일(570개)을 돌렸다.
   - 대기 중 조건을 빼면(재생 읽기가 등록 대기열을 무시) 1개 실패: 새 대기 중 조건 테스트.
   - 등록 대기열 알람이 파일 조회만 세면 1개 실패: 새 YouTube 조회 알람 테스트.

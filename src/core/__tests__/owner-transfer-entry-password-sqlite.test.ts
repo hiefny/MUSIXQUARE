@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.ts';
+import { parseProRoomSnapshot } from '../../pro-room/snapshot.ts';
 import {
   issueClaim,
   postTransfer,
@@ -18,8 +19,7 @@ import { nodeSqlite } from './helpers/worker-test-bindings.ts';
  *
  * Owner decision 2026-10-23 (docs/design/pro-transfer-password-reset-2026-10-23.md):
  * a committed transfer turns the entry password off and the link asks for no
- * PIN. The PRO room changes first; the cases named "today" are the App
- * facade's part, which changes next.
+ * PIN. The new owner can turn a password on later in room settings.
  */
 
 useSagaClock();
@@ -38,8 +38,13 @@ async function bootstrap(test: TransferFixture) {
   return (await response.json()) as Record<string, unknown>;
 }
 
+async function snapshotOf(response: Response) {
+  const body = (await response.json()) as { snapshot: Record<string, any> };
+  return body.snapshot;
+}
+
 describe('owner-transfer link and the room entry password', () => {
-  run("ignores the old owner's PIN in the link's body and leaves the room open", async () => {
+  run('transfers without a PIN and tells the new owner the room is open', async () => {
     const test = await transferFixture();
     expect(await bootstrap(test)).toEqual({
       roomCode: ROOM_CODE,
@@ -48,20 +53,16 @@ describe('owner-transfer link and the room entry password', () => {
     });
     const claim = await issueClaim(test);
 
-    // Today the App facade still requires the PIN field.
-    const withoutPin = await postTransfer(test, claim, { newPin: null, entryPolicy: true });
-    expect(withoutPin.status).toBe(400);
-    await expect(withoutPin.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
-    expect(test.saga()).toBeUndefined();
-
-    // An App from before the decision may send the room's current PIN. The
-    // PRO room neither refuses it (no previous-owner PIN oracle) nor keeps it.
-    const transferred = await postTransfer(test, claim, { newPin: '12345678', entryPolicy: true });
+    // The App sends the claim, its request id and its opt-in headers only.
+    const transferred = await postTransfer(test, claim, { entryPolicy: true });
     expect(transferred.status).toBe(200);
-    const body = (await transferred.json()) as { snapshot: Record<string, any> };
-    expect(body.snapshot.viewer).toMatchObject({ role: 'owner' });
-    // Today the App facade calls the commit without the browser's opt-in headers.
-    expect(body.snapshot).not.toHaveProperty('passwordRequired');
+    const snapshot = await snapshotOf(transferred);
+    expect(snapshot.viewer).toMatchObject({ role: 'owner' });
+    // The facade passes the opt-ins to the commit, so the answer has the same
+    // additive fields as activation's and the settings show the real state.
+    expect(snapshot.passwordRequired).toBe(false);
+    expect(snapshot.playlistSlots).toBeDefined();
+    expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
     expect(test.saga()).toBe('complete');
     expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'target' });
     expect(await bootstrap(test)).toEqual({
@@ -69,5 +70,41 @@ describe('owner-transfer link and the room entry password', () => {
       status: 'open',
       passwordRequired: false,
     });
+  });
+
+  run("accepts and ignores the PIN an earlier App sends, even the old owner's", async () => {
+    const test = await transferFixture();
+    const claim = await issueClaim(test);
+
+    // The body grammar of earlier Apps is unchanged: a malformed PIN is refused
+    // before any saga row exists.
+    const malformed = await postTransfer(test, claim, { newPin: '1234', entryPolicy: true });
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(test.saga()).toBeUndefined();
+
+    // No OWNER_TRANSFER_PIN_REUSE: the link no longer reveals the old owner's PIN.
+    const transferred = await postTransfer(test, claim, { newPin: '12345678', entryPolicy: true });
+    expect(transferred.status).toBe(200);
+    expect((await snapshotOf(transferred)).passwordRequired).toBe(false);
+    expect(test.saga()).toBe('complete');
+    expect(await bootstrap(test)).toEqual({
+      roomCode: ROOM_CODE,
+      status: 'open',
+      passwordRequired: false,
+    });
+  });
+
+  run('keeps the exact v1 snapshot for a request without the opt-in headers', async () => {
+    const test = await transferFixture();
+    const claim = await issueClaim(test);
+
+    const transferred = await postTransfer(test, claim);
+    expect(transferred.status).toBe(200);
+    const snapshot = await snapshotOf(transferred);
+    expect(snapshot.viewer).toMatchObject({ role: 'owner' });
+    expect(snapshot).not.toHaveProperty('passwordRequired');
+    expect(snapshot).not.toHaveProperty('playlistSlots');
+    expect(await bootstrap(test)).toMatchObject({ status: 'open', passwordRequired: false });
   });
 });

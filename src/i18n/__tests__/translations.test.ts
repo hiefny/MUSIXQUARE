@@ -157,8 +157,6 @@ describe('Translation key integrity', () => {
       'pro.claim_account_capacity_message',
       'pro.claim_failed_title',
       'pro.claim_failed_message',
-      'pro.transfer_title',
-      'pro.transfer_message',
       'pro.claim_unavailable_title',
       'pro.new_link_message',
     ] as const;

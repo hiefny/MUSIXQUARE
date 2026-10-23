@@ -827,9 +827,6 @@ const pl: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Nie udało się ukończyć tej operacji',
   'pro.claim_failed_message':
     'Ze względów bezpieczeństwa link nie został użyty ponownie. Poproś administratora pokoju o nowy link.',
-  'pro.transfer_title': 'Przejmij własność pokoju PRO',
-  'pro.transfer_message':
-    'Ustaw nowe 8-cyfrowe hasło. Po zakończeniu poprzedni właściciel straci dostęp.',
   'pro.new_link_message':
     'Link wygasł lub został już użyty. W razie potrzeby poproś administratora o nowy link.',
   'pro.not_ready_title': 'Ten pokój PRO nie jest jeszcze gotowy',

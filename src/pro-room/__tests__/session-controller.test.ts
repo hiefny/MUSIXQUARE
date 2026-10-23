@@ -614,7 +614,6 @@ describe('PRO room session controller', () => {
       controller.transferOwner({
         code: ROOM_CODE,
         claimToken,
-        newPin: '87654321',
         requestId: '018f977e-5df5-7c8f-bb80-55d847ddec0f',
       }),
     ).resolves.toEqual(snapshot());
@@ -623,7 +622,6 @@ describe('PRO room session controller', () => {
       {
         code: ROOM_CODE,
         claimToken,
-        newPin: '87654321',
         requestId: '018f977e-5df5-7c8f-bb80-55d847ddec0f',
       },
       expect.any(AbortSignal),

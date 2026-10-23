@@ -788,9 +788,6 @@ const ko = {
   'pro.claim_failed_title': '이 요청을 완료할 수 없어요',
   'pro.claim_failed_message':
     '안전을 위해 이 링크를 다시 시도하지 않았어요. 방 관리자에게 새 링크를 요청해 주세요.',
-  'pro.transfer_title': 'PRO 방 소유권 받기',
-  'pro.transfer_message':
-    '이 방에서 사용할 새 8자리 암호를 설정해 주세요. 완료되면 이전 소유자의 접근 권한은 해제돼요.',
   'pro.new_link_message':
     '링크가 만료되었거나 이미 사용되었어요. 필요하면 관리자에게 새 링크를 요청해 주세요.',
   'pro.not_ready_title': '아직 준비 중인 PRO 방이에요',

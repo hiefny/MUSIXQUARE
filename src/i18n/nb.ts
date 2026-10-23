@@ -813,9 +813,6 @@ const nb: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Forespørselen kunne ikke fullføres',
   'pro.claim_failed_message':
     'Av sikkerhetshensyn ble ikke lenken forsøkt på nytt. Be romadministratoren om en ny lenke.',
-  'pro.transfer_title': 'Overta eierskapet til PRO-rommet',
-  'pro.transfer_message':
-    'Angi et nytt 8-sifret passord for dette rommet. Den forrige eierens tilgang trekkes tilbake når dette er fullført.',
   'pro.new_link_message':
     'Lenken er utløpt eller allerede brukt. Be en administrator om en ny lenke ved behov.',
   'pro.not_ready_title': 'Dette PRO-rommet er ikke klart ennå',

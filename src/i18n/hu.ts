@@ -823,9 +823,6 @@ const hu: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'A kérés nem teljesíthető',
   'pro.claim_failed_message':
     'Biztonsági okokból a hivatkozást nem próbáltuk újra. Kérj új hivatkozást a szoba adminisztrátorától.',
-  'pro.transfer_title': 'PRO-szoba tulajdonjogának átvétele',
-  'pro.transfer_message':
-    'Állíts be új, nyolcjegyű jelszót ehhez a szobához. A befejezéskor az előző tulajdonos hozzáférése megszűnik.',
   'pro.new_link_message':
     'A hivatkozás lejárt vagy már felhasználták. Ha szükséges, kérj újat egy adminisztrátortól.',
   'pro.not_ready_title': 'Ez a PRO-szoba még nem áll készen',

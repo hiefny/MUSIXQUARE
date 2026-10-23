@@ -53,7 +53,6 @@ const NATURAL_LANGUAGE_NUMBER_KEYS = new Set([
   'setup.six_digit_enter',
   'dialog.room_password_placeholder',
   'pro.activation_message',
-  'pro.transfer_message',
   'pro.pin_message',
   'pro.pin_change_message',
   'setup.how_to_connect_html',

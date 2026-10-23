@@ -760,9 +760,6 @@ const de: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Die Anfrage konnte nicht abgeschlossen werden',
   'pro.claim_failed_message':
     'Aus Sicherheitsgründen wurde die Anfrage nicht automatisch wiederholt. Frag den Raumadministrator nach einem neuen Link.',
-  'pro.transfer_title': 'PRO-Raum übernehmen',
-  'pro.transfer_message':
-    'Lege ein neues 8-stelliges Passwort fest. Danach wird der Zugriff des bisherigen Besitzers widerrufen.',
   'pro.new_link_message':
     'Der Link ist abgelaufen oder wurde bereits verwendet. Frag bei Bedarf einen Administrator nach einem neuen Link.',
   'pro.not_ready_title': 'Dieser PRO-Raum ist noch nicht bereit',

@@ -753,9 +753,6 @@ const fr: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Impossible de terminer la demande',
   'pro.claim_failed_message':
     'Par sécurité, ce lien n’a pas été réutilisé. Demandez un nouveau lien à l’administrateur du salon.',
-  'pro.transfer_title': 'Devenir propriétaire du salon PRO',
-  'pro.transfer_message':
-    'Définissez un nouveau mot de passe à 8 chiffres. Une fois l’opération terminée, l’ancien propriétaire perdra son accès.',
   'pro.new_link_message':
     'Le lien a expiré ou a déjà été utilisé. Si nécessaire, demandez-en un nouveau à un administrateur.',
   'pro.not_ready_title': 'Ce salon PRO n’est pas encore prêt',

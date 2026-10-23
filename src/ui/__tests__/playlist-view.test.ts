@@ -2375,6 +2375,81 @@ describe('playlist interaction gate (RO-27)', () => {
     setState('network.isOperator', true);
   }
 
+  function joinProRoomWithQueueEdit(): void {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['queue.mutate'],
+    });
+  }
+
+  /**
+   * How each queue editor's own playlist answers a reorder and a deletion
+   * before any reply: the Standard host commits both at once, a PRO member
+   * shows its reorder through the optimistic overlay and waits for the
+   * deletion, a Standard guest only sends requests.
+   */
+  const QUEUE_EDITORS = [
+    {
+      role: 'Standard host',
+      join: () => {},
+      reorderAppliesAtOnce: true,
+      removalAppliesAtOnce: true,
+    },
+    {
+      role: 'Standard guest with ADMIN',
+      join: joinStandardRoomAsOperator,
+      reorderAppliesAtOnce: false,
+      removalAppliesAtOnce: false,
+    },
+    {
+      role: 'PRO media manager',
+      join: joinProRoomWithQueueEdit,
+      reorderAppliesAtOnce: true,
+      removalAppliesAtOnce: false,
+    },
+  ] as const;
+
+  type QueueEditor = (typeof QUEUE_EDITORS)[number];
+
+  /**
+   * In edit mode with C selected, hold A, drop it before C and tap Delete
+   * 100 ms into the drop settle.
+   */
+  async function deleteDuringDropSettle(editor: QueueEditor): Promise<void> {
+    editor.join();
+    const items = threeFiles();
+    await mount(items);
+    if (editor.reorderAppliesAtOnce) {
+      bus.on('playlist:reorder-track', () =>
+        setState('playlist.items', [items[1]!, items[0]!, items[2]!]),
+      );
+    }
+    if (editor.removalAppliesAtOnce) {
+      bus.on('playlist:remove-tracks', (ids: string[]) =>
+        setState(
+          'playlist.items',
+          getState('playlist.items').filter((item) => !ids.includes(item.queueItemId)),
+        ),
+      );
+    }
+    clickSelect(FILE_C);
+    const lifted = longPress(FILE_A, 20);
+    pointer(lifted, 'pointermove', 80);
+    pointer(lifted, 'pointerup', 80);
+    vi.advanceTimersByTime(100);
+    expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
+    expect(renderedQueueIds()).toEqual([FILE_B, FILE_A, FILE_C]);
+
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+  }
+
   beforeEach(() => {
     vi.useFakeTimers();
     const raf = vi
@@ -2486,4 +2561,21 @@ describe('playlist interaction gate (RO-27)', () => {
     pointer(lifted, 'pointerup', 10);
     expect(reorder).not.toHaveBeenCalled();
   });
+
+  it.each([
+    { editor: QUEUE_EDITORS[0], afterSettle: [FILE_B, FILE_A] },
+    // The host has not answered the reorder request yet.
+    { editor: QUEUE_EDITORS[1], afterSettle: [FILE_A, FILE_B] },
+    { editor: QUEUE_EDITORS[2], afterSettle: [FILE_B, FILE_A] },
+  ])(
+    'keeps deleted rows rendered until a drop settle ends when Delete is tapped during it ($editor.role)',
+    async ({ editor, afterSettle }) => {
+      await deleteDuringDropSettle(editor);
+
+      expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
+      expect(renderedQueueIds()).toEqual([FILE_B, FILE_A, FILE_C]);
+      vi.advanceTimersByTime(DROP_SETTLE_MS);
+      expect(renderedQueueIds()).toEqual(afterSettle);
+    },
+  );
 });

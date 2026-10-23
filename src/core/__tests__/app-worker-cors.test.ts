@@ -2439,13 +2439,11 @@ describe('Cloudflare app worker CORS gate', () => {
     expect(workersResponse.headers.get('Access-Control-Allow-Origin')).toBeNull();
   });
 
-  it('allows production, subdomain, local, and app-scoped Toss origins', async () => {
+  it('allows production, subdomain, and local origins', async () => {
     const origins = [
       'https://musixquare.com',
       'https://preview.musixquare.com',
       'http://localhost:3000',
-      'https://musixquare.apps.tossmini.com',
-      'https://musixquare.private-apps.tossmini.com',
     ];
 
     for (const origin of origins) {
@@ -2456,8 +2454,10 @@ describe('Cloudflare app worker CORS gate', () => {
     }
   });
 
-  it('rejects unrelated and root Toss origins', async () => {
+  it('rejects the retired Apps-in-Toss origins and every other Toss origin', async () => {
     const origins = [
+      'https://musixquare.apps.tossmini.com',
+      'https://musixquare.private-apps.tossmini.com',
       'https://unrelated.apps.tossmini.com',
       'https://tossmini.com',
       'https://music.toss.im',
@@ -3215,8 +3215,52 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     }
   });
 
-  it.each(['evil.example', 'unrelated.apps.tossmini.com', 'tossmini.com'])(
-    'rejects Turnstile tokens solved on unexpected hostname %s',
+  it.each([
+    'evil.example',
+    'musixquare.apps.tossmini.com',
+    'musixquare.private-apps.tossmini.com',
+    'unrelated.apps.tossmini.com',
+    'tossmini.com',
+  ])('rejects Turnstile tokens solved on unexpected hostname %s', async (hostname) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              success: true,
+              action: 'mxqr-capability',
+              hostname,
+            }),
+            { headers: { 'Content-Type': 'application/json' } },
+          ),
+      ),
+    );
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
+      TURNSTILE_SITE_KEY: 'site-key',
+      TURNSTILE_SECRET_KEY: 'secret-key',
+    };
+
+    const mint = await appWorker.fetch(
+      new Request('https://musixquare.com/api/capability-token', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': '203.0.113.25',
+        },
+        body: JSON.stringify({ scopes: ['turn'], turnstileToken: 'token' }),
+      }),
+      env,
+    );
+
+    expect(mint.status).toBe(403);
+    expect(await mint.json()).toEqual({ error: 'TURNSTILE_FAILED' });
+  });
+
+  it.each(['musixquare.com', 'www.musixquare.com'])(
+    'mints capability tokens for valid Turnstile hostname %s',
     async (hostname) => {
       vi.stubGlobal(
         'fetch',
@@ -3244,60 +3288,18 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
           headers: {
             Origin: 'https://musixquare.com',
             'Content-Type': 'application/json',
-            'CF-Connecting-IP': '203.0.113.25',
+            'CF-Connecting-IP': '203.0.113.26',
           },
           body: JSON.stringify({ scopes: ['turn'], turnstileToken: 'token' }),
         }),
         env,
       );
+      const payload = (await mint.json()) as { token?: string };
 
-      expect(mint.status).toBe(403);
-      expect(await mint.json()).toEqual({ error: 'TURNSTILE_FAILED' });
+      expect(mint.status).toBe(200);
+      expect(payload.token).toMatch(/\./);
     },
   );
-
-  it.each([
-    'musixquare.com',
-    'musixquare.apps.tossmini.com',
-    'musixquare.private-apps.tossmini.com',
-  ])('mints capability tokens for valid Turnstile hostname %s', async (hostname) => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(
-            JSON.stringify({
-              success: true,
-              action: 'mxqr-capability',
-              hostname,
-            }),
-            { headers: { 'Content-Type': 'application/json' } },
-          ),
-      ),
-    );
-    const env = {
-      MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
-      TURNSTILE_SITE_KEY: 'site-key',
-      TURNSTILE_SECRET_KEY: 'secret-key',
-    };
-
-    const mint = await appWorker.fetch(
-      new Request('https://musixquare.com/api/capability-token', {
-        method: 'POST',
-        headers: {
-          Origin: 'https://musixquare.com',
-          'Content-Type': 'application/json',
-          'CF-Connecting-IP': '203.0.113.26',
-        },
-        body: JSON.stringify({ scopes: ['turn'], turnstileToken: 'token' }),
-      }),
-      env,
-    );
-    const payload = (await mint.json()) as { token?: string };
-
-    expect(mint.status).toBe(200);
-    expect(payload.token).toMatch(/\./);
-  });
 
   it('honors configured Turnstile hostname wildcard allowlists', async () => {
     vi.stubGlobal(

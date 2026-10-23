@@ -23,10 +23,7 @@ describe('transport config', () => {
     expect(getPublicSignalingUrlForHost('www.musixquare.com')).toBe(
       'wss://signal.musixquare.com/api/rooms',
     );
-    expect(getPublicSignalingUrlForHost('musixquare.apps.tossmini.com')).toBe(
-      'wss://signal.musixquare.com/api/rooms',
-    );
-    expect(getPublicSignalingUrlForHost('musixquare.private-apps.tossmini.com')).toBe(
+    expect(getPublicSignalingUrlForHost('preview.musixquare.com')).toBe(
       'wss://signal.musixquare.com/api/rooms',
     );
     expect(getRuntimeTransportConfig('musixquare.com').signalingFallbackUrl).toBe(
@@ -103,12 +100,9 @@ describe('transport config', () => {
     expect(resolveTransportProviderForHost('peerjs', undefined, 'musixquare.com')).toBe(
       'cloudflare',
     );
-    expect(
-      resolveTransportProviderForHost('peerjs', undefined, 'musixquare.apps.tossmini.com'),
-    ).toBe('cloudflare');
-    expect(
-      resolveTransportProviderForHost('peerjs', undefined, 'musixquare.private-apps.tossmini.com'),
-    ).toBe('cloudflare');
+    expect(resolveTransportProviderForHost('peerjs', undefined, 'preview.musixquare.com')).toBe(
+      'cloudflare',
+    );
   });
 
   it('preserves local transport override behavior', () => {

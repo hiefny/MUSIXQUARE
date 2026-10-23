@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   APP_PUBLIC_BOUNDARY_TIMEOUT_MS,
+  REJECTED_TOSS_ORIGINS,
   verifyAnonymousAccountSessionBoundary,
   verifyLocalizedSeoBoundary,
   verifyProductionCapabilityBoundary,
@@ -269,25 +270,46 @@ describe('live app public boundary smoke', () => {
     ).rejects.toThrow();
   });
 
+  it('probes the retired Apps-in-Toss origins and an unrelated Toss origin', () => {
+    expect(REJECTED_TOSS_ORIGINS).toEqual([
+      'https://musixquare.apps.tossmini.com',
+      'https://musixquare.private-apps.tossmini.com',
+      'https://unrelated.apps.tossmini.com',
+    ]);
+  });
+
   it.each([401, 403])(
-    'requires the live App Worker to reject unrelated Toss app origins with HTTP %i',
+    'requires the live App Worker to reject every Toss origin with HTTP %i',
     async (status) => {
-      const read = vi.fn(async () => ({ status, allowOrigin: null }));
+      const read = vi.fn(async (_origin: string) => ({ status, allowOrigin: null }));
 
       await expect(verifyProductionOriginBoundary({ read })).resolves.toEqual({
-        unrelatedTossOriginRejected: true,
+        tossOriginsRejected: true,
       });
-      expect(read).toHaveBeenCalledOnce();
+      expect(read.mock.calls.map(([origin]) => origin)).toEqual([...REJECTED_TOSS_ORIGINS]);
+    },
+  );
+
+  it.each(REJECTED_TOSS_ORIGINS)(
+    'fails closed when the live App Worker still reflects %s',
+    async (trustedOrigin) => {
+      const read = async (origin: string) => ({
+        status: origin === trustedOrigin ? 401 : 403,
+        allowOrigin: origin === trustedOrigin ? origin : null,
+      });
+
+      await expect(verifyProductionOriginBoundary({ read })).rejects.toThrow(
+        `Production App still trusts the Toss origin ${trustedOrigin}`,
+      );
     },
   );
 
   it.each([
     { status: 200, allowOrigin: null },
-    { status: 403, allowOrigin: 'https://unrelated.apps.tossmini.com' },
     { status: 403, allowOrigin: '*' },
   ])('fails closed when the live App origin boundary is permissive %#', async (result) => {
     await expect(verifyProductionOriginBoundary({ read: async () => result })).rejects.toThrow(
-      'Production App still trusts an unrelated Toss app origin',
+      `Production App still trusts the Toss origin ${REJECTED_TOSS_ORIGINS[0]}`,
     );
   });
 });

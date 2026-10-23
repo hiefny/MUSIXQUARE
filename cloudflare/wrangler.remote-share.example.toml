@@ -37,7 +37,7 @@ IP_UPLOADS_PER_WINDOW = "60"
 ROOM_UPLOADS_PER_WINDOW = "120"
 ROOM_STORAGE_QUOTA_BYTES = "1073741824"
 ROOM_UPLOAD_ASSERTION_MODE = "required"
-ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,https://musixquare.apps.tossmini.com,https://musixquare.private-apps.tossmini.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
+ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
 
 # Exact production secret names live in cloudflare/ops-drift.contract.json;
 # provisioning commands, rotation procedure, and trust boundaries live in

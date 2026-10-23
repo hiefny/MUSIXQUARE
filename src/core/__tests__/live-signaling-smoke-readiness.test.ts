@@ -17,7 +17,7 @@ import {
   SIGNALING_SMOKE_ROOM_ROUTES,
   STALE_VERSION_RETRY_DELAYS_MS,
   StaleSignalingVersionError,
-  UNRELATED_TOSS_ORIGIN,
+  REJECTED_TOSS_ORIGINS,
   assertPeerOpenVersion,
   createSocketInbox,
   initialHostHandshakeError,
@@ -117,12 +117,20 @@ describe('live signaling smoke deployment readiness', () => {
     expect(signalingSmoke).toContain('run: npm run smoke:live:signaling');
   });
 
-  it('pins the live negative probe to the unrelated Apps-in-Toss origin and HTTP 403', async () => {
+  it('pins the live negative probes to the retired and unrelated Apps-in-Toss origins', () => {
+    expect(REJECTED_TOSS_ORIGINS).toEqual([
+      'https://musixquare.apps.tossmini.com',
+      'https://musixquare.private-apps.tossmini.com',
+      'https://unrelated.apps.tossmini.com',
+    ]);
+  });
+
+  it('sends the probed origin and reads the HTTP 403 rejection', async () => {
     const socket = new FakeWebSocket();
     const resume = vi.fn();
     const terminate = vi.spyOn(socket, 'terminate');
     let observedOrigin = '';
-    const read = readSignalingOriginBoundary({
+    const read = readSignalingOriginBoundary('https://musixquare.apps.tossmini.com', {
       timeoutMs: 100,
       createWebSocket: (_target, options) => {
         observedOrigin = String(options.origin || '');
@@ -134,21 +142,26 @@ describe('live signaling smoke deployment readiness', () => {
     });
 
     await expect(read).resolves.toEqual({ statusCode: 403 });
-    expect(UNRELATED_TOSS_ORIGIN).toBe('https://unrelated.apps.tossmini.com');
-    expect(observedOrigin).toBe(UNRELATED_TOSS_ORIGIN);
+    expect(observedOrigin).toBe('https://musixquare.apps.tossmini.com');
     expect(resume).toHaveBeenCalledOnce();
     expect(terminate).toHaveBeenCalledOnce();
   });
 
-  it('accepts only HTTP 403 as the live signaling origin boundary', async () => {
-    await expect(
-      verifySignalingOriginBoundary({ read: async () => ({ statusCode: 403 }) }),
-    ).resolves.toEqual({ unrelatedTossOriginRejected: true });
+  it('accepts only HTTP 403 for every Toss origin as the live signaling origin boundary', async () => {
+    const read = vi.fn(async (_origin: string) => ({ statusCode: 403 }));
+    await expect(verifySignalingOriginBoundary({ read })).resolves.toEqual({
+      tossOriginsRejected: true,
+    });
+    expect(read.mock.calls.map(([origin]) => origin)).toEqual([...REJECTED_TOSS_ORIGINS]);
 
-    for (const statusCode of [101, 200, 401, 404, 426, 500]) {
-      await expect(
-        verifySignalingOriginBoundary({ read: async () => ({ statusCode }) }),
-      ).rejects.toThrow('Production signaling still trusts an unrelated Toss app origin');
+    for (const trustedOrigin of REJECTED_TOSS_ORIGINS) {
+      for (const statusCode of [101, 200, 401, 404, 426, 500]) {
+        await expect(
+          verifySignalingOriginBoundary({
+            read: async (origin) => ({ statusCode: origin === trustedOrigin ? statusCode : 403 }),
+          }),
+        ).rejects.toThrow(`Production signaling still trusts the Toss origin ${trustedOrigin}`);
+      }
     }
   });
 

@@ -10,7 +10,13 @@ const WebSocket = createRequire(`${process.cwd()}/package.json`)('ws') as typeof
 const APP_ORIGIN = 'https://musixquare.com';
 const REMOTE_ORIGIN = 'https://share.musixquare.com';
 const SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
-const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
+// The Apps-in-Toss build is retired. Its two former app-scoped origins and an
+// unrelated mini-app origin must all be refused.
+const REJECTED_TOSS_ORIGINS = Object.freeze([
+  'https://musixquare.apps.tossmini.com',
+  'https://musixquare.private-apps.tossmini.com',
+  'https://unrelated.apps.tossmini.com',
+]);
 const DEFAULT_BYTES = 32;
 const MAX_SMOKE_BYTES = 1024 * 1024;
 const FILE_NAME = 'live-remote-share-smoke.wav';
@@ -207,22 +213,24 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
   }
 }
 
-async function assertRemoteShareRejectsUnrelatedTossOrigin(): Promise<void> {
-  const url = new URL('/security-config', REMOTE_ORIGIN);
-  url.searchParams.set('origin-boundary', `${Date.now()}-${randomUUID()}`);
-  const response = await fetchWithTimeout(url, {
-    headers: { Accept: 'application/json', Origin: UNRELATED_TOSS_ORIGIN },
-  });
-  try {
-    if (response.status !== 403 || reflectsOrigin(response, UNRELATED_TOSS_ORIGIN)) {
-      throw new Error(
-        `remote-share unrelated Toss origin boundary failed: HTTP ${response.status}, allow-origin ${String(
-          response.headers.get('access-control-allow-origin'),
-        )}`,
-      );
+async function assertRemoteShareRejectsTossOrigins(): Promise<void> {
+  for (const origin of REJECTED_TOSS_ORIGINS) {
+    const url = new URL('/security-config', REMOTE_ORIGIN);
+    url.searchParams.set('origin-boundary', `${Date.now()}-${randomUUID()}`);
+    const response = await fetchWithTimeout(url, {
+      headers: { Accept: 'application/json', Origin: origin },
+    });
+    try {
+      if (response.status !== 403 || reflectsOrigin(response, origin)) {
+        throw new Error(
+          `remote-share Toss origin boundary failed for ${origin}: HTTP ${response.status}, allow-origin ${String(
+            response.headers.get('access-control-allow-origin'),
+          )}`,
+        );
+      }
+    } finally {
+      cancelResponseBody(response, 'remote-share Toss origin probe complete');
     }
-  } finally {
-    cancelResponseBody(response, 'remote-share unrelated Toss origin probe complete');
   }
 }
 
@@ -763,28 +771,32 @@ function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): vo
 
 async function assertUploadCors(target: UploadTarget): Promise<void> {
   const requestedHeaders = Object.keys(target.uploadHeaders).join(',');
-  const unrelatedDeadline = Date.now() + R2_CORS_PROPAGATION_TIMEOUT_MS;
-  for (;;) {
-    const unrelated = await fetchWithTimeout(target.uploadUrl, {
-      method: 'OPTIONS',
-      headers: {
-        Origin: UNRELATED_TOSS_ORIGIN,
-        'Access-Control-Request-Method': 'PUT',
-        'Access-Control-Request-Headers': requestedHeaders,
-      },
-    });
-    const stillReflected = reflectsOrigin(unrelated, UNRELATED_TOSS_ORIGIN);
-    cancelResponseBody(unrelated, 'R2 unrelated Toss origin probe complete');
-    if (!stillReflected) break;
-    if (Date.now() >= unrelatedDeadline) {
-      throw new Error('R2 CORS still reflects an unrelated Toss app origin');
+  // One propagation budget covers every rejected origin: a new bucket policy
+  // stops reflecting all of them together.
+  const rejectedDeadline = Date.now() + R2_CORS_PROPAGATION_TIMEOUT_MS;
+  for (const origin of REJECTED_TOSS_ORIGINS) {
+    for (;;) {
+      const rejected = await fetchWithTimeout(target.uploadUrl, {
+        method: 'OPTIONS',
+        headers: {
+          Origin: origin,
+          'Access-Control-Request-Method': 'PUT',
+          'Access-Control-Request-Headers': requestedHeaders,
+        },
+      });
+      const stillReflected = reflectsOrigin(rejected, origin);
+      cancelResponseBody(rejected, 'R2 Toss origin probe complete');
+      if (!stillReflected) break;
+      if (Date.now() >= rejectedDeadline) {
+        throw new Error(`R2 CORS still reflects the Toss origin ${origin}`);
+      }
+      await new Promise((resolve) =>
+        setTimeout(
+          resolve,
+          Math.min(R2_CORS_RETRY_INTERVAL_MS, Math.max(0, rejectedDeadline - Date.now())),
+        ),
+      );
     }
-    await new Promise((resolve) =>
-      setTimeout(
-        resolve,
-        Math.min(R2_CORS_RETRY_INTERVAL_MS, Math.max(0, unrelatedDeadline - Date.now())),
-      ),
-    );
   }
 
   const deadline = Date.now() + R2_CORS_PROPAGATION_TIMEOUT_MS;
@@ -1015,7 +1027,7 @@ async function runWholeObjectSmoke(
       bytes: sourceFile.size,
       directR2Put: true,
       corsPreflight: true,
-      corsUnrelatedTossOriginRejected: true,
+      corsTossOriginsRejected: true,
       exactByteRoundTrip: true,
       bearerHeaderOnly: true,
       roomUploadAssertion: assertionProvider !== null,
@@ -1041,7 +1053,7 @@ async function main(): Promise<void> {
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const token = await requestCapabilityToken();
   const readiness = await waitForRemoteShareWorkerReady();
-  await assertRemoteShareRejectsUnrelatedTossOrigin();
+  await assertRemoteShareRejectsTossOrigins();
   const authority = await openRoomUploadAssertionAuthority(roomId, readiness, requireAssertion);
   let wholeObject: Record<string, unknown>;
   try {
@@ -1059,7 +1071,7 @@ async function main(): Promise<void> {
       assertionRequiredBySmoke: readiness.roomUploadAssertionRequired,
       assertionExplicitlyRequested: requireAssertion,
       roomUploadAssertionMode: readiness.roomUploadAssertionMode,
-      unrelatedTossOriginRejected: true,
+      tossOriginsRejected: true,
       wholeObject,
     }),
   );

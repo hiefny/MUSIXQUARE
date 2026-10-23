@@ -590,8 +590,9 @@ RO-46 accepted-exception
   audit (`auditSystemOwnerTransfer`) without deduplication, so a cron that finishes a transfer the
   request already audited writes a second success row (reproduced in
   `owner-transfer-saga-convergence-sqlite.test.ts`). Two parts are named once (Phase 1, C7-8):
-  `ownerTransferEntitlementInput` builds the entitlement identity every reserve, finalize and abort
-  passes (the cron adds its sweep time, the request none), and
+  `ownerTransferEntitlementInput` builds the entitlement identity every App Worker reserve, finalize
+  and abort passes (the cron adds its sweep time, the request none; the PRO room's PREPARE builds
+  its own reservation), and
   `terminateOwnerTransferForDeletedTarget` ends a committed transfer whose target account is being
   deleted (purge or not, finalize, `target_deleted`) for all four sites, each passing its own audit
   placement: the cron audits before the finalize (or not at all at its final recheck), the request

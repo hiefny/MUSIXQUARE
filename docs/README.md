@@ -91,6 +91,13 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [App Worker saga helpers and one fence writer list (Phase 1 App Worker A, 2026-10-23)](design/app-worker-saga-fence-2026-10-23.md):
+  the owner-transfer saga's entitlement identity and its four deleted-target endings each get one
+  helper that keeps every site's order, and the Developer API authority fence writers take a typed
+  write object, with the resource-ownership guard allowing only the activator, the clearer and the
+  PRO decommission. Tests pinned each site and each writer's SQL and bindings first. No behaviour
+  change; Worker-only (target `app`), with no app version or service-worker change.
+
 - [One PRO signaling transport (Phase 1 PRO Worker A, 2026-10-23)](design/pro-room-signaling-transport-2026-10-23.md):
   the PRO room's presence, no-retry and playback broadcasts to signaling share one request builder
   with two acceptance rules. Unit fakes now refuse any body signaling would reject, and the workerd

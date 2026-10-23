@@ -52,8 +52,8 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
   write, retry). The resource-ownership guard counts only some callers today: page-lock claims,
   `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()`, armed
   `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint, the duration
-  reader in `cloudflare/` and the Developer API authority fence writers. See
-  [what it does not check yet](#resource-ownership-guard).
+  reader in `cloudflare/`, the Developer API authority fence writers and the header loader's
+  default-holder writers. See [what it does not check yet](#resource-ownership-guard).
 - **Deadline owner:** the module allowed to time out an attempt on the resource.
 - **Timing-constant home:** the module and constant names that hold the resource's timing values.
 - **Anchor tests:** the tests that pin the four cancellation cases: supersession (a newer attempt
@@ -139,6 +139,7 @@ each record also states the step in words.
 | RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                      |
 | RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round  |
 | RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision               |
+| RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                     |
 
 ## Machine-readable ID list
 
@@ -201,6 +202,7 @@ RO-43 accepted-exception
 RO-44 accepted-exception
 RO-45 accepted-exception
 RO-46 accepted-exception
+RO-47 owner-in-place
 ```
 
 ## Resource records
@@ -1648,6 +1650,48 @@ entry needs the owner's acceptance and is not implied by this registry.
   failed send, or wants the added-tracks notice to survive one.
 - **Status:** `accepted-exception`.
 
+## Records added after the survey
+
+### RO-47 Header loader `_default` holder
+
+- **Resource:** the header loader's `_default` holder in `src/ui/toast.ts`: the holder that
+  `showLoader(show, text)` and `updateLoader(percent)` write when they pass no holder ID.
+- **Current owners/flows:** `src/ui/toast.ts` owns the holder map, picks the foreground holder
+  (priority first, then the newest) and runs the 400 ms `loader-reset`. The `_default` holder
+  belongs to the foreground media load: at most one load of the current track or demo runs at a
+  time, serialized by the playback mode and the load epoch and session
+  ([Playback concurrency invariants](playback-concurrency-invariants.md) M1, M2). Its writers are
+  the file prepare and decode (`src/player/decode.ts`, hides gated by the load session), the guest
+  wait, request and receive of the current track's file (`src/player/playback.ts`,
+  `src/storage/transfer-receive.ts`, `src/storage/preload.ts`), the foreground remote-share wait
+  and download (`src/share/remote-share.ts`), the guided demo download (`src/demo/mode.ts`),
+  YouTube playlist indexing (`src/youtube/iframe.ts`), and clears when a load is superseded or
+  ends: a YouTube takeover or stop (`iframe.ts`, `src/youtube/player.ts`), a stuck transfer reset
+  (`src/storage/storage.ts`, `src/storage/recovery.ts`) and a failed guest join
+  (`src/ui/setup.ts`).
+- **Target single owner:** unchanged. The writers share the key on purpose and carry no token: a
+  newer load or a mode switch must clear whatever the older load left on the header, and a
+  per-flow token would make every superseding path learn every other flow's token. No report of a
+  wrong or stuck header text exists.
+- **Allowed requesters:** the files above, pinned per file by the resource-ownership guard (CHECK
+  8). Anything that can overlap the foreground load shows its own named holder: PRO transfers
+  (`src/pro-room/runtime.ts`, `src/player/transport.ts`), the preload receive
+  (`src/storage/preload.ts`), remote uploads (`src/share/remote-share.ts`), the host-wait notice
+  (`src/ui/keep-open-notice.ts`, priority), YouTube info fetches (`src/youtube/player.ts`,
+  `src/youtube/standard-playlist.ts`), the route check (`src/player/playback.ts`) and the Standard
+  operator uplink (`src/ui/toast.ts`). A no-ID hide never removes a named holder.
+- **Lifecycle operations:** show with text, update progress, hide.
+- **Deadline owner:** none; each load's own deadlines end it, and the reset only repaints.
+- **Timing-constant home:** `src/ui/toast.ts` (`loader-reset`, 400 ms).
+- **Anchor tests:**
+  - Supersession: `src/ui/__tests__/toast.test.ts` "lets a newer no-ID show take over the
+    foreground load's text" and "keeps default progress behind an explicitly named foreground
+    holder".
+  - User pause/stop: n/a; a stop ends the load, which hides through its own path.
+  - Teardown: `toast.test.ts` "lets a no-ID hide end only the default holder, never a named one".
+  - Visibility: n/a (the header progress snaps while the page is hidden).
+- **Status:** `owner-in-place`. Phase 2 named the owner and the writers instead of adding tokens.
+
 ## Checked side flows without a record
 
 The survey also checked these and found one owner with a side flow (WEAK) or a single owner. They
@@ -1665,8 +1709,6 @@ get a record only if a change adds a second machine:
   closed.
 - Guest join attempt (`src/network/guest.ts`): an old inline cancel in `src/ui/setup-guest.ts`
   skips `invalidateGuestJoinAttempt`; a fix-lane candidate only with a failing test.
-- Header loader `_default` key (`src/ui/toast.ts`): about a dozen writers without an owner token,
-  serialized in practice by playback mode; Phase 2 assigns owners.
 - Return-from-background dialog: the long-background warning yields to the audio recovery prompt
   (`app.ts`), per [Resume dialog dedup](resume-dialog-dedup-2026-10-17.md).
 - PRO Durable Object alarm (`scheduleAlarm`) and the signaling Durable Object alarms: single owners
@@ -1727,6 +1769,10 @@ and unrelated strings never count, and every baseline is an exact count or list 
    and the PRO room's `deleteDeveloperRoomData` loop list. Reads (FROM or JOIN) and qualified
    columns do not count; the match ignores case, and a literal holding the name's tail
    (`authority_fences`) outside a full name counts too.
+8. **Header loader default holder writers, per file** (RO-47): `showLoader()` and `updateLoader()`
+   calls in `src/` that pass no holder ID (or `undefined`) write the `_default` holder of
+   `src/ui/toast.ts`, which belongs to the foreground media load. Shows, hides and progress ticks
+   all count; calls with a named holder do not.
 
 Not checked yet: callers of the other records' lifecycle operations (YouTube player commands,
 `claimPlaybackOwner`, `setSystemAudioReceiving`, `scheduleSessionReset`), receivers resolved by

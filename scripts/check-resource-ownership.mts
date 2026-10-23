@@ -49,6 +49,11 @@
  *     deletes from the table, or names it in any other way, because a bare
  *     name can be substituted into template-built SQL (`DELETE FROM
  *     ${table}`); reads (FROM or JOIN) and qualified columns do not count.
+ *   CHECK 8 Header loader default holder (RO-47). showLoader() and
+ *     updateLoader() calls without a holder ID write the `_default` holder
+ *     of src/ui/toast.ts, which belongs to the foreground media load. They
+ *     are counted per file in src/; a flow that can overlap that load uses
+ *     a named holder instead.
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -468,6 +473,46 @@ const AUTHORITY_FENCE_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   ],
 ]);
 
+// ── CHECK 8 baseline: header loader default holder (RO-47) ──────────────
+
+/**
+ * RO-47: showLoader(show, text) and updateLoader(percent) calls with no
+ * holder ID, exact per file in src/ (src/ui/toast.ts, the owner, excluded).
+ * Shows, hides and progress ticks all count: each one writes the holder the
+ * current foreground media load owns.
+ */
+const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  ['src/demo/mode.ts', { count: 5, reason: 'guided demo track download and its end' }],
+  [
+    'src/player/decode.ts',
+    { count: 14, reason: 'file prepare and decode; hides gated by the load session' },
+  ],
+  [
+    'src/player/playback.ts',
+    { count: 8, reason: "guest wait, request and receive of the current track's file" },
+  ],
+  [
+    'src/share/remote-share.ts',
+    { count: 11, reason: 'foreground remote-share wait and download (uploads are named)' },
+  ],
+  [
+    'src/storage/preload.ts',
+    { count: 2, reason: 'PLAY of a preloaded track that still needs its file (receive is named)' },
+  ],
+  ['src/storage/recovery.ts', { count: 2, reason: 'clears it when a recovery request ends' }],
+  ['src/storage/storage.ts', { count: 2, reason: 'clears it when a stuck transfer resets' }],
+  [
+    'src/storage/transfer-receive.ts',
+    { count: 13, reason: "guest prepare and receive of the current track's file" },
+  ],
+  ['src/ui/setup.ts', { count: 6, reason: 'clears a stale one when a guest join fails' }],
+  [
+    'src/youtube/iframe.ts',
+    { count: 12, reason: 'playlist indexing; clears a file load when YouTube takes over' },
+  ],
+  ['src/youtube/player.ts', { count: 1, reason: 'clears it when YouTube mode stops' }],
+]);
+
 /** Every record ID this guard's manifests name, for CHECK 1. */
 const GUARD_RECORD_IDS: readonly string[] = [
   'RO-01',
@@ -481,6 +526,7 @@ const GUARD_RECORD_IDS: readonly string[] = [
   'RO-26',
   'RO-30',
   'RO-44',
+  'RO-47',
   ...TIMING_CONTRACTS.flatMap((contract) => contract.records),
 ];
 
@@ -955,6 +1001,39 @@ function collectFacts(relPath: string, text: string): FileFacts {
   return facts;
 }
 
+// ── CHECK 8: header loader default holder writers ────────────────────────
+
+const LOADER_OWNER_FILE = 'src/ui/toast.ts';
+/** Argument position of the holder ID in each header loader call. */
+const LOADER_ID_ARGUMENT = new Map([
+  ['showLoader', 2],
+  ['updateLoader', 1],
+]);
+
+function isUndefinedArgument(expression: ts.Expression | undefined): boolean {
+  if (!expression) return true;
+  const value = unwrap(expression);
+  return (ts.isIdentifier(value) && value.text === 'undefined') || ts.isVoidExpression(value);
+}
+
+/** RO-47: header loader calls without a holder ID, per src/ file. */
+function collectDefaultLoaderWrites(sources: ReadonlyMap<string, string>): Map<string, number> {
+  const measured = new Map<string, number>();
+  for (const [relPath, text] of sources) {
+    if (!relPath.startsWith('src/') || relPath === LOADER_OWNER_FILE) continue;
+    if (!text.includes('showLoader') && !text.includes('updateLoader')) continue;
+    let count = 0;
+    visit(parse(relPath, text), (node) => {
+      if (!ts.isCallExpression(node)) return;
+      const callee = calleeName(node);
+      const idIndex = callee === null ? undefined : LOADER_ID_ARGUMENT.get(callee);
+      if (idIndex !== undefined && isUndefinedArgument(node.arguments[idIndex])) count += 1;
+    });
+    if (count > 0) measured.set(relPath, count);
+  }
+  return measured;
+}
+
 // ── Exact comparison ─────────────────────────────────────────────────────
 
 interface ExactCheck {
@@ -1393,6 +1472,7 @@ export interface ResourceOwnershipReport {
     readonly reportOnly: readonly string[];
   };
   readonly audioContextNativeCalls: number;
+  readonly defaultLoaderWrites: number;
 }
 
 function perFile(
@@ -1572,6 +1652,20 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     findings,
   );
 
+  const defaultLoaderWrites = collectDefaultLoaderWrites(input.sources);
+  compareExact(
+    {
+      label: 'header loader default holder write',
+      record: 'RO-47',
+      hint:
+        'the `_default` holder belongs to the foreground media load; a flow that can overlap ' +
+        'it shows its own holder with showLoader(show, text, id)',
+      measured: defaultLoaderWrites,
+      baseline: DEFAULT_LOADER_WRITE_BASELINE,
+    },
+    findings,
+  );
+
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);
   let ariaHiddenWritesTotal = 0;
@@ -1599,6 +1693,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       reportOnly: pairs.reportOnly,
     },
     audioContextNativeCalls: total(audioContextCalls),
+    defaultLoaderWrites: total(defaultLoaderWrites),
   };
 }
 
@@ -1638,7 +1733,9 @@ function main(argv: readonly string[]): void {
       `${timingPairs.reportOnly.length} same-value pairs (report-only` +
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +
       `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.\n` +
-      `  Developer API authority fence writes: ${report.authorityFenceWrites}.`,
+      `  Developer API authority fence writes: ${report.authorityFenceWrites}.
+` +
+      `  header loader default holder writes: ${report.defaultLoaderWrites}.`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);

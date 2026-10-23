@@ -135,7 +135,7 @@ each record also states the step in words.
 | RO-40 | Hand-copied PRO publication teardown blocks              | System audio   | accepted-exception | Phase 5 or later             |
 | RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit after the 0c test    |
 | RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check  |
-| RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | Revisit after a build check  |
+| RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)        |
 | RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                      |
 | RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round  |
 | RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision               |
@@ -1744,13 +1744,18 @@ entry needs the owner's acceptance and is not implied by this registry.
 
 ### RO-43 Update prompt stays eager
 
-- **Parent:** RO-22. Plan step C6-15 deferred.
-- **Exception:** the waiting-worker prompt in `sw-register.ts` stays in the initial bundle.
-- **Evidence:** loading it after a controller change risks the old-chunk criterion of the PWA
-  update QA domain and touches the 2026-10-17 "same dialog everywhere" decision; the saving is
-  unmeasured.
+- **Parent:** RO-22. Plan step C6-15 (load the update dialog lazily) is rejected, not deferred
+  (owner decision 2026-10-24).
+- **Exception:** the waiting-worker prompt in `sw-register.ts` stays in the initial bundle. This
+  is the settled decision, not a placeholder for a later move.
+- **Evidence:** the owner rejected C6-15 on 2026-10-24 for two reasons. A lazily loaded dialog
+  shows late, after the user is already in a room. A chunk that fails to load would need a
+  different fallback dialog, which conflicts with the 2026-10-17
+  [same dialog everywhere](update-dialog-everywhere-2026-10-17.md) rule. Loading it after a
+  controller change would also risk the old-chunk criterion of the PWA update QA domain. The
+  eager saving was never measured and is not a lever for the Phase 3 bundle budget.
 - **Behaviour risk:** none.
-- **Revisit when:** a measured build and an owner decision.
+- **Revisit when:** only if the owner reverses the 2026-10-24 decision.
 - **Status:** `accepted-exception`.
 
 ### RO-44 AudioContext native-call guard is syntactic

@@ -1110,10 +1110,14 @@ RO-47 owner-in-place
   reload latch `_swReloading` is gone) and sends `SKIP_WAITING` through one sink,
   `activateWaitingWorker` (Apply, Apply to a replacement, and the quiet cooldown and
   same-generation promotions; the callers write the next-document markers, and the quiet
-  promotions write none). A prompt that still answers while that reload is pending (a lost
-  lease, a failed dialog) leaves its phase inside the `reload-scheduled` state, which keeps the
-  pre-C6-9 outcomes: a newly waiting worker is still taken up, and the page returns to that phase
-  if the reload recovers. The cross-tab prompt lease stays in `src/sw-update-coordination.ts` and
+  promotions write none). `guard:navigation-sinks` counts both the one literal and the four
+  calls of the sink in `handleWaitingWorker`, and keeps `_swReloading` and `_swReloadAttempt`
+  retired. A prompt that still answers while that reload is pending (a lost lease, a failed
+  dialog) leaves its phase inside the `reload-scheduled` state, which keeps the pre-C6-9
+  outcomes: a newly waiting worker is still taken up, and the page returns to that phase if the
+  reload recovers. The recovery checks the reload's identity; with the navigation owner settling
+  each attempt once (RO-23) a stale recovery cannot reach it today, so that check is defensive
+  and pinned directly. The cross-tab prompt lease stays in `src/sw-update-coordination.ts` and
   `src/sw-prompt-lock.ts`.
 - **Target single owner:** the `sw-register.ts` update machine with one activation sink; the hard
   reset becomes a client of a promotion port and keeps standalone promotion when the port times
@@ -1146,10 +1150,17 @@ RO-47 owner-in-place
   - Visibility: `src/core/__tests__/sw-update-transitions.integration.test.ts` rows X3b (the
     document is made visible again after the update reload's pagehide) and X5 (a back-forward
     cache return of a pending update reload).
-  - Every `SKIP_WAITING` send and every exit from `reload-scheduled`, with the resulting state,
-    navigations, dialogs and next-document markers: the transition table in
-    `sw-update-transitions.integration.test.ts` (on the real navigation owner), which C6-9 kept
-    unchanged.
+  - Every `SKIP_WAITING` send and every exit from `reload-scheduled`, with the navigations,
+    dialogs and next-document markers each produces: the transition table in
+    `sw-update-transitions.integration.test.ts` (on the real navigation owner). The machine's
+    state is private, so a row checks its resulting state only through a later step: rows X12b
+    to X19 send the next event while the reload is still latched, X20 to X22 answer a prompt
+    after the reload recovered under it, and S1b and S2b end with a probe. Every row has the same
+    effects on main 08003954's `sw-register.ts` and after C6-9; a mutation check of C6-9's state
+    (21 mutants, 20 killed) left only the startup gate's read, which no reachable order can
+    tell apart.
+  - The reload identity check: `sw-register.test.ts` "does not let a stale recovery release a
+    successor reload attempt" hands the machine a stale recovery directly.
   - A hard reset while an Apply is stalled: the same file's "a stalled Apply, then the logo
     reset" cases record today's three `SKIP_WAITING` sends and second navigation, the C6-10 input
     (owner decision P3-10 A).

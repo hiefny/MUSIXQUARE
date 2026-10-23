@@ -17,7 +17,9 @@
  *   CHECK 2 `SKIP_WAITING` messages, per `file :: function`: the update
  *     machine's one sink in sw-register.ts (activateWaitingWorker, Phase 3
  *     C6-9) and the hard-reset promotion (until Phase 3 C6-10 makes it ask
- *     the update machine).
+ *     the update machine). The calls of that sink are counted per
+ *     `file :: function` too, so a new promotion path cannot hide behind the
+ *     one literal.
  *   CHECK 3 History traversal (back/go/forward on a `history` receiver), per
  *     `file :: function`: the Back leave in back-button-history.ts and the
  *     guard's navigateBack port in app.ts.
@@ -29,7 +31,9 @@
  *   CHECK 6 Retired names stay gone: no production declaration or export of a
  *     name the Phase 2 owner replaced (restoreSessionReset,
  *     requestDocumentReload, DocumentReloadAttempt, the intentional-navigation
- *     flag functions, setSessionResetReleaseHandler and the old test seams).
+ *     flag functions, setSessionResetReleaseHandler and the old test seams),
+ *     or of the update reload latch Phase 3 C6-9 folded into the update
+ *     machine's state (_swReloading, _swReloadAttempt).
  *
  * Every list is exact: a new site fails as unsanctioned, a count above its
  * baseline fails as a regression, and a count below it fails until the
@@ -116,6 +120,19 @@ const SKIP_WAITING_BASELINE: Baseline = new Map<string, Allowance>([
   ],
 ]);
 
+/** CHECK 2: calls of the update machine's SKIP_WAITING sink, per `file :: function`. */
+const ACTIVATION_SINK_CALL_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/sw-register.ts :: registerServiceWorker.doRegister.handleWaitingWorker',
+    {
+      count: 4,
+      reason:
+        'Apply, Apply to a replacement, and the quiet cooldown and same-generation promotions ' +
+        '(the four SKIP_WAITING sends Phase 3 C6-9 put behind the sink)',
+    },
+  ],
+]);
+
 /** CHECK 3: history traversal (back/go/forward), per `file :: function`. */
 const HISTORY_TRAVERSAL_BASELINE: Baseline = new Map<string, Allowance>([
   [
@@ -166,9 +183,12 @@ const RETIRED_NAMES = new Map<string, string>([
   ['setSessionResetReleaseHandler', 'use setSessionResetWindowLayer (C6-11)'],
   ['__resetSessionResetForTests', 'use __resetPageNavigationForTests (C6-13)'],
   ['__resetDocumentReloadForTests', 'use __resetPageNavigationForTests (C6-13)'],
+  ['_swReloading', "the update reload lives in sw-register.ts's activationState (C6-9)"],
+  ['_swReloadAttempt', "the scheduled reload's identity lives in activationState (C6-9)"],
 ]);
 
 const OWNER_VERBS = new Set(['scheduleSessionReset', 'scheduleDocumentReload']);
+const ACTIVATION_SINK = 'activateWaitingWorker';
 const LOCATION_METHODS = new Set(['reload', 'replace', 'assign']);
 const HISTORY_TRAVERSAL_METHODS = new Set(['back', 'go', 'forward']);
 
@@ -301,6 +321,7 @@ function functionChain(node: ts.Node): string {
 interface Facts {
   readonly locationSinks: Map<string, number>;
   readonly skipWaitingSends: Map<string, number>;
+  readonly activationSinkCalls: Map<string, number>;
   readonly historyTraversals: Map<string, number>;
   readonly ownerRequests: Map<string, number>;
   readonly unloadExemptionClaims: Map<string, number>;
@@ -335,6 +356,7 @@ function collectFacts(input: NavigationSinksInput): Facts {
   const facts: Facts = {
     locationSinks: new Map(),
     skipWaitingSends: new Map(),
+    activationSinkCalls: new Map(),
     historyTraversals: new Map(),
     ownerRequests: new Map(),
     unloadExemptionClaims: new Map(),
@@ -385,6 +407,7 @@ function collectFacts(input: NavigationSinksInput): Facts {
         const callee = unwrap(node.expression);
         const name = ts.isIdentifier(callee) ? callee.text : memberName(callee);
         if (name !== null && OWNER_VERBS.has(name)) bump(facts.ownerRequests, relPath);
+        if (name === ACTIVATION_SINK) bump(facts.activationSinkCalls, site(node));
         if (name === 'claimUnloadExemption') bump(facts.unloadExemptionClaims, relPath);
       }
     });
@@ -448,6 +471,12 @@ export function analyzeNavigationSinks(input: NavigationSinksInput): NavigationS
       hint: 'promote a waiting worker through the update machine in src/sw-register.ts',
       measured: facts.skipWaitingSends,
       baseline: SKIP_WAITING_BASELINE,
+    },
+    {
+      label: 'SKIP_WAITING sink call',
+      hint: 'a new promotion path in the update machine is reviewed here and in RO-22',
+      measured: facts.activationSinkCalls,
+      baseline: ACTIVATION_SINK_CALL_BASELINE,
     },
     {
       label: 'history traversal',

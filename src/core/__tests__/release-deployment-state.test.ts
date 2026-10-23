@@ -35,6 +35,7 @@ import {
   verifyProductionVersion,
 } from '../../../scripts/release-deployment-state.mts';
 import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mts';
+import { releaseRecoverySkipTargets } from '../../../scripts/release-recovery-plan.mts';
 
 const SCRIPT_PATH = resolve('scripts/release-deployment-state.mts');
 const CANONICAL_RELEASE_MESSAGE = `git:${'a'.repeat(40)}`;
@@ -697,7 +698,7 @@ describe('release deployment rollback state', () => {
 
   it('keeps optional PRO entry passwords on a PRO/App forward-repair boundary', () => {
     const marker = 'cloudflare/pro-room-entry-policy-contract-version.txt';
-    const markerContent = 'pro-room-optional-entry-password-v1\n';
+    const markerContent = 'pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1\n';
     expect(readFileSync(resolve(marker), 'utf8')).toBe(markerContent);
     expect(EMERGENCY_EXTERNAL_STATE_PATHS).toContain(marker);
     for (const target of ['pro-room', 'app']) {
@@ -706,6 +707,13 @@ describe('release deployment rollback state', () => {
     for (const target of ['signaling', 'remote-share', 'developer-api', 'developer-api-facade']) {
       expect(runtimePathsForWorker(target)).not.toContain(marker);
     }
+    const cutoverStep = workflowStepSource(
+      readFileSync(resolve('.github/workflows/release.yml'), 'utf8'),
+      'Require a full release for PRO entry-policy contract cutovers',
+    );
+    expect(cutoverStep).toContain(`contract_marker='${marker}'`);
+    expect(cutoverStep).toContain("inputs.target }}\" != 'all'");
+    expect(cutoverStep).toContain('the PRO and app Workers deploy together');
     for (const file of [
       '.github/workflows/release.yml',
       '.github/workflows/release-recovery.yml',
@@ -743,6 +751,229 @@ describe('release deployment rollback state', () => {
     ]);
     expect(failClosedCli.status, String(failClosedCli.stderr)).toBe(0);
     expect(failClosedCli.stdout).toBe('true');
+  });
+
+  it('keeps pinless PRO owner-transfer records from an automatic rollback below their contract', () => {
+    // From pro-owner-transfer-pinless-v1 the PRO room writes pending
+    // owner-transfer records without a PIN. A PRO Worker from before that
+    // contract drops such a record as invalid, leaving a transfer in flight
+    // suspended in ownership_transfer_pending with no retry or cron to finish
+    // it, and an App facade from before it rejects the pinless transfer body.
+    const marker = 'cloudflare/pro-room-entry-policy-contract-version.txt';
+    const transferContract = readFileSync(resolve(marker), 'utf8');
+    expect(transferContract).toBe(
+      'pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1\n',
+    );
+
+    const repository = createDirectory();
+    const git = (args: string[], options: { capture?: boolean } = {}): string =>
+      execFileSync('git', ['-C', repository, ...args], {
+        encoding: 'utf8',
+        stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'pipe',
+      });
+    const commit = (message: string): string => {
+      git(['add', '.']);
+      git(['commit', '--quiet', '-m', message]);
+      return git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    };
+    git(['init', '--quiet']);
+    git(['config', 'user.email', 'release-test@musixquare.invalid']);
+    git(['config', 'user.name', 'MUSIXQUARE Release Test']);
+    mkdirSync(resolve(repository, 'cloudflare'), { recursive: true });
+    // Today's production baseline knows optional entry passwords but still
+    // requires a PIN on every pending owner-transfer record.
+    writeFileSync(resolve(repository, marker), 'pro-room-optional-entry-password-v1\n');
+    const pinBaselineSha = commit('optional PRO entry passwords');
+    writeFileSync(resolve(repository, marker), transferContract);
+    const transferSha = commit('pinless PRO owner-transfer records');
+    writeFileSync(resolve(repository, 'README.md'), 'release notes\n');
+    const releaseSha = commit('document the release');
+
+    const workers = [
+      'pro-room',
+      'remote-share',
+      'signaling',
+      'developer-api-facade',
+      'developer-api',
+      'app',
+    ] as const;
+    const checkpoint = createDirectory();
+    writeFileSync(
+      resolve(checkpoint, 'recovery-checkpoint.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        releaseTarget: 'all',
+        status: 'captured',
+        workers: workers.map((target) => ({ target })),
+      }),
+    );
+    const captureBaseline = (baselineSha: string): void => {
+      for (const target of workers) {
+        writeFileSync(
+          resolve(checkpoint, `${target}-state.json`),
+          JSON.stringify({
+            schemaVersion: 1,
+            target,
+            config: `cloudflare/wrangler.${target}.toml`,
+            attempted: true,
+            beforeDeploymentId: `${target}-baseline-deployment`,
+            beforeVersionId: `${target}-baseline-version`,
+            beforeMessage: `git:${baselineSha}`,
+            releaseMessage: `git:${releaseSha}`,
+          }),
+        );
+      }
+    };
+    const liveWorkers =
+      (candidates: ReadonlySet<string>, baselineSha: string) => (target: string) => {
+        const candidate = candidates.has(target);
+        return {
+          deploymentId: `${target}-${candidate ? 'candidate' : 'baseline'}-deployment`,
+          versionId: `${target}-${candidate ? 'candidate' : 'baseline'}-version`,
+          message: `git:${candidate ? releaseSha : baselineSha}`,
+        };
+      };
+    const entryPolicyFloor = (
+      queryCurrent: (target: string) => {
+        deploymentId: string;
+        versionId: string;
+        message: string;
+      },
+    ): boolean =>
+      contractCutoverRequiresForwardRepair(releaseSha, marker, ['pro-room', 'app'], checkpoint, {
+        requireCheckpointInventory: true,
+        requiredMarkerContent: transferContract,
+        runner: git,
+        queryCurrent,
+      });
+    const recoveryPlan = (floor: boolean): Set<string> =>
+      new Set(
+        releaseRecoverySkipTargets({
+          RELEASE_TARGET: 'all',
+          MXQR_R2_POLICY_OUTCOME: 'success',
+          MXQR_R2_FORWARD_TARGETS: '',
+          MXQR_GENERATION_FENCE_OUTCOME: 'success',
+          MXQR_WORKER_FLOOR_OUTCOME: 'success',
+          MXQR_WORKER_FLOOR_TARGETS: '',
+          MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME: 'success',
+          MXQR_APPLY_DEVELOPER_API_D1: 'false',
+          MXQR_SERVICE_CONTROL_FORWARD_FLOOR: 'false',
+          MXQR_REMOTE_SHARE_FORWARD_FLOOR: 'false',
+          MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'false',
+          MXQR_PRO_ROOM_ENTRY_POLICY_FORWARD_FLOOR: String(floor),
+          MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR: 'false',
+          MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR: 'false',
+        }),
+      );
+    const runner = vi.fn();
+    const restoreBaseline = vi.fn(() => {
+      throw new Error('automatic recovery must not restore this Worker');
+    });
+
+    // An `all` release deploys PRO first. It failed after the PRO candidate
+    // went live and before App: recovery keeps the PRO/App pair for forward
+    // repair instead of restoring the PIN-requiring PRO baseline.
+    captureBaseline(pinBaselineSha);
+    const proCandidateLive = liveWorkers(new Set(['pro-room']), pinBaselineSha);
+    expect(entryPolicyFloor(proCandidateLive)).toBe(true);
+    const retained = recoveryPlan(true);
+    expect([...retained].sort()).toEqual(['app', 'pro-room']);
+    expect(
+      rollback(checkpoint, {
+        skipTargets: retained,
+        queryCurrent: proCandidateLive,
+        runner,
+        runRollbackWithRetry: restoreBaseline,
+      }),
+    ).toMatchObject({
+      status: 'forward-repair-required',
+      results: [
+        { target: 'app', status: 'already-restored' },
+        { target: 'developer-api', status: 'already-restored' },
+        { target: 'developer-api-facade', status: 'already-restored' },
+        { target: 'signaling', status: 'already-restored' },
+        { target: 'remote-share', status: 'already-restored' },
+        { target: 'pro-room', status: 'skipped-compatibility-floor' },
+      ],
+    });
+    expect(verifyRecoveryBoundary(checkpoint, { queryCurrent: proCandidateLive })).toMatchObject({
+      status: 'verified',
+      results: expect.arrayContaining([
+        expect.objectContaining({ target: 'pro-room', status: 'verified-forward-boundary' }),
+        expect.objectContaining({ target: 'app', status: 'verified-baseline' }),
+      ]),
+    });
+    // An unreadable live identity cannot prove the candidate stayed offline.
+    expect(
+      entryPolicyFloor(() => {
+        throw new Error('Cloudflare identity unavailable');
+      }),
+    ).toBe(true);
+
+    // The same release failing before its PRO candidate went live keeps the
+    // ordinary recovery: no floor, and every captured baseline is proven.
+    const nothingLive = liveWorkers(new Set(), pinBaselineSha);
+    expect(entryPolicyFloor(nothingLive)).toBe(false);
+    const ordinary = recoveryPlan(false);
+    expect(ordinary.size).toBe(0);
+    const ordinaryReport = rollback(checkpoint, {
+      skipTargets: ordinary,
+      queryCurrent: nothingLive,
+      runner,
+      runRollbackWithRetry: restoreBaseline,
+    });
+    expect(ordinaryReport.status).toBe('succeeded');
+    expect(ordinaryReport.results.map((result) => result.status)).toEqual(
+      workers.map(() => 'already-restored'),
+    );
+
+    // A later release whose baseline already carries the contract may still
+    // restore a live PRO candidate normally.
+    captureBaseline(transferSha);
+    const laterCandidateLive = liveWorkers(new Set(['pro-room']), transferSha);
+    expect(entryPolicyFloor(laterCandidateLive)).toBe(false);
+    const restoreCompatibleBaseline = vi.fn(() => ({
+      status: 'command-issued',
+      current: laterCandidateLive('pro-room'),
+      commandIssued: true,
+    }));
+    const laterReport = rollback(checkpoint, {
+      skipTargets: recoveryPlan(false),
+      queryCurrent: laterCandidateLive,
+      runner,
+      runRollbackWithRetry: restoreCompatibleBaseline,
+      verifyProductionVersion: (target, _config, expectedVersionId) => ({
+        deploymentId: `${target}-baseline-deployment`,
+        versionId: expectedVersionId,
+        message: `git:${transferSha}`,
+      }),
+    });
+    expect(laterReport.status).toBe('succeeded');
+    expect(laterReport.results).toContainEqual(
+      expect.objectContaining({
+        target: 'pro-room',
+        status: 'restored',
+        restoredVersionId: 'pro-room-baseline-version',
+      }),
+    );
+    expect(restoreCompatibleBaseline).toHaveBeenCalledTimes(1);
+    expect(restoreBaseline).not.toHaveBeenCalled();
+    expect(runner).not.toHaveBeenCalled();
+
+    // Both recovery workflows call this CLI mode. It accepts the checked-in
+    // contract and fails closed for a release without the transfer token.
+    const workflowFloor = (headSha: string) =>
+      spawnSync(
+        process.execPath,
+        [SCRIPT_PATH, 'pro-room-entry-policy-forward-floor', headSha, checkpoint],
+        { cwd: repository, encoding: 'utf8' },
+      );
+    const compatibleCli = workflowFloor(releaseSha);
+    expect(compatibleCli.status, compatibleCli.stderr).toBe(0);
+    expect(compatibleCli.stdout).toBe('false');
+    const pinContractCli = workflowFloor(pinBaselineSha);
+    expect(pinContractCli.status, pinContractCli.stderr).toBe(0);
+    expect(pinContractCli.stdout).toBe('true');
   });
 
   it.each([

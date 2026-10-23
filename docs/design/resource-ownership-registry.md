@@ -559,7 +559,7 @@ RO-46 accepted-exception
 - **Status:** `owner-in-place`. Phase 0d named the constants once (C7-1). Phase 1 C7-3 merged the
   two request builders ([report](pro-room-signaling-transport-2026-10-23.md)); C7-4 gave the
   outbox one due time, one alarm drain, one epoch hook and one load normalizer, with no behaviour
-  change. The trigger modes, due time,
+  change ([report](pro-room-outbox-duration-owners-2026-10-23.md)). The trigger modes, due time,
   caps and epoch hook are pinned in `pro-room-signaling-delivery.test.ts`; the request against the
   real signaling Worker in `pro-room-signaling-contract-workerd`. Durable record shapes are frozen.
   Exceptions RO-31, RO-46.
@@ -626,8 +626,8 @@ RO-46 accepted-exception
     that store nothing do not restart their read" (a changed generation, evidence that does not
     fit).
 - **Status:** `owner-in-place`. Phase 0d named the ladder once (C7-2); Phase 1 C7-6 gave the two
-  readers one predicate pair, one plain start and one alarm candidate, with no behaviour change.
-  Exception RO-32.
+  readers one predicate pair, one plain start and one alarm candidate, with no behaviour change
+  ([report](pro-room-outbox-duration-owners-2026-10-23.md)). Exception RO-32.
 
 ### RO-09 Owner-transfer saga row
 

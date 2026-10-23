@@ -91,24 +91,29 @@ describe('BroadcastChannel delivery', () => {
     ]);
   });
 
-  it('sorts destinations in creation order across documents', async () => {
+  // The HTML Standard fixes creation order only among objects of one agent
+  // (one document here: a#1 before a#3, whatever happens between them). The
+  // order across documents is implementation-defined; global creation order
+  // is the fake's chosen interleaving, which this test also pins.
+  it('sorts destinations in creation order: required within a document, chosen across documents', async () => {
     const origin = createOrigin();
     const a = openDocument(origin, 'a').doc;
     const b = openDocument(origin, 'b').doc;
     const c = openDocument(origin, 'c').doc;
-    const third = channel(c, 'pulse');
-    const first = channel(b, 'pulse');
-    const second = channel(a, 'pulse');
-    const sender = channel(a, 'pulse');
     const order: string[] = [];
-    third.addEventListener('message', () => order.push('c#1'));
-    first.addEventListener('message', () => order.push('b#1'));
-    second.addEventListener('message', () => order.push('a#1'));
+    const listen = (target: BroadcastChannel, id: string) =>
+      target.addEventListener('message', () => order.push(id));
+    listen(channel(c, 'pulse'), 'c#1');
+    listen(channel(b, 'pulse'), 'b#1');
+    listen(channel(a, 'pulse'), 'a#1');
+    const sender = channel(a, 'pulse');
+    listen(channel(a, 'pulse'), 'a#3');
 
     sender.postMessage('x');
     await origin.deliverAll();
 
-    expect(order).toEqual(['c#1', 'b#1', 'a#1']);
+    expect(order.filter((id) => id.startsWith('a#'))).toEqual(['a#1', 'a#3']);
+    expect(order).toEqual(['c#1', 'b#1', 'a#1', 'a#3']);
   });
 
   it('runs each delivery as its own task, with microtasks settled in between', async () => {

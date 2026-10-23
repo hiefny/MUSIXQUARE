@@ -114,6 +114,23 @@ function openProtectedLogin(): {
   return { popup: popups.at(-1)!, outcome };
 }
 
+/**
+ * Read a promise's outcome so far without awaiting it, so a drifted pulse
+ * fails an assertion at once instead of the 15 s test timeout.
+ */
+function settledSoFar<T>(promise: Promise<T>): () => T | 'pending' | 'rejected' {
+  let state: T | 'pending' | 'rejected' = 'pending';
+  promise.then(
+    (value) => {
+      state = value;
+    },
+    () => {
+      state = 'rejected';
+    },
+  );
+  return () => state;
+}
+
 describe('receivers in one app tab today', () => {
   it('(a) a protected login delivered only by BroadcastChannel costs one read and resolves authenticated', async () => {
     await initSignedOut();
@@ -169,27 +186,71 @@ describe('receivers in one app tab today', () => {
     expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
   });
 
-  it('(c) a cancelled protected login settles once, costs one read and leaves no monitor behind', async () => {
-    vi.useFakeTimers();
-    await initSignedOut();
-    const { popup, outcome } = openProtectedLogin();
+  it.each(['cancelled', 'error'] as const)(
+    '(c) a protected login that ends %s settles once, costs one read and leaves no monitor behind',
+    async (result) => {
+      vi.useFakeTimers();
+      await initSignedOut();
+      const { popup, outcome } = openProtectedLogin();
+      const settled = settledSoFar(outcome);
 
-    await popup.complete('cancelled');
-    await harness.origin.deliverAll();
+      await popup.complete(result);
+      await harness.origin.deliverAll();
 
-    await expect(outcome).resolves.toBe('cancelled');
-    // The UI settles the attempt; session.ts treats the identified pulse as a
-    // generic refresh (one read; the storage copy is deduplicated by nonce).
-    expect(appReads()).toBe(2);
-    expect(toasts()).toEqual([]);
-    // The completion page stays open for a non-success result. Closing it
-    // later costs nothing: the UI stopped its 250 ms close monitor.
-    expect(popup.closed).toBe(false);
-    popup.closeWindow();
-    await vi.advanceTimersByTimeAsync(1_000);
-    await harness.origin.settle();
-    expect(appReads()).toBe(2);
-  });
+      expect(settled()).toBe(result);
+      // The UI settles the attempt without a toast; session.ts treats the
+      // identified pulse as a generic refresh (one read; the storage copy is
+      // deduplicated by nonce).
+      expect(appReads()).toBe(2);
+      expect(toasts()).toEqual([]);
+      // The completion page stays open for a non-success result. Closing it
+      // later costs nothing: the UI stopped its 250 ms close monitor.
+      expect(popup.closed).toBe(false);
+      popup.closeWindow();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await harness.origin.settle();
+      expect(appReads()).toBe(2);
+    },
+  );
+
+  it.each(['storage', 'window-message', 'broadcast'] as const)(
+    'a cancelled result for another tab on %s leaves a pending protected login to its own popup',
+    async (transport) => {
+      // The account UI's accountClient filter on every transport. C8-I4 step 3
+      // rewrites the storage handler and C8-I10 makes session.ts the single
+      // receiver of all three; this must survive both.
+      await initSignedOut();
+      const { popup, outcome } = openProtectedLogin();
+      const settled = settledSoFar(outcome);
+      const sender = harness.loadSenderDocument('sender');
+      const foreign = {
+        type: 'refresh',
+        accountAuth: 'cancelled',
+        id: 'result:another-tab-0001',
+        accountClient: 'another-tab-client-0001',
+      };
+
+      if (transport === 'storage') {
+        sender.localStorage.setItem('mxqr-account-refresh', JSON.stringify(foreign));
+      } else if (transport === 'window-message') {
+        sender.windowProxy(appA).postMessage(foreign, '*');
+      } else {
+        new sender.BroadcastChannel!(CHANNEL).postMessage(foreign);
+      }
+      await harness.origin.deliverAll();
+
+      expect(settled()).toBe('pending');
+      expect(toasts()).toEqual([]);
+      // session.ts still reconciles the other tab's result (one read).
+      expect(appReads()).toBe(2);
+
+      harness.server.account = MINSU;
+      await popup.complete('success');
+      await harness.origin.deliverAll();
+      await expect(outcome).resolves.toBe('authenticated');
+      expect(toasts()).toEqual([WELCOME]);
+    },
+  );
 
   it('(d) this tab’s own sign-out pulse reaches its UI channel but no UI handling and no read', async () => {
     harness.server.account = MINSU;

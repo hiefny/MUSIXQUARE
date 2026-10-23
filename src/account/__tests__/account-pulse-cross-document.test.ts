@@ -17,7 +17,7 @@
  * src/ui/__tests__/account-pulse-receivers.test.ts, and the wire format in
  * account-pulse-contract.test.ts.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AccountPulseHarness,
   type EventsDocument,
@@ -36,6 +36,7 @@ beforeEach(() => {
 
 afterEach(() => {
   harness.dispose();
+  vi.useRealTimers();
 });
 
 /** Session reads per document since `since` (a previous result of this function). */
@@ -88,6 +89,8 @@ describe('a sign-out in one app tab', () => {
 
     await b.session.signOutAccount();
 
+    // The order of `to` across documents is the fake's interleaving, not an
+    // engine guarantee (see fake-broadcast-channel.ts); the set is the contract.
     expect(postsFrom('app-b')).toEqual([
       { op: 'post', doc: 'app-b', channel: 'app-b#1', name: CHANNEL, to: ['app-c#1', 'events#1'] },
     ]);
@@ -175,6 +178,7 @@ describe('a sign-out in one app tab', () => {
 
 describe('an OAuth completion page', () => {
   it('announces one nonce on BroadcastChannel and storage and closes its channel at once', async () => {
+    vi.useFakeTimers();
     harness.server.account = null;
     const b = await startedTab('app-b');
     const events = await harness.loadEventsDocument();
@@ -197,11 +201,12 @@ describe('an OAuth completion page', () => {
     expect(broadcast.map((task) => task.target)).toEqual(['app-b#1', 'events#1']);
     const stored = harness.origin.storage.get(STORAGE_KEY)!;
     expect(JSON.parse(stored)).toEqual(broadcast[0]!.data);
-    expect(Object.keys(broadcast[0]!.data as object)).toEqual([
-      'type',
+    // The field set, not the key order: every receiver reads fields.
+    expect(Object.keys(broadcast[0]!.data as object).sort()).toEqual([
       'accountAuth',
-      'id',
       'accountClient',
+      'id',
+      'type',
     ]);
     expect(broadcast[0]!.data).toEqual({
       type: 'refresh',
@@ -216,8 +221,11 @@ describe('an OAuth completion page', () => {
     expect(reads(['app-b', 'events'], before)).toEqual({ 'app-b': 1, events: 2 });
     expect(b.state.getAccountSnapshot().account?.nickname).toBe('Minsu');
     expect(events.view()).toBe('redeem');
-    // A successful completion closes itself after 250 ms (account-complete.ts).
-    await expect.poll(() => popup.closed).toBe(true);
+    // A successful completion closes itself after 250 ms (account-complete.ts),
+    // on the fake clock so a loaded runner cannot outlast a real-time poll.
+    expect(popup.closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(popup.closed).toBe(true);
   });
 
   it('collapses the opener, BroadcastChannel and storage copies into one read when the opener survives', async () => {

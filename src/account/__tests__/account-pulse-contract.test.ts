@@ -191,6 +191,11 @@ describe('C8-I1 wire literals', () => {
 
 // ─── Wire format of both producers ──────────────────────────────────
 
+/** The keys of a pulse, sorted: toEqual alone ignores keys whose value is undefined. */
+function fieldSet(pulse: unknown): string[] {
+  return Object.keys(pulse as object).sort();
+}
+
 describe('pulse wire format', () => {
   it.each(['success', 'cancelled', 'error'] as const)(
     'the completion page sends one %s message, byte-identical on every transport',
@@ -209,12 +214,9 @@ describe('pulse wire format', () => {
         harness.origin.pending({ transport: 'broadcast' })[0]!.data,
       ];
       const stored = harness.origin.storage.get(STORAGE_KEY)!;
-      expect(Object.keys(broadcast as object)).toEqual([
-        'type',
-        'accountAuth',
-        'id',
-        'accountClient',
-      ]);
+      // The field set is the contract, not the key order: every receiver
+      // parses the JSON and reads fields, none compares raw strings.
+      expect(fieldSet(broadcast)).toEqual(['accountAuth', 'accountClient', 'id', 'type']);
       expect(broadcast).toEqual({
         type: 'refresh',
         accountAuth: outcome,
@@ -252,7 +254,7 @@ describe('pulse wire format', () => {
     await harness.origin.deliverAll();
 
     expect(received).toHaveLength(1);
-    expect(Object.keys(received[0] as object)).toEqual(['type', 'id']);
+    expect(fieldSet(received[0])).toEqual(['id', 'type']);
     expect(received[0]).toEqual({
       type: 'refresh',
       id: expect.stringMatching(/^refresh:[0-9a-z]+:[0-9a-z]+$/),
@@ -291,19 +293,25 @@ const success = (own: string, extra: Record<string, unknown> = {}) => ({
 const NONE: Expected = { appA: 0, ui: null, appB: 0, events: 0 };
 const EVERY_SESSION_READS: Omit<Expected, 'ui'> = { appA: 1, appB: 1, events: 1 };
 
+const ANOTHER_TAB = 'another-tab-client-0001';
+
 /**
  * One row per payload a receiver can meet on BroadcastChannel. "own" is
  * app-a's accountClient. The rows pin what each receiver does, not each
- * parser's projection: session.ts's id bounds need two copies (the two-copy
- * table below) and its loginSuccess flag is left to I4's own parser table.
+ * parser's projection: one copy of a pulse costs one read whatever session.ts
+ * projects, so its id bounds need two copies (the two-copy table below) and
+ * its loginSuccess flag needs a read in flight (the projection table below;
+ * session.test.ts "shares an identified result read when the session listener
+ * receives it before the UI" pins the same flag inside one document).
  */
 const BROADCAST_ROWS: ReadonlyArray<
   readonly [label: string, payload: (own: string) => unknown, expected: Expected]
 > = [
   ['success for this tab', (own) => success(own), { ...EVERY_SESSION_READS, ui: 'welcome' }],
+  ['success for another tab', () => success(ANOTHER_TAB), { ...EVERY_SESSION_READS, ui: null }],
   [
-    'success for another tab',
-    () => success('another-tab-client-0001'),
+    'cancellation for another tab',
+    () => success(ANOTHER_TAB, { accountAuth: 'cancelled' }),
     { ...EVERY_SESSION_READS, ui: null },
   ],
   [
@@ -403,7 +411,13 @@ describe('C8-I4 receiver acceptance on BroadcastChannel', () => {
   });
 });
 
-/** One row per value a receiver can meet in the storage event for the pulse key. */
+/**
+ * One row per value a receiver can meet in the storage event for the pulse key.
+ * C8-I4 step 3 rewrites ui/account.ts's storage handler and C8-I10 deletes it,
+ * so its accountClient filter is pinned here as on BroadcastChannel: a result
+ * for another tab never reaches this tab's UI (welcome, toast or a pending
+ * protected login, see account-pulse-receivers.test.ts).
+ */
 const STORAGE_ROWS: ReadonlyArray<
   readonly [label: string, write: (storage: Storage, own: string) => void, expected: Expected]
 > = [
@@ -411,6 +425,36 @@ const STORAGE_ROWS: ReadonlyArray<
     'the completion JSON for this tab',
     (storage, own) => storage.setItem(STORAGE_KEY, JSON.stringify(success(own))),
     { ...EVERY_SESSION_READS, ui: 'welcome' },
+  ],
+  [
+    'the completion JSON for another tab',
+    (storage) => storage.setItem(STORAGE_KEY, JSON.stringify(success(ANOTHER_TAB))),
+    { ...EVERY_SESSION_READS, ui: null },
+  ],
+  [
+    'a cancellation JSON for another tab',
+    (storage) =>
+      storage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(success(ANOTHER_TAB, { accountAuth: 'cancelled' })),
+      ),
+    { ...EVERY_SESSION_READS, ui: null },
+  ],
+  [
+    'a completion JSON with an accountClient of 7 characters',
+    (storage) => storage.setItem(STORAGE_KEY, JSON.stringify(success('c'.repeat(7)))),
+    { ...EVERY_SESSION_READS, ui: null },
+  ],
+  [
+    'a completion JSON with an accountClient of 161 characters',
+    (storage) => storage.setItem(STORAGE_KEY, JSON.stringify(success('c'.repeat(161)))),
+    { ...EVERY_SESSION_READS, ui: null },
+  ],
+  [
+    'a completion JSON with a numeric accountClient',
+    (storage) =>
+      storage.setItem(STORAGE_KEY, JSON.stringify(success('', { accountClient: 12_345_678 }))),
+    { ...EVERY_SESSION_READS, ui: null },
   ],
   [
     'a session mutation JSON',
@@ -477,14 +521,17 @@ describe('C8-I4 receiver acceptance on the storage event', () => {
  * whether session.ts keeps its id or drops it to null, so these rows send the
  * same pulse on BroadcastChannel and storage: an id in range is one shared
  * login-result read in app-b, an id out of range two unidentified refreshes.
- * The events page keeps no id, so it reads once per copy that arrives after
- * its previous read settled (I4 step 4 leaves its inline check alone).
+ * The events page keeps no id and reads once per copy whatever the id; that
+ * Known gap is pinned in account-pulse-cross-document.test.ts (it changes only
+ * if Phase 2 Train D adds a dedupe), so these rows leave the events page out.
  */
-const TWO_COPY_ID_ROWS: ReadonlyArray<readonly [length: number, expected: Expected]> = [
-  [7, { appA: 2, ui: null, appB: 2, events: 2 }],
-  [8, { appA: 1, ui: 'welcome', appB: 1, events: 2 }],
-  [160, { appA: 1, ui: 'welcome', appB: 1, events: 2 }],
-  [161, { appA: 2, ui: null, appB: 2, events: 2 }],
+const TWO_COPY_ID_ROWS: ReadonlyArray<
+  readonly [length: number, expected: Omit<Expected, 'events'>]
+> = [
+  [7, { appA: 2, ui: null, appB: 2 }],
+  [8, { appA: 1, ui: 'welcome', appB: 1 }],
+  [160, { appA: 1, ui: 'welcome', appB: 1 }],
+  [161, { appA: 2, ui: null, appB: 2 }],
 ];
 
 describe('C8-I4 session id bounds over two copies', () => {
@@ -492,28 +539,71 @@ describe('C8-I4 session id bounds over two copies', () => {
     const { popup } = await signedOutOrigin();
     harness.server.account = MINSU;
     const sender = harness.loadSenderDocument('sender');
-    const before = reads(['app-a', 'app-b', 'events']);
+    const before = reads(['app-a', 'app-b']);
     const pulse = success(popup.accountClient!, { id: 'r'.repeat(length) });
 
     new sender.BroadcastChannel!(CHANNEL).postMessage(pulse);
     sender.localStorage.setItem(STORAGE_KEY, JSON.stringify(pulse));
     await harness.origin.deliverAll();
 
-    const delta = reads(['app-a', 'app-b', 'events'], before);
-    expect({
-      appA: delta['app-a'],
-      ui: uiReaction(),
-      appB: delta['app-b'],
-      events: delta.events,
-    }).toEqual(expected);
+    const delta = reads(['app-a', 'app-b'], before);
+    expect({ appA: delta['app-a'], ui: uiReaction(), appB: delta['app-b'] }).toEqual(expected);
+  });
+});
+
+/**
+ * session.ts's loginSuccess projection (accountAuth === 'success'), visible
+ * only while an external read is in flight: an identified success starts its
+ * own login-result read at once (reconcileAccountLoginResult), any other
+ * identified pulse fences the running read and queues one follow-up. app-b
+ * runs session.ts alone, so no UI receiver shares the read.
+ */
+const PROJECTION_ROWS: ReadonlyArray<
+  readonly [
+    label: string,
+    fields: Record<string, unknown>,
+    reads: { readonly whileHeld: number; readonly total: number },
+  ]
+> = [
+  ['an identified success', { accountAuth: 'success' }, { whileHeld: 2, total: 2 }],
+  ['an identified cancellation', { accountAuth: 'cancelled' }, { whileHeld: 1, total: 2 }],
+  ['an identified mutation pulse', {}, { whileHeld: 1, total: 2 }],
+];
+
+describe('C8-I4 session login-result projection', () => {
+  it.each(PROJECTION_ROWS)('%s behind an external read in flight', async (_, fields, expected) => {
+    harness.server.account = null;
+    const appB = await harness.loadSessionDocument('app-b');
+    appB.session.startAccountSessionRefresh();
+    await harness.origin.settle();
+    const channel = new (harness.loadSenderDocument('sender').BroadcastChannel!)(CHANNEL);
+    const before = reads(['app-b']);
+    harness.server.hold();
+
+    channel.postMessage({ type: 'refresh', id: 'refresh:in-flight-0001' });
+    await harness.origin.deliverAll();
+    channel.postMessage({ type: 'refresh', id: 'result:behind-0002', ...fields });
+    await harness.origin.deliverAll();
+    const whileHeld = reads(['app-b'], before)['app-b'];
+    harness.server.release();
+    await harness.origin.settle(10);
+
+    expect({ whileHeld, total: reads(['app-b'], before)['app-b'] }).toEqual(expected);
   });
 });
 
 describe('C8-I4 receiver acceptance on window messages', () => {
   it.each([
-    ['a same-origin document', 'sender', { ...EVERY_SESSION_READS, ui: 'welcome' }],
-    ['another origin', 'foreign', NONE],
-  ] as const)('accepts the completion message from %s only', async (_, from, expected) => {
+    ['a same-origin document', 'sender', 'own', { ...EVERY_SESSION_READS, ui: 'welcome' }],
+    // The account UI filters this transport by accountClient too.
+    [
+      'a same-origin document, for another tab',
+      'sender',
+      'another',
+      { ...EVERY_SESSION_READS, ui: null },
+    ],
+    ['another origin', 'foreign', 'own', NONE],
+  ] as const)('handles the completion message from %s', async (_, from, client, expected) => {
     const { popup, appB, events } = await signedOutOrigin();
     harness.server.account = MINSU;
     const sender =
@@ -521,7 +611,7 @@ describe('C8-I4 receiver acceptance on window messages', () => {
         ? harness.loadSenderDocument('sender')
         : harness.loadForeignDocument('foreign');
     const before = reads(['app-a', 'app-b', 'events']);
-    const message = success(popup.accountClient!);
+    const message = success(client === 'own' ? popup.accountClient! : ANOTHER_TAB);
 
     for (const target of [harness.origin.document('app-a'), appB.doc, events.doc]) {
       sender.windowProxy(target).postMessage(message, '*');
@@ -554,13 +644,28 @@ interface Drifts {
  * 1. app-a's login popup completes (the completion page produces);
  * 2. app-b signs out (bundled session.ts produces);
  * 3. app-a signs out (session.ts in the Vitest document produces).
+ *
+ * Mixed versions (Phase 2): tabs opened before a deploy keep the old
+ * session.ts beside new tabs and the events page, on the same channel and key.
+ * `appBSources` runs app-b from other sources for that. Label: an increment
+ * that changes session.ts (C8-I1, C8-I4, C8-I10) commits the pre-change file
+ * and points frozenAppTabSources() at it, so the frozen-sources rows below run
+ * an old app-b beside the new app-a.
  */
-async function contractMatrix(transport: Transport, drifts: Drifts = {}) {
+async function contractMatrix(
+  transport: Transport,
+  drifts: Drifts = {},
+  appBSources?: Readonly<Record<string, string>>,
+) {
   const only: FakeDocumentOptions =
     transport === 'broadcast' ? { storage: 'blocked' } : { broadcastChannel: false };
   harness.server.account = null;
   const popup = await appTabWithOpenLogin(only);
-  const appB = await harness.loadSessionDocument('app-b', { ...only, drift: drifts.appB });
+  const appB = await harness.loadSessionDocument('app-b', {
+    ...only,
+    drift: drifts.appB,
+    sources: appBSources,
+  });
   appB.session.startAccountSessionRefresh();
   await harness.loadEventsDocument('events', { ...only, drift: drifts.events });
   await harness.origin.settle();
@@ -626,11 +731,38 @@ function changedCells(actual: Matrix): string[] {
   );
 }
 
+const FROZEN_MARKER = '__mxqrPulseFrozenAppTab';
+
+/**
+ * The sources of an old app tab. Until the first increment that changes
+ * session.ts, the old copy is today's file; that increment replaces the read
+ * below with its committed pre-change copy. The marker proves app-b runs these
+ * sources rather than the live module graph.
+ */
+async function frozenAppTabSources(): Promise<Record<string, string>> {
+  const path = 'src/account/session.ts';
+  const source = await readFile(join(process.cwd(), path), 'utf8');
+  return {
+    [path]: `${source}\n(globalThis as Record<string, unknown>).${FROZEN_MARKER} = true;\n`,
+  };
+}
+
 describe('cross-document pulse contract', () => {
   it.each(['broadcast', 'storage'] as const)(
     'every copy answers every producer over %s alone',
     async (transport) => {
       expect(await contractMatrix(transport)).toEqual(CONTRACT);
+    },
+  );
+
+  it.each(['broadcast', 'storage'] as const)(
+    'app-b on frozen session.ts sources (the old tab of a mixed rollout) still meets the contract over %s alone',
+    async (transport) => {
+      const matrix = await contractMatrix(transport, {}, await frozenAppTabSources());
+
+      const appB = harness.origin.document('app-b').window as unknown as Record<string, unknown>;
+      expect(appB[FROZEN_MARKER]).toBe(true);
+      expect(matrix).toEqual(CONTRACT);
     },
   );
 

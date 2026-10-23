@@ -15,11 +15,25 @@
  *   contexts"): throws InvalidStateError when the sender is closed; a sender
  *   whose document is gone posts nothing; destinations are the other open
  *   same-name objects of the origin, the sender itself excluded but other
- *   objects in the sender's own document included; destinations are sorted in
- *   creation order; one task is queued per destination, and the task does
- *   nothing if the destination was closed before it ran. A message posted just
- *   before the sender's close() is still delivered. Each destination
- *   deserializes its own copy.
+ *   objects in the sender's own document included; one task is queued per
+ *   destination, and the task does nothing if the destination was closed
+ *   before it ran. A message posted just before the sender's close() is still
+ *   delivered. Each destination deserializes its own copy.
+ * - Destination order: the standard sorts in creation order, oldest first,
+ *   only the objects whose relevant agent is the same (every object of one
+ *   document shares one), and says this "does not define a complete ordering";
+ *   the rest is implementation-defined. Chromium's BroadcastChannelService
+ *   (content/browser/broadcast_channel/broadcast_channel_service.cc,
+ *   ReceivedMessageOnConnection) forwards to each other connection of the
+ *   (storage key, name) pair over that connection's own Mojo pipe, and WebKit's
+ *   NetworkBroadcastChannelRegistry::postMessage
+ *   (Source/WebKit/NetworkProcess) sends one asynchronous IPC per other web
+ *   process connection, so tabs in different processes run their tasks in no
+ *   guaranteed order. The fake sorts
+ *   all destinations by global creation order: within one document that is
+ *   the engine guarantee, across documents it is the fake's chosen
+ *   interleaving, so a cross-document `to` list in the log records the fake's
+ *   choice, not an engine order.
  * - Web storage ("The storage event"): setItem with an unchanged value,
  *   removeItem of an absent key and clear() of an empty area fire nothing;
  *   otherwise a `storage` event is queued for every other document sharing the

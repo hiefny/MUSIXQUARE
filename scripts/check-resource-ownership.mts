@@ -160,9 +160,12 @@ const PAGE_LOCK_ARIA_HIDDEN_BASELINE: Baseline = new Map<string, Allowance>([
 const FULLSCREEN_SINK_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/core/fullscreen.ts',
-    { count: 7, reason: 'shared prefixed exit helper (moved from src/ui/, C8-I2)' },
+    {
+      count: 3,
+      reason:
+        'the one bounded exit for the screensaver and YouTube (C8-I8; 7 to 3 when video.ts lost its resolver)',
+    },
   ],
-  ['src/player/video.ts', { count: 3, reason: 'YouTube mode exit resolver (Phase 2 merges it)' }],
   [
     'src/ui/player-controls.ts',
     { count: 4, reason: 'YouTube fullscreen toggle request (Phase 2 keeps the policy)' },

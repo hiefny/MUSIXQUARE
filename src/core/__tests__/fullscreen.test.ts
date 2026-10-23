@@ -4,7 +4,7 @@
  * the two surfaces that leave top-document fullscreen through it, the YouTube
  * player (exitYouTubeFullscreen) and the screensaver entry (release()).
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { exitYouTubeFullscreen } from '../../player/video.ts';
 import { __resetModalStackForTests, whenBackSurfaceSettled } from '../../ui/dom.ts';
 import { beginScreensaverEntry, type ScreensaverEntry } from '../../ui/screensaver-entry.ts';
@@ -20,6 +20,11 @@ const DOCUMENT_PROPERTIES = [
   'webkitIsFullScreen',
   'webkitExitFullscreen',
   'webkitCancelFullScreen',
+] as const;
+const REQUEST_PROPERTIES = [
+  'requestFullscreen',
+  'webkitRequestFullscreen',
+  'webkitRequestFullScreen',
 ] as const;
 
 let entry: ScreensaverEntry | null = null;
@@ -48,9 +53,9 @@ function stalledFullscreen(initial: Element | null = null) {
   return { exit, change };
 }
 
+/** Promise settlement and whenBackSurfaceSettled() both take a few microtask turns. */
 async function settleMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let turn = 0; turn < 8; turn++) await Promise.resolve();
 }
 
 beforeEach(() => {
@@ -71,7 +76,8 @@ afterEach(async () => {
   __resetModalStackForTests();
   clearAllManagedTimers();
   for (const property of DOCUMENT_PROPERTIES) Reflect.deleteProperty(document, property);
-  Reflect.deleteProperty(document.documentElement, 'requestFullscreen');
+  for (const property of REQUEST_PROPERTIES)
+    Reflect.deleteProperty(document.documentElement, property);
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
@@ -113,5 +119,206 @@ describe('fullscreen settlement bound (C8-I2)', () => {
     const retry = beginScreensaverEntry();
     expect(retry).not.toBeNull();
     retry?.release();
+  });
+});
+
+// ─── One bounded exit for both callers (C8-I8) ──────────────────────
+
+type Api = 'standard' | 'webkit' | 'legacy';
+
+const API_NAMES = {
+  standard: {
+    state: 'fullscreenElement',
+    exit: 'exitFullscreen',
+    request: 'requestFullscreen',
+    change: 'fullscreenchange',
+    error: 'fullscreenerror',
+  },
+  webkit: {
+    state: 'webkitFullscreenElement',
+    exit: 'webkitExitFullscreen',
+    request: 'webkitRequestFullscreen',
+    change: 'webkitfullscreenchange',
+    error: 'webkitfullscreenerror',
+  },
+  legacy: {
+    state: 'webkitCurrentFullScreenElement',
+    exit: 'webkitCancelFullScreen',
+    request: 'webkitRequestFullScreen',
+    change: 'webkitfullscreenchange',
+    error: 'webkitfullscreenerror',
+  },
+} as const;
+
+interface NativeFullscreen {
+  readonly exit: Mock<() => Promise<void> | void>;
+  change(element: Element | null): void;
+}
+
+/** One Fullscreen API flavour; standard exits stall, prefixed exits return nothing. */
+function nativeFullscreen(api: Api): NativeFullscreen {
+  const names = API_NAMES[api];
+  let current: Element | null = null;
+  const change = (element: Element | null): void => {
+    current = element;
+    document.dispatchEvent(new Event(names.change));
+  };
+  defineDocument(names.state, { get: () => current });
+  const exit = vi.fn<() => Promise<void> | void>(() =>
+    api === 'standard' ? new Promise<void>(() => {}) : undefined,
+  );
+  defineDocument(names.exit, { value: exit });
+  Object.defineProperty(document.documentElement, names.request, {
+    configurable: true,
+    value: vi.fn(() => {
+      change(document.documentElement);
+      return api === 'standard' ? Promise.resolve() : undefined;
+    }),
+  });
+  return { exit, change };
+}
+
+interface ExitCaller {
+  readonly name: string;
+  /** The element whose fullscreen this caller leaves. */
+  element(): Element;
+  /** Enters fullscreen the way the caller does, starts its exit, returns its settlement spy. */
+  start(native: NativeFullscreen): Promise<Mock<() => void>>;
+}
+
+const youtubeCaller: ExitCaller = {
+  name: 'YouTube player',
+  element: () => document.querySelector('.video-wrapper')!,
+  async start(native) {
+    setState('playback.mode', 'youtube');
+    native.change(youtubeCaller.element());
+    const settled = vi.fn<() => void>();
+    exitYouTubeFullscreen(settled);
+    await settleMicrotasks();
+    return settled;
+  },
+};
+
+const screensaverCaller: ExitCaller = {
+  name: 'screensaver entry',
+  element: () => document.documentElement,
+  async start() {
+    entry = beginScreensaverEntry();
+    expect(entry).not.toBeNull();
+    await settleMicrotasks();
+    const settled = vi.fn<() => void>();
+    entry!.release();
+    whenBackSurfaceSettled().then(settled, settled);
+    await settleMicrotasks();
+    return settled;
+  },
+};
+
+describe.each([youtubeCaller, screensaverCaller])('bounded fullscreen exit: $name', (caller) => {
+  it('settles when the native exit promise resolves, once', async () => {
+    const native = nativeFullscreen('standard');
+    let resolve!: () => void;
+    native.exit.mockImplementation(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done;
+        }),
+    );
+    const settled = await caller.start(native);
+    expect(native.exit).toHaveBeenCalledOnce();
+    expect(settled).not.toHaveBeenCalled();
+    resolve();
+    await settleMicrotasks();
+    expect(settled).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(FULLSCREEN_SETTLEMENT_MS * 2);
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it('settles on the change event that leaves fullscreen while the promise stalls', async () => {
+    const native = nativeFullscreen('standard');
+    const settled = await caller.start(native);
+    native.change(caller.element());
+    await settleMicrotasks();
+    expect(settled).not.toHaveBeenCalled();
+    native.change(null);
+    await settleMicrotasks();
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it('waits for the legacy WebKit change event after a void exit', async () => {
+    const native = nativeFullscreen('legacy');
+    const settled = await caller.start(native);
+    expect(native.exit).toHaveBeenCalledOnce();
+    expect(settled).not.toHaveBeenCalled();
+    native.change(null);
+    await settleMicrotasks();
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it('settles on pagehide and ignores a late completion after return', async () => {
+    const native = nativeFullscreen('standard');
+    let resolve!: () => void;
+    native.exit.mockImplementation(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done;
+        }),
+    );
+    const settled = await caller.start(native);
+    window.dispatchEvent(new Event('pagehide'));
+    await settleMicrotasks();
+    expect(settled).toHaveBeenCalledOnce();
+    window.dispatchEvent(new Event('pageshow'));
+    resolve();
+    native.change(null);
+    await vi.advanceTimersByTimeAsync(FULLSCREEN_SETTLEMENT_MS * 2);
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it.each(['rejects', 'throws'] as const)('settles an exit that %s', async (failure) => {
+    const native = nativeFullscreen('standard');
+    native.exit.mockImplementation(() => {
+      if (failure === 'throws') throw new Error('unsupported');
+      return Promise.reject(new Error('denied'));
+    });
+    const settled = await caller.start(native);
+    await settleMicrotasks();
+    expect(settled).toHaveBeenCalledOnce();
+  });
+
+  it("settles only on its own exit method's error at the document or the exiting element", async () => {
+    const native = nativeFullscreen('standard');
+    const settled = await caller.start(native);
+    document.body.dispatchEvent(new Event('fullscreenerror', { bubbles: true }));
+    caller.element().dispatchEvent(new Event('webkitfullscreenerror', { bubbles: true }));
+    await settleMicrotasks();
+    expect(settled).not.toHaveBeenCalled();
+    caller.element().dispatchEvent(new Event('fullscreenerror', { bubbles: true }));
+    await settleMicrotasks();
+    expect(settled).toHaveBeenCalledOnce();
+  });
+});
+
+describe('exit method when only the prefixed element is set and both exits exist', () => {
+  function bothExits(): { standard: Mock<() => Promise<void>>; native: NativeFullscreen } {
+    const native = nativeFullscreen('webkit');
+    native.exit.mockImplementation(() => native.change(null));
+    const standard = vi.fn(() => Promise.resolve());
+    defineDocument('exitFullscreen', { value: standard });
+    return { standard, native };
+  }
+
+  it('the screensaver exits through the prefixed door it entered', async () => {
+    const { standard, native } = bothExits();
+    await screensaverCaller.start(native);
+    expect(native.exit).toHaveBeenCalledOnce();
+    expect(standard).not.toHaveBeenCalled();
+  });
+
+  it('the YouTube player tries the standard exit first [C8-I8 drift pin; C8-I13 flips it]', async () => {
+    const { standard, native } = bothExits();
+    await youtubeCaller.start(native);
+    expect(standard).toHaveBeenCalledOnce();
+    expect(native.exit).not.toHaveBeenCalled();
   });
 });

@@ -1245,19 +1245,25 @@ RO-46 accepted-exception
 ### RO-26 Top-document fullscreen state
 
 - **Resource:** `document.fullscreenElement` (and prefixed variants), with its request and exit.
-- **Current owners/flows:** the screensaver entry (`src/ui/screensaver-entry.ts`: entry lock,
-  request and exit generations, 1.5 s settlement); the YouTube exit (`src/player/video.ts`,
-  `pendingFullscreenExit`); the YouTube toggle (`src/ui/player-controls.ts`: native request, fake
-  fullscreen, a 100 ms WebKit check). `getFullscreenElement` in `src/core/fullscreen.ts` (moved
-  from `src/ui/` in Phase 2, C8-I2) is the one prefixed-element reader for all three (C8-I5);
-  exit-method resolvers exist in `src/core/fullscreen.ts` and `video.ts`. Only playback mode
-  separates the owners; read from the code (not reproduced), a YouTube toggle tapped while a
-  screensaver exit is in flight issues a second exit instead of entering.
+- **Current owners/flows:** `exitFullscreenFor` in `src/core/fullscreen.ts` (moved from `src/ui/`
+  in Phase 2, C8-I2) is the one bounded exit (C8-I8): it owns the change, error and pagehide
+  listeners, promise and void-return handling, the native 1.5 s bound, observer isolation and
+  error matching (only an error of the exit method's own type at the document or the exiting
+  element settles it), with one in-flight exit per owner that a second exit for the same element
+  joins. Its callers: the screensaver entry (`src/ui/screensaver-entry.ts`: entry lock, request
+  generation and bound, exit through the matching method) and the YouTube exit
+  (`src/player/video.ts`: ownership heuristic, fake-fullscreen teardown, standard exit first).
+  The YouTube toggle (`src/ui/player-controls.ts`) keeps its native request, fake fullscreen and
+  100 ms WebKit check. `getFullscreenElement` is the one prefixed-element reader for all of them
+  (C8-I5). Only playback mode separates the owners; read from the code (not reproduced), a
+  YouTube toggle tapped while a screensaver exit is in flight issues a second exit instead of
+  entering.
 - **Target single owner:** `src/core/fullscreen.ts` with one bounded-exit primitive; callers keep
   their request policy.
 - **Allowed requesters:** the screensaver, the YouTube toggle and mode exit, Back.
 - **Lifecycle operations:** request, exit, settle.
-- **Deadline owner:** each writer's 1.5 s settlement, always on a native timer: leaving a room
+- **Deadline owner:** `exitFullscreenFor` for every exit and the screensaver entry for its
+  request, each a 1.5 s settlement, always on a native timer: leaving a room
   clears every managed timer (`leaveSession` in `src/network/peer.ts`), which stranded a silent
   WebKit screensaver request until Phase 2 (C8-I6, `screensaver.test.ts` "bounds a silent WebKit
   request on a native timer that leaving a room cannot clear").
@@ -1272,10 +1278,13 @@ RO-46 accepted-exception
   - Teardown: `video.test.ts` "exits native fullscreen before parking the YouTube wrapper".
   - Visibility: `src/ui/__tests__/screensaver-entry-back.test.ts` "releases the pending surface on
     pagehide and ignores late completion".
+  - Both callers: `src/core/__tests__/fullscreen.test.ts` "bounded fullscreen exit" runs the
+    promise, change event, legacy WebKit event, pagehide, failed exit and error-matching cases for
+    the screensaver and the YouTube player alike.
   - Missing: a YouTube toggle during an in-flight screensaver exit.
-- **Status:** `duplicated`. Phase 2: shared helper and constants (done, C8-I2), one prefixed
-  reader, one bounded exit. See [Screensaver integration](screensaver-integration-2026-10-16.md).
-  Exception RO-38.
+- **Status:** `duplicated`. Phase 2: shared helper and constants (C8-I2), one prefixed reader
+  (C8-I5) and one bounded exit (C8-I8) are done; one shared in-flight slot remains. See
+  [Screensaver integration](screensaver-integration-2026-10-16.md). Exception RO-38.
 
 ### RO-27 Playlist rows and scroll position
 

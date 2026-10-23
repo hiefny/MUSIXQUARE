@@ -355,8 +355,11 @@ function createTab(activeVersion: string): Tab {
           target.removeEventListener(type, listener, options);
         }
         // Its timers (the reset's paint and commit deadline, the hard reset's
-        // activation wait) die with it.
+        // activation wait) die with it. Clearing them also rewinds the fake
+        // clock to its start, so the time is put back.
+        const now = Date.now();
         vi.clearAllTimers();
+        vi.setSystemTime(now);
         document.body.innerHTML = '';
         document.documentElement.className = '';
       };
@@ -1465,5 +1468,80 @@ describe('update machine transition table on the real navigation owner (C6-9 inc
     tab = createTab('v493');
     await row.run(tab);
     expect(observe(tab)).toEqual(row.effects);
+  });
+});
+
+/**
+ * C6-9 increment 2: the stalled-Apply-then-logo reproduction, recorded as
+ * today's behaviour so that C6-10 (owner decision P3-10 A, "absorb an
+ * already-approved late activation, only if reproduced first") has its
+ * failing-first input. Apply sends SKIP_WAITING and the activation stalls (as
+ * Chromium's did for 43-66 s while a page was loading, 2026-10-17); the logo
+ * reset sends a second SKIP_WAITING, waits its 1.5 s and navigates home, which
+ * commits; the new home document opens under the old controller with the
+ * worker still waiting, and the late activation then reaches it. Nothing here
+ * changes behaviour.
+ */
+describe('a stalled Apply, then the logo reset (C6-9 increment 2: the C6-10 / P3-10 input)', () => {
+  /** Apply in an idle page, a stalled activation, then the logo reset home, which commits. */
+  async function stallApplyThenLogoHome(): Promise<Tab> {
+    const stalled = createTab('v493');
+    tab = stalled;
+    const page = await stalled.open({ app: OUTSIDE });
+    stalled.install('v494');
+    await at(PROMPT_MS);
+    dialog(0).answer('ok');
+    await at(3_000);
+    page.logoReset();
+    await at(3_000 + PAINT_MS + 1_500);
+    expect(stalled.navigations()).toEqual(['doc1 replace /']);
+    expect(stalled.skipWaiting).toEqual(['doc1 → v494', 'doc1 → v494']);
+    page.pagehide();
+    return stalled;
+  }
+
+  it('within the 30 s cooldown, the new document promotes the worker again and reloads itself when the late activation lands [flips: C6-10, owner decision P3-10 A]', async () => {
+    const stalled = await stallApplyThenLogoHome();
+    await stalled.open({ app: OUTSIDE, navigation: 'navigate' });
+    await at(6_000);
+    stalled.activate();
+    await at(6_000 + PAINT_MS);
+
+    // Today: three SKIP_WAITING sends for one Apply, and the new home document
+    // reloads once more: the double navigation.
+    expect(observe(stalled)).toEqual({
+      skipWaiting: ['doc1 → v494', 'doc1 → v494', 'doc2 → v494'],
+      navigations: ['doc1 replace /', 'doc2 reload'],
+      dialogs: [`doc1 ${MSG_APPLY}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+6000',
+        'sw-controller-confirmed-at': 't+6000',
+      },
+    });
+  });
+
+  it('after the cooldown, the new document asks about the approved update again, and its answer reloads it once the late activation has landed [flips: C6-10, owner decision P3-10 A]', async () => {
+    const stalled = await stallApplyThenLogoHome();
+    await at(40_000);
+    await stalled.open({ app: OUTSIDE, navigation: 'navigate' });
+    // The startup prompt waits for the page's loads to go quiet (1 s).
+    await at(40_000 + 1_000 + PROMPT_MS);
+    expect(mocks.dialogs).toHaveLength(2);
+    stalled.activate();
+    await at(42_000);
+    dialog(1).answer('ok');
+    await at(42_000 + PAINT_MS);
+
+    expect(observe(stalled)).toEqual({
+      skipWaiting: ['doc1 → v494', 'doc1 → v494'],
+      navigations: ['doc1 replace /', 'doc2 reload'],
+      dialogs: [`doc1 ${MSG_APPLY}`, `doc2 ${MSG_APPLY}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+42000',
+        'sw-controller-confirmed-at': 't+42000',
+      },
+    });
   });
 });

@@ -1233,6 +1233,55 @@ describe('PRO room setup flow', () => {
     });
   });
 
+  it('today: asks the new owner for a PIN and sends nothing when the prompt is cancelled', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'secondary' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'pro.transfer_title',
+        message: 'pro.transfer_message',
+        inputField: expect.objectContaining({ autocomplete: 'new-password' }),
+      }),
+    );
+    expect(mocks.transferOwner).not.toHaveBeenCalled();
+  });
+
+  it('today: answers a refused reused PIN with the generic new-link failure', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+    // The claim is still unused, yet the App tells the user to ask for a new link.
+    mocks.transferOwner.mockRejectedValue(new ProRoomApiError('OWNER_TRANSFER_PIN_REUSE', 409));
+    mocks.showDialog
+      .mockResolvedValueOnce({ action: 'ok', inputValue: '12345678' })
+      .mockResolvedValueOnce({ action: 'ok' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
+
+    expect(mocks.transferOwner).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenLastCalledWith({
+      title: 'pro.claim_failed_title',
+      message: 'pro.claim_failed_message',
+      buttonText: 'common.ok',
+    });
+  });
+
   it.each(['OWNER_TRANSFER_CLAIM_EXPIRED', 'OWNER_TRANSFER_CLAIM_USED'])(
     'treats %s as terminal without retrying it',
     async (errorCode) => {

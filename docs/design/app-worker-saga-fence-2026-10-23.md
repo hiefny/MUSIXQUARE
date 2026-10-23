@@ -24,7 +24,7 @@ API 권한 펜스) 정리의 첫 단계다.
 
 ## 바뀐 것
 
-- **테스트 먼저(바꾸지 않은 Worker에서 통과, `50b3b187`).**
+- **테스트 먼저(바꾸지 않은 Worker에서 통과, `c74f2477`).**
   - 사가 fixture를 `src/core/__tests__/helpers/owner-transfer-saga-fixture.ts`로 옮겨 펜스
     테스트도 같은 실제 Worker로 쓰는 곳을 몰 수 있게 했다. 실제 객체로 만들 수 없는 방(레거시
     중복 방장의 두 번째 방)은 `stubAdminRoom`으로 상태 응답만 대신한다.
@@ -44,7 +44,7 @@ API 권한 펜스) 정리의 첫 단계다.
     이 파일이 App Worker를 불러오므로 Worker 커버리지 설정(`vitest.workers.config.ts`)에
     넣었다.
   - `app-worker-cors.test.ts`: 해체 정리의 취소가 사가 식별 정보와 회차 시각을 바인딩한다.
-- **C7-8 (`4d8f7f64`).**
+- **C7-8 (`3582f7b4`).**
   - `ownerTransferEntitlementInput(saga, nowMs?)`가 권리 식별 정보를 만든다. 크론의 클로저,
     요청의 리터럴 네 개(예약, 취소, 확정 두 곳), 해체 정리의 리터럴을 바꿨다. 크론은 회차
     시각을, 요청은 시각 없이 넘겨 바인딩 값이 같다.
@@ -55,7 +55,7 @@ API 권한 펜스) 정리의 첫 단계다.
     - 크론, 최종 재확인: 삭제 정리, 감사 없음.
     - 요청: 삭제 정리, 종료 전진 뒤 감사, 실패 시 `reconcile_required`.
   - 크론 쪽 감사와 전진의 예외는 예전처럼 회차로 올라가고, 요청 쪽은 예전처럼 잡는다.
-- **C7-11 (`5eb8d1e8`).**
+- **C7-11 (`d44a5fd5`).**
   - `revokeDeveloperApiKeysForAuthorityChange`가 위치 인자 대신 `AuthorityFenceWrite`
     (`{source, reason, fenceDigest, expected}`)를 받는다. `source`가 펜스 사유와 키 폐기 감사
     주체를 정한다(`AUTHORITY_FENCE_WRITERS`). 계정 삭제는 `expected`에 읽어 둔 다이제스트나
@@ -103,7 +103,7 @@ App 버전, SW 캐시와 버전 표기도 그대로다(Worker만 바뀌는 변�
 
 ## 검증과 한계
 
-- 테스트 먼저: 테스트 커밋(`50b3b187`)은 바꾸지 않은 Worker에서 통과했다(사가 42개, 펜스 9개,
+- 테스트 먼저: 테스트 커밋(`c74f2477`)은 바꾸지 않은 Worker에서 통과했다(사가 42개, 펜스 9개,
   `app-worker-cors` 280개).
 - 실패 확인: 테스트 커밋만 둔 채 옛 코드를 바꿔 봤다.
   - 크론 최종 재확인이 거절된 삭제 정리를 무시하면 새 고정 1개가 실패했다("cron at the final

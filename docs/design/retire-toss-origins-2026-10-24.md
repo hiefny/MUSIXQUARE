@@ -84,5 +84,18 @@ PR보다 먼저 배포하거나 그 앱 묶음과 함께 나간다. 매일 Drift
 - 새 거부 검사가 옛 코드를 잡는지: Worker 코드·R2 CORS·Wrangler 설정만 `08003954`로 되돌리고 새 테스트를
   돌리면 7건이 실패한다(App CORS 1, Turnstile 호스트 2, 시그널링 WebSocket 2, remote-share CORS·Wrangler 2).
   새 코드에서는 모두 통과한다.
-- 로컬 전체 검사(`3e058623`): 아래 결과 표.
+- 로컬 전체 검사(코드 `3e058623`, 일부는 문서 커밋만 더한 `2e8ee073`에서), 모두 통과:
+
+  | 검사                                                  | 결과                                                     |
+  | ----------------------------------------------------- | -------------------------------------------------------- |
+  | `npm run typecheck`(테스트·Worker 타입 포함)          | 통과                                                     |
+  | `npm run lint`, `npm run format:check`                | 통과                                                     |
+  | 단위 `vitest run --maxWorkers=6`                      | 642 files / 14,666 pass                                  |
+  | Worker `vitest run --config vitest.workers.config.ts` | 60 files / 2,867 pass                                    |
+  | `npm run check:workers`                               | 통과                                                     |
+  | `node scripts/check-resource-ownership.mts`           | 통과(기준선 변화 없음)                                   |
+  | `npm run build:checked`                               | 통과. `guard:sw-cache-version`은 v772(`d6ac67f3`)로 PASS |
+
+  브라우저 앱이 바뀌지 않아 e2e·브라우저 검사는 돌리지 않았다. Skip 없음.
+
 - 운영 smoke는 배포 때 처음 운영 Worker에 닿는다. 로컬에서는 가짜 응답으로 판정 함수만 확인했다.

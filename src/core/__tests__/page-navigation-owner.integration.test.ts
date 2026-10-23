@@ -36,6 +36,11 @@
  *   flip would change.
  * - "[flipped: release]": a release already changed the design's original
  *   pin; the test records the current state so the old one is not restored.
+ * - "[replaced by X: C6-n]": increment n replaces the requester shape the test
+ *   drives with X; it rewrites the test on X and keeps the outcome.
+ * Pins read the unload exemption at its boundary, a dispatched beforeunload
+ * (`beforeunloadPrompts`), not page-lifecycle's internal flag, so C6-7's
+ * claims keep every pin except the ones it flips.
  * Increments: C6-4 owner state and settle, C6-5 reload queue into the owner,
  * C6-6 one page-transition dispatch, C6-7 unload-exemption claims, C6-8
  * prepare/navigate split, C6-10 hard reset asks the update machine, C6-11
@@ -53,16 +58,23 @@
  * the real-bfcache paths have only these jsdom pins and device checks. The
  * update machine (sw-register.ts) is pinned against the real reset in
  * sw-register-recovery.integration.test.ts; account.ts's own anchor and
- * 10-minute TTL in account.test.ts.
+ * 10-minute TTL in account.test.ts. C6-3's return-to-room-start and home
+ * intents (the /CODE `location.href` push, the mxqr_reconnect_target marker,
+ * each call site's invalid-code fallback, push versus replace) are pinned in
+ * the requester suites (setup-network-error.test.ts,
+ * setup-guest-recovery.test.ts, the sw-register.test.ts room cases) and in
+ * C6-3's own tests-first; the harness records 'href' and 'assign' sinks, but
+ * no test here drives them.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   capturePendingClaimReloadGuard,
   registerPendingClaimReloadPreparation,
 } from '../document-reload.ts';
-import { isIntentionalNav, markIntentionalNav } from '../page-lifecycle.ts';
+import { markIntentionalNav } from '../page-lifecycle.ts';
 import {
   isSessionResetPending,
+  restoreSessionReset,
   scheduleDocumentReload,
   scheduleSessionReset,
 } from '../session-reset.ts';
@@ -293,10 +305,10 @@ describe('settlement of one reset attempt', () => {
     const s = boot({ app: IN_ROOM });
     const seen: string[] = [];
     const snapshot = (where: string) =>
-      `${where}: pending=${isSessionResetPending()} overlayHidden=${overlay().hidden} exempt=${isIntentionalNav()}`;
+      `${where}: pending=${isSessionResetPending()} overlayHidden=${overlay().hidden} prompts=${s.beforeunloadPrompts()}`;
     const handle = scheduleSessionReset(MSG_LEAVING, vi.fn());
     await advance(PAINT_MS);
-    expect(isIntentionalNav()).toBe(true);
+    expect(s.beforeunloadPrompts()).toBe(false);
     const unsubscribe = onOverlayStackChange(() => seen.push(snapshot('overlay stack')));
     s.addCleanup(unsubscribe);
     handle?.onRecovered(() => seen.push(snapshot('recovered')));
@@ -311,8 +323,8 @@ describe('settlement of one reset attempt', () => {
     // window release, so the Back guard re-arms there, which is C6-12's
     // intended change to pin (h); C6-4 and C6-12 ship together.
     expect(seen).toEqual([
-      'overlay stack: pending=true overlayHidden=false exempt=true',
-      'recovered: pending=false overlayHidden=true exempt=false',
+      'overlay stack: pending=true overlayHidden=false prompts=false',
+      'recovered: pending=false overlayHidden=true prompts=true',
     ]);
 
     // A subscriber added after settlement hears of it at once.
@@ -333,7 +345,10 @@ describe('settlement of one reset attempt', () => {
           ]),
         );
 
-  /** Today's rule, written out: pagehide commits; a return or the deadline restores. */
+  /**
+   * Today's rule, written out: pagehide commits, and the departure's own
+   * visibilitychange(hidden) restores nothing; a return or the deadline restores.
+   */
   function expectedRecovery(order: readonly SettleEvent[]): boolean {
     let committed = false;
     for (const event of order) {
@@ -347,8 +362,12 @@ describe('settlement of one reset attempt', () => {
   // A partial pin of the C6-4 sequence test. It starts only after the action
   // has run and uses non-persisted page transitions; a pageshow after pagehide
   // that is not persisted does not reach a loaded document in a real engine.
-  // C6-4 still owes the full sequence: persisted pagehide and pageshow, and the
-  // orders against the paint frames and the 120 ms fallback before the action.
+  // 'pagehide' is a whole departure in the platform order (pagehide, then
+  // visibilitychange(hidden)); 'visible' makes the document visible again.
+  // C6-4 still owes the full sequence: persisted pagehide and pageshow, the
+  // orders against the paint frames and the 120 ms fallback before the action,
+  // and the explicit restore from inside the action (pinned below as the
+  // runtime.ts shape).
   it.each(
     (['reset', 'reload'] as const).flatMap((kind) =>
       permutations(EVENTS).map((order) => [kind, order.join(' > '), order] as const),
@@ -365,9 +384,9 @@ describe('settlement of one reset attempt', () => {
 
       for (const event of order) {
         // A non-persisted pageshow keeps page-lifecycle's bfcache branch out.
-        if (event === 'pagehide') s.pagehide(false);
+        if (event === 'pagehide') s.leaveDocument(false);
         else if (event === 'pageshow') s.pageshow(false);
-        else if (event === 'visible') document.dispatchEvent(new Event('visibilitychange'));
+        else if (event === 'visible') setVisibility('visible');
         else await advance(COMMIT_DEADLINE_MS);
       }
       await advance(10_000);
@@ -377,6 +396,107 @@ describe('settlement of one reset attempt', () => {
       expect(isSessionResetPending()).toBe(!recovers);
     },
   );
+});
+
+describe('the explicit restore: an action that restores its own reset', () => {
+  // The pro-room/runtime.ts:3000-3006 and :3026-3033 shape: the action checks
+  // that the terminal recovery owner is still current and, when it is not,
+  // calls restoreSessionReset() itself instead of navigating. C6-4 routes this
+  // explicit restore through settle(); it must stay the attempt's only settle,
+  // with no navigating phase or second settle after the action returns. C6-8
+  // replaces the shape with isCurrent(), where false at navigate restores the
+  // page once.
+  function scheduleOwnerCheckedReset(ownerIsCurrent: boolean, events: string[]): void {
+    scheduleSessionReset(MSG_LEAVING, () => {
+      if (!ownerIsCurrent) {
+        restoreSessionReset();
+        events.push('action returned');
+        return;
+      }
+      navigateToAppHome();
+    })?.onRecovered(() => events.push(`recovered: pending=${isSessionResetPending()}`));
+  }
+
+  it('settles once inside the action when the owner is stale, navigates nowhere, and accepts a later request [keeps: C6-4] [replaced by isCurrent: C6-8]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const events: string[] = [];
+    scheduleOwnerCheckedReset(false, events);
+    expect(isSessionResetPending()).toBe(true);
+
+    await advance(PAINT_MS);
+
+    expect(events).toEqual(['recovered: pending=false', 'action returned']);
+    expect(isSessionResetPending()).toBe(false);
+    expect(overlay().hidden).toBe(true);
+    expect(s.element('tab-play').inert).toBe(false);
+    expect(s.beforeunloadPrompts()).toBe(true);
+
+    // runOnce still arms the commit deadline after the action returns
+    // (session-reset.ts:297-301); its _activeAttempt check makes it a no-op.
+    await advance(COMMIT_DEADLINE_MS + 10_000);
+    expect(events).toHaveLength(2);
+    expect(isSessionResetPending()).toBe(false);
+    expect(s.sinks.calls).toEqual([]);
+
+    scheduleDocumentReload(MSG_REFRESHING);
+    expect(isSessionResetPending()).toBe(true);
+    await advance(PAINT_MS);
+    expect(s.sinks.count('reload')).toBe(1);
+  });
+
+  it("does not let the stale attempt's commit deadline settle a reset accepted right after it [keeps: C6-4] [replaced by isCurrent: C6-8]", async () => {
+    const s = boot({ app: IN_ROOM });
+    scheduleOwnerCheckedReset(false, []);
+    await advance(PAINT_MS);
+    const successorRecovered = vi.fn();
+    scheduleSessionReset('Successor', () => navigateToAppHome())?.onRecovered(successorRecovered);
+    expect(isSessionResetPending()).toBe(true);
+
+    // The stale deadline falls 2 s after the stale action; the successor's
+    // falls one paint later.
+    await advance(COMMIT_DEADLINE_MS + 1);
+    expect(isSessionResetPending()).toBe(true);
+    expect(successorRecovered).not.toHaveBeenCalled();
+    expect(s.sinks.count('replace')).toBe(1);
+
+    await advance(PAINT_MS);
+    expect(successorRecovered).toHaveBeenCalledOnce();
+    expect(isSessionResetPending()).toBe(false);
+  });
+
+  it('navigates home when the owner is still current and holds the page once the departure commits [keeps: C6-4] [replaced by isCurrent: C6-8]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const events: string[] = [];
+    scheduleOwnerCheckedReset(true, events);
+
+    await advance(PAINT_MS);
+    expect(s.sinks.calls).toEqual([expect.objectContaining({ op: 'replace', url: '/' })]);
+    expect(isSessionResetPending()).toBe(true);
+    expect(s.beforeunloadPrompts()).toBe(false);
+
+    s.leaveDocument(false);
+    await advance(COMMIT_DEADLINE_MS + 10_000);
+    expect(isSessionResetPending()).toBe(true);
+    expect(events).toEqual([]);
+  });
+
+  // A variant of (h): Back absorbed while the reset is pending.
+  it('leaves the Back guard unarmed when Back was absorbed before a stale owner restored the reset [flips: C6-12, owner reversal]', async () => {
+    const s = boot({ app: IN_ROOM });
+    await advance(GUARD_ARM_MS);
+    expect(s.history.marker()).toBe('guard');
+    scheduleOwnerCheckedReset(false, []);
+    s.history.pressBack();
+    expect(s.history.marker()).toBe('base');
+    expect(s.leaveConfirmation.requests).toBe(0);
+
+    await advance(PAINT_MS + GUARD_ARM_MS + 1_000);
+    expect(isSessionResetPending()).toBe(false);
+    // Flips in C6-12: the guard re-arms when the navigation settles, so the
+    // marker is 'guard' and a second push is recorded.
+    expect(s.history.marker()).toBe('base');
+    expect(s.history.pushes).toHaveLength(1);
+  });
 });
 
 describe('the failed exit: the navigation action throws', () => {
@@ -398,7 +518,7 @@ describe('the failed exit: the navigation action throws', () => {
     });
     const settled: string[] = [];
     scheduleDocumentReload('First', () =>
-      settled.push(`first: pending=${isSessionResetPending()} exempt=${isIntentionalNav()}`),
+      settled.push(`first: pending=${isSessionResetPending()} prompts=${s.beforeunloadPrompts()}`),
     );
     scheduleDocumentReload('Second', () =>
       settled.push(`second: pending=${isSessionResetPending()}`),
@@ -406,7 +526,7 @@ describe('the failed exit: the navigation action throws', () => {
 
     await advance(PAINT_MS);
 
-    expect(settled).toEqual(['second: pending=true', 'first: pending=false exempt=false']);
+    expect(settled).toEqual(['second: pending=true', 'first: pending=false prompts=true']);
     expect(s.sinks.reload).toHaveBeenCalledOnce();
     expect(isSessionResetPending()).toBe(false);
     expect(overlay().hidden).toBe(true);
@@ -434,7 +554,7 @@ describe('the failed exit: the navigation action throws', () => {
     expect(s.sinks.reload).not.toHaveBeenCalled();
     expect(recovered).toHaveBeenCalledOnce();
     expect(isSessionResetPending()).toBe(false);
-    expect(isIntentionalNav()).toBe(false);
+    expect(s.beforeunloadPrompts()).toBe(true);
     expect(location.hash).toBe('#stray');
     expect(s.console.error).toHaveBeenCalledWith(
       ACTION_FAILED,
@@ -453,14 +573,14 @@ describe('the failed exit: the navigation action throws', () => {
   it('settles a direct reset once when its action throws, with the exemption cleared [keeps: C6-4]', async () => {
     const s = boot({ app: IN_ROOM });
     const failure = new Error('leave failed');
-    const exemptWhenSettled: boolean[] = [];
+    const promptsWhenSettled: boolean[] = [];
     scheduleSessionReset(MSG_LEAVING, () => {
       throw failure;
-    })?.onRecovered(() => exemptWhenSettled.push(isIntentionalNav()));
+    })?.onRecovered(() => promptsWhenSettled.push(s.beforeunloadPrompts()));
 
     await advance(PAINT_MS);
 
-    expect(exemptWhenSettled).toEqual([false]);
+    expect(promptsWhenSettled).toEqual([true]);
     expect(isSessionResetPending()).toBe(false);
     expect(overlay().hidden).toBe(true);
     expect(s.beforeunloadPrompts()).toBe(true);
@@ -471,7 +591,7 @@ describe('the failed exit: the navigation action throws', () => {
     s.pageshow(false);
     document.dispatchEvent(new Event('visibilitychange'));
     await advance(COMMIT_DEADLINE_MS + 10_000);
-    expect(exemptWhenSettled).toEqual([false]);
+    expect(promptsWhenSettled).toEqual([true]);
   });
 });
 
@@ -493,8 +613,8 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     expect(s.resetMessage()).toBe(MSG_REFRESHING);
     // The pre-mark at page-lifecycle.ts:201, before the fresh reload's action.
     // Flips in C6-7: the pre-mark is deleted, so the page asks to confirm an
-    // unload until the action starts (beforeunloadPrompts() is true here).
-    expect(isIntentionalNav()).toBe(true);
+    // unload until the action starts (true here).
+    expect(s.beforeunloadPrompts()).toBe(false);
     await advance(PAINT_MS);
     expect(s.beforeunloadPrompts()).toBe(false);
     expect(s.sinks.count('reload')).toBe(2);
@@ -508,19 +628,21 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     expect(isSessionResetPending()).toBe(false);
     expect(overlay().hidden).toBe(true);
     expect(s.element('tab-play').inert).toBe(false);
-    expect(isIntentionalNav()).toBe(false);
     expect(s.beforeunloadPrompts()).toBe(true);
     expect(s.lifecycleLog).toHaveBeenLastCalledWith(
       '[PageLifecycle] bfcache reload returned; keeping recovered shell visible',
     );
   });
 
-  // Engines differ on whether visibilitychange(visible) or pageshow(persisted)
-  // comes first on a cache restore. The reset's capture-phase visibility
-  // listener (session-reset.ts:279) restores first when visibility leads, and
+  // The return order is not settled across engines and devices (see the
+  // harness: current Chromium and WebKit sources lead with visibility; real
+  // iOS is a device check). The reset's capture-phase visibility listener
+  // (session-reset.ts:279) restores first when visibility leads, and
   // page-lifecycle then sees no pending reset (page-lifecycle.ts:169-170).
   // A flip in C6-6 would come from one handler deciding on "pending at
   // return": the visible-first row outside a room would then reload too.
+  // The departure itself settles nothing: pagehide commits the reset and the
+  // visibilitychange(hidden) after it restores nothing.
   it.each([
     ['pageshow-first', 'outside a room', 1, OUTSIDE_ROOM, true],
     ['visible-first', 'outside a room', 0, OUTSIDE_ROOM, false],
@@ -534,6 +656,8 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
       await advance(PAINT_MS);
       expect(s.sinks.count('replace')).toBe(1);
       s.leaveDocument(true);
+      expect(isSessionResetPending()).toBe(true);
+      expect(overlay().hidden).toBe(false);
 
       s.returnFromBfcache(order);
 
@@ -671,7 +795,12 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     expect(s.resetMessage()).toBe(MSG_REFRESHING);
     await advance(PAINT_MS + LEAVE_FALLBACK_MS);
     expect(s.sinks.count('reload')).toBe(1);
-    // pagehide cancelled the leave's 1 s fallback (back-button-history.ts:109).
+    // The leave's 1 s fallback never runs: the reset's onRecovered wiring (the
+    // app.ts:965-968 copy, backHistory.cancelLeave()) cancelled it when
+    // page-lifecycle restored the pending reset on return. The leave's own
+    // pagehide cancel (back-button-history.ts:109) also ran, but this pin
+    // cannot tell the two apart; back-button-history.test.ts pins it ("does
+    // not resume a leave after bfcache pagehide and pageshow").
     expect(s.sinks.count('replace')).toBe(0);
   });
 });
@@ -800,6 +929,59 @@ describe('(f) the logo hard reset inside the commit deadline', () => {
     expect(s.sinks.count('replace')).toBe(0);
     expect(sessionStorage.getItem('mxqr-swu')).toBe('Update applied');
     expect(isSessionResetPending()).toBe(false);
+  });
+
+  // player-controls.test.ts:628 pins this latch with a mocked owner; C6-8
+  // retires that test and its resetCurrent.
+  it('posts no SKIP_WAITING and navigates nowhere when the chunk lands after the 2 s deadline [flips: C6-8]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const sw = installServiceWorkerFake();
+    s.addCleanup(() => sw.restore());
+    const lateMs = 500;
+
+    s.logoHardReset({ importDelayMs: COMMIT_DEADLINE_MS + lateMs });
+    await advance(PAINT_MS + COMMIT_DEADLINE_MS);
+    expect(isSessionResetPending()).toBe(false);
+    expect(overlay().hidden).toBe(true);
+
+    // The chunk lands after the recovery, and the latch skips both steps.
+    await advance(lateMs + HARD_RESET_ACTIVATION_MS + 10_000);
+    // Flips in C6-8: the deadline starts at navigate and the bounded prepare
+    // navigates anyway, so the logo reaches home once. Whether a chunk that
+    // lands after that posts SKIP_WAITING is C6-8's abort signal and C6-10's
+    // single promotion (no duplicate SKIP_WAITING).
+    expect(s.sinks.calls).toEqual([]);
+    expect(sw.getRegistration).not.toHaveBeenCalled();
+    expect(sw.waiting.postMessage).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('mxqr-swu')).toBeNull();
+  });
+
+  it('drops the hard reset and the navigation when the page returns from the cache during the chunk load [keeps: C6-8]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const sw = installServiceWorkerFake();
+    s.addCleanup(() => sw.restore());
+    const importDelayMs = 600;
+
+    s.logoHardReset({ importDelayMs });
+    await advance(PAINT_MS);
+    // Another navigation wins during the chunk load and the page returns.
+    s.leaveDocument(true);
+    s.returnFromBfcache('pageshow-first');
+    // page-lifecycle restored the logo's reset, which recovers the logo
+    // action, and now owns one fresh reload.
+    expect(s.resetMessage()).toBe(MSG_REFRESHING);
+
+    // The chunk lands while that fresh reload is pending; the stale logo
+    // action neither promotes the worker nor navigates under it.
+    await advance(importDelayMs);
+    expect(isSessionResetPending()).toBe(true);
+    expect(s.sinks.calls).toEqual([expect.objectContaining({ op: 'reload' })]);
+    await advance(HARD_RESET_ACTIVATION_MS + COMMIT_DEADLINE_MS);
+    expect(sw.getRegistration).not.toHaveBeenCalled();
+    expect(sw.waiting.postMessage).not.toHaveBeenCalled();
+    expect(s.sinks.count('replace')).toBe(0);
+    expect(s.sinks.count('reload')).toBe(1);
+    expect(sessionStorage.getItem('mxqr-swu')).toBeNull();
   });
 });
 

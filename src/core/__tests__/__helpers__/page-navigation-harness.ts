@@ -24,10 +24,11 @@
  * That wiring, and the logo action in `logoHardReset`
  * (player-controls.ts:1086-1101), are copies: app.ts bootstrap and the logo
  * handler cannot run in isolation. page-navigation-harness-parity.test.ts pins
- * each copied line and the init order to the source. An increment that changes
- * them (C6-6 the page-transition dispatch and its init position, C6-8 the logo
- * action, C6-12 the guard subscriptions) updates the copy here in the same
- * change, then that parity pin.
+ * the copied guard function, PageLifecycle block and logo action whole, and
+ * the init order as a subsequence. An increment that changes them (C6-6 the
+ * page-transition dispatch and its init position, C6-8 the logo action, C6-12
+ * the guard subscriptions) updates the copy here in the same change, then that
+ * parity pin.
  *
  * One module instance serves the whole test file. ui/dom.ts installs permanent
  * capture listeners on `document` once per module instance (the legacy inert
@@ -362,12 +363,34 @@ export function enterFullscreen(element: Element): FullscreenFake {
 }
 
 // ─── Page transitions and visibility ────────────────────────────────
-// jsdom dispatches whatever order a test chooses. Engines differ in whether
-// visibilitychange(visible) or pageshow(persisted) comes first on a
-// back-forward cache restore, so tests that care name the order.
-// 'pageshow-only' makes the document visible without a visibilitychange
-// event: it isolates the pageshow listeners, whose order the later visibility
-// resume would otherwise mask.
+// jsdom dispatches whatever order a test chooses.
+//
+// A departure is pagehide first, then visibilitychange(hidden), and only when
+// the document was visible. Checked against:
+// - the HTML standard, "unload a document"
+//   (https://html.spec.whatwg.org/multipage/document-lifecycle.html#unload-a-document):
+//   while page showing is true, fire pagehide, then update the visibility
+//   state to "hidden" (sub-steps 2 and 3 of step 10 in the 2026-10 text);
+//   updating to an unchanged state fires nothing;
+// - Chromium, third_party/blink/renderer/core/dom/document.cc
+//   Document::DispatchUnloadEvents: pagehide, then, only if the page was
+//   visible, visibilitychange under kUnloadVisibilityChangeInProgress; for the
+//   back-forward cache, core/exported/web_view_impl.cc
+//   WebViewImpl::SetPageLifecycleStateInternal: DispatchPagehide in
+//   `if (dispatching_pagehide)` before SetVisibilityState in `if (hiding_page)`;
+// - WebKit, Source/WebCore/loader/FrameLoader.cpp
+//   FrameLoader::dispatchUnloadEvents: dispatchPagehideEvent, then
+//   setVisibilityHiddenDueToDismissal(true), which fires visibilitychange.
+//
+// The fake does not fix one return order. Current sources make the document
+// visible before pageshow(persisted): Chromium's SetPageLifecycleStateInternal
+// runs `if (showing_page)` SetVisibilityState before DispatchPersistedPageshow,
+// and WebKit's Source/WebCore/history/CachedPage.cpp firePageShowEvent calls
+// setVisibilityHiddenDueToDismissal(false) before dispatchPageshowEvent. Real
+// iOS order is still a device check and Gecko is not checked, so tests that
+// care name the order. 'pageshow-only' makes the document visible without a
+// visibilitychange event: it isolates the pageshow listeners, whose order the
+// later visibility resume would otherwise mask.
 
 export type BfcacheReturnOrder = 'pageshow-first' | 'visible-first' | 'pageshow-only';
 
@@ -378,6 +401,13 @@ export function setVisibility(state: DocumentVisibilityState, dispatch = true): 
 
 function dispatchPageTransition(type: 'pagehide' | 'pageshow', persisted: boolean): void {
   actualWindow.dispatchEvent(new PageTransitionEvent(type, { persisted }));
+}
+
+/** A departure in the platform order above. */
+function departDocument(persisted: boolean): void {
+  const wasVisible = document.visibilityState !== 'hidden';
+  dispatchPageTransition('pagehide', persisted);
+  if (wasVisible) setVisibility('hidden');
 }
 
 // ─── Document fixture ───────────────────────────────────────────────
@@ -403,7 +433,8 @@ const FIXTURE = [
 // ─── App state ──────────────────────────────────────────────────────
 // Stands in for core/state (network.appRole, setup.sessionStarted) and
 // rooms/authority (room.context roomId). `setAppState` notifies the guard
-// synchronously, as the bus 'state:*' subscriptions do (app.ts:976-979).
+// synchronously, as the bus 'state:*' subscriptions do (app.ts:976-978), and
+// `appEntrance` stands for the bus 'setup:app-entrance' event (app.ts:979).
 // `leaveSession` applies the state reset of network/peer.ts leaveSession
 // (peer.ts:1245-1260); it tears down nothing else.
 
@@ -432,9 +463,14 @@ export interface PageNavigationShell {
   readonly lazyFeature: LazyFeatureOutcomes;
   readonly console: Record<'debug' | 'info' | 'warn' | 'error', Mock>;
   setAppState(patch: Partial<AppStateModel>): void;
+  /** The 'setup:app-entrance' event (setup-shared.ts:310) the guard listens to. */
+  appEntrance(): void;
   pagehide(persisted: boolean): void;
   pageshow(persisted: boolean): void;
-  /** visibilitychange(hidden) then pagehide, the order of a real departure. */
+  /**
+   * A departure: pagehide, then visibilitychange(hidden) if the document was
+   * visible (the platform order; see "Page transitions and visibility").
+   */
   leaveDocument(persisted: boolean): void;
   /** A back-forward cache return, with the two events in the given order. */
   returnFromBfcache(order: BfcacheReturnOrder): void;
@@ -487,6 +523,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
 
   const app: AppStateModel = { ...(options.app ?? OUTSIDE_ROOM) };
   const stateListeners = new Set<() => void>();
+  const appEntranceListeners = new Set<() => void>();
   const setAppState = (patch: Partial<AppStateModel>): void => {
     Object.assign(app, patch);
     for (const listener of [...stateListeners]) listener();
@@ -513,7 +550,9 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   });
   disposers.push(() => lifecycle.dispose());
 
-  // app.ts:915-990 'BackButtonGuard', with the history fake as the only change.
+  // app.ts:915-990 'BackButtonGuard'. Changes: the history fake, the fixed
+  // leave answer for showDialog, console for core/log, and the model's
+  // listener sets for the bus.
   const backHistory = createBackButtonHistory({
     navigateHome: () => window.location.replace('/'),
     history,
@@ -558,6 +597,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
     onConfirmationError: (error) => console.warn('[App] Back-button dialog failed:', error),
   });
   stateListeners.add(controller.handleStateChange);
+  appEntranceListeners.add(controller.handleStateChange);
   disposers.push(onOverlayStackChange(controller.handleStateChange));
   const signal = listeners.signal;
   window.addEventListener('popstate', controller.handlePopState, { signal });
@@ -615,12 +655,12 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
     lazyFeature,
     console: consoleSpies,
     setAppState,
+    appEntrance() {
+      for (const listener of [...appEntranceListeners]) listener();
+    },
     pagehide: (persisted) => dispatchPageTransition('pagehide', persisted),
     pageshow: (persisted) => dispatchPageTransition('pageshow', persisted),
-    leaveDocument(persisted) {
-      setVisibility('hidden');
-      dispatchPageTransition('pagehide', persisted);
-    },
+    leaveDocument: departDocument,
     returnFromBfcache(order) {
       if (order === 'pageshow-first') {
         dispatchPageTransition('pageshow', true);
@@ -685,6 +725,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
     dispose() {
       listeners.abort();
       stateListeners.clear();
+      appEntranceListeners.clear();
       for (const dispose of disposers.splice(0).reverse()) dispose();
       setSessionResetReleaseHandler(() => undefined);
       __resetSessionResetForTests();

@@ -23,7 +23,8 @@
  * for while any navigation holds the page is still refused (first wins). A
  * back-forward cache return that makes its own bounded reload drops every
  * reload still waiting, which that reload makes redundant (owner decision
- * 13); a return that reloads nothing leaves them waiting.
+ * 13); a return that reloads nothing leaves them waiting and lets a reload
+ * the queue already started keep running.
  *
  * A request is a plain action or { prepare?, navigate, isCurrent? } (C6-8). An
  * optional prepare step (the logo reset's service-worker promotion) runs
@@ -250,10 +251,18 @@ function restoreReturnedVisibleNavigation(): void {
   if (document.visibilityState === 'visible') restoreReturnedNavigation();
 }
 
-/** Answer each dropped reload's callers once, as a request no longer current is. */
+/**
+ * Answer each dropped reload's callers once, as a request no longer current
+ * is. The log line and every callback are isolated, so none of them can stop
+ * the rest or replace an error the return is already throwing.
+ */
 function settleDroppedReloads(dropped: readonly ReloadRequest[], deps: PageNavigationDeps): void {
   if (dropped.length === 0) return;
-  deps.log?.info('[PageLifecycle] Dropped queued reloads on bfcache return:', dropped.length);
+  try {
+    deps.log?.info('[PageLifecycle] Dropped queued reloads on bfcache return:', dropped.length);
+  } catch (error) {
+    log.error('[SessionReset] Dropped-reload log failed:', error);
+  }
   for (const request of dropped) {
     for (const callback of request.callbacks) {
       try {
@@ -278,11 +287,20 @@ function settleDroppedReloads(dropped: readonly ReloadRequest[], deps: PageNavig
  * 13, 2026-10-23: the return's reload refreshes anyway). The whole queue is
  * taken before the returned reset settles, so none can start ahead of the
  * fresh reload and make two. Each dropped caller hears once, as a request no
- * longer current does (onRecovered), and only after the return has taken the
- * page: a caller that asks again waits behind the fresh reload. A return that
- * reloads nothing (idle with nothing pending, or the second return of a
- * document that used its one reload) leaves the queue alone, so a reload
- * waiting there runs as the busy rule says: one requested reload makes one.
+ * longer current does (onRecovered), and only once the fresh reload holds the
+ * page or, while the PRO claim fence defers reloads, waits first in the queue
+ * behind it: a caller that asks again waits behind the fresh reload.
+ *
+ * A return that reloads nothing (idle with nothing pending, or the second
+ * return of a document that used its one reload) leaves the queue alone and
+ * settles only the attempt the document returned with, the one pagehide
+ * marked 'left'. Pagehide marks every pending attempt 'left', so an attempt
+ * in another phase began after it: in practice the waiting reload that the
+ * visible return (current Chromium and WebKit show the document before this
+ * pageshow) started when it settled the returned attempt. That reload is a
+ * live request and keeps running, so a reload waiting at a second return runs
+ * once whichever event comes first. A return that reloads settles such an
+ * attempt too: its bounded reload replaces it, as it replaces a dropped one.
  */
 function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
   const resetPending = _state.phase !== 'idle';
@@ -291,7 +309,7 @@ function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
   const dropped = reloads ? _reloadQueue.splice(0) : [];
 
   try {
-    if (_state.phase !== 'idle') {
+    if (_state.phase === 'left' || (reloads && _state.phase !== 'idle')) {
       try {
         settle(_state.attempt, 'recovered');
       } catch {

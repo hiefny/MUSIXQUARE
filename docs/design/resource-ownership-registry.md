@@ -1161,10 +1161,13 @@ RO-47 owner-in-place
   commits; a waiting reload with the same message joins the one already waiting; a direct reset
   asked for while the page is held is refused (first wins); a back-forward cache return that makes
   its own bounded reload decides so before it settles anything, drops every reload still waiting,
-  answers each dropped caller's `onRecovered` once (in a finally, each callback isolated), and
-  leaves the page's one reload to that bounded reload (owner decision 13, 2026-10-23); a return
-  that reloads nothing (outside a room with nothing pending, or a second return of the same
-  document) drops nothing, so a waiting reload still runs once. `src/core/document-reload.ts` keeps
+  answers each dropped caller's `onRecovered` once (in a finally, the drop log and each callback
+  isolated) once that reload holds the page or waits first in the queue behind a deferred PRO
+  claim fence, and leaves the page's one reload to that bounded reload (owner decision 13,
+  2026-10-23); a return that reloads nothing (outside a room with nothing pending, or a second
+  return of the same document) drops nothing and settles only the attempt it returned with
+  (`left`), so a reload waiting there, or one the visible return already started from the queue,
+  runs once on every event order. `src/core/document-reload.ts` keeps
   only the PRO claim fence (claim phases, the claim the in-flight reload carries, a narrow port
   `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`; since C6-13 tests reset
   the owner and the fence with one `__resetPageNavigationForTests`). A stacked requester latch
@@ -1214,7 +1217,8 @@ RO-47 owner-in-place
     back-forward cache return, "(c) ... drops a reload still queued behind a committed reset" and
     "drops every reload still queued at a pageshow-first return", and where the return reloads
     nothing, "a pageshow-first return outside a room with a reload held by a deferred PRO claim
-    fence" and "runs a reload queued behind the bounded reload once on a second ... return".
+    fence", "runs a reload queued behind the bounded reload once on a second ... return" and
+    "runs a reload queued behind the bounded reload once on a second visible-first return".
   - Unload-exemption claims: `page-navigation-owner.integration.test.ts` "(e) ... keeps an
     exemption another writer holds when an unrelated reset recovers" and "(d) ... asks to confirm
     an unload while the reload waits behind the fence"; `src/ui/__tests__/account.test.ts` "keeps

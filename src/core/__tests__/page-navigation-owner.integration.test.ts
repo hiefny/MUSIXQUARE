@@ -56,7 +56,8 @@
  * re-arm, C6-13 duplicate latches deleted, and the C6-5 follow-up (owner
  * decision 13) that drops a reload still queued when the page returns from
  * the back-forward cache and that return makes its own reload; a return that
- * reloads nothing leaves the queue to the busy rule.
+ * reloads nothing leaves the queue, and a reload already started from it, to
+ * the busy rule.
  *
  * The app.ts wiring and the logo action run on copies inside the harness;
  * page-navigation-harness-parity.test.ts pins those copies to the source, so
@@ -108,6 +109,7 @@ import {
   enterFullscreen,
   installServiceWorkerFake,
   setVisibility,
+  type AppStateModel,
   type BootOptions,
   type PageNavigationShell,
 } from './__helpers__/page-navigation-harness.ts';
@@ -122,6 +124,12 @@ const HARD_RESET_ACTIVATION_MS = 1_500;
 const GUARD_ARM_MS = 40;
 /** A synthetic claim token in the shape credentials.ts accepts. */
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
+/**
+ * A provisional guest: setup set the role, but the session has not started
+ * (app.ts arms the Back guard only after setup succeeds). The role alone makes
+ * a back-forward cache return reload.
+ */
+const PROVISIONAL_GUEST: AppStateModel = { role: 'guest', sessionStarted: false, roomId: null };
 /** The three PRO claim fragment keys (claim-fragment.ts:11-13). */
 const CLAIM_KEYS = ['pro-claim', 'pro-recovery', 'pro-transfer'] as const;
 type ClaimKey = (typeof CLAIM_KEYS)[number];
@@ -770,11 +778,14 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
   // reload still queued before it settles the returned reset, and leaves the
   // one reload to the bfcache return path. Each dropped caller hears once, as
   // a request that is no longer current does (its onRecovered, the
-  // 'recovered' outcome), after that path has taken the page. A return that
-  // reloads nothing drops nothing (the fence-held and second-return pins
-  // below). On the visible-first order the visible return has already started
-  // the queued reload, and the pageshow settles it as a returned reset: one
-  // reload before and after.
+  // 'recovered' outcome), after the bounded reload holds the page (behind a
+  // deferred PRO claim fence it waits first in the queue instead: the
+  // fence-held pins below). A return that reloads nothing drops nothing (the
+  // fence-held and second-return pins below). On the visible-first order the
+  // visible return has already started the queued reload; the pageshow, which
+  // reloads, settles that reload before it navigates and makes its bounded
+  // one instead, so the caller is answered the same way: one reload before and
+  // after.
   it.each(
     (['pageshow-first', 'pageshow-only', 'visible-first'] as const).flatMap((order) =>
       (
@@ -903,11 +914,14 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
   // Owner decision 13 drops a reload still queued only when the back-forward
   // cache return makes its own reload, the reason the decision gives. A reload
   // held by a deferred PRO claim fence is dropped in a room: the fresh reload
-  // takes its place behind the fence, one reload instead of two. Outside a
-  // room with nothing pending the return reloads nothing, so the held reload
-  // is not redundant: it keeps waiting and runs once the fence opens, its
-  // caller settled when it does, as before the follow-up. (The follow-up's
-  // first cut dropped it whatever the return decided, which made no reload.)
+  // takes its place behind the fence, one reload instead of two. Its caller is
+  // answered at the return, while the fresh reload waits first in the queue
+  // behind the fence (the pin after this one), not once a reload holds the
+  // page. Outside a room with nothing pending the return reloads nothing, so
+  // the held reload is not redundant: it keeps waiting and runs once the fence
+  // opens, its caller settled when it does, as before the follow-up. (The
+  // follow-up's first cut dropped it whatever the return decided, which made
+  // no reload.)
   it.each([
     ['in a room', [MSG_REFRESHING], 'added: C6-5 follow-up, owner decision 13', IN_ROOM],
     [
@@ -943,17 +957,52 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     },
   );
 
+  // The in-room fence row with a dropped caller that asks again from its
+  // onRecovered: it is answered while the fence still holds the fresh reload
+  // first in the queue, so its new request waits behind that reload. When the
+  // fence opens the fresh reload runs first, and once it commits the retry
+  // never runs: one reload.
+  it('lets a caller dropped while a deferred PRO claim fence holds the fresh reload ask again behind it: the fresh reload runs first and commits [added: C6-5 follow-up, owner decision 13]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const reloads: Array<string | null> = [];
+    s.sinks.reload.mockImplementation(() => reloads.push(s.resetMessage()));
+    takeClaim();
+    const fence = capturePendingClaimReloadGuard();
+    await fence?.fenceOutcomeUnknownMutation();
+    const pendingWhenAnswered: boolean[] = [];
+    scheduleDocumentReload('Queued reload', () => {
+      pendingWhenAnswered.push(isSessionResetPending());
+      scheduleDocumentReload('Retry');
+    });
+
+    s.leaveDocument(true);
+    s.returnFromBfcache('pageshow-first');
+    // Answered at the return, with no reload holding the page.
+    expect(pendingWhenAnswered).toEqual([false]);
+    expect(overlay().hidden).toBe(true);
+    await advance(60_000);
+    expect(reloads).toEqual([]);
+
+    fence?.restoreAfterLazyFeatureFailure();
+    // The fresh reload waited first in the queue, so it runs ahead of the retry.
+    expect(s.resetMessage()).toBe(MSG_REFRESHING);
+    await advance(PAINT_MS);
+    s.leaveDocument(false);
+    await advance(2 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
+
+    expect(reloads).toEqual([MSG_REFRESHING]);
+    expect(pendingWhenAnswered).toEqual([false]);
+    expect(isSessionResetPending()).toBe(true);
+    expect(s.resetMessage()).toBe(MSG_REFRESHING);
+  });
+
   // The second return of a document that already used its one bounded reload
   // reloads nothing (pin above: no loop), so a reload asked for while that
   // bounded reload held the page is not redundant either. The return settles
   // the returned bounded reload, the queue starts the waiting one, and its
   // caller hears when that reload settles: one reload from the queue, as
   // before the follow-up (owner decisions 1 and 13). The first cut dropped it
-  // and made none. On the visible-first order the visible return starts the
-  // waiting reload and the pageshow settles it as a returned reset before it
-  // navigates, so in a room it never reloads, before and after the follow-up
-  // (the queue is already empty at that pageshow); that order is not pinned
-  // here.
+  // and made none. The visible-first order is pinned below.
   it.each(
     (['pageshow-first', 'pageshow-only'] as const).flatMap((order) =>
       (
@@ -993,6 +1042,84 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
       expect(queued).toHaveBeenCalledOnce();
       expect(queued).toHaveBeenCalledWith();
       expect(isSessionResetPending()).toBe(false);
+      expect(s.sinks.count('replace')).toBe(1);
+      expect(s.lifecycleLog).toHaveBeenCalledWith(
+        '[PageLifecycle] bfcache reload returned; keeping recovered shell visible',
+      );
+      expect(s.lifecycleLog).not.toHaveBeenCalledWith(
+        '[PageLifecycle] Dropped queued reloads on bfcache return:',
+        expect.anything(),
+      );
+    },
+  );
+
+  // The same second return on the visible-first order, the order current
+  // Chromium and WebKit sources use (see the harness). The visible return
+  // settles the returned bounded reload, and the queue starts the waiting
+  // reload in this document; the persisted pageshow reloads nothing, so it
+  // settles only an attempt the document returned with ('left') and leaves
+  // that reload running. Until this fix the pageshow settled it as a returned
+  // reset before it navigated, in every role: the request made no reload, a
+  // caller with onRecovered heard at once, and a caller without one (the
+  // keep-open leave, peer.ts, the PRO refresh) was lost, against owner
+  // decision 1. A joined request is one request: one reload answers both
+  // callers. Outside a room only a pageshow first return makes the bounded
+  // reload: on the visible-first order nothing holds the idle page at that
+  // pageshow.
+  it.each(
+    (
+      [
+        ['in a room', IN_ROOM, ['pageshow-first', 'visible-first']],
+        ['as a provisional guest', PROVISIONAL_GUEST, ['pageshow-first', 'visible-first']],
+        ['outside a room', OUTSIDE_ROOM, ['pageshow-first']],
+      ] as const
+    ).flatMap(([where, app, firstOrders]) =>
+      firstOrders.flatMap((firstOrder) =>
+        (['one queued reload', 'a joined request'] as const).map(
+          (request) => [where, firstOrder, request, app] as const,
+        ),
+      ),
+    ),
+  )(
+    'runs a reload queued behind the bounded reload once on a second visible-first return %s (first return %s) with %s: one reload, each caller settled once when it settles [added: C6-5 follow-up, owner decisions 1, 13]',
+    async (_where, firstOrder, request, app) => {
+      const s = boot({ app });
+      const reloads: Array<string | null> = [];
+      s.sinks.reload.mockImplementation(() => reloads.push(s.resetMessage()));
+      scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
+      await advance(PAINT_MS);
+      s.leaveDocument(true);
+      s.returnFromBfcache(firstOrder);
+      // The bounded reload holds the page; callers ask for another behind it.
+      expect(s.resetMessage()).toBe(MSG_REFRESHING);
+      const callers = request === 'one queued reload' ? [vi.fn()] : [vi.fn(), vi.fn()];
+      for (const caller of callers) scheduleDocumentReload('Queued reload', caller);
+      await advance(PAINT_MS);
+      expect(reloads).toEqual([MSG_REFRESHING]);
+
+      // The bounded reload lands in the cache too, and the same document returns.
+      s.leaveDocument(true);
+      s.returnFromBfcache('visible-first');
+      // Before this fix: not pending, and every caller already answered.
+      expect(isSessionResetPending()).toBe(true);
+      expect(s.resetMessage()).toBe('Queued reload');
+      for (const caller of callers) expect(caller).not.toHaveBeenCalled();
+      await advance(PAINT_MS);
+      // Before this fix: [MSG_REFRESHING].
+      expect(reloads).toEqual([MSG_REFRESHING, 'Queued reload']);
+      for (const caller of callers) expect(caller).not.toHaveBeenCalled();
+
+      // That reload's no-op navigation recovers at its commit deadline.
+      await advance(COMMIT_DEADLINE_MS);
+      expect(isSessionResetPending()).toBe(false);
+      expect(overlay().hidden).toBe(true);
+      for (const caller of callers) {
+        expect(caller).toHaveBeenCalledOnce();
+        expect(caller).toHaveBeenCalledWith();
+      }
+      await advance(2 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
+      expect(reloads).toEqual([MSG_REFRESHING, 'Queued reload']);
+      for (const caller of callers) expect(caller).toHaveBeenCalledOnce();
       expect(s.sinks.count('replace')).toBe(1);
       expect(s.lifecycleLog).toHaveBeenCalledWith(
         '[PageLifecycle] bfcache reload returned; keeping recovered shell visible',
@@ -1082,10 +1209,58 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     expect(heard).toEqual(['first', 'joined', 'other']);
   });
 
+  // The log of the drop is isolated the same way: an injected logger that
+  // throws on that line is logged as a failure, every dropped caller still
+  // hears once, nothing escapes the pageshow listener, and the fresh reload
+  // still holds the page.
+  it('answers every dropped caller once when the log of the drop throws, and logs that failure [added: C6-5 follow-up, owner decision 13]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const failure = new Error('drop log failed');
+    s.lifecycleLog.mockImplementation((message) => {
+      if (message.startsWith('[PageLifecycle] Dropped queued reloads')) throw failure;
+    });
+    const reported: unknown[] = [];
+    const onError = (event: ErrorEvent): void => {
+      reported.push(event.error);
+      event.preventDefault();
+    };
+    window.addEventListener('error', onError);
+    s.addCleanup(() => window.removeEventListener('error', onError));
+    scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
+    const first = vi.fn();
+    const joined = vi.fn();
+    const other = vi.fn();
+    scheduleDocumentReload(MSG_REFRESHING, first);
+    scheduleDocumentReload(MSG_REFRESHING, joined);
+    scheduleDocumentReload('Other reason', other);
+    await advance(PAINT_MS);
+    s.leaveDocument(true);
+
+    s.returnFromBfcache('pageshow-first');
+
+    // Before this fix: no caller answered, and the logger's error escaped.
+    for (const caller of [first, joined, other]) {
+      expect(caller).toHaveBeenCalledOnce();
+      expect(caller).toHaveBeenCalledWith();
+    }
+    expect(reported).toEqual([]);
+    expect(s.console.error).toHaveBeenCalledWith(
+      '[SessionReset] Dropped-reload log failed:',
+      failure,
+    );
+    expect(isSessionResetPending()).toBe(true);
+    expect(s.resetMessage()).toBe(MSG_REFRESHING);
+    await advance(2 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
+    expect(s.sinks.count('reload')).toBe(1);
+    for (const caller of [first, joined, other]) expect(caller).toHaveBeenCalledOnce();
+  });
+
   // The callers are answered in a finally: when the return's own work throws
   // after it has taken the queue (here its log, before the fresh reload is
-  // asked for), every dropped caller still hears once and the returned reset
-  // is still settled, so no caller waits for a reload that will not come.
+  // asked for), every dropped caller still hears once, and no reset screen is
+  // left holding the page. The return then makes no fresh reload; that
+  // outcome is accepted only because the injected dependency threw, so it is
+  // not pinned here.
   it('still answers every dropped caller once when the return throws after taking the queue [added: C6-5 follow-up, owner decision 13]', async () => {
     const s = boot({ app: IN_ROOM });
     const failure = new Error('lifecycle log failed');
@@ -1107,6 +1282,7 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
 
     s.returnFromBfcache('pageshow-first');
 
+    // The return threw (the case this pin is about).
     expect(reported).toEqual([failure]);
     expect(queued).toHaveBeenCalledOnce();
     expect(queued).toHaveBeenCalledWith();
@@ -1114,10 +1290,12 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
       '[PageLifecycle] Dropped queued reloads on bfcache return:',
       1,
     );
-    expect(isSessionResetPending()).toBe(false);
-    expect(overlay().hidden).toBe(true);
     await advance(2 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
     expect(queued).toHaveBeenCalledOnce();
+    // Whatever the return reloads, no reset screen is left holding the page.
+    expect(isSessionResetPending()).toBe(false);
+    expect(overlay().hidden).toBe(true);
+    expect(s.element('tab-play').inert).toBe(false);
   });
 
   // Listener phases: the owner's pagehide, pageshow and visibility listeners

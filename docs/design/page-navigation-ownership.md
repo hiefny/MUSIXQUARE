@@ -80,12 +80,18 @@ PRO claim fence, cannot run ahead of it and make two. The return decides
 whether it reloads before it settles anything, takes the whole queue, then
 settles the returned reset, and its bounded reload is the page's one reload.
 Each dropped caller's `onRecovered` runs once, after that reload holds the
-page, so a caller that asks again waits behind it; a caller that throws is
-logged and the rest still run, and the callers are answered even if the
-return's own work throws. A return that reloads nothing (outside a room with
-nothing pending, or the second return of a document that used its one
-reload) drops nothing: a reload waiting there runs as the busy rule says, so
-one requested reload still makes one.
+page or, while a deferred PRO claim fence holds reloads, after it waits first
+in the queue behind the fence, so a caller that asks again waits behind it; a
+caller that throws, or a failing log of the drop, is logged and the rest
+still run, and the callers are answered even if the return's own work throws.
+A return that reloads nothing (outside a room with nothing pending, or the
+second return of a document that used its one reload) drops nothing and
+settles only the attempt the document returned with (`left`). Current Chromium
+and WebKit make the document visible before the persisted `pageshow`, and that
+visible return settles the returned attempt and starts the waiting reload
+first; the `pageshow` leaves that reload running. So a reload waiting at a
+second return runs once whichever event comes first, and one requested reload
+still makes one.
 
 ## Timing contract
 
@@ -116,8 +122,9 @@ Back guard's resume whatever the init order:
   active session, or of a pending reset, settles the reset and makes one
   bounded reload, dropping every reload still queued first (owner decision
   13); a document that returns again after that reload keeps the recovered
-  shell instead of looping and drops nothing, so a reload queued behind the
-  bounded one runs once. Any other `pageshow` settles a `left` attempt.
+  shell instead of looping, drops nothing and settles only a `left` attempt,
+  so a reload queued behind the bounded one runs once on either event order.
+  Any other `pageshow` settles a `left` attempt.
 - `visibilitychange` to visible: settles a `left` attempt (iOS can foreground
   the old document without a `pageshow`).
 

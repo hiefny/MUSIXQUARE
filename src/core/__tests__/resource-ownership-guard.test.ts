@@ -155,8 +155,8 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       const findings = findingsOf(
         withRegistry((registry) =>
           registry.replace(
-            '- **Status:** `accepted-exception`.\n\n## Checked side flows without a record\n',
-            '\n## Checked side flows without a record\n\n- **Status:** `accepted-exception`.\n',
+            '- **Status:** `accepted-exception`.\n\n## Records added after the survey\n',
+            '\n## Records added after the survey\n\n- **Status:** `accepted-exception`.\n',
           ),
         ),
       );
@@ -171,12 +171,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       const extra = findingsOf(
         withRegistry((registry) =>
           registry.replace(
-            /^(\| RO-46 .*\r?\n)/mu,
-            '$1| RO-47 | Stray row | All | duplicated | None |\n',
+            /^(\| RO-47 .*\r?\n)/mu,
+            '$1| RO-48 | Stray row | All | duplicated | None |\n',
           ),
         ),
       );
-      expect(extra).toMatch(/index row RO-47 has no block line/u);
+      expect(extra).toMatch(/index row RO-48 has no block line/u);
     });
 
     it('rejects a block status that disagrees with the record and the index', () => {
@@ -280,7 +280,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         }),
       );
       expect(findings).toMatch(
-        /UNSANCTIONED fullscreen request\/exit \(RO-26\): src\/ui\/rogue-sinks\.ts has 1/u,
+        /UNSANCTIONED fullscreen request \(RO-26\): src\/ui\/rogue-sinks\.ts has 1/u,
       );
       expect(findings).toMatch(
         /UNSANCTIONED history entry write \(RO-30\): src\/ui\/rogue-sinks\.ts has 2/u,
@@ -293,14 +293,33 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
+    it('keeps every fullscreen exit inside the one bounded exit slot (C8-I9)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            'src/ui/player-controls.ts',
+            "  $on('btn-help', 'click', () => switchTab('guide'));",
+            "  $on('btn-help', 'click', () => switchTab('guide'));\n" +
+              '  const doc = document as FullscreenDocument;\n' +
+              '  void (doc.webkitExitFullscreen || doc.exitFullscreen);',
+          );
+        }),
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED fullscreen exit \(RO-26\): src\/ui\/player-controls\.ts has 2/u,
+      );
+      expect(findings).not.toMatch(/fullscreen request \(RO-26\)/u);
+    });
+
     it('fails a raised count in an allowlisted file and a count that fell below its baseline', () => {
       const findings = findingsOf(
         withSources((sources) => {
           replaceIn(
             sources,
-            'src/sw-register.ts',
-            '      window.location.href = returnPath;',
-            '      window.location.href = returnPath;\n      window.location.reload();',
+            'src/core/navigation.ts',
+            '    window.location.href = `/${code}`;',
+            '    window.location.href = `/${code}`;\n    window.location.reload();',
           );
           replaceIn(
             sources,
@@ -311,7 +330,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         }),
       );
       expect(findings).toMatch(
-        /RATCHET REGRESSION page navigation \(RO-23\): src\/sw-register\.ts has 2, baseline 1/u,
+        /RATCHET REGRESSION page navigation \(RO-23\): src\/core\/navigation\.ts has 4, baseline 3/u,
       );
       expect(findings).toMatch(
         /STALE BASELINE inert write \(RO-24\): src\/player\/video\.ts has 0 - remove its entry/u,
@@ -658,6 +677,83 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
       expect(report.findings).toEqual([]);
       expect(report.authorityFenceWrites).toBe(3);
+    });
+  });
+
+  describe('CHECK 8 header loader default holder (RO-47)', () => {
+    it('rejects a new writer of the default holder but not a named holder', () => {
+      const report = analyzeResourceOwnership(
+        withSources((sources) => {
+          sources.set(
+            'src/ui/background-sync.ts',
+            "import { showLoader, updateLoader } from './toast.ts';\n" +
+              'export function syncInBackground(id: string): void {\n' +
+              "  showLoader(true, 'Syncing...', id);\n" +
+              '  updateLoader(50, id);\n' +
+              "  showLoader(true, 'Syncing...');\n" +
+              '  updateLoader(60, undefined);\n' +
+              '  showLoader(false, undefined, void 0);\n' +
+              '  // showLoader(false) in a comment does not count.\n' +
+              '}\n',
+          );
+        }),
+      );
+      expect(report.findings.join('\n')).toMatch(
+        /UNSANCTIONED header loader default holder write \(RO-47\): src\/ui\/background-sync\.ts has 3/u,
+      );
+      expect(report.defaultLoaderWrites).toBe(78 + 3);
+    });
+
+    it('counts a holder ID that a branch or a name can leave undefined', () => {
+      const report = analyzeResourceOwnership(
+        withSources((sources) => {
+          sources.set(
+            'src/ui/background-sync.ts',
+            "import { updateLoader } from './toast.ts';\n" +
+              'export function syncInBackground(\n' +
+              '  id: string,\n' +
+              '  ids: readonly string[],\n' +
+              '  label?: string,\n' +
+              '  tag: string | undefined = undefined,\n' +
+              '): void {\n' +
+              "  const held = id === '' ? undefined : id;\n" +
+              '  const relayed = held;\n' +
+              '  updateLoader(10, relayed);\n' +
+              "  updateLoader(20, id === '' ? undefined : id);\n" +
+              '  updateLoader(30, label);\n' +
+              '  updateLoader(40, tag);\n' +
+              // Named on every path: not counted.
+              "  updateLoader(50, label ?? 'sync');\n" +
+              "  updateLoader(60, id === '' ? 'empty' : id);\n" +
+              '  for (const each of ids) updateLoader(70, each);\n' +
+              '}\n',
+          );
+        }),
+      );
+      expect(report.findings.join('\n')).toMatch(
+        /UNSANCTIONED header loader default holder write \(RO-47\): src\/ui\/background-sync\.ts has 4/u,
+      );
+      expect(report.defaultLoaderWrites).toBe(78 + 4);
+    });
+
+    it('fails a raised count in an allowlisted file and a writer that disappears', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(sources, 'src/youtube/player.ts', '    showLoader(false);', '    void 0;');
+          replaceIn(
+            sources,
+            'src/storage/recovery.ts',
+            '    showLoader(false);',
+            '    showLoader(false);\n    showLoader(false);',
+          );
+        }),
+      );
+      expect(findings).toMatch(
+        /STALE BASELINE header loader default holder write \(RO-47\): src\/youtube\/player\.ts has 0 - remove its entry/u,
+      );
+      expect(findings).toMatch(
+        /RATCHET REGRESSION header loader default holder write \(RO-47\): src\/storage\/recovery\.ts has 3, baseline 2/u,
+      );
     });
   });
 });

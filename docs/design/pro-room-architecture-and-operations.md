@@ -36,17 +36,17 @@ registration resolves that address to an immutable non-negative
 `roomGeneration`. Existing rooms are generation `0`; a manually re-registered
 code advances to a fresh generation and never revives the deleted incarnation.
 
-| Component                                | Responsibility                                                                                           |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Component                                | Responsibility                                                                                             |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | App route                                | Detect a leading-zero PRO code, confirm activation account, collect an optional entry PIN, render playback |
-| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2                              |
-| One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state                               |
-| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock/chat/event fan-out, and targeted system-audio SDP/ICE relay |
-| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                                                   |
-| Browser                                  | RAM-only transfer, decode, preload, and playback working set                                             |
-| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state                                 |
-| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint                               |
-| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router                                  |
+| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2                                |
+| One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state                                 |
+| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock/chat/event fan-out, and targeted system-audio SDP/ICE relay   |
+| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                                                     |
+| Browser                                  | RAM-only transfer, decode, preload, and playback working set                                               |
+| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state                                   |
+| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint                                 |
+| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router                                    |
 
 The regular signaling path reserves the complete `0xxxxx` namespace before
 Durable Object lookup. `000000` is seeded in the admin registry; an operator may
@@ -214,6 +214,16 @@ matched provider data/code checkpoint.
   bearer claim alone cannot create an anonymous owner. Recovery revokes the
   previous owner credential without changing the room's controller sessions or
   data.
+- A separate short-lived, one-time `#pro-transfer=...` claim, bound to one
+  target account, hands the room to that account. PREPARE suspends the room and
+  revokes every session, delegated grant and the owner credential; the commit
+  activates the new owner. From the Phase 2 app batch (owner decision
+  2026-10-23) the link asks for no PIN, and the commit leaves the room without
+  an entry password, the same state as the owner's "turn off" setting; the new
+  owner can require one later in room settings. An App from before that
+  decision still sends an eight-digit `newPin`, which is accepted and ignored,
+  so the link no longer reveals whether a PIN is the previous owner's
+  ([report](phase2-navigation-ui-shells-2026-10-23.md#pro-소유권-이전-시-입장-암호-끄기)).
 - First activation refreshes the account session before registering the room. An
   anonymous user signs in through the isolated popup; an authenticated user
   explicitly confirms the displayed account or chooses another account. Popup
@@ -326,7 +336,9 @@ matched provider data/code checkpoint.
   explains a removal once per tab and goes home instead of reloading the room
   URL, and explains a PIN change before its PIN prompt.
 - Opt-in clients receive flat `snapshot.passwordRequired`; legacy snapshots
-  keep their exact field set. A legacy client may still ask for a PIN in a
+  keep their exact field set. The ownership-transfer answer follows the same
+  rule: the App facade passes the browser's opt-in headers to the internal
+  commit. A legacy client may still ask for a PIN in a
   public room; its structurally valid eight-digit entry is ignored only when
   that room is explicitly public, and grants no additional authority. Updated
   clients omit the PIN in public admissions and retain the stable `requestId`

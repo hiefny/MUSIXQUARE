@@ -729,9 +729,6 @@ const vi: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Không thể hoàn tất yêu cầu',
   'pro.claim_failed_message':
     'Để đảm bảo an toàn, liên kết này không được thử lại. Hãy yêu cầu quản trị viên phòng cấp liên kết mới.',
-  'pro.transfer_title': 'Nhận quyền sở hữu phòng PRO',
-  'pro.transfer_message':
-    'Đặt mật khẩu mới gồm 8 chữ số cho phòng này. Khi hoàn tất, quyền truy cập của chủ sở hữu trước sẽ bị thu hồi.',
   'pro.new_link_message':
     'Liên kết đã hết hạn hoặc đã được sử dụng. Nếu cần, hãy yêu cầu quản trị viên cấp liên kết mới.',
   'pro.not_ready_title': 'Phòng PRO này chưa sẵn sàng',

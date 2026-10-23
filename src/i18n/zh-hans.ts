@@ -682,8 +682,6 @@ const zhHans: Record<I18nKey, string> = {
     '此账号已达到 PRO 房间关联上限。请移除现有关联，然后申请新链接。',
   'pro.claim_failed_title': '无法完成请求',
   'pro.claim_failed_message': '为确保安全，系统未重试此链接。请向房间管理员申请新链接。',
-  'pro.transfer_title': '接管 PRO 房间所有权',
-  'pro.transfer_message': '请设置新的 8 位密码。完成后，原房主的访问权限将被撤销。',
   'pro.new_link_message': '链接已过期或已被使用。如有需要，请向管理员申请新链接。',
   'pro.not_ready_title': '此 PRO 房间尚未准备好',
   'pro.not_ready_message': '房主需要先激活房间。',

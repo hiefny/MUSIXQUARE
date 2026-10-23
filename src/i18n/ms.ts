@@ -828,9 +828,6 @@ const ms: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Permintaan ini tidak dapat diselesaikan',
   'pro.claim_failed_message':
     'Demi keselamatan, pautan ini tidak dicuba semula. Minta pautan baharu daripada pentadbir bilik.',
-  'pro.transfer_title': 'Ambil alih pemilikan bilik PRO',
-  'pro.transfer_message':
-    'Tetapkan kata laluan 8 digit baharu untuk bilik ini. Akses pemilik sebelumnya akan ditarik balik apabila proses ini selesai.',
   'pro.new_link_message':
     'Pautan telah tamat tempoh atau sudah digunakan. Minta pautan baharu daripada pentadbir jika diperlukan.',
   'pro.not_ready_title': 'Bilik PRO ini belum sedia',

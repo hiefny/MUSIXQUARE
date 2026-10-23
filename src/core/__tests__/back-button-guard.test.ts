@@ -87,6 +87,60 @@ function harness(overrides: Partial<Deps> = {}) {
 }
 
 describe('deferred Back guard', () => {
+  // C6-12: app.ts subscribes handleStateChange to the navigation owner's
+  // onNavigationPendingChange, so a Back absorbed during a pending navigation
+  // no longer leaves the guard unarmed once that navigation settles.
+  it('re-arms one guard when a navigation absorbed a Back and then settles', async () => {
+    let pending = false;
+    let position: 'base' | 'guard' | 'foreign' = 'base';
+    const pushGuard = vi.fn(() => {
+      position = 'guard';
+    });
+    const frames: FrameRequestCallback[] = [];
+    const controller = createBackButtonGuardController({
+      isSessionActive: () => true,
+      hasOpenWindow: () => false,
+      closeTopWindow: () => ({ handled: false, settled: Promise.resolve() }),
+      whenSurfaceSettled: () => Promise.resolve(),
+      isSurfaceReady: () => true,
+      isDocumentVisible: () => true,
+      isNavigationPending: () => pending,
+      currentHistoryPosition: () => position,
+      pushGuard,
+      navigateBack: vi.fn(),
+      requestFrame: (callback) => frames.push(callback),
+      cancelFrame: vi.fn(),
+      requestLeaveConfirmation: vi.fn(async () => false),
+      onLeaveConfirmed: vi.fn(),
+    });
+    const flushFrames = async (): Promise<void> => {
+      for (let round = 0; round < 4; round += 1) {
+        await Promise.resolve();
+        for (const frame of frames.splice(0)) frame(0);
+      }
+    };
+
+    controller.handleStateChange();
+    await flushFrames();
+    expect(pushGuard).toHaveBeenCalledTimes(1);
+
+    // A navigation holds the page; Back pops the guard and is absorbed.
+    pending = true;
+    controller.handleStateChange();
+    position = 'base';
+    controller.handlePopState();
+    await flushFrames();
+    expect(pushGuard).toHaveBeenCalledTimes(1);
+
+    // The navigation recovers: the pending-change event re-arms one guard.
+    pending = false;
+    controller.handleStateChange();
+    controller.handleStateChange();
+    await flushFrames();
+    expect(pushGuard).toHaveBeenCalledTimes(2);
+    expect(position).toBe('guard');
+  });
+
   it('a duplicate base event cannot cancel the only pending guard', async () => {
     const h = harness();
     await h.start();

@@ -126,6 +126,18 @@ function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+/**
+ * End a drop settle at once instead of waiting it out. The view module keeps
+ * its controllers across tests, so a settle still running would defer the
+ * next test's direct updatePlaylistUI() call. A window blur ends any drag or
+ * drop settle (focus left the page); the render that the end schedules runs
+ * on the next frame.
+ */
+async function endDropSettle(): Promise<void> {
+  window.dispatchEvent(new Event('blur'));
+  await nextAnimationFrame();
+}
+
 it('renders and patches titles for each saved PRO manifest independently, including later batches', async () => {
   const manifests = [
     { queueItemId: FILE_A, ids: Array.from({ length: 180 }, (_, index) => `old${index}`) },
@@ -1242,6 +1254,7 @@ describe('playlist queue identity rendering and actions', () => {
 
     setState('room.context', { ...context, snapshotRevision: 3, capabilities: [] });
     expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+    await endDropSettle();
   });
 
   it('restores queue grips when the host account sibling projection arrives', async () => {
@@ -2144,6 +2157,7 @@ describe('playlist queue identity rendering and actions', () => {
     dispatch('pointerup', 160);
 
     expect(reorder).toHaveBeenCalledWith(FILE_A, null, 7);
+    await endDropSettle();
   });
 
   it('keeps the committed source handle mounted through its return fade before rendering', async () => {
@@ -2276,4 +2290,518 @@ describe('playlist queue identity rendering and actions', () => {
 
     expect(scroller.scrollTop).toBe(123);
   });
+});
+
+describe('playlist interaction gate (RO-27)', () => {
+  const FILE_B = '00000000-0000-4000-8000-0000000000b2';
+  const FILE_C = '00000000-0000-4000-8000-0000000000c3';
+  const FRAME_MS = 16;
+  // A drop settles for 302 ms and its grip fades back for 172 ms; the render
+  // that follows waits one more frame.
+  const DROP_SETTLE_MS = 302 + 172 + FRAME_MS * 4;
+  const LONG_PRESS_MS = 700;
+  let restoreFrames: () => void = () => {};
+
+  function threeFiles(): PlaylistItem[] {
+    return [FILE_A, FILE_B, FILE_C].map((queueItemId, index) => ({
+      queueItemId,
+      type: 'file' as const,
+      name: `${'abc'[index]}.mp3`,
+      title: 'ABC'[index]!,
+      videoId: null,
+      playlistId: null,
+    }));
+  }
+
+  function rowRect(top: number): DOMRect {
+    return {
+      x: 0,
+      y: top,
+      top,
+      bottom: top + 48,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: 48,
+      toJSON: () => ({}),
+    } as DOMRect;
+  }
+
+  /** Rows sit 56px apart from the top of the viewport, in rendered order. */
+  function layoutRows(): void {
+    document.querySelectorAll<HTMLElement>('#playlist-ui .track-item').forEach((row, index) => {
+      row.getBoundingClientRect = () => rowRect(index * 56);
+    });
+  }
+
+  async function mount(items: PlaylistItem[] = threeFiles()): Promise<HTMLElement> {
+    setState('playlist.items', items);
+    initPlaylistView();
+    await vi.dynamicImportSettled();
+    // The reorder and removal controllers load after the list mounts.
+    await vi.dynamicImportSettled();
+    layoutRows();
+    return document.getElementById('playlist-ui')!;
+  }
+
+  function pointer(target: Element, type: string, clientY: number): void {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: type === 'pointerup' ? 0 : 1,
+      clientX: 20,
+      clientY,
+    });
+    Object.defineProperties(event, {
+      pointerId: { value: 1 },
+      isPrimary: { value: true },
+      pointerType: { value: 'mouse' },
+    });
+    target.dispatchEvent(event);
+  }
+
+  /** Hold a row's title still for the long press; returns the held element. */
+  function longPress(queueItemId: string, clientY: number): HTMLElement {
+    const title = document.querySelector<HTMLElement>(
+      `.track-item[data-queue-item-id="${queueItemId}"] .track-name`,
+    )!;
+    pointer(title, 'pointerdown', clientY);
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    return title;
+  }
+
+  function pressedIds(): string[] {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>('.btn-playlist-select[aria-pressed="true"]'),
+      (button) => button.dataset.queueItemId ?? '',
+    );
+  }
+
+  function liftedRow(): Element | null {
+    return document.querySelector('.playlist-reorder-ghost');
+  }
+
+  function joinStandardRoomAsOperator(): void {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'host' } as DataConnection);
+    setState('network.standardRoomCapabilities', [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES]);
+    setState('network.isOperator', true);
+  }
+
+  function joinProRoomWithQueueEdit(): void {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'coordinator' } as DataConnection);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'coordinator',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['queue.mutate'],
+    });
+  }
+
+  /**
+   * How each queue editor's own playlist answers a reorder and a deletion
+   * before any reply: the Standard host commits both at once, a PRO member
+   * shows its reorder through the optimistic overlay and waits for the
+   * deletion, a Standard guest only sends requests.
+   */
+  const QUEUE_EDITORS = [
+    {
+      role: 'Standard host',
+      join: () => {},
+      reorderAppliesAtOnce: true,
+      removalAppliesAtOnce: true,
+    },
+    {
+      role: 'Standard guest with ADMIN',
+      join: joinStandardRoomAsOperator,
+      reorderAppliesAtOnce: false,
+      removalAppliesAtOnce: false,
+    },
+    {
+      role: 'PRO media manager',
+      join: joinProRoomWithQueueEdit,
+      reorderAppliesAtOnce: true,
+      removalAppliesAtOnce: false,
+    },
+  ] as const;
+
+  type QueueEditor = (typeof QUEUE_EDITORS)[number];
+
+  /**
+   * In edit mode with C selected, hold A, drop it before C and tap Delete
+   * 100 ms into the drop settle.
+   */
+  async function deleteDuringDropSettle(editor: QueueEditor): Promise<void> {
+    editor.join();
+    const items = threeFiles();
+    await mount(items);
+    if (editor.reorderAppliesAtOnce) {
+      bus.on('playlist:reorder-track', () =>
+        setState('playlist.items', [items[1]!, items[0]!, items[2]!]),
+      );
+    }
+    if (editor.removalAppliesAtOnce) {
+      bus.on('playlist:remove-tracks', (ids: string[]) =>
+        setState(
+          'playlist.items',
+          getState('playlist.items').filter((item) => !ids.includes(item.queueItemId)),
+        ),
+      );
+    }
+    clickSelect(FILE_C);
+    const lifted = longPress(FILE_A, 20);
+    pointer(lifted, 'pointermove', 80);
+    pointer(lifted, 'pointerup', 80);
+    vi.advanceTimersByTime(100);
+    expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
+    expect(renderedQueueIds()).toEqual([FILE_B, FILE_A, FILE_C]);
+
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const raf = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) =>
+        window.setTimeout(() => callback(performance.now()), FRAME_MS),
+      );
+    const caf = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((id) => window.clearTimeout(id));
+    restoreFrames = () => {
+      raf.mockRestore();
+      caf.mockRestore();
+    };
+  });
+
+  afterEach(() => {
+    // Let every drop settle end: the view module keeps its controllers, and a
+    // settle whose timer was cleared would defer renders in later tests.
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    vi.clearAllTimers();
+    restoreFrames();
+    vi.useRealTimers();
+  });
+
+  it('starts selection from a hold outside edit mode and lifts the held row inside it', async () => {
+    await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+
+    const held = longPress(FILE_A, 20);
+    pointer(held, 'pointerup', 20);
+    expect(pressedIds()).toEqual([FILE_A]);
+    expect(selectionBarVisible()).toBe(true);
+    expect(liftedRow()).toBeNull();
+
+    const lifted = longPress(FILE_C, 132);
+    expect(liftedRow()).not.toBeNull();
+    pointer(lifted, 'pointermove', 10);
+    pointer(lifted, 'pointerup', 10);
+    expect(reorder).toHaveBeenCalledWith(FILE_C, FILE_A, 0);
+    expect(pressedIds()).toEqual([FILE_A]);
+  });
+
+  it('defers renders while an edit-mode drag runs instead of dropping it', async () => {
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    clickSelect(FILE_A);
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+
+    const lifted = longPress(FILE_C, 132);
+    setState('playlist.currentQueueItemId', FILE_B);
+    bus.emit('playlist:refresh-requested');
+    vi.advanceTimersByTime(FRAME_MS * 3);
+    expect(replaceChildren).not.toHaveBeenCalled();
+    expect(liftedRow()).not.toBeNull();
+
+    pointer(lifted, 'pointermove', 10);
+    pointer(lifted, 'pointerup', 10);
+    expect(reorder).toHaveBeenCalledWith(FILE_C, FILE_A, 0);
+    expect(replaceChildren).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    expect(replaceChildren).toHaveBeenCalledTimes(1);
+    expect(pressedIds()).toEqual([FILE_A]);
+  });
+
+  it('renders a playlist change that arrives during a drop settle once, when it ends', async () => {
+    const list = await mount();
+    const items = threeFiles();
+    bus.on('playlist:reorder-track', () =>
+      setState('playlist.items', [items[1]!, items[0]!, items[2]!]),
+    );
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    pointer(handle, 'pointerdown', 20);
+    pointer(handle, 'pointermove', 80);
+    pointer(handle, 'pointerup', 80);
+    setState('playlist.items', [{ ...items[1]!, title: 'B renamed' }, items[0]!, items[2]!]);
+    vi.advanceTimersByTime(FRAME_MS * 3);
+    expect(replaceChildren).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    expect(replaceChildren).toHaveBeenCalledTimes(1);
+    expect(renderedQueueIds()).toEqual([FILE_B, FILE_A, FILE_C]);
+    expect(list.querySelector('.track-name-text')?.textContent).toBe('B renamed');
+  });
+
+  it.each([
+    ['operator revocation', () => setState('network.isOperator', false)],
+    ['capability revocation', () => setState('network.standardRoomCapabilities', [])],
+    [
+      'host connection replacement',
+      () => setState('network.hostConn', { open: true, peer: 'host-2' } as DataConnection),
+    ],
+    ['session end', () => setState('network.appRole', 'idle')],
+    // Owner decision O5 (2026-10-23).
+    ['a switch to system audio', () => setState('playback.mode', 'system-audio')],
+  ])('cancels the drag and the selection together on %s', async (_trigger, trigger) => {
+    joinStandardRoomAsOperator();
+    await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    clickSelect(FILE_A);
+    const lifted = longPress(FILE_C, 132);
+    pointer(lifted, 'pointermove', 10);
+    expect(liftedRow()).not.toBeNull();
+
+    trigger();
+
+    expect(liftedRow()).toBeNull();
+    expect(selectionBarVisible()).toBe(false);
+    pointer(lifted, 'pointerup', 10);
+    expect(reorder).not.toHaveBeenCalled();
+  });
+
+  it('cancels a handle drag outside edit mode on a switch to system audio', async () => {
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    pointer(handle, 'pointerdown', 20);
+    pointer(handle, 'pointermove', 80);
+
+    setState('playback.mode', 'system-audio');
+
+    expect(liftedRow()).toBeNull();
+    pointer(handle, 'pointerup', 80);
+    expect(reorder).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    // System audio owns playback: the list renders without edit controls.
+    expect(renderedQueueIds()).toEqual([FILE_A, FILE_B, FILE_C]);
+    expect(list.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
+  });
+
+  it.each([
+    [
+      'a handle drag outside edit mode',
+      (list: HTMLElement): Element => {
+        const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+        pointer(handle, 'pointerdown', 20);
+        return handle;
+      },
+    ],
+    [
+      'an edit-mode long-press drag',
+      (): Element => {
+        clickSelect(FILE_B);
+        return longPress(FILE_A, 20);
+      },
+    ],
+  ])('cancels %s when the playlist changes under it', async (_drag, startDrag) => {
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    const held = startDrag(list);
+    pointer(held, 'pointermove', 80);
+    expect(liftedRow()).not.toBeNull();
+
+    const items = threeFiles();
+    setState('playlist.items', [items[0]!, { ...items[1]!, title: 'B renamed' }, items[2]!]);
+
+    expect(liftedRow()).toBeNull();
+    pointer(held, 'pointerup', 80);
+    expect(reorder).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    expect(renderedQueueIds()).toEqual([FILE_A, FILE_B, FILE_C]);
+    expect(list.querySelectorAll('.track-name-text')[1]?.textContent).toBe('B renamed');
+  });
+
+  it('keeps the number column for picking in edit mode: its handle starts no drag', async () => {
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    clickSelect(FILE_A);
+    const handle = list.querySelector<HTMLElement>(
+      `.playlist-entry[data-queue-item-id="${FILE_C}"] .playlist-reorder-handle`,
+    )!;
+
+    pointer(handle, 'pointerdown', 132);
+    pointer(handle, 'pointermove', 10);
+    expect(liftedRow()).toBeNull();
+    pointer(handle, 'pointerup', 10);
+    expect(reorder).not.toHaveBeenCalled();
+    expect(pressedIds()).toEqual([FILE_A]);
+  });
+
+  it('picks a row from a title tap in edit mode instead of playing it', async () => {
+    await mount();
+    const play = vi.fn();
+    bus.on('playlist:play-track', play);
+    clickSelect(FILE_A);
+
+    document
+      .querySelector<HTMLElement>(`.track-item[data-queue-item-id="${FILE_B}"] .track-name`)!
+      .click();
+
+    expect(pressedIds()).toEqual([FILE_A, FILE_B]);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  describe('active-track follow', () => {
+    /** Row tops by queue item, so rows a render replaces keep their place. */
+    const ROW_TOPS = new Map([
+      [FILE_A, 0],
+      [FILE_B, 56],
+      [FILE_C, 112],
+    ]);
+    // FILE_C's centre (112 + 24) minus half the 100px pane.
+    const FILE_C_FOLLOW_TOP = 86;
+    let scrollTo: ReturnType<typeof vi.fn>;
+    let restoreRects: () => void = () => {};
+
+    function followScrolls(): unknown[][] {
+      return scrollTo.mock.calls.filter(
+        ([options]) => (options as ScrollToOptions).behavior === 'smooth',
+      );
+    }
+
+    beforeEach(() => {
+      const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+      Object.defineProperties(scroller, {
+        clientHeight: { configurable: true, value: 100 },
+        scrollHeight: { configurable: true, value: 300 },
+      });
+      const elementRect = Element.prototype.getBoundingClientRect;
+      const rects = vi
+        .spyOn(Element.prototype, 'getBoundingClientRect')
+        .mockImplementation(function (this: Element) {
+          if (this === scroller) return { ...rowRect(0), bottom: 100, height: 100 } as DOMRect;
+          const row = this instanceof HTMLElement && this.classList.contains('track-item');
+          const id = row ? (this as HTMLElement).dataset.queueItemId : undefined;
+          const top = id === undefined ? undefined : ROW_TOPS.get(id);
+          return top === undefined ? elementRect.call(this) : rowRect(top - scroller.scrollTop);
+        });
+      restoreRects = () => rects.mockRestore();
+      scrollTo = vi.fn((options: ScrollToOptions) => {
+        scroller.scrollTop = Number(options.top ?? 0);
+      });
+      Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
+    });
+
+    afterEach(() => restoreRects());
+
+    it('stays blocked while tracks are picked and resumes its pending request once after', async () => {
+      await mount();
+      clickSelect(FILE_A);
+
+      setState('playlist.currentQueueItemId', FILE_C);
+      vi.advanceTimersByTime(FRAME_MS * 4);
+      expect(renderedQueueIds()).toEqual([FILE_A, FILE_B, FILE_C]);
+      expect(followScrolls()).toEqual([]);
+
+      document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+      await Promise.resolve();
+      vi.advanceTimersByTime(FRAME_MS * 4);
+      expect(followScrolls()).toEqual([[{ top: FILE_C_FOLLOW_TOP, behavior: 'smooth' }]]);
+    });
+
+    it('stays blocked through a reorder and its drop settle and resumes once after', async () => {
+      const list = await mount();
+      const reorder = vi.fn();
+      bus.on('playlist:reorder-track', reorder);
+      setState('playlist.currentQueueItemId', FILE_C);
+      // The render requests the follow for its next frame.
+      vi.advanceTimersByTime(FRAME_MS);
+      expect(followScrolls()).toEqual([]);
+
+      // A keyboard grab is the one reorder that does not end the follow as a
+      // user scroll would.
+      const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+      const key = (name: string) =>
+        handle.dispatchEvent(
+          new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }),
+        );
+      key(' ');
+      vi.advanceTimersByTime(FRAME_MS * 4);
+      expect(followScrolls()).toEqual([]);
+
+      key('ArrowDown');
+      key(' ');
+      expect(reorder).toHaveBeenCalledWith(FILE_A, FILE_C, 0);
+      vi.advanceTimersByTime(FRAME_MS * 4);
+      expect(followScrolls()).toEqual([]);
+
+      vi.advanceTimersByTime(DROP_SETTLE_MS);
+      expect(followScrolls()).toEqual([[{ top: FILE_C_FOLLOW_TOP, behavior: 'smooth' }]]);
+    });
+  });
+
+  // A drag still held when Delete is tapped (a second finger, say) keeps its
+  // gesture; only a drop settle is finished early (owner decision O4).
+  it('leaves a running drag alone when Delete is tapped and renders the deletion after its drop', async () => {
+    joinStandardRoomAsOperator();
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    const remove = vi.fn();
+    bus.on('playlist:remove-tracks', remove);
+    clickSelect(FILE_C);
+    const lifted = longPress(FILE_A, 20);
+    pointer(lifted, 'pointermove', 80);
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+
+    expect(remove).toHaveBeenCalledWith([FILE_C]);
+    expect(liftedRow()).not.toBeNull();
+    expect(replaceChildren).not.toHaveBeenCalled();
+    pointer(lifted, 'pointerup', 80);
+    expect(reorder).toHaveBeenCalledWith(FILE_A, FILE_C, 0);
+    expect(replaceChildren).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    expect(replaceChildren).toHaveBeenCalledTimes(1);
+    // Until the host answers, this guest's playlist keeps its own order.
+    expect(renderedQueueIds()).toEqual([FILE_A, FILE_B]);
+  });
+
+  // Owner decision O4 (2026-10-23): Delete tapped during a drop settle
+  // finishes the settle at once, then deletes, so the leaving rows go and the
+  // survivors close up from where they are.
+  it.each([
+    { editor: QUEUE_EDITORS[0], rendered: [FILE_B, FILE_A] },
+    // The host has not answered the reorder request yet, so this guest's
+    // playlist still holds the order from before the drop.
+    { editor: QUEUE_EDITORS[1], rendered: [FILE_A, FILE_B] },
+    { editor: QUEUE_EDITORS[2], rendered: [FILE_B, FILE_A] },
+  ])(
+    'finishes a drop settle at once when Delete is tapped during it ($editor.role)',
+    async ({ editor, rendered }) => {
+      await deleteDuringDropSettle(editor);
+
+      expect(document.querySelector('.playlist-reorder-settle')).toBeNull();
+      expect(renderedQueueIds()).toEqual(rendered);
+      expect(selectionBarVisible()).toBe(false);
+      vi.advanceTimersByTime(DROP_SETTLE_MS);
+      expect(renderedQueueIds()).toEqual(rendered);
+    },
+  );
 });

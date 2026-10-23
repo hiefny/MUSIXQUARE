@@ -572,34 +572,36 @@ describe('PRO room cookie session API', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('exchanges an owner-transfer claim and new PIN only in a strict POST body', async () => {
+  it('exchanges an owner-transfer claim without a PIN only in a strict POST body', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(jsonResponse({ snapshot: activeSnapshot() }));
+      .mockResolvedValue(
+        jsonResponse({ snapshot: { ...activeSnapshot(), passwordRequired: false } }),
+      );
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
+    // Owner decision 2026-10-23: the transfer leaves the entry password off.
     await expect(
       client.transferOwner({
         code: ROOM_CODE,
         claimToken: CLAIM_TOKEN,
-        newPin: '87654321',
         requestId: IDEMPOTENCY_KEY,
       }),
-    ).resolves.toEqual(activeSnapshot());
+    ).resolves.toEqual({ ...activeSnapshot(), passwordRequired: false });
 
     const { url, init } = requestParts(fetchMock);
     expect(url.pathname).toBe(`${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/owner-transfer`);
     expect(url.search).toBe('');
     expect(init).toMatchObject({ method: 'POST', credentials: 'include' });
+    expect(new Headers(init.headers).get('X-MXQR-Pro-Entry-Policy')).toBe('optional-v1');
     expect(JSON.parse(String(init.body))).toEqual({
       claimToken: CLAIM_TOKEN,
-      newPin: '87654321',
       requestId: IDEMPOTENCY_KEY,
     });
     expect(url.toString()).not.toContain(CLAIM_TOKEN);
   });
 
-  it('rejects malformed owner-transfer credentials and PINs before fetch', () => {
+  it('rejects malformed owner-transfer credentials before fetch', () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
 
@@ -607,7 +609,6 @@ describe('PRO room cookie session API', () => {
       client.transferOwner({
         code: ROOM_CODE,
         claimToken: 'short',
-        newPin: '87654321',
         requestId: IDEMPOTENCY_KEY,
       }),
     ).toThrow(expect.objectContaining({ code: 'INVALID_TRANSFER_CLAIM_TOKEN' }));
@@ -615,15 +616,6 @@ describe('PRO room cookie session API', () => {
       client.transferOwner({
         code: ROOM_CODE,
         claimToken: CLAIM_TOKEN,
-        newPin: 'short',
-        requestId: IDEMPOTENCY_KEY,
-      }),
-    ).toThrow(expect.objectContaining({ code: 'INVALID_PIN' }));
-    expect(() =>
-      client.transferOwner({
-        code: ROOM_CODE,
-        claimToken: CLAIM_TOKEN,
-        newPin: '87654321',
         requestId: 'short',
       }),
     ).toThrow(expect.objectContaining({ code: 'INVALID_IDEMPOTENCY_KEY' }));
@@ -631,7 +623,6 @@ describe('PRO room cookie session API', () => {
       client.transferOwner({
         code: ROOM_CODE,
         claimToken: CLAIM_TOKEN,
-        newPin: '87654321',
         requestId: 'request.id.with.dots',
       }),
     ).toThrow(expect.objectContaining({ code: 'INVALID_IDEMPOTENCY_KEY' }));

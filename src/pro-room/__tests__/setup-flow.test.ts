@@ -3,11 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProRoomApiError } from '../api.ts';
 import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
-import {
-  __resetDocumentReloadForTests,
-  registerPendingClaimReloadPreparation,
-  requestDocumentReload,
-} from '../../core/document-reload.ts';
+import { registerPendingClaimReloadPreparation } from '../../core/document-reload.ts';
+import { stubNavigationSinks } from '../../core/__tests__/__helpers__/navigation-sinks.ts';
 import {
   __accountLoginReturnForTests,
   rememberAccountLoginReturn,
@@ -68,7 +65,6 @@ import {
 const ROOM_CODE = '000001';
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 const ACCOUNT_SCOPE = 's'.repeat(43);
-type DocumentReloadAttempt = Parameters<Parameters<typeof requestDocumentReload>[0]>[0];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -98,14 +94,14 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   clearPendingSessionRequestIdsForTests();
-  __resetDocumentReloadForTests();
+  sessionReset.__resetPageNavigationForTests();
 });
 
 afterEach(() => {
+  sessionReset.__resetPageNavigationForTests();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  __resetDocumentReloadForTests();
 });
 
 describe('PRO room setup flow', () => {
@@ -212,24 +208,24 @@ describe('PRO room setup flow', () => {
       mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '87654321' });
       const prepare = vi.fn(() => vi.fn());
       registerPendingClaimReloadPreparation(prepare);
-      let reloadAttempt: DocumentReloadAttempt | undefined;
-      const startReload = vi.fn((attempt: DocumentReloadAttempt) => {
-        reloadAttempt = attempt;
-      });
+      const sinks = stubNavigationSinks();
       mocks[operation].mockImplementationOnce(async () => {
-        requestDocumentReload(startReload);
-        expect(startReload).not.toHaveBeenCalled();
+        // The app's lazy-feature recovery asks for its reload during the
+        // mutation; the claim fence holds it.
+        sessionReset.scheduleDocumentReload('dialog.refreshing_session');
+        expect(sessionReset.isSessionResetPending()).toBe(false);
         throw createLazyFeatureLoadError('room-session', new TypeError('chunk unavailable'));
       });
 
       await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
-      expect(startReload).toHaveBeenCalledOnce();
-      reloadAttempt!.navigate(vi.fn());
+      // The failure came before the mutation, so the fence reopens and the
+      // held reload starts, restoring the retained claim for its sink.
+      expect(sessionReset.isSessionResetPending()).toBe(true);
+      await vi.waitFor(() => expect(sinks.reload).toHaveBeenCalledOnce());
       expect(prepare).toHaveBeenCalledOnce();
       expect(mocks.showDialog).not.toHaveBeenCalledWith(
         expect.objectContaining({ title: 'pro.claim_retry_title' }),
       );
-      reloadAttempt!.recover();
     },
   );
 
@@ -1024,9 +1020,6 @@ describe('PRO room setup flow', () => {
       .mockResolvedValueOnce({});
     mocks.showDialog.mockImplementation(
       async (options: { title?: string; onPrimaryActivation?: () => void }) => {
-        if (options.title === 'pro.transfer_title') {
-          return { action: 'ok', inputValue: '87654321' };
-        }
         if (options.title === 'pro.claim_existing_account_title') {
           options.onPrimaryActivation?.();
           return { action: 'ok' };
@@ -1037,6 +1030,8 @@ describe('PRO room setup flow', () => {
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
+    // The sign-in prompt is the only dialog: the link asks for no PIN.
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
     expect(mocks.loginPopup).toHaveBeenCalledOnce();
     expect(mocks.transferOwner).toHaveBeenCalledTimes(2);
     const inputs = mocks.transferOwner.mock.calls.map(([input]) => input);
@@ -1063,9 +1058,6 @@ describe('PRO room setup flow', () => {
       .mockResolvedValueOnce('authenticated');
     mocks.showDialog.mockImplementation(
       async (options: { title?: string; onPrimaryActivation?: () => void }) => {
-        if (options.title === 'pro.transfer_title') {
-          return { action: 'ok', inputValue: '87654321' };
-        }
         if (options.title === 'pro.claim_existing_account_title') {
           options.onPrimaryActivation?.();
           return { action: 'ok' };
@@ -1085,7 +1077,7 @@ describe('PRO room setup flow', () => {
       forceGoogleAccountChooser: true,
     });
     expect(mocks.showDialog).toHaveBeenNthCalledWith(
-      2,
+      1,
       expect.objectContaining({
         title: 'pro.claim_existing_account_title',
         message: 'pro.claim_existing_account_message',
@@ -1124,9 +1116,6 @@ describe('PRO room setup flow', () => {
     mocks.loginPopup.mockResolvedValueOnce('profile-incomplete');
     mocks.showDialog.mockImplementation(
       async (options: { title?: string; onPrimaryActivation?: () => void }) => {
-        if (options.title === 'pro.transfer_title') {
-          return { action: 'ok', inputValue: '87654321' };
-        }
         if (options.title === 'pro.claim_existing_account_title') {
           if (mocks.loginPopup.mock.calls.length === 0) {
             options.onPrimaryActivation?.();
@@ -1152,7 +1141,7 @@ describe('PRO room setup flow', () => {
     expect(localStorage.length).toBe(0);
   });
 
-  it('transfers ownership with a new PIN and one memory-only request id across retries', async () => {
+  it('transfers ownership without a PIN and with one memory-only request id across retries', async () => {
     mocks.takeClaims.mockReturnValue({
       activationClaimToken: null,
       ownerRecoveryClaimToken: null,
@@ -1165,16 +1154,22 @@ describe('PRO room setup flow', () => {
       .mockRejectedValueOnce(new ProRoomApiError('HTTP_503', 503))
       .mockResolvedValueOnce({});
     mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
-    mocks.showDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '8765-4321' })
-      .mockResolvedValueOnce({ action: 'ok' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
+    // The retry offer is the only dialog.
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'pro.claim_retry_title' }),
+    );
     expect(mocks.transferOwner).toHaveBeenCalledTimes(2);
     const inputs = mocks.transferOwner.mock.calls.map(([input]) => input);
     expect(inputs.map((input) => input.claimToken)).toEqual([CLAIM, CLAIM]);
-    expect(inputs.map((input) => input.newPin)).toEqual(['87654321', '87654321']);
+    expect(inputs.map((input) => Object.keys(input).sort())).toEqual([
+      ['claimToken', 'code', 'requestId'],
+      ['claimToken', 'code', 'requestId'],
+    ]);
     expect(inputs[0]?.requestId).toMatch(/^mxqr-pro-[a-f0-9]{48}$/);
     expect(inputs[1]?.requestId).toBe(inputs[0]?.requestId);
     expect(mocks.resume).not.toHaveBeenCalled();
@@ -1195,13 +1190,12 @@ describe('PRO room setup flow', () => {
     mocks.transferOwner.mockRejectedValue(
       new ProRoomApiError('OWNER_TRANSFER_TARGET_ACCOUNT_MISMATCH', 409),
     );
-    mocks.showDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
-      .mockResolvedValueOnce({ action: 'ok' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
 
     expect(mocks.transferOwner).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
     expect(mocks.showDialog).toHaveBeenLastCalledWith({
       title: 'pro.claim_account_conflict_title',
       message: 'pro.claim_account_conflict_message',
@@ -1219,17 +1213,37 @@ describe('PRO room setup flow', () => {
     });
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
     mocks.transferOwner.mockRejectedValue(new ProRoomApiError('RATE_LIMITED', 429));
-    mocks.showDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
-      .mockResolvedValueOnce({ action: 'ok' });
+    mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
 
     expect(mocks.transferOwner).toHaveBeenCalledOnce();
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
     expect(mocks.showDialog).toHaveBeenLastCalledWith({
       title: 'pro.claim_failed_title',
       message: 'pro.claim_failed_message',
       buttonText: 'common.ok',
+    });
+  });
+
+  it('asks for nothing before the transfer request and shows no dialog when it succeeds', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: null,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: CLAIM,
+      ownerTransferClaimPresent: true,
+    });
+    mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
+
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+    expect(mocks.transferOwner).toHaveBeenCalledOnce();
+    expect(mocks.transferOwner.mock.calls[0]?.[0]).toEqual({
+      code: ROOM_CODE,
+      claimToken: CLAIM,
+      requestId: expect.stringMatching(/^mxqr-pro-[a-f0-9]{48}$/),
     });
   });
 
@@ -1245,13 +1259,12 @@ describe('PRO room setup flow', () => {
       });
       mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
       mocks.transferOwner.mockRejectedValue(new ProRoomApiError(errorCode, 409));
-      mocks.showDialog
-        .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
-        .mockResolvedValueOnce({ action: 'ok' });
+      mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
 
       await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
 
       expect(mocks.transferOwner).toHaveBeenCalledOnce();
+      expect(mocks.showDialog).toHaveBeenCalledOnce();
       expect(mocks.showDialog).toHaveBeenLastCalledWith({
         title: 'pro.claim_unavailable_title',
         message: 'pro.new_link_message',
@@ -1275,13 +1288,12 @@ describe('PRO room setup flow', () => {
       });
       mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
       mocks.transferOwner.mockRejectedValue(new ProRoomApiError(errorCode, status));
-      mocks.showDialog
-        .mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' })
-        .mockResolvedValueOnce({ action: 'ok' });
+      mocks.showDialog.mockResolvedValueOnce({ action: 'ok' });
 
       await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(false);
 
       expect(mocks.transferOwner).toHaveBeenCalledOnce();
+      expect(mocks.showDialog).toHaveBeenCalledOnce();
       expect(mocks.showDialog).toHaveBeenLastCalledWith({
         title: 'pro.claim_unavailable_title',
         message: 'pro.new_link_message',
@@ -1492,17 +1504,12 @@ describe('PRO room setup flow', () => {
       ownerTransferClaimPresent: true,
     });
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'suspended' });
-    mocks.showDialog.mockResolvedValueOnce({ action: 'ok', inputValue: '87654321' });
 
     await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe(true);
 
     expect(mocks.transferOwner).toHaveBeenCalledOnce();
-    expect(mocks.showDialog).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'pro.transfer_title' }),
-    );
-    expect(mocks.showDialog).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'pro.suspended_title' }),
-    );
+    // Neither a PIN prompt nor the suspended-room notice.
+    expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 
   it('rejects a transfer URL that also carries another ownership claim', async () => {

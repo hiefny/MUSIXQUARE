@@ -52,8 +52,8 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
   write, retry). The resource-ownership guard counts only some callers today: page-lock claims,
   `SKIP_WAITING` sends, AudioContext `resume()`/`suspend()`, armed
   `beginTrustedSystemAudioReception` starts, the Worker broadcast endpoint, the duration
-  reader in `cloudflare/` and the Developer API authority fence writers. See
-  [what it does not check yet](#resource-ownership-guard).
+  reader in `cloudflare/`, the Developer API authority fence writers and the header loader's
+  default-holder writers. See [what it does not check yet](#resource-ownership-guard).
 - **Deadline owner:** the module allowed to time out an attempt on the resource.
 - **Timing-constant home:** the module and constant names that hold the resource's timing values.
 - **Anchor tests:** the tests that pin the four cancellation cases: supersession (a newer attempt
@@ -117,13 +117,13 @@ each record also states the step in words.
 | RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | Owner decision               |
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                        |
 | RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                        |
-| RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | 2 (reset surface on top)     |
+| RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | Done (2, C6-11)              |
 | RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)               |
-| RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 0d, 2                        |
-| RO-27 | Playlist rows and scroll position                        | UI             | duplicated         | 2                            |
-| RO-28 | Account session reads and refresh pulses                 | Account        | duplicated         | 0d, 2                        |
+| RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision   |
+| RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                     |
+| RO-28 | Account session reads and refresh pulses                 | Account        | owner-in-place     | Done (2)                     |
 | RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | 0d (copy triage)             |
-| RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | 2 (owner decision)           |
+| RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | Done (2, C6-12)              |
 | RO-31 | Presence delivery does not re-arm the playback outbox    | Workers        | accepted-exception | Revisit on EPOCH_STALE logs  |
 | RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect |
 | RO-33 | Guest YouTube recovery stays its own owner               | YouTube        | accepted-exception | Revisit with device evidence |
@@ -131,7 +131,6 @@ each record also states the step in words.
 | RO-35 | Side-route outage deadline stays in control isolation    | Transport      | accepted-exception | Revisit when #18 retires     |
 | RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7           |
 | RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7           |
-| RO-38 | Separate screensaver and YouTube fullscreen exit state   | UI             | accepted-exception | Owner decision               |
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check  |
 | RO-40 | Hand-copied PRO publication teardown blocks              | System audio   | accepted-exception | Phase 5 or later             |
 | RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit after the 0c test    |
@@ -140,6 +139,7 @@ each record also states the step in words.
 | RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                      |
 | RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round  |
 | RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision               |
+| RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                     |
 
 ## Machine-readable ID list
 
@@ -183,8 +183,8 @@ RO-23 duplicated
 RO-24 owner-in-place
 RO-25 owner-in-place
 RO-26 duplicated
-RO-27 duplicated
-RO-28 duplicated
+RO-27 owner-in-place
+RO-28 owner-in-place
 RO-29 owner-in-place
 RO-30 owner-in-place
 RO-31 accepted-exception
@@ -194,7 +194,6 @@ RO-34 accepted-exception
 RO-35 accepted-exception
 RO-36 accepted-exception
 RO-37 accepted-exception
-RO-38 accepted-exception
 RO-39 accepted-exception
 RO-40 accepted-exception
 RO-41 accepted-exception
@@ -203,6 +202,7 @@ RO-43 accepted-exception
 RO-44 accepted-exception
 RO-45 accepted-exception
 RO-46 accepted-exception
+RO-47 owner-in-place
 ```
 
 ## Resource records
@@ -1113,10 +1113,20 @@ RO-46 accepted-exception
   the prompt lease.
 - **Lifecycle operations:** `SKIP_WAITING`, `reg.update()`, the reload, completion markers.
 - **Deadline owner:** the update machine (with the Chromium rule that `SKIP_WAITING` waits until
-  page loads settle) and `ACTIVATION_TIMEOUT_MS` in `sw-hard-reset.ts`, which must stay below the
-  session reset's 2 s commit timeout; that ordering is not written down.
-- **Timing-constant home:** `sw-register.ts`, `sw-update-coordination.ts`, `sw-hard-reset.ts`.
-  Target: named and exported coupled timings with an ordering test (Phase 0d, C6-1).
+  page loads settle) and `ACTIVATION_TIMEOUT_MS` in `sw-hard-reset.ts`, the hard reset's bounded
+  wait. Since Phase 2 C6-8 the logo reset runs the chunk load and that wait as the navigation
+  owner's prepare step, bounded by `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s, which
+  `navigation-contract.test.ts` keeps at least 1 s above the 1.5 s activation wait), and navigates
+  home after it either way; the 2 s commit timeout starts only at that navigation (owner decision
+  2, 2026-10-23). A chunk that lands after the prepare window closed sees its aborted signal and
+  posts no `SKIP_WAITING`.
+- **Timing-constant home:** `src/core/navigation-contract.ts` (the next-document markers
+  `SW_UPDATE_KEY`, `SW_CONTROLLER_CONFIRMED_KEY` and `UPDATE_COMPLETION_KEY`; the lazy
+  `sw-update-completion.ts` keeps a copy of the last, pinned by
+  `src/core/__tests__/sw-update-completion.test.ts`), `sw-update-coordination.ts`
+  (`UPDATE_CHECK_INTERVAL_MS` and the page-side message types, pinned against the worker's copies
+  by `src/core/__tests__/sw-message-contract.test.ts`), `sw-hard-reset.ts`
+  (`ACTIVATION_TIMEOUT_MS`, lazy) and `sw-register.ts` (prompt timings). Named in Phase 2 (C6-1).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/sw-register.test.ts` "drops a stale waiting-worker
     continuation when a newer install replaces it".
@@ -1134,23 +1144,66 @@ RO-46 accepted-exception
 
 - **Resource:** the page's own `location.reload`, `location.replace` and `location.href` writes.
 - **Current owners/flows:** the session reset in `src/core/session-reset.ts` (first request wins,
-  overlay, 2 s commit timeout, its own pagehide, pageshow and visibility listeners);
-  `src/core/document-reload.ts` (claim phases, active attempt, FIFO queue), joined to the reset by
-  `scheduleDocumentReload`, which reports a reload as recovered when a reset is already pending;
-  stacked requester latches in `sw-register.ts`, `src/core/reload-recovery-latch.ts` and the
-  back-forward cache retry in `src/core/page-lifecycle.ts`. `scheduleSessionReset` is called
-  directly from `app.ts`, `sw-register.ts`, `src/pro-room/runtime.ts`,
-  `src/pro-room/setup-flow.ts`, `src/ui/connect.ts`, `src/ui/player-controls.ts`,
-  `src/ui/setup.ts` and `src/ui/setup-guest.ts`.
+  overlay, 2 s commit timeout; since Phase 2 C6-4 one `PageNavigationState` whose every exit goes
+  through one exactly-once `settle()` with a typed outcome, `onSettled`, with `onRecovered` as its
+  alias; since C6-5 also the one reload queue behind `scheduleDocumentReload`; since C6-6 the one
+  page-transition dispatch, `initPageNavigation`, whose capture-phase pagehide, pageshow and
+  visibility listeners run before the Back guard's resume whatever the init order, and which owns
+  the single bounded reload of a document the back-forward cache returns, after calling
+  `revealLiveShell` from `src/core/page-lifecycle.ts`; since C6-7 an unload-exemption claim held
+  from the action's start until settle, from `claimUnloadExemption` in `page-lifecycle.ts`, which
+  replaced the shared intentional-navigation flag: each writer, the owner and the same-tab Google
+  login in `src/ui/account.ts` with its 10-minute bound, releases only its own claim, so a
+  recovered reset no longer ends a pending login's exemption and a reload waiting behind the PRO
+  claim fence no longer suppresses the leave prompt, owner decision 3, 2026-10-23). Its busy rule (owner decision 1, 2026-10-23): a reload asked
+  for while another navigation holds the page, behind another reload, or behind a reload whose
+  sink throws waits and runs if that navigation settles in this document, never after it
+  commits; a waiting reload with the same message joins the one already waiting; a direct reset
+  asked for while the page is held is refused (first wins); a back-forward cache return that makes
+  its own bounded reload decides so before it settles anything, drops every reload still waiting,
+  answers each dropped caller's `onRecovered` once (in a finally, the drop log and each callback
+  isolated) once that reload holds the page or waits first in the queue behind a deferred PRO
+  claim fence (a reload the visible return already started, or one a settled callback asks
+  for, is not dropped and can run ahead of it; the page still reloads once when the first
+  commits), and leaves the page's one reload to that bounded reload (owner decision 13,
+  2026-10-23); a return that reloads nothing (outside a room with nothing pending, or a second
+  return of the same document) drops nothing and settles only the attempt it returned with
+  (`left`), so a reload waiting there, or one the visible return already started from the queue,
+  runs once on every event order. `src/core/document-reload.ts` keeps
+  only the PRO claim fence (claim phases, the claim the in-flight reload carries, a narrow port
+  `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`; since C6-13 tests reset
+  the owner and the fence with one `__resetPageNavigationForTests`). A stacked requester latch
+  remains in `sw-register.ts` (`_swReloading`, Phase 3); `src/core/reload-recovery-latch.ts` keeps
+  only its prompt single-flight, its repeated-recovery guard deleted in C6-13 because the owner
+  reports a recovery at most once per attempt;
+  `src/core/page-lifecycle.ts` keeps only `beforeunload`, the pagehide `leaveSession` and
+  `revealLiveShell`. The navigation intents in
+  `src/core/navigation.ts` (Phase 2, C6-3) run on the reset: `navigateHome` (replace, or push for
+  the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
+  `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
+  at its sink and writes the reconnect marker) serves `sw-register.ts` and `src/ui/setup.ts`.
+  `scheduleSessionReset` is still called directly from `app.ts` (the confirmed Back leave),
+  `src/ui/player-controls.ts` (the logo reset) and `src/pro-room/runtime.ts` (terminal PRO
+  recovery). Since C6-8 a request is a plain action or `{ prepare?(signal), navigate, isCurrent? }`:
+  the owner runs the optional prepare step after the paint, bounded by
+  `NAVIGATION_PREPARE_TIMEOUT_MS`, then the final navigation call, and starts the 2 s commit
+  timeout only there (owner decision 2); the prepare signal aborts when that window closes or the
+  attempt settles, and `isCurrent()` false at navigate settles the attempt as recovered. The logo
+  reset's update hand-off is its prepare step; `runtime.ts` passes `isCurrent` instead of
+  restoring the reset inside its action, and its last raw `location.replace` became
+  `navigateToAppHome`. `restoreSessionReset` is no longer exported.
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
-- **Allowed requesters:** the callers above, through the owner; `page-lifecycle.ts` receives
-  ownership queries (`isSessionResetPending`, `restoreSessionReset`) from `app.ts`.
+- **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
+  back-forward cache recovery once (`initPageNavigation`: the role, the reload message, the log).
 - **Lifecycle operations:** schedule a reset or reload, navigate, recover, restore.
-- **Deadline owner:** `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) in `session-reset.ts`.
-- **Timing-constant home:** `session-reset.ts` (`NAVIGATION_COMMIT_TIMEOUT_MS`,
-  `FALLBACK_DELAY_MS`); next-document `sessionStorage` keys are scattered. Target: named constants
-  and keys in `src/core/navigation.ts` (Phase 0d, C6-1).
+- **Deadline owner:** `session-reset.ts`: `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s) for a prepare
+  step, then `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) from the final navigation call.
+- **Timing-constant home:** `src/core/navigation-contract.ts` (`NAVIGATION_COMMIT_TIMEOUT_MS`,
+  `NAVIGATION_PREPARE_TIMEOUT_MS`, `RESET_PAINT_FALLBACK_MS` and the next-document
+  `sessionStorage` keys), a dependency-free module
+  because `src/core/navigation.ts` imports the owner. The ordering it relies on is pinned in
+  `src/core/__tests__/navigation-contract.test.ts` (Phase 2, C6-1).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/session-reset.test.ts` "uses a native timeout fallback and
     accepts only the first reset request"; `src/core/__tests__/document-reload.test.ts` "does not
@@ -1160,10 +1213,36 @@ RO-46 accepted-exception
     request".
   - Visibility: `session-reset.test.ts` "cancels a pre-action reset when the returned page only
     becomes visible"; "restores a committed reset when iOS only foregrounds the old document".
-  - Missing: a reload requested while a direct reset is pending (dropped, then reported as
-    recovered).
-- **Status:** `duplicated`. Phase 0d (names), Phase 2 (unload-exemption claims; the navigation
-  owner and Back fallback in a train of its own; page transitions in one dispatch).
+  - Busy rule: `src/core/__tests__/page-navigation-owner.integration.test.ts` "(a) ... waits
+    behind the reset and runs once that reset recovers", "releases the failed reload and runs the
+    reload queued behind it" and "lets a waiting request join one with the same message"; at a
+    back-forward cache return, "(c) ... drops a reload still queued behind a committed reset" and
+    "drops every reload still queued at a pageshow-first return", and where the return reloads
+    nothing, "a pageshow-first return outside a room with a reload held by a deferred PRO claim
+    fence", "runs a reload queued behind the bounded reload once on a second ... return" and
+    "runs a reload queued behind the bounded reload once on a second visible-first return".
+  - Unload-exemption claims: `page-navigation-owner.integration.test.ts` "(e) ... keeps an
+    exemption another writer holds when an unrelated reset recovers" and "(d) ... asks to confirm
+    an unload while the reload waits behind the fence"; `src/ui/__tests__/account.test.ts` "keeps
+    a slow same-tab OAuth navigation recoverable beyond two seconds".
+  - Prepare/navigate split: `session-reset.test.ts` "prepare/navigate requests (C6-8)" and
+    `page-navigation-owner.integration.test.ts` "(f) ... navigates home at the prepare deadline
+    when the chunk lands later, which then posts no SKIP_WAITING".
+  - One page-transition dispatch: `page-navigation-owner.integration.test.ts` "with the
+    guard-first init order, re-arms the Back guard in a room only on the second pageshow-only
+    return" and `src/core/__tests__/page-lifecycle.test.ts` "page navigation owner — back-forward
+    cache return (initPageNavigation)".
+  - Sinks and requesters: `src/core/__tests__/navigation-sinks-guard.test.ts` (C6-14).
+- **Status:** `duplicated`. Phase 0d (names), Phase 2 (unload-exemption claims, C6-7; the
+  navigation owner and Back fallback in a train of its own; page transitions in one dispatch,
+  C6-6). Since C6-14 `npm run guard:navigation-sinks` (`scripts/check-navigation-sinks.mts`, in
+  CI) pins every `location` sink, `SKIP_WAITING` send and history traversal to its function, lists
+  the requesters of `scheduleSessionReset` / `scheduleDocumentReload` and the
+  `claimUnloadExemption` callers per file, allow-lists the locale navigation in
+  `src/i18n/localized-app-document.ts` with its reason (owner decision 7, 2026-10-23), and keeps
+  the retired names gone; `app.ts`'s Back home port moved to `navigateToAppHome`. The second
+  machine left is the `sw-register.ts` reload latch (Phase 3). See
+  [Page navigation ownership](page-navigation-ownership.md).
 
 ### RO-24 `inert` page lock
 
@@ -1172,9 +1251,17 @@ RO-46 accepted-exception
 - **Current owners/flows:** since 9.0.1 one ledger, `setElementInertForOwner` in
   `src/core/inert-ownership.ts`, used by the modal stack (`src/ui/dom.ts`), mobile chat
   (`src/ui/chat.ts`) and the session reset (inert only). The modal stack no longer locks the reset
-  overlay. Element-local writers (`src/player/video.ts`, `src/ui/playlist-removal.ts`,
+  overlay, so the reset surface stays on top of every window and a dialog that opens while a
+  navigation is pending sits underneath, inert, with focus left on the surface (owner decision 4,
+  2026-10-23, pinned in Phase 2 C6-11). Since C6-11 the reset also stays above a fullscreen
+  player: while `fullscreenSurfaceHost()` in `src/ui/dom.ts` (the element in the browser's
+  fullscreen top layer, the same container the modal portal uses) exists, the reset moves its
+  overlay inside it and claims inert on every element beside the overlay's path instead of on the
+  body children, follows fullscreen changes through `onFullscreenSurfaceHostChange`, and moves the
+  overlay back when it settles; it never requests or exits fullscreen. The app shell wires both
+  through `setSessionResetWindowLayer`. Element-local writers (`src/player/video.ts`, `src/ui/playlist-removal.ts`,
   `src/ui/setup-shared.ts` and others) lock their own subtrees and are out of scope.
-- **Target single owner:** unchanged; Phase 2 keeps the reset surface on top of the modal stack.
+- **Target single owner:** unchanged.
 - **Allowed requesters:** surfaces that cover the page, each with its own owner key.
 - **Lifecycle operations:** claim, release.
 - **Deadline owner:** none; the reset's release handler re-derives the modal stack.
@@ -1187,6 +1274,9 @@ RO-46 accepted-exception
     abandoned reset closes".
   - Visibility: `session-reset.test.ts` "restores a committed reset when Safari returns the old
     document via pageshow".
+  - Top surface: `src/core/__tests__/page-navigation-owner.integration.test.ts` "(g) ... keeps the
+    reset surface exposed and focused" and "keeps the reset surface on top of a fullscreen player,
+    with the window underneath and inert".
 - **Status:** `owner-in-place`. See [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md).
 
 ### RO-25 Developer API authority fence row
@@ -1245,22 +1335,38 @@ RO-46 accepted-exception
 ### RO-26 Top-document fullscreen state
 
 - **Resource:** `document.fullscreenElement` (and prefixed variants), with its request and exit.
-- **Current owners/flows:** the screensaver entry (`src/ui/screensaver-entry.ts`: entry lock,
-  request and exit generations, 1.5 s settlement); the YouTube exit (`src/player/video.ts`,
-  `pendingFullscreenExit`); the YouTube toggle (`src/ui/player-controls.ts`: native request, fake
-  fullscreen, a 100 ms WebKit check). Prefixed-API resolvers exist in `src/ui/fullscreen.ts`,
-  `video.ts` and `player-controls.ts`. Only playback mode separates the owners; read from the
-  code (not reproduced), a YouTube toggle tapped while a screensaver exit is in flight issues a
-  second exit instead of entering.
-- **Target single owner:** `src/core/fullscreen.ts` (moved from `src/ui/fullscreen.ts`) with one
-  bounded-exit primitive; callers keep their request policy.
+- **Current owners/flows:** `exitFullscreenFor` in `src/core/fullscreen.ts` (moved from `src/ui/`
+  in Phase 2, C8-I2) is the one bounded exit (C8-I8): it owns the change, error and pagehide
+  listeners, promise and void-return handling, the native 1.5 s bound, observer isolation and
+  error matching (only an error of the exit method's own type at the document or the exiting
+  element settles it). It holds the one exit in flight for the document (C8-I9): an exit by
+  either owner for the element already being exited joins it instead of issuing a second native
+  exit, and an exit for another element settles the earlier attempt first. Only this module
+  calls a native exit method (guard: "fullscreen exit"), and both owners leave through the door
+  they entered: the standard exit while the standard element is set, otherwise the prefixed
+  exit first (owner decision O3, 2026-10-23, C8-I13; the YouTube exit used to try the standard
+  exit first). Its callers: the screensaver entry (`src/ui/screensaver-entry.ts`: entry lock,
+  request generation and bound) and the YouTube exit (`src/player/video.ts`: ownership
+  heuristic, fake-fullscreen teardown). Two request chains stay with their callers: the
+  screensaver's (standard, then WebKit) and the YouTube toggle's in `src/ui/player-controls.ts`
+  (standard then fake fullscreen, or WebKit with a 100 ms check then fake). While a
+  screensaver-owned exit is in flight the toggle is `aria-disabled` (dimmed) and ignores taps,
+  and it comes back when the exit settles, at most 1.5 s later (owner decision O2, C8-I13,
+  through `getFullscreenExitOwner` and `onFullscreenExitChange`). `getFullscreenElement` is the
+  one prefixed-element reader for all of them (C8-I5).
+- **Target single owner:** `src/core/fullscreen.ts`: done for exits. Whether the two request
+  chains should become one is a separate owner decision; until then callers keep their request
+  policy.
 - **Allowed requesters:** the screensaver, the YouTube toggle and mode exit, Back.
 - **Lifecycle operations:** request, exit, settle.
-- **Deadline owner:** each writer's 1.5 s settlement (request on a managed timer, exit on a native
-  timer).
-- **Timing-constant home:** `LEGACY_SETTLEMENT_MS` (`screensaver-entry.ts`) and
-  `FULLSCREEN_EXIT_SETTLEMENT_MS` (`video.ts`). Target: `FULLSCREEN_SETTLEMENT_MS` in
-  `src/core/fullscreen.ts` (Phase 0d, C8-I2).
+- **Deadline owner:** `exitFullscreenFor` for every exit and the screensaver entry for its
+  request, each a 1.5 s settlement, always on a native timer: leaving a room
+  clears every managed timer (`leaveSession` in `src/network/peer.ts`), which stranded a silent
+  WebKit screensaver request until Phase 2 (C8-I6, `screensaver.test.ts` "bounds a silent WebKit
+  request on a native timer that leaving a room cannot clear").
+- **Timing-constant home:** `FULLSCREEN_SETTLEMENT_MS` in `src/core/fullscreen.ts` (Phase 2,
+  C8-I2), with the change and error event names and the WebKit document and target types;
+  `src/core/__tests__/fullscreen.test.ts` pins both exit bounds to it.
 - **Anchor tests:**
   - Supersession: `src/player/__tests__/video.test.ts` "does not exit an unrelated fullscreen
     element when YouTube mode ends".
@@ -1269,10 +1375,20 @@ RO-46 accepted-exception
   - Teardown: `video.test.ts` "exits native fullscreen before parking the YouTube wrapper".
   - Visibility: `src/ui/__tests__/screensaver-entry-back.test.ts` "releases the pending surface on
     pagehide and ignores late completion".
-  - Missing: a YouTube toggle during an in-flight screensaver exit.
-- **Status:** `duplicated`. Phase 0d (shared helper and constants), Phase 2 (one prefixed reader,
-  one bounded exit). See [Screensaver integration](screensaver-integration-2026-10-16.md).
-  Exception RO-38.
+  - Both callers: `src/core/__tests__/fullscreen.test.ts` "bounded fullscreen exit" runs the
+    promise, change event, legacy WebKit event, pagehide, failed exit and error-matching cases for
+    the screensaver and the YouTube player alike, and "one in-flight fullscreen exit shared by
+    both owners" pins the join, including across a hidden page.
+  - Hand-off: `src/ui/__tests__/fullscreen-handoff.test.ts` (the screensaver closes on a YouTube
+    takeover before `fullscreenchange`): "is unavailable until the screensaver exit settles, then
+    enters again", "comes back at the 1.5 s bound when the screensaver exit never reports" and "a
+    YouTube mode exit during the screensaver exit joins it".
+  - Exit rule: `fullscreen.test.ts` "the YouTube player exits through the same door".
+- **Status:** `duplicated` for the request chains only (owner decision). Phase 2 finished the
+  exit side: shared helper and constants (C8-I2), one prefixed reader (C8-I5), one bounded exit
+  (C8-I8), one in-flight exit slot (C8-I9, which retired exception RO-38) and one exit rule with
+  the toggle unavailable during a screensaver exit (C8-I13). See
+  [Screensaver integration](screensaver-integration-2026-10-16.md).
 
 ### RO-27 Playlist rows and scroll position
 
@@ -1280,28 +1396,68 @@ RO-46 accepted-exception
 - **Current owners/flows:** reorder (`src/ui/playlist-reorder.ts`: drag, keyboard, settling, FLIP,
   edge auto-scroll); removal (`src/ui/playlist-removal.ts` with
   `src/ui/playlist-selection-morph.ts`: selection, exit layer, glide); the selection-gesture
-  auto-scroll (`src/ui/playlist-selection-gestures.ts`, which says it mirrors the reorder edge
-  scroll); follow and current-jump; the custom scrollbar drag; the render's scroll restore.
-  `src/ui/playlist-view.ts` orchestrates by polling the controllers and pairing their cancels.
-- **Target single owner:** one interaction gate in `playlist-view.ts` with a shared lazy motion
-  module (planned `src/ui/playlist-motion.ts`); controllers keep their gesture-private state.
-- **Allowed requesters:** the controllers above, through the gate.
+  auto-scroll (`src/ui/playlist-selection-gestures.ts`); follow and current-jump; the custom
+  scrollbar drag; the render's scroll restore. The three lazy controllers share
+  `src/ui/playlist-motion.ts` (lazy; listed with the build's deferred modules) for the edge
+  auto-scroll, the row easing and the reduced-motion check. `src/ui/playlist-view.ts` holds the
+  interaction gate: `playlistInteraction()` derives one state from both controllers (the reorder
+  is idle, in a gesture or settling a drop, and separately the selection is on or off, because an
+  edit-mode long press drags while the selection stays), `interactionPolicy()` answers render
+  deferral, follow blocking, handle use and what a long press does, and
+  `cancelQueueInteractions()` ends both.
+- **Target single owner:** one interaction gate in `playlist-view.ts` with the shared lazy motion
+  module `src/ui/playlist-motion.ts`; controllers keep their gesture-private state.
+- **Allowed requesters:** the controllers above, through the gate; room, authority, session and
+  playback-mode events cancel through `cancelQueueInteractions()` (since owner decision O5,
+  2026-10-23, a switch to system audio ends a drag or drop settle as well as the selection).
+  Single-controller exits stay with their controller: a tab change ends the selection, starting a
+  selection ends a reorder hold, the move dialog ends the selection.
 - **Lifecycle operations:** move rows, animate, scroll, defer or force a render, cancel.
 - **Deadline owner:** each controller's settle and glide timing.
-- **Timing-constant home:** edge auto-scroll constants copied in `playlist-reorder.ts` and
-  `playlist-selection-gestures.ts`; the row easing in three places; `prefersReducedMotion` twice.
-  Target: `src/ui/playlist-motion.ts` (Phase 2).
+- **Timing-constant home:** `src/ui/playlist-motion.ts`: the edge auto-scroll zone, arming and
+  speed (`edgeAutoScrollVelocity`), the move tolerance `PLAYLIST_MOVE_TOLERANCE_PX`, the row
+  easing `PLAYLIST_ROW_EASING` (reorder FLIP and the deletion survivors' glide) and
+  `prefersReducedMotion`. Triaged as separate contracts and named apart: the click suppression
+  after a drop or hold (`CLICK_SUPPRESSION_MS`, 500 ms, `playlist-reorder.ts`) and after a range
+  drag (`RANGE_DRAG_CLICK_SUPPRESSION_MS`, 400 ms, `playlist-selection-gestures.ts`); the survivors'
+  glide (`GLIDE_MS`, 300 ms, `playlist-removal.ts`) and the selection pills' morph (`MORPH_MS`,
+  320 ms, `playlist-selection-morph.ts`); the header crossfade's curve stays in
+  `playlist-removal.ts`.
 - **Anchor tests:**
+  - Shared motion: `src/ui/__tests__/playlist-motion.test.ts` "takes the same steps toward each
+    edge of the pane visible above the bottom nav" (reorder drag and check-column drag).
   - Supersession: `src/ui/__tests__/playlist-view.test.ts` "keeps an active PRO reorder mounted
-    through revision-only context pulses".
+    through revision-only context pulses" and "defers renders while an edit-mode drag runs
+    instead of dropping it".
   - User pause/stop: `src/ui/__tests__/playlist-reorder.test.ts` "cancels an active drag on Escape
     without changing order".
   - Teardown: `playlist-view.test.ts` "cancels a PRO deletion task on authority loss or
-    room-incarnation replacement".
-  - Visibility: missing.
-  - Missing: Delete tapped during a reorder drop settle.
-- **Status:** `duplicated`. Phase 2 (motion module, interaction gate, the delete-during-settle
-  decision).
+    room-incarnation replacement" and "cancels the drag and the selection together on ...".
+  - Visibility: `playlist-reorder.test.ts` "preserves focus after hidden retires keyboard
+    reorder" and `playlist-removal.test.ts` "does not resume playlist follow when the view hides
+    before the release microtask".
+  - System audio (O5): `playlist-view.test.ts` "cancels the drag and the selection together on a
+    switch to system audio" and "cancels a handle drag outside edit mode on a switch to system
+    audio".
+  - Gate decisions: `playlist-view.test.ts` "stays blocked while tracks are picked and resumes its
+    pending request once after" and "stays blocked through a reorder and its drop settle and
+    resumes once after" (follow), "cancels a handle drag outside edit mode when the playlist
+    changes under it" and "cancels an edit-mode long-press drag when the playlist changes under
+    it" (a drag cannot trust changed rows; a settle keeps them), "keeps the number column for
+    picking in edit mode: its handle starts no drag" and "picks a row from a title tap in edit mode
+    instead of playing it".
+  - Delete during a drop settle (owner decision O4, 2026-10-23: the settle finishes at once, then
+    the deletion renders): `playlist-view.test.ts` "finishes a drop settle at once when Delete is
+    tapped during it" for the Standard host, a Standard guest with ADMIN and a PRO media manager,
+    and `e2e/playlist-edit-mode.test.ts` "Delete tapped while a dropped row settles deletes at
+    once" (local only). The removal controller asks first through `onBeforeDelete`; a drag still
+    in its gesture is left alone ("leaves a running drag alone when Delete is tapped and renders
+    the deletion after its drop").
+- **Status:** `owner-in-place`. Phase 2 moved the shared motion into `playlist-motion.ts` (C8-I3),
+  gave the view one interaction gate (C8-I7) and applied owner decisions O4 (C8-I11) and O5, with
+  the tests above. Known residual: a Standard guest with ADMIN who taps Delete before the host has
+  answered its reorder request sees the order from before the drop until the host's snapshot
+  arrives; before O4 the same happened only when the host answered after the ~474 ms settle.
 
 ### RO-28 Account session reads and refresh pulses
 
@@ -1309,21 +1465,31 @@ RO-46 accepted-exception
   cross-tab refresh pulses (BroadcastChannel `mxqr-account-v1`, storage key
   `mxqr-account-refresh`).
 - **Current owners/flows:** `src/account/session.ts` (generations, in-flight reads, recovery,
-  login-result promises; sole snapshot writer) and `src/ui/account.ts` (popup attempt, a 250 ms
-  close monitor, its own pulse receiver, parser and seen-id set). Other documents carry their own
-  copies: the producer in `browser/classic-runtime/account-complete.ts` and a third consumer in
-  `browser/classic-runtime/events/event.ts`. A shared promise per login nonce and a generation
+  login-result promises; sole snapshot writer; since C8-I10 the tab's single pulse receiver for
+  window messages, storage events and BroadcastChannel, on one channel that also sends its
+  mutation pulses, reading them through the one parser in `src/account/account-sync-protocol.ts`,
+  C8-I4). `src/ui/account.ts` is a requester: its popup attempt and 250 ms close monitor ask the
+  owner to read or reconcile, and it subscribes to login results (`subscribeAccountAuthResults`),
+  which the receiver hands over before it reconciles. The UI filters them by its `accountClient`
+  and keeps a once-per-result set that guards only its own toasts and popup settling. Other
+  documents carry their own copies, pinned by the contract tests (owner decision O6): the producer
+  in `browser/classic-runtime/account-complete.ts` and the third receiver in
+  `browser/classic-runtime/events/event.ts`, which reads its campaign session once per pulse copy
+  (no nonce dedupe; a known gap the tests pin). A shared promise per login nonce and a generation
   fence make the reads converge.
-- **Target single owner:** `src/account/session.ts` as the single pulse receiver, with a shared
-  wire-contract module (planned `src/account/account-sync-protocol.ts`) pinned against the classic
-  runtimes by a contract test.
-- **Allowed requesters:** the account UI and the popup monitor; focus, visibility and online
-  triggers inside the owner.
+- **Target single owner:** reached in Phase 2: `src/account/session.ts` is the single pulse
+  receiver (C8-I10) with the wire-contract module `src/account/account-sync-protocol.ts` (C8-I1)
+  pinned against the classic runtimes by a contract test.
+- **Allowed requesters:** the account UI (login-result subscription, popup attempt) and the popup
+  monitor; focus, visibility and online triggers inside the owner.
 - **Lifecycle operations:** read, refresh, reconcile a login, sign out, delete.
 - **Deadline owner:** the session owner's recovery tail; the popup monitors.
-- **Timing-constant home:** channel and key literals in four files; `ACCOUNT_LOGIN_POPUP_POLL_MS`
-  (`account.ts`) and a 250 ms copy in `event.ts`. Target: the wire-contract module (Phase 0d,
-  C8-I1).
+- **Timing-constant home:** the wire contract `src/account/account-sync-protocol.ts`
+  (`ACCOUNT_SYNC_CHANNEL`, `ACCOUNT_SYNC_STORAGE_KEY`, the 8 to 160 character pulse token bounds and
+  the mutation pulse) for the app (Phase 2, C8-I1). The completion page and the events page cannot
+  import it and keep their own literals (owner decision O6, 2026-10-23), pinned by
+  `src/account/__tests__/account-pulse-contract.test.ts`. `ACCOUNT_LOGIN_POPUP_POLL_MS`
+  (`account.ts`) and a 250 ms copy in `event.ts` are separate popup monitors in separate documents.
 - **Anchor tests:**
   - Supersession: `src/account/__tests__/session.test.ts` "reconciles the exact popup session and
     fences an older account read".
@@ -1335,9 +1501,15 @@ RO-46 accepted-exception
   - Cross-document: `src/account/__tests__/account-pulse-cross-document.test.ts` runs the app tab and the
     events document together over a same-origin BroadcastChannel fake, and
     `account-pulse-contract.test.ts` freezes the pulse wire format, channel names and storage keys
-    (Phase 0c C8 harness).
-- **Status:** `duplicated`. Phase 0d (wire contract), Phase 2 (one parser, single receiver
-  including the events page copy).
+    (Phase 0c C8 harness), and runs session.ts as App 9.0.3 shipped it as the old tab of a mixed
+    rollout; `account-sync-protocol.test.ts` pins the parser over both former validators.
+  - Single receiver: `src/ui/__tests__/account-pulse-receivers.test.ts` (one channel and one
+    listener per transport for the session and the UI together, the I10 cases (a) to (e), the
+    popup-only context and the backgrounded-opener resume orders) and `session.test.ts` "the
+    single account pulse receiver".
+- **Status:** `owner-in-place`. Phase 2 removed the last independent machine in the app (C8-I1
+  wire contract, C8-I4 one parser, C8-I10 single receiver, with the anchor tests above). New pulse
+  handling extends `session.ts` or subscribes to it; the classic runtimes stay pinned copies.
 
 ### RO-29 PRO presence heartbeat timer slot
 
@@ -1376,9 +1548,9 @@ RO-46 accepted-exception
 - **Allowed requesters:** windows registered for Back; the hard navigation home belongs to RO-23.
 - **Lifecycle operations:** push or replace a guard, `history.back()`, leave attempt, suspend and
   resume.
-- **Deadline owner:** `LEAVE_FALLBACK_MS` (1 s, `back-button-history.ts`), which fires before the
-  session reset's 2 s commit timeout; the ordering is not written down (Phase 0d).
-- **Timing-constant home:** `back-button-history.ts`.
+- **Deadline owner:** `LEAVE_FALLBACK_MS` (1 s), which fires before the session reset's 2 s commit
+  timeout (`src/core/__tests__/navigation-contract.test.ts`).
+- **Timing-constant home:** `src/core/navigation-contract.ts` (Phase 2, C6-1).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/back-button-guard.test.ts` "a newly starting surface cancels
     old frames and waits for the newer close".
@@ -1387,8 +1559,14 @@ RO-46 accepted-exception
   - Teardown: `back-button-guard.test.ts` "does not compete with an update or terminal reset".
   - Visibility: `back-button-guard.test.ts` "cancels a hidden document and resumes only while still
     needing a guard".
-- **Status:** `owner-in-place`. Phase 2: re-arming the guard after a pending reset recovers is an
-  owner decision because it reverses part of the 2026-10-17 Back decision.
+  - Re-arm after a recovered navigation: `page-navigation-owner.integration.test.ts` "(h) ... is
+    absorbed, and the guard re-arms when the deadline recovers" and `back-button-guard.test.ts`
+    "re-arms one guard when a navigation absorbed a Back and then settles".
+- **Status:** `owner-in-place`. Phase 2 C6-12 (owner decision 5, 2026-10-23, which reverses part
+  of the 2026-10-17 Back decision): the guard subscribes `handleStateChange` to the navigation
+  owner's `onNavigationPendingChange`, sent at the end of settle after the queue and the attempt's
+  callbacks, so it re-arms once a navigation that absorbed a Back settles in this document; a
+  confirmed leave keeps its own recovery wiring.
 
 ## Accepted exceptions
 
@@ -1483,18 +1661,6 @@ entry needs the owner's acceptance and is not implied by this registry.
   a failed-PLAY retry would then confirm, emit the rejoin and also retry.
 - **Behaviour risk:** none.
 - **Revisit when:** Phase 7 encodes the retry-versus-semantic exclusivity in the flight-result type.
-- **Status:** `accepted-exception`.
-
-### RO-38 Separate screensaver and YouTube fullscreen exit state
-
-- **Parent:** RO-26. Plan steps C8-I9 and C8-I13 deferred.
-- **Exception:** after Phase 2's shared bounded exit, the screensaver and YouTube still keep
-  separate in-flight state instead of one slot.
-- **Evidence:** a shared slot only matters for a behaviour the owner has not chosen: what a YouTube
-  fullscreen tap does while a screensaver exit is in flight.
-- **Behaviour risk:** that tap is lost (the duplicate exits settle harmlessly); no known-accepted
-  entry until the owner decides.
-- **Revisit when:** the owner chooses that behaviour.
 - **Status:** `accepted-exception`.
 
 ### RO-39 Two Cloudflare Realtime control clients
@@ -1604,6 +1770,49 @@ entry needs the owner's acceptance and is not implied by this registry.
   failed send, or wants the added-tracks notice to survive one.
 - **Status:** `accepted-exception`.
 
+## Records added after the survey
+
+### RO-47 Header loader `_default` holder
+
+- **Resource:** the header loader's `_default` holder in `src/ui/toast.ts`: the holder that
+  `showLoader(show, text)` and `updateLoader(percent)` write when they pass no holder ID.
+- **Current owners/flows:** `src/ui/toast.ts` owns the holder map, picks the foreground holder
+  (priority first, then the newest) and runs the 400 ms `loader-reset`. The `_default` holder
+  belongs to the foreground media load: at most one load of the current track or demo runs at a
+  time, serialized by the playback mode and the load epoch and session
+  ([Playback concurrency invariants](playback-concurrency-invariants.md) M1, M2). Its writers are
+  the file prepare and decode (`src/player/decode.ts`, hides gated by the load session), the guest
+  wait, request and receive of the current track's file (`src/player/playback.ts`,
+  `src/storage/transfer-receive.ts`, `src/storage/preload.ts`), the foreground remote-share wait
+  and download (`src/share/remote-share.ts`), the guided demo download (`src/demo/mode.ts`),
+  YouTube playlist indexing (`src/youtube/iframe.ts`), and clears when a load is superseded or
+  ends: a YouTube takeover or stop (`iframe.ts`, `src/youtube/player.ts`), a stuck transfer reset
+  (`src/storage/storage.ts`, `src/storage/recovery.ts`) and a failed guest join
+  (`src/ui/setup.ts`).
+- **Target single owner:** unchanged. The writers share the key on purpose and carry no token: a
+  newer load or a mode switch must clear whatever the older load left on the header, and a
+  per-flow token would make every superseding path learn every other flow's token. No report of a
+  wrong or stuck header text exists.
+- **Allowed requesters:** the files above, pinned per file by the resource-ownership guard (CHECK
+  8). Anything that can overlap the foreground load shows its own named holder: PRO transfers
+  (`src/pro-room/runtime.ts`, `src/player/transport.ts`), a background preload receive
+  (`src/storage/preload.ts`; the receive a PLAY waits for writes `_default`), remote uploads
+  (`src/share/remote-share.ts`), the host-wait notice (`src/ui/keep-open-notice.ts`, priority),
+  YouTube info fetches (`src/youtube/player.ts`, `src/youtube/standard-playlist.ts`), the route
+  check (`src/player/playback.ts`) and the Standard operator uplink (`src/ui/toast.ts`). A no-ID
+  hide never removes a named holder.
+- **Lifecycle operations:** show with text, update progress, hide.
+- **Deadline owner:** none; each load's own deadlines end it, and the reset only repaints.
+- **Timing-constant home:** `src/ui/toast.ts` (`loader-reset`, 400 ms).
+- **Anchor tests:**
+  - Supersession: `src/ui/__tests__/toast.test.ts` "lets a newer no-ID show take over the
+    foreground load's text" and "keeps default progress behind an explicitly named foreground
+    holder".
+  - User pause/stop: n/a; a stop ends the load, which hides through its own path.
+  - Teardown: `toast.test.ts` "lets a no-ID hide end only the default holder, never a named one".
+  - Visibility: n/a (the header progress snaps while the page is hidden).
+- **Status:** `owner-in-place`. Phase 2 named the owner and the writers instead of adding tokens.
+
 ## Checked side flows without a record
 
 The survey also checked these and found one owner with a side flow (WEAK) or a single owner. They
@@ -1613,12 +1822,14 @@ get a record only if a change adds a second machine:
   `cloudflare-signaling.ts`), partitioned by admission.
 - Transport RTC configuration (TURN): three writers, last write wins; the pre-admission retry
   passes no expiry (self-healing).
-- Seek slider drag (`src/ui/range-drag.ts` and `src/ui/seekbar.ts`): `cancelSeekGesture` does not
-  call `cancelRangeDrag`; a fix-lane candidate only with a failing test.
+- Seek slider drag (`src/ui/range-drag.ts` and `src/ui/seekbar.ts`): two cooperating layers,
+  accepted by owner decision O7 ([known-accepted #19](../known-accepted.md)). `cancelSeekGesture`
+  does not call `cancelRangeDrag` on purpose; `seekbar.test.ts` "rejects every value of a drag
+  whose seek permission is revoked mid-drag, then accepts a fresh accessibility seek" shows no
+  seek, one denial and the authoritative position after every move, so the fix-lane candidate is
+  closed.
 - Guest join attempt (`src/network/guest.ts`): an old inline cancel in `src/ui/setup-guest.ts`
   skips `invalidateGuestJoinAttempt`; a fix-lane candidate only with a failing test.
-- Header loader `_default` key (`src/ui/toast.ts`): about a dozen writers without an owner token,
-  serialized in practice by playback mode; Phase 2 assigns owners.
 - Return-from-background dialog: the long-background warning yields to the audio recovery prompt
   (`app.ts`), per [Resume dialog dedup](resume-dialog-dedup-2026-10-17.md).
 - PRO Durable Object alarm (`scheduleAlarm`) and the signaling Durable Object alarms: single owners
@@ -1656,9 +1867,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
    the index rows and the record IDs the guard names, as listed under
    [Machine-readable ID list](#machine-readable-id-list); and the `Resource owner:` headers.
 2. **Guarded page state, per file:** `inert` writes, page-lock claims and walks over the body's
-   children (RO-24), aria-hidden writes in page-lock files, Fullscreen request and exit methods
-   (RO-26), history entry writes (RO-30), navigation through `location` (RO-23) and
-   `SKIP_WAITING` sends (RO-22).
+   children (RO-24), aria-hidden writes in page-lock files, Fullscreen request methods and
+   Fullscreen exit methods, the latter only in `src/core/fullscreen.ts` (RO-26), history entry
+   writes (RO-30), navigation through `location` (RO-23) and `SKIP_WAITING` sends (RO-22).
 3. **Worker callers, per function:** the `/internal/realtime/v1/broadcast` endpoint anywhere in
    production code (RO-07) and `readProRoomFileDuration` in `cloudflare/` (RO-08; the app's
    local-file parse in `src/pro-room/upload-duration.ts` is outside that resource).
@@ -1679,13 +1890,24 @@ and unrelated strings never count, and every baseline is an exact count or list 
    and the PRO room's `deleteDeveloperRoomData` loop list. Reads (FROM or JOIN) and qualified
    columns do not count; the match ignores case, and a literal holding the name's tail
    (`authority_fences`) outside a full name counts too.
+8. **Header loader default holder writers, per file** (RO-47): `showLoader()` and `updateLoader()`
+   calls in `src/` whose holder ID is missing or can be undefined write the `_default` holder of
+   `src/ui/toast.ts`, which belongs to the foreground media load. An ID can be undefined when it is
+   `undefined` or `void`, a conditional or `??` / `||` with such a branch, or a name that one of its
+   declarations in the same file can leave undefined (an optional parameter, a `let` with no value,
+   or any of these as its value); names match across the file, not by scope. Shows, hides and
+   progress ticks all count; calls with a named holder do not.
+
+The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
+sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).
 
 Not checked yet: callers of the other records' lifecycle operations (YouTube player commands,
-`claimPlaybackOwner`, `setSystemAudioReceiving`, `scheduleSessionReset`), receivers resolved by
+`claimPlaybackOwner`, `setSystemAudioReceiving`), receivers resolved by
 type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
-duplicated helper names, "mirrors" copy-marker comments, and registered timings retyped as
-literals in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`). Until
-then, review those by hand against each record.
+duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
+in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`), and header loader
+holder IDs read from a property, a call or another module (RO-47). Until then, review those by
+hand against each record.
 
 ## How to change this registry
 

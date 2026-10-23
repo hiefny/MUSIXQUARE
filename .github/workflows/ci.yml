@@ -75,6 +75,9 @@ jobs:
         # for guard:sw-cache-version, so it joins the next runtime change.
         run: node scripts/check-resource-ownership.mts
 
+      - name: Page navigation sinks and requesters
+        run: npm run guard:navigation-sinks
+
       - name: Storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 

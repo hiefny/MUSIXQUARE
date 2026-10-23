@@ -830,9 +830,6 @@ const ro: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Solicitarea nu a putut fi finalizată',
   'pro.claim_failed_message':
     'Din motive de siguranță, acest link nu a fost reîncercat. Cere administratorului camerei un link nou.',
-  'pro.transfer_title': 'Preia camera PRO',
-  'pro.transfer_message':
-    'Setează o parolă nouă din 8 cifre pentru această cameră. După finalizare, accesul proprietarului anterior va fi revocat.',
   'pro.new_link_message':
     'Linkul a expirat sau a fost deja folosit. Dacă este necesar, cere unui administrator un link nou.',
   'pro.not_ready_title': 'Această cameră PRO nu este încă pregătită',

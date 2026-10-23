@@ -22,7 +22,10 @@ import {
   requestAccountLoginPopup,
 } from '../../account/session.ts';
 import { updateCurrentAccountNickname } from '../../account/nickname.ts';
-import { clearIntentionalNav, isIntentionalNav } from '../../core/page-lifecycle.ts';
+import {
+  __resetUnloadExemptionsForTests,
+  initPageLifecycleHandlers,
+} from '../../core/page-lifecycle.ts';
 import {
   __accountLoginReturnForTests,
   rememberAccountLoginReturn,
@@ -105,6 +108,21 @@ function renderAccountDialog(): void {
   `;
 }
 
+/**
+ * Whether this document's unload is exempt from the leave confirmation: a
+ * beforeunload in a room is not cancelled (page-lifecycle's own handler).
+ */
+function isUnloadExempt(): boolean {
+  const lifecycle = initPageLifecycleHandlers({ getRole: () => 'host', leaveSession: vi.fn() });
+  try {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return !event.defaultPrevented;
+  } finally {
+    lifecycle.dispose();
+  }
+}
+
 beforeEach(() => {
   __resetAccountSessionForTests();
   __resetAccountUiForTests();
@@ -122,7 +140,7 @@ beforeEach(() => {
   document.documentElement.lang = 'en-US';
   sessionStorage.clear();
   localStorage.clear();
-  clearIntentionalNav();
+  __resetUnloadExemptionsForTests();
   window.history.replaceState({}, '', '/');
 });
 
@@ -403,7 +421,7 @@ describe('optional account UI', () => {
 
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
-    expect(isIntentionalNav()).toBe(false);
+    expect(isUnloadExempt()).toBe(false);
   });
 
   it('resolves protected popup login only after a completed account profile exists', async () => {
@@ -822,7 +840,7 @@ describe('optional account UI', () => {
     expect(window.location.pathname + window.location.search + window.location.hash).toBe(
       '/?panel=connect#account',
     );
-    expect(isIntentionalNav()).toBe(false);
+    expect(isUnloadExempt()).toBe(false);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
     expect(sessionStorage.getItem('mxqr-account-welcome-intent-v1')).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
@@ -846,7 +864,7 @@ describe('optional account UI', () => {
     google.dispatchEvent(click);
 
     expect(click.defaultPrevented).toBe(true);
-    expect(isIntentionalNav()).toBe(false);
+    expect(isUnloadExempt()).toBe(false);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
     expect(showToast).toHaveBeenCalledWith('Could not sign in\nPlease try again');
@@ -880,7 +898,7 @@ describe('optional account UI', () => {
 
     expect(close).toHaveBeenCalledOnce();
     expect(click.defaultPrevented).toBe(true);
-    expect(isIntentionalNav()).toBe(false);
+    expect(isUnloadExempt()).toBe(false);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
     expect(showToast).toHaveBeenCalledWith('Could not sign in\nPlease try again');
@@ -968,7 +986,7 @@ describe('optional account UI', () => {
     await Promise.resolve();
 
     expect(window.location.pathname).toBe('/000001');
-    expect(isIntentionalNav()).toBe(false);
+    expect(isUnloadExempt()).toBe(false);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
   });
@@ -993,13 +1011,13 @@ describe('optional account UI', () => {
     google.dispatchEvent(new MouseEvent('click', { button: 0, bubbles: true, cancelable: true }));
     await vi.advanceTimersByTimeAsync(2_500);
 
-    expect(isIntentionalNav()).toBe(true);
+    expect(isUnloadExempt()).toBe(true);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).not.toBeNull();
     expect(sessionStorage.getItem('mxqr-account-welcome-intent-v1')).not.toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).not.toBeNull();
 
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000 - 2_500);
-    expect(isIntentionalNav()).toBe(false);
+    expect(isUnloadExempt()).toBe(false);
     // The guard timer owns only the unload exemption. Stored recovery state is
     // independently validated and expired by the login-return parser.
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).not.toBeNull();

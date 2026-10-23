@@ -816,9 +816,6 @@ const fi: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Pyyntöä ei voitu suorittaa',
   'pro.claim_failed_message':
     'Turvallisuussyistä linkkiä ei yritetty uudelleen. Pyydä huoneen ylläpitäjältä uusi linkki.',
-  'pro.transfer_title': 'Ota PRO-huone omistukseesi',
-  'pro.transfer_message':
-    'Aseta huoneelle uusi 8-numeroinen salasana. Edellisen omistajan käyttöoikeus perutaan, kun toiminto valmistuu.',
   'pro.new_link_message':
     'Linkki on vanhentunut tai se on jo käytetty. Pyydä tarvittaessa ylläpitäjältä uusi linkki.',
   'pro.not_ready_title': 'Tämä PRO-huone ei ole vielä valmis',

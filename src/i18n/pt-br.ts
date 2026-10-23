@@ -756,9 +756,6 @@ const ptBr: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Não foi possível concluir a solicitação',
   'pro.claim_failed_message':
     'Por segurança, este link não foi tentado novamente. Peça um novo link ao administrador da sala.',
-  'pro.transfer_title': 'Assumir a propriedade da sala PRO',
-  'pro.transfer_message':
-    'Defina uma nova senha de 8 dígitos. Ao concluir, o acesso do proprietário anterior será revogado.',
   'pro.new_link_message':
     'O link expirou ou já foi usado. Se necessário, peça um novo link a um administrador.',
   'pro.not_ready_title': 'Esta sala PRO ainda não está pronta',

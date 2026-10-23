@@ -448,8 +448,8 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/ui/playlist-view.ts',
     [
-      'event:appRole @ function:initPlaylistView :: _busScope.on("state:network.appRole", (role: unknown) => { if (role === \'idle\') { _followController?.reset(); _expansionOverrides.clear(); _reorderController?.cancel(); _removalController?.cancel(); _currentJumpController?.refresh(); } })',
-      'event:isOperator @ function:initPlaylistView :: _busScope.on("state:network.isOperator", (isOperator) => { if (!isOperator || !canEditQueueStructure()) { _reorderController?.cancel(); _removalController?.cancel(); } schedulePlaylistUpdate(); })',
+      'event:appRole @ function:initPlaylistView :: _busScope.on("state:network.appRole", (role: unknown) => { if (role === \'idle\') { _followController?.reset(); _expansionOverrides.clear(); cancelQueueInteractions(); _currentJumpController?.refresh(); } })',
+      'event:isOperator @ function:initPlaylistView :: _busScope.on("state:network.isOperator", (isOperator) => { if (!isOperator || !canEditQueueStructure()) cancelQueueInteractions(); schedulePlaylistUpdate(); })',
     ],
   ],
   [

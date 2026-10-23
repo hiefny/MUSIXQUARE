@@ -1,3 +1,5 @@
+import { LEAVE_FALLBACK_MS } from './navigation-contract.ts';
+
 type BackButtonHistoryPosition = 'base' | 'guard' | 'foreign';
 
 interface BackButtonHistoryDeps {
@@ -15,8 +17,6 @@ interface BackButtonHistory {
   cancelLeave: () => void;
   dispose: () => void;
 }
-
-const LEAVE_FALLBACK_MS = 1_000;
 
 /**
  * Own only this document's two history markers. A previous document's marker

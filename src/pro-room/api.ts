@@ -296,10 +296,10 @@ export interface RecoverProRoomOwnerInput {
   claimToken: string;
 }
 
+/** A transfer leaves the room without an entry password, so it carries no PIN. */
 export interface TransferProRoomOwnerInput {
   code: string;
   claimToken: string;
-  newPin: string;
   requestId: string;
 }
 
@@ -1551,7 +1551,6 @@ export class ProRoomApiClient {
       method: 'POST',
       body: {
         claimToken: input.claimToken,
-        newPin: validatePin(input.newPin),
         requestId: validateOwnerTransferRequestId(input.requestId),
       },
       signal,

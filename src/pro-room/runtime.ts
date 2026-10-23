@@ -3,11 +3,7 @@ import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { PLAYLIST_SLOT_COUNT } from '../core/constants.ts';
-import {
-  restoreSessionReset,
-  scheduleDocumentReload,
-  scheduleSessionReset,
-} from '../core/session-reset.ts';
+import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { getAccountSnapshot, getAccountStatsScope, subscribeAccount } from '../account/state.ts';
@@ -2997,12 +2993,10 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
   // immediately challenge the new tab and recreate the takeover loop.
   if (error.code === 'PRESENCE_SUPERSEDED') {
     if (typeof window !== 'undefined') {
-      scheduleSessionReset(t('pro.active_tab_replaced'), () => {
-        if (terminalRecoveryOwner !== recoveryOwner) {
-          restoreSessionReset();
-          return;
-        }
-        window.location.replace('/');
+      scheduleSessionReset(t('pro.active_tab_replaced'), {
+        // A successor session may open while the reset paints.
+        isCurrent: () => terminalRecoveryOwner === recoveryOwner,
+        navigate: () => navigateToAppHome(),
       });
     }
     return;
@@ -3023,12 +3017,9 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
     if (terminalRecoveryDialogAbort === dialogAbort) terminalRecoveryDialogAbort = null;
     if (terminalRecoveryOwner !== recoveryOwner || result.action === 'superseded') return;
     if (endedRoomCode) acknowledgeProRoomRemoval(endedRoomCode);
-    scheduleSessionReset(t('dialog.leaving_session'), () => {
-      if (terminalRecoveryOwner !== recoveryOwner) {
-        restoreSessionReset();
-        return;
-      }
-      navigateToAppHome();
+    scheduleSessionReset(t('dialog.leaving_session'), {
+      isCurrent: () => terminalRecoveryOwner === recoveryOwner,
+      navigate: () => navigateToAppHome(),
     });
     return;
   }

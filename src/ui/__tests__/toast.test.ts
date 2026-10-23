@@ -545,6 +545,31 @@ describe('showLoader', () => {
     expect(headerLoaderText()).toBe('Downloading...');
   });
 
+  // RO-47: the `_default` holder belongs to the foreground media load, whose
+  // writers share it without a token; overlapping flows use named holders.
+  it("lets a newer no-ID show take over the foreground load's text", () => {
+    showLoader(true, 'Preparing a.mp3');
+    updateLoader(40);
+    showLoader(true, 'Receiving b.mp3');
+
+    expect(headerLoaderText()).toBe('Receiving b.mp3');
+    expectHeaderProgress(40);
+    showLoader(false);
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
+  });
+
+  it('lets a no-ID hide end only the default holder, never a named one', () => {
+    showLoader(true, 'Uploading...', 'remote-upload');
+    updateLoader(30, 'remote-upload');
+    showLoader(true, 'Preparing a.mp3');
+
+    showLoader(false);
+
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
+    expect(headerLoaderText()).toBe('Uploading...');
+    expectHeaderProgress(30);
+  });
+
   it('does not promote a background holder when it reports new text or progress', () => {
     showLoader(true, 'Upload A', 'loader-a');
     updateLoader(25, 'loader-a');

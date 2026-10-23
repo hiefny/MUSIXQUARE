@@ -828,9 +828,6 @@ const nl: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'De aanvraag kon niet worden voltooid',
   'pro.claim_failed_message':
     'Voor de veiligheid is deze link niet opnieuw geprobeerd. Vraag de kamerbeheerder om een nieuwe link.',
-  'pro.transfer_title': 'Eigenaarschap van PRO-kamer overnemen',
-  'pro.transfer_message':
-    'Stel een nieuw wachtwoord van 8 cijfers in. Daarna wordt de toegang van de vorige eigenaar ingetrokken.',
   'pro.new_link_message':
     'De link is verlopen of al gebruikt. Vraag indien nodig een beheerder om een nieuwe link.',
   'pro.not_ready_title': 'Deze PRO-kamer is nog niet klaar',

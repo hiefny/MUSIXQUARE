@@ -819,9 +819,6 @@ const sv: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Det gick inte att slutföra begäran',
   'pro.claim_failed_message':
     'Av säkerhetsskäl gjordes inget nytt försök med länken. Be rumsadministratören om en ny länk.',
-  'pro.transfer_title': 'Ta över ägarskapet för PRO-rummet',
-  'pro.transfer_message':
-    'Ange ett nytt 8-siffrigt lösenord för rummet. Den tidigare ägarens åtkomst återkallas när detta är klart.',
   'pro.new_link_message':
     'Länken har gått ut eller har redan använts. Be en administratör om en ny länk om det behövs.',
   'pro.not_ready_title': 'PRO-rummet är inte klart ännu',

@@ -272,9 +272,11 @@ describe('PRO runtime session-end reasons', { concurrent: false }, () => {
       expect(options.signal).toBeInstanceOf(AbortSignal);
       expect(sessionStorage.getItem(ACK_KEY)).toBe(ROOM_CODE);
       expect(sessionReset.scheduleSessionReset).toHaveBeenCalledOnce();
-      const [message, navigate] = vi.mocked(sessionReset.scheduleSessionReset).mock.calls[0]!;
+      const [message, request] = vi.mocked(sessionReset.scheduleSessionReset).mock.calls[0]!;
       expect(message).toBe(t('dialog.leaving_session'));
-      navigate();
+      if (typeof request === 'function') throw new Error('expected a navigation request');
+      expect(request.isCurrent?.()).toBe(true);
+      request.navigate();
       expect(navigation.navigateToAppHome).toHaveBeenCalledOnce();
       expect(sessionReset.scheduleDocumentReload).not.toHaveBeenCalled();
     },

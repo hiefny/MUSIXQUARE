@@ -1,3 +1,4 @@
+// Resource owner: RO-22 (waiting service worker activation).
 /**
  * MUSIXQUARE — Service Worker Registration
  *
@@ -10,19 +11,23 @@ import { t, type I18nKey } from './i18n/index.ts';
 import { getState } from './core/state.ts';
 import { showDialog, type DialogResult } from './ui/dialog.ts';
 import { setManagedTimer } from './core/timers.ts';
-import { scheduleDocumentReload, scheduleSessionReset } from './core/session-reset.ts';
+import { scheduleDocumentReload } from './core/session-reset.ts';
+import { returnToRoomStart } from './core/navigation.ts';
 import {
   getRoomContext,
   isStandardRoomRole,
   subscribeRoomAuthorityLifecycle,
 } from './rooms/authority.ts';
 import {
+  CACHE_CLIENT_STATUS,
+  CACHE_STATUS_PROBE,
+  CACHE_STATUS_REQUEST,
+  UPDATE_CHECK_INTERVAL_MS,
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
 } from './sw-update-coordination.ts';
+import { SW_CONTROLLER_CONFIRMED_KEY, SW_UPDATE_KEY } from './core/navigation-contract.ts';
 
-const SW_UPDATE_KEY = 'sw-updated-at';
-const SW_CONTROLLER_CONFIRMED_KEY = 'sw-controller-confirmed-at';
 // Avoid a second update prompt when controller activation and reload overlap.
 const SW_COOLDOWN_MS = 30_000;
 // Measured in Chromium (2026-10-17): SKIP_WAITING sent while the active worker
@@ -33,11 +38,6 @@ const SW_COOLDOWN_MS = 30_000;
 const STARTUP_PROMPT_QUIET_MS = 1_000;
 const STARTUP_PROMPT_MAX_WAIT_MS = 6_000;
 const STARTUP_PROMPT_POLL_MS = 250;
-// Read by setup's join error after the reload, as for a reconnect.
-const RECONNECT_TARGET_KEY = 'mxqr_reconnect_target';
-const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
-const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
-const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
 export const NAVIGATION_SOURCE_EVENT = 'mxqr:navigation-source';
 
 type NavigationSource = 'network' | 'cache-fallback';
@@ -82,13 +82,13 @@ function removeSessionMarker(key: string): void {
  * goes back to that room's Start screen (its /CODE invite page), so entering
  * again takes one tap; the reload cannot enter by itself, because the browser
  * needs that tap before it plays sound. A host reopens the room from the start
- * screen, and a page outside a room reloads in place.
+ * screen, and a page outside a room reloads in place (null). returnToRoomStart
+ * checks the code and reloads in place for anything but a room code.
  */
-function updateReturnPath(): string | null {
+function updateReturnCode(): unknown {
   if (isStandardRoomRole('host')) return null;
   if (!getState('setup.sessionStarted') && getRoomContext().roomId === null) return null;
-  const code = getState('network.lastJoinCode');
-  return typeof code === 'string' && /^\d{6}$/.test(code) ? `/${code}` : null;
+  return getState('network.lastJoinCode');
 }
 
 function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
@@ -112,17 +112,14 @@ function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
     onRecovered();
   };
 
-  const returnPath = updateReturnPath();
-  if (returnPath) {
-    writeSessionMarker(RECONNECT_TARGET_KEY, returnPath.slice(1));
-    const resetHandle = scheduleSessionReset(t('dialog.refreshing_session'), () => {
-      window.location.href = returnPath;
-    });
-    if (resetHandle) resetHandle.onRecovered(recoverReloadAttempt);
-    else recoverReloadAttempt();
-    return;
-  }
-  scheduleDocumentReload(t('dialog.refreshing_session'), recoverReloadAttempt);
+  const message = t('dialog.refreshing_session');
+  returnToRoomStart(updateReturnCode(), {
+    message,
+    // setup's join error reads the room after the reload, as for a reconnect.
+    reconnect: true,
+    fallback: () => scheduleDocumentReload(message, recoverReloadAttempt),
+    onRecovered: recoverReloadAttempt,
+  });
 }
 
 function isReloadNavigation(): boolean {
@@ -363,8 +360,8 @@ export function registerServiceWorker(): void {
       // controllerchange fires in EVERY controlled same-origin tab when any
       // one of them accepts the update (skipWaiting activation migrates all
       // clients). Do not auto-reload another tab that is hosting or joined
-      // to a live room, or running the demo; markIntentionalNav would also
-      // suppress its leave prompt. It asks with the update dialog instead,
+      // to a live room, or running the demo; the reload's unload-exemption
+      // claim would also suppress its leave prompt. It asks with the update dialog instead,
       // once per generation.
       if (isRoomOrDemoActive()) {
         if (!notifyActiveRoom) return false;
@@ -757,7 +754,7 @@ export function registerServiceWorker(): void {
         });
       }
 
-      // Check for updates periodically (every 60 minutes)
+      // Check for updates periodically (every 60 minutes, the check lease interval).
       setManagedTimer(
         'sw-update-check',
         () => {
@@ -772,7 +769,7 @@ export function registerServiceWorker(): void {
             /* ignore */
           });
         },
-        60 * 60 * 1000,
+        UPDATE_CHECK_INTERVAL_MS,
         { interval: true },
       );
       // Immediate update check

@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   type CronEntry,
+  EARLIER_APP_TRANSFER_PIN,
   issueClaim,
   requestTransfer,
   sagaWrite,
@@ -27,7 +28,9 @@ import { nodeSqlite } from './helpers/worker-test-bindings.ts';
  * commit (helpers/legacy-app-worker.ts builds the App Worker exactly as
  * committed there) and the other from the current source, in both
  * directions, against the real PRO room Durable Object and node:sqlite D1
- * (helpers/owner-transfer-saga-fixture.ts).
+ * (helpers/owner-transfer-saga-fixture.ts). A request through an earlier
+ * build carries the PIN the App of its time sent, which those builds require
+ * and the current PRO room ignores.
  *
  * The legacy builds are the App Worker in production before Phase 1 (Phase
  * 0d, `86ccefe6`) and the Phase 1 App Worker A tree (C7-8 and C7-11,
@@ -80,7 +83,10 @@ describe.each(LEGACY_BUILDS)(
       const test = await transferFixture();
       const claim = await issueClaim(test);
       const stall = test.pauseOnce(sagaWrite('registry_active'));
-      const request = requestTransfer(test, claim, { worker: legacy.worker });
+      const request = requestTransfer(test, claim, {
+        worker: legacy.worker,
+        newPin: EARLIER_APP_TRANSFER_PIN,
+      });
       await stall.reached;
 
       vi.setSystemTime(START + 60_000);
@@ -119,7 +125,10 @@ describe.each(LEGACY_BUILDS)(
       const test = await transferFixture();
       const claim = await issueClaim(test);
       const stall = test.pauseOnce(sagaWrite('complete'));
-      const request = requestTransfer(test, claim, { worker: legacy.worker });
+      const request = requestTransfer(test, claim, {
+        worker: legacy.worker,
+        newPin: EARLIER_APP_TRANSFER_PIN,
+      });
       await stall.reached;
       expect(test.saga()).toBe('verified');
       expect(test.commitAudits()).toEqual(['success']);
@@ -194,7 +203,10 @@ describe.each(LEGACY_BUILDS)(
       const claim = await issueClaim(test);
       test.deleteTargetBefore(sagaWrite('committed'));
       const stall = test.pauseOnce(sagaWrite('target_deleted'));
-      const request = requestTransfer(test, claim, { worker: legacy.worker });
+      const request = requestTransfer(test, claim, {
+        worker: legacy.worker,
+        newPin: EARLIER_APP_TRANSFER_PIN,
+      });
       await stall.reached;
       // The old request purged and finalized; its audit comes after its advance.
       expect(test.commitAudits()).toEqual([]);

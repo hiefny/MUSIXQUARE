@@ -8,9 +8,9 @@ interface ReloadRecoveryOptions<Context> {
 
 /**
  * Keep one recovery prompt/reload attempt alive until it commits navigation
- * or explicitly reports that the old document survived. A recovery callback
- * may be delivered more than once by defensive lifecycle coordinators; only
- * its first delivery releases the latch and publishes the fallback outcome.
+ * or explicitly reports that the old document survived. The navigation owner
+ * reports a reload's recovery at most once per attempt (core/session-reset.ts,
+ * C6-4), so the latch keeps no repeated-delivery guard of its own (C6-13).
  */
 export function createReloadRecoveryLatch<Context>(
   options: ReloadRecoveryOptions<Context>,
@@ -27,10 +27,7 @@ export function createReloadRecoveryLatch<Context>(
           return;
         }
 
-        let recoveryReturned = false;
         options.reload(context, () => {
-          if (recoveryReturned) return;
-          recoveryReturned = true;
           activeAttempt = null;
           options.onRecovered(context);
         });

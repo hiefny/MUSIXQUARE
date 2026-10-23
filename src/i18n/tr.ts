@@ -800,9 +800,6 @@ const tr: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'İstek tamamlanamadı',
   'pro.claim_failed_message':
     'Güvenlik için istek otomatik olarak tekrarlanmadı. Oda yöneticisinden yeni bir bağlantı iste.',
-  'pro.transfer_title': 'PRO odasının sahipliğini devral',
-  'pro.transfer_message':
-    'Yeni bir 8 haneli parola belirle. Tamamlandığında önceki sahibin erişimi kaldırılır.',
   'pro.new_link_message':
     'Bağlantının süresi dolmuş veya bağlantı daha önce kullanılmış. Gerekirse yöneticiden yeni bir bağlantı iste.',
   'pro.not_ready_title': 'Bu PRO odası henüz hazır değil',

@@ -818,9 +818,6 @@ const cs: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Požadavek se nepodařilo dokončit',
   'pro.claim_failed_message':
     'Z bezpečnostních důvodů nebyl odkaz použit znovu. Požádejte správce místnosti o nový odkaz.',
-  'pro.transfer_title': 'Převzít vlastnictví místnosti PRO',
-  'pro.transfer_message':
-    'Nastavte pro tuto místnost nové osmimístné heslo. Po dokončení bude přístup předchozího vlastníka odebrán.',
   'pro.new_link_message':
     'Odkaz vypršel nebo už byl použit. V případě potřeby požádejte správce o nový odkaz.',
   'pro.not_ready_title': 'Tato místnost PRO zatím není připravena',

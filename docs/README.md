@@ -35,6 +35,7 @@ supersede them explicitly when the product boundary changes.
 - [Coordinator-free PRO server authority](design/pro-room-server-authority.md)
 - [Realtime runtime ownership](design/realtime-runtime-ownership.md)
 - [Resource ownership registry](design/resource-ownership-registry.md)
+- [Page navigation ownership](design/page-navigation-ownership.md)
 - [Signaling liveness](design/signaling-liveness.md)
 - [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md)
 - [Initial bundle and lazy-loading policy](design/initial-bundle-loading-policy.md)
@@ -90,6 +91,22 @@ runbooks. Neither belongs in a general setup document.
 - [Third-party runtime notices](../THIRD-PARTY-NOTICES.md)
 
 ## Maintained evidence and completed records
+
+- [Phase 2 page navigation and UI shell owners (9.0.4, 2026-10-23)](design/phase2-navigation-ui-shells-2026-10-23.md):
+  the structure program's Phase 2 app batch. Page navigation gets one owner in
+  `session-reset.ts`: one state, one exactly-once settle, a reload queue that runs reloads which
+  used to be dropped and drops a queued reload only when a back-forward cache return reloads anyway,
+  per-claim unload
+  exemptions, a 2.5 s service-worker wait before the logo reset, the reset surface inside
+  fullscreen, Back re-armed after a recovered navigation, and a navigation-sink ratchet. Fullscreen
+  exits go through one in-flight exit shared by the screensaver and YouTube, with a dimmed YouTube
+  button while a screensaver exit settles. Playlist drag, motion and gesture state get one lazy
+  module and one gate; delete during a settle and system audio both end the gesture. Cross-tab
+  account signals get one protocol home, one parser and one receiver. The batch also carries the
+  PRO transfer entry-password reset (a committed transfer turns the entry password off and the link
+  asks for no PIN; `OWNER_TRANSFER_PIN_REUSE` is gone) and its contract marker
+  `pro-owner-transfer-pinless-v1`, so it needs target `all` and recovery repairs forward once the
+  candidate may be live. Tests pinned today's behaviour first; devices are unchecked.
 
 - [PRO outbox and duration read owners (Phase 1 PRO Worker B, 2026-10-23)](design/pro-room-outbox-duration-owners-2026-10-23.md):
   the PRO room's presence marker and playback outbox get one due time, alarm drain, epoch hook and

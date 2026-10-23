@@ -6,6 +6,7 @@ import { bus } from '../../core/events.ts';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import * as navigation from '../../core/navigation.ts';
 import * as sessionReset from '../../core/session-reset.ts';
 import { ProRoomApiClient, ProRoomApiError, type ProRoomSignalingAccess } from '../api.ts';
 import {
@@ -322,7 +323,12 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     expect(enter.mock.calls[0]?.[1]).not.toHaveProperty('takeover');
     expect(getState('room.context').kind).not.toBe('pro');
     expect(reset).toHaveBeenCalledOnce();
-    expect(reset.mock.calls[0]?.[1].toString()).toContain('location.replace');
+    // The request navigates home through the replace sink (navigation.ts).
+    const request = reset.mock.calls[0]?.[1];
+    if (!request || typeof request === 'function') throw new Error('expected a navigation request');
+    const home = vi.spyOn(navigation, 'navigateToAppHome').mockImplementation(() => {});
+    request.navigate();
+    expect(home).toHaveBeenCalledOnce();
   });
 
   it('does not recover or navigate an expired presence after explicit leave cancels re-entry', async () => {

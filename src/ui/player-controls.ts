@@ -35,7 +35,12 @@ import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { exitYouTubeFullscreen } from '../player/video.ts';
-import { getFullscreenElement } from './fullscreen.ts';
+import {
+  getFullscreenElement,
+  getFullscreenExitOwner,
+  onFullscreenExitChange,
+  type FullscreenTarget,
+} from '../core/fullscreen.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import {
@@ -1084,20 +1089,14 @@ async function handleLogoReturnToMain(): Promise<void> {
     }
 
     // A hard same-origin replacement clears in-memory media without leaving an
-    // invite/PRO auto-join route behind in browser history.
-    let resetCurrent = true;
-    const navigateIfCurrent = () => {
-      if (resetCurrent) navigateToAppHome();
-    };
-    const resetHandle = scheduleSessionReset(t('dialog.leaving_session'), () => {
-      void import('../core/sw-hard-reset.ts')
-        .then((module) => {
-          if (resetCurrent) return module.default();
-        })
-        .then(navigateIfCurrent, navigateIfCurrent);
-    });
-    resetHandle?.onRecovered(() => {
-      resetCurrent = false;
+    // invite/PRO auto-join route behind in browser history. The navigation
+    // owner bounds the update hand-off and navigates home after it either way.
+    scheduleSessionReset(t('dialog.leaving_session'), {
+      async prepare(signal) {
+        const hardReset = await import('../core/sw-hard-reset.ts');
+        if (!signal.aborted) await hardReset.default();
+      },
+      navigate: () => navigateToAppHome(),
     });
   } finally {
     _logoNavBusy = false;
@@ -1275,15 +1274,23 @@ export function initPlayerControls(): void {
 
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
+  // Owner decision O2 (2026-10-23): while the screensaver's own fullscreen exit
+  // settles (at most FULLSCREEN_SETTLEMENT_MS), a tap could only join that
+  // exit, so the toggle is briefly unavailable and comes back when it settles.
+  const syncFullscreenToggleAvailability = (): void => {
+    const toggle = getUiElement('btn-fullscreen');
+    const unavailable = getFullscreenExitOwner() === 'screensaver';
+    if (!toggle || unavailable === (toggle.getAttribute('aria-disabled') === 'true')) return;
+    if (unavailable) toggle.setAttribute('aria-disabled', 'true');
+    else toggle.removeAttribute('aria-disabled');
+  };
+  syncFullscreenToggleAvailability();
+  const stopFullscreenToggleSync = onFullscreenExitChange(syncFullscreenToggleAvailability);
+  domSignal.addEventListener('abort', stopFullscreenToggleSync, { once: true });
   $on('btn-fullscreen', 'click', () => {
-    const doc = document as Document & {
-      webkitFullscreenElement?: Element;
-      webkitExitFullscreen?: () => void;
-    };
-    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
-    const videoWrapper = document.querySelector('.video-wrapper') as
-      (HTMLElement & { webkitRequestFullscreen?: () => void }) | null;
-    const target = videoWrapper || el;
+    if (getFullscreenExitOwner() === 'screensaver') return;
+    const videoWrapper = document.querySelector<FullscreenTarget>('.video-wrapper');
+    const target = videoWrapper || (document.documentElement as FullscreenTarget);
 
     const enterFake = () => {
       // A native fullscreen request can reject after playback has already
@@ -1299,11 +1306,7 @@ export function initPlayerControls(): void {
     };
 
     const isFakeFullscreen = videoWrapper?.classList.contains('fake-fullscreen');
-    const isFullscreen = !!(
-      document.fullscreenElement ||
-      doc.webkitFullscreenElement ||
-      isFakeFullscreen
-    );
+    const isFullscreen = Boolean(getFullscreenElement() || isFakeFullscreen);
 
     try {
       if (!isFullscreen) {
@@ -1315,8 +1318,9 @@ export function initPlayerControls(): void {
             if (getState('playback.mode') !== 'youtube') exitYouTubeFullscreen();
           }, enterFake);
         } else if (target.webkitRequestFullscreen) {
-          target.webkitRequestFullscreen();
           // webkit's call is sync and silent on failure — verify after a tick.
+          // Shipping engines return nothing; a promise is verified the same way.
+          Promise.resolve(target.webkitRequestFullscreen()).catch(() => {});
           setManagedTimer(
             'webkit-fullscreen-fallback',
             () => {
@@ -1324,7 +1328,7 @@ export function initPlayerControls(): void {
                 exitYouTubeFullscreen();
                 return;
               }
-              if (!document.fullscreenElement && !doc.webkitFullscreenElement) enterFake();
+              if (!getFullscreenElement()) enterFake();
             },
             100,
           );

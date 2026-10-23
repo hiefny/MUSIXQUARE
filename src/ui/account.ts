@@ -9,6 +9,7 @@ import {
   type AccountStats,
 } from '../account/api.ts';
 import { flushAccountActivityStatsForRead } from '../account/activity-stats.ts';
+import type { AccountAuthOutcome } from '../account/account-sync-protocol.ts';
 import {
   getAccountStatsScope,
   getAccountSnapshot,
@@ -24,6 +25,8 @@ import {
   setAccountLoginPopupHandler,
   signOutAccount,
   startAccountSessionRefresh,
+  subscribeAccountAuthResults,
+  type AccountAuthResult,
   type AccountLoginPopupOptions,
   type AccountLoginPopupOutcome,
 } from '../account/session.ts';
@@ -40,7 +43,7 @@ import {
   restoreAccountLoginReturnPath,
   sanitizeAccountLoginReturnPath,
 } from '../account/login-return.ts';
-import { clearIntentionalNav, markIntentionalNav } from '../core/page-lifecycle.ts';
+import { claimUnloadExemption } from '../core/page-lifecycle.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
@@ -52,14 +55,11 @@ import { applyUserTextFontFallback } from './user-text-font.ts';
 
 const _busScope = createBusScope();
 const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
-const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
-const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const ACCOUNT_SAME_TAB_WELCOME_INTENT_KEY = 'mxqr-account-welcome-intent-v1';
 const ACCOUNT_SAME_TAB_WELCOME_INTENT_TTL_MS = 10 * 60 * 1000;
 const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
 const ACCOUNT_STATS_PLACEHOLDER = '-';
 const ACCOUNT_STATS_COUNT_UP_DURATION_MS = 1_200;
-type AccountAuthOutcome = 'success' | 'cancelled' | 'error';
 type AccountNicknameChangeOutcome = 'completed' | 'cancelled' | 'error';
 type CompletedAccount = NonNullable<AccountSnapshot['account']>;
 type AccountStatsOwner = string;
@@ -103,8 +103,9 @@ let _accountLoginPopupAttempt: {
   unsubscribe: () => void;
 } | null = null;
 let _accountLoginNavigationGuard: ReturnType<typeof setTimeout> | null = null;
-let _accountResultChannel: BroadcastChannel | null = null;
-let _accountResultLifecycleBound = false;
+let _unsubscribeAccountAuthResults: (() => void) | null = null;
+/** The same-tab login's own unload-exemption claim (C6-7). */
+let _accountLoginUnloadExemption: (() => void) | null = null;
 let _profilePromptVisibilityBound = false;
 let _accountStats: AccountStats | null = null;
 let _accountStatsOwner: AccountStatsOwner | null = null;
@@ -479,35 +480,6 @@ function setPending(pending: boolean): void {
   if (pending && overlay?.classList.contains('show')) focusWithoutScroll(dialog);
 }
 
-function parseAccountAuthResultMessage(value: unknown): {
-  outcome: AccountAuthOutcome;
-  id: string;
-  accountClient: string;
-} | null {
-  if (!value || typeof value !== 'object') return null;
-  const message = value as {
-    type?: unknown;
-    accountAuth?: unknown;
-    id?: unknown;
-    accountClient?: unknown;
-  };
-  if (
-    message.type !== 'refresh' ||
-    (message.accountAuth !== 'success' &&
-      message.accountAuth !== 'cancelled' &&
-      message.accountAuth !== 'error') ||
-    typeof message.id !== 'string' ||
-    message.id.length < 8 ||
-    message.id.length > 160 ||
-    typeof message.accountClient !== 'string' ||
-    message.accountClient.length < 8 ||
-    message.accountClient.length > 160
-  ) {
-    return null;
-  }
-  return { outcome: message.accountAuth, id: message.id, accountClient: message.accountClient };
-}
-
 function handleAccountAuthOutcome(
   outcome: AccountAuthOutcome,
   id: string,
@@ -672,6 +644,12 @@ function stopAccountLoginNavigationGuard(): void {
   _accountLoginNavigationGuard = null;
 }
 
+function releaseAccountLoginUnloadExemption(): void {
+  const release = _accountLoginUnloadExemption;
+  _accountLoginUnloadExemption = null;
+  release?.();
+}
+
 /** Prepare an anchor fallback that will replace this browsing context. */
 function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: MouseEvent): void {
   const context = getRoomContext();
@@ -691,7 +669,10 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
   // The href may have been rendered before room context projection completed.
   anchor.href = buildGoogleLoginUrl(location, returnTo);
   armSameTabWelcomeIntent();
-  markIntentionalNav();
+  // The login holds its own claim: a session reset that recovers meanwhile
+  // cannot end it, and it ends only this login's exemption.
+  releaseAccountLoginUnloadExemption();
+  _accountLoginUnloadExemption = claimUnloadExemption('account-login');
   stopAccountLoginNavigationGuard();
   // Some native shells can abandon an anchor activation without exposing
   // preventDefault(). Bound that otherwise-unobservable case to the same
@@ -700,7 +681,7 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
   _accountLoginNavigationGuard = globalThis.setTimeout(
     () => {
       _accountLoginNavigationGuard = null;
-      clearIntentionalNav();
+      releaseAccountLoginUnloadExemption();
     },
     10 * 60 * 1000,
   );
@@ -713,7 +694,7 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
   globalThis.queueMicrotask(() => {
     if (!activationEvent.defaultPrevented) return;
     stopAccountLoginNavigationGuard();
-    clearIntentionalNav();
+    releaseAccountLoginUnloadExemption();
     clearSameTabWelcomeIntent();
     if (attemptId) clearAccountLoginReturn(attemptId);
   });
@@ -789,7 +770,7 @@ function openIsolatedAccountLoginPopup():
 function requestAccountLoginPopupOnly(
   options: Readonly<AccountLoginPopupOptions> = {},
 ): Promise<AccountLoginPopupOutcome> {
-  bindAccountAuthResultLifecycle();
+  subscribeToAccountAuthResults();
   const snapshot = getAccountSnapshot();
   if (getCompletedAccount(snapshot) && !options.forceGoogleAccountChooser) {
     return Promise.resolve('authenticated');
@@ -898,44 +879,21 @@ function monitorAccountLoginPopup(popup: Window): void {
   _accountLoginPopupMonitor = monitor;
 }
 
-function handleAccountResultMessage(event: MessageEvent): void {
-  if (event.origin !== window.location.origin) return;
-  const result = parseAccountAuthResultMessage(event.data);
-  if (result?.accountClient === ACCOUNT_CLIENT_ID) {
+function handleAccountAuthResult(result: AccountAuthResult): void {
+  // Only the login this tab opened. Another tab's result reaches this tab's
+  // session as an ordinary refresh.
+  if (result.accountClient === ACCOUNT_CLIENT_ID) {
     handleAccountAuthOutcome(result.outcome, result.id);
   }
 }
 
-function handleAccountResultStorage(event: StorageEvent): void {
-  if (event.key !== ACCOUNT_SYNC_STORAGE_KEY || !event.newValue) return;
-  try {
-    const result = parseAccountAuthResultMessage(JSON.parse(event.newValue) as unknown);
-    if (result?.accountClient === ACCOUNT_CLIENT_ID) {
-      handleAccountAuthOutcome(result.outcome, result.id);
-    }
-  } catch {
-    // Ordinary account refresh pulses are intentionally not JSON.
-  }
-}
-
-function bindAccountAuthResultLifecycle(): void {
-  if (_accountResultLifecycleBound) return;
-  _accountResultLifecycleBound = true;
-  window.addEventListener('message', handleAccountResultMessage);
-  window.addEventListener('storage', handleAccountResultStorage);
-  if (typeof BroadcastChannel !== 'undefined') {
-    try {
-      _accountResultChannel = new BroadcastChannel(ACCOUNT_SYNC_CHANNEL);
-      _accountResultChannel.addEventListener('message', (event) => {
-        const result = parseAccountAuthResultMessage(event.data);
-        if (result?.accountClient === ACCOUNT_CLIENT_ID) {
-          handleAccountAuthOutcome(result.outcome, result.id);
-        }
-      });
-    } catch {
-      _accountResultChannel = null;
-    }
-  }
+/**
+ * Login results come from the session's single pulse receiver (C8-I10). It
+ * hands them over before it reconciles, so this UI still classifies its own
+ * popup's result first. Subscribing the same handler again is a no-op.
+ */
+function subscribeToAccountAuthResults(): void {
+  _unsubscribeAccountAuthResults = subscribeAccountAuthResults(handleAccountAuthResult);
 }
 
 function consumeAccountAuthOutcomeFromUrl(): {
@@ -1505,7 +1463,7 @@ export function initAccount(): void {
   // initAccount runs before setup.ts. Recover a standalone-PWA room route now
   // so invite parsing and the automatic PRO resume see the intended room.
   restoreAccountLoginReturnPath();
-  bindAccountAuthResultLifecycle();
+  subscribeToAccountAuthResults();
   const returnedAuthOutcome = consumeAccountAuthOutcomeFromUrl();
   bindAccountDialog();
   _unsubscribeAccount?.();
@@ -1558,16 +1516,12 @@ export function __resetAccountUiForTests(): void {
   if (_accountLoginPopupAttempt) settleAccountLoginPopupAttempt('error');
   stopAccountLoginPopupMonitor();
   stopAccountLoginNavigationGuard();
+  releaseAccountLoginUnloadExemption();
   _handledAccountResultIds.clear();
   _pendingWelcomeAccountResultId = null;
   clearSameTabWelcomeIntent();
-  if (_accountResultLifecycleBound && typeof window !== 'undefined') {
-    window.removeEventListener('message', handleAccountResultMessage);
-    window.removeEventListener('storage', handleAccountResultStorage);
-  }
-  _accountResultLifecycleBound = false;
-  _accountResultChannel?.close();
-  _accountResultChannel = null;
+  _unsubscribeAccountAuthResults?.();
+  _unsubscribeAccountAuthResults = null;
   if (_profilePromptVisibilityBound && typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', handleProfilePromptVisibility);
   }

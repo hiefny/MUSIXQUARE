@@ -13,16 +13,17 @@
  *
  * `bootPageNavigationShell` wires them the way src/app.ts bootstrap does, in
  * its order: OverlayObservers (app.ts:1131), then PageLifecycle (the release
- * handler and initPageLifecycleHandlers, app.ts:1301-1318), then
- * BackButtonGuard (initBackButtonGuard, app.ts:915-990). The reset's own
- * pagehide, pageshow and visibility listeners are added when a reset is
- * scheduled, so within a phase they run after all of these, as in production;
- * its pagehide and visibility listeners are capture listeners. ServiceWorker
- * registration (app.ts:1287) is not wired; the update machine against the real
- * reset is covered by sw-register-recovery.integration.test.ts.
+ * handler, initPageLifecycleHandlers and initPageNavigation, app.ts:1301-1324),
+ * then BackButtonGuard (initBackButtonGuard, app.ts:915-990). The navigation
+ * owner's page-transition dispatch (pagehide, pageshow and visibilitychange)
+ * uses the capture phase, so it runs before the guard's bubble-phase resume
+ * whatever the init order; `initOrder: 'guard-first'` boots the guard first to
+ * show that. ServiceWorker registration (app.ts:1287) is not wired; the update
+ * machine against the real reset is covered by
+ * sw-register-recovery.integration.test.ts.
  *
- * That wiring, and the logo action in `logoHardReset`
- * (player-controls.ts:1086-1101), are copies: app.ts bootstrap and the logo
+ * That wiring, and the logo request in `logoHardReset` (player-controls.ts,
+ * handleLogoReturnToMain), are copies: app.ts bootstrap and the logo
  * handler cannot run in isolation. page-navigation-harness-parity.test.ts pins
  * the copied guard function, PageLifecycle block and logo action whole, and
  * the init order as a subsequence. An increment that changes them (C6-6 the
@@ -41,31 +42,39 @@
  */
 import { vi, type Mock } from 'vitest';
 import * as swHardReset from '../../sw-hard-reset.ts';
+import { stubNavigationSinks, type NavigationSinks } from './navigation-sinks.ts';
 import { createBackButtonGuardController, isGuardedSession } from '../../back-button-guard.ts';
 import { createBackButtonHistory } from '../../back-button-history.ts';
-import { __resetDocumentReloadForTests } from '../../document-reload.ts';
 import { navigateToAppHome } from '../../navigation.ts';
-import { __resetIntentionalNavForTests, initPageLifecycleHandlers } from '../../page-lifecycle.ts';
+import {
+  __resetUnloadExemptionsForTests,
+  initPageLifecycleHandlers,
+} from '../../page-lifecycle.ts';
 import { createReloadRecoveryLatch } from '../../reload-recovery-latch.ts';
 import {
-  __resetSessionResetForTests,
+  __resetPageNavigationForTests,
+  initPageNavigation,
   isSessionResetPending,
-  restoreSessionReset,
+  onNavigationPendingChange,
   scheduleDocumentReload,
   scheduleSessionReset,
-  setSessionResetReleaseHandler,
+  setSessionResetWindowLayer,
 } from '../../session-reset.ts';
 import {
   __resetModalStackForTests,
+  fullscreenSurfaceHost,
   hasOpenWindow,
   initOverlayObservers,
   offerBackToTopWindow,
+  onFullscreenSurfaceHostChange,
   onOverlayStackChange,
   onWindowBack,
   syncOverlayState,
   syncOverlayStateAfterExternalLock,
   whenBackSurfaceSettled,
 } from '../../../ui/dom.ts';
+
+export type { NavigationSinks, SinkCall } from './navigation-sinks.ts';
 
 /** i18n is not wired: requesters pass the keys app.ts would translate. */
 export const MSG_REFRESHING = 'dialog.refreshing_session';
@@ -75,77 +84,6 @@ export const MSG_LEAVING = 'dialog.leaving_session';
 export const ROOM_PATH = '/000001';
 
 const actualWindow = globalThis.window;
-
-// ─── Navigation sinks ───────────────────────────────────────────────
-// Models window.location.reload/replace/assign and `location.href = …` as
-// recorders, through the window proxy used by
-// sw-register-recovery.integration.test.ts:94-113 (jsdom's Location methods
-// are unforgeable). Each call records the live URL at call time, so a test can
-// see a restored claim fragment. Calibrated against the reset's own premise
-// (session-reset.ts:294-296): navigation APIs return before unload begins and
-// can no-op. A sink call is therefore a no-op navigation until the test
-// dispatches pagehide (the commit) or lets the 2 s commit deadline pass. Leaves
-// out real unload, and beforeunload fired by the navigation itself (tests fire
-// it with `beforeunloadPrompts`). Other properties read through to jsdom.
-
-export interface SinkCall {
-  readonly op: 'reload' | 'replace' | 'assign' | 'href';
-  readonly url: string | null;
-  /** The document URL when the sink ran. */
-  readonly hrefAtCall: string;
-}
-
-export interface NavigationSinks {
-  readonly calls: SinkCall[];
-  readonly reload: Mock<() => void>;
-  readonly replace: Mock<(url: string | URL) => void>;
-  readonly assign: Mock<(url: string | URL) => void>;
-  count(op: SinkCall['op']): number;
-}
-
-function stubWindowWithNavigationSinks(): NavigationSinks {
-  const actualLocation = actualWindow.location;
-  const calls: SinkCall[] = [];
-  const record = (op: SinkCall['op'], url: string | null): void => {
-    calls.push({ op, url, hrefAtCall: actualLocation.href });
-  };
-  const reload = vi.fn(() => record('reload', null));
-  const replace = vi.fn((url: string | URL) => record('replace', String(url)));
-  const assign = vi.fn((url: string | URL) => record('assign', String(url)));
-  const locationProxy = new Proxy({} as Location, {
-    get(_target, property) {
-      if (property === 'reload') return reload;
-      if (property === 'replace') return replace;
-      if (property === 'assign') return assign;
-      const value = Reflect.get(actualLocation, property, actualLocation) as unknown;
-      return typeof value === 'function' ? value.bind(actualLocation) : value;
-    },
-    set(_target, property, value: unknown) {
-      if (property === 'href') {
-        record('href', String(value));
-        return true;
-      }
-      return Reflect.set(actualLocation, property, value, actualLocation);
-    },
-  });
-  const windowProxy = new Proxy({} as Window, {
-    get(_target, property) {
-      if (property === 'location') return locationProxy;
-      if (property === 'setTimeout') return globalThis.setTimeout;
-      if (property === 'clearTimeout') return globalThis.clearTimeout;
-      const value = Reflect.get(actualWindow, property, actualWindow) as unknown;
-      return typeof value === 'function' ? value.bind(actualWindow) : value;
-    },
-  });
-  vi.stubGlobal('window', windowProxy);
-  return {
-    calls,
-    reload,
-    replace,
-    assign,
-    count: (op) => calls.filter((call) => call.op === op).length,
-  };
-}
 
 // ─── Frames ─────────────────────────────────────────────────────────
 // Models requestAnimationFrame as a visible 60 Hz tab: one frame every 16 ms on
@@ -336,7 +274,7 @@ export function installServiceWorkerFake(
 }
 
 // ─── Fullscreen element ─────────────────────────────────────────────
-// Models document.fullscreenElement (read by ui/fullscreen.ts) and
+// Models document.fullscreenElement (read by core/fullscreen.ts) and
 // document.exitFullscreen as a recorder. jsdom has no top layer: a test can
 // only show where each surface sits in the tree; the browser paints the
 // fullscreen element's subtree above every z-index outside it.
@@ -457,7 +395,7 @@ export interface PageNavigationShell {
   readonly history: FakeBackHistory;
   readonly app: Readonly<AppStateModel>;
   readonly leaveSession: Mock<() => void>;
-  /** The page-lifecycle `log` dependency (app.ts passes core/log). */
+  /** The initPageNavigation `log` dependency (app.ts passes core/log). */
   readonly lifecycleLog: Mock<(message: string, ...args: unknown[]) => void>;
   readonly leaveConfirmation: { requests: number; answer: boolean };
   readonly lazyFeature: LazyFeatureOutcomes;
@@ -476,7 +414,7 @@ export interface PageNavigationShell {
   returnFromBfcache(order: BfcacheReturnOrder): void;
   /** Dispatch a cancelable beforeunload; true when the page asked to confirm. */
   beforeunloadPrompts(): boolean;
-  /** The logo hard reset, player-controls.ts:1086-1101. */
+  /** The logo hard reset (player-controls.ts handleLogoReturnToMain). */
   logoHardReset(options?: { importDelayMs?: number }): void;
   /** Lazy feature recovery, app.ts:1061-1094, on the real reload-recovery latch. */
   requestLazyFeatureRecovery(feature: string): void;
@@ -496,13 +434,17 @@ export interface BootOptions {
   /** Whether a previous document sits behind this one in history. */
   readonly previousDocument?: boolean;
   readonly leaveAnswer?: boolean;
+  /**
+   * 'app' boots in app.ts order; 'guard-first' boots BackButtonGuard before
+   * PageLifecycle, to show that no outcome depends on that order.
+   */
+  readonly initOrder?: 'app' | 'guard-first';
 }
 
 export function bootPageNavigationShell(options: BootOptions = {}): PageNavigationShell {
   // Every owner starts from its idle state.
-  __resetSessionResetForTests();
-  __resetDocumentReloadForTests();
-  __resetIntentionalNavForTests();
+  __resetPageNavigationForTests();
+  __resetUnloadExemptionsForTests();
   __resetModalStackForTests();
   document.documentElement.className = '';
   document.documentElement.lang = 'en';
@@ -519,7 +461,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   };
   setVisibility('visible', false);
   const restoreFrames = installFrameClock();
-  const sinks = stubWindowWithNavigationSinks();
+  const sinks = stubNavigationSinks();
 
   const app: AppStateModel = { ...(options.app ?? OUTSIDE_ROOM) };
   const stateListeners = new Set<() => void>();
@@ -538,23 +480,31 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   // app.ts:1131 'OverlayObservers'.
   initOverlayObservers();
 
-  // app.ts:1301-1318 'PageLifecycle'.
-  setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);
-  const lifecycle = initPageLifecycleHandlers({
-    getRole: () => app.role,
-    leaveSession,
-    reload: () => scheduleDocumentReload(MSG_REFRESHING),
-    hasPendingReset: isSessionResetPending,
-    restorePendingReset: restoreSessionReset,
-    log: { info: lifecycleLog },
-  });
-  disposers.push(() => lifecycle.dispose());
+  // app.ts:1301-1324 'PageLifecycle'.
+  const initPageLifecycle = (): void => {
+    setSessionResetWindowLayer({
+      release: syncOverlayStateAfterExternalLock,
+      surfaceHost: fullscreenSurfaceHost,
+      onSurfaceHostChange: onFullscreenSurfaceHostChange,
+    });
+    const lifecycle = { getRole: () => app.role, leaveSession };
+    const handlers = initPageLifecycleHandlers(lifecycle);
+    disposers.push(() => handlers.dispose());
+    const navigation = initPageNavigation({
+      getRole: lifecycle.getRole,
+      bfcacheReloadMessage: () => MSG_REFRESHING,
+      log: { info: lifecycleLog },
+    });
+    disposers.push(() => navigation.dispose());
+  };
+  const signal = listeners.signal;
+  if (options.initOrder !== 'guard-first') initPageLifecycle();
 
   // app.ts:915-990 'BackButtonGuard'. Changes: the history fake, the fixed
   // leave answer for showDialog, console for core/log, and the model's
   // listener sets for the bus.
   const backHistory = createBackButtonHistory({
-    navigateHome: () => window.location.replace('/'),
+    navigateHome: () => navigateToAppHome(),
     history,
     onNavigationError: (error) => console.warn('[App] Back navigation failed:', error),
   });
@@ -599,7 +549,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   stateListeners.add(controller.handleStateChange);
   appEntranceListeners.add(controller.handleStateChange);
   disposers.push(onOverlayStackChange(controller.handleStateChange));
-  const signal = listeners.signal;
+  disposers.push(onNavigationPendingChange(controller.handleStateChange));
   window.addEventListener('popstate', controller.handlePopState, { signal });
   window.addEventListener('pagehide', controller.suspend, { signal });
   window.addEventListener('pageshow', controller.resume, { signal });
@@ -612,6 +562,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
     { signal },
   );
   controller.handleStateChange();
+  if (options.initOrder === 'guard-first') initPageLifecycle();
 
   const lazyFeature: LazyFeatureOutcomes = { events: [], answer: 'accept' };
   const runLazyFeatureRecovery = createReloadRecoveryLatch<{ feature: string }>({
@@ -683,19 +634,12 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
           if (importDelayMs > 0) globalThis.setTimeout(() => resolve(swHardReset), importDelayMs);
           else resolve(swHardReset);
         });
-      let resetCurrent = true;
-      const navigateIfCurrent = () => {
-        if (resetCurrent) navigateToAppHome();
-      };
-      const resetHandle = scheduleSessionReset(MSG_LEAVING, () => {
-        void loadHardReset()
-          .then((module) => {
-            if (resetCurrent) return module.default();
-          })
-          .then(navigateIfCurrent, navigateIfCurrent);
-      });
-      resetHandle?.onRecovered(() => {
-        resetCurrent = false;
+      scheduleSessionReset(MSG_LEAVING, {
+        async prepare(signal) {
+          const hardReset = await loadHardReset();
+          if (!signal.aborted) await hardReset.default();
+        },
+        navigate: () => navigateToAppHome(),
       });
     },
     requestLazyFeatureRecovery: (feature) => runLazyFeatureRecovery({ feature }),
@@ -727,10 +671,13 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
       stateListeners.clear();
       appEntranceListeners.clear();
       for (const dispose of disposers.splice(0).reverse()) dispose();
-      setSessionResetReleaseHandler(() => undefined);
-      __resetSessionResetForTests();
-      __resetDocumentReloadForTests();
-      __resetIntentionalNavForTests();
+      setSessionResetWindowLayer({
+        release: () => undefined,
+        surfaceHost: () => null,
+        onSurfaceHostChange: () => () => undefined,
+      });
+      __resetPageNavigationForTests();
+      __resetUnloadExemptionsForTests();
       __resetModalStackForTests();
       vi.unstubAllGlobals();
       restoreFrames();

@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { setElementInertForOwner } from '../core/inert-ownership.ts';
-import { FULLSCREEN_CHANGE_EVENTS, getFullscreenElement } from './fullscreen.ts';
+import { FULLSCREEN_CHANGE_EVENTS, getFullscreenElement } from '../core/fullscreen.ts';
 
 /** Look up replaceable UI elements when each operation runs; never cache nodes. */
 export function getUiElement<T extends HTMLElement = HTMLElement>(id: string): T | null {
@@ -441,15 +441,33 @@ function onPortalFullscreenChange(): void {
   syncOverlayState();
 }
 
-function syncFullscreenModalPortal(top: OverlayId | null): void {
+/**
+ * The element the browser paints in its fullscreen top layer, if a page
+ * surface must sit inside it to stay visible: the top layer covers every
+ * z-index outside it. Null when nothing, or the whole document, is fullscreen.
+ * The modal portal below and the session reset surface (core/session-reset.ts,
+ * C6-11) both use it.
+ */
+export function fullscreenSurfaceHost(): HTMLElement | null {
   const fullscreen = getFullscreenElement();
-  const container =
-    fullscreen instanceof HTMLElement &&
+  return fullscreen instanceof HTMLElement &&
     fullscreen.isConnected &&
     fullscreen !== document.documentElement &&
     fullscreen !== document.body
-      ? fullscreen
-      : null;
+    ? fullscreen
+    : null;
+}
+
+/** Run `listener` on every fullscreen change; returns an unsubscribe. */
+export function onFullscreenSurfaceHostChange(listener: () => void): () => void {
+  for (const event of FULLSCREEN_CHANGE_EVENTS) document.addEventListener(event, listener);
+  return () => {
+    for (const event of FULLSCREEN_CHANGE_EVENTS) document.removeEventListener(event, listener);
+  };
+}
+
+function syncFullscreenModalPortal(top: OverlayId | null): void {
+  const container = fullscreenSurfaceHost();
   const definition = OVERLAYS.find((overlay) => overlay.id === top);
   const element = definition && !definition.fullscreen ? getUiElement(definition.id) : null;
   for (const portaled of _fullscreenModalPortals.keys()) {

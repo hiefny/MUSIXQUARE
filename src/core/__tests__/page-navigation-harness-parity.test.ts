@@ -58,9 +58,10 @@ function between(source: string, start: string, end: string): string {
 }
 
 describe('app.ts wiring copied by the page navigation harness', () => {
-  it('initialises OverlayObservers, then PageLifecycle, then BackButtonGuard [update with: C6-6]', () => {
-    // Listener order within a phase follows this init order: page-lifecycle's
-    // pageshow runs before the guard's resume.
+  it('initialises OverlayObservers, then PageLifecycle, then BackButtonGuard [updated: C6-6]', () => {
+    // Since C6-6 no outcome depends on this order: the navigation owner's
+    // page-transition dispatch uses the capture phase (the harness pins both
+    // orders with `initOrder`). The copy still boots in this order.
     expectInOrder(appSource, [
       "safeInit('OverlayObservers', initOverlayObservers);",
       "safeInit('PageLifecycle', () => {",
@@ -68,28 +69,32 @@ describe('app.ts wiring copied by the page navigation harness', () => {
     ]);
   });
 
-  it('wires PageLifecycle with the release handler first and the reset as its bfcache reload [update with: C6-6, C6-7]', () => {
+  it('wires PageLifecycle with the window layer first, then the navigation owner with its bfcache reload [updated: C6-6, C6-11] [keeps: C6-7]', () => {
     expect(block(appSource, "safeInit('PageLifecycle', () => {")).toBe(
       [
         "safeInit('PageLifecycle', () => {",
-        'setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);',
-        'initPageLifecycleHandlers({',
+        'setSessionResetWindowLayer({',
+        'release: syncOverlayStateAfterExternalLock,',
+        'surfaceHost: fullscreenSurfaceHost,',
+        'onSurfaceHostChange: onFullscreenSurfaceHostChange, });',
+        'const lifecycle = {',
         "getRole: () => getState('network.appRole'),",
-        'leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }),',
-        "reload: () => scheduleDocumentReload(t('dialog.refreshing_session')),",
-        'hasPendingReset: isSessionResetPending,',
-        'restorePendingReset: restoreSessionReset,',
+        'leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }), };',
+        'initPageLifecycleHandlers(lifecycle);',
+        'initPageNavigation({',
+        'getRole: lifecycle.getRole,',
+        "bfcacheReloadMessage: () => t('dialog.refreshing_session'),",
         'log, }); }',
       ].join(' '),
     );
   });
 
-  it('wires the Back guard, its leave recovery and its listeners exactly as copied [update with: C6-6, C6-12]', () => {
+  it('wires the Back guard, its leave recovery and its listeners exactly as copied [keeps: C6-6] [updated: C6-12, C6-14]', () => {
     expect(block(appSource, 'function initBackButtonGuard(): void {')).toBe(
       [
         'function initBackButtonGuard(): void {',
         'const backHistory = createBackButtonHistory({',
-        "navigateHome: () => window.location.replace('/'),",
+        'navigateHome: () => navigateToAppHome(),',
         "onNavigationError: (error) => log.warn('[App] Back navigation failed:', error), });",
         'const controller = createBackButtonGuardController({',
         'isSessionActive: () => isGuardedSession({',
@@ -121,6 +126,7 @@ describe('app.ts wiring copied by the page navigation harness', () => {
         "bus.on('state:room.context', controller.handleStateChange);",
         "bus.on('setup:app-entrance', controller.handleStateChange);",
         'onOverlayStackChange(controller.handleStateChange);',
+        'onNavigationPendingChange(controller.handleStateChange);',
         "window.addEventListener('popstate', controller.handlePopState);",
         "window.addEventListener('pagehide', controller.suspend);",
         "window.addEventListener('pageshow', controller.resume);",
@@ -132,23 +138,21 @@ describe('app.ts wiring copied by the page navigation harness', () => {
   });
 });
 
-describe('player-controls.ts logo action copied by the page navigation harness', () => {
-  it('drops the navigation once the reset recovers, after the hard-reset chunk and its promotion [update with: C6-8, C6-10]', () => {
+describe('player-controls.ts logo request copied by the page navigation harness', () => {
+  it('prepares with the hard-reset chunk and its promotion unless aborted, then navigates home [updated: C6-8] [update with: C6-10]', () => {
     expect(
       between(
         playerControlsSource,
-        'let resetCurrent = true;',
+        "scheduleSessionReset(t('dialog.leaving_session'), {",
         '} finally { _logoNavBusy = false; }',
       ),
     ).toBe(
       [
-        'let resetCurrent = true;',
-        'const navigateIfCurrent = () => { if (resetCurrent) navigateToAppHome(); };',
-        "const resetHandle = scheduleSessionReset(t('dialog.leaving_session'), () => {",
-        "void import('../core/sw-hard-reset.ts')",
-        '.then((module) => { if (resetCurrent) return module.default(); })',
-        '.then(navigateIfCurrent, navigateIfCurrent); });',
-        'resetHandle?.onRecovered(() => { resetCurrent = false; });',
+        "scheduleSessionReset(t('dialog.leaving_session'), {",
+        'async prepare(signal) {',
+        "const hardReset = await import('../core/sw-hard-reset.ts');",
+        'if (!signal.aborted) await hardReset.default(); },',
+        'navigate: () => navigateToAppHome(), });',
       ].join(' '),
     );
   });

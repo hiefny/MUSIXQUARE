@@ -2108,6 +2108,8 @@ function main(): void {
         : 'false',
     );
   } else if (mode === 'pro-room-entry-policy-forward-floor') {
+    // pro-owner-transfer-pinless-v1: pending owner-transfer records carry no
+    // PIN. Older PRO code drops them as invalid and leaves the room suspended.
     process.stdout.write(
       contractCutoverRequiresForwardRepair(
         target,
@@ -2116,7 +2118,8 @@ function main(): void {
         directory,
         {
           requireCheckpointInventory: Boolean(valueArgument),
-          requiredMarkerContent: 'pro-room-optional-entry-password-v1\n',
+          requiredMarkerContent:
+            'pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1\n',
         },
       )
         ? 'true'

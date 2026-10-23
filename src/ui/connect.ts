@@ -18,8 +18,7 @@ import {
   syncOverlayState,
   trackClosingCssTransition,
 } from './dom.ts';
-import { scheduleSessionReset } from '../core/session-reset.ts';
-import { navigateToAppHome } from '../core/navigation.ts';
+import { navigateHome } from '../core/navigation.ts';
 import {
   getRoomContext,
   hasRoomCapability,
@@ -2241,7 +2240,7 @@ export function initConnect(): void {
     })
       .then((res) => {
         if (res && res.action === 'ok') {
-          scheduleSessionReset(t('dialog.leaving_session'), navigateToAppHome);
+          navigateHome(t('dialog.leaving_session'), { history: 'replace' });
         }
       })
       .catch((error) => {

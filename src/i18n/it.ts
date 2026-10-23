@@ -832,9 +832,6 @@ const it: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Impossibile completare la richiesta',
   'pro.claim_failed_message':
     'Per sicurezza, la richiesta non è stata ripetuta automaticamente. Chiedi all’amministratore della stanza un nuovo link.',
-  'pro.transfer_title': 'Assumi la proprietà della stanza PRO',
-  'pro.transfer_message':
-    'Imposta una nuova password di 8 cifre. Al termine, l’accesso del precedente proprietario verrà revocato.',
   'pro.new_link_message':
     'Il link è scaduto o è già stato usato. Se serve, chiedi a un amministratore un nuovo link.',
   'pro.not_ready_title': 'Questa stanza PRO non è ancora pronta',

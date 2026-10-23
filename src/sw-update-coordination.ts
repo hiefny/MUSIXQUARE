@@ -5,11 +5,20 @@ const UPDATE_PROMPT_LEASE_KEY = 'mxqr-sw-update-prompt-lease-v1';
 const UPDATE_CHECK_LEASE_KEY = 'mxqr-sw-update-check-lease-v1';
 const PRESENTATION_FAILURE_COOLDOWN_MS = 5 * 60 * 1000;
 const UPDATE_PROMPT_LEASE_MS = 5 * 60 * 1000;
-const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+/** How often one app client checks for an update, across tabs (the check lease). */
+export const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const WORKER_GENERATION_TIMEOUT_MS = 750;
 
+// Page-side service-worker message types. browser/service-worker.ts and
+// browser/classic-runtime/bootstrap.ts cannot import from src/, so
+// src/core/__tests__/sw-message-contract.test.ts pins their copies.
+// 'SKIP_WAITING' stays a literal at each send: the resource-ownership guard
+// counts those sends (RO-22).
 const SW_GENERATION_REQUEST = 'MXQR_SW_GENERATION_REQUEST';
 const SW_GENERATION_RESPONSE = 'MXQR_SW_GENERATION_RESPONSE';
+export const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
+export const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
+export const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
 
 interface StoredDismissal {
   identity: string;

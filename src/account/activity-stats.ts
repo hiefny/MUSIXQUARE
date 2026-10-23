@@ -21,6 +21,7 @@ import {
 } from './state.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
+import { RECONNECT_TARGET_KEY } from '../core/navigation-contract.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 
@@ -124,7 +125,6 @@ const LEADERSHIP_SETTLE_MS = 1_000;
 const AUTO_FLUSH_DELAY_MS = 30_000;
 
 const SESSION_COUNTED_STORAGE_KEY = 'mxqr-account-activity-session-counted-v1';
-const RECONNECT_TARGET_STORAGE_KEY = 'mxqr_reconnect_target';
 
 const MAX_BATCH: AccountStatsDelta = {
   sessionCountDelta: 100,
@@ -309,7 +309,7 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
     const canResume =
       this.#sessionActive ||
       deps.hasReconnectMarker() ||
-      safeStorageRead(deps.storage, RECONNECT_TARGET_STORAGE_KEY) !== null;
+      safeStorageRead(deps.storage, RECONNECT_TARGET_KEY) !== null;
     this.#resumeSessionCounted =
       canResume && safeStorageRead(deps.storage, SESSION_COUNTED_STORAGE_KEY) === '1';
     if (!canResume) {
@@ -991,7 +991,7 @@ function createProductionDependencies(): AccountActivityStatsDependencies {
     addStats: addAccountStats,
     scheduler: createManagedScheduler(),
     storage,
-    hasReconnectMarker: () => safeStorageRead(storage, RECONNECT_TARGET_STORAGE_KEY) !== null,
+    hasReconnectMarker: () => safeStorageRead(storage, RECONNECT_TARGET_KEY) !== null,
   };
 }
 
@@ -1030,7 +1030,7 @@ export const __accountActivityStatsForTests = {
   LEADERSHIP_SETTLE_MS,
   AUTO_FLUSH_DELAY_MS,
   SESSION_COUNTED_STORAGE_KEY,
-  RECONNECT_TARGET_STORAGE_KEY,
+  RECONNECT_TARGET_STORAGE_KEY: RECONNECT_TARGET_KEY,
   trackCountThresholdMs,
   electCurrentDeviceLeader,
 };

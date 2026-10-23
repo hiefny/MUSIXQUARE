@@ -1,5 +1,11 @@
 import { DESKTOP_LAYOUT_QUERY } from '../core/layout-breakpoints.ts';
 import { getBodyRenderedScale, viewportLengthToBodyCssPixels } from '../core/platform.ts';
+import {
+  PLAYLIST_MOVE_TOLERANCE_PX,
+  PLAYLIST_ROW_EASING,
+  edgeAutoScrollVelocity,
+  prefersReducedMotion,
+} from './playlist-motion.ts';
 
 const ENTRY_SELECTOR = '.playlist-entry[data-queue-item-id]';
 const ROW_SELECTOR = '.track-item';
@@ -17,26 +23,17 @@ const CURRENT_LEADING_STATE_CLASSES = [
 ] as const;
 
 const PLAYLIST_LONG_PRESS_MS = 700;
-const PLAYLIST_TOUCH_MOVE_TOLERANCE_PX = 8;
 const PLAYLIST_REORDER_HINT_MS = 2000;
 
 const MOMENTUM_SETTLE_MS = 140;
+/** The click a drop or a held press releases (playlist-selection-gestures.ts has its own). */
 const CLICK_SUPPRESSION_MS = 500;
-// Edge zones scale with the visible pane. A desktop playlist shares its
-// column with chat and can be only three or four rows tall, so a fixed 40px
-// floor would turn most of the first and last visible rows into scroll zones.
-const EDGE_ZONE_RATIO = 0.12;
-const EDGE_ZONE_MAX_PX = 72;
-const EDGE_ZONE_MIN_PX = 24;
-const EDGE_ZONE_ARM_TRAVEL_PX = PLAYLIST_TOUCH_MOVE_TOLERANCE_PX;
-const EDGE_SCROLL_MAX_PX = 18;
 const REORDER_REFLOW_MS = 220;
 const REORDER_DROP_MS = 180;
 const REORDER_HANDOFF_DELAY_MS = REORDER_DROP_MS;
 const REORDER_HANDOFF_MS = 90;
 const REORDER_HANDLE_RETURN_MS = 140;
 const REORDER_MOTION_SAFETY_MS = 32;
-const REORDER_MOTION_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 
 type DragInput = 'handle' | 'long-press';
 
@@ -167,14 +164,6 @@ function defaultIsPlaylistVisible(list: HTMLElement): boolean {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-function prefersReducedMotion(): boolean {
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  } catch {
-    return false;
-  }
 }
 
 export function createPlaylistReorderController(
@@ -311,7 +300,7 @@ export function createPlaylistReorderController(
       if (typeof animate === 'function') {
         const animation = animate.call(entry, [{ transform: from }, { transform: 'none' }], {
           duration,
-          easing: REORDER_MOTION_EASING,
+          easing: PLAYLIST_ROW_EASING,
         });
         reflowAnimations.set(entry, animation);
         const clearAnimation = (): void => {
@@ -329,7 +318,7 @@ export function createPlaylistReorderController(
       const frame = window.requestAnimationFrame(() => {
         if (reflowFrames.get(entry) !== frame) return;
         reflowFrames.delete(entry);
-        entry.style.transition = `transform ${duration}ms ${REORDER_MOTION_EASING}`;
+        entry.style.transition = `transform ${duration}ms ${PLAYLIST_ROW_EASING}`;
         entry.style.transform = 'translate3d(0, 0, 0)';
         const timer = window.setTimeout(() => {
           if (reflowTimers.get(entry) !== timer) return;
@@ -531,60 +520,12 @@ export function createPlaylistReorderController(
     drag.ghost.style.transform = `translate3d(0, ${translateY}px, 0) scale(1.015)`;
   }
 
-  function visibleScrollBounds(): { top: number; bottom: number } {
-    const rect = scrollContainer.getBoundingClientRect();
-    let bottom = rect.bottom;
-    const bottomNav = document.querySelector<HTMLElement>('.bottom-nav');
-    if (bottomNav) {
-      const style = window.getComputedStyle(bottomNav);
-      const navRect = bottomNav.getBoundingClientRect();
-      const overlapsHorizontally = navRect.right > rect.left && navRect.left < rect.right;
-      const overlapsVertically = navRect.bottom > rect.top && navRect.top < rect.bottom;
-      if (
-        style.display !== 'none' &&
-        navRect.height > 0 &&
-        overlapsHorizontally &&
-        overlapsVertically
-      ) {
-        bottom = Math.min(bottom, navRect.top);
-      }
-    }
-    return { top: rect.top, bottom };
-  }
-
-  function autoScrollVelocity(state: DragState): number {
-    const { top, bottom } = visibleScrollBounds();
-    const height = Math.max(1, bottom - top);
-    const zone = clamp(height * EDGE_ZONE_RATIO, EDGE_ZONE_MIN_PX, EDGE_ZONE_MAX_PX);
-    const y = state.lastClientY;
-    const topDepth = top + zone - y;
-    const bottomDepth = y - (bottom - zone);
-    // Grabbing the first or last visible row starts inside an edge zone. Arm
-    // each edge only after the pointer has been outside it or has travelled
-    // toward it, so picking up an edge row never scrolls by itself.
-    if (topDepth <= 0 || state.startClientY - y >= EDGE_ZONE_ARM_TRAVEL_PX) {
-      state.topEdgeArmed = true;
-    }
-    if (bottomDepth <= 0 || y - state.startClientY >= EDGE_ZONE_ARM_TRAVEL_PX) {
-      state.bottomEdgeArmed = true;
-    }
-    if (topDepth > 0 && state.topEdgeArmed) {
-      const ratio = clamp(topDepth / zone, 0, 1);
-      return -EDGE_SCROLL_MAX_PX * ratio * ratio;
-    }
-    if (bottomDepth > 0 && state.bottomEdgeArmed) {
-      const ratio = clamp(bottomDepth / zone, 0, 1);
-      return EDGE_SCROLL_MAX_PX * ratio * ratio;
-    }
-    return 0;
-  }
-
   function autoScrollStep(): void {
     autoScrollFrame = null;
     if (!drag) return;
     // The loop keeps itself alive only while the pointer stays in an armed
     // zone. It ends on the first frame outside one; pointer input restarts it.
-    const velocity = autoScrollVelocity(drag);
+    const velocity = edgeAutoScrollVelocity(scrollContainer, drag);
     if (velocity === 0) return;
     const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
     const next = clamp(scrollContainer.scrollTop + velocity, 0, maxScroll);
@@ -596,7 +537,7 @@ export function createPlaylistReorderController(
   }
 
   function syncAutoScroll(): void {
-    if (!drag || autoScrollVelocity(drag) === 0) {
+    if (!drag || edgeAutoScrollVelocity(scrollContainer, drag) === 0) {
       stopAutoScroll();
       return;
     }
@@ -1138,14 +1079,14 @@ export function createPlaylistReorderController(
       touch.clientX - touchProbe.startX,
       touch.clientY - touchProbe.startY,
     );
-    if (distance >= PLAYLIST_TOUCH_MOVE_TOLERANCE_PX) {
+    if (distance >= PLAYLIST_MOVE_TOLERANCE_PX) {
       touchProbe.suppressClickOnEnd = true;
     }
     if (scrollContainer.scrollTop !== touchProbe.startScrollTop) {
       touchProbe.suppressClickOnEnd = true;
     }
     if (
-      distance >= PLAYLIST_TOUCH_MOVE_TOLERANCE_PX ||
+      distance >= PLAYLIST_MOVE_TOLERANCE_PX ||
       scrollContainer.scrollTop !== touchProbe.startScrollTop
     ) {
       touchProbe.disqualified = true;
@@ -1207,7 +1148,7 @@ export function createPlaylistReorderController(
     );
     // Pressing a second button mid-hold arrives as a pointermove whose
     // buttons bitmask changed, not as another pointerdown.
-    if (distance >= PLAYLIST_TOUCH_MOVE_TOLERANCE_PX || event.buttons !== 1) clearPointerHold();
+    if (distance >= PLAYLIST_MOVE_TOLERANCE_PX || event.buttons !== 1) clearPointerHold();
   }
 
   function onDocumentPointerFinish(event: PointerEvent): void {

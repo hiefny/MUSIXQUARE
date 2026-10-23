@@ -10,6 +10,7 @@ import { getCapturedLogs } from '../core/log-capture.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { getRoomContext } from '../rooms/authority.ts';
+import { SW_CONTROLLER_CONFIRMED_KEY, SW_UPDATE_KEY } from '../core/navigation-contract.ts';
 import { onWindowBack, syncOverlayState } from './dom.ts';
 
 const OVERLAY_ID = 'onboarding-diagnostics-overlay';
@@ -385,7 +386,7 @@ async function collectOnboardingDiagnosticSnapshot(): Promise<string> {
     `[App Network] room=${roomContext.kind}/${roomContext.role} sessionStarted=${getState('setup.sessionStarted')} isConnecting=${getState('network.isConnecting')} connectionType=${getState('network.connectionType')}`,
     `[Host Connection] present=${Boolean(hostConn)} open=${hostConn?.open === true}`,
     `[Signaling] status=${signalingHealth.status} attempt=${signalingHealth.attempt}/${signalingHealth.maxAttempts} peers=${Array.isArray(peers) ? peers.length : 0}`,
-    `[SW Markers] updated=${markerAge('sw-updated-at', now)} controllerConfirmed=${markerAge('sw-controller-confirmed-at', now)}`,
+    `[SW Markers] updated=${markerAge(SW_UPDATE_KEY, now)} controllerConfirmed=${markerAge(SW_CONTROLLER_CONFIRMED_KEY, now)}`,
     ...serviceWorkerLines,
     ...cacheLines,
     '',

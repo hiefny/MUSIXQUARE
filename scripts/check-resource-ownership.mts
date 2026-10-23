@@ -18,8 +18,10 @@
  *   CHECK 2 Guarded page state (RO-22, RO-23, RO-24, RO-26, RO-30). Direct
  *     writes stay in their allowlisted files: `inert` writes, page-lock claims
  *     through setElementInertForOwner, walks over the body's children,
- *     aria-hidden writes in page-lock files, Fullscreen request/exit methods,
- *     history entry writes, location navigation and SKIP_WAITING sends.
+ *     aria-hidden writes in page-lock files, Fullscreen request methods,
+ *     Fullscreen exit methods (only the one bounded exit in
+ *     src/core/fullscreen.ts), history entry writes, location navigation and
+ *     SKIP_WAITING sends.
  *   CHECK 3 Worker caller allowlists (RO-07, RO-08). The PRO signaling
  *     broadcast endpoint '/internal/realtime/v1/broadcast' (anywhere in
  *     production code) and readProRoomFileDuration() (in cloudflare/; the
@@ -47,6 +49,12 @@
  *     deletes from the table, or names it in any other way, because a bare
  *     name can be substituted into template-built SQL (`DELETE FROM
  *     ${table}`); reads (FROM or JOIN) and qualified columns do not count.
+ *   CHECK 8 Header loader default holder (RO-47). showLoader() and
+ *     updateLoader() calls whose holder ID can be undefined write the
+ *     `_default` holder of src/ui/toast.ts, which belongs to the foreground
+ *     media load. They are counted per file in src/, following an ID held in
+ *     a name through that name's declarations in the same file; a flow that
+ *     can overlap that load uses a named holder instead.
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -156,15 +164,24 @@ const PAGE_LOCK_ARIA_HIDDEN_BASELINE: Baseline = new Map<string, Allowance>([
   ['src/ui/dom.ts', { count: 2, reason: 'overlay visibility and the clipboard textarea' }],
 ]);
 
-/** RO-26: references to Fullscreen request and exit methods (calls or resolvers). */
-const FULLSCREEN_SINK_BASELINE: Baseline = new Map<string, Allowance>([
-  ['src/player/video.ts', { count: 3, reason: 'YouTube mode exit resolver (Phase 2 merges it)' }],
-  ['src/ui/fullscreen.ts', { count: 7, reason: 'shared prefixed exit helper' }],
+/** RO-26: references to Fullscreen request methods (calls or resolvers). */
+const FULLSCREEN_REQUEST_SINK_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/ui/player-controls.ts',
-    { count: 4, reason: 'YouTube fullscreen toggle request (Phase 2 keeps the policy)' },
+    { count: 4, reason: 'YouTube fullscreen toggle request (callers keep their request policy)' },
   ],
   ['src/ui/screensaver-entry.ts', { count: 3, reason: 'screensaver entry request resolver' }],
+]);
+
+/**
+ * RO-26: references to Fullscreen exit methods. Only the one in-flight exit
+ * slot may leave fullscreen (C8-I9), so two owners never exit twice.
+ */
+const FULLSCREEN_EXIT_SINK_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/core/fullscreen.ts',
+    { count: 3, reason: 'exitFullscreenFor, the one bounded exit slot (C8-I8, C8-I9)' },
+  ],
 ]);
 
 /** RO-30, RO-23: history.pushState/replaceState/back/go/forward. */
@@ -181,15 +198,19 @@ const HISTORY_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 
 /** RO-23: location.reload/replace/assign and writes to location or its properties. */
 const LOCATION_NAVIGATION_BASELINE: Baseline = new Map<string, Allowance>([
-  ['src/app.ts', { count: 1, reason: 'Back guard navigateHome port' }],
-  ['src/core/navigation.ts', { count: 1, reason: 'navigateToAppHome helper' }],
+  // C6-14 moved app.ts's Back guard navigateHome port to navigateToAppHome (1 to 0).
+  [
+    'src/core/navigation.ts',
+    {
+      count: 3,
+      reason:
+        'the intents: home by replace and by push, and the /CODE return (C6-3 moved the setup, setup-guest and sw-register sinks here, 7 to 3)',
+    },
+  ],
   ['src/core/session-reset.ts', { count: 1, reason: 'the navigation owner reload' }],
   ['src/i18n/localized-app-document.ts', { count: 1, reason: 'language switch fallback' }],
-  ['src/pro-room/runtime.ts', { count: 1, reason: 'inside a scheduleSessionReset action' }],
-  ['src/sw-register.ts', { count: 1, reason: 'inside a scheduleSessionReset action' }],
+  // C6-8 moved runtime.ts's PRESENCE_SUPERSEDED replace to navigateToAppHome (1 to 0).
   ['src/ui/account.ts', { count: 1, reason: 'login popup window, not this document' }],
-  ['src/ui/setup-guest.ts', { count: 3, reason: 'inside scheduleSessionReset actions' }],
-  ['src/ui/setup.ts', { count: 2, reason: 'inside scheduleSessionReset actions' }],
 ]);
 
 /** RO-22: 'SKIP_WAITING' messages to a waiting service worker. */
@@ -319,6 +340,7 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   {
     records: ['RO-22', 'RO-23', 'RO-30'],
     files: [
+      'src/core/navigation-contract.ts',
       'src/sw-register.ts',
       'src/sw-update-coordination.ts',
       'src/core/sw-hard-reset.ts',
@@ -332,13 +354,14 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
     files: [
       'src/ui/screensaver-entry.ts',
       'src/player/video.ts',
-      'src/ui/fullscreen.ts',
+      'src/core/fullscreen.ts',
       'src/ui/player-controls.ts',
     ],
   },
   {
     records: ['RO-27'],
     files: [
+      'src/ui/playlist-motion.ts',
       'src/ui/playlist-reorder.ts',
       'src/ui/playlist-selection-gestures.ts',
       'src/ui/playlist-removal.ts',
@@ -346,7 +369,10 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/ui/playlist-view.ts',
     ],
   },
-  { records: ['RO-28'], files: ['src/account/session.ts', 'src/ui/account.ts'] },
+  {
+    records: ['RO-28'],
+    files: ['src/account/account-sync-protocol.ts', 'src/account/session.ts', 'src/ui/account.ts'],
+  },
   { records: ['RO-29'], files: ['src/pro-room/runtime.ts', 'src/network/peer.ts'] },
 ];
 
@@ -388,16 +414,6 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
     'RO-05 REJOIN_RETRY_MS@src/player/local-output-rejoin.ts = ' +
       'RENDEZVOUS_RETRY_MS@src/player/background-return-sync.ts ([250,750,1500,3000,5000])',
     { kind: 'copy', reason: 're-align retry schedule; Phase 0d C3-I1' },
-  ],
-  [
-    'RO-27 CLICK_SUPPRESSION_MS@src/ui/playlist-reorder.ts = ' +
-      'CLICK_SUPPRESSION_MS@src/ui/playlist-selection-gestures.ts (500 / 400)',
-    { kind: 'suspect', reason: 'drag vs selection gesture; Phase 2 motion module triages it' },
-  ],
-  [
-    'RO-27 MORPH_MS@src/ui/playlist-removal.ts = ' +
-      'MORPH_MS@src/ui/playlist-selection-morph.ts (300 / 320)',
-    { kind: 'suspect', reason: 'removal glide vs selection morph; Phase 2 triages it' },
   ],
   [
     'RO-29 CONTROL_CHANNEL_RECOVERY_RETRY_MS@src/pro-room/runtime.ts = ' +
@@ -466,6 +482,52 @@ const AUTHORITY_FENCE_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   ],
 ]);
 
+// ── CHECK 8 baseline: header loader default holder (RO-47) ──────────────
+
+/**
+ * RO-47: showLoader(show, text, id) and updateLoader(percent, id) calls whose
+ * holder ID is missing or can be undefined, exact per file in src/
+ * (src/ui/toast.ts, the owner, excluded).
+ * Shows, hides and progress ticks all count: each one writes the holder the
+ * current foreground media load owns.
+ */
+const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  ['src/demo/mode.ts', { count: 5, reason: 'guided demo track download and its end' }],
+  [
+    'src/player/decode.ts',
+    { count: 14, reason: 'file prepare and decode; hides gated by the load session' },
+  ],
+  [
+    'src/player/playback.ts',
+    { count: 8, reason: "guest wait, request and receive of the current track's file" },
+  ],
+  [
+    'src/share/remote-share.ts',
+    { count: 11, reason: 'foreground remote-share wait and download (uploads are named)' },
+  ],
+  [
+    'src/storage/preload.ts',
+    {
+      count: 4,
+      reason:
+        'PLAY of a preloaded track: the awaited receive (its ID is undefined when awaited) and ' +
+        'the request fallback; a background receive is named',
+    },
+  ],
+  ['src/storage/recovery.ts', { count: 2, reason: 'clears it when a recovery request ends' }],
+  ['src/storage/storage.ts', { count: 2, reason: 'clears it when a stuck transfer resets' }],
+  [
+    'src/storage/transfer-receive.ts',
+    { count: 13, reason: "guest prepare and receive of the current track's file" },
+  ],
+  ['src/ui/setup.ts', { count: 6, reason: 'clears a stale one when a guest join fails' }],
+  [
+    'src/youtube/iframe.ts',
+    { count: 12, reason: 'playlist indexing; clears a file load when YouTube takes over' },
+  ],
+  ['src/youtube/player.ts', { count: 1, reason: 'clears it when YouTube mode stops' }],
+]);
+
 /** Every record ID this guard's manifests name, for CHECK 1. */
 const GUARD_RECORD_IDS: readonly string[] = [
   'RO-01',
@@ -479,6 +541,7 @@ const GUARD_RECORD_IDS: readonly string[] = [
   'RO-26',
   'RO-30',
   'RO-44',
+  'RO-47',
   ...TIMING_CONTRACTS.flatMap((contract) => contract.records),
 ];
 
@@ -721,13 +784,15 @@ function formatValue(value: ConstantValue): string {
 
 // ── Per-file facts ───────────────────────────────────────────────────────
 
-const FULLSCREEN_SINK_NAMES = new Set([
+const FULLSCREEN_REQUEST_SINK_NAMES = new Set([
   'requestFullscreen',
   'webkitRequestFullscreen',
   'webkitRequestFullScreen',
   'webkitEnterFullscreen',
   'mozRequestFullScreen',
   'msRequestFullscreen',
+]);
+const FULLSCREEN_EXIT_SINK_NAMES = new Set([
   'exitFullscreen',
   'webkitExitFullscreen',
   'webkitCancelFullScreen',
@@ -745,7 +810,8 @@ interface FileFacts {
   pageLockClaims: number;
   bodyChildrenWalks: number;
   ariaHiddenWrites: number;
-  fullscreenSinks: number;
+  fullscreenRequestSinks: number;
+  fullscreenExitSinks: number;
   historyWrites: number;
   locationNavigations: number;
   skipWaitingSends: number;
@@ -845,7 +911,8 @@ function collectFacts(relPath: string, text: string): FileFacts {
     pageLockClaims: 0,
     bodyChildrenWalks: 0,
     ariaHiddenWrites: 0,
-    fullscreenSinks: 0,
+    fullscreenRequestSinks: 0,
+    fullscreenExitSinks: 0,
     historyWrites: 0,
     locationNavigations: 0,
     skipWaitingSends: 0,
@@ -904,8 +971,9 @@ function collectFacts(relPath: string, text: string): FileFacts {
       if ((member === 'children' || member === 'childNodes') && receiverName(receiver) === 'body') {
         facts.bodyChildrenWalks += 1;
       }
-      if (FULLSCREEN_SINK_NAMES.has(member) && !isAssignmentTarget(node)) {
-        facts.fullscreenSinks += 1;
+      if (!isAssignmentTarget(node)) {
+        if (FULLSCREEN_REQUEST_SINK_NAMES.has(member)) facts.fullscreenRequestSinks += 1;
+        if (FULLSCREEN_EXIT_SINK_NAMES.has(member)) facts.fullscreenExitSinks += 1;
       }
       if (HISTORY_ENTRY_METHODS.has(member)) facts.historyWrites += 1;
       else if (HISTORY_TRAVERSAL_METHODS.has(member) && isHistoryReceiver(receiver)) {
@@ -946,6 +1014,118 @@ function collectFacts(relPath: string, text: string): FileFacts {
 
   factsCache.set(relPath, { text, facts });
   return facts;
+}
+
+// ── CHECK 8: header loader default holder writers ────────────────────────
+
+const LOADER_OWNER_FILE = 'src/ui/toast.ts';
+/** Argument position of the holder ID in each header loader call. */
+const LOADER_ID_ARGUMENT = new Map([
+  ['showLoader', 2],
+  ['updateLoader', 1],
+]);
+
+/** A file's parameters and variables by name, for following a holder ID held in a name. */
+type NameDeclarations = ReadonlyMap<
+  string,
+  readonly (ts.ParameterDeclaration | ts.VariableDeclaration)[]
+>;
+
+function nameDeclarations(file: ts.SourceFile): NameDeclarations {
+  const declarations = new Map<string, (ts.ParameterDeclaration | ts.VariableDeclaration)[]>();
+  visit(file, (node) => {
+    if (!(ts.isParameter(node) || ts.isVariableDeclaration(node)) || !ts.isIdentifier(node.name)) {
+      return;
+    }
+    const list = declarations.get(node.name.text) ?? [];
+    list.push(node);
+    declarations.set(node.name.text, list);
+  });
+  return declarations;
+}
+
+function declarationMayBeUndefined(
+  declaration: ts.ParameterDeclaration | ts.VariableDeclaration,
+  declarations: NameDeclarations,
+  following: ReadonlySet<string>,
+): boolean {
+  if (declaration.initializer) {
+    return mayBeUndefinedId(declaration.initializer, declarations, following);
+  }
+  if (ts.isParameter(declaration)) {
+    const type = declaration.type;
+    return (
+      !!declaration.questionToken ||
+      (!!type &&
+        ts.isUnionTypeNode(type) &&
+        type.types.some((member) => member.kind === ts.SyntaxKind.UndefinedKeyword))
+    );
+  }
+  // A for-of or for-in variable takes each element; a `let` with no value
+  // starts undefined.
+  const statement = declaration.parent.parent;
+  return !ts.isForOfStatement(statement) && !ts.isForInStatement(statement);
+}
+
+/**
+ * RO-47: whether a holder-ID argument can be undefined and so write the
+ * `_default` holder: a missing argument, `undefined`, `void`, a conditional
+ * or `??` / `||` with such a branch, or a name that one of its declarations in
+ * the same file can leave undefined (an optional parameter, a `let` with no
+ * value, or any of these as its value). Names match across the whole file,
+ * not by scope, so a reused name counts when any of its declarations can be
+ * undefined. A name imported from another module is not followed.
+ */
+function mayBeUndefinedId(
+  expression: ts.Expression | undefined,
+  declarations: NameDeclarations,
+  following: ReadonlySet<string> = new Set(),
+): boolean {
+  if (!expression) return true;
+  const value = unwrap(expression);
+  if (ts.isVoidExpression(value)) return true;
+  if (ts.isConditionalExpression(value)) {
+    return (
+      mayBeUndefinedId(value.whenTrue, declarations, following) ||
+      mayBeUndefinedId(value.whenFalse, declarations, following)
+    );
+  }
+  if (
+    ts.isBinaryExpression(value) &&
+    (value.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      value.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  ) {
+    return mayBeUndefinedId(value.right, declarations, following);
+  }
+  if (!ts.isIdentifier(value)) return false;
+  if (value.text === 'undefined') return true;
+  if (following.has(value.text)) return false;
+  const next = new Set(following).add(value.text);
+  return (declarations.get(value.text) ?? []).some((declaration) =>
+    declarationMayBeUndefined(declaration, declarations, next),
+  );
+}
+
+/** RO-47: header loader calls whose holder ID can be undefined, per src/ file. */
+function collectDefaultLoaderWrites(sources: ReadonlyMap<string, string>): Map<string, number> {
+  const measured = new Map<string, number>();
+  for (const [relPath, text] of sources) {
+    if (!relPath.startsWith('src/') || relPath === LOADER_OWNER_FILE) continue;
+    if (!text.includes('showLoader') && !text.includes('updateLoader')) continue;
+    const file = parse(relPath, text);
+    const declarations = nameDeclarations(file);
+    let count = 0;
+    visit(file, (node) => {
+      if (!ts.isCallExpression(node)) return;
+      const callee = calleeName(node);
+      const idIndex = callee === null ? undefined : LOADER_ID_ARGUMENT.get(callee);
+      if (idIndex !== undefined && mayBeUndefinedId(node.arguments[idIndex], declarations)) {
+        count += 1;
+      }
+    });
+    if (count > 0) measured.set(relPath, count);
+  }
+  return measured;
 }
 
 // ── Exact comparison ─────────────────────────────────────────────────────
@@ -1386,6 +1566,7 @@ export interface ResourceOwnershipReport {
     readonly reportOnly: readonly string[];
   };
   readonly audioContextNativeCalls: number;
+  readonly defaultLoaderWrites: number;
 }
 
 function perFile(
@@ -1452,11 +1633,18 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       baseline: PAGE_LOCK_ARIA_HIDDEN_BASELINE,
     },
     {
-      label: 'fullscreen request/exit',
+      label: 'fullscreen request',
       record: 'RO-26',
-      hint: 'use the fullscreen helper in src/ui/fullscreen.ts (target owner src/core/fullscreen.ts)',
-      measured: perFile(facts, (f) => f.fullscreenSinks, appOnly),
-      baseline: FULLSCREEN_SINK_BASELINE,
+      hint: 'a new fullscreen surface needs a reasoned entry; read state through src/core/fullscreen.ts',
+      measured: perFile(facts, (f) => f.fullscreenRequestSinks, appOnly),
+      baseline: FULLSCREEN_REQUEST_SINK_BASELINE,
+    },
+    {
+      label: 'fullscreen exit',
+      record: 'RO-26',
+      hint: 'leave fullscreen through exitFullscreenFor in src/core/fullscreen.ts',
+      measured: perFile(facts, (f) => f.fullscreenExitSinks, appOnly),
+      baseline: FULLSCREEN_EXIT_SINK_BASELINE,
     },
     {
       label: 'history entry write',
@@ -1558,6 +1746,20 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     findings,
   );
 
+  const defaultLoaderWrites = collectDefaultLoaderWrites(input.sources);
+  compareExact(
+    {
+      label: 'header loader default holder write',
+      record: 'RO-47',
+      hint:
+        'the `_default` holder belongs to the foreground media load; a flow that can overlap ' +
+        'it shows its own holder with showLoader(show, text, id)',
+      measured: defaultLoaderWrites,
+      baseline: DEFAULT_LOADER_WRITE_BASELINE,
+    },
+    findings,
+  );
+
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);
   let ariaHiddenWritesTotal = 0;
@@ -1585,6 +1787,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       reportOnly: pairs.reportOnly,
     },
     audioContextNativeCalls: total(audioContextCalls),
+    defaultLoaderWrites: total(defaultLoaderWrites),
   };
 }
 
@@ -1624,7 +1827,8 @@ function main(argv: readonly string[]): void {
       `${timingPairs.reportOnly.length} same-value pairs (report-only` +
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +
       `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.\n` +
-      `  Developer API authority fence writes: ${report.authorityFenceWrites}.`,
+      `  Developer API authority fence writes: ${report.authorityFenceWrites}.\n` +
+      `  Header loader default holder writes: ${report.defaultLoaderWrites}.`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);

@@ -28,24 +28,23 @@ import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
 import { getState, setState, snapshot } from './core/state.ts';
 import { delay, setManagedTimer } from './core/timers.ts';
-import {
-  initPageLifecycleHandlers,
-  markIntentionalNav,
-  isIntentionalNav,
-} from './core/page-lifecycle.ts';
+import { claimUnloadExemption, initPageLifecycleHandlers } from './core/page-lifecycle.ts';
 import { createBackButtonGuardController, isGuardedSession } from './core/back-button-guard.ts';
 import { createBackButtonHistory } from './core/back-button-history.ts';
+import { navigateToAppHome } from './core/navigation.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { runBackgroundResumeRecovery } from './core/background-resume-recovery.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
 import {
+  initPageNavigation,
   isSessionResetPending,
-  restoreSessionReset,
+  onNavigationPendingChange,
   scheduleDocumentReload,
   scheduleSessionReset,
-  setSessionResetReleaseHandler,
+  setSessionResetWindowLayer,
 } from './core/session-reset.ts';
 import { createReloadRecoveryLatch } from './core/reload-recovery-latch.ts';
+import { UPDATE_COMPLETION_KEY } from './core/navigation-contract.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady } from './audio/engine.ts';
@@ -121,10 +120,12 @@ import { initYouTubeSync } from './youtube/sync.ts';
 
 // ── UI ──
 import {
+  fullscreenSurfaceHost,
   hasOpenWindow,
   initOverlayObservers,
   isAnyOverlayShown,
   offerBackToTopWindow,
+  onFullscreenSurfaceHostChange,
   onOverlayStackChange,
   syncOverlayStateAfterExternalLock,
   whenBackSurfaceSettled,
@@ -884,11 +885,12 @@ window.addEventListener('unhandledrejection', (e) => {
   log.error('[Global] Unhandled rejection:', e.reason);
 });
 
-// Page-lifecycle (beforeunload / pagehide / pageshow) handling lives in
-// `core/page-lifecycle.ts`. It's dependency-injected so the branching can
-// be unit-tested without dragging in the full bootstrap graph. See that
-// file for the rationale behind each branch and the app-wide rule about
-// `markIntentionalNav()`.
+// Page-lifecycle (beforeunload / pagehide) handling lives in
+// `core/page-lifecycle.ts`, and the back-forward cache return in the
+// navigation owner (`core/session-reset.ts`, `initPageNavigation`). Both are
+// dependency-injected so the branching can be unit-tested without dragging in
+// the full bootstrap graph. See those files for the rationale behind each
+// branch and the app-wide rule about `claimUnloadExemption()`.
 
 // ── Back-Button Guard ──
 //
@@ -914,7 +916,7 @@ window.addEventListener('unhandledrejection', (e) => {
 // direct URL changes still route through the beforeunload confirmation.
 function initBackButtonGuard(): void {
   const backHistory = createBackButtonHistory({
-    navigateHome: () => window.location.replace('/'),
+    navigateHome: () => navigateToAppHome(),
     onNavigationError: (error) => log.warn('[App] Back navigation failed:', error),
   });
   const controller = createBackButtonGuardController({
@@ -978,6 +980,9 @@ function initBackButtonGuard(): void {
   bus.on('state:room.context', controller.handleStateChange);
   bus.on('setup:app-entrance', controller.handleStateChange);
   onOverlayStackChange(controller.handleStateChange);
+  // A Back absorbed while a navigation held the page re-arms once it settles
+  // in this document (owner decision 5, 2026-10-23).
+  onNavigationPendingChange(controller.handleStateChange);
   window.addEventListener('popstate', controller.handlePopState);
   window.addEventListener('pagehide', controller.suspend);
   window.addEventListener('pageshow', controller.resume);
@@ -1300,19 +1305,26 @@ async function bootstrap(): Promise<void> {
   );
   safeInit('PageLifecycle', () => {
     // Windows that opened or closed under an abandoned reset re-derive once
-    // it releases its locks.
-    setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);
-    initPageLifecycleHandlers({
+    // it releases its locks; the reset surface follows the fullscreen top
+    // layer so no fullscreen player covers it.
+    setSessionResetWindowLayer({
+      release: syncOverlayStateAfterExternalLock,
+      surfaceHost: fullscreenSurfaceHost,
+      onSurfaceHostChange: onFullscreenSurfaceHostChange,
+    });
+    const lifecycle = {
       getRole: () => getState('network.appRole'),
       // A confirmed pagehide may be the installed-PWA OAuth navigation. Keep
       // its short-lived route hint; direct/user-confirmed leaveSession calls
       // clear the hint at their explicit session-exit boundary.
       leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }),
-      // A pending bfcache reset is restored immediately before this callback,
-      // so the coordinator can paint a fresh overlay and own reload recovery.
-      reload: () => scheduleDocumentReload(t('dialog.refreshing_session')),
-      hasPendingReset: isSessionResetPending,
-      restorePendingReset: restoreSessionReset,
+    };
+    initPageLifecycleHandlers(lifecycle);
+    // The navigation owner's one page-transition dispatch (capture phase, so
+    // it runs before the Back guard's resume) and its bounded bfcache reload.
+    initPageNavigation({
+      getRole: lifecycle.getRole,
+      bfcacheReloadMessage: () => t('dialog.refreshing_session'),
       log,
     });
   });
@@ -1331,10 +1343,9 @@ async function bootstrap(): Promise<void> {
       isAudioReady,
       applySettings,
       setChannelMode,
-      // Page-lifecycle flag bindings — exposed so devtools (and preview
-      // sanity probes) touch the same module instance as the bootstrap.
-      markIntentionalNav,
-      isIntentionalNav,
+      // Page-lifecycle binding — exposed so devtools (and preview sanity
+      // probes) touch the same module instance as the bootstrap.
+      claimUnloadExemption,
     };
     window.__MXQR = debugObj;
   }
@@ -1342,8 +1353,8 @@ async function bootstrap(): Promise<void> {
   publishBootstrapReadiness();
   let updateCompletion: string | null = null;
   try {
-    updateCompletion = sessionStorage.getItem('mxqr-swu');
-    sessionStorage.removeItem('mxqr-swu');
+    updateCompletion = sessionStorage.getItem(UPDATE_COMPLETION_KEY);
+    sessionStorage.removeItem(UPDATE_COMPLETION_KEY);
   } catch {
     // Storage denial only suppresses this one informational toast.
   }

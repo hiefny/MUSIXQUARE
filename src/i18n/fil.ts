@@ -833,9 +833,6 @@ const fil: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Hindi makumpleto ang hiling na ito',
   'pro.claim_failed_message':
     'Para sa kaligtasan, hindi sinubukan muli ang link na ito. Humingi ng bagong link sa administrator ng kuwarto.',
-  'pro.transfer_title': 'Kunin ang pagmamay-ari ng PRO room',
-  'pro.transfer_message':
-    'Magtakda ng bagong 8-digit na password para sa kuwartong ito. Babawiin ang access ng dating may-ari kapag natapos ito.',
   'pro.new_link_message':
     'Nag-expire na o nagamit na ang link. Humingi ng bagong link sa administrator kung kailangan.',
   'pro.not_ready_title': 'Hindi pa handa ang PRO room na ito',

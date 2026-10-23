@@ -682,8 +682,6 @@ const zhHant: Record<I18nKey, string> = {
     '此帳號已達 PRO 房間連結上限。請移除現有連結，然後申請新連結。',
   'pro.claim_failed_title': '無法完成此請求',
   'pro.claim_failed_message': '為確保安全，系統未重試此連結。請向房間管理員申請新連結。',
-  'pro.transfer_title': '取得 PRO 房間所有權',
-  'pro.transfer_message': '請設定新的 8 位數密碼。完成後，原房主的存取權將被撤銷。',
   'pro.new_link_message': '連結已過期或已被使用。如有需要，請向管理員申請新連結。',
   'pro.not_ready_title': '此 PRO 房間尚未準備好',
   'pro.not_ready_message': '房主需要先啟用房間。',

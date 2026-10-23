@@ -11,6 +11,8 @@ export default defineConfig({
     include: [
       'src/core/__tests__/capability-pow.test.ts',
       'src/core/__tests__/request-lifetime.test.ts',
+      'src/core/__tests__/fullscreen.test.ts',
+      'src/ui/__tests__/fullscreen-handoff.test.ts',
       'src/network/__tests__/*system-audio-sfu.test.ts',
       'src/audio/__tests__/{context-health,context-recovery,foreground-output-health,output-health,system-capture,system-capture-stop}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
@@ -37,6 +39,7 @@ export default defineConfig({
       include: [
         'src/core/capability.ts',
         'src/core/request-lifetime.ts',
+        'src/core/fullscreen.ts',
         'src/network/system-audio-sfu.ts',
         'src/network/pro-system-audio-sfu.ts',
         'src/audio/system-capture.ts',

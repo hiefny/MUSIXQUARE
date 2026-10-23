@@ -42,8 +42,19 @@ pops that entry, and then:
    previous page with `history.back()`, so no Back is lost.
 
 While a reset is already navigating the document away, Back is not answered.
-Only a confirmed leave re-pushes the guard, so its two-entry Back still lands
-on the page before MUSIXQUARE.
+A confirmed leave re-pushes the guard through its own recovery wiring, so its
+two-entry Back still lands on the page before MUSIXQUARE.
+
+Changed 2026-10-23 (owner decision 5 of Phase 2, structural plan step C6-12):
+this text first said that only a confirmed leave re-pushes the guard. Now the
+guard also re-arms when any app navigation that absorbed a Back settles in
+this document instead of leaving (its commit deadline passes, the old page
+returns, or a stale request restores the page), from the navigation owner's
+`onNavigationPendingChange` in `core/session-reset.ts`. Before, one Back after
+such a recovery could leave a live room without the leave confirmation, and a
+window that opened during the reset was out of Back's reach. A reload that
+takes the page right after the recovery keeps the guard unarmed until it
+settles too.
 
 The session check is `isGuardedSession`: a started session whose role is not
 `idle`, or whose room context still has a room ID. A PRO room re-entering

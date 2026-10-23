@@ -560,19 +560,37 @@ export async function issueClaim(test: TransferFixture, targetAccountId = TARGET
 }
 
 /**
- * The claim's target account submits it through the App facade: by default
- * the target with the fixture's request id and new PIN, through the current
- * App Worker. A later transfer of the same room needs another PIN.
+ * The PIN an App from before the 2026-10-23 owner decision sends with the
+ * link (and an App Worker of that time requires). The PRO room ignores it.
  */
-export async function requestTransfer(
+export const EARLIER_APP_TRANSFER_PIN = '24681357';
+
+export interface TransferRequestOptions {
+  accountId?: string;
+  requestId?: string;
+  /** The body's PIN; `null` (the default, as the App sends it) omits it. */
+  newPin?: string | null;
+  /** Send the App's opt-in headers, as every App since 8.8.0 does. */
+  entryPolicy?: boolean;
+  worker?: AppWorkerEntry;
+}
+
+/**
+ * The claim's target account submits it through the App facade and gets the
+ * raw response: by default the target with the fixture's request id and no
+ * PIN, through the current App Worker. An earlier App Worker build needs
+ * `newPin` (EARLIER_APP_TRANSFER_PIN), as its App sent one.
+ */
+export async function postTransfer(
   test: TransferFixture,
   claimToken: string,
   {
     accountId = TARGET,
     requestId = REQUEST_ID,
-    newPin = '24681357',
+    newPin = null,
+    entryPolicy = false,
     worker = appWorker,
-  }: { accountId?: string; requestId?: string; newPin?: string; worker?: AppWorkerEntry } = {},
+  }: TransferRequestOptions = {},
 ) {
   const response = await worker.fetch(
     new Request(`https://musixquare.com/api/pro-room/v1/rooms/${ROOM_CODE}/owner-transfer`, {
@@ -582,12 +600,25 @@ export async function requestTransfer(
         'Content-Type': 'application/json',
         'cf-connecting-ip': '192.0.2.10',
         Cookie: `__Host-mxqr_account=${SESSION_TOKENS[accountId]}`,
+        ...(entryPolicy
+          ? { 'X-MXQR-Pro-Entry-Policy': 'optional-v1', 'X-MXQR-Pro-Playlist-Slots': 'v1' }
+          : {}),
       },
-      body: JSON.stringify({ claimToken, newPin, requestId }),
+      body: JSON.stringify({ claimToken, ...(newPin === null ? {} : { newPin }), requestId }),
     }),
     test.appEnv as never,
   );
   await test.settle();
+  return response;
+}
+
+/** `postTransfer`, reduced to the answer's status, error code and cookie names. */
+export async function requestTransfer(
+  test: TransferFixture,
+  claimToken: string,
+  options: TransferRequestOptions = {},
+) {
+  const response = await postTransfer(test, claimToken, options);
   const body = (await response.json()) as Record<string, unknown>;
   return {
     status: response.status,

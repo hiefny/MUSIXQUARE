@@ -760,9 +760,6 @@ const es: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'No se pudo completar la solicitud',
   'pro.claim_failed_message':
     'Por seguridad, no se volvió a intentar este enlace. Solicita un enlace nuevo al administrador de la sala.',
-  'pro.transfer_title': 'Asumir la propiedad de la sala PRO',
-  'pro.transfer_message':
-    'Configura una nueva contraseña de 8 dígitos. Al terminar, se revocará el acceso del propietario anterior.',
   'pro.new_link_message':
     'El enlace caducó o ya se utilizó. Si lo necesitas, solicita uno nuevo al administrador.',
   'pro.not_ready_title': 'Esta sala PRO aún no está lista',

@@ -1438,3 +1438,93 @@ describe('PRO metadata answers refused by room state capacity', () => {
     expect(context.room.playbackDurationProbe).toBeNull();
   });
 });
+
+// Plan step C7-6 keeps both duration-completion continuation guards word for
+// word: the registration completion restarts work only `if (finished)`, the
+// playback completion restarts the playback probe only for a different key.
+// A completion that stores nothing therefore never starts its own read again;
+// the next read waits for the alarm, a persist or the probe's retry time.
+// Service maintenance is pinned at the owner boundary
+// (pro-room-duration-reads.test.ts), a playback answer refused by state
+// capacity in "PRO metadata answers refused by room state capacity" above;
+// these cases cover a changed room generation, and a registration answer
+// whose evidence does not fit.
+describe('PRO duration completions that store nothing do not restart their read', () => {
+  async function heldRegistration(context: Context, assetId: string) {
+    let deliver!: (value: number | null) => void;
+    metadata.file.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve;
+        }),
+    );
+    context.room.pendingAssetDurationProbes = [assetId];
+    context.worker.startAssetDurationProbe();
+    expect(context.worker.assetDurationLookup?.assetId).toBe(assetId);
+    return (value: number | null) => deliver(value);
+  }
+
+  it('keeps a registration read fenced by a generation change queued without reading again', async () => {
+    const context = await fixture([fileItem(FIRST), fileItem(SECOND)]);
+    const assetId = `asset_${FIRST}`;
+    const deliver = await heldRegistration(context, assetId);
+    context.room.roomGeneration += 1;
+    deliver(4);
+    await context.settle();
+    // The completion returns before its write, so `finished` stays false.
+    expect(metadata.file).toHaveBeenCalledOnce();
+    expect(context.room.pendingAssetDurationProbes).toEqual([assetId]);
+    expect(context.room.assets[assetId]!.duration).toBeUndefined();
+    expect(context.worker.assetDurationLookup).toBeNull();
+  });
+
+  it('finishes a registration read whose evidence does not fit, dropping it, and reads once', async () => {
+    const context = await fixture([fileItem(FIRST), fileItem(SECOND)]);
+    const assetId = `asset_${FIRST}`;
+    const deliver = await heldRegistration(context, assetId);
+    // Optional duration evidence keeps 8 KiB of headroom: it is refused and
+    // the bounded registration attempt still ends.
+    fillCore(context, 40);
+    await context.worker.persist();
+    deliver(4);
+    await context.settle();
+    expect(metadata.file).toHaveBeenCalledOnce();
+    expect(context.room.pendingAssetDurationProbes).toEqual([]);
+    expect(context.room.assets[assetId]!.duration).toBeUndefined();
+  });
+
+  it('leaves an overdue playback probe fenced by a generation change unread', async () => {
+    const context = await fixture([youtubeItem(FIRST), fileItem(SECOND)]);
+    await start(context);
+    expect(metadata.youtube).toHaveBeenCalledOnce();
+    let deliver!: (value: unknown) => void;
+    metadata.youtube.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          deliver = resolve;
+        }),
+    );
+    context.room.playbackDurations = {};
+    context.room.playbackDurationProbe = {
+      identity: {
+        queueItemId: FIRST,
+        mediaKind: 'youtube',
+        youtubeVideoId: VIDEO_A,
+        youtubeSubIndex: 0,
+      },
+      attempts: 0,
+      retryAtMs: Date.now(),
+    };
+    context.worker.startPlaybackDurationProbe();
+    expect(context.worker.playbackDurationLookup).not.toBeNull();
+    const overdue = structuredClone(context.room.playbackDurationProbe);
+    context.room.roomGeneration += 1;
+    deliver({ kind: 'finite', durationSeconds: 5 });
+    await context.settle();
+    // The stored probe is still overdue; its own completion does not start
+    // it again (same key), so the provider is not asked twice.
+    expect(metadata.youtube).toHaveBeenCalledTimes(2);
+    expect(context.room.playbackDurationProbe).toEqual(overdue);
+    expect(context.worker.playbackDurationLookup).toBeNull();
+  });
+});

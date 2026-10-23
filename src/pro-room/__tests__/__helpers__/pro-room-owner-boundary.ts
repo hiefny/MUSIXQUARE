@@ -69,6 +69,10 @@ import {
  *   of a key throw.
  * - MetadataService models the App Worker's signed `/internal/pro-youtube-duration`
  *   answer (`handleProYouTubeDurationRequest`): it returns the scripted kind.
+ *   Fault: `hold()` parks the next answer until released; `settle()` leaves
+ *   work behind a parked lookup queued, as for a parked R2 read.
+ * - `detachSignaling()` removes the PRO_SIGNALING_ROOMS binding, as in a
+ *   Worker deployed without it.
  */
 
 const PRO_ROOM_CODE = '000318';
@@ -404,11 +408,47 @@ export function unknownBytes(byteLength = 4096): Uint8Array {
 export class MetadataService {
   readonly calls: Array<{ videoId: string; at: number }> = [];
   answer: Record<string, unknown> = { kind: 'retry' };
+  private held: { gate: Promise<void>; arrive: () => void } | null = null;
+  /** Lookups currently waiting at a hold gate. */
+  parkedLookups = 0;
+  private readonly parkWaiters: Array<() => void> = [];
+
+  /** Resolves when the next lookup parks (at once if one already waits). */
+  nextPark(): Promise<void> {
+    if (this.parkedLookups > 0) return Promise.resolve();
+    return new Promise((resolve) => this.parkWaiters.push(resolve));
+  }
+
+  /**
+   * Hold the answer to the next lookup (a slow provider). `reached` resolves
+   * once it waits; `release` lets it answer.
+   */
+  hold(): { reached: Promise<void>; release: () => void } {
+    let release!: () => void;
+    let arrive!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const reached = new Promise<void>((resolve) => {
+      arrive = resolve;
+    });
+    this.held = { gate, arrive };
+    return { reached, release };
+  }
 
   readonly binding = {
     fetch: async (request: Request) => {
       const videoId = new URL(request.url).searchParams.get('videoId') ?? '';
       this.calls.push({ videoId, at: Date.now() });
+      const held = this.held;
+      this.held = null;
+      if (held) {
+        this.parkedLookups += 1;
+        held.arrive();
+        for (const waiter of this.parkWaiters.splice(0)) waiter();
+        await held.gate;
+        this.parkedLookups -= 1;
+      }
       return Response.json({ videoId, ...this.answer });
     },
   };
@@ -521,6 +561,7 @@ export async function activatedProRoom(
     storage,
     signaling,
     bucket,
+    metadata: options.metadata,
     admin,
     auth,
     ownerCookie: '',
@@ -529,6 +570,10 @@ export async function activatedProRoom(
     restart(): MusixquareProRoom {
       context.worker = createWorker();
       return context.worker;
+    },
+    /** Remove the PRO_SIGNALING_ROOMS binding (a Worker deployed without it). */
+    detachSignaling(): void {
+      delete env.PRO_SIGNALING_ROOMS;
     },
     request(path: string, init: RequestInit = {}, cookie?: string): Promise<Response> {
       const headers = new Headers(init.headers);
@@ -591,7 +636,8 @@ export async function activatedProRoom(
     },
     /**
      * Wait for the room's waitUntil work. Work blocked behind a parked R2 read
-     * cannot finish; it stays queued for the settle after its release.
+     * or metadata lookup cannot finish; it stays queued for the settle after
+     * its release.
      */
     async settle(): Promise<void> {
       const pending = new Set<Promise<unknown>>();
@@ -600,12 +646,13 @@ export async function activatedProRoom(
         const done = () => pending.delete(promise);
         promise.then(done, done);
       };
+      const metadata = options.metadata;
       let parkedTurns = 0;
       for (let round = 0; round < 400; round += 1) {
         await new Promise((resolve) => setImmediate(resolve));
         for (const promise of background.splice(0)) track(promise);
         if (pending.size === 0) return;
-        if (bucket.parkedReads > 0) {
+        if (bucket.parkedReads > 0 || (metadata?.parkedLookups ?? 0) > 0) {
           parkedTurns += 1;
           if (parkedTurns > 50) {
             background.push(...pending);
@@ -614,7 +661,11 @@ export async function activatedProRoom(
           continue;
         }
         parkedTurns = 0;
-        await Promise.race([Promise.allSettled([...pending]), bucket.nextPark()]);
+        await Promise.race([
+          Promise.allSettled([...pending]),
+          bucket.nextPark(),
+          ...(metadata ? [metadata.nextPark()] : []),
+        ]);
       }
       throw new Error('PRO room background work did not settle');
     },

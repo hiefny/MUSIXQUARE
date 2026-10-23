@@ -23,6 +23,12 @@ import {
  * Phase 1 duration owner (plan steps C7-2, C7-6) can prove it is neutral.
  * Registry exception RO-32 keeps both readers.
  *
+ * Two predicates gate the R2 slot. In flight: a registration read, or a
+ * playback lookup of a file (a YouTube lookup leaves the slot free). Queued:
+ * the asset waits in the registration queue, read or not; the playback probe
+ * yields to it. The alarm is stricter than the starts: any lookup in flight
+ * (YouTube included) holds a queued registration read at the 10 s watchdog.
+ *
  * Observation points: R2 range reads (one prefix read per duration read),
  * metadata-service calls, the durable `pro-room:v2:core` record and the alarm.
  * The continuation guards are pinned here for a completion refused by service
@@ -64,6 +70,7 @@ beforeEach(() => {
 afterEach(() => {
   for (const fixture of fixtures.splice(0)) {
     expect(fixture.bucket.parkedReads).toBe(0);
+    expect(fixture.metadata?.parkedLookups ?? 0).toBe(0);
     fixture.dispose();
   }
   vi.restoreAllMocks();
@@ -156,6 +163,79 @@ describe('PRO file duration readers: one R2 read at a time', () => {
     ]);
     await test.alarmAt(NOW + 60_000);
     expect(readers(test, labels)).toEqual(['alpha', 'beta']);
+  });
+
+  it('leaves a queued desired file to the registration reader once nothing is in flight', async () => {
+    const test = await room();
+    let alphaHold!: ReturnType<ProRoomBoundary['bucket']['hold']>;
+    const alpha = await test.uploadFile('alpha', flacBytes(10), {
+      beforeComplete: (objectKey) => {
+        alphaHold = test.bucket.hold(objectKey);
+      },
+    });
+    await alphaHold.parked;
+    const beta = await test.uploadFile('beta', flacBytes(20));
+    await test.settle();
+    await play(test, beta.source);
+    const betaHold = test.bucket.hold(beta.objectKey);
+
+    // Alpha's completion leaves beta queued with no read in flight. Its
+    // continuation asks the playback probe first, which yields because beta
+    // is queued for registration (the queued predicate, not only the
+    // in-flight one); the registration reader then takes it. The reads and
+    // the stored result look the same whichever reader takes beta, so this
+    // pins the in-memory slots, whose names plan step C7-6 keeps.
+    alphaHold.release();
+    await betaHold.parked;
+    expect(test.worker.assetDurationLookup?.assetId).toBe(beta.assetId);
+    expect(test.worker.playbackDurationLookup).toBeNull();
+    // The playback probe for beta is overdue but blocked: watchdog alarm.
+    expect(test.storedCore().playbackDurationProbe).toMatchObject({ attempts: 0 });
+    expect(test.storage.alarm).toBe(NOW + 10_000);
+
+    betaHold.release();
+    await test.settle();
+    const labels = { [alpha.objectKey]: 'alpha', [beta.objectKey]: 'beta' };
+    expect(readers(test, labels)).toEqual(['alpha', 'beta']);
+    expect(test.storedCore().playbackDurationProbe).toBeNull();
+  });
+
+  it('lets a YouTube lookup in flight leave the R2 slot free, yet holds the queued read alarm at the watchdog', async () => {
+    const metadata = new MetadataService();
+    metadata.answer = { kind: 'finite', durationSeconds: 212 };
+    const test = await room({ metadata });
+    const lookup = metadata.hold();
+    await test.replacePlaylist([youtubeItem(FIRST, 'dQw4w9WgXcQ')]);
+    await test.ready(await test.select(FIRST));
+    await lookup.reached;
+    expect(test.worker.playbackDurationLookup).not.toBeNull();
+
+    // The in-flight predicate counts file reads only, so the registration
+    // read starts at once. The alarm, computed in the completion's persist
+    // before that start, waits out the 10 s watchdog because a lookup (of
+    // any kind) is in flight.
+    let alphaHold!: ReturnType<ProRoomBoundary['bucket']['hold']>;
+    const alpha = await test.uploadFile('alpha', flacBytes(30), {
+      beforeComplete: (objectKey) => {
+        alphaHold = test.bucket.hold(objectKey);
+      },
+    });
+    await alphaHold.parked;
+    expect(test.worker.assetDurationLookup?.assetId).toBe(alpha.assetId);
+    expect(test.storedCore().pendingAssetDurationProbes).toEqual([alpha.assetId]);
+    expect(test.storage.alarm).toBe(NOW + 10_000);
+
+    alphaHold.release();
+    lookup.release();
+    await test.settle();
+    expect(test.storedCore().assets[alpha.assetId].duration).toMatchObject({
+      durationSeconds: 30,
+      source: 'server',
+    });
+    expect(Object.values(test.storedCore().playbackDurations)).toEqual([
+      expect.objectContaining({ durationSeconds: 212, source: 'server' }),
+    ]);
+    expect(metadata.calls).toHaveLength(1);
   });
 });
 

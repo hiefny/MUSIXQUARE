@@ -6,6 +6,13 @@ import {
   type SignalingDelivery,
   youtubeItem,
 } from './__helpers__/pro-room-owner-boundary.ts';
+import {
+  cancelRecord51ab2be3,
+  commitRecord51ab2be3,
+  OUTBOX_ATTEMPT_CAP_51AB2BE3,
+  prepareRecord51ab2be3,
+  presenceMarker51ab2be3,
+} from './__helpers__/pro-room-outbox-records-51ab2be3.ts';
 
 /**
  * C7-0 characterization of the PRO room's signaling delivery lanes (resource
@@ -30,6 +37,27 @@ import {
  * dirty prune (deadline COMMIT) and with an unflushed heartbeat. Swapping the
  * alarm's presence retry and playback flush fails three cases here (mutation
  * check on c08b6c39).
+ *
+ * Triggers and their execution modes (plan step C7-4 keeps every one):
+ * - presence: every presence change goes through scheduleServerEvent, which
+ *   hands deliverPresenceBroadcast (three immediate tries, then the durable
+ *   marker) to waitUntil, so the request answers first; without a signaling
+ *   binding it sends once and leaves no marker. The alarm retries a due
+ *   marker and awaits it.
+ * - playback: scheduleServerEvent and the playback reducers only enqueue.
+ *   Every persist that does not pass flushPlaybackOutbox: false then awaits
+ *   the head's dispatch, so the request that persisted waits for it: command
+ *   and request persists, prune (also in the alarm), the heartbeat flush, the
+ *   presence marker's write and clear, and the alarm's presence retry. The
+ *   alarm's own flush runs after its presence retry.
+ * - no-retry lane: twelve sites await broadcastServerEvent after persist
+ *   (registry RO-07 lists them); scheduleServerEvent sends the rest through
+ *   waitUntil. Both modes are pinned below with one site each.
+ * - epoch hook: bumpRoomEpoch empties the outbox in the same persist (room
+ *   sleep and PIN rotation pinned here).
+ * - due time and caps: the alarm takes the earlier of the marker and the
+ *   outbox head (never a record behind the head); the outbox holds at most two
+ *   records; attempts stop at 16 in both lanes and on load.
  */
 
 const NOW = Date.UTC(2026, 9, 22, 4, 0, 0);
@@ -64,6 +92,52 @@ function outbox(test: ProRoomBoundary) {
 function presenceMarker(test: ProRoomBoundary) {
   const marker = test.storedCore().pendingPresenceBroadcast as Record<string, any> | null;
   return marker && { attempts: marker.attempts, retryInMs: marker.retryAtMs - Date.now() };
+}
+
+/** Whether `promise` has settled after the pending I/O turns have run. */
+async function settled(promise: Promise<unknown>) {
+  let done = false;
+  void promise.then(
+    () => (done = true),
+    () => (done = true),
+  );
+  for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+  return done;
+}
+
+/**
+ * Copies of every `pro-room:v2:core` record the room writes from now on. The
+ * flush also drops an older epoch's record before sending it, so only the
+ * writes show whether the epoch hook emptied the outbox in the epoch change's
+ * own persist.
+ */
+function coreWrites(test: ProRoomBoundary): Array<Record<string, any>> {
+  const cores: Array<Record<string, any>> = [];
+  const put = test.storage.put.bind(test.storage);
+  vi.spyOn(test.storage, 'put').mockImplementation(async (key, value) => {
+    if (key === 'pro-room:v2:core') cores.push(structuredClone((value as any).core));
+    return put(key, value);
+  });
+  return cores;
+}
+
+/** Stored playback records of an epoch older than the stored presence. */
+function staleOutboxWrites(cores: Array<Record<string, any>>) {
+  return cores.flatMap((core) =>
+    (core.pendingPlaybackBroadcasts as Array<Record<string, any>>)
+      .filter((record) => record.coordinatorEpoch !== core.presence.coordinatorEpoch)
+      .map((record) => `${record.kind} e${record.coordinatorEpoch}`),
+  );
+}
+
+async function pause(test: ProRoomBoundary) {
+  const current = await test.snapshot();
+  const paused = await test.json('/playback/commands', {
+    type: 'pause',
+    baseRevision: current.playback.revision,
+  });
+  expect(paused.status, await paused.clone().text()).toBe(200);
+  await test.settle();
 }
 
 /** A playing room with an owner and one listener; every delivery so far succeeded. */
@@ -113,6 +187,147 @@ describe('PRO signaling delivery lanes: acceptance', () => {
     await test.alarmAt(NOW + 1_000);
     expect(trace(test.signaling.deliveries).slice(2)).toEqual(['1000 playback-prepare e1 200']);
     expect(outbox(test)).toEqual([]);
+  });
+});
+
+describe('PRO signaling delivery lanes: triggers and execution modes', () => {
+  it('sends a presence snapshot in the background: the request answers while it is in flight', async () => {
+    const { test, member } = await playingRoom();
+    const held = test.signaling.hold('pro-presence-snapshot');
+    const response = test.request('/presence/current', { method: 'DELETE' }, member);
+    await held.reached;
+    expect(await settled(response)).toBe(true);
+    expect((await response).status).toBe(200);
+    test.forget(member);
+    held.release();
+    await test.settle();
+    expect(trace(test.signaling.deliveries)).toEqual(['0 presence-snapshot e1 200']);
+  });
+
+  it('holds a request until the playback dispatch its persist started has answered', async () => {
+    const { test } = await playingRoom();
+    const held = test.signaling.hold('pro-playback-prepare');
+    const current = await test.snapshot();
+    const response = test.json('/playback/commands', {
+      type: 'select',
+      baseRevision: current.playback.revision,
+      queueItemId: SECOND,
+      state: 'playing',
+      positionSeconds: 0,
+    });
+    await held.reached;
+    // The command's persist awaits the outbox flush before it returns.
+    expect(await settled(response)).toBe(false);
+    expect(outbox(test)).toEqual([{ kind: 'prepare', attempts: 0, retryInMs: 0 }]);
+    held.release();
+    expect((await response).status).toBe(202);
+    await test.settle();
+    expect(trace(test.signaling.deliveries)).toEqual(['0 playback-prepare e1 200']);
+    expect(outbox(test)).toEqual([]);
+  });
+
+  it('holds a queue-mode change until its one invalidation send has answered', async () => {
+    const { test } = await playingRoom();
+    const held = test.signaling.hold('pro-room-invalidated');
+    const current = await test.snapshot();
+    const response = test.json(
+      '/queue-mode',
+      {
+        coordinatorEpoch: current.presence.coordinatorEpoch,
+        baseRevision: current.queueModeRevision,
+        playlistRevision: current.playlistRevision,
+        repeatMode: 1,
+        shuffleEnabled: false,
+        shuffleOrder: [],
+      },
+      test.ownerCookie,
+      'PUT',
+      false,
+    );
+    await held.reached;
+    // handleUpdateQueueMode awaits broadcastServerEvent after its persist.
+    expect(await settled(response)).toBe(false);
+    held.release();
+    expect((await response).status).toBe(200);
+    await test.settle();
+    expect(trace(test.signaling.deliveries)).toEqual(['0 room-invalidated e1 200']);
+  });
+
+  it('sends presence once and keeps no retry marker when the signaling binding is missing', async () => {
+    const test = await room({ presenceTtlSeconds: 300 });
+    test.detachSignaling();
+    test.signaling.deliveries.length = 0;
+    await test.addMember();
+    // scheduleServerEvent skips the presence retry path without a binding.
+    expect(test.signaling.deliveries).toEqual([]);
+    expect(presenceMarker(test)).toBeNull();
+    await test.alarmAt(NOW + 5_000);
+    expect(presenceMarker(test)).toBeNull();
+  });
+});
+
+describe('PRO signaling delivery lanes: due time and caps', () => {
+  it('wakes the alarm at the earlier of the presence marker and the outbox head', async () => {
+    const { test } = await playingRoom();
+    test.signaling.failAll('pro-presence-snapshot', 'throw');
+    await test.addMember();
+    expect(presenceMarker(test)).toEqual({ attempts: 0, retryInMs: 1_000 });
+    await test.advanceTo(NOW + 400);
+    test.signaling.failNext('pro-playback-prepare', 503);
+    await test.select(SECOND);
+    expect(outbox(test)).toEqual([{ kind: 'prepare', attempts: 1, retryInMs: 1_000 }]);
+    // Marker due at 1000, head at 1400, rendezvous deadline at 3400.
+    expect(test.storage.alarm).toBe(NOW + 1_000);
+
+    await test.alarmAt(NOW + 1_000);
+    expect(presenceMarker(test)).toEqual({ attempts: 1, retryInMs: 2_000 });
+    expect(test.storage.alarm).toBe(NOW + 1_400);
+    await test.alarmAt(NOW + 1_400);
+    expect(trace(test.signaling.deliveries).slice(-1)).toEqual(['1400 playback-prepare e1 200']);
+    expect(test.storage.alarm).toBe(NOW + 3_000);
+  });
+
+  it('takes the outbox head as its due time, never a due record queued behind it', async () => {
+    const { test } = await playingRoom();
+    test.signaling.failAll('pro-playback-prepare', 503);
+    test.signaling.failAll('pro-playback-cancel', 503);
+    await test.select(SECOND);
+    // Pausing over the undelivered PREPARE queues CANCEL then COMMIT. The flush
+    // stops at the failing CANCEL; the COMMIT behind it is due but waits.
+    await pause(test);
+    expect(outbox(test)).toEqual([
+      { kind: 'cancel', attempts: 1, retryInMs: 1_000 },
+      { kind: 'commit', attempts: 0, retryInMs: 0 },
+    ]);
+    expect(test.storage.alarm).toBe(NOW + 1_000);
+    test.signaling.restore();
+    await test.alarmAt(NOW + 1_000);
+    expect(trace(test.signaling.deliveries).slice(-2)).toEqual([
+      '1000 playback-cancel e1 200',
+      '1000 playback-commit e1 200',
+    ]);
+    expect(outbox(test)).toEqual([]);
+  });
+
+  it('keeps at most two playback records, each one a base and its successor', async () => {
+    const { test } = await playingRoom();
+    for (const kind of ['prepare', 'cancel', 'commit'])
+      test.signaling.failAll(`pro-playback-${kind}`, 503);
+    const kinds = () =>
+      (test.storedCore().pendingPlaybackBroadcasts as Array<Record<string, any>>).map(
+        (record) => record.kind,
+      );
+    await test.select(SECOND);
+    expect(kinds()).toEqual(['prepare']);
+    await pause(test);
+    expect(kinds()).toEqual(['cancel', 'commit']);
+    // A new PREPARE keeps only the undelivered COMMIT it is based on.
+    await test.select(FIRST);
+    expect(kinds()).toEqual(['commit', 'prepare']);
+    // A newer COMMIT supersedes both, keeping only its own CANCEL ahead of it.
+    await pause(test);
+    expect(kinds()).toEqual(['cancel', 'commit']);
+    expect(outbox(test).map((record) => record.attempts)).toEqual([1, 0]);
   });
 });
 
@@ -397,6 +612,13 @@ const PLAYBACK_EVENT_KEYS: Record<string, string[]> = {
 
 const sortedKeys = (value: unknown) => Object.keys(value as Record<string, unknown>).sort();
 
+/** A copy of the stored `pro-room:v2:core` envelope, for rewriting records. */
+function storedEnvelope(test: ProRoomBoundary) {
+  return structuredClone(test.storage.data.get('pro-room:v2:core')) as {
+    core: Record<string, any>;
+  };
+}
+
 describe('PRO signaling delivery lanes: durable record shapes (rollback contract)', () => {
   it('stores the presence marker and every playback record kind with exactly today’s keys', async () => {
     const { test } = await playingRoom();
@@ -437,41 +659,36 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     test.signaling.failNext('pro-playback-prepare', 503);
     await test.select(SECOND);
 
-    // The records an older Worker of today's shape leaves behind, spelled out
-    // key by key (old-to-new fixture). Equality with what today's writer
-    // stored pins the writer; loading them through a cold restart pins the
-    // loaders.
-    const stored = test.storage.data.get('pro-room:v2:core') as { core: Record<string, any> };
+    // The records 51ab2be3 leaves behind, spelled out key by key in the frozen
+    // fixture. Byte equality with what the Worker under test stored pins the
+    // writer (new to old); loading them through a cold restart pins the
+    // loaders (old to new).
+    const stored = storedEnvelope(test);
     const marker = stored.core.pendingPresenceBroadcast as Record<string, any>;
     const transition = stored.core.pendingPlaybackTransition as Record<string, any>;
-    const literalMarker = {
+    const literalMarker = presenceMarker51ab2be3({
       coordinatorEpoch: 1,
       presenceRevision: marker.presenceRevision,
       roomRevision: marker.roomRevision,
       retryAtMs: NOW + 1_000,
       attempts: 0,
-    };
-    const literalPrepare = {
-      kind: 'prepare',
+    });
+    const literalPrepare = prepareRecord51ab2be3({
       coordinatorEpoch: 1,
       transitionId: transition.transitionId,
       basePlaybackRevision: transition.basePlaybackRevision,
-      playbackRevision: transition.basePlaybackRevision + 1,
-      targets: [...transition.cohort],
-      event: {
-        type: 'pro-playback-prepare',
-        transitionId: transition.transitionId,
-        serverTimeMs: NOW,
-        deadlineAtMs: transition.deadlineAtMs,
-        basePlaybackRevision: transition.basePlaybackRevision,
-        target: structuredClone(transition.target),
-      },
+      targets: transition.cohort,
+      serverTimeMs: NOW,
+      deadlineAtMs: transition.deadlineAtMs,
+      target: transition.target,
       createdAtMs: NOW,
       attempts: 1,
       retryAtMs: NOW + 1_000,
-    };
-    expect(marker).toStrictEqual(literalMarker);
-    expect(stored.core.pendingPlaybackBroadcasts).toStrictEqual([literalPrepare]);
+    });
+    expect(JSON.stringify(marker)).toBe(JSON.stringify(literalMarker));
+    expect(JSON.stringify(stored.core.pendingPlaybackBroadcasts)).toBe(
+      JSON.stringify([literalPrepare]),
+    );
     stored.core.pendingPresenceBroadcast = literalMarker;
     stored.core.pendingPlaybackBroadcasts = [literalPrepare];
     test.storage.data.set('pro-room:v2:core', stored);
@@ -484,6 +701,113 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
       '1000 playback-prepare e1 200',
     ]);
     expect(test.signaling.deliveries[1]!.transitionId).toBe(transition.transitionId);
+    expect(presenceMarker(test)).toBeNull();
+    expect(outbox(test)).toEqual([]);
+  });
+
+  it('writes and delivers the CANCEL and COMMIT pair in the frozen 51ab2be3 shape, both ways', async () => {
+    const { test } = await playingRoom();
+    test.signaling.failAll('pro-playback-prepare', 503);
+    await test.select(SECOND);
+    const transition = storedEnvelope(test).core.pendingPlaybackTransition as Record<string, any>;
+    await test.advanceTo(NOW + 200);
+    test.signaling.failAll('pro-playback-cancel', 503);
+    test.signaling.failAll('pro-playback-commit', 503);
+    await pause(test);
+
+    const stored = storedEnvelope(test);
+    const [cancel, commit] = stored.core.pendingPlaybackBroadcasts as Array<Record<string, any>>;
+    const base = cancel!.basePlaybackRevision as number;
+    const literalPair = [
+      cancelRecord51ab2be3({
+        coordinatorEpoch: 1,
+        transitionId: transition.transitionId,
+        basePlaybackRevision: base,
+        targets: cancel!.targets,
+        serverTimeMs: NOW + 200,
+        reason: cancel!.event.reason,
+        createdAtMs: NOW + 200,
+        attempts: 1,
+        retryAtMs: NOW + 1_200,
+      }),
+      commitRecord51ab2be3({
+        coordinatorEpoch: 1,
+        transitionId: null,
+        basePlaybackRevision: base,
+        targets: commit!.targets,
+        serverTimeMs: NOW + 200,
+        executeAtMs: commit!.event.executeAtMs,
+        playback: stored.core.playback,
+        createdAtMs: NOW + 200,
+        attempts: 0,
+        retryAtMs: NOW + 200,
+      }),
+    ];
+    // New to old: the pair is byte-identical to what 51ab2be3 writes.
+    expect(cancel!.event.reason).toBe('superseded');
+    expect(JSON.stringify(stored.core.pendingPlaybackBroadcasts)).toBe(JSON.stringify(literalPair));
+
+    // Old to new: the literal pair survives a cold restart and drains in order.
+    stored.core.pendingPlaybackBroadcasts = literalPair;
+    test.storage.data.set('pro-room:v2:core', stored);
+    test.signaling.restore();
+    test.signaling.deliveries.length = 0;
+    test.restart();
+    await test.alarmAt(NOW + 1_200);
+    expect(trace(test.signaling.deliveries)).toEqual([
+      '1200 playback-cancel e1 200',
+      '1200 playback-commit e1 200',
+    ]);
+    expect(outbox(test)).toEqual([]);
+  });
+
+  it(`keeps records at the old attempt cap (${OUTBOX_ATTEMPT_CAP_51AB2BE3}) and drops any above it on load`, async () => {
+    const { test } = await playingRoom();
+    test.signaling.failAll('pro-presence-snapshot', 'throw');
+    await test.addMember();
+    test.signaling.failAll('pro-playback-commit', 503);
+    await pause(test);
+    const capped = storedEnvelope(test);
+    const marker = capped.core.pendingPresenceBroadcast as Record<string, any>;
+    const [commit] = capped.core.pendingPlaybackBroadcasts as Array<Record<string, any>>;
+    const write = (attempts: number) => {
+      const envelope = storedEnvelope(test);
+      envelope.core.pendingPresenceBroadcast = presenceMarker51ab2be3({
+        coordinatorEpoch: 1,
+        presenceRevision: marker.presenceRevision,
+        roomRevision: marker.roomRevision,
+        retryAtMs: NOW + 1_000,
+        attempts,
+      });
+      envelope.core.pendingPlaybackBroadcasts = [
+        commitRecord51ab2be3({
+          coordinatorEpoch: 1,
+          transitionId: null,
+          basePlaybackRevision: commit!.basePlaybackRevision,
+          targets: commit!.targets,
+          serverTimeMs: commit!.event.serverTimeMs,
+          executeAtMs: commit!.event.executeAtMs,
+          playback: commit!.event.playback,
+          createdAtMs: commit!.createdAtMs,
+          attempts,
+          retryAtMs: NOW + 1_000,
+        }),
+      ];
+      test.storage.data.set('pro-room:v2:core', envelope);
+      test.restart();
+    };
+
+    // At the cap both records load, retry and stay at the cap, 60 s apart.
+    write(OUTBOX_ATTEMPT_CAP_51AB2BE3);
+    await test.alarmAt(NOW + 1_000);
+    expect(presenceMarker(test)).toEqual({ attempts: 16, retryInMs: 60_000 });
+    expect(outbox(test)).toEqual([{ kind: 'commit', attempts: 16, retryInMs: 60_000 }]);
+
+    // One above it, the loaders drop both: nothing is retried.
+    write(OUTBOX_ATTEMPT_CAP_51AB2BE3 + 1);
+    test.signaling.deliveries.length = 0;
+    await test.alarmAt(NOW + 2_000);
+    expect(test.signaling.deliveries).toEqual([]);
     expect(presenceMarker(test)).toBeNull();
     expect(outbox(test)).toEqual([]);
   });
@@ -504,10 +828,12 @@ describe('PRO signaling delivery lanes: epoch fence and the no-retry lane', () =
 
     // The last device leaves: bumpRoomEpoch empties the outbox in the same
     // persist, and no later alarm or wake sends the epoch-1 COMMIT.
+    const writes = coreWrites(test);
     await test.leave(member);
     await test.leave(test.ownerCookie);
     expect(test.storedCore().presence.coordinatorEpoch).toBe(2);
     expect(outbox(test)).toEqual([]);
+    expect(staleOutboxWrites(writes)).toEqual([]);
     test.signaling.restore();
     const commitsBefore = test.signaling.types().filter((type) => type === 'pro-playback-commit');
     await test.alarmAt(NOW + 60_000);
@@ -520,6 +846,30 @@ describe('PRO signaling delivery lanes: epoch fence and the no-retry lane', () =
       coordinatorEpoch: 3,
       status: 200,
     });
+  });
+
+  it('drops a queued playback record when a PIN rotation advances the epoch', async () => {
+    const { test } = await playingRoom();
+    test.signaling.failAll('pro-playback-commit', 503);
+    await pause(test);
+    expect(outbox(test)).toEqual([{ kind: 'commit', attempts: 1, retryInMs: 1_000 }]);
+    test.signaling.deliveries.length = 0;
+
+    // handleChangePin revokes the other members and calls bumpRoomEpoch,
+    // which empties the outbox in the same persist; the new epoch's presence
+    // snapshot follows in the background.
+    const writes = coreWrites(test);
+    const rotated = await test.json('/pin', { pin: '24681357' });
+    expect(rotated.status, await rotated.clone().text()).toBe(200);
+    await test.settle();
+    expect(test.storedCore().presence.coordinatorEpoch).toBe(2);
+    expect(outbox(test)).toEqual([]);
+    expect(writes.length).toBeGreaterThan(0);
+    expect(staleOutboxWrites(writes)).toEqual([]);
+    expect(trace(test.signaling.deliveries)).toEqual(['0 presence-snapshot e2 200']);
+    test.signaling.restore();
+    await test.alarmAt(NOW + 60_000);
+    expect(test.signaling.types()).not.toContain('pro-playback-commit');
   });
 
   it('sends an invalidation once and drops it on failure or an epoch-stale answer (RO-46)', async () => {

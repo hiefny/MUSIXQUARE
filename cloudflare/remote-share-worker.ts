@@ -284,9 +284,6 @@ const SESSION_RECEIPT_KEY_RE = /^rs_[A-Za-z0-9_-]{43}$/;
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
-  // Keep Toss access app-scoped; wildcard/root ranges include unrelated mini apps.
-  'https://musixquare.apps.tossmini.com',
-  'https://musixquare.private-apps.tossmini.com',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:5173',

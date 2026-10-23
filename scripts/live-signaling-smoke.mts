@@ -21,7 +21,13 @@ export const SIGNALING_SMOKE_ROOM_ROUTES = Object.freeze({
     guestOrigin: ALTERNATE_SIGNALING_ORIGIN,
   }),
 });
-export const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
+// The Apps-in-Toss build is retired. Its two former app-scoped origins and an
+// unrelated mini-app origin must all be refused.
+export const REJECTED_TOSS_ORIGINS = Object.freeze([
+  'https://musixquare.apps.tossmini.com',
+  'https://musixquare.private-apps.tossmini.com',
+  'https://unrelated.apps.tossmini.com',
+]);
 export const MESSAGE_TIMEOUT_MS = 10_000;
 export const STALE_VERSION_RETRY_DELAYS_MS = Object.freeze([1_000, 2_000, 4_000, 8_000, 8_000]);
 // A newly attached Custom Domain may need longer than an ordinary Worker
@@ -95,7 +101,7 @@ export interface SignalingOriginBoundaryRead {
 }
 
 export interface SignalingOriginBoundaryResult {
-  unrelatedTossOriginRejected: true;
+  tossOriginsRejected: true;
 }
 
 export interface AlternateSignalingSurfaceRead {
@@ -268,19 +274,20 @@ export function signalingSocketUrl(
   return url.toString();
 }
 
-export async function readSignalingOriginBoundary({
-  createWebSocket = (target: string, options: WebSocket.ClientOptions) =>
-    new WebSocket(target, options),
-  timeoutMs = MESSAGE_TIMEOUT_MS,
-}: {
-  createWebSocket?: (target: string, options: WebSocket.ClientOptions) => SocketLifecyclePort;
-  timeoutMs?: number;
-} = {}): Promise<SignalingOriginBoundaryRead> {
+export async function readSignalingOriginBoundary(
+  origin: string,
+  {
+    createWebSocket = (target: string, options: WebSocket.ClientOptions) =>
+      new WebSocket(target, options),
+    timeoutMs = MESSAGE_TIMEOUT_MS,
+  }: {
+    createWebSocket?: (target: string, options: WebSocket.ClientOptions) => SocketLifecyclePort;
+    timeoutMs?: number;
+  } = {},
+): Promise<SignalingOriginBoundaryRead> {
   const roomId = String(randomInt(100_000, 1_000_000));
   const peerId = `origin-boundary-${randomUUID().replaceAll('-', '').slice(0, 12)}`;
-  const socket = createWebSocket(signalingSocketUrl(roomId, 'host', peerId), {
-    origin: UNRELATED_TOSS_ORIGIN,
-  });
+  const socket = createWebSocket(signalingSocketUrl(roomId, 'host', peerId), { origin });
 
   return new Promise<SignalingOriginBoundaryRead>((resolveRead, reject) => {
     let settled = false;
@@ -288,7 +295,7 @@ export async function readSignalingOriginBoundary({
       if (settled) return;
       settled = true;
       socket.terminate();
-      reject(new Error('unrelated Toss origin WebSocket rejection timed out'));
+      reject(new Error(`Toss origin ${origin} WebSocket rejection timed out`));
     }, timeoutMs);
     const settle = (operation: () => void): void => {
       if (settled) return;
@@ -308,7 +315,7 @@ export async function readSignalingOriginBoundary({
     socket.once('open', () => {
       settle(() => {
         socket.close(1000, 'origin boundary unexpectedly accepted');
-        reject(new Error('Production signaling still trusts an unrelated Toss app origin'));
+        reject(new Error(`Production signaling still trusts the Toss origin ${origin}`));
       });
     });
     socket.once('error', (error) => {
@@ -318,7 +325,7 @@ export async function readSignalingOriginBoundary({
       settle(() =>
         reject(
           new Error(
-            `unrelated Toss origin probe closed ${code}/${reason.toString() || 'without HTTP rejection'}`,
+            `Toss origin ${origin} probe closed ${code}/${reason.toString() || 'without HTTP rejection'}`,
           ),
         ),
       );
@@ -327,15 +334,17 @@ export async function readSignalingOriginBoundary({
 }
 
 export async function verifySignalingOriginBoundary({
-  read = readSignalingOriginBoundary,
+  read = (origin: string) => readSignalingOriginBoundary(origin),
 }: {
-  read?: () => Promise<SignalingOriginBoundaryRead>;
+  read?: (origin: string) => Promise<SignalingOriginBoundaryRead>;
 } = {}): Promise<SignalingOriginBoundaryResult> {
-  const result: unknown = await read();
-  if (!isJsonObject(result) || result.statusCode !== 403) {
-    throw new Error('Production signaling still trusts an unrelated Toss app origin');
+  for (const origin of REJECTED_TOSS_ORIGINS) {
+    const result: unknown = await read(origin);
+    if (!isJsonObject(result) || result.statusCode !== 403) {
+      throw new Error(`Production signaling still trusts the Toss origin ${origin}`);
+    }
   }
-  return { unrelatedTossOriginRejected: true };
+  return { tossOriginsRejected: true };
 }
 
 async function readWebSocketRejectionStatus(

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const lifecycleMocks = vi.hoisted(() => ({
   markIntentionalNav: vi.fn(),
   clearIntentionalNav: vi.fn(),
+  revealLiveShell: vi.fn(),
 }));
 
 vi.mock('../page-lifecycle.ts', () => lifecycleMocks);

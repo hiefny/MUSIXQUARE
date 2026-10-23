@@ -58,9 +58,10 @@ function between(source: string, start: string, end: string): string {
 }
 
 describe('app.ts wiring copied by the page navigation harness', () => {
-  it('initialises OverlayObservers, then PageLifecycle, then BackButtonGuard [update with: C6-6]', () => {
-    // Listener order within a phase follows this init order: page-lifecycle's
-    // pageshow runs before the guard's resume.
+  it('initialises OverlayObservers, then PageLifecycle, then BackButtonGuard [updated: C6-6]', () => {
+    // Since C6-6 no outcome depends on this order: the navigation owner's
+    // page-transition dispatch uses the capture phase (the harness pins both
+    // orders with `initOrder`). The copy still boots in this order.
     expectInOrder(appSource, [
       "safeInit('OverlayObservers', initOverlayObservers);",
       "safeInit('PageLifecycle', () => {",
@@ -68,23 +69,24 @@ describe('app.ts wiring copied by the page navigation harness', () => {
     ]);
   });
 
-  it('wires PageLifecycle with the release handler first and the reset as its bfcache reload [update with: C6-6, C6-7]', () => {
+  it('wires PageLifecycle with the release handler first, then the navigation owner with its bfcache reload [updated: C6-6] [update with: C6-7]', () => {
     expect(block(appSource, "safeInit('PageLifecycle', () => {")).toBe(
       [
         "safeInit('PageLifecycle', () => {",
         'setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);',
-        'initPageLifecycleHandlers({',
+        'const lifecycle = {',
         "getRole: () => getState('network.appRole'),",
-        'leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }),',
-        "reload: () => scheduleDocumentReload(t('dialog.refreshing_session')),",
-        'hasPendingReset: isSessionResetPending,',
-        'restorePendingReset: restoreSessionReset,',
+        'leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }), };',
+        'initPageLifecycleHandlers(lifecycle);',
+        'initPageNavigation({',
+        'getRole: lifecycle.getRole,',
+        "bfcacheReloadMessage: () => t('dialog.refreshing_session'),",
         'log, }); }',
       ].join(' '),
     );
   });
 
-  it('wires the Back guard, its leave recovery and its listeners exactly as copied [update with: C6-6, C6-12]', () => {
+  it('wires the Back guard, its leave recovery and its listeners exactly as copied [keeps: C6-6] [update with: C6-12]', () => {
     expect(block(appSource, 'function initBackButtonGuard(): void {')).toBe(
       [
         'function initBackButtonGuard(): void {',

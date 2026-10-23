@@ -2,9 +2,7 @@
  * MUSIXQUARE — Page Lifecycle Flags & Handlers
  *
  * `beforeunload` fires before the user decides whether to leave, so it cannot
- * own peer/audio teardown. `pagehide` owns confirmed-unload cleanup, while
- * `pageshow` rejects an active-session UI restored from bfcache after its
- * runtime resources have gone stale.
+ * own peer/audio teardown. `pagehide` owns confirmed-unload cleanup.
  *
  * This module owns three responsibilities:
  *
@@ -13,13 +11,17 @@
  *      `window.location.href = …` to tell the `beforeunload` guard
  *      that the app already obtained confirmation.
  *
- *   2. `initPageLifecycleHandlers({ getRole, leaveSession, reload })` —
- *      attaches the `beforeunload`, `pagehide`, and `pageshow` handlers with
- *      injected dependencies so the lifecycle contract remains testable.
+ *   2. `initPageLifecycleHandlers({ getRole, leaveSession })` — attaches the
+ *      `beforeunload` and `pagehide` handlers with injected dependencies so the
+ *      lifecycle contract remains testable.
  *
- *   3. Bfcache restore fallback (pageshow, persisted=true) — if the page
- *      returns with an active session or a pending hard reset, force a reload
- *      so cached UI cannot claim dead resources are connected or stay inert.
+ *   3. `revealLiveShell()` — repairs the FOUC class when a pageshow proves this
+ *      document is the live surface again.
+ *
+ * The pageshow that returns a document from the back-forward cache belongs to
+ * the page navigation owner (`core/session-reset.ts`, `initPageNavigation`,
+ * C6-6): it calls `revealLiveShell` first, settles a returned reset, and makes
+ * the one bounded reload.
  *
  * App-owned hard navigations should go through `core/session-reset.ts`, which
  * blocks interaction, allows the overlay to paint, and calls
@@ -62,6 +64,20 @@ export function __resetIntentionalNavForTests(): void {
   clearIntentionalNav();
 }
 
+/**
+ * A pageshow proves this document is the live surface again: repair the FOUC
+ * class so an abandoned navigation cannot leave only the themed body
+ * background. The page navigation owner calls it on every pageshow, before
+ * any reload decision.
+ */
+export function revealLiveShell(): void {
+  try {
+    document.body?.classList.add('fouc-loaded');
+  } catch {
+    /* a lifecycle recovery must never fail on a detached body */
+  }
+}
+
 // ─── Handler Initialisation ─────────────────────────────────────────
 
 interface PageLifecycleDeps {
@@ -69,14 +85,6 @@ interface PageLifecycleDeps {
   getRole: () => string;
   /** Tear down peer, player, timers, blobs, etc. (idempotent). */
   leaveSession: () => void;
-  /** Force a fresh page load — used by the bfcache-restore fallback. */
-  reload: () => void;
-  /** Whether a hard reset was in flight when this document entered bfcache. */
-  hasPendingReset?: () => boolean;
-  /** Remove reset UI/interaction locks before retrying a bfcache reload. */
-  restorePendingReset?: () => void;
-  /** Optional logger for bfcache-restore telemetry. */
-  log?: { info: (msg: string, ...args: unknown[]) => void };
 }
 
 export interface PageLifecycleHandle {
@@ -85,34 +93,22 @@ export interface PageLifecycleHandle {
 }
 
 /**
- * Register the beforeunload / pagehide / pageshow handlers.
+ * Register the beforeunload / pagehide handlers.
  *
- * Returns a `dispose()` function that detaches all three listeners at
- * once via AbortController, so tests can re-initialise between cases
- * without stacking duplicate handlers.
+ * Returns a `dispose()` function that detaches both listeners at once via
+ * AbortController, so tests can re-initialise between cases without stacking
+ * duplicate handlers.
  */
 export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycleHandle {
   const controller = new AbortController();
   const opts = { signal: controller.signal };
-  // A failed reload can return the same document from bfcache. Retrying on
-  // every pageshow creates an endless reset-overlay/navigation loop, so one
-  // document gets one automatic bfcache recovery navigation.
-  let bfcacheReloadAttempted = false;
-
-  const revealLiveShell = (): void => {
-    try {
-      document.body?.classList.add('fouc-loaded');
-    } catch {
-      /* a lifecycle recovery must never fail on a detached body */
-    }
-  };
 
   // ── beforeunload ──
   // Show the native "Changes you made may not be saved" confirm when a
   // session is active AND the navigation wasn't triggered by our own
   // confirmed flow. Also forces bfcache off during active sessions so
-  // a back-forward restore can't resurrect a stale UI (the companion
-  // pageshow handler covers the residual case where bfcache wins anyway).
+  // a back-forward restore can't resurrect a stale UI (the navigation
+  // owner's pageshow recovery covers the residual case where bfcache wins).
   window.addEventListener(
     'beforeunload',
     (e) => {
@@ -145,65 +141,6 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
         deps.leaveSession();
       } catch {
         /* noop */
-      }
-    },
-    opts,
-  );
-
-  // ── pageshow ──
-  // Fires on both fresh loads (persisted=false) and bfcache restores
-  // (persisted=true). Only the restore case needs handling: an active-session
-  // page may have stale runtime resources, while a confirmed Back flow may
-  // return with role=idle but its cached reset overlay and inert DOM intact.
-  // Both cases force a fresh load; the pending-reset case first restores
-  // interaction so a rejected reload cannot strand the document.
-  window.addEventListener(
-    'pageshow',
-    (e) => {
-      // Fresh and bfcache pageshows both prove that this document is the live
-      // surface again. Repair the FOUC class before any reload decision so an
-      // abandoned navigation cannot leave only the themed body background.
-      revealLiveShell();
-      if (!e.persisted) return;
-      const role = deps.getRole();
-      const resetPending = deps.hasPendingReset?.() === true;
-      if (role === 'idle' && !resetPending) return;
-
-      if (resetPending) {
-        // A confirmed Back flow calls leaveSession() before navigating, so its
-        // cached document legitimately has role=idle. Remove the cached inert
-        // UI first: even if reload is rejected, the restored page remains
-        // interactive instead of being trapped behind the reset overlay.
-        try {
-          deps.restorePendingReset?.();
-        } catch {
-          /* keep the live document visible even if reset cleanup is partial */
-        }
-      }
-
-      if (bfcacheReloadAttempted) {
-        // The prior reload left and returned to this exact document. Restore
-        // interaction above, then stop retrying automatically; the service
-        // worker's bounded navigation fallback or a later user action can
-        // recover without trapping the PWA in a reload loop.
-        clearIntentionalNav();
-        deps.log?.info('[PageLifecycle] bfcache reload returned; keeping recovered shell visible');
-        return;
-      }
-
-      bfcacheReloadAttempted = true;
-
-      deps.log?.info(
-        resetPending
-          ? '[PageLifecycle] Restored a pending session reset from bfcache. Reloading'
-          : '[PageLifecycle] Restored from bfcache with active session. Reloading',
-      );
-      if (role !== 'idle') markIntentionalNav(); // avoid prompting on the reload itself
-      try {
-        deps.reload();
-      } catch {
-        // A failed reload must not suppress a later user-driven unload.
-        clearIntentionalNav();
       }
     },
     opts,

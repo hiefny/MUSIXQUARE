@@ -13,10 +13,12 @@ import {
   type PageLifecycleHandle,
 } from '../page-lifecycle.ts';
 import {
+  __resetSessionResetForTests,
+  initPageNavigation,
   isSessionResetPending,
-  restoreSessionReset,
   scheduleSessionReset,
 } from '../session-reset.ts';
+import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 // jsdom's Event doesn't carry the `persisted` property that real
 // PageTransitionEvent does, and setting it via the constructor only
@@ -61,16 +63,13 @@ describe('initPageLifecycleHandlers — beforeunload', () => {
   let handle: PageLifecycleHandle;
   let role: string;
   let leaveSession: Mock<() => void>;
-  let reload: Mock<() => void>;
 
   beforeEach(() => {
     role = 'idle';
     leaveSession = vi.fn<() => void>();
-    reload = vi.fn<() => void>();
     handle = initPageLifecycleHandlers({
       getRole: () => role,
       leaveSession,
-      reload,
     });
   });
 
@@ -118,7 +117,6 @@ describe('initPageLifecycleHandlers — pagehide', () => {
     handle = initPageLifecycleHandlers({
       getRole: () => role,
       leaveSession,
-      reload: vi.fn(),
     });
   });
 
@@ -152,137 +150,12 @@ describe('initPageLifecycleHandlers — pagehide', () => {
   });
 });
 
-describe('initPageLifecycleHandlers — pageshow', () => {
-  let handle: PageLifecycleHandle;
-  let role: string;
-  let reload: Mock<() => void>;
-
-  beforeEach(() => {
-    role = 'host';
-    reload = vi.fn<() => void>();
-    handle = initPageLifecycleHandlers({
-      getRole: () => role,
-      leaveSession: vi.fn(),
-      reload,
-    });
-  });
-
-  afterEach(() => {
-    handle.dispose();
-  });
-
-  it('does nothing on a fresh pageshow (persisted=false)', () => {
-    window.dispatchEvent(pageTransition('pageshow', false));
-    expect(reload).not.toHaveBeenCalled();
-    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
-  });
-
-  it('does nothing on bfcache restore when role is idle', () => {
-    role = 'idle';
-    window.dispatchEvent(pageTransition('pageshow', true));
-    expect(reload).not.toHaveBeenCalled();
-  });
-
-  it('reloads an idle bfcache document that still owns a pending reset', () => {
-    handle.dispose();
-    role = 'idle';
-    const restorePendingReset = vi.fn();
-    handle = initPageLifecycleHandlers({
-      getRole: () => role,
-      leaveSession: vi.fn(),
-      reload,
-      hasPendingReset: () => true,
-      restorePendingReset,
-    });
-
-    window.dispatchEvent(pageTransition('pageshow', true));
-
-    expect(restorePendingReset).toHaveBeenCalledOnce();
-    expect(reload).toHaveBeenCalledOnce();
-    expect(restorePendingReset.mock.invocationCallOrder[0]).toBeLessThan(
-      reload.mock.invocationCallOrder[0],
-    );
-    expect(isIntentionalNav()).toBe(false);
-  });
-
-  it('reloads on bfcache restore when role is non-idle', () => {
-    window.dispatchEvent(pageTransition('pageshow', true));
-    expect(reload).toHaveBeenCalledTimes(1);
-  });
-
-  it('flips the intentional-nav flag before reloading (avoids double-prompt)', () => {
-    window.dispatchEvent(pageTransition('pageshow', true));
-    expect(isIntentionalNav()).toBe(true);
-  });
-
-  it('clears the intentional-nav flag if a bfcache reload throws', () => {
-    handle.dispose();
-    handle = initPageLifecycleHandlers({
-      getRole: () => 'host',
-      leaveSession: vi.fn(),
-      reload: () => {
-        throw new Error('reload rejected');
-      },
-    });
-
-    expect(() => window.dispatchEvent(pageTransition('pageshow', true))).not.toThrow();
-    expect(isIntentionalNav()).toBe(false);
-  });
-
-  it('restores the shell without entering another reload loop when the same bfcache document returns', () => {
-    handle.dispose();
-    let resetPending = false;
-    const restorePendingReset = vi.fn(() => {
-      resetPending = false;
-    });
-    reload.mockImplementation(() => {
-      resetPending = true;
-    });
-    handle = initPageLifecycleHandlers({
-      getRole: () => 'guest',
-      leaveSession: vi.fn(),
-      reload,
-      hasPendingReset: () => resetPending,
-      restorePendingReset,
-    });
-
-    window.dispatchEvent(pageTransition('pageshow', true));
-    expect(reload).toHaveBeenCalledOnce();
-    expect(isIntentionalNav()).toBe(true);
-
-    document.body.classList.remove('fouc-loaded');
-    window.dispatchEvent(pageTransition('pageshow', true));
-
-    expect(restorePendingReset).toHaveBeenCalledOnce();
-    expect(reload).toHaveBeenCalledOnce();
-    expect(isIntentionalNav()).toBe(false);
-    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
-  });
-
-  it('passes the log message through when a logger is provided', () => {
-    // Detach the fixture before installing the logger-specific handler.
-    handle.dispose();
-    const info = vi.fn();
-    handle = initPageLifecycleHandlers({
-      getRole: () => 'host',
-      leaveSession: vi.fn(),
-      reload,
-      log: { info },
-    });
-    window.dispatchEvent(pageTransition('pageshow', true));
-    expect(info).toHaveBeenCalledOnce();
-    expect(info.mock.calls[0][0]).toContain('bfcache');
-  });
-});
-
 describe('initPageLifecycleHandlers — dispose', () => {
-  it('detaches all three listeners when dispose() is called', () => {
+  it('detaches both listeners when dispose() is called', () => {
     const leaveSession = vi.fn();
-    const reload = vi.fn();
     const { dispose } = initPageLifecycleHandlers({
       getRole: () => 'host',
       leaveSession,
-      reload,
     });
 
     dispose();
@@ -293,54 +166,168 @@ describe('initPageLifecycleHandlers — dispose', () => {
 
     window.dispatchEvent(pageTransition('pagehide', false));
     expect(leaveSession).not.toHaveBeenCalled();
-
-    window.dispatchEvent(pageTransition('pageshow', true));
-    expect(reload).not.toHaveBeenCalled();
   });
 });
 
-describe('page lifecycle + session reset integration', () => {
-  it('re-arms a fresh reload after an idle pending reset returns from bfcache', () => {
-    const originalRaf = window.requestAnimationFrame;
+// The back-forward cache return moved from page-lifecycle's pageshow listener
+// into the navigation owner's one page-transition dispatch (C6-6). These run
+// the real owner with recorded location sinks and real DOM events.
+describe('page navigation owner — back-forward cache return (initPageNavigation)', () => {
+  const RELOADING = 'Reloading';
+  let role: string;
+  let info: Mock<(message: string, ...args: unknown[]) => void>;
+  let sinks: NavigationSinks;
+  let navigation: { dispose(): void };
+  const originalRaf = Object.getOwnPropertyDescriptor(window, 'requestAnimationFrame');
+
+  beforeEach(() => {
     vi.useFakeTimers();
+    // No frames: the reset runs its action after the 120 ms fallback.
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,
       writable: true,
       value: undefined,
     });
     document.body.innerHTML = '<main id="app">Session</main>';
-    let role = 'host';
-    const reloadAction = vi.fn();
-    const handle = initPageLifecycleHandlers({
+    role = 'host';
+    info = vi.fn();
+    sinks = stubNavigationSinks();
+    navigation = initPageNavigation({
       getRole: () => role,
-      leaveSession: vi.fn(),
-      reload: () => scheduleSessionReset('Reloading', reloadAction),
-      hasPendingReset: isSessionResetPending,
-      restorePendingReset: restoreSessionReset,
+      bfcacheReloadMessage: () => RELOADING,
+      log: { info },
+    });
+  });
+
+  afterEach(() => {
+    navigation.dispose();
+    __resetSessionResetForTests();
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    if (originalRaf) Object.defineProperty(window, 'requestAnimationFrame', originalRaf);
+    else Reflect.deleteProperty(window, 'requestAnimationFrame');
+    document.body.innerHTML = '';
+  });
+
+  function resetMessage(): string | null {
+    return document.getElementById('session-reset-message')?.textContent ?? null;
+  }
+
+  it('reveals the shell on a fresh pageshow (persisted=false) and reloads nothing', () => {
+    window.dispatchEvent(pageTransition('pageshow', false));
+    vi.advanceTimersByTime(10_000);
+    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
+    expect(isSessionResetPending()).toBe(false);
+    expect(sinks.calls).toEqual([]);
+  });
+
+  it('does nothing on bfcache restore when role is idle and no reset is pending', () => {
+    role = 'idle';
+    window.dispatchEvent(pageTransition('pageshow', true));
+    vi.advanceTimersByTime(10_000);
+    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
+    expect(isSessionResetPending()).toBe(false);
+    expect(sinks.calls).toEqual([]);
+  });
+
+  it('settles a returned pending reset, then reloads the idle document once', () => {
+    role = 'idle';
+    const events: string[] = [];
+    scheduleSessionReset('Leaving', () => window.location.replace('/'))?.onSettled((outcome) =>
+      events.push(`settled ${outcome}: pending=${isSessionResetPending()}`),
+    );
+    vi.advanceTimersByTime(120);
+    window.dispatchEvent(pageTransition('pagehide', true));
+
+    window.dispatchEvent(pageTransition('pageshow', true));
+
+    // The returned reset settled before the fresh reload took the page.
+    expect(events).toEqual(['settled recovered: pending=false']);
+    expect(isSessionResetPending()).toBe(true);
+    expect(resetMessage()).toBe(RELOADING);
+    expect(isIntentionalNav()).toBe(false);
+    vi.advanceTimersByTime(120);
+    expect(sinks.calls.map((call) => call.op)).toEqual(['replace', 'reload']);
+  });
+
+  it('reloads on bfcache restore when role is non-idle', () => {
+    window.dispatchEvent(pageTransition('pageshow', true));
+    expect(isSessionResetPending()).toBe(true);
+    vi.advanceTimersByTime(120);
+    expect(sinks.count('reload')).toBe(1);
+  });
+
+  it('flips the intentional-nav flag before reloading (avoids double-prompt)', () => {
+    window.dispatchEvent(pageTransition('pageshow', true));
+    expect(isIntentionalNav()).toBe(true);
+  });
+
+  it('clears the intentional-nav flag when the bfcache reload throws', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    sinks.reload.mockImplementationOnce(() => {
+      throw new Error('reload rejected');
     });
 
-    try {
-      scheduleSessionReset('Leaving', () => {
-        role = 'idle';
-      });
-      vi.advanceTimersByTime(120);
-      window.dispatchEvent(pageTransition('pagehide', true));
+    expect(() => window.dispatchEvent(pageTransition('pageshow', true))).not.toThrow();
+    vi.advanceTimersByTime(120);
 
-      window.dispatchEvent(pageTransition('pageshow', true));
+    expect(isSessionResetPending()).toBe(false);
+    expect(isIntentionalNav()).toBe(false);
+  });
 
-      expect(isSessionResetPending()).toBe(true);
-      expect(document.getElementById('session-reset-message')?.textContent).toBe('Reloading');
-      vi.advanceTimersByTime(120);
-      expect(reloadAction).toHaveBeenCalledOnce();
-    } finally {
-      handle.dispose();
-      restoreSessionReset();
-      vi.useRealTimers();
-      Object.defineProperty(window, 'requestAnimationFrame', {
-        configurable: true,
-        writable: true,
-        value: originalRaf,
-      });
-    }
+  it('restores the shell without entering another reload loop when the same bfcache document returns', () => {
+    role = 'guest';
+    window.dispatchEvent(pageTransition('pageshow', true));
+    vi.advanceTimersByTime(120);
+    expect(sinks.count('reload')).toBe(1);
+    expect(isIntentionalNav()).toBe(true);
+    window.dispatchEvent(pageTransition('pagehide', true));
+
+    document.body.classList.remove('fouc-loaded');
+    window.dispatchEvent(pageTransition('pageshow', true));
+    vi.advanceTimersByTime(10_000);
+
+    expect(isSessionResetPending()).toBe(false);
+    expect(sinks.count('reload')).toBe(1);
+    expect(isIntentionalNav()).toBe(false);
+    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
+    expect(info).toHaveBeenLastCalledWith(
+      '[PageLifecycle] bfcache reload returned; keeping recovered shell visible',
+    );
+  });
+
+  it('passes the log message through the injected logger', () => {
+    window.dispatchEvent(pageTransition('pageshow', true));
+    expect(info).toHaveBeenCalledOnce();
+    expect(info.mock.calls[0][0]).toContain('bfcache');
+  });
+
+  it('stops the bounded reload after dispose but still restores a returned reset', () => {
+    navigation.dispose();
+    scheduleSessionReset('Leaving', vi.fn());
+    vi.advanceTimersByTime(120);
+    window.dispatchEvent(pageTransition('pagehide', true));
+
+    window.dispatchEvent(pageTransition('pageshow', true));
+    vi.advanceTimersByTime(10_000);
+
+    expect(isSessionResetPending()).toBe(false);
+    expect(sinks.calls).toEqual([]);
+  });
+
+  it('re-arms a fresh reload after an idle pending reset returns from bfcache', () => {
+    scheduleSessionReset('Leaving', () => {
+      role = 'idle';
+    });
+    vi.advanceTimersByTime(120);
+    window.dispatchEvent(pageTransition('pagehide', true));
+
+    window.dispatchEvent(pageTransition('pageshow', true));
+
+    expect(isSessionResetPending()).toBe(true);
+    expect(resetMessage()).toBe(RELOADING);
+    vi.advanceTimersByTime(120);
+    expect(sinks.count('reload')).toBe(1);
   });
 });

@@ -13,13 +13,14 @@
  *
  * `bootPageNavigationShell` wires them the way src/app.ts bootstrap does, in
  * its order: OverlayObservers (app.ts:1131), then PageLifecycle (the release
- * handler and initPageLifecycleHandlers, app.ts:1301-1318), then
- * BackButtonGuard (initBackButtonGuard, app.ts:915-990). The reset's own
- * pagehide, pageshow and visibility listeners are added when a reset is
- * scheduled, so within a phase they run after all of these, as in production;
- * its pagehide and visibility listeners are capture listeners. ServiceWorker
- * registration (app.ts:1287) is not wired; the update machine against the real
- * reset is covered by sw-register-recovery.integration.test.ts.
+ * handler, initPageLifecycleHandlers and initPageNavigation, app.ts:1301-1324),
+ * then BackButtonGuard (initBackButtonGuard, app.ts:915-990). The navigation
+ * owner's page-transition dispatch (pagehide, pageshow and visibilitychange)
+ * uses the capture phase, so it runs before the guard's bubble-phase resume
+ * whatever the init order; `initOrder: 'guard-first'` boots the guard first to
+ * show that. ServiceWorker registration (app.ts:1287) is not wired; the update
+ * machine against the real reset is covered by
+ * sw-register-recovery.integration.test.ts.
  *
  * That wiring, and the logo action in `logoHardReset`
  * (player-controls.ts:1086-1101), are copies: app.ts bootstrap and the logo
@@ -50,8 +51,8 @@ import { __resetIntentionalNavForTests, initPageLifecycleHandlers } from '../../
 import { createReloadRecoveryLatch } from '../../reload-recovery-latch.ts';
 import {
   __resetSessionResetForTests,
+  initPageNavigation,
   isSessionResetPending,
-  restoreSessionReset,
   scheduleDocumentReload,
   scheduleSessionReset,
   setSessionResetReleaseHandler,
@@ -389,7 +390,7 @@ export interface PageNavigationShell {
   readonly history: FakeBackHistory;
   readonly app: Readonly<AppStateModel>;
   readonly leaveSession: Mock<() => void>;
-  /** The page-lifecycle `log` dependency (app.ts passes core/log). */
+  /** The initPageNavigation `log` dependency (app.ts passes core/log). */
   readonly lifecycleLog: Mock<(message: string, ...args: unknown[]) => void>;
   readonly leaveConfirmation: { requests: number; answer: boolean };
   readonly lazyFeature: LazyFeatureOutcomes;
@@ -428,6 +429,11 @@ export interface BootOptions {
   /** Whether a previous document sits behind this one in history. */
   readonly previousDocument?: boolean;
   readonly leaveAnswer?: boolean;
+  /**
+   * 'app' boots in app.ts order; 'guard-first' boots BackButtonGuard before
+   * PageLifecycle, to show that no outcome depends on that order.
+   */
+  readonly initOrder?: 'app' | 'guard-first';
 }
 
 export function bootPageNavigationShell(options: BootOptions = {}): PageNavigationShell {
@@ -470,17 +476,21 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   // app.ts:1131 'OverlayObservers'.
   initOverlayObservers();
 
-  // app.ts:1301-1318 'PageLifecycle'.
-  setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);
-  const lifecycle = initPageLifecycleHandlers({
-    getRole: () => app.role,
-    leaveSession,
-    reload: () => scheduleDocumentReload(MSG_REFRESHING),
-    hasPendingReset: isSessionResetPending,
-    restorePendingReset: restoreSessionReset,
-    log: { info: lifecycleLog },
-  });
-  disposers.push(() => lifecycle.dispose());
+  // app.ts:1301-1324 'PageLifecycle'.
+  const initPageLifecycle = (): void => {
+    setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);
+    const lifecycle = { getRole: () => app.role, leaveSession };
+    const handlers = initPageLifecycleHandlers(lifecycle);
+    disposers.push(() => handlers.dispose());
+    const navigation = initPageNavigation({
+      getRole: lifecycle.getRole,
+      bfcacheReloadMessage: () => MSG_REFRESHING,
+      log: { info: lifecycleLog },
+    });
+    disposers.push(() => navigation.dispose());
+  };
+  const signal = listeners.signal;
+  if (options.initOrder !== 'guard-first') initPageLifecycle();
 
   // app.ts:915-990 'BackButtonGuard'. Changes: the history fake, the fixed
   // leave answer for showDialog, console for core/log, and the model's
@@ -531,7 +541,6 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   stateListeners.add(controller.handleStateChange);
   appEntranceListeners.add(controller.handleStateChange);
   disposers.push(onOverlayStackChange(controller.handleStateChange));
-  const signal = listeners.signal;
   window.addEventListener('popstate', controller.handlePopState, { signal });
   window.addEventListener('pagehide', controller.suspend, { signal });
   window.addEventListener('pageshow', controller.resume, { signal });
@@ -544,6 +553,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
     { signal },
   );
   controller.handleStateChange();
+  if (options.initOrder === 'guard-first') initPageLifecycle();
 
   const lazyFeature: LazyFeatureOutcomes = { events: [], answer: 'accept' };
   const runLazyFeatureRecovery = createReloadRecoveryLatch<{ feature: string }>({

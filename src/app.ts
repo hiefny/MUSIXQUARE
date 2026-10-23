@@ -39,8 +39,8 @@ import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { runBackgroundResumeRecovery } from './core/background-resume-recovery.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
 import {
+  initPageNavigation,
   isSessionResetPending,
-  restoreSessionReset,
   scheduleDocumentReload,
   scheduleSessionReset,
   setSessionResetReleaseHandler,
@@ -885,11 +885,12 @@ window.addEventListener('unhandledrejection', (e) => {
   log.error('[Global] Unhandled rejection:', e.reason);
 });
 
-// Page-lifecycle (beforeunload / pagehide / pageshow) handling lives in
-// `core/page-lifecycle.ts`. It's dependency-injected so the branching can
-// be unit-tested without dragging in the full bootstrap graph. See that
-// file for the rationale behind each branch and the app-wide rule about
-// `markIntentionalNav()`.
+// Page-lifecycle (beforeunload / pagehide) handling lives in
+// `core/page-lifecycle.ts`, and the back-forward cache return in the
+// navigation owner (`core/session-reset.ts`, `initPageNavigation`). Both are
+// dependency-injected so the branching can be unit-tested without dragging in
+// the full bootstrap graph. See those files for the rationale behind each
+// branch and the app-wide rule about `markIntentionalNav()`.
 
 // ── Back-Button Guard ──
 //
@@ -1303,17 +1304,19 @@ async function bootstrap(): Promise<void> {
     // Windows that opened or closed under an abandoned reset re-derive once
     // it releases its locks.
     setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);
-    initPageLifecycleHandlers({
+    const lifecycle = {
       getRole: () => getState('network.appRole'),
       // A confirmed pagehide may be the installed-PWA OAuth navigation. Keep
       // its short-lived route hint; direct/user-confirmed leaveSession calls
       // clear the hint at their explicit session-exit boundary.
       leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }),
-      // A pending bfcache reset is restored immediately before this callback,
-      // so the coordinator can paint a fresh overlay and own reload recovery.
-      reload: () => scheduleDocumentReload(t('dialog.refreshing_session')),
-      hasPendingReset: isSessionResetPending,
-      restorePendingReset: restoreSessionReset,
+    };
+    initPageLifecycleHandlers(lifecycle);
+    // The navigation owner's one page-transition dispatch (capture phase, so
+    // it runs before the Back guard's resume) and its bounded bfcache reload.
+    initPageNavigation({
+      getRole: lifecycle.getRole,
+      bfcacheReloadMessage: () => t('dialog.refreshing_session'),
       log,
     });
   });

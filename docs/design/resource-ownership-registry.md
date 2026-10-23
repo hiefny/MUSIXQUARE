@@ -1141,18 +1141,22 @@ RO-47 owner-in-place
 
 - **Resource:** the page's own `location.reload`, `location.replace` and `location.href` writes.
 - **Current owners/flows:** the session reset in `src/core/session-reset.ts` (first request wins,
-  overlay, 2 s commit timeout, its own pagehide, pageshow and visibility listeners; since Phase 2
-  C6-4 one `PageNavigationState` whose every exit goes through one exactly-once `settle()` with a
-  typed outcome, `onSettled`, with `onRecovered` as its alias; since C6-5 also the one reload queue
-  behind `scheduleDocumentReload`). Its busy rule (owner decision 1, 2026-10-23): a reload asked
+  overlay, 2 s commit timeout; since Phase 2 C6-4 one `PageNavigationState` whose every exit goes
+  through one exactly-once `settle()` with a typed outcome, `onSettled`, with `onRecovered` as its
+  alias; since C6-5 also the one reload queue behind `scheduleDocumentReload`; since C6-6 the one
+  page-transition dispatch, `initPageNavigation`, whose capture-phase pagehide, pageshow and
+  visibility listeners run before the Back guard's resume whatever the init order, and which owns
+  the single bounded reload of a document the back-forward cache returns, after calling
+  `revealLiveShell` from `src/core/page-lifecycle.ts`). Its busy rule (owner decision 1, 2026-10-23): a reload asked
   for while another navigation holds the page, behind another reload, or behind a reload whose
   sink throws waits and runs if that navigation settles in this document, never after it
   commits; a waiting reload with the same message joins the one already waiting; a direct reset
   asked for while the page is held is refused (first wins). `src/core/document-reload.ts` keeps
   only the PRO claim fence (claim phases, the claim the in-flight reload carries, a narrow port
   `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`). Stacked requester
-  latches remain in `sw-register.ts`, `src/core/reload-recovery-latch.ts` and the back-forward
-  cache retry in `src/core/page-lifecycle.ts`. The navigation intents in
+  latches remain in `sw-register.ts` and `src/core/reload-recovery-latch.ts`;
+  `src/core/page-lifecycle.ts` keeps only `beforeunload`, the pagehide `leaveSession` and
+  `revealLiveShell`. The navigation intents in
   `src/core/navigation.ts` (Phase 2, C6-3) run on the reset: `navigateHome` (replace, or push for
   the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
   `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
@@ -1161,8 +1165,8 @@ RO-47 owner-in-place
   `src/pro-room/runtime.ts` (which restores its own reset until C6-8 gives it `isCurrent`).
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
-- **Allowed requesters:** the callers above, through the owner; `page-lifecycle.ts` receives
-  ownership queries (`isSessionResetPending`, `restoreSessionReset`) from `app.ts`.
+- **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
+  back-forward cache recovery once (`initPageNavigation`: the role, the reload message, the log).
 - **Lifecycle operations:** schedule a reset or reload, navigate, recover, restore.
 - **Deadline owner:** `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) in `session-reset.ts`.
 - **Timing-constant home:** `src/core/navigation-contract.ts` (`NAVIGATION_COMMIT_TIMEOUT_MS`,
@@ -1181,6 +1185,10 @@ RO-47 owner-in-place
   - Busy rule: `src/core/__tests__/page-navigation-owner.integration.test.ts` "(a) ... waits
     behind the reset and runs once that reset recovers", "releases the failed reload and runs the
     reload queued behind it" and "lets a waiting request join one with the same message".
+  - One page-transition dispatch: `page-navigation-owner.integration.test.ts` "with the
+    guard-first init order, re-arms the Back guard in a room only on the second pageshow-only
+    return" and `src/core/__tests__/page-lifecycle.test.ts` "page navigation owner — back-forward
+    cache return (initPageNavigation)".
 - **Status:** `duplicated`. Phase 0d (names), Phase 2 (unload-exemption claims; the navigation
   owner and Back fallback in a train of its own; page transitions in one dispatch).
 

@@ -20,9 +20,16 @@
  * and runs if that navigation settles in this document; a waiting request
  * with the same message joins the one already waiting. A direct reset asked
  * for while any navigation holds the page is still refused (first wins).
+ *
+ * The page transitions that end an attempt (pagehide, pageshow, a visible
+ * return) reach this owner through one dispatch (C6-6), installed once by
+ * initPageNavigation, or by the first attempt when nothing installed it yet.
+ * Its three listeners use the capture phase, so they run before the Back
+ * guard's bubble-phase resume whatever the init order. The dispatch also owns
+ * the single bounded reload of a document the back-forward cache returns.
  */
 
-import { clearIntentionalNav, markIntentionalNav } from './page-lifecycle.ts';
+import { clearIntentionalNav, markIntentionalNav, revealLiveShell } from './page-lifecycle.ts';
 import { log } from './log.ts';
 import {
   beginFencedReload,
@@ -92,9 +99,26 @@ interface ReloadRequest {
   readonly callbacks: Array<() => void>;
 }
 
+/** What the back-forward cache recovery needs from the app shell. */
+interface PageNavigationDeps {
+  /** The session role ('idle' outside a session). */
+  getRole: () => string;
+  /** The reset message of the bounded reload after a back-forward cache return. */
+  bfcacheReloadMessage: () => string;
+  log?: { info: (message: string, ...args: unknown[]) => void };
+}
+
 let _state: PageNavigationState = IDLE;
 let _releaseHandler: (() => void) | null = null;
 const _reloadQueue: ReloadRequest[] = [];
+let _transitionDeps: PageNavigationDeps | null = null;
+let _transitionDispatchInstalled = false;
+/**
+ * A failed reload can return the same document from the back-forward cache.
+ * Retrying on every return loops the reset screen, so one document gets one
+ * automatic recovery reload.
+ */
+let _bfcacheRetryUsed = false;
 
 /**
  * Let the window layer re-derive its state after an abandoned reset releases
@@ -158,24 +182,99 @@ function restoreReturnedVisibleNavigation(): void {
   if (document.visibilityState === 'visible') restoreReturnedNavigation();
 }
 
-function addReturnListeners(): void {
-  // beforeunload can still be cancelled by another listener or the browser.
-  // pagehide is the reliable boundary that this document actually left.
-  window.addEventListener('pagehide', markNavigationCommitted, true);
-  // A stalled iOS navigation can subsequently return the same document via
-  // pageshow, or only foreground it again. Either signal must make the old
-  // shell interactive instead of preserving a permanent reset screen.
-  // Keep this in the ordinary listener phase. page-lifecycle's earlier
-  // pageshow handler must get the first chance to replace a returned reset
-  // with its single bounded reload attempt.
-  window.addEventListener('pageshow', restoreReturnedNavigation, false);
-  document.addEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
+/**
+ * The document came back from the back-forward cache. An active session's
+ * runtime resources went stale there, and a confirmed Back leave returns idle
+ * but still behind its reset screen, so either gets one fresh reload; a
+ * returned reset is settled first, so a rejected reload cannot strand the page.
+ */
+function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
+  const role = deps.getRole();
+  const resetPending = _state.phase !== 'idle';
+  if (role === 'idle' && !resetPending) return;
+
+  if (_state.phase !== 'idle') {
+    try {
+      settle(_state.attempt, 'recovered');
+    } catch {
+      // Keep the live document visible even if reset cleanup is partial.
+    }
+  }
+
+  if (_bfcacheRetryUsed) {
+    // The prior reload left and returned to this exact document. Stop
+    // retrying automatically; the service worker's bounded navigation
+    // fallback or a later user action can recover without a reload loop.
+    clearIntentionalNav();
+    deps.log?.info('[PageLifecycle] bfcache reload returned; keeping recovered shell visible');
+    return;
+  }
+  _bfcacheRetryUsed = true;
+  deps.log?.info(
+    resetPending
+      ? '[PageLifecycle] Restored a pending session reset from bfcache. Reloading'
+      : '[PageLifecycle] Restored from bfcache with active session. Reloading',
+  );
+  if (role !== 'idle') markIntentionalNav(); // avoid prompting on the reload itself
+  try {
+    scheduleDocumentReload(deps.bfcacheReloadMessage());
+  } catch {
+    // A failed reload must not suppress a later user-driven unload.
+    clearIntentionalNav();
+  }
 }
 
-function removeReturnListeners(): void {
-  window.removeEventListener('pagehide', markNavigationCommitted, true);
-  window.removeEventListener('pageshow', restoreReturnedNavigation, false);
-  document.removeEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
+// beforeunload can still be cancelled by another listener or the browser.
+// pagehide is the reliable boundary that this document actually left.
+function onPageHide(): void {
+  markNavigationCommitted();
+}
+
+// Fresh and back-forward cache pageshows both prove that this document is the
+// live surface again. A stalled iOS navigation can also return the same
+// document through pageshow, or only foreground it (onVisibilityChange);
+// either must make the old shell interactive instead of keeping a permanent
+// reset screen.
+function onPageShow(event: Event): void {
+  revealLiveShell();
+  const persisted = (event as PageTransitionEvent).persisted === true;
+  if (persisted && _transitionDeps) recoverFromBackForwardCache(_transitionDeps);
+  else restoreReturnedNavigation();
+}
+
+function onVisibilityChange(): void {
+  restoreReturnedVisibleNavigation();
+}
+
+/** Install the one page-transition dispatch, once per document. */
+function ensurePageTransitionDispatch(): void {
+  if (_transitionDispatchInstalled) return;
+  _transitionDispatchInstalled = true;
+  window.addEventListener('pagehide', onPageHide, true);
+  window.addEventListener('pageshow', onPageShow, true);
+  document.addEventListener('visibilitychange', onVisibilityChange, true);
+}
+
+function removePageTransitionDispatch(): void {
+  _transitionDispatchInstalled = false;
+  window.removeEventListener('pagehide', onPageHide, true);
+  window.removeEventListener('pageshow', onPageShow, true);
+  document.removeEventListener('visibilitychange', onVisibilityChange, true);
+}
+
+/**
+ * Install the page-transition dispatch with what its back-forward cache
+ * recovery needs. The app shell calls it once at bootstrap; dispose is for
+ * tests that boot the shell again.
+ */
+export function initPageNavigation(deps: PageNavigationDeps): { dispose(): void } {
+  _transitionDeps = deps;
+  ensurePageTransitionDispatch();
+  return {
+    dispose() {
+      if (_transitionDeps === deps) _transitionDeps = null;
+    },
+  };
 }
 
 function ensureOverlay(): HTMLElement {
@@ -238,8 +337,8 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
 }
 
 /**
- * Take the reset surface down: timers, inert claims, interaction blockers and
- * return listeners, then focus, the window layer and the overlay. Runs while
+ * Take the reset surface down: timers, inert claims and interaction blockers,
+ * then focus, the window layer and the overlay. Runs while
  * the attempt still reports pending; with no attempt it only clears leftovers.
  */
 function releaseResetSurface(attempt: NavigationAttempt | null): void {
@@ -251,7 +350,6 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
   }
 
   removeInteractionBlockers();
-  removeReturnListeners();
 
   const overlay = document.getElementById(OVERLAY_ID);
   const previousFocus = attempt?.previousFocus;
@@ -361,8 +459,8 @@ function beginAttempt(
     previousFocus: null,
   };
   _state = { phase: 'painting', attempt };
+  ensurePageTransitionDispatch();
   showResetOverlay(message, attempt);
-  addReturnListeners();
 
   const runAction = () => {
     if (_state.phase !== 'painting' || _state.attempt !== attempt) return;
@@ -455,4 +553,7 @@ export function scheduleDocumentReload(message: string, onRecovered?: () => void
 export function __resetSessionResetForTests(): void {
   _reloadQueue.length = 0;
   restoreSessionReset();
+  removePageTransitionDispatch();
+  _transitionDeps = null;
+  _bfcacheRetryUsed = false;
 }

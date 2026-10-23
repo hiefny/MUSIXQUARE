@@ -5,9 +5,9 @@
  * (structural plan increment C6-2, Phase 0c, built just in time for Phase 2).
  *
  * Registry records (docs/design/resource-ownership-registry.md):
- * - RO-23 App-owned page navigation: the session reset, the document-reload
- *   queue and claim fence joined by scheduleDocumentReload, the unload
- *   exemption, and the back-forward cache retry in page-lifecycle.
+ * - RO-23 App-owned page navigation: the session reset with its reload queue
+ *   and page-transition dispatch (the back-forward cache retry, in
+ *   page-lifecycle until C6-6), the PRO claim fence, and the unload exemption.
  * - RO-24 `inert` page lock and which surface is on top.
  * - RO-30 Back-button history entries (guard re-arm around a pending reset).
  * - RO-22 Waiting service worker activation, only as far as the logo hard
@@ -42,6 +42,10 @@
  *   pin; the test records the current state so the old one is not restored.
  * - "[replaced by X: C6-n]": increment n replaces the requester shape the test
  *   drives with X; it rewrites the test on X and keeps the outcome.
+ * - "[kept: C6-n]": increment n could have kept or flipped this and kept it
+ *   (with the owner decision when one applies); the comment says why.
+ * - "[added: C6-n]" (or "[<variant> added: C6-n]"): increment n added this pin
+ *   or this variant of it, red before n and green after.
  * Pins read the unload exemption at its boundary, a dispatched beforeunload
  * (`beforeunloadPrompts`), not page-lifecycle's internal flag, so C6-7's
  * claims keep every pin except the ones it flips.
@@ -688,12 +692,13 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     document.body.classList.remove('fouc-loaded');
     s.returnFromBfcache('pageshow-first');
 
-    // page-lifecycle.ts:166-207: reveal, restore the stale reset, mark the
-    // exemption, then one fresh reload through the owner.
+    // The owner's pageshow dispatch (session-reset.ts, C6-6; page-lifecycle
+    // until then): reveal, settle the stale reset, mark the exemption, then
+    // one fresh reload through the owner.
     expect(document.body.classList.contains('fouc-loaded')).toBe(true);
     expect(isSessionResetPending()).toBe(true);
     expect(s.resetMessage()).toBe(MSG_REFRESHING);
-    // The pre-mark at page-lifecycle.ts:201, before the fresh reload's action.
+    // The pre-mark in the owner's bfcache recovery, before the fresh reload's action.
     // Flips in C6-7: the pre-mark is deleted, so the page asks to confirm an
     // unload until the action starts (true here).
     expect(s.beforeunloadPrompts()).toBe(false);
@@ -718,11 +723,11 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
 
   // The return order is not settled across engines and devices (see the
   // harness: current Chromium and WebKit sources lead with visibility; real
-  // iOS is a device check). The reset's capture-phase visibility listener
-  // (session-reset.ts:279) restores first when visibility leads, and
-  // page-lifecycle then sees no pending reset (page-lifecycle.ts:169-170).
-  // A flip in C6-6 would come from one handler deciding on "pending at
-  // return": the visible-first row outside a room would then reload too.
+  // iOS is a device check). The owner's capture-phase visibility listener
+  // restores first when visibility leads, and its pageshow then sees no
+  // pending reset. C6-6 kept this: its one dispatch decides on the live state
+  // at each event, as the two listeners did, not on "pending at return",
+  // which would make the visible-first row outside a room reload too.
   // The departure itself settles nothing: pagehide commits the reset and the
   // visibilitychange(hidden) after it restores nothing.
   it.each([
@@ -731,7 +736,7 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     ['pageshow-first', 'in a room', 1, IN_ROOM, true],
     ['visible-first', 'in a room', 1, IN_ROOM, true],
   ] as const)(
-    '%s return %s: %i fresh reload(s) [owner decision / C6-6: keep or flip]',
+    '%s return %s: %i fresh reload(s) [kept: C6-6]',
     async (order, _where, freshReloads, app, pendingAfterReturn) => {
       const s = boot({ app });
       scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
@@ -750,11 +755,11 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     },
   );
 
-  // Listener phases: the reset's visibility listener is a capture listener on
-  // document (session-reset.ts:279), the guard's is a bubble listener
-  // (app.ts:984-987), and page-lifecycle's pageshow listener (app.ts:1305)
-  // precedes the guard's resume (app.ts:983). With a window open outside a
-  // room, a guard is needed, so the order decides whether one is armed.
+  // Listener phases: the owner's pagehide, pageshow and visibility listeners
+  // are capture listeners (session-reset.ts, C6-6), the guard's are bubble
+  // listeners (app.ts:982-987), so the owner always runs first. With a window
+  // open outside a room, a guard is needed, so the order decides whether one
+  // is armed.
   async function pendingResetWithWindowAndAbsorbedBack(): Promise<PageNavigationShell> {
     const s = boot({ app: OUTSIDE_ROOM });
     s.openDialog({ closeOnBack: true });
@@ -775,7 +780,7 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     ['pageshow-first', false],
     ['pageshow-only', false],
   ] as const)(
-    'a %s return of a pending reset with a window open arms the Back guard: %s, and still after the fresh reload recovers [owner decision / C6-6: keep or flip] [flips: C6-12 for the pageshow orders]',
+    'a %s return of a pending reset with a window open arms the Back guard: %s, and still after the fresh reload recovers [kept: C6-6] [flips: C6-12 for the pageshow orders]',
     async (order, armed) => {
       const s = await pendingResetWithWindowAndAbsorbedBack();
       s.leaveDocument(true);
@@ -812,10 +817,21 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     expect(s.sinks.count('reload')).toBe(0);
   });
 
-  it.each(['pageshow-first', 'visible-first', 'pageshow-only'] as const)(
-    're-arms the Back guard in a room only on the second %s return, after the bounded reload stops [keeps: C6-6, C6-12]',
-    async (order) => {
-      const s = boot({ app: IN_ROOM });
+  // Until C6-6 the 'pageshow-only' rows relied on page-lifecycle's bubble
+  // pageshow listener being registered before the guard's resume (the
+  // app.ts init order); with the guard booted first the guard resumed while
+  // the returned reset was still pending and stayed unarmed. The owner's
+  // capture-phase dispatch gives the same outcome in both init orders.
+  it.each(
+    (['app', 'guard-first'] as const).flatMap((initOrder) =>
+      (['pageshow-first', 'visible-first', 'pageshow-only'] as const).map(
+        (order) => [initOrder, order] as const,
+      ),
+    ),
+  )(
+    'with the %s init order, re-arms the Back guard in a room only on the second %s return, after the bounded reload stops [keeps: C6-6, C6-12] [guard-first added: C6-6]',
+    async (initOrder, order) => {
+      const s = boot({ app: IN_ROOM, initOrder });
       await advance(GUARD_ARM_MS);
       expect(s.history.marker()).toBe('guard');
 
@@ -841,9 +857,9 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
       s.leaveDocument(true);
       s.returnFromBfcache(order);
       await advance(GUARD_ARM_MS);
-      // For 'pageshow-only' only the pageshow resume can re-arm: it relies on
-      // page-lifecycle's listener (app.ts:1305) running before the guard's
-      // resume (app.ts:983), the init order the C6-6 dispatch must keep.
+      // For 'pageshow-only' only the pageshow resume can re-arm: the owner's
+      // capture-phase pageshow settles the returned reset before the guard's
+      // bubble-phase resume, in either init order.
       expect(isSessionResetPending()).toBe(false);
       expect(s.history.marker()).toBe('guard');
       expect(s.history.pushes).toHaveLength(2);

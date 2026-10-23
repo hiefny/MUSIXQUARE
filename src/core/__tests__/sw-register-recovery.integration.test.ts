@@ -25,6 +25,7 @@ vi.mock('../log.ts', () => ({
 vi.mock('../page-lifecycle.ts', () => ({
   clearIntentionalNav: integrationMocks.clearIntentionalNav,
   markIntentionalNav: integrationMocks.markIntentionalNav,
+  revealLiveShell: vi.fn(),
 }));
 vi.mock('../state.ts', () => ({ getState: integrationMocks.getState }));
 vi.mock('../../i18n/index.ts', () => ({ t: vi.fn((key: string) => key) }));

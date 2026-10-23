@@ -1027,7 +1027,12 @@ describe('Dialog System', () => {
         // The check mark sits after the copy, on the reading end edge.
         expect(surface.lastElementChild?.classList.contains('dialog-choice-check')).toBe(true);
         expect(surface.lastElementChild?.getAttribute('aria-hidden')).toBe('true');
-        expect(surface.lastElementChild?.querySelector('svg path')).not.toBeNull();
+        // The language list's angular check: butt ends and a mitred corner.
+        const checkPath = surface.lastElementChild?.querySelector('svg path');
+        expect(checkPath?.getAttribute('d')).toBe('M4.65 11.95l4.55 4.55L19.35 6.35');
+        expect(checkPath?.getAttribute('stroke-width')).toBe('2.4');
+        expect(checkPath?.getAttribute('stroke-linecap')).toBe('butt');
+        expect(checkPath?.getAttribute('stroke-linejoin')).toBe('miter');
         // Named by the label alone and described by the detail, read once each.
         const name = document.getElementById(radio.getAttribute('aria-labelledby')!)!;
         const detail = document.getElementById(radio.getAttribute('aria-describedby')!)!;

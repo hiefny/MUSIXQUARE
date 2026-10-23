@@ -1372,10 +1372,10 @@ describe('playlist queue identity rendering and actions', () => {
     expect(check.previousElementSibling?.classList.contains('track-name')).toBe(true);
     expect(
       check.querySelector('svg[aria-hidden="true"] path.playlist-select-minus')?.getAttribute('d'),
-    ).toBe('M7 12h10');
-    // The language list's check mark, shown once the row is selected.
+    ).toBe('M6.05 12h11.9');
+    // The language list's angular check mark, shown once the row is selected.
     expect(check.querySelector('path.playlist-select-mark')?.getAttribute('d')).toBe(
-      'M5 12.5l4.2 4.2L19 6.9',
+      'M4.65 11.95l4.55 4.55L19.35 6.35',
     );
     expect(check.getAttribute('aria-pressed')).toBe('false');
     expect(check.title).toBe(t('playlist.select_for_deletion', { title: 'A' }));

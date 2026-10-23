@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { E2E_APP_ORIGIN } from './config.ts';
+import { readInkBox, snapToDevicePixels } from './helpers/ink.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import { openChatDrawer, sendChat, waitForState } from './helpers/wait.ts';
@@ -111,6 +112,55 @@ test.describe('Critical browser release gate', () => {
         await expect(banner).toBeVisible();
         await dismiss.click();
         await expect(banner).toBeHidden();
+      }
+    }
+  });
+
+  test('centres the notice dismiss X on the header time in both page directions', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await injectPeerServer(page);
+    await page.route('**/api/announcement/current', (route) =>
+      route.fulfill({ json: { enabled: false } }),
+    );
+    await setupHostAndStart(page);
+    await openChatDrawer(page);
+    const banner = page.locator('#chat-pinned-notice');
+    const label = page.locator('#chat-pinned-notice-label');
+    const time = page.locator('#chat-pinned-notice-time');
+    const close = page.locator('#btn-chat-notice-close .chat-pinned-notice-close');
+    for (const direction of ['ltr', 'rtl']) {
+      // A label in a taller fallback font must not move the time off the X's line.
+      for (const labelText of [null, 'إعلان · HOST']) {
+        await page.evaluate(
+          ({ direction, id }) => {
+            document.documentElement.dir = direction;
+            const bus = (
+              window as unknown as { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } }
+            ).__MUSIXQUARE_BUS__;
+            bus.emit('chat:notice-message', 'HOST', 'Drop your playlist recs', Date.now(), {
+              source: 'service',
+              id,
+            });
+          },
+          { direction, id: `${direction}-${labelText ?? 'label'}` },
+        );
+        await expect(banner).toBeVisible();
+        if (labelText) {
+          await label.evaluate((element, text) => {
+            element.textContent = text;
+          }, labelText);
+        }
+        await snapToDevicePixels(banner);
+        const closeInk = await readInkBox(page, banner, close);
+        const timeInk = await readInkBox(page, banner, time);
+        const width = (await banner.boundingBox())!.width;
+        expect(Math.abs(closeInk.centerY - timeInk.centerY)).toBeLessThanOrEqual(0.5);
+        // The X keeps the label's 16px inset on its own side of the banner.
+        const inset = direction === 'ltr' ? width - closeInk.right : closeInk.left;
+        expect(inset).toBeGreaterThanOrEqual(15.5);
+        expect(inset).toBeLessThanOrEqual(17.5);
       }
     }
   });

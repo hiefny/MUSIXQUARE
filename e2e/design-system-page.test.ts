@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readInkBox, snapToDevicePixels } from './helpers/ink.ts';
 
 const VIEWPORTS = [
   { height: 800, width: 360 },
@@ -732,4 +733,26 @@ test('keeps the Design System rail and examples coherent at every layout size', 
   }
 
   expect(consoleErrors).toEqual([]);
+});
+
+test('centres the pinned notice X on its header time, as the app does', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  for (const viewport of [
+    { height: 844, width: 390 },
+    { height: 800, width: 1280 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/designsystem');
+    const banner = page.locator('.chat-demo-stage .chat-pinned-notice');
+    await banner.scrollIntoViewIfNeeded();
+    await page.evaluate(() => document.fonts.ready);
+    await snapToDevicePixels(banner);
+    const closeInk = await readInkBox(page, banner, banner.locator('.chat-pinned-notice-close'));
+    const timeInk = await readInkBox(page, banner, banner.locator('.chat-pinned-notice-time'));
+    const width = (await banner.boundingBox())!.width;
+    expect(Math.abs(closeInk.centerY - timeInk.centerY)).toBeLessThanOrEqual(0.5);
+    // The X keeps the label's 16px inset, as in the app.
+    expect(width - closeInk.right).toBeGreaterThanOrEqual(15.5);
+    expect(width - closeInk.right).toBeLessThanOrEqual(17.5);
+  }
 });

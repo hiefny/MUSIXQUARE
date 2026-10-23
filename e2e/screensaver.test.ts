@@ -1121,14 +1121,29 @@ test('brightens visibly and smoothly with ordinary bass while a file plays, exce
   const peak = Math.max(...samples.map((sample) => sample.brightness));
   expect(peak).toBeGreaterThan(1.06);
   expect(peak).toBeLessThanOrEqual(1.16);
-  let largestStep = 0;
-  for (let i = 1; i < samples.length; i++)
-    largestStep = Math.max(
-      largestStep,
-      Math.abs(samples[i]!.brightness - samples[i - 1]!.brightness),
-    );
-  // Eased per frame: the lift never lands in one step.
-  expect(largestStep).toBeLessThan(0.04);
+  // Eased per frame: the lift never lands in one step. The glow moves toward its
+  // goal with a 60 ms attack and a 0.16 ceiling (src/ui/screensaver-bass.ts), so
+  // a frame of `interval` ms can change the brightness by at most
+  // 0.16 × (1 − e^(−interval/60)): about 0.039 at 60 Hz, against about 0.09 for
+  // this kick if the lift landed at once. Bound each step by the frame interval
+  // actually sampled instead of a fixed 0.04, which one dropped frame on a busy
+  // CI runner reaches. The glow's own frame callback may run just before or just
+  // after this sampler, so allow the longer of the two adjacent intervals. The
+  // tolerance covers rounding to 3 decimals and a cleared filter, which stands
+  // for any brightness below 1.001.
+  const BASS_MAX_LIFT = 0.16;
+  const BASS_ATTACK_MS = 60;
+  const BRIGHTNESS_ROUNDING = 0.0015;
+  const oversizedSteps = samples.slice(1).flatMap((sample, index) => {
+    const previous = samples[index]!;
+    const before = samples[index - 1];
+    const interval = Math.max(sample.t - previous.t, before ? previous.t - before.t : 0);
+    const step = Math.abs(sample.brightness - previous.brightness);
+    const allowed =
+      BASS_MAX_LIFT * (1 - Math.exp(-interval / BASS_ATTACK_MS)) + BRIGHTNESS_ROUNDING;
+    return step > allowed ? [{ t: sample.t, interval, step, allowed }] : [];
+  });
+  expect(oversizedSteps).toEqual([]);
   // Fast attack: most of a kick's lift arrives within about 100 ms, not instantly.
   const firstPeak = Math.max(
     ...samples.filter((sample) => sample.t < 750).map((sample) => sample.brightness),

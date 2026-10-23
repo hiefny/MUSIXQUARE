@@ -107,9 +107,9 @@ describe('a sign-out in one app tab', () => {
 
     // app-c sees the same nonce on both transports and reads once.
     // Known gap: the events page has no nonce dedupe, so each copy costs a
-    // read. Phase 2 Train D brings this copy into C8-I10's scope, but the C8
-    // design keeps event.ts's own check (I4 step 4) and plans no dedupe here;
-    // this line changes only if Train D adds one.
+    // read. Phase 2 Train D (C8-I10) kept event.ts's own receiver and check
+    // (owner decision O6; C8-I4 step 4) and added no dedupe, so this line
+    // still holds; only a later events-page change would move it.
     expect(reads(['app-b', 'app-c', 'events'], before)).toEqual({
       'app-b': 0,
       'app-c': 1,
@@ -230,8 +230,8 @@ describe('an OAuth completion page', () => {
 
   it('collapses the opener, BroadcastChannel and storage copies into one read when the opener survives', async () => {
     // Both the app (ui/account.ts) and the events page sever the opener of
-    // their own popup, so the window-message copy is dead for them. session.ts
-    // and ui/account.ts still listen for it; C8-I10 keeps window message
+    // their own popup, so the window-message copy is dead for them. The
+    // session receiver still listens for it: C8-I10 kept window message
     // events as a transport of the single receiver.
     harness.server.account = MINSU;
     const b = await startedTab('app-b');

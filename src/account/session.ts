@@ -24,6 +24,8 @@ import {
   createAccountRefreshMessage,
   parseAccountPulse,
   parseAccountPulseStorageValue,
+  type AccountAuthOutcome,
+  type AccountPulse,
 } from './account-sync-protocol.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
@@ -58,6 +60,7 @@ let _accountLoginResultBatchInFlight = false;
 let _mutationDepth = 0;
 let _lastRefreshStartedAt = 0;
 let _lifecycleBound = false;
+let _pulseReceiverBound = false;
 let _syncChannel: BroadcastChannel | null = null;
 let _recoveryTimer: number | null = null;
 let _recoveryAttempt = 0;
@@ -94,6 +97,16 @@ export type AccountLoginPopupOptions = {
   /** Open Google's account chooser even when this tab already has a session. */
   forceGoogleAccountChooser?: boolean;
 };
+
+/** An OAuth completion result for the tab whose login it names (`accountClient`). */
+export type AccountAuthResult = Readonly<{
+  outcome: AccountAuthOutcome;
+  id: string;
+  accountClient: string;
+}>;
+
+type AccountAuthResultListener = (result: AccountAuthResult) => void;
+const _accountAuthResultListeners = new Set<AccountAuthResultListener>();
 
 type AccountLoginPopupHandler = (
   options?: Readonly<AccountLoginPopupOptions>,
@@ -306,18 +319,51 @@ function refreshAfterUserReturns(): void {
   observeAccountSessionOperation(refreshAccountSession(true, false), 'foreground refresh');
 }
 
-function refreshAfterPopupMessage(event: MessageEvent): void {
-  if (event.origin !== window.location.origin) return;
-  const pulse = parseAccountPulse(event.data);
+/**
+ * The tab's single account pulse receiver (C8-I10), for window messages,
+ * storage events and BroadcastChannel alike. A complete login result goes to
+ * the account UI's subscribers first, the order the UI's own listeners had
+ * when it bound them before the session's; a throwing subscriber is reported
+ * and skipped, as a separate listener was. The session then reconciles the
+ * pulse, but only once its lifecycle was bound before this pulse arrived: a
+ * context that has only subscribed (the login popup opened before any read)
+ * reconciles a result through the subscriber's own login read, as before.
+ */
+function receiveAccountPulse(pulse: AccountPulse | null, refreshWithoutPulse = false): void {
+  const reconcile = _lifecycleBound;
+  if (pulse?.auth && pulse.id !== null && pulse.accountClient !== null) {
+    const result: AccountAuthResult = {
+      outcome: pulse.auth,
+      id: pulse.id,
+      accountClient: pulse.accountClient,
+    };
+    for (const listener of [..._accountAuthResultListeners]) {
+      try {
+        listener(result);
+      } catch (error) {
+        log.error('[Account] Login result subscriber failed', error);
+      }
+    }
+  }
+  if (!reconcile) return;
   if (pulse) reconcileExternalAccountChange(pulse.id, pulse.auth === 'success');
+  else if (refreshWithoutPulse) reconcileExternalAccountChange(null, false);
 }
 
-function refreshAfterStoragePulse(event: StorageEvent): void {
+function receiveWindowMessagePulse(event: MessageEvent): void {
+  if (event.origin !== window.location.origin) return;
+  receiveAccountPulse(parseAccountPulse(event.data));
+}
+
+function receiveStoragePulse(event: StorageEvent): void {
   if (event.key !== ACCOUNT_SYNC_STORAGE_KEY) return;
   // Any value of the key refreshes; one that is not pulse JSON (the opaque
   // token older clients stored, or a removal) as an unidentified pulse.
-  const pulse = parseAccountPulseStorageValue(event.newValue);
-  reconcileExternalAccountChange(pulse?.id ?? null, pulse?.auth === 'success');
+  receiveAccountPulse(parseAccountPulseStorageValue(event.newValue), true);
+}
+
+function receiveBroadcastPulse(event: MessageEvent): void {
+  receiveAccountPulse(parseAccountPulse(event.data));
 }
 
 function refreshAfterVisibilityChange(): void {
@@ -330,11 +376,6 @@ function refreshAfterOnline(): void {
 
 function refreshAfterPageShow(): void {
   refreshAfterUserReturns();
-}
-
-function refreshAfterBroadcastMessage(event: MessageEvent): void {
-  const pulse = parseAccountPulse(event.data);
-  if (pulse) reconcileExternalAccountChange(pulse.id, pulse.auth === 'success');
 }
 
 /**
@@ -361,10 +402,11 @@ function startExternalAccountReconciliation(): void {
 
 function reconcileExternalAccountChange(refreshId: string | null, loginSuccess = false): void {
   if (refreshId !== null && loginSuccess) {
-    // Identified pulses can arrive through the UI and session listeners in
-    // either order (and in separate tasks for BroadcastChannel/storage). Keep
-    // one bounded, replayable operation per nonce so every consumer observes
-    // the same authoritative response without starting another request.
+    // An identified result arrives once per transport, in separate tasks, and
+    // the account UI asks for the same login read when the result is its own.
+    // Keep one bounded, replayable operation per nonce so every consumer
+    // observes the same authoritative response without starting another
+    // request.
     observeAccountSessionOperation(reconcileAccountLoginResult(refreshId), 'login-result');
     return;
   }
@@ -385,23 +427,52 @@ function reconcileExternalAccountChange(refreshId: string | null, loginSuccess =
   startExternalAccountReconciliation();
 }
 
+/**
+ * The pulse listeners and this tab's one channel, which also sends its
+ * mutation pulses. BroadcastChannel never delivers a message to the object
+ * that posted it, so this tab never receives its own pulse.
+ */
+function bindAccountPulseReceiver(): void {
+  if (_pulseReceiverBound || typeof window === 'undefined' || typeof document === 'undefined') {
+    return;
+  }
+  _pulseReceiverBound = true;
+  window.addEventListener('message', receiveWindowMessagePulse);
+  window.addEventListener('storage', receiveStoragePulse);
+  if (typeof BroadcastChannel !== 'undefined') {
+    try {
+      _syncChannel = new BroadcastChannel(ACCOUNT_SYNC_CHANNEL);
+      _syncChannel.addEventListener('message', receiveBroadcastPulse);
+    } catch {
+      _syncChannel = null;
+    }
+  }
+}
+
 function bindAccountSessionLifecycle(): void {
   if (_lifecycleBound || typeof window === 'undefined' || typeof document === 'undefined') return;
   _lifecycleBound = true;
   window.addEventListener('focus', refreshAfterUserReturns);
   window.addEventListener('online', refreshAfterOnline);
   window.addEventListener('pageshow', refreshAfterPageShow);
-  window.addEventListener('message', refreshAfterPopupMessage);
-  window.addEventListener('storage', refreshAfterStoragePulse);
   document.addEventListener('visibilitychange', refreshAfterVisibilityChange);
-  if (typeof BroadcastChannel !== 'undefined') {
-    try {
-      _syncChannel = new BroadcastChannel(ACCOUNT_SYNC_CHANNEL);
-      _syncChannel.addEventListener('message', refreshAfterBroadcastMessage);
-    } catch {
-      _syncChannel = null;
-    }
-  }
+  bindAccountPulseReceiver();
+}
+
+/**
+ * Receive the OAuth completion results that reach this tab, on any transport,
+ * before the session reconciles them. Results for other tabs arrive too: the
+ * subscriber filters by its accountClient. Subscribing binds the pulse
+ * receiver only, not the focus, online, pageshow and visibility refreshes, so
+ * a context that only opens the login popup reads nothing until a result
+ * arrives.
+ */
+export function subscribeAccountAuthResults(listener: AccountAuthResultListener): () => void {
+  bindAccountPulseReceiver();
+  _accountAuthResultListeners.add(listener);
+  return () => {
+    _accountAuthResultListeners.delete(listener);
+  };
 }
 
 export function startAccountSessionRefresh(): void {
@@ -699,19 +770,23 @@ export function __resetAccountSessionForTests(): void {
     window.removeEventListener('focus', refreshAfterUserReturns);
     window.removeEventListener('online', refreshAfterOnline);
     window.removeEventListener('pageshow', refreshAfterPageShow);
-    window.removeEventListener('message', refreshAfterPopupMessage);
-    window.removeEventListener('storage', refreshAfterStoragePulse);
     document.removeEventListener('visibilitychange', refreshAfterVisibilityChange);
   }
+  if (_pulseReceiverBound && typeof window !== 'undefined') {
+    window.removeEventListener('message', receiveWindowMessagePulse);
+    window.removeEventListener('storage', receiveStoragePulse);
+  }
   try {
-    _syncChannel?.removeEventListener('message', refreshAfterBroadcastMessage);
+    _syncChannel?.removeEventListener('message', receiveBroadcastPulse);
     _syncChannel?.close();
   } catch {
     // A mocked or already-closed channel is harmless during test teardown.
   }
   _syncChannel = null;
+  _accountAuthResultListeners.clear();
   clearAccountRecovery();
   _lifecycleBound = false;
+  _pulseReceiverBound = false;
   // Never reset an async generation to a reusable value: a late operation
   // from the previous lifecycle could otherwise collide with generation 1 of
   // the next lifecycle and overwrite the fresh account state.

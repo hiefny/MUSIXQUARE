@@ -14,6 +14,8 @@ import {
   saveAccountNickname,
   signOutAccount,
   startAccountSessionRefresh,
+  subscribeAccountAuthResults,
+  type AccountAuthResult,
 } from '../session.ts';
 import {
   __resetAccountStateForTests,
@@ -1593,5 +1595,233 @@ describe('account session mutation ordering', () => {
       }),
     );
     await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('New'));
+  });
+});
+
+/**
+ * C8-I10: session.ts is the tab's single pulse receiver for window messages,
+ * storage events and BroadcastChannel. The account UI subscribes to complete
+ * login results (outcome, nonce and the tab that opened the login) instead of
+ * binding its own listeners; account-pulse-receivers.test.ts runs both modules
+ * together on the same-origin fake.
+ */
+describe('the single account pulse receiver', () => {
+  const COMPLETION = {
+    type: 'refresh',
+    accountAuth: 'success',
+    id: 'result:subscriber-0001',
+    accountClient: 'client-subscriber-0001',
+  } as const;
+  const RESULT: AccountAuthResult = {
+    outcome: 'success',
+    id: COMPLETION.id,
+    accountClient: COMPLETION.accountClient,
+  };
+
+  /** A BroadcastChannel whose test side can deliver to every open instance. */
+  class DeliveringBroadcastChannel {
+    static open: DeliveringBroadcastChannel[] = [];
+    readonly name: string;
+    private readonly listeners = new Set<(event: MessageEvent) => void>();
+
+    constructor(name: string) {
+      this.name = name;
+      DeliveringBroadcastChannel.open.push(this);
+    }
+
+    static deliver(data: unknown): void {
+      for (const channel of [...DeliveringBroadcastChannel.open]) {
+        for (const listener of [...channel.listeners]) {
+          listener(new MessageEvent('message', { data }));
+        }
+      }
+    }
+
+    addEventListener(_type: 'message', listener: (event: MessageEvent) => void): void {
+      this.listeners.add(listener);
+    }
+
+    removeEventListener(_type: 'message', listener: (event: MessageEvent) => void): void {
+      this.listeners.delete(listener);
+    }
+
+    postMessage(): void {}
+
+    close(): void {
+      DeliveringBroadcastChannel.open = DeliveringBroadcastChannel.open.filter(
+        (channel) => channel !== this,
+      );
+    }
+  }
+
+  function postWindowMessage(data: unknown): void {
+    window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, data }));
+  }
+
+  function storePulse(newValue: string | null): void {
+    window.dispatchEvent(new StorageEvent('storage', { key: 'mxqr-account-refresh', newValue }));
+  }
+
+  beforeEach(() => {
+    DeliveringBroadcastChannel.open = [];
+    vi.stubGlobal('BroadcastChannel', DeliveringBroadcastChannel);
+  });
+
+  it('hands every copy of a login result to subscribers before the session reconciles it', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(ANONYMOUS))
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+    startAccountSessionRefresh();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    const received: Array<[AccountAuthResult, number]> = [];
+    subscribeAccountAuthResults((result) => received.push([result, fetchMock.mock.calls.length]));
+
+    postWindowMessage(COMPLETION);
+    storePulse(JSON.stringify(COMPLETION));
+    DeliveringBroadcastChannel.deliver(COMPLETION);
+
+    // The subscriber sees the first copy before its read starts; the session
+    // reads once for all three (one nonce), while the subscriber keeps its own
+    // once-per-result set (ui/account.ts).
+    expect(received).toEqual([
+      [RESULT, 1],
+      [RESULT, 2],
+      [RESULT, 2],
+    ]);
+    expect(DeliveringBroadcastChannel.open).toHaveLength(1);
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('hands subscribers only complete login results and still reconciles every pulse', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse(ANONYMOUS));
+    vi.stubGlobal('fetch', fetchMock);
+    startAccountSessionRefresh();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const received: AccountAuthResult[] = [];
+    subscribeAccountAuthResults((result) => received.push(result));
+
+    const { accountClient: _dropped, ...withoutClient } = COMPLETION;
+    const incomplete: ReadonlyArray<readonly [label: string, deliver: () => void]> = [
+      ['a mutation pulse', () => postWindowMessage({ type: 'refresh', id: 'refresh:s-0001' })],
+      ['no accountClient', () => postWindowMessage({ ...withoutClient, id: 'result:s-0002' })],
+      [
+        'an unknown accountAuth',
+        () => storePulse(JSON.stringify({ ...COMPLETION, accountAuth: 'x', id: 'result:s-0003' })),
+      ],
+      [
+        'an id out of bounds',
+        () => DeliveringBroadcastChannel.deliver({ ...COMPLETION, id: 'r'.repeat(161) }),
+      ],
+      ['a legacy opaque token', () => storePulse('legacy-opaque-token-0001')],
+    ];
+    for (const [label, deliver] of incomplete) {
+      const before = fetchMock.mock.calls.length;
+      deliver();
+      await vi.waitFor(() => expect(fetchMock.mock.calls.length, label).toBe(before + 1));
+      await vi.waitFor(() => expect(getAccountSnapshot().status, label).toBe('anonymous'));
+    }
+    expect(received).toEqual([]);
+  });
+
+  it('binds only the receiver for a subscriber: nothing is read before the session lifecycle binds', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse(ANONYMOUS));
+    vi.stubGlobal('fetch', fetchMock);
+    const received: AccountAuthResult[] = [];
+    subscribeAccountAuthResults((result) => received.push(result));
+    expect(DeliveringBroadcastChannel.open).toHaveLength(1);
+
+    vi.setSystemTime(Date.now() + 30_001);
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('pageshow'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    postWindowMessage({ type: 'refresh', id: 'refresh:popup-only-0001' });
+    storePulse(JSON.stringify({ type: 'refresh', id: 'refresh:popup-only-0002' }));
+    DeliveringBroadcastChannel.deliver(COMPLETION);
+    await Promise.resolve();
+    expect(received).toEqual([RESULT]);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // The lifecycle reuses the receiver's channel and reconciles later pulses.
+    startAccountSessionRefresh();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(DeliveringBroadcastChannel.open).toHaveLength(1);
+    DeliveringBroadcastChannel.deliver({ type: 'refresh', id: 'refresh:popup-only-0003' });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it('reconciles a result once when the subscriber that accepts it binds the lifecycle', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+    // Like ui/account.ts in a popup-only context: the result itself starts the
+    // exact login read, which binds the session lifecycle while the receiver
+    // is delivering. Every copy shares that one read.
+    const operations: unknown[] = [];
+    subscribeAccountAuthResults((result) =>
+      operations.push(reconcileAccountLoginResult(result.id)),
+    );
+
+    DeliveringBroadcastChannel.deliver(COMPLETION);
+    storePulse(JSON.stringify(COMPLETION));
+
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(operations[0]).toBeInstanceOf(Promise);
+    expect(operations[1]).toBe(operations[0]);
+  });
+
+  it('still reconciles a pulse when a subscriber throws', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(ANONYMOUS))
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+    const reported = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    startAccountSessionRefresh();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    const received: AccountAuthResult[] = [];
+    subscribeAccountAuthResults(() => {
+      throw new Error('subscriber failed');
+    });
+    subscribeAccountAuthResults((result) => received.push(result));
+
+    postWindowMessage(COMPLETION);
+
+    // Separate listeners isolated each receiver before C8-I10; the single
+    // receiver keeps that isolation per subscriber.
+    expect(received).toEqual([RESULT]);
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    reported.mockRestore();
+  });
+
+  it('stops delivering after unsubscribe and unbinds the receiver at reset', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse(ANONYMOUS));
+    vi.stubGlobal('fetch', fetchMock);
+    const received: AccountAuthResult[] = [];
+    const unsubscribe = subscribeAccountAuthResults((result) => received.push(result));
+    postWindowMessage(COMPLETION);
+    unsubscribe();
+    DeliveringBroadcastChannel.deliver({ ...COMPLETION, id: 'result:subscriber-0002' });
+    expect(received).toEqual([RESULT]);
+
+    subscribeAccountAuthResults((result) => received.push(result));
+    startAccountSessionRefresh();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    __resetAccountSessionForTests();
+    expect(DeliveringBroadcastChannel.open).toEqual([]);
+
+    postWindowMessage({ ...COMPLETION, id: 'result:subscriber-0003' });
+    storePulse(JSON.stringify({ ...COMPLETION, id: 'result:subscriber-0004' }));
+    await Promise.resolve();
+    expect(received).toEqual([RESULT]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

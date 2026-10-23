@@ -1,8 +1,9 @@
 /** @vitest-environment jsdom */
 /**
- * RO-28: the two pulse receivers inside one app tab (src/account/session.ts and
- * src/ui/account.ts), characterized before C8-I10 makes session.ts the single
- * receiver (structural plan C8, Phase 2 Train D; I10 "testsFirst" (a)-(e) and
+ * RO-28: the pulse receiver inside one app tab. Characterized on the two
+ * receivers (src/account/session.ts and src/ui/account.ts) before C8-I10 made
+ * session.ts the single receiver, with ui/account.ts subscribing to its login
+ * results (structural plan C8, Phase 2 Train D; I10 "testsFirst" (a)-(e) and
  * the critique's popup-only and backgrounded-opener cases).
  *
  * Boundary: the Vitest document is app tab "app-a" on the fake origin of
@@ -13,9 +14,9 @@
  * ui/account.ts receives from window.open. Observations: session reads, the
  * transport log, toasts, and the outcome of the protected login attempt.
  *
- * C8-I10 is labelled behaviour "none", so every read count, toast and outcome
- * here must survive it. Lines that I10 does change (the second channel in this
- * document) say so.
+ * C8-I10 is labelled behaviour "none": every read count, toast and outcome
+ * here survived it. The lines it changed (the UI's second same-name channel
+ * and its second window listeners are gone) say so.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -43,6 +44,7 @@ vi.mock('../../account/activity-stats.ts', () => ({
 }));
 
 const CHANNEL = 'mxqr-account-v1';
+const STORAGE_KEY = 'mxqr-account-refresh';
 const MINSU = { nickname: 'Minsu', profileComplete: true, statsScope: 'm'.repeat(43) };
 const WELCOME = 'Welcome back\nMinsu';
 
@@ -131,7 +133,42 @@ function settledSoFar<T>(promise: Promise<T>): () => T | 'pending' | 'rejected' 
   return () => state;
 }
 
-describe('receivers in one app tab today', () => {
+describe('the single receiver in one app tab', () => {
+  it('binds one listener per pulse transport for the session and the account UI together', async () => {
+    // C8-I10: session.ts is the tab's only pulse receiver. Before it the
+    // account UI bound its own window message and storage listeners and a
+    // second channel, so every transport had two receivers here.
+    const added = vi.spyOn(window, 'addEventListener');
+    const pulseListeners = () =>
+      Object.fromEntries(
+        ['message', 'storage'].map((type) => [
+          type,
+          added.mock.calls.filter(([eventType]) => eventType === type).length,
+        ]),
+      );
+    await initSignedOut();
+    const { popup, outcome } = openProtectedLogin();
+    harness.server.account = MINSU;
+    await popup.complete('success');
+    await harness.origin.deliverAll();
+    await expect(outcome).resolves.toBe('authenticated');
+
+    expect(pulseListeners()).toEqual({ message: 1, storage: 1 });
+    expect(harness.origin.openChannels(CHANNEL).map((open) => open.id)).toEqual(['app-a#1']);
+    // Every transport still reaches the session: a later change in another
+    // tab, on storage alone, is read once.
+    harness.server.account = null;
+    harness
+      .loadSenderDocument('sender')
+      .localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ type: 'refresh', id: 'refresh:other-tab-0001' }),
+      );
+    await harness.origin.deliverAll();
+    expect(appReads()).toBe(3);
+    expect(getAccountSnapshot().status).toBe('anonymous');
+  });
+
   it('(a) a protected login delivered only by BroadcastChannel costs one read and resolves authenticated', async () => {
     await initSignedOut();
     const { popup, outcome } = openProtectedLogin();
@@ -139,26 +176,21 @@ describe('receivers in one app tab today', () => {
     harness.server.account = MINSU;
 
     await popup.complete('success', { storage: 'blocked' });
-    expect(harness.origin.pending({ to: 'app-a' }).map((task) => task.target)).toEqual([
-      'app-a#1',
-      'app-a#2',
-    ]);
+    expect(harness.origin.pending({ to: 'app-a' }).map((task) => task.target)).toEqual(['app-a#1']);
     await harness.origin.deliverAll();
 
     await expect(outcome).resolves.toBe('authenticated');
     expect(appReads()).toBe(2);
     expect(toasts()).toEqual([WELCOME]);
-    // Two channel objects in this document get the pulse, the account UI's
-    // first (created by initAccount before startAccountSessionRefresh).
-    // C8-I10 deletes the UI's channel: one delivery, with the UI subscribers
-    // still served before session.ts reconciles.
+    // C8-I10: one channel object per tab, session.ts's. Before it the account
+    // UI opened a second same-name channel (app-a#1, created by initAccount
+    // before startAccountSessionRefresh) and the pulse was delivered twice.
+    // The UI subscriber is still served before session.ts reconciles.
     expect(harness.origin.openChannels(CHANNEL)).toEqual([
       { id: 'app-a#1', doc: 'app-a', name: CHANNEL },
-      { id: 'app-a#2', doc: 'app-a', name: CHANNEL },
     ]);
     expect(harness.origin.deliveries({ to: 'app-a' }).map((entry) => entry.target)).toEqual([
       'app-a#1',
-      'app-a#2',
     ]);
   });
 
@@ -171,11 +203,10 @@ describe('receivers in one app tab today', () => {
     // message. Load the completion with the opener intact to reach the
     // listeners both receivers still keep for that transport.
     await harness.loadCompletionDocument('opener-popup', popup.completionUrl('success'), appA);
-    // C8-I10 deletes the account UI's second same-name channel: one
+    // C8-I10 deleted the account UI's second same-name channel: one
     // 'broadcast' delivery instead of two.
     expect(harness.origin.pending({ to: 'app-a' }).map((task) => task.transport)).toEqual([
       'window-message',
-      'broadcast',
       'broadcast',
       'storage',
     ]);
@@ -216,9 +247,9 @@ describe('receivers in one app tab today', () => {
   it.each(['storage', 'window-message', 'broadcast'] as const)(
     'a cancelled result for another tab on %s leaves a pending protected login to its own popup',
     async (transport) => {
-      // The account UI's accountClient filter on every transport. C8-I4 step 3
-      // rewrites the storage handler and C8-I10 makes session.ts the single
-      // receiver of all three; this must survive both.
+      // The account UI's accountClient filter on every transport. It survived
+      // C8-I4 (one parser) and C8-I10 (session.ts the single receiver of all
+      // three, the UI a subscriber that filters by its accountClient).
       await initSignedOut();
       const { popup, outcome } = openProtectedLogin();
       const settled = settledSoFar(outcome);
@@ -252,7 +283,7 @@ describe('receivers in one app tab today', () => {
     },
   );
 
-  it('(d) this tab’s own sign-out pulse reaches its UI channel but no UI handling and no read', async () => {
+  it('(d) this tab’s own sign-out pulse never comes back to it: no UI handling and no read', async () => {
     harness.server.account = MINSU;
     await mountAccountDialog();
     initAccount();
@@ -266,18 +297,17 @@ describe('receivers in one app tab today', () => {
     expect(harness.origin.log).toContainEqual({
       op: 'post',
       doc: 'app-a',
-      channel: 'app-a#2',
+      channel: 'app-a#1',
       name: CHANNEL,
-      to: ['app-a#1', 'app-b#1'],
+      to: ['app-b#1'],
     });
     await harness.origin.deliverAll();
 
-    // C8-I10 removes the app-a#1 delivery (one channel per tab, and
-    // BroadcastChannel never delivers to the sender). Today the UI parser
-    // drops it: a mutation pulse has no accountAuth or accountClient.
-    expect(harness.origin.deliveries({ to: 'app-a' }).map((entry) => entry.target)).toEqual([
-      'app-a#1',
-    ]);
+    // C8-I10: one channel per tab, and BroadcastChannel never delivers to the
+    // sender. Before it the pulse reached the UI's own channel (app-a#1, the
+    // session posted on app-a#2), where the UI parser dropped it: a mutation
+    // pulse has no accountAuth or accountClient.
+    expect(harness.origin.deliveries({ to: 'app-a' })).toEqual([]);
     expect(toasts()).toEqual([]);
     expect(appReads()).toBe(1);
     expect(harness.server.sessionReads('app-b')).toBe(2);
@@ -320,7 +350,7 @@ describe('receivers in one app tab today', () => {
     // use the popup. Today the UI receiver alone is bound until the first
     // login result reconciles the session, so while the popup is open the
     // foreground, online and pageshow events (past the 30 s debounce) read
-    // nothing. This must survive C8-I10.
+    // nothing. C8-I10 kept it: subscribing binds the pulse receiver only.
     vi.useFakeTimers({ toFake: ['Date'] });
     const { popup, outcome } = openProtectedLogin();
     harness.server.account = MINSU;
@@ -331,16 +361,14 @@ describe('receivers in one app tab today', () => {
     window.dispatchEvent(new Event('pageshow'));
     await harness.origin.settle();
     expect(appReads()).toBe(0);
-    // C8-I10: app-a#1 becomes session.ts's pulse channel, and the second list
-    // below flips to ['app-a#1'] (the login result opens no second channel).
+    // C8-I10: app-a#1 is session.ts's pulse channel, and the login result
+    // binds the lifecycle without a second channel (before it, ['app-a#1',
+    // 'app-a#2'] below: the UI's channel, then the session's).
     expect(harness.origin.openChannels(CHANNEL).map((open) => open.id)).toEqual(['app-a#1']);
 
     await popup.complete('success');
     harness.origin.deliverNext({ to: 'app-a', transport: 'broadcast' });
-    expect(harness.origin.openChannels(CHANNEL).map((open) => open.id)).toEqual([
-      'app-a#1',
-      'app-a#2',
-    ]);
+    expect(harness.origin.openChannels(CHANNEL).map((open) => open.id)).toEqual(['app-a#1']);
     await harness.origin.deliverAll();
 
     await expect(outcome).resolves.toBe('authenticated');

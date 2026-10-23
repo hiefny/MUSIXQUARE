@@ -423,10 +423,11 @@ describe('C8-I4 receiver acceptance on BroadcastChannel', () => {
 
 /**
  * One row per value a receiver can meet in the storage event for the pulse key.
- * C8-I4 step 3 rewrites ui/account.ts's storage handler and C8-I10 deletes it,
- * so its accountClient filter is pinned here as on BroadcastChannel: a result
- * for another tab never reaches this tab's UI (welcome, toast or a pending
- * protected login, see account-pulse-receivers.test.ts).
+ * C8-I10 replaced ui/account.ts's storage handler with a subscription to the
+ * session receiver, so the UI's accountClient filter is pinned here as on
+ * BroadcastChannel: a result for another tab never reaches this tab's UI
+ * (welcome, toast or a pending protected login, see
+ * account-pulse-receivers.test.ts).
  */
 const STORAGE_ROWS: ReadonlyArray<
   readonly [label: string, write: (storage: Storage, own: string) => void, expected: Expected]
@@ -532,8 +533,8 @@ describe('C8-I4 receiver acceptance on the storage event', () => {
  * same pulse on BroadcastChannel and storage: an id in range is one shared
  * login-result read in app-b, an id out of range two unidentified refreshes.
  * The events page keeps no id and reads once per copy whatever the id; that
- * Known gap is pinned in account-pulse-cross-document.test.ts (it changes only
- * if Phase 2 Train D adds a dedupe), so these rows leave the events page out.
+ * Known gap is pinned in account-pulse-cross-document.test.ts (Phase 2 Train D
+ * added no dedupe there), so these rows leave the events page out.
  */
 const TWO_COPY_ID_ROWS: ReadonlyArray<
   readonly [length: number, expected: Omit<Expected, 'events'>]

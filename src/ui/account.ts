@@ -9,14 +9,7 @@ import {
   type AccountStats,
 } from '../account/api.ts';
 import { flushAccountActivityStatsForRead } from '../account/activity-stats.ts';
-import {
-  ACCOUNT_SYNC_CHANNEL,
-  ACCOUNT_SYNC_STORAGE_KEY,
-  parseAccountPulse,
-  parseAccountPulseStorageValue,
-  type AccountAuthOutcome,
-  type AccountPulse,
-} from '../account/account-sync-protocol.ts';
+import type { AccountAuthOutcome } from '../account/account-sync-protocol.ts';
 import {
   getAccountStatsScope,
   getAccountSnapshot,
@@ -32,6 +25,8 @@ import {
   setAccountLoginPopupHandler,
   signOutAccount,
   startAccountSessionRefresh,
+  subscribeAccountAuthResults,
+  type AccountAuthResult,
   type AccountLoginPopupOptions,
   type AccountLoginPopupOutcome,
 } from '../account/session.ts';
@@ -108,8 +103,7 @@ let _accountLoginPopupAttempt: {
   unsubscribe: () => void;
 } | null = null;
 let _accountLoginNavigationGuard: ReturnType<typeof setTimeout> | null = null;
-let _accountResultChannel: BroadcastChannel | null = null;
-let _accountResultLifecycleBound = false;
+let _unsubscribeAccountAuthResults: (() => void) | null = null;
 let _profilePromptVisibilityBound = false;
 let _accountStats: AccountStats | null = null;
 let _accountStatsOwner: AccountStatsOwner | null = null;
@@ -484,16 +478,6 @@ function setPending(pending: boolean): void {
   if (pending && overlay?.classList.contains('show')) focusWithoutScroll(dialog);
 }
 
-/** A login result needs the completion's outcome, its nonce and the tab that opened it. */
-function accountAuthResultFromPulse(pulse: AccountPulse | null): {
-  outcome: AccountAuthOutcome;
-  id: string;
-  accountClient: string;
-} | null {
-  if (!pulse?.auth || pulse.id === null || pulse.accountClient === null) return null;
-  return { outcome: pulse.auth, id: pulse.id, accountClient: pulse.accountClient };
-}
-
 function handleAccountAuthOutcome(
   outcome: AccountAuthOutcome,
   id: string,
@@ -775,7 +759,7 @@ function openIsolatedAccountLoginPopup():
 function requestAccountLoginPopupOnly(
   options: Readonly<AccountLoginPopupOptions> = {},
 ): Promise<AccountLoginPopupOutcome> {
-  bindAccountAuthResultLifecycle();
+  subscribeToAccountAuthResults();
   const snapshot = getAccountSnapshot();
   if (getCompletedAccount(snapshot) && !options.forceGoogleAccountChooser) {
     return Promise.resolve('authenticated');
@@ -884,40 +868,21 @@ function monitorAccountLoginPopup(popup: Window): void {
   _accountLoginPopupMonitor = monitor;
 }
 
-function handleAccountResultMessage(event: MessageEvent): void {
-  if (event.origin !== window.location.origin) return;
-  const result = accountAuthResultFromPulse(parseAccountPulse(event.data));
-  if (result?.accountClient === ACCOUNT_CLIENT_ID) {
+function handleAccountAuthResult(result: AccountAuthResult): void {
+  // Only the login this tab opened. Another tab's result reaches this tab's
+  // session as an ordinary refresh.
+  if (result.accountClient === ACCOUNT_CLIENT_ID) {
     handleAccountAuthOutcome(result.outcome, result.id);
   }
 }
 
-function handleAccountResultStorage(event: StorageEvent): void {
-  if (event.key !== ACCOUNT_SYNC_STORAGE_KEY) return;
-  const result = accountAuthResultFromPulse(parseAccountPulseStorageValue(event.newValue));
-  if (result?.accountClient === ACCOUNT_CLIENT_ID) {
-    handleAccountAuthOutcome(result.outcome, result.id);
-  }
-}
-
-function bindAccountAuthResultLifecycle(): void {
-  if (_accountResultLifecycleBound) return;
-  _accountResultLifecycleBound = true;
-  window.addEventListener('message', handleAccountResultMessage);
-  window.addEventListener('storage', handleAccountResultStorage);
-  if (typeof BroadcastChannel !== 'undefined') {
-    try {
-      _accountResultChannel = new BroadcastChannel(ACCOUNT_SYNC_CHANNEL);
-      _accountResultChannel.addEventListener('message', (event) => {
-        const result = accountAuthResultFromPulse(parseAccountPulse(event.data));
-        if (result?.accountClient === ACCOUNT_CLIENT_ID) {
-          handleAccountAuthOutcome(result.outcome, result.id);
-        }
-      });
-    } catch {
-      _accountResultChannel = null;
-    }
-  }
+/**
+ * Login results come from the session's single pulse receiver (C8-I10). It
+ * hands them over before it reconciles, so this UI still classifies its own
+ * popup's result first. Subscribing the same handler again is a no-op.
+ */
+function subscribeToAccountAuthResults(): void {
+  _unsubscribeAccountAuthResults = subscribeAccountAuthResults(handleAccountAuthResult);
 }
 
 function consumeAccountAuthOutcomeFromUrl(): {
@@ -1487,7 +1452,7 @@ export function initAccount(): void {
   // initAccount runs before setup.ts. Recover a standalone-PWA room route now
   // so invite parsing and the automatic PRO resume see the intended room.
   restoreAccountLoginReturnPath();
-  bindAccountAuthResultLifecycle();
+  subscribeToAccountAuthResults();
   const returnedAuthOutcome = consumeAccountAuthOutcomeFromUrl();
   bindAccountDialog();
   _unsubscribeAccount?.();
@@ -1543,13 +1508,8 @@ export function __resetAccountUiForTests(): void {
   _handledAccountResultIds.clear();
   _pendingWelcomeAccountResultId = null;
   clearSameTabWelcomeIntent();
-  if (_accountResultLifecycleBound && typeof window !== 'undefined') {
-    window.removeEventListener('message', handleAccountResultMessage);
-    window.removeEventListener('storage', handleAccountResultStorage);
-  }
-  _accountResultLifecycleBound = false;
-  _accountResultChannel?.close();
-  _accountResultChannel = null;
+  _unsubscribeAccountAuthResults?.();
+  _unsubscribeAccountAuthResults = null;
   if (_profilePromptVisibilityBound && typeof document !== 'undefined') {
     document.removeEventListener('visibilitychange', handleProfilePromptVisibility);
   }

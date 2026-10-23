@@ -315,6 +315,10 @@ const kn: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'ಹೋಸ್ಟ್ ರೂಮ್ ಪಾಸ್‌ವರ್ಡ್ ಬದಲಾಯಿಸಿದ್ದಾರೆ. ಮತ್ತೆ ಸೇರಲು ಹೊಸ ಪಾಸ್‌ವರ್ಡ್ ನಮೂದಿಸಿ.',
   'connect.signaling_healthy': 'ರೂಮ್ ಸರ್ವರ್ ಆನ್‌ಲೈನ್‌ನಲ್ಲಿದೆ',
+  'connect.signaling_expired': 'ರೂಮ್ ಸಂಪರ್ಕ ಕೊನೆಗೊಂಡಿದೆ',
+  'connect.signaling_expired_detail':
+    'ಈ ರೂಮ್‌ಗೆ ಮರುಸಂಪರ್ಕಿಸುವ ಸಮಯ ಮುಗಿದಿದೆ.\nಪ್ರಸ್ತುತ ಪ್ಲೇಬ್ಯಾಕ್ ಮುಂದುವರಿಯುತ್ತದೆ. ಮತ್ತೆ ಸೇರಿದರೆ ಪ್ರಸ್ತುತ ಸೆಷನ್‌ನಿಂದ ನಿಮ್ಮ ಸಂಪರ್ಕ ಕಡಿತಗೊಳ್ಳುತ್ತದೆ ಮತ್ತು ಪ್ಲೇಬ್ಯಾಕ್ ನಿಲ್ಲುತ್ತದೆ.',
+  'connect.signaling_rejoin': 'ಮತ್ತೆ ಸೇರಿ',
   'connect.signaling_recovering': 'ಮರುಸಂಪರ್ಕಿಸಲಾಗುತ್ತಿದೆ…',
   'connect.signaling_failed': 'ಸರ್ವರ್ ಸಂಪರ್ಕ ವಿಫಲವಾಗಿದೆ',
   'connect.signaling_recover_action': 'ಮರುಸಂಪರ್ಕಿಸಿ',

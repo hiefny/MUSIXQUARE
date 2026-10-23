@@ -338,6 +338,8 @@ interface GuestRoomRecord {
    * record and re-arms reconnect.
    */
   authFailed: boolean;
+  /** Bound to this admission, independently of surviving RTC channels. */
+  recoveryBlockReason: 'room-expired' | null;
 }
 
 interface RetiredSignalingSocketListeners {
@@ -366,6 +368,29 @@ interface StandardSetupRouteRetryDecision {
   readonly prepareRoute: boolean;
 }
 
+/**
+ * Signaling Worker close reasons that socket diagnostics record verbatim; any
+ * other reason text is recorded as 'unknown'. Diagnostic only: the expiry and
+ * PRO epoch handlers compare their own reasons. signaling-close-reason-parity
+ * pins every entry to a 1012 reason the signaling Worker actually sends.
+ * This module is in the eager bundle: the other Standard 1012 reasons
+ * (STANDARD_ROOM_AUTHORITY_STALE, GUEST_AUTH_RETRY_REQUIRED,
+ * SERVICE_MAINTENANCE) measured 79 B gzip, so they stay 'unknown' for now.
+ */
+const RECOGNIZED_SIGNALING_CLOSE_REASONS = [
+  'ROOM_EXPIRED',
+  'PRO_ROOM_EPOCH_ADVANCED',
+  'HOST_REPLACED',
+  'GUEST_REPLACED',
+] as const;
+type RecognizedSignalingCloseReason = (typeof RECOGNIZED_SIGNALING_CLOSE_REASONS)[number];
+
+function isRecognizedSignalingCloseReason(
+  reason: string,
+): reason is RecognizedSignalingCloseReason {
+  return (RECOGNIZED_SIGNALING_CLOSE_REASONS as readonly string[]).includes(reason);
+}
+
 interface SignalingSocketLifecycle {
   readonly route: SignalingRoute;
   readonly createdAt: number;
@@ -377,6 +402,10 @@ interface SignalingSocketLifecycle {
   terminalCloseLogged: boolean;
   closeCode: number | null;
   closeClean: boolean | null;
+  closeReason: RecognizedSignalingCloseReason | 'unknown' | null;
+  phase: 'initial' | 'recovery';
+  rtcAlive: boolean | null;
+  automaticRetryBlockedReason: 'room-expired' | null;
 }
 
 interface QueuedIceCandidate {
@@ -2084,6 +2113,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     ) {
       throw createTransportError('invalid-id', 'PRO_SIGNALING_ROOM_MISMATCH');
     }
+    // Only a deliberate admission clears expired, already-closed records.
+    // Keep live expired RTCs independent when a caller joins another room.
+    for (const [previousRoomId, previous] of this.guestRooms) {
+      if (previous.recoveryBlockReason && !this.isDataConnectionAlive(previous.conn)) {
+        this.guestRooms.delete(previousRoomId);
+      }
+    }
     const recommendedPreOpenTimeoutMs =
       !this.proSignalingAccess &&
       this.fallbackSignalingUrl !== null &&
@@ -2138,6 +2174,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       routeRetryController: null,
       admissionTimeoutId: null,
       authFailed: false,
+      recoveryBlockReason: null,
     };
     this.guestRooms.set(roomId, record);
     this.connections.set(roomId, conn);
@@ -2158,7 +2195,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           this.roomSockets.delete(roomId);
           this.retireSignalingSocket(currentSocket);
         }
-        this.guestRooms.delete(roomId);
+        // Preserve the terminal admission until a deliberate new connect.
+        if (!currentRecord.recoveryBlockReason) this.guestRooms.delete(roomId);
       }
       if (this.connections.get(roomId) === conn) {
         this.connections.delete(roomId);
@@ -2338,9 +2376,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       // mid-handshake conns (peerConnection set, open=false) stay with the
       // join timeout — reconnect only serves established sessions whose
       // signaling socket blipped.
-      if (!this.isDataConnectionAlive(record.conn)) continue;
+      if (record.recoveryBlockReason || !this.isDataConnectionAlive(record.conn)) continue;
       this.ensureGuestSocket(roomId);
     }
+  }
+
+  getSignalingRecoveryBlockReason(): 'room-expired' | null {
+    if (this.proSignalingAccess || this.hostRoomId) return null;
+    let expired = false;
+    for (const record of this.guestRooms.values()) {
+      if (!record.recoveryBlockReason) return null;
+      expired = true;
+    }
+    return expired ? 'room-expired' : null;
   }
 
   recoverAfterBackground(hiddenMs: number): TransportBackgroundRecoveryResult {
@@ -2770,6 +2818,15 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (!lifecycle) return;
     lifecycle.closeCode = Number.isSafeInteger(event.code) ? event.code : null;
     lifecycle.closeClean = typeof event.wasClean === 'boolean' ? event.wasClean : null;
+    lifecycle.closeReason = isRecognizedSignalingCloseReason(event.reason)
+      ? event.reason
+      : 'unknown';
+    for (const [roomId, record] of this.guestRooms) {
+      if (this.roomSockets.get(roomId) === socket) {
+        lifecycle.rtcAlive = this.isDataConnectionAlive(record.conn);
+        break;
+      }
+    }
     if (lifecycle.failureObserved && !lifecycle.admitted && !lifecycle.terminalCloseLogged) {
       lifecycle.terminalCloseLogged = true;
       log.warn(
@@ -2787,6 +2844,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     elapsedMs: number;
     closeCode: number | null;
     closeClean: boolean | null;
+    closeReason: SignalingSocketLifecycle['closeReason'];
+    phase: 'initial' | 'recovery';
+    rtcAlive: boolean | null;
+    automaticRetryBlockedReason: 'room-expired' | null;
     readyState: number | null;
     readyStateName: 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | 'UNKNOWN';
     closeSuppressed: boolean;
@@ -2807,6 +2868,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       elapsedMs,
       closeCode: lifecycle?.closeCode ?? null,
       closeClean: lifecycle?.closeClean ?? null,
+      closeReason: lifecycle?.closeReason ?? null,
+      phase: lifecycle?.phase ?? 'initial',
+      rtcAlive: lifecycle?.rtcAlive ?? null,
+      automaticRetryBlockedReason: lifecycle?.automaticRetryBlockedReason ?? null,
       ...signalingSocketReadyStateDiagnostic(socket),
       ...(httpDiagnostic
         ? { httpPhase: httpDiagnostic.phase, httpStatus: httpDiagnostic.status }
@@ -2838,6 +2903,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       terminalCloseLogged: false,
       closeCode: null,
       closeClean: null,
+      closeReason: null,
+      phase: this.hostSignalingOpenedOnce ? 'recovery' : 'initial',
+      rtcAlive: null,
+      automaticRetryBlockedReason: null,
     });
     trackPageSignalingSocket(socket);
     return socket;
@@ -2868,6 +2937,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       terminalCloseLogged: false,
       closeCode: null,
       closeClean: null,
+      closeReason: null,
+      phase: this.hostSignalingOpenedOnce ? 'recovery' : 'initial',
+      rtcAlive: null,
+      automaticRetryBlockedReason: null,
     });
     trackPageSignalingSocket(socket);
     return socket;
@@ -3176,6 +3249,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.roomSockets.get(roomId) !== socket ||
       record.socketGeneration !== socketGeneration ||
       record.routeRetryCount >= STANDARD_ROOM_SETUP_ROUTE_RETRY_LIMIT ||
+      record.recoveryBlockReason ||
       record.conn.open ||
       record.conn.peerConnection
     ) {
@@ -3243,6 +3317,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           record.conn.open ||
           record.conn.peerConnection ||
           record.authFailed ||
+          record.recoveryBlockReason ||
           this.roomSockets.has(roomId)
         ) {
           return;
@@ -3495,7 +3570,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private ensureGuestSocket(roomId: string): void {
     const record = this.guestRooms.get(roomId);
-    if (!record || record.authFailed) return;
+    if (!record || record.authFailed || record.recoveryBlockReason) return;
     const existing = this.roomSockets.get(roomId);
     if (
       existing &&
@@ -3509,7 +3584,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private openGuestSocket(roomId: string): void {
     const record = this.guestRooms.get(roomId);
-    if (!record || !this.id || this.destroyed) return;
+    if (!record || record.recoveryBlockReason || !this.id || this.destroyed) return;
     const { conn, metadata } = record;
     const existing = this.roomSockets.get(roomId);
     if (existing) {
@@ -3540,7 +3615,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
 
-    const openedRoute = this.signalingSocketLifecycles.get(socket)?.route;
+    const openedLifecycle = this.signalingSocketLifecycles.get(socket);
+    if (openedLifecycle) {
+      openedLifecycle.phase = conn.open ? 'recovery' : 'initial';
+      openedLifecycle.rtcAlive = this.isDataConnectionAlive(conn);
+    }
+    const openedRoute = openedLifecycle?.route;
     if (openedRoute) record.routePlan.triedRoutes.add(openedRoute);
 
     this.roomSockets.set(roomId, socket);
@@ -3584,6 +3664,37 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.noteSignalingSocketClosed(socket, event as CloseEvent);
       if (!isStandardHttpSignalingSocket(socket)) this.releaseRetiredSignalingSocket(socket);
       if (this.destroyed) return;
+      if (
+        !this.proSignalingAccess &&
+        (event as CloseEvent).code === 1012 &&
+        (event as CloseEvent).reason === 'ROOM_EXPIRED' &&
+        this.guestRooms.get(roomId) === record &&
+        this.roomSockets.get(roomId) === socket &&
+        record.socketGeneration === socketGeneration
+      ) {
+        record.recoveryBlockReason = 'room-expired';
+        this.clearGuestSetupAdmissionTimeout(record);
+        record.routeRetryController?.abort(new Error('ROOM_EXPIRED'));
+        record.routeRetryController = null;
+        this.roomSockets.delete(roomId);
+        this.disconnected = true;
+        const lifecycle = this.signalingSocketLifecycles.get(socket);
+        if (lifecycle) {
+          lifecycle.semanticFailureObserved = true;
+          lifecycle.automaticRetryBlockedReason = 'room-expired';
+        }
+        for (const notify of [...this.signalingAdmissionWaiters]) notify();
+        log.warn(
+          '[Transport] Guest room admission expired; automatic signaling recovery blocked',
+          this.signalingSocketDiagnostic(socket),
+        );
+        this.emit('signaling-recovery-blocked');
+        if (!conn.open) {
+          conn.emit('error', createTransportError('peer-unavailable', 'ROOM_EXPIRED'));
+          conn.close();
+        }
+        return;
+      }
       if ((event as CloseEvent).reason === 'PRO_COORDINATOR_EPOCH_ADVANCED') {
         if (this.roomSockets.get(roomId) === socket) this.roomSockets.delete(roomId);
         this.handleProEpochAdvanced();
@@ -4226,9 +4337,30 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     negotiation: IceNegotiationOwner,
     candidate: RTCIceCandidateInit,
   ): Promise<void> {
-    const socket = this.hostRoomId
-      ? await this.waitForCurrentHostSocketAdmission(negotiation.abortController.signal)
-      : await this.waitForCurrentGuestSocketAdmission(peerId, negotiation.abortController.signal);
+    const guestRecord = this.hostRoomId ? undefined : this.guestRooms.get(peerId);
+    let socket: StandardSignalingSocket;
+    try {
+      socket = this.hostRoomId
+        ? await this.waitForCurrentHostSocketAdmission(negotiation.abortController.signal)
+        : await this.waitForCurrentGuestSocketAdmission(peerId, negotiation.abortController.signal);
+    } catch (error) {
+      // Terminal admission cancels this candidate, not the surviving RTC.
+      // Scope cancellation to the record/PC captured before awaiting admission;
+      // an unrelated room's expiry must never hide an ordinary signaling error.
+      if (
+        !this.proSignalingAccess &&
+        guestRecord &&
+        this.guestRooms.get(peerId) === guestRecord &&
+        guestRecord.conn.peerConnection === pc &&
+        guestRecord.conn.open &&
+        guestRecord.recoveryBlockReason === 'room-expired' &&
+        error instanceof Error &&
+        error.message === 'ROOM_EXPIRED'
+      ) {
+        return;
+      }
+      throw error;
+    }
     if (
       negotiation.pc !== pc ||
       negotiation.abortController.signal.aborted ||
@@ -4457,6 +4589,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (
       !record ||
       record.authFailed ||
+      record.recoveryBlockReason ||
       !conn ||
       !pc ||
       this.guestIceRestarts.has(pc) ||
@@ -4482,6 +4615,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       !this.destroyed &&
       !controller.signal.aborted &&
       this.guestRooms.get(roomId) === record &&
+      !record.recoveryBlockReason &&
       this.connections.get(roomId) === conn &&
       conn.open &&
       conn.peerConnection === pc;
@@ -5064,22 +5198,32 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     roomId: string,
     signal: AbortSignal,
   ): Promise<StandardSignalingSocket> {
-    return this.waitForCurrentSignalingSocketAdmission(() => {
-      const current = this.roomSockets.get(roomId);
-      return !this.destroyed &&
-        current?.readyState === WebSocket.OPEN &&
-        this.standardRoomIdentityAdmittedGuestSockets.has(current)
-        ? current
-        : null;
-    }, signal);
+    const record = this.guestRooms.get(roomId);
+    return this.waitForCurrentSignalingSocketAdmission(
+      () => {
+        const current = this.roomSockets.get(roomId);
+        return !this.destroyed &&
+          !record?.recoveryBlockReason &&
+          current?.readyState === WebSocket.OPEN &&
+          this.standardRoomIdentityAdmittedGuestSockets.has(current)
+          ? current
+          : null;
+      },
+      signal,
+      () => record?.recoveryBlockReason === 'room-expired',
+    );
   }
 
   private waitForCurrentSignalingSocketAdmission(
     currentAdmittedSocket: () => StandardSignalingSocket | null,
     signal: AbortSignal,
+    admissionExpired: () => boolean = () => false,
   ): Promise<StandardSignalingSocket> {
     if (signal.aborted) {
       return Promise.reject(createTransportError('webrtc', 'MEDIA_NEGOTIATION_CANCELLED'));
+    }
+    if (admissionExpired()) {
+      return Promise.reject(createTransportError('peer-unavailable', 'ROOM_EXPIRED'));
     }
     const admitted = currentAdmittedSocket();
     if (admitted) return Promise.resolve(admitted);
@@ -5095,6 +5239,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         else reject(error ?? createTransportError('webrtc', 'MEDIA_NEGOTIATION_CANCELLED'));
       };
       const onAdmission = (): void => {
+        if (admissionExpired()) {
+          finish(null, createTransportError('peer-unavailable', 'ROOM_EXPIRED'));
+          return;
+        }
         const socket = currentAdmittedSocket();
         if (socket) finish(socket);
       };

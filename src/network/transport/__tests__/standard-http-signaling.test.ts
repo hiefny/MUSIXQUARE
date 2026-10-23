@@ -327,35 +327,41 @@ describe('StandardHttpSignalingSocket', () => {
     expect(socket.diagnostic).toEqual({ phase: 'poll', status: 200 });
   });
 
-  it('delivers poll messages before a terminal marker and closes with exact metadata', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, init) => {
-      const url = String(input);
-      if (url.endsWith('/poll')) {
-        return Promise.resolve(
-          pollResponse(
-            [{ sseq: 1, data: JSON.stringify({ type: 'error', errorType: 'room-full' }) }],
-            { code: 1008, reason: 'ROOM_FULL' },
-          ),
-        );
-      }
-      if (url.endsWith('/close')) return Promise.resolve(closeResponse());
-      return abortablePendingFetch(init);
-    });
-    vi.stubGlobal('fetch', fetchMock);
-    const socket = new StandardHttpSignalingSocket({
-      roomId: '123456',
-      role: 'guest',
-      peerId: 'guest-one',
-    });
-    const order: string[] = [];
-    socket.addEventListener('message', () => order.push('message'));
-    socket.addEventListener('close', (event) => {
-      order.push(`close:${(event as CloseEvent).code}:${(event as CloseEvent).reason}`);
-    });
+  it.each([
+    { code: 1008, reason: 'ROOM_FULL' },
+    { code: 1012, reason: 'ROOM_EXPIRED' },
+  ])(
+    'delivers poll messages before exact terminal metadata $code/$reason',
+    async ({ code, reason }) => {
+      const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+        const url = String(input);
+        if (url.endsWith('/poll')) {
+          return Promise.resolve(
+            pollResponse(
+              [{ sseq: 1, data: JSON.stringify({ type: 'error', errorType: 'room-full' }) }],
+              { code, reason },
+            ),
+          );
+        }
+        if (url.endsWith('/close')) return Promise.resolve(closeResponse());
+        return abortablePendingFetch(init);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const socket = new StandardHttpSignalingSocket({
+        roomId: '123456',
+        role: 'guest',
+        peerId: 'guest-one',
+      });
+      const order: string[] = [];
+      socket.addEventListener('message', () => order.push('message'));
+      socket.addEventListener('close', (event) => {
+        order.push(`close:${(event as CloseEvent).code}:${(event as CloseEvent).reason}`);
+      });
 
-    await vi.waitFor(() => expect(order).toHaveLength(2));
-    expect(order).toEqual(['message', 'close:1008:ROOM_FULL']);
-  });
+      await vi.waitFor(() => expect(order).toHaveLength(2));
+      expect(order).toEqual(['message', `close:${code}:${reason}`]);
+    },
+  );
 
   it('rejects non-canonical bridge responses', async () => {
     fetchWithCapabilityMock.mockResolvedValueOnce(

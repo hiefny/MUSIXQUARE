@@ -319,6 +319,10 @@ const ta: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'ஹோஸ்ட் அறைக் கடவுச்சொல்லை மாற்றியுள்ளார். மீண்டும் சேரப் புதிய கடவுச்சொல்லை உள்ளிடவும்.',
   'connect.signaling_healthy': 'அறை சர்வர் ஆன்லைனில் உள்ளது',
+  'connect.signaling_expired': 'அறை இணைப்பு முடிந்தது',
+  'connect.signaling_expired_detail':
+    'இந்த அறையுடன் மீண்டும் இணைவதற்கான நேரம் முடிந்துவிட்டது.\nதற்போதைய பிளேபேக் தொடரும். மீண்டும் சேர்ந்தால் தற்போதைய அமர்விலிருந்து உங்கள் இணைப்பு துண்டிக்கப்படும், பிளேபேக்கும் நிறுத்தப்படும்.',
+  'connect.signaling_rejoin': 'மீண்டும் சேரவும்',
   'connect.signaling_recovering': 'மீண்டும் இணைக்கிறது…',
   'connect.signaling_failed': 'சர்வர் இணைப்பு தோல்வியடைந்தது',
   'connect.signaling_recover_action': 'மீண்டும் இணை',

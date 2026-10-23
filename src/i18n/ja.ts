@@ -313,6 +313,10 @@ const ja: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'ホストがルームのパスワードを変更しました。新しいパスワードを入力すると、もう一度参加できます。',
   'connect.signaling_healthy': 'ルームサーバーは正常です',
+  'connect.signaling_expired': 'ルーム接続が終了しました',
+  'connect.signaling_expired_detail':
+    'このルームへの再接続期限が過ぎました。\n現在の再生は続きます。再入室すると現在のルームから切断され、再生が停止します。',
+  'connect.signaling_rejoin': '再入室',
   'connect.signaling_recovering': '再接続中…',
   'connect.signaling_failed': 'サーバー接続に失敗しました',
   'connect.signaling_recover_action': '再接続',

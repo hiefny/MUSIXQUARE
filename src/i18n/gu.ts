@@ -309,6 +309,10 @@ const gu: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'હોસ્ટે રૂમનો પાસવર્ડ બદલ્યો છે. ફરી જોડાવા માટે નવો પાસવર્ડ દાખલ કરો.',
   'connect.signaling_healthy': 'રૂમ સર્વર ઑનલાઇન છે',
+  'connect.signaling_expired': 'રૂમનું જોડાણ સમાપ્ત થયું',
+  'connect.signaling_expired_detail':
+    'આ રૂમમાં ફરી જોડાવાનો સમય પૂરો થયો છે.\nહાલનું પ્લેબૅક ચાલુ રહેશે. ફરી જોડાવાથી હાલના સત્રમાંથી તમારું જોડાણ તૂટી જશે અને પ્લેબૅક બંધ થઈ જશે.',
+  'connect.signaling_rejoin': 'રૂમમાં ફરી જોડાઓ',
   'connect.signaling_recovering': 'ફરી જોડાઈ રહ્યું છે…',
   'connect.signaling_failed': 'સર્વર જોડાણ નિષ્ફળ',
   'connect.signaling_recover_action': 'ફરી જોડાઓ',

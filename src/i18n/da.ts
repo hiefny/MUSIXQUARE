@@ -312,6 +312,10 @@ const da: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Værten har ændret rummets adgangskode. Indtast den nye adgangskode for at deltage igen.',
   'connect.signaling_healthy': 'Rummets server er online',
+  'connect.signaling_expired': 'Rumforbindelsen er afsluttet',
+  'connect.signaling_expired_detail':
+    'Tiden til at genoprette forbindelsen til dette rum er udløbet.\nDen aktuelle afspilning fortsætter. Hvis du deltager igen, bliver forbindelsen til den aktuelle session afbrudt, og afspilningen stopper.',
+  'connect.signaling_rejoin': 'Deltag igen',
   'connect.signaling_recovering': 'Opretter forbindelse igen…',
   'connect.signaling_failed': 'Forbindelsen til serveren mislykkedes',
   'connect.signaling_recover_action': 'Forbind igen',

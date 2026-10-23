@@ -10358,13 +10358,15 @@ Safety is declared first because important layer precedence is reversed; its acc
   /* Light Mode — hover/active for surface-2 buttons */
   [data-theme='light'] .chat-preview-btn:hover,
   [data-theme='light'] .file-select-btn:hover,
-  [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover {
+  [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover,
+  [data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover {
     background: #f0f0f0;
   }
 
   [data-theme='light'] .chat-preview-btn:active,
   [data-theme='light'] .file-select-btn:active,
-  [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:active {
+  [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:active,
+  [data-theme='light'] .btn-copy-invite-link[data-mode='expired']:active {
     background: #e8e8e8;
   }
 
@@ -10461,6 +10463,7 @@ Safety is declared first because important layer precedence is reversed; its acc
 
     #media-source-overlay .file-select-btn-large:hover:not(:active),
     .btn-copy-invite-link[data-mode='copy']:hover:not(:active),
+    .btn-copy-invite-link[data-mode='expired']:hover:not(:active),
     #btn-sync:hover:not(:active),
     #btn-media-source:hover:not(:active) {
       background: var(--surface-2);
@@ -10489,7 +10492,8 @@ Safety is declared first because important layer precedence is reversed; its acc
       background: var(--play-action-surface);
     }
 
-    [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover:not(:active) {
+    [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover:not(:active),
+    [data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover:not(:active) {
       background: var(--surface-2);
     }
   }

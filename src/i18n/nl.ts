@@ -314,6 +314,10 @@ const nl: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'De host heeft het kamerwachtwoord gewijzigd. Voer het nieuwe wachtwoord in om weer deel te nemen.',
   'connect.signaling_healthy': 'Kamerserver online',
+  'connect.signaling_expired': 'Kamerverbinding beëindigd',
+  'connect.signaling_expired_detail':
+    'De tijd om opnieuw verbinding met deze kamer te maken is verstreken.\nHet afspelen gaat door. Als je opnieuw deelneemt, wordt de verbinding met de huidige kamer verbroken en stopt het afspelen.',
+  'connect.signaling_rejoin': 'Opnieuw deelnemen',
   'connect.signaling_recovering': 'Opnieuw verbinden…',
   'connect.signaling_failed': 'Serververbinding mislukt',
   'connect.signaling_recover_action': 'Herverbinden',

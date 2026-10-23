@@ -25,6 +25,12 @@ import { restartProRoomTransportRecovery } from '../../pro-room/transport-recove
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
 import { log } from '../../core/log.ts';
+import { returnToRoomStart } from '../../core/navigation.ts';
+
+vi.mock('../../core/navigation.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/navigation.ts')>()),
+  returnToRoomStart: vi.fn(() => true),
+}));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -194,6 +200,100 @@ async function startHostSessionWithQR(): Promise<HTMLButtonElement> {
 }
 
 describe('connect signaling health status', () => {
+  it.each(['host', 'guest'] as const)(
+    'lets an expired %s keep playback until explicit fresh entry',
+    async (role) => {
+      const button = await startHostSessionWithQR();
+      setState('network.appRole', role);
+      setState('playback.activity', 'playing');
+      const stopMedia = vi.fn();
+      bus.on('player:stop-all-media', stopMedia);
+      setState('network.signalingHealth', { status: 'expired', attempt: 0, maxAttempts: 5 });
+      expect(button.dataset.mode).toBe('expired');
+      expect(button.getAttribute('aria-busy')).toBe('false');
+      expect(button.textContent).toBe('방 연결이 끝났어요');
+      expect(vi.mocked(returnToRoomStart)).not.toHaveBeenCalled();
+
+      button.click();
+      expect(document.getElementById('signaling-recovery-dialog')?.dataset.state).toBe('expired');
+      expect(document.getElementById('signaling-recovery-message')?.textContent).toContain(
+        '현재 재생은 유지돼요',
+      );
+      expect(document.getElementById('btn-signaling-recovery-retry')?.textContent).toBe(
+        '새로 입장',
+      );
+      document.getElementById('btn-signaling-recovery-confirm')?.click();
+      expect(vi.mocked(returnToRoomStart)).not.toHaveBeenCalled();
+      expect(stopMedia).not.toHaveBeenCalled();
+      expect(getState('playback.activity')).toBe('playing');
+      expect(mockedRetryPeerSignalingConnection).not.toHaveBeenCalled();
+      expect(mockedCopyTextToClipboard).not.toHaveBeenCalled();
+
+      button.click();
+      document.getElementById('btn-signaling-recovery-retry')?.click();
+      // Owner decision (2026-10-24): joining again is a reconnect, so a missing
+      // host reads error.host_left rather than "check the code".
+      expect(vi.mocked(returnToRoomStart)).toHaveBeenCalledExactlyOnceWith(
+        '123456',
+        expect.objectContaining({ reconnect: true }),
+      );
+      expect(mockedRetryPeerSignalingConnection).not.toHaveBeenCalled();
+    },
+  );
+
+  it('turns an open failure dialog into the expiry dialog at the same boundary', async () => {
+    const button = await startHostSessionWithQR();
+    setState('network.appRole', 'guest');
+    setState('network.signalingHealth', { status: 'exhausted', attempt: 0, maxAttempts: 5 });
+    mockedRetryPeerSignalingConnection.mockImplementationOnce(() => {
+      setState('network.signalingHealth', { status: 'reconnecting', attempt: 1, maxAttempts: 5 });
+      return true;
+    });
+    button.click();
+    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledOnce());
+    setState('network.signalingHealth', { status: 'exhausted', attempt: 0, maxAttempts: 5 });
+
+    const overlay = document.getElementById('signaling-recovery-overlay')!;
+    const dialog = document.getElementById('signaling-recovery-dialog')!;
+    const retry = document.getElementById('btn-signaling-recovery-retry')!;
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(dialog.dataset.state).toBe('failed');
+    expect(retry.textContent).toBe('재시도');
+
+    // Confirmed expiry arrives while the failure dialog is still open. Without
+    // the in-place switch the dialog would close, or keep a Retry that can
+    // never succeed.
+    setState('network.signalingHealth', { status: 'expired', attempt: 0, maxAttempts: 5 });
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(dialog.dataset.state).toBe('expired');
+    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe(
+      '방 연결이 끝났어요',
+    );
+    expect(retry.textContent).toBe('새로 입장');
+    expect(button.dataset.mode).toBe('expired');
+
+    retry.click();
+    expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledOnce();
+    expect(vi.mocked(returnToRoomStart)).toHaveBeenCalledExactlyOnceWith(
+      '123456',
+      expect.objectContaining({ reconnect: true }),
+    );
+    expect(overlay.classList.contains('show')).toBe(false);
+  });
+
+  it('settles an in-flight manual recovery as expired without showing retry failure', async () => {
+    const button = await startHostSessionWithQR();
+    setState('network.signalingHealth', { status: 'exhausted', attempt: 0, maxAttempts: 5 });
+    button.click();
+    setState('network.signalingHealth', { status: 'expired', attempt: 0, maxAttempts: 5 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(button.dataset.mode).toBe('expired');
+    expect(document.getElementById('signaling-recovery-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+  });
+
   it.each(['unchanged', 'current-account', 'room-epoch', 'target-account', 'disconnected'])(
     'rechecks person removal after the actual confirmation dialog: %s',
     async (transition) => {
@@ -440,6 +540,16 @@ describe('connect signaling health status', () => {
       "[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
     );
     expect(stylesheet).not.toContain("[data-theme='light'] .btn-copy-invite-link:hover");
+    // Owner decision (2026-10-24): expiry keeps the neutral copy look, so it
+    // shares the copy hover/active and touch-reset rules at the same specificity.
+    for (const selector of [
+      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
+      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:active",
+      ".btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
+      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
+    ]) {
+      expect(stylesheet).toContain(selector);
+    }
   });
 
   it('opens the requested failure dialog only after a manual recovery fails', async () => {

@@ -313,6 +313,10 @@ const ptBr: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'O anfitrião mudou a senha da sala. Digite a nova senha para entrar de novo.',
   'connect.signaling_healthy': 'Servidor da sala online',
+  'connect.signaling_expired': 'Conexão da sala encerrada',
+  'connect.signaling_expired_detail':
+    'O prazo para reconectar a esta sala expirou.\nA reprodução atual continua. Se você entrar novamente, será desconectado da sala atual e a reprodução vai parar.',
+  'connect.signaling_rejoin': 'Entrar novamente',
   'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falha na conexão com o servidor',
   'connect.signaling_recover_action': 'Reconectar',

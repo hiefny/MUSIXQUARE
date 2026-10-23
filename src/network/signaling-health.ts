@@ -72,6 +72,7 @@ export function publishSignalingReconnectAttempt(
   attempt: number,
   maxAttempts = SIGNALING_RECOVERY_MAX_ATTEMPTS,
 ): boolean {
+  if (getState('network.signalingHealth').status === 'expired') return false;
   clearManagedTimer(RECOVERED_CLEAR_TIMER);
   if (!canRecoverSignalingInPlace()) {
     resetSignalingHealth();
@@ -87,6 +88,7 @@ export function publishSignalingReconnectAttempt(
 }
 
 export function publishSignalingExhausted(maxAttempts = SIGNALING_RECOVERY_MAX_ATTEMPTS): boolean {
+  if (getState('network.signalingHealth').status === 'expired') return false;
   clearManagedTimer(RECOVERED_CLEAR_TIMER);
   if (!canRecoverSignalingInPlace()) {
     resetSignalingHealth();
@@ -100,9 +102,22 @@ export function publishSignalingExhausted(maxAttempts = SIGNALING_RECOVERY_MAX_A
   return true;
 }
 
+/** Confirmed expiry is terminal for this admission, even if local media survives. */
+export function publishSignalingExpired(): void {
+  if (!getState('setup.sessionStarted') || getState('room.context').kind !== 'standard') return;
+  clearManagedTimer(RECOVERED_CLEAR_TIMER);
+  setHealth({ status: 'expired', attempt: 0, maxAttempts: SIGNALING_RECOVERY_MAX_ATTEMPTS });
+}
+
 export function publishSignalingRecovered(): void {
   const current = getState('network.signalingHealth');
-  if (current.status === 'healthy' || current.status === 'recovered') return;
+  if (
+    current.status === 'healthy' ||
+    current.status === 'recovered' ||
+    current.status === 'expired'
+  ) {
+    return;
+  }
   if (!canRecoverSignalingInPlace()) {
     resetSignalingHealth();
     return;

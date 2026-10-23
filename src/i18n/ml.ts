@@ -315,6 +315,10 @@ const ml: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'ഹോസ്റ്റ് റൂം പാസ്‌വേഡ് മാറ്റി. വീണ്ടും ചേരാൻ പുതിയ പാസ്‌വേഡ് നൽകുക.',
   'connect.signaling_healthy': 'റൂം സർവർ ഓൺലൈനാണ്',
+  'connect.signaling_expired': 'റൂം കണക്ഷൻ അവസാനിച്ചു',
+  'connect.signaling_expired_detail':
+    'ഈ റൂമിലേക്ക് വീണ്ടും ബന്ധിപ്പിക്കാനുള്ള സമയം കഴിഞ്ഞു.\nനിലവിലെ പ്ലേബാക്ക് തുടരും. വീണ്ടും ചേരുമ്പോൾ നിലവിലെ സെഷനുമായുള്ള നിങ്ങളുടെ ബന്ധം വിച്ഛേദിക്കും, പ്ലേബാക്കും നിർത്തപ്പെടും.',
+  'connect.signaling_rejoin': 'വീണ്ടും ചേരുക',
   'connect.signaling_recovering': 'വീണ്ടും ബന്ധിപ്പിക്കുന്നു…',
   'connect.signaling_failed': 'സർവർ ബന്ധം പരാജയപ്പെട്ടു',
   'connect.signaling_recover_action': 'വീണ്ടും ബന്ധിപ്പിക്കുക',

@@ -18,7 +18,7 @@ import {
   syncOverlayState,
   trackClosingCssTransition,
 } from './dom.ts';
-import { navigateHome } from '../core/navigation.ts';
+import { navigateHome, returnToRoomStart } from '../core/navigation.ts';
 import {
   getRoomContext,
   hasRoomCapability,
@@ -214,6 +214,10 @@ async function generateQR(containerId: string): Promise<void> {
     copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${INVITE_LINK_ICON_PATH}"/></svg><span class="material-elastic-spinner signaling-recovery-spinner" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg></span><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
     const copyInviteLink = async (): Promise<void> => {
       const healthStatus = getState('network.signalingHealth').status;
+      if (healthStatus === 'expired') {
+        setSignalingRecoveryDialogState('expired');
+        return;
+      }
       if (_manualSignalingRecovery || healthStatus === 'reconnecting') return;
       if (healthStatus === 'exhausted') {
         await beginManualSignalingRecovery();
@@ -269,7 +273,7 @@ function refreshAllQR(): void {
 
 const SIGNALING_RECOVERY_OVERLAY_ID = 'signaling-recovery-overlay';
 
-type SignalingRecoveryDialogState = 'closed' | 'failed';
+type SignalingRecoveryDialogState = 'closed' | 'failed' | 'expired';
 
 interface ManualSignalingRecovery {
   readonly boundary: string;
@@ -294,17 +298,21 @@ function signalingRecoveryBoundary(): string {
 function syncSignalingInviteButtons(): void {
   const health = getState('network.signalingHealth');
   const mode =
-    _manualSignalingRecovery || health.status === 'reconnecting'
-      ? 'recovering'
-      : health.status === 'exhausted'
-        ? 'recover'
-        : 'copy';
+    health.status === 'expired'
+      ? 'expired'
+      : _manualSignalingRecovery || health.status === 'reconnecting'
+        ? 'recovering'
+        : health.status === 'exhausted'
+          ? 'recover'
+          : 'copy';
   const labelKey =
-    mode === 'recovering'
-      ? 'connect.signaling_recovering'
-      : mode === 'recover'
-        ? 'connect.signaling_recover_action'
-        : 'connect.copy_invite_link';
+    mode === 'expired'
+      ? 'connect.signaling_expired'
+      : mode === 'recovering'
+        ? 'connect.signaling_recovering'
+        : mode === 'recover'
+          ? 'connect.signaling_recover_action'
+          : 'connect.copy_invite_link';
   const label = t(labelKey);
 
   document.querySelectorAll<HTMLButtonElement>('.btn-copy-invite-link').forEach((button) => {
@@ -371,12 +379,15 @@ function syncSignalingRecoveryDialogCopy(): void {
   const retry = getUiElement('btn-signaling-recovery-retry') as HTMLButtonElement | null;
   if (!title || !message || !confirm || !retry) return;
 
-  const titleText = t('connect.signaling_failed');
-  const messageText = t('connect.signaling_exhausted');
+  const expired = _signalingRecoveryDialogState === 'expired';
+  const titleText = t(expired ? 'connect.signaling_expired' : 'connect.signaling_failed');
+  const messageText = t(
+    expired ? 'connect.signaling_expired_detail' : 'connect.signaling_exhausted',
+  );
   title.textContent = titleText;
   message.textContent = messageText;
   confirm.textContent = t('common.ok');
-  retry.textContent = t('connect.signaling_retry');
+  retry.textContent = t(expired ? 'connect.signaling_rejoin' : 'connect.signaling_retry');
   applyUserTextFontFallback(title, titleText);
   applyUserTextFontFallback(message, messageText);
 }
@@ -394,23 +405,27 @@ function setSignalingRecoveryDialogState(
   const retry = getUiElement('btn-signaling-recovery-retry') as HTMLButtonElement | null;
 
   if (!overlay || !dialog || !title || !message || !actions || !confirm || !retry) {
-    if (state === 'failed') {
-      showDialog({
-        title: t('connect.signaling_failed'),
-        message: t('connect.signaling_exhausted'),
-        buttonText: t('connect.signaling_retry'),
-        secondaryText: t('common.ok'),
-      })
-        .then((result) => {
-          if (result.action !== 'ok') return;
-          beginManualSignalingRecovery().catch((error) => {
-            log.warn('[Connect] Signaling recovery retry failed', error);
-          });
-        })
-        .catch((error) => {
-          log.warn('[Connect] Signaling recovery dialog failed', error);
+    const expired = state === 'expired';
+    showDialog({
+      title: t(expired ? 'connect.signaling_expired' : 'connect.signaling_failed'),
+      message: t(expired ? 'connect.signaling_expired_detail' : 'connect.signaling_exhausted'),
+      buttonText: t(expired ? 'connect.signaling_rejoin' : 'connect.signaling_retry'),
+      secondaryText: t('common.ok'),
+    })
+      .then((result) => {
+        if (result.action !== 'ok') return;
+        if (signalingRecoveryBoundary() !== boundary) return;
+        if (expired) {
+          rejoinExpiredRoom();
+          return;
+        }
+        beginManualSignalingRecovery().catch((error) => {
+          log.warn('[Connect] Signaling recovery retry failed', error);
         });
-    }
+      })
+      .catch((error) => {
+        log.warn('[Connect] Signaling recovery dialog failed', error);
+      });
     return;
   }
 
@@ -454,6 +469,11 @@ function initSignalingRecoveryDialog(): void {
     return true;
   });
   retry.addEventListener('click', () => {
+    if (_signalingRecoveryDialogState === 'expired') {
+      rejoinExpiredRoom();
+      closeSignalingRecoveryDialog(true);
+      return;
+    }
     beginManualSignalingRecovery().catch((error) => {
       log.warn('[Connect] Manual signaling recovery failed', error);
     });
@@ -475,11 +495,33 @@ function initSignalingRecoveryDialog(): void {
   });
 }
 
+/** Fresh admission is explicit; merely viewing/dismissing expiry never stops playback. */
+function rejoinExpiredRoom(): void {
+  if (
+    getRoomContext().kind !== 'standard' ||
+    !getState('setup.sessionStarted') ||
+    getState('network.signalingHealth').status !== 'expired'
+  ) {
+    return;
+  }
+  returnToRoomStart(getState('network.sessionCode'), {
+    message: t('dialog.refreshing_session'),
+    // Owner decision (2026-10-24): joining again after expiry is a reconnect,
+    // like the HOST_DISCONNECTED reconnect and the service-worker update
+    // return. Expiry means the host stayed away past its reclaim grace, so a
+    // missing host must read error.host_left, not "check the code" for a code
+    // the user never typed; activity stats count it as a continuing session.
+    reconnect: true,
+    fallback: () => navigateHome(t('dialog.leaving_session'), { history: 'replace' }),
+  });
+}
+
 async function retrySignalingConnection(): Promise<boolean> {
   // Manual recovery begins on the next microtask. The former dynamic imports
   // supplied this boundary implicitly; keep it explicit so a stale inherited
   // `exhausted` render cannot be mistaken for the result of the new attempt.
   await Promise.resolve();
+  if (getState('network.signalingHealth').status === 'expired') return false;
   if (getRoomContext().kind === 'pro') {
     return restartProRoomTransportRecovery();
   }
@@ -537,7 +579,21 @@ function renderSignalingRecoveryControls(): void {
   const boundary = signalingRecoveryBoundary();
   const recovery = _manualSignalingRecovery;
 
-  if (recovery && (!visible || recovery.boundary !== boundary)) {
+  if (visible && health.status === 'expired') {
+    _manualSignalingRecovery = null;
+    if (
+      _signalingRecoveryDialogState !== 'closed' &&
+      _signalingRecoveryDialogBoundary !== boundary
+    ) {
+      closeSignalingRecoveryDialog();
+    }
+    if (
+      _signalingRecoveryDialogState === 'failed' &&
+      _signalingRecoveryDialogBoundary === boundary
+    ) {
+      setSignalingRecoveryDialogState('expired', boundary);
+    }
+  } else if (recovery && (!visible || recovery.boundary !== boundary)) {
     _manualSignalingRecovery = null;
     syncSignalingInviteButtons();
     if (_signalingRecoveryDialogState !== 'closed') closeSignalingRecoveryDialog();
@@ -549,7 +605,8 @@ function renderSignalingRecoveryControls(): void {
     _signalingRecoveryDialogState !== 'closed' &&
     (!visible ||
       _signalingRecoveryDialogBoundary !== boundary ||
-      (_signalingRecoveryDialogState === 'failed' && health.status !== 'exhausted'))
+      (_signalingRecoveryDialogState === 'failed' && health.status !== 'exhausted') ||
+      (_signalingRecoveryDialogState === 'expired' && health.status !== 'expired'))
   ) {
     closeSignalingRecoveryDialog();
   }

@@ -1181,7 +1181,9 @@ RO-47 owner-in-place
   `src/core/navigation.ts` (Phase 2, C6-3) run on the reset: `navigateHome` (replace, or push for
   the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
   `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
-  at its sink and writes the reconnect marker) serves `sw-register.ts` and `src/ui/setup.ts`.
+  at its sink and optionally writes the reconnect marker) serves `sw-register.ts`,
+  `src/ui/setup.ts` and `src/ui/connect.ts`. Connect requests a fresh admission only after
+  the user chooses to rejoin an expired Standard room; observing expiry never navigates.
   `scheduleSessionReset` is still called directly from `app.ts` (the confirmed Back leave),
   `src/ui/player-controls.ts` (the logo reset) and `src/pro-room/runtime.ts` (terminal PRO
   recovery). Since C6-8 a request is a plain action or `{ prepare?(signal), navigate, isCurrent? }`:
@@ -1819,7 +1821,12 @@ The survey also checked these and found one owner with a side flow (WEAK) or a s
 get a record only if a change adds a second machine:
 
 - Signaling socket reconnect (`src/network/peer.ts` outer loop, pre-admission retry in
-  `cloudflare-signaling.ts`), partitioned by admission.
+  `cloudflare-signaling.ts`), partitioned by admission. The provider owns the current
+  guest admission's explicit `ROOM_EXPIRED` reason; the existing outer loop reads
+  that eligibility and cancels its retry on the provider notification. This is
+  not another retry machine. RTC liveness remains with RO-15, and explicit new
+  admission uses the existing page-navigation owner (Phase 3 batch, 2026-10-24;
+  [contract](signaling-liveness.md#explicit-standard-room-expiry)).
 - Transport RTC configuration (TURN): three writers, last write wins; the pre-admission retry
   passes no expiry (self-healing).
 - Seek slider drag (`src/ui/range-drag.ts` and `src/ui/seekbar.ts`): two cooperating layers,

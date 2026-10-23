@@ -502,6 +502,7 @@ interface HttpBridgeHarness {
   readonly sendStatuses: number[];
   nextAuthorityFrame: Record<string, unknown> | null;
   nextTerminal: { code: number; reason: string } | null;
+  terminateAdmissions(terminal: { code: number; reason: string }): void;
   requestCount(suffix: string): number;
 }
 
@@ -512,6 +513,7 @@ function installHttpBridgeHarness(options: { admit?: boolean } = {}): HttpBridge
     authSent: boolean;
     authorityDelivered: boolean;
     pendingPoll: ((response: Response) => void) | null;
+    terminal: { code: number; reason: string } | null;
   }
 
   const admit = options.admit !== false;
@@ -524,6 +526,17 @@ function installHttpBridgeHarness(options: { admit?: boolean } = {}): HttpBridge
     sendStatuses: [],
     nextAuthorityFrame: null,
     nextTerminal: null,
+    terminateAdmissions(terminal) {
+      for (const session of sessions.values()) {
+        if (!session.authorityDelivered) continue;
+        session.terminal = terminal;
+        const resolve = session.pendingPoll;
+        if (resolve) {
+          session.pendingPoll = null;
+          resolve(Response.json({ v: 1, events: [], terminal }));
+        }
+      }
+    },
     requestCount(suffix: string): number {
       return requests.filter(({ url }) => url.endsWith(suffix)).length;
     },
@@ -576,6 +589,7 @@ function installHttpBridgeHarness(options: { admit?: boolean } = {}): HttpBridge
         authSent: false,
         authorityDelivered: false,
         pendingPoll: null,
+        terminal: null,
       });
       return Promise.resolve(Response.json({ sessionToken: token }));
     }
@@ -599,6 +613,9 @@ function installHttpBridgeHarness(options: { admit?: boolean } = {}): HttpBridge
       return Promise.resolve(Response.json({ v: 1, ack: body?.cseq }));
     }
     if (url.endsWith('/bridge/poll')) {
+      if (session.terminal) {
+        return Promise.resolve(Response.json({ v: 1, events: [], terminal: session.terminal }));
+      }
       if (admit && session.authSent && !session.authorityDelivered) {
         return Promise.resolve(authorityResponse(session));
       }
@@ -4111,6 +4128,36 @@ describe('Standard HTTPS route preference circuit breaker', () => {
     expect(bridge.requestCount('/bridge/open')).toBe(2);
   });
 
+  it('preserves RTC and blocks recovery when the HTTPS bridge delivers room expiry', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const bridge = installHttpBridgeHarness();
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    const prepare = vi.fn(async () => null);
+    const peer = new CloudflareSignalingPeer(null, fallbackOptions(prepare));
+    const conn = peer.connect('123456');
+    const error = vi.fn();
+    const blocked = vi.fn();
+    conn.on('error', error);
+    peer.on('signaling-recovery-blocked', blocked);
+    await vi.waitFor(() => expect(conn.open).toBe(true));
+
+    bridge.terminateAdmissions({ code: 1012, reason: 'ROOM_EXPIRED' });
+    await vi.waitFor(() => expect(blocked).toHaveBeenCalledOnce());
+    for (let attempt = 0; attempt < 5; attempt++) peer.reconnect();
+    await flushAsync();
+
+    expect(peer.getSignalingRecoveryBlockReason()).toBe('room-expired');
+    expect(peer.disconnected).toBe(true);
+    expect(conn.open).toBe(true);
+    expect(error).not.toHaveBeenCalled();
+    expect(bridge.requestCount('/bridge/open')).toBe(1);
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(true);
+    peer.destroy();
+  });
+
   it('leaves PRO signaling and ambient browser state untouched', async () => {
     installFakeWebSocket();
     const fetchMock = vi.fn<typeof fetch>();
@@ -6584,6 +6631,305 @@ describe('Cloudflare guest signaling reconnect', () => {
 
     peer.reconnect();
     expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
+  it('blocks expired Standard admission without closing its live RTC channels', async () => {
+    const { peer, conn, socket, pc } = await establishGuest();
+    const blocked = vi.fn(() =>
+      expect(peer.getSignalingRecoveryBlockReason()).toBe('room-expired'),
+    );
+    const error = vi.fn();
+    const closed = vi.fn();
+    const disconnected = vi.fn();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    peer.on('signaling-recovery-blocked', blocked);
+    peer.on('disconnected', disconnected);
+    conn.on('error', error);
+    conn.on('close', closed);
+
+    socket.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    socket.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    for (let attempt = 0; attempt < 5; attempt++) peer.reconnect();
+
+    expect(blocked).toHaveBeenCalledOnce();
+    expect(disconnected).not.toHaveBeenCalled();
+    expect(peer.disconnected).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(error).not.toHaveBeenCalled();
+    expect(closed).not.toHaveBeenCalled();
+    expect(conn.open).toBe(true);
+    expect(pc.connectionState).toBe('connected');
+    expect(pc.channels.every((channel) => channel.readyState === 'open')).toBe(true);
+    expect(() => conn.send({ type: 'ping' })).not.toThrow();
+    expect(privateMaps(peer).guestRooms.get('123456')?.authFailed).toBe(false);
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Guest room admission expired; automatic signaling recovery blocked',
+      expect.objectContaining({
+        closeCode: 1012,
+        closeReason: 'ROOM_EXPIRED',
+        phase: 'initial',
+        rtcAlive: true,
+        automaticRetryBlockedReason: 'room-expired',
+      }),
+    );
+    peer.destroy();
+  });
+
+  it('blocks an expired recovery socket and ignores late closure from its predecessor', async () => {
+    const { peer, conn, socket } = await establishGuest();
+    const blocked = vi.fn();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    peer.on('signaling-recovery-blocked', blocked);
+    socket.close();
+    peer.reconnect();
+    const recovery = FakeWebSocket.instances[1];
+
+    socket.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    expect(blocked).not.toHaveBeenCalled();
+    expect(peer.getSignalingRecoveryBlockReason()).toBeNull();
+    expect(privateMaps(peer).roomSockets.get('123456')).toBe(recovery);
+
+    recovery.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    peer.reconnect();
+    expect(blocked).toHaveBeenCalledOnce();
+    expect(conn.open).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Guest room admission expired; automatic signaling recovery blocked',
+      expect.objectContaining({ phase: 'recovery', rtcAlive: true }),
+    );
+    peer.destroy();
+  });
+
+  it.each([
+    // Real Worker reasons left off the eager allow-list for size stay 'unknown'.
+    { code: 1012, reason: 'SERVICE_MAINTENANCE', closeReason: 'unknown' },
+    { code: 1006, reason: '', closeReason: 'unknown' },
+    { code: 1006, reason: 'ROOM_EXPIRED', closeReason: 'ROOM_EXPIRED' },
+    { code: 1012, reason: 'GUEST_REPLACED', closeReason: 'GUEST_REPLACED' },
+    { code: 1012, reason: 'NOT_A_WORKER_REASON', closeReason: 'unknown' },
+  ])('keeps ordinary guest recovery for $code/$reason', async ({ code, reason, closeReason }) => {
+    const { peer, conn, socket } = await establishGuest();
+    const blocked = vi.fn();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    peer.on('signaling-recovery-blocked', blocked);
+    socket.dispatch('close', undefined, reason, code, false);
+    peer.reconnect();
+    expect(blocked).not.toHaveBeenCalled();
+    expect(peer.getSignalingRecoveryBlockReason()).toBeNull();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(conn.open).toBe(true);
+    // Diagnostics keep only allow-listed reasons; other text stays 'unknown'.
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Established guest signaling socket closed; RTC channels retain their own lifecycle',
+      expect.objectContaining({ closeCode: code, closeReason }),
+    );
+    peer.destroy();
+  });
+
+  it('fails an expired initial join once without trying alternate signaling routes', async () => {
+    installFakeWebSocket();
+    const prepare = vi.fn(async () => null);
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry: prepare,
+    });
+    const conn = peer.connect('123456');
+    const error = vi.fn();
+    const closed = vi.fn();
+    conn.on('error', error);
+    conn.on('close', closed);
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    await flushAsync();
+    peer.reconnect();
+    expect(error).toHaveBeenCalledOnce();
+    expect(error.mock.calls[0]?.[0]).toMatchObject({
+      type: 'peer-unavailable',
+      message: 'ROOM_EXPIRED',
+    });
+    expect(closed).toHaveBeenCalledOnce();
+    expect(conn.open).toBe(false);
+    expect(privateMaps(peer).connections.size).toBe(0);
+    expect(privateMaps(peer).roomSockets.size).toBe(0);
+    expect(peer.getSignalingRecoveryBlockReason()).toBe('room-expired');
+    expect(prepare).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('allows explicit new admission after expired RTC cleanup, including a different code', async () => {
+    const { peer, conn, socket } = await establishGuest();
+    socket.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    conn.close();
+    expect(peer.getSignalingRecoveryBlockReason()).toBe('room-expired');
+    peer.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    peer.connect('234567');
+    expect(peer.getSignalingRecoveryBlockReason()).toBeNull();
+    expect(privateMaps(peer).guestRooms.has('123456')).toBe(false);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    peer.destroy();
+  });
+
+  it('does not let a live expired room block another room or a new admission to the same code', async () => {
+    const { peer, conn, socket } = await establishGuest();
+    socket.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    const second = peer.connect('234567');
+    const secondSocket = FakeWebSocket.instances[1];
+    secondSocket.dispatch('open');
+    secondSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: peer.id, roomId: '234567' }),
+    );
+    await flushAsync();
+    expect(second.open).toBe(true);
+    expect(peer.getSignalingRecoveryBlockReason()).toBeNull();
+    secondSocket.close();
+    peer.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(3);
+    expect(conn.open).toBe(true);
+    expect(privateMaps(peer).roomSockets.has('123456')).toBe(false);
+    peer.connect('123456');
+    expect(FakeWebSocket.instances).toHaveLength(4);
+    expect(peer.getSignalingRecoveryBlockReason()).toBeNull();
+    conn.close();
+    peer.destroy();
+  });
+
+  it('does not start new ICE signaling after the room admission expires', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    const offer = vi.spyOn(pc, 'createOffer');
+    socket.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await flushAsync();
+    expect(offer).not.toHaveBeenCalled();
+    expect(conn.open).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('settles an ICE admission wait when its recovery socket reports room expiry', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    const offer = vi.spyOn(pc, 'createOffer');
+    socket.close();
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await flushAsync();
+    const waiters = (peer as unknown as { signalingAdmissionWaiters: Set<() => void> })
+      .signalingAdmissionWaiters;
+    expect(waiters.size).toBeGreaterThan(0);
+    peer.reconnect();
+    FakeWebSocket.instances[1].dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    await flushAsync();
+    expect(waiters.size).toBe(0);
+    expect(offer).not.toHaveBeenCalled();
+    expect(conn.open).toBe(true);
+    peer.destroy();
+  });
+
+  it.each(['waiting', 'already-expired'] as const)(
+    'quietly cancels %s trickle ICE after the same guest admission expires',
+    async (timing) => {
+      const { peer, conn, socket, pc } = await establishGuest();
+      const onPeerError = vi.fn();
+      peer.on('error', onPeerError);
+      const waiters = (peer as unknown as { signalingAdmissionWaiters: Set<() => void> })
+        .signalingAdmissionWaiters;
+      if (timing === 'waiting') socket.close();
+      else socket.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+
+      pc.dispatch('icecandidate', {
+        candidate: { toJSON: () => ({ candidate: 'candidate:cancelled-on-expiry' }) },
+      });
+      if (timing === 'waiting') {
+        expect(waiters.size).toBe(1);
+        peer.reconnect();
+        FakeWebSocket.instances[1].dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+      }
+      await flushAsync();
+
+      expect(waiters.size).toBe(0);
+      expect(onPeerError).not.toHaveBeenCalled();
+      expect(conn.open).toBe(true);
+      expect(pc.connectionState).toBe('connected');
+      expect(pc.channels.every((channel) => channel.readyState === 'open')).toBe(true);
+      expect(
+        FakeWebSocket.instances.flatMap((candidateSocket) =>
+          sentOfType(candidateSocket, 'signal-candidate'),
+        ),
+      ).toHaveLength(0);
+      peer.destroy();
+    },
+  );
+
+  it('still surfaces ordinary trickle ICE send failures', async () => {
+    const { peer, socket, pc } = await establishGuest();
+    const onPeerError = vi.fn();
+    peer.on('error', onPeerError);
+    const sendError = new Error('candidate send failed');
+    vi.spyOn(socket, 'send').mockImplementationOnce(() => {
+      throw sendError;
+    });
+    pc.dispatch('icecandidate', {
+      candidate: { toJSON: () => ({ candidate: 'candidate:send-failure' }) },
+    });
+    await flushAsync();
+    expect(onPeerError).toHaveBeenCalledExactlyOnceWith(sendError);
+    peer.destroy();
+  });
+
+  it('redacts arbitrary socket close reasons from diagnostic output', async () => {
+    const { peer, socket } = await establishGuest();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const privateReason = 'token=synthetic-sensitive-value';
+    socket.dispatch('close', undefined, privateReason, 1012, false);
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Established guest signaling socket closed; RTC channels retain their own lifecycle',
+      expect.objectContaining({ closeReason: 'unknown', automaticRetryBlockedReason: null }),
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(privateReason);
+    peer.destroy();
+  });
+
+  it('does not apply Standard room expiry to a PRO member socket', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket: clientProTicket('member-device', { role: 'member' }),
+        role: 'member',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    const conn = peer.connect('000001');
+    const blocked = vi.fn();
+    peer.on('signaling-recovery-blocked', blocked);
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: peer.id, roomId: '000001' }),
+    );
+    await flushAsync();
+    expect(conn.open).toBe(true);
+
+    socket.dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    peer.reconnect();
+    expect(peer.getSignalingRecoveryBlockReason()).toBeNull();
+    expect(blocked).not.toHaveBeenCalled();
+    expect(conn.open).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    peer.destroy();
   });
 
   it('retries a rolling-deploy guest identity conflict after the legacy socket closes', async () => {

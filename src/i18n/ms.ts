@@ -317,6 +317,10 @@ const ms: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Hos telah menukar kata laluan bilik. Masukkan kata laluan baharu untuk menyertai semula.',
   'connect.signaling_healthy': 'Pelayan bilik dalam talian',
+  'connect.signaling_expired': 'Sambungan bilik tamat',
+  'connect.signaling_expired_detail':
+    'Tempoh untuk menyambung semula ke bilik ini telah tamat.\nMain balik semasa diteruskan. Jika anda menyertai semula, sambungan anda dengan sesi semasa akan diputuskan dan main balik akan berhenti.',
+  'connect.signaling_rejoin': 'Sertai semula',
   'connect.signaling_recovering': 'Menyambung semula…',
   'connect.signaling_failed': 'Sambungan pelayan gagal',
   'connect.signaling_recover_action': 'Sambung semula',

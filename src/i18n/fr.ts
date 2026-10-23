@@ -313,6 +313,10 @@ const fr: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'L’hôte a modifié le mot de passe du salon. Saisissez le nouveau mot de passe pour revenir dans le salon.',
   'connect.signaling_healthy': 'Serveur du salon en ligne',
+  'connect.signaling_expired': 'Connexion au salon terminée',
+  'connect.signaling_expired_detail':
+    'Le délai de reconnexion à ce salon a expiré.\nLa lecture en cours continue. Si vous rejoignez à nouveau, vous serez déconnecté du salon actuel et la lecture s’arrêtera.',
+  'connect.signaling_rejoin': 'Rejoindre à nouveau',
   'connect.signaling_recovering': 'Reconnexion…',
   'connect.signaling_failed': 'Échec de la connexion au serveur',
   'connect.signaling_recover_action': 'Se reconnecter',

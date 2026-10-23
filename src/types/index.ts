@@ -955,7 +955,7 @@ export interface RoomContext {
   capabilities: RoomCapability[];
 }
 
-type SignalingHealthStatus = 'healthy' | 'reconnecting' | 'recovered' | 'exhausted';
+type SignalingHealthStatus = 'healthy' | 'reconnecting' | 'recovered' | 'exhausted' | 'expired';
 
 /**
  * Durable UI-facing health of the room's signaling/control channel.

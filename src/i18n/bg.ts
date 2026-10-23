@@ -310,6 +310,10 @@ const bg: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Хостът смени паролата за стаята. Въведи новата парола, за да влезеш пак.',
   'connect.signaling_healthy': 'Сървърът на стаята е онлайн',
+  'connect.signaling_expired': 'Връзката със стаята приключи',
+  'connect.signaling_expired_detail':
+    'Времето за повторно свързване с тази стая изтече.\nТекущото възпроизвеждане продължава. При повторно присъединяване връзката с текущата сесия ще бъде прекъсната и възпроизвеждането ще спре.',
+  'connect.signaling_rejoin': 'Присъедини се отново',
   'connect.signaling_recovering': 'Повторно свързване…',
   'connect.signaling_failed': 'Връзката със сървъра е неуспешна',
   'connect.signaling_recover_action': 'Свържи отново',

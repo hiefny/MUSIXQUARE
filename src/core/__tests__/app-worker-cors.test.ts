@@ -4969,6 +4969,15 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 5, event: 'host_legacy_url_auth', count: 2 },
         { bucket_minute: nowMinute - 4, event: 'guest_joined', count: 7 },
         { bucket_minute: nowMinute - 3, event: 'guest_auth_failed', count: 1 },
+        { bucket_minute: nowMinute - 3, event: 'guest_host_unavailable', count: 9 },
+        { bucket_minute: nowMinute - 3, event: 'guest_host_unavailable_reclaim_grace', count: 3 },
+        {
+          bucket_minute: nowMinute - 3,
+          event: 'guest_host_unavailable_host_auth_pending',
+          count: 2,
+        },
+        { bucket_minute: nowMinute - 3, event: 'guest_host_unavailable_no_active_host', count: 4 },
+        { bucket_minute: nowMinute - 3, event: 'standard_room_expired', count: 1 },
         { bucket_minute: nowMinute - 2, event: 'guest_room_full', count: 2 },
         { bucket_minute: nowMinute - 2, event: 'guest_reconnect_denied', count: 5 },
         { bucket_minute: nowMinute - 2, event: 'guest_reconnect_conflict', count: 8 },
@@ -5021,6 +5030,13 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(payload.summary?.last24?.room_opened).toBe(3);
     expect(payload.summary?.last24?.host_legacy_url_auth).toBeUndefined();
     expect(payload.summary?.last24?.guest_joined).toBe(7);
+    expect(payload.summary?.last24).toMatchObject({
+      guest_host_unavailable: 9,
+      guest_host_unavailable_reclaim_grace: 3,
+      guest_host_unavailable_host_auth_pending: 2,
+      guest_host_unavailable_no_active_host: 4,
+      standard_room_expired: 1,
+    });
     expect(payload.summary?.last24?.guest_room_full).toBe(2);
     expect(payload.summary?.last24?.guest_reconnect_denied).toBe(5);
     expect(payload.summary?.last24?.guest_reconnect_conflict).toBe(8);

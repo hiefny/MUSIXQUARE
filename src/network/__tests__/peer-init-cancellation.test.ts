@@ -52,6 +52,7 @@ import {
   joinSession,
   leaveSession,
   recoverPeerAfterBackground,
+  retryPeerSignalingConnection,
 } from '../peer.ts';
 
 type Deferred<T> = {
@@ -730,6 +731,87 @@ describe('network initialization ownership', () => {
     recoverPeerAfterBackground(60_000);
     expect(peer.reconnect).toHaveBeenCalledTimes(10);
     expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('cancels pending retry and grace on room expiry without stopping surviving guest playback', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('EXPIRED-GUEST', true);
+    let expired = false;
+    peer.getSignalingRecoveryBlockReason = () => (expired ? 'room-expired' : null);
+    peer.recoverAfterBackground.mockReturnValue({ status: 'monitoring' });
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    const hostConn = { open: true, close: vi.fn() } as unknown as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('playback.activity', 'playing');
+    setState('systemAudio.isReceiving', true);
+    const stopMedia = vi.fn();
+    const stopSystemAudio = vi.fn();
+    bus.on('player:stop-all-media', stopMedia);
+    bus.on('system-audio:force-stop', stopSystemAudio);
+
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(peer.reconnect).toHaveBeenCalledOnce();
+    expect(getManagedTimer('peer-signaling-reconnect')).not.toBeNull();
+    expect(getManagedTimer('peer-disconnect-grace')).not.toBeNull();
+    expired = true;
+    peer.fire('signaling-recovery-blocked');
+
+    expect(getState('network.signalingHealth').status).toBe('expired');
+    expect(getManagedTimer('peer-signaling-reconnect')).toBeNull();
+    expect(getManagedTimer('peer-disconnect-grace')).toBeNull();
+    expect(retryPeerSignalingConnection()).toBe(false);
+    recoverPeerAfterBackground(60_000);
+    peer.fire('open');
+    peer.fire('disconnected');
+    window.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(peer.reconnect).toHaveBeenCalledOnce();
+    expect(getState('network.signalingHealth').status).toBe('expired');
+    expect(getManagedTimer('peer-disconnect-grace')).toBeNull();
+    expect(getState('network.hostConn')).toBe(hostConn);
+    expect(getState('playback.activity')).toBe('playing');
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(hostConn.close).not.toHaveBeenCalled();
+    expect(peer.destroy).not.toHaveBeenCalled();
+    expect(stopMedia).not.toHaveBeenCalled();
+    expect(stopSystemAudio).not.toHaveBeenCalled();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('keeps an expired admission stopped across peer events and background recovery, and ignores a stale predecessor event', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('EXPIRED-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    await createHostSessionWithShortCode(1);
+    setState('setup.sessionStarted', true);
+    peer.getSignalingRecoveryBlockReason = () => 'room-expired';
+    peer.fire('signaling-recovery-blocked');
+    peer.fire('disconnected');
+    // These browser hints return before their expiry check here: no active
+    // Standard coordinator is set (network.sessionCode is empty). The real
+    // provider never reports expiry for a host either (it returns null while
+    // it owns a host room), so the host-only expiry checks in peer.ts's
+    // online/offline handlers are defensive and not exercised by this test.
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('offline'));
+    recoverPeerAfterBackground(60_000);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(peer.reconnect).not.toHaveBeenCalled();
+    expect(getState('network.signalingHealth').status).toBe('expired');
+
+    const replacement = makePeer('FRESH-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(replacement);
+    await createHostSessionWithShortCode(1);
+    peer.fire('signaling-recovery-blocked');
+    expect(getState('network.signalingHealth').status).toBe('healthy');
+    replacement.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(replacement.reconnect).toHaveBeenCalledOnce();
   });
 
   it('re-evaluates a signaling-loss check that skipped a stale-open guest connection', async () => {

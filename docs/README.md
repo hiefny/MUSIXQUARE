@@ -92,6 +92,12 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 3 update and Standard-room expiry recovery batch (2026-10-24)](design/phase3-update-and-expiry-recovery-2026-10-24.md):
+  pending release evidence for the Phase 3 train. Explicit room expiry stops
+  automatic guest signaling retries while preserving existing RTC playback;
+  internal diagnostics distinguish expiry and observed host-unavailability state.
+  Subsequent Phase 3 update-path increments share this report.
+
 - [Retired Apps-in-Toss origins (Worker-only, 2026-10-24)](design/retire-toss-origins-2026-10-24.md):
   the App, signaling and remote-share Workers and the remote-share R2 CORS policy stop trusting the
   two former Apps-in-Toss origins, since the owner abandoned the Toss in-app build. The old

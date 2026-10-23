@@ -42,6 +42,7 @@ import {
 import {
   canRecoverSignalingInPlace,
   publishSignalingExhausted,
+  publishSignalingExpired,
   publishSignalingReconnectAttempt,
   publishSignalingRecovered,
   resetSignalingHealth,
@@ -406,6 +407,8 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
   resetLocalSystemAudioSfuCapabilities();
   resetGuestSystemAudioShareRoute();
   const owner = beginNetworkInit(requestedId);
+  // A new admission owns fresh health; terminal expiry belongs only to its predecessor.
+  resetSignalingHealth();
   let ownedPeer: PeerInstance | null = null;
 
   // Clean up existing peer instance
@@ -633,6 +636,22 @@ const MAX_RECONNECT_ATTEMPTS = SIGNALING_RECOVERY_MAX_ATTEMPTS;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
 let _browserConnectivityRecoveryBound = false;
 
+/** The transport owns the admission terminal reason; this owner cancels its retry work. */
+function stopExpiredSignalingRecovery(peer: PeerInstance): boolean {
+  if (
+    getPeer() !== peer ||
+    getRoomContext().kind !== 'standard' ||
+    peer.getSignalingRecoveryBlockReason?.() !== 'room-expired'
+  ) {
+    return false;
+  }
+  clearManagedTimer('peer-signaling-reconnect');
+  clearManagedTimer('peer-disconnect-grace');
+  _reconnectAttempts = 0;
+  publishSignalingExpired();
+  return true;
+}
+
 function isRecoverableStandardHost(): boolean {
   return isActiveStandardRoomCoordinator();
 }
@@ -645,6 +664,7 @@ function bindBrowserConnectivityRecovery(): void {
     if (!isRecoverableStandardHost()) return;
     const peer = getPeer();
     if (!peer || peer.destroyed) return;
+    if (stopExpiredSignalingRecovery(peer)) return;
     if (peer.markSignalingUnavailable?.()) {
       log.warn('[Transport] Browser reported offline; host signaling recovery started');
     }
@@ -665,6 +685,7 @@ function bindBrowserConnectivityRecovery(): void {
 async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promise<void> {
   let peer = getPeer();
   if (peer !== expectedPeer) return;
+  if (stopExpiredSignalingRecovery(peer)) return;
   if (peer.destroyed) {
     _reconnectAttempts = 0;
     return;
@@ -685,6 +706,7 @@ async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promis
     // The credential request can outlive leave/rejoin. Its completion must not
     // reset a replacement peer's retry count or shorten its next backoff.
     if (peer !== expectedPeer) return;
+    if (stopExpiredSignalingRecovery(peer)) return;
     if (peer.destroyed) {
       _reconnectAttempts = 0;
       return;
@@ -718,6 +740,7 @@ function attemptPeerReconnect(): void {
     _reconnectAttempts = 0;
     return;
   }
+  if (stopExpiredSignalingRecovery(peer)) return;
   if (!peer.disconnected) {
     if (_reconnectAttempts > 0) {
       log.info('[Transport] Signaling reconnected');
@@ -774,6 +797,7 @@ export function retryPeerSignalingConnection(): boolean {
   ) {
     return false;
   }
+  if (stopExpiredSignalingRecovery(peer)) return false;
   if (!peer.disconnected) {
     publishSignalingRecovered();
     return true;
@@ -796,6 +820,7 @@ function schedulePeerDisconnectGrace(peer: PeerInstance): void {
       // Scope the grace period to the peer whose disconnect created it.
       // A replacement peer must be evaluated only by its own events.
       if (currentPeer !== peer || peer.destroyed || !peer.disconnected) return;
+      if (stopExpiredSignalingRecovery(peer)) return;
 
       // Skip the dialog if we still have a working channel ??the session
       // is functional even without signaling (no new peers can join, but
@@ -868,6 +893,7 @@ export function recoverPeerAfterBackground(hiddenMs: number): TransportBackgroun
   }
 
   const result = peer.recoverAfterBackground?.(hiddenMs) ?? { status: 'not-applicable' };
+  if (stopExpiredSignalingRecovery(peer)) return result;
   if (
     hiddenMs > 0 &&
     getPeer() === peer &&
@@ -899,10 +925,19 @@ function setupPeerEvents(peer: PeerInstance): void {
 
   peer.on('open', () => {
     if (getPeer() !== peer || getState('network.signalingHealth').status === 'healthy') return;
+    if (stopExpiredSignalingRecovery(peer)) return;
     clearManagedTimer('peer-signaling-reconnect');
     clearManagedTimer('peer-disconnect-grace');
     _reconnectAttempts = 0;
     publishSignalingRecovered();
+  });
+
+  peer.on('signaling-recovery-blocked', () => {
+    if (stopExpiredSignalingRecovery(peer)) {
+      log.info(
+        '[Transport] Confirmed room expiry; signaling retries cancelled, RTC/media retained',
+      );
+    }
   });
 
   peer.on('room-identity', (identity) => {
@@ -967,6 +1002,7 @@ function setupPeerEvents(peer: PeerInstance): void {
 
   peer.on('disconnected', () => {
     if (getPeer() !== peer) return;
+    if (stopExpiredSignalingRecovery(peer)) return;
     log.warn(
       '[Transport] Signaling unavailable; recovering admission separately from existing RTC channels',
       {

@@ -1332,7 +1332,10 @@ RO-46 accepted-exception
   - Teardown: `session.test.ts` "keeps the aggregate-write fence outside the public account
     profile and clears it on logout".
   - Visibility: `session.test.ts` "defers background recovery until the page becomes visible".
-  - Missing: a cross-document contract test.
+  - Cross-document: `src/account/__tests__/account-pulse-cross-document.test.ts` runs the app tab and the
+    events document together over a same-origin BroadcastChannel fake, and
+    `account-pulse-contract.test.ts` freezes the pulse wire format, channel names and storage keys
+    (Phase 0c C8 harness).
 - **Status:** `duplicated`. Phase 0d (wire contract), Phase 2 (one parser, single receiver
   including the events page copy).
 

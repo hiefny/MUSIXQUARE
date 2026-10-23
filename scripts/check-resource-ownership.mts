@@ -40,6 +40,13 @@
  *     Constants that only share a value are report-only (--report lists them).
  *   CHECK 6 AudioContext native resume()/suspend() call sites (RO-01, RO-44),
  *     counted syntactically per file.
+ *   CHECK 7 Developer API authority fence writers (RO-25). Writes to
+ *     mxqr_developer_api_room_authority_fences stay in the listed functions:
+ *     the activator, the clearer and the PRO room decommission. A string or
+ *     template literal counts when it inserts into, replaces into, updates or
+ *     deletes from the table, or names it in any other way, because a bare
+ *     name can be substituted into template-built SQL (`DELETE FROM
+ *     ${table}`); reads (FROM or JOIN) and qualified columns do not count.
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -55,8 +62,9 @@
  * comments and unrelated strings never count. Lifecycle-operation callers
  * are counted only for the names above (page-lock claims, SKIP_WAITING sends,
  * AudioContext resume/suspend, armed reception starts, the Worker broadcast
- * endpoint and the duration reader in cloudflare/). Deliberately not checked yet (registry
- * RO-44, RO-45 and "Resource-ownership guard"): callers of the other
+ * endpoint, the duration reader in cloudflare/ and the authority fence
+ * writers). Deliberately not checked yet (registry RO-44, RO-45 and
+ * "Resource-ownership guard"): callers of the other
  * records' lifecycle operations (YouTube player commands, claimPlaybackOwner,
  * setSystemAudioReceiving, scheduleSessionReset), receivers resolved by type,
  * module-level lifecycle slots, timer-name manifests, shared phase unions,
@@ -419,6 +427,45 @@ const AUDIO_CONTEXT_NATIVE_CALL_BASELINE: Baseline = new Map<string, Allowance>(
   ],
 ]);
 
+// ── CHECK 7 baseline: Developer API authority fence writers (RO-25) ──────
+
+const AUTHORITY_FENCE_TABLE = 'mxqr_developer_api_room_authority_fences';
+/**
+ * The name's tail, so the name cannot be assembled from a harmless-looking
+ * prefix (it is not a prefix of the DEVELOPER_API_AUTHORITY_FENCED error code).
+ */
+const AUTHORITY_FENCE_NAME_PART = 'authority_fences';
+const SQL_WRITE_TARGET_RE =
+  /\b(?:insert(?:\s+or\s+\w+)?\s+into|replace\s+into|update(?:\s+or\s+\w+)?|delete\s+from)\s+["`[]?$/u;
+const SQL_READ_SOURCE_RE = /\b(?:from|join)\s+["`[]?$/u;
+
+/**
+ * RO-25: literals that may write the authority fence table, exact per
+ * `file :: function` anywhere in production code. The registry names these
+ * as the only writers; the PRO decommission's entry is the table name in its
+ * `DELETE FROM ${table}` loop list.
+ */
+const AUTHORITY_FENCE_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'cloudflare/app-worker.ts :: clearDeveloperApiAuthorityFence',
+    { count: 1, reason: 'the one clearer: the transfer clears only its own digest' },
+  ],
+  [
+    'cloudflare/app-worker.ts :: revokeDeveloperApiKeysForAuthorityChange',
+    {
+      count: 1,
+      reason: 'the one activator: an upsert from the typed AuthorityFenceWrite (C7-11)',
+    },
+  ],
+  [
+    'cloudflare/pro-room-worker.ts :: deleteDeveloperRoomData',
+    {
+      count: 1,
+      reason: 'decommission: DELETE FROM ${table} over the incarnation Developer API tables',
+    },
+  ],
+]);
+
 /** Every record ID this guard's manifests name, for CHECK 1. */
 const GUARD_RECORD_IDS: readonly string[] = [
   'RO-01',
@@ -428,6 +475,7 @@ const GUARD_RECORD_IDS: readonly string[] = [
   'RO-22',
   'RO-23',
   'RO-24',
+  'RO-25',
   'RO-26',
   'RO-30',
   'RO-44',
@@ -705,6 +753,7 @@ interface FileFacts {
   readonly broadcastEndpointSites: string[];
   readonly durationReadSites: string[];
   readonly armedReceptionStartSites: string[];
+  readonly authorityFenceWriteSites: string[];
   readonly ownerHeaders: string[];
 }
 
@@ -745,6 +794,48 @@ function isValueReference(node: ts.Identifier): boolean {
   return true;
 }
 
+/**
+ * Text of a string literal or a whole template literal, with each template
+ * substitution as U+0000; null for any other node (template parts are read
+ * through their template, so they never count twice).
+ */
+function literalText(node: ts.Node): string | null {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) return node.text;
+  if (!ts.isTemplateExpression(node)) return null;
+  return node.head.text + node.templateSpans.map((span) => `\u0000${span.literal.text}`).join('');
+}
+
+/**
+ * RO-25: whether a literal may write the authority fence table. It does when
+ * it inserts into, replaces into, updates or deletes from the table, names
+ * the table in any other way (a bare name can become the target of
+ * template-built SQL such as `DELETE FROM ${table}`), or holds a piece of the
+ * name outside a full one. Reads (FROM or JOIN the table, as in EXISTS
+ * subqueries) and qualified columns (`table.column`) do not. SQL names are
+ * case-insensitive, so the match is too.
+ */
+function mayWriteAuthorityFence(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (!lower.includes(AUTHORITY_FENCE_NAME_PART)) return false;
+  const names = lower.split(AUTHORITY_FENCE_TABLE).length - 1;
+  const parts = lower.split(AUTHORITY_FENCE_NAME_PART).length - 1;
+  if (parts > names) return true;
+  for (
+    let index = lower.indexOf(AUTHORITY_FENCE_TABLE);
+    index !== -1;
+    index = lower.indexOf(AUTHORITY_FENCE_TABLE, index + 1)
+  ) {
+    const next = lower.charAt(index + AUTHORITY_FENCE_TABLE.length);
+    if (next === '.') continue;
+    const before = lower.slice(0, index);
+    if (SQL_WRITE_TARGET_RE.test(before)) return true;
+    // Part of a longer identifier, such as an index name: not a plain read.
+    if (/\w$/u.test(before) || /^\w/u.test(next)) return true;
+    if (!SQL_READ_SOURCE_RE.test(before)) return true;
+  }
+  return false;
+}
+
 function collectFacts(relPath: string, text: string): FileFacts {
   const cached = factsCache.get(relPath);
   if (cached?.text === text) return cached.facts;
@@ -762,6 +853,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
     broadcastEndpointSites: [],
     durationReadSites: [],
     armedReceptionStartSites: [],
+    authorityFenceWriteSites: [],
     ownerHeaders: [],
   };
 
@@ -772,6 +864,10 @@ function collectFacts(relPath: string, text: string): FileFacts {
   }
 
   visit(file, (node) => {
+    const literal = literalText(node);
+    if (literal !== null && mayWriteAuthorityFence(literal)) {
+      facts.authorityFenceWriteSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
+    }
     if (ts.isStringLiteralLike(node) || ts.isTemplateLiteralToken(node)) {
       if (node.text.includes(BROADCAST_ENDPOINT)) {
         facts.broadcastEndpointSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
@@ -1283,6 +1379,7 @@ export interface ResourceOwnershipReport {
   readonly workerSites: Readonly<Record<string, number>>;
   readonly deadline: DeadlineOwnership;
   readonly armedReceptionStarts: number;
+  readonly authorityFenceWrites: number;
   readonly timingPairs: {
     readonly copies: number;
     readonly suspects: number;
@@ -1433,6 +1530,22 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
   );
   const pairs = checkTimingPairs(input.sources, findings);
 
+  const authorityFenceWrites = tally(
+    [...facts.values()].flatMap((f) => f.authorityFenceWriteSites),
+  );
+  compareExact(
+    {
+      label: 'authority fence write',
+      record: 'RO-25',
+      hint:
+        'write the Developer API authority fence through revokeDeveloperApiKeysForAuthorityChange ' +
+        '(a typed AuthorityFenceWrite) or clearDeveloperApiAuthorityFence in cloudflare/app-worker.ts',
+      measured: authorityFenceWrites,
+      baseline: AUTHORITY_FENCE_WRITE_BASELINE,
+    },
+    findings,
+  );
+
   const audioContextCalls = perFile(facts, (f) => f.audioContextNativeCalls, appOnly);
   compareExact(
     {
@@ -1465,6 +1578,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     },
     deadline,
     armedReceptionStarts: total(armedStarts),
+    authorityFenceWrites: total(authorityFenceWrites),
     timingPairs: {
       copies: triaged('copy'),
       suspects: triaged('suspect'),
@@ -1509,7 +1623,8 @@ function main(argv: readonly string[]): void {
       `  copied timing constants: ${timingPairs.copies} copies, ${timingPairs.suspects} suspects; ` +
       `${timingPairs.reportOnly.length} same-value pairs (report-only` +
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +
-      `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.`,
+      `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.\n` +
+      `  Developer API authority fence writes: ${report.authorityFenceWrites}.`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);

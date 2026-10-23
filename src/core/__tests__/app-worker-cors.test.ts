@@ -226,11 +226,19 @@ interface AppOwnershipTimestampHelpers {
     env: unknown,
     roomCode: string,
     roomGeneration: number,
-    actorId: string,
-    result: string,
-    suspensionReason: string,
-    fenceDigest: string,
-    expectedFenceDigest?: string | null,
+    write:
+      | {
+          source: 'account-delete';
+          reason: 'owner_account_deleted';
+          fenceDigest: string;
+          expected: string | null;
+        }
+      | {
+          source: 'owner-transfer' | 'legacy-owner-detach';
+          reason: 'ownership_transfer_pending';
+          fenceDigest: string;
+          expected: 'any';
+        },
   ) => Promise<{ revokedAtMs: number; revokedKeyCount: number; fenceStatus: string }>;
 }
 
@@ -438,16 +446,12 @@ describe('owner-transfer authority fence timestamp ordering', () => {
         .run('K'.repeat(16), 'S'.repeat(43), now, now, now + 60000);
       const oldRemovalDigest = 'R'.repeat(43);
       const invoke = (expected: string | null) =>
-        revoke(
-          { DEVELOPER_API_DB: db },
-          '000123',
-          7,
-          'system:account-delete',
-          'owner_account_deleted',
-          'owner_account_deleted',
-          oldRemovalDigest,
+        revoke({ DEVELOPER_API_DB: db }, '000123', 7, {
+          source: 'account-delete',
+          reason: 'owner_account_deleted',
+          fenceDigest: oldRemovalDigest,
           expected,
-        );
+        });
       await expect(invoke(capturedDigest)).rejects.toThrow('authority fence was not confirmed');
       expect(
         database
@@ -522,15 +526,12 @@ describe('owner-transfer authority fence timestamp ordering', () => {
         },
       };
       const invoke = () =>
-        revoke(
-          { DEVELOPER_API_DB: db },
-          '000123',
-          7,
-          'system:owner-transfer',
-          'ownership_transfer',
-          'ownership_transfer_pending',
-          'F'.repeat(43),
-        );
+        revoke({ DEVELOPER_API_DB: db }, '000123', 7, {
+          source: 'owner-transfer',
+          reason: 'ownership_transfer_pending',
+          fenceDigest: 'F'.repeat(43),
+          expected: 'any',
+        });
       const earlier = invoke();
       await waiting;
       try {

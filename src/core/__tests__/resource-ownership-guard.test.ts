@@ -574,4 +574,90 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
   });
+
+  describe('CHECK 7 Developer API authority fence writers (RO-25)', () => {
+    const FENCES = 'mxqr_developer_api_room_authority_fences';
+
+    it('allows only the activator, the clearer and the decommission loop on the real tree', () => {
+      const report = analyzeResourceOwnership(realInput());
+      expect(report.findings).toEqual([]);
+      expect(report.authorityFenceWrites).toBe(3);
+    });
+
+    it('rejects a stray fence write however its SQL is built', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            'cloudflare/rogue-fence.ts',
+            'export async function reopen(db: D1Database, room: string) {\n' +
+              `  await db.prepare(\`UPDATE ${FENCES}\n` +
+              "      SET status = 'cleared' WHERE room_code = ?1`).bind(room).run();\n" +
+              '}\n' +
+              `const TABLES = ['mxqr_developer_api_keys', '${FENCES}'];\n` +
+              'export async function wipe(db: D1Database) {\n' +
+              `  for (const table of TABLES) await db.prepare(\`DELETE FROM \${table}\`).run();\n` +
+              '}\n' +
+              'export async function assembled(db: D1Database) {\n' +
+              "  await db.prepare('DELETE FROM mxqr_developer_api_room_' + 'authority_fences').run();\n" +
+              '}\n' +
+              'export async function shouted(db: D1Database) {\n' +
+              `  await db.prepare('INSERT OR REPLACE INTO "${FENCES.toUpperCase()}" VALUES (1)').run();\n` +
+              '}\n',
+          );
+        }),
+      );
+      for (const site of ['reopen', '<module>', 'assembled', 'shouted']) {
+        expect(findings).toContain(
+          `UNSANCTIONED authority fence write (RO-25): cloudflare/rogue-fence.ts :: ${site} has 1`,
+        );
+      }
+      // The template-built DELETE counts once, at the table name in its list.
+      expect(findings).not.toContain('rogue-fence.ts :: wipe');
+    });
+
+    it('fails a second write in an allowlisted function and a writer that disappears', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            'cloudflare/app-worker.ts',
+            'async function clearDeveloperApiAuthorityFence(',
+            'async function clearDeveloperApiAuthorityFence(\n' +
+              `  _reset = \`DELETE FROM ${FENCES} WHERE status = 'cleared'\`,\n`,
+          );
+          replaceIn(sources, 'cloudflare/pro-room-worker.ts', `        '${FENCES}',\n`, '');
+        }),
+      );
+      expect(findings).toContain(
+        'RATCHET REGRESSION authority fence write (RO-25): ' +
+          'cloudflare/app-worker.ts :: clearDeveloperApiAuthorityFence has 2, baseline 1',
+      );
+      expect(findings).toContain(
+        'STALE BASELINE authority fence write (RO-25): ' +
+          'cloudflare/pro-room-worker.ts :: deleteDeveloperRoomData has 0 - remove its entry',
+      );
+    });
+
+    it('ignores reads, qualified columns, comments and the fenced error code', () => {
+      const report = analyzeResourceOwnership(
+        withSources((sources) => {
+          sources.set(
+            'cloudflare/fence-reader.ts',
+            `// UPDATE ${FENCES} SET status = 'cleared' (a comment, not code)\n` +
+              'export async function fenced(db: D1Database, room: string) {\n' +
+              '  const row = await db\n' +
+              `    .prepare(\`SELECT ${FENCES}.status FROM ${FENCES} WHERE room_code = ?1\`)\n` +
+              '    .bind(room)\n' +
+              '    .first();\n' +
+              `  const keys = \`UPDATE mxqr_developer_api_keys SET status = 'revoked'\n` +
+              `    WHERE EXISTS (SELECT 1 FROM "${FENCES}" AS fence JOIN ${FENCES} ON 1)\`;\n` +
+              "  return row ? 'DEVELOPER_API_AUTHORITY_FENCED' : keys;\n" +
+              '}\n',
+          );
+        }),
+      );
+      expect(report.findings).toEqual([]);
+      expect(report.authorityFenceWrites).toBe(3);
+    });
+  });
 });

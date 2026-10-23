@@ -4866,16 +4866,12 @@ async function purgeProRoomAccountAuthority(
       'owner-account-deleted',
       `${roomCode}\u0000${roomGeneration}\u0000${accountId}\u0000${removalId}\u0000${removedOwnerAuthorityEpoch}\u0000${fencedCoordinatorEpoch}`,
     );
-    await revokeDeveloperApiKeysForAuthorityChange(
-      env,
-      roomCode,
-      roomGeneration,
-      'system:account-delete',
-      'owner_account_deleted',
-      'owner_account_deleted',
+    await revokeDeveloperApiKeysForAuthorityChange(env, roomCode, roomGeneration, {
+      source: 'account-delete',
+      reason: 'owner_account_deleted',
       fenceDigest,
-      expectedFenceDigest,
-    );
+      expected: expectedFenceDigest,
+    });
     // The exact ACK serializes the registry projection with the next transfer
     // inside the canonical DO. Writing it here after a read would leave another
     // cross-database window even though the Developer fence above is protected.
@@ -5872,26 +5868,71 @@ async function runDeveloperApiAdminMutation(
   }
 }
 
+/**
+ * One write to the Developer API authority fence row of a room incarnation
+ * (registry RO-25). `source` names the writer; it fixes the fence reason and
+ * the key-revocation audit identity (`AUTHORITY_FENCE_WRITERS`).
+ * - `account-delete`: compare-and-swap on the digest the purge read before
+ *   asking the Durable Object (null when no row existed), so a stale purge
+ *   cannot overwrite a newer transfer's fence.
+ * - `owner-transfer` and `legacy-owner-detach`: no compare-and-swap
+ *   (`expected: 'any'`). Whether transfers should compare and swap too is an
+ *   open owner decision (D5); account-auth-operations.md lists every writer
+ *   and the precedence (deletion suspends, a transfer reactivates).
+ */
+type AuthorityFenceWrite =
+  | {
+      readonly source: 'account-delete';
+      readonly reason: 'owner_account_deleted';
+      readonly fenceDigest: string;
+      readonly expected: string | null;
+    }
+  | {
+      readonly source: 'owner-transfer' | 'legacy-owner-detach';
+      readonly reason: 'ownership_transfer_pending';
+      readonly fenceDigest: string;
+      readonly expected: 'any';
+    };
+
+/** Audit identity of each fence writer's key revocations. */
+const AUTHORITY_FENCE_WRITERS = Object.freeze({
+  'account-delete': { actorId: 'system:account-delete', auditResult: 'owner_account_deleted' },
+  'owner-transfer': { actorId: 'system:owner-transfer', auditResult: 'ownership_transfer' },
+  'legacy-owner-detach': {
+    actorId: 'system:legacy-owner-detach',
+    auditResult: 'legacy_duplicate_owner_detach',
+  },
+} satisfies Record<AuthorityFenceWrite['source'], { actorId: string; auditResult: string }>);
+
+/**
+ * The one activator of the Developer API authority fence (registry RO-25):
+ * activates the fence for the incarnation, revokes its active keys and audits
+ * each revocation, in one batch. `clearDeveloperApiAuthorityFence` is the one
+ * clearer; the PRO room decommission deletes the row with the incarnation.
+ */
 async function revokeDeveloperApiKeysForAuthorityChange(
   env: AppEnv,
   roomCode: string,
   roomGeneration: number,
-  actorId: string,
-  result: string,
-  suspensionReason: string,
-  fenceDigest: string,
-  expectedFenceDigest?: string | null,
+  write: AuthorityFenceWrite,
 ) {
   const db = getDeveloperApiAdminDb(env);
   if (!db?.prepare || typeof db.batch !== 'function') {
     throw new Error('Developer API admin database unavailable');
   }
+  const { fenceDigest, reason: suspensionReason } = write;
+  const writer = Object.hasOwn(AUTHORITY_FENCE_WRITERS, write.source)
+    ? AUTHORITY_FENCE_WRITERS[write.source]
+    : null;
   if (
+    !writer ||
     !['owner_account_deleted', 'ownership_transfer_pending'].includes(suspensionReason) ||
     !FENCE_DIGEST_RE.test(fenceDigest)
   ) {
     throw new Error('Invalid Developer API authority fence');
   }
+  const { actorId, auditResult: result } = writer;
+  const compareAndSwap = write.expected !== 'any';
   const revokedAtMs = Date.now();
   const statements = [
     db
@@ -5929,8 +5970,8 @@ async function revokeDeveloperApiKeysForAuthorityChange(
         suspensionReason,
         fenceDigest,
         revokedAtMs,
-        expectedFenceDigest === undefined ? 0 : 1,
-        expectedFenceDigest ?? null,
+        compareAndSwap ? 1 : 0,
+        compareAndSwap ? write.expected : null,
       ),
     db
       .prepare(
@@ -6011,6 +6052,11 @@ async function developerApiAuthorityFenceDigest(env: AppEnv, purpose: string, ma
   return hmacSha256(secret, `developer-api-authority-fence:v1\u0000${purpose}\u0000${material}`);
 }
 
+/**
+ * The one clearer of the Developer API authority fence (registry RO-25): the
+ * owner-transfer saga clears only its own digest, so a deletion fence written
+ * over it stays active.
+ */
 async function clearDeveloperApiAuthorityFence(
   env: AppEnv,
   roomCode: string,
@@ -7557,10 +7603,12 @@ async function commitAdoptedOwnerTransferSaga(
       env,
       saga.roomCode,
       saga.roomGeneration,
-      'system:owner-transfer',
-      'ownership_transfer',
-      'ownership_transfer_pending',
-      saga.fenceDigest,
+      {
+        source: 'owner-transfer',
+        reason: 'ownership_transfer_pending',
+        fenceDigest: saga.fenceDigest,
+        expected: 'any',
+      },
     );
   } catch {
     return false;
@@ -8109,15 +8157,12 @@ async function handleProRoomOwnershipTransferSaga({
 
   let revocation;
   try {
-    revocation = await revokeDeveloperApiKeysForAuthorityChange(
-      env,
-      roomCode,
-      roomGeneration,
-      'system:owner-transfer',
-      'ownership_transfer',
-      'ownership_transfer_pending',
+    revocation = await revokeDeveloperApiKeysForAuthorityChange(env, roomCode, roomGeneration, {
+      source: 'owner-transfer',
+      reason: 'ownership_transfer_pending',
       fenceDigest,
-    );
+      expected: 'any',
+    });
   } catch {
     try {
       await auditSystemOwnerTransfer(
@@ -10200,15 +10245,12 @@ async function handleAdminProRoomLegacyOwnerDetach(
       'legacy-owner-detach',
       `${roomCode}\u0000${room.roomGeneration}\u0000${previousOwnerAccountId}\u0000${result.removalId}\u0000${result.removedOwnerAuthorityEpoch}\u0000${result.fencedCoordinatorEpoch}`,
     );
-    await revokeDeveloperApiKeysForAuthorityChange(
-      env,
-      roomCode,
-      room.roomGeneration,
-      'system:legacy-owner-detach',
-      'legacy_duplicate_owner_detach',
-      'ownership_transfer_pending',
+    await revokeDeveloperApiKeysForAuthorityChange(env, roomCode, room.roomGeneration, {
+      source: 'legacy-owner-detach',
+      reason: 'ownership_transfer_pending',
       fenceDigest,
-    );
+      expected: 'any',
+    });
     if (!(await orphanProRoomOwnerEntitlement(env, entitlementInput))) {
       throw new Error('PRO owner entitlement orphaning unavailable');
     }

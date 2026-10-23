@@ -407,6 +407,39 @@ transfer to activate it for a new owner. Account deletion does not decommission
 the room or delete its retained playlist data. Use the PRO room decommission
 action when the room itself and its retained playlist data should be destroyed.
 
+The Developer API authority fence follows the same rule: deletion suspends, a
+transfer reactivates. It is one row per room incarnation in
+`mxqr_developer_api_room_authority_fences` (Developer API D1). While the row is
+`active`, the incarnation's keys are revoked and the D1 triggers refuse a new or
+reactivated key. Only three functions write the row, and the resource-ownership
+guard (registry RO-25) keeps that list exact:
+
+- `revokeDeveloperApiKeysForAuthorityChange` (App Worker) is the one activator.
+  Each caller passes a typed `AuthorityFenceWrite`:
+  - the account-deletion purge (`purgeProRoomAccountAuthority`): reason
+    `owner_account_deleted`, with a compare-and-swap on the digest it read before
+    asking the room's Durable Object to purge (or on "no row"), so a stale purge
+    cannot overwrite a newer transfer's fence and retries instead;
+  - the ownership transfer, from the transfer request and from the minute cron
+    when it adopts a prepared transfer: reason `ownership_transfer_pending`,
+    without a compare-and-swap;
+  - the admin legacy duplicate-owner detach: reason `ownership_transfer_pending`,
+    without a compare-and-swap.
+- `clearDeveloperApiAuthorityFence` (App Worker) is the one clearer. The
+  transfer clears only its own digest after the room is verified active for the
+  new owner, so a deletion fence written over it stays active.
+- The PRO room decommission (`deleteDeveloperRoomData`) deletes the row with the
+  incarnation's keys and audit rows, after writing the generation tombstone.
+
+The room's Durable Object decides which writer may go first: an owner-deletion
+purge cancels a pending or completed transfer record, and a new transfer claim
+or PREPARE is refused until that removal's exact registry projection is
+acknowledged. A transfer that later hands the ownerless room to a new owner
+overwrites the deletion fence and then clears its own digest, which reopens key
+issuance for the new owner. Whether transfer writes should also compare and swap
+is an open owner decision (D5 of the server-owner design); until it is made they
+write without one.
+
 Revoking MUSIXQUARE in Google Security Settings stops future Google
 authorization but does not delete the MUSIXQUARE account or immediately revoke
 an already-issued MUSIXQUARE session. Users must use the MUSIXQUARE account

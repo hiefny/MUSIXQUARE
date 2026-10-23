@@ -270,9 +270,9 @@ function insertKey(
  * - legacy duplicate-owner detach: the same, with its own audit identity.
  *
  * The clearer (`clearDeveloperApiAuthorityFence`) clears only the transfer's
- * own digest. Each digest is recomputed from its documented material. Plan
- * step C7-11 moves the callers to a typed fence-write object; these values
- * must not move with it.
+ * own digest. Each digest is recomputed from its documented material. Since
+ * plan step C7-11 the callers pass a typed AuthorityFenceWrite; these values
+ * were pinned before that change and did not move with it.
  */
 const FENCE_ACTIVATE_SQL = `INSERT INTO mxqr_developer_api_room_authority_fences
   (room_code, room_generation, status, reason, fence_digest, fenced_at, updated_at)

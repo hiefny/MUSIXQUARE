@@ -855,13 +855,13 @@ async function stalledOrAnswered(
 }
 
 /**
- * Fence-write policy per caller (plan step C7-11 moves these four callers of
- * revokeDeveloperApiKeysForAuthorityChange to a typed policy). Today the
- * account-deletion purge compares and swaps on the digest it captured before
- * asking the DO (null when no fence existed), while both transfer executors
- * and the legacy duplicate-owner detach write without a compare-and-swap
- * (`expectedFenceDigest` undefined). The difference shows only when the write
- * lands on an existing fence row with another digest, so each case below
+ * Fence-write policy per caller (the four callers of
+ * revokeDeveloperApiKeysForAuthorityChange pass a typed AuthorityFenceWrite
+ * since plan step C7-11). The account-deletion purge compares and swaps on the
+ * digest it captured before asking the DO (null when no fence existed), while
+ * both transfer executors and the legacy duplicate-owner detach write without
+ * a compare-and-swap (`expected: 'any'`). The difference shows only when the
+ * write lands on an existing fence row with another digest, so each case below
  * starts from one. Mutation check on 8e647e2e: passing null at either transfer
  * site, or dropping the purge's expected digest, fails a case here.
  *
@@ -870,7 +870,7 @@ async function stalledOrAnswered(
  * leaves one of those behind for the rest of the incarnation (a completed
  * transfer record is never pruned), so today it only ever writes onto an
  * empty row or, on replay, its own digest. Its policy is unobservable through
- * the route; C7-11 keeps it at "any" with identical SQL. Every writer's SQL
+ * the route; C7-11 kept it at "any" with identical SQL. Every writer's SQL
  * text and bound values, the detach's included, are pinned in
  * developer-api-authority-fence-sqlite.test.ts.
  */

@@ -22,7 +22,8 @@ import {
   ACCOUNT_SYNC_CHANNEL,
   ACCOUNT_SYNC_STORAGE_KEY,
   createAccountRefreshMessage,
-  isAccountPulseToken,
+  parseAccountPulse,
+  parseAccountPulseStorageValue,
 } from './account-sync-protocol.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
@@ -69,8 +70,6 @@ const ACCOUNT_RECOVERY_TAIL_DELAY_MS = 60_000;
 const ACCOUNT_RECOVERY_JITTER_MAX_MS = 1_000;
 const MAX_RECENT_EXTERNAL_REFRESH_IDS = 32;
 
-type AccountRefreshPulse = Readonly<{ id: string | null; loginSuccess: boolean }>;
-
 function observeAccountSessionOperation(
   operation: Promise<unknown> | null | undefined,
   source: string,
@@ -114,17 +113,6 @@ export function requestAccountLoginPopup(
   options?: Readonly<AccountLoginPopupOptions>,
 ): Promise<AccountLoginPopupOutcome> {
   return _accountLoginPopupHandler?.(options) ?? Promise.resolve('error');
-}
-
-function parseAccountRefreshMessage(value: unknown): AccountRefreshPulse | null {
-  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'refresh') {
-    return null;
-  }
-  const id = (value as { id?: unknown }).id;
-  return {
-    id: isAccountPulseToken(id) ? id : null,
-    loginSuccess: (value as { accountAuth?: unknown }).accountAuth === 'success',
-  };
 }
 
 function trimRecentExternalRefreshIds(): void {
@@ -320,21 +308,16 @@ function refreshAfterUserReturns(): void {
 
 function refreshAfterPopupMessage(event: MessageEvent): void {
   if (event.origin !== window.location.origin) return;
-  const pulse = parseAccountRefreshMessage(event.data);
-  if (pulse) reconcileExternalAccountChange(pulse.id, pulse.loginSuccess);
+  const pulse = parseAccountPulse(event.data);
+  if (pulse) reconcileExternalAccountChange(pulse.id, pulse.auth === 'success');
 }
 
 function refreshAfterStoragePulse(event: StorageEvent): void {
   if (event.key !== ACCOUNT_SYNC_STORAGE_KEY) return;
-  let pulse: AccountRefreshPulse | null = null;
-  if (event.newValue) {
-    try {
-      pulse = parseAccountRefreshMessage(JSON.parse(event.newValue) as unknown);
-    } catch {
-      // Older clients stored an opaque token rather than the pulse payload.
-    }
-  }
-  reconcileExternalAccountChange(pulse?.id ?? null, pulse?.loginSuccess === true);
+  // Any value of the key refreshes; one that is not pulse JSON (the opaque
+  // token older clients stored, or a removal) as an unidentified pulse.
+  const pulse = parseAccountPulseStorageValue(event.newValue);
+  reconcileExternalAccountChange(pulse?.id ?? null, pulse?.auth === 'success');
 }
 
 function refreshAfterVisibilityChange(): void {
@@ -350,8 +333,8 @@ function refreshAfterPageShow(): void {
 }
 
 function refreshAfterBroadcastMessage(event: MessageEvent): void {
-  const pulse = parseAccountRefreshMessage(event.data);
-  if (pulse) reconcileExternalAccountChange(pulse.id, pulse.loginSuccess);
+  const pulse = parseAccountPulse(event.data);
+  if (pulse) reconcileExternalAccountChange(pulse.id, pulse.auth === 'success');
 }
 
 /**

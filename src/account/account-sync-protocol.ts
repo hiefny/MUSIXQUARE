@@ -29,12 +29,65 @@ export const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const ACCOUNT_PULSE_TOKEN_MIN_LENGTH = 8;
 const ACCOUNT_PULSE_TOKEN_MAX_LENGTH = 160;
 
-export function isAccountPulseToken(value: unknown): value is string {
+export type AccountAuthOutcome = 'success' | 'cancelled' | 'error';
+
+/**
+ * A pulse as the app reads it (C8-I4: the one parser for every transport).
+ * A field a receiver cannot rely on is null, so one result serves both uses:
+ * the session reconciles any pulse, by its id when it has one, and the account
+ * UI acts only on a completion result that has all three fields.
+ */
+export interface AccountPulse {
+  /** The nonce shared by one change's copies on every transport. */
+  readonly id: string | null;
+  /** The completion page's outcome; null on a mutation pulse or an unknown value. */
+  readonly auth: AccountAuthOutcome | null;
+  /** The tab that opened the login. */
+  readonly accountClient: string | null;
+}
+
+function isAccountPulseToken(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     value.length >= ACCOUNT_PULSE_TOKEN_MIN_LENGTH &&
     value.length <= ACCOUNT_PULSE_TOKEN_MAX_LENGTH
   );
+}
+
+function parseAccountAuthOutcome(value: unknown): AccountAuthOutcome | null {
+  return value === 'success' || value === 'cancelled' || value === 'error' ? value : null;
+}
+
+/** Read a BroadcastChannel or window message; null when it is not a pulse at all. */
+export function parseAccountPulse(value: unknown): AccountPulse | null {
+  if (!value || typeof value !== 'object') return null;
+  const message = value as {
+    type?: unknown;
+    accountAuth?: unknown;
+    id?: unknown;
+    accountClient?: unknown;
+  };
+  if (message.type !== 'refresh') return null;
+  return {
+    id: isAccountPulseToken(message.id) ? message.id : null,
+    auth: parseAccountAuthOutcome(message.accountAuth),
+    accountClient: isAccountPulseToken(message.accountClient) ? message.accountClient : null,
+  };
+}
+
+/**
+ * Read the new value of a storage event for ACCOUNT_SYNC_STORAGE_KEY. Null
+ * when the key was removed or the value is not pulse JSON, including the
+ * opaque token older clients stored; the session still refreshes on those as
+ * an unidentified pulse, and they never carry a login result.
+ */
+export function parseAccountPulseStorageValue(newValue: string | null): AccountPulse | null {
+  if (!newValue) return null;
+  try {
+    return parseAccountPulse(JSON.parse(newValue) as unknown);
+  } catch {
+    return null;
+  }
 }
 
 /** A mutation pulse. Its BroadcastChannel and storage copies share the one nonce. */

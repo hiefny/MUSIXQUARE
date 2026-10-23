@@ -1376,7 +1376,8 @@ RO-47 owner-in-place
   `mxqr-account-refresh`).
 - **Current owners/flows:** `src/account/session.ts` (generations, in-flight reads, recovery,
   login-result promises; sole snapshot writer) and `src/ui/account.ts` (popup attempt, a 250 ms
-  close monitor, its own pulse receiver, parser and seen-id set). Other documents carry their own
+  close monitor, its own pulse receiver and seen-id set; both read pulses through the one parser in
+  `src/account/account-sync-protocol.ts`, C8-I4). Other documents carry their own
   copies: the producer in `browser/classic-runtime/account-complete.ts` and a third consumer in
   `browser/classic-runtime/events/event.ts`. A shared promise per login nonce and a generation
   fence make the reads converge.
@@ -1405,9 +1406,9 @@ RO-47 owner-in-place
     events document together over a same-origin BroadcastChannel fake, and
     `account-pulse-contract.test.ts` freezes the pulse wire format, channel names and storage keys
     (Phase 0c C8 harness), and runs session.ts as App 9.0.3 shipped it as the old tab of a mixed
-    rollout.
-- **Status:** `duplicated`. Phase 2: wire contract done (C8-I1); one parser and the single receiver,
-  with the events page as the pinned third copy, to come.
+    rollout; `account-sync-protocol.test.ts` pins the parser over both former validators.
+- **Status:** `duplicated`. Phase 2: wire contract (C8-I1) and one parser (C8-I4) done; the single
+  receiver, with the events page as the pinned third copy, to come.
 
 ### RO-29 PRO presence heartbeat timer slot
 

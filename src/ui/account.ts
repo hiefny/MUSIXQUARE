@@ -12,7 +12,10 @@ import { flushAccountActivityStatsForRead } from '../account/activity-stats.ts';
 import {
   ACCOUNT_SYNC_CHANNEL,
   ACCOUNT_SYNC_STORAGE_KEY,
-  isAccountPulseToken,
+  parseAccountPulse,
+  parseAccountPulseStorageValue,
+  type AccountAuthOutcome,
+  type AccountPulse,
 } from '../account/account-sync-protocol.ts';
 import {
   getAccountStatsScope,
@@ -62,7 +65,6 @@ const ACCOUNT_SAME_TAB_WELCOME_INTENT_TTL_MS = 10 * 60 * 1000;
 const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
 const ACCOUNT_STATS_PLACEHOLDER = '-';
 const ACCOUNT_STATS_COUNT_UP_DURATION_MS = 1_200;
-type AccountAuthOutcome = 'success' | 'cancelled' | 'error';
 type AccountNicknameChangeOutcome = 'completed' | 'cancelled' | 'error';
 type CompletedAccount = NonNullable<AccountSnapshot['account']>;
 type AccountStatsOwner = string;
@@ -482,29 +484,14 @@ function setPending(pending: boolean): void {
   if (pending && overlay?.classList.contains('show')) focusWithoutScroll(dialog);
 }
 
-function parseAccountAuthResultMessage(value: unknown): {
+/** A login result needs the completion's outcome, its nonce and the tab that opened it. */
+function accountAuthResultFromPulse(pulse: AccountPulse | null): {
   outcome: AccountAuthOutcome;
   id: string;
   accountClient: string;
 } | null {
-  if (!value || typeof value !== 'object') return null;
-  const message = value as {
-    type?: unknown;
-    accountAuth?: unknown;
-    id?: unknown;
-    accountClient?: unknown;
-  };
-  if (
-    message.type !== 'refresh' ||
-    (message.accountAuth !== 'success' &&
-      message.accountAuth !== 'cancelled' &&
-      message.accountAuth !== 'error') ||
-    !isAccountPulseToken(message.id) ||
-    !isAccountPulseToken(message.accountClient)
-  ) {
-    return null;
-  }
-  return { outcome: message.accountAuth, id: message.id, accountClient: message.accountClient };
+  if (!pulse?.auth || pulse.id === null || pulse.accountClient === null) return null;
+  return { outcome: pulse.auth, id: pulse.id, accountClient: pulse.accountClient };
 }
 
 function handleAccountAuthOutcome(
@@ -899,22 +886,17 @@ function monitorAccountLoginPopup(popup: Window): void {
 
 function handleAccountResultMessage(event: MessageEvent): void {
   if (event.origin !== window.location.origin) return;
-  const result = parseAccountAuthResultMessage(event.data);
+  const result = accountAuthResultFromPulse(parseAccountPulse(event.data));
   if (result?.accountClient === ACCOUNT_CLIENT_ID) {
     handleAccountAuthOutcome(result.outcome, result.id);
   }
 }
 
 function handleAccountResultStorage(event: StorageEvent): void {
-  if (event.key !== ACCOUNT_SYNC_STORAGE_KEY || !event.newValue) return;
-  try {
-    const result = parseAccountAuthResultMessage(JSON.parse(event.newValue) as unknown);
-    if (result?.accountClient === ACCOUNT_CLIENT_ID) {
-      handleAccountAuthOutcome(result.outcome, result.id);
-    }
-  } catch {
-    // Pulses are JSON, but older clients stored an opaque token. The session
-    // receiver still refreshes on one; it never carries a login result.
+  if (event.key !== ACCOUNT_SYNC_STORAGE_KEY) return;
+  const result = accountAuthResultFromPulse(parseAccountPulseStorageValue(event.newValue));
+  if (result?.accountClient === ACCOUNT_CLIENT_ID) {
+    handleAccountAuthOutcome(result.outcome, result.id);
   }
 }
 
@@ -927,7 +909,7 @@ function bindAccountAuthResultLifecycle(): void {
     try {
       _accountResultChannel = new BroadcastChannel(ACCOUNT_SYNC_CHANNEL);
       _accountResultChannel.addEventListener('message', (event) => {
-        const result = parseAccountAuthResultMessage(event.data);
+        const result = accountAuthResultFromPulse(parseAccountPulse(event.data));
         if (result?.accountClient === ACCOUNT_CLIENT_ID) {
           handleAccountAuthOutcome(result.outcome, result.id);
         }

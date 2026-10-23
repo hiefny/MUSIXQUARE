@@ -1,3 +1,4 @@
+// Resource owner: RO-23 (app-owned page navigation).
 /**
  * Coordinates every app-owned hard reset/navigation.
  *
@@ -12,12 +13,11 @@ import { clearIntentionalNav, markIntentionalNav } from './page-lifecycle.ts';
 import { log } from './log.ts';
 import { requestDocumentReload } from './document-reload.ts';
 import { setElementInertForOwner } from './inert-ownership.ts';
+import { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } from './navigation-contract.ts';
 
 const OVERLAY_ID = 'session-reset-overlay';
 const MESSAGE_ID = 'session-reset-message';
 const INERT_OWNER = 'session-reset';
-const FALLBACK_DELAY_MS = 120;
-const NAVIGATION_COMMIT_TIMEOUT_MS = 2_000;
 const INTERACTION_EVENTS = [
   'keydown',
   'keyup',
@@ -301,7 +301,7 @@ export function scheduleSessionReset(
     }, NAVIGATION_COMMIT_TIMEOUT_MS);
   };
 
-  attempt.fallbackTimer = window.setTimeout(runOnce, FALLBACK_DELAY_MS);
+  attempt.fallbackTimer = window.setTimeout(runOnce, RESET_PAINT_FALLBACK_MS);
   if (typeof window.requestAnimationFrame === 'function') {
     const firstFrame = window.requestAnimationFrame(() => {
       const secondFrame = window.requestAnimationFrame(runOnce);

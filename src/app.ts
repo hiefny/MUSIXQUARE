@@ -46,6 +46,7 @@ import {
   setSessionResetReleaseHandler,
 } from './core/session-reset.ts';
 import { createReloadRecoveryLatch } from './core/reload-recovery-latch.ts';
+import { UPDATE_COMPLETION_KEY } from './core/navigation-contract.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady } from './audio/engine.ts';
@@ -1342,8 +1343,8 @@ async function bootstrap(): Promise<void> {
   publishBootstrapReadiness();
   let updateCompletion: string | null = null;
   try {
-    updateCompletion = sessionStorage.getItem('mxqr-swu');
-    sessionStorage.removeItem('mxqr-swu');
+    updateCompletion = sessionStorage.getItem(UPDATE_COMPLETION_KEY);
+    sessionStorage.removeItem(UPDATE_COMPLETION_KEY);
   } catch {
     // Storage denial only suppresses this one informational toast.
   }

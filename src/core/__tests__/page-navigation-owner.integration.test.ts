@@ -79,6 +79,7 @@ import {
   scheduleSessionReset,
 } from '../session-reset.ts';
 import { navigateToAppHome } from '../navigation.ts';
+import { LEAVE_FALLBACK_MS, NAVIGATION_COMMIT_TIMEOUT_MS } from '../navigation-contract.ts';
 import { onOverlayStackChange } from '../../ui/dom.ts';
 import { takeProRoomClaimsFromFragment } from '../../pro-room/claim-fragment.ts';
 import {
@@ -97,11 +98,9 @@ import {
   type PageNavigationShell,
 } from './__helpers__/page-navigation-harness.ts';
 
-/** NAVIGATION_COMMIT_TIMEOUT_MS (session-reset.ts); C6-1 exports it. */
-const COMMIT_DEADLINE_MS = 2_000;
-/** LEAVE_FALLBACK_MS (back-button-history.ts); C6-1 exports it. */
-const LEAVE_FALLBACK_MS = 1_000;
-/** ACTIVATION_TIMEOUT_MS (sw-hard-reset.ts). */
+/** The reset's commit deadline. */
+const COMMIT_DEADLINE_MS = NAVIGATION_COMMIT_TIMEOUT_MS;
+/** ACTIVATION_TIMEOUT_MS (sw-hard-reset.ts, the lazy chunk keeps it unexported). */
 const HARD_RESET_ACTIVATION_MS = 1_500;
 /** Two frames: the Back guard pushes after its surface settles. */
 const GUARD_ARM_MS = 40;

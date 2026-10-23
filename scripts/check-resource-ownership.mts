@@ -336,6 +336,7 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   {
     records: ['RO-22', 'RO-23', 'RO-30'],
     files: [
+      'src/core/navigation-contract.ts',
       'src/sw-register.ts',
       'src/sw-update-coordination.ts',
       'src/core/sw-hard-reset.ts',

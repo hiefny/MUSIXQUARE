@@ -1,3 +1,4 @@
+// Resource owner: RO-22 (waiting service worker activation).
 /**
  * MUSIXQUARE — Service Worker Registration
  *
@@ -17,12 +18,19 @@ import {
   subscribeRoomAuthorityLifecycle,
 } from './rooms/authority.ts';
 import {
+  CACHE_CLIENT_STATUS,
+  CACHE_STATUS_PROBE,
+  CACHE_STATUS_REQUEST,
+  UPDATE_CHECK_INTERVAL_MS,
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
 } from './sw-update-coordination.ts';
+import {
+  RECONNECT_TARGET_KEY,
+  SW_CONTROLLER_CONFIRMED_KEY,
+  SW_UPDATE_KEY,
+} from './core/navigation-contract.ts';
 
-const SW_UPDATE_KEY = 'sw-updated-at';
-const SW_CONTROLLER_CONFIRMED_KEY = 'sw-controller-confirmed-at';
 // Avoid a second update prompt when controller activation and reload overlap.
 const SW_COOLDOWN_MS = 30_000;
 // Measured in Chromium (2026-10-17): SKIP_WAITING sent while the active worker
@@ -33,11 +41,6 @@ const SW_COOLDOWN_MS = 30_000;
 const STARTUP_PROMPT_QUIET_MS = 1_000;
 const STARTUP_PROMPT_MAX_WAIT_MS = 6_000;
 const STARTUP_PROMPT_POLL_MS = 250;
-// Read by setup's join error after the reload, as for a reconnect.
-const RECONNECT_TARGET_KEY = 'mxqr_reconnect_target';
-const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
-const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
-const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
 export const NAVIGATION_SOURCE_EVENT = 'mxqr:navigation-source';
 
 type NavigationSource = 'network' | 'cache-fallback';
@@ -114,6 +117,7 @@ function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
 
   const returnPath = updateReturnPath();
   if (returnPath) {
+    // Read by setup's join error after the reload, as for a reconnect.
     writeSessionMarker(RECONNECT_TARGET_KEY, returnPath.slice(1));
     const resetHandle = scheduleSessionReset(t('dialog.refreshing_session'), () => {
       window.location.href = returnPath;
@@ -757,7 +761,7 @@ export function registerServiceWorker(): void {
         });
       }
 
-      // Check for updates periodically (every 60 minutes)
+      // Check for updates periodically (every 60 minutes, the check lease interval).
       setManagedTimer(
         'sw-update-check',
         () => {
@@ -772,7 +776,7 @@ export function registerServiceWorker(): void {
             /* ignore */
           });
         },
-        60 * 60 * 1000,
+        UPDATE_CHECK_INTERVAL_MS,
         { interval: true },
       );
       // Immediate update check

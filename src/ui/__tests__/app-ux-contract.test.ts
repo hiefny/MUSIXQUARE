@@ -480,7 +480,7 @@ describe('app UX markup contract', () => {
     expect(completionCheck).toBeGreaterThanOrEqual(0);
     expect(readinessPublish).toBeGreaterThanOrEqual(0);
     expect(completionCheck).toBeGreaterThan(readinessPublish);
-    expect(appRuntimeSource).toContain("sessionStorage.removeItem('mxqr-swu')");
+    expect(appRuntimeSource).toContain('sessionStorage.removeItem(UPDATE_COMPLETION_KEY)');
     expect(appRuntimeSource).toContain('showToast(updateCompletion)');
   });
 

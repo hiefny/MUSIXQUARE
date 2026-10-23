@@ -1113,10 +1113,17 @@ RO-47 owner-in-place
   the prompt lease.
 - **Lifecycle operations:** `SKIP_WAITING`, `reg.update()`, the reload, completion markers.
 - **Deadline owner:** the update machine (with the Chromium rule that `SKIP_WAITING` waits until
-  page loads settle) and `ACTIVATION_TIMEOUT_MS` in `sw-hard-reset.ts`, which must stay below the
-  session reset's 2 s commit timeout; that ordering is not written down.
-- **Timing-constant home:** `sw-register.ts`, `sw-update-coordination.ts`, `sw-hard-reset.ts`.
-  Target: named and exported coupled timings with an ordering test (Phase 0d, C6-1).
+  page loads settle) and `ACTIVATION_TIMEOUT_MS` in `sw-hard-reset.ts`, the hard reset's bounded
+  wait, which today runs inside the session reset's 2 s commit timeout together with the
+  hard-reset chunk load (the page-navigation harness pins what happens when they do not fit;
+  Phase 2 C6-8 starts that timeout at the final navigation instead).
+- **Timing-constant home:** `src/core/navigation-contract.ts` (the next-document markers
+  `SW_UPDATE_KEY`, `SW_CONTROLLER_CONFIRMED_KEY` and `UPDATE_COMPLETION_KEY`; the lazy
+  `sw-update-completion.ts` keeps a copy of the last, pinned by
+  `src/core/__tests__/sw-update-completion.test.ts`), `sw-update-coordination.ts`
+  (`UPDATE_CHECK_INTERVAL_MS` and the page-side message types, pinned against the worker's copies
+  by `src/core/__tests__/sw-message-contract.test.ts`), `sw-hard-reset.ts`
+  (`ACTIVATION_TIMEOUT_MS`, lazy) and `sw-register.ts` (prompt timings). Named in Phase 2 (C6-1).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/sw-register.test.ts` "drops a stale waiting-worker
     continuation when a newer install replaces it".
@@ -1148,9 +1155,10 @@ RO-47 owner-in-place
   ownership queries (`isSessionResetPending`, `restoreSessionReset`) from `app.ts`.
 - **Lifecycle operations:** schedule a reset or reload, navigate, recover, restore.
 - **Deadline owner:** `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) in `session-reset.ts`.
-- **Timing-constant home:** `session-reset.ts` (`NAVIGATION_COMMIT_TIMEOUT_MS`,
-  `FALLBACK_DELAY_MS`); next-document `sessionStorage` keys are scattered. Target: named constants
-  and keys in `src/core/navigation.ts` (Phase 0d, C6-1).
+- **Timing-constant home:** `src/core/navigation-contract.ts` (`NAVIGATION_COMMIT_TIMEOUT_MS`,
+  `RESET_PAINT_FALLBACK_MS` and the next-document `sessionStorage` keys), a dependency-free module
+  because `src/core/navigation.ts` imports the owner. The ordering it relies on is pinned in
+  `src/core/__tests__/navigation-contract.test.ts` (Phase 2, C6-1).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/session-reset.test.ts` "uses a native timeout fallback and
     accepts only the first reset request"; `src/core/__tests__/document-reload.test.ts` "does not
@@ -1458,9 +1466,9 @@ RO-47 owner-in-place
 - **Allowed requesters:** windows registered for Back; the hard navigation home belongs to RO-23.
 - **Lifecycle operations:** push or replace a guard, `history.back()`, leave attempt, suspend and
   resume.
-- **Deadline owner:** `LEAVE_FALLBACK_MS` (1 s, `back-button-history.ts`), which fires before the
-  session reset's 2 s commit timeout; the ordering is not written down (Phase 0d).
-- **Timing-constant home:** `back-button-history.ts`.
+- **Deadline owner:** `LEAVE_FALLBACK_MS` (1 s), which fires before the session reset's 2 s commit
+  timeout (`src/core/__tests__/navigation-contract.test.ts`).
+- **Timing-constant home:** `src/core/navigation-contract.ts` (Phase 2, C6-1).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/back-button-guard.test.ts` "a newly starting surface cancels
     old frames and waits for the newer close".

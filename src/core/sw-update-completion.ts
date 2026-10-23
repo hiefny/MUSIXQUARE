@@ -1,5 +1,8 @@
 import { LANGUAGE_OPTIONS, type LanguageCode } from '../i18n/locales.ts';
 
+// UPDATE_COMPLETION_KEY in core/navigation-contract.ts, which app.ts reads.
+// This lazy chunk keeps a copy so the eager contract module is not split into
+// a chunk of its own; sw-update-completion.test.ts pins the two together.
 const COMPLETION_MARKER = 'mxqr-swu';
 const COMPLETION_MESSAGES = {
   ar: 'اكتمل التحديث',

@@ -37,6 +37,7 @@ import {
 } from './setup-guest.ts';
 import { animateTransition, runWithoutViewTransitions } from './dom.ts';
 import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
+import { RECONNECT_TARGET_KEY } from '../core/navigation-contract.ts';
 import { cancelPendingSessionSetup } from '../network/peer.ts';
 import {
   syncDesktopLeftPanel,
@@ -504,7 +505,7 @@ export function initSetup(): void {
     clearPendingRoomPasswordJoin();
     setupSetGuestJoinError(null);
     try {
-      sessionStorage.removeItem('mxqr_reconnect_target');
+      sessionStorage.removeItem(RECONNECT_TARGET_KEY);
     } catch {
       /* noop */
     }
@@ -667,8 +668,8 @@ export function initSetup(): void {
       // code" misleads. Show "host left" instead.
       let isReconnectAttempt = false;
       try {
-        isReconnectAttempt = !!sessionStorage.getItem('mxqr_reconnect_target');
-        sessionStorage.removeItem('mxqr_reconnect_target');
+        isReconnectAttempt = !!sessionStorage.getItem(RECONNECT_TARGET_KEY);
+        sessionStorage.removeItem(RECONNECT_TARGET_KEY);
       } catch {
         /* noop */
       }
@@ -721,7 +722,7 @@ export function initSetup(): void {
               // peer-unavailable error branch to swap the misleading "check
               // your code" message for "host left".
               try {
-                sessionStorage.setItem('mxqr_reconnect_target', lastCode);
+                sessionStorage.setItem(RECONNECT_TARGET_KEY, lastCode);
               } catch {
                 /* noop */
               }

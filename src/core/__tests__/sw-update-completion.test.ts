@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 import activatePendingServiceWorkerForHardReset from '../sw-hard-reset.ts';
+import { UPDATE_COMPLETION_KEY } from '../navigation-contract.ts';
 import { recordServiceWorkerUpdateCompletion } from '../sw-update-completion.ts';
 import { compileClassicRuntimeForBrowserTest } from './classic-runtime-test-asset.ts';
 
@@ -18,6 +19,12 @@ describe('service-worker update completion marker', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it('writes the marker under the key the next document reads (app.ts)', () => {
+    // The lazy chunk keeps its own copy of the key; this pins the two together.
+    recordServiceWorkerUpdateCompletion();
+    expect(sessionStorage.getItem(UPDATE_COMPLETION_KEY)).toBe('Update applied');
   });
 
   it.each(LANGUAGE_OPTIONS)(

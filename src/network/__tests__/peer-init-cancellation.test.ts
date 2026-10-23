@@ -783,7 +783,7 @@ describe('network initialization ownership', () => {
     expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 
-  it('does not restart a terminal room from host browser recovery hints or a stale peer event', async () => {
+  it('keeps an expired admission stopped across peer events and background recovery, and ignores a stale predecessor event', async () => {
     vi.useFakeTimers();
     const peer = makePeer('EXPIRED-HOST', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
@@ -792,6 +792,11 @@ describe('network initialization ownership', () => {
     peer.getSignalingRecoveryBlockReason = () => 'room-expired';
     peer.fire('signaling-recovery-blocked');
     peer.fire('disconnected');
+    // These browser hints return before their expiry check here: no active
+    // Standard coordinator is set (network.sessionCode is empty). The real
+    // provider never reports expiry for a host either (it returns null while
+    // it owns a host room), so the host-only expiry checks in peer.ts's
+    // online/offline handlers are defensive and not exercised by this test.
     window.dispatchEvent(new Event('online'));
     window.dispatchEvent(new Event('offline'));
     recoverPeerAfterBackground(60_000);

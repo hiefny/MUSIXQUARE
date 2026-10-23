@@ -5730,14 +5730,18 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Keep every generic dialog action reachable even when header, input and
-     wrapped buttons together exceed the available layout viewport height. */
-  #dialog-overlay .dialog {
+     wrapped buttons together exceed the available layout viewport height.
+     The signaling recovery dialog shares it: its expiry copy outgrows a
+     landscape phone in some locales. */
+  #dialog-overlay .dialog,
+  #signaling-recovery-overlay .dialog {
     max-height: calc(var(--app-height, 100vh) - 48px);
     max-height: calc(100dvh - 48px);
     overflow-y: auto;
   }
 
-  #dialog-overlay .dialog > * {
+  #dialog-overlay .dialog > *,
+  #signaling-recovery-overlay .dialog > * {
     flex-shrink: 0;
   }
 

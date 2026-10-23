@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { readFile } from 'node:fs/promises';
+import { parse as parseCss } from 'postcss';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
@@ -85,6 +86,24 @@ const mockedKickActiveProRoomMember = vi.mocked(kickActiveProRoomMember);
 const mockedKickActiveProRoomPresence = vi.mocked(kickActiveProRoomPresence);
 const mockedRevokeActiveProRoomAdministrator = vi.mocked(revokeActiveProRoomAdministrator);
 const mockedUpdateActiveProRoomAdministrator = vi.mocked(updateActiveProRoomAdministrator);
+/**
+ * Every rule whose selector list holds exactly `selector` (not a longer
+ * selector that merely contains it), with its full selector list and its
+ * declarations in source order.
+ */
+function cssRulesWithSelector(stylesheet: string, selector: string) {
+  const rules: { selectors: string[]; declarations: string[] }[] = [];
+  parseCss(stylesheet).walkRules((rule) => {
+    if (!rule.selectors.includes(selector)) return;
+    const declarations: string[] = [];
+    rule.each((node) => {
+      if (node.type === 'decl') declarations.push(`${node.prop}: ${node.value}`);
+    });
+    rules.push({ selectors: rule.selectors, declarations });
+  });
+  return rules;
+}
+
 /** Resolve literal or locale-refreshing dialog copy as the dialog renders it. */
 function renderedDialogText(text: unknown): unknown {
   return typeof text === 'function' ? (text as () => string)() : text;
@@ -550,6 +569,24 @@ describe('connect signaling health status', () => {
     ]) {
       expect(stylesheet).toContain(selector);
     }
+  });
+
+  it('caps the recovery dialog like the generic dialog so short screens scroll to its actions', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    // The expiry copy outgrows a 568x320 landscape phone in el, ml, ru and ta;
+    // e2e/dialog-locale-layout.test.ts checks the real layout.
+    const cap = cssRulesWithSelector(stylesheet, '#signaling-recovery-overlay .dialog');
+    expect(cap).toHaveLength(1);
+    expect(cap[0]!.selectors).toContain('#dialog-overlay .dialog');
+    expect(cap[0]!.declarations).toEqual([
+      'max-height: calc(var(--app-height, 100vh) - 48px)',
+      'max-height: calc(100dvh - 48px)',
+      'overflow-y: auto',
+    ]);
+    const children = cssRulesWithSelector(stylesheet, '#signaling-recovery-overlay .dialog > *');
+    expect(children).toHaveLength(1);
+    expect(children[0]!.selectors).toContain('#dialog-overlay .dialog > *');
+    expect(children[0]!.declarations).toEqual(['flex-shrink: 0']);
   });
 
   it('opens the requested failure dialog only after a manual recovery fails', async () => {

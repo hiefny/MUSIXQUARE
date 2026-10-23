@@ -114,11 +114,34 @@ npm 12.0.2다.
 명시적 만료 자체의 검증은 fake WebSocket/WebRTC·Worker와 jsdom 기반이다. 실제 기기의
 음향 연속성, 운영 WSS·HTTPS·백그라운드 조합은 SKIP이며 아래 배포 전 확인 범위로 남긴다.
 
+### 3. 6렌즈 리뷰 반영 검증 (2026-10-24)
+
+6렌즈 리뷰와 적대 검증은 P1·P2 없이 P3·P4를 냈고, 오너 결정(2026-10-24)대로 모두 반영했다.
+오너가 "싸면" 넣으라고 한 Standard `1012` 사유 3개만 초기 JS 79 B가 들어 넣지 않았다.
+머지 시점(지금 또는 Phase 3 준비 때)은 오너가 정한다.
+반영 커밋은 `2920f9bd`(새 입장 재접속, 문구·용어, 초대 버튼 상태 표시, 번역·연결·레이아웃
+테스트), `81c046f9`·`5411b2b6`(진단 허용 목록과 parity 테스트), `18c4340d`(테스트 이름),
+`db0954eb`(문서), `d4849257`(SW 캐시 v774)이다. 검증 대상 코드는
+`d48492572c1569aa740db2edc9e526a94e117e71`(마지막 런타임 커밋, main `08003954` 포함)이고,
+이후 이 표를 적는 문서 커밋은 런타임을 바꾸지 않는다. 환경은 Windows 로컬, Node 24.20.0 /
+npm 12.0.2, E2E는 로컬 Chromium·PeerJS(포트 4291/9131)다.
+
+| 검사 | 결과와 범위 |
+| --- | --- |
+| 타입·정적 검사 | `typecheck`, `lint`, `format:check`, `check:workers`(D1·ops 계약 포함) PASS. `check-resource-ownership` 46 records PASS(기준 수치 변화 없음), `guard:navigation-sinks` PASS(location navigation 6). |
+| 단위 전체 | `vitest run --maxWorkers=6` 643 files / 14,694 tests PASS, FAIL 0, SKIP 0. |
+| Worker 전체 | `vitest.workers.config.ts` 60 files / 2,888 tests PASS. 새 parity 테스트는 Worker 소스를 읽기만 하므로 단위 전체에서 돈다. |
+| 번역·연결 | `translations.test.ts`·`connect-i18n.test.ts` 2 files / 134 tests PASS. 안전 구분 테스트가 42개 언어 전체를 돌고, 열린 실패 대화상자가 같은 boundary에서 만료 대화상자로 바뀌는 테스트는 해당 분기를 지우면 실패함을 확인했다. |
+| 프로덕션 빌드 | `build:checked` 전체 PASS(가드 24개, `guard:sw-cache-version` "v774 (d4849257) covers all committed PWA runtime changes", legacy TV CSS 포함). 초기 JS 491,251 B gzip(PR 491,227 B 대비 +24 B, 유지 상한 491,568 B까지 317 B), 초기 전체 569,825 B(상한 570,570 B까지 745 B). Standard `1012` 사유 3개를 넣은 빌드는 491,310 B였다. |
+| Chromium | `build:e2e` 후 `test:e2e:critical` 59/59 PASS(adaptive-actions 포함), `e2e/adaptive-actions.test.ts` 단독 10/10 PASS(만료 라벨과 "새로 입장" 버튼을 42개 언어·RTL·320px·200% 글자에서 넘침 검사), playback-sync·reconnection 9/9 PASS. |
+| SKIP | 실제 기기, 운영 Cloudflare WSS·HTTPS 만료, 백그라운드 복귀, 새 입장에서 방장이 없을 때의 실제 문구, `/api/admin/metrics` 새 카운터는 배포 전 범위로 남긴다. 리뷰 반영 head의 PR CI는 아직 돌지 않았다. |
+
 ## 초기 JS 예산
 
 실제 빌드로 잰 초기 JS(gzip)는 main 490,339 B에서 이 PR 491,227 B로 888 B 늘었다. 유지 상한
 491,568 B(517,440 B의 95%)까지 341 B가 남고, 9.0.4 이후 남아 있던 여유의 약 72%를 이 증분이
-썼다. 초기 전체는 상한 570,570 B까지 804 B 남는다. 리뷰 반영 뒤 값은 QA 라운드 3에 적는다.
+썼다. 초기 전체는 상한 570,570 B까지 804 B 남는다. 리뷰 반영 뒤(`d4849257`)에는 초기 JS
+491,251 B로 317 B, 초기 전체 569,825 B로 745 B가 남는다(QA 라운드 3).
 
 앞으로 들어올 Phase 3 증분(SW 업데이트 경로의 `sw-register.ts`, 각진 선택 표시의
 `selection-mark.ts`)은 모두 초기 묶음에 들어간다. Phase 3 증분은 이 여유로 측정하며, 넘으면

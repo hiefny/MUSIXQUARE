@@ -64,7 +64,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       기존 재시도를 계속할 수 있다. 실제 WSS·HTTPS 연결과 백그라운드 복귀에서 재생 유지·새 입장은
       미검증이다.
       첫 로딩 JS(gzip)는 main 490,339 B → 이 PR 491,227 B로, 유지 상한 491,568 B(517,440 B의
-      95%)까지 341 B 남는다(초기 전체는 상한 570,570 B까지 804 B). Phase 3 증분은 이 여유로
+      95%)까지 341 B 남는다(초기 전체는 상한 570,570 B까지 804 B). 리뷰 반영 뒤 `d4849257`은
+      491,251 B로 317 B, 초기 전체 745 B가 남는다. Phase 3 증분은 이 여유로
       측정하며, 넘으면 줄이기 또는 [측정 기준 재설정](design/initial-bundle-loading-policy.md)을
       오너가 정한다. [변경·QA·배포 범위](design/phase3-update-and-expiry-recovery-2026-10-24.md).
 

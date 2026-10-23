@@ -656,6 +656,7 @@ const DEFERRED_ENTRY_MODULES = [
   '/src/player/media-session.ts',
   '/src/player/local-output-rejoin.ts',
   '/src/ui/connect.ts',
+  '/src/ui/playlist-motion.ts',
 ] as const;
 
 // QR encoding, PeerJS, Connect, and room-only listeners are needed only after

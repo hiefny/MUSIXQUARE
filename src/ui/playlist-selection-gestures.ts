@@ -17,28 +17,20 @@
  *
  * Both gestures recompute the selection from the selection that existed when
  * they began, so moving back un-selects rows the gesture added. Holding near
- * the visible pane's top or bottom edge auto-scrolls by the reorder rules.
- * A short press without movement is left to the check circle's own click.
+ * the visible pane's top or bottom edge auto-scrolls by the same rules as a
+ * reorder drag (playlist-motion.ts). A short press without movement is left
+ * to the check circle's own click.
  */
 
 import type { QueueItemId } from '../types/index.ts';
+import { PLAYLIST_MOVE_TOLERANCE_PX, edgeAutoScrollVelocity } from './playlist-motion.ts';
 
 const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
 const ENTRY_SELECTOR = '.playlist-entry';
-/** Vertical travel that turns a press into a drag (matches the reorder tolerance). */
-const DRAG_START_PX = 8;
 /** A larger change in finger spread than this reads as a pinch, not a pan. */
 const PINCH_SPREAD_PX = 48;
-const CLICK_SUPPRESSION_MS = 400;
-// Edge auto-scroll mirrors playlist-reorder.ts (zone 12% of the visible pane,
-// 24 to 72px, armed by travel, quadratic up to 18px a frame). It is repeated
-// rather than imported: importing the eager reorder module from this lazy
-// chunk re-splits the shared eager chunks and costs initial transfer.
-const EDGE_ZONE_RATIO = 0.12;
-const EDGE_ZONE_MAX_PX = 72;
-const EDGE_ZONE_MIN_PX = 24;
-const EDGE_ZONE_ARM_TRAVEL_PX = DRAG_START_PX;
-const EDGE_SCROLL_MAX_PX = 18;
+/** The click that ends a range drag; a reorder drop suppresses its own for longer. */
+const RANGE_DRAG_CLICK_SUPPRESSION_MS = 400;
 
 interface PlaylistSelectionGestureOptions {
   list: HTMLElement;
@@ -68,51 +60,6 @@ interface Row {
   queueItemId: QueueItemId;
   top: number;
   bottom: number;
-}
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-/** The playlist pane's visible bounds, above a bottom navigation that overlaps it. */
-function visibleScrollBounds(scrollContainer: HTMLElement): { top: number; bottom: number } {
-  const rect = scrollContainer.getBoundingClientRect();
-  let bottom = rect.bottom;
-  const nav = document.querySelector<HTMLElement>('.bottom-nav');
-  const navRect = nav?.getBoundingClientRect();
-  if (
-    nav &&
-    navRect &&
-    getComputedStyle(nav).display !== 'none' &&
-    navRect.height > 0 &&
-    navRect.right > rect.left &&
-    navRect.left < rect.right &&
-    navRect.bottom > rect.top &&
-    navRect.top < rect.bottom
-  ) {
-    bottom = Math.min(bottom, navRect.top);
-  }
-  return { top: rect.top, bottom };
-}
-
-function edgeScrollVelocity(scrollContainer: HTMLElement, state: Gesture): number {
-  const { top, bottom } = visibleScrollBounds(scrollContainer);
-  const zone = clamp((bottom - top) * EDGE_ZONE_RATIO, EDGE_ZONE_MIN_PX, EDGE_ZONE_MAX_PX);
-  const y = state.lastClientY;
-  const topDepth = top + zone - y;
-  const bottomDepth = y - (bottom - zone);
-  // A gesture that starts on an edge row arms that edge only after leaving
-  // the zone or travelling toward it, so pressing never scrolls by itself.
-  if (topDepth <= 0 || state.startClientY - y >= EDGE_ZONE_ARM_TRAVEL_PX) state.topEdgeArmed = true;
-  if (bottomDepth <= 0 || y - state.startClientY >= EDGE_ZONE_ARM_TRAVEL_PX) {
-    state.bottomEdgeArmed = true;
-  }
-  if (topDepth > 0 && state.topEdgeArmed)
-    return -EDGE_SCROLL_MAX_PX * clamp(topDepth / zone, 0, 1) ** 2;
-  if (bottomDepth > 0 && state.bottomEdgeArmed) {
-    return EDGE_SCROLL_MAX_PX * clamp(bottomDepth / zone, 0, 1) ** 2;
-  }
-  return 0;
 }
 
 function touchById(touches: TouchList, identifier: number): Touch | null {
@@ -208,7 +155,7 @@ export function installPlaylistSelectionGestures(
     autoScrollFrame = 0;
     const state = gesture;
     if (!state?.base) return;
-    const velocity = edgeScrollVelocity(scrollContainer, state);
+    const velocity = edgeAutoScrollVelocity(scrollContainer, state);
     if (velocity === 0) return;
     const maxScroll = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
     const next = Math.min(maxScroll, Math.max(0, scrollContainer.scrollTop + velocity));
@@ -221,7 +168,7 @@ export function installPlaylistSelectionGestures(
 
   function syncAutoScroll(): void {
     const state = gesture;
-    if (!state?.base || edgeScrollVelocity(scrollContainer, state) === 0) {
+    if (!state?.base || edgeAutoScrollVelocity(scrollContainer, state) === 0) {
       stopAutoScroll();
       return;
     }
@@ -241,7 +188,7 @@ export function installPlaylistSelectionGestures(
       }
     }
     // The press that became a drag must not also toggle or play a row.
-    if (state.base) suppressClicksUntil = performance.now() + CLICK_SUPPRESSION_MS;
+    if (state.base) suppressClicksUntil = performance.now() + RANGE_DRAG_CLICK_SUPPRESSION_MS;
   }
 
   function newGesture(
@@ -287,7 +234,7 @@ export function installPlaylistSelectionGestures(
       const state = gesture;
       if (state?.kind !== 'pointer' || event.pointerId !== state.pointerId) return;
       if (!state.base) {
-        if (Math.abs(event.clientY - state.startClientY) < DRAG_START_PX) return;
+        if (Math.abs(event.clientY - state.startClientY) < PLAYLIST_MOVE_TOLERANCE_PX) return;
         try {
           // Rows keep receiving the drag when it leaves the narrow column.
           list.setPointerCapture(event.pointerId);
@@ -372,7 +319,7 @@ export function installPlaylistSelectionGestures(
           gesture = null;
           return;
         }
-        if (Math.abs(midY - state.startClientY) < DRAG_START_PX) return;
+        if (Math.abs(midY - state.startClientY) < PLAYLIST_MOVE_TOLERANCE_PX) return;
         state.lastClientY = midY;
         begin(state);
         return;

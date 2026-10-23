@@ -350,6 +350,7 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   {
     records: ['RO-27'],
     files: [
+      'src/ui/playlist-motion.ts',
       'src/ui/playlist-reorder.ts',
       'src/ui/playlist-selection-gestures.ts',
       'src/ui/playlist-removal.ts',
@@ -399,16 +400,6 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
     'RO-05 REJOIN_RETRY_MS@src/player/local-output-rejoin.ts = ' +
       'RENDEZVOUS_RETRY_MS@src/player/background-return-sync.ts ([250,750,1500,3000,5000])',
     { kind: 'copy', reason: 're-align retry schedule; Phase 0d C3-I1' },
-  ],
-  [
-    'RO-27 CLICK_SUPPRESSION_MS@src/ui/playlist-reorder.ts = ' +
-      'CLICK_SUPPRESSION_MS@src/ui/playlist-selection-gestures.ts (500 / 400)',
-    { kind: 'suspect', reason: 'drag vs selection gesture; Phase 2 motion module triages it' },
-  ],
-  [
-    'RO-27 MORPH_MS@src/ui/playlist-removal.ts = ' +
-      'MORPH_MS@src/ui/playlist-selection-morph.ts (300 / 320)',
-    { kind: 'suspect', reason: 'removal glide vs selection morph; Phase 2 triages it' },
   ],
   [
     'RO-29 CONTROL_CHANNEL_RECOVERY_RETRY_MS@src/pro-room/runtime.ts = ' +

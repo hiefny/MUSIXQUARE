@@ -2,13 +2,16 @@ import type { PlaylistItem, QueueItemId } from '../types/index.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import { t } from '../i18n/index.ts';
 import type { PlaylistSelectionMorph } from './playlist-selection-morph.ts';
+import { PLAYLIST_ROW_EASING, prefersReducedMotion } from './playlist-motion.ts';
 
 const SELECT_BUTTON_SELECTOR = '.btn-playlist-select[data-queue-item-id]';
 const ENTRY_SELECTOR = ':scope > .playlist-entry[data-queue-item-id]';
 
-/** Shared length of the survivors' glide and the pills' exit. */
-const MORPH_MS = 300;
-const MORPH_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
+/**
+ * Survivors glide into the rows the deleted ones left. The selection pills'
+ * morph (playlist-selection-morph.ts) is a different motion with its own time.
+ */
+const GLIDE_MS = 300;
 /** Deleted rows slide out toward the inline end; survivors close up behind them. */
 const EXIT_MS = 260;
 const EXIT_EASING = 'cubic-bezier(0.5, 0, 0.75, 0)';
@@ -23,6 +26,9 @@ const BAR_EXIT_EASING = 'cubic-bezier(0.4, 0, 0.9, 0.6)';
 /** The tab header crossfades between its normal and selection controls. */
 const HEADER_FADE_OUT_MS = 180;
 const HEADER_FADE_IN_MS = 240;
+// The header's own curve. It equals the row easing today but is not a row
+// motion, so it stays here.
+const HEADER_FADE_IN_EASING = 'cubic-bezier(0.2, 0.8, 0.2, 1)';
 /**
  * Remote paths (PRO server, Standard host) answer asynchronously. Keep the
  * deleted rows hidden until the canonical playlist drops them, but give a
@@ -75,14 +81,6 @@ type BarState = 'hidden' | 'select' | 'leaving';
 function setButtonLabel(button: HTMLButtonElement, label: string): void {
   button.setAttribute('aria-label', label);
   button.title = label;
-}
-
-function prefersReducedMotion(): boolean {
-  try {
-    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  } catch {
-    return false;
-  }
 }
 
 function canAnimate(element: Element): boolean {
@@ -398,7 +396,7 @@ export function createPlaylistRemovalController(
     for (const control of headerControls(selecting)) {
       control.animate([{ opacity: 0 }, { opacity: 1 }], {
         duration: HEADER_FADE_IN_MS,
-        easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)',
+        easing: HEADER_FADE_IN_EASING,
       });
     }
     headerFadeLayer = layer;
@@ -790,13 +788,13 @@ export function createPlaylistRemovalController(
   function continueGlide(): void {
     if (!glide) return;
     const elapsed = performance.now() - glide.startedAt;
-    if (elapsed >= glide.delay + MORPH_MS) {
+    if (elapsed >= glide.delay + GLIDE_MS) {
       glide = null;
       return;
     }
     const timing: KeyframeAnimationOptions = {
-      duration: MORPH_MS,
-      easing: MORPH_EASING,
+      duration: GLIDE_MS,
+      easing: PLAYLIST_ROW_EASING,
       delay: glide.delay,
       fill: 'backwards',
     };

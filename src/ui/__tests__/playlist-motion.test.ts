@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPlaylistReorderController } from '../playlist-reorder.ts';
 import { installPlaylistSelectionGestures } from '../playlist-selection-gestures.ts';
+import { edgeAutoScrollVelocity, prefersReducedMotion } from '../playlist-motion.ts';
 
 // RO-27: the reorder drag and the check-column selection drag share one edge
 // auto-scroll contract (zone, arming and speed over the pane's visible part
@@ -191,5 +192,101 @@ describe('playlist edge auto-scroll parity (reorder drag and check-column drag)'
     expect(reorder).toEqual(selection);
     expect(reorder.slice(0, 8)).toEqual(Array(8).fill(40));
     expect(reorder.at(-1)!).toBeGreaterThan(40);
+  });
+});
+
+describe('edgeAutoScrollVelocity', () => {
+  interface NavBox {
+    top: number;
+    height: number;
+    left?: number;
+    display?: string;
+  }
+
+  function pane(height: number, nav: NavBox | null = null): HTMLElement {
+    document.body.innerHTML = '<div class="tab-body"></div>';
+    const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+    scroller.getBoundingClientRect = () => rect(0, height);
+    if (nav) {
+      const element = document.createElement('nav');
+      element.className = 'bottom-nav';
+      if (nav.display) element.style.display = nav.display;
+      element.getBoundingClientRect = () => rect(nav.top, nav.height, nav.left ?? 0);
+      document.body.appendChild(element);
+    }
+    return scroller;
+  }
+
+  function track(startClientY: number, lastClientY = startClientY) {
+    return { startClientY, lastClientY, topEdgeArmed: false, bottomEdgeArmed: false };
+  }
+
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it.each([
+    // [case, pane height, nav, pointer y, pixels per frame]
+    ['middle of a 300px pane', 300, null, 150, 0],
+    ['bottom zone start (12% of 300px is 36px)', 300, null, 264, 0],
+    ['half way into the bottom zone', 300, null, 282, 4.5],
+    ['bottom edge', 300, null, 300, 18],
+    ['past the bottom edge', 300, null, 320, 18],
+    ['half way into the top zone', 300, null, 18, -4.5],
+    ['bottom edge of the pane above an overlapping nav', 300, { top: 260, height: 80 }, 260, 18],
+    ['zone floor of 24px in a short pane', 100, null, 88, 4.5],
+    ['zone cap of 72px in a tall pane', 1000, null, 964, 4.5],
+    ['a hidden nav', 300, { top: 260, height: 80, display: 'none' }, 282, 4.5],
+    ['a side nav that does not overlap', 300, { top: 0, height: 300, left: 400 }, 282, 4.5],
+    ['a nav with no height', 300, { top: 260, height: 0 }, 282, 4.5],
+  ] as const)('%s', (_case, height, nav, y, expected) => {
+    const scroller = pane(height, nav);
+    const armed = { ...track(height / 2, y), topEdgeArmed: true, bottomEdgeArmed: true };
+    expect(edgeAutoScrollVelocity(scroller, armed)).toBeCloseTo(expected, 10);
+  });
+
+  it('arms an edge a drag starts in only once it leaves the zone or travels 8px toward it', () => {
+    const scroller = pane(300);
+    const state = track(290);
+    expect(edgeAutoScrollVelocity(scroller, state)).toBe(0);
+    expect(state).toMatchObject({ topEdgeArmed: true, bottomEdgeArmed: false });
+
+    const jitter = { ...state, lastClientY: 297 };
+    expect(edgeAutoScrollVelocity(scroller, jitter)).toBe(0);
+    expect(jitter.bottomEdgeArmed).toBe(false);
+
+    const travelled = { ...state, lastClientY: 298 };
+    expect(edgeAutoScrollVelocity(scroller, travelled)).toBeGreaterThan(0);
+    expect(travelled.bottomEdgeArmed).toBe(true);
+
+    const left = { ...state, lastClientY: 200 };
+    expect(edgeAutoScrollVelocity(scroller, left)).toBe(0);
+    expect(left.bottomEdgeArmed).toBe(true);
+  });
+});
+
+describe('prefersReducedMotion', () => {
+  function stubMatchMedia(matchMedia: (query: string) => MediaQueryList): void {
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: matchMedia });
+  }
+
+  afterEach(() => {
+    Reflect.deleteProperty(window, 'matchMedia');
+  });
+
+  it.each([true, false])('reads the media query (%s)', (matches) => {
+    stubMatchMedia(
+      (query) =>
+        ({ matches: query === '(prefers-reduced-motion: reduce)' && matches }) as MediaQueryList,
+    );
+    expect(prefersReducedMotion()).toBe(matches);
+  });
+
+  it('allows motion when the media query is unavailable', () => {
+    expect(prefersReducedMotion()).toBe(false);
+    stubMatchMedia(() => {
+      throw new Error('unsupported');
+    });
+    expect(prefersReducedMotion()).toBe(false);
   });
 });

@@ -1304,18 +1304,28 @@ RO-46 accepted-exception
 - **Current owners/flows:** reorder (`src/ui/playlist-reorder.ts`: drag, keyboard, settling, FLIP,
   edge auto-scroll); removal (`src/ui/playlist-removal.ts` with
   `src/ui/playlist-selection-morph.ts`: selection, exit layer, glide); the selection-gesture
-  auto-scroll (`src/ui/playlist-selection-gestures.ts`, which says it mirrors the reorder edge
-  scroll); follow and current-jump; the custom scrollbar drag; the render's scroll restore.
-  `src/ui/playlist-view.ts` orchestrates by polling the controllers and pairing their cancels.
+  auto-scroll (`src/ui/playlist-selection-gestures.ts`); follow and current-jump; the custom
+  scrollbar drag; the render's scroll restore. The three lazy controllers share
+  `src/ui/playlist-motion.ts` (lazy; listed with the build's deferred modules) for the edge
+  auto-scroll, the row easing and the reduced-motion check. `src/ui/playlist-view.ts`
+  orchestrates by polling the controllers and pairing their cancels.
 - **Target single owner:** one interaction gate in `playlist-view.ts` with a shared lazy motion
   module (planned `src/ui/playlist-motion.ts`); controllers keep their gesture-private state.
 - **Allowed requesters:** the controllers above, through the gate.
 - **Lifecycle operations:** move rows, animate, scroll, defer or force a render, cancel.
 - **Deadline owner:** each controller's settle and glide timing.
-- **Timing-constant home:** edge auto-scroll constants copied in `playlist-reorder.ts` and
-  `playlist-selection-gestures.ts`; the row easing in three places; `prefersReducedMotion` twice.
-  Target: `src/ui/playlist-motion.ts` (Phase 2).
+- **Timing-constant home:** `src/ui/playlist-motion.ts`: the edge auto-scroll zone, arming and
+  speed (`edgeAutoScrollVelocity`), the move tolerance `PLAYLIST_MOVE_TOLERANCE_PX`, the row
+  easing `PLAYLIST_ROW_EASING` (reorder FLIP and the deletion survivors' glide) and
+  `prefersReducedMotion`. Triaged as separate contracts and named apart: the click suppression
+  after a drop or hold (`CLICK_SUPPRESSION_MS`, 500 ms, `playlist-reorder.ts`) and after a range
+  drag (`RANGE_DRAG_CLICK_SUPPRESSION_MS`, 400 ms, `playlist-selection-gestures.ts`); the survivors'
+  glide (`GLIDE_MS`, 300 ms, `playlist-removal.ts`) and the selection pills' morph (`MORPH_MS`,
+  320 ms, `playlist-selection-morph.ts`); the header crossfade's curve stays in
+  `playlist-removal.ts`.
 - **Anchor tests:**
+  - Shared motion: `src/ui/__tests__/playlist-motion.test.ts` "takes the same steps toward each
+    edge of the pane visible above the bottom nav" (reorder drag and check-column drag).
   - Supersession: `src/ui/__tests__/playlist-view.test.ts` "keeps an active PRO reorder mounted
     through revision-only context pulses".
   - User pause/stop: `src/ui/__tests__/playlist-reorder.test.ts` "cancels an active drag on Escape

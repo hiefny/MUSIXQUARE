@@ -1,28 +1,60 @@
-/** @vitest-environment jsdom */
+/**
+ * @vitest-environment jsdom
+ *
+ * The update machine in src/sw-register.ts (registry RO-22) against the real
+ * page navigation owner, src/core/session-reset.ts (RO-23), with navigation.ts
+ * and the PRO claim fence it reloads through. Replaced: the service-worker
+ * container (SKIP_WAITING is the recorded postMessage of each fake worker),
+ * the location sinks (recorded no-op navigations, __helpers__/navigation-sinks.ts),
+ * the update dialog, app state, room authority and i18n (keys). A navigation
+ * the machine asks for shows as the owner holding the page
+ * (`isSessionResetPending`), the reset message, and one sink call once the
+ * reset screen has painted. The transition table of the same machine is in
+ * sw-update-transitions.integration.test.ts.
+ */
 
-import { readFileSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
 import { performance as nodePerformance } from 'node:perf_hooks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 const moduleMocks = vi.hoisted(() => ({
   getState: vi.fn((_key?: string): unknown => undefined),
   roomLifecycleListeners: new Set<() => void>(),
-  scheduleDocumentReload: vi.fn(),
-  scheduleSessionReset: vi.fn(),
   showDialog: vi.fn(),
+  // Where update news could leak besides the dialog: a toast, a chat notice
+  // or a message to peers.
+  notices: {
+    showToast: vi.fn(),
+    broadcastSystemMessage: vi.fn(),
+    announceSystemMessageLocally: vi.fn(),
+    sendSystemMessage: vi.fn(),
+    broadcast: vi.fn(),
+    broadcastExcept: vi.fn(),
+    safeSend: vi.fn(),
+    sendProRoomRealtime: vi.fn(),
+  },
 }));
 
 vi.mock('../log.ts', () => ({
-  log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
+  log: { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 vi.mock('../state.ts', () => ({ getState: moduleMocks.getState }));
 vi.mock('../../i18n/index.ts', () => ({ t: vi.fn((key: string) => key) }));
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: moduleMocks.showDialog }));
 vi.mock('../timers.ts', () => ({ setManagedTimer: vi.fn() }));
-vi.mock('../session-reset.ts', () => ({
-  scheduleDocumentReload: moduleMocks.scheduleDocumentReload,
-  scheduleSessionReset: moduleMocks.scheduleSessionReset,
+vi.mock('../../ui/toast.ts', () => ({ showToast: moduleMocks.notices.showToast }));
+vi.mock('../../chat/protocol.ts', () => ({
+  broadcastSystemMessage: moduleMocks.notices.broadcastSystemMessage,
+  announceSystemMessageLocally: moduleMocks.notices.announceSystemMessageLocally,
+  sendSystemMessage: moduleMocks.notices.sendSystemMessage,
+}));
+vi.mock('../../network/peer-state.ts', () => ({
+  broadcast: moduleMocks.notices.broadcast,
+  broadcastExcept: moduleMocks.notices.broadcastExcept,
+  safeSend: moduleMocks.notices.safeSend,
+}));
+vi.mock('../../pro-room/realtime-sender.ts', () => ({
+  sendProRoomRealtime: moduleMocks.notices.sendProRoomRealtime,
 }));
 vi.mock('../../rooms/authority.ts', () => ({
   getRoomContext: () => moduleMocks.getState('room.context'),
@@ -117,24 +149,6 @@ interface FakeWorker {
   state?: ServiceWorkerState;
 }
 
-interface FakeResetHandle {
-  onRecovered(listener: () => void): () => void;
-  emitRecovered(): void;
-}
-
-function createFakeResetHandle(): FakeResetHandle {
-  const listeners = new Set<() => void>();
-  return {
-    onRecovered(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    emitRecovered() {
-      for (const listener of [...listeners]) listener();
-    },
-  };
-}
-
 interface SwHarness {
   setController(worker: FakeWorker | null, clearWaiting?: boolean, cacheVersion?: string): void;
   emit(type: 'controllerchange' | 'message', event?: unknown): void;
@@ -143,9 +157,29 @@ interface SwHarness {
     waitingWorker: FakeWorker;
   };
   register: ReturnType<typeof vi.fn>;
-  reload: ReturnType<typeof vi.fn>;
+  /** The location sinks the navigation owner calls. */
+  sinks: NavigationSinks;
+  reload: NavigationSinks['reload'];
   update: ReturnType<typeof vi.fn>;
   waitingWorker: FakeWorker | null;
+}
+
+const actualWindow = globalThis.window;
+
+/** The recorded location sinks, on a window that reports a secure context. */
+function stubSecureNavigationSinks(): NavigationSinks {
+  const sinks = stubNavigationSinks();
+  const sinkWindow = globalThis.window;
+  vi.stubGlobal(
+    'window',
+    new Proxy({} as Window, {
+      get(_target, property) {
+        if (property === 'isSecureContext') return true;
+        return Reflect.get(sinkWindow, property) as unknown;
+      },
+    }),
+  );
+  return sinks;
 }
 
 function installServiceWorkerHarness(
@@ -163,7 +197,6 @@ function installServiceWorkerHarness(
   const initialWaitingWorker: FakeWorker | null = hasWaitingWorker
     ? { postMessage: vi.fn() }
     : null;
-  const reload = vi.fn();
 
   const configureWorker = (
     worker: FakeWorker | null,
@@ -236,15 +269,7 @@ function installServiceWorkerHarness(
       type === 'navigation' ? [{ type: navigationType }] : [],
     ),
   });
-  vi.stubGlobal('window', {
-    isSecureContext: true,
-    location: {
-      href: 'https://musixquare.com/',
-      reload,
-    },
-    addEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  });
+  const sinks = stubSecureNavigationSinks();
   Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
 
   return {
@@ -282,14 +307,25 @@ function installServiceWorkerHarness(
       };
     },
     register,
-    reload,
+    sinks,
+    reload: sinks.reload,
     update: registration.update,
     waitingWorker: initialWaitingWorker,
   };
 }
 
+type NavigationOwner = typeof import('../session-reset.ts');
+
+/** The navigation owners of the documents this test registered; afterEach releases them. */
+const loadedOwners: NavigationOwner[] = [];
+/** The navigation owner of the document registered last. */
+let owner: NavigationOwner;
+
 async function registerWithHarness(harness: SwHarness): Promise<void> {
   const { registerServiceWorker } = await import('../../sw-register.ts');
+  // The same module graph as sw-register's, so the same owner instance.
+  owner = await import('../session-reset.ts');
+  loadedOwners.push(owner);
   registerServiceWorker();
   await vi.waitFor(() => expect(harness.register).toHaveBeenCalledOnce());
   expect(harness.register).toHaveBeenCalledWith('/service-worker.js', { scope: '/' });
@@ -297,6 +333,37 @@ async function registerWithHarness(harness: SwHarness): Promise<void> {
 
 async function flushAsyncControllerChange(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
+/** Each navigation the page made, once the reset screen painted: 'reload' or 'href /CODE'. */
+function navigations(harness: SwHarness): string[] {
+  return harness.sinks.calls.map((call) =>
+    call.url === null ? call.op : `${call.op} ${call.url}`,
+  );
+}
+
+/** The machine asked the navigation owner for nothing: the page is not held and nothing navigated. */
+function expectNoNavigation(harness: SwHarness): void {
+  expect(owner.isSessionResetPending()).toBe(false);
+  expect(navigations(harness)).toEqual([]);
+}
+
+/** The message on the reset screen the last navigation showed. */
+function resetMessage(): string | null {
+  return document.getElementById('session-reset-message')?.textContent ?? null;
+}
+
+/**
+ * The navigation the page holds did not take this document away: once its
+ * sink has run (`navigated` sink calls so far), the document leaves and comes
+ * back (pagehide, then pageshow), and the owner settles the attempt as
+ * recovered, exactly once.
+ */
+async function recoverNavigation(harness: SwHarness, navigated: number): Promise<void> {
+  await vi.waitFor(() => expect(harness.sinks.calls).toHaveLength(navigated));
+  expect(owner.isSessionResetPending()).toBe(true);
+  actualWindow.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: false }));
+  actualWindow.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }));
 }
 
 // A startup prompt waits until page loads have been quiet for 1 s. This
@@ -317,25 +384,24 @@ describe('service-worker cache-retirement client handshake', () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     localStorage.clear();
+    document.body.innerHTML = '';
+    document.documentElement.className = '';
     delete document.documentElement.dataset.mxqrNavigationSource;
     document.body.classList.remove('mode-demo');
     moduleMocks.roomLifecycleListeners.clear();
     setAppState({});
-    moduleMocks.scheduleSessionReset.mockImplementation(() => createFakeResetHandle());
-    moduleMocks.scheduleDocumentReload.mockImplementation(
-      (message: string, onRecovered?: () => void) => {
-        const handle = moduleMocks.scheduleSessionReset(message, () => window.location.reload());
-        if (!handle) {
-          onRecovered?.();
-          return;
-        }
-        handle.onRecovered(() => onRecovered?.());
-      },
-    );
     moduleMocks.showDialog.mockResolvedValue({ action: 'secondary' });
   });
 
   afterEach(() => {
+    // Release every navigation the page still holds. A recovery can start the
+    // machine's next reload, which the next pass releases in turn.
+    for (const loaded of loadedOwners.splice(0)) {
+      for (let pass = 0; pass < 5; pass += 1) {
+        loaded.__resetPageNavigationForTests();
+        if (!loaded.isSessionResetPending()) break;
+      }
+    }
     vi.unstubAllGlobals();
   });
 
@@ -434,17 +500,14 @@ describe('service-worker cache-retirement client handshake', () => {
     await vi.waitFor(() =>
       expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
     );
-    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expectNoNavigation(harness);
 
     // The reload waits for the new controller, so the next document is new.
     harness.setController(harness.waitingWorker!, true, 'v494');
     harness.emit('controllerchange');
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
-    expect(moduleMocks.scheduleDocumentReload).toHaveBeenCalledWith(
-      'dialog.refreshing_session',
-      expect.any(Function),
-    );
-    moduleMocks.scheduleSessionReset.mock.calls[0]?.[1]?.();
+    expect(owner.isSessionResetPending()).toBe(true);
+    expect(resetMessage()).toBe('dialog.refreshing_session');
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
     expect(harness.reload).toHaveBeenCalledOnce();
     await flushAsyncControllerChange();
     expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
@@ -468,7 +531,7 @@ describe('service-worker cache-retirement client handshake', () => {
     );
     harness.setController(harness.waitingWorker!, true, 'v494');
     harness.emit('controllerchange');
-    await vi.waitFor(() => expect(moduleMocks.scheduleDocumentReload).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
     expect(sessionStorage.getItem(RECONNECT_TARGET_KEY)).toBeNull();
   });
 
@@ -491,7 +554,7 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(moduleMocks.showDialog).not.toHaveBeenCalled();
       harness.setController(harness.waitingWorker!, true, 'v494');
       harness.emit('controllerchange');
-      await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
       await flushAsyncControllerChange();
       expect(moduleMocks.showDialog).not.toHaveBeenCalled();
     });
@@ -513,7 +576,7 @@ describe('service-worker cache-retirement client handshake', () => {
         updateDialog('dialog.sw_update_room_host_msg'),
       );
       await flushAsyncControllerChange();
-      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expectNoNavigation(harness);
     });
   });
 
@@ -576,7 +639,7 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({
         type: 'SKIP_WAITING',
       });
-      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expectNoNavigation(harness);
     },
   );
 
@@ -770,14 +833,15 @@ describe('service-worker cache-retirement client handshake', () => {
       harness.setController(update.waitingWorker, true, 'v494');
       harness.emit('controllerchange');
       await flushAsyncControllerChange();
-      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expectNoNavigation(harness);
 
       resolveDialog({ action });
       await flushAsyncControllerChange();
       await flushAsyncControllerChange();
       // Later already answered this generation; Apply reloads.
       expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
-      expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(resets);
+      expect(owner.isSessionResetPending()).toBe(resets > 0);
+      await vi.waitFor(() => expect(navigations(harness)).toHaveLength(resets));
       expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
     },
   );
@@ -869,7 +933,7 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
     harness.setController(update.waitingWorker, true, 'v704');
     harness.emit('controllerchange');
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
   });
 
   it('briefly cools down a failed prompt presentation without hiding a newer generation', async () => {
@@ -910,14 +974,9 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledWith(
-      'dialog.refreshing_session',
-      expect.any(Function),
-    );
-    const resetAction = moduleMocks.scheduleSessionReset.mock.calls[0]?.[1];
-    expect(resetAction).toBeTypeOf('function');
-    resetAction?.();
+    expect(owner.isSessionResetPending()).toBe(true);
+    expect(resetMessage()).toBe('dialog.refreshing_session');
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
     expect(harness.reload).toHaveBeenCalledOnce();
     expect(moduleMocks.showDialog).not.toHaveBeenCalled();
   });
@@ -949,13 +1008,14 @@ describe('service-worker cache-retirement client handshake', () => {
       harness.setController(nextController);
       harness.emit('controllerchange');
     }
-    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expectNoNavigation(harness);
     expect(moduleMocks.showDialog).not.toHaveBeenCalled();
     finishRegistration();
     await flushAsyncControllerChange();
     await flushAsyncControllerChange();
 
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(scenario.reset);
+    expect(owner.isSessionResetPending()).toBe(scenario.reset > 0);
+    await vi.waitFor(() => expect(navigations(harness)).toHaveLength(scenario.reset));
     expect(moduleMocks.showDialog).toHaveBeenCalledTimes(scenario.dialog);
     if (!scenario.initiallyControlled) {
       harness.emit('message', {
@@ -969,7 +1029,8 @@ describe('service-worker cache-retirement client handshake', () => {
     // A later event for the already reconciled controller must not repeat the action.
     harness.emit('controllerchange');
     await flushAsyncControllerChange();
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(scenario.reset);
+    expect(owner.isSessionResetPending()).toBe(scenario.reset > 0);
+    expect(navigations(harness)).toHaveLength(scenario.reset);
     expect(moduleMocks.showDialog).toHaveBeenCalledTimes(scenario.dialog);
   });
 
@@ -986,7 +1047,8 @@ describe('service-worker cache-retirement client handshake', () => {
     // This assertion is intentionally synchronous. A pre-protocol controller
     // can take 750 ms to resolve, but pagehide must see the reset coordinator
     // from the controllerchange turn itself.
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(owner.isSessionResetPending()).toBe(true);
+    expect(resetMessage()).toBe('dialog.refreshing_session');
   });
 
   it('accepts exactly one later controllerchange after its reset attempt recovers', async () => {
@@ -999,18 +1061,17 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(firstController);
     harness.emit('controllerchange');
     harness.emit('controllerchange');
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
 
-    const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
-    firstHandle.emitRecovered();
+    await recoverNavigation(harness, 1);
     harness.emit('controllerchange');
     await flushAsyncControllerChange();
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(owner.isSessionResetPending()).toBe(false);
+    expect(navigations(harness)).toEqual(['reload']);
     harness.setController(secondController);
     harness.emit('controllerchange');
     harness.emit('controllerchange');
 
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload', 'reload']));
   });
 
   it('reserves an unresolved successor immediately when the current reload recovers', async () => {
@@ -1022,19 +1083,18 @@ describe('service-worker cache-retirement client handshake', () => {
 
     harness.setController(firstController);
     harness.emit('controllerchange');
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
-    const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
+    expect(owner.isSessionResetPending()).toBe(true);
 
     harness.setController(unresolvedSuccessor);
     unresolvedSuccessor.postMessage.mockImplementation(() => undefined);
     harness.emit('controllerchange');
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
 
-    firstHandle.emitRecovered();
+    await recoverNavigation(harness, 1);
 
     // The second reset is claimed inside recovery, without waiting for the
     // mixed-version successor's generation timeout.
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2);
+    expect(owner.isSessionResetPending()).toBe(true);
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload', 'reload']));
   });
 
   it('does not let a stale recovery release a successor reload attempt', async () => {
@@ -1047,23 +1107,25 @@ describe('service-worker cache-retirement client handshake', () => {
 
     harness.setController(firstController);
     harness.emit('controllerchange');
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
-    const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
-    firstHandle.emitRecovered();
+    await recoverNavigation(harness, 1);
 
     harness.setController(secondController);
     harness.emit('controllerchange');
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2));
-    const secondHandle = moduleMocks.scheduleSessionReset.mock.results[1]?.value as FakeResetHandle;
-    firstHandle.emitRecovered();
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload', 'reload']));
+    // The first attempt's recovery signals arrive again. The owner settled
+    // that attempt once; a return of the document while the successor is
+    // still navigating (not 'left') settles nothing.
+    actualWindow.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: false }));
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(owner.isSessionResetPending()).toBe(true);
 
     harness.setController(thirdController);
     harness.emit('controllerchange');
     await flushAsyncControllerChange();
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2);
+    expect(navigations(harness)).toEqual(['reload', 'reload']);
 
-    secondHandle.emitRecovered();
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(3));
+    await recoverNavigation(harness, 2);
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload', 'reload', 'reload']));
   });
 
   it('drops a same-generation rapid successor before a no-op reload recovers', async () => {
@@ -1083,7 +1145,7 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.emit('controllerchange');
     await flushAsyncControllerChange();
     expect(staleRequestId).toBeTypeOf('string');
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(owner.isSessionResetPending()).toBe(true);
 
     harness.setController(successorController, false, 'v494');
     harness.emit('controllerchange');
@@ -1101,11 +1163,11 @@ describe('service-worker cache-retirement client handshake', () => {
       ),
     );
 
-    const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
-    firstHandle.emitRecovered();
+    await recoverNavigation(harness, 1);
     await flushAsyncControllerChange();
 
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(owner.isSessionResetPending()).toBe(false);
+    expect(navigations(harness)).toEqual(['reload']);
   });
 
   it('asks instead of reloading when another tab applies an update while this tab hosts a room', async () => {
@@ -1124,7 +1186,7 @@ describe('service-worker cache-retirement client handshake', () => {
     );
     await flushAsyncControllerChange();
     // Later keeps the room; the next open loads the new version.
-    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expectNoNavigation(harness);
     expect(harness.reload).not.toHaveBeenCalled();
   });
 
@@ -1146,7 +1208,7 @@ describe('service-worker cache-retirement client handshake', () => {
     await flushAsyncControllerChange();
 
     expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
-    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expectNoNavigation(harness);
   });
 
   it('drops a stale generation continuation when a newer controller wins the race', async () => {
@@ -1182,7 +1244,7 @@ describe('service-worker cache-retirement client handshake', () => {
     await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
     await flushAsyncControllerChange();
     expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
-    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expectNoNavigation(harness);
   });
 
   it('waits for controllerchange before reloading an approved update', async () => {
@@ -1199,27 +1261,22 @@ describe('service-worker cache-retirement client handshake', () => {
     await vi.waitFor(() =>
       expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
     );
-    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expectNoNavigation(harness);
 
     harness.setController(newController);
     harness.emit('controllerchange');
 
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+    expect(owner.isSessionResetPending()).toBe(true);
     expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledWith(
-      'dialog.refreshing_session',
-      expect.any(Function),
-    );
-    const resetAction = moduleMocks.scheduleSessionReset.mock.calls[0]?.[1];
-    expect(resetAction).toBeTypeOf('function');
-    resetAction?.();
+    expect(resetMessage()).toBe('dialog.refreshing_session');
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
     expect(harness.reload).toHaveBeenCalledOnce();
 
     // A duplicate/late lifecycle signal cannot turn the same accepted update
     // into a second dialog or reload.
     harness.emit('controllerchange');
     await flushAsyncControllerChange();
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(navigations(harness)).toEqual(['reload']);
     expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
     expect(harness.reload).toHaveBeenCalledOnce();
   });
@@ -1250,7 +1307,7 @@ describe('service-worker cache-retirement client handshake', () => {
 
     harness.setController(newController);
     harness.emit('controllerchange');
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
   });
 
   it('honors Apply when another tab activates the worker while the dialog is open', async () => {
@@ -1272,10 +1329,10 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
     await flushAsyncControllerChange();
-    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expectNoNavigation(harness);
 
     resolveDialog({ action: 'ok' });
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
     expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
     expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
   });
@@ -1291,7 +1348,7 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
-    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
     await flushAsyncControllerChange();
     expect(moduleMocks.showDialog).not.toHaveBeenCalled();
     expect(Number(sessionStorage.getItem('sw-controller-confirmed-at'))).toBeGreaterThan(0);
@@ -1312,7 +1369,7 @@ describe('service-worker cache-retirement client handshake', () => {
 
     // A room another tab updated is asked, not reloaded.
     await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
-    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expectNoNavigation(harness);
   });
 
   describe('one update dialog everywhere (owner decision 2026-10-17)', () => {
@@ -1367,7 +1424,7 @@ describe('service-worker cache-retirement client handshake', () => {
       await flushAsyncControllerChange();
       // Later keeps the page as it is.
       expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
-      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expectNoNavigation(harness);
     });
 
     it('keeps a room on Later and asks again on the next open', async () => {
@@ -1377,7 +1434,7 @@ describe('service-worker cache-retirement client handshake', () => {
       harness.installUpdate('v494').emitInstalled();
       await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
       await flushAsyncControllerChange();
-      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expectNoNavigation(harness);
 
       // The room ends with the page; the next open starts on the home screen.
       vi.resetModules();
@@ -1406,13 +1463,9 @@ describe('service-worker cache-retirement client handshake', () => {
 
       harness.setController(update.waitingWorker, true, 'v494');
       harness.emit('controllerchange');
-      await vi.waitFor(() => expect(moduleMocks.scheduleDocumentReload).toHaveBeenCalledOnce());
-      expect(moduleMocks.scheduleDocumentReload).toHaveBeenCalledWith(
-        'dialog.refreshing_session',
-        expect.any(Function),
-      );
+      expect(resetMessage()).toBe('dialog.refreshing_session');
       // The host opens the room again from the start screen.
-      moduleMocks.scheduleSessionReset.mock.calls[0]?.[1]?.();
+      await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
       expect(harness.reload).toHaveBeenCalledOnce();
       expect(sessionStorage.getItem(RECONNECT_TARGET_KEY)).toBeNull();
     });
@@ -1452,19 +1505,14 @@ describe('service-worker cache-retirement client handshake', () => {
 
       harness.setController(update.waitingWorker, true, 'v494');
       harness.emit('controllerchange');
-      await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
-      expect(moduleMocks.scheduleDocumentReload).not.toHaveBeenCalled();
-      expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledWith(
-        'dialog.refreshing_session',
-        expect.any(Function),
-      );
+      expect(owner.isSessionResetPending()).toBe(true);
+      expect(resetMessage()).toBe('dialog.refreshing_session');
       // setup's join error reads this after the reload, as for a reconnect.
       expect(sessionStorage.getItem(RECONNECT_TARGET_KEY)).toBe(code);
       expect(Number(sessionStorage.getItem('sw-controller-confirmed-at'))).toBeGreaterThan(0);
       // The /CODE invite page waits for Start: the browser needs that tap
       // before it plays sound.
-      moduleMocks.scheduleSessionReset.mock.calls[0]?.[1]?.();
-      expect(window.location.href).toBe(`/${code}`);
+      await vi.waitFor(() => expect(navigations(harness)).toEqual([`href /${code}`]));
       expect(harness.reload).not.toHaveBeenCalled();
     });
 
@@ -1481,11 +1529,10 @@ describe('service-worker cache-retirement client handshake', () => {
 
       harness.setController(update.waitingWorker, true, 'v494');
       harness.emit('controllerchange');
-      await vi.waitFor(() => expect(moduleMocks.scheduleDocumentReload).toHaveBeenCalledOnce());
       expect(sessionStorage.getItem(RECONNECT_TARGET_KEY)).toBeNull();
-      moduleMocks.scheduleSessionReset.mock.calls[0]?.[1]?.();
+      // A reload in place: no /CODE navigation.
+      await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
       expect(harness.reload).toHaveBeenCalledOnce();
-      expect(window.location.href).toBe('https://musixquare.com/');
     });
 
     it.each<{ label: string; state: AppState; curtain?: boolean; message: string }>([
@@ -1521,7 +1568,7 @@ describe('service-worker cache-retirement client handshake', () => {
         await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
         expect(moduleMocks.showDialog).toHaveBeenCalledWith(updateDialog(message));
         await flushAsyncControllerChange();
-        expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+        expectNoNavigation(harness);
         expect(harness.reload).not.toHaveBeenCalled();
       },
     );
@@ -1535,13 +1582,12 @@ describe('service-worker cache-retirement client handshake', () => {
       harness.setController({ postMessage: vi.fn() }, false, 'v494');
       harness.emit('controllerchange');
 
-      await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(owner.isSessionResetPending()).toBe(true));
       expect(moduleMocks.showDialog).toHaveBeenCalledWith(
         updateDialog('dialog.sw_update_room_guest_msg'),
       );
       expect(sessionStorage.getItem(RECONNECT_TARGET_KEY)).toBe('123456');
-      moduleMocks.scheduleSessionReset.mock.calls[0]?.[1]?.();
-      expect(window.location.href).toBe('/123456');
+      await vi.waitFor(() => expect(navigations(harness)).toEqual(['href /123456']));
     });
 
     it('does not ask again when another tab applies a generation put off here', async () => {
@@ -1563,7 +1609,7 @@ describe('service-worker cache-retirement client handshake', () => {
       harness.setController({ postMessage: vi.fn() }, false, 'v495');
       harness.emit('controllerchange');
       await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledTimes(2));
-      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expectNoNavigation(harness);
     });
 
     it('keeps an open dialog in step with a join that finishes under it', async () => {
@@ -1593,8 +1639,9 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(moduleMocks.roomLifecycleListeners.size).toBe(0);
       harness.setController(update.waitingWorker, true, 'v494');
       harness.emit('controllerchange');
-      await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
+      expect(owner.isSessionResetPending()).toBe(true);
       expect(sessionStorage.getItem(RECONNECT_TARGET_KEY)).toBe('123456');
+      await vi.waitFor(() => expect(navigations(harness)).toEqual(['href /123456']));
     });
 
     it('does not ask again when another tab applies an unidentified generation put off here', async () => {
@@ -1618,13 +1665,29 @@ describe('service-worker cache-retirement client handshake', () => {
       await waitMs(PROMPT_ELECTION_SETTLE_MS);
 
       expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
-      expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+      expectNoNavigation(harness);
     });
 
-    it('keeps update news in this dialog: no chat notice, toast, or peer message', () => {
-      const source = readFileSync(resolvePath(process.cwd(), 'src/sw-register.ts'), 'utf8');
-      expect(source).not.toMatch(/chat\/|ui\/toast|showToast|SystemMessage/);
-      expect(source).not.toMatch(/safeSend|\bbroadcast\(|sendProRoomRealtime/);
+    it('keeps update news in this dialog: no chat notice, toast, or peer message', async () => {
+      // A hosted room gets update news three ways: a waiting update it puts
+      // off, one another tab applies, and an Apply that reloads the room.
+      setAppState({ role: 'host', sessionStarted: true, joinCode: '123456' });
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      harness.installUpdate('v494').emitInstalled();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      await flushAsyncControllerChange();
+
+      moduleMocks.showDialog.mockResolvedValue({ action: 'ok' });
+      harness.setController({ postMessage: vi.fn() }, false, 'v495');
+      harness.emit('controllerchange');
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload']));
+
+      // Only the dialog and the reset screen carried it.
+      expect(resetMessage()).toBe('dialog.refreshing_session');
+      for (const notice of Object.values(moduleMocks.notices))
+        expect(notice).not.toHaveBeenCalled();
     });
   });
 });

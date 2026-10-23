@@ -11,7 +11,9 @@
  * (the leave dialog, core/log). The bootstrap init order is pinned as an
  * ordered subsequence only: other inits run between these three. When a pin
  * fails, update the harness copy in the same change, then the text here.
- * Whitespace and full-line comments are ignored.
+ * Whitespace and full-line comments are ignored. The logo request has a second
+ * copy, in sw-update-transitions.integration.test.ts (the update machine's
+ * transition table); update it with the harness copy.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

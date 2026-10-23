@@ -20,7 +20,8 @@
  * whatever the init order; `initOrder: 'guard-first'` boots the guard first to
  * show that. ServiceWorker registration (app.ts:1287) is not wired; the update
  * machine against the real reset is covered by
- * sw-register-recovery.integration.test.ts.
+ * sw-register-recovery.integration.test.ts, sw-register.test.ts and its
+ * transition table, sw-update-transitions.integration.test.ts.
  *
  * That wiring, and the logo request in `logoHardReset` (player-controls.ts,
  * handleLogoReturnToMain), are copies: app.ts bootstrap and the logo

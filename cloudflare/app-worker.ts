@@ -1348,13 +1348,6 @@ function normalizeCorsOrigin(value: unknown) {
   }
 }
 
-// Apps-in-Toss assigns one app-scoped production origin and one QR-test origin.
-// A parent/root or wildcard Toss domain would also trust unrelated mini apps.
-const TOSS_WEBVIEW_ORIGINS = new Set([
-  'https://musixquare.apps.tossmini.com',
-  'https://musixquare.private-apps.tossmini.com',
-]);
-
 function configuredTrustedOrigins(env: AppEnv) {
   const raw = env.TRUSTED_CORS_ORIGINS || env.CORS_ALLOWED_ORIGINS || '';
   if (typeof raw !== 'string' || !raw.trim()) return new Set();
@@ -1402,7 +1395,6 @@ function trustedCors(
     sameOrigin ||
     browserSameOrigin ||
     (options.allowInferred && sameOriginInferred) ||
-    TOSS_WEBVIEW_ORIGINS.has(origin) ||
     trustedPatterns.some((pattern) => pattern.test(origin)) ||
     isConfiguredTrustedOrigin(origin, env);
   const allowOrigin = isTrusted ? origin : '';
@@ -1643,8 +1635,7 @@ function isAllowedTurnstileHostname(hostname: string, env: AppEnv) {
     normalized === '127.0.0.1' ||
     normalized === 'musixquare.com' ||
     normalized === 'www.musixquare.com' ||
-    normalized.endsWith('.musixquare.com') ||
-    TOSS_WEBVIEW_ORIGINS.has(`https://${normalized}`)
+    normalized.endsWith('.musixquare.com')
   );
 }
 

@@ -69,6 +69,16 @@ gh run list --workflow e2e.yml --branch main --limit 3
       측정하며, 넘으면 줄이기 또는 [측정 기준 재설정](design/initial-bundle-loading-policy.md)을
       오너가 정한다. [변경·QA·배포 범위](design/phase3-update-and-expiry-recovery-2026-10-24.md).
 
+### 접은 토스 인앱 출처의 신뢰 제거(Worker 배포 대기)
+
+- [ ] App·signaling·remote-share Worker와 remote-share R2 CORS가 옛 토스 인앱 출처 두 개
+      (`musixquare.apps.tossmini.com`, `musixquare.private-apps.tossmini.com`)를 더는 믿지 않는다
+      (오너가 토스 인앱을 접음, 2026-10-24 확인). 앱 버전·SW 캐시(9.0.4/v772)는 바뀌지 않는다. 세 Worker가
+      함께 바뀌어 부분 릴리스 게이트가 단독 target을 막으므로 target `all`이고, R2 CORS는 그 릴리스가
+      적용한다. 앱을 바꾸는 PR이 먼저 main에 들어가면 그 앱 묶음과 함께 나간다. 배포 뒤 App 공개 경계·
+      signaling·remote-share smoke가 옛 두 출처와 무관한 토스 출처를 모두 거부해야 닫는다.
+      [변경·배포 범위·검증](design/retire-toss-origins-2026-10-24.md).
+
 ### Phase 2 앱 묶음 9.0.4 배포 뒤 확인(페이지 이동·화면 셸·이전 시 입장 암호 끄기)
 
 - [ ] 구조 개선 Phase 2를 앱 업데이트 한 번으로 묶었다(오너 결정 1~13, 2026-10-23). 페이지 이동은

@@ -1145,13 +1145,18 @@ describe('remote-share Worker capability gate', () => {
   it('bounds R2 CORS propagation retries to preflight 403 responses', () => {
     expect(liveSmokeSource).toContain('R2_CORS_PROPAGATION_TIMEOUT_MS = 45_000');
     expect(liveSmokeSource).toContain('R2_CORS_RETRY_INTERVAL_MS = 2_000');
-    expect(liveSmokeSource).toContain(
-      "UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com'",
-    );
-    expect(liveSmokeSource).toContain('R2 CORS still reflects an unrelated Toss app origin');
-    expect(liveSmokeSource).toContain('assertRemoteShareRejectsUnrelatedTossOrigin()');
-    expect(liveSmokeSource).toContain('unrelatedTossOriginRejected: true');
-    expect(liveSmokeSource).toContain('corsUnrelatedTossOriginRejected: true');
+    for (const origin of [
+      'https://musixquare.apps.tossmini.com',
+      'https://musixquare.private-apps.tossmini.com',
+      'https://unrelated.apps.tossmini.com',
+    ]) {
+      expect(liveSmokeSource).toContain(`  '${origin}',`);
+    }
+    expect(liveSmokeSource).toContain('for (const origin of REJECTED_TOSS_ORIGINS)');
+    expect(liveSmokeSource).toContain('R2 CORS still reflects the Toss origin ${origin}');
+    expect(liveSmokeSource).toContain('assertRemoteShareRejectsTossOrigins()');
+    expect(liveSmokeSource).toContain('tossOriginsRejected: true');
+    expect(liveSmokeSource).toContain('corsTossOriginsRejected: true');
     expect(liveSmokeSource).toContain('response.status !== 403 || Date.now() >= deadline');
     expect(liveSmokeSource).toContain(
       'throw new Error(`R2 CORS preflight HTTP ${response.status}`)',
@@ -1253,11 +1258,6 @@ describe('remote-share Worker capability gate', () => {
     const originContract = [
       ['https://musixquare.com', 'https://musixquare.com'],
       ['https://www.musixquare.com', 'https://www.musixquare.com'],
-      ['https://musixquare.apps.tossmini.com', 'https://musixquare.apps.tossmini.com'],
-      [
-        'https://musixquare.private-apps.tossmini.com',
-        'https://musixquare.private-apps.tossmini.com',
-      ],
       ['http://localhost:4173', 'http://localhost:4173'],
       ['http://127.0.0.1:4173', 'http://127.0.0.1:4173'],
     ] as const;
@@ -1280,6 +1280,9 @@ describe('remote-share Worker capability gate', () => {
     }
 
     for (const origin of [
+      // Retired Apps-in-Toss origins.
+      'https://musixquare.apps.tossmini.com',
+      'https://musixquare.private-apps.tossmini.com',
       'https://unrelated.apps.tossmini.com',
       'https://tossmini.com',
       'https://music.toss.im',
@@ -1353,12 +1356,10 @@ describe('remote-share Worker capability gate', () => {
     expect(remoteShareWranglerSource).toContain('binding = "MUSIXQUARE_ADMIN_DB"');
     expect(remoteShareWranglerSource).toContain('name = "REMOTE_SHARE_QUOTA"');
     for (const source of [remoteShareWranglerSource, remoteShareExampleWranglerSource]) {
-      expect(source).toContain('https://musixquare.apps.tossmini.com');
-      expect(source).toContain('https://musixquare.private-apps.tossmini.com');
-      expect(source).not.toContain('https://tossmini.com');
-      expect(source).not.toContain('https://*.tossmini.com');
+      // The Apps-in-Toss build is retired; no Toss origin stays allowed.
+      expect(source).not.toContain('tossmini.com');
       expect(source).not.toContain('toss-internal.com');
-      expect(source).not.toContain('https://toss.im');
+      expect(source).not.toContain('toss.im');
     }
     expect(remoteShareWranglerSource).not.toContain('MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION');
     expect(productionSecurityGuardSource).toContain("'MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION'");

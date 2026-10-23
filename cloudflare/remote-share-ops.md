@@ -187,13 +187,15 @@ One remote whole-file upload attempt roughly means:
 - Missing, malformed, and `0xxxxx` room IDs are rejected before a presigned URL
   is issued. The complete `0xxxxx` namespace is reserved for PRO rooms, whose
   persistent media uses a separate bucket and control plane.
-- R2 bucket CORS must match the checked-in source list. It contains explicit
-  MUSIXQUARE and local-development origins plus the two app-scoped Apps-in-Toss
-  origins: `https://musixquare.apps.tossmini.com` for production and
-  `https://musixquare.private-apps.tossmini.com` for QR testing. Do not add
-  `*.tossmini.com`, `*.toss.im`, or `*.toss-internal.com`: those ranges include
-  unrelated Toss apps. The live write smoke proves only `https://musixquare.com`,
-  so exercise both intended Toss origins during the corresponding WebView QA.
+- R2 bucket CORS must match the checked-in source list. It contains only
+  explicit MUSIXQUARE and local-development origins, the same list as the
+  Worker's `ALLOWED_ORIGINS`. The Apps-in-Toss build is retired (owner,
+  2026-10-24), so its former origins `https://musixquare.apps.tossmini.com` and
+  `https://musixquare.private-apps.tossmini.com` are no longer allowed. Do not
+  add any `tossmini.com`, `toss.im`, or `toss-internal.com` origin or range. The
+  live smoke checks that `/security-config` and the R2 upload preflight refuse
+  both former origins and an unrelated Toss mini-app origin; it proves the
+  write path only for `https://musixquare.com`.
 - The app Worker CSP allows direct R2 upload connections only through the
   production account endpoint
   `https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com`.

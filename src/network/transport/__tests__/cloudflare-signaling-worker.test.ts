@@ -1952,44 +1952,27 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(idFromName).not.toHaveBeenCalled();
   });
 
-  it.each(['https://musixquare.apps.tossmini.com', 'https://musixquare.private-apps.tossmini.com'])(
-    'allows the official MUSIXQUARE Apps-in-Toss WebSocket origin: %s',
-    async (origin) => {
-      const { env, idFromName } = workerEnv();
-      const response = await workerModule.default.fetch(
-        requestLike('https://signal.example.test/api/rooms/123456/ws?role=host&peerId=toss-host', {
-          Origin: origin,
-          Upgrade: 'websocket',
-        }),
-        env,
-      );
-
-      expect(response.status).toBe(101);
-      expect(idFromName).toHaveBeenCalledWith('123456');
-    },
-  );
-
   it.each([
+    // Retired Apps-in-Toss origins.
+    'https://musixquare.apps.tossmini.com',
+    'https://musixquare.private-apps.tossmini.com',
     'https://unrelated.apps.tossmini.com',
     'https://another-app.apps.tossmini.com',
     'https://musixquare.toss.im',
     'https://musixquare.toss-internal.com',
-  ])(
-    'rejects an unrelated Toss WebSocket origin before Durable Object lookup: %s',
-    async (origin) => {
-      const { env, idFromName } = workerEnv();
-      const response = await workerModule.default.fetch(
-        requestLike('https://signal.example.test/api/rooms/123456/ws?role=host&peerId=toss-probe', {
-          Origin: origin,
-          Upgrade: 'websocket',
-        }),
-        env,
-      );
+  ])('rejects a Toss WebSocket origin before Durable Object lookup: %s', async (origin) => {
+    const { env, idFromName } = workerEnv();
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/rooms/123456/ws?role=host&peerId=toss-probe', {
+        Origin: origin,
+        Upgrade: 'websocket',
+      }),
+      env,
+    );
 
-      expect(response.status).toBe(403);
-      expect(idFromName).not.toHaveBeenCalled();
-    },
-  );
+    expect(response.status).toBe(403);
+    expect(idFromName).not.toHaveBeenCalled();
+  });
 
   it('rejects malformed room peers before Durable Object lookup', async () => {
     const { env, idFromName } = workerEnv();

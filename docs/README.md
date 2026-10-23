@@ -97,6 +97,14 @@ runbooks. Neither belongs in a general setup document.
   automatic guest signaling retries while preserving existing RTC playback;
   internal diagnostics distinguish expiry and observed host-unavailability state.
   Subsequent Phase 3 update-path increments share this report.
+
+- [Retired Apps-in-Toss origins (Worker-only, 2026-10-24)](design/retire-toss-origins-2026-10-24.md):
+  the App, signaling and remote-share Workers and the remote-share R2 CORS policy stop trusting the
+  two former Apps-in-Toss origins, since the owner abandoned the Toss in-app build. The old
+  unrelated-Toss-origin checks now also reject both former origins, in unit tests and in the three
+  live smokes. No app version or service-worker change; three Workers change together, so the
+  release needs target `all`.
+
 - [Phase 2 page navigation and UI shell owners (9.0.4, 2026-10-23)](design/phase2-navigation-ui-shells-2026-10-23.md):
   the structure program's Phase 2 app batch. Page navigation gets one owner in
   `session-reset.ts`: one state, one exactly-once settle, a reload queue that runs reloads which

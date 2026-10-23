@@ -6,8 +6,6 @@
         "origins": [
           "https://musixquare.com",
           "https://www.musixquare.com",
-          "https://musixquare.apps.tossmini.com",
-          "https://musixquare.private-apps.tossmini.com",
           "http://localhost:3000",
           "http://127.0.0.1:3000",
           "http://localhost:5173",

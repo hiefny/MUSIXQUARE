@@ -8,7 +8,13 @@ const AUTH_SESSION_URL = 'https://musixquare.com/api/auth/session';
 const SECURITY_CONFIG_URL = 'https://musixquare.com/api/security-config';
 const PAID_BOUNDARY_URL = 'https://musixquare.com/api/get-turn-config';
 const UNKNOWN_HTML_ROUTE_URL = 'https://musixquare.com/__mxqr_live_smoke__/missing-html-route';
-const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
+// The Apps-in-Toss build is retired. Its two former app-scoped origins and an
+// unrelated mini-app origin must all be refused.
+export const REJECTED_TOSS_ORIGINS = Object.freeze([
+  'https://musixquare.apps.tossmini.com',
+  'https://musixquare.private-apps.tossmini.com',
+  'https://unrelated.apps.tossmini.com',
+]);
 export const APP_PUBLIC_BOUNDARY_TIMEOUT_MS = 10_000;
 const MUSIXQUARE_COOKIE_RE = /(?:^|[,\r\n]\s*)(?:__Host|__Secure)-mxqr_[^=;,]*=/;
 
@@ -42,7 +48,7 @@ export interface ProductionOriginBoundaryRead {
 }
 
 export interface ProductionOriginBoundaryResult {
-  unrelatedTossOriginRejected: true;
+  tossOriginsRejected: true;
 }
 
 export interface LocalizedSeoBoundaryRead {
@@ -191,12 +197,12 @@ async function readCapabilityBoundary(): Promise<ProductionCapabilityBoundaryRea
   };
 }
 
-async function readOriginBoundary(): Promise<ProductionOriginBoundaryRead> {
+async function readOriginBoundary(origin: string): Promise<ProductionOriginBoundaryRead> {
   let response: Response;
   try {
     response = await fetch(PAID_BOUNDARY_URL, {
       cache: 'no-store',
-      headers: { Accept: 'application/json', Origin: UNRELATED_TOSS_ORIGIN },
+      headers: { Accept: 'application/json', Origin: origin },
       signal: AbortSignal.timeout(APP_PUBLIC_BOUNDARY_TIMEOUT_MS),
     });
   } catch {
@@ -345,18 +351,20 @@ export async function verifyProductionCapabilityBoundary({
 export async function verifyProductionOriginBoundary({
   read = readOriginBoundary,
 }: {
-  read?: () => Promise<ProductionOriginBoundaryRead>;
+  read?: (origin: string) => Promise<ProductionOriginBoundaryRead>;
 } = {}): Promise<ProductionOriginBoundaryResult> {
-  const result: unknown = await read();
-  if (
-    !isRecord(result) ||
-    (result.status !== 401 && result.status !== 403) ||
-    result.allowOrigin === UNRELATED_TOSS_ORIGIN ||
-    result.allowOrigin === '*'
-  ) {
-    throw new Error('Production App still trusts an unrelated Toss app origin');
+  for (const origin of REJECTED_TOSS_ORIGINS) {
+    const result: unknown = await read(origin);
+    if (
+      !isRecord(result) ||
+      (result.status !== 401 && result.status !== 403) ||
+      result.allowOrigin === origin ||
+      result.allowOrigin === '*'
+    ) {
+      throw new Error(`Production App still trusts the Toss origin ${origin}`);
+    }
   }
-  return { unrelatedTossOriginRejected: true };
+  return { tossOriginsRejected: true };
 }
 
 export async function verifyLocalizedSeoBoundary({

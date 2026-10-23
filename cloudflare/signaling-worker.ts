@@ -670,9 +670,7 @@ function isAllowedOrigin(origin: unknown, env: SignalingEnvPort = {}): boolean {
     return (
       /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url.origin) ||
       /^https:\/\/musixquare\.com$/i.test(url.origin) ||
-      /^https:\/\/www\.musixquare\.com$/i.test(url.origin) ||
-      /^https:\/\/musixquare\.apps\.tossmini\.com$/i.test(url.origin) ||
-      /^https:\/\/musixquare\.private-apps\.tossmini\.com$/i.test(url.origin)
+      /^https:\/\/www\.musixquare\.com$/i.test(url.origin)
     );
   } catch {
     return false;

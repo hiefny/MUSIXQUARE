@@ -126,6 +126,15 @@ function nextAnimationFrame(): Promise<void> {
   return new Promise((resolve) => requestAnimationFrame(() => resolve()));
 }
 
+/**
+ * Wait out a drop settle on real timers (about 0.5 s). The view module keeps
+ * its controllers across tests, so a settle still running would defer the
+ * next test's direct updatePlaylistUI() call.
+ */
+function waitForDropSettle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 600));
+}
+
 it('renders and patches titles for each saved PRO manifest independently, including later batches', async () => {
   const manifests = [
     { queueItemId: FILE_A, ids: Array.from({ length: 180 }, (_, index) => `old${index}`) },
@@ -1242,6 +1251,7 @@ describe('playlist queue identity rendering and actions', () => {
 
     setState('room.context', { ...context, snapshotRevision: 3, capabilities: [] });
     expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
+    await waitForDropSettle();
   });
 
   it('restores queue grips when the host account sibling projection arrives', async () => {
@@ -2144,6 +2154,7 @@ describe('playlist queue identity rendering and actions', () => {
     dispatch('pointerup', 160);
 
     expect(reorder).toHaveBeenCalledWith(FILE_A, null, 7);
+    await waitForDropSettle();
   });
 
   it('keeps the committed source handle mounted through its return fade before rendering', async () => {
@@ -2467,6 +2478,9 @@ describe('playlist interaction gate (RO-27)', () => {
   });
 
   afterEach(() => {
+    // Let every drop settle end: the view module keeps its controllers, and a
+    // settle whose timer was cleared would defer renders in later tests.
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
     vi.clearAllTimers();
     restoreFrames();
     vi.useRealTimers();

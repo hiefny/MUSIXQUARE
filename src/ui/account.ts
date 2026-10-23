@@ -10,6 +10,11 @@ import {
 } from '../account/api.ts';
 import { flushAccountActivityStatsForRead } from '../account/activity-stats.ts';
 import {
+  ACCOUNT_SYNC_CHANNEL,
+  ACCOUNT_SYNC_STORAGE_KEY,
+  isAccountPulseToken,
+} from '../account/account-sync-protocol.ts';
+import {
   getAccountStatsScope,
   getAccountSnapshot,
   isAccountAuthenticated,
@@ -52,8 +57,6 @@ import { applyUserTextFontFallback } from './user-text-font.ts';
 
 const _busScope = createBusScope();
 const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
-const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
-const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const ACCOUNT_SAME_TAB_WELCOME_INTENT_KEY = 'mxqr-account-welcome-intent-v1';
 const ACCOUNT_SAME_TAB_WELCOME_INTENT_TTL_MS = 10 * 60 * 1000;
 const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
@@ -496,12 +499,8 @@ function parseAccountAuthResultMessage(value: unknown): {
     (message.accountAuth !== 'success' &&
       message.accountAuth !== 'cancelled' &&
       message.accountAuth !== 'error') ||
-    typeof message.id !== 'string' ||
-    message.id.length < 8 ||
-    message.id.length > 160 ||
-    typeof message.accountClient !== 'string' ||
-    message.accountClient.length < 8 ||
-    message.accountClient.length > 160
+    !isAccountPulseToken(message.id) ||
+    !isAccountPulseToken(message.accountClient)
   ) {
     return null;
   }
@@ -914,7 +913,8 @@ function handleAccountResultStorage(event: StorageEvent): void {
       handleAccountAuthOutcome(result.outcome, result.id);
     }
   } catch {
-    // Ordinary account refresh pulses are intentionally not JSON.
+    // Pulses are JSON, but older clients stored an opaque token. The session
+    // receiver still refreshes on one; it never carries a login result.
   }
 }
 

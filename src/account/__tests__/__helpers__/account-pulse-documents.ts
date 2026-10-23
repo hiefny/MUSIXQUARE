@@ -49,6 +49,12 @@ const ACCOUNT_SESSION_PATH = '/api/auth/session';
 export interface SourceDrift {
   readonly find: string;
   readonly replace: string;
+  /**
+   * For a bundled app document, the repository file of its module graph to
+   * edit (default src/account/session.ts); the app's wire literals live in
+   * src/account/account-sync-protocol.ts. Classic runtimes are one file.
+   */
+  readonly path?: string;
 }
 
 // ─── The origin's account server ────────────────────────────────────
@@ -204,7 +210,8 @@ async function classicRuntime(outputPath: string, drift?: SourceDrift): Promise<
 /**
  * An IIFE of the real session.ts and state.ts for a JSDOM app document.
  * `sources` replaces whole repository files in that module graph (a frozen
- * older copy for a mixed-version tab); `drift` edits session.ts on top.
+ * older copy for a mixed-version tab); `drift` edits one file on top
+ * (session.ts unless it names another).
  */
 async function sessionBundle(
   drift?: SourceDrift,
@@ -212,7 +219,7 @@ async function sessionBundle(
 ): Promise<string> {
   const overrides = { ...sources };
   if (drift) {
-    const path = 'src/account/session.ts';
+    const path = drift.path ?? 'src/account/session.ts';
     overrides[path] = applyDrift(overrides[path] ?? (await repositoryFile(path)), drift, path);
   }
   return compileOnce({

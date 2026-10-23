@@ -121,7 +121,7 @@ each record also states the step in words.
 | RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)               |
 | RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision   |
 | RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                     |
-| RO-28 | Account session reads and refresh pulses                 | Account        | duplicated         | 0d, 2                        |
+| RO-28 | Account session reads and refresh pulses                 | Account        | duplicated         | 2                            |
 | RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | 0d (copy triage)             |
 | RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | 2 (owner decision)           |
 | RO-31 | Presence delivery does not re-arm the playback outbox    | Workers        | accepted-exception | Revisit on EPOCH_STALE logs  |
@@ -1380,16 +1380,19 @@ RO-47 owner-in-place
   copies: the producer in `browser/classic-runtime/account-complete.ts` and a third consumer in
   `browser/classic-runtime/events/event.ts`. A shared promise per login nonce and a generation
   fence make the reads converge.
-- **Target single owner:** `src/account/session.ts` as the single pulse receiver, with a shared
-  wire-contract module (planned `src/account/account-sync-protocol.ts`) pinned against the classic
-  runtimes by a contract test.
+- **Target single owner:** `src/account/session.ts` as the single pulse receiver, with the shared
+  wire-contract module `src/account/account-sync-protocol.ts` (Phase 2, C8-I1) pinned against the
+  classic runtimes by a contract test.
 - **Allowed requesters:** the account UI and the popup monitor; focus, visibility and online
   triggers inside the owner.
 - **Lifecycle operations:** read, refresh, reconcile a login, sign out, delete.
 - **Deadline owner:** the session owner's recovery tail; the popup monitors.
-- **Timing-constant home:** channel and key literals in four files; `ACCOUNT_LOGIN_POPUP_POLL_MS`
-  (`account.ts`) and a 250 ms copy in `event.ts`. Target: the wire-contract module (Phase 0d,
-  C8-I1).
+- **Timing-constant home:** the wire contract `src/account/account-sync-protocol.ts`
+  (`ACCOUNT_SYNC_CHANNEL`, `ACCOUNT_SYNC_STORAGE_KEY`, the 8 to 160 character pulse token bounds and
+  the mutation pulse) for the app (Phase 2, C8-I1). The completion page and the events page cannot
+  import it and keep their own literals (owner decision O6, 2026-10-23), pinned by
+  `src/account/__tests__/account-pulse-contract.test.ts`. `ACCOUNT_LOGIN_POPUP_POLL_MS`
+  (`account.ts`) and a 250 ms copy in `event.ts` are separate popup monitors in separate documents.
 - **Anchor tests:**
   - Supersession: `src/account/__tests__/session.test.ts` "reconciles the exact popup session and
     fences an older account read".
@@ -1401,9 +1404,10 @@ RO-47 owner-in-place
   - Cross-document: `src/account/__tests__/account-pulse-cross-document.test.ts` runs the app tab and the
     events document together over a same-origin BroadcastChannel fake, and
     `account-pulse-contract.test.ts` freezes the pulse wire format, channel names and storage keys
-    (Phase 0c C8 harness).
-- **Status:** `duplicated`. Phase 0d (wire contract), Phase 2 (one parser, single receiver
-  including the events page copy).
+    (Phase 0c C8 harness), and runs session.ts as App 9.0.3 shipped it as the old tab of a mixed
+    rollout.
+- **Status:** `duplicated`. Phase 2: wire contract done (C8-I1); one parser and the single receiver,
+  with the events page as the pinned third copy, to come.
 
 ### RO-29 PRO presence heartbeat timer slot
 

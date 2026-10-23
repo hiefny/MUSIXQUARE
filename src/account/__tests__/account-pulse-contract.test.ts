@@ -4,11 +4,13 @@
  * structural plan C8, Phase 0c: the cross-document contract test that RO-28
  * lists as missing, and the tests-first tables of C8-I1 and C8-I4).
  *
- * Four copies share the pulse today and two of them cannot import src: the
+ * Three documents share the pulse and two of them cannot import src: the
  * classic runtimes are compiled one file at a time
- * (scripts/classic-runtime-assets.ts).
+ * (scripts/classic-runtime-assets.ts), so they keep their own literals, pinned
+ * here (owner decision O6, 2026-10-23).
  * - Producer: browser/classic-runtime/account-complete.ts.
- * - App tab: src/account/session.ts (producer of mutation pulses and receiver)
+ * - App tab: the wire contract src/account/account-sync-protocol.ts (C8-I1),
+ *   used by src/account/session.ts (producer of mutation pulses and receiver)
  *   and src/ui/account.ts (a second receiver in the same document).
  * - Events page: browser/classic-runtime/events/event.ts (third receiver).
  *
@@ -30,6 +32,7 @@ import { clearIntentionalNav } from '../../core/page-lifecycle.ts';
 import { resetState } from '../../core/state.ts';
 import { __resetAccountUiForTests, initAccount, openAccountDialog } from '../../ui/account.ts';
 import { showToast } from '../../ui/toast.ts';
+import { ACCOUNT_SYNC_CHANNEL, ACCOUNT_SYNC_STORAGE_KEY } from '../account-sync-protocol.ts';
 import { __resetAccountSessionForTests, signOutAccount } from '../session.ts';
 import { __resetAccountStateForTests, getAccountSnapshot } from '../state.ts';
 import {
@@ -45,8 +48,12 @@ vi.mock('../activity-stats.ts', () => ({
   flushAccountActivityStatsForRead: vi.fn().mockResolvedValue({ status: 'idle' }),
 }));
 
+// The wire values every document and every deployed version share. Written
+// out here on purpose: the C8-I1 tests below compare the app's protocol module
+// and both classic runtimes with these frozen literals, so none can drift.
 const CHANNEL = 'mxqr-account-v1';
 const STORAGE_KEY = 'mxqr-account-refresh';
+const PROTOCOL_MODULE = 'src/account/account-sync-protocol.ts';
 const MINSU = { nickname: 'Minsu', profileComplete: true, statsScope: 'm'.repeat(43) };
 const TOASTS = {
   welcome: 'Welcome back\nMinsu',
@@ -169,18 +176,21 @@ async function runtimeFilesContaining(literal: string): Promise<Record<string, n
 const LITERAL_SCAN_TIMEOUT_MS = 60_000;
 
 describe('C8-I1 wire literals', () => {
+  it('keeps the frozen wire values in the app protocol module', () => {
+    expect(ACCOUNT_SYNC_CHANNEL).toBe(CHANNEL);
+    expect(ACCOUNT_SYNC_STORAGE_KEY).toBe(STORAGE_KEY);
+  });
+
   it(
-    'spells the channel name and the storage key once in each of the four runtime copies',
+    'spells the channel name and the storage key once in the app and once in each classic runtime',
     async () => {
-      // C8-I1 (Phase 0d) moves the two src/ copies into
-      // src/account/account-sync-protocol.ts; that PR updates both tables: the
-      // protocol module appears and session.ts and ui/account.ts leave. The two
-      // classic runtimes keep their literals, pinned behaviourally below.
+      // C8-I1 moved the session.ts and ui/account.ts copies into the protocol
+      // module. The two classic runtimes keep their literals (owner decision
+      // O6), pinned here by text and behaviourally by the matrix below.
       const copies = {
         'browser/classic-runtime/account-complete.ts': 1,
         'browser/classic-runtime/events/event.ts': 1,
-        'src/account/session.ts': 1,
-        'src/ui/account.ts': 1,
+        [PROTOCOL_MODULE]: 1,
       };
       expect(await runtimeFilesContaining(CHANNEL)).toEqual(copies);
       expect(await runtimeFilesContaining(STORAGE_KEY)).toEqual(copies);
@@ -262,9 +272,9 @@ describe('pulse wire format', () => {
     const id = (received[0] as { id: string }).id;
     expect(id.length).toBeGreaterThanOrEqual(8);
     expect(id.length).toBeLessThanOrEqual(160);
-    // C8-I1 fixes the stale comment in ui/account.ts (handleAccountResultStorage:
-    // "Ordinary account refresh pulses are intentionally not JSON"): they are
-    // JSON. Only older clients wrote an opaque token (see the storage table).
+    // Mutation pulses are JSON (C8-I1 corrected the ui/account.ts comment that
+    // said otherwise). Only older clients wrote an opaque token (see the
+    // storage table).
     expect(harness.origin.storage.get(STORAGE_KEY)).toBe(JSON.stringify(received[0]));
   });
 });
@@ -647,10 +657,9 @@ interface Drifts {
  *
  * Mixed versions (Phase 2): tabs opened before a deploy keep the old
  * session.ts beside new tabs and the events page, on the same channel and key.
- * `appBSources` runs app-b from other sources for that. Label: an increment
- * that changes session.ts (C8-I1, C8-I4, C8-I10) commits the pre-change file
- * and points frozenAppTabSources() at it, so the frozen-sources rows below run
- * an old app-b beside the new app-a.
+ * `appBSources` runs app-b from other sources for that: frozenAppTabSources()
+ * is session.ts as App 9.0.3 shipped it, before C8-I1, C8-I4 and C8-I10, so the
+ * frozen-sources rows below run that old app-b beside the new app-a.
  */
 async function contractMatrix(
   transport: Transport,
@@ -732,20 +741,35 @@ function changedCells(actual: Matrix): string[] {
 }
 
 const FROZEN_MARKER = '__mxqrPulseFrozenAppTab';
+const LIVE_SESSION = 'src/account/session.ts';
 
 /**
- * The sources of an old app tab. Until the first increment that changes
- * session.ts, the old copy is today's file; that increment replaces the read
- * below with its committed pre-change copy. The marker proves app-b runs these
- * sources rather than the live module graph.
+ * src/account/session.ts exactly as App 9.0.3 (main 19dfae1a) deployed it, the
+ * tab still open when the Phase 2 update lands. It replaces the live file in
+ * app-b's module graph (its imports resolve from src/account/), and the marker
+ * proves app-b runs it rather than the live module graph.
  */
+const FROZEN_APP_TAB_SESSION = 'src/account/__tests__/__fixtures__/session-app-9.0.3.ts.txt';
+
 async function frozenAppTabSources(): Promise<Record<string, string>> {
-  const path = 'src/account/session.ts';
-  const source = await readFile(join(process.cwd(), path), 'utf8');
+  const source = await readFile(join(process.cwd(), FROZEN_APP_TAB_SESSION), 'utf8');
   return {
-    [path]: `${source}\n(globalThis as Record<string, unknown>).${FROZEN_MARKER} = true;\n`,
+    [LIVE_SESSION]: `${source}\n(globalThis as Record<string, unknown>).${FROZEN_MARKER} = true;\n`,
   };
 }
+
+describe('the frozen old app tab', () => {
+  it('is the pre-C8 session.ts with its own wire literals, not the live file', async () => {
+    const [frozen, live] = await Promise.all([
+      readFile(join(process.cwd(), FROZEN_APP_TAB_SESSION), 'utf8'),
+      readFile(join(process.cwd(), LIVE_SESSION), 'utf8'),
+    ]);
+    expect(frozen).not.toBe(live);
+    expect(frozen).not.toContain('account-sync-protocol');
+    expect(frozen).toContain(`const ACCOUNT_SYNC_CHANNEL = '${CHANNEL}';`);
+    expect(frozen).toContain(`const ACCOUNT_SYNC_STORAGE_KEY = '${STORAGE_KEY}';`);
+  });
+});
 
 describe('cross-document pulse contract', () => {
   it.each(['broadcast', 'storage'] as const)(
@@ -831,9 +855,9 @@ describe('cross-document pulse contract', () => {
       ['completion -> app-a ui'],
     ],
     [
-      'the app session channel name (app-b)',
+      'the app channel name (app-b)',
       'broadcast',
-      { appB: { find: CHANNEL, replace: 'mxqr-account-v0' } },
+      { appB: { find: CHANNEL, replace: 'mxqr-account-v0', path: PROTOCOL_MODULE } },
       [
         'completion -> app-b reads',
         'app-b sign-out -> app-a reads',
@@ -843,9 +867,9 @@ describe('cross-document pulse contract', () => {
       ],
     ],
     [
-      'the app session storage key (app-b)',
+      'the app storage key (app-b)',
       'storage',
-      { appB: { find: STORAGE_KEY, replace: 'mxqr-account-refresh-v0' } },
+      { appB: { find: STORAGE_KEY, replace: 'mxqr-account-refresh-v0', path: PROTOCOL_MODULE } },
       [
         'completion -> app-b reads',
         'app-b sign-out -> app-a reads',

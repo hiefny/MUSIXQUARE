@@ -364,7 +364,10 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/ui/playlist-view.ts',
     ],
   },
-  { records: ['RO-28'], files: ['src/account/session.ts', 'src/ui/account.ts'] },
+  {
+    records: ['RO-28'],
+    files: ['src/account/account-sync-protocol.ts', 'src/account/session.ts', 'src/ui/account.ts'],
+  },
   { records: ['RO-29'], files: ['src/pro-room/runtime.ts', 'src/network/peer.ts'] },
 ];
 

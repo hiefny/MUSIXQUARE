@@ -1,3 +1,5 @@
+// Resource owner: RO-28 (account session reads and refresh pulses; see
+// docs/design/resource-ownership-registry.md).
 import {
   deleteAccount,
   getAccountSession,
@@ -16,6 +18,12 @@ import {
   setAccountLoading,
   setAccountUnavailable,
 } from './state.ts';
+import {
+  ACCOUNT_SYNC_CHANNEL,
+  ACCOUNT_SYNC_STORAGE_KEY,
+  createAccountRefreshMessage,
+  isAccountPulseToken,
+} from './account-sync-protocol.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 
@@ -59,8 +67,6 @@ const ACCOUNT_REFRESH_DEBOUNCE_MS = 30_000;
 const ACCOUNT_RECOVERY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
 const ACCOUNT_RECOVERY_TAIL_DELAY_MS = 60_000;
 const ACCOUNT_RECOVERY_JITTER_MAX_MS = 1_000;
-const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
-const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const MAX_RECENT_EXTERNAL_REFRESH_IDS = 32;
 
 type AccountRefreshPulse = Readonly<{ id: string | null; loginSuccess: boolean }>;
@@ -116,15 +122,8 @@ function parseAccountRefreshMessage(value: unknown): AccountRefreshPulse | null 
   }
   const id = (value as { id?: unknown }).id;
   return {
-    id: typeof id === 'string' && id.length >= 8 && id.length <= 160 ? id : null,
+    id: isAccountPulseToken(id) ? id : null,
     loginSuccess: (value as { accountAuth?: unknown }).accountAuth === 'success',
-  };
-}
-
-function createAccountRefreshMessage(): { type: 'refresh'; id: string } {
-  return {
-    type: 'refresh',
-    id: `refresh:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
   };
 }
 

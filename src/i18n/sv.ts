@@ -315,6 +315,10 @@ const sv: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Värden har ändrat rumslösenordet. Ange det nya lösenordet för att gå med igen.',
   'connect.signaling_healthy': 'Rumsservern är online',
+  'connect.signaling_expired': 'Rumsanslutningen avslutades',
+  'connect.signaling_expired_detail':
+    'Tiden för att återansluta till det här rummet har gått ut.\nUppspelningen fortsätter. Om du går med igen lämnar du din nuvarande anslutning.',
+  'connect.signaling_rejoin': 'Gå med igen',
   'connect.signaling_recovering': 'Ansluter igen…',
   'connect.signaling_failed': 'Serveranslutningen misslyckades',
   'connect.signaling_recover_action': 'Anslut igen',

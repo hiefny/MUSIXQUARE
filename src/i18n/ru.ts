@@ -313,6 +313,10 @@ const ru: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Хост изменил пароль комнаты. Введите новый пароль, чтобы войти снова.',
   'connect.signaling_healthy': 'Сервер комнаты доступен',
+  'connect.signaling_expired': 'Подключение к комнате завершено',
+  'connect.signaling_expired_detail':
+    'Время для повторного подключения к этой комнате истекло.\nТекущее воспроизведение продолжается. Повторный вход завершит текущее подключение.',
+  'connect.signaling_rejoin': 'Войти заново',
   'connect.signaling_recovering': 'Переподключение…',
   'connect.signaling_failed': 'Не удалось подключиться к серверу',
   'connect.signaling_recover_action': 'Переподключить',

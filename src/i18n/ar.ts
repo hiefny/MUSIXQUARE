@@ -303,6 +303,10 @@ const ar: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'غيّر المضيف كلمة مرور الغرفة. أدخل كلمة المرور الجديدة للانضمام مرة أخرى.',
   'connect.signaling_healthy': 'خادم الغرفة يعمل',
+  'connect.signaling_expired': 'انتهى اتصال الغرفة',
+  'connect.signaling_expired_detail':
+    'انتهت مهلة إعادة الاتصال بهذه الغرفة.\nيستمر التشغيل الحالي. ستؤدي إعادة الانضمام إلى مغادرة اتصالك الحالي.',
+  'connect.signaling_rejoin': 'الانضمام مجددًا',
   'connect.signaling_recovering': 'جارٍ إعادة الاتصال…',
   'connect.signaling_failed': 'فشل الاتصال بالخادم',
   'connect.signaling_recover_action': 'إعادة الاتصال',

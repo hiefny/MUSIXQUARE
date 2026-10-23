@@ -315,6 +315,10 @@ const de: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Der Host hat das Raumpasswort geändert. Gib das neue Passwort ein, um wieder beizutreten.',
   'connect.signaling_healthy': 'Raumserver online',
+  'connect.signaling_expired': 'Raumverbindung beendet',
+  'connect.signaling_expired_detail':
+    'Die Frist zum Wiederverbinden mit diesem Raum ist abgelaufen.\nDie aktuelle Wiedergabe läuft weiter. Ein erneuter Beitritt beendet die aktuelle Verbindung.',
+  'connect.signaling_rejoin': 'Erneut beitreten',
   'connect.signaling_recovering': 'Wird neu verbunden…',
   'connect.signaling_failed': 'Serververbindung fehlgeschlagen',
   'connect.signaling_recover_action': 'Neu verbinden',

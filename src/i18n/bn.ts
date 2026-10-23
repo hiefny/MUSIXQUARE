@@ -309,6 +309,10 @@ const bn: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'হোস্ট রুমের পাসওয়ার্ড বদলেছেন। আবার যোগ দিতে নতুন পাসওয়ার্ডটি লিখুন।',
   'connect.signaling_healthy': 'রুম সার্ভার অনলাইনে আছে',
+  'connect.signaling_expired': 'রুমের সংযোগ শেষ হয়েছে',
+  'connect.signaling_expired_detail':
+    'এই রুমে আবার সংযোগ করার সময় শেষ হয়েছে।\nবর্তমান প্লেব্যাক চলবে। আবার যোগ দিলে বর্তমান সংযোগ ছেড়ে যাবেন।',
+  'connect.signaling_rejoin': 'আবার যোগ দিন',
   'connect.signaling_recovering': 'আবার সংযুক্ত হচ্ছে…',
   'connect.signaling_failed': 'সার্ভার সংযোগ ব্যর্থ হয়েছে',
   'connect.signaling_recover_action': 'আবার সংযোগ করুন',

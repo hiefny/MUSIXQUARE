@@ -312,6 +312,10 @@ const fi: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Isäntä vaihtoi huoneen salasanan. Anna uusi salasana, niin voit liittyä uudelleen.',
   'connect.signaling_healthy': 'Huonepalvelin on käytettävissä',
+  'connect.signaling_expired': 'Huoneyhteys päättyi',
+  'connect.signaling_expired_detail':
+    'Aika yhdistää tähän huoneeseen uudelleen on päättynyt.\nNykyinen toisto jatkuu. Uudelleen liittyminen katkaisee nykyisen yhteyden.',
+  'connect.signaling_rejoin': 'Liity uudelleen',
   'connect.signaling_recovering': 'Yhdistetään uudelleen…',
   'connect.signaling_failed': 'Palvelinyhteys epäonnistui',
   'connect.signaling_recover_action': 'Yhdistä taas',

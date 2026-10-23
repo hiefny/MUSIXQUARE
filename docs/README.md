@@ -92,6 +92,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 3 update and Standard-room expiry recovery batch (2026-10-24)](design/phase3-update-and-expiry-recovery-2026-10-24.md):
+  pending release evidence for the Phase 3 train. Explicit room expiry stops
+  automatic guest signaling retries while preserving existing RTC playback;
+  internal diagnostics distinguish expiry and observed host-unavailability state.
+  Subsequent Phase 3 update-path increments share this report.
 - [Phase 2 page navigation and UI shell owners (9.0.4, 2026-10-23)](design/phase2-navigation-ui-shells-2026-10-23.md):
   the structure program's Phase 2 app batch. Page navigation gets one owner in
   `session-reset.ts`: one state, one exactly-once settle, a reload queue that runs reloads which

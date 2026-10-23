@@ -311,6 +311,10 @@ const cs: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Hostitel změnil heslo místnosti. Zadejte nové heslo a připojte se znovu.',
   'connect.signaling_healthy': 'Server místnosti je online',
+  'connect.signaling_expired': 'Spojení s místností skončilo',
+  'connect.signaling_expired_detail':
+    'Čas na opětovné připojení k této místnosti vypršel.\nPřehrávání pokračuje. Opětovné připojení opustí současné spojení.',
+  'connect.signaling_rejoin': 'Připojit se znovu',
   'connect.signaling_recovering': 'Probíhá opětovné připojení…',
   'connect.signaling_failed': 'Připojení k serveru se nezdařilo',
   'connect.signaling_recover_action': 'Připojit znovu',

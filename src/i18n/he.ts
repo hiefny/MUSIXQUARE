@@ -305,6 +305,10 @@ const he: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'המארח שינה את סיסמת החדר. אפשר להזין את הסיסמה החדשה כדי להצטרף שוב.',
   'connect.signaling_healthy': 'שרת החדר מחובר',
+  'connect.signaling_expired': 'החיבור לחדר הסתיים',
+  'connect.signaling_expired_detail':
+    'פרק הזמן לחיבור מחדש לחדר זה הסתיים.\nהניגון הנוכחי נמשך. הצטרפות מחדש תעזוב את החיבור הנוכחי.',
+  'connect.signaling_rejoin': 'הצטרפות מחדש',
   'connect.signaling_recovering': 'מתבצע חיבור מחדש…',
   'connect.signaling_failed': 'החיבור לשרת נכשל',
   'connect.signaling_recover_action': 'חיבור מחדש',

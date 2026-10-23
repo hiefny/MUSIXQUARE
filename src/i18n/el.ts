@@ -315,6 +315,10 @@ const el: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Ο οικοδεσπότης άλλαξε τον κωδικό πρόσβασης του δωματίου. Εισαγάγετε τον νέο κωδικό για να συνδεθείτε ξανά.',
   'connect.signaling_healthy': 'Ο διακομιστής δωματίου λειτουργεί κανονικά',
+  'connect.signaling_expired': 'Η σύνδεση δωματίου έληξε',
+  'connect.signaling_expired_detail':
+    'Ο χρόνος επανασύνδεσης σε αυτό το δωμάτιο έληξε.\nΗ τρέχουσα αναπαραγωγή συνεχίζεται. Η νέα συμμετοχή εγκαταλείπει την τρέχουσα σύνδεση.',
+  'connect.signaling_rejoin': 'Συμμετοχή ξανά',
   'connect.signaling_recovering': 'Επανασύνδεση…',
   'connect.signaling_failed': 'Η σύνδεση με τον διακομιστή απέτυχε',
   'connect.signaling_recover_action': 'Επανασύνδεση',

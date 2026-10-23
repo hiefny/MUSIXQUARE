@@ -314,6 +314,10 @@ const ro: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Gazda a schimbat parola camerei. Introdu parola nouă ca să intri din nou.',
   'connect.signaling_healthy': 'Serverul camerei este online',
+  'connect.signaling_expired': 'Conexiunea la cameră s-a încheiat',
+  'connect.signaling_expired_detail':
+    'Timpul pentru reconectarea la această cameră a expirat.\nRedarea curentă continuă. Dacă te alături din nou, vei părăsi conexiunea curentă.',
+  'connect.signaling_rejoin': 'Alătură-te din nou',
   'connect.signaling_recovering': 'Se reconectează…',
   'connect.signaling_failed': 'Conectarea la server a eșuat',
   'connect.signaling_recover_action': 'Reconectează',

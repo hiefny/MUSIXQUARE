@@ -6,6 +6,7 @@ import type { DataConnection } from '../../types/index.ts';
 import {
   canRecoverSignalingInPlace,
   publishSignalingExhausted,
+  publishSignalingExpired,
   publishSignalingReconnectAttempt,
   publishSignalingRecovered,
   resetSignalingHealth,
@@ -45,6 +46,39 @@ function beginStandardHostSessionWithLivePeer(): void {
 }
 
 describe('signaling health state', () => {
+  it('keeps expiry terminal until the admission is reset, including a pending recovery clear', () => {
+    beginStandardHostSessionWithLivePeer();
+    publishSignalingReconnectAttempt(1);
+    publishSignalingRecovered();
+    publishSignalingExpired();
+    expect(publishSignalingReconnectAttempt(2)).toBe(false);
+    expect(publishSignalingExhausted()).toBe(false);
+    publishSignalingRecovered();
+    vi.advanceTimersByTime(__signalingHealthForTests.SIGNALING_RECOVERED_VISIBLE_MS);
+    expect(getState('network.signalingHealth').status).toBe('expired');
+    resetSignalingHealth();
+    expect(publishSignalingReconnectAttempt(1)).toBe(true);
+  });
+
+  it('shows confirmed expiry for a Standard guest even without surviving media, but never for PRO', () => {
+    setState('setup.sessionStarted', true);
+    setState('network.appRole', 'guest');
+    publishSignalingExpired();
+    expect(getState('network.signalingHealth').status).toBe('expired');
+    resetSignalingHealth();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    publishSignalingExpired();
+    expect(getState('network.signalingHealth').status).toBe('healthy');
+  });
+
   it('does not publish a partial-outage state for a fully lost ordinary session', () => {
     setState('setup.sessionStarted', true);
     setState('network.appRole', 'guest');

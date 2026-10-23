@@ -25,6 +25,12 @@ import { restartProRoomTransportRecovery } from '../../pro-room/transport-recove
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
 import { log } from '../../core/log.ts';
+import { returnToRoomStart } from '../../core/navigation.ts';
+
+vi.mock('../../core/navigation.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/navigation.ts')>()),
+  returnToRoomStart: vi.fn(() => true),
+}));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -194,6 +200,58 @@ async function startHostSessionWithQR(): Promise<HTMLButtonElement> {
 }
 
 describe('connect signaling health status', () => {
+  it.each(['host', 'guest'] as const)(
+    'lets an expired %s keep playback until explicit fresh entry',
+    async (role) => {
+      const button = await startHostSessionWithQR();
+      setState('network.appRole', role);
+      setState('playback.activity', 'playing');
+      const stopMedia = vi.fn();
+      bus.on('player:stop-all-media', stopMedia);
+      setState('network.signalingHealth', { status: 'expired', attempt: 0, maxAttempts: 5 });
+      expect(button.dataset.mode).toBe('expired');
+      expect(button.getAttribute('aria-busy')).toBe('false');
+      expect(button.textContent).toBe('방 연결 종료');
+      expect(vi.mocked(returnToRoomStart)).not.toHaveBeenCalled();
+
+      button.click();
+      expect(document.getElementById('signaling-recovery-dialog')?.dataset.state).toBe('expired');
+      expect(document.getElementById('signaling-recovery-message')?.textContent).toContain(
+        '현재 재생은 유지돼요',
+      );
+      expect(document.getElementById('btn-signaling-recovery-retry')?.textContent).toBe(
+        '새로 입장',
+      );
+      document.getElementById('btn-signaling-recovery-confirm')?.click();
+      expect(vi.mocked(returnToRoomStart)).not.toHaveBeenCalled();
+      expect(stopMedia).not.toHaveBeenCalled();
+      expect(getState('playback.activity')).toBe('playing');
+      expect(mockedRetryPeerSignalingConnection).not.toHaveBeenCalled();
+      expect(mockedCopyTextToClipboard).not.toHaveBeenCalled();
+
+      button.click();
+      document.getElementById('btn-signaling-recovery-retry')?.click();
+      expect(vi.mocked(returnToRoomStart)).toHaveBeenCalledExactlyOnceWith(
+        '123456',
+        expect.objectContaining({ reconnect: false }),
+      );
+      expect(mockedRetryPeerSignalingConnection).not.toHaveBeenCalled();
+    },
+  );
+
+  it('settles an in-flight manual recovery as expired without showing retry failure', async () => {
+    const button = await startHostSessionWithQR();
+    setState('network.signalingHealth', { status: 'exhausted', attempt: 0, maxAttempts: 5 });
+    button.click();
+    setState('network.signalingHealth', { status: 'expired', attempt: 0, maxAttempts: 5 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(button.dataset.mode).toBe('expired');
+    expect(document.getElementById('signaling-recovery-overlay')?.classList.contains('show')).toBe(
+      false,
+    );
+  });
+
   it.each(['unchanged', 'current-account', 'room-epoch', 'target-account', 'disconnected'])(
     'rechecks person removal after the actual confirmation dialog: %s',
     async (transition) => {

@@ -469,6 +469,8 @@ export interface TransportPeer {
     options?: TransportCallOptions,
   ): TransportMediaConnection;
   reconnect?(): void;
+  /** A terminal admission cannot use signaling recovery; a new join is required. */
+  getSignalingRecoveryBlockReason?(): 'room-expired' | null;
   /** Retire a signaling path that the browser/OS has proven unavailable. */
   markSignalingUnavailable?(): boolean;
   /**
@@ -506,6 +508,7 @@ export interface TransportPeer {
   on(event: 'open', callback: (id: string) => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;
   on(event: 'disconnected', callback: () => void): void;
+  on(event: 'signaling-recovery-blocked', callback: () => void): void;
   on(event: 'pro-epoch-advanced', callback: () => void): void;
   on(event: 'developer-command', callback: (frame: DeveloperCommandFrame) => void): void;
   on(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;
@@ -523,6 +526,7 @@ export interface TransportPeer {
   off(event: 'open', callback: (id: string) => void): void;
   off(event: 'error', callback: (error: unknown) => void): void;
   off(event: 'disconnected', callback: () => void): void;
+  off(event: 'signaling-recovery-blocked', callback: () => void): void;
   off(event: 'pro-epoch-advanced', callback: () => void): void;
   off(event: 'developer-command', callback: (frame: DeveloperCommandFrame) => void): void;
   off(event: 'developer-invalidation', callback: (frame: DeveloperInvalidationFrame) => void): void;

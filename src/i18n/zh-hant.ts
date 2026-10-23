@@ -299,6 +299,10 @@ const zhHant: Record<I18nKey, string> = {
   'connect.pin_enabled_removed_message': '房主設定了房間密碼。輸入密碼後即可再次加入。',
   'connect.pin_changed_removed_message': '房主變更了房間密碼。輸入新密碼後即可再次加入。',
   'connect.signaling_healthy': '房間伺服器正常',
+  'connect.signaling_expired': '房間連線已結束',
+  'connect.signaling_expired_detail':
+    '重新連線此房間的期限已過。\n目前播放會繼續。重新加入將離開目前連線。',
+  'connect.signaling_rejoin': '重新加入',
   'connect.signaling_recovering': '正在重新連線…',
   'connect.signaling_failed': '伺服器連線失敗',
   'connect.signaling_recover_action': '重新連線',

@@ -314,6 +314,10 @@ const nb: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Verten har endret rompassordet. Skriv inn det nye passordet for å bli med igjen.',
   'connect.signaling_healthy': 'Romserveren er på nett',
+  'connect.signaling_expired': 'Romforbindelsen er avsluttet',
+  'connect.signaling_expired_detail':
+    'Tiden for å koble til dette rommet igjen er utløpt.\nAvspillingen fortsetter. Hvis du blir med igjen, forlater du den nåværende forbindelsen.',
+  'connect.signaling_rejoin': 'Bli med igjen',
   'connect.signaling_recovering': 'Kobler til på nytt…',
   'connect.signaling_failed': 'Tilkoblingen til serveren mislyktes',
   'connect.signaling_recover_action': 'Tilkoble igjen',

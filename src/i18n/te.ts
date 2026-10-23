@@ -310,6 +310,10 @@ const te: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'హోస్ట్ గది పాస్‌వర్డ్‌ను మార్చారు. మళ్లీ చేరడానికి కొత్త పాస్‌వర్డ్‌ను నమోదు చేయండి.',
   'connect.signaling_healthy': 'గది సర్వర్ ఆన్‌లైన్‌లో ఉంది',
+  'connect.signaling_expired': 'గది కనెక్షన్ ముగిసింది',
+  'connect.signaling_expired_detail':
+    'ఈ గదికి మళ్లీ కనెక్ట్ అయ్యే సమయం ముగిసింది.\nప్రస్తుత ప్లేబ్యాక్ కొనసాగుతుంది. మళ్లీ చేరితే ప్రస్తుత కనెక్షన్‌ను వదిలివేస్తారు.',
+  'connect.signaling_rejoin': 'మళ్లీ చేరండి',
   'connect.signaling_recovering': 'మళ్లీ కనెక్ట్ అవుతోంది…',
   'connect.signaling_failed': 'సర్వర్ కనెక్షన్ విఫలమైంది',
   'connect.signaling_recover_action': 'మళ్లీ కనెక్ట్ చేయి',

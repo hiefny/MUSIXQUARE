@@ -311,6 +311,10 @@ const hu: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'A házigazda megváltoztatta a szobajelszót. Add meg az új jelszót, és újra csatlakozhatsz.',
   'connect.signaling_healthy': 'A szobakiszolgáló elérhető',
+  'connect.signaling_expired': 'A szobakapcsolat véget ért',
+  'connect.signaling_expired_detail':
+    'Lejárt a szobához való újracsatlakozás ideje.\nA jelenlegi lejátszás folytatódik. Az újbóli csatlakozás kilép a jelenlegi kapcsolatból.',
+  'connect.signaling_rejoin': 'Csatlakozás újra',
   'connect.signaling_recovering': 'Újracsatlakozás…',
   'connect.signaling_failed': 'Nem sikerült csatlakozni a kiszolgálóhoz',
   'connect.signaling_recover_action': 'Újrakapcsolás',

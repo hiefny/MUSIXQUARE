@@ -304,6 +304,10 @@ const th: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'เจ้าของห้องเปลี่ยนรหัสผ่านห้องแล้ว ใส่รหัสผ่านใหม่เพื่อกลับเข้าห้อง',
   'connect.signaling_healthy': 'เซิร์ฟเวอร์ห้องทำงานปกติ',
+  'connect.signaling_expired': 'การเชื่อมต่อห้องสิ้นสุดแล้ว',
+  'connect.signaling_expired_detail':
+    'หมดเวลาที่จะเชื่อมต่อห้องนี้อีกครั้งแล้ว\nการเล่นปัจจุบันจะดำเนินต่อไป การเข้าร่วมใหม่จะออกจากการเชื่อมต่อปัจจุบัน',
+  'connect.signaling_rejoin': 'เข้าร่วมใหม่',
   'connect.signaling_recovering': 'กำลังเชื่อมต่อใหม่…',
   'connect.signaling_failed': 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ',
   'connect.signaling_recover_action': 'เชื่อมต่อใหม่',

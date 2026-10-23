@@ -315,6 +315,10 @@ const es: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'El anfitrión cambió la contraseña de la sala. Ingresa la nueva contraseña para volver a unirte.',
   'connect.signaling_healthy': 'Servidor de la sala disponible',
+  'connect.signaling_expired': 'Conexión a la sala finalizada',
+  'connect.signaling_expired_detail':
+    'El plazo para reconectarse a esta sala ha vencido.\nLa reproducción actual continúa. Si vuelves a unirte, saldrás de la conexión actual.',
+  'connect.signaling_rejoin': 'Volver a unirse',
   'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falló la conexión con el servidor',
   'connect.signaling_recover_action': 'Reconectar',

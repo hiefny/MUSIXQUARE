@@ -1625,7 +1625,12 @@ function getMetricsDb(env: SignalingEnvPort): D1DatabasePort | null {
   return isD1Database(env.ADMIN_METRICS_DB) ? env.ADMIN_METRICS_DB : null;
 }
 
-async function recordMetric(env: SignalingEnvPort, event: string, now = Date.now()): Promise<void> {
+async function recordMetric(
+  env: SignalingEnvPort,
+  event: string,
+  now = Date.now(),
+  detailEvent?: string,
+): Promise<void> {
   if ((await readServiceMaintenance(env)).enabled) return;
   const db = getMetricsDb(env);
   if (!db || !event) return;
@@ -1634,11 +1639,11 @@ async function recordMetric(env: SignalingEnvPort, event: string, now = Date.now
     await db
       .prepare(
         `INSERT INTO ${METRICS_TABLE} (bucket_minute, event, count)
-         VALUES (?1, ?2, 1)
+         VALUES (?1, ?2, 1)${detailEvent ? ', (?1, ?3, 1)' : ''}
          ON CONFLICT(bucket_minute, event)
          DO UPDATE SET count = count + 1`,
       )
-      .bind(bucketMinute, event)
+      .bind(bucketMinute, event, ...(detailEvent ? [detailEvent] : []))
       .run();
   } catch (error) {
     reportSignalingFailure(
@@ -3375,8 +3380,8 @@ export class MusixquareRoom {
     }
   }
 
-  private recordMetric(event: string, now = Date.now()): void {
-    this.defer(recordMetric(this.env, event, now), 'metrics_background');
+  private recordMetric(event: string, now = Date.now(), detailEvent?: string): void {
+    this.defer(recordMetric(this.env, event, now, detailEvent), 'metrics_background');
   }
 
   private admittedGuestIds(): Set<string> {
@@ -4725,6 +4730,8 @@ export class MusixquareRoom {
       if (this.roomMeta) return this.roomMeta;
       throw new Error('STANDARD_ROOM_META_FUTURE_VERSION');
     }
+    const expiredEpoch =
+      !this.host && !!this.roomMeta?.hostReleaseAt && this.roomMeta.hostReleaseAt <= Date.now();
     const roomMeta = defaultRoomMeta();
     const members = defaultStandardRoomMembers();
     const bindings = defaultGuestBindings();
@@ -4761,6 +4768,9 @@ export class MusixquareRoom {
     this.guestBindingsFutureVersion = false;
     this.standardPinMembership = null;
     this.standardPinFailures = normalizeStandardRoomPinFailures(undefined);
+    // Both the grace alarm and a last-guest close can complete an expired
+    // epoch. Count only their shared successful reset, never a cleanup retry.
+    if (expiredEpoch) this.recordMetric('standard_room_expired');
     return roomMeta;
   }
 
@@ -6605,7 +6615,25 @@ export class MusixquareRoom {
     }
     if (!this.host) {
       this.acceptSocket(ws, null, ['role:guest']);
-      this.recordMetric('guest_host_unavailable');
+      const now = Date.now();
+      // These are observed admission states, not a claim about why the host
+      // left. Once the epoch is cleared, an expired and an unused code look
+      // the same. Keep the legacy total and its one detail atomic in D1.
+      const detailEvent =
+        meta.roomSecret && meta.hostReleaseAt > now
+          ? 'guest_host_unavailable_reclaim_grace'
+          : [...this.pendingHosts].some((pending) => {
+                const attachment = readAttachment(pending);
+                return (
+                  attachment?.role === 'host' &&
+                  attachment.auth === 'pending' &&
+                  attachment.authDeadline >= now &&
+                  (pending.readyState === undefined || pending.readyState === 1)
+                );
+              })
+            ? 'guest_host_unavailable_host_auth_pending'
+            : 'guest_host_unavailable_no_active_host';
+      this.recordMetric('guest_host_unavailable', now, detailEvent);
       closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');
       return;
     }

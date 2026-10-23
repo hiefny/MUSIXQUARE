@@ -300,6 +300,10 @@ const zhHans: Record<I18nKey, string> = {
   'connect.pin_enabled_removed_message': '房主设置了房间密码。输入密码后即可再次加入。',
   'connect.pin_changed_removed_message': '房主更改了房间密码。输入新密码后即可再次加入。',
   'connect.signaling_healthy': '房间服务器正常',
+  'connect.signaling_expired': '房间连接已结束',
+  'connect.signaling_expired_detail':
+    '重新连接此房间的期限已过。\n当前播放会继续。重新加入将离开当前连接。',
+  'connect.signaling_rejoin': '重新加入',
   'connect.signaling_recovering': '正在重新连接…',
   'connect.signaling_failed': '服务器连接失败',
   'connect.signaling_recover_action': '重新连接',

@@ -309,6 +309,10 @@ const hi: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'होस्ट ने रूम का पासवर्ड बदल दिया है। फिर से शामिल होने के लिए नया पासवर्ड दर्ज करें।',
   'connect.signaling_healthy': 'रूम सर्वर ऑनलाइन है',
+  'connect.signaling_expired': 'रूम का कनेक्शन समाप्त हुआ',
+  'connect.signaling_expired_detail':
+    'इस रूम से फिर जुड़ने का समय समाप्त हो गया है।\nअभी चल रहा प्लेबैक जारी रहेगा। दोबारा जुड़ने पर मौजूदा कनेक्शन छूट जाएगा।',
+  'connect.signaling_rejoin': 'दोबारा जुड़ें',
   'connect.signaling_recovering': 'फिर से कनेक्ट हो रहा है…',
   'connect.signaling_failed': 'सर्वर से कनेक्शन विफल रहा',
   'connect.signaling_recover_action': 'फिर कनेक्ट करें',

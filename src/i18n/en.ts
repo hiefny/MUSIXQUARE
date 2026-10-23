@@ -309,6 +309,10 @@ const en: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'The host changed the room password. Enter the new password to join again.',
   'connect.signaling_healthy': 'Room server online',
+  'connect.signaling_expired': 'Room connection ended',
+  'connect.signaling_expired_detail':
+    'The time to reconnect to this room has expired.\nCurrent playback continues. Joining again leaves your current connection.',
+  'connect.signaling_rejoin': 'Join again',
   'connect.signaling_recovering': 'Reconnecting…',
   'connect.signaling_failed': 'Server connection failed',
   'connect.signaling_recover_action': 'Reconnect',

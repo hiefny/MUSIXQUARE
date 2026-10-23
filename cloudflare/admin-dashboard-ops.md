@@ -106,30 +106,45 @@ identifier, or Access token.
 
 Events:
 
-| Event                                    | Meaning                                                                                                                               |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `room_opened`                            | A host created a fresh room.                                                                                                          |
-| `host_reconnected`                       | A host reclaimed or refreshed an existing room.                                                                                       |
-| `guest_joined`                           | A guest successfully joined.                                                                                                          |
-| `guest_host_unavailable`                 | A guest tried to join a missing room.                                                                                                 |
-| `guest_auth_pending`                     | A password-protected guest reached the password prompt.                                                                               |
-| `guest_auth_failed`                      | A guest submitted a missing or invalid room password.                                                                                 |
-| `guest_auth_timeout`                     | A guest password prompt timed out.                                                                                                    |
-| `guest_auth_rate_limited`                | A guest was refused before the PIN check: its own address block hit 20 wrong PINs in 10 minutes.                                      |
-| `guest_reconnect_denied`                 | A same-identity reconnect used the wrong or missing reconnect secret.                                                                 |
-| `guest_reconnect_conflict`               | A reconnect collided with another pending or live owner of that identity.                                                             |
-| `guest_room_full`                        | A new guest was rejected because the room reached its active-guest limit.                                                             |
-| `guest_pending_capacity`                 | A connection was rejected because every bounded pending slot was already authenticating.                                              |
-| `guest_identity_capacity`                | A new identity was rejected because the reconnect-binding limit was reached.                                                          |
-| `remote_share_upload_assertion_verified` | A new Remote Share reservation was issued with a valid signaling-issued current-host assertion; exact v3 replay does not count again. |
-| `remote_share_upload_assertion_legacy`   | A new assertion-free Remote Share reservation was issued; this is a post-cutover regression sentinel that must remain zero.           |
-| `remote_share_upload_assertion_rejected` | A required or presented assertion was missing or invalid; writes are capped at 10 per IP-derived limiter key per normal rate window.  |
-| `ws_message_oversized`                   | A WebSocket frame or validated signaling payload exceeded its size limit.                                                             |
-| `ws_message_rate_limited`                | A guest exceeded the per-connection signaling message rate.                                                                           |
+| Event                                      | Meaning                                                                                                                               |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `room_opened`                              | A host created a fresh room.                                                                                                          |
+| `host_reconnected`                         | A host reclaimed or refreshed an existing room.                                                                                       |
+| `guest_joined`                             | A guest successfully joined.                                                                                                          |
+| `guest_host_unavailable`                   | A guest tried to join while no admitted host socket was available; this does not identify why the host was absent.                    |
+| `guest_host_unavailable_reclaim_grace`     | The host-missing attempt arrived while the room retained its host secret and its host-reclaim deadline was still in the future.       |
+| `guest_host_unavailable_host_auth_pending` | No reclaim grace remained, but a live host socket was still within its authentication deadline; it need not be the room's owner.      |
+| `guest_host_unavailable_no_active_host`    | Neither of the above states applied. An unused code, an expired room and other missing-host states are not distinguished.             |
+| `standard_room_expired`                    | The existing host-reclaim deadline elapsed without a host and the room epoch reset completed. Counts epochs, not guests or people.    |
+| `guest_auth_pending`                       | A password-protected guest reached the password prompt.                                                                               |
+| `guest_auth_failed`                        | A guest submitted a missing or invalid room password.                                                                                 |
+| `guest_auth_timeout`                       | A guest password prompt timed out.                                                                                                    |
+| `guest_auth_rate_limited`                  | A guest was refused before the PIN check: its own address block hit 20 wrong PINs in 10 minutes.                                      |
+| `guest_reconnect_denied`                   | A same-identity reconnect used the wrong or missing reconnect secret.                                                                 |
+| `guest_reconnect_conflict`                 | A reconnect collided with another pending or live owner of that identity.                                                             |
+| `guest_room_full`                          | A new guest was rejected because the room reached its active-guest limit.                                                             |
+| `guest_pending_capacity`                   | A connection was rejected because every bounded pending slot was already authenticating.                                              |
+| `guest_identity_capacity`                  | A new identity was rejected because the reconnect-binding limit was reached.                                                          |
+| `remote_share_upload_assertion_verified`   | A new Remote Share reservation was issued with a valid signaling-issued current-host assertion; exact v3 replay does not count again. |
+| `remote_share_upload_assertion_legacy`     | A new assertion-free Remote Share reservation was issued; this is a post-cutover regression sentinel that must remain zero.           |
+| `remote_share_upload_assertion_rejected`   | A required or presented assertion was missing or invalid; writes are capped at 10 per IP-derived limiter key per normal rate window.  |
+| `ws_message_oversized`                     | A WebSocket frame or validated signaling payload exceeded its size limit.                                                             |
+| `ws_message_rate_limited`                  | A guest exceeded the per-connection signaling message rate.                                                                           |
 
 Metric writes are deferred with the Worker execution context, so D1 latency is
 not part of the room admission path. They are operational counters rather than
 an authentication or billing source of truth.
+
+Each new `guest_host_unavailable` increment and exactly one of its three state
+details share one atomic D1 upsert. Reclaim grace takes precedence over pending
+host authentication. These details describe the state at the rejected attempt,
+not a confirmed network failure or an intentional room exit. They start only
+with the deploying version; historical totals have no inferred breakdown.
+The existing room lifecycle records `standard_room_expired` only after its
+durable epoch reset succeeds, so another cleanup pass does not count it again.
+The metric itself remains best effort and can be lost on a metrics write failure.
+No room, peer, account, IP, PIN or secret is attached to any of these counters,
+and the existing metric table, retention and background write path are reused.
 
 The three Remote Share assertion counters are likewise aggregate-only. They
 carry no room, peer, actor, request, token, body digest, object, capability, or

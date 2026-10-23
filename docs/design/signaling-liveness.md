@@ -56,6 +56,33 @@ room admission retains its existing deadline and access checks.
 
 ## Established RTC recovery
 
+### Explicit Standard-room expiry
+
+Owner decision, 2026-10-24; ships with the Phase 3 app batch. A current Standard
+guest signaling socket closed with exactly `1012 / ROOM_EXPIRED` ends automatic
+signaling recovery for that admission. The provider retains this reason and the
+existing `peer.ts` recovery owner cancels its pending retry. A stale socket's
+close cannot expire its successor. An ordinary network close, another `1012`
+reason, or `HOST_NOT_AVAILABLE` without an explicit expiry keeps the existing
+bounded recovery policy. PRO behavior is unchanged.
+
+Expiry of signaling admission does not close an existing RTC connection, stop
+playback, or replace the playlist. The connection's existing liveness owner
+still handles a later real data-channel failure. The Connect surface reports
+that the room connection ended; a user can explicitly enter again. This is a
+new admission, not an automatic recovery of the expired room. It intentionally
+gives up the old automatic retry opportunity when a host returns only after the
+120-second reclaim grace and creates another room at the same public code.
+
+Internal diagnostics retain only recognized close reasons, recovery phase and
+whether a data connection survived. Unrecognized reason text is not copied into
+diagnostics. The server's aggregate host-missing subcounters describe observed
+host state, not user intent or network root cause. See the
+[Phase 3 evidence](phase3-update-and-expiry-recovery-2026-10-24.md) and
+[admin metric definitions](../../cloudflare/admin-dashboard-ops.md).
+
+### Ordinary connection recovery
+
 Signaling and RTC have separate lifecycles. A signaling socket closing is not proof that
 an existing peer's audio or data channel failed, nor is it an intentional idle shutdown.
 The browser reports the signaling interruption with its role and surviving channel count;

@@ -312,6 +312,10 @@ const pa: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'ਹੋਸਟ ਨੇ ਰੂਮ ਦਾ ਪਾਸਵਰਡ ਬਦਲ ਦਿੱਤਾ ਹੈ। ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਨਵਾਂ ਪਾਸਵਰਡ ਦਾਖਲ ਕਰੋ।',
   'connect.signaling_healthy': 'ਰੂਮ ਸਰਵਰ ਆਨਲਾਈਨ ਹੈ',
+  'connect.signaling_expired': 'ਕਮਰੇ ਦਾ ਕਨੈਕਸ਼ਨ ਸਮਾਪਤ ਹੋਇਆ',
+  'connect.signaling_expired_detail':
+    'ਇਸ ਕਮਰੇ ਨਾਲ ਮੁੜ ਜੁੜਨ ਦਾ ਸਮਾਂ ਲੰਘ ਗਿਆ ਹੈ।\nਮੌਜੂਦਾ ਪਲੇਬੈਕ ਜਾਰੀ ਰਹੇਗਾ। ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ ਨਾਲ ਮੌਜੂਦਾ ਕਨੈਕਸ਼ਨ ਛੱਡ ਦਿੱਤਾ ਜਾਵੇਗਾ।',
+  'connect.signaling_rejoin': 'ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਵੋ',
   'connect.signaling_recovering': 'ਮੁੜ ਕਨੈਕਟ ਹੋ ਰਿਹਾ ਹੈ…',
   'connect.signaling_failed': 'ਸਰਵਰ ਕਨੈਕਸ਼ਨ ਅਸਫਲ',
   'connect.signaling_recover_action': 'ਮੁੜ ਕਨੈਕਟ ਕਰੋ',

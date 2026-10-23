@@ -308,6 +308,10 @@ const tr: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Oda sahibi oda şifresini değiştirdi. Tekrar katılmak için yeni şifreyi gir.',
   'connect.signaling_healthy': 'Oda sunucusu çevrimiçi',
+  'connect.signaling_expired': 'Oda bağlantısı sona erdi',
+  'connect.signaling_expired_detail':
+    'Bu odaya yeniden bağlanma süresi doldu.\nMevcut oynatma devam eder. Yeniden katılmak mevcut bağlantınızdan ayrılmanıza neden olur.',
+  'connect.signaling_rejoin': 'Yeniden katıl',
   'connect.signaling_recovering': 'Yeniden bağlanılıyor…',
   'connect.signaling_failed': 'Sunucu bağlantısı başarısız',
   'connect.signaling_recover_action': 'Yeniden bağlan',

@@ -309,6 +309,10 @@ const vi: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Chủ phòng đã đổi mật khẩu phòng. Nhập mật khẩu mới để tham gia lại.',
   'connect.signaling_healthy': 'Máy chủ phòng đang hoạt động',
+  'connect.signaling_expired': 'Kết nối phòng đã kết thúc',
+  'connect.signaling_expired_detail':
+    'Thời gian kết nối lại với phòng này đã hết.\nNội dung đang phát vẫn tiếp tục. Tham gia lại sẽ rời kết nối hiện tại.',
+  'connect.signaling_rejoin': 'Tham gia lại',
   'connect.signaling_recovering': 'Đang kết nối lại…',
   'connect.signaling_failed': 'Kết nối máy chủ thất bại',
   'connect.signaling_recover_action': 'Kết nối lại',

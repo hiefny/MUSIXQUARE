@@ -314,6 +314,10 @@ const pl: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Host zmienił hasło do pokoju. Wpisz nowe hasło, aby znowu dołączyć.',
   'connect.signaling_healthy': 'Serwer pokoju jest dostępny',
+  'connect.signaling_expired': 'Połączenie z pokojem zakończone',
+  'connect.signaling_expired_detail':
+    'Czas na ponowne połączenie z tym pokojem minął.\nBieżące odtwarzanie trwa. Ponowne dołączenie opuści bieżące połączenie.',
+  'connect.signaling_rejoin': 'Dołącz ponownie',
   'connect.signaling_recovering': 'Ponowne łączenie…',
   'connect.signaling_failed': 'Połączenie z serwerem nie powiodło się',
   'connect.signaling_recover_action': 'Połącz znów',

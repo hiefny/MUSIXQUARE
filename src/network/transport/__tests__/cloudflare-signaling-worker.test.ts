@@ -698,9 +698,9 @@ function createMetricsEnv() {
     env: {
       MUSIXQUARE_ADMIN_DB: {
         prepare: vi.fn(() => ({
-          bind: vi.fn((bucketMinute: number, event: string) => ({
+          bind: vi.fn((bucketMinute: number, ...names: string[]) => ({
             run: vi.fn(async () => {
-              events.push({ bucketMinute, event });
+              events.push(...names.map((event) => ({ bucketMinute, event })));
             }),
           })),
         })),
@@ -8393,6 +8393,118 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     finishMetric();
     await state.flushWaitUntil();
+  });
+
+  it('keeps the host-missing total and classifies reclaim grace before pending authentication', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    host.close();
+    await room.webSocketClose(host);
+    await room.fetch(wsRequest('123456', 'host', 'pending-reclaim-host'));
+    await state.flushWaitUntil();
+    metrics.events.length = 0;
+    metrics.env.MUSIXQUARE_ADMIN_DB.prepare.mockClear();
+
+    const guest = await joinGuest(room, 'guest-during-reclaim');
+    await state.flushWaitUntil();
+
+    expect(guest.closeEvents.at(-1)?.reason).toBe('HOST_NOT_AVAILABLE');
+    expect(metrics.events).toEqual([
+      { bucketMinute: Math.floor(Date.now() / 60000), event: 'guest_host_unavailable' },
+      {
+        bucketMinute: Math.floor(Date.now() / 60000),
+        event: 'guest_host_unavailable_reclaim_grace',
+      },
+    ]);
+    // One D1 statement writes the total and detail together.
+    expect(metrics.env.MUSIXQUARE_ADMIN_DB.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it('distinguishes live pending host authentication from no active host without inferring an ended room', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+
+    await joinGuest(room, 'guest-before-host');
+    await room.fetch(wsRequest('123456', 'host', 'pending-host'));
+    await joinGuest(room, 'guest-during-host-auth');
+    vi.advanceTimersByTime(10_001);
+    // An unswept but expired pending socket is not current authentication.
+    await joinGuest(room, 'guest-after-auth-timeout');
+    await state.flushWaitUntil();
+
+    expect(metrics.events.map(({ event }) => event)).toEqual([
+      'guest_host_unavailable',
+      'guest_host_unavailable_no_active_host',
+      'guest_host_unavailable',
+      'guest_host_unavailable_host_auth_pending',
+      'guest_host_unavailable',
+      'guest_host_unavailable_no_active_host',
+    ]);
+  });
+
+  it('records one completed room expiry and leaves subsequent missing-host joins unclassified by intent', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    const guest = await joinGuest(room, 'guest-1');
+    await state.flushWaitUntil();
+    metrics.events.length = 0;
+    host.close();
+    await room.webSocketClose(host);
+
+    vi.advanceTimersByTime(120_000);
+    await room.alarm();
+    await room.alarm();
+    await joinGuest(room, 'guest-after-expiry');
+    await state.flushWaitUntil();
+
+    expect(guest.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'ROOM_EXPIRED' });
+    expect(await state.storage.get('roomMeta')).toMatchObject({ roomSecret: null });
+    expect(metrics.events.map(({ event }) => event)).toEqual([
+      'standard_room_expired',
+      'guest_host_unavailable',
+      'guest_host_unavailable_no_active_host',
+    ]);
+  });
+
+  it('counts expiry once when the last guest closes before the overdue grace alarm runs', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-18T12:00:00.000Z'));
+    const metrics = createMetricsEnv();
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, metrics.env);
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    const guest = await joinGuest(room, 'guest-1');
+    await state.flushWaitUntil();
+    metrics.events.length = 0;
+    host.close();
+    await room.webSocketClose(host);
+
+    vi.advanceTimersByTime(120_000);
+    guest.close();
+    await room.webSocketClose(guest);
+    await state.flushWaitUntil();
+
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: null,
+      hostReleaseAt: 0,
+    });
+    expect(metrics.events.map(({ event }) => event)).toEqual(['standard_room_expired']);
+
+    await room.webSocketClose(guest);
+    await room.alarm();
+    await state.flushWaitUntil();
+    expect(metrics.events.map(({ event }) => event)).toEqual(['standard_room_expired']);
   });
 
   it('preserves guest-to-host and host-to-guest signaling wire shapes', async () => {

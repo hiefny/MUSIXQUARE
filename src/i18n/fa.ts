@@ -307,6 +307,10 @@ const fa: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'میزبان گذرواژهٔ اتاق را تغییر داد. برای پیوستن دوباره، گذرواژهٔ جدید را وارد کنید.',
   'connect.signaling_healthy': 'سرور اتاق آنلاین است',
+  'connect.signaling_expired': 'اتصال اتاق پایان یافت',
+  'connect.signaling_expired_detail':
+    'مهلت اتصال دوباره به این اتاق تمام شده است.\nپخش فعلی ادامه دارد. پیوستن دوباره، اتصال فعلی شما را ترک می‌کند.',
+  'connect.signaling_rejoin': 'پیوستن دوباره',
   'connect.signaling_recovering': 'در حال اتصال دوباره…',
   'connect.signaling_failed': 'اتصال به سرور ناموفق بود',
   'connect.signaling_recover_action': 'اتصال دوباره',

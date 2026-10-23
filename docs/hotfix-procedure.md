@@ -180,6 +180,16 @@ compatible candidate for forward repair. Untouched pre-deployment baselines
 remain safe; subsequent rollback to a proven contract-aware baseline remains
 available. Never repair admission by deleting the policy flag or inventing a
 PIN. See [the contract and verification record](design/pro-optional-entry-password-2026-10-10.md).
+The marker is now
+`pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`: from that
+release a pending owner transfer is stored without a PIN. An older PRO Worker
+drops such a record as invalid, so a transfer in flight would leave its room
+suspended in `ownership_transfer_pending` with no retry or cron to finish it,
+and an older PRO Worker or App facade rejects the pinless transfer body. The
+same PRO/App floor therefore applies again: once that candidate may be live,
+neither automatic nor manual recovery restores either Worker below the marker;
+repair forward with an `all` release. Any change to this marker requires
+target `all`. See [the transfer change](design/pro-transfer-password-reset-2026-10-23.md#호환성과-배포-순서).
 
 The complete serial Playwright suite is intentionally not a production deploy
 gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit

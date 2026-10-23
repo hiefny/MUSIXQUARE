@@ -98,9 +98,11 @@ runbooks. Neither belongs in a general setup document.
   told the recipient whether a PIN was the previous owner's and was shown as "ask for a new link"
   although the link was unused, is gone, as is the replay PIN comparison. Earlier Apps' `newPin`
   and earlier pending records with a PIN are accepted and ignored, and the transfer answer now
-  reports `passwordRequired: false` to opt-in Apps. Tests pinned today's behaviour first. Not yet
-  deployed: it ships in the Phase 2 app batch with target `all` (PRO room before App); devices and
-  a production transfer are unchecked.
+  reports `passwordRequired: false` to opt-in Apps. Tests pinned today's behaviour first. The PRO
+  entry-policy contract marker gains `pro-owner-transfer-pinless-v1`: an older PRO Worker would drop
+  a pending transfer stored without a PIN, so once the candidate may be live, automatic recovery
+  keeps the PRO and App Workers for forward repair. Not yet deployed: it ships in the Phase 2 app
+  batch with target `all` (PRO room before App); devices and a production transfer are unchecked.
 
 - [PRO outbox and duration read owners (Phase 1 PRO Worker B, 2026-10-23)](design/pro-room-outbox-duration-owners-2026-10-23.md):
   the PRO room's presence marker and playback outbox get one due time, alarm drain, epoch hook and

@@ -7,7 +7,8 @@
  *   JSDOM app documents that run an esbuild bundle of the real session.ts and
  *   state.ts. A bundled app document leaves out the account UI receiver: in a
  *   tab that did not start the login, that receiver filters every pulse out by
- *   accountClient, which account-pulse-receivers.test.ts pins.
+ *   accountClient, which the "success for another tab" row of
+ *   account-pulse-contract.test.ts pins.
  * - The OAuth completion producer: the compiled classic runtime
  *   account-complete.js in public/account-complete.html, opened through a
  *   popup handle that records what the opener did to it.

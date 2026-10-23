@@ -154,6 +154,8 @@ describe('receivers in one app tab today', () => {
     // message. Load the completion with the opener intact to reach the
     // listeners both receivers still keep for that transport.
     await harness.loadCompletionDocument('opener-popup', popup.completionUrl('success'), appA);
+    // C8-I10 deletes the account UI's second same-name channel: one
+    // 'broadcast' delivery instead of two.
     expect(harness.origin.pending({ to: 'app-a' }).map((task) => task.transport)).toEqual([
       'window-message',
       'broadcast',
@@ -255,11 +257,22 @@ describe('receivers in one app tab today', () => {
     // Critique of C8-I10: a subscribe that binds the session lifecycle from
     // requestAccountLoginPopupOnly must not add reads to contexts that only
     // use the popup. Today the UI receiver alone is bound until the first
-    // login result reconciles the session.
+    // login result reconciles the session, so while the popup is open the
+    // foreground, online and pageshow events (past the 30 s debounce) read
+    // nothing. This must survive C8-I10.
     vi.useFakeTimers({ toFake: ['Date'] });
     const { popup, outcome } = openProtectedLogin();
-    expect(harness.origin.openChannels(CHANNEL).map((open) => open.id)).toEqual(['app-a#1']);
     harness.server.account = MINSU;
+    vi.setSystemTime(Date.now() + 30_001);
+    window.dispatchEvent(new Event('focus'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('pageshow'));
+    await harness.origin.settle();
+    expect(appReads()).toBe(0);
+    // C8-I10: app-a#1 becomes session.ts's pulse channel, and the second list
+    // below flips to ['app-a#1'] (the login result opens no second channel).
+    expect(harness.origin.openChannels(CHANNEL).map((open) => open.id)).toEqual(['app-a#1']);
 
     await popup.complete('success');
     harness.origin.deliverNext({ to: 'app-a', transport: 'broadcast' });

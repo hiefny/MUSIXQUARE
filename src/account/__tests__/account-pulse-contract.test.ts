@@ -142,6 +142,9 @@ async function runtimeFilesContaining(literal: string): Promise<Record<string, n
   const files: string[] = [];
   for (const top of RUNTIME_ROOTS) {
     for (const entry of await readdir(join(root, top), { recursive: true, withFileTypes: true })) {
+      // Type declarations (the generated Worker types are 0.6 MB each) hold
+      // no runtime copy.
+      if (entry.name.endsWith('.d.ts')) continue;
       if (entry.isFile() && TEXT_EXTENSIONS.has(extname(entry.name))) {
         files.push(join(entry.parentPath, entry.name));
       }
@@ -161,21 +164,29 @@ async function runtimeFilesContaining(literal: string): Promise<Record<string, n
   return counts;
 }
 
+// The scan reads about 500 files; a cold first run in a fresh worktree, next to
+// suites that spawn esbuild, can outlast the default 15 s.
+const LITERAL_SCAN_TIMEOUT_MS = 60_000;
+
 describe('C8-I1 wire literals', () => {
-  it('spells the channel name and the storage key once in each of the four runtime copies', async () => {
-    // C8-I1 (Phase 0d) moves the two src/ copies into
-    // src/account/account-sync-protocol.ts; that PR updates both tables: the
-    // protocol module appears and session.ts and ui/account.ts leave. The two
-    // classic runtimes keep their literals, pinned behaviourally below.
-    const copies = {
-      'browser/classic-runtime/account-complete.ts': 1,
-      'browser/classic-runtime/events/event.ts': 1,
-      'src/account/session.ts': 1,
-      'src/ui/account.ts': 1,
-    };
-    expect(await runtimeFilesContaining(CHANNEL)).toEqual(copies);
-    expect(await runtimeFilesContaining(STORAGE_KEY)).toEqual(copies);
-  });
+  it(
+    'spells the channel name and the storage key once in each of the four runtime copies',
+    async () => {
+      // C8-I1 (Phase 0d) moves the two src/ copies into
+      // src/account/account-sync-protocol.ts; that PR updates both tables: the
+      // protocol module appears and session.ts and ui/account.ts leave. The two
+      // classic runtimes keep their literals, pinned behaviourally below.
+      const copies = {
+        'browser/classic-runtime/account-complete.ts': 1,
+        'browser/classic-runtime/events/event.ts': 1,
+        'src/account/session.ts': 1,
+        'src/ui/account.ts': 1,
+      };
+      expect(await runtimeFilesContaining(CHANNEL)).toEqual(copies);
+      expect(await runtimeFilesContaining(STORAGE_KEY)).toEqual(copies);
+    },
+    LITERAL_SCAN_TIMEOUT_MS,
+  );
 });
 
 // ─── Wire format of both producers ──────────────────────────────────
@@ -282,9 +293,9 @@ const EVERY_SESSION_READS: Omit<Expected, 'ui'> = { appA: 1, appB: 1, events: 1 
 
 /**
  * One row per payload a receiver can meet on BroadcastChannel. "own" is
- * app-a's accountClient. The account UI's accountClient bounds (8..160) are
- * not rows: app-a's own id is a UUID, so a shorter or longer client can only
- * ever be a foreign one.
+ * app-a's accountClient. The rows pin what each receiver does, not each
+ * parser's projection: session.ts's id bounds need two copies (the two-copy
+ * table below) and its loginSuccess flag is left to I4's own parser table.
  */
 const BROADCAST_ROWS: ReadonlyArray<
   readonly [label: string, payload: (own: string) => unknown, expected: Expected]
@@ -310,8 +321,9 @@ const BROADCAST_ROWS: ReadonlyArray<
     () => ({ type: 'refresh', id: 'refresh:contract-0001' }),
     { ...EVERY_SESSION_READS, ui: null },
   ],
-  // session.ts drops an out-of-range id to null and still refreshes (an
-  // unidentified pulse); ui/account.ts rejects the message.
+  // ui/account.ts rejects an out-of-range id; session.ts and the events page
+  // still refresh (session.ts as an unidentified pulse, pinned by the
+  // two-copy table below).
   [
     'an id of 7 characters',
     (own) => success(own, { id: 'r'.repeat(7) }),
@@ -344,6 +356,25 @@ const BROADCAST_ROWS: ReadonlyArray<
       const { accountClient: _dropped, ...rest } = success(own);
       return rest;
     },
+    { ...EVERY_SESSION_READS, ui: null },
+  ],
+  // ui/account.ts accepts accountClient of 8..160 characters only, so a
+  // shorter, longer or non-string client is never this tab's. session.ts and
+  // the events page do not read the field and still refresh: an I4 parser
+  // that rejected these whole messages would stop their reconciliation.
+  [
+    'an accountClient of 7 characters',
+    () => success('c'.repeat(7)),
+    { ...EVERY_SESSION_READS, ui: null },
+  ],
+  [
+    'an accountClient of 161 characters',
+    () => success('c'.repeat(161)),
+    { ...EVERY_SESSION_READS, ui: null },
+  ],
+  [
+    'a numeric accountClient',
+    () => success('', { accountClient: 12_345_678 }),
     { ...EVERY_SESSION_READS, ui: null },
   ],
   ['another message type', (own) => success(own, { type: 'refreshed' }), NONE],
@@ -429,6 +460,43 @@ describe('C8-I4 receiver acceptance on the storage event', () => {
     const before = reads(['app-a', 'app-b', 'events']);
 
     write(sender.localStorage, popup.accountClient!);
+    await harness.origin.deliverAll();
+
+    const delta = reads(['app-a', 'app-b', 'events'], before);
+    expect({
+      appA: delta['app-a'],
+      ui: uiReaction(),
+      appB: delta['app-b'],
+      events: delta.events,
+    }).toEqual(expected);
+  });
+});
+
+/**
+ * session.ts's id bounds (8..160). One copy of a success pulse costs one read
+ * whether session.ts keeps its id or drops it to null, so these rows send the
+ * same pulse on BroadcastChannel and storage: an id in range is one shared
+ * login-result read in app-b, an id out of range two unidentified refreshes.
+ * The events page keeps no id, so it reads once per copy that arrives after
+ * its previous read settled (I4 step 4 leaves its inline check alone).
+ */
+const TWO_COPY_ID_ROWS: ReadonlyArray<readonly [length: number, expected: Expected]> = [
+  [7, { appA: 2, ui: null, appB: 2, events: 2 }],
+  [8, { appA: 1, ui: 'welcome', appB: 1, events: 2 }],
+  [160, { appA: 1, ui: 'welcome', appB: 1, events: 2 }],
+  [161, { appA: 2, ui: null, appB: 2, events: 2 }],
+];
+
+describe('C8-I4 session id bounds over two copies', () => {
+  it.each(TWO_COPY_ID_ROWS)('an id of %i characters', async (length, expected) => {
+    const { popup } = await signedOutOrigin();
+    harness.server.account = MINSU;
+    const sender = harness.loadSenderDocument('sender');
+    const before = reads(['app-a', 'app-b', 'events']);
+    const pulse = success(popup.accountClient!, { id: 'r'.repeat(length) });
+
+    new sender.BroadcastChannel!(CHANNEL).postMessage(pulse);
+    sender.localStorage.setItem(STORAGE_KEY, JSON.stringify(pulse));
     await harness.origin.deliverAll();
 
     const delta = reads(['app-a', 'app-b', 'events'], before);

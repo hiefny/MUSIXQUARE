@@ -104,6 +104,45 @@ function canEditQueueStructure(): boolean {
   return hasRoomCapability('queue.mutate');
 }
 
+// ─── Interaction gate (RO-27) ─────────────────────────────────────
+//
+// The rendered rows and the tab-body scroll have one gate. The lazy reorder
+// and removal controllers keep their own gesture state; the view derives one
+// state from them and every render, follow, handle and long-press decision
+// reads it. Both can run at once: in edit mode a long press still lifts the
+// held row while the selection stays.
+
+interface PlaylistInteraction {
+  readonly reorder: 'idle' | 'gesture' | 'settling';
+  readonly selection: boolean;
+}
+
+function playlistInteraction(): PlaylistInteraction {
+  const reorder = _reorderController;
+  return {
+    reorder: !reorder?.isActive ? 'idle' : reorder.isSettling ? 'settling' : 'gesture',
+    selection: !!_removalController?.isActive,
+  };
+}
+
+function interactionPolicy(interaction: PlaylistInteraction = playlistInteraction()) {
+  return {
+    /** A reorder owns the rendered rows until its drop settle ends. */
+    renderDeferred: interaction.reorder !== 'idle',
+    followBlocked: interaction.reorder !== 'idle' || interaction.selection,
+    /** In edit mode the number column picks rows instead of grabbing them. */
+    handleUsable: !interaction.selection,
+    /** Outside edit mode a long press starts it with the held row. */
+    longPressStartsSelection: !interaction.selection && canRemoveRows(),
+  };
+}
+
+/** End every queue edit in progress: a drag or drop settle, and the selection. */
+function cancelQueueInteractions(): void {
+  _reorderController?.cancel();
+  _removalController?.cancel();
+}
+
 function resolveQueueIndex(queueItemId: QueueItemId): number {
   return findQueueItemIndex(queueItemId, getState('playlist.items'));
 }
@@ -171,8 +210,7 @@ function ensureFollowController(
   _currentJumpController?.destroy();
   _followList = list;
   _followScrollContainer = scrollContainer;
-  const isInteractionBlocked = () =>
-    !!_reorderController?.isActive || !!_removalController?.isActive;
+  const isInteractionBlocked = () => interactionPolicy().followBlocked;
   _followController = createPlaylistFollowController({
     list,
     scrollContainer,
@@ -762,7 +800,7 @@ function appendProRoomUploadRow(list: HTMLElement, upload: ProRoomUploadRow): vo
 export function updatePlaylistUI(): void {
   const list = document.getElementById('playlist-ui');
   if (!list) return;
-  if (_reorderController?.isActive) {
+  if (interactionPolicy().renderDeferred) {
     _deferredPlaylistUpdate = true;
     return;
   }
@@ -974,7 +1012,7 @@ function installDomDelegation(list: HTMLElement): void {
       }
       // While tracks are being picked, the rest of the row picks it too
       // instead of playing it.
-      const picking = _removalController?.isActive;
+      const picking = playlistInteraction().selection;
       const select =
         target.closest('[data-action="select"]') ??
         (picking ? target.closest('.track-item')?.querySelector('[data-action="select"]') : null);
@@ -1091,10 +1129,10 @@ function createReorderController(
       visiblePlaylistItems(getState('playlist.items')).length > 1,
     // In edit mode the number column is for picking, and a long press moves
     // the held track. Outside it a long press starts edit mode with that track.
-    canUseHandle: () => !_removalController?.isActive,
-    canTakeLongPress: () => canRemoveRows() && !_removalController?.isActive,
+    canUseHandle: () => interactionPolicy().handleUsable,
+    canTakeLongPress: () => interactionPolicy().longPressStartsSelection,
     onLongPress: (queueItemId) => {
-      if (!_removalController || _removalController.isActive || !canRemoveRows()) return false;
+      if (!_removalController || !interactionPolicy().longPressStartsSelection) return false;
       _removalController.toggle(queueItemId as QueueItemId);
       return true;
     },
@@ -1132,7 +1170,7 @@ function createReorderController(
 }
 
 function schedulePlaylistUpdate(): void {
-  if (_reorderController?.isActive) {
+  if (interactionPolicy().renderDeferred) {
     _deferredPlaylistUpdate = true;
     return;
   }
@@ -1146,7 +1184,7 @@ function schedulePlaylistUpdate(): void {
 }
 
 function updateSubPlaylistUI(): void {
-  if (_reorderController?.isActive) {
+  if (interactionPolicy().renderDeferred) {
     _deferredPlaylistUpdate = true;
     return;
   }
@@ -1242,9 +1280,9 @@ export function initPlaylistView(): void {
   };
 
   _busScope.on('state:playlist.items', () => {
-    if (_reorderController?.isActive && !_reorderController.isSettling) {
-      _reorderController.cancel();
-    }
+    // A drag can no longer trust its rows, but a drop settle already sent its
+    // commit and keeps the rows until it ends.
+    if (playlistInteraction().reorder === 'gesture') _reorderController?.cancel();
     schedulePlaylistUpdate();
   });
   _busScope.on('state:playlist.currentQueueItemId', schedulePlaylistUpdate);
@@ -1252,8 +1290,7 @@ export function initPlaylistView(): void {
   _busScope.on('state:youtube.subItemsMap', updateSubPlaylistUI);
   _busScope.on('playlist:refresh-requested', schedulePlaylistUpdate);
   _busScope.on('state:network.hostConn', () => {
-    _reorderController?.cancel();
-    _removalController?.cancel();
+    cancelQueueInteractions();
     schedulePlaylistUpdate();
   });
   _busScope.on('state:network.isOperator', (isOperator) => {
@@ -1261,17 +1298,11 @@ export function initPlaylistView(): void {
     // room.context. Re-render from the capability source itself so queue edit
     // controls appear immediately on grant and an in-flight edit is cancelled
     // immediately on revoke.
-    if (!isOperator || !canEditQueueStructure()) {
-      _reorderController?.cancel();
-      _removalController?.cancel();
-    }
+    if (!isOperator || !canEditQueueStructure()) cancelQueueInteractions();
     schedulePlaylistUpdate();
   });
   _busScope.on('state:network.standardRoomCapabilities', () => {
-    if (!canEditQueueStructure()) {
-      _reorderController?.cancel();
-      _removalController?.cancel();
-    }
+    if (!canEditQueueStructure()) cancelQueueInteractions();
     schedulePlaylistUpdate();
   });
   _busScope.on('state:room.context', () => {
@@ -1291,10 +1322,7 @@ export function initPlaylistView(): void {
     // Snapshot revision pulses and unrelated capability updates do not own an
     // in-progress queue interaction. Invalidate it only when its room changes
     // or the user actually loses structural-edit authority.
-    if (roomChanged || editAuthorityLost) {
-      _reorderController?.cancel();
-      _removalController?.cancel();
-    }
+    if (roomChanged || editAuthorityLost) cancelQueueInteractions();
     if (roomChanged || queueEditBoundary.canEdit !== nextBoundary.canEdit) {
       schedulePlaylistUpdate();
     }
@@ -1364,8 +1392,7 @@ export function initPlaylistView(): void {
     if (role === 'idle') {
       _followController?.reset();
       _expansionOverrides.clear();
-      _reorderController?.cancel();
-      _removalController?.cancel();
+      cancelQueueInteractions();
       _currentJumpController?.refresh();
     }
   });

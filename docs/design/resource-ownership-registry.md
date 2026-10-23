@@ -1307,11 +1307,16 @@ RO-46 accepted-exception
   auto-scroll (`src/ui/playlist-selection-gestures.ts`); follow and current-jump; the custom
   scrollbar drag; the render's scroll restore. The three lazy controllers share
   `src/ui/playlist-motion.ts` (lazy; listed with the build's deferred modules) for the edge
-  auto-scroll, the row easing and the reduced-motion check. `src/ui/playlist-view.ts`
-  orchestrates by polling the controllers and pairing their cancels.
-- **Target single owner:** one interaction gate in `playlist-view.ts` with a shared lazy motion
-  module (planned `src/ui/playlist-motion.ts`); controllers keep their gesture-private state.
-- **Allowed requesters:** the controllers above, through the gate.
+  auto-scroll, the row easing and the reduced-motion check. `src/ui/playlist-view.ts` holds the
+  interaction gate: `playlistInteraction()` derives one state from both controllers (the reorder
+  is idle, in a gesture or settling a drop, and separately the selection is on or off, because an
+  edit-mode long press drags while the selection stays), `interactionPolicy()` answers render
+  deferral, follow blocking, handle use and what a long press does, and
+  `cancelQueueInteractions()` ends both.
+- **Target single owner:** one interaction gate in `playlist-view.ts` with the shared lazy motion
+  module `src/ui/playlist-motion.ts`; controllers keep their gesture-private state.
+- **Allowed requesters:** the controllers above, through the gate; room, authority and session
+  events cancel through `cancelQueueInteractions()`.
 - **Lifecycle operations:** move rows, animate, scroll, defer or force a render, cancel.
 - **Deadline owner:** each controller's settle and glide timing.
 - **Timing-constant home:** `src/ui/playlist-motion.ts`: the edge auto-scroll zone, arming and
@@ -1327,11 +1332,12 @@ RO-46 accepted-exception
   - Shared motion: `src/ui/__tests__/playlist-motion.test.ts` "takes the same steps toward each
     edge of the pane visible above the bottom nav" (reorder drag and check-column drag).
   - Supersession: `src/ui/__tests__/playlist-view.test.ts` "keeps an active PRO reorder mounted
-    through revision-only context pulses".
+    through revision-only context pulses" and "defers renders while an edit-mode drag runs
+    instead of dropping it".
   - User pause/stop: `src/ui/__tests__/playlist-reorder.test.ts` "cancels an active drag on Escape
     without changing order".
   - Teardown: `playlist-view.test.ts` "cancels a PRO deletion task on authority loss or
-    room-incarnation replacement".
+    room-incarnation replacement" and "cancels the drag and the selection together on ...".
   - Visibility: missing.
   - Missing: Delete tapped during a reorder drop settle.
 - **Status:** `duplicated`. Phase 2 (motion module, interaction gate, the delete-during-settle

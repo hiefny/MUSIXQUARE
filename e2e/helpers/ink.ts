@@ -26,11 +26,28 @@ interface DevicePixelBox {
 }
 
 /**
- * Moves a relatively positioned element so its box starts on whole device
- * pixels. Text snaps to the pixel grid and vector icons do not, so a
- * fractional position alone can put their ink half a pixel apart.
+ * Waits until the element stops moving (a drawer may still be sliding in),
+ * then moves it so its box starts on whole device pixels. Text snaps to the
+ * pixel grid and vector icons do not, so a fractional position alone can
+ * put their ink half a pixel apart.
  */
 export async function snapToDevicePixels(target: Locator): Promise<void> {
+  await target.evaluate(
+    (element) =>
+      new Promise<void>((resolve) => {
+        let previous = '';
+        let stillFrames = 0;
+        const check = () => {
+          const box = element.getBoundingClientRect();
+          const current = `${box.x},${box.y},${box.width},${box.height}`;
+          stillFrames = current === previous ? stillFrames + 1 : 0;
+          previous = current;
+          if (stillFrames >= 5) resolve();
+          else requestAnimationFrame(check);
+        };
+        requestAnimationFrame(check);
+      }),
+  );
   await target.evaluate((element) => {
     const style = (element as HTMLElement).style;
     style.top = '';

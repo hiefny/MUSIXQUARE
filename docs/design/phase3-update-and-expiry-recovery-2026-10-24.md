@@ -2,10 +2,10 @@
 
 | 항목 | 범위 |
 | --- | --- |
-| 기준 | `f5bcafec` (9.0.4 배포 기록 main) |
+| 기준 | `f5bcafec` (9.0.4 배포 기록 main). 리뷰 반영 라운드는 main `08003954`(문서만)를 합친 트리 |
 | 상태 | PR 후보. 오너 결정에 따라 Phase 3와 함께 배포하며, 이 증분의 단독 배포는 하지 않는다. |
-| 현재 증분 | 일반방의 명시적 만료 뒤 자동 신호 재접속 중단, 기존 재생 보존, 내부 진단 세분화 |
-| 제품 식별 | 이 증분은 `9.0.5` / `v773`. Phase 3 후속 증분은 릴리스 식별 가드에 따라 올리고 최종 배포 값을 여기에 갱신한다. |
+| 현재 증분 | 일반방의 명시적 만료 뒤 자동 신호 재접속 중단, 기존 재생 보존, 내부 진단 세분화, 6렌즈 리뷰 반영(새 입장의 재접속 표시, 안내 문구·용어, 초대 버튼 상태 표시, 진단 종료 사유) |
+| 제품 식별 | 이 증분은 `9.0.5` / `v774`. 9.0.5는 아직 배포하지 않았으므로 리뷰 반영 뒤 SemVer는 그대로 두고 SW 캐시 epoch만 v773에서 v774로 올렸다. Phase 3 후속 증분은 릴리스 식별 가드에 따라 올리고 최종 배포 값을 여기에 갱신한다. |
 | 환경 | Windows 로컬, Node 24.20.0 / npm 12.0.2, fake WebSocket/WebRTC·Worker 및 jsdom 검사 |
 | 운영 | 이 보고서의 후보는 배포하지 않았다. 실제 기기·운영 장애 주입은 미실행이다. |
 
@@ -35,19 +35,51 @@ SW 업데이트 경로 증분의 완료나 검증을 주장하지 않는다. 후
 명시적 만료를 받은 게스트는 자동으로 새 방에 입장하지 않는다. 살아 있는 이전 RTC는
 유지하고 새 입장은 사용자 선택으로 한다. 같은 코드는 같은 방 생명주기를 보장하지 않는다.
 
+**새 입장은 재접속(오너 결정 2026-10-24):** 만료 안내의 "새로 입장"은 방의 `/CODE` 시작
+화면으로 돌아가며 재접속 표시(`reconnect: true`)를 남긴다. `HOST_DISCONNECTED` 재연결과
+SW 업데이트 복귀가 쓰는 것과 같은 처리다. 만료는 방장이 유예 시간을 넘겨 없었다는 뜻이므로,
+시작 화면에서 입장했는데 방장이 아직 없으면 "코드를 다시 확인해 주세요"가 아니라
+`error.host_left`("방장이 세션을 종료한 것 같아요")를 보인다. 계정 활동 통계는 이 입장을
+새 세션이 아니라 이어지는 세션으로 센다. 시작 화면에서 사용자가 한 번 눌러야 입장하는
+흐름은 그대로다.
+
+**안내 문구와 표시(오너 결정 2026-10-24):**
+
+- 한국어 초대 버튼·대화상자 제목은 동작이 아닌 상태로 읽히도록 "방 연결이 끝났어요"로 바꿨다.
+- 안내 본문의 마지막 문장은 42개 언어 모두 "새로 입장하면 현재 세션과 연결이 끊어지고 재생이
+  멈춰요"의 뜻으로, 각 언어의 `dialog.return_home_detail` 표현을 그대로 써서 고쳤다. 고정된
+  "현재 재생은 유지돼요"와 "새로 입장"은 바꾸지 않았다.
+- 파일의 기존 용어에 맞췄다: fr salon, it Rientra, ro Intră din nou, uk Приєднатися знову·
+  Повторне приєднання, pa ਰੂਮ, kn ರೂಮ್, fil kuwarto, gu પ્લેબૅક. gu의 "새로 입장" 버튼은
+  "다시 연결" 버튼과 같은 문구였으므로 `રૂમમાં ફરી જોડાઓ`로 구분했다.
+- 만료 상태의 초대 버튼은 오너가 고른 중립 회색 표시를 유지한다. 대신 복사 모드의 라이트 테마
+  hover·active 규칙과 터치 기기의 hover 해제 규칙에 `data-mode='expired'`를 같은 specificity로
+  더했다. 라이트 테마 hover에서 글자 대비가 약 4.15:1로 AA 기준에 못 미치던 문제와, 터치
+  기기에서 안내를 닫은 뒤 hover 배경이 남던 문제가 없어지고 복사 모드와 같게 보인다.
+
 ### 내부 진단
 
 - 클라이언트의 기존 소켓 진단에 허용 목록의 종료 사유, 최초 입장/복구 구간, RTC 생존,
   자동 재시도 차단 사유를 추가한다. 임의의 종료 문자열·방 코드·계정·PIN·인증 토큰을
   새 진단 필드에 싣지 않는다. 기존 로컬 진단 보존 정책을 사용한다.
+- 허용 목록은 `ROOM_EXPIRED`, `PRO_ROOM_EPOCH_ADVANCED`, `HOST_REPLACED`, `GUEST_REPLACED`다.
+  리뷰 전 목록의 `PRO_COORDINATOR_EPOCH_ADVANCED`는 2026-07-20 이후 어떤 Worker도 보내지
+  않는 이름이라 실제 이름으로 바꿨다. 소스 parity 테스트가 목록의 모든 사유를 signaling
+  Worker의 `1012` 종료 사유와 대조한다. 진단 전용이며, 만료 판정과 PRO epoch 처리기의 비교문은
+  그대로다. Standard `1012` 사유 3개(`STANDARD_ROOM_AUTHORITY_STALE`,
+  `GUEST_AUTH_RETRY_REQUIRED`, `SERVICE_MAINTENANCE`)는 초기 묶음에서 79 B(gzip)가 들어
+  여유를 지키려고 넣지 않았고 `unknown`으로 남는다.
 - 기존 `guest_host_unavailable` 총합을 유지하고 `reclaim_grace`, `host_auth_pending`,
   `no_active_host` 세 상태로 나눈다. 합계와 하위 상태는 한 D1 upsert로 함께 기록한다.
   DB 요청 수는 같지만 하위 상태 행의 기록량은 추가된다.
 - 기존 방 정리 경로가 성공한 뒤 `standard_room_expired`를 한 번 기록한다. 게스트 수나
   장애 사용자 수를 뜻하지 않는다. 기존 비동기·best-effort 집계 정책을 유지한다.
 - 새 이벤트는 관리자 API의 기존 24시간·시간별·일별 집계에 포함된다. 현재 Signals 카드의
-  Host missing 합계는 유지한다. 세부 이벤트 정의와 읽을 위치는
-  [운영 지침](../../cloudflare/admin-dashboard-ops.md)에 기록한다.
+  Host missing 합계는 유지한다. 세부 이벤트 정의와 읽을 위치(`/api/admin/metrics` JSON의
+  `summary`, D1 `mxqr_metric_buckets`)는 [운영 지침](../../cloudflare/admin-dashboard-ops.md)에
+  기록했다. 같은 지침은 이벤트 목록을 22개로 고치고, `guest_host_unavailable`을 admission
+  시점에 거절된 새 게스트 연결로 좁혀 적었다. 인증 대기 중 방장이 사라져 거절된 경우는
+  이전처럼 집계하지 않는다.
 
 새 D1 스키마·바인딩·비밀·주기적 클라이언트 통신은 없다. 서버 상태 분류는 의도적 종료와
 네트워크 장애를 확정하지 않으며, 고유 사용자·고유 영향 방 수를 산출하지 않는다. 변경 전
@@ -73,24 +105,48 @@ npm 12.0.2다.
 | --- | --- |
 | Transport 회귀 | 2파일 218 tests PASS. WSS·HTTPS 명시적 만료, 기존 RTC 보존, 일반 단절·PRO 제외, 늦은 이벤트, 새 입장, 대기·후발 ICE 후보 취소와 일반 오류 보존. 최종 파일 내용으로 검증 후 위 SHA에 기록했다. |
 | Peer·health·UI·번역 | 4파일 180 tests PASS. 예약된 retry/grace 취소, 수동·foreground·늦은 이벤트 차단, 재생·시스템 오디오 상태 보존, 명시적 새 입장, 42개 언어 키. |
-| Worker·관리자 API | 2파일 597 tests PASS 후 마지막 게스트 종료 회귀를 추가한 Worker 318 tests PASS. 기존 합계와 세부 상태의 같은 upsert, 만료 정리 후 1회 집계, 관리자 API allowlist를 검증했다. |
+| Worker·관리자 API | 최종 파일 내용으로 app-worker-cors 280 + signaling-worker 318 = 598 tests PASS(리뷰가 같은 런타임의 `e63aae43`에서 재확인). 처음 기록한 597은 마지막 게스트 종료 회귀를 추가하기 전 트리다. 기존 합계와 세부 상태의 같은 upsert, 만료 정리 후 1회 집계, 관리자 API allowlist를 검증했다. |
 | 타입·정적 검사 | 전체 typecheck·lint·format PASS. 수정한 Worker의 후속 타입 검사, Transport의 후속 lint·format도 PASS. import graph, dead exports, bus pairing, resource ownership, navigation, lifecycle, Standard hot path, D1·ops 계약 가드 PASS. |
 | 프로덕션 빌드 | 위 SHA의 `build:checked` PASS. 초기 JS 479.7 KiB gzip, 초기 전체 556.4 KiB gzip으로 예산과 최소 여유 5% 유지. 캐시 epoch와 bootstrap 경로는 함께 v773이다. |
 | Chromium 기존 재생·연결 | 위 SHA에서 `build:e2e` 후 playback-sync·reconnection 9/9 PASS. 재생·일시정지, 재생목록 동기화, 게스트 종료 뒤 호스트 상태 보존, 새 게스트 입장과 명시적 나가기. 로컬 PeerJS 기반이므로 운영 Cloudflare 만료의 실기기 검증은 아니다. |
-| PR CI | [PR #471](https://github.com/hiefny/MUSIXQUARE/pull/471)의 최종 head checks를 따른다. 로컬·PR 결과는 배포 시 필요한 exact-main-SHA CI 후보를 대신하지 않는다. |
+| PR CI | [PR #471](https://github.com/hiefny/MUSIXQUARE/pull/471) head `e63aae43`의 [CI 40003267959](https://github.com/hiefny/MUSIXQUARE/actions/runs/40003267959) 11/11 jobs success. 리뷰 반영 뒤 head는 다시 CI를 받는다. 로컬·PR 결과는 배포 시 필요한 exact-main-SHA CI 후보를 대신하지 않는다. |
 
 명시적 만료 자체의 검증은 fake WebSocket/WebRTC·Worker와 jsdom 기반이다. 실제 기기의
 음향 연속성, 운영 WSS·HTTPS·백그라운드 조합은 SKIP이며 아래 배포 전 확인 범위로 남긴다.
 
+## 초기 JS 예산
+
+실제 빌드로 잰 초기 JS(gzip)는 main 490,339 B에서 이 PR 491,227 B로 888 B 늘었다. 유지 상한
+491,568 B(517,440 B의 95%)까지 341 B가 남고, 9.0.4 이후 남아 있던 여유의 약 72%를 이 증분이
+썼다. 초기 전체는 상한 570,570 B까지 804 B 남는다. 리뷰 반영 뒤 값은 QA 라운드 3에 적는다.
+
+앞으로 들어올 Phase 3 증분(SW 업데이트 경로의 `sw-register.ts`, 각진 선택 표시의
+`selection-mark.ts`)은 모두 초기 묶음에 들어간다. Phase 3 증분은 이 여유로 측정하며, 넘으면
+줄이기 또는 [측정 기준 재설정](initial-bundle-loading-policy.md#reconsideration-criteria)을
+오너가 정한다. 상한을 조금만 넘어도 `build:checked`가 "Initial transfer budget exceeded"로
+실패하므로, 묶은 빌드의 `build:checked`를 다음 증분 착수 전에 잰다.
+
 ## 배포·회복
 
-Phase 3 전체의 App·signaling 변경을 포함하는 대상과 exact-main CI 후보를 최종 확인한다.
+배포 대상은 target `all`만 가능하다. 이 증분은 App 런타임 입력(`src`, `browser`, App Worker,
+`package.json`, SW 캐시)과 signaling 런타임 입력(`cloudflare/signaling-worker.ts`)을 함께
+바꾼다. 그래서 부분 게이트(`verifyPartialReleaseCompatibility`)가 app 단독과 signaling 단독을
+첫 배포 단계 전에 거부하고, `release.yml`에는 app+signaling 조합이 없다. 순서는 `all`의 표준
+순서인 PRO room → remote-share → signaling → Developer API → App이다. Phase 3의 SW 업데이트
+증분도 같은 Release 실행에 싣는다. 업데이트 창이 뜨는 배포이므로 직전에 오너 확인이 필요하고,
+exact-main CI 후보는 배포 직전에 다시 확인한다.
+
+main에 머지된 뒤 Phase 3 전에 다른 배포가 필요해지면, exact-main 규칙과 부분 게이트 때문에 이
+증분을 함께 `all`로 보내거나 먼저 되돌려야 한다. 그때 어느 쪽인지는 오너가 정한다.
+
 이 변경만으로 PRO나 개발자 API의 새 계약은 생기지 않는다. 기존 릴리스 절차와 PRO·App
 forward floor를 그대로 따른다. 되돌릴 경우 이전 클라이언트 재시도와 기존 단일 집계가
-돌아오며, 추가한 집계 행은 남겨도 이전 코드가 무시한다.
+돌아오며, 추가한 집계 행은 남겨도 이전 코드가 무시한다. 되돌리는 커밋도 PWA 런타임 변경이라
+새 SW 캐시 bump가 필요하다.
 
 운영·실기기에서는 정상 재생 중 명시적 만료, 일반 네트워크 단절, 만료 뒤 foreground 복귀,
-WSS·HTTPS 종료 이유 전달, 안내 확인과 명시적 새 입장을 확인해야 한다. 운영 데이터나
+WSS·HTTPS 종료 이유 전달, 안내 확인과 명시적 새 입장(방장이 없을 때 "방장이 세션을 종료한
+것 같아요" 문구 포함), `/api/admin/metrics`의 새 카운터 4개를 확인해야 한다. 운영 데이터나
 서비스에 장애를 주입하는 검사는 이번 로컬 검증에 포함하지 않았다.
 
 관련 계약: [신호 생존과 복구](signaling-liveness.md#explicit-standard-room-expiry),

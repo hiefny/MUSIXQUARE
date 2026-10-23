@@ -9,10 +9,16 @@ Worker owns operator/admin registry mutations and the bounded operator audit;
 the PRO Worker writes activation, suspension, decommission, and generation
 history projections for its room lifecycle.
 
-The checked-in database identity, schema, binding consumers, and 17-event
-inventory were last reconciled with the current Worker sources on 2026-08-17.
-App 8.10.0 adds an 18th event, `guest_auth_rate_limited`, which the Operations
-view shows as "Password lockouts" in its Signals panel.
+The checked-in database identity, schema and binding consumers were last
+reconciled with the current Worker sources on 2026-08-17. The event inventory
+is the 22 events in the table below (`ADMIN_METRIC_EVENTS` in the App Worker).
+App 8.10.0 added `guest_auth_rate_limited`, which the Operations view shows as
+"Password lockouts" in its Signals panel. App 9.0.5 adds the three
+`guest_host_unavailable_*` state details and `standard_room_expired`; the
+Operations view does not show these four, and its Signals panel keeps the "Host
+missing" total. Read them from the `summary` object of the `/api/admin/metrics`
+JSON (`last24`, `previous24`, `last7`, `hourly`, `daily`, `daily30`) or from
+`mxqr_metric_buckets` rows in D1.
 That source review is not proof of the live D1 table set; use the read-only drift
 query below before production schema maintenance.
 
@@ -111,7 +117,7 @@ Events:
 | `room_opened`                              | A host created a fresh room.                                                                                                          |
 | `host_reconnected`                         | A host reclaimed or refreshed an existing room.                                                                                       |
 | `guest_joined`                             | A guest successfully joined.                                                                                                          |
-| `guest_host_unavailable`                   | A guest tried to join while no admitted host socket was available; this does not identify why the host was absent.                    |
+| `guest_host_unavailable`                   | A new guest connection was rejected at admission because no admitted host socket was available; this does not identify why.           |
 | `guest_host_unavailable_reclaim_grace`     | The host-missing attempt arrived while the room retained its host secret and its host-reclaim deadline was still in the future.       |
 | `guest_host_unavailable_host_auth_pending` | No reclaim grace remained, but a live host socket was still within its authentication deadline; it need not be the room's owner.      |
 | `guest_host_unavailable_no_active_host`    | Neither of the above states applied. An unused code, an expired room and other missing-host states are not distinguished.             |
@@ -140,6 +146,10 @@ details share one atomic D1 upsert. Reclaim grace takes precedence over pending
 host authentication. These details describe the state at the rejected attempt,
 not a confirmed network failure or an intentional room exit. They start only
 with the deploying version; historical totals have no inferred breakdown.
+Only the admission check counts. A guest that passed admission and is still
+authenticating (its reconnect secret, and the room password when one is set) is
+also rejected with `HOST_NOT_AVAILABLE` if the host leaves before that finishes,
+but that rejection adds to neither the total nor a detail.
 The existing room lifecycle records `standard_room_expired` only after its
 durable epoch reset succeeds, so another cleanup pass does not count it again.
 The metric itself remains best effort and can be lost on a metrics write failure.
@@ -374,7 +384,7 @@ https://musixquare.com/admin
 - The same scheduled event independently retains 365 days of PRO admin audit
   metadata. Audit cleanup failure does not cancel metrics cleanup or Soro
   refresh and never weakens claim issuance auditing.
-- Historical event names that are no longer in the 17-event inventory are
+- Historical event names that are no longer in the current event inventory are
   ignored by current dashboard summaries. Keep them only while their audit
   value is useful.
 

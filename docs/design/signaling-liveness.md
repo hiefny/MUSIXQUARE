@@ -74,10 +74,20 @@ new admission, not an automatic recovery of the expired room. It intentionally
 gives up the old automatic retry opportunity when a host returns only after the
 120-second reclaim grace and creates another room at the same public code.
 
+Entering again returns to the room's Start screen marked as a reconnect (owner
+decision, 2026-10-24), like the `HOST_DISCONNECTED` reconnect and the
+service-worker update return. Expiry means the host stayed away past its grace,
+so if the host is still missing the join fails with "host left" rather than
+asking the user to check a code they never typed. Account activity statistics
+count the entry as a continuing session, as they do for those two returns.
+
 Internal diagnostics retain only recognized close reasons, recovery phase and
 whether a data connection survived. Unrecognized reason text is not copied into
-diagnostics. The server's aggregate host-missing subcounters describe observed
-host state, not user intent or network root cause. See the
+diagnostics. The recognized list names reasons the signaling Worker sends with
+`1012`, pinned by a source parity test; other real Worker reasons stay
+`unknown` while the list lives in the eager bundle. The server's aggregate
+host-missing subcounters describe observed host state, not user intent or
+network root cause. See the
 [Phase 3 evidence](phase3-update-and-expiry-recovery-2026-10-24.md) and
 [admin metric definitions](../../cloudflare/admin-dashboard-ops.md).
 

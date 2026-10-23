@@ -1,13 +1,13 @@
 # Phase 3 배포 묶음 — 업데이트 경로와 일반방 만료 복구 (2026-10-24)
 
-| 항목 | 범위 |
-| --- | --- |
-| 기준 | `f5bcafec` (9.0.4 배포 기록 main). 리뷰 반영 라운드는 main `08003954`(문서만)를 합친 트리 |
-| 상태 | PR 후보. 오너 결정에 따라 Phase 3와 함께 배포하며, 이 증분의 단독 배포는 하지 않는다. |
-| 현재 증분 | 일반방의 명시적 만료 뒤 자동 신호 재접속 중단, 기존 재생 보존, 내부 진단 세분화, 6렌즈 리뷰 반영(새 입장의 재접속 표시, 안내 문구·용어, 초대 버튼 상태 표시, 진단 종료 사유) |
-| 제품 식별 | 이 증분은 `9.0.5` / `v774`. 9.0.5는 아직 배포하지 않았으므로 리뷰 반영 뒤 SemVer는 그대로 두고 SW 캐시 epoch만 v773에서 v774로 올렸다. Phase 3 후속 증분은 릴리스 식별 가드에 따라 올리고 최종 배포 값을 여기에 갱신한다. |
-| 환경 | Windows 로컬, Node 24.20.0 / npm 12.0.2, fake WebSocket/WebRTC·Worker 및 jsdom 검사 |
-| 운영 | 이 보고서의 후보는 배포하지 않았다. 실제 기기·운영 장애 주입은 미실행이다. |
+| 항목      | 범위                                                                                                                                                                                                                                                |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 기준      | `f5bcafec` (9.0.4 배포 기록 main). 리뷰 반영 라운드는 main `08003954`(문서만)를 합친 트리이고, 검증 중 `717d32d4`(#472, Worker만)도 `b2ebcb09`로 합쳤다(QA 라운드 3의 main 합침). main에 들어간 `b19eca9f`는 `7d6c60d6`(#473, 문서만)까지 포함한다. |
+| 상태      | PR 후보. 오너 결정에 따라 Phase 3와 함께 배포하며, 이 증분의 단독 배포는 하지 않는다.                                                                                                                                                               |
+| 현재 증분 | 일반방의 명시적 만료 뒤 자동 신호 재접속 중단, 기존 재생 보존, 내부 진단 세분화, 6렌즈 리뷰 반영(새 입장의 재접속 표시, 안내 문구·용어, 초대 버튼 상태 표시, 진단 종료 사유)                                                                        |
+| 제품 식별 | 이 증분은 `9.0.5` / `v774`. 9.0.5는 아직 배포하지 않았으므로 리뷰 반영 뒤 SemVer는 그대로 두고 SW 캐시 epoch만 v773에서 v774로 올렸다. Phase 3 후속 증분은 릴리스 식별 가드에 따라 올리고 최종 배포 값을 여기에 갱신한다.                           |
+| 환경      | Windows 로컬, Node 24.20.0 / npm 12.0.2, fake WebSocket/WebRTC·Worker 및 jsdom 검사                                                                                                                                                                 |
+| 운영      | 이 보고서의 후보는 배포하지 않았다. 실제 기기·운영 장애 주입은 미실행이다.                                                                                                                                                                          |
 
 이 문서는 Phase 3의 같은 배포에 실리는 증분과 QA를 함께 기록한다. 아직 작업하지 않은
 SW 업데이트 경로 증분의 완료나 검증을 주장하지 않는다. 후속 Phase 3 증분은 같은 보고서에
@@ -101,15 +101,15 @@ SW 업데이트 복귀가 쓰는 것과 같은 처리다. 만료는 방장이 �
 결과를 적는 문서 커밋은 런타임을 바꾸지 않는다. 로컬 환경은 Windows, Node 24.20.0 /
 npm 12.0.2다.
 
-| 검사 | 결과와 범위 |
-| --- | --- |
-| Transport 회귀 | 2파일 218 tests PASS. WSS·HTTPS 명시적 만료, 기존 RTC 보존, 일반 단절·PRO 제외, 늦은 이벤트, 새 입장, 대기·후발 ICE 후보 취소와 일반 오류 보존. 최종 파일 내용으로 검증 후 위 SHA에 기록했다. |
-| Peer·health·UI·번역 | 4파일 180 tests PASS. 예약된 retry/grace 취소, 수동·foreground·늦은 이벤트 차단, 재생·시스템 오디오 상태 보존, 명시적 새 입장, 42개 언어 키. |
-| Worker·관리자 API | 최종 파일 내용으로 app-worker-cors 280 + signaling-worker 318 = 598 tests PASS(리뷰가 같은 런타임의 `e63aae43`에서 재확인). 처음 기록한 597은 마지막 게스트 종료 회귀를 추가하기 전 트리다. 기존 합계와 세부 상태의 같은 upsert, 만료 정리 후 1회 집계, 관리자 API allowlist를 검증했다. |
-| 타입·정적 검사 | 전체 typecheck·lint·format PASS. 수정한 Worker의 후속 타입 검사, Transport의 후속 lint·format도 PASS. import graph, dead exports, bus pairing, resource ownership, navigation, lifecycle, Standard hot path, D1·ops 계약 가드 PASS. |
-| 프로덕션 빌드 | 위 SHA의 `build:checked` PASS. 초기 JS 479.7 KiB gzip, 초기 전체 556.4 KiB gzip으로 예산과 최소 여유 5% 유지. 캐시 epoch와 bootstrap 경로는 함께 v773이다. |
-| Chromium 기존 재생·연결 | 위 SHA에서 `build:e2e` 후 playback-sync·reconnection 9/9 PASS. 재생·일시정지, 재생목록 동기화, 게스트 종료 뒤 호스트 상태 보존, 새 게스트 입장과 명시적 나가기. 로컬 PeerJS 기반이므로 운영 Cloudflare 만료의 실기기 검증은 아니다. |
-| PR CI | [PR #471](https://github.com/hiefny/MUSIXQUARE/pull/471) head `e63aae43`의 [CI 40003267959](https://github.com/hiefny/MUSIXQUARE/actions/runs/40003267959) 11/11 jobs success. 리뷰 반영 뒤 head는 다시 CI를 받는다. 로컬·PR 결과는 배포 시 필요한 exact-main-SHA CI 후보를 대신하지 않는다. |
+| 검사                    | 결과와 범위                                                                                                                                                                                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport 회귀          | 2파일 218 tests PASS. WSS·HTTPS 명시적 만료, 기존 RTC 보존, 일반 단절·PRO 제외, 늦은 이벤트, 새 입장, 대기·후발 ICE 후보 취소와 일반 오류 보존. 최종 파일 내용으로 검증 후 위 SHA에 기록했다.                                                                                                |
+| Peer·health·UI·번역     | 4파일 180 tests PASS. 예약된 retry/grace 취소, 수동·foreground·늦은 이벤트 차단, 재생·시스템 오디오 상태 보존, 명시적 새 입장, 42개 언어 키.                                                                                                                                                 |
+| Worker·관리자 API       | 최종 파일 내용으로 app-worker-cors 280 + signaling-worker 318 = 598 tests PASS(리뷰가 같은 런타임의 `e63aae43`에서 재확인). 처음 기록한 597은 마지막 게스트 종료 회귀를 추가하기 전 트리다. 기존 합계와 세부 상태의 같은 upsert, 만료 정리 후 1회 집계, 관리자 API allowlist를 검증했다.     |
+| 타입·정적 검사          | 전체 typecheck·lint·format PASS. 수정한 Worker의 후속 타입 검사, Transport의 후속 lint·format도 PASS. import graph, dead exports, bus pairing, resource ownership, navigation, lifecycle, Standard hot path, D1·ops 계약 가드 PASS.                                                          |
+| 프로덕션 빌드           | 위 SHA의 `build:checked` PASS. 초기 JS 479.7 KiB gzip, 초기 전체 556.4 KiB gzip으로 예산과 최소 여유 5% 유지. 캐시 epoch와 bootstrap 경로는 함께 v773이다.                                                                                                                                   |
+| Chromium 기존 재생·연결 | 위 SHA에서 `build:e2e` 후 playback-sync·reconnection 9/9 PASS. 재생·일시정지, 재생목록 동기화, 게스트 종료 뒤 호스트 상태 보존, 새 게스트 입장과 명시적 나가기. 로컬 PeerJS 기반이므로 운영 Cloudflare 만료의 실기기 검증은 아니다.                                                          |
+| PR CI                   | [PR #471](https://github.com/hiefny/MUSIXQUARE/pull/471) head `e63aae43`의 [CI 40003267959](https://github.com/hiefny/MUSIXQUARE/actions/runs/40003267959) 11/11 jobs success. 리뷰 반영 뒤 head는 다시 CI를 받는다. 로컬·PR 결과는 배포 시 필요한 exact-main-SHA CI 후보를 대신하지 않는다. |
 
 명시적 만료 자체의 검증은 fake WebSocket/WebRTC·Worker와 jsdom 기반이다. 실제 기기의
 음향 연속성, 운영 WSS·HTTPS·백그라운드 조합은 SKIP이며 아래 배포 전 확인 범위로 남긴다.
@@ -126,16 +126,16 @@ npm 12.0.2다.
 이후 이 표를 적는 문서 커밋은 런타임을 바꾸지 않는다. 환경은 Windows 로컬, Node 24.20.0 /
 npm 12.0.2, E2E는 로컬 Chromium·PeerJS(포트 4291/9131)다.
 
-| 검사 | 결과와 범위 |
-| --- | --- |
-| 타입·정적 검사 | `typecheck`, `lint`, `format:check`, `check:workers`(D1·ops 계약 포함) PASS. `check-resource-ownership` 46 records PASS(기준 수치 변화 없음), `guard:navigation-sinks` PASS(location navigation 6). |
-| 단위 전체 | `vitest run --maxWorkers=6` 643 files / 14,694 tests PASS, FAIL 0, SKIP 0. |
-| Worker 전체 | `vitest.workers.config.ts` 60 files / 2,888 tests PASS. 새 parity 테스트는 Worker 소스를 읽기만 하므로 단위 전체에서 돈다. |
-| 번역·연결 | `translations.test.ts`·`connect-i18n.test.ts` 2 files / 134 tests PASS. 안전 구분 테스트가 42개 언어 전체를 돌고, 열린 실패 대화상자가 같은 boundary에서 만료 대화상자로 바뀌는 테스트는 해당 분기를 지우면 실패함을 확인했다. |
-| 프로덕션 빌드 | `build:checked` 전체 PASS(가드 24개, `guard:sw-cache-version` "v774 (d4849257) covers all committed PWA runtime changes", legacy TV CSS 포함). 초기 JS 491,251 B gzip(PR 491,227 B 대비 +24 B, 유지 상한 491,568 B까지 317 B), 초기 전체 569,825 B(상한 570,570 B까지 745 B). Standard `1012` 사유 3개를 넣은 빌드는 491,310 B였다. |
-| Chromium | `build:e2e` 후 `test:e2e:critical` 59/59 PASS(adaptive-actions 포함), `e2e/adaptive-actions.test.ts` 단독 10/10 PASS(만료 라벨과 "새로 입장" 버튼을 42개 언어·RTL·320px·200% 글자에서 넘침 검사), playback-sync·reconnection 9/9 PASS. |
-| SKIP | 실제 기기, 운영 Cloudflare WSS·HTTPS 만료, 백그라운드 복귀, 새 입장에서 방장이 없을 때의 실제 문구, `/api/admin/metrics` 새 카운터는 배포 전 범위로 남긴다. 리뷰 반영 head의 PR CI는 아직 돌지 않았다. |
-| main 합침 | 검증 중 main이 `717d32d4`(#472, 토스 출처 신뢰 제거: Worker·스모크·테스트·문서만, PWA 런타임 변경 없음)로 나아가 `b2ebcb09`로 합쳤다. 충돌은 `docs/README.md`·`docs/release-record.md`의 항목 추가 위치뿐이라 두 항목을 모두 남겼다. `b2ebcb09`에서 typecheck·lint·format·`check:workers`·자원 소유(46)·이동 sink PASS, 단위 643 files / 14,699 tests PASS, Worker 60 files / 2,889 tests PASS, `build:checked` PASS(`sw-cache-version` v774 그대로), 초기 JS 491,251 B·초기 전체 569,825 B로 같다. 앱 묶음이 같으므로 E2E는 다시 돌리지 않았다. |
+| 검사           | 결과와 범위                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 타입·정적 검사 | `typecheck`, `lint`, `format:check`, `check:workers`(D1·ops 계약 포함) PASS. `check-resource-ownership` 46 records PASS(기준 수치 변화 없음), `guard:navigation-sinks` PASS(location navigation 6).                                                                                                                                                                                                                                                                                                                                              |
+| 단위 전체      | `vitest run --maxWorkers=6` 643 files / 14,694 tests PASS, FAIL 0, SKIP 0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Worker 전체    | `vitest.workers.config.ts` 60 files / 2,888 tests PASS. 새 parity 테스트는 Worker 소스를 읽기만 하므로 단위 전체에서 돈다.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 번역·연결      | `translations.test.ts`·`connect-i18n.test.ts` 2 files / 134 tests PASS. 안전 구분 테스트가 42개 언어 전체를 돌고, 열린 실패 대화상자가 같은 boundary에서 만료 대화상자로 바뀌는 테스트는 해당 분기를 지우면 실패함을 확인했다.                                                                                                                                                                                                                                                                                                                   |
+| 프로덕션 빌드  | `build:checked` 전체 PASS(가드 24개, `guard:sw-cache-version` "v774 (d4849257) covers all committed PWA runtime changes", legacy TV CSS 포함). 초기 JS 491,251 B gzip(PR 491,227 B 대비 +24 B, 유지 상한 491,568 B까지 317 B), 초기 전체 569,825 B(상한 570,570 B까지 745 B). Standard `1012` 사유 3개를 넣은 빌드는 491,310 B였다.                                                                                                                                                                                                              |
+| Chromium       | `build:e2e` 후 `test:e2e:critical` 59/59 PASS(adaptive-actions 포함), `e2e/adaptive-actions.test.ts` 단독 10/10 PASS(만료 라벨과 "새로 입장" 버튼을 42개 언어·RTL·320px·200% 글자에서 넘침 검사), playback-sync·reconnection 9/9 PASS.                                                                                                                                                                                                                                                                                                           |
+| SKIP           | 실제 기기, 운영 Cloudflare WSS·HTTPS 만료, 백그라운드 복귀, 새 입장에서 방장이 없을 때의 실제 문구, `/api/admin/metrics` 새 카운터는 배포 전 범위로 남긴다. 리뷰 반영 head의 PR CI는 아직 돌지 않았다.                                                                                                                                                                                                                                                                                                                                           |
+| main 합침      | 검증 중 main이 `717d32d4`(#472, 토스 출처 신뢰 제거: Worker·스모크·테스트·문서만, PWA 런타임 변경 없음)로 나아가 `b2ebcb09`로 합쳤다. 충돌은 `docs/README.md`·`docs/release-record.md`의 항목 추가 위치뿐이라 두 항목을 모두 남겼다. `b2ebcb09`에서 typecheck·lint·format·`check:workers`·자원 소유(46)·이동 sink PASS, 단위 643 files / 14,699 tests PASS, Worker 60 files / 2,889 tests PASS, `build:checked` PASS(`sw-cache-version` v774 그대로), 초기 JS 491,251 B·초기 전체 569,825 B로 같다. 앱 묶음이 같으므로 E2E는 다시 돌리지 않았다. |
 
 ## 초기 JS 예산
 

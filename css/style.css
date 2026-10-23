@@ -8425,9 +8425,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     cursor: pointer;
   }
 
+  /* The 32px target's centre, 16px down, is the centre of the header line's
+     digits and capitals (10px padding, 13px line), so the X sits level with
+     the time. public/editorial-design.css mirrors this notice geometry. */
   .chat-pinned-notice-dismiss {
     position: absolute;
-    top: 2px;
+    top: 0;
     right: 4px;
     width: 32px;
     height: 32px;
@@ -8445,11 +8448,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     left: 4px;
   }
 
+  /* Pretendard's 11px line in every locale: a label in a taller fallback
+     font centres in it instead of pushing the time below the X. */
   .chat-pinned-notice-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    height: 13px;
     margin-bottom: 4px;
   }
 

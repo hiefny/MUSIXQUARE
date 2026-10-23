@@ -360,6 +360,233 @@ describe('session reset coordinator', () => {
     window.removeEventListener('keydown', shortcutHandler);
   });
 
+  describe('exactly-once typed settlement (C6-4)', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: undefined,
+      });
+    });
+
+    it('settles a throwing action as failed, once, through onSettled and its onRecovered alias', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const handle = scheduleSessionReset('Broken', () => {
+        throw new Error('navigation failed');
+      });
+      const settled = vi.fn();
+      const recovered = vi.fn();
+      handle?.onSettled(settled);
+      handle?.onRecovered(recovered);
+
+      vi.advanceTimersByTime(120);
+      window.dispatchEvent(new Event('pagehide'));
+      window.dispatchEvent(new Event('pageshow'));
+      vi.advanceTimersByTime(10_000);
+
+      expect(settled.mock.calls).toEqual([['failed']]);
+      expect(recovered).toHaveBeenCalledOnce();
+      expect(isSessionResetPending()).toBe(false);
+    });
+
+    it.each([
+      ['the commit deadline', (_restore: () => void) => vi.advanceTimersByTime(120 + 2_000)],
+      [
+        'a return after pagehide',
+        (_restore: () => void) => {
+          vi.advanceTimersByTime(120);
+          window.dispatchEvent(new Event('pagehide'));
+          window.dispatchEvent(new Event('pageshow'));
+        },
+      ],
+      ['an explicit restore', (restore: () => void) => restore()],
+    ] as const)('settles %s as recovered, once', async (_name, run) => {
+      const { restoreSessionReset, scheduleSessionReset } = await loadCoordinator();
+      const handle = scheduleSessionReset('Leaving', vi.fn());
+      const settled = vi.fn();
+      handle?.onSettled(settled);
+
+      run(restoreSessionReset);
+      vi.advanceTimersByTime(10_000);
+      restoreSessionReset();
+
+      expect(settled.mock.calls).toEqual([['recovered']]);
+      // A subscriber that arrives after settlement hears the same outcome at once.
+      const late = vi.fn();
+      handle?.onSettled(late);
+      expect(late.mock.calls).toEqual([['recovered']]);
+    });
+
+    it('settles an action that restores its own reset once, and arms no deadline after it', async () => {
+      const { isSessionResetPending, restoreSessionReset, scheduleSessionReset } =
+        await loadCoordinator();
+      const events: string[] = [];
+      scheduleSessionReset('Stale owner', () => {
+        restoreSessionReset();
+        events.push(`action returned: pending=${isSessionResetPending()}`);
+      })?.onSettled((outcome) => events.push(`settled ${outcome}`));
+
+      vi.advanceTimersByTime(120);
+      const successor = vi.fn();
+      scheduleSessionReset('Successor', vi.fn())?.onSettled(successor);
+      // The stale action's would-be deadline (2 s after it) passes first.
+      vi.advanceTimersByTime(2_000);
+
+      expect(events).toEqual(['settled recovered', 'action returned: pending=false']);
+      expect(successor).not.toHaveBeenCalled();
+      expect(isSessionResetPending()).toBe(true);
+      vi.advanceTimersByTime(120);
+      expect(successor.mock.calls).toEqual([['recovered']]);
+    });
+
+    // Every order of the owner's inputs: animation frames, the 120 ms paint
+    // fallback, the 2 s commit deadline, pagehide and pageshow (persisted or
+    // not) and visibility. page-lifecycle is mocked, so its bfcache reload
+    // stays out; the harness pins that path. The model writes out today's
+    // rule: two frames or the fallback run the action once, pagehide commits,
+    // and only a return after the commit, or the deadline after the action,
+    // restores.
+    type Step =
+      | 'frame'
+      | 'fallback'
+      | 'deadline'
+      | 'pagehide'
+      | 'pagehide-persisted'
+      | 'pageshow'
+      | 'pageshow-persisted'
+      | 'visible'
+      | 'hidden';
+    const STEPS: readonly Step[] = [
+      'frame',
+      'fallback',
+      'deadline',
+      'pagehide',
+      'pagehide-persisted',
+      'pageshow',
+      'pageshow-persisted',
+      'visible',
+      'hidden',
+    ];
+
+    interface Model {
+      phase: 'painting' | 'navigating' | 'left' | 'idle';
+      frames: number;
+      now: number;
+      actionAt: number;
+      actions: number;
+    }
+
+    function advanceModel(model: Model, ms: number): void {
+      const target = model.now + ms;
+      if (model.phase === 'painting' && target >= 120) {
+        model.phase = 'navigating';
+        model.actions += 1;
+        model.actionAt = Math.max(model.now, 120);
+      }
+      if (model.phase === 'navigating' && target >= model.actionAt + 2_000) model.phase = 'idle';
+      model.now = target;
+    }
+
+    function stepModel(model: Model, step: Step): void {
+      if (step === 'frame') {
+        if (model.phase !== 'painting') return;
+        model.frames += 1;
+        if (model.frames === 2) {
+          model.phase = 'navigating';
+          model.actions += 1;
+          model.actionAt = model.now;
+        }
+      } else if (step === 'fallback') advanceModel(model, 120);
+      else if (step === 'deadline') advanceModel(model, 2_000);
+      else if (step.startsWith('pagehide')) {
+        if (model.phase === 'painting' || model.phase === 'navigating') model.phase = 'left';
+      } else if (step !== 'hidden' && model.phase === 'left') model.phase = 'idle';
+    }
+
+    /** Every pair, then a fixed pseudo-random walk, so every run checks the same orders. */
+    function sequences(count: number, length: number): Step[][] {
+      let seed = 0x6c0ffee;
+      const next = () => {
+        seed = (Math.imul(seed, 1_103_515_245) + 12_345) >>> 0;
+        return seed >>> 8;
+      };
+      const pairs = STEPS.flatMap((first) => STEPS.map((second): Step[] => [first, second]));
+      const walks = Array.from({ length: count }, () =>
+        Array.from({ length }, () => STEPS[next() % STEPS.length] as Step),
+      );
+      return [...pairs, ...walks];
+    }
+
+    it('settles at most once per attempt in any order, and is pending exactly until then', async () => {
+      const frames = new Map<number, FrameRequestCallback>();
+      let nextFrame = 1;
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: (callback: FrameRequestCallback) => {
+          frames.set(nextFrame, callback);
+          return nextFrame++;
+        },
+      });
+      Object.defineProperty(window, 'cancelAnimationFrame', {
+        configurable: true,
+        value: (id: number) => frames.delete(id),
+      });
+      const setVisibility = (state: DocumentVisibilityState) => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+      const { isSessionResetPending, restoreSessionReset, scheduleSessionReset } =
+        await loadCoordinator();
+      const failures: string[] = [];
+
+      try {
+        for (const sequence of sequences(400, 8)) {
+          setVisibility('visible');
+          frames.clear();
+          const model: Model = { phase: 'painting', frames: 0, now: 0, actionAt: 0, actions: 0 };
+          const action = vi.fn();
+          const outcomes: string[] = [];
+          scheduleSessionReset('Sequence', action)?.onSettled((outcome) => outcomes.push(outcome));
+
+          for (const [index, step] of sequence.entries()) {
+            if (step === 'frame') {
+              const due = [...frames.values()];
+              frames.clear();
+              for (const callback of due) callback(0);
+            } else if (step === 'fallback') vi.advanceTimersByTime(120);
+            else if (step === 'deadline') vi.advanceTimersByTime(2_000);
+            else if (step === 'visible' || step === 'hidden') setVisibility(step);
+            else {
+              const [type = '', persisted] = step.split('-');
+              window.dispatchEvent(
+                new PageTransitionEvent(type, { persisted: persisted === 'persisted' }),
+              );
+            }
+            stepModel(model, step);
+            if (isSessionResetPending() !== (model.phase !== 'idle')) {
+              const prefix = sequence.slice(0, index + 1).join(' > ');
+              failures.push(`${prefix}: pending=${isSessionResetPending()}, model ${model.phase}`);
+            }
+          }
+
+          const expected = model.phase === 'idle' ? ['recovered'] : [];
+          if (JSON.stringify(outcomes) !== JSON.stringify(expected)) {
+            failures.push(`${sequence.join(' > ')}: settled ${JSON.stringify(outcomes)}`);
+          }
+          if (action.mock.calls.length !== model.actions) {
+            failures.push(`${sequence.join(' > ')}: ${action.mock.calls.length} actions`);
+          }
+          restoreSessionReset();
+          vi.clearAllTimers();
+        }
+      } finally {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+
+      expect(failures).toEqual([]);
+    });
+  });
+
   describe('shared inert ownership with the modal stack', () => {
     async function loadModalStack(): Promise<typeof import('../../ui/dom.ts')> {
       // Same module registry as the coordinator, so both owners see one ledger.

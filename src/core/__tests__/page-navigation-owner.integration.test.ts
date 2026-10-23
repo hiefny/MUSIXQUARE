@@ -300,7 +300,7 @@ describe('(b) a reload queued behind another reload', () => {
 describe('settlement of one reset attempt', () => {
   // Coupled to (h): flipping this order so the reset reports idle before the
   // window release lets the Back guard re-arm there, which flips (h) too.
-  it('releases the windows while still pending, then reports idle with the exemption already cleared [owner decision / C6-4: keep or flip]', async () => {
+  it('releases the windows while still pending, then reports idle with the exemption already cleared [keeps: C6-4] [owner decision / C6-12: keep or flip]', async () => {
     const s = boot({ app: IN_ROOM });
     const seen: string[] = [];
     const snapshot = (where: string) =>
@@ -314,13 +314,14 @@ describe('settlement of one reset attempt', () => {
 
     await advance(COMMIT_DEADLINE_MS);
 
-    // restoreSessionReset (session-reset.ts:211-243): focus, the release handler
-    // (dom.ts re-derives the stack and notifies the Back guard), then the
-    // overlay hides, the reset reports idle, the exemption clears, and only
-    // then do per-attempt callbacks run. C6-4 keeps or flips this order: a
-    // flip (the critique's "commit the state first") reports idle before the
-    // window release, so the Back guard re-arms there, which is C6-12's
-    // intended change to pin (h); C6-4 and C6-12 ship together.
+    // settle() in session-reset.ts: focus, the release handler (dom.ts
+    // re-derives the stack and notifies the Back guard), then the overlay
+    // hides, the reset reports idle, the exemption clears, and only then do
+    // per-attempt callbacks run. C6-4 kept this order. C6-12 (owner decision 5:
+    // the guard re-arms after a recovered navigation) either flips it, so the
+    // reset reports idle before the window release and the Back guard re-arms
+    // there, or re-arms the guard from the pending-change event; either way it
+    // flips pin (h).
     expect(seen).toEqual([
       'overlay stack: pending=true overlayHidden=false prompts=false',
       'recovered: pending=false overlayHidden=true prompts=true',
@@ -363,10 +364,10 @@ describe('settlement of one reset attempt', () => {
   // that is not persisted does not reach a loaded document in a real engine.
   // 'pagehide' is a whole departure in the platform order (pagehide, then
   // visibilitychange(hidden)); 'visible' makes the document visible again.
-  // C6-4 still owes the full sequence: persisted pagehide and pageshow, the
-  // orders against the paint frames and the 120 ms fallback before the action,
-  // and the explicit restore from inside the action (pinned below as the
-  // runtime.ts shape).
+  // C6-4's full sequence test (persisted pagehide and pageshow, the paint
+  // frames and the 120 ms fallback before the action) is in
+  // session-reset.test.ts "exactly-once typed settlement"; the explicit restore
+  // from inside the action is pinned below as the runtime.ts shape.
   it.each(
     (['reset', 'reload'] as const).flatMap((kind) =>
       permutations(EVENTS).map((order) => [kind, order.join(' > '), order] as const),
@@ -400,9 +401,9 @@ describe('settlement of one reset attempt', () => {
 describe('the explicit restore: an action that restores its own reset', () => {
   // The pro-room/runtime.ts:3000-3006 and :3026-3033 shape: the action checks
   // that the terminal recovery owner is still current and, when it is not,
-  // calls restoreSessionReset() itself instead of navigating. C6-4 routes this
-  // explicit restore through settle(); it must stay the attempt's only settle,
-  // with no navigating phase or second settle after the action returns. C6-8
+  // calls restoreSessionReset() itself instead of navigating. C6-4 routed this
+  // explicit restore through settle(); it stays the attempt's only settle, with
+  // no navigating phase or second settle after the action returns. C6-8
   // replaces the shape with isCurrent(), where false at navigate restores the
   // page once.
   function scheduleOwnerCheckedReset(ownerIsCurrent: boolean, events: string[]): void {
@@ -505,8 +506,8 @@ describe('the failed exit: the navigation action throws', () => {
   // document-reload.ts:84-86 recovers the attempt and flushes the queue while
   // the reset still holds the page, so the queued reload meets the busy rule
   // (session-reset.ts:342-345) and is dropped as recovered; then the reset's
-  // catch (session-reset.ts:288-291) releases the page. C6-4 routes the throw
-  // through settle('failed'). With the critique's target order (commit the
+  // catch releases the page. C6-4 routed the throw through settle('failed').
+  // With the critique's target order (commit the
   // state, flush the queue, then callbacks) the queued reload would run
   // instead: that is the owner's busy-rule decision, not a silent C6-5 change.
   it('releases the page at once and drops a reload queued behind it as recovered, before the failing caller hears [keeps: C6-4, C6-5] [owner decision: reload busy rule]', async () => {

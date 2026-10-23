@@ -1141,7 +1141,9 @@ RO-47 owner-in-place
 
 - **Resource:** the page's own `location.reload`, `location.replace` and `location.href` writes.
 - **Current owners/flows:** the session reset in `src/core/session-reset.ts` (first request wins,
-  overlay, 2 s commit timeout, its own pagehide, pageshow and visibility listeners);
+  overlay, 2 s commit timeout, its own pagehide, pageshow and visibility listeners; since Phase 2
+  C6-4 one `PageNavigationState` whose every exit goes through one exactly-once `settle()` with a
+  typed outcome, `onSettled`, with `onRecovered` as its alias);
   `src/core/document-reload.ts` (claim phases, active attempt, FIFO queue), joined to the reset by
   `scheduleDocumentReload`, which reports a reload as recovered when a reset is already pending;
   stacked requester latches in `sw-register.ts`, `src/core/reload-recovery-latch.ts` and the

@@ -7,6 +7,12 @@
  * deferred until the browser has had a chance to paint the overlay. A native
  * timeout backs up requestAnimationFrame because background tabs may suspend
  * animation frames, and managed timers can be cleared by leaveSession().
+ *
+ * One state holds the page's navigation (PageNavigationState). Every way an
+ * attempt can end in this document goes through settle() exactly once: the
+ * action throwing ('failed'), the commit deadline, a return after pagehide and
+ * an explicit restore ('recovered'). A committed navigation never settles: the
+ * document is gone, or it comes back and the return settles it.
  */
 
 import { clearIntentionalNav, markIntentionalNav } from './page-lifecycle.ts';
@@ -29,29 +35,44 @@ const INTERACTION_EVENTS = [
   'wheel',
 ] as const;
 
-interface ResetAttempt {
-  actionStarted: boolean;
-  navigationCommitted: boolean;
-  recovered: boolean;
-  recoveryListeners: Set<() => void>;
-  fallbackTimer: number;
-  recoveryTimer: number;
-  animationFrames: number[];
-  inertElements: HTMLElement[];
+/** How an attempt ended while this document stayed alive. */
+type NavigationOutcome = 'recovered' | 'failed';
+
+interface NavigationAttempt {
+  readonly settledListeners: Set<(outcome: NavigationOutcome) => void>;
+  /** Set when settle() starts, so a re-entrant settle cannot run it twice. */
+  settling: boolean;
+  /** Set just before the listeners run; a later subscriber hears it at once. */
+  outcome: NavigationOutcome | null;
+  readonly timers: { paint: number; commit: number; frames: number[] };
+  readonly inertElements: HTMLElement[];
   previousFocus: HTMLElement | null;
 }
 
 /**
- * Exact ownership handle for one accepted reset request. Recovery listeners
+ * - painting: the overlay is up; the action waits for two frames or the
+ *   RESET_PAINT_FALLBACK_MS timeout.
+ * - navigating: the action ran; NAVIGATION_COMMIT_TIMEOUT_MS is running.
+ * - left: pagehide was seen. Only pageshow or a visible return settles it.
+ */
+type PageNavigationState =
+  | { readonly phase: 'idle' }
+  | { readonly phase: 'painting' | 'navigating' | 'left'; readonly attempt: NavigationAttempt };
+
+const IDLE: PageNavigationState = { phase: 'idle' };
+
+/**
+ * Exact ownership handle for one accepted reset request. Settled listeners
  * run only when this document restores that same attempt instead of leaving.
  * They intentionally stay silent once pagehide commits the navigation.
  */
 interface SessionResetHandle {
+  onSettled(listener: (outcome: NavigationOutcome) => void): () => void;
+  /** onSettled for listeners that do not need the outcome. */
   onRecovered(listener: () => void): () => void;
 }
 
-let _resetPending = false;
-let _activeAttempt: ResetAttempt | null = null;
+let _state: PageNavigationState = IDLE;
 let _releaseHandler: (() => void) | null = null;
 
 /**
@@ -82,31 +103,58 @@ function removeInteractionBlockers(): void {
   }
 }
 
-function markNavigationCommitted(): void {
-  const attempt = _activeAttempt;
-  if (!attempt) return;
-  attempt.navigationCommitted = true;
-  // pagehide can precede the deferred action when another navigation wins
-  // during the overlay paint. Cancel every pending trigger so a returned old
-  // document cannot issue the superseded hard navigation later.
-  window.clearTimeout(attempt.fallbackTimer);
-  window.clearTimeout(attempt.recoveryTimer);
+function cancelPaint(attempt: NavigationAttempt): void {
+  window.clearTimeout(attempt.timers.paint);
   if (typeof window.cancelAnimationFrame === 'function') {
-    for (const frame of attempt.animationFrames) window.cancelAnimationFrame(frame);
+    for (const frame of attempt.timers.frames) window.cancelAnimationFrame(frame);
   }
 }
 
+function cancelTimers(attempt: NavigationAttempt): void {
+  cancelPaint(attempt);
+  window.clearTimeout(attempt.timers.commit);
+}
+
+function markNavigationCommitted(): void {
+  if (_state.phase !== 'painting' && _state.phase !== 'navigating') return;
+  const { attempt } = _state;
+  _state = { phase: 'left', attempt };
+  // pagehide can precede the deferred action when another navigation wins
+  // during the overlay paint. Cancel every pending trigger so a returned old
+  // document cannot issue the superseded hard navigation later.
+  cancelTimers(attempt);
+}
+
 function restoreReturnedNavigation(): void {
-  const attempt = _activeAttempt;
-  if (!attempt?.navigationCommitted) return;
+  if (_state.phase !== 'left') return;
   // Safari may restore the old document after a navigation reached pagehide
   // but the replacement shell failed to commit. Do not leave that returned
   // document inert behind the full-viewport reset surface.
-  restoreSessionReset();
+  settle(_state.attempt, 'recovered');
 }
 
 function restoreReturnedVisibleNavigation(): void {
   if (document.visibilityState === 'visible') restoreReturnedNavigation();
+}
+
+function addReturnListeners(): void {
+  // beforeunload can still be cancelled by another listener or the browser.
+  // pagehide is the reliable boundary that this document actually left.
+  window.addEventListener('pagehide', markNavigationCommitted, true);
+  // A stalled iOS navigation can subsequently return the same document via
+  // pageshow, or only foreground it again. Either signal must make the old
+  // shell interactive instead of preserving a permanent reset screen.
+  // Keep this in the ordinary listener phase. page-lifecycle's earlier
+  // pageshow handler must get the first chance to replace a returned reset
+  // with its single bounded reload attempt.
+  window.addEventListener('pageshow', restoreReturnedNavigation, false);
+  document.addEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
+}
+
+function removeReturnListeners(): void {
+  window.removeEventListener('pagehide', markNavigationCommitted, true);
+  window.removeEventListener('pageshow', restoreReturnedNavigation, false);
+  document.removeEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
 }
 
 function ensureOverlay(): HTMLElement {
@@ -132,7 +180,7 @@ function ensureOverlay(): HTMLElement {
   return overlay;
 }
 
-function showResetOverlay(message: string, attempt: ResetAttempt): void {
+function showResetOverlay(message: string, attempt: NavigationAttempt): void {
   const overlay = ensureOverlay();
   const messageEl = overlay.querySelector<HTMLElement>(`#${MESSAGE_ID}`);
   if (messageEl) messageEl.textContent = message;
@@ -168,32 +216,21 @@ function showResetOverlay(message: string, attempt: ResetAttempt): void {
   }
 }
 
-/** Whether this document currently owns a blocking hard-reset attempt. */
-export function isSessionResetPending(): boolean {
-  return _resetPending;
-}
-
 /**
- * Restore an interactive document after an abandoned reset or bfcache return.
- * Safe to call repeatedly.
+ * Take the reset surface down: timers, inert claims, interaction blockers and
+ * return listeners, then focus, the window layer and the overlay. Runs while
+ * the attempt still reports pending; with no attempt it only clears leftovers.
  */
-export function restoreSessionReset(): void {
-  const attempt = _activeAttempt;
+function releaseResetSurface(attempt: NavigationAttempt | null): void {
   if (attempt) {
-    window.clearTimeout(attempt.fallbackTimer);
-    window.clearTimeout(attempt.recoveryTimer);
-    if (typeof window.cancelAnimationFrame === 'function') {
-      for (const frame of attempt.animationFrames) window.cancelAnimationFrame(frame);
-    }
+    cancelTimers(attempt);
     for (const element of attempt.inertElements) {
       setElementInertForOwner(element, INERT_OWNER, false);
     }
   }
 
   removeInteractionBlockers();
-  window.removeEventListener('pagehide', markNavigationCommitted, true);
-  window.removeEventListener('pageshow', restoreReturnedNavigation, false);
-  document.removeEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
+  removeReturnListeners();
 
   const overlay = document.getElementById(OVERLAY_ID);
   const previousFocus = attempt?.previousFocus;
@@ -225,22 +262,47 @@ export function restoreSessionReset(): void {
     overlay.removeAttribute('aria-busy');
   }
   document.documentElement.classList.remove('session-reset-pending');
+}
 
-  _activeAttempt = null;
-  _resetPending = false;
+/**
+ * End `attempt` in this document, at most once: release the surface (still
+ * pending), report idle with the unload exemption cleared, then tell the
+ * attempt's listeners how it ended.
+ */
+function settle(attempt: NavigationAttempt, outcome: NavigationOutcome): void {
+  if (_state.phase === 'idle' || _state.attempt !== attempt || attempt.settling) return;
+  attempt.settling = true;
+  releaseResetSurface(attempt);
+  _state = IDLE;
   clearIntentionalNav();
-  if (attempt) {
-    attempt.recovered = true;
-    const listeners = [...attempt.recoveryListeners];
-    attempt.recoveryListeners.clear();
-    for (const listener of listeners) {
-      try {
-        listener();
-      } catch (error) {
-        log.error('[SessionReset] Recovery listener failed:', error);
-      }
+  attempt.outcome = outcome;
+  const listeners = [...attempt.settledListeners];
+  attempt.settledListeners.clear();
+  for (const listener of listeners) {
+    try {
+      listener(outcome);
+    } catch (error) {
+      log.error('[SessionReset] Recovery listener failed:', error);
     }
   }
+}
+
+/** Whether this document currently owns a blocking hard-reset attempt. */
+export function isSessionResetPending(): boolean {
+  return _state.phase !== 'idle';
+}
+
+/**
+ * Restore an interactive document after an abandoned reset or bfcache return.
+ * Safe to call repeatedly.
+ */
+export function restoreSessionReset(): void {
+  if (_state.phase !== 'idle') {
+    settle(_state.attempt, 'recovered');
+    return;
+  }
+  releaseResetSurface(null);
+  clearIntentionalNav();
 }
 
 /**
@@ -251,75 +313,65 @@ export function scheduleSessionReset(
   message: string,
   action: () => void,
 ): SessionResetHandle | null {
-  if (_resetPending) return null;
-  _resetPending = true;
-  const attempt: ResetAttempt = {
-    actionStarted: false,
-    navigationCommitted: false,
-    recovered: false,
-    recoveryListeners: new Set(),
-    fallbackTimer: 0,
-    recoveryTimer: 0,
-    animationFrames: [],
+  if (_state.phase !== 'idle') return null;
+  const attempt: NavigationAttempt = {
+    settledListeners: new Set(),
+    settling: false,
+    outcome: null,
+    timers: { paint: 0, commit: 0, frames: [] },
     inertElements: [],
     previousFocus: null,
   };
-  _activeAttempt = attempt;
+  _state = { phase: 'painting', attempt };
   showResetOverlay(message, attempt);
-  // beforeunload can still be cancelled by another listener or the browser.
-  // pagehide is the reliable boundary that this document actually left.
-  window.addEventListener('pagehide', markNavigationCommitted, true);
-  // A stalled iOS navigation can subsequently return the same document via
-  // pageshow, or only foreground it again. Either signal must make the old
-  // shell interactive instead of preserving a permanent reset screen.
-  // Keep this in the ordinary listener phase. page-lifecycle's earlier
-  // pageshow handler must get the first chance to replace a returned reset
-  // with its single bounded reload attempt.
-  window.addEventListener('pageshow', restoreReturnedNavigation, false);
-  document.addEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
+  addReturnListeners();
 
-  const runOnce = () => {
-    if (_activeAttempt !== attempt || attempt.actionStarted || attempt.navigationCommitted) return;
-    attempt.actionStarted = true;
-    window.clearTimeout(attempt.fallbackTimer);
+  const runAction = () => {
+    if (_state.phase !== 'painting' || _state.attempt !== attempt) return;
+    _state = { phase: 'navigating', attempt };
+    cancelPaint(attempt);
     markIntentionalNav();
     try {
       action();
     } catch (error) {
-      restoreSessionReset();
+      settle(attempt, 'failed');
       log.error('[SessionReset] Hard-navigation action failed:', error);
       return;
     }
+    // The action may have settled the attempt itself or seen pagehide.
+    if (_state.phase !== 'navigating' || _state.attempt !== attempt) return;
 
     // Navigation APIs return before unload begins and can be rejected/no-op
     // (notably history traversal at the edge of a stack). Do not leave the
     // current document permanently inert when no navigation signal follows.
-    attempt.recoveryTimer = window.setTimeout(() => {
-      if (_activeAttempt === attempt && !attempt.navigationCommitted) {
-        restoreSessionReset();
+    attempt.timers.commit = window.setTimeout(() => {
+      if (_state.phase === 'navigating' && _state.attempt === attempt) {
+        settle(attempt, 'recovered');
       }
     }, NAVIGATION_COMMIT_TIMEOUT_MS);
   };
 
-  attempt.fallbackTimer = window.setTimeout(runOnce, RESET_PAINT_FALLBACK_MS);
+  attempt.timers.paint = window.setTimeout(runAction, RESET_PAINT_FALLBACK_MS);
   if (typeof window.requestAnimationFrame === 'function') {
     const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(runOnce);
-      attempt.animationFrames.push(secondFrame);
+      const secondFrame = window.requestAnimationFrame(runAction);
+      attempt.timers.frames.push(secondFrame);
     });
-    attempt.animationFrames.push(firstFrame);
+    attempt.timers.frames.push(firstFrame);
   }
 
-  return {
-    onRecovered(listener) {
-      if (attempt.recovered) {
-        listener();
+  const handle: SessionResetHandle = {
+    onSettled(listener) {
+      if (attempt.outcome) {
+        listener(attempt.outcome);
         return () => undefined;
       }
-      attempt.recoveryListeners.add(listener);
-      return () => attempt.recoveryListeners.delete(listener);
+      attempt.settledListeners.add(listener);
+      return () => attempt.settledListeners.delete(listener);
     },
+    onRecovered: (listener) => handle.onSettled(listener),
   };
+  return handle;
 }
 
 /**

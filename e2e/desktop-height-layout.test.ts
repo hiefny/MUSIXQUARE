@@ -30,8 +30,13 @@ interface Box {
 async function readLayout(page: Page) {
   return page.evaluate(() => {
     const box = (selector: string): Box | null => {
-      const element = document.querySelector<HTMLElement>(selector);
-      if (!element || getComputedStyle(element).display === 'none') return null;
+      // Measure the first rendered match. Once the room announces its
+      // playlists, the playlist header hides its plain title (and the edit
+      // mode's count title) and shows the switcher's title instead.
+      const element = Array.from(document.querySelectorAll<HTMLElement>(selector)).find(
+        (candidate) => candidate.getClientRects().length > 0,
+      );
+      if (!element) return null;
       const { top, right, bottom, left, width, height } = element.getBoundingClientRect();
       return { top, right, bottom, left, width, height };
     };

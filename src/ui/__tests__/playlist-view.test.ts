@@ -2277,3 +2277,213 @@ describe('playlist queue identity rendering and actions', () => {
     expect(scroller.scrollTop).toBe(123);
   });
 });
+
+describe('playlist interaction gate (RO-27)', () => {
+  const FILE_B = '00000000-0000-4000-8000-0000000000b2';
+  const FILE_C = '00000000-0000-4000-8000-0000000000c3';
+  const FRAME_MS = 16;
+  // A drop settles for 302 ms and its grip fades back for 172 ms; the render
+  // that follows waits one more frame.
+  const DROP_SETTLE_MS = 302 + 172 + FRAME_MS * 4;
+  const LONG_PRESS_MS = 700;
+  let restoreFrames: () => void = () => {};
+
+  function threeFiles(): PlaylistItem[] {
+    return [FILE_A, FILE_B, FILE_C].map((queueItemId, index) => ({
+      queueItemId,
+      type: 'file' as const,
+      name: `${'abc'[index]}.mp3`,
+      title: 'ABC'[index]!,
+      videoId: null,
+      playlistId: null,
+    }));
+  }
+
+  function rowRect(top: number): DOMRect {
+    return {
+      x: 0,
+      y: top,
+      top,
+      bottom: top + 48,
+      left: 0,
+      right: 300,
+      width: 300,
+      height: 48,
+      toJSON: () => ({}),
+    } as DOMRect;
+  }
+
+  /** Rows sit 56px apart from the top of the viewport, in rendered order. */
+  function layoutRows(): void {
+    document.querySelectorAll<HTMLElement>('#playlist-ui .track-item').forEach((row, index) => {
+      row.getBoundingClientRect = () => rowRect(index * 56);
+    });
+  }
+
+  async function mount(items: PlaylistItem[] = threeFiles()): Promise<HTMLElement> {
+    setState('playlist.items', items);
+    initPlaylistView();
+    await vi.dynamicImportSettled();
+    // The reorder and removal controllers load after the list mounts.
+    await vi.dynamicImportSettled();
+    layoutRows();
+    return document.getElementById('playlist-ui')!;
+  }
+
+  function pointer(target: Element, type: string, clientY: number): void {
+    const event = new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: type === 'pointerup' ? 0 : 1,
+      clientX: 20,
+      clientY,
+    });
+    Object.defineProperties(event, {
+      pointerId: { value: 1 },
+      isPrimary: { value: true },
+      pointerType: { value: 'mouse' },
+    });
+    target.dispatchEvent(event);
+  }
+
+  /** Hold a row's title still for the long press; returns the held element. */
+  function longPress(queueItemId: string, clientY: number): HTMLElement {
+    const title = document.querySelector<HTMLElement>(
+      `.track-item[data-queue-item-id="${queueItemId}"] .track-name`,
+    )!;
+    pointer(title, 'pointerdown', clientY);
+    vi.advanceTimersByTime(LONG_PRESS_MS);
+    return title;
+  }
+
+  function pressedIds(): string[] {
+    return Array.from(
+      document.querySelectorAll<HTMLElement>('.btn-playlist-select[aria-pressed="true"]'),
+      (button) => button.dataset.queueItemId ?? '',
+    );
+  }
+
+  function liftedRow(): Element | null {
+    return document.querySelector('.playlist-reorder-ghost');
+  }
+
+  function joinStandardRoomAsOperator(): void {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'host' } as DataConnection);
+    setState('network.standardRoomCapabilities', [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES]);
+    setState('network.isOperator', true);
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    const raf = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) =>
+        window.setTimeout(() => callback(performance.now()), FRAME_MS),
+      );
+    const caf = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation((id) => window.clearTimeout(id));
+    restoreFrames = () => {
+      raf.mockRestore();
+      caf.mockRestore();
+    };
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    restoreFrames();
+    vi.useRealTimers();
+  });
+
+  it('starts selection from a hold outside edit mode and lifts the held row inside it', async () => {
+    await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+
+    const held = longPress(FILE_A, 20);
+    pointer(held, 'pointerup', 20);
+    expect(pressedIds()).toEqual([FILE_A]);
+    expect(selectionBarVisible()).toBe(true);
+    expect(liftedRow()).toBeNull();
+
+    const lifted = longPress(FILE_C, 132);
+    expect(liftedRow()).not.toBeNull();
+    pointer(lifted, 'pointermove', 10);
+    pointer(lifted, 'pointerup', 10);
+    expect(reorder).toHaveBeenCalledWith(FILE_C, FILE_A, 0);
+    expect(pressedIds()).toEqual([FILE_A]);
+  });
+
+  it('defers renders while an edit-mode drag runs instead of dropping it', async () => {
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    clickSelect(FILE_A);
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+
+    const lifted = longPress(FILE_C, 132);
+    setState('playlist.currentQueueItemId', FILE_B);
+    bus.emit('playlist:refresh-requested');
+    vi.advanceTimersByTime(FRAME_MS * 3);
+    expect(replaceChildren).not.toHaveBeenCalled();
+    expect(liftedRow()).not.toBeNull();
+
+    pointer(lifted, 'pointermove', 10);
+    pointer(lifted, 'pointerup', 10);
+    expect(reorder).toHaveBeenCalledWith(FILE_C, FILE_A, 0);
+    expect(replaceChildren).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    expect(replaceChildren).toHaveBeenCalledTimes(1);
+    expect(pressedIds()).toEqual([FILE_A]);
+  });
+
+  it('renders a playlist change that arrives during a drop settle once, when it ends', async () => {
+    const list = await mount();
+    const items = threeFiles();
+    bus.on('playlist:reorder-track', () =>
+      setState('playlist.items', [items[1]!, items[0]!, items[2]!]),
+    );
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    pointer(handle, 'pointerdown', 20);
+    pointer(handle, 'pointermove', 80);
+    pointer(handle, 'pointerup', 80);
+    setState('playlist.items', [{ ...items[1]!, title: 'B renamed' }, items[0]!, items[2]!]);
+    vi.advanceTimersByTime(FRAME_MS * 3);
+    expect(replaceChildren).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    expect(replaceChildren).toHaveBeenCalledTimes(1);
+    expect(renderedQueueIds()).toEqual([FILE_B, FILE_A, FILE_C]);
+    expect(list.querySelector('.track-name-text')?.textContent).toBe('B renamed');
+  });
+
+  it.each([
+    ['operator revocation', () => setState('network.isOperator', false)],
+    ['capability revocation', () => setState('network.standardRoomCapabilities', [])],
+    [
+      'host connection replacement',
+      () => setState('network.hostConn', { open: true, peer: 'host-2' } as DataConnection),
+    ],
+    ['session end', () => setState('network.appRole', 'idle')],
+  ])('cancels the drag and the selection together on %s', async (_trigger, trigger) => {
+    joinStandardRoomAsOperator();
+    await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    clickSelect(FILE_A);
+    const lifted = longPress(FILE_C, 132);
+    pointer(lifted, 'pointermove', 10);
+    expect(liftedRow()).not.toBeNull();
+
+    trigger();
+
+    expect(liftedRow()).toBeNull();
+    expect(selectionBarVisible()).toBe(false);
+    pointer(lifted, 'pointerup', 10);
+    expect(reorder).not.toHaveBeenCalled();
+  });
+});

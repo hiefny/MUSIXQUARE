@@ -193,6 +193,9 @@ Prefer an existing path from `index.html` before introducing a new icon.
 - Preserve intentional stroke or mixed-construction exceptions such as the
   reorder grip, disclosure controls, language/device diagrams, and volume
   waves; do not force them into a filled silhouette.
+- Stroked marks that sit beside the filled X keep its angular construction:
+  the selection check and minus (`src/ui/selection-mark.ts`), the disclosure
+  chevrons and the pinned notice's X use butt ends and mitred corners.
 - Do not add an icon font or runtime icon dependency for a single glyph.
 - Use `assets/logo-wordmark.svg` for the full custom wordmark and
   `assets/favicon.svg` for compact brand placement.

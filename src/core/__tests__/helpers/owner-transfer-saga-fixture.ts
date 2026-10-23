@@ -66,8 +66,20 @@ const SESSION_PEPPER = SECRET('session-pepper');
 export const ASSERTION_SECRET = SECRET('assertion');
 const ACTIVATION_SECRET = SECRET('activation');
 export const START = Date.UTC(2026, 9, 22, 3, 0, 0);
-const TARGET_TOKEN = 'T'.repeat(43);
+/** Each account's App session token (the `__Host-mxqr_account` cookie). */
+const SESSION_TOKENS: Record<string, string> = {
+  [TARGET]: 'T'.repeat(43),
+  [OLD_OWNER]: 'O'.repeat(43),
+};
 const fixtures: Array<() => void> = [];
+
+/** An App Worker entry: the current module, or a legacy build (helpers/legacy-app-worker). */
+export interface AppWorkerEntry {
+  fetch(request: Request, env: never): Promise<Response>;
+}
+
+/** The minute cron's saga sweep (`reconcileOwnerTransferSagasForTests`) of one App Worker build. */
+export type CronEntry = (env: unknown, db: unknown, nowMs?: number) => Promise<number>;
 
 async function sessionHash(token: string) {
   const key = await crypto.subtle.importKey(
@@ -270,8 +282,8 @@ export async function transferFixture() {
   });
 
   // Earlier product steps, seeded as they would leave the databases: the
-  // registry row and entitlement backfill marker, both accounts, the
-  // target's App session, and one live Developer API key for the room.
+  // registry row and entitlement backfill marker, both accounts with an App
+  // session each, and one live Developer API key for the room.
   const seededAt = START - 60_000;
   admin.database
     .prepare(
@@ -300,13 +312,15 @@ export async function transferFixture() {
       )
       .run(accountId, accountId.slice(5).padEnd(43, 'h'), nickname, seededAt, seededAt);
   }
-  auth.database
-    .prepare(
-      `INSERT INTO mxqr_account_sessions
-         (session_hash, account_id, created_at, last_seen_at, expires_at)
-       VALUES (?, ?, ?, ?, ?)`,
-    )
-    .run(await sessionHash(TARGET_TOKEN), TARGET, seededAt, seededAt, START + 86_400_000);
+  for (const [accountId, token] of Object.entries(SESSION_TOKENS)) {
+    auth.database
+      .prepare(
+        `INSERT INTO mxqr_account_sessions
+           (session_hash, account_id, created_at, last_seen_at, expires_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(await sessionHash(token), accountId, seededAt, seededAt, START + 86_400_000);
+  }
   developer.database
     .prepare(
       `INSERT INTO mxqr_developer_api_keys
@@ -405,10 +419,10 @@ export async function transferFixture() {
         'SELECT fence_digest FROM mxqr_developer_api_room_authority_fences',
       )[0]?.fence_digest;
     },
-    saga() {
+    saga(requestId = REQUEST_ID) {
       return admin.rows<Record<string, unknown>>(
         'SELECT state FROM mxqr_pro_room_owner_transfer_sagas WHERE request_id = ?',
-        REQUEST_ID,
+        requestId,
       )[0]?.state;
     },
     commitAudits(): string[] {
@@ -462,8 +476,9 @@ export async function transferFixture() {
         reconciliation: payload.ownerTransferReconciliation?.phase ?? null,
       };
     },
-    async cron(nowMs = Date.now()) {
-      const progressed = await reconcileOwnerTransferSagasForTests(appEnv, admin, nowMs);
+    /** One minute-cron sweep, by default through the current App Worker. */
+    async cron(nowMs = Date.now(), reconcile: CronEntry = reconcileOwnerTransferSagasForTests) {
+      const progressed = await reconcile(appEnv, admin, nowMs);
       await fixture.settle();
       return progressed;
     },
@@ -513,10 +528,10 @@ export async function transferFixture() {
 
 export type TransferFixture = Awaited<ReturnType<typeof transferFixture>>;
 
-/** The old owner issues a claim; the admin console records its issuance row. */
-export async function issueClaim(test: TransferFixture) {
+/** The admin console issues a claim for `targetAccountId` and records its issuance row. */
+export async function issueClaim(test: TransferFixture, targetAccountId = TARGET) {
   const response = await test.internal('/internal/admin/owner-transfer-claim', {
-    targetAccountId: TARGET,
+    targetAccountId,
   });
   expect(response.status).toBe(200);
   const issued = (await response.json()) as {
@@ -536,7 +551,7 @@ export async function issueClaim(test: TransferFixture) {
       ROOM_CODE,
       ROOM_GENERATION,
       issued.claimGeneration,
-      TARGET,
+      targetAccountId,
       Date.now(),
       issued.expiresAt,
       Date.now(),
@@ -544,18 +559,31 @@ export async function issueClaim(test: TransferFixture) {
   return decodeURIComponent(new URL(issued.transferUrl).hash.replace(/^#pro-transfer=/, ''));
 }
 
-/** The target account submits the claim through the App facade. */
-export async function requestTransfer(test: TransferFixture, claimToken: string) {
-  const response = await appWorker.fetch(
+/**
+ * The claim's target account submits it through the App facade: by default
+ * the target with the fixture's request id and new PIN, through the current
+ * App Worker. A later transfer of the same room needs another PIN.
+ */
+export async function requestTransfer(
+  test: TransferFixture,
+  claimToken: string,
+  {
+    accountId = TARGET,
+    requestId = REQUEST_ID,
+    newPin = '24681357',
+    worker = appWorker,
+  }: { accountId?: string; requestId?: string; newPin?: string; worker?: AppWorkerEntry } = {},
+) {
+  const response = await worker.fetch(
     new Request(`https://musixquare.com/api/pro-room/v1/rooms/${ROOM_CODE}/owner-transfer`, {
       method: 'POST',
       headers: {
         Origin: 'https://musixquare.com',
         'Content-Type': 'application/json',
         'cf-connecting-ip': '192.0.2.10',
-        Cookie: `__Host-mxqr_account=${TARGET_TOKEN}`,
+        Cookie: `__Host-mxqr_account=${SESSION_TOKENS[accountId]}`,
       },
-      body: JSON.stringify({ claimToken, newPin: '24681357', requestId: REQUEST_ID }),
+      body: JSON.stringify({ claimToken, newPin, requestId }),
     }),
     test.appEnv as never,
   );

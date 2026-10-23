@@ -63,6 +63,9 @@ const PURGE = [
   'audit:room.suspend:owner_account_deleted',
 ];
 
+/** The request's answer when its 'committed' write fails after the DO commit. */
+const REGISTRY_UNAVAILABLE_ANSWER = { status: 503, error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' };
+
 /** The post-commit tail as the request executor writes it today. */
 const REQUEST_TAIL = [
   'saga:committed',
@@ -77,6 +80,73 @@ const REQUEST_TAIL = [
   'audit:owner_transfer.commit:success',
   'saga:complete',
 ];
+
+/** readActiveOwnerTransferTarget: the request reads it before the fence, after the commit and at its final recheck. */
+const TARGET_READ = /FROM mxqr_accounts AS account[\s\S]*mxqr_account_deletions/i;
+/** readAdminProRoom, the registry row the final recheck compares. */
+const REGISTRY_READ = /^\s*SELECT room_code, label, status, suspension_reason, activation_state/i;
+
+/** The nth (1-based) read of the target account after the fault is registered. */
+const targetRead = (count: number): Fault => nth(count, (event) => TARGET_READ.test(event.sql));
+
+/** Runs `action` once, just before the first statement matching `fault`. */
+function beforeOnce(test: TransferFixture, fault: Fault, action: () => unknown) {
+  let fired = false;
+  test.journal.hooks.push(async (event) => {
+    if (!fired && fault(event)) {
+      fired = true;
+      await action();
+    }
+  });
+}
+
+/** Another executor (a decommission) ends the saga just before the `state` advance. */
+function supersedeBefore(test: TransferFixture, state: string) {
+  beforeOnce(test, sagaWrite(state), () =>
+    test.admin.database
+      .prepare(
+        `UPDATE mxqr_pro_room_owner_transfer_sagas SET state = 'superseded' WHERE request_id = ?`,
+      )
+      .run(REQUEST_ID),
+  );
+}
+
+/** An operator suspends the room in its Durable Object just before `fault`. */
+function operatorSuspendBefore(test: TransferFixture, fault: Fault) {
+  beforeOnce(test, fault, async () => {
+    expect((await test.internal('/internal/admin/suspend', {})).status).toBe(200);
+  });
+}
+
+/**
+ * The registry read after the request's final target recheck answers with
+ * the next incarnation, as if the room had been decommissioned and reused.
+ * The registry triggers forbid that move in place, so the row is rewritten
+ * on its way out of the D1 binding.
+ */
+function nextIncarnationAtFinalRecheck(test: TransferFixture) {
+  let armed = false;
+  beforeOnce(test, targetRead(3), () => {
+    armed = true;
+  });
+  const prepare = test.admin.prepare.bind(test.admin);
+  test.admin.prepare = ((sql: string) => {
+    const statement = prepare(sql);
+    if (!armed || !REGISTRY_READ.test(sql)) return statement;
+    armed = false;
+    return {
+      bind: (...values: unknown[]) => {
+        const bound = statement.bind(...values);
+        return {
+          first: async () => {
+            const row = await bound.first<Record<string, unknown>>();
+            return row && { ...row, room_generation: Number(row.room_generation) + 1 };
+          },
+        };
+      },
+    };
+  }) as typeof test.admin.prepare;
+}
 
 /** The same tail as the minute cron writes it today (after adopting the row). */
 const CRON_TAIL = [
@@ -235,6 +305,348 @@ useSagaClock();
       // plan step C7-10, transfer-scoped dedupe preferred).
       expect(test.commitAudits()).toEqual(audits);
       expect(await test.cron(START + 120_000)).toBe(0);
+    },
+  );
+});
+
+/**
+ * The request's answer for every way its post-commit tail can stop while the
+ * target account stays active (plan step C7-9 maps each stop through one
+ * table). A step either throws (an unavailable dependency) or refuses (a
+ * compare-and-swap miss after another executor ended the row, a 409 from the
+ * Durable Object, a canonical state that is not active, a fence another writer
+ * relabelled), and the final registry read can name another incarnation.
+ * Each row pins the HTTP answer, the commit audit rows the request wrote and
+ * the saga state it left. The deleted-target exits are the next table.
+ *
+ * Not driven: the old-owner edge retirement refusing (it answers false only
+ * without an auth database or with an invalid identity, which the saga row
+ * cannot hold); it answers like a throw.
+ */
+(nodeSqlite ? describe : describe.skip)('owner-transfer saga: request outcome table', () => {
+  type Row = [
+    step: string,
+    kind: 'threw' | 'refused' | 'not found',
+    inject: (test: TransferFixture) => void,
+    answer: { status: number; error: string },
+    audits: string[],
+    state: string,
+  ];
+  const REGISTRY_UNAVAILABLE = { status: 503, error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' };
+  const RECONCILE = { status: 503, error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' };
+  const ACCOUNT_STORE = { status: 503, error: 'ACCOUNT_STORE_UNAVAILABLE' };
+  const DEVELOPER_API = { status: 503, error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' };
+  const rows: Row[] = [
+    [
+      'target read after the commit',
+      'threw',
+      (test) => test.failOnce(targetRead(2)),
+      ACCOUNT_STORE,
+      ['reconcile_required'],
+      'committed',
+    ],
+    [
+      'registry projection',
+      'refused',
+      (test) => operatorSuspendBefore(test, targetRead(2)),
+      { status: 409, error: 'PRO_ROOM_STATE_CONFLICT' },
+      [],
+      'committed',
+    ],
+    [
+      'registry projection',
+      'threw',
+      (test) => test.failOnce(nth(1, stepIs('registry:registered'))),
+      REGISTRY_UNAVAILABLE,
+      ['reconcile_required'],
+      'committed',
+    ],
+    [
+      'saga registry_active',
+      'refused',
+      (test) => supersedeBefore(test, 'registry_active'),
+      RECONCILE,
+      [],
+      'superseded',
+    ],
+    [
+      'saga registry_active',
+      'threw',
+      (test) => test.failOnce(sagaWrite('registry_active')),
+      REGISTRY_UNAVAILABLE,
+      ['reconcile_required'],
+      'committed',
+    ],
+    [
+      'old-owner edge retirement',
+      'threw',
+      (test) => test.failOnce(stepIs('link:-old')),
+      ACCOUNT_STORE,
+      ['reconcile_required'],
+      'registry_active',
+    ],
+    [
+      'saga old_owner_edge_retired',
+      'refused',
+      (test) => supersedeBefore(test, 'old_owner_edge_retired'),
+      RECONCILE,
+      [],
+      'superseded',
+    ],
+    [
+      'saga old_owner_edge_retired',
+      'threw',
+      (test) => test.failOnce(sagaWrite('old_owner_edge_retired')),
+      REGISTRY_UNAVAILABLE,
+      [],
+      'registry_active',
+    ],
+    [
+      'final target read',
+      'threw',
+      (test) => test.failOnce(targetRead(3)),
+      ACCOUNT_STORE,
+      ['reconcile_required'],
+      'old_owner_edge_retired',
+    ],
+    [
+      'final registry read',
+      'not found',
+      nextIncarnationAtFinalRecheck,
+      { status: 409, error: 'PRO_ROOM_GENERATION_MISMATCH' },
+      [],
+      'old_owner_edge_retired',
+    ],
+    [
+      'final canonical projection',
+      'threw',
+      (test) => test.failOnce(nth(2, stepIs('registry:registered'))),
+      REGISTRY_UNAVAILABLE,
+      ['reconcile_required'],
+      'old_owner_edge_retired',
+    ],
+    [
+      'final canonical state',
+      'refused',
+      (test) => operatorSuspendBefore(test, targetRead(3)),
+      RECONCILE,
+      ['reconcile_required'],
+      'old_owner_edge_retired',
+    ],
+    [
+      'entitlement finalize',
+      'refused',
+      (test) => test.failOnce(stepIs('entitlement:finalize')),
+      RECONCILE,
+      ['entitlement_reconcile_required'],
+      'old_owner_edge_retired',
+    ],
+    [
+      'saga verified',
+      'refused',
+      (test) => supersedeBefore(test, 'verified'),
+      RECONCILE,
+      [],
+      'superseded',
+    ],
+    [
+      'saga verified',
+      'threw',
+      (test) => test.failOnce(sagaWrite('verified')),
+      REGISTRY_UNAVAILABLE,
+      [],
+      'old_owner_edge_retired',
+    ],
+    [
+      'fence clear',
+      'refused',
+      // A deletion purge relabelled the fence; the transfer clears only its own digest.
+      (test) =>
+        beforeOnce(test, stepIs('fence:clear'), () =>
+          test.developer.database
+            .prepare(
+              `UPDATE mxqr_developer_api_room_authority_fences
+                  SET fence_digest = ?, reason = 'owner_account_deleted'`,
+            )
+            .run('D'.repeat(43)),
+        ),
+      DEVELOPER_API,
+      ['reconcile_required'],
+      'verified',
+    ],
+    [
+      'fence clear',
+      'threw',
+      (test) => test.failOnce(stepIs('fence:clear')),
+      DEVELOPER_API,
+      ['reconcile_required'],
+      'verified',
+    ],
+    [
+      'success audit',
+      'threw',
+      (test) => test.failOnce(stepIs('audit:owner_transfer.commit:success')),
+      { status: 503, error: 'PRO_ROOM_AUDIT_UNAVAILABLE' },
+      [],
+      'verified',
+    ],
+    [
+      'saga complete',
+      'refused',
+      (test) => supersedeBefore(test, 'complete'),
+      RECONCILE,
+      ['success'],
+      'superseded',
+    ],
+    [
+      'saga complete',
+      'threw',
+      (test) => test.failOnce(sagaWrite('complete')),
+      REGISTRY_UNAVAILABLE,
+      ['success'],
+      'verified',
+    ],
+  ];
+
+  it.each(rows)(
+    'when the %s step %s: answers, audits and leaves the row as pinned',
+    async (_step, _kind, inject, answer, audits, state) => {
+      const test = await transferFixture();
+      const claim = await issueClaim(test);
+      inject(test);
+      expect(await requestTransfer(test, claim)).toEqual({ ...answer, cookies: [] });
+      expect(test.commitAudits()).toEqual(audits);
+      expect(test.saga()).toBe(state);
+    },
+  );
+});
+
+/**
+ * The minute cron's own post-commit tail stopping at each step: the sweep
+ * reports no progress and leaves the row where it stopped, and the next sweep
+ * converges. The request stops right after the DO commit (its 'committed'
+ * write fails), so the cron adopts a committed transfer and runs the tail.
+ * Each row pins the saga state and entitlement after the failed sweep, which
+ * shows the cron's step order, and the commit audit rows at the end.
+ */
+(nodeSqlite ? describe : describe.skip)('owner-transfer saga: cron tail crash matrix', () => {
+  const RESERVED = { old: 'transfer_source_active', target: 'reserved' };
+  const FINALIZED = { old: 'transferred', target: 'active' };
+  type Row = [
+    step: string,
+    fault: Fault,
+    afterFailedSweep: { state: string; entitlements: Record<string, string>; audits: string[] },
+    finalAudits: string[],
+  ];
+  const rows: Row[] = [
+    [
+      'saga committed',
+      sagaWrite('committed'),
+      { state: 'prepared', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'target read after the commit',
+      targetRead(1),
+      { state: 'committed', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'registry projection',
+      nth(1, stepIs('registry:registered')),
+      { state: 'committed', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'saga registry_active',
+      sagaWrite('registry_active'),
+      { state: 'committed', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'old-owner edge retirement',
+      stepIs('link:-old'),
+      { state: 'registry_active', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'saga old_owner_edge_retired',
+      sagaWrite('old_owner_edge_retired'),
+      { state: 'registry_active', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'final target read',
+      targetRead(2),
+      { state: 'old_owner_edge_retired', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'final canonical projection',
+      nth(2, stepIs('registry:registered')),
+      { state: 'old_owner_edge_retired', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      // Today the cron advances 'verified' before it finalizes (CRON_TAIL).
+      'saga verified',
+      sagaWrite('verified'),
+      { state: 'old_owner_edge_retired', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'entitlement finalize',
+      stepIs('entitlement:finalize'),
+      { state: 'verified', entitlements: RESERVED, audits: [] },
+      ['success'],
+    ],
+    [
+      'fence clear',
+      stepIs('fence:clear'),
+      { state: 'verified', entitlements: FINALIZED, audits: [] },
+      ['success'],
+    ],
+    [
+      'success audit',
+      stepIs('audit:owner_transfer.commit:success'),
+      { state: 'verified', entitlements: FINALIZED, audits: [] },
+      ['success'],
+    ],
+    [
+      'saga complete',
+      sagaWrite('complete'),
+      { state: 'verified', entitlements: FINALIZED, audits: ['success'] },
+      // The retry audits success again (no transfer-scoped dedupe yet; D3).
+      ['success', 'success'],
+    ],
+  ];
+
+  it.each(rows)(
+    'when the %s step fails, the next sweep converges',
+    async (_step, fault, afterFailedSweep, finalAudits) => {
+      const test = await transferFixture();
+      const claim = await issueClaim(test);
+      test.failOnce(sagaWrite('committed'));
+      expect(await requestTransfer(test, claim)).toEqual({
+        ...REGISTRY_UNAVAILABLE_ANSWER,
+        cookies: [],
+      });
+      expect(test.saga()).toBe('prepared');
+
+      test.failOnce(fault);
+      vi.setSystemTime(START + 60_000);
+      expect(await test.cron()).toBe(0);
+      expect({
+        state: test.saga(),
+        entitlements: test.entitlements(),
+        audits: test.commitAudits(),
+      }).toEqual(afterFailedSweep);
+
+      vi.setSystemTime(START + 120_000);
+      expect(await test.cron()).toBe(1);
+      await expectTransferred(test);
+      expect(test.commitAudits()).toEqual(finalAudits);
+      expect(await test.cron(START + 180_000)).toBe(0);
     },
   );
 });
@@ -829,6 +1241,51 @@ useSagaClock();
     expect(test.steps(requestMark)).toEqual(REQUEST_TAIL.slice(2));
     expect([...sagaStates]).toEqual(['complete']);
     await expectTransferred(test);
+    expect(test.commitAudits()).toEqual(['success', 'success']);
+  });
+
+  it('a replayed request after completion runs the tail again and writes a second success audit', async () => {
+    const test = await transferFixture();
+    const claim = await issueClaim(test);
+    expect((await requestTransfer(test, claim)).status).toBe(200);
+    expect(test.commitAudits()).toEqual(['success']);
+    // The browser repeats the same request (same claim and request id) inside
+    // the DO's completed-transfer replay window, for example after a lost
+    // response. The DO replays the commit and the request runs its tail again.
+    vi.setSystemTime(START + 5_000);
+    const mark = test.mark();
+    expect(await requestTransfer(test, claim)).toEqual({
+      status: 200,
+      error: null,
+      cookies: ['__Secure-mxqr_pro_session_000417', '__Secure-mxqr_pro_owner_000417'],
+    });
+    expect(test.steps(mark)).toContain('audit:owner_transfer.commit:success');
+    await expectTransferred(test);
+    expect(test.commitAudits()).toEqual(['success', 'success']);
+  });
+
+  it('two transfers of one room incarnation each write their own success audit', async () => {
+    const test = await transferFixture();
+    const claim = await issueClaim(test);
+    expect((await requestTransfer(test, claim)).status).toBe(200);
+    expect(test.commitAudits()).toEqual(['success']);
+    // Past the first transfer's replay window, the new owner hands the room
+    // back to the old owner: a second saga row on the same incarnation.
+    vi.setSystemTime(START + 11 * 60_000);
+    const backClaim = await issueClaim(test, OLD_OWNER);
+    expect(
+      await requestTransfer(test, backClaim, {
+        accountId: OLD_OWNER,
+        requestId: 'saga_request_0000002',
+        newPin: '13572468',
+      }),
+    ).toEqual({
+      status: 200,
+      error: null,
+      cookies: ['__Secure-mxqr_pro_session_000417', '__Secure-mxqr_pro_owner_000417'],
+    });
+    expect(test.saga('saga_request_0000002')).toBe('complete');
+    expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'old' });
     expect(test.commitAudits()).toEqual(['success', 'success']);
   });
 

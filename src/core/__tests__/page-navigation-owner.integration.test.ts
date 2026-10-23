@@ -25,16 +25,27 @@
  * answer).
  *
  * Every test pins today's behaviour on main 51ab2be3 (9.0.3). A test name ends
- * with the increment that changes it, or that must keep it:
+ * with labels naming the increment that changes it, or that must keep it:
  * - "[flips: C6-n]": increment n is planned to change this; its new
  *   expectation is in the comment above the assertion it replaces.
  * - "[keeps: C6-n]": increment n moves this code and must keep the outcome.
- * - "[owner decision]": a decision the plan puts to the owner may change it.
+ * - "[owner decision: topic]": the plan puts this topic to the owner. Until
+ *   the owner decides, the increments under "keeps" keep the outcome.
+ * - "[owner decision / C6-n: keep or flip]": increment n must keep this or
+ *   flip it, whichever the owner decides in its plan; the comment says what a
+ *   flip would change.
+ * - "[flipped: release]": a release already changed the design's original
+ *   pin; the test records the current state so the old one is not restored.
  * Increments: C6-4 owner state and settle, C6-5 reload queue into the owner,
  * C6-6 one page-transition dispatch, C6-7 unload-exemption claims, C6-8
  * prepare/navigate split, C6-10 hard reset asks the update machine, C6-11
  * reset surface on top (with the fullscreen top-layer fix), C6-12 Back guard
- * re-arm.
+ * re-arm, C6-13 duplicate latches deleted.
+ *
+ * The app.ts wiring and the logo action run on copies inside the harness;
+ * page-navigation-harness-parity.test.ts pins those copies to the source, so
+ * an increment that changes the wiring (C6-6, C6-8, C6-12) updates the copy in
+ * the same change.
  *
  * Not covered here: jsdom has no real back-forward cache, top layer, unload or
  * native timing. e2e/back-navigation.test.ts (Chromium launches with the
@@ -84,6 +95,9 @@ const HARD_RESET_ACTIVATION_MS = 1_500;
 const GUARD_ARM_MS = 40;
 /** A synthetic claim token in the shape credentials.ts accepts. */
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
+/** The three PRO claim fragment keys (claim-fragment.ts:11-13). */
+const CLAIM_KEYS = ['pro-claim', 'pro-recovery', 'pro-transfer'] as const;
+type ClaimKey = (typeof CLAIM_KEYS)[number];
 
 let shell: PageNavigationShell | null = null;
 
@@ -98,6 +112,13 @@ async function advance(ms: number): Promise<void> {
 
 function overlay(): HTMLElement {
   return shell!.element('session-reset-overlay');
+}
+
+/** Take a claim the way setup-flow does: the fragment is scrubbed at once. */
+function takeClaim(key: ClaimKey = 'pro-claim', path: string = ROOM_PATH): void {
+  window.history.replaceState({ test: true }, '', `${path}?lang=ko#${key}=${CLAIM}`);
+  takeProRoomClaimsFromFragment();
+  expect(location.href).toBe(`http://localhost:3000${path}?lang=ko`);
 }
 
 beforeEach(() => {
@@ -176,7 +197,9 @@ describe('(a) a reload asked for while a direct reset is pending', () => {
 });
 
 describe('(b) a reload queued behind another reload', () => {
-  it('runs after the first reload recovers, and the queue starts it before the first caller hears of the recovery [keeps: C6-5] [settle order: C6-4]', async () => {
+  // The critique's target settle order for C6-4 (commit the state, flush the
+  // queue, then run per-attempt callbacks) keeps the queue start first.
+  it('runs after the first reload recovers, and the queue starts it before the first caller hears of the recovery [keeps: C6-4, C6-5]', async () => {
     const s = boot({ app: IN_ROOM });
     const firstSettled: Array<{ pending: boolean; message: string | null }> = [];
     const secondRecovered = vi.fn();
@@ -202,7 +225,24 @@ describe('(b) a reload queued behind another reload', () => {
     expect(isSessionResetPending()).toBe(false);
   });
 
-  it('queues a reload asked for from a recovery callback behind the reload already queued (FIFO) [keeps: C6-5] [re-entrancy: C6-4]', async () => {
+  it('starts queued reloads in the order they were asked for (FIFO) [keeps: C6-5]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const order: string[] = [];
+    s.sinks.reload.mockImplementation(() => order.push(s.resetMessage() ?? ''));
+    scheduleDocumentReload('First');
+    // Two entries wait in the queue at once (document-reload.ts:154).
+    scheduleDocumentReload('Second');
+    scheduleDocumentReload('Third');
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await advance(PAINT_MS + COMMIT_DEADLINE_MS);
+    }
+
+    expect(order).toEqual(['First', 'Second', 'Third']);
+    expect(isSessionResetPending()).toBe(false);
+  });
+
+  it('queues a reload asked for from a recovery callback behind the queued reload that the flush has already started [keeps: C6-4, C6-5]', async () => {
     const s = boot({ app: IN_ROOM });
     const order: string[] = [];
     s.sinks.reload.mockImplementation(() => order.push(s.resetMessage() ?? ''));
@@ -210,6 +250,8 @@ describe('(b) a reload queued behind another reload', () => {
     scheduleDocumentReload('Second');
 
     await advance(PAINT_MS + COMMIT_DEADLINE_MS);
+    // 'Second' started before 'First' reported its recovery, so 'Retry' waits
+    // behind a running reload, not behind a queued one.
     expect(s.resetMessage()).toBe('Second');
     await advance(PAINT_MS + COMMIT_DEADLINE_MS);
     expect(s.resetMessage()).toBe('Retry');
@@ -218,7 +260,7 @@ describe('(b) a reload queued behind another reload', () => {
     expect(order).toEqual(['First', 'Second', 'Retry']);
   });
 
-  it('starts a reload asked for from a recovery callback at once when nothing is queued (sw-register.ts:295-309 shape) [re-entrancy: C6-4]', async () => {
+  it('starts a reload asked for from a recovery callback at once when nothing is queued (sw-register.ts:295-309 shape) [keeps: C6-4]', async () => {
     const s = boot({ app: IN_ROOM });
     scheduleDocumentReload('Update', () => scheduleDocumentReload('Successor update'));
 
@@ -229,7 +271,7 @@ describe('(b) a reload queued behind another reload', () => {
     expect(s.sinks.count('reload')).toBe(2);
   });
 
-  it('accepts a direct reset asked for from its own recovery callback [re-entrancy: C6-4]', async () => {
+  it('accepts a direct reset asked for from its own recovery callback [keeps: C6-4]', async () => {
     const s = boot({ app: IN_ROOM });
     const retry = vi.fn();
     const handle = scheduleSessionReset(MSG_LEAVING, vi.fn());
@@ -245,7 +287,9 @@ describe('(b) a reload queued behind another reload', () => {
 });
 
 describe('settlement of one reset attempt', () => {
-  it('releases the windows while still pending, then reports idle with the exemption already cleared [settle order: C6-4]', async () => {
+  // Coupled to (h): flipping this order so the reset reports idle before the
+  // window release lets the Back guard re-arm there, which flips (h) too.
+  it('releases the windows while still pending, then reports idle with the exemption already cleared [owner decision / C6-4: keep or flip]', async () => {
     const s = boot({ app: IN_ROOM });
     const seen: string[] = [];
     const snapshot = (where: string) =>
@@ -262,9 +306,10 @@ describe('settlement of one reset attempt', () => {
     // restoreSessionReset (session-reset.ts:211-243): focus, the release handler
     // (dom.ts re-derives the stack and notifies the Back guard), then the
     // overlay hides, the reset reports idle, the exemption clears, and only
-    // then do per-attempt callbacks run. C6-4 has to define this order:
-    // reporting idle before the window release would let the Back guard
-    // re-arm there, which is C6-12's intended change to pin (h).
+    // then do per-attempt callbacks run. C6-4 keeps or flips this order: a
+    // flip (the critique's "commit the state first") reports idle before the
+    // window release, so the Back guard re-arms there, which is C6-12's
+    // intended change to pin (h); C6-4 and C6-12 ship together.
     expect(seen).toEqual([
       'overlay stack: pending=true overlayHidden=false exempt=true',
       'recovered: pending=false overlayHidden=true exempt=false',
@@ -299,12 +344,17 @@ describe('settlement of one reset attempt', () => {
     return false;
   }
 
+  // A partial pin of the C6-4 sequence test. It starts only after the action
+  // has run and uses non-persisted page transitions; a pageshow after pagehide
+  // that is not persisted does not reach a loaded document in a real engine.
+  // C6-4 still owes the full sequence: persisted pagehide and pageshow, and the
+  // orders against the paint frames and the 120 ms fallback before the action.
   it.each(
     (['reset', 'reload'] as const).flatMap((kind) =>
       permutations(EVENTS).map((order) => [kind, order.join(' > '), order] as const),
     ),
   )(
-    'after the %s action, %s settles at most once [keeps: C6-4 exactly-once settle]',
+    'after the %s action, %s settles at most once [keeps: C6-4, after the action only]',
     async (kind, _name, order) => {
       const s = boot({ app: OUTSIDE_ROOM });
       const recovered = vi.fn();
@@ -329,8 +379,104 @@ describe('settlement of one reset attempt', () => {
   );
 });
 
+describe('the failed exit: the navigation action throws', () => {
+  const ACTION_FAILED = '[SessionReset] Hard-navigation action failed:';
+
+  // A third branch of the reload busy rule, beside (a) and (b).
+  // document-reload.ts:84-86 recovers the attempt and flushes the queue while
+  // the reset still holds the page, so the queued reload meets the busy rule
+  // (session-reset.ts:342-345) and is dropped as recovered; then the reset's
+  // catch (session-reset.ts:288-291) releases the page. C6-4 routes the throw
+  // through settle('failed'). With the critique's target order (commit the
+  // state, flush the queue, then callbacks) the queued reload would run
+  // instead: that is the owner's busy-rule decision, not a silent C6-5 change.
+  it('releases the page at once and drops a reload queued behind it as recovered, before the failing caller hears [keeps: C6-4, C6-5] [owner decision: reload busy rule]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const failure = new Error('reload rejected');
+    s.sinks.reload.mockImplementationOnce(() => {
+      throw failure;
+    });
+    const settled: string[] = [];
+    scheduleDocumentReload('First', () =>
+      settled.push(`first: pending=${isSessionResetPending()} exempt=${isIntentionalNav()}`),
+    );
+    scheduleDocumentReload('Second', () =>
+      settled.push(`second: pending=${isSessionResetPending()}`),
+    );
+
+    await advance(PAINT_MS);
+
+    expect(settled).toEqual(['second: pending=true', 'first: pending=false exempt=false']);
+    expect(s.sinks.reload).toHaveBeenCalledOnce();
+    expect(isSessionResetPending()).toBe(false);
+    expect(overlay().hidden).toBe(true);
+    expect(s.element('tab-play').inert).toBe(false);
+    expect(s.beforeunloadPrompts()).toBe(true);
+    expect(s.console.error).toHaveBeenCalledWith(ACTION_FAILED, failure);
+
+    // Nothing replays the dropped reload, and the deadline never ran.
+    await advance(COMMIT_DEADLINE_MS + 10_000);
+    expect(s.sinks.reload).toHaveBeenCalledOnce();
+    expect(settled).toHaveLength(2);
+  });
+
+  it('releases the page at once without a sink call when the claim preparation rejects a changed URL [keeps: C6-4, C6-5]', async () => {
+    const s = boot({ app: IN_ROOM });
+    takeClaim();
+    // Something wrote a fragment after the claim was taken.
+    window.history.replaceState(null, '', `${ROOM_PATH}?lang=ko#stray`);
+    const recovered = vi.fn();
+    scheduleDocumentReload(MSG_REFRESHING, recovered);
+
+    await advance(PAINT_MS);
+
+    // claim-fragment.ts:188-190 throws inside attempt.navigate, before the sink.
+    expect(s.sinks.reload).not.toHaveBeenCalled();
+    expect(recovered).toHaveBeenCalledOnce();
+    expect(isSessionResetPending()).toBe(false);
+    expect(isIntentionalNav()).toBe(false);
+    expect(location.hash).toBe('#stray');
+    expect(s.console.error).toHaveBeenCalledWith(
+      ACTION_FAILED,
+      expect.objectContaining({ message: 'CLAIM_RELOAD_PREPARATION_REJECTED' }),
+    );
+
+    // The fence is back to 'safe': a reload from the clean URL restores it.
+    window.history.replaceState(null, '', `${ROOM_PATH}?lang=ko`);
+    scheduleDocumentReload(MSG_REFRESHING);
+    await advance(PAINT_MS);
+    expect(s.sinks.calls.at(-1)?.hrefAtCall).toBe(
+      `http://localhost:3000${ROOM_PATH}?lang=ko#pro-claim=${CLAIM}`,
+    );
+  });
+
+  it('settles a direct reset once when its action throws, with the exemption cleared [keeps: C6-4]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const failure = new Error('leave failed');
+    const exemptWhenSettled: boolean[] = [];
+    scheduleSessionReset(MSG_LEAVING, () => {
+      throw failure;
+    })?.onRecovered(() => exemptWhenSettled.push(isIntentionalNav()));
+
+    await advance(PAINT_MS);
+
+    expect(exemptWhenSettled).toEqual([false]);
+    expect(isSessionResetPending()).toBe(false);
+    expect(overlay().hidden).toBe(true);
+    expect(s.beforeunloadPrompts()).toBe(true);
+    expect(s.console.error).toHaveBeenCalledWith(ACTION_FAILED, failure);
+
+    // No listener or timer of the attempt is left to settle it again.
+    s.pagehide(false);
+    s.pageshow(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await advance(COMMIT_DEADLINE_MS + 10_000);
+    expect(exemptWhenSettled).toEqual([false]);
+  });
+});
+
 describe('(c) a pending reset returned from the back-forward cache', () => {
-  it('restores the shell and makes exactly one fresh reload; a second return does not loop [keeps: C6-6]', async () => {
+  it('restores the shell and makes exactly one fresh reload; a second return does not loop [keeps: C6-6] [flips: C6-7]', async () => {
     const s = boot({ app: IN_ROOM });
     scheduleDocumentReload(MSG_REFRESHING);
     await advance(PAINT_MS);
@@ -345,8 +491,12 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     expect(document.body.classList.contains('fouc-loaded')).toBe(true);
     expect(isSessionResetPending()).toBe(true);
     expect(s.resetMessage()).toBe(MSG_REFRESHING);
+    // The pre-mark at page-lifecycle.ts:201, before the fresh reload's action.
+    // Flips in C6-7: the pre-mark is deleted, so the page asks to confirm an
+    // unload until the action starts (beforeunloadPrompts() is true here).
     expect(isIntentionalNav()).toBe(true);
     await advance(PAINT_MS);
+    expect(s.beforeunloadPrompts()).toBe(false);
     expect(s.sinks.count('reload')).toBe(2);
 
     // The fresh reload also lands in the cache and the same document returns.
@@ -369,14 +519,16 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
   // comes first on a cache restore. The reset's capture-phase visibility
   // listener (session-reset.ts:279) restores first when visibility leads, and
   // page-lifecycle then sees no pending reset (page-lifecycle.ts:169-170).
+  // A flip in C6-6 would come from one handler deciding on "pending at
+  // return": the visible-first row outside a room would then reload too.
   it.each([
-    ['pageshow-first', 'outside a room', OUTSIDE_ROOM, 1, true],
-    ['visible-first', 'outside a room', OUTSIDE_ROOM, 0, false],
-    ['pageshow-first', 'in a room', IN_ROOM, 1, true],
-    ['visible-first', 'in a room', IN_ROOM, 1, true],
+    ['pageshow-first', 'outside a room', 1, OUTSIDE_ROOM, true],
+    ['visible-first', 'outside a room', 0, OUTSIDE_ROOM, false],
+    ['pageshow-first', 'in a room', 1, IN_ROOM, true],
+    ['visible-first', 'in a room', 1, IN_ROOM, true],
   ] as const)(
-    '%s return %s: %i fresh reload(s) [keeps or decides: C6-6]',
-    async (order, _where, app, freshReloads, pendingAfterReturn) => {
+    '%s return %s: %i fresh reload(s) [owner decision / C6-6: keep or flip]',
+    async (order, _where, freshReloads, app, pendingAfterReturn) => {
       const s = boot({ app });
       scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
       await advance(PAINT_MS);
@@ -417,15 +569,27 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     ['pageshow-first', false],
     ['pageshow-only', false],
   ] as const)(
-    'a %s return of a pending reset with a window open arms the Back guard: %s [keeps or decides: C6-6] [flips: C6-12 for pageshow]',
+    'a %s return of a pending reset with a window open arms the Back guard: %s, and still after the fresh reload recovers [owner decision / C6-6: keep or flip] [flips: C6-12 for the pageshow orders]',
     async (order, armed) => {
       const s = await pendingResetWithWindowAndAbsorbedBack();
       s.leaveDocument(true);
       s.returnFromBfcache(order);
       await advance(GUARD_ARM_MS);
 
+      // On the pageshow orders page-lifecycle's fresh reload is pending when
+      // the guard resumes; this holds before and after C6-12.
       expect(s.history.marker()).toBe(armed ? 'guard' : 'base');
       expect(isSessionResetPending()).toBe(!armed);
+      expect(s.sinks.count('reload')).toBe(armed ? 0 : 1);
+
+      // The fresh reload's no-op navigation recovers at its commit deadline.
+      // The release notifies the guard while the reset still reports pending
+      // (the settle-order pin), so nothing arms it.
+      await advance(PAINT_MS + COMMIT_DEADLINE_MS + GUARD_ARM_MS);
+      expect(isSessionResetPending()).toBe(false);
+      // Flips in C6-12 for the pageshow orders: the guard re-arms when the
+      // fresh reload settles, so the marker is 'guard' on every row.
+      expect(s.history.marker()).toBe(armed ? 'guard' : 'base');
     },
   );
 
@@ -443,7 +607,7 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
   });
 
   it.each(['pageshow-first', 'visible-first', 'pageshow-only'] as const)(
-    're-arms the Back guard in a room only on the second %s return, after the bounded reload stops [keeps: C6-6] [flips: C6-12 for the first return]',
+    're-arms the Back guard in a room only on the second %s return, after the bounded reload stops [keeps: C6-6, C6-12]',
     async (order) => {
       const s = boot({ app: IN_ROOM });
       await advance(GUARD_ARM_MS);
@@ -460,7 +624,10 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
       s.returnFromBfcache(order);
       await advance(GUARD_ARM_MS);
       // Every order ends with page-lifecycle's fresh reload pending when the
-      // guard last resumes. Flips in C6-12: the guard re-arms when it settles.
+      // guard last resumes, so it stays unarmed after C6-12 too. Here the
+      // fresh reload never settles in this document (the next pagehide
+      // commits it); C6-12's re-arm on settle is pinned in the window-open
+      // rows above and in (h).
       expect(isSessionResetPending()).toBe(true);
       expect(s.history.marker()).toBe('base');
       expect(s.history.pushes).toHaveLength(1);
@@ -642,6 +809,10 @@ describe('(g) a window that opens during a pending reset', () => {
     s.element('control').focus();
     scheduleDocumentReload(MSG_REFRESHING);
     const dialog = s.element('dialog-overlay');
+    // The reset claims `inert` only (session-reset.ts:154): the shell gets no
+    // aria-hidden from it, which the pre-G4 claim wrote.
+    expect(s.element('tab-play').inert).toBe(true);
+    expect(s.element('tab-play').hasAttribute('aria-hidden')).toBe(false);
 
     s.openDialog();
 
@@ -651,7 +822,6 @@ describe('(g) a window that opens during a pending reset', () => {
     expect(overlay().getAttribute('aria-hidden')).toBe('false');
     expect(document.activeElement).toBe(overlay());
     expect(dialog.inert).toBe(true);
-    expect(dialog.getAttribute('aria-hidden')).toBe('false');
 
     await advance(PAINT_MS + COMMIT_DEADLINE_MS);
     expect(dialog.inert).toBe(false);
@@ -751,28 +921,62 @@ describe('(h) Back taken while a reset is pending', () => {
 });
 
 describe('the PRO claim fence at the scheduleDocumentReload boundary', () => {
-  function takeClaim(): void {
-    window.history.replaceState({ test: true }, '', `${ROOM_PATH}?lang=ko#pro-claim=${CLAIM}`);
-    takeProRoomClaimsFromFragment();
-    expect(location.href).toBe(`http://localhost:3000${ROOM_PATH}?lang=ko`);
-  }
+  // claim-reload-recovery.test.ts pins the same three purposes on the
+  // requestDocumentReload attempt API, which C6-5 rewrites.
+  it.each(CLAIM_KEYS)(
+    'restores the %s fragment only while the reload sink runs and scrubs it after recovery, each attempt [keeps: C6-5]',
+    async (key) => {
+      const s = boot({ app: IN_ROOM });
+      takeClaim(key);
 
-  it('restores the fragment only while the reload sink runs and scrubs it after recovery, each attempt [keeps: C6-5]', async () => {
+      for (let attempt = 1; attempt <= 2; attempt += 1) {
+        scheduleDocumentReload(MSG_REFRESHING);
+        expect(location.hash).toBe('');
+        await advance(PAINT_MS);
+        expect(s.sinks.calls.at(-1)?.hrefAtCall).toBe(
+          `http://localhost:3000${ROOM_PATH}?lang=ko#${key}=${CLAIM}`,
+        );
+        await advance(COMMIT_DEADLINE_MS);
+        expect(location.href).toBe(`http://localhost:3000${ROOM_PATH}?lang=ko`);
+      }
+      expect(sessionStorage.length).toBe(0);
+      expect(localStorage.length).toBe(0);
+    },
+  );
+
+  it('restores a trailing-slash room path canonically for the sink and puts the slash back on recovery [keeps: C6-5]', async () => {
     const s = boot({ app: IN_ROOM });
-    takeClaim();
+    takeClaim('pro-claim', `${ROOM_PATH}/`);
 
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       scheduleDocumentReload(MSG_REFRESHING);
-      expect(location.hash).toBe('');
       await advance(PAINT_MS);
+      // claim-fragment.ts:182 restores /CODE without the slash.
       expect(s.sinks.calls.at(-1)?.hrefAtCall).toBe(
         `http://localhost:3000${ROOM_PATH}?lang=ko#pro-claim=${CLAIM}`,
       );
       await advance(COMMIT_DEADLINE_MS);
-      expect(location.href).toBe(`http://localhost:3000${ROOM_PATH}?lang=ko`);
+      expect(location.href).toBe(`http://localhost:3000${ROOM_PATH}/?lang=ko`);
     }
-    expect(sessionStorage.length).toBe(0);
-    expect(localStorage.length).toBe(0);
+  });
+
+  it('does not let a stale fence facade release its successor [keeps: C6-5]', async () => {
+    const s = boot({ app: IN_ROOM });
+    takeClaim('pro-claim');
+    const stale = capturePendingClaimReloadGuard();
+    // A second claim link replaces the first (document-reload.ts:135-141).
+    takeClaim('pro-recovery');
+
+    // document-reload.ts:117 ignores a facade whose guard is no longer current.
+    stale?.release();
+    scheduleDocumentReload(MSG_REFRESHING);
+    await advance(PAINT_MS);
+
+    expect(s.sinks.calls.at(-1)?.hrefAtCall).toBe(
+      `http://localhost:3000${ROOM_PATH}?lang=ko#pro-recovery=${CLAIM}`,
+    );
+    await advance(COMMIT_DEADLINE_MS);
+    expect(location.hash).toBe('');
   });
 
   it('scrubs at once when the claim flow releases during an in-flight reload, and runs a queued reload only after recovery [keeps: C6-5]', async () => {
@@ -840,9 +1044,11 @@ describe('the PRO claim fence at the scheduleDocumentReload boundary', () => {
 
     await advance(COMMIT_DEADLINE_MS - 1);
     expect(fenced).toBe(false);
+    // Asserted after the clock moves, before any await: a fence that never
+    // opens fails here instead of timing the test out.
     await advance(1);
-    await fencing;
     expect(fenced).toBe(true);
+    await fencing;
 
     scheduleDocumentReload('Fenced reload');
     expect(isSessionResetPending()).toBe(false);

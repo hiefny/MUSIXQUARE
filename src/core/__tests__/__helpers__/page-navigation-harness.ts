@@ -21,6 +21,14 @@
  * registration (app.ts:1287) is not wired; the update machine against the real
  * reset is covered by sw-register-recovery.integration.test.ts.
  *
+ * That wiring, and the logo action in `logoHardReset`
+ * (player-controls.ts:1086-1101), are copies: app.ts bootstrap and the logo
+ * handler cannot run in isolation. page-navigation-harness-parity.test.ts pins
+ * each copied line and the init order to the source. An increment that changes
+ * them (C6-6 the page-transition dispatch and its init position, C6-8 the logo
+ * action, C6-12 the guard subscriptions) updates the copy here in the same
+ * change, then that parity pin.
+ *
  * One module instance serves the whole test file. ui/dom.ts installs permanent
  * capture listeners on `document` once per module instance (the legacy inert
  * guard), so a fresh module graph per test would stack stale guards. Each boot

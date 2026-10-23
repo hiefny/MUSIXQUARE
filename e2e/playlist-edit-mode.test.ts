@@ -312,6 +312,64 @@ test.describe('Playlist edit mode (mouse)', () => {
     await expect.poll(() => currentQueueItemId(page)).not.toBe(currentBefore);
   });
 
+  // Owner decision O4 (2026-10-23): Delete tapped during a drop settle
+  // finishes the settle at once, then deletes.
+  test('Delete tapped while a dropped row settles deletes at once', async ({ page }) => {
+    test.setTimeout(90_000);
+    await openFiveTrackPlaylist(page, false);
+    // A playlist render during the hold (the first track still preparing)
+    // would cancel it, so wait until the header loader is gone.
+    await expect(page.locator('#main-header.loading')).toHaveCount(0, { timeout: 30_000 });
+    const before = (await readQueueSnapshot(page)).items.map((item) => item.queueItemId);
+    const checks = page.locator('#playlist-ui .btn-playlist-select');
+    await checks.nth(0).click();
+    await checks.nth(1).click();
+    await page.waitForTimeout(400);
+
+    // In edit mode a hold lifts the third row; drop it at the top.
+    const start = await centerOf(page.locator('#playlist-ui .track-name').nth(2));
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.waitForTimeout(900);
+    await expect(page.locator('.playlist-reorder-ghost')).toBeVisible();
+    await page.mouse.move(start.x, start.y - 64 * 2 - 16, { steps: 6 });
+    await page.mouse.up();
+
+    const result = await page.evaluate(() => {
+      const list = document.getElementById('playlist-ui')!;
+      const entries = () =>
+        Array.from(list.querySelectorAll<HTMLElement>(':scope > .playlist-entry'));
+      const ids = () => entries().map((entry) => entry.dataset.queueItemId);
+      const settling = document.querySelector('.playlist-reorder-settle') !== null;
+      const preview = ids();
+      document.querySelector<HTMLButtonElement>('.playlist-selection-delete')!.click();
+      return {
+        settling,
+        preview,
+        rendered: ids(),
+        stillSettling: document.querySelector('.playlist-reorder-settle') !== null,
+        leaving: document.querySelectorAll('.playlist-exit-ghost').length,
+        gliding: entries()
+          .filter((entry) => entry.getAnimations().length > 0)
+          .map((entry) => entry.dataset.queueItemId),
+      };
+    });
+    expect(result.settling).toBe(true);
+    expect(result.preview).toEqual([before[2], before[0], before[1], before[3], before[4]]);
+    // The deleted rows leave the list at once, as copies sliding out.
+    expect(result.stillSettling).toBe(false);
+    expect(result.rendered).toEqual([before[2], before[3], before[4]]);
+    expect(result.leaving).toBe(2);
+    // The rows below them close the gap with a glide instead of a jump.
+    expect(result.gliding).toEqual([before[3], before[4]]);
+    await expect(page.locator('.playlist-exit-layer')).toHaveCount(0);
+    expect((await readQueueSnapshot(page)).items.map((item) => item.queueItemId)).toEqual([
+      before[2],
+      before[3],
+      before[4],
+    ]);
+  });
+
   test('edit mode folds YouTube playlists and restores each expansion', async ({ page }) => {
     test.setTimeout(90_000);
     await openFiveTrackPlaylist(page, false);

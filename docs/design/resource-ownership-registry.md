@@ -1339,7 +1339,12 @@ RO-46 accepted-exception
   - Teardown: `playlist-view.test.ts` "cancels a PRO deletion task on authority loss or
     room-incarnation replacement" and "cancels the drag and the selection together on ...".
   - Visibility: missing.
-  - Missing: Delete tapped during a reorder drop settle.
+  - Delete during a drop settle (owner decision O4, 2026-10-23: the settle finishes at once, then
+    the deletion renders): `playlist-view.test.ts` "finishes a drop settle at once when Delete is
+    tapped during it" for the Standard host, a Standard guest with ADMIN and a PRO media manager,
+    and `e2e/playlist-edit-mode.test.ts` "Delete tapped while a dropped row settles deletes at
+    once" (local only). The removal controller asks first through `onBeforeDelete`; a drag still
+    in its gesture is left alone.
 - **Status:** `duplicated`. Phase 2 (motion module, interaction gate, the delete-during-settle
   decision).
 

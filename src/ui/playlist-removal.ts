@@ -58,6 +58,12 @@ interface PlaylistRemovalControllerOptions {
   isRemovalLocal?: () => boolean;
   onSelectionStart?: () => void;
   onSelectionEnd?: () => void;
+  /**
+   * Delete was tapped: the owner finishes any other row motion (a reorder's
+   * drop settle) before the leaving rows are copied, so the list renders the
+   * deletion at once and the survivors glide from where they are.
+   */
+  onBeforeDelete?: () => void;
   /** True when the room has other playlists to copy or move tracks to. */
   canMove?: () => boolean;
   /** Open the move dialog for the selected tracks, in playlist order. */
@@ -594,6 +600,7 @@ export function createPlaylistRemovalController(
 
   function deleteSelected(): void {
     if (!options.canRemove() || selectedQueueItemIds.size === 0) return;
+    options.onBeforeDelete?.();
     morph?.stop();
     const items = visibleItems();
     const orderedQueueItemIds = items

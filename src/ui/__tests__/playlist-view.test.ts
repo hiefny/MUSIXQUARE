@@ -2562,20 +2562,25 @@ describe('playlist interaction gate (RO-27)', () => {
     expect(reorder).not.toHaveBeenCalled();
   });
 
+  // Owner decision O4 (2026-10-23): Delete tapped during a drop settle
+  // finishes the settle at once, then deletes, so the leaving rows go and the
+  // survivors close up from where they are.
   it.each([
-    { editor: QUEUE_EDITORS[0], afterSettle: [FILE_B, FILE_A] },
-    // The host has not answered the reorder request yet.
-    { editor: QUEUE_EDITORS[1], afterSettle: [FILE_A, FILE_B] },
-    { editor: QUEUE_EDITORS[2], afterSettle: [FILE_B, FILE_A] },
+    { editor: QUEUE_EDITORS[0], rendered: [FILE_B, FILE_A] },
+    // The host has not answered the reorder request yet, so this guest's
+    // playlist still holds the order from before the drop.
+    { editor: QUEUE_EDITORS[1], rendered: [FILE_A, FILE_B] },
+    { editor: QUEUE_EDITORS[2], rendered: [FILE_B, FILE_A] },
   ])(
-    'keeps deleted rows rendered until a drop settle ends when Delete is tapped during it ($editor.role)',
-    async ({ editor, afterSettle }) => {
+    'finishes a drop settle at once when Delete is tapped during it ($editor.role)',
+    async ({ editor, rendered }) => {
       await deleteDuringDropSettle(editor);
 
-      expect(document.querySelector('.playlist-reorder-settle')).not.toBeNull();
-      expect(renderedQueueIds()).toEqual([FILE_B, FILE_A, FILE_C]);
+      expect(document.querySelector('.playlist-reorder-settle')).toBeNull();
+      expect(renderedQueueIds()).toEqual(rendered);
+      expect(selectionBarVisible()).toBe(false);
       vi.advanceTimersByTime(DROP_SETTLE_MS);
-      expect(renderedQueueIds()).toEqual(afterSettle);
+      expect(renderedQueueIds()).toEqual(rendered);
     },
   );
 });

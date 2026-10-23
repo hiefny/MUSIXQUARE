@@ -143,6 +143,16 @@ function cancelQueueInteractions(): void {
   _removalController?.cancel();
 }
 
+/**
+ * Delete tapped during a drop settle finishes the settle at once (owner
+ * decision O4, 2026-10-23), so the deletion renders immediately instead of
+ * sliding its rows out over a list that is still the drag's preview. A drag
+ * still in its gesture is left alone; cancelling it would revert the drop.
+ */
+function finishDropSettleBeforeDelete(): void {
+  if (playlistInteraction().reorder === 'settling') _reorderController?.cancel();
+}
+
 function resolveQueueIndex(queueItemId: QueueItemId): number {
   return findQueueItemIndex(queueItemId, getState('playlist.items'));
 }
@@ -1093,6 +1103,7 @@ function loadRemovalController(list: HTMLElement): void {
           _followController?.afterRender();
           _currentJumpController?.refresh();
         },
+        onBeforeDelete: finishDropSettleBeforeDelete,
         canMove: () => getState('playlist.slots') !== null,
         onMove: openPlaylistTransferDialogLazily,
       });

@@ -294,6 +294,31 @@ describe('playlist removal controller', () => {
       controller.toggle(A);
     }
 
+    it('lets its owner finish other row motion before it copies the leaving rows', () => {
+      const rects = vi
+        .spyOn(Element.prototype, 'getClientRects')
+        .mockReturnValue([{}] as unknown as DOMRectList);
+      try {
+        const settling = document.querySelector<HTMLElement>(
+          `.playlist-entry[data-queue-item-id="${A}"]`,
+        )!;
+        settling.classList.add('is-reorder-settling-source');
+        const calls: string[] = [];
+        const onBeforeDelete = vi.fn(() => {
+          calls.push('finish other motion');
+          settling.classList.remove('is-reorder-settling-source');
+        });
+        deleteFirstRow({ onBeforeDelete, onDelete: () => calls.push('delete') });
+
+        expect(calls).toEqual(['finish other motion', 'delete']);
+        const ghost = document.querySelector<HTMLElement>('.playlist-exit-ghost')!;
+        expect(ghost.dataset.queueItemId).toBe(A);
+        expect(ghost.classList.contains('is-reorder-settling-source')).toBe(false);
+      } finally {
+        rects.mockRestore();
+      }
+    });
+
     it('shrinks the whole bar away in place after Delete without delaying the deletion', () => {
       const { onDelete, list } = deleteFirstRow();
       expect(onDelete).toHaveBeenCalledOnce();

@@ -127,12 +127,15 @@ function nextAnimationFrame(): Promise<void> {
 }
 
 /**
- * Wait out a drop settle on real timers (about 0.5 s). The view module keeps
+ * End a drop settle at once instead of waiting it out. The view module keeps
  * its controllers across tests, so a settle still running would defer the
- * next test's direct updatePlaylistUI() call.
+ * next test's direct updatePlaylistUI() call. A window blur ends any drag or
+ * drop settle (focus left the page); the render that the end schedules runs
+ * on the next frame.
  */
-function waitForDropSettle(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, 600));
+async function endDropSettle(): Promise<void> {
+  window.dispatchEvent(new Event('blur'));
+  await nextAnimationFrame();
 }
 
 it('renders and patches titles for each saved PRO manifest independently, including later batches', async () => {
@@ -1251,7 +1254,7 @@ describe('playlist queue identity rendering and actions', () => {
 
     setState('room.context', { ...context, snapshotRevision: 3, capabilities: [] });
     expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
-    await waitForDropSettle();
+    await endDropSettle();
   });
 
   it('restores queue grips when the host account sibling projection arrives', async () => {
@@ -2154,7 +2157,7 @@ describe('playlist queue identity rendering and actions', () => {
     dispatch('pointerup', 160);
 
     expect(reorder).toHaveBeenCalledWith(FILE_A, null, 7);
-    await waitForDropSettle();
+    await endDropSettle();
   });
 
   it('keeps the committed source handle mounted through its return fade before rendering', async () => {

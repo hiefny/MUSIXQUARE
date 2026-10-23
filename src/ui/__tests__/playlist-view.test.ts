@@ -2600,6 +2600,189 @@ describe('playlist interaction gate (RO-27)', () => {
     expect(list.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
   });
 
+  it.each([
+    [
+      'a handle drag outside edit mode',
+      (list: HTMLElement): Element => {
+        const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+        pointer(handle, 'pointerdown', 20);
+        return handle;
+      },
+    ],
+    [
+      'an edit-mode long-press drag',
+      (): Element => {
+        clickSelect(FILE_B);
+        return longPress(FILE_A, 20);
+      },
+    ],
+  ])('cancels %s when the playlist changes under it', async (_drag, startDrag) => {
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    const held = startDrag(list);
+    pointer(held, 'pointermove', 80);
+    expect(liftedRow()).not.toBeNull();
+
+    const items = threeFiles();
+    setState('playlist.items', [items[0]!, { ...items[1]!, title: 'B renamed' }, items[2]!]);
+
+    expect(liftedRow()).toBeNull();
+    pointer(held, 'pointerup', 80);
+    expect(reorder).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    expect(renderedQueueIds()).toEqual([FILE_A, FILE_B, FILE_C]);
+    expect(list.querySelectorAll('.track-name-text')[1]?.textContent).toBe('B renamed');
+  });
+
+  it('keeps the number column for picking in edit mode: its handle starts no drag', async () => {
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    clickSelect(FILE_A);
+    const handle = list.querySelector<HTMLElement>(
+      `.playlist-entry[data-queue-item-id="${FILE_C}"] .playlist-reorder-handle`,
+    )!;
+
+    pointer(handle, 'pointerdown', 132);
+    pointer(handle, 'pointermove', 10);
+    expect(liftedRow()).toBeNull();
+    pointer(handle, 'pointerup', 10);
+    expect(reorder).not.toHaveBeenCalled();
+    expect(pressedIds()).toEqual([FILE_A]);
+  });
+
+  it('picks a row from a title tap in edit mode instead of playing it', async () => {
+    await mount();
+    const play = vi.fn();
+    bus.on('playlist:play-track', play);
+    clickSelect(FILE_A);
+
+    document
+      .querySelector<HTMLElement>(`.track-item[data-queue-item-id="${FILE_B}"] .track-name`)!
+      .click();
+
+    expect(pressedIds()).toEqual([FILE_A, FILE_B]);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  describe('active-track follow', () => {
+    /** Row tops by queue item, so rows a render replaces keep their place. */
+    const ROW_TOPS = new Map([
+      [FILE_A, 0],
+      [FILE_B, 56],
+      [FILE_C, 112],
+    ]);
+    // FILE_C's centre (112 + 24) minus half the 100px pane.
+    const FILE_C_FOLLOW_TOP = 86;
+    let scrollTo: ReturnType<typeof vi.fn>;
+    let restoreRects: () => void = () => {};
+
+    function followScrolls(): unknown[][] {
+      return scrollTo.mock.calls.filter(
+        ([options]) => (options as ScrollToOptions).behavior === 'smooth',
+      );
+    }
+
+    beforeEach(() => {
+      const scroller = document.querySelector<HTMLElement>('.tab-body')!;
+      Object.defineProperties(scroller, {
+        clientHeight: { configurable: true, value: 100 },
+        scrollHeight: { configurable: true, value: 300 },
+      });
+      const elementRect = Element.prototype.getBoundingClientRect;
+      const rects = vi
+        .spyOn(Element.prototype, 'getBoundingClientRect')
+        .mockImplementation(function (this: Element) {
+          if (this === scroller) return { ...rowRect(0), bottom: 100, height: 100 } as DOMRect;
+          const row = this instanceof HTMLElement && this.classList.contains('track-item');
+          const id = row ? (this as HTMLElement).dataset.queueItemId : undefined;
+          const top = id === undefined ? undefined : ROW_TOPS.get(id);
+          return top === undefined ? elementRect.call(this) : rowRect(top - scroller.scrollTop);
+        });
+      restoreRects = () => rects.mockRestore();
+      scrollTo = vi.fn((options: ScrollToOptions) => {
+        scroller.scrollTop = Number(options.top ?? 0);
+      });
+      Object.defineProperty(scroller, 'scrollTo', { configurable: true, value: scrollTo });
+    });
+
+    afterEach(() => restoreRects());
+
+    it('stays blocked while tracks are picked and resumes its pending request once after', async () => {
+      await mount();
+      clickSelect(FILE_A);
+
+      setState('playlist.currentQueueItemId', FILE_C);
+      vi.advanceTimersByTime(FRAME_MS * 4);
+      expect(renderedQueueIds()).toEqual([FILE_A, FILE_B, FILE_C]);
+      expect(followScrolls()).toEqual([]);
+
+      document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
+      await Promise.resolve();
+      vi.advanceTimersByTime(FRAME_MS * 4);
+      expect(followScrolls()).toEqual([[{ top: FILE_C_FOLLOW_TOP, behavior: 'smooth' }]]);
+    });
+
+    it('stays blocked through a reorder and its drop settle and resumes once after', async () => {
+      const list = await mount();
+      const reorder = vi.fn();
+      bus.on('playlist:reorder-track', reorder);
+      setState('playlist.currentQueueItemId', FILE_C);
+      // The render requests the follow for its next frame.
+      vi.advanceTimersByTime(FRAME_MS);
+      expect(followScrolls()).toEqual([]);
+
+      // A keyboard grab is the one reorder that does not end the follow as a
+      // user scroll would.
+      const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+      const key = (name: string) =>
+        handle.dispatchEvent(
+          new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }),
+        );
+      key(' ');
+      vi.advanceTimersByTime(FRAME_MS * 4);
+      expect(followScrolls()).toEqual([]);
+
+      key('ArrowDown');
+      key(' ');
+      expect(reorder).toHaveBeenCalledWith(FILE_A, FILE_C, 0);
+      vi.advanceTimersByTime(FRAME_MS * 4);
+      expect(followScrolls()).toEqual([]);
+
+      vi.advanceTimersByTime(DROP_SETTLE_MS);
+      expect(followScrolls()).toEqual([[{ top: FILE_C_FOLLOW_TOP, behavior: 'smooth' }]]);
+    });
+  });
+
+  // A drag still held when Delete is tapped (a second finger, say) keeps its
+  // gesture; only a drop settle is finished early (owner decision O4).
+  it('leaves a running drag alone when Delete is tapped and renders the deletion after its drop', async () => {
+    joinStandardRoomAsOperator();
+    const list = await mount();
+    const reorder = vi.fn();
+    bus.on('playlist:reorder-track', reorder);
+    const remove = vi.fn();
+    bus.on('playlist:remove-tracks', remove);
+    clickSelect(FILE_C);
+    const lifted = longPress(FILE_A, 20);
+    pointer(lifted, 'pointermove', 80);
+    const replaceChildren = vi.spyOn(list, 'replaceChildren');
+
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+
+    expect(remove).toHaveBeenCalledWith([FILE_C]);
+    expect(liftedRow()).not.toBeNull();
+    expect(replaceChildren).not.toHaveBeenCalled();
+    pointer(lifted, 'pointerup', 80);
+    expect(reorder).toHaveBeenCalledWith(FILE_A, FILE_C, 0);
+    expect(replaceChildren).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    expect(replaceChildren).toHaveBeenCalledTimes(1);
+    // Until the host answers, this guest's playlist keeps its own order.
+    expect(renderedQueueIds()).toEqual([FILE_A, FILE_B]);
+  });
+
   // Owner decision O4 (2026-10-23): Delete tapped during a drop settle
   // finishes the settle at once, then deletes, so the leaving rows go and the
   // survivors close up from where they are.

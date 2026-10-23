@@ -1349,12 +1349,20 @@ RO-47 owner-in-place
   - System audio (O5): `playlist-view.test.ts` "cancels the drag and the selection together on a
     switch to system audio" and "cancels a handle drag outside edit mode on a switch to system
     audio".
+  - Gate decisions: `playlist-view.test.ts` "stays blocked while tracks are picked and resumes its
+    pending request once after" and "stays blocked through a reorder and its drop settle and
+    resumes once after" (follow), "cancels a handle drag outside edit mode when the playlist
+    changes under it" and "cancels an edit-mode long-press drag when the playlist changes under
+    it" (a drag cannot trust changed rows; a settle keeps them), "keeps the number column for
+    picking in edit mode: its handle starts no drag" and "picks a row from a title tap in edit mode
+    instead of playing it".
   - Delete during a drop settle (owner decision O4, 2026-10-23: the settle finishes at once, then
     the deletion renders): `playlist-view.test.ts` "finishes a drop settle at once when Delete is
     tapped during it" for the Standard host, a Standard guest with ADMIN and a PRO media manager,
     and `e2e/playlist-edit-mode.test.ts` "Delete tapped while a dropped row settles deletes at
     once" (local only). The removal controller asks first through `onBeforeDelete`; a drag still
-    in its gesture is left alone.
+    in its gesture is left alone ("leaves a running drag alone when Delete is tapped and renders
+    the deletion after its drop").
 - **Status:** `owner-in-place`. Phase 2 moved the shared motion into `playlist-motion.ts` (C8-I3),
   gave the view one interaction gate (C8-I7) and applied owner decisions O4 (C8-I11) and O5, with
   the tests above. Known residual: a Standard guest with ADMIN who taps Delete before the host has

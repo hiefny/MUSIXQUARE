@@ -56,6 +56,10 @@ describe('owner-transfer link and the room entry password', () => {
     // The App sends the claim, its request id and its opt-in headers only.
     const transferred = await postTransfer(test, claim, { entryPolicy: true });
     expect(transferred.status).toBe(200);
+    expect(transferred.headers.getSetCookie().map((cookie) => cookie.split('=')[0])).toEqual([
+      `__Secure-mxqr_pro_session_${ROOM_CODE}`,
+      `__Secure-mxqr_pro_owner_${ROOM_CODE}`,
+    ]);
     const snapshot = await snapshotOf(transferred);
     expect(snapshot.viewer).toMatchObject({ role: 'owner' });
     // The facade passes the opt-ins to the commit, so the answer has the same

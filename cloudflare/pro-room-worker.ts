@@ -14458,8 +14458,11 @@ export class MusixquareProRoom {
     const claimToken = parsed.value.claimToken;
     const requestId = parsed.value.requestId;
     const activationSecret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
+    // The transfer no longer hashes a PIN, but session creation needs the PIN
+    // pepper even in an open room. Refuse before PREPARE revokes anything.
     if (
       activationSecret.length < 32 ||
+      String(this.env.PRO_ROOM_PIN_PEPPER || '').length < 32 ||
       String(this.env.PRO_ROOM_SESSION_SECRET || '').length < 32
     ) {
       return errorResponse('SERVICE_NOT_CONFIGURED', 503);
@@ -15876,10 +15879,10 @@ export class MusixquareProRoom {
   }
 
   /**
-   * The one way a room's entry password is turned off: the explicit public
-   * policy flag, and no PIN record. The owner's room setting and a committed
-   * ownership transfer both write it; the caller bumps the revision and
-   * persists with its own change.
+   * Turn a room's entry password off: the explicit public policy flag, and no
+   * PIN record (the state an activation without a PIN also starts in). The
+   * owner's room setting and a committed ownership transfer share it; the
+   * caller bumps the revision and persists with its own change.
    */
   turnEntryPasswordOff() {
     this.activeRoom.passwordRequired = false;

@@ -23059,6 +23059,11 @@ describe('PRO owner transfer and the room entry password', () => {
       entryPolicy: true,
     });
     expect(committed.status).toBe(200);
+    // Adding the opt-in fields rebuilds the answer; both owner cookies stay.
+    expect(committed.headers.getSetCookie().map((cookie) => cookie.split('=')[0])).toEqual([
+      `__Host-mxqr_pro_session_${ROOM_CODE}`,
+      `__Host-mxqr_pro_owner_${ROOM_CODE}`,
+    ]);
     const committedPayload = await responseJson(committed);
     expect(committedPayload.snapshot.viewer).toMatchObject({ role: 'owner' });
     expect(committedPayload.snapshot.passwordRequired).toBe(false);
@@ -23216,6 +23221,24 @@ describe('PRO owner transfer and the room entry password', () => {
       pin: null,
       pendingOwnershipTransfer: null,
       completedOwnershipTransfer: { transferId: prepared.transferId, requestId },
+    });
+  });
+
+  it('still refuses PREPARE before revoking anything when the room could not admit people', async () => {
+    const context = await activatedRoom();
+    const claimToken = await issueTransferClaim(context.worker);
+    // The transfer hashes no PIN now, but every session creation needs the pepper.
+    (context.worker as unknown as { env: Record<string, unknown> }).env.PRO_ROOM_PIN_PEPPER = '';
+    const refused = await prepareTransfer(context.worker, {
+      claimToken,
+      requestId: 'owner_transfer_password_0006',
+    });
+    expect(refused.status).toBe(503);
+    await expect(refused.json()).resolves.toEqual({ error: 'SERVICE_NOT_CONFIGURED' });
+    expect(roomState(context.worker)).toMatchObject({
+      status: 'active',
+      pendingOwnershipTransfer: null,
+      consumedOwnershipTransferClaims: {},
     });
   });
 

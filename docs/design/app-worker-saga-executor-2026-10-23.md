@@ -3,7 +3,7 @@
 | 항목     | 범위                                                                                                                                  |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | 기준 SHA | `09ecb95b` (main, Phase 1 App Worker A(C7-8, C7-11) 병합본, 미배포)                                                                   |
-| 코드 SHA | (작성 중)                                                                                                                             |
+| 코드 SHA | `f1b362c7`(코드는 `59e83e84`와 같다)                                                                                                  |
 | 후보     | App Worker만, target `app`. App 버전·SW 캐시(9.0.3 / v771)와 버전 표기는 그대로. 미배포                                               |
 | 열차     | 구조 개선 Phase 1 App Worker B: C7-9 사후 실행기 하나와 오너 결정 D3의 순서. 의도한 동작 변경 있음(아래 "동작 변경")                  |
 | 환경     | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(node), node:sqlite 위의 실제 App Worker와 PRO 방 객체, git 기록으로 만든 이전 빌드 |
@@ -208,7 +208,11 @@ Worker만 이전 버전(`09ecb95b`이 배포됐다면 그것, 아니면 `86ccefe
   Worker 테스트 59개 파일 2,842개 통과, Worker 커버리지 문턱 통과(App Worker 줄 87.1%).
   `check:workers`, `check:worker-bundles`(빌드 뒤), `guard:d1-migrations`,
   `guard:source-complexity`, 소유권 가드, 타입 검사, lint, 서식 통과.
-- 전체 검사: (작성 중)
+- 전체 검사(`f1b362c7`, 로컬): 타입 검사, lint, 서식, 빌드 통과. 단위 테스트 628개 파일 14,204개,
+  Worker 테스트 59개 파일 2,842개 통과. 가드(dead-exports, bus-pairing, import-graph,
+  lifecycle-writes, release-identity, sw-cache-version, source-complexity, d1-migrations,
+  `check:workers`, resource-ownership) 통과. 브라우저 앱이 바뀌지 않아 브라우저 검사는 돌리지
+  않았다. 로컬 결과는 정확한 main SHA 배포 후보를 대신하지 않는다.
 - 한계:
   - node:sqlite는 D1의 한 문장 원자성을 따른다. 실제 D1에서 두 실행기가 같은 순간에 넣어도
     한 문장 안의 확인과 삽입은 직렬로 실행된다는 전제다.

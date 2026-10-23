@@ -53,7 +53,9 @@
  * C6-6 one page-transition dispatch, C6-7 unload-exemption claims, C6-8
  * prepare/navigate split, C6-10 hard reset asks the update machine, C6-11
  * reset surface on top (with the fullscreen top-layer fix), C6-12 Back guard
- * re-arm, C6-13 duplicate latches deleted.
+ * re-arm, C6-13 duplicate latches deleted, and the C6-5 follow-up (owner
+ * decision 13) that drops a reload still queued when the page returns from
+ * the back-forward cache.
  *
  * The app.ts wiring and the logo action run on copies inside the harness;
  * page-navigation-harness-parity.test.ts pins those copies to the source, so
@@ -323,7 +325,8 @@ describe('(b) a reload queued behind another reload', () => {
     expect(s.sinks.count('reload')).toBe(2);
   });
 
-  it('lets a waiting request join one with the same message, so one reload answers both [owner decision 1]', async () => {
+  // Owner decision 13 confirmed "same reason" as the same message text.
+  it('lets a waiting request join one with the same message, so one reload answers both [owner decisions 1, 13]', async () => {
     const s = boot({ app: IN_ROOM });
     const order: string[] = [];
     s.sinks.reload.mockImplementation(() => order.push(s.resetMessage() ?? ''));
@@ -347,7 +350,7 @@ describe('(b) a reload queued behind another reload', () => {
     expect(isSessionResetPending()).toBe(false);
   });
 
-  it('queues a request behind the running reload of the same message instead of joining it [owner decision 1]', async () => {
+  it('queues a request behind the running reload of the same message instead of joining it [owner decisions 1, 13]', async () => {
     const s = boot({ app: IN_ROOM });
     const running = vi.fn();
     const next = vi.fn();
@@ -726,7 +729,8 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
   // restores first when visibility leads, and its pageshow then sees no
   // pending reset. C6-6 kept this: its one dispatch decides on the live state
   // at each event, as the two listeners did, not on "pending at return",
-  // which would make the visible-first row outside a room reload too.
+  // which would make the visible-first row outside a room reload too; owner
+  // decision 13 keeps that row at 0 reloads.
   // The departure itself settles nothing: pagehide commits the reset and the
   // visibilitychange(hidden) after it restores nothing.
   it.each([
@@ -735,7 +739,7 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     ['pageshow-first', 'in a room', 1, IN_ROOM, true],
     ['visible-first', 'in a room', 1, IN_ROOM, true],
   ] as const)(
-    '%s return %s: %i fresh reload(s) [kept: C6-6]',
+    '%s return %s: %i fresh reload(s) [kept: C6-6, owner decision 13]',
     async (order, _where, freshReloads, app, pendingAfterReturn) => {
       const s = boot({ app });
       scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
@@ -751,6 +755,177 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
       await advance(PAINT_MS);
       expect(s.sinks.count('reload')).toBe(freshReloads);
       expect(s.sinks.count('replace')).toBe(1);
+    },
+  );
+
+  // A reload queued behind a navigation that commits never runs while the
+  // document is gone (pin (a)), but the document can come back from the cache.
+  // Until the C6-5 follow-up (owner decision 13), the persisted pageshow
+  // settled the returned reset, that settle started the queued reload, and the
+  // owner's bounded bfcache reload waited behind it: two reloads whenever the
+  // first one did not commit. The persisted pageshow now drops every reload
+  // still queued and leaves the one reload to the bfcache return path. Each
+  // dropped caller hears once, as a request that is no longer current does
+  // (its onRecovered, the 'recovered' outcome), after that path has taken the
+  // page. On the visible-first order the visible return has already started
+  // the queued reload, and the pageshow settles it as a returned reset: one
+  // reload before and after.
+  it.each(
+    (['pageshow-first', 'pageshow-only', 'visible-first'] as const).flatMap((order) =>
+      (
+        [
+          ['in a room', IN_ROOM],
+          ['outside a room', OUTSIDE_ROOM],
+        ] as const
+      ).map(([where, app]) => [order, where, app] as const),
+    ),
+  )(
+    'drops a reload still queued behind a committed reset on a %s return %s: one fresh reload, and the queued caller settles once [pageshow orders added: C6-5 follow-up, owner decision 13]',
+    async (order, _where, app) => {
+      const s = boot({ app });
+      const reloads: Array<string | null> = [];
+      s.sinks.reload.mockImplementation(() => reloads.push(s.resetMessage()));
+      scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
+      const queued = vi.fn();
+      scheduleDocumentReload('Queued reload', queued);
+      await advance(PAINT_MS);
+      expect(s.sinks.count('replace')).toBe(1);
+      s.leaveDocument(true);
+      expect(queued).not.toHaveBeenCalled();
+
+      s.returnFromBfcache(order);
+      // Every reload that starts here is a no-op that recovers at its deadline.
+      await advance(2 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
+
+      // Before the follow-up the pageshow orders made ['Queued reload', MSG_REFRESHING].
+      expect(reloads).toEqual([MSG_REFRESHING]);
+      expect(queued).toHaveBeenCalledOnce();
+      expect(queued).toHaveBeenCalledWith();
+      expect(isSessionResetPending()).toBe(false);
+      expect(overlay().hidden).toBe(true);
+      expect(s.sinks.count('replace')).toBe(1);
+    },
+  );
+
+  it('drops every reload still queued at a pageshow-first return, answering each caller once in queue order once the fresh reload holds the page [added: C6-5 follow-up, owner decision 13]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const events: string[] = [];
+    const caller = (name: string) => () =>
+      events.push(`${name}: pending=${isSessionResetPending()} message=${s.resetMessage()}`);
+    scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
+    scheduleDocumentReload(MSG_REFRESHING, caller('first'));
+    scheduleDocumentReload('Other reason', caller('other'));
+    // Joins the first request and keeps its place in the queue.
+    scheduleDocumentReload(MSG_REFRESHING, caller('joined'));
+    await advance(PAINT_MS);
+    s.leaveDocument(true);
+
+    s.returnFromBfcache('pageshow-first');
+    const atReturn = [...events];
+    await advance(3 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
+
+    // Before the follow-up: three reloads (the two queued ones, then the fresh one).
+    expect(s.sinks.count('reload')).toBe(1);
+    expect(atReturn).toEqual([
+      `first: pending=true message=${MSG_REFRESHING}`,
+      `joined: pending=true message=${MSG_REFRESHING}`,
+      `other: pending=true message=${MSG_REFRESHING}`,
+    ]);
+    expect(events).toEqual(atReturn);
+    expect(isSessionResetPending()).toBe(false);
+    // Two queued requests: the joined one and 'Other reason'.
+    expect(s.lifecycleLog).toHaveBeenCalledWith(
+      '[PageLifecycle] Dropped queued reloads on bfcache return:',
+      2,
+    );
+  });
+
+  it('lets a dropped caller that asks again wait behind the fresh reload, which then commits [added: C6-5 follow-up, owner decision 13]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const reloads: Array<string | null> = [];
+    s.sinks.reload.mockImplementation(() => reloads.push(s.resetMessage()));
+    scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
+    scheduleDocumentReload('Queued reload', () => scheduleDocumentReload('Retry'));
+    await advance(PAINT_MS);
+    s.leaveDocument(true);
+
+    s.returnFromBfcache('pageshow-first');
+    await advance(PAINT_MS);
+    // The fresh reload commits; the retry asked for behind it never runs.
+    s.leaveDocument(false);
+    await advance(2 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
+
+    // Before the follow-up the queued reload ran instead: ['Queued reload'].
+    expect(reloads).toEqual([MSG_REFRESHING]);
+    expect(isSessionResetPending()).toBe(true);
+    expect(s.resetMessage()).toBe(MSG_REFRESHING);
+  });
+
+  it('drops a lazy-feature recovery reload still queued at a pageshow-first return and frees its prompt latch once: one reload [added: C6-5 follow-up, owner decision 13]', async () => {
+    const s = boot({ app: IN_ROOM });
+    scheduleSessionReset(MSG_LEAVING, () => navigateToAppHome());
+    s.requestLazyFeatureRecovery('connect');
+    await advance(0);
+    expect(s.lazyFeature.events).toEqual(['prompt']);
+    await advance(PAINT_MS);
+    expect(s.sinks.count('replace')).toBe(1);
+    s.leaveDocument(true);
+
+    s.returnFromBfcache('pageshow-first');
+    const atReturn = {
+      events: [...s.lazyFeature.events],
+      pending: isSessionResetPending(),
+      message: s.resetMessage(),
+    };
+    await advance(2 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
+
+    // Before the follow-up: two reloads, and the latch heard only after the first.
+    expect(s.sinks.count('reload')).toBe(1);
+    expect(atReturn).toEqual({
+      events: ['prompt', 'recovered:connect'],
+      pending: true,
+      message: MSG_REFRESHING,
+    });
+    expect(s.lazyFeature.events).toEqual(['prompt', 'recovered:connect']);
+
+    // The latch is free again: a later failure prompts and reloads.
+    s.requestLazyFeatureRecovery('connect');
+    await advance(PAINT_MS);
+    expect(s.lazyFeature.events).toEqual(['prompt', 'recovered:connect', 'prompt']);
+    expect(s.sinks.count('reload')).toBe(2);
+  });
+
+  // Owner decision 13 drops a reload still queued at a back-forward cache
+  // return whatever that return then decides, so a reload held by a deferred
+  // PRO claim fence is dropped too. In a room the fresh reload takes its place
+  // behind the fence; outside a room with nothing pending the return reloads
+  // nothing, and the dropped caller has heard once and can ask again.
+  it.each([
+    ['in a room', [MSG_REFRESHING], IN_ROOM],
+    ['outside a room', [], OUTSIDE_ROOM],
+  ] as const)(
+    'drops a reload held by a deferred PRO claim fence at a pageshow-first return %s, then reloads %j once the fence opens [added: C6-5 follow-up, owner decision 13]',
+    async (_where, expectedReloads, app) => {
+      const s = boot({ app });
+      const reloads: Array<string | null> = [];
+      s.sinks.reload.mockImplementation(() => reloads.push(s.resetMessage()));
+      takeClaim();
+      const fence = capturePendingClaimReloadGuard();
+      await fence?.fenceOutcomeUnknownMutation();
+      const queued = vi.fn();
+      scheduleDocumentReload('Queued reload', queued);
+      expect(isSessionResetPending()).toBe(false);
+
+      s.leaveDocument(true);
+      s.returnFromBfcache('pageshow-first');
+      fence?.restoreAfterLazyFeatureFailure();
+      await advance(2 * (PAINT_MS + COMMIT_DEADLINE_MS) + 10_000);
+
+      // Before the follow-up: ['Queued reload', MSG_REFRESHING] in a room and
+      // ['Queued reload'] outside it.
+      expect(reloads).toEqual(expectedReloads);
+      expect(queued).toHaveBeenCalledOnce();
+      expect(isSessionResetPending()).toBe(false);
     },
   );
 
@@ -1054,7 +1229,8 @@ describe('(f) the logo hard reset inside the commit deadline', () => {
 
   // player-controls.test.ts:628 pinned the latch this replaced with a mocked
   // owner; C6-8 retired that test and the logo's resetCurrent.
-  it('navigates home at the prepare deadline when the chunk lands later, which then posts no SKIP_WAITING [flipped: C6-8, owner decision 2]', async () => {
+  // Owner decision 13 keeps the prepare window at 2.5 s.
+  it('navigates home at the prepare deadline when the chunk lands later, which then posts no SKIP_WAITING [flipped: C6-8, owner decisions 2, 13]', async () => {
     const s = boot({ app: IN_ROOM });
     const sw = installServiceWorkerFake();
     s.addCleanup(() => sw.restore());
@@ -1141,8 +1317,9 @@ describe('(g) a window that opens during a pending reset', () => {
   // dom.ts moved the dialog into the fullscreen element: the dialog showed
   // above an invisible reset screen, with the rest of the page inert. Owner
   // decision 4 keeps the reset screen on top; the reset moves its surface
-  // into the fullscreen element and exits nothing.
-  it('keeps the reset surface on top of a fullscreen player, with the window underneath and inert, and moves it back on recovery [flipped: C6-11, owner decision 4]', async () => {
+  // into the fullscreen element and exits nothing (confirmed by owner
+  // decision 13).
+  it('keeps the reset surface on top of a fullscreen player, with the window underneath and inert, and moves it back on recovery [flipped: C6-11, owner decisions 4, 13]', async () => {
     const s = boot({ app: IN_ROOM });
     const wrapper = s.element('video-wrapper');
     const fullscreen = enterFullscreen(wrapper);

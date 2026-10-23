@@ -62,7 +62,7 @@ navigation-sink guard: the confirmed Back leave and the lazy-feature reload in
 reconnect and recovery paths, the keep-open notice and the stale-session
 reload.
 
-## Busy rule (owner decision 1)
+## Busy rule (owner decisions 1 and 13)
 
 A reload asked for while another navigation holds the page, while another
 reload runs, or behind a reload whose navigation call threw waits in one FIFO
@@ -72,6 +72,13 @@ already waiting, so one reload answers both. A reload asked for while one with
 the same message runs waits behind it. A direct reset asked for while the page
 is held is refused. A deferred PRO claim fence (an outcome-unknown claim
 mutation in flight) holds reloads; leave navigations never enter the fence.
+
+A back-forward cache return drops every reload still waiting (owner decision
+13), so a reload queued behind a navigation that committed cannot run ahead of
+the return's own reload and make two. The return takes the queue before it
+settles the returned reset, and its bounded reload, or none, is the page's
+reload. Each dropped caller's `onRecovered` runs once, after that reload holds
+the page, so a caller that asks again waits behind it.
 
 ## Timing contract
 
@@ -98,10 +105,11 @@ listeners for navigation recovery, in the capture phase, so they run before the
 Back guard's resume whatever the init order:
 
 - `pagehide`: the attempt committed (`left`).
-- `pageshow`: `revealLiveShell` first. A back-forward cache return of an active
-  session, or of a pending reset, settles the reset and makes one bounded
-  reload; a document that returns again after that reload keeps the recovered
-  shell instead of looping. Any other `pageshow` settles a `left` attempt.
+- `pageshow`: `revealLiveShell` first. A back-forward cache return drops every
+  reload still queued (owner decision 13); of an active session, or of a
+  pending reset, it settles the reset and makes one bounded reload; a document
+  that returns again after that reload keeps the recovered shell instead of
+  looping. Any other `pageshow` settles a `left` attempt.
 - `visibilitychange` to visible: settles a `left` attempt (iOS can foreground
   the old document without a `pageshow`).
 

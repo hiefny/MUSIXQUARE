@@ -29,7 +29,7 @@ PRO 방 객체가 이전을 커밋한 뒤 사가를 `complete`까지 끝내는 �
 
 ## 바뀐 것
 
-- **테스트 먼저(바꾸지 않은 Worker에서 통과, `c6514d9c`).**
+- **테스트 먼저(바꾸지 않은 Worker에서 통과, `0612bc19`).**
   - `owner-transfer-saga-convergence-sqlite.test.ts` "request outcome table": 대상 계정이
     살아 있을 때 요청 꼬리가 멈출 수 있는 모든 자리를 실제 경로로 일으켜 (HTTP 응답, 감사 줄,
     사가 상태)를 고정했다. 단계마다 예외(D1 장애)와 거절(다른 실행기가 행을 끝내 비교 후
@@ -52,7 +52,7 @@ PRO 방 객체가 이전을 커밋한 뒤 사가를 `complete`까지 끝내는 �
     대상. Worker 커버리지 설정에 넣었다. CI는 `fetch-depth: 0`이라 두 커밋이 있다.
   - fixture: 두 계정 모두 App 세션을 갖고, `issueClaim`은 대상을, `requestTransfer`는 계정,
     요청 id, 새 PIN, App Worker 빌드를, `cron`은 회차 입구를 받는다.
-- **C7-9 (`32fa02f7`).**
+- **C7-9 (`59e83e84`).**
   - `finishCommittedOwnerTransfer(env, db, saga, entry)`가 커밋된 이전을 하나의 순서로
     끝낸다: 대상 재확인, 등록부 반영과 `registry_active`, 이전 방장 연결 정리와
     `old_owner_edge_retired`, 최종 대상 재확인, 정식 방 상태 확인, 그리고 D3대로 권리 확정,
@@ -183,14 +183,14 @@ Worker만 이전 버전(`09ecb95b`이 배포됐다면 그것, 아니면 `86ccefe
 삽입 문장 하나이고 기존 열과 인덱스만 쓴다. 브라우저 앱, App 버전, SW 캐시와 버전 표기도
 그대로다(Worker만 바뀌는 변경). 바뀐 런타임 파일은 `cloudflare/app-worker.ts` 하나다. 테스트,
 테스트 도우미, Vitest 설정, 문서는 어느 Worker의 런타임 경로(`TARGET_RUNTIME_PATHS`)에도 들지
-않는다. App Worker A(`09ecb95b`)가 아직 배포 전이라 이 후보는 A와 함께 실리거나 A 다음에
-나간다. 이 브랜치에서 PRO room 런타임 경로는 배포본 `ae5ac945`과 같아 target `app` 단독이
+않는다. App Worker A(`09ecb95b`)는 2026-10-23 12:50 KST에 먼저 배포됐다
+([Release 39896971208](https://github.com/hiefny/MUSIXQUARE/actions/runs/39896971208)). 이 브랜치에서 PRO room 런타임 경로는 배포본 `ae5ac945`과 같아 target `app` 단독이
 가능하다. 병렬로 진행 중인 PRO Worker B가 먼저 main에 들어가면 부분 릴리스 게이트가 정하는
 대로 target을 다시 고른다.
 
 ## 검증과 한계
 
-- 테스트 먼저: 테스트 커밋(`c6514d9c`)은 바꾸지 않은 Worker에서 통과했다(사가 77개, 섞인 버전
+- 테스트 먼저: 테스트 커밋(`0612bc19`)은 바꾸지 않은 Worker에서 통과했다(사가 77개, 섞인 버전
   16개, 펜스·`app-worker-cors`·상태 목록 포함 대상 5개 파일 392개).
 - 뒤집힘 확인: 테스트 커밋의 고정을 그대로 둔 채 C7-9 코드를 돌리면 31개가 실패했고, 모두 D3가
   뜻한 변화였다(크론 순서, 감사 위치, 중복 제거, 최종 재확인 감사). 응답표 20개는 그대로

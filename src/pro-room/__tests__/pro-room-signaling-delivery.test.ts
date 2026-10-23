@@ -571,12 +571,13 @@ describe('PRO signaling delivery lanes: ordering', () => {
 
 /**
  * Today's durable record shapes. The loaders accept only these exact key sets
- * (hasExactKeys in normalizeLoadedPresenceBroadcast and
- * normalizeStoredPlaybackBroadcastRecord): a record with any other key set is
- * nulled or dropped on load. A Worker rolled back across a shape change would
- * therefore silently lose the presence retry and the PREPARE/CANCEL/COMMIT
- * records written by the newer one. Plan step C7-4 (and any Phase 1 outbox
- * owner) must keep these lists, or add a versioned shape on purpose.
+ * (hasExactKeys in normalizeLoadedSignalingOutbox, which C7-4 merged from
+ * normalizeLoadedPresenceBroadcast, and in normalizeStoredPlaybackBroadcastRecord):
+ * a record with any other key set is nulled or dropped on load. A Worker
+ * rolled back across a shape change would therefore silently lose the
+ * presence retry and the PREPARE/CANCEL/COMMIT records written by the newer
+ * one. Plan step C7-4 (and any Phase 1 outbox owner) must keep these lists,
+ * or add a versioned shape on purpose.
  */
 const PRESENCE_MARKER_KEYS = [
   'attempts',

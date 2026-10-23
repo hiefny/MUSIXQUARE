@@ -134,23 +134,21 @@ describe('app.ts wiring copied by the page navigation harness', () => {
   });
 });
 
-describe('player-controls.ts logo action copied by the page navigation harness', () => {
-  it('drops the navigation once the reset recovers, after the hard-reset chunk and its promotion [update with: C6-8, C6-10]', () => {
+describe('player-controls.ts logo request copied by the page navigation harness', () => {
+  it('prepares with the hard-reset chunk and its promotion unless aborted, then navigates home [updated: C6-8] [update with: C6-10]', () => {
     expect(
       between(
         playerControlsSource,
-        'let resetCurrent = true;',
+        "scheduleSessionReset(t('dialog.leaving_session'), {",
         '} finally { _logoNavBusy = false; }',
       ),
     ).toBe(
       [
-        'let resetCurrent = true;',
-        'const navigateIfCurrent = () => { if (resetCurrent) navigateToAppHome(); };',
-        "const resetHandle = scheduleSessionReset(t('dialog.leaving_session'), () => {",
-        "void import('../core/sw-hard-reset.ts')",
-        '.then((module) => { if (resetCurrent) return module.default(); })',
-        '.then(navigateIfCurrent, navigateIfCurrent); });',
-        'resetHandle?.onRecovered(() => { resetCurrent = false; });',
+        "scheduleSessionReset(t('dialog.leaving_session'), {",
+        'async prepare(signal) {',
+        "const hardReset = await import('../core/sw-hard-reset.ts');",
+        'if (!signal.aborted) await hardReset.default(); },',
+        'navigate: () => navigateToAppHome(), });',
       ].join(' '),
     );
   });

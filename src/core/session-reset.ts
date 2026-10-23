@@ -10,9 +10,10 @@
  *
  * One state holds the page's navigation (PageNavigationState). Every way an
  * attempt can end in this document goes through settle() exactly once: the
- * action throwing ('failed'), the commit deadline, a return after pagehide and
- * an explicit restore ('recovered'). A committed navigation never settles: the
- * document is gone, or it comes back and the return settles it.
+ * navigation call throwing ('failed'), the commit deadline, a return after
+ * pagehide and a request no longer current at navigate ('recovered'). A
+ * committed navigation never settles: the document is gone, or it comes back
+ * and the return settles it.
  *
  * Reloads wait in one queue here (C6-5). The busy rule (owner decision 1,
  * 2026-10-23): a reload asked for while another navigation holds the page, or
@@ -20,6 +21,15 @@
  * and runs if that navigation settles in this document; a waiting request
  * with the same message joins the one already waiting. A direct reset asked
  * for while any navigation holds the page is still refused (first wins).
+ *
+ * A request is a plain action or { prepare?, navigate, isCurrent? } (C6-8). An
+ * optional prepare step (the logo reset's service-worker promotion) runs
+ * first, bounded by NAVIGATION_PREPARE_TIMEOUT_MS; then the owner calls
+ * navigate, the final navigation call, and only then starts the 2 s commit
+ * deadline (owner decision 2, 2026-10-23). The prepare signal aborts when its
+ * window closes (the deadline or a settle), so a late step never runs and a
+ * settled attempt never navigates. isCurrent() false at navigate time settles
+ * the attempt as recovered without navigating.
  *
  * The page transitions that end an attempt (pagehide, pageshow, a visible
  * return) reach this owner through one dispatch (C6-6), installed once by
@@ -38,7 +48,11 @@ import {
   type ReloadFenceTicket,
 } from './document-reload.ts';
 import { setElementInertForOwner } from './inert-ownership.ts';
-import { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } from './navigation-contract.ts';
+import {
+  NAVIGATION_COMMIT_TIMEOUT_MS,
+  NAVIGATION_PREPARE_TIMEOUT_MS,
+  RESET_PAINT_FALLBACK_MS,
+} from './navigation-contract.ts';
 
 const OVERLAY_ID = 'session-reset-overlay';
 const MESSAGE_ID = 'session-reset-message';
@@ -65,7 +79,9 @@ interface NavigationAttempt {
   settling: boolean;
   /** Set just before the listeners run; a later subscriber hears it at once. */
   outcome: NavigationOutcome | null;
-  readonly timers: { paint: number; commit: number; frames: number[] };
+  readonly timers: { paint: number; prepare: number; commit: number; frames: number[] };
+  /** Aborted when the prepare window closes: its deadline passed or the attempt settled. */
+  readonly prepareAbort: AbortController;
   readonly inertElements: HTMLElement[];
   previousFocus: HTMLElement | null;
   /** The unload-exemption claim, held from the action's start until settle. */
@@ -75,12 +91,18 @@ interface NavigationAttempt {
 /**
  * - painting: the overlay is up; the action waits for two frames or the
  *   RESET_PAINT_FALLBACK_MS timeout.
- * - navigating: the action ran; NAVIGATION_COMMIT_TIMEOUT_MS is running.
+ * - preparing: the request's prepare step runs, bounded by
+ *   NAVIGATION_PREPARE_TIMEOUT_MS.
+ * - navigating: the final navigation call ran; NAVIGATION_COMMIT_TIMEOUT_MS is
+ *   running.
  * - left: pagehide was seen. Only pageshow or a visible return settles it.
  */
 type PageNavigationState =
   | { readonly phase: 'idle' }
-  | { readonly phase: 'painting' | 'navigating' | 'left'; readonly attempt: NavigationAttempt };
+  | {
+      readonly phase: 'painting' | 'preparing' | 'navigating' | 'left';
+      readonly attempt: NavigationAttempt;
+    };
 
 const IDLE: PageNavigationState = { phase: 'idle' };
 
@@ -93,6 +115,20 @@ interface SessionResetHandle {
   onSettled(listener: (outcome: NavigationOutcome) => void): () => void;
   /** onSettled for listeners that do not need the outcome. */
   onRecovered(listener: () => void): () => void;
+}
+
+/** A navigation for the owner to run once the reset screen has painted. */
+interface NavigationRequest {
+  /**
+   * An optional bounded step before the navigation. The owner navigates when it
+   * settles, rejects, or passes NAVIGATION_PREPARE_TIMEOUT_MS; `signal` aborts
+   * then or when the attempt settles, and a late step must stop on it.
+   */
+  prepare?(signal: AbortSignal): Promise<void>;
+  /** The final navigation call: a location sink. */
+  navigate(): void;
+  /** Whether the requester still wants this navigation when the owner is about to navigate. */
+  isCurrent?(): boolean;
 }
 
 /** Reload requests waiting for the page; one entry per message. */
@@ -159,11 +195,12 @@ function cancelPaint(attempt: NavigationAttempt): void {
 
 function cancelTimers(attempt: NavigationAttempt): void {
   cancelPaint(attempt);
+  window.clearTimeout(attempt.timers.prepare);
   window.clearTimeout(attempt.timers.commit);
 }
 
 function markNavigationCommitted(): void {
-  if (_state.phase !== 'painting' && _state.phase !== 'navigating') return;
+  if (_state.phase === 'idle' || _state.phase === 'left') return;
   const { attempt } = _state;
   _state = { phase: 'left', attempt };
   // pagehide can precede the deferred action when another navigation wins
@@ -389,6 +426,8 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
 function settle(attempt: NavigationAttempt, outcome: NavigationOutcome): void {
   if (_state.phase === 'idle' || _state.attempt !== attempt || attempt.settling) return;
   attempt.settling = true;
+  // A prepare step still running must not navigate or promote anything now.
+  attempt.prepareAbort.abort();
   releaseResetSurface(attempt);
   _state = IDLE;
   attempt.releaseUnloadExemption?.();
@@ -417,11 +456,8 @@ export function isSessionResetPending(): boolean {
   return _state.phase !== 'idle';
 }
 
-/**
- * Restore an interactive document after an abandoned reset or bfcache return.
- * Safe to call repeatedly.
- */
-export function restoreSessionReset(): void {
+/** Make the page interactive again and drop leftovers; settles a pending attempt. */
+function restorePage(): void {
   if (_state.phase !== 'idle') {
     settle(_state.attempt, 'recovered');
     return;
@@ -430,20 +466,91 @@ export function restoreSessionReset(): void {
 }
 
 /**
- * Show the blocking reset UI now, then run the supplied hard-navigation action
- * after the overlay has painted. Only the first request in a document wins.
+ * Show the blocking reset UI now, then run the request after the overlay has
+ * painted: its prepare step, if any, then its final navigation call. Only the
+ * first request in a document wins.
  */
 export function scheduleSessionReset(
   message: string,
   action: () => void,
+): SessionResetHandle | null;
+export function scheduleSessionReset(
+  message: string,
+  request: NavigationRequest,
+): SessionResetHandle | null;
+export function scheduleSessionReset(
+  message: string,
+  request: (() => void) | NavigationRequest,
 ): SessionResetHandle | null {
   if (_state.phase !== 'idle') return null;
-  return beginAttempt(message, action, null);
+  return beginAttempt(
+    message,
+    typeof request === 'function' ? { navigate: request } : request,
+    null,
+  );
+}
+
+/** Run the final navigation call and start the commit deadline. */
+function navigateAttempt(attempt: NavigationAttempt, request: NavigationRequest): void {
+  if (request.isCurrent && !request.isCurrent()) {
+    // The requester moved on (another session opened meanwhile): restore the
+    // page instead of navigating.
+    settle(attempt, 'recovered');
+    return;
+  }
+  _state = { phase: 'navigating', attempt };
+  try {
+    request.navigate();
+  } catch (error) {
+    settle(attempt, 'failed');
+    log.error('[SessionReset] Hard-navigation action failed:', error);
+    return;
+  }
+  // The navigation may have seen pagehide already.
+  if (_state.phase !== 'navigating' || _state.attempt !== attempt) return;
+
+  // Navigation APIs return before unload begins and can be rejected/no-op
+  // (notably history traversal at the edge of a stack). Do not leave the
+  // current document permanently inert when no navigation signal follows.
+  attempt.timers.commit = window.setTimeout(() => {
+    if (_state.phase === 'navigating' && _state.attempt === attempt) {
+      settle(attempt, 'recovered');
+    }
+  }, NAVIGATION_COMMIT_TIMEOUT_MS);
+}
+
+/**
+ * Run the request's prepare step. It ends when the step settles, rejects
+ * (logged; the navigation fails open) or passes NAVIGATION_PREPARE_TIMEOUT_MS;
+ * the first of these closes the window (aborting the signal) and navigates,
+ * unless the attempt has left or settled meanwhile.
+ */
+function prepareAttempt(attempt: NavigationAttempt, request: NavigationRequest): void {
+  _state = { phase: 'preparing', attempt };
+  const finish = (): void => {
+    if (_state.phase !== 'preparing' || _state.attempt !== attempt) return;
+    window.clearTimeout(attempt.timers.prepare);
+    attempt.prepareAbort.abort();
+    navigateAttempt(attempt, request);
+  };
+  attempt.timers.prepare = window.setTimeout(finish, NAVIGATION_PREPARE_TIMEOUT_MS);
+  let prepared: Promise<void>;
+  try {
+    prepared = request.prepare?.(attempt.prepareAbort.signal) ?? Promise.resolve();
+  } catch (error) {
+    prepared = Promise.reject(error);
+  }
+  void Promise.resolve(prepared).then(finish, (error: unknown) => {
+    if (_state.phase === 'preparing' && _state.attempt === attempt) {
+      log.warn('[SessionReset] Navigation preparation failed; navigating anyway:', error);
+    }
+    finish();
+  });
 }
 
 function beginAttempt(
   message: string,
-  action: () => void,
+  request: NavigationRequest,
   reloadFence: ReloadFenceTicket | null,
 ): SessionResetHandle {
   const attempt: NavigationAttempt = {
@@ -451,7 +558,8 @@ function beginAttempt(
     settledListeners: new Set(),
     settling: false,
     outcome: null,
-    timers: { paint: 0, commit: 0, frames: [] },
+    timers: { paint: 0, prepare: 0, commit: 0, frames: [] },
+    prepareAbort: new AbortController(),
     inertElements: [],
     previousFocus: null,
     releaseUnloadExemption: null,
@@ -462,27 +570,11 @@ function beginAttempt(
 
   const runAction = () => {
     if (_state.phase !== 'painting' || _state.attempt !== attempt) return;
-    _state = { phase: 'navigating', attempt };
     cancelPaint(attempt);
+    // The exemption covers the whole action, prepare step included.
     attempt.releaseUnloadExemption = claimUnloadExemption('navigation');
-    try {
-      action();
-    } catch (error) {
-      settle(attempt, 'failed');
-      log.error('[SessionReset] Hard-navigation action failed:', error);
-      return;
-    }
-    // The action may have settled the attempt itself or seen pagehide.
-    if (_state.phase !== 'navigating' || _state.attempt !== attempt) return;
-
-    // Navigation APIs return before unload begins and can be rejected/no-op
-    // (notably history traversal at the edge of a stack). Do not leave the
-    // current document permanently inert when no navigation signal follows.
-    attempt.timers.commit = window.setTimeout(() => {
-      if (_state.phase === 'navigating' && _state.attempt === attempt) {
-        settle(attempt, 'recovered');
-      }
-    }, NAVIGATION_COMMIT_TIMEOUT_MS);
+    if (request.prepare) prepareAttempt(attempt, request);
+    else navigateAttempt(attempt, request);
   };
 
   attempt.timers.paint = window.setTimeout(runAction, RESET_PAINT_FALLBACK_MS);
@@ -516,11 +608,13 @@ function startQueuedReload(): void {
   const reloadFence = beginFencedReload();
   const handle = beginAttempt(
     request.message,
-    () => {
-      // A safe pending claim is restored only for the sink call; settle()
-      // scrubs it again if this document stays.
-      reloadFence.restoreClaim();
-      window.location.reload();
+    {
+      navigate() {
+        // A safe pending claim is restored only for the sink call; settle()
+        // scrubs it again if this document stays.
+        reloadFence.restoreClaim();
+        window.location.reload();
+      },
     },
     reloadFence,
   );
@@ -550,7 +644,7 @@ export function scheduleDocumentReload(message: string, onRecovered?: () => void
 /** @internal Test-only cleanup for module-scoped listeners and timers. */
 export function __resetSessionResetForTests(): void {
   _reloadQueue.length = 0;
-  restoreSessionReset();
+  restorePage();
   removePageTransitionDispatch();
   _transitionDeps = null;
   _bfcacheRetryUsed = false;

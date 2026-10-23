@@ -347,7 +347,7 @@ describe('session reset coordinator', () => {
     control.focus();
     const shortcutHandler = vi.fn();
     window.addEventListener('keydown', shortcutHandler);
-    const { restoreSessionReset, scheduleSessionReset } = await loadCoordinator();
+    const { __resetSessionResetForTests, scheduleSessionReset } = await loadCoordinator();
 
     scheduleSessionReset('Cleanup', vi.fn());
     const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
@@ -356,7 +356,7 @@ describe('session reset coordinator', () => {
       expect(overlay.hidden).toBe(false);
       focusControl(options);
     });
-    restoreSessionReset();
+    __resetSessionResetForTests();
 
     expect(app.inert).not.toBe(true);
     expect(alreadyInert.inert).toBe(true);
@@ -400,25 +400,30 @@ describe('session reset coordinator', () => {
     });
 
     it.each([
-      ['the commit deadline', (_restore: () => void) => vi.advanceTimersByTime(120 + 2_000)],
+      ['the commit deadline', true, () => vi.advanceTimersByTime(120 + 2_000)],
       [
         'a return after pagehide',
-        (_restore: () => void) => {
+        true,
+        () => {
           vi.advanceTimersByTime(120);
           window.dispatchEvent(new Event('pagehide'));
           window.dispatchEvent(new Event('pageshow'));
         },
       ],
-      ['an explicit restore', (restore: () => void) => restore()],
-    ] as const)('settles %s as recovered, once', async (_name, run) => {
-      const { restoreSessionReset, scheduleSessionReset } = await loadCoordinator();
-      const handle = scheduleSessionReset('Leaving', vi.fn());
+      // C6-8 replaced the explicit restore inside the action with isCurrent().
+      ['a stale request at navigate', false, () => vi.advanceTimersByTime(120)],
+    ] as const)('settles %s as recovered, once', async (_name, current, run) => {
+      const { scheduleSessionReset } = await loadCoordinator();
+      const handle = scheduleSessionReset('Leaving', {
+        navigate: vi.fn(),
+        isCurrent: () => current,
+      });
       const settled = vi.fn();
       handle?.onSettled(settled);
 
-      run(restoreSessionReset);
+      run();
       vi.advanceTimersByTime(10_000);
-      restoreSessionReset();
+      window.dispatchEvent(new Event('pageshow'));
 
       expect(settled.mock.calls).toEqual([['recovered']]);
       // A subscriber that arrives after settlement hears the same outcome at once.
@@ -427,22 +432,26 @@ describe('session reset coordinator', () => {
       expect(late.mock.calls).toEqual([['recovered']]);
     });
 
-    it('settles an action that restores its own reset once, and arms no deadline after it', async () => {
-      const { isSessionResetPending, restoreSessionReset, scheduleSessionReset } =
-        await loadCoordinator();
+    it('settles a request that is no longer current at navigate once, navigates nowhere and arms no deadline', async () => {
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
       const events: string[] = [];
-      scheduleSessionReset('Stale owner', () => {
-        restoreSessionReset();
-        events.push(`action returned: pending=${isSessionResetPending()}`);
+      const navigate = vi.fn();
+      scheduleSessionReset('Stale owner', {
+        navigate,
+        isCurrent: () => {
+          events.push(`isCurrent: pending=${isSessionResetPending()}`);
+          return false;
+        },
       })?.onSettled((outcome) => events.push(`settled ${outcome}`));
 
       vi.advanceTimersByTime(120);
       const successor = vi.fn();
       scheduleSessionReset('Successor', vi.fn())?.onSettled(successor);
-      // The stale action's would-be deadline (2 s after it) passes first.
+      // The stale request's would-be deadline (2 s after it) passes first.
       vi.advanceTimersByTime(2_000);
 
-      expect(events).toEqual(['settled recovered', 'action returned: pending=false']);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(events).toEqual(['isCurrent: pending=true', 'settled recovered']);
       expect(successor).not.toHaveBeenCalled();
       expect(isSessionResetPending()).toBe(true);
       vi.advanceTimersByTime(120);
@@ -545,7 +554,7 @@ describe('session reset coordinator', () => {
         Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
         document.dispatchEvent(new Event('visibilitychange'));
       };
-      const { isSessionResetPending, restoreSessionReset, scheduleSessionReset } =
+      const { __resetSessionResetForTests, isSessionResetPending, scheduleSessionReset } =
         await loadCoordinator();
       const failures: string[] = [];
 
@@ -586,7 +595,7 @@ describe('session reset coordinator', () => {
           if (action.mock.calls.length !== model.actions) {
             failures.push(`${sequence.join(' > ')}: ${action.mock.calls.length} actions`);
           }
-          restoreSessionReset();
+          __resetSessionResetForTests();
           vi.clearAllTimers();
         }
       } finally {
@@ -594,6 +603,183 @@ describe('session reset coordinator', () => {
       }
 
       expect(failures).toEqual([]);
+    });
+  });
+
+  // C6-8 (owner decision 2, 2026-10-23): an optional prepare step runs after
+  // the paint and before the final navigation call, bounded by
+  // NAVIGATION_PREPARE_TIMEOUT_MS; the 2 s commit deadline starts only when
+  // the owner navigates.
+  describe('prepare/navigate requests (C6-8)', () => {
+    const PAINT = 120;
+    const PREPARE_DEADLINE = 2_500;
+    const COMMIT_DEADLINE = 2_000;
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: undefined,
+      });
+    });
+
+    function deferred(): { promise: Promise<void>; resolve(): void; reject(error: Error): void } {
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      const promise = new Promise<void>((res, rej) => {
+        resolve = res;
+        reject = rej;
+      });
+      return { promise, resolve, reject };
+    }
+
+    it('prepares after the paint, navigates when prepare settles, and starts the commit deadline only then', async () => {
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const step = deferred();
+      const prepare = vi.fn((_signal: AbortSignal) => step.promise);
+      const navigate = vi.fn();
+      const settled = vi.fn();
+      scheduleSessionReset('Leaving', { prepare, navigate })?.onSettled(settled);
+
+      expect(prepare).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(PAINT);
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(unloadPrompts()).toBe(false);
+
+      // A prepare step longer than the commit deadline does not settle anything.
+      await vi.advanceTimersByTimeAsync(2_400);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(isSessionResetPending()).toBe(true);
+
+      step.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(prepare.mock.calls[0]![0].aborted).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(COMMIT_DEADLINE - 1);
+      expect(isSessionResetPending()).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(isSessionResetPending()).toBe(false);
+      expect(settled.mock.calls).toEqual([['recovered']]);
+    });
+
+    it('navigates anyway when prepare passes its deadline, and aborts its signal so a late step stops', async () => {
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const step = deferred();
+      const late = vi.fn();
+      let signal: AbortSignal | null = null;
+      const navigate = vi.fn();
+      scheduleSessionReset('Leaving', {
+        async prepare(prepareSignal) {
+          signal = prepareSignal;
+          await step.promise;
+          if (!prepareSignal.aborted) late();
+        },
+        navigate,
+      });
+
+      await vi.advanceTimersByTimeAsync(PAINT + PREPARE_DEADLINE - 1);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(signal!.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(signal!.aborted).toBe(true);
+      expect(isSessionResetPending()).toBe(true);
+
+      step.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(late).not.toHaveBeenCalled();
+      expect(navigate).toHaveBeenCalledOnce();
+    });
+
+    it('navigates anyway when prepare rejects or throws (fail open)', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const { scheduleSessionReset } = await loadCoordinator();
+      const navigate = vi.fn();
+      scheduleSessionReset('Leaving', {
+        prepare: () => Promise.reject(new Error('chunk failed')),
+        navigate,
+      });
+
+      await vi.advanceTimersByTimeAsync(PAINT);
+      expect(navigate).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledWith(
+        '[SessionReset] Navigation preparation failed; navigating anyway:',
+        expect.any(Error),
+      );
+
+      const { __resetSessionResetForTests } = coordinator!;
+      __resetSessionResetForTests();
+      const second = vi.fn();
+      scheduleSessionReset('Leaving', {
+        prepare: () => {
+          throw new Error('sync failure');
+        },
+        navigate: second,
+      });
+      await vi.advanceTimersByTimeAsync(PAINT);
+      expect(second).toHaveBeenCalledOnce();
+    });
+
+    it('never navigates after the attempt settles during prepare, and settles recovered once', async () => {
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const step = deferred();
+      let signal: AbortSignal | null = null;
+      const navigate = vi.fn();
+      const settled = vi.fn();
+      scheduleSessionReset('Leaving', {
+        prepare(prepareSignal) {
+          signal = prepareSignal;
+          return step.promise;
+        },
+        navigate,
+      })?.onSettled(settled);
+
+      await vi.advanceTimersByTimeAsync(PAINT);
+      // Another navigation wins during prepare and the old page returns.
+      window.dispatchEvent(new Event('pagehide'));
+      window.dispatchEvent(new Event('pageshow'));
+      expect(isSessionResetPending()).toBe(false);
+      expect(signal!.aborted).toBe(true);
+      expect(unloadPrompts()).toBe(true);
+
+      step.resolve();
+      await vi.advanceTimersByTimeAsync(PREPARE_DEADLINE + COMMIT_DEADLINE);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(settled.mock.calls).toEqual([['recovered']]);
+    });
+
+    it('holds the page while a pagehide during prepare commits, and never navigates from the returned page', async () => {
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      const navigate = vi.fn();
+      scheduleSessionReset('Leaving', {
+        prepare: () => new Promise<void>(() => undefined),
+        navigate,
+      });
+
+      await vi.advanceTimersByTimeAsync(PAINT);
+      window.dispatchEvent(new Event('pagehide'));
+      await vi.advanceTimersByTimeAsync(PREPARE_DEADLINE + COMMIT_DEADLINE);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(isSessionResetPending()).toBe(true);
+    });
+
+    it('asks isCurrent() after prepare, right before navigating', async () => {
+      const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+      let current = true;
+      const step = deferred();
+      const navigate = vi.fn();
+      scheduleSessionReset('Leaving', {
+        prepare: () => step.promise,
+        navigate,
+        isCurrent: () => current,
+      });
+
+      await vi.advanceTimersByTimeAsync(PAINT);
+      current = false;
+      step.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(isSessionResetPending()).toBe(false);
     });
   });
 

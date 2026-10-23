@@ -22,8 +22,8 @@
  * machine against the real reset is covered by
  * sw-register-recovery.integration.test.ts.
  *
- * That wiring, and the logo action in `logoHardReset`
- * (player-controls.ts:1086-1101), are copies: app.ts bootstrap and the logo
+ * That wiring, and the logo request in `logoHardReset` (player-controls.ts,
+ * handleLogoReturnToMain), are copies: app.ts bootstrap and the logo
  * handler cannot run in isolation. page-navigation-harness-parity.test.ts pins
  * the copied guard function, PageLifecycle block and logo action whole, and
  * the init order as a subsequence. An increment that changes them (C6-6 the
@@ -412,7 +412,7 @@ export interface PageNavigationShell {
   returnFromBfcache(order: BfcacheReturnOrder): void;
   /** Dispatch a cancelable beforeunload; true when the page asked to confirm. */
   beforeunloadPrompts(): boolean;
-  /** The logo hard reset, player-controls.ts:1086-1101. */
+  /** The logo hard reset (player-controls.ts handleLogoReturnToMain). */
   logoHardReset(options?: { importDelayMs?: number }): void;
   /** Lazy feature recovery, app.ts:1061-1094, on the real reload-recovery latch. */
   requestLazyFeatureRecovery(feature: string): void;
@@ -628,19 +628,12 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
           if (importDelayMs > 0) globalThis.setTimeout(() => resolve(swHardReset), importDelayMs);
           else resolve(swHardReset);
         });
-      let resetCurrent = true;
-      const navigateIfCurrent = () => {
-        if (resetCurrent) navigateToAppHome();
-      };
-      const resetHandle = scheduleSessionReset(MSG_LEAVING, () => {
-        void loadHardReset()
-          .then((module) => {
-            if (resetCurrent) return module.default();
-          })
-          .then(navigateIfCurrent, navigateIfCurrent);
-      });
-      resetHandle?.onRecovered(() => {
-        resetCurrent = false;
+      scheduleSessionReset(MSG_LEAVING, {
+        async prepare(signal) {
+          const hardReset = await loadHardReset();
+          if (!signal.aborted) await hardReset.default();
+        },
+        navigate: () => navigateToAppHome(),
       });
     },
     requestLazyFeatureRecovery: (feature) => runLazyFeatureRecovery({ feature }),

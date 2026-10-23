@@ -393,12 +393,14 @@ describe('PRO runtime takeover validation', { concurrent: false }, () => {
     );
     notifyTakeover();
     await vi.advanceTimersByTimeAsync(0);
-    const navigate = vi.mocked(sessionReset.scheduleSessionReset).mock.calls[0]![1];
-    const restore = vi.spyOn(sessionReset, 'restoreSessionReset').mockImplementation(() => {});
+    const request = vi.mocked(sessionReset.scheduleSessionReset).mock.calls[0]![1];
+    if (typeof request === 'function') throw new Error('expected a navigation request');
+    // The navigation owner asks isCurrent() right before navigating (C6-8);
+    // false makes it restore the page instead of leaving.
+    expect(request.isCurrent?.()).toBe(true);
     const successor = join('presence_after_scheduled_navigation');
-    navigate();
+    expect(request.isCurrent?.()).toBe(false);
     await successor;
-    expect(restore).toHaveBeenCalledOnce();
     expect(getState('room.context').kind).toBe('pro');
   });
 

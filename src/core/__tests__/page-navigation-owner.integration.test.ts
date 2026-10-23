@@ -82,12 +82,15 @@ import {
 import { claimUnloadExemption } from '../page-lifecycle.ts';
 import {
   isSessionResetPending,
-  restoreSessionReset,
   scheduleDocumentReload,
   scheduleSessionReset,
 } from '../session-reset.ts';
 import { navigateToAppHome } from '../navigation.ts';
-import { LEAVE_FALLBACK_MS, NAVIGATION_COMMIT_TIMEOUT_MS } from '../navigation-contract.ts';
+import {
+  LEAVE_FALLBACK_MS,
+  NAVIGATION_COMMIT_TIMEOUT_MS,
+  NAVIGATION_PREPARE_TIMEOUT_MS,
+} from '../navigation-contract.ts';
 import { onOverlayStackChange } from '../../ui/dom.ts';
 import { takeProRoomClaimsFromFragment } from '../../pro-room/claim-fragment.ts';
 import {
@@ -108,6 +111,8 @@ import {
 
 /** The reset's commit deadline. */
 const COMMIT_DEADLINE_MS = NAVIGATION_COMMIT_TIMEOUT_MS;
+/** The prepare window of a request with a prepare step (C6-8). */
+const PREPARE_DEADLINE_MS = NAVIGATION_PREPARE_TIMEOUT_MS;
 /** ACTIVATION_TIMEOUT_MS (sw-hard-reset.ts, the lazy chunk keeps it unexported). */
 const HARD_RESET_ACTIVATION_MS = 1_500;
 /** Two frames: the Back guard pushes after its surface settles. */
@@ -478,26 +483,24 @@ describe('settlement of one reset attempt', () => {
   );
 });
 
-describe('the explicit restore: an action that restores its own reset', () => {
-  // The pro-room/runtime.ts:3000-3006 and :3026-3033 shape: the action checks
-  // that the terminal recovery owner is still current and, when it is not,
-  // calls restoreSessionReset() itself instead of navigating. C6-4 routed this
-  // explicit restore through settle(); it stays the attempt's only settle, with
-  // no navigating phase or second settle after the action returns. C6-8
-  // replaces the shape with isCurrent(), where false at navigate restores the
-  // page once.
+describe('a request that is no longer current at navigate (isCurrent)', () => {
+  // The pro-room/runtime.ts shape: the requester checks that its terminal
+  // recovery owner is still current. Until C6-8 the action called
+  // restoreSessionReset() itself instead of navigating; C6-8 replaced that with
+  // isCurrent(), which the owner asks right before its final navigation call:
+  // false restores the page once, with no navigating phase or commit deadline.
+  // The outcomes below are the ones the explicit restore had.
   function scheduleOwnerCheckedReset(ownerIsCurrent: boolean, events: string[]): void {
-    scheduleSessionReset(MSG_LEAVING, () => {
-      if (!ownerIsCurrent) {
-        restoreSessionReset();
-        events.push('action returned');
-        return;
-      }
-      navigateToAppHome();
+    scheduleSessionReset(MSG_LEAVING, {
+      isCurrent: () => {
+        events.push(`isCurrent: pending=${isSessionResetPending()}`);
+        return ownerIsCurrent;
+      },
+      navigate: () => navigateToAppHome(),
     })?.onRecovered(() => events.push(`recovered: pending=${isSessionResetPending()}`));
   }
 
-  it('settles once inside the action when the owner is stale, navigates nowhere, and accepts a later request [keeps: C6-4] [replaced by isCurrent: C6-8]', async () => {
+  it('settles once at navigate when the owner is stale, navigates nowhere, and accepts a later request [keeps: C6-4] [replaced by isCurrent: C6-8]', async () => {
     const s = boot({ app: IN_ROOM });
     const events: string[] = [];
     scheduleOwnerCheckedReset(false, events);
@@ -505,14 +508,13 @@ describe('the explicit restore: an action that restores its own reset', () => {
 
     await advance(PAINT_MS);
 
-    expect(events).toEqual(['recovered: pending=false', 'action returned']);
+    expect(events).toEqual(['isCurrent: pending=true', 'recovered: pending=false']);
     expect(isSessionResetPending()).toBe(false);
     expect(overlay().hidden).toBe(true);
     expect(s.element('tab-play').inert).toBe(false);
     expect(s.beforeunloadPrompts()).toBe(true);
 
-    // runOnce still arms the commit deadline after the action returns
-    // (session-reset.ts:297-301); its _activeAttempt check makes it a no-op.
+    // No commit deadline was armed for the stale request.
     await advance(COMMIT_DEADLINE_MS + 10_000);
     expect(events).toHaveLength(2);
     expect(isSessionResetPending()).toBe(false);
@@ -524,7 +526,7 @@ describe('the explicit restore: an action that restores its own reset', () => {
     expect(s.sinks.count('reload')).toBe(1);
   });
 
-  it("does not let the stale attempt's commit deadline settle a reset accepted right after it [keeps: C6-4] [replaced by isCurrent: C6-8]", async () => {
+  it('does not let a deadline of the stale request settle a reset accepted right after it [keeps: C6-4] [replaced by isCurrent: C6-8]', async () => {
     const s = boot({ app: IN_ROOM });
     scheduleOwnerCheckedReset(false, []);
     await advance(PAINT_MS);
@@ -532,8 +534,8 @@ describe('the explicit restore: an action that restores its own reset', () => {
     scheduleSessionReset('Successor', () => navigateToAppHome())?.onRecovered(successorRecovered);
     expect(isSessionResetPending()).toBe(true);
 
-    // The stale deadline falls 2 s after the stale action; the successor's
-    // falls one paint later.
+    // A deadline of the stale request would fall 2 s after it; the
+    // successor's falls one paint later.
     await advance(COMMIT_DEADLINE_MS + 1);
     expect(isSessionResetPending()).toBe(true);
     expect(successorRecovered).not.toHaveBeenCalled();
@@ -557,11 +559,11 @@ describe('the explicit restore: an action that restores its own reset', () => {
     s.leaveDocument(false);
     await advance(COMMIT_DEADLINE_MS + 10_000);
     expect(isSessionResetPending()).toBe(true);
-    expect(events).toEqual([]);
+    expect(events).toEqual(['isCurrent: pending=true']);
   });
 
   // A variant of (h): Back absorbed while the reset is pending.
-  it('leaves the Back guard unarmed when Back was absorbed before a stale owner restored the reset [flips: C6-12, owner reversal]', async () => {
+  it('leaves the Back guard unarmed when Back was absorbed before a stale request restored the page [flips: C6-12, owner reversal]', async () => {
     const s = boot({ app: IN_ROOM });
     await advance(GUARD_ARM_MS);
     expect(s.history.marker()).toBe('guard');
@@ -1007,7 +1009,13 @@ describe('(f) the logo hard reset inside the commit deadline', () => {
     expect(sessionStorage.getItem('mxqr-swu')).toBeNull();
   });
 
-  it('gives up silently when a slow chunk load plus the activation wait passes the 2 s deadline [flips: C6-8]', async () => {
+  // Until C6-8 the 2 s commit deadline started with the action, so it also
+  // counted the chunk load and the promotion wait: here it fired at
+  // PAINT + 2000, the page came back interactive, the logo's own latch
+  // dropped the navigation, and the logo never reached home. Owner decision 2
+  // starts the deadline at the final navigation call; the bounded prepare
+  // window navigates home either way.
+  it('reaches home once when a slow chunk load plus the activation wait passes 2 s [flipped: C6-8, owner decision 2]', async () => {
     const s = boot({ app: IN_ROOM });
     const sw = installServiceWorkerFake();
     s.addCleanup(() => sw.restore());
@@ -1016,49 +1024,65 @@ describe('(f) the logo hard reset inside the commit deadline', () => {
     await advance(PAINT_MS + 600);
     expect(sw.waiting.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
 
-    // The deadline started with the action (session-reset.ts:297-301), so it
-    // includes the chunk load and the promotion wait.
-    await advance(COMMIT_DEADLINE_MS - 600 - 1);
+    // Past the old deadline the page is still held, preparing.
+    await advance(COMMIT_DEADLINE_MS - 600);
     expect(isSessionResetPending()).toBe(true);
-    await advance(1);
-    expect(isSessionResetPending()).toBe(false);
-    expect(overlay().hidden).toBe(true);
-
-    // The worker activates during the rest of the 1.5 s wait. The marker is
-    // still written for this tab's next load (C6-10 ties it to the result),
-    // but player-controls' own latch drops the navigation.
-    sw.activate();
-    await advance(HARD_RESET_ACTIVATION_MS);
-    // Flips in C6-8: the deadline starts at navigate and a bounded prepare
-    // navigates anyway, so the logo reaches home once.
+    expect(overlay().hidden).toBe(false);
     expect(s.sinks.count('replace')).toBe(0);
+
+    // The worker activates during the rest of the 1.5 s wait: the marker is
+    // written and the logo navigates home.
+    sw.activate();
+    await advance(0);
+    expect(s.sinks.calls).toEqual([expect.objectContaining({ op: 'replace', url: '/' })]);
     expect(sessionStorage.getItem('mxqr-swu')).toBe('Update applied');
-    expect(isSessionResetPending()).toBe(false);
+    s.leaveDocument(false);
+    await advance(COMMIT_DEADLINE_MS + 10_000);
+    expect(isSessionResetPending()).toBe(true);
+    expect(s.sinks.count('replace')).toBe(1);
   });
 
-  // player-controls.test.ts:628 pins this latch with a mocked owner; C6-8
-  // retires that test and its resetCurrent.
-  it('posts no SKIP_WAITING and navigates nowhere when the chunk lands after the 2 s deadline [flips: C6-8]', async () => {
+  it('reaches home after the chunk load and the bounded 1.5 s wait when activation stalls past 2 s [added: C6-8, owner decision 2]', async () => {
+    const s = boot({ app: IN_ROOM });
+    const sw = installServiceWorkerFake();
+    s.addCleanup(() => sw.restore());
+
+    s.logoHardReset({ importDelayMs: 600 });
+    await advance(PAINT_MS + 600 + HARD_RESET_ACTIVATION_MS - 1);
+    expect(s.sinks.count('replace')).toBe(0);
+    await advance(1);
+    expect(s.sinks.count('replace')).toBe(1);
+    expect(isSessionResetPending()).toBe(true);
+    expect(sessionStorage.getItem('mxqr-swu')).toBeNull();
+  });
+
+  // player-controls.test.ts:628 pinned the latch this replaced with a mocked
+  // owner; C6-8 retired that test and the logo's resetCurrent.
+  it('navigates home at the prepare deadline when the chunk lands later, which then posts no SKIP_WAITING [flipped: C6-8, owner decision 2]', async () => {
     const s = boot({ app: IN_ROOM });
     const sw = installServiceWorkerFake();
     s.addCleanup(() => sw.restore());
     const lateMs = 500;
 
-    s.logoHardReset({ importDelayMs: COMMIT_DEADLINE_MS + lateMs });
-    await advance(PAINT_MS + COMMIT_DEADLINE_MS);
-    expect(isSessionResetPending()).toBe(false);
-    expect(overlay().hidden).toBe(true);
+    s.logoHardReset({ importDelayMs: PREPARE_DEADLINE_MS + lateMs });
+    await advance(PAINT_MS + PREPARE_DEADLINE_MS - 1);
+    expect(isSessionResetPending()).toBe(true);
+    expect(s.sinks.count('replace')).toBe(0);
+    await advance(1);
+    // Until C6-8 the deadline recovered the page at PAINT + 2000 and the
+    // logo's latch skipped both steps: it navigated nowhere.
+    expect(s.sinks.calls).toEqual([expect.objectContaining({ op: 'replace', url: '/' })]);
+    expect(isSessionResetPending()).toBe(true);
 
-    // The chunk lands after the recovery, and the latch skips both steps.
+    // The chunk lands after the prepare window closed: its aborted signal
+    // keeps it from promoting the worker under the departing page.
     await advance(lateMs + HARD_RESET_ACTIVATION_MS + 10_000);
-    // Flips in C6-8: the deadline starts at navigate and the bounded prepare
-    // navigates anyway, so the logo reaches home once. Whether a chunk that
-    // lands after that posts SKIP_WAITING is C6-8's abort signal and C6-10's
-    // single promotion (no duplicate SKIP_WAITING).
-    expect(s.sinks.calls).toEqual([]);
     expect(sw.getRegistration).not.toHaveBeenCalled();
     expect(sw.waiting.postMessage).not.toHaveBeenCalled();
     expect(sessionStorage.getItem('mxqr-swu')).toBeNull();
+    // This replace was a no-op, so the commit deadline recovered the page.
+    expect(isSessionResetPending()).toBe(false);
+    expect(s.sinks.count('replace')).toBe(1);
   });
 
   it('drops the hard reset and the navigation when the page returns from the cache during the chunk load [keeps: C6-8]', async () => {

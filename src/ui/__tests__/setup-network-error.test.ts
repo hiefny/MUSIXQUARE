@@ -363,7 +363,9 @@ describe('terminal host loss: Reconnect or Go back', () => {
       'dialog.refreshing_session',
       expect.any(Function),
     );
-    const navigate = vi.mocked(scheduleSessionReset).mock.calls[0]?.[1];
+    // setup passes a plain action (returnToRoomStart).
+    const navigate = vi.mocked(scheduleSessionReset).mock.calls[0]?.[1] as unknown as
+      (() => void) | undefined;
     const location = { href: '' };
     vi.stubGlobal('location', location);
     try {
@@ -439,7 +441,9 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
       await flush();
       expect(scheduleSessionReset).toHaveBeenCalledOnce();
       expect(scheduleDocumentReload).not.toHaveBeenCalled();
-      const navigate = vi.mocked(scheduleSessionReset).mock.calls[0]?.[1];
+      // setup passes a plain action (returnToRoomStart).
+      const navigate = vi.mocked(scheduleSessionReset).mock.calls[0]?.[1] as unknown as
+        (() => void) | undefined;
       const location = { href: '' };
       vi.stubGlobal('location', location);
       try {

@@ -1089,20 +1089,14 @@ async function handleLogoReturnToMain(): Promise<void> {
     }
 
     // A hard same-origin replacement clears in-memory media without leaving an
-    // invite/PRO auto-join route behind in browser history.
-    let resetCurrent = true;
-    const navigateIfCurrent = () => {
-      if (resetCurrent) navigateToAppHome();
-    };
-    const resetHandle = scheduleSessionReset(t('dialog.leaving_session'), () => {
-      void import('../core/sw-hard-reset.ts')
-        .then((module) => {
-          if (resetCurrent) return module.default();
-        })
-        .then(navigateIfCurrent, navigateIfCurrent);
-    });
-    resetHandle?.onRecovered(() => {
-      resetCurrent = false;
+    // invite/PRO auto-join route behind in browser history. The navigation
+    // owner bounds the update hand-off and navigates home after it either way.
+    scheduleSessionReset(t('dialog.leaving_session'), {
+      async prepare(signal) {
+        const hardReset = await import('../core/sw-hard-reset.ts');
+        if (!signal.aborted) await hardReset.default();
+      },
+      navigate: () => navigateToAppHome(),
     });
   } finally {
     _logoNavBusy = false;

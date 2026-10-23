@@ -1114,9 +1114,12 @@ RO-47 owner-in-place
 - **Lifecycle operations:** `SKIP_WAITING`, `reg.update()`, the reload, completion markers.
 - **Deadline owner:** the update machine (with the Chromium rule that `SKIP_WAITING` waits until
   page loads settle) and `ACTIVATION_TIMEOUT_MS` in `sw-hard-reset.ts`, the hard reset's bounded
-  wait, which today runs inside the session reset's 2 s commit timeout together with the
-  hard-reset chunk load (the page-navigation harness pins what happens when they do not fit;
-  Phase 2 C6-8 starts that timeout at the final navigation instead).
+  wait. Since Phase 2 C6-8 the logo reset runs the chunk load and that wait as the navigation
+  owner's prepare step, bounded by `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s, which
+  `navigation-contract.test.ts` keeps at least 1 s above the 1.5 s activation wait), and navigates
+  home after it either way; the 2 s commit timeout starts only at that navigation (owner decision
+  2, 2026-10-23). A chunk that lands after the prepare window closed sees its aborted signal and
+  posts no `SKIP_WAITING`.
 - **Timing-constant home:** `src/core/navigation-contract.ts` (the next-document markers
   `SW_UPDATE_KEY`, `SW_CONTROLLER_CONFIRMED_KEY` and `UPDATE_COMPLETION_KEY`; the lazy
   `sw-update-completion.ts` keeps a copy of the last, pinned by
@@ -1166,16 +1169,26 @@ RO-47 owner-in-place
   the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
   `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
   at its sink and writes the reconnect marker) serves `sw-register.ts` and `src/ui/setup.ts`.
-  `scheduleSessionReset` is still called directly from `app.ts`, `src/ui/player-controls.ts` and
-  `src/pro-room/runtime.ts` (which restores its own reset until C6-8 gives it `isCurrent`).
+  `scheduleSessionReset` is still called directly from `app.ts` (the confirmed Back leave),
+  `src/ui/player-controls.ts` (the logo reset) and `src/pro-room/runtime.ts` (terminal PRO
+  recovery). Since C6-8 a request is a plain action or `{ prepare?(signal), navigate, isCurrent? }`:
+  the owner runs the optional prepare step after the paint, bounded by
+  `NAVIGATION_PREPARE_TIMEOUT_MS`, then the final navigation call, and starts the 2 s commit
+  timeout only there (owner decision 2); the prepare signal aborts when that window closes or the
+  attempt settles, and `isCurrent()` false at navigate settles the attempt as recovered. The logo
+  reset's update hand-off is its prepare step; `runtime.ts` passes `isCurrent` instead of
+  restoring the reset inside its action, and its last raw `location.replace` became
+  `navigateToAppHome`. `restoreSessionReset` is no longer exported.
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner. `app.ts` wires the owner's
   back-forward cache recovery once (`initPageNavigation`: the role, the reload message, the log).
 - **Lifecycle operations:** schedule a reset or reload, navigate, recover, restore.
-- **Deadline owner:** `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) in `session-reset.ts`.
+- **Deadline owner:** `session-reset.ts`: `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s) for a prepare
+  step, then `NAVIGATION_COMMIT_TIMEOUT_MS` (2 s) from the final navigation call.
 - **Timing-constant home:** `src/core/navigation-contract.ts` (`NAVIGATION_COMMIT_TIMEOUT_MS`,
-  `RESET_PAINT_FALLBACK_MS` and the next-document `sessionStorage` keys), a dependency-free module
+  `NAVIGATION_PREPARE_TIMEOUT_MS`, `RESET_PAINT_FALLBACK_MS` and the next-document
+  `sessionStorage` keys), a dependency-free module
   because `src/core/navigation.ts` imports the owner. The ordering it relies on is pinned in
   `src/core/__tests__/navigation-contract.test.ts` (Phase 2, C6-1).
 - **Anchor tests:**
@@ -1194,6 +1207,9 @@ RO-47 owner-in-place
     exemption another writer holds when an unrelated reset recovers" and "(d) ... asks to confirm
     an unload while the reload waits behind the fence"; `src/ui/__tests__/account.test.ts` "keeps
     a slow same-tab OAuth navigation recoverable beyond two seconds".
+  - Prepare/navigate split: `session-reset.test.ts` "prepare/navigate requests (C6-8)" and
+    `page-navigation-owner.integration.test.ts` "(f) ... navigates home at the prepare deadline
+    when the chunk lands later, which then posts no SKIP_WAITING".
   - One page-transition dispatch: `page-navigation-owner.integration.test.ts` "with the
     guard-first init order, re-arms the Back guard in a room only on the second pageshow-only
     return" and `src/core/__tests__/page-lifecycle.test.ts` "page navigation owner — back-forward

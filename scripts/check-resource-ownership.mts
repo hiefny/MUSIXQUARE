@@ -209,7 +209,7 @@ const LOCATION_NAVIGATION_BASELINE: Baseline = new Map<string, Allowance>([
   ],
   ['src/core/session-reset.ts', { count: 1, reason: 'the navigation owner reload' }],
   ['src/i18n/localized-app-document.ts', { count: 1, reason: 'language switch fallback' }],
-  ['src/pro-room/runtime.ts', { count: 1, reason: 'inside a scheduleSessionReset action' }],
+  // C6-8 moved runtime.ts's PRESENCE_SUPERSEDED replace to navigateToAppHome (1 to 0).
   ['src/ui/account.ts', { count: 1, reason: 'login popup window, not this document' }],
 ]);
 

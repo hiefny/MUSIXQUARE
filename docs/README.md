@@ -91,6 +91,15 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [One owner-transfer saga executor (Phase 1 App Worker B, 2026-10-23)](design/app-worker-saga-executor-2026-10-23.md):
+  the transfer request and the minute cron finish a committed owner transfer through one post-commit
+  executor in the owner's D3 order (finalize the entitlement, then `verified`, the fence clear, the
+  audit, `complete`). The closing audit row comes before every terminal advance and is written once
+  per transfer, so a request and cron overlap, a cron retry or a replayed request leaves one row; the
+  request's HTTP answers are unchanged. Tests pinned every request answer, the cron's crash matrix
+  and mixed old and new App Worker builds first. Worker-only (target `app`), with no D1 schema, app
+  version or service-worker change.
+
 - [App Worker saga helpers and one fence writer list (Phase 1 App Worker A, 2026-10-23)](design/app-worker-saga-fence-2026-10-23.md):
   the owner-transfer saga's entitlement identity and its four deleted-target endings each get one
   helper that keeps every site's order, and the Developer API authority fence writers take a typed

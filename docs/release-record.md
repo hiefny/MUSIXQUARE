@@ -55,8 +55,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       돌아가는 중 삭제와 시스템 오디오 전환이 동작을 즉시 끝낸다. 계정 신호의 바이트는 그대로다. 미배포.
       업데이트 창이 뜨는 배포라 오너 확인 뒤 target `all`(PRO 먼저)로 낸다. 배포 뒤 보고서의 실기기
       확인(iPhone 뒤로 가기 캐시 복귀, 설치한 앱의 뒤로 가기·구글 로그인, 화면 보호기 중 YouTube 전체
-      화면, 재생목록 끌어 놓은 직후 삭제, TV 전체 화면)을 본다. 첫 로딩 JS는 478.0 → 478.7 KiB(gzip)로
-      예산 안이다.
+      화면, 재생목록 끌어 놓은 직후 삭제, TV 전체 화면)을 본다. 첫 로딩 JS는 478.0 → 478.8 KiB(gzip)로
+      예산 안이다(오너가 수용한 478.7보다 0.1 KiB 큼).
       [묶음 보고서](design/phase2-navigation-ui-shells-2026-10-23.md),
       [페이지 이동 계약](design/page-navigation-ownership.md).
 - [ ] PRO 소유권 이전 시 입장 암호 끄기(같은 묶음): 오너 결정(2026-10-23)대로 이전이 커밋되면 방

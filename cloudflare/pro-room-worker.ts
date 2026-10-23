@@ -523,7 +523,13 @@ interface OwnershipTransferPending {
   targetDisplayName: string;
   previousOwnerAccountId: string | null;
   preservedOwnerMemberId: string;
-  pin: PinRecord;
+  /**
+   * Only in a record a PRO Worker wrote before the 2026-10-23 owner decision,
+   * which asked the new owner for a PIN. It is kept as stored (so a rollback
+   * still reads the record) and never read: every commit turns the entry
+   * password off.
+   */
+  pin?: PinRecord;
   claimNonceHash: string;
   claimGeneration: number;
   ownerAuthorityEpoch: number;
@@ -4677,26 +4683,32 @@ export class MusixquareProRoom {
         : null;
 
     const pending = this.activeRoom.pendingOwnershipTransfer;
+    // A record written before the 2026-10-23 owner decision also carries the
+    // PIN its new owner chose. It stays valid, and the commit ignores the PIN.
+    const legacyPin = pending && Object.hasOwn(pending, 'pin') ? pending.pin : undefined;
     const validPending =
       pending &&
       typeof pending === 'object' &&
       !Array.isArray(pending) &&
-      hasExactKeys(pending, [
-        'transferId',
-        'requestId',
-        'targetAccountId',
-        'targetDisplayName',
-        'previousOwnerAccountId',
-        'preservedOwnerMemberId',
-        'pin',
-        'claimNonceHash',
-        'claimGeneration',
-        'ownerAuthorityEpoch',
-        'preparedAtMs',
-        'expiresAtMs',
-        'devicePlatform',
-        'commitProofHash',
-      ]) &&
+      hasExactKeys(
+        pending,
+        [
+          'transferId',
+          'requestId',
+          'targetAccountId',
+          'targetDisplayName',
+          'previousOwnerAccountId',
+          'preservedOwnerMemberId',
+          'claimNonceHash',
+          'claimGeneration',
+          'ownerAuthorityEpoch',
+          'preparedAtMs',
+          'expiresAtMs',
+          'devicePlatform',
+          'commitProofHash',
+        ],
+        ['pin'],
+      ) &&
       OWNER_TRANSFER_ID_RE.test(pending.transferId || '') &&
       OWNER_TRANSFER_REQUEST_ID_RE.test(pending.requestId || '') &&
       ACCOUNT_ID_RE.test(pending.targetAccountId || '') &&
@@ -4705,16 +4717,17 @@ export class MusixquareProRoom {
         ACCOUNT_ID_RE.test(pending.previousOwnerAccountId || '')) &&
       OPAQUE_ID_RE.test(pending.preservedOwnerMemberId || '') &&
       this.activeRoom.ownerMemberId === pending.preservedOwnerMemberId &&
-      pending.pin &&
-      typeof pending.pin === 'object' &&
-      !Array.isArray(pending.pin) &&
-      typeof pending.pin.salt === 'string' &&
-      /^[A-Za-z0-9_-]{16,128}$/.test(pending.pin.salt) &&
-      Number.isSafeInteger(pending.pin.iterations) &&
-      pending.pin.iterations >= 1 &&
-      pending.pin.iterations <= PBKDF2_MAX_ITERATIONS &&
-      typeof pending.pin.hash === 'string' &&
-      /^[A-Za-z0-9_-]{43}$/.test(pending.pin.hash) &&
+      (legacyPin === undefined ||
+        (legacyPin &&
+          typeof legacyPin === 'object' &&
+          !Array.isArray(legacyPin) &&
+          typeof legacyPin.salt === 'string' &&
+          /^[A-Za-z0-9_-]{16,128}$/.test(legacyPin.salt) &&
+          Number.isSafeInteger(legacyPin.iterations) &&
+          legacyPin.iterations >= 1 &&
+          legacyPin.iterations <= PBKDF2_MAX_ITERATIONS &&
+          typeof legacyPin.hash === 'string' &&
+          /^[A-Za-z0-9_-]{43}$/.test(legacyPin.hash))) &&
       /^[A-Za-z0-9_-]{43}$/.test(pending.claimNonceHash || '') &&
       isSafeNonNegativeInteger(pending.claimGeneration) &&
       isSafeNonNegativeInteger(pending.ownerAuthorityEpoch) &&
@@ -7420,10 +7433,16 @@ export class MusixquareProRoom {
         });
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/owner-transfer/commit') {
+        // The commit's snapshot becomes the transfer link's answer. The App
+        // facade passes the browser's opt-in headers through, so the snapshot
+        // gets the same additive fields (`passwordRequired`, `playlistSlots`)
+        // as activation's; without them it keeps the exact v1 shape.
         return this.withMutation(() =>
-          this.withStateCapacityRollback(() => this.handleInternalOwnerTransferCommit(request), {
-            rollbackStorageFailure: true,
-          }),
+          this.withEntryPolicyResponse(request, () =>
+            this.withStateCapacityRollback(() => this.handleInternalOwnerTransferCommit(request), {
+              rollbackStorageFailure: true,
+            }),
+          ),
         );
       }
       if (
@@ -14425,22 +14444,22 @@ export class MusixquareProRoom {
   async handleOwnerTransferPrepare(request: Request) {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
+    // Owner decision 2026-10-23: a transfer ends with the entry password off,
+    // so the link asks for no PIN. An App from before the decision still sends
+    // `newPin`; its shape is checked as before and its value is never used.
     if (
-      !hasExactKeys(parsed.value, ['claimToken', 'newPin', 'requestId']) ||
+      !hasExactKeys(parsed.value, ['claimToken', 'requestId'], ['newPin']) ||
       typeof parsed.value.claimToken !== 'string' ||
-      !matchesPattern(parsed.value.newPin, PIN_RE) ||
+      (Object.hasOwn(parsed.value, 'newPin') && !matchesPattern(parsed.value.newPin, PIN_RE)) ||
       !matchesPattern(parsed.value.requestId, OWNER_TRANSFER_REQUEST_ID_RE)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const claimToken = parsed.value.claimToken;
-    const newPin = parsed.value.newPin;
     const requestId = parsed.value.requestId;
     const activationSecret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
-    const pepper = String(this.env.PRO_ROOM_PIN_PEPPER || '');
     if (
       activationSecret.length < 32 ||
-      pepper.length < 32 ||
       String(this.env.PRO_ROOM_SESSION_SECRET || '').length < 32
     ) {
       return errorResponse('SERVICE_NOT_CONFIGURED', 503);
@@ -14485,7 +14504,9 @@ export class MusixquareProRoom {
     // This is the sole exception to claim expiry: it lets the App finish D1
     // reconciliation and return the already-committed deterministic cookies
     // after response loss near the claim deadline. No different request,
-    // account, PIN, epoch, session, or nonce can enter this branch.
+    // account, epoch, session, or nonce can enter this branch. A replay is
+    // the same request id from the same claim and account; any PIN it carries
+    // is ignored, like the first request's.
     if (completed && matchingRecord === completed) {
       if (completed.replayUntilMs <= nowMs) {
         return errorResponse('OWNER_TRANSFER_CLAIM_EXPIRED', 410);
@@ -14501,9 +14522,6 @@ export class MusixquareProRoom {
         matchingRecord.claimNonceHash !== nonceHash
       ) {
         return errorResponse('OWNER_TRANSFER_CLAIM_USED', 409);
-      }
-      if (!(await verifyPin(newPin, this.activeRoom.pin, pepper))) {
-        return errorResponse('OWNER_TRANSFER_REPLAY_MISMATCH', 409);
       }
       const restoreError = await this.restoreCompletedOwnerTransferReplayAuthority(
         completed,
@@ -14531,9 +14549,6 @@ export class MusixquareProRoom {
       ) {
         return errorResponse('OWNER_TRANSFER_CLAIM_USED', 409);
       }
-      if (!('pin' in matchingRecord) || !(await verifyPin(newPin, matchingRecord.pin, pepper))) {
-        return errorResponse('OWNER_TRANSFER_REPLAY_MISMATCH', 409);
-      }
       return this.ownerTransferPrepareResponse(matchingRecord, true);
     }
     if (
@@ -14560,9 +14575,6 @@ export class MusixquareProRoom {
       )
     ) {
       return errorResponse('OWNER_TRANSFER_UNAVAILABLE', 409);
-    }
-    if (this.activeRoom.pin && (await verifyPin(newPin, this.activeRoom.pin, pepper))) {
-      return errorResponse('OWNER_TRANSFER_PIN_REUSE', 409);
     }
     if (
       Object.keys(this.activeRoom.consumedOwnershipTransferClaims).length >=
@@ -14593,7 +14605,6 @@ export class MusixquareProRoom {
     if (preservedOwnerMemberId === null) {
       return errorResponse('OWNER_TRANSFER_OWNER_IDENTITY_INVALID', 409);
     }
-    const nextPin = await createPinRecord(newPin, pepper);
     if (
       !(await reserveProRoomOwnershipTransferEntitlement(this.env, {
         targetAccountId: asserted.account.accountId,
@@ -14639,7 +14650,6 @@ export class MusixquareProRoom {
       targetDisplayName: asserted.account.nickname,
       previousOwnerAccountId,
       preservedOwnerMemberId,
-      pin: nextPin,
       claimNonceHash: nonceHash,
       claimGeneration: claim.claimGeneration,
       ownerAuthorityEpoch: this.activeRoom.ownerAuthorityEpoch,
@@ -14916,8 +14926,11 @@ export class MusixquareProRoom {
       createdAtMs: nowMs,
       expiresAtMs: nowMs + this.sessionTtlSeconds() * 1000,
     };
-    this.activeRoom.pin = pending.pin;
-    this.activeRoom.passwordRequired = true;
+    // Owner decision 2026-10-23: the new owner starts without an entry
+    // password, exactly as if the owner had turned it off, and can turn one
+    // on in room settings. A PIN in a record from an earlier PRO Worker is
+    // ignored. Nobody is connected here: PREPARE revoked every session.
+    this.turnEntryPasswordOff();
     this.activeRoom.ownerMemberId = pending.preservedOwnerMemberId;
     this.activeRoom.ownerAccountId = pending.targetAccountId;
     this.activeRoom.ownerDisplayName = pending.targetDisplayName;
@@ -15862,6 +15875,17 @@ export class MusixquareProRoom {
     return jsonResponse({ ok: true });
   }
 
+  /**
+   * The one way a room's entry password is turned off: the explicit public
+   * policy flag, and no PIN record. The owner's room setting and a committed
+   * ownership transfer both write it; the caller bumps the revision and
+   * persists with its own change.
+   */
+  turnEntryPasswordOff() {
+    this.activeRoom.passwordRequired = false;
+    this.activeRoom.pin = null;
+  }
+
   async handleChangePin(request: Request) {
     const auth = await this.requireSession(request, { owner: true, activePresence: true });
     if (auth.response) return auth.response;
@@ -15906,8 +15930,7 @@ export class MusixquareProRoom {
       // Opening admission grants no new authority to existing participants.
       // Preserve their playback/presence; subsequent enabling or rotation
       // revokes dormant sessions, or every other session, below.
-      this.activeRoom.passwordRequired = false;
-      this.activeRoom.pin = null;
+      this.turnEntryPasswordOff();
       this.activeRoom.revision += 1;
       await this.persist();
       this.scheduleServerEvent(this.presenceEvent());

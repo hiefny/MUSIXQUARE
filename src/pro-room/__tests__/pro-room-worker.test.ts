@@ -20027,11 +20027,17 @@ describe('persistent PRO room authentication, presence, and state', () => {
       expect(committedReplayResponse.status).toBe(200);
       await expect(committedReplayResponse.json()).resolves.toMatchObject({ replayed: true });
       expect(committedReplayResponse.headers.getSetCookie()).toEqual(firstCookies);
+      // Owner decision 2026-10-23: the transfer leaves the entry password
+      // off, whatever the room had and whatever PIN the request carried.
+      expect(internal.room).toMatchObject({ passwordRequired: false, pin: null });
       expect(
-        (await context.worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }))).status,
-      ).toBe(401);
-      expect(
-        (await context.worker.fetch(jsonRequest('/sessions', 'POST', { pin: '87654321' }))).status,
+        (
+          await context.worker.fetch(
+            optionalEntryPolicy(
+              jsonRequest('/sessions', 'POST', { requestId: 'transfer-open-admission-0001' }),
+            ),
+          )
+        ).status,
       ).toBe(200);
 
       const staleRecovery = await context.worker.fetch(
@@ -22900,8 +22906,9 @@ describe('persistent PRO room authentication, presence, and state', () => {
 });
 
 describe('PRO owner transfer and the room entry password', () => {
-  // Owner decision 2026-10-23 (docs/design/pro-transfer-password-reset-2026-10-23.md)
-  // changes the cases named "today". Everything else here must hold before and after.
+  // Owner decision 2026-10-23 (docs/design/pro-transfer-password-reset-2026-10-23.md):
+  // a committed transfer turns the entry password off, as the owner's room
+  // setting does, and the link asks for no PIN. Everything else held before.
   const TRANSFER_TARGET_ACCOUNT_ID = 'acct_abcdefghijkl0123456789';
   let joinSequence = 0;
 
@@ -22989,7 +22996,19 @@ describe('PRO owner transfer and the room entry password', () => {
     );
   }
 
-  it('today: a protected room asks the new owner for a PIN that differs from the current one', async () => {
+  /** Rewrite the stored pending record, then load the room in a new object. */
+  function restartWithStoredPending(
+    context: TransferContext,
+    edit: (pending: Record<string, unknown>) => void,
+  ) {
+    const stored = context.state.storage.data.get('pro-room:v2:core') as {
+      core: { pendingOwnershipTransfer: Record<string, unknown> };
+    };
+    edit(stored.core.pendingOwnershipTransfer);
+    return new MusixquareProRoom(context.state as never, environment(context.bucket) as never);
+  }
+
+  it('turns a protected room open and asks the new owner for nothing', async () => {
     const context = await activatedRoom();
     const room = roomState(context.worker);
     const memberResponse = await context.worker.fetch(joinRequest('12345678'));
@@ -22999,57 +23018,42 @@ describe('PRO owner transfer and the room entry password', () => {
     const claimToken = await issueTransferClaim(context.worker);
     const requestId = 'owner_transfer_password_0001';
 
-    const withoutPin = await prepareTransfer(context.worker, { claimToken, requestId });
-    expect(withoutPin.status).toBe(400);
-    await expect(withoutPin.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
-
-    // Refusing the room's current PIN tells the recipient the previous owner's
-    // PIN. The claim is not consumed, but the App shows "ask for a new link".
-    const reused = await prepareTransfer(context.worker, {
-      claimToken,
-      newPin: '12345678',
-      requestId,
-    });
-    expect(reused.status).toBe(409);
-    await expect(reused.json()).resolves.toEqual({ error: 'OWNER_TRANSFER_PIN_REUSE' });
-    expect(room.status).toBe('active');
-    expect(room.pendingOwnershipTransfer).toBeNull();
-    expect(room.consumedOwnershipTransferClaims).toEqual({});
-
-    const preparedResponse = await prepareTransfer(context.worker, {
-      claimToken,
-      newPin: '87654321',
-      requestId,
-    });
+    const preparedResponse = await prepareTransfer(context.worker, { claimToken, requestId });
     expect(preparedResponse.status).toBe(200);
     const prepared = await responseJson(preparedResponse);
-    expect(Object.keys(room.pendingOwnershipTransfer)).toContain('pin');
+    expect(prepared).toMatchObject({ status: 'suspended', replayed: false });
+    expect(room.pendingOwnershipTransfer).toMatchObject({
+      transferId: prepared.transferId,
+      requestId,
+    });
+    expect(room.pendingOwnershipTransfer).not.toHaveProperty('pin');
     // PREPARE revokes every session: the previous owner's and every member's.
     await expectSessionRequired(
       context.worker.fetch(request('/snapshot', {}, context.ownerCookie)),
     );
     await expectSessionRequired(context.worker.fetch(request('/snapshot', {}, memberCookie)));
 
-    const otherPinReplay = await prepareTransfer(context.worker, {
+    // The same request id replays the same transfer, with or without the PIN
+    // an App from before the decision sends. Only a malformed PIN is refused.
+    for (const body of [
+      { claimToken, requestId },
+      { claimToken, newPin: '11223344', requestId },
+    ]) {
+      const replay = await prepareTransfer(context.worker, body);
+      expect(replay.status).toBe(200);
+      await expect(replay.json()).resolves.toMatchObject({
+        transferId: prepared.transferId,
+        commitProof: prepared.commitProof,
+        replayed: true,
+      });
+    }
+    const malformed = await prepareTransfer(context.worker, {
       claimToken,
-      newPin: '11223344',
+      newPin: '1234',
       requestId,
     });
-    expect(otherPinReplay.status).toBe(409);
-    await expect(otherPinReplay.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_REPLAY_MISMATCH',
-    });
-    const replay = await prepareTransfer(context.worker, {
-      claimToken,
-      newPin: '87654321',
-      requestId,
-    });
-    expect(replay.status).toBe(200);
-    await expect(replay.json()).resolves.toMatchObject({
-      transferId: prepared.transferId,
-      commitProof: prepared.commitProof,
-      replayed: true,
-    });
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
 
     const committed = await commitTransfer(context.worker, prepared, requestId, {
       entryPolicy: true,
@@ -23057,126 +23061,183 @@ describe('PRO owner transfer and the room entry password', () => {
     expect(committed.status).toBe(200);
     const committedPayload = await responseJson(committed);
     expect(committedPayload.snapshot.viewer).toMatchObject({ role: 'owner' });
-    expect(committedPayload.snapshot).not.toHaveProperty('passwordRequired');
-    expect(room.passwordRequired).toBe(true);
-    expect(room.pin).not.toBeNull();
+    expect(committedPayload.snapshot.passwordRequired).toBe(false);
+    expect(parseProRoomSnapshot(committedPayload.snapshot)).not.toBeNull();
+    expect(room).toMatchObject({ passwordRequired: false, pin: null });
+    // Without the App's opt-in header the commit keeps the exact v1 snapshot.
+    const legacyCommitReplay = await commitTransfer(context.worker, prepared, requestId);
+    expect(legacyCommitReplay.status).toBe(200);
+    const legacyCommitPayload = await responseJson(legacyCommitReplay);
+    expect(legacyCommitPayload.replayed).toBe(true);
+    expect(legacyCommitPayload.snapshot).not.toHaveProperty('passwordRequired');
 
-    // The chosen PIN protects the room; the code alone and the old PIN do not admit.
+    // The code alone admits, also the member who was in the room: their old
+    // session stays revoked and they come back as an ordinary member.
+    await expectSessionRequired(context.worker.fetch(request('/snapshot', {}, memberCookie)));
     const codeOnly = await context.worker.fetch(joinRequest());
-    expect(codeOnly.status).toBe(401);
-    await expect(codeOnly.json()).resolves.toEqual({ error: 'PIN_REQUIRED' });
-    const oldPin = await context.worker.fetch(joinRequest('12345678'));
-    expect(oldPin.status).toBe(401);
-    await expect(oldPin.json()).resolves.toEqual({ error: 'PIN_INVALID' });
-    const newPin = await context.worker.fetch(joinRequest('87654321'));
-    expect(newPin.status).toBe(200);
-    expect((await responseJson(newPin)).snapshot.viewer.role).toBe('member');
+    expect(codeOnly.status).toBe(200);
+    expect((await responseJson(codeOnly)).snapshot).toMatchObject({
+      viewer: { role: 'member' },
+      passwordRequired: false,
+    });
 
     // The previous owner's credential and account carry no owner authority.
     const oldCredential = await context.worker.fetch(
-      joinRequest('87654321', context.ownerRecoveryCookie),
+      joinRequest(undefined, context.ownerRecoveryCookie),
     );
     expect(oldCredential.status).toBe(200);
     expect((await responseJson(oldCredential)).snapshot.viewer.role).toBe('member');
     const oldAccount = await context.worker.fetch(
       await withAccountAssertion(joinRequest(), ACTIVATION_OWNER_ACCOUNT_ID, 'Owner'),
     );
-    expect(oldAccount.status).toBe(401);
-    await expect(oldAccount.json()).resolves.toEqual({ error: 'PIN_REQUIRED' });
+    expect(oldAccount.status).toBe(200);
+    expect((await responseJson(oldAccount)).snapshot.viewer.role).toBe('member');
 
-    // The completed transfer's replay is matched against the room's PIN.
-    const completedOtherPin = await prepareTransfer(context.worker, {
+    // The completed transfer replays for the same request id, PIN or not.
+    for (const body of [
+      { claimToken, requestId },
+      { claimToken, newPin: '11223344', requestId },
+    ]) {
+      const completedReplay = await prepareTransfer(context.worker, body);
+      expect(completedReplay.status).toBe(200);
+      await expect(completedReplay.json()).resolves.toMatchObject({
+        status: 'active',
+        transferId: prepared.transferId,
+        replayed: true,
+      });
+    }
+    const otherRequest = await prepareTransfer(context.worker, {
       claimToken,
-      newPin: '11223344',
-      requestId,
+      requestId: 'owner_transfer_password_9999',
     });
-    expect(completedOtherPin.status).toBe(409);
-    await expect(completedOtherPin.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_REPLAY_MISMATCH',
-    });
-    const completedReplay = await prepareTransfer(context.worker, {
-      claimToken,
-      newPin: '87654321',
-      requestId,
-    });
-    expect(completedReplay.status).toBe(200);
-    await expect(completedReplay.json()).resolves.toMatchObject({
-      status: 'active',
-      transferId: prepared.transferId,
-      replayed: true,
-    });
+    expect(otherRequest.status).toBe(409);
+    await expect(otherRequest.json()).resolves.toEqual({ error: 'OWNER_TRANSFER_CLAIM_USED' });
   });
 
-  it('today: a public room becomes protected by the PIN its new owner chose', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
+  it("neither refuses nor keeps the room's current PIN that an App from before the decision sends", async () => {
+    const context = await activatedRoom();
     const room = roomState(context.worker);
-    expect(room).toMatchObject({ passwordRequired: false, pin: null });
     const claimToken = await issueTransferClaim(context.worker);
     const requestId = 'owner_transfer_password_0002';
 
-    const withoutPin = await prepareTransfer(context.worker, { claimToken, requestId });
-    expect(withoutPin.status).toBe(400);
-    await expect(withoutPin.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    // OWNER_TRANSFER_PIN_REUSE is gone, so the link no longer tells its
+    // recipient whether a PIN is the previous owner's.
     const preparedResponse = await prepareTransfer(context.worker, {
       claimToken,
-      newPin: '87654321',
+      newPin: '12345678',
       requestId,
     });
     expect(preparedResponse.status).toBe(200);
+    expect(room.pendingOwnershipTransfer).not.toHaveProperty('pin');
     const committed = await commitTransfer(
       context.worker,
       await responseJson(preparedResponse),
       requestId,
     );
     expect(committed.status).toBe(200);
-    expect(room.passwordRequired).toBe(true);
+    expect(room).toMatchObject({ passwordRequired: false, pin: null });
     const codeOnly = await context.worker.fetch(joinRequest());
-    expect(codeOnly.status).toBe(401);
-    await expect(codeOnly.json()).resolves.toEqual({ error: 'PIN_REQUIRED' });
+    expect(codeOnly.status).toBe(200);
+    // An App without the optional entry policy still asks for a PIN; any
+    // valid one admits an ordinary member of an open room.
+    const legacyJoin = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+    );
+    expect(legacyJoin.status).toBe(200);
+    expect((await responseJson(legacyJoin)).snapshot.viewer.role).toBe('member');
   });
 
-  it('replays and commits a stored pending transfer after the room object restarts', async () => {
-    const context = await activatedRoom();
+  it('keeps a public room open', async () => {
+    const context = await activatedRoom(ROOM_CODE, true);
+    const room = roomState(context.worker);
+    expect(room).toMatchObject({ passwordRequired: false, pin: null });
     const claimToken = await issueTransferClaim(context.worker);
     const requestId = 'owner_transfer_password_0003';
-    const preparedResponse = await prepareTransfer(context.worker, {
-      claimToken,
-      newPin: '87654321',
+
+    const preparedResponse = await prepareTransfer(context.worker, { claimToken, requestId });
+    expect(preparedResponse.status).toBe(200);
+    // While the transfer is pending the room is suspended and fails closed.
+    expect(room).toMatchObject({ status: 'suspended', passwordRequired: true, pin: null });
+    const committed = await commitTransfer(
+      context.worker,
+      await responseJson(preparedResponse),
       requestId,
-    });
+    );
+    expect(committed.status).toBe(200);
+    expect(room).toMatchObject({ status: 'active', passwordRequired: false, pin: null });
+    const codeOnly = await context.worker.fetch(joinRequest());
+    expect(codeOnly.status).toBe(200);
+  });
+
+  it('replays and commits stored pending transfers, with and without the earlier PIN, after a restart', async () => {
+    const context = await activatedRoom();
+    const earlierPinRecord = structuredClone(roomState(context.worker).pin);
+    expect(earlierPinRecord).toMatchObject({ salt: expect.any(String), hash: expect.any(String) });
+    const claimToken = await issueTransferClaim(context.worker);
+    const requestId = 'owner_transfer_password_0004';
+    const preparedResponse = await prepareTransfer(context.worker, { claimToken, requestId });
     expect(preparedResponse.status).toBe(200);
     const prepared = await responseJson(preparedResponse);
-    // A record written by a PRO Worker before the decision carries the chosen PIN.
-    expect(storedCanonicalRoom(context.state).pendingOwnershipTransfer).toMatchObject({
-      transferId: prepared.transferId,
-      requestId,
-      pin: { salt: expect.any(String), hash: expect.any(String) },
-    });
+    expect(storedCanonicalRoom(context.state).pendingOwnershipTransfer).not.toHaveProperty('pin');
 
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const replay = await prepareTransfer(restarted, {
-      claimToken,
-      newPin: '87654321',
-      requestId,
-    });
+    // A record without a PIN survives loading.
+    const reloaded = restartWithStoredPending(context, () => undefined);
+    const replay = await prepareTransfer(reloaded, { claimToken, requestId });
     expect(replay.status).toBe(200);
     await expect(replay.json()).resolves.toMatchObject({
       transferId: prepared.transferId,
-      commitProof: prepared.commitProof,
       replayed: true,
     });
+
+    // A record a PRO Worker wrote before the decision carries the PIN its new
+    // owner chose. It loads as stored, replays, and its PIN is never applied.
+    const restarted = restartWithStoredPending(context, (pending) => {
+      pending.pin = earlierPinRecord;
+    });
+    for (const body of [
+      { claimToken, newPin: '87654321', requestId },
+      { claimToken, requestId },
+    ]) {
+      const legacyReplay = await prepareTransfer(restarted, body);
+      expect(legacyReplay.status).toBe(200);
+      await expect(legacyReplay.json()).resolves.toMatchObject({
+        transferId: prepared.transferId,
+        commitProof: prepared.commitProof,
+        replayed: true,
+      });
+    }
+    expect(roomState(restarted).pendingOwnershipTransfer.pin).toEqual(earlierPinRecord);
     const committed = await commitTransfer(restarted, prepared, requestId);
     expect(committed.status).toBe(200);
     expect(roomState(restarted)).toMatchObject({
       status: 'active',
       ownerAccountId: TRANSFER_TARGET_ACCOUNT_ID,
-      passwordRequired: true,
+      passwordRequired: false,
+      pin: null,
       pendingOwnershipTransfer: null,
       completedOwnershipTransfer: { transferId: prepared.transferId, requestId },
     });
+  });
+
+  it('drops a stored pending record whose earlier PIN is malformed, as before', async () => {
+    const context = await activatedRoom();
+    const claimToken = await issueTransferClaim(context.worker);
+    const preparedResponse = await prepareTransfer(context.worker, {
+      claimToken,
+      requestId: 'owner_transfer_password_0005',
+    });
+    expect(preparedResponse.status).toBe(200);
+    const restarted = restartWithStoredPending(context, (pending) => {
+      pending.pin = null;
+    });
+    const status = await restarted.fetch(
+      new Request('https://pro-room.internal/internal/admin/status', {
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+      }),
+    );
+    expect(status.status).toBe(200);
+    expect((await responseJson(status)).ownerTransferReconciliation).toBeNull();
+    expect(roomState(restarted).pendingOwnershipTransfer).toBeNull();
   });
 });
 

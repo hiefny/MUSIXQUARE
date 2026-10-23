@@ -40,7 +40,7 @@ describe('session reset coordinator', () => {
   });
 
   afterEach(() => {
-    coordinator?.__resetSessionResetForTests();
+    coordinator?.__resetPageNavigationForTests();
     lifecycle?.dispose();
     // Vitest 5 forwards these descriptors to the DOM window. Fake-timer teardown
     // must still be able to restore the writable native animation APIs.
@@ -348,7 +348,7 @@ describe('session reset coordinator', () => {
     control.focus();
     const shortcutHandler = vi.fn();
     window.addEventListener('keydown', shortcutHandler);
-    const { __resetSessionResetForTests, scheduleSessionReset } = await loadCoordinator();
+    const { __resetPageNavigationForTests, scheduleSessionReset } = await loadCoordinator();
 
     scheduleSessionReset('Cleanup', vi.fn());
     const overlay = document.getElementById('session-reset-overlay') as HTMLElement;
@@ -357,7 +357,7 @@ describe('session reset coordinator', () => {
       expect(overlay.hidden).toBe(false);
       focusControl(options);
     });
-    __resetSessionResetForTests();
+    __resetPageNavigationForTests();
 
     expect(app.inert).not.toBe(true);
     expect(alreadyInert.inert).toBe(true);
@@ -555,7 +555,7 @@ describe('session reset coordinator', () => {
         Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
         document.dispatchEvent(new Event('visibilitychange'));
       };
-      const { __resetSessionResetForTests, isSessionResetPending, scheduleSessionReset } =
+      const { __resetPageNavigationForTests, isSessionResetPending, scheduleSessionReset } =
         await loadCoordinator();
       const failures: string[] = [];
 
@@ -596,7 +596,7 @@ describe('session reset coordinator', () => {
           if (action.mock.calls.length !== model.actions) {
             failures.push(`${sequence.join(' > ')}: ${action.mock.calls.length} actions`);
           }
-          __resetSessionResetForTests();
+          __resetPageNavigationForTests();
           vi.clearAllTimers();
         }
       } finally {
@@ -708,8 +708,8 @@ describe('session reset coordinator', () => {
         expect.any(Error),
       );
 
-      const { __resetSessionResetForTests } = coordinator!;
-      __resetSessionResetForTests();
+      const { __resetPageNavigationForTests } = coordinator!;
+      __resetPageNavigationForTests();
       const second = vi.fn();
       scheduleSessionReset('Leaving', {
         prepare: () => {

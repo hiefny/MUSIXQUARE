@@ -163,7 +163,7 @@ describe('service-worker reset recovery integration', () => {
   });
 
   afterEach(() => {
-    coordinator?.__resetSessionResetForTests();
+    coordinator?.__resetPageNavigationForTests();
     disposeLifecycle?.();
     disposeLifecycle = null;
     vi.unstubAllGlobals();

@@ -8,13 +8,12 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  __resetDocumentReloadForTests,
   capturePendingClaimReloadGuard,
   registerPendingClaimReloadPreparation,
 } from '../document-reload.ts';
 import { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } from '../navigation-contract.ts';
 import {
-  __resetSessionResetForTests,
+  __resetPageNavigationForTests,
   isSessionResetPending,
   scheduleDocumentReload,
 } from '../session-reset.ts';
@@ -34,8 +33,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  __resetSessionResetForTests();
-  __resetDocumentReloadForTests();
+  __resetPageNavigationForTests();
   vi.unstubAllGlobals();
   if (originalRequestAnimationFrame) {
     Object.defineProperty(window, 'requestAnimationFrame', originalRequestAnimationFrame);

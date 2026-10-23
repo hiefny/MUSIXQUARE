@@ -45,7 +45,6 @@ import * as swHardReset from '../../sw-hard-reset.ts';
 import { stubNavigationSinks, type NavigationSinks } from './navigation-sinks.ts';
 import { createBackButtonGuardController, isGuardedSession } from '../../back-button-guard.ts';
 import { createBackButtonHistory } from '../../back-button-history.ts';
-import { __resetDocumentReloadForTests } from '../../document-reload.ts';
 import { navigateToAppHome } from '../../navigation.ts';
 import {
   __resetUnloadExemptionsForTests,
@@ -53,7 +52,7 @@ import {
 } from '../../page-lifecycle.ts';
 import { createReloadRecoveryLatch } from '../../reload-recovery-latch.ts';
 import {
-  __resetSessionResetForTests,
+  __resetPageNavigationForTests,
   initPageNavigation,
   isSessionResetPending,
   onNavigationPendingChange,
@@ -444,8 +443,7 @@ export interface BootOptions {
 
 export function bootPageNavigationShell(options: BootOptions = {}): PageNavigationShell {
   // Every owner starts from its idle state.
-  __resetSessionResetForTests();
-  __resetDocumentReloadForTests();
+  __resetPageNavigationForTests();
   __resetUnloadExemptionsForTests();
   __resetModalStackForTests();
   document.documentElement.className = '';
@@ -678,8 +676,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
         surfaceHost: () => null,
         onSurfaceHostChange: () => () => undefined,
       });
-      __resetSessionResetForTests();
-      __resetDocumentReloadForTests();
+      __resetPageNavigationForTests();
       __resetUnloadExemptionsForTests();
       __resetModalStackForTests();
       vi.unstubAllGlobals();

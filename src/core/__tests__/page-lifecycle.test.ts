@@ -11,7 +11,7 @@ import {
   type PageLifecycleHandle,
 } from '../page-lifecycle.ts';
 import {
-  __resetSessionResetForTests,
+  __resetPageNavigationForTests,
   initPageNavigation,
   isSessionResetPending,
   scheduleSessionReset,
@@ -224,7 +224,7 @@ describe('page navigation owner — back-forward cache return (initPageNavigatio
 
   afterEach(() => {
     navigation.dispose();
-    __resetSessionResetForTests();
+    __resetPageNavigationForTests();
     vi.unstubAllGlobals();
     vi.useRealTimers();
     vi.restoreAllMocks();

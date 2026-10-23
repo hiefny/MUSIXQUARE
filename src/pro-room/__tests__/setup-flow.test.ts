@@ -3,10 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProRoomApiError } from '../api.ts';
 import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
-import {
-  __resetDocumentReloadForTests,
-  registerPendingClaimReloadPreparation,
-} from '../../core/document-reload.ts';
+import { registerPendingClaimReloadPreparation } from '../../core/document-reload.ts';
 import { stubNavigationSinks } from '../../core/__tests__/__helpers__/navigation-sinks.ts';
 import {
   __accountLoginReturnForTests,
@@ -97,15 +94,14 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   clearPendingSessionRequestIdsForTests();
-  __resetDocumentReloadForTests();
+  sessionReset.__resetPageNavigationForTests();
 });
 
 afterEach(() => {
-  sessionReset.__resetSessionResetForTests();
+  sessionReset.__resetPageNavigationForTests();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  __resetDocumentReloadForTests();
 });
 
 describe('PRO room setup flow', () => {

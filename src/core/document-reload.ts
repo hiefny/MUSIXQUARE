@@ -170,8 +170,12 @@ export function capturePendingClaimReloadGuard(): PendingClaimReloadGuard | null
   return createGuardFacade(guard);
 }
 
-/** @internal Test-only cleanup for module-scoped fence state. */
-export function __resetDocumentReloadForTests(): void {
+/**
+ * @internal Test-only cleanup for module-scoped fence state. Tests reset the
+ * whole navigation owner with core/session-reset.ts
+ * __resetPageNavigationForTests, which calls this (C6-13).
+ */
+export function __resetReloadFenceForTests(): void {
   if (fencedReload) rollbackFencedReload(fencedReload);
   pendingClaimGuard?.mutationWaiters.forEach((resolve) => resolve());
   pendingClaimGuard = null;

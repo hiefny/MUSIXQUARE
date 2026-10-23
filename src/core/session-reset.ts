@@ -50,6 +50,7 @@
 import { claimUnloadExemption, revealLiveShell } from './page-lifecycle.ts';
 import { log } from './log.ts';
 import {
+  __resetReloadFenceForTests,
   beginFencedReload,
   isReloadFenced,
   setReloadFenceOpenHandler,
@@ -760,12 +761,16 @@ export function scheduleDocumentReload(message: string, onRecovered?: () => void
   startQueuedReload();
 }
 
-/** @internal Test-only cleanup for module-scoped listeners and timers. */
-export function __resetSessionResetForTests(): void {
+/**
+ * @internal Test-only cleanup of the whole page navigation owner: its queue,
+ * attempt, listeners and timers, and the PRO claim fence it reloads through.
+ */
+export function __resetPageNavigationForTests(): void {
   _reloadQueue.length = 0;
   restorePage();
   _reportedPending = false;
   removePageTransitionDispatch();
   _transitionDeps = null;
   _bfcacheRetryUsed = false;
+  __resetReloadFenceForTests();
 }

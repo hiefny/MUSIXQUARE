@@ -1161,8 +1161,11 @@ RO-47 owner-in-place
   commits; a waiting reload with the same message joins the one already waiting; a direct reset
   asked for while the page is held is refused (first wins). `src/core/document-reload.ts` keeps
   only the PRO claim fence (claim phases, the claim the in-flight reload carries, a narrow port
-  `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`). Stacked requester
-  latches remain in `sw-register.ts` and `src/core/reload-recovery-latch.ts`;
+  `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`; since C6-13 tests reset
+  the owner and the fence with one `__resetPageNavigationForTests`). A stacked requester latch
+  remains in `sw-register.ts` (`_swReloading`, Phase 3); `src/core/reload-recovery-latch.ts` keeps
+  only its prompt single-flight, its repeated-recovery guard deleted in C6-13 because the owner
+  reports a recovery at most once per attempt;
   `src/core/page-lifecycle.ts` keeps only `beforeunload`, the pagehide `leaveSession` and
   `revealLiveShell`. The navigation intents in
   `src/core/navigation.ts` (Phase 2, C6-3) run on the reset: `navigateHome` (replace, or push for

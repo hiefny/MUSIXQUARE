@@ -1,12 +1,9 @@
 /** @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetDocumentReloadForTests,
-  registerPendingClaimReloadPreparation,
-} from '../../core/document-reload.ts';
+import { registerPendingClaimReloadPreparation } from '../../core/document-reload.ts';
 import { RESET_PAINT_FALLBACK_MS } from '../../core/navigation-contract.ts';
-import { __resetSessionResetForTests, scheduleDocumentReload } from '../../core/session-reset.ts';
+import { __resetPageNavigationForTests, scheduleDocumentReload } from '../../core/session-reset.ts';
 import { stubNavigationSinks } from '../../core/__tests__/__helpers__/navigation-sinks.ts';
 
 const mocks = vi.hoisted(() => ({
@@ -36,8 +33,7 @@ const originalRequestAnimationFrame = Object.getOwnPropertyDescriptor(
 );
 
 afterEach(() => {
-  __resetSessionResetForTests();
-  __resetDocumentReloadForTests();
+  __resetPageNavigationForTests();
   vi.unstubAllGlobals();
   if (originalRequestAnimationFrame) {
     Object.defineProperty(window, 'requestAnimationFrame', originalRequestAnimationFrame);
@@ -94,8 +90,7 @@ describe('PRO runtime terminal import failure', () => {
     });
     const sinks = stubNavigationSinks();
     for (const claim of claims) {
-      __resetSessionResetForTests();
-      __resetDocumentReloadForTests();
+      __resetPageNavigationForTests();
       mocks.takeClaims.mockReturnValue(claim);
       const prepare = vi.fn(() => vi.fn());
       registerPendingClaimReloadPreparation(prepare);

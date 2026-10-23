@@ -595,7 +595,7 @@ describe('logo hard reset update hand-off', () => {
   });
 
   afterEach(() => {
-    coordinator.__resetSessionResetForTests();
+    coordinator.__resetPageNavigationForTests();
     vi.useRealTimers();
   });
 

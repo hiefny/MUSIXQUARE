@@ -1,15 +1,12 @@
 /** @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  __resetDocumentReloadForTests,
-  capturePendingClaimReloadGuard,
-} from '../../core/document-reload.ts';
+import { capturePendingClaimReloadGuard } from '../../core/document-reload.ts';
 import {
   NAVIGATION_COMMIT_TIMEOUT_MS,
   RESET_PAINT_FALLBACK_MS,
 } from '../../core/navigation-contract.ts';
-import { __resetSessionResetForTests, scheduleDocumentReload } from '../../core/session-reset.ts';
+import { __resetPageNavigationForTests, scheduleDocumentReload } from '../../core/session-reset.ts';
 import {
   stubNavigationSinks,
   type NavigationSinks,
@@ -31,8 +28,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  __resetSessionResetForTests();
-  __resetDocumentReloadForTests();
+  __resetPageNavigationForTests();
   vi.unstubAllGlobals();
   if (originalRequestAnimationFrame) {
     Object.defineProperty(window, 'requestAnimationFrame', originalRequestAnimationFrame);

@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { createReloadRecoveryLatch } from '../reload-recovery-latch.ts';
 
 describe('reload recovery latch', () => {
-  it('deduplicates a prompt and bounds repeated no-op reload recovery callbacks', async () => {
+  // The navigation owner reports a reload's recovery at most once per attempt
+  // (C6-4), so the latch no longer guards against a repeated callback (C6-13):
+  // the owner's sequence test and the harness lazy-feature pin cover that.
+  it('deduplicates a prompt until its reload reports recovery, then prompts again', async () => {
     let resolvePresentation!: (choice: 'accept') => void;
     let onRecovered!: () => void;
     const present = vi.fn(
@@ -28,7 +31,9 @@ describe('reload recovery latch', () => {
 
     resolvePresentation('accept');
     await vi.waitFor(() => expect(onRecovered).toBeTypeOf('function'));
-    onRecovered();
+    // While the reload is pending, a further failure joins the same attempt.
+    report('while-reloading');
+    expect(present).toHaveBeenCalledOnce();
     onRecovered();
     expect(recovered).toHaveBeenCalledOnce();
     expect(recovered).toHaveBeenCalledWith('first');

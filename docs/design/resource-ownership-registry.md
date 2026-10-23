@@ -1143,11 +1143,16 @@ RO-47 owner-in-place
 - **Current owners/flows:** the session reset in `src/core/session-reset.ts` (first request wins,
   overlay, 2 s commit timeout, its own pagehide, pageshow and visibility listeners; since Phase 2
   C6-4 one `PageNavigationState` whose every exit goes through one exactly-once `settle()` with a
-  typed outcome, `onSettled`, with `onRecovered` as its alias);
-  `src/core/document-reload.ts` (claim phases, active attempt, FIFO queue), joined to the reset by
-  `scheduleDocumentReload`, which reports a reload as recovered when a reset is already pending;
-  stacked requester latches in `sw-register.ts`, `src/core/reload-recovery-latch.ts` and the
-  back-forward cache retry in `src/core/page-lifecycle.ts`. The navigation intents in
+  typed outcome, `onSettled`, with `onRecovered` as its alias; since C6-5 also the one reload queue
+  behind `scheduleDocumentReload`). Its busy rule (owner decision 1, 2026-10-23): a reload asked
+  for while another navigation holds the page, behind another reload, or behind a reload whose
+  sink throws waits and runs if that navigation settles in this document, never after it
+  commits; a waiting reload with the same message joins the one already waiting; a direct reset
+  asked for while the page is held is refused (first wins). `src/core/document-reload.ts` keeps
+  only the PRO claim fence (claim phases, the claim the in-flight reload carries, a narrow port
+  `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`). Stacked requester
+  latches remain in `sw-register.ts`, `src/core/reload-recovery-latch.ts` and the back-forward
+  cache retry in `src/core/page-lifecycle.ts`. The navigation intents in
   `src/core/navigation.ts` (Phase 2, C6-3) run on the reset: `navigateHome` (replace, or push for
   the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
   `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
@@ -1173,8 +1178,9 @@ RO-47 owner-in-place
     request".
   - Visibility: `session-reset.test.ts` "cancels a pre-action reset when the returned page only
     becomes visible"; "restores a committed reset when iOS only foregrounds the old document".
-  - Missing: a reload requested while a direct reset is pending (dropped, then reported as
-    recovered).
+  - Busy rule: `src/core/__tests__/page-navigation-owner.integration.test.ts` "(a) ... waits
+    behind the reset and runs once that reset recovers", "releases the failed reload and runs the
+    reload queued behind it" and "lets a waiting request join one with the same message".
 - **Status:** `duplicated`. Phase 0d (names), Phase 2 (unload-exemption claims; the navigation
   owner and Back fallback in a train of its own; page transitions in one dispatch).
 

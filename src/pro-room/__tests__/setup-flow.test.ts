@@ -6,8 +6,8 @@ import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
 import {
   __resetDocumentReloadForTests,
   registerPendingClaimReloadPreparation,
-  requestDocumentReload,
 } from '../../core/document-reload.ts';
+import { stubNavigationSinks } from '../../core/__tests__/__helpers__/navigation-sinks.ts';
 import {
   __accountLoginReturnForTests,
   rememberAccountLoginReturn,
@@ -68,7 +68,6 @@ import {
 const ROOM_CODE = '000001';
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 const ACCOUNT_SCOPE = 's'.repeat(43);
-type DocumentReloadAttempt = Parameters<Parameters<typeof requestDocumentReload>[0]>[0];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -102,6 +101,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  sessionReset.__resetSessionResetForTests();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -212,24 +212,24 @@ describe('PRO room setup flow', () => {
       mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '87654321' });
       const prepare = vi.fn(() => vi.fn());
       registerPendingClaimReloadPreparation(prepare);
-      let reloadAttempt: DocumentReloadAttempt | undefined;
-      const startReload = vi.fn((attempt: DocumentReloadAttempt) => {
-        reloadAttempt = attempt;
-      });
+      const sinks = stubNavigationSinks();
       mocks[operation].mockImplementationOnce(async () => {
-        requestDocumentReload(startReload);
-        expect(startReload).not.toHaveBeenCalled();
+        // The app's lazy-feature recovery asks for its reload during the
+        // mutation; the claim fence holds it.
+        sessionReset.scheduleDocumentReload('dialog.refreshing_session');
+        expect(sessionReset.isSessionResetPending()).toBe(false);
         throw createLazyFeatureLoadError('room-session', new TypeError('chunk unavailable'));
       });
 
       await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
-      expect(startReload).toHaveBeenCalledOnce();
-      reloadAttempt!.navigate(vi.fn());
+      // The failure came before the mutation, so the fence reopens and the
+      // held reload starts, restoring the retained claim for its sink.
+      expect(sessionReset.isSessionResetPending()).toBe(true);
+      await vi.waitFor(() => expect(sinks.reload).toHaveBeenCalledOnce());
       expect(prepare).toHaveBeenCalledOnce();
       expect(mocks.showDialog).not.toHaveBeenCalledWith(
         expect.objectContaining({ title: 'pro.claim_retry_title' }),
       );
-      reloadAttempt!.recover();
     },
   );
 

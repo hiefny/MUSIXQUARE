@@ -1,18 +1,29 @@
-/** Coordinates app-owned reloads with a scrubbed, one-time claim held in RAM. */
+/**
+ * The PRO claim fence: one scrubbed, one-time claim held in RAM may survive an
+ * app-owned reload. The navigation owner (core/session-reset.ts) runs every
+ * reload and its queue (C6-5); this module only decides whether a reload may
+ * start now and restores the claim fragment for the length of the sink call.
+ *
+ * Phases of the current claim: 'safe' (a reload may carry it), 'deferred' (an
+ * outcome-unknown claim mutation is in flight, so reloads wait), 'reloading'
+ * (the owner's in-flight reload carries it) and 'released'. Leave navigations
+ * never enter the fence.
+ */
 
-type DocumentReloadRollback = () => void;
-type DocumentReloadPreparation = () => DocumentReloadRollback;
+type ClaimRollback = () => void;
+type ClaimPreparation = () => ClaimRollback;
 
 interface ClaimGuardState {
-  preparation: DocumentReloadPreparation;
+  preparation: ClaimPreparation;
   phase: 'safe' | 'deferred' | 'reloading' | 'released';
   mutationWaiters: Set<() => void>;
 }
 
-interface ReloadAttemptState {
-  guard: ClaimGuardState | null;
-  navigated: boolean;
-  rollback: DocumentReloadRollback | null;
+/** The claim the owner's in-flight reload carries, and its rollback once restored. */
+interface FencedReload {
+  readonly guard: ClaimGuardState | null;
+  rollback: ClaimRollback | null;
+  ended: boolean;
 }
 
 interface PendingClaimReloadGuard {
@@ -24,30 +35,32 @@ interface PendingClaimReloadGuard {
   release(): void;
 }
 
-interface DocumentReloadAttempt {
-  /** Restore a safe pending claim at the last possible moment, then navigate. */
-  navigate(action: () => void): void;
-  /** Roll back a restored fragment when the current document remains active. */
-  recover(): void;
+/** The navigation owner's hold on the fence for one reload attempt. */
+export interface ReloadFenceTicket {
+  /** Restore a safe claim fragment at the last possible moment, inside the action. */
+  restoreClaim(): void;
+  /** The reload ended in this document: scrub the fragment, then reopen the fence. */
+  end(): void;
 }
 
 let pendingClaimGuard: ClaimGuardState | null = null;
-let activeReloadAttempt: ReloadAttemptState | null = null;
-const queuedReloads: Array<(attempt: DocumentReloadAttempt) => void> = [];
+let fencedReload: FencedReload | null = null;
+let fenceOpenHandler: (() => void) | null = null;
 
-function rollbackAttempt(attempt: ReloadAttemptState): void {
-  const rollback = attempt.rollback;
-  attempt.rollback = null;
+function rollbackFencedReload(reload: FencedReload): void {
+  const rollback = reload.rollback;
+  reload.rollback = null;
   if (rollback) rollback();
 }
 
-function recoverAttempt(attempt: ReloadAttemptState): void {
-  if (activeReloadAttempt !== attempt) return;
+function endFencedReload(reload: FencedReload): void {
+  if (reload.ended) return;
+  reload.ended = true;
   try {
-    rollbackAttempt(attempt);
+    rollbackFencedReload(reload);
   } finally {
-    activeReloadAttempt = null;
-    const guard = attempt.guard;
+    if (fencedReload === reload) fencedReload = null;
+    const guard = reload.guard;
     if (guard && pendingClaimGuard === guard && guard.phase === 'reloading') {
       if (guard.mutationWaiters.size > 0) {
         guard.phase = 'deferred';
@@ -58,43 +71,42 @@ function recoverAttempt(attempt: ReloadAttemptState): void {
         guard.phase = 'safe';
       }
     }
-    flushReloadQueue();
   }
 }
 
-function flushReloadQueue(): void {
-  if (activeReloadAttempt) return;
-  if (pendingClaimGuard?.phase === 'deferred') return;
-  const start = queuedReloads.shift();
-  if (!start) return;
+/** Tell the owner that queued reloads may be able to start now. */
+function reportFenceOpened(): void {
+  fenceOpenHandler?.();
+}
 
+/**
+ * The owner's port (core/session-reset.ts): run `handler` whenever the fence
+ * opens, so reloads that waited behind it can start.
+ */
+export function setReloadFenceOpenHandler(handler: () => void): void {
+  fenceOpenHandler = handler;
+}
+
+/** Whether reloads must wait: an outcome-unknown claim mutation is in flight. */
+export function isReloadFenced(): boolean {
+  return pendingClaimGuard?.phase === 'deferred';
+}
+
+/** The owner starts a reload attempt; it carries the current claim if that is safe. */
+export function beginFencedReload(): ReloadFenceTicket {
   const guard = pendingClaimGuard?.phase === 'safe' ? pendingClaimGuard : null;
   if (guard) guard.phase = 'reloading';
-  const attempt: ReloadAttemptState = { guard, navigated: false, rollback: null };
-  activeReloadAttempt = attempt;
-  const publicAttempt: DocumentReloadAttempt = {
-    navigate(action) {
-      if (activeReloadAttempt !== attempt || attempt.navigated) return;
-      attempt.navigated = true;
-      try {
-        if (guard && pendingClaimGuard === guard && guard.phase === 'reloading') {
-          attempt.rollback = guard.preparation();
-        }
-        action();
-      } catch (error) {
-        recoverAttempt(attempt);
-        throw error;
+  const reload: FencedReload = { guard, rollback: null, ended: false };
+  fencedReload = reload;
+  return {
+    restoreClaim() {
+      if (fencedReload !== reload || reload.ended || reload.rollback) return;
+      if (guard && pendingClaimGuard === guard && guard.phase === 'reloading') {
+        reload.rollback = guard.preparation();
       }
     },
-    recover: () => recoverAttempt(attempt),
+    end: () => endFencedReload(reload),
   };
-
-  try {
-    start(publicAttempt);
-  } catch (error) {
-    recoverAttempt(attempt);
-    throw error;
-  }
 }
 
 function createGuardFacade(guard: ClaimGuardState): PendingClaimReloadGuard {
@@ -111,7 +123,7 @@ function createGuardFacade(guard: ClaimGuardState): PendingClaimReloadGuard {
     restoreAfterLazyFeatureFailure() {
       if (pendingClaimGuard !== guard || guard.phase === 'released') return;
       if (guard.phase === 'deferred') guard.phase = 'safe';
-      flushReloadQueue();
+      reportFenceOpened();
     },
     release() {
       if (pendingClaimGuard !== guard || guard.phase === 'released') return;
@@ -120,9 +132,9 @@ function createGuardFacade(guard: ClaimGuardState): PendingClaimReloadGuard {
       guard.mutationWaiters.forEach((resolve) => resolve());
       guard.mutationWaiters.clear();
       try {
-        if (activeReloadAttempt?.guard === guard) rollbackAttempt(activeReloadAttempt);
+        if (fencedReload?.guard === guard) rollbackFencedReload(fencedReload);
       } finally {
-        flushReloadQueue();
+        reportFenceOpened();
       }
     },
   };
@@ -130,14 +142,14 @@ function createGuardFacade(guard: ClaimGuardState): PendingClaimReloadGuard {
 
 /** Register the sole document-scoped claim that may survive a safe reload. */
 export function registerPendingClaimReloadPreparation(
-  preparation: DocumentReloadPreparation,
+  preparation: ClaimPreparation,
 ): PendingClaimReloadGuard {
   const predecessor = pendingClaimGuard;
   if (predecessor) {
     predecessor.phase = 'released';
     predecessor.mutationWaiters.forEach((resolve) => resolve());
     predecessor.mutationWaiters.clear();
-    if (activeReloadAttempt?.guard === predecessor) rollbackAttempt(activeReloadAttempt);
+    if (fencedReload?.guard === predecessor) rollbackFencedReload(fencedReload);
   }
   const guard: ClaimGuardState = {
     preparation,
@@ -149,12 +161,6 @@ export function registerPendingClaimReloadPreparation(
   return createGuardFacade(guard);
 }
 
-/** Queue an app-owned hard reload until an outcome-unknown claim mutation ends. */
-export function requestDocumentReload(start: (attempt: DocumentReloadAttempt) => void): void {
-  queuedReloads.push(start);
-  flushReloadQueue();
-}
-
 /** @internal Exact active claim guard, captured by the flow that consumed it. */
 export function capturePendingClaimReloadGuard(): PendingClaimReloadGuard | null {
   // Registration returns methods with identity-sensitive closures, so expose a
@@ -164,11 +170,10 @@ export function capturePendingClaimReloadGuard(): PendingClaimReloadGuard | null
   return createGuardFacade(guard);
 }
 
-/** @internal Test-only cleanup for module-scoped coordination state. */
+/** @internal Test-only cleanup for module-scoped fence state. */
 export function __resetDocumentReloadForTests(): void {
-  if (activeReloadAttempt) rollbackAttempt(activeReloadAttempt);
+  if (fencedReload) rollbackFencedReload(fencedReload);
   pendingClaimGuard?.mutationWaiters.forEach((resolve) => resolve());
   pendingClaimGuard = null;
-  activeReloadAttempt = null;
-  queuedReloads.length = 0;
+  fencedReload = null;
 }

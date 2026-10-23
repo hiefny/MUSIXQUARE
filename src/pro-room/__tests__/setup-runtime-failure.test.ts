@@ -1,11 +1,13 @@
 /** @vitest-environment jsdom */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetDocumentReloadForTests,
   registerPendingClaimReloadPreparation,
-  requestDocumentReload,
 } from '../../core/document-reload.ts';
+import { RESET_PAINT_FALLBACK_MS } from '../../core/navigation-contract.ts';
+import { __resetSessionResetForTests, scheduleDocumentReload } from '../../core/session-reset.ts';
+import { stubNavigationSinks } from '../../core/__tests__/__helpers__/navigation-sinks.ts';
 
 const mocks = vi.hoisted(() => ({
   emit: vi.fn(),
@@ -28,7 +30,20 @@ vi.mock('../runtime.ts', () => {
 
 import { enterProRoomFromSetup } from '../setup-flow.ts';
 
-type DocumentReloadAttempt = Parameters<Parameters<typeof requestDocumentReload>[0]>[0];
+const originalRequestAnimationFrame = Object.getOwnPropertyDescriptor(
+  window,
+  'requestAnimationFrame',
+);
+
+afterEach(() => {
+  __resetSessionResetForTests();
+  __resetDocumentReloadForTests();
+  vi.unstubAllGlobals();
+  if (originalRequestAnimationFrame) {
+    Object.defineProperty(window, 'requestAnimationFrame', originalRequestAnimationFrame);
+  }
+  vi.useRealTimers();
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -72,20 +87,28 @@ describe('PRO runtime terminal import failure', () => {
       },
     ];
 
+    // Frames suspended: the reset runs its action on the paint fallback.
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: undefined,
+    });
+    const sinks = stubNavigationSinks();
     for (const claim of claims) {
+      __resetSessionResetForTests();
       __resetDocumentReloadForTests();
       mocks.takeClaims.mockReturnValue(claim);
       const prepare = vi.fn(() => vi.fn());
       registerPendingClaimReloadPreparation(prepare);
       await expect(enterProRoomFromSetup('000001')).resolves.toBe('reload-required');
-      let attempt: DocumentReloadAttempt | undefined;
-      requestDocumentReload((value) => {
-        attempt = value;
-      });
-      attempt!.navigate(vi.fn());
+      vi.useFakeTimers();
+      // The app reloads through the navigation owner; the retained claim is
+      // restored for that reload's sink.
+      scheduleDocumentReload('dialog.refreshing_session');
+      vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
       expect(prepare).toHaveBeenCalledOnce();
-      attempt!.recover();
+      vi.useRealTimers();
     }
+    expect(sinks.count('reload')).toBe(3);
 
     expect(mocks.evaluations).toBe(1);
     expect(mocks.showDialog).not.toHaveBeenCalled();

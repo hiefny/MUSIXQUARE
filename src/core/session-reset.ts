@@ -13,11 +13,23 @@
  * action throwing ('failed'), the commit deadline, a return after pagehide and
  * an explicit restore ('recovered'). A committed navigation never settles: the
  * document is gone, or it comes back and the return settles it.
+ *
+ * Reloads wait in one queue here (C6-5). The busy rule (owner decision 1,
+ * 2026-10-23): a reload asked for while another navigation holds the page, or
+ * while the PRO claim fence (core/document-reload.ts) defers reloads, waits
+ * and runs if that navigation settles in this document; a waiting request
+ * with the same message joins the one already waiting. A direct reset asked
+ * for while any navigation holds the page is still refused (first wins).
  */
 
 import { clearIntentionalNav, markIntentionalNav } from './page-lifecycle.ts';
 import { log } from './log.ts';
-import { requestDocumentReload } from './document-reload.ts';
+import {
+  beginFencedReload,
+  isReloadFenced,
+  setReloadFenceOpenHandler,
+  type ReloadFenceTicket,
+} from './document-reload.ts';
 import { setElementInertForOwner } from './inert-ownership.ts';
 import { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } from './navigation-contract.ts';
 
@@ -39,6 +51,8 @@ const INTERACTION_EVENTS = [
 type NavigationOutcome = 'recovered' | 'failed';
 
 interface NavigationAttempt {
+  /** Set for a reload: the attempt's hold on the PRO claim fence. */
+  readonly reloadFence: ReloadFenceTicket | null;
   readonly settledListeners: Set<(outcome: NavigationOutcome) => void>;
   /** Set when settle() starts, so a re-entrant settle cannot run it twice. */
   settling: boolean;
@@ -72,8 +86,15 @@ interface SessionResetHandle {
   onRecovered(listener: () => void): () => void;
 }
 
+/** Reload requests waiting for the page; one entry per message. */
+interface ReloadRequest {
+  readonly message: string;
+  readonly callbacks: Array<() => void>;
+}
+
 let _state: PageNavigationState = IDLE;
 let _releaseHandler: (() => void) | null = null;
+const _reloadQueue: ReloadRequest[] = [];
 
 /**
  * Let the window layer re-derive its state after an abandoned reset releases
@@ -266,8 +287,9 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
 
 /**
  * End `attempt` in this document, at most once: release the surface (still
- * pending), report idle with the unload exemption cleared, then tell the
- * attempt's listeners how it ended.
+ * pending), report idle with the unload exemption cleared, give a reload's
+ * claim fragment back to the fence, start the next queued reload, then tell
+ * the attempt's listeners how it ended.
  */
 function settle(attempt: NavigationAttempt, outcome: NavigationOutcome): void {
   if (_state.phase === 'idle' || _state.attempt !== attempt || attempt.settling) return;
@@ -276,6 +298,13 @@ function settle(attempt: NavigationAttempt, outcome: NavigationOutcome): void {
   _state = IDLE;
   clearIntentionalNav();
   attempt.outcome = outcome;
+  try {
+    attempt.reloadFence?.end();
+  } catch (error) {
+    // Logged as before C6-5, when the rollback ran inside a recovery listener.
+    log.error('[SessionReset] Recovery listener failed:', error);
+  }
+  startQueuedReload();
   const listeners = [...attempt.settledListeners];
   attempt.settledListeners.clear();
   for (const listener of listeners) {
@@ -314,7 +343,16 @@ export function scheduleSessionReset(
   action: () => void,
 ): SessionResetHandle | null {
   if (_state.phase !== 'idle') return null;
+  return beginAttempt(message, action, null);
+}
+
+function beginAttempt(
+  message: string,
+  action: () => void,
+  reloadFence: ReloadFenceTicket | null,
+): SessionResetHandle {
   const attempt: NavigationAttempt = {
+    reloadFence,
     settledListeners: new Set(),
     settling: false,
     outcome: null,
@@ -374,32 +412,47 @@ export function scheduleSessionReset(
   return handle;
 }
 
+/** Start the oldest waiting reload when nothing holds the page and the fence is open. */
+function startQueuedReload(): void {
+  if (_state.phase !== 'idle' || isReloadFenced()) return;
+  const request = _reloadQueue.shift();
+  if (!request) return;
+  const reloadFence = beginFencedReload();
+  const handle = beginAttempt(
+    request.message,
+    () => {
+      // A safe pending claim is restored only for the sink call; settle()
+      // scrubs it again if this document stays.
+      reloadFence.restoreClaim();
+      window.location.reload();
+    },
+    reloadFence,
+  );
+  for (const callback of request.callbacks) handle.onSettled(() => callback());
+}
+
+setReloadFenceOpenHandler(startQueuedReload);
+
 /**
- * Route every app-owned hard reload through the pending-claim coordinator.
- * The fragment is restored only inside the deferred navigation action and is
- * scrubbed again before the same document becomes interactive after recovery.
+ * Reload this document behind the reset screen. The request waits while
+ * another navigation holds the page or the PRO claim fence defers reloads, and
+ * runs once that navigation settles in this document; it never runs if that
+ * navigation commits. A waiting request with the same message (the reason the
+ * user is shown) joins it and is answered by the same reload; a reload already
+ * running is the winning navigation, so a request during it waits behind it.
+ * `onRecovered` runs once if the reload carrying the request settles in this
+ * document (owner decision 1, 2026-10-23).
  */
 export function scheduleDocumentReload(message: string, onRecovered?: () => void): void {
-  requestDocumentReload((attempt) => {
-    const resetHandle = scheduleSessionReset(message, () =>
-      attempt.navigate(() => window.location.reload()),
-    );
-    const recover = () => {
-      try {
-        attempt.recover();
-      } finally {
-        onRecovered?.();
-      }
-    };
-    if (!resetHandle) {
-      recover();
-      return;
-    }
-    resetHandle.onRecovered(recover);
-  });
+  const callbacks = onRecovered ? [onRecovered] : [];
+  const waiting = _reloadQueue.find((request) => request.message === message);
+  if (waiting) waiting.callbacks.push(...callbacks);
+  else _reloadQueue.push({ message, callbacks });
+  startQueuedReload();
 }
 
 /** @internal Test-only cleanup for module-scoped listeners and timers. */
 export function __resetSessionResetForTests(): void {
+  _reloadQueue.length = 0;
   restoreSessionReset();
 }

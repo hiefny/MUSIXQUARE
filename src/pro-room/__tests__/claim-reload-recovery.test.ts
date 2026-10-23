@@ -1,23 +1,56 @@
 /** @vitest-environment jsdom */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetDocumentReloadForTests,
   capturePendingClaimReloadGuard,
-  requestDocumentReload,
 } from '../../core/document-reload.ts';
+import {
+  NAVIGATION_COMMIT_TIMEOUT_MS,
+  RESET_PAINT_FALLBACK_MS,
+} from '../../core/navigation-contract.ts';
+import { __resetSessionResetForTests, scheduleDocumentReload } from '../../core/session-reset.ts';
+import {
+  stubNavigationSinks,
+  type NavigationSinks,
+} from '../../core/__tests__/__helpers__/navigation-sinks.ts';
 import { takeProRoomClaimsFromFragment } from '../claim-fragment.ts';
 
-type DocumentReloadAttempt = Parameters<Parameters<typeof requestDocumentReload>[0]>[0];
-
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
+const originalRequestAnimationFrame = Object.getOwnPropertyDescriptor(
+  window,
+  'requestAnimationFrame',
+);
+let sinks: NavigationSinks;
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  // Frames suspended: the reset runs its action on the paint fallback.
+  Object.defineProperty(window, 'requestAnimationFrame', { configurable: true, value: undefined });
+  sinks = stubNavigationSinks();
+});
 
 afterEach(() => {
+  __resetSessionResetForTests();
   __resetDocumentReloadForTests();
+  vi.unstubAllGlobals();
+  if (originalRequestAnimationFrame) {
+    Object.defineProperty(window, 'requestAnimationFrame', originalRequestAnimationFrame);
+  }
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  document.body.innerHTML = '';
   history.replaceState(null, '', '/');
   localStorage.clear();
   sessionStorage.clear();
 });
+
+/** One app reload through the navigation owner that does not leave this document. */
+function reloadThatReturns(): void {
+  scheduleDocumentReload('Refreshing');
+  vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+  vi.advanceTimersByTime(NAVIGATION_COMMIT_TIMEOUT_MS);
+}
 
 describe.each([
   ['activation', 'pro-claim'],
@@ -31,21 +64,19 @@ describe.each([
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
 
-    let attempt: DocumentReloadAttempt | undefined;
-    requestDocumentReload((value) => {
-      attempt = value;
-    });
-    const navigate = vi.fn(() => {
-      expect(location.pathname).toBe('/000001');
-      expect(location.search).toBe('?lang=ko');
-      expect(location.hash).toBe(`#${key}=${CLAIM}`);
-      expect(new URLSearchParams(location.search).has(key)).toBe(false);
-    });
-
+    scheduleDocumentReload('Refreshing');
     expect(location.hash).toBe('');
-    attempt!.navigate(navigate);
-    expect(navigate).toHaveBeenCalledOnce();
-    attempt!.recover();
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+
+    expect(sinks.calls).toEqual([
+      {
+        op: 'reload',
+        url: null,
+        hrefAtCall: `http://localhost:3000/000001?lang=ko#${key}=${CLAIM}`,
+      },
+    ]);
+    expect(new URLSearchParams(location.search).has(key)).toBe(false);
+    vi.advanceTimersByTime(NAVIGATION_COMMIT_TIMEOUT_MS);
     expect(location.href).toBe('http://localhost:3000/000001?lang=ko');
     expect(localStorage.length).toBe(0);
     expect(sessionStorage.length).toBe(0);
@@ -59,14 +90,11 @@ it('restores a trailing-slash claim again after a recovered reload attempt', () 
   expect(location.href).toBe('http://localhost:3000/000001/?lang=ko');
 
   for (let attemptNumber = 0; attemptNumber < 2; attemptNumber += 1) {
-    let attempt: DocumentReloadAttempt | undefined;
-    requestDocumentReload((value) => {
-      attempt = value;
-    });
-    attempt!.navigate(() => {
-      expect(location.href).toBe(`http://localhost:3000/000001?lang=ko#pro-claim=${CLAIM}`);
-    });
-    attempt!.recover();
+    reloadThatReturns();
+    expect(sinks.calls.at(-1)?.hrefAtCall).toBe(
+      `http://localhost:3000/000001?lang=ko#pro-claim=${CLAIM}`,
+    );
     expect(location.href).toBe('http://localhost:3000/000001/?lang=ko');
   }
+  expect(sinks.count('reload')).toBe(2);
 });

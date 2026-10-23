@@ -1,32 +1,67 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+/**
+ * @vitest-environment jsdom
+ *
+ * The PRO claim fence (core/document-reload.ts) at the navigation owner's
+ * boundary: scheduleDocumentReload with a recorded location.reload. Since
+ * C6-5 the owner (core/session-reset.ts) runs every reload and its queue; the
+ * fence decides when a reload may start and restores the claim for the sink.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetDocumentReloadForTests,
   capturePendingClaimReloadGuard,
   registerPendingClaimReloadPreparation,
-  requestDocumentReload,
 } from '../document-reload.ts';
+import { NAVIGATION_COMMIT_TIMEOUT_MS, RESET_PAINT_FALLBACK_MS } from '../navigation-contract.ts';
+import {
+  __resetSessionResetForTests,
+  isSessionResetPending,
+  scheduleDocumentReload,
+} from '../session-reset.ts';
+import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
 
-type DocumentReloadAttempt = Parameters<Parameters<typeof requestDocumentReload>[0]>[0];
+const originalRequestAnimationFrame = Object.getOwnPropertyDescriptor(
+  window,
+  'requestAnimationFrame',
+);
+let sinks: NavigationSinks;
 
-afterEach(() => __resetDocumentReloadForTests());
+beforeEach(() => {
+  vi.useFakeTimers();
+  // Frames suspended: the reset runs its action on the paint fallback.
+  Object.defineProperty(window, 'requestAnimationFrame', { configurable: true, value: undefined });
+  sinks = stubNavigationSinks();
+});
 
-describe('pending-claim document reload coordinator', () => {
+afterEach(() => {
+  __resetSessionResetForTests();
+  __resetDocumentReloadForTests();
+  vi.unstubAllGlobals();
+  if (originalRequestAnimationFrame) {
+    Object.defineProperty(window, 'requestAnimationFrame', originalRequestAnimationFrame);
+  }
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  document.body.innerHTML = '';
+});
+
+describe('pending-claim reload fence', () => {
   it('restores only inside navigation and scrubs again on recovery', () => {
     const rollback = vi.fn();
     const prepare = vi.fn(() => rollback);
     registerPendingClaimReloadPreparation(prepare);
-    let attempt: DocumentReloadAttempt | undefined;
-    const navigate = vi.fn();
 
-    requestDocumentReload((value) => {
-      attempt = value;
-    });
+    scheduleDocumentReload('Reload');
     expect(prepare).not.toHaveBeenCalled();
-    attempt!.navigate(navigate);
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
     expect(prepare).toHaveBeenCalledOnce();
-    expect(navigate).toHaveBeenCalledOnce();
+    expect(sinks.reload).toHaveBeenCalledOnce();
+    expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(
+      sinks.reload.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(rollback).not.toHaveBeenCalled();
 
-    attempt!.recover();
+    vi.advanceTimersByTime(NAVIGATION_COMMIT_TIMEOUT_MS);
     expect(rollback).toHaveBeenCalledOnce();
   });
 
@@ -34,20 +69,23 @@ describe('pending-claim document reload coordinator', () => {
     const prepare = vi.fn(() => vi.fn());
     const guard = registerPendingClaimReloadPreparation(prepare);
     await guard.fenceOutcomeUnknownMutation();
-    const start = vi.fn();
 
-    requestDocumentReload(start);
-    expect(start).not.toHaveBeenCalled();
+    scheduleDocumentReload('Fenced reload');
+    expect(isSessionResetPending()).toBe(false);
+    vi.advanceTimersByTime(10_000);
+    expect(sinks.reload).not.toHaveBeenCalled();
+
     guard.restoreAfterLazyFeatureFailure();
-    expect(start).toHaveBeenCalledOnce();
+    expect(isSessionResetPending()).toBe(true);
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+    expect(sinks.reload).toHaveBeenCalledOnce();
+    expect(prepare).toHaveBeenCalledOnce();
   });
 
   it('waits for an accepted reload to recover before entering a claim mutation', async () => {
     const guard = registerPendingClaimReloadPreparation(() => vi.fn());
-    let attempt: DocumentReloadAttempt | undefined;
-    requestDocumentReload((value) => {
-      attempt = value;
-    });
+    scheduleDocumentReload('Reload');
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
     let fenced = false;
     const fence = guard.fenceOutcomeUnknownMutation().then(() => {
       fenced = true;
@@ -55,13 +93,14 @@ describe('pending-claim document reload coordinator', () => {
 
     await Promise.resolve();
     expect(fenced).toBe(false);
-    attempt!.recover();
+    vi.advanceTimersByTime(NAVIGATION_COMMIT_TIMEOUT_MS);
     await fence;
     expect(fenced).toBe(true);
 
-    const queued = vi.fn();
-    requestDocumentReload(queued);
-    expect(queued).not.toHaveBeenCalled();
+    scheduleDocumentReload('Queued reload');
+    vi.advanceTimersByTime(10_000);
+    expect(isSessionResetPending()).toBe(false);
+    expect(sinks.reload).toHaveBeenCalledOnce();
   });
 
   it('does not let a stale guard release its successor', () => {
@@ -70,33 +109,27 @@ describe('pending-claim document reload coordinator', () => {
     const successorPrepare = vi.fn(() => vi.fn());
     registerPendingClaimReloadPreparation(successorPrepare);
     stale.release();
-    let attempt: DocumentReloadAttempt | undefined;
 
-    requestDocumentReload((value) => {
-      attempt = value;
-    });
-    attempt!.navigate(vi.fn());
+    scheduleDocumentReload('Reload');
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
     expect(successorPrepare).toHaveBeenCalledOnce();
   });
 
   it('scrubs a prepared predecessor and releases its latch before flushing a successor reload', () => {
     const rollback = vi.fn();
     const guard = registerPendingClaimReloadPreparation(() => rollback);
-    let first: DocumentReloadAttempt | undefined;
-    let second: DocumentReloadAttempt | undefined;
-    requestDocumentReload((attempt) => {
-      first = attempt;
-    });
-    first!.navigate(vi.fn());
-    requestDocumentReload((attempt) => {
-      second = attempt;
-    });
+    scheduleDocumentReload('First');
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+    scheduleDocumentReload('Second');
 
     guard.release();
     expect(rollback).toHaveBeenCalledOnce();
-    expect(second).toBeUndefined();
-    first!.recover();
-    expect(second).toBeDefined();
-    second!.navigate(vi.fn());
+    expect(sinks.reload).toHaveBeenCalledOnce();
+
+    vi.advanceTimersByTime(NAVIGATION_COMMIT_TIMEOUT_MS);
+    expect(isSessionResetPending()).toBe(true);
+    vi.advanceTimersByTime(RESET_PAINT_FALLBACK_MS);
+    expect(sinks.reload).toHaveBeenCalledTimes(2);
+    expect(rollback).toHaveBeenCalledOnce();
   });
 });

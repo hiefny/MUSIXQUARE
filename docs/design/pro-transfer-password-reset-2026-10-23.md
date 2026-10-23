@@ -4,7 +4,7 @@
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 기준 SHA  | `e83196fa` (main, #465 Phase 1 운영 소유권 왕복 기록)                                                                                                                                          |
 | 코드 SHA  | (작성 중)                                                                                                                                                                                      |
-| 커밋      | 테스트 먼저 `ae0c695a`, PRO Worker `dbc74c18`, App Worker·앱 `a5337c9b`, 자체 검토 보완 `81f7e4d4`                                                                                             |
+| 커밋      | 테스트 먼저 `ae0c695a`, PRO Worker `dbc74c18`, App Worker·앱 `a5337c9b`, 자체 검토 보완 `81f7e4d4`, 계약 표지 `ff0b6d14`                                                                       |
 | 후보      | Phase 2 앱 묶음에 싣는다(오너 결정 2026-10-23). PRO Worker·App Worker·브라우저 앱이 함께 바뀌어 target `all`. 앱 버전·SW 캐시는 묶음에서 한 번 올리며 이 변경은 올리지 않았다. 프로덕션 미배포 |
 | 오너 결정 | 2026-10-23: 소유권을 이전하면 방의 입장 암호를 꺼진 상태로 초기화하고, 이전 링크는 암호를 묻지 않는다. 새 소유자는 방 설정에서 나중에 암호를 켤 수 있다                                        |
 | 환경      | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(jsdom·node), node:sqlite                                                                                                                    |
@@ -112,14 +112,24 @@ PIN과 관련된 거절 두 가지(`OWNER_TRANSFER_PIN_REUSE`, `OWNER_TRANSFER_R
   꺼짐이다.
 - **저장 레코드.** 옛 PRO가 쓴 대기 레코드는 새 PRO가 그대로 처리한다(테스트로 고정).
   완료 레코드 모양은 그대로다. 방 상태의 `passwordRequired: false`/`pin: null`은 8.8.0
-  선택형 입장 암호 계약이 이미 아는 모양이라 새 표지·floor는 없다.
-- **되돌리기.** PRO Worker만 이전 기준으로 되돌리면 새 앱의 이전 링크가 400으로
-  막힌다(링크는 소비되지 않고 "이 요청을 완료할 수 없어요"가 뜬다). 그러면 App도 함께
-  되돌리거나 앞으로 고친다. 또 옛 PRO는 `pin` 없는 대기 레코드를 무효로 버린다. 그 방은
-  `ownership_transfer_pending` 정지로 남고 관리자가 새 이전 링크를 발급해 풀어야 한다.
-  대기 레코드는 PREPARE와 커밋 사이에만 있으므로(보통 한 요청 안, 길어야 링크 수명 10분)
-  되돌리기 전에 진행 중인 이전이 없는지 본다. App만 되돌리면 옛 facade가 새 앱의
-  본문을 400으로 거절한다(캐시된 새 앱).
+  선택형 입장 암호 계약이 이미 아는 모양이다. 반대 방향은 그렇지 않다. 새 PRO가 쓰는
+  `pin` 없는 대기 레코드를 옛 PRO는 무효로 버린다. 그래서 아래 계약 표지를 올렸다.
+- **계약 표지.** `cloudflare/pro-room-entry-policy-contract-version.txt`를
+  `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`로 올렸다(`ff0b6d14`).
+  9.0.0이 시스템 오디오 표지에 `heartbeat-state-v1`을 붙인 방식과 같다. release와 독립
+  recovery 워크플로가 이 표지를 이미 읽고(`pro-room-entry-policy-forward-floor`), 그 floor는
+  PRO room과 App을 함께 묶는다. 이 릴리스의 PRO나 App 후보가 기준선을 한 번이라도
+  대체했거나 지금 버전을 읽지 못하면, 자동 복구는 둘을 되돌리지 않고 후보에 남긴다
+  (`forward-repair-required`). 후보가 올라가기 전에 실패한 릴리스와, 기준선이 이미 이
+  표지를 가진 이후 릴리스는 예전처럼 되돌린다. 표지가 바뀐 커밋은 target `all`만 배포할
+  수 있고(release.yml의 PRO 입장 정책 `all` 요구 단계), 로컬 긴급 배포는 표지 변경을 넘지
+  못한다(code-only 경계).
+- **되돌리기는 앞으로 고치기로.** 후보가 올라간 뒤에는 PRO와 App 어느 쪽도 이 표지 아래로
+  손으로도 되돌리지 않고 target `all`로 앞으로 고친다. 옛 PRO는 `pin` 없는 대기 레코드를
+  버려 진행 중인 이전의 방을 `ownership_transfer_pending` 정지로 남기고, 재시도도 크론도
+  그 이전을 끝내지 못해 관리자가 새 이전 링크를 발급해야 한다. 또 새 앱의 `newPin` 없는
+  본문을 400 `INVALID_REQUEST`로 거절해 이전 링크가 막힌다(링크는 소비되지 않는다). 옛
+  App facade도 캐시된 새 앱의 본문을 400으로 거절한다.
 - 새 비밀·바인딩·D1 스키마·의존성 없음. 통신 형식 변화는 PREPARE 본문의 `newPin`이
   선택이 된 것과, opt-in 헤더가 있을 때 이전 응답 스냅샷에 추가 필드가 붙는 것뿐이다.
 
@@ -143,6 +153,23 @@ PIN과 관련된 거절 두 가지(`OWNER_TRANSFER_PIN_REUSE`, `OWNER_TRANSFER_R
   깨진 옛 `pin`은 버림), sqlite 3개(PIN 없이 이전·응답의 `passwordRequired: false`와 쿠키,
   옛 앱의 PIN 무시·잘못된 모양 400, opt-in 헤더 없으면 v1 모양), 사가 혼합 버전(옛 App
   Worker 빌드에는 그 시절 앱의 PIN), 앱·API·세션 컨트롤러 테스트.
+- **계약 표지(`ff0b6d14`).** Codex 리뷰(P2): 새 PRO가 올라간 뒤 릴리스가 실패하면 자동
+  복구가 옛 PRO를 되살려, 진행 중인 이전의 `pin` 없는 대기 레코드를 버리고 방을 정지로
+  남길 수 있었다. 보고서의 수동 확인 메모는 자동 복구가 읽지 않는다. release-deployment-state
+  테스트를 먼저 고쳤다. 빨강: `30097d5b`에서 2개 실패(표지가 그대로). 표지 파일만 올린
+  상태에서도 2개 실패: release.yml에 PRO 입장 정책 `all` 요구 단계가 없었고, 워크플로가
+  부르는 CLI가 옛 표지 내용을 요구해 아직 올라가지 않은 릴리스까지 `true`(항상 앞으로
+  고치기)로 판정했다. 초록: 임시 git 저장소에서 PIN 기준선(`pro-room-optional-entry-password-v1`)
+  위의 `all` 릴리스가 PRO 후보를 올린 뒤 실패하면 floor `true`, 복구 계획이 `pro-room`·`app`을
+  건너뛰고, rollback 보고서 `forward-repair-required`(PRO `skipped-compatibility-floor`, 나머지
+  `already-restored`, 복구 명령 없음), 최종 경계 검증 `verified`다. 버전을 읽지 못해도
+  `true`다. 후보가 올라가기 전 실패는 floor `false`, 건너뛰기 없음, 보고서 `succeeded`다.
+  기준선이 이미 표지를 가진 이후 릴리스는 올라간 PRO 후보를 `restored`로 되돌린다.
+  워크플로 CLI는 새 표지에서 `false`, 표지 없는 릴리스에서 `true`다. 릴리스 도구 14개
+  파일 282개 테스트 통과(병렬 부하에서 `ci-quality-gates` 1개가 15초 시간 초과, 단독 재실행
+  17/17 통과), typecheck·lint·format:check·자원 소유 가드 통과, 전체 단위 629개 파일
+  14,230개 통과(`--maxWorkers=6`, 문서 포함 트리). Worker 프로필과 실제 릴리스 실패 복구는
+  돌리지 않았다.
 - 전체 검사: (작성 중)
 - 실기기와 운영 이전은 확인하지 않았다. 묶음 배포 뒤 테스트 방에서 이전 링크가 암호를 묻지
   않는지, 새 소유자 설정에 암호가 꺼짐으로 보이는지, 그 자리에서 암호를 켤 수 있는지, 이전 때

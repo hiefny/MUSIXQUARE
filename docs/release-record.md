@@ -52,7 +52,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       수단, 소비되지 않은 링크에 "새 링크 요청" 안내)와 재생 PIN 비교를 없앴다. 결정 전 앱의
       `newPin`과 PIN이 든 옛 대기 레코드는 받고 무시한다. 미배포이며 Phase 2 앱 묶음에 싣는다.
       PRO Worker·App Worker·앱이 함께 바뀌어 target `all`이 필수다: PRO room이 App보다 먼저
-      올라가야 새 앱이 옛 PRO의 400을 만나지 않는다. PRO만 되돌리지 않는다(§4). 배포 뒤
+      올라가야 새 앱이 옛 PRO의 400을 만나지 않는다. PRO 입장 정책 계약 표지가
+      `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`로 바뀌어, 후보가
+      올라간 뒤에는 자동 복구가 PRO·App을 표지 아래로 되돌리지 않고 앞으로 고친다(§4). 배포 뒤
       테스트 방에서 이전 링크가 암호를 묻지 않는지, 새 소유자 설정에 암호 꺼짐이 보이고 켤 수
       있는지, 이전 때 있던 참여자가 코드만으로 들어오는지 확인한다.
       [변경·호환·한계](design/pro-transfer-password-reset-2026-10-23.md).
@@ -1138,13 +1140,16 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   코드·데이터 복구를 쓰고, 계약을 아는 이후 기준선(예: 8.8.x에서 8.8.0으로)으로는
   일반 rollback이 가능하다. 임의 PIN 주입이나 플래그 삭제로 우회하지 않는다.
   [계약](design/pro-optional-entry-password-2026-10-10.md)
-- **PRO 소유권 이전 입장 암호 끄기(배포되면 적용):** 새 앱·App Worker는 이전 본문에 `newPin`을
-  보내지 않는다. PRO Worker만 이전 기준으로 되돌리면 옛 PRO가 그 본문을 400 `INVALID_REQUEST`로
-  거절해(링크는 소비되지 않음) 이전 링크가 막히므로, App도 함께 되돌리거나 앞으로 고친다.
-  옛 PRO는 `pin` 없는 대기 이전 레코드를 무효로 버려, 그 방은 `ownership_transfer_pending`
-  정지로 남고 새 이전 링크로 풀어야 한다. 되돌리기 전에 진행 중인 이전(PREPARE와 커밋 사이,
-  길어야 링크 수명 10분)이 없는지 본다. App만 되돌리면 옛 facade가 캐시된 새 앱의 본문을
-  400으로 거절한다. 이전으로 꺼진 방 상태는 선택형 입장 암호 계약의 모양이라 새 floor는 없다.
+- **PRO 소유권 이전 입장 암호 끄기(배포되면 적용):** PRO 입장 정책 계약 표지가
+  `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`로 바뀐다. 이 릴리스의
+  PRO나 App 후보가 기준선을 대체한 뒤에는 release와 독립 recovery 워크플로가 둘을 표지
+  아래로 되돌리지 않고 후보에 남긴다(`forward-repair-required`). 손으로도 되돌리지 말고
+  target `all`로 앞으로 고친다. 옛 PRO는 `pin` 없는 대기 이전 레코드를 무효로 버려 진행 중인
+  이전의 방을 `ownership_transfer_pending` 정지로 남기고 재시도·크론이 끝내지 못하며, 새 앱의
+  `newPin` 없는 본문도 400 `INVALID_REQUEST`로 거절한다(링크는 소비되지 않음). 옛 App
+  facade도 캐시된 새 앱의 본문을 400으로 거절한다. 후보가 올라가기 전에 실패한 릴리스와 이
+  표지를 가진 이후 기준선으로는 일반 rollback이 된다. 이전으로 꺼진 방 상태 자체는 선택형
+  입장 암호 계약의 모양이다.
   [호환성](design/pro-transfer-password-reset-2026-10-23.md#호환성과-배포-순서)
 - **쿠키 reader 호환:** 세션별 쿠키를 발급한 뒤 이전 App Worker로만 되돌리면 이전
   코드가 새 이름을 읽지 못해 사용자가 익명으로 보일 수 있다. 이 경계는 자동

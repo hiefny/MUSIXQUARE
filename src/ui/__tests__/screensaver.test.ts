@@ -13,7 +13,7 @@ import {
 } from '../dom.ts';
 import { openScreensaver } from '../screensaver.ts';
 import { beginScreensaverEntry } from '../screensaver-entry.ts';
-import { getFullscreenElement } from '../../core/fullscreen.ts';
+import { FULLSCREEN_SETTLEMENT_MS, getFullscreenElement } from '../../core/fullscreen.ts';
 
 const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
@@ -587,6 +587,21 @@ describe('screensaver lifecycle', () => {
     expect(retry).not.toBeNull();
     retry?.release();
     expect(fullscreen.exit).toHaveBeenCalledOnce();
+  });
+
+  it('bounds a silent WebKit request on a native timer that leaving a room cannot clear [C8-I6]', async () => {
+    vi.useFakeTimers();
+    const fullscreen = prefixedFullscreenFixture();
+    fullscreen.request.mockImplementationOnce(() => {});
+    openFrame();
+    // Leaving a room clears every managed timer except these two (peer.ts leaveSession).
+    clearAllManagedTimers({ except: ['sw-update-check', 'audio-input-gate'] });
+    escape();
+    expect(beginScreensaverEntry()).toBeNull();
+    await vi.advanceTimersByTimeAsync(FULLSCREEN_SETTLEMENT_MS);
+    const retry = beginScreensaverEntry();
+    expect(retry).not.toBeNull();
+    retry?.release();
   });
 
   it('recovers from a prefixed request rejection without closing the overlay', async () => {

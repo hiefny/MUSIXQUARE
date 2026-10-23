@@ -1,4 +1,3 @@
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { beginBackSurfaceTransition } from './dom.ts';
 import {
   FULLSCREEN_CHANGE_EVENTS,
@@ -17,7 +16,6 @@ export interface ScreensaverEntry {
 }
 
 let currentEntry: ScreensaverEntry | null = null;
-let entrySequence = 0;
 
 /** Keep the gesture-bound fullscreen request ahead of the lazy renderer import. */
 export function beginScreensaverEntry(): ScreensaverEntry | null {
@@ -25,8 +23,10 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
   const previousFullscreen = getFullscreenElement();
   const target = document.documentElement as FullscreenTarget;
   const listeners = new Set<() => void>();
-  const timerPrefix = `screensaver-fullscreen-${++entrySequence}`;
-  const requestTimer = `${timerPrefix}-request`;
+  // Native timers bound both the request and the exit: leaving a room clears
+  // every managed timer, which would strand a silent WebKit request and keep
+  // the entry lock until some later fullscreen event.
+  let requestTimer = 0;
   let exitTimer = 0;
   let finishBackSurface: (() => void) | null = null;
   let closed = false;
@@ -46,7 +46,7 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
       document.removeEventListener(event, onFullscreenChange);
     for (const event of FULLSCREEN_ERROR_EVENTS)
       document.removeEventListener(event, onFullscreenError);
-    clearManagedTimer(requestTimer);
+    window.clearTimeout(requestTimer);
     window.clearTimeout(exitTimer);
     window.removeEventListener('pagehide', onPageHide);
     if (currentEntry === entry) currentEntry = null;
@@ -101,7 +101,7 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
     requestPending = false;
     requestErrorEvent = null;
     rejectActiveRequest = null;
-    clearManagedTimer(requestTimer);
+    window.clearTimeout(requestTimer);
     if (closed) restore();
   };
   const onFullscreenChange = (): void => {
@@ -187,7 +187,8 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
         sawFullscreen = true;
         settleRequest();
       } else if (generation === requestGeneration) {
-        setManagedTimer(requestTimer, settleRequest, FULLSCREEN_SETTLEMENT_MS);
+        window.clearTimeout(requestTimer);
+        requestTimer = window.setTimeout(settleRequest, FULLSCREEN_SETTLEMENT_MS);
       }
     } catch {
       rejected();

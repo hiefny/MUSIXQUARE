@@ -1257,8 +1257,10 @@ RO-46 accepted-exception
   their request policy.
 - **Allowed requesters:** the screensaver, the YouTube toggle and mode exit, Back.
 - **Lifecycle operations:** request, exit, settle.
-- **Deadline owner:** each writer's 1.5 s settlement (request on a managed timer, exit on a native
-  timer).
+- **Deadline owner:** each writer's 1.5 s settlement, always on a native timer: leaving a room
+  clears every managed timer (`leaveSession` in `src/network/peer.ts`), which stranded a silent
+  WebKit screensaver request until Phase 2 (C8-I6, `screensaver.test.ts` "bounds a silent WebKit
+  request on a native timer that leaving a room cannot clear").
 - **Timing-constant home:** `FULLSCREEN_SETTLEMENT_MS` in `src/core/fullscreen.ts` (Phase 2,
   C8-I2), with the change and error event names and the WebKit document and target types;
   `src/core/__tests__/fullscreen.test.ts` pins both exit bounds to it.

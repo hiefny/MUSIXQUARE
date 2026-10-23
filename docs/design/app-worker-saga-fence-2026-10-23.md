@@ -3,7 +3,7 @@
 | 항목     | 범위                                                                                                     |
 | -------- | -------------------------------------------------------------------------------------------------------- |
 | 기준 SHA | `ae5ac945` (main, Phase 1 PRO Worker A(C7-3) 배포본)                                                     |
-| 코드 SHA | (작성 중)                                                                                                |
+| 코드 SHA | `b5f260db`(코드는 `d44a5fd5`와 같다)                                                                     |
 | 후보     | App Worker만, target `app`. App 버전·SW 캐시(9.0.3 / v771)와 버전 표기는 그대로. 미배포                  |
 | 열차     | 구조 개선 Phase 1 App Worker A: C7-8 사가 도우미, C7-11 펜스 쓰기 타입과 쓰는 곳 가드. 동작 변경 없음    |
 | 환경     | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(node), node:sqlite 위의 실제 App Worker와 PRO 방 객체 |
@@ -121,7 +121,11 @@ App 버전, SW 캐시와 버전 표기도 그대로다(Worker만 바뀌는 변�
   `resource-ownership-guard`·`pro-room-grants` 통과. `check:workers`,
   `guard:developer-api-boundaries`, `guard:d1-migrations`, `guard:source-complexity`, 소유권
   가드 통과.
-- 전체 검사: (작성 중)
+- 전체 검사(`b5f260db`, 로컬): 타입 검사, lint, 서식, 빌드 통과. 단위 테스트 627개 파일 14,150개,
+  Worker 테스트 58개 파일 2,788개 통과. 가드(dead-exports, bus-pairing, import-graph,
+  lifecycle-writes, release-identity, sw-cache-version, source-complexity, d1-migrations,
+  `check:workers`, resource-ownership) 통과. 브라우저 앱이 바뀌지 않아 브라우저 검사는 돌리지
+  않았다. 로컬 결과는 정확한 main SHA 배포 후보를 대신하지 않는다.
 - 배포 뒤 smoke(`smoke:live:app-generation`, `smoke:live:developer-api`)는 소유권 이전과 계정
   삭제 경로를 타지 않는다. 근거는 node:sqlite 위의 실제 App Worker와 PRO 방 객체 테스트다.
   운영 환경에서 테스트 PRO 방의 이전을 직접 해 보는 확인은 C7-9(실행기 하나) 때 다시 다룬다.

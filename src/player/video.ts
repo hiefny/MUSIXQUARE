@@ -8,6 +8,12 @@
 
 import { bus } from '../core/events.ts';
 import type { PlaybackModeValue } from '../core/constants.ts';
+import {
+  FULLSCREEN_CHANGE_EVENTS,
+  FULLSCREEN_ERROR_EVENTS,
+  FULLSCREEN_SETTLEMENT_MS,
+  type FullscreenDocument,
+} from '../core/fullscreen.ts';
 import { clearManagedTimer } from '../core/timers.ts';
 import {
   isPlaybackModeValue,
@@ -40,15 +46,6 @@ export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {
 
 // Body-class sync driven by decomposed playback mode.
 
-type WebKitFullscreenDocument = Document & {
-  webkitFullscreenElement?: Element | null;
-  webkitCurrentFullScreenElement?: Element | null;
-  webkitIsFullScreen?: boolean;
-  webkitExitFullscreen?: () => Promise<void> | void;
-  webkitCancelFullScreen?: () => Promise<void> | void;
-};
-
-const FULLSCREEN_EXIT_SETTLEMENT_MS = 1_500;
 let pendingFullscreenExit: {
   element: Element | null;
   listeners: Set<() => void>;
@@ -84,7 +81,7 @@ export function exitYouTubeFullscreen(
   videoWrapper?.classList.remove('fake-fullscreen');
   document.body.classList.remove('has-fake-fullscreen');
 
-  const doc = document as WebKitFullscreenDocument;
+  const doc = document as FullscreenDocument;
   const fullscreenElement =
     document.fullscreenElement ??
     doc.webkitFullscreenElement ??
@@ -123,10 +120,8 @@ export function exitYouTubeFullscreen(
     if (finished) return;
     finished = true;
     window.clearTimeout(timer);
-    for (const name of ['fullscreenchange', 'webkitfullscreenchange'])
-      document.removeEventListener(name, onChange);
-    for (const name of ['fullscreenerror', 'webkitfullscreenerror'])
-      document.removeEventListener(name, onError);
+    for (const name of FULLSCREEN_CHANGE_EVENTS) document.removeEventListener(name, onChange);
+    for (const name of FULLSCREEN_ERROR_EVENTS) document.removeEventListener(name, onError);
     window.removeEventListener('pagehide', finish);
     if (pendingFullscreenExit === attempt) pendingFullscreenExit = null;
     for (const listener of attempt.listeners) notifyFullscreenExit(listener);
@@ -158,14 +153,12 @@ export function exitYouTubeFullscreen(
     finish,
   };
   pendingFullscreenExit = attempt;
-  for (const name of ['fullscreenchange', 'webkitfullscreenchange'])
-    document.addEventListener(name, onChange);
-  for (const name of ['fullscreenerror', 'webkitfullscreenerror'])
-    document.addEventListener(name, onError);
+  for (const name of FULLSCREEN_CHANGE_EVENTS) document.addEventListener(name, onChange);
+  for (const name of FULLSCREEN_ERROR_EVENTS) document.addEventListener(name, onError);
   window.addEventListener('pagehide', finish);
   // Native: session teardown may clear managed timers before the browser
   // finishes exiting. A missing event or promise must not block every Back.
-  timer = window.setTimeout(finish, FULLSCREEN_EXIT_SETTLEMENT_MS);
+  timer = window.setTimeout(finish, FULLSCREEN_SETTLEMENT_MS);
 
   try {
     const pendingExit: void | Promise<void> = exitFullscreen.call(document);

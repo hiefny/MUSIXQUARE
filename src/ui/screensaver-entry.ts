@@ -3,10 +3,11 @@ import { beginBackSurfaceTransition } from './dom.ts';
 import {
   FULLSCREEN_CHANGE_EVENTS,
   FULLSCREEN_ERROR_EVENTS,
+  FULLSCREEN_SETTLEMENT_MS,
   getFullscreenElement,
   getFullscreenExit,
   type FullscreenTarget,
-} from './fullscreen.ts';
+} from '../core/fullscreen.ts';
 
 export interface ScreensaverEntry {
   readonly container: HTMLElement;
@@ -17,7 +18,6 @@ export interface ScreensaverEntry {
 
 let currentEntry: ScreensaverEntry | null = null;
 let entrySequence = 0;
-const LEGACY_SETTLEMENT_MS = 1500;
 
 /** Keep the gesture-bound fullscreen request ahead of the lazy renderer import. */
 export function beginScreensaverEntry(): ScreensaverEntry | null {
@@ -78,7 +78,7 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
     const generation = ++exitGeneration;
     // Native timer: clearing room timers cannot strand the closing surface.
     // This bounds promise-based exits too when the browser never settles one.
-    exitTimer = window.setTimeout(() => settleExit(generation), LEGACY_SETTLEMENT_MS);
+    exitTimer = window.setTimeout(() => settleExit(generation), FULLSCREEN_SETTLEMENT_MS);
     try {
       const result = exit.invoke();
       if (result && typeof result.then === 'function') {
@@ -187,7 +187,7 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
         sawFullscreen = true;
         settleRequest();
       } else if (generation === requestGeneration) {
-        setManagedTimer(requestTimer, settleRequest, LEGACY_SETTLEMENT_MS);
+        setManagedTimer(requestTimer, settleRequest, FULLSCREEN_SETTLEMENT_MS);
       }
     } catch {
       rejected();

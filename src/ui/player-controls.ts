@@ -35,7 +35,7 @@ import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { exitYouTubeFullscreen } from '../player/video.ts';
-import { getFullscreenElement } from './fullscreen.ts';
+import { getFullscreenElement, type FullscreenDocument } from '../core/fullscreen.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import {
@@ -1276,10 +1276,7 @@ export function initPlayerControls(): void {
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
   $on('btn-fullscreen', 'click', () => {
-    const doc = document as Document & {
-      webkitFullscreenElement?: Element;
-      webkitExitFullscreen?: () => void;
-    };
+    const doc = document as FullscreenDocument;
     const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
     const videoWrapper = document.querySelector('.video-wrapper') as
       (HTMLElement & { webkitRequestFullscreen?: () => void }) | null;

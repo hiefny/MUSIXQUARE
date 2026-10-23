@@ -336,7 +336,7 @@ export function installServiceWorkerFake(
 }
 
 // ─── Fullscreen element ─────────────────────────────────────────────
-// Models document.fullscreenElement (read by ui/fullscreen.ts) and
+// Models document.fullscreenElement (read by core/fullscreen.ts) and
 // document.exitFullscreen as a recorder. jsdom has no top layer: a test can
 // only show where each surface sits in the tree; the browser paints the
 // fullscreen element's subtree above every z-index outside it.

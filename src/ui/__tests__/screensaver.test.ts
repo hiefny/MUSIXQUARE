@@ -13,7 +13,7 @@ import {
 } from '../dom.ts';
 import { openScreensaver } from '../screensaver.ts';
 import { beginScreensaverEntry } from '../screensaver-entry.ts';
-import { getFullscreenElement } from '../fullscreen.ts';
+import { getFullscreenElement } from '../../core/fullscreen.ts';
 
 const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),

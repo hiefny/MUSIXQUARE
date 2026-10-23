@@ -158,8 +158,11 @@ const PAGE_LOCK_ARIA_HIDDEN_BASELINE: Baseline = new Map<string, Allowance>([
 
 /** RO-26: references to Fullscreen request and exit methods (calls or resolvers). */
 const FULLSCREEN_SINK_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/core/fullscreen.ts',
+    { count: 7, reason: 'shared prefixed exit helper (moved from src/ui/, C8-I2)' },
+  ],
   ['src/player/video.ts', { count: 3, reason: 'YouTube mode exit resolver (Phase 2 merges it)' }],
-  ['src/ui/fullscreen.ts', { count: 7, reason: 'shared prefixed exit helper' }],
   [
     'src/ui/player-controls.ts',
     { count: 4, reason: 'YouTube fullscreen toggle request (Phase 2 keeps the policy)' },
@@ -332,7 +335,7 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
     files: [
       'src/ui/screensaver-entry.ts',
       'src/player/video.ts',
-      'src/ui/fullscreen.ts',
+      'src/core/fullscreen.ts',
       'src/ui/player-controls.ts',
     ],
   },
@@ -1454,7 +1457,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     {
       label: 'fullscreen request/exit',
       record: 'RO-26',
-      hint: 'use the fullscreen helper in src/ui/fullscreen.ts (target owner src/core/fullscreen.ts)',
+      hint: 'use the fullscreen helper in src/core/fullscreen.ts',
       measured: perFile(facts, (f) => f.fullscreenSinks, appOnly),
       baseline: FULLSCREEN_SINK_BASELINE,
     },

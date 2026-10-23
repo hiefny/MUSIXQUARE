@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { setElementInertForOwner } from '../core/inert-ownership.ts';
-import { FULLSCREEN_CHANGE_EVENTS, getFullscreenElement } from './fullscreen.ts';
+import { FULLSCREEN_CHANGE_EVENTS, getFullscreenElement } from '../core/fullscreen.ts';
 
 /** Look up replaceable UI elements when each operation runs; never cache nodes. */
 export function getUiElement<T extends HTMLElement = HTMLElement>(id: string): T | null {

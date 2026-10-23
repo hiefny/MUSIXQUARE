@@ -17,11 +17,10 @@ import { switchPlaylist, transferTracks } from '../player/playlist.ts';
 import type { PlaylistSlotSummary, PlaylistTransferMode, QueueItemId } from '../types/index.ts';
 import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { renderPlaylistSlotName } from './playlist-slot-names.ts';
+import { createSelectionCheckSvg, SELECTION_TOGGLE_PATHS } from './selection-mark.ts';
 
 const SLOTS_OVERLAY_ID = 'playlist-slots-overlay';
 const TRANSFER_OVERLAY_ID = 'playlist-transfer-overlay';
-const CHECK_PATH = 'M5 12.5l4.2 4.2L19 6.9';
-const MINUS_PATH = 'M7 12h10';
 
 let _pendingSlot = 0;
 let _transferIds: readonly QueueItemId[] = [];
@@ -76,10 +75,8 @@ function createSlotRow(slot: number, trailing: 'check' | 'select'): HTMLButtonEl
       ? 'language-option-check'
       : 'language-option-check playlist-slot-select-mark';
   mark.setAttribute('aria-hidden', 'true');
-  mark.innerHTML =
-    trailing === 'check'
-      ? `<svg viewBox="0 0 24 24"><path d="${CHECK_PATH}" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-      : `<svg viewBox="0 0 24 24"><path class="playlist-select-minus" d="${MINUS_PATH}"/><path class="playlist-select-mark" d="${CHECK_PATH}"/></svg>`;
+  if (trailing === 'check') mark.appendChild(createSelectionCheckSvg());
+  else mark.innerHTML = `<svg viewBox="0 0 24 24">${SELECTION_TOGGLE_PATHS}</svg>`;
   row.append(label, mark);
   return row;
 }

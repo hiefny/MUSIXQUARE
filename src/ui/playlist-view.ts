@@ -35,6 +35,7 @@ import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { beginProRoomTrackChangeIntent } from '../player/track-change-intent.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { renderPlaylistSlotName } from './playlist-slot-names.ts';
+import { SELECTION_TOGGLE_PATHS } from './selection-mark.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
 import {
   acknowledgeCommittedProRoomUploads,
@@ -898,7 +899,7 @@ export function updatePlaylistUI(): void {
           data-queue-item-id="${escapeHtml(item.queueItemId)}"
           aria-pressed="${isRemovalSelected}"
           aria-label="${escapeHtml(selectLabel)}" title="${escapeHtml(selectLabel)}">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="playlist-select-minus" d="M7 12h10"/><path class="playlist-select-mark" d="M5 12.5l4.2 4.2L19 6.9"/></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true">${SELECTION_TOGGLE_PATHS}</svg>
         </button>`
       : '';
 

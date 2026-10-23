@@ -39,6 +39,7 @@ import { getUiElement, onWindowBack, syncOverlayState } from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
+import { createSelectionCheckSvg } from './selection-mark.ts';
 import { hasLocaleFont } from '../i18n/locale-font-contract.ts';
 import { languageDirection } from '../i18n/locales.ts';
 import { isSettingsSyncEnabled, setEQPreset, setSettingsSyncEnabled } from '../audio/effects.ts';
@@ -759,8 +760,7 @@ function renderLanguageOptions(): void {
     const check = document.createElement('span');
     check.className = 'language-option-check';
     check.setAttribute('aria-hidden', 'true');
-    check.innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.2 4.2L19 6.9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    check.appendChild(createSelectionCheckSvg());
 
     option.appendChild(label);
     option.appendChild(check);

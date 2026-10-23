@@ -3077,13 +3077,15 @@ Safety is declared first because important layer precedence is reversed; its acc
     overflow: visible;
   }
 
+  /* The selection minus and check (src/ui/selection-mark.ts) on playlist
+     rows and in the move dialog: angular like the app's X and chevrons. */
   .playlist-select-minus,
   .playlist-select-mark {
     fill: none;
     stroke: currentColor;
     stroke-width: 2.4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+    stroke-linecap: butt;
+    stroke-linejoin: miter;
     transition: opacity 0.16s ease;
   }
 
@@ -6480,19 +6482,6 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   .language-option.active .playlist-slot-select-mark {
     color: var(--primary);
-  }
-
-  .playlist-slot-select-mark .playlist-select-minus,
-  .playlist-slot-select-mark .playlist-select-mark {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .playlist-slot-select-mark .playlist-select-minus {
-    stroke-width: 1.9;
   }
 
   .playlist-slot-select-mark .playlist-select-mark,

@@ -803,9 +803,6 @@ const en: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'This request could not be completed',
   'pro.claim_failed_message':
     'For safety, this link was not retried. Ask the room administrator for a new link.',
-  'pro.transfer_title': 'Take ownership of PRO room',
-  'pro.transfer_message':
-    "Set a new 8-digit password for this room. The previous owner's access will be revoked when this finishes.",
   'pro.new_link_message':
     'The link has expired or has already been used. Ask an administrator for a new link if needed.',
   'pro.not_ready_title': 'This PRO room is not ready yet',

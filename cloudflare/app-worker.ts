@@ -4434,6 +4434,28 @@ async function appendSystemAdminProRoomAudit(
   await statement.bind(actorId, action, result, roomCode, roomGeneration, createdAt).run();
 }
 
+/** The App's opt-ins for additive PRO snapshot fields, by exact value. */
+type ProRoomSnapshotOptInHeaders = {
+  'X-MXQR-Pro-Entry-Policy'?: 'optional-v1';
+  'X-MXQR-Pro-Playlist-Slots'?: 'v1';
+};
+
+/**
+ * The browser's snapshot opt-ins, for an internal room call whose snapshot is
+ * returned to that browser (the ownership-transfer commit). Only the exact
+ * values the App sends pass; any other value is dropped.
+ */
+function proRoomSnapshotOptInHeaders(headers: Headers): ProRoomSnapshotOptInHeaders {
+  return {
+    ...(headers.get('X-MXQR-Pro-Entry-Policy') === 'optional-v1'
+      ? { 'X-MXQR-Pro-Entry-Policy': 'optional-v1' as const }
+      : {}),
+    ...(headers.get('X-MXQR-Pro-Playlist-Slots') === 'v1'
+      ? { 'X-MXQR-Pro-Playlist-Slots': 'v1' as const }
+      : {}),
+  };
+}
+
 async function callProRoomAdminObject(
   env: AppEnv,
   roomCode: string,
@@ -4441,6 +4463,7 @@ async function callProRoomAdminObject(
   pathname: string,
   method: string = 'POST',
   body: JsonObject | undefined = undefined,
+  optInHeaders: ProRoomSnapshotOptInHeaders = {},
 ): Promise<{ response: Response | null; payload: unknown }> {
   const namespace = getProRoomAdminNamespace(env);
   if (!namespace || !isProRoomGeneration(roomGeneration)) {
@@ -4455,6 +4478,7 @@ async function callProRoomAdminObject(
       new Request(`https://pro-room.internal${pathname}`, {
         method,
         headers: {
+          ...optInHeaders,
           'x-mxqr-pro-room-code': roomCode,
           'x-mxqr-pro-room-generation': proRoomGenerationHeaderValue(roomGeneration),
           ...(wireBody === undefined ? {} : { 'content-type': 'application/json' }),
@@ -6136,6 +6160,12 @@ export function isFenceDigestForTests(value: unknown) {
   return typeof value === 'string' && FENCE_DIGEST_RE.test(value);
 }
 
+/**
+ * The transfer link's body: `{claimToken, requestId}`. An App from before the
+ * 2026-10-23 owner decision (a transfer turns the entry password off) also
+ * sends `newPin`; its shape is checked as before, and the PRO room never uses
+ * its value.
+ */
 function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return null;
   let body: unknown;
@@ -6144,17 +6174,16 @@ function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
   } catch {
     return null;
   }
+  const hasNewPin = isJsonObject(body) && Object.hasOwn(body, 'newPin');
   if (
     !isJsonObject(body) ||
-    Object.keys(body).length !== 3 ||
+    Object.keys(body).length !== (hasNewPin ? 3 : 2) ||
     !Object.hasOwn(body, 'claimToken') ||
-    !Object.hasOwn(body, 'newPin') ||
     !Object.hasOwn(body, 'requestId') ||
     typeof body.claimToken !== 'string' ||
     body.claimToken.length < 32 ||
     body.claimToken.length > 4096 ||
-    typeof body.newPin !== 'string' ||
-    !/^\d{8}$/.test(body.newPin) ||
+    (hasNewPin && (typeof body.newPin !== 'string' || !/^\d{8}$/.test(body.newPin))) ||
     typeof body.requestId !== 'string' ||
     !/^[A-Za-z0-9_-]{16,64}$/.test(body.requestId)
   ) {
@@ -8493,6 +8522,9 @@ async function handleProRoomOwnershipTransferSaga({
   } catch {
     return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
   }
+  // The commit's snapshot is this link's answer. With the browser's opt-ins
+  // it reports `passwordRequired` (false since the 2026-10-23 owner decision)
+  // like activation's, so the new owner's settings show the real state.
   const committed = await callProRoomAdminObject(
     env,
     roomCode,
@@ -8506,6 +8538,7 @@ async function handleProRoomOwnershipTransferSaga({
       requestId,
       revocationReceipt,
     },
+    proRoomSnapshotOptInHeaders(headers),
   );
   if (!committed.response?.ok) {
     try {

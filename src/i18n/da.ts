@@ -815,9 +815,6 @@ const da: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Anmodningen kunne ikke fuldføres',
   'pro.claim_failed_message':
     'Af sikkerhedsmæssige årsager blev linket ikke forsøgt igen. Bed rumadministratoren om et nyt link.',
-  'pro.transfer_title': 'Overtag ejerskabet af PRO-rummet',
-  'pro.transfer_message':
-    'Angiv en ny 8-cifret adgangskode til dette rum. Den tidligere ejers adgang tilbagekaldes, når dette er fuldført.',
   'pro.new_link_message':
     'Linket er udløbet eller allerede brugt. Bed en administrator om et nyt link, hvis det er nødvendigt.',
   'pro.not_ready_title': 'Dette PRO-rum er ikke klart endnu',

@@ -579,12 +579,9 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
         await showNewClaimLinkGuidance();
         return false;
       }
-      const newPin = await promptPin({
-        title: t('pro.transfer_title'),
-        message: t('pro.transfer_message'),
-        autocomplete: 'new-password',
-      });
-      if (!newPin) return false;
+      // Owner decision 2026-10-23: a transfer leaves the room without an
+      // entry password, so the link asks for nothing, like recovery. The new
+      // owner can turn a password on in room settings.
       // The App facade and room object replay this exact request id after an
       // uncertain prepare/commit response. Retrying a different operation first
       // could strand a completed transfer before its final cookies are released.
@@ -595,7 +592,6 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
             {
               code,
               claimToken: ownerTransferClaimToken,
-              newPin,
               requestId: ownerTransferRequestId,
             },
             signal,

@@ -1352,7 +1352,6 @@ useSagaClock();
       await requestTransfer(test, backClaim, {
         accountId: OLD_OWNER,
         requestId: 'saga_request_0000002',
-        newPin: '13572468',
       }),
     ).toEqual({
       status: 200,

@@ -742,9 +742,6 @@ const ja: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'リクエストを完了できませんでした',
   'pro.claim_failed_message':
     '安全のため、このリンクでの再試行は行われませんでした。ルーム管理者に新しいリンクを依頼してください。',
-  'pro.transfer_title': 'PROルームの所有権を引き継ぐ',
-  'pro.transfer_message':
-    '新しい8桁のパスワードを設定してください。完了すると、以前のオーナーのアクセス権は無効になります。',
   'pro.new_link_message':
     'リンクの有効期限が切れているか、すでに使用されています。必要な場合は管理者に新しいリンクを依頼してください。',
   'pro.not_ready_title': 'まだ準備中のPROルームです',

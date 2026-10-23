@@ -741,9 +741,6 @@ const id: Record<I18nKey, string> = {
   'pro.claim_failed_title': 'Permintaan tidak dapat diselesaikan',
   'pro.claim_failed_message':
     'Demi keamanan, tautan ini tidak dicoba ulang. Minta tautan baru kepada admin ruang.',
-  'pro.transfer_title': 'Ambil kepemilikan ruang PRO',
-  'pro.transfer_message':
-    'Tetapkan sandi baru 8 digit. Akses pemilik sebelumnya akan dicabut setelah selesai.',
   'pro.new_link_message':
     'Tautan telah kedaluwarsa atau sudah digunakan. Jika perlu, minta tautan baru kepada admin.',
   'pro.not_ready_title': 'Ruang PRO ini belum siap',

@@ -289,7 +289,13 @@ function settleDroppedReloads(dropped: readonly ReloadRequest[], deps: PageNavig
  * fresh reload and make two. Each dropped caller hears once, as a request no
  * longer current does (onRecovered), and only once the fresh reload holds the
  * page or, while the PRO claim fence defers reloads, waits first in the queue
- * behind it: a caller that asks again waits behind the fresh reload.
+ * behind it: a caller that asks again waits behind the fresh reload. A reload
+ * that started before this pageshow is not in the queue: on the visible-first
+ * order the visible return has already started the first waiting reload, and
+ * this return settles it, so its callers hear while the page is idle, before
+ * the fresh reload is asked for, and one that asks again runs ahead of it; so
+ * does a reload a settled callback of the returned attempt asks for. The page
+ * still reloads once when the first of them commits.
  *
  * A return that reloads nothing (idle with nothing pending, or the second
  * return of a document that used its one reload) leaves the queue alone and
@@ -300,7 +306,7 @@ function settleDroppedReloads(dropped: readonly ReloadRequest[], deps: PageNavig
  * pageshow) started when it settled the returned attempt. That reload is a
  * live request and keeps running, so a reload waiting at a second return runs
  * once whichever event comes first. A return that reloads settles such an
- * attempt too: its bounded reload replaces it, as it replaces a dropped one.
+ * attempt too, and its bounded reload replaces it (its callers hear as above).
  */
 function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
   const resetPending = _state.phase !== 'idle';
@@ -321,6 +327,8 @@ function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
       // The prior reload left and returned to this exact document. Stop
       // retrying automatically; the service worker's bounded navigation
       // fallback or a later user action can recover without a reload loop.
+      // A reload the visible return started from the queue may still hold
+      // the page behind the reset screen; it keeps running.
       deps.log?.info('[PageLifecycle] bfcache reload returned; keeping recovered shell visible');
       return;
     }

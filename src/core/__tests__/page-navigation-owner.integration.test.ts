@@ -784,8 +784,9 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
   // fence-held and second-return pins below). On the visible-first order the
   // visible return has already started the queued reload; the pageshow, which
   // reloads, settles that reload before it navigates and makes its bounded
-  // one instead, so the caller is answered the same way: one reload before and
-  // after.
+  // one instead. That caller is answered when the settle runs, while the page
+  // is idle and before the bounded reload is asked for; the page still makes
+  // one reload.
   it.each(
     (['pageshow-first', 'pageshow-only', 'visible-first'] as const).flatMap((order) =>
       (

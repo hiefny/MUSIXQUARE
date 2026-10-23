@@ -81,9 +81,15 @@ whether it reloads before it settles anything, takes the whole queue, then
 settles the returned reset, and its bounded reload is the page's one reload.
 Each dropped caller's `onRecovered` runs once, after that reload holds the
 page or, while a deferred PRO claim fence holds reloads, after it waits first
-in the queue behind the fence, so a caller that asks again waits behind it; a
-caller that throws, or a failing log of the drop, is logged and the rest
-still run, and the callers are answered even if the return's own work throws.
+in the queue behind the fence, so a caller that asks again waits behind it.
+A reload that already started is not dropped: on the visible-first order the
+visible return starts the first waiting reload before the `pageshow`, which
+then settles it, so its callers hear while the page is idle and one that asks
+again runs ahead of the bounded reload; so does a reload a settled callback of
+the returned attempt asks for. The page still reloads once when the first of
+them commits. A caller that throws, or a failing log of the drop, is logged
+and the rest still run, and the callers are answered even if the return's own
+work throws.
 A return that reloads nothing (outside a room with nothing pending, or the
 second return of a document that used its one reload) drops nothing and
 settles only the attempt the document returned with (`left`). Current Chromium
@@ -123,7 +129,7 @@ Back guard's resume whatever the init order:
   bounded reload, dropping every reload still queued first (owner decision
   13); a document that returns again after that reload keeps the recovered
   shell instead of looping, drops nothing and settles only a `left` attempt,
-  so a reload queued behind the bounded one runs once on either event order.
+  so a reload queued behind the bounded one runs once on every event order.
   Any other `pageshow` settles a `left` attempt.
 - `visibilitychange` to visible: settles a `left` attempt (iOS can foreground
   the old document without a `pageshow`).

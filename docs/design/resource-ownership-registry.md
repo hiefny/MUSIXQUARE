@@ -1163,7 +1163,9 @@ RO-47 owner-in-place
   its own bounded reload decides so before it settles anything, drops every reload still waiting,
   answers each dropped caller's `onRecovered` once (in a finally, the drop log and each callback
   isolated) once that reload holds the page or waits first in the queue behind a deferred PRO
-  claim fence, and leaves the page's one reload to that bounded reload (owner decision 13,
+  claim fence (a reload the visible return already started, or one a settled callback asks
+  for, is not dropped and can run ahead of it; the page still reloads once when the first
+  commits), and leaves the page's one reload to that bounded reload (owner decision 13,
   2026-10-23); a return that reloads nothing (outside a room with nothing pending, or a second
   return of the same document) drops nothing and settles only the attempt it returned with
   (`left`), so a reload waiting there, or one the visible return already started from the queue,

@@ -6702,12 +6702,20 @@ describe('Cloudflare guest signaling reconnect', () => {
   });
 
   it.each([
-    { code: 1012, reason: 'SERVICE_MAINTENANCE' },
-    { code: 1006, reason: '' },
-    { code: 1006, reason: 'ROOM_EXPIRED' },
-  ])('keeps ordinary guest recovery for $code/$reason', async ({ code, reason }) => {
+    { code: 1012, reason: 'SERVICE_MAINTENANCE', closeReason: 'SERVICE_MAINTENANCE' },
+    { code: 1006, reason: '', closeReason: 'unknown' },
+    { code: 1006, reason: 'ROOM_EXPIRED', closeReason: 'ROOM_EXPIRED' },
+    // A Standard 1012 reason the Worker sends; formerly recorded as 'unknown'.
+    {
+      code: 1012,
+      reason: 'STANDARD_ROOM_AUTHORITY_STALE',
+      closeReason: 'STANDARD_ROOM_AUTHORITY_STALE',
+    },
+    { code: 1012, reason: 'NOT_A_WORKER_REASON', closeReason: 'unknown' },
+  ])('keeps ordinary guest recovery for $code/$reason', async ({ code, reason, closeReason }) => {
     const { peer, conn, socket } = await establishGuest();
     const blocked = vi.fn();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     peer.on('signaling-recovery-blocked', blocked);
     socket.dispatch('close', undefined, reason, code, false);
     peer.reconnect();
@@ -6715,6 +6723,11 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(peer.getSignalingRecoveryBlockReason()).toBeNull();
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(conn.open).toBe(true);
+    // Diagnostics keep only allow-listed reasons; other text stays 'unknown'.
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Established guest signaling socket closed; RTC channels retain their own lifecycle',
+      expect.objectContaining({ closeCode: code, closeReason }),
+    );
     peer.destroy();
   });
 

@@ -368,6 +368,29 @@ interface StandardSetupRouteRetryDecision {
   readonly prepareRoute: boolean;
 }
 
+/**
+ * Signaling Worker close reasons that socket diagnostics record verbatim; any
+ * other reason text is recorded as 'unknown'. Diagnostic only: the expiry and
+ * PRO epoch handlers compare their own reasons. signaling-close-reason-parity
+ * pins every entry to a 1012 reason the signaling Worker actually sends.
+ */
+const RECOGNIZED_SIGNALING_CLOSE_REASONS = [
+  'ROOM_EXPIRED',
+  'PRO_ROOM_EPOCH_ADVANCED',
+  'HOST_REPLACED',
+  'GUEST_REPLACED',
+  'STANDARD_ROOM_AUTHORITY_STALE',
+  'GUEST_AUTH_RETRY_REQUIRED',
+  'SERVICE_MAINTENANCE',
+] as const;
+type RecognizedSignalingCloseReason = (typeof RECOGNIZED_SIGNALING_CLOSE_REASONS)[number];
+
+function isRecognizedSignalingCloseReason(
+  reason: string,
+): reason is RecognizedSignalingCloseReason {
+  return (RECOGNIZED_SIGNALING_CLOSE_REASONS as readonly string[]).includes(reason);
+}
+
 interface SignalingSocketLifecycle {
   readonly route: SignalingRoute;
   readonly createdAt: number;
@@ -379,13 +402,7 @@ interface SignalingSocketLifecycle {
   terminalCloseLogged: boolean;
   closeCode: number | null;
   closeClean: boolean | null;
-  closeReason:
-    | 'ROOM_EXPIRED'
-    | 'PRO_COORDINATOR_EPOCH_ADVANCED'
-    | 'HOST_REPLACED'
-    | 'GUEST_REPLACED'
-    | 'unknown'
-    | null;
+  closeReason: RecognizedSignalingCloseReason | 'unknown' | null;
   phase: 'initial' | 'recovery';
   rtcAlive: boolean | null;
   automaticRetryBlockedReason: 'room-expired' | null;
@@ -2801,13 +2818,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (!lifecycle) return;
     lifecycle.closeCode = Number.isSafeInteger(event.code) ? event.code : null;
     lifecycle.closeClean = typeof event.wasClean === 'boolean' ? event.wasClean : null;
-    lifecycle.closeReason =
-      event.reason === 'ROOM_EXPIRED' ||
-      event.reason === 'PRO_COORDINATOR_EPOCH_ADVANCED' ||
-      event.reason === 'HOST_REPLACED' ||
-      event.reason === 'GUEST_REPLACED'
-        ? event.reason
-        : 'unknown';
+    lifecycle.closeReason = isRecognizedSignalingCloseReason(event.reason)
+      ? event.reason
+      : 'unknown';
     for (const [roomId, record] of this.guestRooms) {
       if (this.roomSockets.get(roomId) === socket) {
         lifecycle.rtcAlive = this.isDataConnectionAlive(record.conn);

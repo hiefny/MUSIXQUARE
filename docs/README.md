@@ -91,6 +91,17 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO ownership transfer turns the entry password off (Phase 2 app batch, 2026-10-23)](design/pro-transfer-password-reset-2026-10-23.md):
+  owner decision of October 23, after the production ownership round trip. A committed transfer
+  leaves the room without an entry password through the same state change as the owner's "turn
+  off" setting, and the transfer link no longer asks for a PIN. `OWNER_TRANSFER_PIN_REUSE`, which
+  told the recipient whether a PIN was the previous owner's and was shown as "ask for a new link"
+  although the link was unused, is gone, as is the replay PIN comparison. Earlier Apps' `newPin`
+  and earlier pending records with a PIN are accepted and ignored, and the transfer answer now
+  reports `passwordRequired: false` to opt-in Apps. Tests pinned today's behaviour first. Not yet
+  deployed: it ships in the Phase 2 app batch with target `all` (PRO room before App); devices and
+  a production transfer are unchecked.
+
 - [PRO outbox and duration read owners (Phase 1 PRO Worker B, 2026-10-23)](design/pro-room-outbox-duration-owners-2026-10-23.md):
   the PRO room's presence marker and playback outbox get one due time, alarm drain, epoch hook and
   load normalizer, and its two file duration readers share one pair of R2 slot predicates, one

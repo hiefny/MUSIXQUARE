@@ -135,6 +135,7 @@ npm 12.0.2, E2E는 로컬 Chromium·PeerJS(포트 4291/9131)다.
 | 프로덕션 빌드 | `build:checked` 전체 PASS(가드 24개, `guard:sw-cache-version` "v774 (d4849257) covers all committed PWA runtime changes", legacy TV CSS 포함). 초기 JS 491,251 B gzip(PR 491,227 B 대비 +24 B, 유지 상한 491,568 B까지 317 B), 초기 전체 569,825 B(상한 570,570 B까지 745 B). Standard `1012` 사유 3개를 넣은 빌드는 491,310 B였다. |
 | Chromium | `build:e2e` 후 `test:e2e:critical` 59/59 PASS(adaptive-actions 포함), `e2e/adaptive-actions.test.ts` 단독 10/10 PASS(만료 라벨과 "새로 입장" 버튼을 42개 언어·RTL·320px·200% 글자에서 넘침 검사), playback-sync·reconnection 9/9 PASS. |
 | SKIP | 실제 기기, 운영 Cloudflare WSS·HTTPS 만료, 백그라운드 복귀, 새 입장에서 방장이 없을 때의 실제 문구, `/api/admin/metrics` 새 카운터는 배포 전 범위로 남긴다. 리뷰 반영 head의 PR CI는 아직 돌지 않았다. |
+| main 합침 | 검증 중 main이 `717d32d4`(#472, 토스 출처 신뢰 제거: Worker·스모크·테스트·문서만, PWA 런타임 변경 없음)로 나아가 `b2ebcb09`로 합쳤다. 충돌은 `docs/README.md`·`docs/release-record.md`의 항목 추가 위치뿐이라 두 항목을 모두 남겼다. `b2ebcb09`에서 typecheck·lint·format·`check:workers`·자원 소유(46)·이동 sink PASS, 단위 643 files / 14,699 tests PASS, Worker 60 files / 2,889 tests PASS, `build:checked` PASS(`sw-cache-version` v774 그대로), 초기 JS 491,251 B·초기 전체 569,825 B로 같다. 앱 묶음이 같으므로 E2E는 다시 돌리지 않았다. |
 
 ## 초기 JS 예산
 

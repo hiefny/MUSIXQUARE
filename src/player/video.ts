@@ -12,6 +12,7 @@ import {
   FULLSCREEN_CHANGE_EVENTS,
   FULLSCREEN_ERROR_EVENTS,
   FULLSCREEN_SETTLEMENT_MS,
+  getFullscreenElement,
   type FullscreenDocument,
 } from '../core/fullscreen.ts';
 import { clearManagedTimer } from '../core/timers.ts';
@@ -82,11 +83,7 @@ export function exitYouTubeFullscreen(
   document.body.classList.remove('has-fake-fullscreen');
 
   const doc = document as FullscreenDocument;
-  const fullscreenElement =
-    document.fullscreenElement ??
-    doc.webkitFullscreenElement ??
-    doc.webkitCurrentFullScreenElement ??
-    null;
+  const fullscreenElement = getFullscreenElement();
   const playerOwnsFullscreen = Boolean(
     fullscreenElement &&
     (options.scope === 'document' ||
@@ -127,14 +124,10 @@ export function exitYouTubeFullscreen(
     for (const listener of attempt.listeners) notifyFullscreenExit(listener);
     attempt.listeners.clear();
   };
-  const isStillFullscreen = (): boolean => {
-    const current =
-      document.fullscreenElement ??
-      doc.webkitFullscreenElement ??
-      doc.webkitCurrentFullScreenElement ??
-      null;
-    return fullscreenElement ? current === fullscreenElement : doc.webkitIsFullScreen === true;
-  };
+  const isStillFullscreen = (): boolean =>
+    fullscreenElement
+      ? getFullscreenElement() === fullscreenElement
+      : doc.webkitIsFullScreen === true;
   const onChange = (): void => {
     if (!isStillFullscreen()) finish();
   };

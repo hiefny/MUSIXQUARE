@@ -1248,9 +1248,10 @@ RO-46 accepted-exception
 - **Current owners/flows:** the screensaver entry (`src/ui/screensaver-entry.ts`: entry lock,
   request and exit generations, 1.5 s settlement); the YouTube exit (`src/player/video.ts`,
   `pendingFullscreenExit`); the YouTube toggle (`src/ui/player-controls.ts`: native request, fake
-  fullscreen, a 100 ms WebKit check). Prefixed-API resolvers exist in `src/core/fullscreen.ts`
-  (moved from `src/ui/` in Phase 2, C8-I2), `video.ts` and `player-controls.ts`. Only playback
-  mode separates the owners; read from the code (not reproduced), a YouTube toggle tapped while a
+  fullscreen, a 100 ms WebKit check). `getFullscreenElement` in `src/core/fullscreen.ts` (moved
+  from `src/ui/` in Phase 2, C8-I2) is the one prefixed-element reader for all three (C8-I5);
+  exit-method resolvers exist in `src/core/fullscreen.ts` and `video.ts`. Only playback mode
+  separates the owners; read from the code (not reproduced), a YouTube toggle tapped while a
   screensaver exit is in flight issues a second exit instead of entering.
 - **Target single owner:** `src/core/fullscreen.ts` with one bounded-exit primitive; callers keep
   their request policy.

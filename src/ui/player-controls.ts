@@ -35,7 +35,7 @@ import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { exitYouTubeFullscreen } from '../player/video.ts';
-import { getFullscreenElement, type FullscreenDocument } from '../core/fullscreen.ts';
+import { getFullscreenElement, type FullscreenTarget } from '../core/fullscreen.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import {
@@ -1276,11 +1276,8 @@ export function initPlayerControls(): void {
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
   $on('btn-fullscreen', 'click', () => {
-    const doc = document as FullscreenDocument;
-    const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
-    const videoWrapper = document.querySelector('.video-wrapper') as
-      (HTMLElement & { webkitRequestFullscreen?: () => void }) | null;
-    const target = videoWrapper || el;
+    const videoWrapper = document.querySelector<FullscreenTarget>('.video-wrapper');
+    const target = videoWrapper || (document.documentElement as FullscreenTarget);
 
     const enterFake = () => {
       // A native fullscreen request can reject after playback has already
@@ -1296,11 +1293,7 @@ export function initPlayerControls(): void {
     };
 
     const isFakeFullscreen = videoWrapper?.classList.contains('fake-fullscreen');
-    const isFullscreen = !!(
-      document.fullscreenElement ||
-      doc.webkitFullscreenElement ||
-      isFakeFullscreen
-    );
+    const isFullscreen = Boolean(getFullscreenElement() || isFakeFullscreen);
 
     try {
       if (!isFullscreen) {
@@ -1312,8 +1305,9 @@ export function initPlayerControls(): void {
             if (getState('playback.mode') !== 'youtube') exitYouTubeFullscreen();
           }, enterFake);
         } else if (target.webkitRequestFullscreen) {
-          target.webkitRequestFullscreen();
           // webkit's call is sync and silent on failure — verify after a tick.
+          // Shipping engines return nothing; a promise is verified the same way.
+          Promise.resolve(target.webkitRequestFullscreen()).catch(() => {});
           setManagedTimer(
             'webkit-fullscreen-fallback',
             () => {
@@ -1321,7 +1315,7 @@ export function initPlayerControls(): void {
                 exitYouTubeFullscreen();
                 return;
               }
-              if (!document.fullscreenElement && !doc.webkitFullscreenElement) enterFake();
+              if (!getFullscreenElement()) enterFake();
             },
             100,
           );

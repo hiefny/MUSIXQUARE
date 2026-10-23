@@ -2695,6 +2695,49 @@ describe('initPlayerControls fullscreen fallback', () => {
 
     expect(exitFullscreen).toHaveBeenCalledOnce();
   });
+
+  it('exits legacy WebKit fullscreen exposed only as webkitCurrentFullScreenElement [C8-I5]', () => {
+    document.body.innerHTML = `
+      <div class="video-wrapper">
+        <div id="youtube-player-container"></div>
+        <button id="btn-fullscreen"></button>
+      </div>
+    `;
+    const wrapper = document.querySelector('.video-wrapper') as HTMLElement & {
+      requestFullscreen: () => Promise<void>;
+    };
+    let legacyFullscreen: Element | null = wrapper;
+    const request = vi.fn(() => Promise.resolve());
+    wrapper.requestFullscreen = request;
+    const cancel = vi.fn(() => {
+      legacyFullscreen = null;
+      document.dispatchEvent(new Event('webkitfullscreenchange'));
+    });
+    Object.defineProperty(document, 'webkitCurrentFullScreenElement', {
+      configurable: true,
+      get: () => legacyFullscreen,
+    });
+    Object.defineProperty(document, 'webkitCancelFullScreen', {
+      configurable: true,
+      value: cancel,
+    });
+    try {
+      setState('playback.mode', 'youtube');
+      initPlayerControls();
+
+      document.getElementById('btn-fullscreen')?.click();
+
+      // The toggle reads the same prefixed state as every other fullscreen
+      // reader, so it leaves the legacy fullscreen instead of entering again.
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(request).not.toHaveBeenCalled();
+      expect(wrapper.classList.contains('fake-fullscreen')).toBe(false);
+      expect(document.body.classList.contains('has-fake-fullscreen')).toBe(false);
+    } finally {
+      Reflect.deleteProperty(document, 'webkitCurrentFullScreenElement');
+      Reflect.deleteProperty(document, 'webkitCancelFullScreen');
+    }
+  });
 });
 
 describe('initPlayerControls tab title marquee wiring', () => {

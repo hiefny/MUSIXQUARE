@@ -76,10 +76,13 @@ test.describe('Standard-room owner PIN', () => {
     await expect(row.locator('.room-password-code')).toHaveText('••••-••••');
     await expect(row.locator('.room-password-code')).toHaveAttribute('aria-hidden', 'true');
     await expect(row.locator('.sr-only')).toHaveText('Password applied');
+    // Standard rooms offer an eye that shows the PIN (masked by default);
+    // only PRO rooms keep the "Change room password" pencil.
     await expect(row.locator('.room-password-refresh')).toHaveAttribute(
       'aria-label',
-      'Change room password',
+      'Show password',
     );
+    await expect(row.locator('.room-password-refresh')).toHaveAttribute('aria-pressed', 'false');
 
     // Turning protection off is immediate and asks nothing.
     await toggle.click();

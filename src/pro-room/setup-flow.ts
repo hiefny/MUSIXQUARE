@@ -5,8 +5,7 @@ import {
   isLazyFeatureLoadError,
 } from '../core/lazy-feature-failure.ts';
 import { capturePendingClaimReloadGuard } from '../core/document-reload.ts';
-import { navigateToAppHome } from '../core/navigation.ts';
-import { scheduleSessionReset } from '../core/session-reset.ts';
+import { navigateHome } from '../core/navigation.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { ProRoomApiError } from './api.ts';
@@ -780,7 +779,7 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
       await showProRoomRemovalNotice(sessionEndReason);
       acknowledgeProRoomRemoval(code);
       clearPendingSessionRequestId(code);
-      scheduleSessionReset(t('dialog.leaving_session'), navigateToAppHome);
+      navigateHome(t('dialog.leaving_session'), { history: 'replace' });
       return false;
     }
     // After a "make everyone rejoin" PIN change, the first prompt says why.

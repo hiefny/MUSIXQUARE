@@ -39,7 +39,8 @@ import {
   getSetupOverlayAbort,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
-import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
+import { scheduleDocumentReload } from '../core/session-reset.ts';
+import { navigateHome } from '../core/navigation.ts';
 import { showDialog } from './dialog.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
@@ -208,9 +209,7 @@ function _renderInviteLinkActions(retry = false, reloadRequired = false): void {
         kind: 'icon-only',
         onClick: () => {
           cancelGuestPreparation();
-          scheduleSessionReset(t('dialog.leaving_session'), () => {
-            window.location.href = '/';
-          });
+          navigateHome(t('dialog.leaving_session'), { history: 'push' });
         },
       },
       {
@@ -269,9 +268,7 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
         html: BACK_SVG,
         kind: 'icon-only',
         onClick: () => {
-          scheduleSessionReset(t('dialog.leaving_session'), () => {
-            window.location.href = '/';
-          });
+          navigateHome(t('dialog.leaving_session'), { history: 'push' });
         },
         disabled: true,
       },
@@ -599,9 +596,7 @@ function renderPasswordRetryBusy(inviteLink: boolean): void {
         kind: 'icon-only',
         onClick: inviteLink
           ? () => {
-              scheduleSessionReset(t('dialog.leaving_session'), () => {
-                window.location.href = '/';
-              });
+              navigateHome(t('dialog.leaving_session'), { history: 'push' });
             }
           : () => _goBack(),
         disabled: true,

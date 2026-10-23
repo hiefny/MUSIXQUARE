@@ -199,14 +199,18 @@ const HISTORY_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 /** RO-23: location.reload/replace/assign and writes to location or its properties. */
 const LOCATION_NAVIGATION_BASELINE: Baseline = new Map<string, Allowance>([
   ['src/app.ts', { count: 1, reason: 'Back guard navigateHome port' }],
-  ['src/core/navigation.ts', { count: 1, reason: 'navigateToAppHome helper' }],
+  [
+    'src/core/navigation.ts',
+    {
+      count: 3,
+      reason:
+        'the intents: home by replace and by push, and the /CODE return (C6-3 moved the setup, setup-guest and sw-register sinks here, 7 to 3)',
+    },
+  ],
   ['src/core/session-reset.ts', { count: 1, reason: 'the navigation owner reload' }],
   ['src/i18n/localized-app-document.ts', { count: 1, reason: 'language switch fallback' }],
   ['src/pro-room/runtime.ts', { count: 1, reason: 'inside a scheduleSessionReset action' }],
-  ['src/sw-register.ts', { count: 1, reason: 'inside a scheduleSessionReset action' }],
   ['src/ui/account.ts', { count: 1, reason: 'login popup window, not this document' }],
-  ['src/ui/setup-guest.ts', { count: 3, reason: 'inside scheduleSessionReset actions' }],
-  ['src/ui/setup.ts', { count: 2, reason: 'inside scheduleSessionReset actions' }],
 ]);
 
 /** RO-22: 'SKIP_WAITING' messages to a waiting service worker. */

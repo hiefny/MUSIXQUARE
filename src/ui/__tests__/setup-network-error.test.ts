@@ -118,7 +118,7 @@ import { initSetup } from '../setup.ts';
 import { showDialog } from '../dialog.ts';
 import { setHostGoBack } from '../setup-host.ts';
 import { setupRenderActions, setupRenderActionsInTransition } from '../setup-shared.ts';
-import { restoreGuestJoinControlsAfterFailure } from '../setup-guest.ts';
+import { restoreGuestJoinControlsAfterFailure, startGuestFlow } from '../setup-guest.ts';
 import { showToast } from '../toast.ts';
 import { scheduleDocumentReload, scheduleSessionReset } from '../../core/session-reset.ts';
 
@@ -340,6 +340,69 @@ describe('setup network error messages', () => {
   });
 });
 
+describe('terminal host loss: Reconnect or Go back', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  beforeEach(() => {
+    vi.mocked(scheduleSessionReset).mockClear();
+    vi.mocked(scheduleDocumentReload).mockClear();
+    vi.mocked(startGuestFlow).mockClear();
+    setState('network.isConnecting', false);
+    setState('setup.sessionStarted', true);
+  });
+
+  it('returns to the room Start screen on Reconnect and marks the next join as a reconnect', async () => {
+    setState('network.lastJoinCode', '123456');
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'ok' });
+
+    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+    await flush();
+
+    expect(sessionStorage.getItem('mxqr_reconnect_target')).toBe('123456');
+    expect(scheduleSessionReset).toHaveBeenCalledExactlyOnceWith(
+      'dialog.refreshing_session',
+      expect.any(Function),
+    );
+    const navigate = vi.mocked(scheduleSessionReset).mock.calls[0]?.[1];
+    const location = { href: '' };
+    vi.stubGlobal('location', location);
+    try {
+      navigate?.();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    // A pushed entry, as every /CODE return keeps.
+    expect(location.href).toBe('/123456');
+    expect(startGuestFlow).not.toHaveBeenCalled();
+    expect(scheduleDocumentReload).not.toHaveBeenCalled();
+  });
+
+  it('starts the guest flow instead when the remembered code is not a room code', async () => {
+    setState('network.lastJoinCode', '../evil');
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'ok' });
+
+    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+    await flush();
+
+    expect(startGuestFlow).toHaveBeenCalledOnce();
+    expect(scheduleSessionReset).not.toHaveBeenCalled();
+    expect(scheduleDocumentReload).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('mxqr_reconnect_target')).toBeNull();
+  });
+
+  it('reloads with the leaving message on Go back', async () => {
+    setState('network.lastJoinCode', '123456');
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'secondary' });
+
+    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+    await flush();
+
+    expect(scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith('dialog.leaving_session');
+    expect(scheduleSessionReset).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('mxqr_reconnect_target')).toBeNull();
+  });
+});
+
 describe('Standard-room PIN removal and wrong-PIN limit', () => {
   function dialogOptions() {
     const options = vi.mocked(showDialog).mock.calls.at(-1)?.[0];
@@ -385,6 +448,8 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
         vi.unstubAllGlobals();
       }
       expect(location.href).toBe('/123456');
+      // A PIN removal is not a reconnect: the next join keeps its own error copy.
+      expect(sessionStorage.getItem('mxqr_reconnect_target')).toBeNull();
     },
   );
 
@@ -393,7 +458,7 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
     bus.emit('network:kicked-explicitly', 'room-pin-changed');
     await flush();
     expect(scheduleSessionReset).not.toHaveBeenCalled();
-    expect(scheduleDocumentReload).toHaveBeenCalledOnce();
+    expect(scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith('dialog.leaving_session');
   });
 
   it('keeps the generic kick copy for a kick without a known reason', async () => {

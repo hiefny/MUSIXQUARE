@@ -36,7 +36,8 @@ import {
   restoreGuestJoinControlsAfterFailure,
 } from './setup-guest.ts';
 import { animateTransition, runWithoutViewTransitions } from './dom.ts';
-import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
+import { scheduleDocumentReload } from '../core/session-reset.ts';
+import { returnToRoomStart } from '../core/navigation.ts';
 import { RECONNECT_TARGET_KEY } from '../core/navigation-contract.ts';
 import { cancelPendingSessionSetup } from '../network/peer.ts';
 import {
@@ -96,15 +97,13 @@ function showStandardRoomPinRemovalNotice(
     .catch((e) => log.warn('[Setup] Room password removal dialog error:', e))
     .finally(() => {
       _standardRoomPinRemovalNoticeOpen = false;
-      // Defense-in-depth at the navigation sink, as for the reconnect route.
-      if (/^\d{6}$/.test(roomCode)) {
-        log.info(`[Setup] Room password changed → /${roomCode}`);
-        scheduleSessionReset(t('dialog.refreshing_session'), () => {
-          window.location.href = '/' + roomCode;
-        });
-      } else {
-        scheduleDocumentReload(t('dialog.leaving_session'));
-      }
+      // returnToRoomStart checks the code at the navigation sink.
+      const returned = returnToRoomStart(roomCode, {
+        message: t('dialog.refreshing_session'),
+        reconnect: false,
+        fallback: () => scheduleDocumentReload(t('dialog.leaving_session')),
+      });
+      if (returned) log.info(`[Setup] Room password changed → /${roomCode}`);
     });
 }
 
@@ -711,27 +710,20 @@ export function initSetup(): void {
             // The auto-join URL detection in initSetupOverlay picks up the
             // code on bootstrap and enters guest flow automatically.
             const lastCode = getState('network.lastJoinCode') || '';
-            // Defense-in-depth: re-validate format at the URL navigation sink.
-            // Writers in setup-guest.ts already gate on /^\d{6}$/, but a future
-            // joinSession() caller that bypasses validation could let lastCode
-            // contain "../foo" — interpolated into `/` + lastCode it would
+            // Defense-in-depth: returnToRoomStart re-validates the format at the
+            // URL navigation sink. Writers in setup-guest.ts already gate on
+            // /^\d{6}$/, but a future joinSession() caller that bypasses
+            // validation could let lastCode contain "../foo", which would
             // navigate off-origin or to an unintended path.
-            if (lastCode && /^\d{6}$/.test(lastCode)) {
-              log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
-              // Mark this as a reconnect attempt — read after reload by the
+            const returned = returnToRoomStart(lastCode, {
+              message: t('dialog.refreshing_session'),
+              // Mark this as a reconnect attempt, read after reload by the
               // peer-unavailable error branch to swap the misleading "check
               // your code" message for "host left".
-              try {
-                sessionStorage.setItem(RECONNECT_TARGET_KEY, lastCode);
-              } catch {
-                /* noop */
-              }
-              scheduleSessionReset(t('dialog.refreshing_session'), () => {
-                window.location.href = '/' + lastCode;
-              });
-            } else {
-              startGuestFlow();
-            }
+              reconnect: true,
+              fallback: () => startGuestFlow(),
+            });
+            if (returned) log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
           } else {
             scheduleDocumentReload(t('dialog.leaving_session'));
           }

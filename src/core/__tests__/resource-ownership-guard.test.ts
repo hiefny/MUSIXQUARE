@@ -317,9 +317,9 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         withSources((sources) => {
           replaceIn(
             sources,
-            'src/sw-register.ts',
-            '      window.location.href = returnPath;',
-            '      window.location.href = returnPath;\n      window.location.reload();',
+            'src/core/navigation.ts',
+            '    window.location.href = `/${code}`;',
+            '    window.location.href = `/${code}`;\n    window.location.reload();',
           );
           replaceIn(
             sources,
@@ -330,7 +330,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         }),
       );
       expect(findings).toMatch(
-        /RATCHET REGRESSION page navigation \(RO-23\): src\/sw-register\.ts has 2, baseline 1/u,
+        /RATCHET REGRESSION page navigation \(RO-23\): src\/core\/navigation\.ts has 4, baseline 3/u,
       );
       expect(findings).toMatch(
         /STALE BASELINE inert write \(RO-24\): src\/player\/video\.ts has 0 - remove its entry/u,

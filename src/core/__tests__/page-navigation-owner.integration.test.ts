@@ -60,11 +60,11 @@
  * sw-register-recovery.integration.test.ts; account.ts's own anchor and
  * 10-minute TTL in account.test.ts. C6-3's return-to-room-start and home
  * intents (the /CODE `location.href` push, the mxqr_reconnect_target marker,
- * each call site's invalid-code fallback, push versus replace) are pinned in
- * the requester suites (setup-network-error.test.ts,
- * setup-guest-recovery.test.ts, the sw-register.test.ts room cases) and in
- * C6-3's own tests-first; the harness records 'href' and 'assign' sinks, but
- * no test here drives them.
+ * push versus replace) are pinned on this harness in navigation.test.ts, and
+ * each call site's invalid-code fallback in the requester suites
+ * (setup-network-error.test.ts, setup-guest-recovery.test.ts, the
+ * sw-register.test.ts room cases); no test here drives the 'href' and
+ * 'assign' sinks.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {

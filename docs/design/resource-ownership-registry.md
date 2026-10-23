@@ -1145,10 +1145,13 @@ RO-47 owner-in-place
   `src/core/document-reload.ts` (claim phases, active attempt, FIFO queue), joined to the reset by
   `scheduleDocumentReload`, which reports a reload as recovered when a reset is already pending;
   stacked requester latches in `sw-register.ts`, `src/core/reload-recovery-latch.ts` and the
-  back-forward cache retry in `src/core/page-lifecycle.ts`. `scheduleSessionReset` is called
-  directly from `app.ts`, `sw-register.ts`, `src/pro-room/runtime.ts`,
-  `src/pro-room/setup-flow.ts`, `src/ui/connect.ts`, `src/ui/player-controls.ts`,
-  `src/ui/setup.ts` and `src/ui/setup-guest.ts`.
+  back-forward cache retry in `src/core/page-lifecycle.ts`. The navigation intents in
+  `src/core/navigation.ts` (Phase 2, C6-3) run on the reset: `navigateHome` (replace, or push for
+  the setup-guest Back buttons) serves `src/pro-room/setup-flow.ts`, `src/ui/connect.ts` and
+  `src/ui/setup-guest.ts`; `returnToRoomStart` (the /CODE return, which checks the room code once
+  at its sink and writes the reconnect marker) serves `sw-register.ts` and `src/ui/setup.ts`.
+  `scheduleSessionReset` is still called directly from `app.ts`, `src/ui/player-controls.ts` and
+  `src/pro-room/runtime.ts` (which restores its own reset until C6-8 gives it `isCurrent`).
 - **Target single owner:** one navigation owner in `src/core/session-reset.ts` with one state
   type, one queue and exactly-once settlement; `document-reload.ts` keeps only the PRO claim fence.
 - **Allowed requesters:** the callers above, through the owner; `page-lifecycle.ts` receives

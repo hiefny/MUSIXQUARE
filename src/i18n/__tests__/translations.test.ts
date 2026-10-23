@@ -227,6 +227,9 @@ describe('Translation key integrity', () => {
       '연결 서버가 응답하지 않아요.\n새 참여자를 초대할 수 없어요.',
     );
     expect(ko['connect.signaling_retry']).toBe('재시도');
+    // A state, not a "disconnect" action, on the invite button and as the title.
+    expect(ko['connect.signaling_expired']).toBe('방 연결이 끝났어요');
+    expect(ko['connect.signaling_rejoin']).toBe('새로 입장');
   });
 
   it('keeps compact player actions paired with full accessible labels', () => {
@@ -335,6 +338,7 @@ describe('Translation key integrity', () => {
       'common.revoke',
       'connect.signaling_recover_action',
       'connect.signaling_retry',
+      'connect.signaling_rejoin',
       'connect.kick_yes',
       'dialog.got_it',
       'dialog.continue',
@@ -352,6 +356,10 @@ describe('Translation key integrity', () => {
     const safetyDistinctPairs = [
       ['common.grant', 'common.revoke'],
       ['connect.signaling_recover_action', 'connect.signaling_retry'],
+      // Joining again after expiry leaves the page and stops playback; it must
+      // never read like the in-place recovery it replaces on the same button.
+      ['connect.signaling_rejoin', 'connect.signaling_recover_action'],
+      ['connect.signaling_rejoin', 'connect.signaling_retry'],
       ['connect.kick_yes', 'common.cancel'],
       ['account.logout', 'account.delete_account'],
       ['account.delete_account', 'common.ok'],
@@ -362,7 +370,10 @@ describe('Translation key integrity', () => {
       ['pro.use_this_tab', 'common.cancel'],
     ] as const;
 
-    for (const [locale, dict] of Object.entries(locales)) {
+    // Every shipped locale, not only the 17 imported above: a duplicate label
+    // in one of the other 25 (gu once had one) must fail here too.
+    expect(Object.keys(APP_DICTIONARIES)).toHaveLength(42);
+    for (const [locale, dict] of Object.entries(APP_DICTIONARIES)) {
       for (const key of actionKeys) {
         const label = dict[key];
         expect(label, `${locale}.${key} surrounding whitespace`).toBe(label.trim());

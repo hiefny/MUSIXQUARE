@@ -309,7 +309,7 @@ const fa: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'سرور اتاق آنلاین است',
   'connect.signaling_expired': 'اتصال اتاق پایان یافت',
   'connect.signaling_expired_detail':
-    'مهلت اتصال دوباره به این اتاق تمام شده است.\nپخش فعلی ادامه دارد. پیوستن دوباره، اتصال فعلی شما را ترک می‌کند.',
+    'مهلت اتصال دوباره به این اتاق تمام شده است.\nپخش فعلی ادامه دارد. با پیوستن دوباره، اتصال شما به جلسهٔ فعلی قطع می‌شود و پخش متوقف می‌شود.',
   'connect.signaling_rejoin': 'پیوستن دوباره',
   'connect.signaling_recovering': 'در حال اتصال دوباره…',
   'connect.signaling_failed': 'اتصال به سرور ناموفق بود',

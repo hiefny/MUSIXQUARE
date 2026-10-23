@@ -317,7 +317,7 @@ const es: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Servidor de la sala disponible',
   'connect.signaling_expired': 'Conexión a la sala finalizada',
   'connect.signaling_expired_detail':
-    'El plazo para reconectarse a esta sala ha vencido.\nLa reproducción actual continúa. Si vuelves a unirte, saldrás de la conexión actual.',
+    'El plazo para reconectarse a esta sala ha vencido.\nLa reproducción actual continúa. Si vuelves a unirte, te desconectarás de la sala actual y la reproducción se detendrá.',
   'connect.signaling_rejoin': 'Volver a unirse',
   'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falló la conexión con el servidor',

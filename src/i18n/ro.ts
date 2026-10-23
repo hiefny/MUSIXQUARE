@@ -316,8 +316,8 @@ const ro: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Serverul camerei este online',
   'connect.signaling_expired': 'Conexiunea la cameră s-a încheiat',
   'connect.signaling_expired_detail':
-    'Timpul pentru reconectarea la această cameră a expirat.\nRedarea curentă continuă. Dacă te alături din nou, vei părăsi conexiunea curentă.',
-  'connect.signaling_rejoin': 'Alătură-te din nou',
+    'Timpul pentru reconectarea la această cameră a expirat.\nRedarea curentă continuă. Dacă intri din nou, vei fi deconectat de la sesiunea curentă, iar redarea se va opri.',
+  'connect.signaling_rejoin': 'Intră din nou',
   'connect.signaling_recovering': 'Se reconectează…',
   'connect.signaling_failed': 'Conectarea la server a eșuat',
   'connect.signaling_recover_action': 'Reconectează',

@@ -34,6 +34,7 @@ const AUDITED_ACTION_KEYS = [
   'common.revoke',
   'connect.signaling_recover_action',
   'connect.signaling_retry',
+  'connect.signaling_rejoin',
   'connect.kick_yes',
   'dialog.got_it',
   'dialog.continue',
@@ -65,6 +66,7 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
     copy: (dictionary as Record<string, string>)['connect.copy_invite_link'],
     recover: (dictionary as Record<string, string>)['connect.signaling_recover_action'],
     recovering: (dictionary as Record<string, string>)['connect.signaling_recovering'],
+    expired: (dictionary as Record<string, string>)['connect.signaling_expired'],
   },
   player: {
     sync: (dictionary as Record<string, string>)['player.sync_compact'],

@@ -316,7 +316,7 @@ const pl: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Serwer pokoju jest dostępny',
   'connect.signaling_expired': 'Połączenie z pokojem zakończone',
   'connect.signaling_expired_detail':
-    'Czas na ponowne połączenie z tym pokojem minął.\nBieżące odtwarzanie trwa. Ponowne dołączenie opuści bieżące połączenie.',
+    'Czas na ponowne połączenie z tym pokojem minął.\nBieżące odtwarzanie trwa. Po ponownym dołączeniu połączenie z obecnym pokojem zostanie przerwane, a odtwarzanie się zatrzyma.',
   'connect.signaling_rejoin': 'Dołącz ponownie',
   'connect.signaling_recovering': 'Ponowne łączenie…',
   'connect.signaling_failed': 'Połączenie z serwerem nie powiodło się',

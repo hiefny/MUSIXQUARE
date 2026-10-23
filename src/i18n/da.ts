@@ -314,7 +314,7 @@ const da: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Rummets server er online',
   'connect.signaling_expired': 'Rumforbindelsen er afsluttet',
   'connect.signaling_expired_detail':
-    'Tiden til at genoprette forbindelsen til dette rum er udløbet.\nDen aktuelle afspilning fortsætter. Hvis du deltager igen, forlader du din nuværende forbindelse.',
+    'Tiden til at genoprette forbindelsen til dette rum er udløbet.\nDen aktuelle afspilning fortsætter. Hvis du deltager igen, bliver forbindelsen til den aktuelle session afbrudt, og afspilningen stopper.',
   'connect.signaling_rejoin': 'Deltag igen',
   'connect.signaling_recovering': 'Opretter forbindelse igen…',
   'connect.signaling_failed': 'Forbindelsen til serveren mislykkedes',

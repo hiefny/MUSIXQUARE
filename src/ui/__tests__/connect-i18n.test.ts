@@ -211,7 +211,7 @@ describe('connect signaling health status', () => {
       setState('network.signalingHealth', { status: 'expired', attempt: 0, maxAttempts: 5 });
       expect(button.dataset.mode).toBe('expired');
       expect(button.getAttribute('aria-busy')).toBe('false');
-      expect(button.textContent).toBe('방 연결 종료');
+      expect(button.textContent).toBe('방 연결이 끝났어요');
       expect(vi.mocked(returnToRoomStart)).not.toHaveBeenCalled();
 
       button.click();
@@ -231,13 +231,55 @@ describe('connect signaling health status', () => {
 
       button.click();
       document.getElementById('btn-signaling-recovery-retry')?.click();
+      // Owner decision (2026-10-24): joining again is a reconnect, so a missing
+      // host reads error.host_left rather than "check the code".
       expect(vi.mocked(returnToRoomStart)).toHaveBeenCalledExactlyOnceWith(
         '123456',
-        expect.objectContaining({ reconnect: false }),
+        expect.objectContaining({ reconnect: true }),
       );
       expect(mockedRetryPeerSignalingConnection).not.toHaveBeenCalled();
     },
   );
+
+  it('turns an open failure dialog into the expiry dialog at the same boundary', async () => {
+    const button = await startHostSessionWithQR();
+    setState('network.appRole', 'guest');
+    setState('network.signalingHealth', { status: 'exhausted', attempt: 0, maxAttempts: 5 });
+    mockedRetryPeerSignalingConnection.mockImplementationOnce(() => {
+      setState('network.signalingHealth', { status: 'reconnecting', attempt: 1, maxAttempts: 5 });
+      return true;
+    });
+    button.click();
+    await vi.waitFor(() => expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledOnce());
+    setState('network.signalingHealth', { status: 'exhausted', attempt: 0, maxAttempts: 5 });
+
+    const overlay = document.getElementById('signaling-recovery-overlay')!;
+    const dialog = document.getElementById('signaling-recovery-dialog')!;
+    const retry = document.getElementById('btn-signaling-recovery-retry')!;
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(dialog.dataset.state).toBe('failed');
+    expect(retry.textContent).toBe('재시도');
+
+    // Confirmed expiry arrives while the failure dialog is still open. Without
+    // the in-place switch the dialog would close, or keep a Retry that can
+    // never succeed.
+    setState('network.signalingHealth', { status: 'expired', attempt: 0, maxAttempts: 5 });
+    expect(overlay.classList.contains('show')).toBe(true);
+    expect(dialog.dataset.state).toBe('expired');
+    expect(document.getElementById('signaling-recovery-title')?.textContent).toBe(
+      '방 연결이 끝났어요',
+    );
+    expect(retry.textContent).toBe('새로 입장');
+    expect(button.dataset.mode).toBe('expired');
+
+    retry.click();
+    expect(mockedRetryPeerSignalingConnection).toHaveBeenCalledOnce();
+    expect(vi.mocked(returnToRoomStart)).toHaveBeenCalledExactlyOnceWith(
+      '123456',
+      expect.objectContaining({ reconnect: true }),
+    );
+    expect(overlay.classList.contains('show')).toBe(false);
+  });
 
   it('settles an in-flight manual recovery as expired without showing retry failure', async () => {
     const button = await startHostSessionWithQR();
@@ -498,6 +540,16 @@ describe('connect signaling health status', () => {
       "[data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover",
     );
     expect(stylesheet).not.toContain("[data-theme='light'] .btn-copy-invite-link:hover");
+    // Owner decision (2026-10-24): expiry keeps the neutral copy look, so it
+    // shares the copy hover/active and touch-reset rules at the same specificity.
+    for (const selector of [
+      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
+      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:active",
+      ".btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
+      "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
+    ]) {
+      expect(stylesheet).toContain(selector);
+    }
   });
 
   it('opens the requested failure dialog only after a manual recovery fails', async () => {

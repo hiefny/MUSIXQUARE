@@ -317,7 +317,7 @@ const sv: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Rumsservern är online',
   'connect.signaling_expired': 'Rumsanslutningen avslutades',
   'connect.signaling_expired_detail':
-    'Tiden för att återansluta till det här rummet har gått ut.\nUppspelningen fortsätter. Om du går med igen lämnar du din nuvarande anslutning.',
+    'Tiden för att återansluta till det här rummet har gått ut.\nUppspelningen fortsätter. Om du går med igen kopplas du från den aktuella sessionen och uppspelningen stoppas.',
   'connect.signaling_rejoin': 'Gå med igen',
   'connect.signaling_recovering': 'Ansluter igen…',
   'connect.signaling_failed': 'Serveranslutningen misslyckades',

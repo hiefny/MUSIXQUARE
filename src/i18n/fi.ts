@@ -314,7 +314,7 @@ const fi: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Huonepalvelin on käytettävissä',
   'connect.signaling_expired': 'Huoneyhteys päättyi',
   'connect.signaling_expired_detail':
-    'Aika yhdistää tähän huoneeseen uudelleen on päättynyt.\nNykyinen toisto jatkuu. Uudelleen liittyminen katkaisee nykyisen yhteyden.',
+    'Aika yhdistää tähän huoneeseen uudelleen on päättynyt.\nNykyinen toisto jatkuu. Jos liityt uudelleen, yhteytesi nykyiseen istuntoon katkaistaan ja toisto pysähtyy.',
   'connect.signaling_rejoin': 'Liity uudelleen',
   'connect.signaling_recovering': 'Yhdistetään uudelleen…',
   'connect.signaling_failed': 'Palvelinyhteys epäonnistui',

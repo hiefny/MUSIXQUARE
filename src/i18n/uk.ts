@@ -314,8 +314,8 @@ const uk: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Сервер кімнати працює',
   'connect.signaling_expired': 'Підключення до кімнати завершено',
   'connect.signaling_expired_detail':
-    'Час для повторного підключення до цієї кімнати минув.\nПоточне відтворення триває. Повторний вхід завершить поточне підключення.',
-  'connect.signaling_rejoin': 'Увійти знову',
+    'Час для повторного підключення до цієї кімнати минув.\nПоточне відтворення триває. Повторне приєднання розірве підключення до поточного сеансу й зупинить відтворення.',
+  'connect.signaling_rejoin': 'Приєднатися знову',
   'connect.signaling_recovering': 'Повторне підключення…',
   'connect.signaling_failed': 'Не вдалося підключитися до сервера',
   'connect.signaling_recover_action': 'Перепідключити',

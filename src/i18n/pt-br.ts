@@ -315,7 +315,7 @@ const ptBr: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Servidor da sala online',
   'connect.signaling_expired': 'Conexão da sala encerrada',
   'connect.signaling_expired_detail':
-    'O prazo para reconectar a esta sala expirou.\nA reprodução atual continua. Entrar novamente encerrará sua conexão atual.',
+    'O prazo para reconectar a esta sala expirou.\nA reprodução atual continua. Se você entrar novamente, será desconectado da sala atual e a reprodução vai parar.',
   'connect.signaling_rejoin': 'Entrar novamente',
   'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falha na conexão com o servidor',

@@ -313,7 +313,7 @@ const cs: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Server místnosti je online',
   'connect.signaling_expired': 'Spojení s místností skončilo',
   'connect.signaling_expired_detail':
-    'Čas na opětovné připojení k této místnosti vypršel.\nPřehrávání pokračuje. Opětovné připojení opustí současné spojení.',
+    'Čas na opětovné připojení k této místnosti vypršel.\nPřehrávání pokračuje. Pokud se připojíte znovu, budete odpojeni od aktuální relace a přehrávání se zastaví.',
   'connect.signaling_rejoin': 'Připojit se znovu',
   'connect.signaling_recovering': 'Probíhá opětovné připojení…',
   'connect.signaling_failed': 'Připojení k serveru se nezdařilo',

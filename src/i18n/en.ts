@@ -311,7 +311,7 @@ const en: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Room server online',
   'connect.signaling_expired': 'Room connection ended',
   'connect.signaling_expired_detail':
-    'The time to reconnect to this room has expired.\nCurrent playback continues. Joining again leaves your current connection.',
+    'The time to reconnect to this room has expired.\nCurrent playback continues. Joining again disconnects you from the current session and stops playback.',
   'connect.signaling_rejoin': 'Join again',
   'connect.signaling_recovering': 'Reconnecting…',
   'connect.signaling_failed': 'Server connection failed',

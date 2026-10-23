@@ -307,7 +307,7 @@ const he: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'שרת החדר מחובר',
   'connect.signaling_expired': 'החיבור לחדר הסתיים',
   'connect.signaling_expired_detail':
-    'פרק הזמן לחיבור מחדש לחדר זה הסתיים.\nהניגון הנוכחי נמשך. הצטרפות מחדש תעזוב את החיבור הנוכחי.',
+    'פרק הזמן לחיבור מחדש לחדר זה הסתיים.\nהניגון הנוכחי נמשך. בהצטרפות מחדש, החיבור לחדר הנוכחי ינותק והניגון ייעצר.',
   'connect.signaling_rejoin': 'הצטרפות מחדש',
   'connect.signaling_recovering': 'מתבצע חיבור מחדש…',
   'connect.signaling_failed': 'החיבור לשרת נכשל',

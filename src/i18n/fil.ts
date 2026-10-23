@@ -319,9 +319,9 @@ const fil: Record<I18nKey, string> = {
   'connect.pin_changed_removed_message':
     'Pinalitan ng host ang password ng kuwarto. Ilagay ang bagong password para makasali ulit.',
   'connect.signaling_healthy': 'Online ang server ng kuwarto',
-  'connect.signaling_expired': 'Natapos ang koneksyon sa room',
+  'connect.signaling_expired': 'Natapos ang koneksyon sa kuwarto',
   'connect.signaling_expired_detail':
-    'Lumipas na ang oras para muling kumonekta sa room na ito.\nMagpapatuloy ang kasalukuyang playback. Ang muling pagsali ay aalis sa kasalukuyan mong koneksyon.',
+    'Lumipas na ang oras para muling kumonekta sa kuwartong ito.\nMagpapatuloy ang kasalukuyang playback. Kapag sumali ka muli, madidiskonekta ka sa kasalukuyang session at hihinto ang playback.',
   'connect.signaling_rejoin': 'Sumali muli',
   'connect.signaling_recovering': 'Muling kumokonekta…',
   'connect.signaling_failed': 'Hindi makakonekta sa server',

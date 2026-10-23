@@ -306,9 +306,9 @@ const ko = {
   'connect.pin_changed_removed_message':
     '방장이 방 암호를 바꿨어요. 새 암호를 입력하면 다시 들어올 수 있어요.',
   'connect.signaling_healthy': '연결 서버 정상',
-  'connect.signaling_expired': '방 연결 종료',
+  'connect.signaling_expired': '방 연결이 끝났어요',
   'connect.signaling_expired_detail':
-    '방에 다시 연결할 수 있는 시간이 지났어요.\n현재 재생은 유지돼요. 새로 입장하면 현재 연결을 떠나요.',
+    '방에 다시 연결할 수 있는 시간이 지났어요.\n현재 재생은 유지돼요. 새로 입장하면 현재 세션과 연결이 끊어지고 재생이 멈춰요.',
   'connect.signaling_rejoin': '새로 입장',
   'connect.signaling_recovering': '다시 연결 중…',
   'connect.signaling_failed': '연결 복구 실패',

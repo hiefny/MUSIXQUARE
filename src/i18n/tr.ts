@@ -310,7 +310,7 @@ const tr: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Oda sunucusu çevrimiçi',
   'connect.signaling_expired': 'Oda bağlantısı sona erdi',
   'connect.signaling_expired_detail':
-    'Bu odaya yeniden bağlanma süresi doldu.\nMevcut oynatma devam eder. Yeniden katılmak mevcut bağlantınızdan ayrılmanıza neden olur.',
+    'Bu odaya yeniden bağlanma süresi doldu.\nMevcut oynatma devam eder. Yeniden katılırsan bağlantın kesilecek ve oynatma duracak.',
   'connect.signaling_rejoin': 'Yeniden katıl',
   'connect.signaling_recovering': 'Yeniden bağlanılıyor…',
   'connect.signaling_failed': 'Sunucu bağlantısı başarısız',

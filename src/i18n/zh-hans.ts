@@ -302,7 +302,7 @@ const zhHans: Record<I18nKey, string> = {
   'connect.signaling_healthy': '房间服务器正常',
   'connect.signaling_expired': '房间连接已结束',
   'connect.signaling_expired_detail':
-    '重新连接此房间的期限已过。\n当前播放会继续。重新加入将离开当前连接。',
+    '重新连接此房间的期限已过。\n当前播放会继续。重新加入将与当前房间断开连接，播放也会停止。',
   'connect.signaling_rejoin': '重新加入',
   'connect.signaling_recovering': '正在重新连接…',
   'connect.signaling_failed': '服务器连接失败',

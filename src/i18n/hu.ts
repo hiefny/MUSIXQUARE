@@ -313,7 +313,7 @@ const hu: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'A szobakiszolgáló elérhető',
   'connect.signaling_expired': 'A szobakapcsolat véget ért',
   'connect.signaling_expired_detail':
-    'Lejárt a szobához való újracsatlakozás ideje.\nA jelenlegi lejátszás folytatódik. Az újbóli csatlakozás kilép a jelenlegi kapcsolatból.',
+    'Lejárt a szobához való újracsatlakozás ideje.\nA jelenlegi lejátszás folytatódik. Ha újra csatlakozol, a jelenlegi munkamenet kapcsolata megszakad, és a lejátszás leáll.',
   'connect.signaling_rejoin': 'Csatlakozás újra',
   'connect.signaling_recovering': 'Újracsatlakozás…',
   'connect.signaling_failed': 'Nem sikerült csatlakozni a kiszolgálóhoz',

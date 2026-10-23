@@ -305,7 +305,7 @@ const ar: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'خادم الغرفة يعمل',
   'connect.signaling_expired': 'انتهى اتصال الغرفة',
   'connect.signaling_expired_detail':
-    'انتهت مهلة إعادة الاتصال بهذه الغرفة.\nيستمر التشغيل الحالي. ستؤدي إعادة الانضمام إلى مغادرة اتصالك الحالي.',
+    'انتهت مهلة إعادة الاتصال بهذه الغرفة.\nيستمر التشغيل الحالي. عند الانضمام مجددًا، سينقطع اتصالك بالجلسة الحالية ويتوقف التشغيل.',
   'connect.signaling_rejoin': 'الانضمام مجددًا',
   'connect.signaling_recovering': 'جارٍ إعادة الاتصال…',
   'connect.signaling_failed': 'فشل الاتصال بالخادم',

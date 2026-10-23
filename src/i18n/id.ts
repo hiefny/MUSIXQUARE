@@ -316,7 +316,7 @@ const id: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Server ruang online',
   'connect.signaling_expired': 'Koneksi ruang berakhir',
   'connect.signaling_expired_detail':
-    'Waktu untuk menyambung kembali ke ruang ini telah habis.\nPemutaran saat ini berlanjut. Bergabung lagi akan meninggalkan koneksi saat ini.',
+    'Waktu untuk menyambung kembali ke ruang ini telah habis.\nPemutaran saat ini berlanjut. Jika bergabung lagi, Anda akan terputus dari ruang saat ini dan pemutaran akan berhenti.',
   'connect.signaling_rejoin': 'Gabung lagi',
   'connect.signaling_recovering': 'Menghubungkan ulang…',
   'connect.signaling_failed': 'Koneksi server gagal',

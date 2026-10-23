@@ -317,7 +317,7 @@ const de: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Raumserver online',
   'connect.signaling_expired': 'Raumverbindung beendet',
   'connect.signaling_expired_detail':
-    'Die Frist zum Wiederverbinden mit diesem Raum ist abgelaufen.\nDie aktuelle Wiedergabe läuft weiter. Ein erneuter Beitritt beendet die aktuelle Verbindung.',
+    'Die Frist zum Wiederverbinden mit diesem Raum ist abgelaufen.\nDie aktuelle Wiedergabe läuft weiter. Wenn du erneut beitrittst, wirst du vom aktuellen Raum getrennt und die Wiedergabe wird gestoppt.',
   'connect.signaling_rejoin': 'Erneut beitreten',
   'connect.signaling_recovering': 'Wird neu verbunden…',
   'connect.signaling_failed': 'Serververbindung fehlgeschlagen',

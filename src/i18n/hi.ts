@@ -311,7 +311,7 @@ const hi: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'रूम सर्वर ऑनलाइन है',
   'connect.signaling_expired': 'रूम का कनेक्शन समाप्त हुआ',
   'connect.signaling_expired_detail':
-    'इस रूम से फिर जुड़ने का समय समाप्त हो गया है।\nअभी चल रहा प्लेबैक जारी रहेगा। दोबारा जुड़ने पर मौजूदा कनेक्शन छूट जाएगा।',
+    'इस रूम से फिर जुड़ने का समय समाप्त हो गया है।\nअभी चल रहा प्लेबैक जारी रहेगा। दोबारा जुड़ने पर मौजूदा सेशन से आपका कनेक्शन टूट जाएगा और प्लेबैक रुक जाएगा।',
   'connect.signaling_rejoin': 'दोबारा जुड़ें',
   'connect.signaling_recovering': 'फिर से कनेक्ट हो रहा है…',
   'connect.signaling_failed': 'सर्वर से कनेक्शन विफल रहा',

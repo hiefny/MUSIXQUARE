@@ -506,7 +506,12 @@ function rejoinExpiredRoom(): void {
   }
   returnToRoomStart(getState('network.sessionCode'), {
     message: t('dialog.refreshing_session'),
-    reconnect: false,
+    // Owner decision (2026-10-24): joining again after expiry is a reconnect,
+    // like the HOST_DISCONNECTED reconnect and the service-worker update
+    // return. Expiry means the host stayed away past its reclaim grace, so a
+    // missing host must read error.host_left, not "check the code" for a code
+    // the user never typed; activity stats count it as a continuing session.
+    reconnect: true,
     fallback: () => navigateHome(t('dialog.leaving_session'), { history: 'replace' }),
   });
 }

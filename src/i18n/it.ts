@@ -316,8 +316,8 @@ const it: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Server della stanza online',
   'connect.signaling_expired': 'Connessione alla stanza terminata',
   'connect.signaling_expired_detail':
-    'Il tempo per riconnettersi a questa stanza è scaduto.\nLa riproduzione attuale continua. Unendoti di nuovo lascerai la connessione attuale.',
-  'connect.signaling_rejoin': 'Unisciti di nuovo',
+    'Il tempo per riconnettersi a questa stanza è scaduto.\nLa riproduzione attuale continua. Se rientri, la connessione con la stanza corrente verrà interrotta e la riproduzione si fermerà.',
+  'connect.signaling_rejoin': 'Rientra',
   'connect.signaling_recovering': 'Riconnessione…',
   'connect.signaling_failed': 'Connessione al server non riuscita',
   'connect.signaling_recover_action': 'Riconnetti',

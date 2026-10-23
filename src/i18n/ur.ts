@@ -310,7 +310,7 @@ const ur: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'کمرے کا سرور آن لائن ہے',
   'connect.signaling_expired': 'کمرے کا کنکشن ختم ہو گیا',
   'connect.signaling_expired_detail':
-    'اس کمرے سے دوبارہ جڑنے کا وقت ختم ہو گیا ہے۔\nموجودہ پلے بیک جاری رہے گا۔ دوبارہ شامل ہونے سے موجودہ کنکشن چھوڑ دیا جائے گا۔',
+    'اس کمرے سے دوبارہ جڑنے کا وقت ختم ہو گیا ہے۔\nموجودہ پلے بیک جاری رہے گا۔ دوبارہ شامل ہونے پر موجودہ سیشن سے آپ کا کنکشن منقطع ہو جائے گا اور پلے بیک رک جائے گا۔',
   'connect.signaling_rejoin': 'دوبارہ شامل ہوں',
   'connect.signaling_recovering': 'دوبارہ منسلک ہو رہا ہے…',
   'connect.signaling_failed': 'سرور سے کنکشن ناکام ہوا',

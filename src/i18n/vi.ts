@@ -311,7 +311,7 @@ const vi: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Máy chủ phòng đang hoạt động',
   'connect.signaling_expired': 'Kết nối phòng đã kết thúc',
   'connect.signaling_expired_detail':
-    'Thời gian kết nối lại với phòng này đã hết.\nNội dung đang phát vẫn tiếp tục. Tham gia lại sẽ rời kết nối hiện tại.',
+    'Thời gian kết nối lại với phòng này đã hết.\nNội dung đang phát vẫn tiếp tục. Nếu tham gia lại, bạn sẽ ngắt kết nối khỏi phòng hiện tại và nội dung đang phát sẽ dừng.',
   'connect.signaling_rejoin': 'Tham gia lại',
   'connect.signaling_recovering': 'Đang kết nối lại…',
   'connect.signaling_failed': 'Kết nối máy chủ thất bại',

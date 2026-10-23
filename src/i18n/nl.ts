@@ -316,7 +316,7 @@ const nl: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'Kamerserver online',
   'connect.signaling_expired': 'Kamerverbinding beëindigd',
   'connect.signaling_expired_detail':
-    'De tijd om opnieuw verbinding met deze kamer te maken is verstreken.\nHet afspelen gaat door. Opnieuw deelnemen verlaat je huidige verbinding.',
+    'De tijd om opnieuw verbinding met deze kamer te maken is verstreken.\nHet afspelen gaat door. Als je opnieuw deelneemt, wordt de verbinding met de huidige kamer verbroken en stopt het afspelen.',
   'connect.signaling_rejoin': 'Opnieuw deelnemen',
   'connect.signaling_recovering': 'Opnieuw verbinden…',
   'connect.signaling_failed': 'Serververbinding mislukt',

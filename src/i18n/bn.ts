@@ -311,7 +311,7 @@ const bn: Record<I18nKey, string> = {
   'connect.signaling_healthy': 'রুম সার্ভার অনলাইনে আছে',
   'connect.signaling_expired': 'রুমের সংযোগ শেষ হয়েছে',
   'connect.signaling_expired_detail':
-    'এই রুমে আবার সংযোগ করার সময় শেষ হয়েছে।\nবর্তমান প্লেব্যাক চলবে। আবার যোগ দিলে বর্তমান সংযোগ ছেড়ে যাবেন।',
+    'এই রুমে আবার সংযোগ করার সময় শেষ হয়েছে।\nবর্তমান প্লেব্যাক চলবে। আবার যোগ দিলে বর্তমান সেশন থেকে আপনার সংযোগ বিচ্ছিন্ন হবে এবং প্লেব্যাক থেমে যাবে।',
   'connect.signaling_rejoin': 'আবার যোগ দিন',
   'connect.signaling_recovering': 'আবার সংযুক্ত হচ্ছে…',
   'connect.signaling_failed': 'সার্ভার সংযোগ ব্যর্থ হয়েছে',

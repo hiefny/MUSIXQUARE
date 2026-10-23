@@ -92,18 +92,21 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [PRO ownership transfer turns the entry password off (Phase 2 app batch, 2026-10-23)](design/pro-transfer-password-reset-2026-10-23.md):
-  owner decision of October 23, after the production ownership round trip. A committed transfer
-  leaves the room without an entry password through the same state change as the owner's "turn
-  off" setting, and the transfer link no longer asks for a PIN. `OWNER_TRANSFER_PIN_REUSE`, which
-  told the recipient whether a PIN was the previous owner's and was shown as "ask for a new link"
-  although the link was unused, is gone, as is the replay PIN comparison. Earlier Apps' `newPin`
-  and earlier pending records with a PIN are accepted and ignored, and the transfer answer now
-  reports `passwordRequired: false` to opt-in Apps. Tests pinned today's behaviour first. The PRO
-  entry-policy contract marker gains `pro-owner-transfer-pinless-v1`: an older PRO Worker would drop
-  a pending transfer stored without a PIN, so once the candidate may be live, automatic recovery
-  keeps the PRO and App Workers for forward repair. Not yet deployed: it ships in the Phase 2 app
-  batch with target `all` (PRO room before App); devices and a production transfer are unchecked.
+- [Phase 2 page navigation and UI shell owners (9.0.4, 2026-10-23)](design/phase2-navigation-ui-shells-2026-10-23.md):
+  the structure program's Phase 2 app batch. Page navigation gets one owner in
+  `session-reset.ts`: one state, one exactly-once settle, a reload queue that runs reloads which
+  used to be dropped and drops a queued reload only when a back-forward cache return reloads anyway,
+  per-claim unload
+  exemptions, a 2.5 s service-worker wait before the logo reset, the reset surface inside
+  fullscreen, Back re-armed after a recovered navigation, and a navigation-sink ratchet. Fullscreen
+  exits go through one in-flight exit shared by the screensaver and YouTube, with a dimmed YouTube
+  button while a screensaver exit settles. Playlist drag, motion and gesture state get one lazy
+  module and one gate; delete during a settle and system audio both end the gesture. Cross-tab
+  account signals get one protocol home, one parser and one receiver. The batch also carries the
+  PRO transfer entry-password reset (a committed transfer turns the entry password off and the link
+  asks for no PIN; `OWNER_TRANSFER_PIN_REUSE` is gone) and its contract marker
+  `pro-owner-transfer-pinless-v1`, so it needs target `all` and recovery repairs forward once the
+  candidate may be live. Tests pinned today's behaviour first; devices are unchecked.
 
 - [PRO outbox and duration read owners (Phase 1 PRO Worker B, 2026-10-23)](design/pro-room-outbox-duration-owners-2026-10-23.md):
   the PRO room's presence marker and playback outbox get one due time, alarm drain, epoch hook and

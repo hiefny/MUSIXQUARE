@@ -17,7 +17,7 @@ import { nodeSqlite } from './helpers/worker-test-bindings.ts';
  * D1 (helpers/owner-transfer-saga-fixture.ts). The fixture's old owner
  * activated the room with the PIN 12345678.
  *
- * Owner decision 2026-10-23 (docs/design/pro-transfer-password-reset-2026-10-23.md):
+ * Owner decision 2026-10-23 (docs/design/phase2-navigation-ui-shells-2026-10-23.md, "PRO 소유권 이전 시 입장 암호 끄기"):
  * a committed transfer turns the entry password off and the link asks for no
  * PIN. The new owner can turn a password on later in room settings.
  */

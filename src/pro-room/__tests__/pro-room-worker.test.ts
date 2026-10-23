@@ -22906,7 +22906,7 @@ describe('persistent PRO room authentication, presence, and state', () => {
 });
 
 describe('PRO owner transfer and the room entry password', () => {
-  // Owner decision 2026-10-23 (docs/design/pro-transfer-password-reset-2026-10-23.md):
+  // Owner decision 2026-10-23 (docs/design/phase2-navigation-ui-shells-2026-10-23.md, "PRO 소유권 이전 시 입장 암호 끄기"):
   // a committed transfer turns the entry password off, as the owner's room
   // setting does, and the link asks for no PIN. Everything else held before.
   const TRANSFER_TARGET_ACCOUNT_ID = 'acct_abcdefghijkl0123456789';

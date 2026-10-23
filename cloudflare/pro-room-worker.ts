@@ -4430,7 +4430,12 @@ export class MusixquareProRoom {
   alarmMaintenanceRetryTimer: ReturnType<typeof setTimeout> | null;
   scheduledAlarmMs: number | null | undefined;
   sessionAdmissionThrottle: SessionAdmissionThrottle | null;
-  playbackDurationLookup: { key: string; promise: Promise<void> } | null;
+  // In-flight duration lookups (RO-08); a playback one holds the R2 slot for a file.
+  playbackDurationLookup: {
+    key: string;
+    mediaKind: PlaybackDurationIdentity['mediaKind'];
+    promise: Promise<void>;
+  } | null;
   assetDurationLookup: { assetId: string; promise: Promise<void> } | null;
   // Reads that playback queued for an unmeasured controller length in this
   // instance, by asset version: Infinity while queued or once answered,
@@ -5767,7 +5772,7 @@ export class MusixquareProRoom {
       if (unmeasured) {
         const read = this.assetDurationReadKey(unmeasured);
         const memo = this.assetDurationReads.get(read);
-        if (this.activeRoom.pendingAssetDurationProbes?.includes(unmeasured.assetId)) {
+        if (this.fileDurationQueuedForRegistration(unmeasured.assetId)) {
           // Queued, perhaps by a decode report: its completion decides.
           this.assetDurationReads.set(read, { retryAtMs: Infinity, attempts: memo?.attempts ?? 0 });
         } else if (memo?.retryAtMs === Infinity) {
@@ -5903,14 +5908,72 @@ export class MusixquareProRoom {
     return target ? this.directPlaybackCommit(target, nowMs) : null;
   }
 
+  // Duration reads (registry RO-08): the registration and playback probes share one R2
+  // slot (RO-32). Each completion keeps its own guarded restart, so one that stores
+  // nothing (maintenance, a changed generation) never starts its read again.
+
+  /** The R2 slot is taken: a registration read, or a playback read of a file. */
+  fileDurationReadInFlight() {
+    return this.assetDurationLookup !== null || this.playbackDurationLookup?.mediaKind === 'file';
+  }
+
+  /** The registration queue owns this asset, read or not; playback yields to it. */
+  fileDurationQueuedForRegistration(assetId: string) {
+    return this.activeRoom.pendingAssetDurationProbes?.includes(assetId) === true;
+  }
+
+  /** The playback probe cannot start: its own slot or, for a file, the R2 slot is taken. */
+  playbackDurationProbeBlocked(probe: PlaybackDurationProbe) {
+    return (
+      this.playbackDurationLookup !== null ||
+      (probe.identity.mediaKind === 'file' &&
+        (this.fileDurationReadInFlight() ||
+          this.fileDurationQueuedForRegistration(probe.identity.assetId)))
+    );
+  }
+
+  /** The plain start after every persist and in the alarm: playback first. */
+  startDurationWork() {
+    this.startPlaybackDurationProbe();
+    this.startAssetDurationProbe();
+  }
+
+  /**
+   * The one duration alarm candidate: a YouTube length's expiry, the playback probe's
+   * retry (a blocked probe waits for the watchdog), an unanswered decode read, and a queued
+   * registration read (next tick, or the watchdog while any lookup is in flight).
+   */
+  durationWorkAlarmAtMs(nowMs: number) {
+    const identity = this.desiredPlaybackDurationIdentity();
+    const evidence =
+      identity?.mediaKind === 'youtube'
+        ? this.activeRoom.playbackDurations[playbackDurationIdentityKey(identity)]
+        : null;
+    const expiresAtMs = evidence ? playbackDurationEvidenceExpiresAtMs(evidence) : null;
+    const watchdogAtMs = nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS;
+    const probe = this.activeRoom.playbackDurationProbe;
+    const unmeasured = this.unmeasuredControllerAsset();
+    return earliestAlarmAtMs(
+      [
+        expiresAtMs !== null && expiresAtMs > nowMs ? expiresAtMs : null,
+        probe &&
+          (this.playbackDurationProbeBlocked(probe)
+            ? Math.max(this.playbackDurationProbeRetryAtMs(probe), watchdogAtMs)
+            : this.playbackDurationProbeRetryAtMs(probe)),
+        unmeasured && this.assetDurationReads.get(this.assetDurationReadKey(unmeasured))?.retryAtMs,
+        this.activeRoom.pendingAssetDurationProbes?.length
+          ? this.assetDurationLookup || this.playbackDurationLookup
+            ? watchdogAtMs
+            : nowMs + 1
+          : null,
+      ],
+      nowMs,
+    );
+  }
+
   startAssetDurationProbe() {
     const queue = this.room?.pendingAssetDurationProbes;
-    if (
-      !queue?.length ||
-      this.assetDurationLookup ||
-      this.playbackDurationLookup?.key.includes(':file:')
-    )
-      return;
+    if (!queue?.length || this.fileDurationReadInFlight()) return;
     const desired = this.desiredPlaybackDurationIdentity();
     const assetId =
       desired?.mediaKind === 'file' && queue.includes(desired.assetId) ? desired.assetId : queue[0];
@@ -6024,13 +6087,7 @@ export class MusixquareProRoom {
     if (
       !probe ||
       this.playbackDurationProbeRetryAtMs(probe) > Date.now() ||
-      this.playbackDurationLookup
-    )
-      return;
-    if (
-      probe.identity.mediaKind === 'file' &&
-      (this.assetDurationLookup ||
-        this.activeRoom.pendingAssetDurationProbes?.includes(probe.identity.assetId))
+      this.playbackDurationProbeBlocked(probe)
     )
       return;
     const identity = structuredClone(probe.identity);
@@ -6219,7 +6276,7 @@ export class MusixquareProRoom {
           this.startAssetDurationProbe();
         }).catch(() => undefined);
       });
-    this.playbackDurationLookup = { key, promise: lookup };
+    this.playbackDurationLookup = { key, mediaKind: identity.mediaKind, promise: lookup };
     this.state.waitUntil?.(lookup);
   }
 
@@ -6732,8 +6789,7 @@ export class MusixquareProRoom {
       // this point may the cross-Worker dispatch begin.
       await this.flushPendingPlaybackBroadcasts(Date.now());
     }
-    this.startPlaybackDurationProbe();
-    this.startAssetDurationProbe();
+    this.startDurationWork();
     return true;
   }
 
@@ -6969,43 +7025,7 @@ export class MusixquareProRoom {
       candidates.push(deadlineAtMs <= nowMs ? nowMs + 1 : deadlineAtMs);
     }
     candidates.push(this.naturalPlaybackEndAtMs(nowMs));
-    const durationIdentity = this.desiredPlaybackDurationIdentity();
-    const durationEvidence =
-      durationIdentity && durationIdentity.mediaKind === 'youtube'
-        ? this.activeRoom.playbackDurations[playbackDurationIdentityKey(durationIdentity)]
-        : null;
-    if (durationEvidence && playbackDurationEvidenceExpiresAtMs(durationEvidence) > nowMs) {
-      candidates.push(playbackDurationEvidenceExpiresAtMs(durationEvidence));
-    }
-    if (this.activeRoom.playbackDurationProbe) {
-      const registrationBlocked =
-        this.activeRoom.playbackDurationProbe.identity.mediaKind === 'file' &&
-        (this.assetDurationLookup ||
-          this.activeRoom.pendingAssetDurationProbes?.includes(
-            this.activeRoom.playbackDurationProbe.identity.assetId,
-          ));
-      const retryAtMs = this.playbackDurationProbeRetryAtMs(this.activeRoom.playbackDurationProbe);
-      candidates.push(
-        this.playbackDurationLookup || registrationBlocked
-          ? Math.max(retryAtMs, nowMs + PLAYBACK_DURATION_PROBE_WATCHDOG_MS)
-          : retryAtMs,
-      );
-    }
-    // A playing file's decode whose read got no answer, or was refused.
-    const unmeasured = this.unmeasuredControllerAsset();
-    if (unmeasured) {
-      candidates.push(
-        this.assetDurationReads.get(this.assetDurationReadKey(unmeasured))?.retryAtMs,
-      );
-    }
-    if (this.activeRoom.pendingAssetDurationProbes?.length) {
-      candidates.push(
-        nowMs +
-          (this.assetDurationLookup || this.playbackDurationLookup
-            ? PLAYBACK_DURATION_PROBE_WATCHDOG_MS
-            : 1),
-      );
-    }
+    candidates.push(this.durationWorkAlarmAtMs(nowMs));
     const next = earliestAlarmAtMs(candidates, nowMs);
     // An earlier alarm is safe: it will wake, find that a renewed lease has
     // not expired, and schedule the later deadline. Avoid moving the alarm
@@ -18121,8 +18141,7 @@ export class MusixquareProRoom {
       }
       await this.drainSignalingOutbox(nowMs);
       await this.maintainAlarm();
-      this.startPlaybackDurationProbe();
-      this.startAssetDurationProbe();
+      this.startDurationWork();
     });
   }
 }

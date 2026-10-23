@@ -101,7 +101,7 @@ each record also states the step in words.
 | RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 0d, 4                        |
 | RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 0d, 4                        |
 | RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                 |
-| RO-08 | PRO asset duration read                                  | Workers        | duplicated         | 0d, 1                        |
+| RO-08 | PRO asset duration read                                  | Workers        | owner-in-place     | Done (0d, 1)                 |
 | RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                         |
 | RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | 4 (naming only)              |
 | RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)             |
@@ -164,7 +164,7 @@ RO-04 duplicated
 RO-05 duplicated
 RO-06 duplicated
 RO-07 owner-in-place
-RO-08 duplicated
+RO-08 owner-in-place
 RO-09 owner-in-place
 RO-10 owner-in-place
 RO-11 accepted-exception
@@ -568,21 +568,41 @@ RO-46 accepted-exception
 
 - **Resource:** the R2 duration read of one PRO asset (`readProRoomFileDuration` in
   `cloudflare/pro-room-media-duration.ts`) and its stored `'server'` duration evidence.
-- **Current owners/flows:** the registration probe (`pendingAssetDurationProbes`,
-  `enqueueAssetDurationProbe`, `startAssetDurationProbe`, `deferAssetDurationRead`) and the playback
-  probe (`playbackDurationProbe`, `startPlaybackDurationProbe`, `reconcilePlaybackDurationProbe`) in
-  `cloudflare/pro-room-worker.ts`. Each starter checks the other synchronously inside the mutation
-  lane, `scheduleAlarm` branches on both, and each completion restarts both. The coupling caused
-  one alarm hot loop, since fixed ([registration](pro-file-duration-registration-2026-10-12.md)).
-- **Target single owner:** one duration-reads section with one R2 slot predicate, one start and
-  one alarm candidate. Two readers remain (RO-32).
-- **Allowed requesters:** registration completion, playback reconcile, the alarm. Worker caller
-  allowlist for `readProRoomFileDuration`, scoped to `cloudflare/`: the two probes.
-  `src/pro-room/upload-duration.ts` runs the same parser on the uploader's local file before
-  upload; that is not an R2 read and is outside this resource.
+- **Current owners/flows:** one duration-reads section of the PRO room Durable Object in
+  `cloudflare/pro-room-worker.ts` (Phase 1, C7-6) over two readers (RO-32): the registration
+  probe (`pendingAssetDurationProbes`, `enqueueAssetDurationProbe`, `startAssetDurationProbe`,
+  `deferAssetDurationRead`) and the playback probe (`playbackDurationProbe`,
+  `startPlaybackDurationProbe`, `reconcilePlaybackDurationProbe`). The owner's single parts:
+  - two slot predicates, kept apart because they answer different questions:
+    `fileDurationReadInFlight` (a registration read, or a playback lookup whose slot records
+    `mediaKind: 'file'`; a YouTube lookup leaves the R2 slot free) and
+    `fileDurationQueuedForRegistration` (the asset waits in the registration queue, read or not,
+    and the playback probe yields to it). `playbackDurationProbeBlocked` combines them with the
+    playback slot; `startAssetDurationProbe` waits only while a file read is in flight;
+  - one plain start, `startDurationWork` (playback probe, then registration), called after every
+    persist and by the alarm;
+  - one alarm candidate, `durationWorkAlarmAtMs`: a YouTube length's expiry, the playback
+    probe's retry (no earlier than `PLAYBACK_DURATION_PROBE_WATCHDOG_MS`, 10 s, while it is
+    blocked), a playing file's unanswered decode read, and a queued registration read (next tick,
+    or the watchdog while any lookup, a YouTube one included, is in flight).
+
+  Each completion keeps its own guarded restart, word for word: the registration completion
+  restarts both probes only `if (finished)`, the playback completion restarts the playback probe
+  only for a different probe key (then the registration probe). A completion that stores nothing
+  (service maintenance, a changed room generation) therefore never starts its own read again; the
+  next read waits for the alarm, a persist or the probe's retry time. Merging these restarts into
+  `startDurationWork` would bring back the alarm hot loop fixed once before
+  ([registration](pro-file-duration-registration-2026-10-12.md)).
+
+- **Target single owner:** reached by C7-6 (the section above). Two readers remain (RO-32).
+- **Allowed requesters:** registration completion, playback reconcile, persist and the alarm
+  (through `startDurationWork`). Worker caller allowlist for `readProRoomFileDuration`, scoped
+  to `cloudflare/`: the two probes. `src/pro-room/upload-duration.ts` runs the same parser on the
+  uploader's local file before upload; that is not an R2 read and is outside this resource.
 - **Lifecycle operations:** enqueue, read outside the lane, revalidate inside it, roll back on
   capacity, persist, retry.
-- **Deadline owner:** each probe's retry ladder; the alarm's registration watchdog.
+- **Deadline owner:** each probe's retry ladder; the alarm's registration watchdog
+  (`durationWorkAlarmAtMs`).
 - **Timing-constant home:** `cloudflare/pro-room-worker.ts`: `FILE_DURATION_READ_RETRY_MS`
   (5 s, 30 s, then `PLAYBACK_DURATION_FILE_RETRY_MS`, 5 min) with
   `fileDurationReadRetryDelayMs`, used by `deferAssetDurationRead` and the playback probe's
@@ -597,9 +617,17 @@ RO-46 accepted-exception
     and does not retry unsupported files in the background".
   - Visibility: n/a.
   - Cross-owner: `pro-room-worker.test.ts` "uses the registration watchdog instead of hot-looping
-    an overdue playback probe".
-- **Status:** `duplicated`. Phase 0d named the ladder once (C7-2); Phase 1 (duration read owner)
-  remains.
+    an overdue playback probe"; `src/pro-room/__tests__/pro-room-duration-reads.test.ts` "leaves a
+    queued desired file to the registration reader once nothing is in flight" (queued predicate)
+    and "lets a YouTube lookup in flight leave the R2 slot free, yet holds the queued read alarm at
+    the watchdog" (in-flight predicate and alarm).
+  - Continuation guards: `pro-room-duration-reads.test.ts` "refused completions do not restart a
+    read" (maintenance) and `natural-completion-integration.test.ts` "PRO duration completions
+    that store nothing do not restart their read" (a changed generation, evidence that does not
+    fit).
+- **Status:** `owner-in-place`. Phase 0d named the ladder once (C7-2); Phase 1 C7-6 gave the two
+  readers one predicate pair, one plain start and one alarm candidate, with no behaviour change.
+  Exception RO-32.
 
 ### RO-09 Owner-transfer saga row
 
@@ -1384,7 +1412,8 @@ entry needs the owner's acceptance and is not implied by this registry.
 
 - **Parent:** RO-08. Plan step C7-7 not scheduled.
 - **Exception:** the registration and playback probes both keep reading R2; the Phase 1 owner
-  shares only the slot predicate, start and alarm candidate.
+  (C7-6) shares only the slot predicates (in flight, queued), the plain start and the alarm
+  candidate, and each probe keeps its own guarded completion restart.
 - **Evidence:** one reader would have to carry over the first-failure diagnostic, the
   memory-held backoff after a refused write and the 5 min retry for a null file answer; the
   mutual-exclusion checks already prevent two concurrent reads of one object.

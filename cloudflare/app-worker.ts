@@ -6993,6 +6993,113 @@ async function advanceOwnerTransferSagaState(
   return typeof currentRank === 'number' && typeof nextRank === 'number' && currentRank >= nextRank;
 }
 
+/**
+ * The owner-transfer entitlement identity (pro-room-grants.ts) of one saga:
+ * its target account, room incarnation and request id. The cron passes its
+ * sweep time; the request passes none, so the entitlement module stamps its
+ * own clock (registry RO-09).
+ */
+function ownerTransferEntitlementInput(
+  saga: Pick<OwnerTransferSaga, 'targetAccountId' | 'roomCode' | 'roomGeneration' | 'requestId'>,
+  nowMs?: number,
+) {
+  return {
+    targetAccountId: saga.targetAccountId,
+    roomCode: saga.roomCode,
+    roomGeneration: saga.roomGeneration,
+    requestId: saga.requestId,
+    ...(nowMs === undefined ? {} : { nowMs }),
+  };
+}
+
+/**
+ * How one deleted-target site ends a committed transfer (registry RO-09):
+ * whether it purges the target's new owner authority first, and where its
+ * commit audit goes.
+ * - `before-finalize` (cron): `auditResult` is written before the finalize;
+ *   an insert failure throws and the next sweep audits again (at least once).
+ * - `after-terminal` (request): every step failure is caught; `auditResult` is
+ *   written after the terminal advance, or 'reconcile_required' when a step
+ *   did not complete. An insert failure after the advance loses the row.
+ * - `none` (cron final recheck): no audit row.
+ * Owner decision D3 moves every audit ahead of the terminal advance in the
+ * single post-commit executor (plan step C7-9); until then each site keeps
+ * its own placement.
+ */
+type OwnerTransferDeletedTargetTermination = {
+  readonly purge: boolean;
+  /** The cron's sweep time; the request uses each write's own clock. */
+  readonly nowMs?: number;
+} & (
+  | { readonly auditTiming: 'before-finalize' | 'after-terminal'; readonly auditResult: string }
+  | { readonly auditTiming: 'none' }
+);
+
+/**
+ * Ends a committed owner transfer whose target account is being deleted, as
+ * one sequence for the four sites that wrote it by hand (plan step C7-8):
+ * purge (optional), finalize the reserved entitlement, then advance the saga
+ * to 'target_deleted', with the audit placed as `auditTiming` says. Returns
+ * 'target_deleted' once the advance holds, 'incomplete' when a step stopped
+ * short, and 'audit_unavailable' when the request's closing audit failed.
+ */
+async function terminateOwnerTransferForDeletedTarget(
+  env: AppEnv,
+  db: D1Database,
+  saga: OwnerTransferSaga,
+  termination: OwnerTransferDeletedTargetTermination,
+): Promise<'target_deleted' | 'incomplete' | 'audit_unavailable'> {
+  const { nowMs } = termination;
+  const purge = () =>
+    purgeProRoomAccountAuthority(
+      {
+        accountId: saga.targetAccountId,
+        roomCode: saga.roomCode,
+        roomGeneration: saga.roomGeneration,
+      },
+      env,
+    ).catch(() => false);
+  const finalize = () =>
+    finalizeProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(saga, nowMs),
+    ).catch(() => false);
+  const audit = (result: string) =>
+    auditSystemOwnerTransfer(
+      env,
+      'owner_transfer.commit',
+      result,
+      saga.roomCode,
+      saga.roomGeneration,
+    );
+
+  if (termination.auditTiming === 'after-terminal') {
+    let terminated = termination.purge ? await purge() : true;
+    if (terminated) {
+      try {
+        terminated =
+          (await finalize()) &&
+          (await advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs));
+      } catch {
+        terminated = false;
+      }
+    }
+    try {
+      await audit(terminated ? termination.auditResult : 'reconcile_required');
+    } catch {
+      return 'audit_unavailable';
+    }
+    return terminated ? 'target_deleted' : 'incomplete';
+  }
+
+  if (termination.purge && !(await purge())) return 'incomplete';
+  if (termination.auditTiming === 'before-finalize') await audit(termination.auditResult);
+  if (!(await finalize())) return 'incomplete';
+  return (await advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs))
+    ? 'target_deleted'
+    : 'incomplete';
+}
+
 interface OwnerTransferReconciliationMeta extends JsonObject {
   phase: 'pending' | 'completed';
   transferId: string;
@@ -7252,13 +7359,10 @@ async function reconcileDecommissionedOwnerTransferSaga(
   // An uncommitted transfer may still have a source/target reservation. Undo
   // it when possible, then use the exact-incarnation revoke as the canonical
   // cleanup barrier for committed, uncommitted, and source-less transfers.
-  await abortProRoomOwnershipTransferEntitlement(env, {
-    targetAccountId: saga.targetAccountId,
-    roomCode: saga.roomCode,
-    roomGeneration: saga.roomGeneration,
-    requestId: saga.requestId,
-    nowMs,
-  }).catch(() => false);
+  await abortProRoomOwnershipTransferEntitlement(
+    env,
+    ownerTransferEntitlementInput(saga, nowMs),
+  ).catch(() => false);
   if (
     !(await revokeProRoomEntitlement(env, {
       roomCode: saga.roomCode,
@@ -7501,15 +7605,10 @@ async function reconcileOneOwnerTransferSaga(
   saga: OwnerTransferSaga,
   nowMs: number = Date.now(),
 ) {
-  const entitlementInput = () => ({
-    targetAccountId: saga.targetAccountId,
-    roomCode: saga.roomCode,
-    roomGeneration: saga.roomGeneration,
-    requestId: saga.requestId,
-    nowMs,
-  });
   const abortPendingEntitlement = () =>
-    abortProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false);
+    abortProRoomOwnershipTransferEntitlement(env, ownerTransferEntitlementInput(saga, nowMs)).catch(
+      () => false,
+    );
   const status = await callProRoomAdminObject(
     env,
     saga.roomCode,
@@ -7563,21 +7662,16 @@ async function reconcileOneOwnerTransferSaga(
         return false;
       }
       if (!target) {
-        await auditSystemOwnerTransfer(
-          env,
-          'owner_transfer.commit',
-          'target_deleted_during_reconcile',
-          saga.roomCode,
-          saga.roomGeneration,
+        // The room is already suspended for the target's deletion: audit and
+        // terminate without another purge.
+        return (
+          (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
+            purge: false,
+            auditTiming: 'before-finalize',
+            auditResult: 'target_deleted_during_reconcile',
+            nowMs,
+          })) === 'target_deleted'
         );
-        if (
-          !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
-            () => false,
-          ))
-        ) {
-          return false;
-        }
-        return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
       }
     }
     if (meta && typeof meta === 'object') {
@@ -7594,7 +7688,10 @@ async function reconcileOneOwnerTransferSaga(
     return false;
   }
   if (
-    !(await reserveProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false))
+    !(await reserveProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(saga, nowMs),
+    ).catch(() => false))
   ) {
     return false;
   }
@@ -7639,30 +7736,14 @@ async function reconcileOneOwnerTransferSaga(
     return false;
   }
   if (!target) {
-    const suspended = await purgeProRoomAccountAuthority(
-      {
-        accountId: saga.targetAccountId,
-        roomCode: saga.roomCode,
-        roomGeneration: saga.roomGeneration,
-      },
-      env,
-    ).catch(() => false);
-    if (!suspended) return false;
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'target_deleted_during_reconcile',
-      saga.roomCode,
-      saga.roomGeneration,
+    return (
+      (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
+        purge: true,
+        auditTiming: 'before-finalize',
+        auditResult: 'target_deleted_during_reconcile',
+        nowMs,
+      })) === 'target_deleted'
     );
-    if (
-      !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
-        () => false,
-      ))
-    ) {
-      return false;
-    }
-    return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
   }
 
   if (
@@ -7698,23 +7779,14 @@ async function reconcileOneOwnerTransferSaga(
     return false;
   }
   if (!target) {
-    const suspended = await purgeProRoomAccountAuthority(
-      {
-        accountId: saga.targetAccountId,
-        roomCode: saga.roomCode,
-        roomGeneration: saga.roomGeneration,
-      },
-      env,
-    ).catch(() => false);
-    if (!suspended) return false;
-    if (
-      !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(
-        () => false,
-      ))
-    ) {
-      return false;
-    }
-    return advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs);
+    // No audit row at this site today; C7-9 (owner decision D3) adds one.
+    return (
+      (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
+        purge: true,
+        auditTiming: 'none',
+        nowMs,
+      })) === 'target_deleted'
+    );
   }
   let room = await readAdminProRoom(db, saga.roomCode);
   if (!room || room.roomGeneration !== saga.roomGeneration) return false;
@@ -7732,7 +7804,10 @@ async function reconcileOneOwnerTransferSaga(
   }
   if (!(await advanceOwnerTransferSagaState(db, saga, 'verified', nowMs))) return false;
   if (
-    !(await finalizeProRoomOwnershipTransferEntitlement(env, entitlementInput()).catch(() => false))
+    !(await finalizeProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(saga, nowMs),
+    ).catch(() => false))
   ) {
     return false;
   }
@@ -7914,12 +7989,10 @@ async function handleProRoomOwnershipTransferSaga({
     return auditError || json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502);
   }
   if (
-    !(await reserveProRoomOwnershipTransferEntitlement(env, {
-      targetAccountId,
-      roomCode,
-      roomGeneration,
-      requestId,
-    }).catch(() => false))
+    !(await reserveProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(transferSaga),
+    ).catch(() => false))
   ) {
     const auditError = await failAudit('target_entitlement_conflict');
     return auditError || json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
@@ -8016,12 +8089,10 @@ async function handleProRoomOwnershipTransferSaga({
     return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
   }
   if (!currentTarget) {
-    await abortProRoomOwnershipTransferEntitlement(env, {
-      targetAccountId,
-      roomCode,
-      roomGeneration,
-      requestId,
-    }).catch(() => false);
+    await abortProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(transferSaga),
+    ).catch(() => false);
     try {
       await auditSystemOwnerTransfer(
         env,
@@ -8125,44 +8196,15 @@ async function handleProRoomOwnershipTransferSaga({
   }
 
   const abortCommittedTransferForMissingTarget = async (result: string) => {
-    let suspended = false;
-    try {
-      suspended = await purgeProRoomAccountAuthority(
-        { accountId: targetAccountId, roomCode, roomGeneration },
-        env,
-      );
-    } catch {
-      suspended = false;
-    }
-    if (suspended) {
-      try {
-        if (
-          !(await finalizeProRoomOwnershipTransferEntitlement(env, {
-            targetAccountId,
-            roomCode,
-            roomGeneration,
-            requestId,
-          }).catch(() => false)) ||
-          !(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'target_deleted'))
-        ) {
-          suspended = false;
-        }
-      } catch {
-        suspended = false;
-      }
-    }
-    try {
-      await auditSystemOwnerTransfer(
-        env,
-        'owner_transfer.commit',
-        suspended ? result : 'reconcile_required',
-        roomCode,
-        roomGeneration,
-      );
-    } catch {
+    const termination = await terminateOwnerTransferForDeletedTarget(env, adminDb, transferSaga, {
+      purge: true,
+      auditTiming: 'after-terminal',
+      auditResult: result,
+    });
+    if (termination === 'audit_unavailable') {
       return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
     }
-    return suspended
+    return termination === 'target_deleted'
       ? json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409)
       : json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
   };
@@ -8311,12 +8353,10 @@ async function handleProRoomOwnershipTransferSaga({
     return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
   }
   if (
-    !(await finalizeProRoomOwnershipTransferEntitlement(env, {
-      targetAccountId,
-      roomCode,
-      roomGeneration,
-      requestId,
-    }).catch(() => false))
+    !(await finalizeProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(transferSaga),
+    ).catch(() => false))
   ) {
     await auditSystemOwnerTransfer(
       env,

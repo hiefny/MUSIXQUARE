@@ -586,8 +586,15 @@ RO-46 accepted-exception
   They coordinate through the ranked D1 compare-and-swap (`OWNER_TRANSFER_SAGA_STATE_RANK`) and a
   rotation compare-and-swap. The post-commit chain is written twice and has drifted: the request
   path finalizes the entitlement before `verified`, the cron path after it. Both write the success
-  audit (`auditSystemOwnerTransfer`) without deduplication, so duplicate audit rows are possible
-  (inferred, not reproduced).
+  audit (`auditSystemOwnerTransfer`) without deduplication, so a cron that finishes a transfer the
+  request already audited writes a second success row (reproduced in
+  `owner-transfer-saga-convergence-sqlite.test.ts`). Two parts are named once (Phase 1, C7-8):
+  `ownerTransferEntitlementInput` builds the entitlement identity every reserve, finalize and abort
+  passes (the cron adds its sweep time, the request none), and
+  `terminateOwnerTransferForDeletedTarget` ends a committed transfer whose target account is being
+  deleted (purge or not, finalize, `target_deleted`) for all four sites, each passing its own audit
+  placement: the cron audits before the finalize (or not at all at its final recheck), the request
+  after the terminal advance.
 - **Target single owner:** one post-commit executor with the request and the cron as entry
   adapters. Owner decision (2026-10-23, D3): both entries use that executor's single order. The
   entitlement is finalized before `verified`, so `verified` means the room is active and the
@@ -596,7 +603,8 @@ RO-46 accepted-exception
   transfer-scoped deduplication instead of today's possible loss after a terminal advance.
 - **Allowed requesters:** the transfer request and the minute cron, as entry adapters.
 - **Lifecycle operations:** link, fence, Durable Object commit or reconcile, committed, registry,
-  old-owner edge, fence clear, complete; terminate for a deleted target.
+  old-owner edge, fence clear, complete; terminate for a deleted target
+  (`terminateOwnerTransferForDeletedTarget`).
 - **Deadline owner:** none per attempt; the cron adopts any incomplete saga every minute. An
   adoption lease is optional (a transfer-scoped audit deduplication is preferred).
 - **Timing-constant home:** n/a (no timing). Phase union: `cloudflare/app-worker.ts` names the
@@ -620,9 +628,14 @@ RO-46 accepted-exception
   - Teardown: `app-worker-cors.test.ts` "naturally expires unopened claims and pending sagas
     exactly once during cron reconciliation".
   - Visibility: n/a.
+  - Deleted target: `owner-transfer-saga-convergence-sqlite.test.ts` "owner-transfer saga: target
+    deleted mid-transfer" and "deleted-target exits" (each site's order, failure exits and audit
+    placement); "entitlement identity" (the bound values of finalize and abort).
   - Missing: the old request executor and the cron interleaved on one row.
-- **Status:** `duplicated`. Phase 0d named the state lists once (C7-2); Phase 1 (saga helpers,
-  single post-commit executor) remains.
+- **Status:** `duplicated`. Phase 0d named the state lists once (C7-2). Phase 1 C7-8 named the
+  entitlement identity and the deleted-target terminator once, with no behaviour change
+  ([report](app-worker-saga-fence-2026-10-23.md)). The single post-commit executor (C7-9, with the
+  D3 order above) remains.
 
 ### RO-10 Local-file source node restart
 

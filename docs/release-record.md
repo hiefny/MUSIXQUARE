@@ -68,8 +68,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       제자리로 돌아가는 중 삭제와 시스템 오디오 전환이 동작을 즉시 끝낸다. 계정 신호의 바이트는 그대로다.
       오너 승인으로 2026-10-24 01:56 KST
       [Release 39990279349](https://github.com/hiefny/MUSIXQUARE/actions/runs/39990279349)(target `all`,
-      PRO 먼저)로 배포했다. 남은 것은 보고서의 실기기 확인(iPhone 뒤로 가기 캐시 복귀, 설치한 앱의 뒤로
-      가기·구글 로그인, 화면 보호기 중 YouTube 전체 화면, 재생목록 끌어 놓은 직후 삭제, TV 전체 화면)이다.
+      PRO 먼저)로 배포했다. 2026-10-24 오너가 운영에서 iPhone Safari·Windows Chrome으로 업데이트 적용,
+      iPhone 뒤로 가기 캐시 복귀(재로딩 한 번), 설치한 앱의 뒤로 가기·구글 로그인 뒤 돌아오기, 화면 보호기
+      중 YouTube 전체 화면 버튼 흐림, 재생목록 끌어 놓은 직후 삭제를 확인했다
+      ([실기 QA](design/phase2-navigation-ui-shells-2026-10-23.md#운영-실기-qa-2026-10-24-오너)). 남은 것은
+      TV 빌드 전체 화면과 보고서의 작은 미확인 항목(SW 업데이트가 걸린 로고 재설정, YouTube 전체 화면의
+      뒤로 가기·다음 트랙, 일반방 게스트 관리자의 삭제, 끌기 중 시스템 오디오)이다.
       첫 로딩 JS는 478.0 → 478.8 KiB(gzip)로 예산 안이다(오너가 수용한 478.7보다 0.1 KiB 큼).
       [묶음 보고서](design/phase2-navigation-ui-shells-2026-10-23.md),
       [페이지 이동 계약](design/page-navigation-ownership.md).
@@ -81,7 +85,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`이 운영에 올라가 이제 자동
       복구가 PRO·App을 표지 아래로 되돌리지 않고 앞으로 고친다(§4). 남은 것은 테스트 방에서 이전
       링크가 암호를 묻지 않는지, 새 소유자 설정에 암호 꺼짐이 보이고 켤 수 있는지, 이전 때 있던
-      참여자가 코드만으로 들어오는지 확인하는 것이다.
+      참여자가 코드만으로 들어오는지 확인하는 것이다. 오너 결정(2026-10-24): 운영자가 직접 하는 드문
+      작업이라 이 확인은 다음 실제 이전 때 한다.
       [변경·호환·한계](design/phase2-navigation-ui-shells-2026-10-23.md#pro-소유권-이전-시-입장-암호-끄기).
 
 ### Phase 1 서버 주인 합치기 배포 뒤 확인

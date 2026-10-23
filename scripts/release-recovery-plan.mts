@@ -167,8 +167,11 @@ export function releaseRecoverySkipTargets(
   if (proRoomEntryPolicyForwardFloor) {
     // Older PRO code cannot admit a room whose PIN was intentionally cleared.
     // It also preserves an unknown passwordRequired=false during PIN changes,
-    // which would reopen that room when the new code returns. Keep the matching
-    // App UI/facade with the server instead of crossing that persisted boundary.
+    // which would reopen that room when the new code returns. PRO code from
+    // before pro-owner-transfer-pinless-v1 drops a pending owner-transfer
+    // record without a PIN, leaving that room suspended, and its App facade
+    // rejects the pinless transfer body. Keep the matching App UI/facade with
+    // the server instead of crossing that persisted boundary.
     skip.add('pro-room');
     skip.add('app');
   }

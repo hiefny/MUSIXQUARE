@@ -148,6 +148,19 @@ jobs:
             exit 1
           fi
 
+      - name: Require a full release for PRO entry-policy contract cutovers
+        shell: bash
+        run: |
+          contract_marker='cloudflare/pro-room-entry-policy-contract-version.txt'
+          parent_sha="$(git rev-parse "${GITHUB_SHA}^")"
+          if git diff --quiet "$parent_sha" "$GITHUB_SHA" -- "$contract_marker"; then
+            exit 0
+          fi
+          if [[ "${{ inputs.target }}" != 'all' ]]; then
+            echo "::error::A PRO entry-policy contract cutover requires target 'all' so the PRO and app Workers deploy together."
+            exit 1
+          fi
+
       - name: Require a full release for Standard room PIN contract cutovers
         shell: bash
         run: |

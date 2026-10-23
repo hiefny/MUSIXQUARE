@@ -24,16 +24,18 @@ import { nodeSqlite } from './helpers/worker-test-bindings.ts';
  * C7-0 characterization of the owner-transfer saga (resource RO-09 in
  * docs/design/resource-ownership-registry.md) over all three D1 bindings.
  *
- * Two executors drive one `mxqr_pro_room_owner_transfer_sagas` row: the
- * request executor (POST /api/pro-room/v1/rooms/:code/owner-transfer through
+ * Two entries drive one `mxqr_pro_room_owner_transfer_sagas` row: the
+ * transfer request (POST /api/pro-room/v1/rooms/:code/owner-transfer through
  * the real App Worker) and the minute cron's `reconcileOwnerTransferSagas`
- * (through its existing entry, `reconcileOwnerTransferSagasForTests`). The
- * fixture (helpers/owner-transfer-saga-fixture.ts) runs both against the real
- * App Worker, PRO room Durable Object and three node:sqlite databases, and
- * injects crashes and races at the D1 boundary. Tests pin today's behaviour,
- * including the divergent step order and the duplicate success audit, with
- * comments naming the owner decision or plan step (C7-8, C7-9, C7-10) that may
- * change them.
+ * (through its existing entry, `reconcileOwnerTransferSagasForTests`). Since
+ * plan step C7-9 both finish a committed transfer through one post-commit
+ * executor, `finishCommittedOwnerTransfer`. The fixture
+ * (helpers/owner-transfer-saga-fixture.ts) runs both against the real App
+ * Worker, PRO room Durable Object and three node:sqlite databases, and
+ * injects crashes and races at the D1 boundary. Pins that owner decision D3
+ * (2026-10-23) changed in C7-9 say so: one step order (the entitlement is
+ * finalized before "verified"), the closing audit row written before any
+ * terminal advance, and that row deduplicated per transfer.
  */
 
 /** The state every converged transfer must reach, whichever executor finished it. */
@@ -66,7 +68,11 @@ const PURGE = [
 /** The request's answer when its 'committed' write fails after the DO commit. */
 const REGISTRY_UNAVAILABLE_ANSWER = { status: 503, error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' };
 
-/** The post-commit tail as the request executor writes it today. */
+/**
+ * The post-commit tail as the request writes it: the executor's one order
+ * (owner decision D3: finalize, then "verified"), which the request already
+ * followed before C7-9.
+ */
 const REQUEST_TAIL = [
   'saga:committed',
   'registry:registered',
@@ -81,7 +87,10 @@ const REQUEST_TAIL = [
   'saga:complete',
 ];
 
-/** readActiveOwnerTransferTarget: the request reads it before the fence, after the commit and at its final recheck. */
+/**
+ * readActiveOwnerTransferTarget: the request reads it before the fence, after
+ * the commit and at its final recheck.
+ */
 const TARGET_READ = /FROM mxqr_accounts AS account[\s\S]*mxqr_account_deletions/i;
 /** readAdminProRoom, the registry row the final recheck compares. */
 const REGISTRY_READ = /^\s*SELECT room_code, label, status, suspension_reason, activation_state/i;
@@ -148,20 +157,12 @@ function nextIncarnationAtFinalRecheck(test: TransferFixture) {
   }) as typeof test.admin.prepare;
 }
 
-/** The same tail as the minute cron writes it today (after adopting the row). */
-const CRON_TAIL = [
-  'saga:committed',
-  'registry:registered',
-  'saga:registry_active',
-  'link:-old',
-  'saga:old_owner_edge_retired',
-  'registry:registered',
-  'saga:verified',
-  'entitlement:finalize',
-  'fence:clear',
-  'audit:owner_transfer.commit:success',
-  'saga:complete',
-];
+/**
+ * The tail as the minute cron writes it after adopting the row. Owner
+ * decision D3 (C7-9): the same executor and order as the request. Before
+ * C7-9 the cron advanced "verified" before it finalized the entitlement.
+ */
+const CRON_TAIL = REQUEST_TAIL;
 
 useSagaClock();
 
@@ -196,7 +197,7 @@ useSagaClock();
 });
 
 (nodeSqlite ? describe : describe.skip)('owner-transfer saga: minute cron executor', () => {
-  it('adopts a DO-committed transfer whose request stopped and advances "verified" before finalizing', async () => {
+  it('adopts a DO-committed transfer whose request stopped and finalizes the entitlement before "verified"', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     test.failOnce(sagaWrite('committed'));
@@ -211,18 +212,18 @@ useSagaClock();
     vi.setSystemTime(START + 60_000);
     const mark = test.mark();
     expect(await test.cron()).toBe(1);
-    // Divergent step order: the cron marks "verified" before it finalizes the
-    // entitlement; the request does the reverse (REQUEST_TAIL). Owner decision
-    // "finalize-before-verified" (roadmap section 5) sets one order in C7-9.
+    // Owner decision D3 (C7-9): the cron runs the request's executor and order,
+    // finalizing the entitlement before "verified". Before C7-9 it marked
+    // "verified" first.
     expect(test.steps(mark)).toEqual(CRON_TAIL);
     await expectTransferred(test);
     expect(test.commitAudits()).toEqual(['success']);
   });
 
   // One row per post-commit step: the D1 write that fails, the request's
-  // answer, and the commit audit rows once the cron has converged. This is the
-  // (audit result, HTTP status) table plan step C7-9 must keep or change on
-  // purpose. Today some failures audit 'reconcile_required' and some
+  // answer, and the commit audit rows once the cron has converged. Plan step
+  // C7-9 kept every (audit result, HTTP status) pair (see also the request
+  // outcome table). Some failures audit 'reconcile_required' and some
   // (old_owner_edge_retired, verified, the success audit) audit nothing.
   const crashes: Array<[string, Fault, { status: number; error: string }, string[]]> = [
     [
@@ -283,8 +284,10 @@ useSagaClock();
       'saga complete',
       sagaWrite('complete'),
       { status: 503, error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' },
-      // The request already wrote its success audit; the cron writes another.
-      ['success', 'success'],
+      // The request already wrote its success audit. Owner decision D3
+      // (C7-9): the cron's insert finds that row for this transfer and adds
+      // none; before C7-9 it wrote a second one.
+      ['success'],
     ],
   ];
 
@@ -300,9 +303,8 @@ useSagaClock();
       vi.setSystemTime(START + 60_000);
       expect(await test.cron()).toBe(1);
       await expectTransferred(test);
-      // Audit rows are not transfer-scoped: a cron finishing after a request
-      // that already audited success writes a second success row (RO-09;
-      // plan step C7-10, transfer-scoped dedupe preferred).
+      // The success row is transfer-scoped (owner decision D3, C7-9): a cron
+      // finishing after a request that already audited success adds none.
       expect(test.commitAudits()).toEqual(audits);
       expect(await test.cron(START + 120_000)).toBe(0);
     },
@@ -326,7 +328,7 @@ useSagaClock();
 (nodeSqlite ? describe : describe.skip)('owner-transfer saga: request outcome table', () => {
   type Row = [
     step: string,
-    kind: 'threw' | 'refused' | 'not found',
+    kind: string,
     inject: (test: TransferFixture) => void,
     answer: { status: number; error: string },
     audits: string[],
@@ -483,6 +485,19 @@ useSagaClock();
       'verified',
     ],
     [
+      // A failed insert of the row recording a stop does not change this
+      // answer (unlike the deleted-target stops, in the next table).
+      'fence clear',
+      'threw, and so did its stop audit',
+      (test) => {
+        test.failOnce(stepIs('fence:clear'));
+        test.failOnce(stepIs('audit:owner_transfer.commit:reconcile_required'));
+      },
+      DEVELOPER_API,
+      [],
+      'verified',
+    ],
+    [
       'success audit',
       'threw',
       (test) => test.failOnce(stepIs('audit:owner_transfer.commit:success')),
@@ -588,16 +603,19 @@ useSagaClock();
       ['success'],
     ],
     [
-      // Today the cron advances 'verified' before it finalizes (CRON_TAIL).
+      // Owner decision D3 (C7-9): the entitlement is finalized before
+      // "verified", so a failed 'verified' write leaves it moved. Before C7-9
+      // the cron wrote 'verified' first and left it reserved here.
       'saga verified',
       sagaWrite('verified'),
-      { state: 'old_owner_edge_retired', entitlements: RESERVED, audits: [] },
+      { state: 'old_owner_edge_retired', entitlements: FINALIZED, audits: [] },
       ['success'],
     ],
     [
+      // D3 (C7-9): a failed finalize no longer leaves the row at 'verified'.
       'entitlement finalize',
       stepIs('entitlement:finalize'),
-      { state: 'verified', entitlements: RESERVED, audits: [] },
+      { state: 'old_owner_edge_retired', entitlements: RESERVED, audits: [] },
       ['success'],
     ],
     [
@@ -616,8 +634,9 @@ useSagaClock();
       'saga complete',
       sagaWrite('complete'),
       { state: 'verified', entitlements: FINALIZED, audits: ['success'] },
-      // The retry audits success again (no transfer-scoped dedupe yet; D3).
-      ['success', 'success'],
+      // Owner decision D3 (C7-9): the retry's success insert finds the row
+      // this transfer already wrote. Before C7-9 it wrote a second one.
+      ['success'],
     ],
   ];
 
@@ -652,16 +671,13 @@ useSagaClock();
 });
 
 (nodeSqlite ? describe : describe.skip)('owner-transfer saga: target deleted mid-transfer', () => {
-  // Known gap (audit timing), pinned by the two request tests below: the
-  // request writes its deleted-target audit AFTER the terminal 'target_deleted'
-  // advance, while every cron site audits BEFORE it. A terminal row leaves the
-  // cron listing, so if the request's audit insert fails it answers 503
-  // PRO_ROOM_AUDIT_UNAVAILABLE and no executor ever writes that row: the
-  // request's audit is at-most-once, the cron's at-least-once. Plan step C7-8
-  // (shared terminator helper) must keep this order; C7-9 (roadmap Phase 1
-  // app B, "audit before terminal advance", owner decision D3) moves the audit
-  // ahead of the advance. Update these pins then.
-  it('request, after the DO commit (today): purges, finalizes, terminalizes, and only then audits target_deleted_after_commit', async () => {
+  // Owner decision D3 (C7-9): every site purges (unless the deletion job
+  // already did), finalizes, writes its audit row and only then advances to
+  // 'target_deleted'. A terminal row leaves the cron listing, so before C7-9
+  // the request, which audited after the advance, lost the row for good when
+  // that insert failed; the cron sites audited before the finalize, and the
+  // cron's final recheck wrote no row at all.
+  it('request, after the DO commit: purges, finalizes, audits target_deleted_after_commit, then terminalizes', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     test.deleteTargetBefore(sagaWrite('committed'));
@@ -676,9 +692,11 @@ useSagaClock();
       'saga:committed',
       ...PURGE,
       'entitlement:finalize',
-      'saga:target_deleted',
+      // D3 (C7-9): the audit now precedes the terminal advance.
       'audit:owner_transfer.commit:target_deleted_after_commit',
+      'saga:target_deleted',
     ]);
+    expect(test.commitAudits()).toEqual(['target_deleted_after_commit']);
     expect(test.signalingCalls).toContain('/internal/admin/v1/owner-account-deleted');
     // The deletion fence relabels the transfer fence; keys stay revoked.
     expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
@@ -689,8 +707,7 @@ useSagaClock();
     });
   });
 
-  // Same audit-after-terminal gap as above (C7-9 flips it).
-  it('request, at the final recheck (today): same sequence, audited target_deleted_during_finalize after the terminal advance', async () => {
+  it('request, at the final recheck: same sequence, audited target_deleted_during_finalize before the terminal advance', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     test.deleteTargetBefore(sagaWrite('old_owner_edge_retired'));
@@ -705,8 +722,9 @@ useSagaClock();
       'saga:old_owner_edge_retired',
       ...PURGE,
       'entitlement:finalize',
-      'saga:target_deleted',
+      // D3 (C7-9): the audit now precedes the terminal advance.
       'audit:owner_transfer.commit:target_deleted_during_finalize',
+      'saga:target_deleted',
     ]);
     expect(test.saga()).toBe('target_deleted');
     expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
@@ -742,13 +760,14 @@ useSagaClock();
     expect(test.saga()).toBe('verified');
     expect(test.commitAudits()).toEqual(['reconcile_required']);
 
-    // The cron finds the room suspended for the deleted owner and terminates.
+    // The cron finds the room suspended for the deleted owner and terminates
+    // (D3, C7-9: finalize, audit, then the terminal advance).
     vi.setSystemTime(START + 60_000);
     const mark = test.mark();
     expect(await test.cron()).toBe(1);
     expect(test.steps(mark)).toEqual([
-      'audit:owner_transfer.commit:target_deleted_during_reconcile',
       'entitlement:finalize',
+      'audit:owner_transfer.commit:target_deleted_during_reconcile',
       'saga:target_deleted',
     ]);
     expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
@@ -780,7 +799,7 @@ useSagaClock();
     expect(before).toBe(START);
   });
 
-  it('cron, after the deletion job purged the room: audits and finalizes without a second purge', async () => {
+  it('cron, after the deletion job purged the room: finalizes and audits without a second purge', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     test.failOnce(sagaWrite('registry_active'));
@@ -805,9 +824,10 @@ useSagaClock();
     vi.setSystemTime(START + 60_000);
     const mark = test.mark();
     expect(await test.cron()).toBe(1);
+    // D3 (C7-9): the audit moved from before the finalize to before the advance.
     expect(test.steps(mark)).toEqual([
-      'audit:owner_transfer.commit:target_deleted_during_reconcile',
       'entitlement:finalize',
+      'audit:owner_transfer.commit:target_deleted_during_reconcile',
       'saga:target_deleted',
     ]);
     expect(test.signalingCalls).toHaveLength(purges);
@@ -816,7 +836,7 @@ useSagaClock();
     expect(test.keyStatus()).toBe('revoked');
   });
 
-  it('cron, right after adopting the commit: purges, audits, then finalizes', async () => {
+  it('cron, right after adopting the commit: purges, finalizes, then audits', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     test.failOnce(sagaWrite('committed'));
@@ -827,17 +847,18 @@ useSagaClock();
     vi.setSystemTime(START + 60_000);
     const mark = test.mark();
     expect(await test.cron()).toBe(1);
+    // D3 (C7-9): the audit moved from before the finalize to before the advance.
     expect(test.steps(mark)).toEqual([
       'saga:committed',
       ...PURGE,
-      'audit:owner_transfer.commit:target_deleted_during_reconcile',
       'entitlement:finalize',
+      'audit:owner_transfer.commit:target_deleted_during_reconcile',
       'saga:target_deleted',
     ]);
     expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
   });
 
-  it('cron, at its final recheck: purges and finalizes but writes no audit row', async () => {
+  it('cron, at its final recheck: purges, finalizes and audits like the other sites', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     test.failOnce(sagaWrite('committed'));
@@ -848,28 +869,29 @@ useSagaClock();
     const mark = test.mark();
     expect(await test.cron()).toBe(1);
     const tail = test.steps(mark);
-    // Known gap: this cron branch has no target_deleted audit, unlike the
-    // other four sites. Plan step C7-9 (single post-commit executor) adds
-    // 'target_deleted_during_reconcile' here; flip this pin then.
+    // Owner decision D3 (C7-9) added the audit this branch lacked: the
+    // executor's final recheck ends like every other deleted-target site.
     expect(tail.slice(tail.indexOf('saga:old_owner_edge_retired'))).toEqual([
       'saga:old_owner_edge_retired',
       ...PURGE,
       'entitlement:finalize',
+      'audit:owner_transfer.commit:target_deleted_during_reconcile',
       'saga:target_deleted',
     ]);
-    expect(test.commitAudits()).toEqual([]);
+    expect(test.commitAudits()).toEqual(['target_deleted_during_reconcile']);
     expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
   });
 });
 
 /**
- * The four deleted-target sites when one of their steps does not complete.
- * Plan step C7-8 replaces the four hand-written sequences with one terminator
- * whose options reproduce each site; these pins hold every site's order,
- * failure exits and audit placement, including the two known gaps that
- * owner decision D3 (plan step C7-9) changes later: the request's audit after
- * the terminal advance (lost when its insert fails) and the cron's final
- * recheck without any audit row.
+ * The deleted-target sites when one of their steps does not complete. Plan
+ * step C7-8 named one terminator for the four hand-written sequences; plan
+ * step C7-9 (owner decision D3) gave every site one order: purge (unless the
+ * deletion job already did), finalize, the audit row, then the terminal
+ * advance, with the audit row written once per transfer. Before C7-9 the
+ * request audited after the advance (and lost the row when that insert
+ * failed), the cron audited before the finalize (and repeated the row on
+ * every retry), and the cron's final recheck wrote no row.
  */
 (nodeSqlite ? describe : describe.skip)('owner-transfer saga: deleted-target exits', () => {
   type Answer = { status: number; error: string };
@@ -877,8 +899,12 @@ useSagaClock();
     status: 503,
     error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED',
   };
-  // [failing step, fault, steps from 'saga:committed', answer, saga state, commit audits]
-  const requestExits: Array<[string, Fault, string[], Answer, string, string[]]> = [
+  const TDC = 'audit:owner_transfer.commit:target_deleted_after_commit';
+  // [failing step, fault, steps from 'saga:committed', answer, saga state,
+  //  commit audits after the request, commit audits once the cron converged]
+  const requestExits: Array<
+    [string, Fault | Fault[], string[], Answer, string, string[], string[]]
+  > = [
     [
       'purge (its fence write)',
       stepIs('fence:owner_account_deleted'),
@@ -886,6 +912,22 @@ useSagaClock();
       reconcileRequired,
       'committed',
       ['reconcile_required'],
+      ['reconcile_required', 'target_deleted_during_reconcile'],
+    ],
+    [
+      // A deleted-target stop's answer stands on its 'reconcile_required'
+      // row: when that insert fails too, the request answers that the audit
+      // is unavailable (unlike a stop on the main tail).
+      'purge, and then its stop audit,',
+      [
+        stepIs('fence:owner_account_deleted'),
+        stepIs('audit:owner_transfer.commit:reconcile_required'),
+      ],
+      ['saga:committed'],
+      { status: 503, error: 'PRO_ROOM_AUDIT_UNAVAILABLE' },
+      'committed',
+      [],
+      ['target_deleted_during_reconcile'],
     ],
     [
       'entitlement finalize',
@@ -894,54 +936,73 @@ useSagaClock();
       reconcileRequired,
       'committed',
       ['reconcile_required'],
+      ['reconcile_required', 'target_deleted_during_reconcile'],
     ],
     [
+      // D3 (C7-9): the outcome row is written before the failed advance, so
+      // it is not lost; the cron then records its own termination label.
       'terminal advance',
       sagaWrite('target_deleted'),
       [
         'saga:committed',
         ...PURGE,
         'entitlement:finalize',
+        TDC,
         'audit:owner_transfer.commit:reconcile_required',
       ],
       reconcileRequired,
       'committed',
-      ['reconcile_required'],
+      ['target_deleted_after_commit', 'reconcile_required'],
+      ['target_deleted_after_commit', 'reconcile_required', 'target_deleted_during_reconcile'],
     ],
     [
+      // D3 (C7-9): the row is no longer terminal when the audit insert fails,
+      // so the cron finishes it and writes the row. Before C7-9 the request
+      // had already advanced to 'target_deleted' and the row was lost.
       'audit insert',
-      stepIs('audit:owner_transfer.commit:target_deleted_after_commit'),
-      ['saga:committed', ...PURGE, 'entitlement:finalize', 'saga:target_deleted'],
+      stepIs(TDC),
+      ['saga:committed', ...PURGE, 'entitlement:finalize'],
       { status: 503, error: 'PRO_ROOM_AUDIT_UNAVAILABLE' },
-      'target_deleted',
+      'committed',
       [],
+      ['target_deleted_during_reconcile'],
     ],
   ];
 
   it.each(requestExits)(
-    'request: when the %s fails, audits the outcome after the fact and answers',
-    async (_name, fault, steps, answer, state, audits) => {
+    'request: when the %s fails, answers and leaves the row for the cron',
+    async (_name, faults, steps, answer, state, audits, convergedAudits) => {
       const test = await transferFixture();
       const claim = await issueClaim(test);
       test.deleteTargetBefore(sagaWrite('committed'));
-      test.failOnce(fault);
+      for (const fault of [faults].flat()) test.failOnce(fault);
       const mark = test.mark();
       expect(await requestTransfer(test, claim)).toEqual({ ...answer, cookies: [] });
       const tail = test.steps(mark);
       expect(tail.slice(tail.indexOf('saga:committed'))).toEqual(steps);
       expect(test.saga()).toBe(state);
       expect(test.commitAudits()).toEqual(audits);
-      if (state === 'target_deleted') {
-        // Terminal rows leave the cron listing: the lost audit is never
-        // written (at-most-once; D3 moves the audit ahead of the advance).
-        vi.setSystemTime(START + 60_000);
-        expect(await test.cron()).toBe(0);
-        expect(test.commitAudits()).toEqual([]);
-      }
+
+      // Every exit leaves a nonterminal row the cron finishes, auditing it
+      // before its own terminal advance.
+      vi.setSystemTime(START + 60_000);
+      expect(await test.cron()).toBe(1);
+      expect(test.saga()).toBe('target_deleted');
+      expect(test.commitAudits()).toEqual(convergedAudits);
+      // Keys stay revoked whichever fence label holds. When the purge stopped
+      // at its fence write, the DO had already removed the owner and dropped
+      // the transfer record, so the cron takes its already-purged branch (no
+      // second purge, as before C7-9) and the account-deletion job's own
+      // retry relabels the fence and acknowledges the removal.
+      expect(test.keyStatus()).toBe('revoked');
+      expect(test.fence()).toEqual({
+        status: 'active',
+        reason: steps.includes(PURGE[0]!) ? 'owner_account_deleted' : 'ownership_transfer_pending',
+      });
     },
   );
 
-  /** Cron site right after it adopts the commit: purge, audit, finalize, advance. */
+  /** Cron site right after it adopts the commit: purge, finalize, audit, advance. */
   async function adoptedCommitSite(test: TransferFixture) {
     const claim = await issueClaim(test);
     test.failOnce(sagaWrite('committed'));
@@ -949,7 +1010,7 @@ useSagaClock();
     test.deleteTargetBefore(sagaWrite('committed'));
   }
 
-  /** Cron site after the deletion job purged the room: audit, finalize, advance. */
+  /** Cron site after the deletion job purged the room: finalize, audit, advance. */
   async function purgedRoomSite(test: TransferFixture) {
     const claim = await issueClaim(test);
     test.failOnce(sagaWrite('registry_active'));
@@ -958,7 +1019,7 @@ useSagaClock();
     expect(await test.purge(TARGET)).toBe(true);
   }
 
-  /** Cron site at its final recheck: purge, finalize, advance, no audit. */
+  /** Cron site at its final recheck: purge, finalize, audit, advance. */
   async function finalRecheckSite(test: TransferFixture) {
     const claim = await issueClaim(test);
     test.failOnce(sagaWrite('committed'));
@@ -967,7 +1028,17 @@ useSagaClock();
   }
 
   const TDR = 'audit:owner_transfer.commit:target_deleted_during_reconcile';
+  const FINAL_RECHECK_PREFIX = [
+    'saga:committed',
+    'registry:registered',
+    'saga:registry_active',
+    'link:-old',
+    'saga:old_owner_edge_retired',
+  ];
   // [site, failing step, setup, fault, steps of the failed sweep, commit audits it adds]
+  // Owner decision D3 (C7-9) moved each cron site's audit from before the
+  // finalize to just before the terminal advance (and added it at the final
+  // recheck), so a failed finalize no longer leaves an audit row behind.
   const cronExits: Array<
     [string, string, (test: TransferFixture) => Promise<void>, Fault, string[], string[]]
   > = [
@@ -981,43 +1052,50 @@ useSagaClock();
     ],
     [
       'after adopting the commit',
-      'audit insert',
+      'entitlement finalize',
       adoptedCommitSite,
-      stepIs(TDR),
+      stepIs('entitlement:finalize'),
       ['saga:committed', ...PURGE],
       [],
     ],
     [
       'after adopting the commit',
-      'entitlement finalize',
+      'audit insert',
       adoptedCommitSite,
-      stepIs('entitlement:finalize'),
-      ['saga:committed', ...PURGE, TDR],
-      ['target_deleted_during_reconcile'],
+      stepIs(TDR),
+      ['saga:committed', ...PURGE, 'entitlement:finalize'],
+      [],
     ],
     [
       'after adopting the commit',
       'terminal advance',
       adoptedCommitSite,
       sagaWrite('target_deleted'),
-      ['saga:committed', ...PURGE, TDR, 'entitlement:finalize'],
+      ['saga:committed', ...PURGE, 'entitlement:finalize', TDR],
       ['target_deleted_during_reconcile'],
     ],
-    ['after the deletion purge', 'audit insert', purgedRoomSite, stepIs(TDR), [], []],
     [
       'after the deletion purge',
       'entitlement finalize',
       purgedRoomSite,
       stepIs('entitlement:finalize'),
-      [TDR],
-      ['target_deleted_during_reconcile'],
+      [],
+      [],
+    ],
+    [
+      'after the deletion purge',
+      'audit insert',
+      purgedRoomSite,
+      stepIs(TDR),
+      ['entitlement:finalize'],
+      [],
     ],
     [
       'after the deletion purge',
       'terminal advance',
       purgedRoomSite,
       sagaWrite('target_deleted'),
-      [TDR, 'entitlement:finalize'],
+      ['entitlement:finalize', TDR],
       ['target_deleted_during_reconcile'],
     ],
     [
@@ -1025,13 +1103,7 @@ useSagaClock();
       'purge (its fence write)',
       finalRecheckSite,
       stepIs('fence:owner_account_deleted'),
-      [
-        'saga:committed',
-        'registry:registered',
-        'saga:registry_active',
-        'link:-old',
-        'saga:old_owner_edge_retired',
-      ],
+      FINAL_RECHECK_PREFIX,
       [],
     ],
     [
@@ -1039,14 +1111,15 @@ useSagaClock();
       'entitlement finalize',
       finalRecheckSite,
       stepIs('entitlement:finalize'),
-      [
-        'saga:committed',
-        'registry:registered',
-        'saga:registry_active',
-        'link:-old',
-        'saga:old_owner_edge_retired',
-        ...PURGE,
-      ],
+      [...FINAL_RECHECK_PREFIX, ...PURGE],
+      [],
+    ],
+    [
+      'at the final recheck',
+      'audit insert',
+      finalRecheckSite,
+      stepIs(TDR),
+      [...FINAL_RECHECK_PREFIX, ...PURGE, 'entitlement:finalize'],
       [],
     ],
     [
@@ -1054,16 +1127,8 @@ useSagaClock();
       'terminal advance',
       finalRecheckSite,
       sagaWrite('target_deleted'),
-      [
-        'saga:committed',
-        'registry:registered',
-        'saga:registry_active',
-        'link:-old',
-        'saga:old_owner_edge_retired',
-        ...PURGE,
-        'entitlement:finalize',
-      ],
-      [],
+      [...FINAL_RECHECK_PREFIX, ...PURGE, 'entitlement:finalize', TDR],
+      ['target_deleted_during_reconcile'],
     ],
   ];
 
@@ -1082,27 +1147,33 @@ useSagaClock();
       const reached = steps.filter((entry) => entry.startsWith('saga:')).at(-1);
       expect(test.saga()).toBe(reached?.slice('saga:'.length) ?? 'committed');
       expect(test.commitAudits().slice(earlierAudits)).toEqual(audits);
+
+      // The next sweep converges with exactly one row for this transfer.
+      vi.setSystemTime(START + 120_000);
+      expect(await test.cron()).toBe(1);
+      expect(test.saga()).toBe('target_deleted');
+      expect(test.commitAudits().slice(earlierAudits)).toEqual(['target_deleted_during_reconcile']);
     },
   );
 
-  it('cron after the deletion purge: an audit written before a failed finalize is written again on the retry', async () => {
+  it('cron after the deletion purge: a retry after a failed terminal advance writes the audit row once', async () => {
     const test = await transferFixture();
     await purgedRoomSite(test);
     // The request that stopped at 'registry_active' audited its own failure.
     expect(test.commitAudits()).toEqual(['reconcile_required']);
-    test.failOnce(stepIs('entitlement:finalize'));
+    test.failOnce(sagaWrite('target_deleted'));
     vi.setSystemTime(START + 60_000);
     expect(await test.cron()).toBe(0);
+    expect(test.commitAudits()).toEqual(['reconcile_required', 'target_deleted_during_reconcile']);
     vi.setSystemTime(START + 120_000);
     const mark = test.mark();
     expect(await test.cron()).toBe(1);
-    expect(test.steps(mark)).toEqual([TDR, 'entitlement:finalize', 'saga:target_deleted']);
-    // Audit before finalize is at-least-once, so a retry duplicates it.
-    expect(test.commitAudits()).toEqual([
-      'reconcile_required',
-      'target_deleted_during_reconcile',
-      'target_deleted_during_reconcile',
-    ]);
+    // The retry issues the insert again, and it finds this transfer's row.
+    expect(test.steps(mark)).toEqual(['entitlement:finalize', TDR, 'saga:target_deleted']);
+    // Owner decision D3 (C7-9): at least once and, with the transfer-scoped
+    // check, once. Before C7-9 the audit came before the finalize and every
+    // retry added another row.
+    expect(test.commitAudits()).toEqual(['reconcile_required', 'target_deleted_during_reconcile']);
   });
 });
 
@@ -1207,7 +1278,7 @@ useSagaClock();
 });
 
 (nodeSqlite ? describe : describe.skip)('owner-transfer saga: request and cron on one row', () => {
-  it('lets a stalled request finish after the cron completed its tail, writing a second success audit', async () => {
+  it('lets a stalled request finish after the cron completed its tail, with one success audit', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     // The request stalls on D1 right after the DO commit and 'committed'.
@@ -1230,9 +1301,11 @@ useSagaClock();
       if (event.db === 'admin') sagaStates.add(test.saga());
     });
     stall.release();
-    // Every ranked advance of the old request reports success against the
-    // completed row, the fence clear is idempotent, and its success audit is
-    // written again (RO-09 inference reproduced; plan step C7-10).
+    // Every ranked advance of the stalled request reports success against
+    // the completed row and the fence clear is idempotent. Its success insert
+    // still runs, and owner decision D3 (C7-9) makes it find the cron's row
+    // for this transfer: one row, where before C7-9 there were two (the RO-09
+    // overlap; an adoption lease, C7-10, was not needed).
     expect(await request).toEqual({
       status: 200,
       error: null,
@@ -1241,10 +1314,10 @@ useSagaClock();
     expect(test.steps(requestMark)).toEqual(REQUEST_TAIL.slice(2));
     expect([...sagaStates]).toEqual(['complete']);
     await expectTransferred(test);
-    expect(test.commitAudits()).toEqual(['success', 'success']);
+    expect(test.commitAudits()).toEqual(['success']);
   });
 
-  it('a replayed request after completion runs the tail again and writes a second success audit', async () => {
+  it('a replayed request after completion runs the tail again and adds no success audit', async () => {
     const test = await transferFixture();
     const claim = await issueClaim(test);
     expect((await requestTransfer(test, claim)).status).toBe(200);
@@ -1261,7 +1334,9 @@ useSagaClock();
     });
     expect(test.steps(mark)).toContain('audit:owner_transfer.commit:success');
     await expectTransferred(test);
-    expect(test.commitAudits()).toEqual(['success', 'success']);
+    // Owner decision D3 (C7-9): the replay's insert finds this transfer's row.
+    // Before C7-9 it wrote a second one.
+    expect(test.commitAudits()).toEqual(['success']);
   });
 
   it('two transfers of one room incarnation each write their own success audit', async () => {
@@ -1286,6 +1361,8 @@ useSagaClock();
     });
     expect(test.saga('saga_request_0000002')).toBe('complete');
     expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'old' });
+    // The success row is deduplicated per transfer (since the saga's intent),
+    // not per room incarnation, so the second transfer keeps its own row.
     expect(test.commitAudits()).toEqual(['success', 'success']);
   });
 

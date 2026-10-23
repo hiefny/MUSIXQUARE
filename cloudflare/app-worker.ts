@@ -4360,6 +4360,15 @@ async function completeLegacyOwnerDetachAudit(
   }
 }
 
+/**
+ * How often a system PRO room audit row may repeat. `once`: one row per
+ * actor, action, result and room incarnation, ever. `onceSinceMs`: one such
+ * row at or after that time, so an outcome repeats across separate
+ * operations on the incarnation (one owner transfer each) but never within
+ * one. The audit table has no operation column, so a time bound scopes it.
+ */
+type SystemAdminProRoomAuditRepeat = { readonly once?: boolean; readonly onceSinceMs?: number };
+
 async function appendSystemAdminProRoomAudit(
   db: D1Database,
   actorId: string,
@@ -4367,12 +4376,44 @@ async function appendSystemAdminProRoomAudit(
   result: unknown,
   roomCode: string,
   roomGeneration: number,
-  { once = false } = {},
+  { once = false, onceSinceMs }: SystemAdminProRoomAuditRepeat = {},
 ) {
-  if (!/^system:[a-z0-9-]{1,64}$/.test(actorId || '') || !isProRoomGeneration(roomGeneration)) {
+  if (
+    !/^system:[a-z0-9-]{1,64}$/.test(actorId || '') ||
+    !isProRoomGeneration(roomGeneration) ||
+    (onceSinceMs !== undefined && (!Number.isSafeInteger(onceSinceMs) || onceSinceMs < 0))
+  ) {
     throw new Error('Invalid system PRO room audit identity');
   }
   await ensureAdminProRoomRegistry(db);
+  if (onceSinceMs !== undefined) {
+    // One statement, so two executors racing on one operation write one row.
+    // created_at never precedes the bound, so a later check always sees this
+    // row even when this Worker's clock trails the one that set the bound.
+    await db
+      .prepare(
+        `INSERT INTO ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+          (actor_id, action, result, room_code, room_generation, created_at)
+         SELECT ?1, ?2, ?3, ?4, ?5, ?6
+          WHERE NOT EXISTS (
+            SELECT 1 FROM ${ADMIN_PRO_ROOM_AUDIT_TABLE}
+             WHERE actor_id = ?1 AND action = ?2 AND result = ?3
+               AND room_code = ?4 AND room_generation = ?5
+               AND created_at >= ?7
+          )`,
+      )
+      .bind(
+        actorId,
+        action,
+        result,
+        roomCode,
+        roomGeneration,
+        Math.max(Date.now(), onceSinceMs),
+        onceSinceMs,
+      )
+      .run();
+    return;
+  }
   const createdAt = Date.now();
   const statement = once
     ? db.prepare(
@@ -6393,7 +6434,7 @@ async function auditSystemOwnerTransfer(
   result: string,
   roomCode: string,
   roomGeneration: number,
-  { once = false } = {},
+  repeat: SystemAdminProRoomAuditRepeat = {},
 ) {
   const db = getAdminDb(env);
   if (!db?.prepare) throw new Error('PRO room registry unavailable');
@@ -6404,7 +6445,7 @@ async function auditSystemOwnerTransfer(
     result,
     roomCode,
     roomGeneration,
-    { once },
+    repeat,
   );
 }
 
@@ -7059,91 +7100,316 @@ function ownerTransferEntitlementInput(
 }
 
 /**
- * How one deleted-target site ends a committed transfer (registry RO-09):
- * whether it purges the target's new owner authority first, and where its
- * commit audit goes.
- * - `before-finalize` (cron): `auditResult` is written before the finalize;
- *   an insert failure throws and the next sweep audits again (at least once).
- * - `after-terminal` (request): every step failure is caught; `auditResult` is
- *   written after the terminal advance, or 'reconcile_required' when a step
- *   did not complete. An insert failure after the advance loses the row.
- * - `none` (cron final recheck): no audit row.
- * Owner decision D3 moves every audit ahead of the terminal advance in the
- * single post-commit executor (plan step C7-9); until then each site keeps
- * its own placement.
+ * Where the post-commit executor stopped (registry RO-09), as a step and how
+ * it stopped there:
+ * - `threw`: the dependency was unavailable;
+ * - `refused`: it answered no: a compare-and-swap miss after another executor
+ *   ended the row, a 409 from the Durable Object, a canonical room state that
+ *   is not active, a fence another writer relabelled, a purge or entitlement
+ *   write that did not complete;
+ * - `not_found`: the final registry read found no row or another incarnation.
+ * Each step lists only the ways it can stop, so the request's answer table
+ * (OWNER_TRANSFER_REQUEST_TAIL_ANSWERS) is total.
  */
-type OwnerTransferDeletedTargetTermination = {
-  readonly purge: boolean;
-  /** The cron's sweep time; the request uses each write's own clock. */
-  readonly nowMs?: number;
-} & (
-  | { readonly auditTiming: 'before-finalize' | 'after-terminal'; readonly auditResult: string }
-  | { readonly auditTiming: 'none' }
-);
+type OwnerTransferTailFailure =
+  | { readonly step: 'target_after_commit' | 'target_final_recheck'; readonly kind: 'threw' }
+  | {
+      readonly step:
+        | 'registry_projection'
+        | 'registry_active'
+        | 'old_owner_edge'
+        | 'old_owner_edge_retired'
+        | 'verified'
+        | 'fence_clear'
+        | 'complete'
+        | 'target_deleted';
+      readonly kind: 'threw' | 'refused';
+    }
+  | { readonly step: 'canonical_room'; readonly kind: 'threw' | 'refused' | 'not_found' }
+  | {
+      readonly step: 'entitlement_finalize' | 'target_purge' | 'target_entitlement_finalize';
+      readonly kind: 'refused';
+    }
+  | { readonly step: 'commit_audit' | 'target_deleted_audit'; readonly kind: 'threw' };
+
+/** The executor's result: the terminal state it reached, or where it stopped. */
+type OwnerTransferTailOutcome =
+  | { readonly ok: true; readonly state: 'complete' | 'target_deleted' }
+  | ({ readonly ok: false } & OwnerTransferTailFailure);
 
 /**
- * Ends a committed owner transfer whose target account is being deleted, as
- * one sequence for the four sites that wrote it by hand (plan step C7-8):
- * purge (optional), finalize the reserved entitlement, then advance the saga
- * to 'target_deleted', with the audit placed as `auditTiming` says. Returns
- * 'target_deleted' once the advance holds, 'incomplete' when a step stopped
- * short, and 'audit_unavailable' when the request's closing audit failed.
+ * The executor's two entry adapters. The cron passes its sweep time; the
+ * request passes none, so each write stamps its own clock, as before C7-9.
+ */
+type OwnerTransferTailEntry =
+  { readonly entry: 'request' } | { readonly entry: 'cron'; readonly nowMs: number };
+
+/**
+ * The commit audit result for a target deleted after the commit, per entry
+ * and per point of discovery. The request names the point; the cron names
+ * its sweep at both.
+ */
+const OWNER_TRANSFER_DELETED_TARGET_AUDIT = Object.freeze({
+  request: Object.freeze({
+    afterCommit: 'target_deleted_after_commit',
+    finalRecheck: 'target_deleted_during_finalize',
+  }),
+  cron: Object.freeze({
+    afterCommit: 'target_deleted_during_reconcile',
+    finalRecheck: 'target_deleted_during_reconcile',
+  }),
+} satisfies Record<OwnerTransferTailEntry['entry'], Record<string, string>>);
+
+/**
+ * Writes the commit audit row that closes a transfer (`success` or a deleted
+ * target), before the terminal advance and at most once per result for this
+ * transfer (owner decision D3, 2026-10-23). A crash after the insert leaves
+ * the row nonterminal, so the next executor writes it again unless it is
+ * already there: at least once, and exactly once when the inserts succeed.
+ * The audit table has no transfer column, so the saga's intent time scopes
+ * the check: the request and the cron finishing the same transfer, or a
+ * replayed request, find the first row. An earlier transfer of the same
+ * incarnation wrote its rows before this one's intent, because a new claim
+ * waits until the DO's completed-transfer replay window (10 minutes) is over
+ * and the DO then refuses the earlier transfer's tail; the one gap is a tail
+ * of the earlier transfer still writing in the milliseconds between this
+ * intent and its PREPARE, after being stuck for longer than that window.
+ */
+async function auditOwnerTransferCommitOnce(env: AppEnv, saga: OwnerTransferSaga, result: string) {
+  await auditSystemOwnerTransfer(
+    env,
+    'owner_transfer.commit',
+    result,
+    saga.roomCode,
+    saga.roomGeneration,
+    { onceSinceMs: saga.intentAtMs },
+  );
+}
+
+/** One ranked post-commit advance: null when it holds, else how it stopped. */
+async function advanceOwnerTransferTail(
+  db: D1Database,
+  saga: OwnerTransferSaga,
+  state: 'registry_active' | 'old_owner_edge_retired' | 'verified' | 'complete' | 'target_deleted',
+  nowMs: number | undefined,
+): Promise<OwnerTransferTailFailure | null> {
+  try {
+    return (await advanceOwnerTransferSagaState(db, saga, state, nowMs))
+      ? null
+      : { step: state, kind: 'refused' };
+  } catch {
+    return { step: state, kind: 'threw' };
+  }
+}
+
+/**
+ * Ends a committed owner transfer whose target account is being deleted
+ * (registry RO-09): purge the target's new owner authority (unless the
+ * deletion job already did), finalize the reserved entitlement, audit
+ * `auditResult` once for this transfer, then advance to 'target_deleted'
+ * (owner decision D3: the audit comes before any terminal advance). Used by
+ * the post-commit executor at both target checks and by the cron when the
+ * room is already suspended for the deletion.
  */
 async function terminateOwnerTransferForDeletedTarget(
   env: AppEnv,
   db: D1Database,
   saga: OwnerTransferSaga,
-  termination: OwnerTransferDeletedTargetTermination,
-): Promise<'target_deleted' | 'incomplete' | 'audit_unavailable'> {
-  const { nowMs } = termination;
-  const purge = () =>
-    purgeProRoomAccountAuthority(
+  {
+    purge,
+    auditResult,
+    nowMs,
+  }: {
+    readonly purge: boolean;
+    readonly auditResult: string;
+    /** The cron's sweep time; the request uses each write's own clock. */
+    readonly nowMs?: number | undefined;
+  },
+): Promise<OwnerTransferTailOutcome> {
+  if (
+    purge &&
+    !(await purgeProRoomAccountAuthority(
       {
         accountId: saga.targetAccountId,
         roomCode: saga.roomCode,
         roomGeneration: saga.roomGeneration,
       },
       env,
-    ).catch(() => false);
-  const finalize = () =>
-    finalizeProRoomOwnershipTransferEntitlement(
+    ).catch(() => false))
+  ) {
+    return { ok: false, step: 'target_purge', kind: 'refused' };
+  }
+  if (
+    !(await finalizeProRoomOwnershipTransferEntitlement(
       env,
       ownerTransferEntitlementInput(saga, nowMs),
-    ).catch(() => false);
-  const audit = (result: string) =>
-    auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      result,
-      saga.roomCode,
-      saga.roomGeneration,
-    );
+    ).catch(() => false))
+  ) {
+    return { ok: false, step: 'target_entitlement_finalize', kind: 'refused' };
+  }
+  try {
+    await auditOwnerTransferCommitOnce(env, saga, auditResult);
+  } catch {
+    return { ok: false, step: 'target_deleted_audit', kind: 'threw' };
+  }
+  const failure = await advanceOwnerTransferTail(db, saga, 'target_deleted', nowMs);
+  return failure ? { ok: false, ...failure } : { ok: true, state: 'target_deleted' };
+}
 
-  if (termination.auditTiming === 'after-terminal') {
-    let terminated = termination.purge ? await purge() : true;
-    if (terminated) {
-      try {
-        terminated =
-          (await finalize()) &&
-          (await advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs));
-      } catch {
-        terminated = false;
-      }
-    }
-    try {
-      await audit(terminated ? termination.auditResult : 'reconcile_required');
-    } catch {
-      return 'audit_unavailable';
-    }
-    return terminated ? 'target_deleted' : 'incomplete';
+/**
+ * The single post-commit executor of the owner-transfer saga (registry RO-09,
+ * plan step C7-9). Both entries call it once the Durable Object has committed
+ * the transfer and the row is 'committed': the transfer request
+ * (handleProRoomOwnershipTransferSaga, which maps the outcome to its answer)
+ * and the minute cron (reconcileOneOwnerTransferSaga). Its one step order:
+ * target recheck, registry projection and 'registry_active', old-owner edge
+ * and 'old_owner_edge_retired', final target recheck, canonical room check,
+ * then owner decision D3 (2026-10-23): finalize the entitlement, 'verified',
+ * clear the Developer API fence, audit success, 'complete'. A deleted target
+ * at either recheck ends in terminateOwnerTransferForDeletedTarget. Every
+ * step is idempotent and every advance a ranked compare-and-swap, so the
+ * request, the cron and an executor of an older version can overlap on one
+ * row and converge. It never throws: a stop is an outcome.
+ */
+async function finishCommittedOwnerTransfer(
+  env: AppEnv,
+  db: D1Database,
+  saga: OwnerTransferSaga,
+  options: OwnerTransferTailEntry,
+): Promise<OwnerTransferTailOutcome> {
+  const nowMs = options.entry === 'cron' ? options.nowMs : undefined;
+  const deletedTargetAudit = OWNER_TRANSFER_DELETED_TARGET_AUDIT[options.entry];
+  const stopped = (failure: OwnerTransferTailFailure): OwnerTransferTailOutcome => ({
+    ok: false,
+    ...failure,
+  });
+
+  // The target can start deletion while the commit crosses the Worker
+  // boundary: project the incarnation back to owner-deleted suspension before
+  // any active registry write can make it look usable.
+  let target;
+  try {
+    target = await readActiveOwnerTransferTarget(env, saga.targetAccountId);
+  } catch {
+    return stopped({ step: 'target_after_commit', kind: 'threw' });
+  }
+  if (!target) {
+    return terminateOwnerTransferForDeletedTarget(env, db, saga, {
+      purge: true,
+      auditResult: deletedTargetAudit.afterCommit,
+      nowMs,
+    });
   }
 
-  if (termination.purge && !(await purge())) return 'incomplete';
-  if (termination.auditTiming === 'before-finalize') await audit(termination.auditResult);
-  if (!(await finalize())) return 'incomplete';
-  return (await advanceOwnerTransferSagaState(db, saga, 'target_deleted', nowMs))
-    ? 'target_deleted'
-    : 'incomplete';
+  try {
+    if (
+      !(await markAdminProRoomOperationalState(
+        env,
+        saga.roomCode,
+        saga.roomGeneration,
+        'active',
+        null,
+      ))
+    ) {
+      return stopped({ step: 'registry_projection', kind: 'refused' });
+    }
+  } catch {
+    return stopped({ step: 'registry_projection', kind: 'threw' });
+  }
+  let failure = await advanceOwnerTransferTail(db, saga, 'registry_active', nowMs);
+  if (failure) return stopped(failure);
+
+  if (saga.previousOwnerAccountId) {
+    try {
+      if (
+        !(await retireAccountProRoomLinkForAccount(
+          env,
+          saga.previousOwnerAccountId,
+          saga.roomCode,
+          saga.roomGeneration,
+        ))
+      ) {
+        return stopped({ step: 'old_owner_edge', kind: 'refused' });
+      }
+    } catch {
+      return stopped({ step: 'old_owner_edge', kind: 'threw' });
+    }
+  }
+  failure = await advanceOwnerTransferTail(db, saga, 'old_owner_edge_retired', nowMs);
+  if (failure) return stopped(failure);
+
+  // The last point at which the saga may project the room as active: recheck
+  // both account authority and the canonical DO after that write. A deletion
+  // purge that won before the write is repaired here; one that begins later
+  // has no subsequent transfer write that can overwrite it.
+  try {
+    target = await readActiveOwnerTransferTarget(env, saga.targetAccountId);
+  } catch {
+    return stopped({ step: 'target_final_recheck', kind: 'threw' });
+  }
+  if (!target) {
+    return terminateOwnerTransferForDeletedTarget(env, db, saga, {
+      purge: true,
+      auditResult: deletedTargetAudit.finalRecheck,
+      nowMs,
+    });
+  }
+  let room;
+  let canonicalStatus;
+  try {
+    room = await readAdminProRoom(db, saga.roomCode);
+    if (!room || room.roomGeneration !== saga.roomGeneration) {
+      return stopped({ step: 'canonical_room', kind: 'not_found' });
+    }
+    canonicalStatus = await reconcileAdminProRoomStatus(env, db, room);
+    room = await readAdminProRoom(db, saga.roomCode);
+  } catch {
+    return stopped({ step: 'canonical_room', kind: 'threw' });
+  }
+  if (
+    canonicalStatus !== 'active' ||
+    !room ||
+    room.roomGeneration !== saga.roomGeneration ||
+    room.status !== 'registered' ||
+    room.suspensionReason !== null ||
+    room.activationState !== 'active'
+  ) {
+    return stopped({ step: 'canonical_room', kind: 'refused' });
+  }
+
+  // Owner decision D3: 'verified' means the room is active and the
+  // entitlement has moved, so the finalize comes first.
+  if (
+    !(await finalizeProRoomOwnershipTransferEntitlement(
+      env,
+      ownerTransferEntitlementInput(saga, nowMs),
+    ).catch(() => false))
+  ) {
+    return stopped({ step: 'entitlement_finalize', kind: 'refused' });
+  }
+  failure = await advanceOwnerTransferTail(db, saga, 'verified', nowMs);
+  if (failure) return stopped(failure);
+  try {
+    if (
+      !(await clearDeveloperApiAuthorityFence(
+        env,
+        saga.roomCode,
+        saga.roomGeneration,
+        saga.fenceDigest,
+      ))
+    ) {
+      return stopped({ step: 'fence_clear', kind: 'refused' });
+    }
+  } catch {
+    return stopped({ step: 'fence_clear', kind: 'threw' });
+  }
+  try {
+    await auditOwnerTransferCommitOnce(env, saga, 'success');
+  } catch {
+    return stopped({ step: 'commit_audit', kind: 'threw' });
+  }
+  failure = await advanceOwnerTransferTail(db, saga, 'complete', nowMs);
+  return failure ? stopped(failure) : { ok: true, state: 'complete' };
 }
 
 interface OwnerTransferReconciliationMeta extends JsonObject {
@@ -7710,16 +7976,15 @@ async function reconcileOneOwnerTransferSaga(
         return false;
       }
       if (!target) {
-        // The room is already suspended for the target's deletion: audit and
-        // terminate without another purge.
+        // The room is already suspended for the target's deletion: terminate
+        // without another purge.
         return (
-          (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
+          await terminateOwnerTransferForDeletedTarget(env, db, saga, {
             purge: false,
-            auditTiming: 'before-finalize',
-            auditResult: 'target_deleted_during_reconcile',
+            auditResult: OWNER_TRANSFER_DELETED_TARGET_AUDIT.cron.afterCommit,
             nowMs,
-          })) === 'target_deleted'
-        );
+          })
+        ).ok;
       }
     }
     if (meta && typeof meta === 'object') {
@@ -7777,106 +8042,9 @@ async function reconcileOneOwnerTransferSaga(
   }
 
   if (!(await advanceOwnerTransferSagaState(db, saga, 'committed', nowMs))) return false;
-  let target;
-  try {
-    target = await readActiveOwnerTransferTarget(env, saga.targetAccountId);
-  } catch {
-    return false;
-  }
-  if (!target) {
-    return (
-      (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
-        purge: true,
-        auditTiming: 'before-finalize',
-        auditResult: 'target_deleted_during_reconcile',
-        nowMs,
-      })) === 'target_deleted'
-    );
-  }
-
-  if (
-    !(await markAdminProRoomOperationalState(
-      env,
-      saga.roomCode,
-      saga.roomGeneration,
-      'active',
-      null,
-    )) ||
-    !(await advanceOwnerTransferSagaState(db, saga, 'registry_active', nowMs))
-  ) {
-    return false;
-  }
-  if (
-    saga.previousOwnerAccountId &&
-    !(await retireAccountProRoomLinkForAccount(
-      env,
-      saga.previousOwnerAccountId,
-      saga.roomCode,
-      saga.roomGeneration,
-    ))
-  ) {
-    return false;
-  }
-  if (!(await advanceOwnerTransferSagaState(db, saga, 'old_owner_edge_retired', nowMs))) {
-    return false;
-  }
-
-  try {
-    target = await readActiveOwnerTransferTarget(env, saga.targetAccountId);
-  } catch {
-    return false;
-  }
-  if (!target) {
-    // No audit row at this site today; C7-9 (owner decision D3) adds one.
-    return (
-      (await terminateOwnerTransferForDeletedTarget(env, db, saga, {
-        purge: true,
-        auditTiming: 'none',
-        nowMs,
-      })) === 'target_deleted'
-    );
-  }
-  let room = await readAdminProRoom(db, saga.roomCode);
-  if (!room || room.roomGeneration !== saga.roomGeneration) return false;
-  const canonicalStatus = await reconcileAdminProRoomStatus(env, db, room);
-  room = await readAdminProRoom(db, saga.roomCode);
-  if (
-    canonicalStatus !== 'active' ||
-    !room ||
-    room.roomGeneration !== saga.roomGeneration ||
-    room.status !== 'registered' ||
-    room.suspensionReason !== null ||
-    room.activationState !== 'active'
-  ) {
-    return false;
-  }
-  if (!(await advanceOwnerTransferSagaState(db, saga, 'verified', nowMs))) return false;
-  if (
-    !(await finalizeProRoomOwnershipTransferEntitlement(
-      env,
-      ownerTransferEntitlementInput(saga, nowMs),
-    ).catch(() => false))
-  ) {
-    return false;
-  }
-  if (
-    !(await clearDeveloperApiAuthorityFence(
-      env,
-      saga.roomCode,
-      saga.roomGeneration,
-      saga.fenceDigest,
-    ))
-  ) {
-    return false;
-  }
-  await auditSystemOwnerTransfer(
-    env,
-    'owner_transfer.commit',
-    'success',
-    saga.roomCode,
-    saga.roomGeneration,
-  );
-  return advanceOwnerTransferSagaState(db, saga, 'complete', nowMs);
+  // The committed transfer's tail is the single post-commit executor
+  // (registry RO-09); the transfer request runs the same one.
+  return (await finishCommittedOwnerTransfer(env, db, saga, { entry: 'cron', nowMs })).ok;
 }
 
 async function reconcileOwnerTransferSagas(
@@ -7915,6 +8083,141 @@ export async function reconcileOwnerTransferSagasForTests(
     throw new TypeError('Owner transfer reconciliation input unavailable');
   }
   return reconcileOwnerTransferSagas(env, db, nowMs);
+}
+
+/** The transfer request's answer to one post-commit stop (registry RO-09). */
+interface OwnerTransferTailAnswer {
+  /** The commit audit row the request writes for this stop, if any. */
+  readonly audit: 'reconcile_required' | 'entitlement_reconcile_required' | null;
+  /**
+   * Whether the answer stands on that row: if its insert fails, the request
+   * answers 503 PRO_ROOM_AUDIT_UNAVAILABLE instead (the deleted-target steps).
+   * Elsewhere a failed insert is ignored.
+   */
+  readonly auditRequired: boolean;
+  readonly status: 409 | 503;
+  readonly error: string;
+}
+
+type OwnerTransferTailAnswers = {
+  readonly [F in OwnerTransferTailFailure as F['step']]: {
+    readonly [K in F['kind']]: OwnerTransferTailAnswer;
+  };
+};
+
+function ownerTransferTailAnswerOf(
+  audit: OwnerTransferTailAnswer['audit'],
+  status: OwnerTransferTailAnswer['status'],
+  error: string,
+  auditRequired = false,
+): OwnerTransferTailAnswer {
+  return Object.freeze({ audit, auditRequired, status, error });
+}
+
+/**
+ * Every post-commit stop of finishCommittedOwnerTransfer, mapped to the audit
+ * row and HTTP answer the request gave before the executor existed (plan step
+ * C7-9 kept them). The executor writes the closing audit rows itself; these
+ * are the rows that record a stop.
+ */
+const OWNER_TRANSFER_REQUEST_TAIL_ANSWERS = (() => {
+  const reconcile = ownerTransferTailAnswerOf(
+    'reconcile_required',
+    503,
+    'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED',
+  );
+  const reconcileNoAudit = ownerTransferTailAnswerOf(
+    null,
+    503,
+    'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED',
+  );
+  const registryUnavailable = ownerTransferTailAnswerOf(
+    'reconcile_required',
+    503,
+    'PRO_ROOM_REGISTRY_UNAVAILABLE',
+  );
+  const registryUnavailableNoAudit = ownerTransferTailAnswerOf(
+    null,
+    503,
+    'PRO_ROOM_REGISTRY_UNAVAILABLE',
+  );
+  const accountStoreUnavailable = ownerTransferTailAnswerOf(
+    'reconcile_required',
+    503,
+    'ACCOUNT_STORE_UNAVAILABLE',
+  );
+  const developerApiUnavailable = ownerTransferTailAnswerOf(
+    'reconcile_required',
+    503,
+    'DEVELOPER_API_ADMIN_UNAVAILABLE',
+  );
+  const auditUnavailable = ownerTransferTailAnswerOf(null, 503, 'PRO_ROOM_AUDIT_UNAVAILABLE');
+  const deletedTargetIncomplete = ownerTransferTailAnswerOf(
+    'reconcile_required',
+    503,
+    'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED',
+    true,
+  );
+  return Object.freeze({
+    target_after_commit: { threw: accountStoreUnavailable },
+    registry_projection: {
+      refused: ownerTransferTailAnswerOf(null, 409, 'PRO_ROOM_STATE_CONFLICT'),
+      threw: registryUnavailable,
+    },
+    registry_active: { refused: reconcileNoAudit, threw: registryUnavailable },
+    old_owner_edge: { refused: accountStoreUnavailable, threw: accountStoreUnavailable },
+    old_owner_edge_retired: { refused: reconcileNoAudit, threw: registryUnavailableNoAudit },
+    target_final_recheck: { threw: accountStoreUnavailable },
+    canonical_room: {
+      not_found: ownerTransferTailAnswerOf(null, 409, 'PRO_ROOM_GENERATION_MISMATCH'),
+      threw: registryUnavailable,
+      refused: reconcile,
+    },
+    entitlement_finalize: {
+      refused: ownerTransferTailAnswerOf(
+        'entitlement_reconcile_required',
+        503,
+        'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED',
+      ),
+    },
+    verified: { refused: reconcileNoAudit, threw: registryUnavailableNoAudit },
+    fence_clear: { refused: developerApiUnavailable, threw: developerApiUnavailable },
+    commit_audit: { threw: auditUnavailable },
+    complete: { refused: reconcileNoAudit, threw: registryUnavailableNoAudit },
+    target_purge: { refused: deletedTargetIncomplete },
+    target_entitlement_finalize: { refused: deletedTargetIncomplete },
+    target_deleted_audit: { threw: auditUnavailable },
+    target_deleted: { refused: deletedTargetIncomplete, threw: deletedTargetIncomplete },
+  } satisfies OwnerTransferTailAnswers);
+})();
+
+/** Writes the stop's audit row, if any, and answers the transfer request. */
+async function ownerTransferTailAnswer(
+  env: AppEnv,
+  saga: OwnerTransferSaga,
+  failure: OwnerTransferTailFailure,
+) {
+  const answers: Readonly<
+    Partial<Record<OwnerTransferTailFailure['kind'], OwnerTransferTailAnswer>>
+  > = OWNER_TRANSFER_REQUEST_TAIL_ANSWERS[failure.step];
+  // The table is total over the failure union; the fallback only guards a
+  // future step added without an answer.
+  const answer =
+    answers[failure.kind] ?? OWNER_TRANSFER_REQUEST_TAIL_ANSWERS.canonical_room.refused;
+  if (answer.audit) {
+    try {
+      await auditSystemOwnerTransfer(
+        env,
+        'owner_transfer.commit',
+        answer.audit,
+        saga.roomCode,
+        saga.roomGeneration,
+      );
+    } catch {
+      if (answer.auditRequired) return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
+    }
+  }
+  return json({ error: answer.error }, answer.status);
 }
 
 async function handleProRoomOwnershipTransferSaga({
@@ -8240,223 +8543,17 @@ async function handleProRoomOwnershipTransferSaga({
     return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
   }
 
-  const abortCommittedTransferForMissingTarget = async (result: string) => {
-    const termination = await terminateOwnerTransferForDeletedTarget(env, adminDb, transferSaga, {
-      purge: true,
-      auditTiming: 'after-terminal',
-      auditResult: result,
-    });
-    if (termination === 'audit_unavailable') {
-      return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
-    }
-    return termination === 'target_deleted'
-      ? json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409)
-      : json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
-  };
-
-  // The target can start deletion while the commit is crossing the Worker
-  // boundary. If the DO already accepted ownership, immediately project the
-  // exact incarnation back to owner-deleted suspension before any active
-  // registry write can make it look usable.
-  let postCommitTarget;
-  try {
-    postCommitTarget = await readActiveOwnerTransferTarget(env, targetAccountId);
-  } catch {
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'reconcile_required',
-      roomCode,
-      roomGeneration,
-    ).catch(() => {});
-    return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
-  }
-  if (!postCommitTarget) {
-    return abortCommittedTransferForMissingTarget('target_deleted_after_commit');
-  }
-
-  // Do not release the deterministic owner/session cookies until every D1
-  // projection, cleanup edge, authority fence and final audit confirms the
+  // The post-commit tail is the single executor the minute cron runs too
+  // (registry RO-09). Its outcome maps to this route's answers through one
+  // table. Do not release the deterministic owner/session cookies until every
+  // D1 projection, cleanup edge, authority fence and final audit confirms the
   // completed ownership boundary.
-  try {
-    const updated = await markAdminProRoomOperationalState(
-      env,
-      roomCode,
-      roomGeneration,
-      'active',
-      null,
-    );
-    if (!updated) return json({ error: 'PRO_ROOM_STATE_CONFLICT' }, 409);
-    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'registry_active'))) {
-      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
-    }
-  } catch {
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'reconcile_required',
-      roomCode,
-      roomGeneration,
-    ).catch(() => {});
-    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
-  }
-
-  const previousOwnerAccountId = preparePayload.previousOwnerAccountId;
-  if (previousOwnerAccountId && previousOwnerAccountId !== targetAccountId) {
-    try {
-      if (
-        !(await retireAccountProRoomLinkForAccount(
-          env,
-          previousOwnerAccountId,
-          roomCode,
-          roomGeneration,
-        ))
-      ) {
-        await auditSystemOwnerTransfer(
-          env,
-          'owner_transfer.commit',
-          'reconcile_required',
-          roomCode,
-          roomGeneration,
-        ).catch(() => {});
-        return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
-      }
-    } catch {
-      await auditSystemOwnerTransfer(
-        env,
-        'owner_transfer.commit',
-        'reconcile_required',
-        roomCode,
-        roomGeneration,
-      ).catch(() => {});
-      return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
-    }
-  }
-  try {
-    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'old_owner_edge_retired'))) {
-      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
-    }
-  } catch {
-    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
-  }
-
-  // This is the last point at which the transfer saga may project the room as
-  // active. Recheck both account authority and the canonical DO after that
-  // write. A deletion purge that won before the write is repaired here; one
-  // that begins later has no subsequent transfer write that can overwrite it.
-  let finalTarget;
-  try {
-    finalTarget = await readActiveOwnerTransferTarget(env, targetAccountId);
-  } catch {
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'reconcile_required',
-      roomCode,
-      roomGeneration,
-    ).catch(() => {});
-    return json({ error: 'ACCOUNT_STORE_UNAVAILABLE' }, 503);
-  }
-  if (!finalTarget) {
-    return abortCommittedTransferForMissingTarget('target_deleted_during_finalize');
-  }
-
-  let finalRoom;
-  let finalCanonicalStatus;
-  try {
-    finalRoom = await readAdminProRoom(adminDb, roomCode);
-    if (!finalRoom || finalRoom.roomGeneration !== roomGeneration) {
-      return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
-    }
-    finalCanonicalStatus = await reconcileAdminProRoomStatus(env, adminDb, finalRoom);
-    finalRoom = await readAdminProRoom(adminDb, roomCode);
-  } catch {
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'reconcile_required',
-      roomCode,
-      roomGeneration,
-    ).catch(() => {});
-    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
-  }
-  if (
-    finalCanonicalStatus !== 'active' ||
-    !finalRoom ||
-    finalRoom.roomGeneration !== roomGeneration ||
-    finalRoom.status !== 'registered' ||
-    finalRoom.suspensionReason !== null ||
-    finalRoom.activationState !== 'active'
-  ) {
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'reconcile_required',
-      roomCode,
-      roomGeneration,
-    ).catch(() => {});
-    return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
-  }
-  if (
-    !(await finalizeProRoomOwnershipTransferEntitlement(
-      env,
-      ownerTransferEntitlementInput(transferSaga),
-    ).catch(() => false))
-  ) {
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'entitlement_reconcile_required',
-      roomCode,
-      roomGeneration,
-    ).catch(() => {});
-    return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
-  }
-  try {
-    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'verified'))) {
-      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
-    }
-  } catch {
-    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
-  }
-  try {
-    if (!(await clearDeveloperApiAuthorityFence(env, roomCode, roomGeneration, fenceDigest))) {
-      await auditSystemOwnerTransfer(
-        env,
-        'owner_transfer.commit',
-        'reconcile_required',
-        roomCode,
-        roomGeneration,
-      ).catch(() => {});
-      return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
-    }
-  } catch {
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'reconcile_required',
-      roomCode,
-      roomGeneration,
-    ).catch(() => {});
-    return json({ error: 'DEVELOPER_API_ADMIN_UNAVAILABLE' }, 503);
-  }
-  try {
-    await auditSystemOwnerTransfer(
-      env,
-      'owner_transfer.commit',
-      'success',
-      roomCode,
-      roomGeneration,
-    );
-  } catch {
-    return json({ error: 'PRO_ROOM_AUDIT_UNAVAILABLE' }, 503);
-  }
-  try {
-    if (!(await advanceOwnerTransferSagaState(adminDb, transferSaga, 'complete'))) {
-      return json({ error: 'PRO_ROOM_TRANSFER_RECONCILIATION_REQUIRED' }, 503);
-    }
-  } catch {
-    return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
+  const outcome = await finishCommittedOwnerTransfer(env, adminDb, transferSaga, {
+    entry: 'request',
+  });
+  if (!outcome.ok) return ownerTransferTailAnswer(env, transferSaga, outcome);
+  if (outcome.state === 'target_deleted') {
+    return json({ error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE' }, 409);
   }
 
   const publicResponse = json({ snapshot: committed.payload.snapshot });

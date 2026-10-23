@@ -110,7 +110,9 @@ describe.each(LEGACY_BUILDS)(
       stall.release();
       expect(await request).toEqual({ status: 200, error: null, cookies: COMMITTED_COOKIES });
       await expectTransferred(test);
-      expect(test.commitAudits()).toEqual(['success', 'success']);
+      // Owner decision D3 (C7-9): the new request's success insert finds the
+      // old cron's row for this transfer and adds none.
+      expect(test.commitAudits()).toEqual(['success']);
     });
 
     run('an old request stalled after its success audit, finished by the new cron', async () => {
@@ -129,7 +131,8 @@ describe.each(LEGACY_BUILDS)(
       stall.release();
       expect(await request).toEqual({ status: 200, error: null, cookies: COMMITTED_COOKIES });
       await expectTransferred(test);
-      expect(test.commitAudits()).toEqual(['success', 'success']);
+      // D3 (C7-9): the new cron's success insert finds the old request's row.
+      expect(test.commitAudits()).toEqual(['success']);
     });
 
     run('a new request stalled after its success audit, finished by the old cron', async () => {
@@ -176,7 +179,9 @@ describe.each(LEGACY_BUILDS)(
       vi.setSystemTime(START + 60_000);
       expect(await test.cron()).toBe(0);
       expect(test.saga()).toBe('old_owner_edge_retired');
-      expect(test.entitlements()).toEqual({ old: 'transfer_source_active', target: 'reserved' });
+      // D3 (C7-9): the new order moved the entitlement before 'verified'; the
+      // old cron's own finalize later is a no-op.
+      expect(test.entitlements()).toEqual({ old: 'transferred', target: 'active' });
 
       vi.setSystemTime(START + 120_000);
       expect(await test.cron(Date.now(), legacyCron)).toBe(1);
@@ -220,7 +225,8 @@ describe.each(LEGACY_BUILDS)(
       const stall = test.pauseOnce(sagaWrite('target_deleted'));
       const request = requestTransfer(test, claim);
       await stall.reached;
-      expect(test.commitAudits()).toEqual([]);
+      // D3 (C7-9): the new request writes its row before its terminal advance.
+      expect(test.commitAudits()).toEqual(['target_deleted_after_commit']);
 
       vi.setSystemTime(START + 60_000);
       expect(await test.cron(Date.now(), legacyCron)).toBe(1);
@@ -233,9 +239,10 @@ describe.each(LEGACY_BUILDS)(
         cookies: [],
       });
       expect(test.saga()).toBe('target_deleted');
+      // The old cron records its own label without any check.
       expect(test.commitAudits()).toEqual([
-        'target_deleted_during_reconcile',
         'target_deleted_after_commit',
+        'target_deleted_during_reconcile',
       ]);
       expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
     });

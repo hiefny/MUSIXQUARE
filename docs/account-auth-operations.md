@@ -403,7 +403,10 @@ a current attachment nor a normal account assertion is deletion authority.
 Deleting a PRO owner's account suspends the room and revokes its sessions,
 delegated authority, PIN, and owner-recovery credential. The deleted owner's
 credential cannot recover the room; an operator must complete an ownership
-transfer to activate it for a new owner. Account deletion does not decommission
+transfer to activate it for a new owner. From the Phase 2 app batch the
+transfer link asks the new owner for no PIN and the room starts without an
+entry password, which the new owner can turn on in room settings
+([report](design/pro-transfer-password-reset-2026-10-23.md)). Account deletion does not decommission
 the room or delete its retained playlist data. Use the PRO room decommission
 action when the room itself and its retained playlist data should be destroyed.
 

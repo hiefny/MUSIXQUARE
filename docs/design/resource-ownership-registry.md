@@ -1147,7 +1147,12 @@ RO-47 owner-in-place
   page-transition dispatch, `initPageNavigation`, whose capture-phase pagehide, pageshow and
   visibility listeners run before the Back guard's resume whatever the init order, and which owns
   the single bounded reload of a document the back-forward cache returns, after calling
-  `revealLiveShell` from `src/core/page-lifecycle.ts`). Its busy rule (owner decision 1, 2026-10-23): a reload asked
+  `revealLiveShell` from `src/core/page-lifecycle.ts`; since C6-7 an unload-exemption claim held
+  from the action's start until settle, from `claimUnloadExemption` in `page-lifecycle.ts`, which
+  replaced the shared intentional-navigation flag: each writer, the owner and the same-tab Google
+  login in `src/ui/account.ts` with its 10-minute bound, releases only its own claim, so a
+  recovered reset no longer ends a pending login's exemption and a reload waiting behind the PRO
+  claim fence no longer suppresses the leave prompt, owner decision 3, 2026-10-23). Its busy rule (owner decision 1, 2026-10-23): a reload asked
   for while another navigation holds the page, behind another reload, or behind a reload whose
   sink throws waits and runs if that navigation settles in this document, never after it
   commits; a waiting reload with the same message joins the one already waiting; a direct reset
@@ -1185,12 +1190,17 @@ RO-47 owner-in-place
   - Busy rule: `src/core/__tests__/page-navigation-owner.integration.test.ts` "(a) ... waits
     behind the reset and runs once that reset recovers", "releases the failed reload and runs the
     reload queued behind it" and "lets a waiting request join one with the same message".
+  - Unload-exemption claims: `page-navigation-owner.integration.test.ts` "(e) ... keeps an
+    exemption another writer holds when an unrelated reset recovers" and "(d) ... asks to confirm
+    an unload while the reload waits behind the fence"; `src/ui/__tests__/account.test.ts` "keeps
+    a slow same-tab OAuth navigation recoverable beyond two seconds".
   - One page-transition dispatch: `page-navigation-owner.integration.test.ts` "with the
     guard-first init order, re-arms the Back guard in a room only on the second pageshow-only
     return" and `src/core/__tests__/page-lifecycle.test.ts` "page navigation owner — back-forward
     cache return (initPageNavigation)".
-- **Status:** `duplicated`. Phase 0d (names), Phase 2 (unload-exemption claims; the navigation
-  owner and Back fallback in a train of its own; page transitions in one dispatch).
+- **Status:** `duplicated`. Phase 0d (names), Phase 2 (unload-exemption claims, C6-7; the
+  navigation owner and Back fallback in a train of its own; page transitions in one dispatch,
+  C6-6).
 
 ### RO-24 `inert` page lock
 

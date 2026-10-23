@@ -360,8 +360,8 @@ export function registerServiceWorker(): void {
       // controllerchange fires in EVERY controlled same-origin tab when any
       // one of them accepts the update (skipWaiting activation migrates all
       // clients). Do not auto-reload another tab that is hosting or joined
-      // to a live room, or running the demo; markIntentionalNav would also
-      // suppress its leave prompt. It asks with the update dialog instead,
+      // to a live room, or running the demo; the reload's unload-exemption
+      // claim would also suppress its leave prompt. It asks with the update dialog instead,
       // once per generation.
       if (isRoomOrDemoActive()) {
         if (!notifyActiveRoom) return false;

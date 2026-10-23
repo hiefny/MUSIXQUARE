@@ -28,11 +28,7 @@ import { initPlatform } from './core/platform.ts';
 import { INSTANCE_ID } from './core/session.ts';
 import { getState, setState, snapshot } from './core/state.ts';
 import { delay, setManagedTimer } from './core/timers.ts';
-import {
-  initPageLifecycleHandlers,
-  markIntentionalNav,
-  isIntentionalNav,
-} from './core/page-lifecycle.ts';
+import { claimUnloadExemption, initPageLifecycleHandlers } from './core/page-lifecycle.ts';
 import { createBackButtonGuardController, isGuardedSession } from './core/back-button-guard.ts';
 import { createBackButtonHistory } from './core/back-button-history.ts';
 import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
@@ -890,7 +886,7 @@ window.addEventListener('unhandledrejection', (e) => {
 // navigation owner (`core/session-reset.ts`, `initPageNavigation`). Both are
 // dependency-injected so the branching can be unit-tested without dragging in
 // the full bootstrap graph. See those files for the rationale behind each
-// branch and the app-wide rule about `markIntentionalNav()`.
+// branch and the app-wide rule about `claimUnloadExemption()`.
 
 // ── Back-Button Guard ──
 //
@@ -1335,10 +1331,9 @@ async function bootstrap(): Promise<void> {
       isAudioReady,
       applySettings,
       setChannelMode,
-      // Page-lifecycle flag bindings — exposed so devtools (and preview
-      // sanity probes) touch the same module instance as the bootstrap.
-      markIntentionalNav,
-      isIntentionalNav,
+      // Page-lifecycle binding — exposed so devtools (and preview sanity
+      // probes) touch the same module instance as the bootstrap.
+      claimUnloadExemption,
     };
     window.__MXQR = debugObj;
   }

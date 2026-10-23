@@ -28,7 +28,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { extname, join, relative } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { clearIntentionalNav } from '../../core/page-lifecycle.ts';
+import { __resetUnloadExemptionsForTests } from '../../core/page-lifecycle.ts';
 import { resetState } from '../../core/state.ts';
 import { __resetAccountUiForTests, initAccount, openAccountDialog } from '../../ui/account.ts';
 import { showToast } from '../../ui/toast.ts';
@@ -77,7 +77,7 @@ beforeEach(() => {
   );
   document.documentElement.lang = 'en-US';
   sessionStorage.clear();
-  clearIntentionalNav();
+  __resetUnloadExemptionsForTests();
   window.history.replaceState({}, '', '/');
   harness = new AccountPulseHarness();
 });

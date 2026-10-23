@@ -5,11 +5,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Mock } from 'vitest';
 import {
-  markIntentionalNav,
-  clearIntentionalNav,
-  isIntentionalNav,
+  claimUnloadExemption,
   initPageLifecycleHandlers,
-  __resetIntentionalNavForTests,
+  __resetUnloadExemptionsForTests,
   type PageLifecycleHandle,
 } from '../page-lifecycle.ts';
 import {
@@ -30,32 +28,57 @@ function pageTransition(name: string, persisted: boolean): Event {
   return e;
 }
 
+/** Whether a beforeunload in a room asks to confirm (handlers from the caller). */
+function unloadPrompts(): boolean {
+  const event = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(event);
+  return event.defaultPrevented;
+}
+
 beforeEach(() => {
-  __resetIntentionalNavForTests();
+  __resetUnloadExemptionsForTests();
   document.body.classList.remove('fouc-loaded');
 });
 
-describe('page-lifecycle flag', () => {
-  it('starts false', () => {
-    expect(isIntentionalNav()).toBe(false);
+describe('unload-exemption claims (C6-7)', () => {
+  let handle: PageLifecycleHandle;
+
+  beforeEach(() => {
+    handle = initPageLifecycleHandlers({ getRole: () => 'host', leaveSession: vi.fn() });
   });
 
-  it('becomes true after markIntentionalNav()', () => {
-    markIntentionalNav();
-    expect(isIntentionalNav()).toBe(true);
+  afterEach(() => {
+    handle.dispose();
   });
 
-  it('stays true across repeated calls (idempotent)', () => {
-    markIntentionalNav();
-    markIntentionalNav();
-    markIntentionalNav();
-    expect(isIntentionalNav()).toBe(true);
+  it('asks to confirm in a session while no claim is held', () => {
+    expect(unloadPrompts()).toBe(true);
   });
 
-  it('can clear an intentional navigation that did not commit', () => {
-    markIntentionalNav();
-    clearIntentionalNav();
-    expect(isIntentionalNav()).toBe(false);
+  it('exempts the unload while a claim is live and asks again once it is released', () => {
+    const release = claimUnloadExemption('navigation');
+    expect(unloadPrompts()).toBe(false);
+    release();
+    expect(unloadPrompts()).toBe(true);
+  });
+
+  it('keeps the claim of one writer when another releases its own', () => {
+    const releaseLogin = claimUnloadExemption('account-login');
+    const releaseNavigation = claimUnloadExemption('navigation');
+    releaseNavigation();
+    expect(unloadPrompts()).toBe(false);
+    releaseLogin();
+    expect(unloadPrompts()).toBe(true);
+  });
+
+  it('treats a second release of the same claim as a no-op', () => {
+    const releaseLogin = claimUnloadExemption('account-login');
+    const releaseNavigation = claimUnloadExemption('navigation');
+    releaseNavigation();
+    releaseNavigation();
+    expect(unloadPrompts()).toBe(false);
+    releaseLogin();
+    expect(unloadPrompts()).toBe(true);
   });
 });
 
@@ -90,9 +113,9 @@ describe('initPageLifecycleHandlers — beforeunload', () => {
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it('does NOT preventDefault when role is non-idle but intentional-nav flag is set', () => {
+  it('does NOT preventDefault when role is non-idle but an exemption is claimed', () => {
     role = 'host';
-    markIntentionalNav();
+    claimUnloadExemption('navigation');
     const e = new Event('beforeunload', { cancelable: true });
     window.dispatchEvent(e);
     expect(e.defaultPrevented).toBe(false);
@@ -246,7 +269,6 @@ describe('page navigation owner — back-forward cache return (initPageNavigatio
     expect(events).toEqual(['settled recovered: pending=false']);
     expect(isSessionResetPending()).toBe(true);
     expect(resetMessage()).toBe(RELOADING);
-    expect(isIntentionalNav()).toBe(false);
     vi.advanceTimersByTime(120);
     expect(sinks.calls.map((call) => call.op)).toEqual(['replace', 'reload']);
   });
@@ -258,30 +280,46 @@ describe('page navigation owner — back-forward cache return (initPageNavigatio
     expect(sinks.count('reload')).toBe(1);
   });
 
-  it('flips the intentional-nav flag before reloading (avoids double-prompt)', () => {
-    window.dispatchEvent(pageTransition('pageshow', true));
-    expect(isIntentionalNav()).toBe(true);
+  // Until C6-7 page-lifecycle pre-marked the exemption before the reload was
+  // even scheduled; the reload's own claim now starts with its action.
+  it('claims the unload exemption when the bfcache reload action starts (avoids double-prompt)', () => {
+    const lifecycle = initPageLifecycleHandlers({ getRole: () => role, leaveSession: vi.fn() });
+    try {
+      window.dispatchEvent(pageTransition('pageshow', true));
+      expect(unloadPrompts()).toBe(true);
+      vi.advanceTimersByTime(120);
+      expect(sinks.count('reload')).toBe(1);
+      expect(unloadPrompts()).toBe(false);
+    } finally {
+      lifecycle.dispose();
+    }
   });
 
-  it('clears the intentional-nav flag when the bfcache reload throws', () => {
+  it('releases the reload exemption when the bfcache reload throws', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     sinks.reload.mockImplementationOnce(() => {
       throw new Error('reload rejected');
     });
+    const lifecycle = initPageLifecycleHandlers({ getRole: () => role, leaveSession: vi.fn() });
 
-    expect(() => window.dispatchEvent(pageTransition('pageshow', true))).not.toThrow();
-    vi.advanceTimersByTime(120);
+    try {
+      expect(() => window.dispatchEvent(pageTransition('pageshow', true))).not.toThrow();
+      vi.advanceTimersByTime(120);
 
-    expect(isSessionResetPending()).toBe(false);
-    expect(isIntentionalNav()).toBe(false);
+      expect(isSessionResetPending()).toBe(false);
+      expect(unloadPrompts()).toBe(true);
+    } finally {
+      lifecycle.dispose();
+    }
   });
 
   it('restores the shell without entering another reload loop when the same bfcache document returns', () => {
     role = 'guest';
+    const lifecycle = initPageLifecycleHandlers({ getRole: () => role, leaveSession: vi.fn() });
     window.dispatchEvent(pageTransition('pageshow', true));
     vi.advanceTimersByTime(120);
     expect(sinks.count('reload')).toBe(1);
-    expect(isIntentionalNav()).toBe(true);
+    expect(unloadPrompts()).toBe(false);
     window.dispatchEvent(pageTransition('pagehide', true));
 
     document.body.classList.remove('fouc-loaded');
@@ -290,7 +328,8 @@ describe('page navigation owner — back-forward cache return (initPageNavigatio
 
     expect(isSessionResetPending()).toBe(false);
     expect(sinks.count('reload')).toBe(1);
-    expect(isIntentionalNav()).toBe(false);
+    expect(unloadPrompts()).toBe(true);
+    lifecycle.dispose();
     expect(document.body.classList.contains('fouc-loaded')).toBe(true);
     expect(info).toHaveBeenLastCalledWith(
       '[PageLifecycle] bfcache reload returned; keeping recovered shell visible',

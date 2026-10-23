@@ -47,7 +47,10 @@ import { createBackButtonGuardController, isGuardedSession } from '../../back-bu
 import { createBackButtonHistory } from '../../back-button-history.ts';
 import { __resetDocumentReloadForTests } from '../../document-reload.ts';
 import { navigateToAppHome } from '../../navigation.ts';
-import { __resetIntentionalNavForTests, initPageLifecycleHandlers } from '../../page-lifecycle.ts';
+import {
+  __resetUnloadExemptionsForTests,
+  initPageLifecycleHandlers,
+} from '../../page-lifecycle.ts';
 import { createReloadRecoveryLatch } from '../../reload-recovery-latch.ts';
 import {
   __resetSessionResetForTests,
@@ -440,7 +443,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   // Every owner starts from its idle state.
   __resetSessionResetForTests();
   __resetDocumentReloadForTests();
-  __resetIntentionalNavForTests();
+  __resetUnloadExemptionsForTests();
   __resetModalStackForTests();
   document.documentElement.className = '';
   document.documentElement.lang = 'en';
@@ -672,7 +675,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
       setSessionResetReleaseHandler(() => undefined);
       __resetSessionResetForTests();
       __resetDocumentReloadForTests();
-      __resetIntentionalNavForTests();
+      __resetUnloadExemptionsForTests();
       __resetModalStackForTests();
       vi.unstubAllGlobals();
       restoreFrames();

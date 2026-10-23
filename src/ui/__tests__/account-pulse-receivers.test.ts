@@ -33,7 +33,7 @@ import {
 } from '../../account/session.ts';
 import { __resetAccountStateForTests, getAccountSnapshot } from '../../account/state.ts';
 import { bus } from '../../core/events.ts';
-import { clearIntentionalNav } from '../../core/page-lifecycle.ts';
+import { __resetUnloadExemptionsForTests } from '../../core/page-lifecycle.ts';
 import { resetState } from '../../core/state.ts';
 import { __resetAccountUiForTests, initAccount, openAccountDialog } from '../account.ts';
 import { showToast } from '../toast.ts';
@@ -65,7 +65,7 @@ beforeEach(() => {
   );
   document.documentElement.lang = 'en-US';
   sessionStorage.clear();
-  clearIntentionalNav();
+  __resetUnloadExemptionsForTests();
   window.history.replaceState({}, '', '/');
   harness = new AccountPulseHarness();
   appA = harness.attachTestDocument('app-a');

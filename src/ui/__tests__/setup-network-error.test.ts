@@ -17,7 +17,7 @@ vi.mock('../../core/timers.ts', () => ({
 }));
 
 vi.mock('../../core/page-lifecycle.ts', () => ({
-  markIntentionalNav: vi.fn(),
+  claimUnloadExemption: vi.fn(() => () => undefined),
 }));
 
 vi.mock('../../core/session-reset.ts', () => ({

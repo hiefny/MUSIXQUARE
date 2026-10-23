@@ -3,14 +3,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const integrationMocks = vi.hoisted(() => ({
-  clearIntentionalNav: vi.fn(),
   // An idle tab on the setup screen: no role, no started session, no room.
   getState: vi.fn((key?: string): unknown => {
     if (key === 'setup.sessionStarted') return false;
     if (key === 'room.context') return { roomId: null };
     return 'idle';
   }),
-  markIntentionalNav: vi.fn(),
   showDialog: vi.fn(),
 }));
 
@@ -21,11 +19,6 @@ vi.mock('../log.ts', () => ({
     info: vi.fn(),
     warn: vi.fn(),
   },
-}));
-vi.mock('../page-lifecycle.ts', () => ({
-  clearIntentionalNav: integrationMocks.clearIntentionalNav,
-  markIntentionalNav: integrationMocks.markIntentionalNav,
-  revealLiveShell: vi.fn(),
 }));
 vi.mock('../state.ts', () => ({ getState: integrationMocks.getState }));
 vi.mock('../../i18n/index.ts', () => ({ t: vi.fn((key: string) => key) }));
@@ -124,14 +117,36 @@ function installIntegrationHarness(
   };
 }
 
+/**
+ * Whether a beforeunload in a room asks to confirm: page-lifecycle's own
+ * handler, from the module graph the coordinator uses, reads the owner's
+ * unload-exemption claim.
+ */
+let unloadPrompts: () => boolean = () => {
+  throw new Error('load the coordinator first');
+};
+
 async function registerAndLoadCoordinator(): Promise<typeof import('../session-reset.ts')> {
   // Resolve hoisted mocks before another import can initialize their dependencies.
   const { registerServiceWorker } = await import('../../sw-register.ts');
   const coordinator = await import('../session-reset.ts');
+  const pageLifecycle = await import('../page-lifecycle.ts');
+  const handlers = pageLifecycle.initPageLifecycleHandlers({
+    getRole: () => 'host',
+    leaveSession: () => undefined,
+  });
+  disposeLifecycle = () => handlers.dispose();
+  unloadPrompts = () => {
+    const event = new Event('beforeunload', { cancelable: true });
+    actualWindow.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
   registerServiceWorker();
   await vi.waitFor(() => expect(navigator.serviceWorker.register).toHaveBeenCalledOnce());
   return coordinator;
 }
+
+let disposeLifecycle: (() => void) | null = null;
 
 describe('service-worker reset recovery integration', () => {
   let coordinator: typeof import('../session-reset.ts') | null;
@@ -149,6 +164,8 @@ describe('service-worker reset recovery integration', () => {
 
   afterEach(() => {
     coordinator?.__resetSessionResetForTests();
+    disposeLifecycle?.();
+    disposeLifecycle = null;
     vi.unstubAllGlobals();
     if (originalRequestAnimationFrame) {
       Object.defineProperty(actualWindow, 'requestAnimationFrame', originalRequestAnimationFrame);
@@ -174,12 +191,14 @@ describe('service-worker reset recovery integration', () => {
     harness.emitControllerChange();
     expect(coordinator.isSessionResetPending()).toBe(true);
     expect(vi.getTimerCount()).toBeGreaterThan(0);
+    expect(unloadPrompts()).toBe(true);
     vi.advanceTimersByTime(120);
-    expect(integrationMocks.markIntentionalNav).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(false);
     expect(harness.reload).toHaveBeenCalledOnce();
 
     vi.advanceTimersByTime(2_000);
     expect(coordinator.isSessionResetPending()).toBe(false);
+    expect(unloadPrompts()).toBe(true);
 
     harness.setController({ postMessage: vi.fn() });
     harness.emitControllerChange();
@@ -187,7 +206,7 @@ describe('service-worker reset recovery integration', () => {
     vi.advanceTimersByTime(120);
 
     expect(harness.reload).toHaveBeenCalledTimes(2);
-    expect(integrationMocks.markIntentionalNav).toHaveBeenCalledTimes(2);
+    expect(unloadPrompts()).toBe(false);
   });
 
   it('recovers a throwing reload and accepts exactly one later controllerchange', async () => {
@@ -204,6 +223,7 @@ describe('service-worker reset recovery integration', () => {
     harness.emitControllerChange();
     expect(() => vi.advanceTimersByTime(120)).not.toThrow();
     expect(coordinator.isSessionResetPending()).toBe(false);
+    expect(unloadPrompts()).toBe(true);
 
     harness.setController({ postMessage: vi.fn() });
     harness.emitControllerChange();
@@ -211,7 +231,7 @@ describe('service-worker reset recovery integration', () => {
     vi.advanceTimersByTime(120);
 
     expect(reload).toHaveBeenCalledTimes(2);
-    expect(integrationMocks.markIntentionalNav).toHaveBeenCalledTimes(2);
+    expect(unloadPrompts()).toBe(false);
   });
 
   it('keeps a pagehide-committed reload latched against later controllerchange', async () => {
@@ -230,7 +250,8 @@ describe('service-worker reset recovery integration', () => {
 
     expect(coordinator.isSessionResetPending()).toBe(true);
     expect(harness.reload).toHaveBeenCalledOnce();
-    expect(integrationMocks.clearIntentionalNav).not.toHaveBeenCalled();
+    // The committed reload keeps its exemption.
+    expect(unloadPrompts()).toBe(false);
   });
 
   it('releases a committed reload only after the old document returns', async () => {

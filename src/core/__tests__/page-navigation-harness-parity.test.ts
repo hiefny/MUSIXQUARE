@@ -69,7 +69,7 @@ describe('app.ts wiring copied by the page navigation harness', () => {
     ]);
   });
 
-  it('wires PageLifecycle with the release handler first, then the navigation owner with its bfcache reload [updated: C6-6] [update with: C6-7]', () => {
+  it('wires PageLifecycle with the release handler first, then the navigation owner with its bfcache reload [updated: C6-6] [keeps: C6-7]', () => {
     expect(block(appSource, "safeInit('PageLifecycle', () => {")).toBe(
       [
         "safeInit('PageLifecycle', () => {",

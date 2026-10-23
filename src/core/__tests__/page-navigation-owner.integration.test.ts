@@ -79,7 +79,7 @@ import {
   capturePendingClaimReloadGuard,
   registerPendingClaimReloadPreparation,
 } from '../document-reload.ts';
-import { markIntentionalNav } from '../page-lifecycle.ts';
+import { claimUnloadExemption } from '../page-lifecycle.ts';
 import {
   isSessionResetPending,
   restoreSessionReset,
@@ -682,7 +682,7 @@ describe('the failed exit: the navigation action throws', () => {
 });
 
 describe('(c) a pending reset returned from the back-forward cache', () => {
-  it('restores the shell and makes exactly one fresh reload; a second return does not loop [keeps: C6-6] [flips: C6-7]', async () => {
+  it('restores the shell and makes exactly one fresh reload; a second return does not loop [keeps: C6-6] [flipped: C6-7, owner decision 3]', async () => {
     const s = boot({ app: IN_ROOM });
     scheduleDocumentReload(MSG_REFRESHING);
     await advance(PAINT_MS);
@@ -698,10 +698,10 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     expect(document.body.classList.contains('fouc-loaded')).toBe(true);
     expect(isSessionResetPending()).toBe(true);
     expect(s.resetMessage()).toBe(MSG_REFRESHING);
-    // The pre-mark in the owner's bfcache recovery, before the fresh reload's action.
-    // Flips in C6-7: the pre-mark is deleted, so the page asks to confirm an
-    // unload until the action starts (true here).
-    expect(s.beforeunloadPrompts()).toBe(false);
+    // Until C6-7 page-lifecycle pre-marked the exemption here, before the
+    // fresh reload's action (false). The reload now claims it when its action
+    // starts, so until then the page asks to confirm an unload.
+    expect(s.beforeunloadPrompts()).toBe(true);
     await advance(PAINT_MS);
     expect(s.beforeunloadPrompts()).toBe(false);
     expect(s.sinks.count('reload')).toBe(2);
@@ -904,7 +904,7 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
 });
 
 describe('(d) a back-forward cache reload held by a deferred PRO claim fence', () => {
-  it('marks the unload exemption before the reload is queued and keeps it while queued [flips: C6-7]', async () => {
+  it('asks to confirm an unload while the reload waits behind the fence, and claims the exemption only when it runs [flipped: C6-7, owner decision 3]', async () => {
     const s = boot({ app: IN_ROOM });
     window.history.replaceState(null, '', `${ROOM_PATH}#pro-claim=${CLAIM}`);
     takeProRoomClaimsFromFragment();
@@ -916,44 +916,51 @@ describe('(d) a back-forward cache reload held by a deferred PRO claim fence', (
     s.leaveDocument(true);
     s.returnFromBfcache('pageshow-first');
 
-    // page-lifecycle.ts:201 marks before deps.reload; the owner queues it
-    // behind the deferred fence, so no overlay owns the page.
+    // The owner queues the reload behind the deferred fence, so no overlay
+    // owns the page. Until C6-7 page-lifecycle pre-marked the shared flag
+    // before queueing it (false here, and for as long as it waited): closing
+    // the room tab then left without asking. The reload now claims the
+    // exemption when it starts.
     expect(isSessionResetPending()).toBe(false);
     expect(overlay().hidden).toBe(true);
-    // Flips in C6-7: the owner claims the exemption when the reload starts,
-    // so closing the room tab while the reload is queued asks to confirm.
-    expect(s.beforeunloadPrompts()).toBe(false);
+    expect(s.beforeunloadPrompts()).toBe(true);
     await advance(60_000);
-    expect(s.beforeunloadPrompts()).toBe(false);
+    expect(s.beforeunloadPrompts()).toBe(true);
     expect(s.sinks.count('reload')).toBe(0);
 
     // The claim flow fails before its mutation: the queued reload runs and
     // restores the claim fragment only while the sink runs.
     fence?.restoreAfterLazyFeatureFailure();
     expect(isSessionResetPending()).toBe(true);
+    expect(s.beforeunloadPrompts()).toBe(true);
     await advance(PAINT_MS);
     expect(s.sinks.calls.at(-1)).toMatchObject({
       op: 'reload',
       hrefAtCall: `http://localhost:3000${ROOM_PATH}#pro-claim=${CLAIM}`,
     });
+    expect(s.beforeunloadPrompts()).toBe(false);
     await advance(COMMIT_DEADLINE_MS);
     expect(location.hash).toBe('');
     expect(s.beforeunloadPrompts()).toBe(true);
   });
 });
 
-describe('(e) the unload exemption is one shared flag', () => {
-  it('lets an unrelated reset that recovers clear an exemption another writer set [flips: C6-7]', async () => {
+describe('(e) the unload exemption is a set of claims, one per writer', () => {
+  it('keeps an exemption another writer holds when an unrelated reset recovers [flipped: C6-7, owner decision 3]', async () => {
     const s = boot({ app: IN_ROOM });
-    // The same export account.ts:694 calls before a same-tab Google login.
-    markIntentionalNav();
+    // The claim account.ts takes before a same-tab Google login.
+    const releaseLogin = claimUnloadExemption('account-login');
     expect(s.beforeunloadPrompts()).toBe(false);
 
     scheduleSessionReset(MSG_LEAVING, vi.fn());
     await advance(PAINT_MS + COMMIT_DEADLINE_MS);
 
-    // session-reset.ts:231 clears the shared flag on every recovery.
-    // Flips in C6-7: the login holds its own claim, so this stays false.
+    // Until C6-7 every recovery cleared the one shared flag (true here), so
+    // closing the tab during a slow login navigation asked to confirm. The
+    // reset now releases only its own claim.
+    expect(isSessionResetPending()).toBe(false);
+    expect(s.beforeunloadPrompts()).toBe(false);
+    releaseLogin();
     expect(s.beforeunloadPrompts()).toBe(true);
   });
 

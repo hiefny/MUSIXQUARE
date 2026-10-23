@@ -29,7 +29,7 @@
  * the single bounded reload of a document the back-forward cache returns.
  */
 
-import { clearIntentionalNav, markIntentionalNav, revealLiveShell } from './page-lifecycle.ts';
+import { claimUnloadExemption, revealLiveShell } from './page-lifecycle.ts';
 import { log } from './log.ts';
 import {
   beginFencedReload,
@@ -68,6 +68,8 @@ interface NavigationAttempt {
   readonly timers: { paint: number; commit: number; frames: number[] };
   readonly inertElements: HTMLElement[];
   previousFocus: HTMLElement | null;
+  /** The unload-exemption claim, held from the action's start until settle. */
+  releaseUnloadExemption: (() => void) | null;
 }
 
 /**
@@ -205,7 +207,6 @@ function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
     // The prior reload left and returned to this exact document. Stop
     // retrying automatically; the service worker's bounded navigation
     // fallback or a later user action can recover without a reload loop.
-    clearIntentionalNav();
     deps.log?.info('[PageLifecycle] bfcache reload returned; keeping recovered shell visible');
     return;
   }
@@ -215,13 +216,9 @@ function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
       ? '[PageLifecycle] Restored a pending session reset from bfcache. Reloading'
       : '[PageLifecycle] Restored from bfcache with active session. Reloading',
   );
-  if (role !== 'idle') markIntentionalNav(); // avoid prompting on the reload itself
-  try {
-    scheduleDocumentReload(deps.bfcacheReloadMessage());
-  } catch {
-    // A failed reload must not suppress a later user-driven unload.
-    clearIntentionalNav();
-  }
+  // The reload claims its own unload exemption when its action starts. While
+  // it waits (behind the PRO claim fence), closing the tab still asks (C6-7).
+  scheduleDocumentReload(deps.bfcacheReloadMessage());
 }
 
 // beforeunload can still be cancelled by another listener or the browser.
@@ -394,7 +391,8 @@ function settle(attempt: NavigationAttempt, outcome: NavigationOutcome): void {
   attempt.settling = true;
   releaseResetSurface(attempt);
   _state = IDLE;
-  clearIntentionalNav();
+  attempt.releaseUnloadExemption?.();
+  attempt.releaseUnloadExemption = null;
   attempt.outcome = outcome;
   try {
     attempt.reloadFence?.end();
@@ -429,7 +427,6 @@ export function restoreSessionReset(): void {
     return;
   }
   releaseResetSurface(null);
-  clearIntentionalNav();
 }
 
 /**
@@ -457,6 +454,7 @@ function beginAttempt(
     timers: { paint: 0, commit: 0, frames: [] },
     inertElements: [],
     previousFocus: null,
+    releaseUnloadExemption: null,
   };
   _state = { phase: 'painting', attempt };
   ensurePageTransitionDispatch();
@@ -466,7 +464,7 @@ function beginAttempt(
     if (_state.phase !== 'painting' || _state.attempt !== attempt) return;
     _state = { phase: 'navigating', attempt };
     cancelPaint(attempt);
-    markIntentionalNav();
+    attempt.releaseUnloadExemption = claimUnloadExemption('navigation');
     try {
       action();
     } catch (error) {

@@ -2,38 +2,45 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const lifecycleMocks = vi.hoisted(() => ({
-  markIntentionalNav: vi.fn(),
-  clearIntentionalNav: vi.fn(),
-  revealLiveShell: vi.fn(),
-}));
-
-vi.mock('../page-lifecycle.ts', () => lifecycleMocks);
-
 const originalRequestAnimationFrame = window.requestAnimationFrame;
 const originalCancelAnimationFrame = window.cancelAnimationFrame;
 type Coordinator = typeof import('../session-reset.ts');
 
 describe('session reset coordinator', () => {
   let coordinator: Coordinator | null;
+  let lifecycle: { dispose(): void } | null;
 
   async function loadCoordinator(): Promise<Coordinator> {
     coordinator = await import('../session-reset.ts');
+    // The real page-lifecycle of the same module graph: its beforeunload
+    // handler shows whether the owner holds an unload-exemption claim.
+    const pageLifecycle = await import('../page-lifecycle.ts');
+    lifecycle ??= pageLifecycle.initPageLifecycleHandlers({
+      getRole: () => 'host',
+      leaveSession: () => undefined,
+    });
     return coordinator;
+  }
+
+  /** Whether a beforeunload in this room asks to confirm (no exemption held). */
+  function unloadPrompts(): boolean {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
   }
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetModules();
     coordinator = null;
-    lifecycleMocks.markIntentionalNav.mockClear();
-    lifecycleMocks.clearIntentionalNav.mockClear();
+    lifecycle = null;
     document.documentElement.className = '';
     document.body.innerHTML = '<main id="app"><button id="control">Control</button></main>';
   });
 
   afterEach(() => {
     coordinator?.__resetSessionResetForTests();
+    lifecycle?.dispose();
     // Vitest 5 forwards these descriptors to the DOM window. Fake-timer teardown
     // must still be able to restore the writable native animation APIs.
     Object.defineProperty(window, 'requestAnimationFrame', {
@@ -93,9 +100,10 @@ describe('session reset coordinator', () => {
 
     frames.shift()?.(0);
     expect(action).not.toHaveBeenCalled();
+    expect(unloadPrompts()).toBe(true);
     frames.shift()?.(16);
 
-    expect(lifecycleMocks.markIntentionalNav).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(false);
     expect(action).toHaveBeenCalledOnce();
   });
 
@@ -117,10 +125,10 @@ describe('session reset coordinator', () => {
     expect(firstHandle).not.toBeNull();
     expect(rejectedHandle).toBeNull();
     expect(document.getElementById('session-reset-message')?.textContent).toBe('First');
-    expect(lifecycleMocks.markIntentionalNav).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(false);
   });
 
-  it('restores interaction and intentional-nav state when the action throws', async () => {
+  it('restores interaction and releases its unload exemption when the action throws', async () => {
     Object.defineProperty(window, 'requestAnimationFrame', {
       configurable: true,
       value: undefined,
@@ -140,7 +148,7 @@ describe('session reset coordinator', () => {
     expect(app.inert).not.toBe(true);
     expect(document.getElementById('session-reset-overlay')?.hidden).toBe(true);
     expect(document.documentElement.classList.contains('session-reset-pending')).toBe(false);
-    expect(lifecycleMocks.clearIntentionalNav).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(true);
     expect(recovered).toHaveBeenCalledOnce();
     expect(errorSpy).toHaveBeenCalledWith(
       '[SessionReset] Hard-navigation action failed:',
@@ -161,7 +169,7 @@ describe('session reset coordinator', () => {
     vi.advanceTimersByTime(2_000);
 
     expect(isSessionResetPending()).toBe(false);
-    expect(lifecycleMocks.clearIntentionalNav).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(true);
   });
 
   it('recovers a no-op navigation and accepts a later reset request', async () => {
@@ -186,7 +194,7 @@ describe('session reset coordinator', () => {
 
     expect(isSessionResetPending()).toBe(false);
     expect(app.inert).not.toBe(true);
-    expect(lifecycleMocks.clearIntentionalNav).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(true);
     expect(recovered).toHaveBeenCalledOnce();
 
     scheduleSessionReset('Retry', secondAction);
@@ -214,7 +222,8 @@ describe('session reset coordinator', () => {
     expect(isSessionResetPending()).toBe(true);
     expect(firstAction).toHaveBeenCalledOnce();
     expect(secondAction).not.toHaveBeenCalled();
-    expect(lifecycleMocks.clearIntentionalNav).not.toHaveBeenCalled();
+    // The committed navigation keeps its exemption.
+    expect(unloadPrompts()).toBe(false);
     expect(recovered).not.toHaveBeenCalled();
   });
 
@@ -296,7 +305,7 @@ describe('session reset coordinator', () => {
     expect(isSessionResetPending()).toBe(false);
     expect(app.inert).not.toBe(true);
     expect(document.getElementById('session-reset-overlay')?.hidden).toBe(true);
-    expect(lifecycleMocks.clearIntentionalNav).toHaveBeenCalledOnce();
+    expect(unloadPrompts()).toBe(true);
     expect(recovered).toHaveBeenCalledOnce();
   });
 
@@ -442,8 +451,8 @@ describe('session reset coordinator', () => {
 
     // Every order of the owner's inputs: animation frames, the 120 ms paint
     // fallback, the 2 s commit deadline, pagehide and pageshow (persisted or
-    // not) and visibility. page-lifecycle is mocked, so its bfcache reload
-    // stays out; the harness pins that path. The model writes out today's
+    // not) and visibility. initPageNavigation is not called, so the owner's
+    // bfcache reload stays out; the harness pins that path. The model writes out today's
     // rule: two frames or the fallback run the action once, pagehide commits,
     // and only a return after the commit, or the deadline after the action,
     // restores.

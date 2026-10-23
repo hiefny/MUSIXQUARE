@@ -43,7 +43,7 @@ import {
   restoreAccountLoginReturnPath,
   sanitizeAccountLoginReturnPath,
 } from '../account/login-return.ts';
-import { clearIntentionalNav, markIntentionalNav } from '../core/page-lifecycle.ts';
+import { claimUnloadExemption } from '../core/page-lifecycle.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
@@ -104,6 +104,8 @@ let _accountLoginPopupAttempt: {
 } | null = null;
 let _accountLoginNavigationGuard: ReturnType<typeof setTimeout> | null = null;
 let _unsubscribeAccountAuthResults: (() => void) | null = null;
+/** The same-tab login's own unload-exemption claim (C6-7). */
+let _accountLoginUnloadExemption: (() => void) | null = null;
 let _profilePromptVisibilityBound = false;
 let _accountStats: AccountStats | null = null;
 let _accountStatsOwner: AccountStatsOwner | null = null;
@@ -642,6 +644,12 @@ function stopAccountLoginNavigationGuard(): void {
   _accountLoginNavigationGuard = null;
 }
 
+function releaseAccountLoginUnloadExemption(): void {
+  const release = _accountLoginUnloadExemption;
+  _accountLoginUnloadExemption = null;
+  release?.();
+}
+
 /** Prepare an anchor fallback that will replace this browsing context. */
 function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: MouseEvent): void {
   const context = getRoomContext();
@@ -661,7 +669,10 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
   // The href may have been rendered before room context projection completed.
   anchor.href = buildGoogleLoginUrl(location, returnTo);
   armSameTabWelcomeIntent();
-  markIntentionalNav();
+  // The login holds its own claim: a session reset that recovers meanwhile
+  // cannot end it, and it ends only this login's exemption.
+  releaseAccountLoginUnloadExemption();
+  _accountLoginUnloadExemption = claimUnloadExemption('account-login');
   stopAccountLoginNavigationGuard();
   // Some native shells can abandon an anchor activation without exposing
   // preventDefault(). Bound that otherwise-unobservable case to the same
@@ -670,7 +681,7 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
   _accountLoginNavigationGuard = globalThis.setTimeout(
     () => {
       _accountLoginNavigationGuard = null;
-      clearIntentionalNav();
+      releaseAccountLoginUnloadExemption();
     },
     10 * 60 * 1000,
   );
@@ -683,7 +694,7 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
   globalThis.queueMicrotask(() => {
     if (!activationEvent.defaultPrevented) return;
     stopAccountLoginNavigationGuard();
-    clearIntentionalNav();
+    releaseAccountLoginUnloadExemption();
     clearSameTabWelcomeIntent();
     if (attemptId) clearAccountLoginReturn(attemptId);
   });
@@ -1505,6 +1516,7 @@ export function __resetAccountUiForTests(): void {
   if (_accountLoginPopupAttempt) settleAccountLoginPopupAttempt('error');
   stopAccountLoginPopupMonitor();
   stopAccountLoginNavigationGuard();
+  releaseAccountLoginUnloadExemption();
   _handledAccountResultIds.clear();
   _pendingWelcomeAccountResultId = null;
   clearSameTabWelcomeIntent();

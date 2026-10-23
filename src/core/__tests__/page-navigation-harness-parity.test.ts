@@ -69,11 +69,14 @@ describe('app.ts wiring copied by the page navigation harness', () => {
     ]);
   });
 
-  it('wires PageLifecycle with the release handler first, then the navigation owner with its bfcache reload [updated: C6-6] [keeps: C6-7]', () => {
+  it('wires PageLifecycle with the window layer first, then the navigation owner with its bfcache reload [updated: C6-6, C6-11] [keeps: C6-7]', () => {
     expect(block(appSource, "safeInit('PageLifecycle', () => {")).toBe(
       [
         "safeInit('PageLifecycle', () => {",
-        'setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);',
+        'setSessionResetWindowLayer({',
+        'release: syncOverlayStateAfterExternalLock,',
+        'surfaceHost: fullscreenSurfaceHost,',
+        'onSurfaceHostChange: onFullscreenSurfaceHostChange, });',
         'const lifecycle = {',
         "getRole: () => getState('network.appRole'),",
         'leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }), };',

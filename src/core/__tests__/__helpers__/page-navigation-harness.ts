@@ -58,13 +58,15 @@ import {
   isSessionResetPending,
   scheduleDocumentReload,
   scheduleSessionReset,
-  setSessionResetReleaseHandler,
+  setSessionResetWindowLayer,
 } from '../../session-reset.ts';
 import {
   __resetModalStackForTests,
+  fullscreenSurfaceHost,
   hasOpenWindow,
   initOverlayObservers,
   offerBackToTopWindow,
+  onFullscreenSurfaceHostChange,
   onOverlayStackChange,
   onWindowBack,
   syncOverlayState,
@@ -481,7 +483,11 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
 
   // app.ts:1301-1324 'PageLifecycle'.
   const initPageLifecycle = (): void => {
-    setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);
+    setSessionResetWindowLayer({
+      release: syncOverlayStateAfterExternalLock,
+      surfaceHost: fullscreenSurfaceHost,
+      onSurfaceHostChange: onFullscreenSurfaceHostChange,
+    });
     const lifecycle = { getRole: () => app.role, leaveSession };
     const handlers = initPageLifecycleHandlers(lifecycle);
     disposers.push(() => handlers.dispose());
@@ -665,7 +671,11 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
       stateListeners.clear();
       appEntranceListeners.clear();
       for (const dispose of disposers.splice(0).reverse()) dispose();
-      setSessionResetReleaseHandler(() => undefined);
+      setSessionResetWindowLayer({
+        release: () => undefined,
+        surfaceHost: () => null,
+        onSurfaceHostChange: () => () => undefined,
+      });
       __resetSessionResetForTests();
       __resetDocumentReloadForTests();
       __resetUnloadExemptionsForTests();

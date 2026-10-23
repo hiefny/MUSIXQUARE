@@ -788,8 +788,12 @@ describe('session reset coordinator', () => {
       // Same module registry as the coordinator, so both owners see one ledger.
       const dom = await import('../../ui/dom.ts');
       // Mirror app.ts: the window layer re-derives once the reset releases.
-      const { setSessionResetReleaseHandler } = await loadCoordinator();
-      setSessionResetReleaseHandler(dom.syncOverlayStateAfterExternalLock);
+      const { setSessionResetWindowLayer } = await loadCoordinator();
+      setSessionResetWindowLayer({
+        release: dom.syncOverlayStateAfterExternalLock,
+        surfaceHost: dom.fullscreenSurfaceHost,
+        onSurfaceHostChange: dom.onFullscreenSurfaceHostChange,
+      });
       return dom;
     }
 

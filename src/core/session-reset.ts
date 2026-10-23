@@ -31,6 +31,14 @@
  * settled attempt never navigates. isCurrent() false at navigate time settles
  * the attempt as recovered without navigating.
  *
+ * The reset surface stays on top of every window (C6-11, owner decision 4,
+ * 2026-10-23): the modal stack never locks it, a dialog that opens while a
+ * navigation is pending sits underneath, inert, and focus stays on the
+ * surface. While an element fills the screen in the browser's fullscreen top
+ * layer, the surface moves inside it, or the top layer would cover it
+ * whatever its z-index; the page is locked around it there, and it moves
+ * back when fullscreen ends or the attempt settles.
+ *
  * The page transitions that end an attempt (pagehide, pageshow, a visible
  * return) reach this owner through one dispatch (C6-6), installed once by
  * initPageNavigation, or by the first attempt when nothing installed it yet.
@@ -146,8 +154,22 @@ interface PageNavigationDeps {
   log?: { info: (message: string, ...args: unknown[]) => void };
 }
 
+/**
+ * What the window layer (ui/dom.ts) gives the reset surface. The app shell
+ * injects it so this core module stays below the UI.
+ */
+interface ResetWindowLayer {
+  /** Re-derive the window stack after an abandoned reset releases its locks. */
+  release(): void;
+  /** The element the browser paints in its fullscreen top layer, or null. */
+  surfaceHost(): HTMLElement | null;
+  /** Run `listener` when that element may have changed; returns an unsubscribe. */
+  onSurfaceHostChange(listener: () => void): () => void;
+}
+
 let _state: PageNavigationState = IDLE;
-let _releaseHandler: (() => void) | null = null;
+let _windowLayer: ResetWindowLayer | null = null;
+let _stopSurfaceHostWatch: (() => void) | null = null;
 const _reloadQueue: ReloadRequest[] = [];
 let _transitionDeps: PageNavigationDeps | null = null;
 let _transitionDispatchInstalled = false;
@@ -160,10 +182,10 @@ let _bfcacheRetryUsed = false;
 
 /**
  * Let the window layer re-derive its state after an abandoned reset releases
- * its locks. The app shell injects it so this core module stays below the UI.
+ * its locks, and tell the reset surface where the fullscreen top layer is.
  */
-export function setSessionResetReleaseHandler(handler: () => void): void {
-  _releaseHandler = handler;
+export function setSessionResetWindowLayer(layer: ResetWindowLayer): void {
+  _windowLayer = layer;
 }
 
 function blockInteraction(event: Event): void {
@@ -334,6 +356,74 @@ function ensureOverlay(): HTMLElement {
   return overlay;
 }
 
+/**
+ * Put the overlay inside the fullscreen host while one exists (the browser
+ * paints that element's subtree above every z-index outside it), else in the
+ * body. A body child stays where it is.
+ */
+function placeOverlay(overlay: HTMLElement, host = _windowLayer?.surfaceHost()): void {
+  const parent = host?.isConnected && !overlay.contains(host) ? host : document.body;
+  if (overlay.parentNode !== parent) parent.append(overlay);
+}
+
+function focusOverlay(overlay: HTMLElement): void {
+  try {
+    overlay.focus({ preventScroll: true });
+  } catch {
+    overlay.focus();
+  }
+}
+
+/**
+ * Claim inert on every element beside the overlay's path from the body. A
+ * body-child overlay leaves every other body child claimed, as before C6-11;
+ * inside a fullscreen host, the host's ancestors stay unclaimed (the overlay
+ * would inherit their inert) and their other children are claimed instead.
+ *
+ * Claims go through the shared ledger: a dialog that opens or closes while
+ * the reset is pending owns its own lock, so neither release can strand the
+ * shell inert or re-enable it behind the other. Claim inert only: windows
+ * write their own aria-hidden while the reset holds them, and the release
+ * must not put back a value saved before they opened or closed.
+ */
+function claimPageAround(overlay: HTMLElement, attempt: NavigationAttempt): void {
+  let children: HTMLCollection | null = document.body.children;
+  while (children) {
+    let next: HTMLCollection | null = null;
+    for (const child of Array.from(children)) {
+      if (child === overlay) continue;
+      if (child.contains(overlay)) {
+        next = child.children;
+        continue;
+      }
+      if (!(child instanceof HTMLElement)) continue;
+      setElementInertForOwner(child, INERT_OWNER, true, { ariaHidden: false });
+      attempt.inertElements.push(child);
+    }
+    children = next;
+  }
+}
+
+function releasePageClaims(attempt: NavigationAttempt): void {
+  for (const element of attempt.inertElements) {
+    setElementInertForOwner(element, INERT_OWNER, false);
+  }
+  attempt.inertElements.length = 0;
+}
+
+/** Fullscreen began or ended under a pending reset: move the surface and its lock. */
+function followSurfaceHost(): void {
+  if (_state.phase === 'idle') return;
+  const { attempt } = _state;
+  const overlay = document.getElementById(OVERLAY_ID);
+  if (!(overlay instanceof HTMLElement)) return;
+  releasePageClaims(attempt);
+  placeOverlay(overlay);
+  claimPageAround(overlay, attempt);
+  // Moving the focused overlay drops its focus; the page holds no other.
+  focusOverlay(overlay);
+}
+
 function showResetOverlay(message: string, attempt: NavigationAttempt): void {
   const overlay = ensureOverlay();
   const messageEl = overlay.querySelector<HTMLElement>(`#${MESSAGE_ID}`);
@@ -346,28 +436,17 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
     activeElement.blur();
   }
 
-  // Claim through the shared ledger: a dialog that opens or closes while the
-  // reset is pending owns its own lock, so neither release can strand the
-  // shell inert or re-enable it behind the other. Claim inert only: windows
-  // write their own aria-hidden while the reset holds them, and the release
-  // must not put back a value saved before they opened or closed.
-  for (const child of document.body.children) {
-    if (child === overlay || !(child instanceof HTMLElement)) continue;
-    setElementInertForOwner(child, INERT_OWNER, true, { ariaHidden: false });
-    attempt.inertElements.push(child);
-  }
+  placeOverlay(overlay);
+  claimPageAround(overlay, attempt);
+  _stopSurfaceHostWatch?.();
+  _stopSurfaceHostWatch = _windowLayer?.onSurfaceHostChange(followSurfaceHost) ?? null;
 
   document.documentElement.classList.add('session-reset-pending');
   overlay.hidden = false;
   overlay.setAttribute('aria-hidden', 'false');
   overlay.setAttribute('aria-busy', 'true');
   overlay.classList.add('show');
-
-  try {
-    overlay.focus({ preventScroll: true });
-  } catch {
-    overlay.focus();
-  }
+  focusOverlay(overlay);
 }
 
 /**
@@ -376,11 +455,11 @@ function showResetOverlay(message: string, attempt: NavigationAttempt): void {
  * the attempt still reports pending; with no attempt it only clears leftovers.
  */
 function releaseResetSurface(attempt: NavigationAttempt | null): void {
+  _stopSurfaceHostWatch?.();
+  _stopSurfaceHostWatch = null;
   if (attempt) {
     cancelTimers(attempt);
-    for (const element of attempt.inertElements) {
-      setElementInertForOwner(element, INERT_OWNER, false);
-    }
+    releasePageClaims(attempt);
   }
 
   removeInteractionBlockers();
@@ -398,11 +477,11 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
       previousFocus.focus();
     }
   }
-  if (attempt && _releaseHandler) {
+  if (attempt && _windowLayer) {
     // A window that opened or closed while the reset held it wrote state the
     // modal stack could not apply yet, and could not take focus.
     try {
-      _releaseHandler();
+      _windowLayer.release();
     } catch (error) {
       log.error('[SessionReset] Release handler failed:', error);
     }
@@ -413,6 +492,8 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
     overlay.classList.remove('show');
     overlay.setAttribute('aria-hidden', 'true');
     overlay.removeAttribute('aria-busy');
+    // Hidden first, so the move out of a fullscreen host shows nothing.
+    placeOverlay(overlay, null);
   }
   document.documentElement.classList.remove('session-reset-pending');
 }

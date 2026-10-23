@@ -39,7 +39,7 @@ import {
   isSessionResetPending,
   scheduleDocumentReload,
   scheduleSessionReset,
-  setSessionResetReleaseHandler,
+  setSessionResetWindowLayer,
 } from './core/session-reset.ts';
 import { createReloadRecoveryLatch } from './core/reload-recovery-latch.ts';
 import { UPDATE_COMPLETION_KEY } from './core/navigation-contract.ts';
@@ -118,10 +118,12 @@ import { initYouTubeSync } from './youtube/sync.ts';
 
 // ── UI ──
 import {
+  fullscreenSurfaceHost,
   hasOpenWindow,
   initOverlayObservers,
   isAnyOverlayShown,
   offerBackToTopWindow,
+  onFullscreenSurfaceHostChange,
   onOverlayStackChange,
   syncOverlayStateAfterExternalLock,
   whenBackSurfaceSettled,
@@ -1298,8 +1300,13 @@ async function bootstrap(): Promise<void> {
   );
   safeInit('PageLifecycle', () => {
     // Windows that opened or closed under an abandoned reset re-derive once
-    // it releases its locks.
-    setSessionResetReleaseHandler(syncOverlayStateAfterExternalLock);
+    // it releases its locks; the reset surface follows the fullscreen top
+    // layer so no fullscreen player covers it.
+    setSessionResetWindowLayer({
+      release: syncOverlayStateAfterExternalLock,
+      surfaceHost: fullscreenSurfaceHost,
+      onSurfaceHostChange: onFullscreenSurfaceHostChange,
+    });
     const lifecycle = {
       getRole: () => getState('network.appRole'),
       // A confirmed pagehide may be the installed-PWA OAuth navigation. Keep

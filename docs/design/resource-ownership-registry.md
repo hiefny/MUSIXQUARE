@@ -117,7 +117,7 @@ each record also states the step in words.
 | RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | Owner decision               |
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                        |
 | RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                        |
-| RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | 2 (reset surface on top)     |
+| RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | Done (2, C6-11)              |
 | RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)               |
 | RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision   |
 | RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                     |
@@ -1225,9 +1225,17 @@ RO-47 owner-in-place
 - **Current owners/flows:** since 9.0.1 one ledger, `setElementInertForOwner` in
   `src/core/inert-ownership.ts`, used by the modal stack (`src/ui/dom.ts`), mobile chat
   (`src/ui/chat.ts`) and the session reset (inert only). The modal stack no longer locks the reset
-  overlay. Element-local writers (`src/player/video.ts`, `src/ui/playlist-removal.ts`,
+  overlay, so the reset surface stays on top of every window and a dialog that opens while a
+  navigation is pending sits underneath, inert, with focus left on the surface (owner decision 4,
+  2026-10-23, pinned in Phase 2 C6-11). Since C6-11 the reset also stays above a fullscreen
+  player: while `fullscreenSurfaceHost()` in `src/ui/dom.ts` (the element in the browser's
+  fullscreen top layer, the same container the modal portal uses) exists, the reset moves its
+  overlay inside it and claims inert on every element beside the overlay's path instead of on the
+  body children, follows fullscreen changes through `onFullscreenSurfaceHostChange`, and moves the
+  overlay back when it settles; it never requests or exits fullscreen. The app shell wires both
+  through `setSessionResetWindowLayer`. Element-local writers (`src/player/video.ts`, `src/ui/playlist-removal.ts`,
   `src/ui/setup-shared.ts` and others) lock their own subtrees and are out of scope.
-- **Target single owner:** unchanged; Phase 2 keeps the reset surface on top of the modal stack.
+- **Target single owner:** unchanged.
 - **Allowed requesters:** surfaces that cover the page, each with its own owner key.
 - **Lifecycle operations:** claim, release.
 - **Deadline owner:** none; the reset's release handler re-derives the modal stack.
@@ -1240,6 +1248,9 @@ RO-47 owner-in-place
     abandoned reset closes".
   - Visibility: `session-reset.test.ts` "restores a committed reset when Safari returns the old
     document via pageshow".
+  - Top surface: `src/core/__tests__/page-navigation-owner.integration.test.ts` "(g) ... keeps the
+    reset surface exposed and focused" and "keeps the reset surface on top of a fullscreen player,
+    with the window underneath and inert".
 - **Status:** `owner-in-place`. See [Competing recovery flows, 9.0.1](ownership-gap-fixes-2026-10-22.md).
 
 ### RO-25 Developer API authority fence row

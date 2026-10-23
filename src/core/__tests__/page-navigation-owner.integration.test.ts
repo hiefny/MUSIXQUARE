@@ -1115,7 +1115,7 @@ describe('(f) the logo hard reset inside the commit deadline', () => {
 });
 
 describe('(g) a window that opens during a pending reset', () => {
-  it('keeps the reset surface exposed and focused, then hands top and focus to the window [flipped: 9.0.1 G4] [keeps: C6-11]', async () => {
+  it('keeps the reset surface exposed and focused, then hands top and focus to the window [flipped: 9.0.1 G4] [kept: C6-11, owner decision 4]', async () => {
     const s = boot({ app: IN_ROOM });
     s.element('control').focus();
     scheduleDocumentReload(MSG_REFRESHING);
@@ -1140,25 +1140,68 @@ describe('(g) a window that opens during a pending reset', () => {
     expect(document.activeElement?.id).toBe('btn-dialog-ok');
   });
 
-  it('portals the window into a fullscreen player while the reset overlay stays outside the top layer [flips: C6-11 fullscreen top layer]', () => {
+  // Until C6-11 the reset overlay stayed a body child, which the browser
+  // paints beneath the fullscreen top layer whatever its z-index, while
+  // dom.ts moved the dialog into the fullscreen element: the dialog showed
+  // above an invisible reset screen, with the rest of the page inert. Owner
+  // decision 4 keeps the reset screen on top; the reset moves its surface
+  // into the fullscreen element and exits nothing.
+  it('keeps the reset surface on top of a fullscreen player, with the window underneath and inert, and moves it back on recovery [flipped: C6-11, owner decision 4]', async () => {
     const s = boot({ app: IN_ROOM });
     const wrapper = s.element('video-wrapper');
     const fullscreen = enterFullscreen(wrapper);
     s.addCleanup(() => fullscreen.restore());
+    s.element('video-control').focus();
     scheduleDocumentReload(MSG_REFRESHING);
     const dialog = s.element('dialog-overlay');
 
+    expect(overlay().parentElement).toBe(wrapper);
+    expect(overlay().closest('[inert]')).toBeNull();
+    // Locked around the surface: the fullscreen player's other controls and
+    // every element outside the player's path.
+    expect(s.element('video-control').inert).toBe(true);
+    expect(s.element('control').inert).toBe(true);
+    expect(s.element('main-header').inert).toBe(true);
+    expect(s.element('tab-play').inert).not.toBe(true);
+
     s.openDialog();
 
-    // dom.ts:444-466 moves the top dialog into the fullscreen element; the
-    // reset overlay stays a body child, which the browser paints beneath the
-    // fullscreen top layer whatever its z-index, and nothing exits fullscreen.
-    // Flips in C6-11: the reset exits fullscreen or portals its overlay.
+    // dom.ts portals the dialog into the fullscreen element too, after the
+    // surface, whose z-index is the maximum; the dialog stays inert under it.
     expect(wrapper.contains(dialog)).toBe(true);
-    expect(overlay().parentElement).toBe(document.body);
-    expect(wrapper.contains(overlay())).toBe(false);
-    expect(fullscreen.exitFullscreen).not.toHaveBeenCalled();
     expect(dialog.closest('[inert]')).not.toBeNull();
+    expect(overlay().closest('[inert]')).toBeNull();
+    expect(overlay().getAttribute('aria-hidden')).toBe('false');
+    expect(document.activeElement).toBe(overlay());
+    expect(fullscreen.exitFullscreen).not.toHaveBeenCalled();
+
+    // The reload's no-op recovers: the surface goes home hidden and the
+    // dialog becomes the top window, inside the fullscreen player.
+    await advance(PAINT_MS + COMMIT_DEADLINE_MS);
+    expect(overlay().parentElement).toBe(document.body);
+    expect(overlay().hidden).toBe(true);
+    expect(dialog.inert).toBe(false);
+    expect(wrapper.contains(dialog)).toBe(true);
+    expect(document.activeElement?.id).toBe('btn-dialog-ok');
+  });
+
+  it('moves the reset surface back to the page and locks the player when fullscreen ends under a pending reset [added: C6-11]', () => {
+    const s = boot({ app: IN_ROOM });
+    const wrapper = s.element('video-wrapper');
+    const fullscreen = enterFullscreen(wrapper);
+    scheduleDocumentReload(MSG_REFRESHING);
+    expect(overlay().parentElement).toBe(wrapper);
+
+    // The browser or the user (Escape) ends fullscreen while the page is held.
+    fullscreen.restore();
+    document.dispatchEvent(new Event('fullscreenchange'));
+
+    expect(overlay().parentElement).toBe(document.body);
+    expect(overlay().closest('[inert]')).toBeNull();
+    expect(s.element('tab-play').inert).toBe(true);
+    expect(s.element('main-header').inert).toBe(true);
+    expect(document.activeElement).toBe(overlay());
+    expect(isSessionResetPending()).toBe(true);
   });
 });
 

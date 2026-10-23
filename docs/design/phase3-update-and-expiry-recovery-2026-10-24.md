@@ -55,8 +55,32 @@ SW 업데이트 경로 증분의 완료나 검증을 주장하지 않는다. 후
 
 ## QA 라운드
 
-검증을 마친 코드 SHA와 결과를 PR 준비 단계에서 기록한다. 로컬·PR 결과는 배포 시 필요한
-exact-main-SHA CI 후보를 대신하지 않는다.
+### 1. 구현·독립 리뷰 (2026-10-24)
+
+기준 `f5bcafec` 위 작업 트리에서 만료 처리, 기존 복구와의 분리, UI, 집계를 각각 검증했다.
+리뷰에서 만료로 취소된 ICE 후보가 일반 오류 알림으로 전파되는 경로와 마지막 게스트
+종료가 알람보다 먼저 오는 경우 만료 집계가 빠지는 경로를 발견했다. 회귀를 재현하고
+수정했으며, 최종 런타임은 `2d4090be8b808887f1e35e6dd6bbfb4b8ee2a500`에 기록했다.
+초기 전체 테스트 실행은 수정 전후 작업 트리를 읽었으므로 최종 후보 통과 근거로 쓰지 않는다.
+
+### 2. 최종 코드 검증 (2026-10-24)
+
+검증 대상 코드는 `2d4090be8b808887f1e35e6dd6bbfb4b8ee2a500`이다. 이후 이 보고서에
+결과를 적는 문서 커밋은 런타임을 바꾸지 않는다. 로컬 환경은 Windows, Node 24.20.0 /
+npm 12.0.2다.
+
+| 검사 | 결과와 범위 |
+| --- | --- |
+| Transport 회귀 | 2파일 218 tests PASS. WSS·HTTPS 명시적 만료, 기존 RTC 보존, 일반 단절·PRO 제외, 늦은 이벤트, 새 입장, 대기·후발 ICE 후보 취소와 일반 오류 보존. 최종 파일 내용으로 검증 후 위 SHA에 기록했다. |
+| Peer·health·UI·번역 | 4파일 180 tests PASS. 예약된 retry/grace 취소, 수동·foreground·늦은 이벤트 차단, 재생·시스템 오디오 상태 보존, 명시적 새 입장, 42개 언어 키. |
+| Worker·관리자 API | 2파일 597 tests PASS 후 마지막 게스트 종료 회귀를 추가한 Worker 318 tests PASS. 기존 합계와 세부 상태의 같은 upsert, 만료 정리 후 1회 집계, 관리자 API allowlist를 검증했다. |
+| 타입·정적 검사 | 전체 typecheck·lint·format PASS. 수정한 Worker의 후속 타입 검사, Transport의 후속 lint·format도 PASS. import graph, dead exports, bus pairing, resource ownership, navigation, lifecycle, Standard hot path, D1·ops 계약 가드 PASS. |
+| 프로덕션 빌드 | 위 SHA의 `build:checked` PASS. 초기 JS 479.7 KiB gzip, 초기 전체 556.4 KiB gzip으로 예산과 최소 여유 5% 유지. 캐시 epoch와 bootstrap 경로는 함께 v773이다. |
+| Chromium 기존 재생·연결 | 위 SHA에서 `build:e2e` 후 playback-sync·reconnection 9/9 PASS. 재생·일시정지, 재생목록 동기화, 게스트 종료 뒤 호스트 상태 보존, 새 게스트 입장과 명시적 나가기. 로컬 PeerJS 기반이므로 운영 Cloudflare 만료의 실기기 검증은 아니다. |
+| PR CI | [PR #471](https://github.com/hiefny/MUSIXQUARE/pull/471)의 최종 head checks를 따른다. 로컬·PR 결과는 배포 시 필요한 exact-main-SHA CI 후보를 대신하지 않는다. |
+
+명시적 만료 자체의 검증은 fake WebSocket/WebRTC·Worker와 jsdom 기반이다. 실제 기기의
+음향 연속성, 운영 WSS·HTTPS·백그라운드 조합은 SKIP이며 아래 배포 전 확인 범위로 남긴다.
 
 ## 배포·회복
 

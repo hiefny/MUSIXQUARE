@@ -8452,6 +8452,13 @@ Safety is declared first because important layer precedence is reversed; its acc
     left: 4px;
   }
 
+  /* The target touches the banner's top edge, which the desktop chat drawer
+     clips (overflow: hidden), so the keyboard ring is drawn inside it, 2px in
+     from the edge. The forced-colors block keeps the same inset. */
+  .chat-pinned-notice-dismiss:focus-visible {
+    outline-offset: -4px;
+  }
+
   /* Pretendard's 11px line in every locale: a label in a taller fallback
      font centres in it instead of pushing the time below the X. */
   .chat-pinned-notice-header {
@@ -12888,6 +12895,18 @@ Safety is declared first because important layer precedence is reversed; its acc
   .language-dialog .language-option.active:focus-visible,
   .language-dialog .language-option.active.language-option-initial-keyboard-focus:focus {
     outline-color: HighlightText !important;
+  }
+
+  /* The pinned notice X touches the banner's top edge, which the desktop chat
+     drawer clips: its system circle and focus ring both end 2px inside the
+     32px target, like the normal ring, so neither meets the banner edge. The
+     parent class outranks the built :is() fallback's button selectors. */
+  .chat-pinned-notice > .chat-pinned-notice-dismiss {
+    outline-offset: -3px;
+  }
+
+  .chat-pinned-notice > .chat-pinned-notice-dismiss:focus-visible {
+    outline-offset: -5px !important;
   }
 
   /* Selected and filled states keep their Highlight fill and border. Chromium

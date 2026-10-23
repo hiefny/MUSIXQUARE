@@ -165,6 +165,76 @@ test.describe('Critical browser release gate', () => {
     }
   });
 
+  test('keeps the notice X keyboard ring inside the clipped desktop chat drawer', async ({
+    page,
+  }) => {
+    // On desktop the drawer hides its header, so the notice is its first
+    // visible child and the drawer's overflow clips at the X's top edge.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await injectPeerServer(page);
+    await page.route('**/api/announcement/current', (route) =>
+      route.fulfill({ json: { enabled: false } }),
+    );
+    await setupHostAndStart(page);
+    const close = page.locator('#btn-chat-notice-close');
+    for (const forcedColors of ['none', 'active'] as const) {
+      await page.emulateMedia({ forcedColors });
+      await page.evaluate((id) => {
+        const bus = (
+          window as unknown as { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } }
+        ).__MUSIXQUARE_BUS__;
+        bus.emit('chat:notice-message', 'HOST', 'Drop your playlist recs', Date.now(), {
+          source: 'service',
+          id,
+        });
+      }, `ring-${forcedColors}`);
+      await expect(page.locator('#chat-pinned-notice')).toBeVisible();
+      const readRing = () =>
+        close.evaluate((button) => {
+          const style = getComputedStyle(button);
+          const rect = button.getBoundingClientRect();
+          const banner = button.parentElement!.getBoundingClientRect();
+          let clipper = button.parentElement;
+          while (clipper && getComputedStyle(clipper).overflow === 'visible') {
+            clipper = clipper.parentElement;
+          }
+          const clip = clipper!.getBoundingClientRect();
+          const reach =
+            Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth);
+          return {
+            focusVisible: button.matches(':focus-visible'),
+            outline: `${style.outlineStyle} ${style.outlineWidth} offset ${style.outlineOffset}`,
+            target: [rect.width, rect.height],
+            clipper: clipper!.id,
+            // Gaps from the ring's outer edge to the drawer clip and the banner edges.
+            clipTop: rect.top - reach - clip.top,
+            clipEnd: clip.right - (rect.right + reach),
+            bannerTop: rect.top - reach - banner.top,
+            bannerEnd: banner.right - (rect.right + reach),
+          };
+        });
+      // Real keyboard focus: Tab from the notice's open button to its X.
+      await page.locator('#btn-chat-notice-open').focus();
+      if (forcedColors === 'active') {
+        // The system circle every button gets also stays off the banner edge.
+        const circle = await readRing();
+        expect(circle.outline).toMatch(/^solid 1px/);
+        expect(circle.bannerTop).toBeGreaterThanOrEqual(1);
+      }
+      await page.keyboard.press('Tab');
+      await expect(close).toBeFocused();
+      const ring = await readRing();
+      expect(ring.focusVisible).toBe(true);
+      expect(ring.outline).toMatch(forcedColors === 'active' ? /^solid 3px/ : /^solid 2px/);
+      expect(ring.target).toEqual([32, 32]);
+      expect(ring.clipper).toBe('chat-drawer');
+      expect(ring.clipTop).toBeGreaterThanOrEqual(1);
+      expect(ring.clipEnd).toBeGreaterThanOrEqual(1);
+      expect(ring.bannerTop).toBeGreaterThanOrEqual(1);
+      expect(ring.bannerEnd).toBeGreaterThanOrEqual(1);
+    }
+  });
+
   test('opens the native file picker from the active media-source dialog', async ({ page }) => {
     await injectPeerServer(page);
     await setupHostAndStart(page);

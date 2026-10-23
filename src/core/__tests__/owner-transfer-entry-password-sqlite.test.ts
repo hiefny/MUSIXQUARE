@@ -16,8 +16,10 @@ import { nodeSqlite } from './helpers/worker-test-bindings.ts';
  * D1 (helpers/owner-transfer-saga-fixture.ts). The fixture's old owner
  * activated the room with the PIN 12345678.
  *
- * Owner decision 2026-10-23 (docs/design/pro-transfer-password-reset-2026-10-23.md)
- * changes the cases named "today".
+ * Owner decision 2026-10-23 (docs/design/pro-transfer-password-reset-2026-10-23.md):
+ * a committed transfer turns the entry password off and the link asks for no
+ * PIN. The PRO room changes first; the cases named "today" are the App
+ * facade's part, which changes next.
  */
 
 useSagaClock();
@@ -37,47 +39,35 @@ async function bootstrap(test: TransferFixture) {
 }
 
 describe('owner-transfer link and the room entry password', () => {
-  run(
-    "today: the link needs a new PIN, refuses the old owner's PIN and protects the room",
-    async () => {
-      const test = await transferFixture();
-      expect(await bootstrap(test)).toEqual({
-        roomCode: ROOM_CODE,
-        status: 'pin_required',
-        passwordRequired: true,
-      });
-      const claim = await issueClaim(test);
+  run("ignores the old owner's PIN in the link's body and leaves the room open", async () => {
+    const test = await transferFixture();
+    expect(await bootstrap(test)).toEqual({
+      roomCode: ROOM_CODE,
+      status: 'pin_required',
+      passwordRequired: true,
+    });
+    const claim = await issueClaim(test);
 
-      const withoutPin = await postTransfer(test, claim, { newPin: null, entryPolicy: true });
-      expect(withoutPin.status).toBe(400);
-      await expect(withoutPin.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
-      expect(test.saga()).toBeUndefined();
+    // Today the App facade still requires the PIN field.
+    const withoutPin = await postTransfer(test, claim, { newPin: null, entryPolicy: true });
+    expect(withoutPin.status).toBe(400);
+    await expect(withoutPin.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(test.saga()).toBeUndefined();
 
-      const reused = await postTransfer(test, claim, { newPin: '12345678', entryPolicy: true });
-      expect(reused.status).toBe(409);
-      await expect(reused.json()).resolves.toEqual({ error: 'OWNER_TRANSFER_PIN_REUSE' });
-      expect(test.saga()).toBe('intent');
-      expect(await test.canonical()).toMatchObject({
-        status: 'active',
-        owner: 'old',
-        reconciliation: null,
-      });
-
-      const transferred = await postTransfer(test, claim, {
-        newPin: '24681357',
-        entryPolicy: true,
-      });
-      expect(transferred.status).toBe(200);
-      const body = (await transferred.json()) as { snapshot: Record<string, any> };
-      expect(body.snapshot.viewer).toMatchObject({ role: 'owner' });
-      expect(body.snapshot).not.toHaveProperty('passwordRequired');
-      expect(test.saga()).toBe('complete');
-      expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'target' });
-      expect(await bootstrap(test)).toEqual({
-        roomCode: ROOM_CODE,
-        status: 'pin_required',
-        passwordRequired: true,
-      });
-    },
-  );
+    // An App from before the decision may send the room's current PIN. The
+    // PRO room neither refuses it (no previous-owner PIN oracle) nor keeps it.
+    const transferred = await postTransfer(test, claim, { newPin: '12345678', entryPolicy: true });
+    expect(transferred.status).toBe(200);
+    const body = (await transferred.json()) as { snapshot: Record<string, any> };
+    expect(body.snapshot.viewer).toMatchObject({ role: 'owner' });
+    // Today the App facade calls the commit without the browser's opt-in headers.
+    expect(body.snapshot).not.toHaveProperty('passwordRequired');
+    expect(test.saga()).toBe('complete');
+    expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'target' });
+    expect(await bootstrap(test)).toEqual({
+      roomCode: ROOM_CODE,
+      status: 'open',
+      passwordRequired: false,
+    });
+  });
 });

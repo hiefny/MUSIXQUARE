@@ -179,6 +179,9 @@ let _transitionDispatchInstalled = false;
  * automatic recovery reload.
  */
 let _bfcacheRetryUsed = false;
+const _pendingChangeListeners = new Set<() => void>();
+/** The pending state subscribers last heard of. */
+let _reportedPending = false;
 
 /**
  * Let the window layer re-derive its state after an abandoned reset releases
@@ -501,8 +504,8 @@ function releaseResetSurface(attempt: NavigationAttempt | null): void {
 /**
  * End `attempt` in this document, at most once: release the surface (still
  * pending), report idle with the unload exemption cleared, give a reload's
- * claim fragment back to the fence, start the next queued reload, then tell
- * the attempt's listeners how it ended.
+ * claim fragment back to the fence, start the next queued reload, tell the
+ * attempt's listeners how it ended, then send the pending change.
  */
 function settle(attempt: NavigationAttempt, outcome: NavigationOutcome): void {
   if (_state.phase === 'idle' || _state.attempt !== attempt || attempt.settling) return;
@@ -530,11 +533,45 @@ function settle(attempt: NavigationAttempt, outcome: NavigationOutcome): void {
       log.error('[SessionReset] Recovery listener failed:', error);
     }
   }
+  reportPendingChange();
 }
 
 /** Whether this document currently owns a blocking hard-reset attempt. */
 export function isSessionResetPending(): boolean {
   return _state.phase !== 'idle';
+}
+
+/**
+ * Tell subscribers when the page's pending state changed. It runs when an
+ * attempt starts and at the very end of settle, after the queue and the
+ * attempt's own callbacks: a reload the queue started there, or a reset a
+ * callback asked for, keeps the page pending, so no subscriber hears of an
+ * idle page that never was. Subscribers read the live state.
+ */
+function reportPendingChange(): void {
+  const pending = _state.phase !== 'idle';
+  if (pending === _reportedPending) return;
+  _reportedPending = pending;
+  for (const listener of [..._pendingChangeListeners]) {
+    try {
+      listener();
+    } catch (error) {
+      log.error('[SessionReset] Pending-change listener failed:', error);
+    }
+  }
+}
+
+/**
+ * Run `listener` whenever a navigation starts holding the page or the page is
+ * released again (read isSessionResetPending()). The Back guard re-arms from
+ * it once a navigation settles in this document (C6-12, owner decision 5).
+ * Returns an unsubscribe.
+ */
+export function onNavigationPendingChange(listener: () => void): () => void {
+  _pendingChangeListeners.add(listener);
+  return () => {
+    _pendingChangeListeners.delete(listener);
+  };
 }
 
 /** Make the page interactive again and drop leftovers; settles a pending attempt. */
@@ -678,6 +715,7 @@ function beginAttempt(
     },
     onRecovered: (listener) => handle.onSettled(listener),
   };
+  reportPendingChange();
   return handle;
 }
 
@@ -726,6 +764,7 @@ export function scheduleDocumentReload(message: string, onRecovered?: () => void
 export function __resetSessionResetForTests(): void {
   _reloadQueue.length = 0;
   restorePage();
+  _reportedPending = false;
   removePageTransitionDispatch();
   _transitionDeps = null;
   _bfcacheRetryUsed = false;

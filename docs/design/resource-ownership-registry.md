@@ -123,7 +123,7 @@ each record also states the step in words.
 | RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                     |
 | RO-28 | Account session reads and refresh pulses                 | Account        | owner-in-place     | Done (2)                     |
 | RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | 0d (copy triage)             |
-| RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | 2 (owner decision)           |
+| RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | Done (2, C6-12)              |
 | RO-31 | Presence delivery does not re-arm the playback outbox    | Workers        | accepted-exception | Revisit on EPOCH_STALE logs  |
 | RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect |
 | RO-33 | Guest YouTube recovery stays its own owner               | YouTube        | accepted-exception | Revisit with device evidence |
@@ -1533,8 +1533,14 @@ RO-47 owner-in-place
   - Teardown: `back-button-guard.test.ts` "does not compete with an update or terminal reset".
   - Visibility: `back-button-guard.test.ts` "cancels a hidden document and resumes only while still
     needing a guard".
-- **Status:** `owner-in-place`. Phase 2: re-arming the guard after a pending reset recovers is an
-  owner decision because it reverses part of the 2026-10-17 Back decision.
+  - Re-arm after a recovered navigation: `page-navigation-owner.integration.test.ts` "(h) ... is
+    absorbed, and the guard re-arms when the deadline recovers" and `back-button-guard.test.ts`
+    "re-arms one guard when a navigation absorbed a Back and then settles".
+- **Status:** `owner-in-place`. Phase 2 C6-12 (owner decision 5, 2026-10-23, which reverses part
+  of the 2026-10-17 Back decision): the guard subscribes `handleStateChange` to the navigation
+  owner's `onNavigationPendingChange`, sent at the end of settle after the queue and the attempt's
+  callbacks, so it re-arms once a navigation that absorbed a Back settles in this document; a
+  confirmed leave keeps its own recovery wiring.
 
 ## Accepted exceptions
 

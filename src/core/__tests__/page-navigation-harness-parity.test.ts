@@ -89,7 +89,7 @@ describe('app.ts wiring copied by the page navigation harness', () => {
     );
   });
 
-  it('wires the Back guard, its leave recovery and its listeners exactly as copied [keeps: C6-6] [update with: C6-12]', () => {
+  it('wires the Back guard, its leave recovery and its listeners exactly as copied [keeps: C6-6] [updated: C6-12]', () => {
     expect(block(appSource, 'function initBackButtonGuard(): void {')).toBe(
       [
         'function initBackButtonGuard(): void {',
@@ -126,6 +126,7 @@ describe('app.ts wiring copied by the page navigation harness', () => {
         "bus.on('state:room.context', controller.handleStateChange);",
         "bus.on('setup:app-entrance', controller.handleStateChange);",
         'onOverlayStackChange(controller.handleStateChange);',
+        'onNavigationPendingChange(controller.handleStateChange);',
         "window.addEventListener('popstate', controller.handlePopState);",
         "window.addEventListener('pagehide', controller.suspend);",
         "window.addEventListener('pageshow', controller.resume);",

@@ -383,9 +383,9 @@ describe('(b) a reload queued behind another reload', () => {
 });
 
 describe('settlement of one reset attempt', () => {
-  // Coupled to (h): flipping this order so the reset reports idle before the
-  // window release lets the Back guard re-arm there, which flips (h) too.
-  it('releases the windows while still pending, then reports idle with the exemption already cleared [keeps: C6-4] [owner decision / C6-12: keep or flip]', async () => {
+  // C6-12 kept this order and re-arms the Back guard from the owner's
+  // pending-change event at the end of settle instead (pin (h)).
+  it('releases the windows while still pending, then reports idle with the exemption already cleared [keeps: C6-4] [kept: C6-12]', async () => {
     const s = boot({ app: IN_ROOM });
     const seen: string[] = [];
     const snapshot = (where: string) =>
@@ -402,11 +402,9 @@ describe('settlement of one reset attempt', () => {
     // settle() in session-reset.ts: focus, the release handler (dom.ts
     // re-derives the stack and notifies the Back guard), then the overlay
     // hides, the reset reports idle, the exemption clears, and only then do
-    // per-attempt callbacks run. C6-4 kept this order. C6-12 (owner decision 5:
-    // the guard re-arms after a recovered navigation) either flips it, so the
-    // reset reports idle before the window release and the Back guard re-arms
-    // there, or re-arms the guard from the pending-change event; either way it
-    // flips pin (h).
+    // per-attempt callbacks run. C6-4 and C6-12 kept this order; C6-12 (owner
+    // decision 5) re-arms the guard from onNavigationPendingChange, sent after
+    // these callbacks, and that flipped pin (h).
     expect(seen).toEqual([
       'overlay stack: pending=true overlayHidden=false prompts=false',
       'recovered: pending=false overlayHidden=true prompts=true',
@@ -563,7 +561,7 @@ describe('a request that is no longer current at navigate (isCurrent)', () => {
   });
 
   // A variant of (h): Back absorbed while the reset is pending.
-  it('leaves the Back guard unarmed when Back was absorbed before a stale request restored the page [flips: C6-12, owner reversal]', async () => {
+  it('re-arms the Back guard when a stale request restores the page after Back was absorbed [flipped: C6-12, owner decision 5]', async () => {
     const s = boot({ app: IN_ROOM });
     await advance(GUARD_ARM_MS);
     expect(s.history.marker()).toBe('guard');
@@ -574,10 +572,9 @@ describe('a request that is no longer current at navigate (isCurrent)', () => {
 
     await advance(PAINT_MS + GUARD_ARM_MS + 1_000);
     expect(isSessionResetPending()).toBe(false);
-    // Flips in C6-12: the guard re-arms when the navigation settles, so the
-    // marker is 'guard' and a second push is recorded.
-    expect(s.history.marker()).toBe('base');
-    expect(s.history.pushes).toHaveLength(1);
+    // Until C6-12 nothing re-armed the guard here ('base', one push).
+    expect(s.history.marker()).toBe('guard');
+    expect(s.history.pushes).toHaveLength(2);
   });
 });
 
@@ -782,7 +779,7 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
     ['pageshow-first', false],
     ['pageshow-only', false],
   ] as const)(
-    'a %s return of a pending reset with a window open arms the Back guard: %s, and still after the fresh reload recovers [kept: C6-6] [flips: C6-12 for the pageshow orders]',
+    'a %s return of a pending reset with a window open arms the Back guard: %s, and once the fresh reload recovers on every order [kept: C6-6] [flipped: C6-12 for the pageshow orders, owner decision 5]',
     async (order, armed) => {
       const s = await pendingResetWithWindowAndAbsorbedBack();
       s.leaveDocument(true);
@@ -796,13 +793,12 @@ describe('(c) a pending reset returned from the back-forward cache', () => {
       expect(s.sinks.count('reload')).toBe(armed ? 0 : 1);
 
       // The fresh reload's no-op navigation recovers at its commit deadline.
-      // The release notifies the guard while the reset still reports pending
-      // (the settle-order pin), so nothing arms it.
+      // Until C6-12 the release notified the guard while the reset still
+      // reported pending (the settle-order pin), so nothing armed it on the
+      // pageshow orders ('base'). The pending-change event now re-arms it.
       await advance(PAINT_MS + COMMIT_DEADLINE_MS + GUARD_ARM_MS);
       expect(isSessionResetPending()).toBe(false);
-      // Flips in C6-12 for the pageshow orders: the guard re-arms when the
-      // fresh reload settles, so the marker is 'guard' on every row.
-      expect(s.history.marker()).toBe(armed ? 'guard' : 'base');
+      expect(s.history.marker()).toBe('guard');
     },
   );
 
@@ -1206,7 +1202,11 @@ describe('(g) a window that opens during a pending reset', () => {
 });
 
 describe('(h) Back taken while a reset is pending', () => {
-  it('is absorbed, and nothing re-arms the guard after the deadline recovers, so the next Back leaves the room [flips: C6-12, owner reversal]', async () => {
+  // Until C6-12 (owner decision 5, reversing the 2026-10-17 text that only a
+  // confirmed leave re-pushes the guard) nothing re-armed the guard after a
+  // recovered navigation: the next Back left a live room without the in-app
+  // confirmation, and a window that opened during the reset was unreachable.
+  it('is absorbed, and the guard re-arms when the deadline recovers, so the next Back asks to leave [flipped: C6-12, owner decision 5]', async () => {
     const s = boot({ app: IN_ROOM });
     await advance(GUARD_ARM_MS);
     scheduleDocumentReload(MSG_REFRESHING);
@@ -1219,19 +1219,19 @@ describe('(h) Back taken while a reset is pending', () => {
     await advance(COMMIT_DEADLINE_MS);
     expect(isSessionResetPending()).toBe(false);
     await advance(1_000);
-    // The release handler notified the guard while the reset still reported
-    // pending (see the settle-order pin), so its arm was refused, and no
-    // per-attempt wiring re-arms it (app.ts:965-968 covers only the leave).
-    // Flips in C6-12: the guard re-arms when the navigation settles.
-    expect(s.history.marker()).toBe('base');
-    expect(s.history.pushes).toHaveLength(1);
+    // The release handler still notifies the guard while the reset reports
+    // pending (the settle-order pin); the owner's pending-change event after
+    // settle re-arms it.
+    expect(s.history.marker()).toBe('guard');
+    expect(s.history.pushes).toHaveLength(2);
 
     s.history.pressBack();
-    expect(s.history.departures).toEqual(['back']);
-    expect(s.leaveConfirmation.requests).toBe(0);
+    await advance(0);
+    expect(s.history.departures).toEqual([]);
+    expect(s.leaveConfirmation.requests).toBe(1);
   });
 
-  it('leaves a window that opened during the reset unreachable by Back [flips: C6-12, owner reversal]', async () => {
+  it('lets Back reach a window that opened during the reset once the guard re-arms [flipped: C6-12, owner decision 5]', async () => {
     const s = boot({ app: IN_ROOM });
     await advance(GUARD_ARM_MS);
     scheduleDocumentReload(MSG_REFRESHING);
@@ -1240,11 +1240,33 @@ describe('(h) Back taken while a reset is pending', () => {
 
     s.openDialog({ closeOnBack: true });
     await advance(COMMIT_DEADLINE_MS + GUARD_ARM_MS);
-    expect(s.history.marker()).toBe('base');
+    expect(s.history.marker()).toBe('guard');
 
     s.history.pressBack();
-    expect(s.history.departures).toEqual(['back']);
-    expect(s.element('dialog-overlay').classList.contains('show')).toBe(true);
+    await advance(0);
+    expect(s.history.departures).toEqual([]);
+    expect(s.element('dialog-overlay').classList.contains('show')).toBe(false);
+  });
+
+  it('does not re-arm while a reload queued behind the recovered one holds the page [added: C6-12]', async () => {
+    const s = boot({ app: IN_ROOM });
+    await advance(GUARD_ARM_MS);
+    scheduleDocumentReload('First reload');
+    await advance(PAINT_MS);
+    s.history.pressBack();
+    scheduleDocumentReload('Second reload');
+
+    // The first reload recovers and settle starts the queued one at once: the
+    // page never reports idle in between, so the guard stays unarmed.
+    await advance(COMMIT_DEADLINE_MS + GUARD_ARM_MS);
+    expect(isSessionResetPending()).toBe(true);
+    expect(s.resetMessage()).toBe('Second reload');
+    expect(s.history.marker()).toBe('base');
+
+    await advance(PAINT_MS + COMMIT_DEADLINE_MS + GUARD_ARM_MS);
+    expect(isSessionResetPending()).toBe(false);
+    expect(s.history.marker()).toBe('guard');
+    expect(s.history.pushes).toHaveLength(2);
   });
 
   it('re-arms after a stalled confirmed leave through its own recovery wiring when a window still needs Back [keeps: C6-12]', async () => {

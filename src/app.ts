@@ -37,6 +37,7 @@ import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
 import {
   initPageNavigation,
   isSessionResetPending,
+  onNavigationPendingChange,
   scheduleDocumentReload,
   scheduleSessionReset,
   setSessionResetWindowLayer,
@@ -978,6 +979,9 @@ function initBackButtonGuard(): void {
   bus.on('state:room.context', controller.handleStateChange);
   bus.on('setup:app-entrance', controller.handleStateChange);
   onOverlayStackChange(controller.handleStateChange);
+  // A Back absorbed while a navigation held the page re-arms once it settles
+  // in this document (owner decision 5, 2026-10-23).
+  onNavigationPendingChange(controller.handleStateChange);
   window.addEventListener('popstate', controller.handlePopState);
   window.addEventListener('pagehide', controller.suspend);
   window.addEventListener('pageshow', controller.resume);

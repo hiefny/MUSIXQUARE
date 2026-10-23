@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { stubNavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 const originalRequestAnimationFrame = window.requestAnimationFrame;
 const originalCancelAnimationFrame = window.cancelAnimationFrame;
@@ -780,6 +781,89 @@ describe('session reset coordinator', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(navigate).not.toHaveBeenCalled();
       expect(isSessionResetPending()).toBe(false);
+    });
+  });
+
+  // C6-12: the Back guard re-arms from this event (owner decision 5).
+  describe('onNavigationPendingChange (C6-12)', () => {
+    beforeEach(() => {
+      Object.defineProperty(window, 'requestAnimationFrame', {
+        configurable: true,
+        value: undefined,
+      });
+      // Reloads in these cases are recorded no-op navigations.
+      stubNavigationSinks();
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('reports the start and the settle of an attempt once each, after its own callbacks, reading the live state', async () => {
+      const { isSessionResetPending, onNavigationPendingChange, scheduleSessionReset } =
+        await loadCoordinator();
+      const events: string[] = [];
+      const unsubscribe = onNavigationPendingChange(() =>
+        events.push(`pending-change: pending=${isSessionResetPending()}`),
+      );
+
+      scheduleSessionReset('Leaving', vi.fn())?.onSettled(() => events.push('settled'));
+      expect(events).toEqual(['pending-change: pending=true']);
+
+      vi.advanceTimersByTime(120 + 2_000);
+      expect(events).toEqual([
+        'pending-change: pending=true',
+        'settled',
+        'pending-change: pending=false',
+      ]);
+
+      unsubscribe();
+      scheduleSessionReset('Again', vi.fn());
+      expect(events).toHaveLength(3);
+    });
+
+    it('reports no passing idle when settle starts a queued reload or a callback asks for a reset', async () => {
+      const {
+        isSessionResetPending,
+        onNavigationPendingChange,
+        scheduleDocumentReload,
+        scheduleSessionReset,
+      } = await loadCoordinator();
+      const states: boolean[] = [];
+      onNavigationPendingChange(() => states.push(isSessionResetPending()));
+
+      scheduleSessionReset('Leaving', vi.fn())?.onSettled(() =>
+        scheduleSessionReset('Retry', vi.fn()),
+      );
+      scheduleDocumentReload('Queued');
+      vi.advanceTimersByTime(120 + 2_000);
+      // The queued reload took the page inside settle; the retry was refused.
+      expect(isSessionResetPending()).toBe(true);
+      expect(states).toEqual([true]);
+
+      vi.advanceTimersByTime(120 + 2_000);
+      expect(isSessionResetPending()).toBe(false);
+      expect(states).toEqual([true, false]);
+    });
+
+    it('reports a reset that a subscriber starts while hearing of the idle page', async () => {
+      const { isSessionResetPending, onNavigationPendingChange, scheduleSessionReset } =
+        await loadCoordinator();
+      const states: boolean[] = [];
+      let retried = false;
+      onNavigationPendingChange(() => {
+        states.push(isSessionResetPending());
+        if (!isSessionResetPending() && !retried) {
+          retried = true;
+          scheduleSessionReset('Retry', vi.fn());
+        }
+      });
+
+      scheduleSessionReset('Leaving', vi.fn());
+      vi.advanceTimersByTime(120 + 2_000);
+
+      expect(isSessionResetPending()).toBe(true);
+      expect(states).toEqual([true, false, true]);
     });
   });
 

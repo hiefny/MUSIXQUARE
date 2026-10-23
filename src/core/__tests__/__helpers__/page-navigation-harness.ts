@@ -56,6 +56,7 @@ import {
   __resetSessionResetForTests,
   initPageNavigation,
   isSessionResetPending,
+  onNavigationPendingChange,
   scheduleDocumentReload,
   scheduleSessionReset,
   setSessionResetWindowLayer,
@@ -550,6 +551,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
   stateListeners.add(controller.handleStateChange);
   appEntranceListeners.add(controller.handleStateChange);
   disposers.push(onOverlayStackChange(controller.handleStateChange));
+  disposers.push(onNavigationPendingChange(controller.handleStateChange));
   window.addEventListener('popstate', controller.handlePopState, { signal });
   window.addEventListener('pagehide', controller.suspend, { signal });
   window.addEventListener('pageshow', controller.resume, { signal });

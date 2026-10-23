@@ -1,5 +1,6 @@
 /**
  * MUSIXQUARE — Playlist View (UI)
+ * Resource owner: RO-27 (playlist rows and scroll position, through the interaction gate)
  *
  * Renders stable queue occurrences and delegates row actions by queueItemId.
  * Pointer/touch/keyboard reordering lives in playlist-reorder.ts.
@@ -1345,7 +1346,9 @@ export function initPlaylistView(): void {
     const crossesSystemAudioBoundary =
       (renderedPlaybackMode === 'system-audio') !== (mode === 'system-audio');
     renderedPlaybackMode = mode;
-    if (mode === 'system-audio') _removalController?.cancel();
+    // System audio ends every queue edit, the drag and its drop settle as well
+    // as the selection (owner decision O5, 2026-10-23).
+    if (mode === 'system-audio') cancelQueueInteractions();
     if (crossesSystemAudioBoundary) {
       schedulePlaylistUpdate();
     } else {

@@ -120,7 +120,7 @@ each record also states the step in words.
 | RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | 2 (reset surface on top)     |
 | RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)               |
 | RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision   |
-| RO-27 | Playlist rows and scroll position                        | UI             | duplicated         | 2                            |
+| RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                     |
 | RO-28 | Account session reads and refresh pulses                 | Account        | duplicated         | 0d, 2                        |
 | RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | 0d (copy triage)             |
 | RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | 2 (owner decision)           |
@@ -182,7 +182,7 @@ RO-23 duplicated
 RO-24 owner-in-place
 RO-25 owner-in-place
 RO-26 duplicated
-RO-27 duplicated
+RO-27 owner-in-place
 RO-28 duplicated
 RO-29 owner-in-place
 RO-30 owner-in-place
@@ -1315,8 +1315,11 @@ RO-46 accepted-exception
   `cancelQueueInteractions()` ends both.
 - **Target single owner:** one interaction gate in `playlist-view.ts` with the shared lazy motion
   module `src/ui/playlist-motion.ts`; controllers keep their gesture-private state.
-- **Allowed requesters:** the controllers above, through the gate; room, authority and session
-  events cancel through `cancelQueueInteractions()`.
+- **Allowed requesters:** the controllers above, through the gate; room, authority, session and
+  playback-mode events cancel through `cancelQueueInteractions()` (since owner decision O5,
+  2026-10-23, a switch to system audio ends a drag or drop settle as well as the selection).
+  Single-controller exits stay with their controller: a tab change ends the selection, starting a
+  selection ends a reorder hold, the move dialog ends the selection.
 - **Lifecycle operations:** move rows, animate, scroll, defer or force a render, cancel.
 - **Deadline owner:** each controller's settle and glide timing.
 - **Timing-constant home:** `src/ui/playlist-motion.ts`: the edge auto-scroll zone, arming and
@@ -1338,15 +1341,23 @@ RO-46 accepted-exception
     without changing order".
   - Teardown: `playlist-view.test.ts` "cancels a PRO deletion task on authority loss or
     room-incarnation replacement" and "cancels the drag and the selection together on ...".
-  - Visibility: missing.
+  - Visibility: `playlist-reorder.test.ts` "preserves focus after hidden retires keyboard
+    reorder" and `playlist-removal.test.ts` "does not resume playlist follow when the view hides
+    before the release microtask".
+  - System audio (O5): `playlist-view.test.ts` "cancels the drag and the selection together on a
+    switch to system audio" and "cancels a handle drag outside edit mode on a switch to system
+    audio".
   - Delete during a drop settle (owner decision O4, 2026-10-23: the settle finishes at once, then
     the deletion renders): `playlist-view.test.ts` "finishes a drop settle at once when Delete is
     tapped during it" for the Standard host, a Standard guest with ADMIN and a PRO media manager,
     and `e2e/playlist-edit-mode.test.ts` "Delete tapped while a dropped row settles deletes at
     once" (local only). The removal controller asks first through `onBeforeDelete`; a drag still
     in its gesture is left alone.
-- **Status:** `duplicated`. Phase 2 (motion module, interaction gate, the delete-during-settle
-  decision).
+- **Status:** `owner-in-place`. Phase 2 moved the shared motion into `playlist-motion.ts` (C8-I3),
+  gave the view one interaction gate (C8-I7) and applied owner decisions O4 (C8-I11) and O5, with
+  the tests above. Known residual: a Standard guest with ADMIN who taps Delete before the host has
+  answered its reorder request sees the order from before the drop until the host's snapshot
+  arrives; before O4 the same happened only when the host answered after the ~474 ms settle.
 
 ### RO-28 Account session reads and refresh pulses
 

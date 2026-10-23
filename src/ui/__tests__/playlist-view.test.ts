@@ -2544,6 +2544,8 @@ describe('playlist interaction gate (RO-27)', () => {
       () => setState('network.hostConn', { open: true, peer: 'host-2' } as DataConnection),
     ],
     ['session end', () => setState('network.appRole', 'idle')],
+    // Owner decision O5 (2026-10-23).
+    ['a switch to system audio', () => setState('playback.mode', 'system-audio')],
   ])('cancels the drag and the selection together on %s', async (_trigger, trigger) => {
     joinStandardRoomAsOperator();
     await mount();
@@ -2562,21 +2564,23 @@ describe('playlist interaction gate (RO-27)', () => {
     expect(reorder).not.toHaveBeenCalled();
   });
 
-  it('ends the selection but lets a drag run on through a switch to system audio', async () => {
-    await mount();
+  it('cancels a handle drag outside edit mode on a switch to system audio', async () => {
+    const list = await mount();
     const reorder = vi.fn();
     bus.on('playlist:reorder-track', reorder);
-    clickSelect(FILE_A);
-    const lifted = longPress(FILE_C, 132);
-    pointer(lifted, 'pointermove', 10);
+    const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+    pointer(handle, 'pointerdown', 20);
+    pointer(handle, 'pointermove', 80);
 
     setState('playback.mode', 'system-audio');
 
-    expect(selectionBarVisible()).toBe(false);
-    expect(liftedRow()).not.toBeNull();
-    // The drop itself commits nothing once the queue cannot be edited.
-    pointer(lifted, 'pointerup', 10);
+    expect(liftedRow()).toBeNull();
+    pointer(handle, 'pointerup', 80);
     expect(reorder).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(DROP_SETTLE_MS);
+    // System audio owns playback: the list renders without edit controls.
+    expect(renderedQueueIds()).toEqual([FILE_A, FILE_B, FILE_C]);
+    expect(list.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
   });
 
   // Owner decision O4 (2026-10-23): Delete tapped during a drop settle

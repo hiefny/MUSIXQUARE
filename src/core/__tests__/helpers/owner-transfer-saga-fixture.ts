@@ -559,20 +559,32 @@ export async function issueClaim(test: TransferFixture, targetAccountId = TARGET
   return decodeURIComponent(new URL(issued.transferUrl).hash.replace(/^#pro-transfer=/, ''));
 }
 
+export interface TransferRequestOptions {
+  accountId?: string;
+  requestId?: string;
+  /** The body's PIN; `null` sends the body without one. */
+  newPin?: string | null;
+  /** Send the App's opt-in headers, as every App since 8.8.0 does. */
+  entryPolicy?: boolean;
+  worker?: AppWorkerEntry;
+}
+
 /**
- * The claim's target account submits it through the App facade: by default
- * the target with the fixture's request id and new PIN, through the current
- * App Worker. A later transfer of the same room needs another PIN.
+ * The claim's target account submits it through the App facade and gets the
+ * raw response: by default the target with the fixture's request id and new
+ * PIN, through the current App Worker. A later transfer of the same room
+ * needs another PIN.
  */
-export async function requestTransfer(
+export async function postTransfer(
   test: TransferFixture,
   claimToken: string,
   {
     accountId = TARGET,
     requestId = REQUEST_ID,
     newPin = '24681357',
+    entryPolicy = false,
     worker = appWorker,
-  }: { accountId?: string; requestId?: string; newPin?: string; worker?: AppWorkerEntry } = {},
+  }: TransferRequestOptions = {},
 ) {
   const response = await worker.fetch(
     new Request(`https://musixquare.com/api/pro-room/v1/rooms/${ROOM_CODE}/owner-transfer`, {
@@ -582,12 +594,25 @@ export async function requestTransfer(
         'Content-Type': 'application/json',
         'cf-connecting-ip': '192.0.2.10',
         Cookie: `__Host-mxqr_account=${SESSION_TOKENS[accountId]}`,
+        ...(entryPolicy
+          ? { 'X-MXQR-Pro-Entry-Policy': 'optional-v1', 'X-MXQR-Pro-Playlist-Slots': 'v1' }
+          : {}),
       },
-      body: JSON.stringify({ claimToken, newPin, requestId }),
+      body: JSON.stringify({ claimToken, ...(newPin === null ? {} : { newPin }), requestId }),
     }),
     test.appEnv as never,
   );
   await test.settle();
+  return response;
+}
+
+/** `postTransfer`, reduced to the answer's status, error code and cookie names. */
+export async function requestTransfer(
+  test: TransferFixture,
+  claimToken: string,
+  options: TransferRequestOptions = {},
+) {
+  const response = await postTransfer(test, claimToken, options);
   const body = (await response.json()) as Record<string, unknown>;
   return {
     status: response.status,

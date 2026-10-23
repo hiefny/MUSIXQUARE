@@ -24,6 +24,8 @@ export default defineConfig({
       'src/core/__tests__/owner-transfer-saga-convergence-sqlite.test.ts',
       // An earlier App Worker build and the current one on one saga row (RO-09).
       'src/core/__tests__/owner-transfer-saga-mixed-version-sqlite.test.ts',
+      // The transfer link and the room entry password through the App facade.
+      'src/core/__tests__/owner-transfer-entry-password-sqlite.test.ts',
       'src/core/__tests__/pro-room-signaling-contract-workerd.test.ts',
       'src/pro-room/__tests__/pro-room-signaling-delivery.test.ts',
       'src/pro-room/__tests__/pro-room-duration-reads.test.ts',

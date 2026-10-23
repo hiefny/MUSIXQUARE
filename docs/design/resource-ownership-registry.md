@@ -1683,11 +1683,12 @@ entry needs the owner's acceptance and is not implied by this registry.
   wrong or stuck header text exists.
 - **Allowed requesters:** the files above, pinned per file by the resource-ownership guard (CHECK
   8). Anything that can overlap the foreground load shows its own named holder: PRO transfers
-  (`src/pro-room/runtime.ts`, `src/player/transport.ts`), the preload receive
-  (`src/storage/preload.ts`), remote uploads (`src/share/remote-share.ts`), the host-wait notice
-  (`src/ui/keep-open-notice.ts`, priority), YouTube info fetches (`src/youtube/player.ts`,
-  `src/youtube/standard-playlist.ts`), the route check (`src/player/playback.ts`) and the Standard
-  operator uplink (`src/ui/toast.ts`). A no-ID hide never removes a named holder.
+  (`src/pro-room/runtime.ts`, `src/player/transport.ts`), a background preload receive
+  (`src/storage/preload.ts`; the receive a PLAY waits for writes `_default`), remote uploads
+  (`src/share/remote-share.ts`), the host-wait notice (`src/ui/keep-open-notice.ts`, priority),
+  YouTube info fetches (`src/youtube/player.ts`, `src/youtube/standard-playlist.ts`), the route
+  check (`src/player/playback.ts`) and the Standard operator uplink (`src/ui/toast.ts`). A no-ID
+  hide never removes a named holder.
 - **Lifecycle operations:** show with text, update progress, hide.
 - **Deadline owner:** none; each load's own deadlines end it, and the reset only repaints.
 - **Timing-constant home:** `src/ui/toast.ts` (`loader-reset`, 400 ms).
@@ -1778,16 +1779,20 @@ and unrelated strings never count, and every baseline is an exact count or list 
    columns do not count; the match ignores case, and a literal holding the name's tail
    (`authority_fences`) outside a full name counts too.
 8. **Header loader default holder writers, per file** (RO-47): `showLoader()` and `updateLoader()`
-   calls in `src/` that pass no holder ID (or `undefined`) write the `_default` holder of
-   `src/ui/toast.ts`, which belongs to the foreground media load. Shows, hides and progress ticks
-   all count; calls with a named holder do not.
+   calls in `src/` whose holder ID is missing or can be undefined write the `_default` holder of
+   `src/ui/toast.ts`, which belongs to the foreground media load. An ID can be undefined when it is
+   `undefined` or `void`, a conditional or `??` / `||` with such a branch, or a name that one of its
+   declarations in the same file can leave undefined (an optional parameter, a `let` with no value,
+   or any of these as its value); names match across the file, not by scope. Shows, hides and
+   progress ticks all count; calls with a named holder do not.
 
 Not checked yet: callers of the other records' lifecycle operations (YouTube player commands,
 `claimPlaybackOwner`, `setSystemAudioReceiving`, `scheduleSessionReset`), receivers resolved by
 type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
-duplicated helper names, "mirrors" copy-marker comments, and registered timings retyped as
-literals in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`). Until
-then, review those by hand against each record.
+duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
+in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`), and header loader
+holder IDs read from a property, a call or another module (RO-47). Until then, review those by
+hand against each record.
 
 ## How to change this registry
 

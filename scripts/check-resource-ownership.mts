@@ -50,10 +50,11 @@
  *     name can be substituted into template-built SQL (`DELETE FROM
  *     ${table}`); reads (FROM or JOIN) and qualified columns do not count.
  *   CHECK 8 Header loader default holder (RO-47). showLoader() and
- *     updateLoader() calls without a holder ID write the `_default` holder
- *     of src/ui/toast.ts, which belongs to the foreground media load. They
- *     are counted per file in src/; a flow that can overlap that load uses
- *     a named holder instead.
+ *     updateLoader() calls whose holder ID can be undefined write the
+ *     `_default` holder of src/ui/toast.ts, which belongs to the foreground
+ *     media load. They are counted per file in src/, following an ID held in
+ *     a name through that name's declarations in the same file; a flow that
+ *     can overlap that load uses a named holder instead.
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -476,8 +477,9 @@ const AUTHORITY_FENCE_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // ── CHECK 8 baseline: header loader default holder (RO-47) ──────────────
 
 /**
- * RO-47: showLoader(show, text) and updateLoader(percent) calls with no
- * holder ID, exact per file in src/ (src/ui/toast.ts, the owner, excluded).
+ * RO-47: showLoader(show, text, id) and updateLoader(percent, id) calls whose
+ * holder ID is missing or can be undefined, exact per file in src/
+ * (src/ui/toast.ts, the owner, excluded).
  * Shows, hides and progress ticks all count: each one writes the holder the
  * current foreground media load owns.
  */
@@ -497,7 +499,12 @@ const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   ],
   [
     'src/storage/preload.ts',
-    { count: 2, reason: 'PLAY of a preloaded track that still needs its file (receive is named)' },
+    {
+      count: 4,
+      reason:
+        'PLAY of a preloaded track: the awaited receive (its ID is undefined when awaited) and ' +
+        'the request fallback; a background receive is named',
+    },
   ],
   ['src/storage/recovery.ts', { count: 2, reason: 'clears it when a recovery request ends' }],
   ['src/storage/storage.ts', { count: 2, reason: 'clears it when a stuck transfer resets' }],
@@ -1010,24 +1017,103 @@ const LOADER_ID_ARGUMENT = new Map([
   ['updateLoader', 1],
 ]);
 
-function isUndefinedArgument(expression: ts.Expression | undefined): boolean {
-  if (!expression) return true;
-  const value = unwrap(expression);
-  return (ts.isIdentifier(value) && value.text === 'undefined') || ts.isVoidExpression(value);
+/** A file's parameters and variables by name, for following a holder ID held in a name. */
+type NameDeclarations = ReadonlyMap<
+  string,
+  readonly (ts.ParameterDeclaration | ts.VariableDeclaration)[]
+>;
+
+function nameDeclarations(file: ts.SourceFile): NameDeclarations {
+  const declarations = new Map<string, (ts.ParameterDeclaration | ts.VariableDeclaration)[]>();
+  visit(file, (node) => {
+    if (!(ts.isParameter(node) || ts.isVariableDeclaration(node)) || !ts.isIdentifier(node.name)) {
+      return;
+    }
+    const list = declarations.get(node.name.text) ?? [];
+    list.push(node);
+    declarations.set(node.name.text, list);
+  });
+  return declarations;
 }
 
-/** RO-47: header loader calls without a holder ID, per src/ file. */
+function declarationMayBeUndefined(
+  declaration: ts.ParameterDeclaration | ts.VariableDeclaration,
+  declarations: NameDeclarations,
+  following: ReadonlySet<string>,
+): boolean {
+  if (declaration.initializer) {
+    return mayBeUndefinedId(declaration.initializer, declarations, following);
+  }
+  if (ts.isParameter(declaration)) {
+    const type = declaration.type;
+    return (
+      !!declaration.questionToken ||
+      (!!type &&
+        ts.isUnionTypeNode(type) &&
+        type.types.some((member) => member.kind === ts.SyntaxKind.UndefinedKeyword))
+    );
+  }
+  // A for-of or for-in variable takes each element; a `let` with no value
+  // starts undefined.
+  const statement = declaration.parent.parent;
+  return !ts.isForOfStatement(statement) && !ts.isForInStatement(statement);
+}
+
+/**
+ * RO-47: whether a holder-ID argument can be undefined and so write the
+ * `_default` holder: a missing argument, `undefined`, `void`, a conditional
+ * or `??` / `||` with such a branch, or a name that one of its declarations in
+ * the same file can leave undefined (an optional parameter, a `let` with no
+ * value, or any of these as its value). Names match across the whole file,
+ * not by scope, so a reused name counts when any of its declarations can be
+ * undefined. A name imported from another module is not followed.
+ */
+function mayBeUndefinedId(
+  expression: ts.Expression | undefined,
+  declarations: NameDeclarations,
+  following: ReadonlySet<string> = new Set(),
+): boolean {
+  if (!expression) return true;
+  const value = unwrap(expression);
+  if (ts.isVoidExpression(value)) return true;
+  if (ts.isConditionalExpression(value)) {
+    return (
+      mayBeUndefinedId(value.whenTrue, declarations, following) ||
+      mayBeUndefinedId(value.whenFalse, declarations, following)
+    );
+  }
+  if (
+    ts.isBinaryExpression(value) &&
+    (value.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken ||
+      value.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+  ) {
+    return mayBeUndefinedId(value.right, declarations, following);
+  }
+  if (!ts.isIdentifier(value)) return false;
+  if (value.text === 'undefined') return true;
+  if (following.has(value.text)) return false;
+  const next = new Set(following).add(value.text);
+  return (declarations.get(value.text) ?? []).some((declaration) =>
+    declarationMayBeUndefined(declaration, declarations, next),
+  );
+}
+
+/** RO-47: header loader calls whose holder ID can be undefined, per src/ file. */
 function collectDefaultLoaderWrites(sources: ReadonlyMap<string, string>): Map<string, number> {
   const measured = new Map<string, number>();
   for (const [relPath, text] of sources) {
     if (!relPath.startsWith('src/') || relPath === LOADER_OWNER_FILE) continue;
     if (!text.includes('showLoader') && !text.includes('updateLoader')) continue;
+    const file = parse(relPath, text);
+    const declarations = nameDeclarations(file);
     let count = 0;
-    visit(parse(relPath, text), (node) => {
+    visit(file, (node) => {
       if (!ts.isCallExpression(node)) return;
       const callee = calleeName(node);
       const idIndex = callee === null ? undefined : LOADER_ID_ARGUMENT.get(callee);
-      if (idIndex !== undefined && isUndefinedArgument(node.arguments[idIndex])) count += 1;
+      if (idIndex !== undefined && mayBeUndefinedId(node.arguments[idIndex], declarations)) {
+        count += 1;
+      }
     });
     if (count > 0) measured.set(relPath, count);
   }
@@ -1733,9 +1819,8 @@ function main(argv: readonly string[]): void {
       `${timingPairs.reportOnly.length} same-value pairs (report-only` +
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +
       `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.\n` +
-      `  Developer API authority fence writes: ${report.authorityFenceWrites}.
-` +
-      `  header loader default holder writes: ${report.defaultLoaderWrites}.`,
+      `  Developer API authority fence writes: ${report.authorityFenceWrites}.\n` +
+      `  Header loader default holder writes: ${report.defaultLoaderWrites}.`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);

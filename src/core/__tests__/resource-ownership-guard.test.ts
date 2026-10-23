@@ -701,7 +701,39 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(report.findings.join('\n')).toMatch(
         /UNSANCTIONED header loader default holder write \(RO-47\): src\/ui\/background-sync\.ts has 3/u,
       );
-      expect(report.defaultLoaderWrites).toBe(76 + 3);
+      expect(report.defaultLoaderWrites).toBe(78 + 3);
+    });
+
+    it('counts a holder ID that a branch or a name can leave undefined', () => {
+      const report = analyzeResourceOwnership(
+        withSources((sources) => {
+          sources.set(
+            'src/ui/background-sync.ts',
+            "import { updateLoader } from './toast.ts';\n" +
+              'export function syncInBackground(\n' +
+              '  id: string,\n' +
+              '  ids: readonly string[],\n' +
+              '  label?: string,\n' +
+              '  tag: string | undefined = undefined,\n' +
+              '): void {\n' +
+              "  const held = id === '' ? undefined : id;\n" +
+              '  const relayed = held;\n' +
+              '  updateLoader(10, relayed);\n' +
+              "  updateLoader(20, id === '' ? undefined : id);\n" +
+              '  updateLoader(30, label);\n' +
+              '  updateLoader(40, tag);\n' +
+              // Named on every path: not counted.
+              "  updateLoader(50, label ?? 'sync');\n" +
+              "  updateLoader(60, id === '' ? 'empty' : id);\n" +
+              '  for (const each of ids) updateLoader(70, each);\n' +
+              '}\n',
+          );
+        }),
+      );
+      expect(report.findings.join('\n')).toMatch(
+        /UNSANCTIONED header loader default holder write \(RO-47\): src\/ui\/background-sync\.ts has 4/u,
+      );
+      expect(report.defaultLoaderWrites).toBe(78 + 4);
     });
 
     it('fails a raised count in an allowlisted file and a writer that disappears', () => {

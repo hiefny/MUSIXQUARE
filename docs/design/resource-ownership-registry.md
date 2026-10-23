@@ -102,7 +102,7 @@ each record also states the step in words.
 | RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 0d, 4                        |
 | RO-07 | PRO signaling broadcast delivery                         | Workers        | duplicated         | 0d, 1                        |
 | RO-08 | PRO asset duration read                                  | Workers        | duplicated         | 0d, 1                        |
-| RO-09 | Owner-transfer saga row                                  | Workers        | duplicated         | 0d, 1                        |
+| RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                         |
 | RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | 4 (naming only)              |
 | RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)             |
 | RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                            |
@@ -165,7 +165,7 @@ RO-05 duplicated
 RO-06 duplicated
 RO-07 duplicated
 RO-08 duplicated
-RO-09 duplicated
+RO-09 owner-in-place
 RO-10 owner-in-place
 RO-11 accepted-exception
 RO-12 duplicated
@@ -581,34 +581,49 @@ RO-46 accepted-exception
 
 - **Resource:** one `mxqr_pro_room_owner_transfer_sagas` row and the effects it drives (Durable
   Object commit, registry, old-owner edge, entitlement, fence clear, audit).
-- **Current owners/flows:** the request executor `handleProRoomOwnershipTransferSaga` and the cron
-  executor `reconcileOneOwnerTransferSaga` with `commitAdoptedOwnerTransferSaga` (minute cron;
-  `listIncompleteOwnerTransferSagas` has no age or lease filter), all in `cloudflare/app-worker.ts`.
-  They coordinate through the ranked D1 compare-and-swap (`OWNER_TRANSFER_SAGA_STATE_RANK`) and a
-  rotation compare-and-swap. The post-commit chain is written twice and has drifted: the request
-  path finalizes the entitlement before `verified`, the cron path after it. Both write the success
-  audit (`auditSystemOwnerTransfer`) without deduplication, so a cron that finishes a transfer the
-  request already audited writes a second success row (reproduced in
-  `owner-transfer-saga-convergence-sqlite.test.ts`). Two parts are named once (Phase 1, C7-8):
-  `ownerTransferEntitlementInput` builds the entitlement identity every App Worker reserve, finalize
-  and abort passes (the cron adds its sweep time, the request none; the PRO room's PREPARE builds
-  its own reservation), and
-  `terminateOwnerTransferForDeletedTarget` ends a committed transfer whose target account is being
-  deleted (purge or not, finalize, `target_deleted`) for all four sites, each passing its own audit
-  placement: the cron audits before the finalize (or not at all at its final recheck), the request
-  after the terminal advance.
-- **Target single owner:** one post-commit executor with the request and the cron as entry
-  adapters. Owner decision (2026-10-23, D3): both entries use that executor's single order. The
-  entitlement is finalized before `verified`, so `verified` means the room is active and the
-  entitlement has moved; the cron's current verified-then-finalize order is retired. The audit row is
-  written before any terminal advance (`complete` or `target_deleted`), at least once, with a
-  transfer-scoped deduplication instead of today's possible loss after a terminal advance.
+- **Current owners/flows:** one post-commit executor, `finishCommittedOwnerTransfer` in
+  `cloudflare/app-worker.ts` (Phase 1, C7-9), with two entry adapters that each bring the row to
+  `committed` and then call it. The transfer request `handleProRoomOwnershipTransferSaga` commits
+  through the Durable Object's `/commit` with the claim's proof and maps the executor's outcome
+  (`OwnerTransferTailOutcome`, a step and how it stopped: `threw`, `refused` or `not_found`)
+  through one table, `OWNER_TRANSFER_REQUEST_TAIL_ANSWERS`, to the audit row and HTTP answer it
+  gave before C7-9, then attaches the committed Set-Cookie. The minute cron
+  `reconcileOneOwnerTransferSaga` adopts, expires or supersedes the row, commits an adopted
+  transfer through `commitAdoptedOwnerTransferSaga` (the Durable Object's `/reconcile`), and
+  returns the executor's `ok`; `listIncompleteOwnerTransferSagas` has no age or lease filter and the
+  rotation compare-and-swap is unchanged. The entries coordinate through the ranked D1
+  compare-and-swap (`OWNER_TRANSFER_SAGA_STATE_RANK`); every executor step is idempotent, so the
+  request, the cron and an executor of an older Worker version can overlap on one row and
+  converge. The executor's one order (owner decision D3, below): target recheck, registry
+  projection and `registry_active`, old-owner edge and `old_owner_edge_retired`, final target
+  recheck, canonical room check, entitlement finalize, `verified`, Developer API fence clear,
+  success audit, `complete`. A target deleted at either recheck, or a room the account-deletion
+  job already suspended (the cron, without a second purge), ends in
+  `terminateOwnerTransferForDeletedTarget`: purge (or not), finalize, audit, `target_deleted`.
+  `auditOwnerTransferCommitOnce` writes that closing row (`success` or the deleted-target result)
+  before the terminal advance and at most once per result for the transfer: one
+  `INSERT ... SELECT ... WHERE NOT EXISTS` bounded by the saga's intent time, through
+  `appendSystemAdminProRoomAudit`'s `onceSinceMs` (no schema change). Rows that record a stop
+  (`reconcile_required`, `entitlement_reconcile_required`) stay one per stop.
+  `ownerTransferEntitlementInput` builds the entitlement identity every App Worker reserve,
+  finalize and abort passes (the cron adds its sweep time, the request none; the PRO room's
+  PREPARE builds its own reservation).
+- **Target single owner:** reached in Phase 1 C7-9: one post-commit executor with the request
+  and the cron as entry adapters. Owner decision (2026-10-23, D3): both entries use that
+  executor's single order. The entitlement is finalized before `verified`, so `verified` means
+  the room is active and the entitlement has moved; the cron's earlier verified-then-finalize
+  order is retired. The audit row is written before any terminal advance (`complete` or
+  `target_deleted`), at least once, with a transfer-scoped deduplication instead of the earlier
+  possible loss after a terminal advance. Before `committed` each entry keeps its own route to the
+  Durable Object commit, as the target design sets: only the request holds the commit proof, and
+  the cron finishes a transfer whose request stopped.
 - **Allowed requesters:** the transfer request and the minute cron, as entry adapters.
-- **Lifecycle operations:** link, fence, Durable Object commit or reconcile, committed, registry,
-  old-owner edge, fence clear, complete; terminate for a deleted target
-  (`terminateOwnerTransferForDeletedTarget`).
-- **Deadline owner:** none per attempt; the cron adopts any incomplete saga every minute. An
-  adoption lease is optional (a transfer-scoped audit deduplication is preferred).
+- **Lifecycle operations:** link, fence, Durable Object commit or reconcile, committed, then the
+  executor (registry, old-owner edge, finalize, verified, fence clear, audit, complete);
+  terminate for a deleted target (`terminateOwnerTransferForDeletedTarget`).
+- **Deadline owner:** none per attempt; the cron adopts any incomplete saga every minute. No
+  adoption lease: owner decision D4 (C7-10) was not approved, and the transfer-scoped audit
+  deduplication removed the duplicate success rows a lease was meant to stop.
 - **Timing-constant home:** n/a (no timing). Phase union: `cloudflare/app-worker.ts` names the
   states once, `OWNER_TRANSFER_SAGA_STATES` with `OWNER_TRANSFER_SAGA_NONTERMINAL_STATES` (the
   states the cron adopts), the derived terminal list, the derived
@@ -625,19 +640,32 @@ RO-46 accepted-exception
   `normalizeOwnerTransferSagaRow`, as in the table's row CHECK they mirror.
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/app-worker-cors.test.ts` "adopts a prepared DO transfer after
-    the D1 saga fill fails and reconciles without persisting secrets".
+    the D1 saga fill fails and reconciles without persisting secrets";
+    `owner-transfer-saga-convergence-sqlite.test.ts` "request outcome table" (a row another
+    executor ended answers 503 without an audit).
   - User pause/stop: n/a.
   - Teardown: `app-worker-cors.test.ts` "naturally expires unopened claims and pending sagas
     exactly once during cron reconciliation".
   - Visibility: n/a.
   - Deleted target: `owner-transfer-saga-convergence-sqlite.test.ts` "owner-transfer saga: target
-    deleted mid-transfer" and "deleted-target exits" (each site's order, failure exits and audit
-    placement); "entitlement identity" (the bound values of finalize and abort).
-  - Missing: the old request executor and the cron interleaved on one row.
-- **Status:** `duplicated`. Phase 0d named the state lists once (C7-2). Phase 1 C7-8 named the
-  entitlement identity and the deleted-target terminator once, with no behaviour change
-  ([report](app-worker-saga-fence-2026-10-23.md)). The single post-commit executor (C7-9, with the
-  D3 order above) remains.
+    deleted mid-transfer" and "deleted-target exits" (each site's order, failure exits and the
+    one audit row); "entitlement identity" (the bound values of finalize and abort).
+  - One executor: the same file's "request outcome table" (every request stop as its audit row,
+    HTTP answer and saga state), "cron tail crash matrix" (each step failing, then convergence)
+    and "request and cron on one row" (one success row for an overlap, a replayed request and a
+    cron retry; two transfers of one incarnation keep one row each).
+  - Mixed versions: `owner-transfer-saga-mixed-version-sqlite.test.ts` (an App Worker built from
+    an earlier commit and the current one on one row, request against cron in both directions).
+- **Status:** `owner-in-place`. Phase 0d named the state lists once (C7-2). Phase 1 C7-8 named the
+  entitlement identity and the deleted-target terminator once with no behaviour change
+  ([report](app-worker-saga-fence-2026-10-23.md)), and C7-9 replaced the request's and the
+  cron's post-commit tails with the one executor in the D3 order
+  ([report](app-worker-saga-executor-2026-10-23.md)). Two limits stay: while an App Worker older
+  than C7-9 still runs, its plain inserts can add a second row; and the deduplication is bounded
+  by time because the audit table has no transfer column, so a tail of an earlier transfer stuck
+  past the Durable Object's 10-minute completed-transfer replay window and resuming in the
+  milliseconds between a new transfer's intent and its PREPARE could suppress the new transfer's
+  row of the same result.
 
 ### RO-10 Local-file source node restart
 

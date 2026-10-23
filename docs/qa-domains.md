@@ -1026,7 +1026,7 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **대표 구현:** [cloudflare/app-worker.ts](../cloudflare/app-worker.ts), [cloudflare/admin-metrics.owner-transfer-saga.migration.sql](../cloudflare/admin-metrics.owner-transfer-saga.migration.sql)
 
-**기존 검사 진입점:** [src/pro-room/__tests__/pro-room-grants.test.ts](../src/pro-room/__tests__/pro-room-grants.test.ts), [src/core/__tests__/pro-room-generation-registry-sqlite.test.ts](../src/core/__tests__/pro-room-generation-registry-sqlite.test.ts)
+**기존 검사 진입점:** [src/pro-room/__tests__/pro-room-grants.test.ts](../src/pro-room/__tests__/pro-room-grants.test.ts), [src/core/__tests__/pro-room-generation-registry-sqlite.test.ts](../src/core/__tests__/pro-room-generation-registry-sqlite.test.ts), [src/core/__tests__/owner-transfer-saga-convergence-sqlite.test.ts](../src/core/__tests__/owner-transfer-saga-convergence-sqlite.test.ts)(사후 실행기 하나의 단계별 실패·수렴, 요청 응답표), [src/core/__tests__/owner-transfer-saga-mixed-version-sqlite.test.ts](../src/core/__tests__/owner-transfer-saga-mixed-version-sqlite.test.ts)(배포 중 이전 App Worker와 섞인 실행). 사가 단계를 더하면 이 두 파일의 표에 행을 더한다.
 
 ## 20. DB·마이그레이션·운영 집계
 

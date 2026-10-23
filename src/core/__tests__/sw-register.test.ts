@@ -3,8 +3,10 @@
  *
  * The update machine in src/sw-register.ts (registry RO-22) against the real
  * page navigation owner, src/core/session-reset.ts (RO-23), with navigation.ts
- * and the PRO claim fence it reloads through. Replaced: the service-worker
- * container (SKIP_WAITING is the recorded postMessage of each fake worker),
+ * and the PRO claim fence it reloads through (navigation.ts's returnToRoomStart
+ * is wrapped to record each request, then runs as written). Replaced: the
+ * service-worker container (SKIP_WAITING is the recorded postMessage of each
+ * fake worker),
  * the location sinks (recorded no-op navigations, __helpers__/navigation-sinks.ts),
  * the update dialog, app state, room authority and i18n (keys). A navigation
  * the machine asks for shows as the owner holding the page
@@ -21,8 +23,10 @@ const moduleMocks = vi.hoisted(() => ({
   getState: vi.fn((_key?: string): unknown => undefined),
   roomLifecycleListeners: new Set<() => void>(),
   showDialog: vi.fn(),
+  // The options of each update reload the machine asked returnToRoomStart for.
+  roomStartReturns: [] as Array<{ onRecovered?: () => void }>,
   // Where update news could leak besides the dialog: a toast, a chat notice
-  // or a message to peers.
+  // or a message to peers. afterEach checks every case left them unused.
   notices: {
     showToast: vi.fn(),
     broadcastSystemMessage: vi.fn(),
@@ -322,6 +326,19 @@ const loadedOwners: NavigationOwner[] = [];
 let owner: NavigationOwner;
 
 async function registerWithHarness(harness: SwHarness): Promise<void> {
+  // returnToRoomStart runs as written, on this document's own navigation
+  // owner, and records each request. (A vi.mock factory's module would outlive
+  // vi.resetModules and keep the first document's owner.)
+  vi.doMock('../navigation.ts', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('../navigation.ts')>();
+    return {
+      ...actual,
+      returnToRoomStart: (...args: Parameters<typeof actual.returnToRoomStart>) => {
+        moduleMocks.roomStartReturns.push(args[1]);
+        return actual.returnToRoomStart(...args);
+      },
+    };
+  });
   const { registerServiceWorker } = await import('../../sw-register.ts');
   // The same module graph as sw-register's, so the same owner instance.
   owner = await import('../session-reset.ts');
@@ -389,11 +406,17 @@ describe('service-worker cache-retirement client handshake', () => {
     delete document.documentElement.dataset.mxqrNavigationSource;
     document.body.classList.remove('mode-demo');
     moduleMocks.roomLifecycleListeners.clear();
+    moduleMocks.roomStartReturns.length = 0;
     setAppState({});
     moduleMocks.showDialog.mockResolvedValue({ action: 'secondary' });
   });
 
   afterEach(() => {
+    // Owner decision 2026-10-17: update news stays in the update dialog (no
+    // "refresh to apply" notice), in every case of this file.
+    for (const [name, notice] of Object.entries(moduleMocks.notices)) {
+      expect(notice, name).not.toHaveBeenCalled();
+    }
     // Release every navigation the page still holds. A recovery can start the
     // machine's next reload, which the next pass releases in turn.
     for (const loaded of loadedOwners.splice(0)) {
@@ -1098,6 +1121,36 @@ describe('service-worker cache-retirement client handshake', () => {
   });
 
   it('does not let a stale recovery release a successor reload attempt', async () => {
+    // The owner settles each attempt once (the next case), so today no stale
+    // recovery reaches the machine through it. This hands the machine one
+    // directly, to pin its own check that only the scheduled reload's
+    // recovery releases it.
+    const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+    await registerWithHarness(harness);
+
+    harness.setController({ postMessage: vi.fn() });
+    harness.emit('controllerchange');
+    await recoverNavigation(harness, 1);
+    harness.setController({ postMessage: vi.fn() });
+    harness.emit('controllerchange');
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload', 'reload']));
+    expect(moduleMocks.roomStartReturns).toHaveLength(2);
+
+    // The first reload's recovery runs again while the successor is pending.
+    moduleMocks.roomStartReturns[0]?.onRecovered?.();
+    harness.setController({ postMessage: vi.fn() });
+    harness.emit('controllerchange');
+    await flushAsyncControllerChange();
+    // The successor still holds the machine: the newer controller waits for
+    // the successor's own recovery instead of asking for a third reload now.
+    expect(moduleMocks.roomStartReturns).toHaveLength(2);
+
+    await recoverNavigation(harness, 2);
+    await vi.waitFor(() => expect(navigations(harness)).toEqual(['reload', 'reload', 'reload']));
+    expect(moduleMocks.roomStartReturns).toHaveLength(3);
+  });
+
+  it('settles a reload attempt once: a document return while the successor navigates releases nothing', async () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const firstController: FakeWorker = { postMessage: vi.fn() };
     const secondController: FakeWorker = { postMessage: vi.fn() };

@@ -20,23 +20,30 @@
  *
  * The logo request below is a copy of the one in src/ui/player-controls.ts
  * (handleLogoReturnToMain), as in __helpers__/page-navigation-harness.ts;
- * page-navigation-harness-parity.test.ts pins that source, so a change there
- * updates both copies.
+ * page-navigation-harness-parity.test.ts pins that source and both copies, so
+ * a change there updates both copies.
  *
  * How to read a row: `from` is the machine state before the event, `then` the
- * state the event leaves (the row's later steps show it), and `effects`
- * everything the row observed, from the first step to the last: every
- * SKIP_WAITING with the document that sent it and its worker, every navigation
- * the page asked for (sink calls; "reload (threw)" is a reload sink that
- * threw), every update dialog, and the next-document markers (timestamps as
- * milliseconds after the row started, t+0). The states are those of
- * `activationState` in sw-register.ts. "latched" means the update reload is
- * still scheduled while the prompt has left the named phase: on main 08003954
- * the module reload latch (_swReloading) under that state, since C6-9 the
- * `prompt` of the one 'reload-scheduled' state. Rows labelled "[keeps: C6-9]"
- * kept their effects when C6-9 replaced that latch with the typed state.
+ * state the event leaves, and `effects` everything the row observed, from the
+ * first step to the last: every SKIP_WAITING with the document that sent it
+ * and its worker, every navigation the page asked for (sink calls; "reload
+ * (threw)" is a reload sink that threw), every update dialog, and the
+ * next-document markers (timestamps as milliseconds after the row started,
+ * t+0). The states are those of `activationState` in sw-register.ts. "latched"
+ * means the update reload is still scheduled while the prompt has left the
+ * named phase: on main 08003954 the module reload latch (_swReloading) under
+ * that state, since C6-9 the `prompt` of the one 'reload-scheduled' state.
+ *
+ * The machine's state is private to sw-register.ts, so `then` is not read: a
+ * row checks it only through a later step that behaves differently in that
+ * state, such as the probe steps of S1b and S2b, and rows X12b to X19, which
+ * send the next event while the reload is still latched. Where a row has no
+ * such step, its `then` is the reading of the code, not a checked outcome.
+ * Rows labelled "[keeps: C6-9]" have the same effects on main 08003954 and
+ * after C6-9 replaced the latch with the typed state.
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { NAVIGATION_COMMIT_TIMEOUT_MS } from '../navigation-contract.ts';
 import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 // ─── App state, dialogs and module mocks ─────────────────────────────
@@ -142,7 +149,8 @@ const T0 = Date.parse('2026-10-24T00:00:00.000Z');
 const PAINT_MS = 100;
 /** The prompt election without Web Locks settles for 50 ms. */
 const PROMPT_MS = 100;
-const COMMIT_DEADLINE_MS = 2_000;
+/** The navigation owner recovers a navigation that has not committed by then. */
+const COMMIT_DEADLINE_MS = NAVIGATION_COMMIT_TIMEOUT_MS;
 
 const actualWindow = globalThis.window;
 
@@ -339,7 +347,7 @@ function createTab(activeVersion: string): Tab {
 
       const owner = await import('../session-reset.ts');
       const navigationIntents = await import('../navigation.ts');
-      const hardReset = await import('../sw-hard-reset.ts');
+      const hardResetModule = await import('../sw-hard-reset.ts');
       const { registerServiceWorker } = await import('../../sw-register.ts');
       // app.ts:1301-1324: the navigation owner's back-forward cache recovery.
       owner.initPageNavigation({
@@ -375,11 +383,13 @@ function createTab(activeVersion: string): Tab {
         },
         logoReset() {
           // src/ui/player-controls.ts handleLogoReturnToMain, after its
-          // "return home?" question. The chunk is preloaded for this document.
+          // "return home?" question; page-navigation-harness-parity.test.ts
+          // pins this copy. The chunk is preloaded for this document.
+          const loadHardReset = () => Promise.resolve(hardResetModule);
           owner.scheduleSessionReset(MSG_LEAVING, {
             async prepare(signal) {
-              const loaded = await Promise.resolve(hardReset);
-              if (!signal.aborted) await loaded.default();
+              const hardReset = await loadHardReset();
+              if (!signal.aborted) await hardReset.default();
             },
             navigate: () => navigationIntents.navigateToAppHome(),
           });
@@ -561,6 +571,25 @@ function dialog(index: number): OpenDialog {
   return found as OpenDialog;
 }
 
+/**
+ * sessionStorage denied, as in some private or embedded contexts: every read
+ * and write throws. Returns the undo.
+ */
+function denySessionStorage(): () => void {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+  const denied = (): never => {
+    throw new DOMException('denied', 'SecurityError');
+  };
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    value: { getItem: denied, setItem: denied, removeItem: denied },
+  });
+  return () => {
+    if (original) Object.defineProperty(globalThis, 'sessionStorage', original);
+    else Reflect.deleteProperty(globalThis, 'sessionStorage');
+  };
+}
+
 /** Another tab now owns the update prompt for `version`. */
 function foreignPromptLease(version: string): void {
   const key = 'mxqr-sw-update-prompt-lease-v1';
@@ -602,6 +631,23 @@ async function scheduleOutsideReload(tab: Tab): Promise<PageDocument> {
   return page;
 }
 
+/**
+ * A hosted room answers Apply on another tab's update while its own prompt
+ * for a newer worker is open (X12 up to its Apply); the reload then recovers
+ * at its commit deadline with that prompt still open.
+ */
+async function recoverWithPromptOpen(tab: Tab): Promise<void> {
+  await tab.open({ app: ROOM_HOST });
+  tab.replaceController('v494');
+  await at(PROMPT_MS);
+  tab.install('v495');
+  await at(2 * PROMPT_MS);
+  expect(mocks.dialogs).toHaveLength(2);
+  dialog(0).answer('ok');
+  await at(3_000);
+  expect(tab.navigations()).toEqual(['doc1 reload']);
+}
+
 const ROWS: readonly Row[] = [
   // ── SKIP_WAITING sends ──────────────────────────────────────────────
   {
@@ -641,12 +687,19 @@ const ROWS: readonly Row[] = [
       await at(500);
       tab.activate();
       await at(500 + PAINT_MS);
+      // Probe: passive, so another tab's update is offered too.
+      tab.replaceController('v495');
+      await at(1_000);
     },
     effects: {
       skipWaiting: ['doc1 → v494'],
       navigations: [],
-      dialogs: [`doc1 ${MSG_HOST}`],
-      markers: { ...NO_MARKERS, 'sw-updated-at': 't-1000', 'sw-controller-confirmed-at': 't-1000' },
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't-1000',
+        'sw-controller-confirmed-at': 't-1000',
+      },
     },
   },
   {
@@ -682,11 +735,14 @@ const ROWS: readonly Row[] = [
       await at(500);
       tab.activate();
       await at(500 + PAINT_MS);
+      // Probe: passive, so another tab's update is offered.
+      tab.replaceController('v495');
+      await at(1_000);
     },
     effects: {
       skipWaiting: ['doc1 → v493'],
       navigations: [],
-      dialogs: [],
+      dialogs: [`doc1 ${MSG_HOST}`],
       markers: NO_MARKERS,
     },
   },
@@ -1392,6 +1448,382 @@ const ROWS: readonly Row[] = [
       navigations: ['doc1 reload'],
       dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
       markers: { ...NO_MARKERS, 'sw-updated-at': 't+200', 'sw-controller-confirmed-at': 't+200' },
+    },
+  },
+  // ── Events while the update reload is still latched ─────────────────
+  // X12 to X14 leave a latched state but end before anything that behaves
+  // differently with or without the latch. These rows send the next event
+  // before the reload's commit-deadline recovery (t+2224): a newer controller
+  // waits for that recovery, which then reloads for it without asking (X12b,
+  // X12c, X13b, X14b, X18, X19); a second approved reload is refused (X16); a
+  // prompt that lets go while the reload is pending still takes up a newer
+  // waiting worker (X12d) but does not ask about a controller change again
+  // (X17).
+  {
+    id: 'X12b',
+    from: 'passive, latched',
+    event:
+      'X12, then the quietly promoted worker activates before the reload recovers (activation within milliseconds of SKIP_WAITING)',
+    then: 'reload-scheduled',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await tab.open({ app: ROOM_HOST });
+      tab.replaceController('v494');
+      await at(PROMPT_MS);
+      tab.install('v495');
+      await at(2 * PROMPT_MS);
+      dialog(0).answer('ok');
+      await at(2 * PROMPT_MS + 50);
+      foreignPromptLease('v495');
+      await at(2 * PROMPT_MS + 100);
+      tab.install('v496');
+      await at(400);
+      tab.activate();
+      await at(5_000);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v496'],
+      navigations: ['doc1 reload', 'doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+2224',
+        'sw-controller-confirmed-at': 't+2224',
+      },
+    },
+  },
+  {
+    id: 'X12c',
+    from: 'passive, latched',
+    event:
+      'X12 where sessionStorage is denied: with no cooldown the newer worker is offered while the reload is latched; its Apply is dropped (as X15), and another tab applies it before the reload recovers',
+    then: 'reload-scheduled',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      const restoreSessionStorage = denySessionStorage();
+      try {
+        await tab.open({ app: ROOM_HOST });
+        tab.replaceController('v494');
+        await at(PROMPT_MS);
+        tab.install('v495');
+        await at(2 * PROMPT_MS);
+        dialog(0).answer('ok');
+        await at(2 * PROMPT_MS + 50);
+        foreignPromptLease('v495');
+        await at(2 * PROMPT_MS + 100);
+        tab.install('v496');
+        await at(2 * PROMPT_MS + 300);
+        expect(mocks.dialogs).toHaveLength(3);
+        dialog(2).answer('ok');
+        await at(600);
+        tab.activate();
+        await at(5_000);
+      } finally {
+        restoreSessionStorage();
+      }
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 reload', 'doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: NO_MARKERS,
+    },
+  },
+  {
+    id: 'X12d',
+    from: 'reload-scheduled',
+    event:
+      'as X12, but the newer worker installs before the prompt loses its lease: the prompt lets go and takes up the newer worker with a quiet SKIP_WAITING',
+    then: 'passive, latched',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await tab.open({ app: ROOM_HOST });
+      tab.replaceController('v494');
+      await at(PROMPT_MS);
+      tab.install('v495');
+      await at(2 * PROMPT_MS);
+      dialog(0).answer('ok');
+      await at(2 * PROMPT_MS + 50);
+      tab.install('v496');
+      await at(2 * PROMPT_MS + 100);
+      foreignPromptLease('v495');
+      await at(1_000);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v496'],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+200',
+        'sw-controller-confirmed-at': 't+200',
+      },
+    },
+  },
+  {
+    id: 'X13b',
+    from: 'passive, latched',
+    event: 'X13, then the quietly promoted worker activates before the reload recovers',
+    then: 'reload-scheduled',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await tab.open({ app: ROOM_HOST });
+      tab.replaceController('v494');
+      await at(PROMPT_MS);
+      tab.install('v495');
+      await at(2 * PROMPT_MS);
+      dialog(0).answer('ok');
+      await at(2 * PROMPT_MS + 50);
+      dialog(1).answer('secondary');
+      await at(2 * PROMPT_MS + 100);
+      tab.install('v496');
+      await at(400);
+      tab.activate();
+      await at(5_000);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v496'],
+      navigations: ['doc1 reload', 'doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+2224',
+        'sw-controller-confirmed-at': 't+2224',
+      },
+    },
+  },
+  {
+    id: 'X14b',
+    from: 'awaiting-local-controller, latched',
+    event: 'X14, but the newer worker activates before the reload recovers',
+    then: 'reload-scheduled',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await tab.open({ app: ROOM_HOST });
+      tab.replaceController('v494');
+      await at(PROMPT_MS);
+      tab.install('v495');
+      await at(2 * PROMPT_MS);
+      dialog(0).answer('ok');
+      await at(2 * PROMPT_MS + 50);
+      tab.install('v496');
+      dialog(1).answer('ok');
+      await at(2 * PROMPT_MS + 100);
+      tab.activate();
+      await at(5_000);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v496'],
+      navigations: ['doc1 reload', 'doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+2224',
+        'sw-controller-confirmed-at': 't+2224',
+      },
+    },
+  },
+  {
+    id: 'X16',
+    from: 'reload-scheduled',
+    event:
+      "a hosted room asks about two updates other tabs applied; both offers are answered Apply, the second while the first Apply's reload is pending",
+    then: 'reload-scheduled',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await tab.open({ app: ROOM_HOST });
+      tab.replaceController('v494');
+      await at(PROMPT_MS);
+      tab.replaceController('v495');
+      await at(2 * PROMPT_MS);
+      expect(mocks.dialogs).toHaveLength(2);
+      dialog(0).answer('ok');
+      await at(2 * PROMPT_MS + 20);
+      dialog(1).answer('ok');
+      await at(5_000);
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+200',
+        'sw-controller-confirmed-at': 't+200',
+      },
+    },
+  },
+  {
+    id: 'X17',
+    from: 'reload-scheduled',
+    event:
+      "a hosted room: another tab applies an update while this tab's own prompt is open; the earlier offer is answered Apply; the prompt then loses its lease while the reload is pending",
+    then: 'passive, latched',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await tab.open({ app: ROOM_HOST });
+      tab.replaceController('v494');
+      await at(PROMPT_MS);
+      tab.install('v495');
+      await at(2 * PROMPT_MS);
+      expect(mocks.dialogs).toHaveLength(2);
+      tab.replaceController('v496');
+      await at(2 * PROMPT_MS + 50);
+      dialog(0).answer('ok');
+      await at(2 * PROMPT_MS + 100);
+      foreignPromptLease('v495');
+      await at(5_000);
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+250',
+        'sw-controller-confirmed-at': 't+250',
+      },
+    },
+  },
+  {
+    id: 'X18',
+    from: 'reload-scheduled',
+    event:
+      'as X12, but another tab activates the prompted worker while the reload is pending, and the prompt is then answered Later (not reachable by a user)',
+    then: 'passive, latched',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await tab.open({ app: ROOM_HOST });
+      tab.replaceController('v494');
+      await at(PROMPT_MS);
+      tab.install('v495');
+      await at(2 * PROMPT_MS);
+      dialog(0).answer('ok');
+      await at(2 * PROMPT_MS + 50);
+      tab.replaceController('v495');
+      await at(2 * PROMPT_MS + 100);
+      dialog(1).answer('secondary');
+      await at(5_000);
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 reload', 'doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+2224',
+        'sw-controller-confirmed-at': 't+2224',
+      },
+    },
+  },
+
+  {
+    id: 'X19',
+    from: 'reload-scheduled',
+    event:
+      "a hosted room: while another tab's update is offered, a pre-protocol worker (it never answers the generation request) takes over; the offer is answered Apply before that worker's generation request times out",
+    then: 'reload-scheduled',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await tab.open({ app: ROOM_HOST });
+      tab.replaceController('v494');
+      await at(PROMPT_MS);
+      tab.replaceController('v495', { silent: true });
+      await at(2 * PROMPT_MS);
+      dialog(0).answer('ok');
+      await at(5_000);
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 reload', 'doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+2224',
+        'sw-controller-confirmed-at': 't+2224',
+      },
+    },
+  },
+
+  // ── The reload recovers while the prompt is still open ──────────────
+  // Scheduling the reload set aside the open prompt's phase, so the recovery
+  // returns the page to passive with that prompt still open (the design's
+  // overwrite path). The prompt is answered only after the recovery.
+  {
+    id: 'X20',
+    from: 'passive',
+    event:
+      'X12 up to its Apply; the reload recovers with the prompt open; the prompt is answered Later; another tab then applies a newer update',
+    then: 'passive',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await recoverWithPromptOpen(tab);
+      dialog(1).answer('secondary');
+      await at(3_500);
+      tab.replaceController('v496');
+      await at(4_000);
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+200',
+        'sw-controller-confirmed-at': 't+200',
+      },
+    },
+  },
+  {
+    id: 'X21',
+    from: 'passive',
+    event:
+      "as X20, but the prompt is answered Apply: another tab's update already took over, so the page reloads for it without SKIP_WAITING; the prompted worker activates while that reload is pending",
+    then: 'reload-scheduled',
+    label: '[keeps: C6-9]',
+    async run(tab) {
+      await recoverWithPromptOpen(tab);
+      dialog(1).answer('ok');
+      await at(3_500);
+      tab.activate();
+      await at(4_000);
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 reload', 'doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+3000',
+        'sw-controller-confirmed-at': 't+3000',
+      },
+    },
+  },
+  {
+    id: 'X22',
+    from: 'passive',
+    event:
+      'as X20, but a newer worker installs before the prompt is answered Apply: two SKIP_WAITING sends to it (the cooldown promotion, then the Apply to the replacement)',
+    then: 'reload-scheduled',
+    label: '[keeps: C6-9] [C6-10 input]',
+    async run(tab) {
+      await recoverWithPromptOpen(tab);
+      tab.install('v496');
+      await at(3_200);
+      dialog(1).answer('ok');
+      await at(3_500);
+      tab.activate();
+      await at(4_000);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v496', 'doc1 → v496'],
+      navigations: ['doc1 reload', 'doc1 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+3500',
+        'sw-controller-confirmed-at': 't+3500',
+      },
     },
   },
   {

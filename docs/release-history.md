@@ -148,6 +148,7 @@
 - 8.11.25 행의 Exact-main CI 39306522982는 12 jobs가 아니라 11 jobs다(실행 기록 기준).
 - 2026-09-27~2026-10-10의 QA·준비 과정은
   [베타 배포 준비 기록 보관본](beta-release-readiness-archive-2026-10-10.md)에 있다.
+| 2026-10-24 04:46 | 9.0.4 / v772 | all | `717d32d4` | [#472](https://github.com/hiefny/MUSIXQUARE/pull/472) | [40013297969](https://github.com/hiefny/MUSIXQUARE/actions/runs/40013297969) | 성공 (attempt 1) | 접은 토스 인앱 출처 두 개의 신뢰를 App·signaling·remote-share Worker와 remote-share R2 CORS에서 제거(오너가 토스 인앱을 접음, Worker 전용이라 확인 없이 배포, 앱·SW·번들 그대로). 세 Worker가 함께 바뀌어 부분 릴리스 게이트상 target `all`. Exact-main CI 40012251278 11 jobs. 로컬 unit 14,666·Worker 2,867 pass. 6 Worker 소유권 04:45:57 verified, PRO readiness 복원, smoke 전부 success(옛 두 출처·무관한 토스 출처 거부: App 공개 경계·signaling·remote-share 2회·R2 preflight, `bridgeOpenMs` 방장 892ms·게스트 459ms), 공개 GET 200·SW v772·App 번들 `main-CiWZ0MKN.js` 그대로, Drift 40014180851 automated-checks-passed: 31 pass / 0 fail / 5 manual-only(remote-share R2 CORS 일치). App `57651a9f` |
 
 ## 정정
 

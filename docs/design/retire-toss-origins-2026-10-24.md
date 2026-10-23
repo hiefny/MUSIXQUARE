@@ -1,12 +1,12 @@
 # 접은 토스 인앱 출처의 신뢰 제거 (Worker 전용, 2026-10-24)
 
-| 항목     | 범위                                                                                                                                                      |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 기준 SHA | `08003954` (main, 9.0.4 배포·실기 QA 기록본)                                                                                                              |
-| 코드 SHA | `3e058623` (Worker·설정·테스트·smoke. 뒤 커밋은 문서만)                                                                                                   |
-| 후보     | App·signaling·remote-share Worker와 remote-share R2 CORS. target `all`(아래 배포 범위). App 버전·SW 캐시(9.0.4 / v772)와 브라우저 런타임은 그대로. 미배포 |
-| 열차     | 토스 출처 정리 하나(Worker 런타임 증분 하나). QA 라운드는 아래 로컬 검사 한 번                                                                            |
-| 환경     | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(node), Worker 테스트 `vitest.workers.config.ts`                                                        |
+| 항목     | 범위                                                                                                                                                                                                                    |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 기준 SHA | `08003954` (main, 9.0.4 배포·실기 QA 기록본)                                                                                                                                                                            |
+| 코드 SHA | `3e058623` (Worker·설정·테스트·smoke. 뒤 커밋은 문서만)                                                                                                                                                                 |
+| 후보     | App·signaling·remote-share Worker와 remote-share R2 CORS. target `all`(아래 배포 범위). App 버전·SW 캐시(9.0.4 / v772)와 브라우저 런타임은 그대로. main `717d32d4`(PR #472)로 2026-10-24 04:46 KST 배포(아래 운영 배포) |
+| 열차     | 토스 출처 정리 하나(Worker 런타임 증분 하나). QA 라운드는 아래 로컬 검사 한 번                                                                                                                                          |
+| 환경     | Windows 11, Node 24.20.0, npm 12.0.2, Vitest 5.0.3(node), Worker 테스트 `vitest.workers.config.ts`                                                                                                                      |
 
 ## 왜 고쳤나
 
@@ -99,3 +99,22 @@ PR보다 먼저 배포하거나 그 앱 묶음과 함께 나간다. 매일 Drift
   브라우저 앱이 바뀌지 않아 e2e·브라우저 검사는 돌리지 않았다. Skip 없음.
 
 - 운영 smoke는 배포 때 처음 운영 Worker에 닿는다. 로컬에서는 가짜 응답으로 판정 함수만 확인했다.
+
+## 운영 배포 (2026-10-24)
+
+- main `717d32d4`(PR #472 squash, 트리는 PR head `8d8c6663`와 같음). Exact-main push
+  [CI 40012251278](https://github.com/hiefny/MUSIXQUARE/actions/runs/40012251278) 11 jobs success 후보로
+  [Release 40013297969](https://github.com/hiefny/MUSIXQUARE/actions/runs/40013297969) attempt 1을
+  target `all`, Developer API D1 끔으로 돌렸다. deploy job은 04:46:09 KST에 성공했고 독립 recovery job은 skip됐다.
+- 운영 smoke가 처음으로 운영 Worker에서 거부를 확인했다. remote-share는 두 번(일반, 방장 assertion 경로) 모두
+  `/security-config`가 세 토스 출처에 403이고 R2 업로드 preflight가 출처를 돌려주지 않았다
+  (`tossOriginsRejected`, `corsTossOriginsRejected`). signaling은 세 출처 모두 WebSocket 403, App 공개 경계는 세
+  출처 모두 `get-turn-config`에서 거부했다(`originBoundary.tossOriginsRejected`). 나머지 smoke(PRO room, PRO
+  media CORS, Developer API canary, App generation, PRO 공개 경계, Standard HTTPS signaling)도 모두 성공했다.
+- App generation smoke는 `main-CiWZ0MKN.js` 423,030 B·33 assets로 9.0.4와 같은 번들에 수렴했고, 배포 뒤 공개
+  `/`(145,201 B, `bootstrap.js?cache=v772`), `/service-worker.js`(39,517 B, `v772`),
+  `/bootstrap.js?cache=v772`(10,196 B)는 9.0.4 배포 때와 크기까지 같다. 업데이트 창은 뜨지 않는다.
+- 배포 뒤 [Drift Audit 40014180851](https://github.com/hiefny/MUSIXQUARE/actions/runs/40014180851): 31 pass /
+  0 fail / 5 manual-only. remote-share R2 CORS가 새 파일과 일치한다.
+- 실제 토스 WebView에서의 확인은 하지 않았다(운영하지 않는 앱이다). Cloudflare 대시보드의 Turnstile 위젯 호스트
+  목록 정리는 여전히 선택이다.

@@ -73,12 +73,19 @@ the same message runs waits behind it. A direct reset asked for while the page
 is held is refused. A deferred PRO claim fence (an outcome-unknown claim
 mutation in flight) holds reloads; leave navigations never enter the fence.
 
-A back-forward cache return drops every reload still waiting (owner decision
-13), so a reload queued behind a navigation that committed cannot run ahead of
-the return's own reload and make two. The return takes the queue before it
-settles the returned reset, and its bounded reload, or none, is the page's
-reload. Each dropped caller's `onRecovered` runs once, after that reload holds
-the page, so a caller that asks again waits behind it.
+A back-forward cache return that makes its own bounded reload drops every
+reload still waiting (owner decision 13): that reload refreshes the page
+anyway, so a reload queued behind a navigation that committed, or behind the
+PRO claim fence, cannot run ahead of it and make two. The return decides
+whether it reloads before it settles anything, takes the whole queue, then
+settles the returned reset, and its bounded reload is the page's one reload.
+Each dropped caller's `onRecovered` runs once, after that reload holds the
+page, so a caller that asks again waits behind it; a caller that throws is
+logged and the rest still run, and the callers are answered even if the
+return's own work throws. A return that reloads nothing (outside a room with
+nothing pending, or the second return of a document that used its one
+reload) drops nothing: a reload waiting there runs as the busy rule says, so
+one requested reload still makes one.
 
 ## Timing contract
 
@@ -105,11 +112,12 @@ listeners for navigation recovery, in the capture phase, so they run before the
 Back guard's resume whatever the init order:
 
 - `pagehide`: the attempt committed (`left`).
-- `pageshow`: `revealLiveShell` first. A back-forward cache return drops every
-  reload still queued (owner decision 13); of an active session, or of a
-  pending reset, it settles the reset and makes one bounded reload; a document
-  that returns again after that reload keeps the recovered shell instead of
-  looping. Any other `pageshow` settles a `left` attempt.
+- `pageshow`: `revealLiveShell` first. A back-forward cache return of an
+  active session, or of a pending reset, settles the reset and makes one
+  bounded reload, dropping every reload still queued first (owner decision
+  13); a document that returns again after that reload keeps the recovered
+  shell instead of looping and drops nothing, so a reload queued behind the
+  bounded one runs once. Any other `pageshow` settles a `left` attempt.
 - `visibilitychange` to visible: settles a `left` attempt (iOS can foreground
   the old document without a `pageshow`).
 

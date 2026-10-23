@@ -21,8 +21,9 @@
  * and runs if that navigation settles in this document; a waiting request
  * with the same message joins the one already waiting. A direct reset asked
  * for while any navigation holds the page is still refused (first wins). A
- * back-forward cache return drops every reload still waiting and decides the
- * page's one reload itself (owner decision 13).
+ * back-forward cache return that makes its own bounded reload drops every
+ * reload still waiting, which that reload makes redundant (owner decision
+ * 13); a return that reloads nothing leaves them waiting.
  *
  * A request is a plain action or { prepare?, navigate, isCurrent? } (C6-8). An
  * optional prepare step (the logo reset's service-worker promotion) runs
@@ -249,25 +250,7 @@ function restoreReturnedVisibleNavigation(): void {
   if (document.visibilityState === 'visible') restoreReturnedNavigation();
 }
 
-/**
- * The document came back from the back-forward cache. A reload still queued
- * waited for a navigation that committed, or for the PRO claim fence; the
- * return decides the page's one reload instead (owner decision 13,
- * 2026-10-23). Every queued request is dropped first, so settling the
- * returned reset cannot start one ahead of that reload. Each dropped caller
- * hears once, as a request that is no longer current does (onRecovered), and
- * only after the return has taken the page: a caller that asks again waits
- * behind the fresh reload instead of running before it.
- */
-function returnFromBackForwardCache(deps: PageNavigationDeps): void {
-  const dropped = _reloadQueue.splice(0);
-  try {
-    recoverFromBackForwardCache(deps);
-  } finally {
-    settleDroppedReloads(dropped, deps);
-  }
-}
-
+/** Answer each dropped reload's callers once, as a request no longer current is. */
 function settleDroppedReloads(dropped: readonly ReloadRequest[], deps: PageNavigationDeps): void {
   if (dropped.length === 0) return;
   deps.log?.info('[PageLifecycle] Dropped queued reloads on bfcache return:', dropped.length);
@@ -283,40 +266,58 @@ function settleDroppedReloads(dropped: readonly ReloadRequest[], deps: PageNavig
 }
 
 /**
- * An active session's runtime resources went stale in the cache, and a
- * confirmed Back leave returns idle but still behind its reset screen, so
- * either gets one fresh reload; a returned reset is settled first, so a
- * rejected reload cannot strand the page.
+ * The document came back from the back-forward cache. An active session's
+ * runtime resources went stale in the cache, and a confirmed Back leave
+ * returns idle but still behind its reset screen, so either gets one fresh
+ * reload; a returned reset is settled first, so a rejected reload cannot
+ * strand the page.
+ *
+ * Whether the return makes that reload is decided up front, before anything
+ * settles. Only then is a reload still queued (behind a navigation that
+ * committed, or the PRO claim fence) redundant, and dropped (owner decision
+ * 13, 2026-10-23: the return's reload refreshes anyway). The whole queue is
+ * taken before the returned reset settles, so none can start ahead of the
+ * fresh reload and make two. Each dropped caller hears once, as a request no
+ * longer current does (onRecovered), and only after the return has taken the
+ * page: a caller that asks again waits behind the fresh reload. A return that
+ * reloads nothing (idle with nothing pending, or the second return of a
+ * document that used its one reload) leaves the queue alone, so a reload
+ * waiting there runs as the busy rule says: one requested reload makes one.
  */
 function recoverFromBackForwardCache(deps: PageNavigationDeps): void {
-  const role = deps.getRole();
   const resetPending = _state.phase !== 'idle';
-  if (role === 'idle' && !resetPending) return;
+  if (deps.getRole() === 'idle' && !resetPending) return;
+  const reloads = !_bfcacheRetryUsed;
+  const dropped = reloads ? _reloadQueue.splice(0) : [];
 
-  if (_state.phase !== 'idle') {
-    try {
-      settle(_state.attempt, 'recovered');
-    } catch {
-      // Keep the live document visible even if reset cleanup is partial.
+  try {
+    if (_state.phase !== 'idle') {
+      try {
+        settle(_state.attempt, 'recovered');
+      } catch {
+        // Keep the live document visible even if reset cleanup is partial.
+      }
     }
-  }
 
-  if (_bfcacheRetryUsed) {
-    // The prior reload left and returned to this exact document. Stop
-    // retrying automatically; the service worker's bounded navigation
-    // fallback or a later user action can recover without a reload loop.
-    deps.log?.info('[PageLifecycle] bfcache reload returned; keeping recovered shell visible');
-    return;
+    if (!reloads) {
+      // The prior reload left and returned to this exact document. Stop
+      // retrying automatically; the service worker's bounded navigation
+      // fallback or a later user action can recover without a reload loop.
+      deps.log?.info('[PageLifecycle] bfcache reload returned; keeping recovered shell visible');
+      return;
+    }
+    _bfcacheRetryUsed = true;
+    deps.log?.info(
+      resetPending
+        ? '[PageLifecycle] Restored a pending session reset from bfcache. Reloading'
+        : '[PageLifecycle] Restored from bfcache with active session. Reloading',
+    );
+    // The reload claims its own unload exemption when its action starts. While
+    // it waits (behind the PRO claim fence), closing the tab still asks (C6-7).
+    scheduleDocumentReload(deps.bfcacheReloadMessage());
+  } finally {
+    settleDroppedReloads(dropped, deps);
   }
-  _bfcacheRetryUsed = true;
-  deps.log?.info(
-    resetPending
-      ? '[PageLifecycle] Restored a pending session reset from bfcache. Reloading'
-      : '[PageLifecycle] Restored from bfcache with active session. Reloading',
-  );
-  // The reload claims its own unload exemption when its action starts. While
-  // it waits (behind the PRO claim fence), closing the tab still asks (C6-7).
-  scheduleDocumentReload(deps.bfcacheReloadMessage());
 }
 
 // beforeunload can still be cancelled by another listener or the browser.
@@ -333,7 +334,7 @@ function onPageHide(): void {
 function onPageShow(event: Event): void {
   revealLiveShell();
   const persisted = (event as PageTransitionEvent).persisted === true;
-  if (persisted && _transitionDeps) returnFromBackForwardCache(_transitionDeps);
+  if (persisted && _transitionDeps) recoverFromBackForwardCache(_transitionDeps);
   else restoreReturnedNavigation();
 }
 
@@ -787,7 +788,8 @@ setReloadFenceOpenHandler(startQueuedReload);
  * running is the winning navigation, so a request during it waits behind it.
  * `onRecovered` runs once if the reload carrying the request settles in this
  * document (owner decision 1, 2026-10-23), or if a back-forward cache return
- * drops the request while it still waits (owner decision 13).
+ * that makes its own reload drops the request while it still waits (owner
+ * decision 13).
  */
 export function scheduleDocumentReload(message: string, onRecovered?: () => void): void {
   const callbacks = onRecovered ? [onRecovered] : [];

@@ -194,8 +194,10 @@ Prefer an existing path from `index.html` before introducing a new icon.
   reorder grip, disclosure controls, language/device diagrams, and volume
   waves; do not force them into a filled silhouette.
 - Stroked marks that sit beside the filled X keep its angular construction:
-  the selection check and minus (`src/ui/selection-mark.ts`), the disclosure
-  chevrons and the pinned notice's X use butt ends and mitred corners.
+  the selection check and minus (`src/ui/selection-mark.ts`) and the app's
+  playlist and device disclosure chevrons use butt ends and mitred corners,
+  and the pinned notice's X uses butt ends (its two strokes never join). The
+  rounded stroke samples in `preview/iconography.html` are generic.
 - Do not add an icon font or runtime icon dependency for a single glyph.
 - Use `assets/logo-wordmark.svg` for the full custom wordmark and
   `assets/favicon.svg` for compact brand placement.

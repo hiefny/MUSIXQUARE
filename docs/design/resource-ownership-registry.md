@@ -1100,12 +1100,21 @@ RO-47 owner-in-place
 
 - **Resource:** `registration.waiting`, its activation (`SKIP_WAITING`, then `controllerchange`)
   and the navigation that follows.
-- **Current owners/flows:** the update machine in `src/sw-register.ts` (`activationState`,
-  `_swReloading`, four `SKIP_WAITING` sends, the cross-tab prompt lease in
-  `src/sw-update-coordination.ts` and `src/sw-prompt-lock.ts`) and the hard-reset promotion in
-  `src/core/sw-hard-reset.ts` (its own `SKIP_WAITING` and a 1.5 s `controllerchange` wait, called
-  from the logo reset in `src/ui/player-controls.ts`), which does not consult the update machine.
-  The update machine reads that activation as a passive controller change.
+- **Current owners/flows:** the update machine in `src/sw-register.ts` and the hard-reset
+  promotion in `src/core/sw-hard-reset.ts` (its own `SKIP_WAITING` and a 1.5 s
+  `controllerchange` wait, called from the logo reset in `src/ui/player-controls.ts`), which does
+  not consult the update machine. The update machine reads that activation as a passive
+  controller change. Since Phase 3 C6-9 the update machine keeps one typed `activationState`
+  (`passive`, `prompting`, `awaiting-local-controller`, or `reload-scheduled` holding the reload it
+  asked the navigation owner for, so only that reload's own recovery releases it; the module
+  reload latch `_swReloading` is gone) and sends `SKIP_WAITING` through one sink,
+  `activateWaitingWorker` (Apply, Apply to a replacement, and the quiet cooldown and
+  same-generation promotions; the callers write the next-document markers, and the quiet
+  promotions write none). A prompt that still answers while that reload is pending (a lost
+  lease, a failed dialog) leaves its phase inside the `reload-scheduled` state, which keeps the
+  pre-C6-9 outcomes: a newly waiting worker is still taken up, and the page returns to that phase
+  if the reload recovers. The cross-tab prompt lease stays in `src/sw-update-coordination.ts` and
+  `src/sw-prompt-lock.ts`.
 - **Target single owner:** the `sw-register.ts` update machine with one activation sink; the hard
   reset becomes a client of a promotion port and keeps standalone promotion when the port times
   out or is unavailable (until two clean production update cycles).
@@ -1134,11 +1143,19 @@ RO-47 owner-in-place
     the same page".
   - Teardown: `src/core/__tests__/sw-hard-reset.test.ts` "fails open after a bounded wait when
     activation stalls".
-  - Visibility: missing.
-  - Missing: a hard reset while an Apply is stalled.
-- **Status:** `duplicated`. Phase 0d, Phase 3 (one activation owner, then the hard reset asks it;
-  each alone). See [Update dialog everywhere](update-dialog-everywhere-2026-10-17.md). Exception
-  RO-43.
+  - Visibility: `src/core/__tests__/sw-update-transitions.integration.test.ts` rows X3b (the
+    document is made visible again after the update reload's pagehide) and X5 (a back-forward
+    cache return of a pending update reload).
+  - Every `SKIP_WAITING` send and every exit from `reload-scheduled`, with the resulting state,
+    navigations, dialogs and next-document markers: the transition table in
+    `sw-update-transitions.integration.test.ts` (on the real navigation owner), which C6-9 kept
+    unchanged.
+  - A hard reset while an Apply is stalled: the same file's "a stalled Apply, then the logo
+    reset" cases record today's three `SKIP_WAITING` sends and second navigation, the C6-10 input
+    (owner decision P3-10 A).
+- **Status:** `duplicated`. Phase 0d, Phase 3 (one activation owner, done in C6-9; then the hard
+  reset asks it in C6-10; each alone). See
+  [Update dialog everywhere](update-dialog-everywhere-2026-10-17.md). Exception RO-43.
 
 ### RO-23 App-owned page navigation
 
@@ -1172,8 +1189,9 @@ RO-47 owner-in-place
   runs once on every event order. `src/core/document-reload.ts` keeps
   only the PRO claim fence (claim phases, the claim the in-flight reload carries, a narrow port
   `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`; since C6-13 tests reset
-  the owner and the fence with one `__resetPageNavigationForTests`). A stacked requester latch
-  remains in `sw-register.ts` (`_swReloading`, Phase 3); `src/core/reload-recovery-latch.ts` keeps
+  the owner and the fence with one `__resetPageNavigationForTests`). The update machine in
+  `sw-register.ts` keeps its reload inside its own activation state since Phase 3 C6-9 (RO-22;
+  the stacked `_swReloading` latch is gone); `src/core/reload-recovery-latch.ts` keeps
   only its prompt single-flight, its repeated-recovery guard deleted in C6-13 because the owner
   reports a recovery at most once per attempt;
   `src/core/page-lifecycle.ts` keeps only `beforeunload`, the pagehide `leaveSession` and

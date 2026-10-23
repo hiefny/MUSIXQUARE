@@ -24,16 +24,17 @@
  * updates both copies.
  *
  * How to read a row: `from` is the machine state before the event, `then` the
- * state after it as the row's last step shows it, and `effects` everything the
- * row observed, from the first step to the last: every SKIP_WAITING with the
- * document that sent it and its worker, every navigation the page asked for
- * (sink calls; "reload (threw)" is a reload sink that threw), every update
- * dialog, and the next-document markers (timestamps as milliseconds after the
- * row started, t+0). The machine's states are those of `activationState` in
- * sw-register.ts on main 08003954; "latched" means the module reload latch
- * (_swReloading) is still set under the named state. Rows labelled
- * "[keeps: C6-9]" must keep their effects when C6-9 replaces that latch with
- * one typed state.
+ * state the event leaves (the row's later steps show it), and `effects`
+ * everything the row observed, from the first step to the last: every
+ * SKIP_WAITING with the document that sent it and its worker, every navigation
+ * the page asked for (sink calls; "reload (threw)" is a reload sink that
+ * threw), every update dialog, and the next-document markers (timestamps as
+ * milliseconds after the row started, t+0). The states are those of
+ * `activationState` in sw-register.ts. "latched" means the update reload is
+ * still scheduled while the prompt has left the named phase: on main 08003954
+ * the module reload latch (_swReloading) under that state, since C6-9 the
+ * `prompt` of the one 'reload-scheduled' state. Rows labelled "[keeps: C6-9]"
+ * kept their effects when C6-9 replaced that latch with the typed state.
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';

@@ -219,7 +219,10 @@ const SKIP_WAITING_BASELINE: Baseline = new Map<string, Allowance>([
     'src/core/sw-hard-reset.ts',
     { count: 1, reason: 'hard-reset promotion (Phase 3 makes it ask)' },
   ],
-  ['src/sw-register.ts', { count: 4, reason: 'the update machine' }],
+  // Phase 3 C6-9 put the update machine's four sends (Apply, Apply to a
+  // replacement, the cooldown and same-generation promotions) behind one
+  // activateWaitingWorker sink (4 to 1).
+  ['src/sw-register.ts', { count: 1, reason: 'the update machine, its one activation sink' }],
 ]);
 
 // ── CHECK 3 baselines: Worker callers, exact per `file :: function` ───────

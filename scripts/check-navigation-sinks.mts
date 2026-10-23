@@ -15,8 +15,9 @@
  *     intents in core/navigation.ts, the account login popup (another window),
  *     and the locale navigation (owner decision 7, 2026-10-23).
  *   CHECK 2 `SKIP_WAITING` messages, per `file :: function`: the update
- *     machine in sw-register.ts and the hard-reset promotion (until Phase 3
- *     C6-10 makes it ask the update machine).
+ *     machine's one sink in sw-register.ts (activateWaitingWorker, Phase 3
+ *     C6-9) and the hard-reset promotion (until Phase 3 C6-10 makes it ask
+ *     the update machine).
  *   CHECK 3 History traversal (back/go/forward on a `history` receiver), per
  *     `file :: function`: the Back leave in back-button-history.ts and the
  *     guard's navigateBack port in app.ts.
@@ -105,12 +106,12 @@ const SKIP_WAITING_BASELINE: Baseline = new Map<string, Allowance>([
     },
   ],
   [
-    'src/sw-register.ts :: registerServiceWorker.doRegister.handleWaitingWorker',
+    'src/sw-register.ts :: activateWaitingWorker',
     {
-      count: 4,
+      count: 1,
       reason:
-        'the update machine: Apply, the cooldown and hidden-tab promotions (Phase 3 C6-9 gives ' +
-        'them one activateWaitingWorker sink)',
+        "the update machine's one sink (Phase 3 C6-9, 4 sends in handleWaitingWorker to 1): " +
+        'Apply, Apply to a replacement, and the quiet cooldown and same-generation promotions',
     },
   ],
 ]);

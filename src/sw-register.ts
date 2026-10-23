@@ -42,8 +42,38 @@ export const NAVIGATION_SOURCE_EVENT = 'mxqr:navigation-source';
 
 type NavigationSource = 'network' | 'cache-fallback';
 
-let _swReloading = false;
-let _swReloadAttempt: object | null = null;
+/** Where the update prompt stands: the machine's state while no update reload is scheduled. */
+type PromptPhase = 'passive' | 'prompting' | 'awaiting-local-controller';
+
+/**
+ * The update reload the machine asked the navigation owner for. `reload` is
+ * the identity that reload's one recovery callback carries: only that
+ * recovery releases this state, so a stale recovery cannot release a
+ * successor. A prompt still answering while the reload is pending (it lost its
+ * lease, failed, or was answered) leaves its phase in `prompt`: that phase
+ * decides whether a newly waiting worker is taken up, and the page returns to
+ * it if the reload recovers, as before C6-9.
+ */
+interface ReloadScheduled {
+  readonly phase: 'reload-scheduled';
+  readonly reload: object;
+  readonly prompt: PromptPhase | null;
+}
+
+/**
+ * The update machine's one state (RO-22, Phase 3 C6-9): a prompt phase, or
+ * the scheduled reload (the only object variant).
+ */
+type ActivationState = PromptPhase | ReloadScheduled;
+
+/**
+ * The update machine's one SKIP_WAITING sink. The callers write the
+ * next-document markers themselves, before it: an Apply records its request,
+ * the quiet promotions (cooldown, same generation) record nothing.
+ */
+function activateWaitingWorker(worker: ServiceWorker): void {
+  worker.postMessage({ type: 'SKIP_WAITING' });
+}
 
 function publishNavigationSource(navigationFallback: boolean): void {
   const source: NavigationSource = navigationFallback ? 'cache-fallback' : 'network';
@@ -91,11 +121,12 @@ function updateReturnCode(): unknown {
   return getState('network.lastJoinCode');
 }
 
+/**
+ * Ask the navigation owner for the update reload. `onRecovered` runs at most
+ * once, if this document stays (the reload never committed, or another
+ * navigation held the page).
+ */
 function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
-  if (_swReloading) return;
-  const reloadAttempt = {};
-  _swReloading = true;
-  _swReloadAttempt = reloadAttempt;
   const confirmedAt = Date.now();
   writeSessionMarker(SW_UPDATE_KEY, String(confirmedAt));
   // Every caller reaches this seam only after controllerchange (or after
@@ -103,22 +134,14 @@ function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
   // document can therefore distinguish this aligned reload from the legacy
   // v267 flow, which reloaded before activation completed.
   writeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY, String(confirmedAt));
-  const recoverReloadAttempt = () => {
-    // A late recovery signal from an abandoned predecessor must never release
-    // a successor's reload latch or activation state.
-    if (_swReloadAttempt !== reloadAttempt) return;
-    _swReloadAttempt = null;
-    _swReloading = false;
-    onRecovered();
-  };
 
   const message = t('dialog.refreshing_session');
   returnToRoomStart(updateReturnCode(), {
     message,
     // setup's join error reads the room after the reload, as for a reconnect.
     reconnect: true,
-    fallback: () => scheduleDocumentReload(message, recoverReloadAttempt),
-    onRecovered: recoverReloadAttempt,
+    fallback: () => scheduleDocumentReload(message, onRecovered),
+    onRecovered,
   });
 }
 
@@ -269,8 +292,18 @@ export function registerServiceWorker(): void {
     const handledControllerGenerations = new Set<string>();
     let handleControllerGeneration: (controller: ServiceWorker) => Promise<void> = async () =>
       undefined;
-    let activationState:
-      'passive' | 'prompting' | 'awaiting-local-controller' | 'reload-scheduled' = 'passive';
+    let activationState: ActivationState = 'passive';
+    const isReloadScheduled = (): boolean => typeof activationState === 'object';
+    /** The prompt's phase: what it last left, also while a reload is scheduled. */
+    const promptPhase = (): PromptPhase | ReloadScheduled['phase'] =>
+      typeof activationState === 'object'
+        ? activationState.prompt || activationState.phase
+        : activationState;
+    /** The prompt moves on; while a reload is scheduled, that waits for the reload's recovery. */
+    const setPromptPhase = (phase: PromptPhase): void => {
+      activationState =
+        typeof activationState === 'object' ? { ...activationState, prompt: phase } : phase;
+    };
     // Generations put off with Later (or Back) in this document. The same
     // dialog returns the next time the app opens.
     const dismissedPromptIdentities = new Set<string>();
@@ -282,13 +315,17 @@ export function registerServiceWorker(): void {
     };
 
     const scheduleControllerAlignedReload = () => {
-      if (activationState === 'reload-scheduled' || _swReloading) return;
-      activationState = 'reload-scheduled';
+      if (isReloadScheduled()) return;
+      const reload = {};
+      activationState = { phase: 'reload-scheduled', reload, prompt: null };
       reloadForServiceWorkerUpdate(() => {
+        // A late recovery from an abandoned predecessor must never release a
+        // successor's reload.
+        if (typeof activationState !== 'object' || activationState.reload !== reload) return;
         // The same document is still alive, so a failed/no-op/cancelled reset
         // may accept one later controllerchange. A committed pagehide never
         // resolves the reset handle and therefore remains first-wins.
-        if (activationState === 'reload-scheduled') activationState = 'passive';
+        activationState = activationState.prompt || 'passive';
         const pendingController = pendingControllerAfterReload;
         pendingControllerAfterReload = null;
         if (pendingController && navigator.serviceWorker.controller === pendingController) {
@@ -343,7 +380,7 @@ export function registerServiceWorker(): void {
     };
 
     const handlePassiveControllerChange = (notifyActiveRoom = true): boolean => {
-      if (_swReloading || activationState === 'reload-scheduled') return false;
+      if (isReloadScheduled()) return false;
 
       // Transitional recovery for the version that introduced this fix:
       // v267 could reload before skipWaiting/clients.claim completed. The new
@@ -472,7 +509,7 @@ export function registerServiceWorker(): void {
           return;
         }
 
-        if (_swReloading || activationState === 'reload-scheduled') {
+        if (isReloadScheduled()) {
           pendingControllerAfterReload = controller;
           return;
         }
@@ -522,7 +559,7 @@ export function registerServiceWorker(): void {
         // upgrades legitimately time out. Active-room notifications remain
         // generation-gated so two wrapper objects for one controller generation
         // cannot produce duplicate update toasts.
-        if (_swReloading || activationState === 'reload-scheduled') {
+        if (isReloadScheduled()) {
           // Record the newest exact controller synchronously. Recovery must
           // not depend on an old/mixed worker's generation timeout before it
           // can reserve the successor reload and pagehide boundary.
@@ -533,7 +570,7 @@ export function registerServiceWorker(): void {
         } else if (activationState === 'awaiting-local-controller') {
           controllerChangesWithReservedAction.add(controller);
           scheduleControllerAlignedReload();
-        } else if (activationState === 'passive' && handlePassiveControllerChange(false)) {
+        } else if (handlePassiveControllerChange(false)) {
           controllerChangesWithReservedAction.add(controller);
         }
 
@@ -553,14 +590,14 @@ export function registerServiceWorker(): void {
         foundAtStartup = false,
       ): Promise<void> => {
         if (!navigator.serviceWorker.controller || handledWaitingWorker === worker) return;
-        if (activationState !== 'passive') return;
+        if (promptPhase() !== 'passive') return;
         handledWaitingWorker = worker;
         updateFoundInThisDocument = true;
         const waitingWorkerIsCurrent = () =>
           handledWaitingWorker === worker && reg.waiting === worker && worker.state === 'installed';
         const continueWithReplacement = () => {
           const replacement = reg.waiting;
-          if (!replacement || replacement === worker || activationState !== 'passive') return;
+          if (!replacement || replacement === worker || promptPhase() !== 'passive') return;
           handleWaitingWorker(replacement).catch((error) => {
             log.warn('[SW] Replacement waiting worker handling failed', error);
           });
@@ -574,7 +611,7 @@ export function registerServiceWorker(): void {
         const lastUpdate = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
         if (Date.now() - lastUpdate < SW_COOLDOWN_MS) {
           log.debug('[SW] Update found during cooldown. Silently activating');
-          worker.postMessage({ type: 'SKIP_WAITING' });
+          activateWaitingWorker(worker);
           return;
         }
 
@@ -600,7 +637,7 @@ export function registerServiceWorker(): void {
           (activeController === pageController ? pageCacheVersion : null);
         if (generation.cacheVersion && activeCacheVersion === generation.cacheVersion) {
           log.warn('[SW] Waiting worker reused the active cache generation; activating silently');
-          worker.postMessage({ type: 'SKIP_WAITING' });
+          activateWaitingWorker(worker);
           return;
         }
         if (dismissedPromptIdentities.has(generation.promptIdentity)) {
@@ -620,20 +657,20 @@ export function registerServiceWorker(): void {
             continueWithReplacement();
             return;
           }
-          if (_swReloading || activationState !== 'passive') return;
+          if (activationState !== 'passive') return;
         }
         const promptAbort = new AbortController();
         if (!(await updateLedger.acquirePrompt(generation, () => promptAbort.abort()))) {
           log.debug('[SW] Waiting worker prompt owned by another app client');
           return;
         }
-        if (!waitingWorkerIsCurrent() || activationState !== 'passive') {
+        if (!waitingWorkerIsCurrent() || promptPhase() !== 'passive') {
           updateLedger.releasePrompt(generation);
           continueWithReplacement();
           return;
         }
 
-        activationState = 'prompting';
+        setPromptPhase('prompting');
         controllerChangedWhilePrompting = false;
         let result: Awaited<ReturnType<typeof showDialog>> | undefined;
         try {
@@ -648,7 +685,7 @@ export function registerServiceWorker(): void {
         if (promptAbort.signal.aborted) {
           // Losing a best-effort legacy election is not a user dismissal and
           // must not suppress the winning tab's prompt or a newer generation.
-          activationState = 'passive';
+          setPromptPhase('passive');
           if (controllerChangedWhilePrompting) handlePassiveControllerChange();
           continueWithReplacement();
           return;
@@ -665,15 +702,15 @@ export function registerServiceWorker(): void {
 
           if (result?.action === 'ok' && replacement) {
             handledWaitingWorker = replacement;
-            activationState = 'awaiting-local-controller';
+            setPromptPhase('awaiting-local-controller');
             const requestedAt = Date.now();
             writeSessionMarker(SW_UPDATE_KEY, String(requestedAt));
             removeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY);
-            replacement.postMessage({ type: 'SKIP_WAITING' });
+            activateWaitingWorker(replacement);
             return;
           }
 
-          activationState = 'passive';
+          setPromptPhase('passive');
           if (controllerAlreadyChanged) {
             controllerChangedWhilePrompting = false;
             if (result?.action === 'ok') {
@@ -701,7 +738,7 @@ export function registerServiceWorker(): void {
         }
 
         if (result?.action === 'ok') {
-          if (_swReloading) return;
+          if (isReloadScheduled()) return;
           activationState = 'awaiting-local-controller';
           const requestedAt = Date.now();
           writeSessionMarker(SW_UPDATE_KEY, String(requestedAt));
@@ -715,11 +752,11 @@ export function registerServiceWorker(): void {
             return;
           }
 
-          worker.postMessage({ type: 'SKIP_WAITING' });
+          activateWaitingWorker(worker);
           return;
         }
 
-        activationState = 'passive';
+        setPromptPhase('passive');
         // Later lasts for this page only: the next open asks again.
         if (dismissedByUser) {
           dismissedPromptIdentities.add(generation.promptIdentity);

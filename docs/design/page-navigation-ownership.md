@@ -180,9 +180,10 @@ CI) keeps, with exact counts and reasons:
    the owner by owner decision 7: it is the fail-safe full-document switch to a
    localized entry when the History API cannot rewrite the path, it never
    claims the unload exemption, and a live session still asks before leaving.
-2. `SKIP_WAITING` per function: the update machine in `src/sw-register.ts` and
-   the hard-reset promotion in `src/core/sw-hard-reset.ts` (Phase 3 makes the
-   hard reset ask the update machine).
+2. `SKIP_WAITING` per function: the update machine's one sink,
+   `activateWaitingWorker` in `src/sw-register.ts` (Phase 3 C6-9), and the
+   hard-reset promotion in `src/core/sw-hard-reset.ts` (Phase 3 C6-10 makes
+   the hard reset ask the update machine).
 3. History traversal per function: the Back leave in `back-button-history.ts`
    and the guard's `navigateBack` port in `app.ts`.
 4. The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, per
@@ -217,6 +218,9 @@ to the guard's list with its reason and to RO-23 in the same change.
 - `src/core/__tests__/navigation-contract.test.ts`: timing order and the
   next-document marker keys.
 - `src/core/__tests__/navigation-sinks-guard.test.ts`: the guard.
+- `src/core/__tests__/sw-update-transitions.integration.test.ts` and
+  `sw-register.test.ts`: the update machine (RO-22) on the real owner, with
+  every `SKIP_WAITING` send and every way its update reload ends in a table.
 - `e2e/back-navigation.test.ts` (CI critical gate) for the Back flows in a
   browser. jsdom and Chromium under Playwright have no real back-forward cache,
   so the bfcache paths rest on these jsdom pins and device checks.

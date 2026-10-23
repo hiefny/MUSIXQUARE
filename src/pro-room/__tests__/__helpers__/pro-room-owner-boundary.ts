@@ -34,7 +34,8 @@ import {
  * - FencedSignaling models `handleInternalProRealtimeBroadcast` in
  *   cloudflare/signaling-worker.ts: an exact body key set and matching
  *   room-code and generation headers (else 400 and a contract violation that
- *   `dispose()` fails on; see signaling-broadcast-contract.ts), the
+ *   `dispose()` fails on, recorded even when a fault below is injected; see
+ *   signaling-broadcast-contract.ts), the
  *   coordinator-epoch fence that only a presence
  *   snapshot may advance (any other event for a newer epoch, and any event for
  *   an older one, gets 409 PRO_ROOM_EPOCH_STALE), monotonic presence revisions
@@ -174,6 +175,11 @@ class FencedSignaling {
         ...(event.addition ? { addition: true as const } : {}),
         at: Date.now(),
       });
+    // Signaling rejects any extra or missing body key (hasExactKeys) and a
+    // room-code or generation header that disagrees with the body. Check the
+    // contract before any injected fault, so a faulted send is checked too.
+    const violations = signalingBroadcastViolations(request, body);
+    this.contractViolations.push(...violations);
     const faultIndex = this.faults.findIndex(
       (candidate) => candidate.type === null || candidate.type === type,
     );
@@ -194,11 +200,7 @@ class FencedSignaling {
       record(503, 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE');
       return Response.json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, { status: 503 });
     }
-    // Signaling rejects any extra or missing body key (hasExactKeys) and a
-    // room-code or generation header that disagrees with the body.
-    const violations = signalingBroadcastViolations(request, body);
     if (violations.length > 0) {
-      this.contractViolations.push(...violations);
       record(400, 'INVALID_REQUEST');
       return Response.json({ error: 'INVALID_REQUEST' }, { status: 400 });
     }

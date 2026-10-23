@@ -802,7 +802,7 @@ interface PlaybackBroadcastRecord {
 }
 
 /** What a signaling broadcast carries besides the room address (RO-07). */
-type SignalingBroadcast = Pick<PlaybackBroadcastRecord, 'coordinatorEpoch' | 'targets' | 'event'>;
+type SignalingBroadcast = { coordinatorEpoch: number; targets: string[]; event: JsonRecord };
 
 interface PresenceBroadcastRecord {
   coordinatorEpoch: number;
@@ -12753,7 +12753,6 @@ export class MusixquareProRoom {
         body.broadcast === true &&
         isSafeNonNegativeInteger(body.eligible) &&
         isSafeNonNegativeInteger(body.sent) &&
-        body.sent <= body.eligible &&
         body.sent === body.eligible
       );
     } catch {

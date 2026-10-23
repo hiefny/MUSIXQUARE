@@ -621,7 +621,7 @@ function storedEnvelope(test: ProRoomBoundary) {
 }
 
 describe('PRO signaling delivery lanes: durable record shapes (rollback contract)', () => {
-  it('stores the presence marker and every playback record kind with exactly today’s keys', async () => {
+  it("stores the presence marker and every playback record kind with exactly today's keys", async () => {
     const { test } = await playingRoom();
     test.signaling.failAll('pro-presence-snapshot', 'throw');
     test.signaling.failAll('pro-playback-prepare', 503);
@@ -652,7 +652,7 @@ describe('PRO signaling delivery lanes: durable record shapes (rollback contract
     }
   });
 
-  it('keeps and delivers a presence marker and PREPARE written in today’s literal shape across a cold restart', async () => {
+  it("keeps and delivers a presence marker and PREPARE written in today's literal shape across a cold restart", async () => {
     const { test } = await playingRoom();
     test.signaling.failAll('pro-presence-snapshot', 'throw');
     await test.addMember();

@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PRO_ROOM_FILE_DURATION_READER } from '../../../cloudflare/pro-room-media-duration.ts';
 import { MusixquareProRoom } from '../../../cloudflare/pro-room-worker.ts';
+import { signalingBroadcastContract } from './__helpers__/signaling-broadcast-contract.ts';
 
 const metadata = vi.hoisted(() => ({ file: vi.fn(), youtube: vi.fn() }));
 vi.mock('../../../cloudflare/pro-room-media-duration.ts', async (importOriginal) => ({
@@ -112,6 +113,9 @@ function fileItem(queueItemId: string): QueueItem {
 }
 
 const workers = new Set<MusixquareProRoom>();
+// The signaling fake is wrapped, so a body or header signaling would refuse
+// (hasExactKeys) fails the test instead of passing as a delivered broadcast.
+const signalingBroadcasts = signalingBroadcastContract();
 
 async function fixture(playlist: QueueItem[] = [fileItem(FIRST), youtubeItem(SECOND)]) {
   const storage = new MemoryStorage();
@@ -127,10 +131,10 @@ async function fixture(playlist: QueueItem[] = [fileItem(FIRST), youtubeItem(SEC
     PRO_SIGNALING_ROOMS: {
       idFromName: (name: string) => name,
       get: () => ({
-        fetch: async (request: Request) => {
+        fetch: signalingBroadcasts.wrap(async (request: Request) => {
           broadcasts.push((await request.json()) as Record<string, any>);
           return Response.json({ broadcast: true, eligible: 1, sent: 1 });
-        },
+        }),
       }),
     },
   };
@@ -299,13 +303,14 @@ beforeEach(() => {
   metadata.youtube.mockReset().mockResolvedValue({ kind: 'finite', durationSeconds: 5 });
 });
 
-afterEach(() => {
+afterEach(async () => {
   for (const worker of workers) {
     worker.clearAlarmMaintenanceRetry();
     worker.invalidatePendingHeartbeatFlush();
   }
   workers.clear();
   vi.useRealTimers();
+  await signalingBroadcasts.assertClean();
 });
 
 describe('PRO natural completion with ordinary listeners and no active controller', () => {

@@ -105,7 +105,10 @@ runbooks. Neither belongs in a general setup document.
   per transfer, so a request and cron overlap, a cron retry or a replayed request leaves one row; the
   request's HTTP answers are unchanged. Tests pinned every request answer, the cron's crash matrix
   and mixed old and new App Worker builds first. Worker-only (target `app`), with no D1 schema, app
-  version or service-worker change.
+  version or service-worker change. Production QA on October 23 completed an ownership round trip:
+  both sagas reached `complete`, each transfer had one success audit row, the authority fence was
+  `cleared`, and both accounts gained and lost the expected browser controls. Account deletion,
+  existing API-key revocation and injected production failures remain untested.
 
 - [App Worker saga helpers and one fence writer list (Phase 1 App Worker A, 2026-10-23)](design/app-worker-saga-fence-2026-10-23.md):
   the owner-transfer saga's entitlement identity and its four deleted-target endings each get one

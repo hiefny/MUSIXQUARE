@@ -366,6 +366,23 @@ LTE check on 8.11.25 passes.
 [Combined release record](design/transport-release-bundle-2026-10-19.md),
 [independent verification](design/side-ice-restart-independent-verification-2026-10-20.md).
 
+### 19. Seek Slider Keeps Two Cooperating Layers
+
+Accepted on 2026-10-23 (owner decision O7 of the Phase 2 structural plan). The seek slider has two
+owners on purpose: `src/ui/range-drag.ts` owns pointer geometry and capture for every range input,
+and `src/ui/seekbar.ts` owns seek intent (the draft, the cancel tombstone and availability). When
+seeking becomes unavailable mid-drag, for example because the playback-control permission is
+revoked, seekbar marks the gesture cancelled but range-drag keeps the captured pointer: every move
+still writes a value and an input event, and seekbar rejects each one (`rejectSeekInteraction` in
+its input and change handlers), repaints the authoritative position and shows the denial once. The
+release's change is rejected too and consumes the tombstone. `cancelSeekGesture` deliberately does
+not call `cancelRangeDrag`: that would suppress the release's change, leave the tombstone armed,
+stop the repaints, and reject the next accessibility adjustment that arrives without a pointer or
+keydown. `src/ui/__tests__/seekbar.test.ts` "rejects every value of a drag whose seek permission is
+revoked mid-drag, then accepts a fresh accessibility seek" pins this; a mutation that calls
+`cancelRangeDrag` there fails it. Revisit if range-drag gains a seek-specific path or a report shows
+a seek, or repeated denials, after a revoke.
+
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be

@@ -1657,8 +1657,12 @@ get a record only if a change adds a second machine:
   `cloudflare-signaling.ts`), partitioned by admission.
 - Transport RTC configuration (TURN): three writers, last write wins; the pre-admission retry
   passes no expiry (self-healing).
-- Seek slider drag (`src/ui/range-drag.ts` and `src/ui/seekbar.ts`): `cancelSeekGesture` does not
-  call `cancelRangeDrag`; a fix-lane candidate only with a failing test.
+- Seek slider drag (`src/ui/range-drag.ts` and `src/ui/seekbar.ts`): two cooperating layers,
+  accepted by owner decision O7 ([known-accepted #19](../known-accepted.md)). `cancelSeekGesture`
+  does not call `cancelRangeDrag` on purpose; `seekbar.test.ts` "rejects every value of a drag
+  whose seek permission is revoked mid-drag, then accepts a fresh accessibility seek" shows no
+  seek, one denial and the authoritative position after every move, so the fix-lane candidate is
+  closed.
 - Guest join attempt (`src/network/guest.ts`): an old inline cancel in `src/ui/setup-guest.ts`
   skips `invalidateGuestJoinAttempt`; a fix-lane candidate only with a failing test.
 - Header loader `_default` key (`src/ui/toast.ts`): about a dozen writers without an owner token,

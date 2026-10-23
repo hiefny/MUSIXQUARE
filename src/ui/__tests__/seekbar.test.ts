@@ -591,6 +591,65 @@ describe('initSeekBar playback mode gates', () => {
     },
   );
 
+  // Owner decision O7 (2026-10-23): the seek slider keeps two cooperating
+  // layers (docs/known-accepted.md #19). range-drag.ts owns pointer geometry
+  // and capture and keeps writing values through a revoked drag; seekbar.ts
+  // owns seek intent and rejects each one. cancelSeekGesture deliberately
+  // does not call cancelRangeDrag: the commit change range-drag sends at
+  // release consumes the gesture's cancel tombstone.
+  it('rejects every value of a drag whose seek permission is revoked mid-drag, then accepts a fresh accessibility seek', () => {
+    vi.stubGlobal('PointerEvent', MouseEvent);
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', { peer: 'host-1', open: true } as never);
+      setState('network.isOperator', true);
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      vi.mocked(getTrackPosition).mockReturnValue(21);
+      initSeekBar();
+      installRangeDragGuard();
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 40));
+      const deniedToasts = () =>
+        consoleInfo.mock.calls.filter(([channel]) => channel === '[Toast]').length;
+
+      slider.dispatchEvent(seekPointer('pointerdown', 1, 100));
+      expect(slider.value).toBe('30');
+      expect(getState('player.isSeeking')).toBe(true);
+
+      setState('network.isOperator', false);
+      expect(slider.getAttribute('aria-disabled')).toBe('true');
+      for (const clientX of [200, 280, 360]) {
+        slider.dispatchEvent(seekPointer('pointermove', 1, clientX));
+        // range-drag wrote a new value; seekbar repainted the canonical one.
+        expect(slider.value).toBe('21');
+        expect(slider.classList.contains('is-dragging')).toBe(true);
+      }
+      slider.dispatchEvent(seekPointer('pointerup', 1, 360));
+
+      expect(seekTo).not.toHaveBeenCalled();
+      expect(slider.classList.contains('is-dragging')).toBe(false);
+      expect(getState('player.isSeeking')).toBe(false);
+      expect(slider.value).toBe('21');
+      expect(deniedToasts()).toBe(1);
+
+      // The release's change consumed the gesture, so a fresh accessibility
+      // adjustment (no pointer, no keydown) seeks once authority returns.
+      setState('network.isOperator', true);
+      slider.value = '42';
+      slider.dispatchEvent(new Event('input'));
+      slider.dispatchEvent(new Event('change'));
+      expect(seekTo).toHaveBeenCalledExactlyOnceWith(42);
+      expect(deniedToasts()).toBe(1);
+    } finally {
+      clearAllManagedTimers();
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('retires a seek drag when a YouTube playlist changes sub-video under the same queue item', () => {
     vi.stubGlobal('PointerEvent', MouseEvent);
     try {

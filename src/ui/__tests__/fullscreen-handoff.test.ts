@@ -7,6 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { FULLSCREEN_SETTLEMENT_MS } from '../../core/fullscreen.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import '../../player/video.ts';
@@ -92,20 +93,27 @@ afterEach(async () => {
   bus.clear();
 });
 
-describe('YouTube fullscreen toggle during a screensaver exit', () => {
-  it('shares the screensaver exit instead of issuing a second one [C8-I9]', async () => {
-    const native = standardFullscreen();
-    initPlayerControls();
-    openScreensaver();
-    await settleMicrotasks();
-    expect(document.fullscreenElement).toBe(document.documentElement);
+/** Opens the screensaver in fullscreen, then lets YouTube take over and close it. */
+async function closeScreensaverOnYouTubeTakeover(): Promise<ReturnType<typeof standardFullscreen>> {
+  const native = standardFullscreen();
+  initPlayerControls();
+  openScreensaver();
+  await settleMicrotasks();
+  expect(document.fullscreenElement).toBe(document.documentElement);
+  // YouTube takes over: the screensaver closes and starts its native exit.
+  setState('playback.mode', 'youtube');
+  expect(native.exit).toHaveBeenCalledOnce();
+  return native;
+}
 
-    // YouTube takes over: the screensaver closes and starts its native exit.
-    setState('playback.mode', 'youtube');
-    expect(native.exit).toHaveBeenCalledOnce();
+describe('YouTube fullscreen toggle during a screensaver exit', () => {
+  it('is unavailable until the screensaver exit settles, then enters again [C8-I13, owner decision O2]', async () => {
+    const native = await closeScreensaverOnYouTubeTakeover();
+    const toggle = document.getElementById('btn-fullscreen')!;
+    expect(toggle.getAttribute('aria-disabled')).toBe('true');
 
     // The tap lands before fullscreenchange, while <html> is still fullscreen.
-    document.getElementById('btn-fullscreen')!.click();
+    toggle.click();
     expect(native.exit).toHaveBeenCalledOnce();
     expect(native.requestWrapper).not.toHaveBeenCalled();
 
@@ -116,5 +124,44 @@ describe('YouTube fullscreen toggle during a screensaver exit', () => {
     native.change(null);
     await settled;
     expect(observed).toHaveBeenCalledOnce();
+    expect(toggle.hasAttribute('aria-disabled')).toBe(false);
+
+    toggle.click();
+    expect(native.requestWrapper).toHaveBeenCalledOnce();
+    expect(native.exit).toHaveBeenCalledOnce();
+  });
+
+  it('comes back at the 1.5 s bound when the screensaver exit never reports', async () => {
+    await closeScreensaverOnYouTubeTakeover();
+    const toggle = document.getElementById('btn-fullscreen')!;
+    clearAllManagedTimers();
+    await vi.advanceTimersByTimeAsync(FULLSCREEN_SETTLEMENT_MS - 1);
+    expect(toggle.getAttribute('aria-disabled')).toBe('true');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(toggle.hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  it('a YouTube mode exit during the screensaver exit joins it [C8-I9]', async () => {
+    const native = await closeScreensaverOnYouTubeTakeover();
+    // The host switches back to a file before fullscreenchange arrives.
+    setState('playback.mode', 'file');
+    expect(native.exit).toHaveBeenCalledOnce();
+    native.change(null);
+    await settleMicrotasks();
+    expect(document.getElementById('btn-fullscreen')!.hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  it('stays available while only a YouTube-owned exit is in flight', async () => {
+    const native = standardFullscreen();
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+    const toggle = document.getElementById('btn-fullscreen')!;
+    toggle.click();
+    await settleMicrotasks();
+    expect(document.fullscreenElement).toBe(document.querySelector('.video-wrapper'));
+    toggle.click();
+    expect(native.exit).toHaveBeenCalledOnce();
+    expect(toggle.hasAttribute('aria-disabled')).toBe(false);
+    native.change(null);
   });
 });

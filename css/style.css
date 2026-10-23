@@ -10631,6 +10631,14 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 1;
   }
 
+  /* Briefly unavailable while the screensaver's own fullscreen exit settles
+     (at most 1.5 s, owner decision 2026-10-23): dimmed below its resting
+     opacity, with no hover or press highlight. */
+  .video-wrapper .fullscreen-btn[aria-disabled='true'] {
+    opacity: 0.15;
+    cursor: not-allowed;
+  }
+
   .fullscreen-btn svg {
     width: 24px;
     height: 24px;

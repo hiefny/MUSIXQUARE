@@ -90,9 +90,10 @@ export function exitYouTubeFullscreen(
     return;
   }
 
-  // Leave through the shared bounded exit (core/fullscreen.ts). A second exit
-  // for the same element joins the one in flight instead of exiting twice.
-  exitFullscreenFor('youtube', fullscreenElement, { exitOrder: 'standard-first', onSettled });
+  // Leave through the shared bounded exit (core/fullscreen.ts), by the same
+  // matching-method rule as the screensaver. A second exit for the same element
+  // joins the one in flight instead of exiting twice.
+  exitFullscreenFor('youtube', fullscreenElement, onSettled);
 }
 
 /**

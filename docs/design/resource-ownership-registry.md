@@ -1250,13 +1250,18 @@ RO-46 accepted-exception
   element settles it). It holds the one exit in flight for the document (C8-I9): an exit by
   either owner for the element already being exited joins it instead of issuing a second native
   exit, and an exit for another element settles the earlier attempt first. Only this module
-  calls a native exit method (guard: "fullscreen exit"). Its callers: the screensaver entry
-  (`src/ui/screensaver-entry.ts`: entry lock, request generation and bound, exit through the
-  matching method) and the YouTube exit (`src/player/video.ts`: ownership heuristic,
-  fake-fullscreen teardown, standard exit first). Two request chains stay with their callers:
-  the screensaver's (standard, then WebKit) and the YouTube toggle's in
-  `src/ui/player-controls.ts` (standard then fake fullscreen, or WebKit with a 100 ms check then
-  fake). `getFullscreenElement` is the one prefixed-element reader for all of them (C8-I5).
+  calls a native exit method (guard: "fullscreen exit"), and both owners leave through the door
+  they entered: the standard exit while the standard element is set, otherwise the prefixed
+  exit first (owner decision O3, 2026-10-23, C8-I13; the YouTube exit used to try the standard
+  exit first). Its callers: the screensaver entry (`src/ui/screensaver-entry.ts`: entry lock,
+  request generation and bound) and the YouTube exit (`src/player/video.ts`: ownership
+  heuristic, fake-fullscreen teardown). Two request chains stay with their callers: the
+  screensaver's (standard, then WebKit) and the YouTube toggle's in `src/ui/player-controls.ts`
+  (standard then fake fullscreen, or WebKit with a 100 ms check then fake). While a
+  screensaver-owned exit is in flight the toggle is `aria-disabled` (dimmed) and ignores taps,
+  and it comes back when the exit settles, at most 1.5 s later (owner decision O2, C8-I13,
+  through `getFullscreenExitOwner` and `onFullscreenExitChange`). `getFullscreenElement` is the
+  one prefixed-element reader for all of them (C8-I5).
 - **Target single owner:** `src/core/fullscreen.ts`: done for exits. Whether the two request
   chains should become one is a separate owner decision; until then callers keep their request
   policy.
@@ -1282,12 +1287,15 @@ RO-46 accepted-exception
     promise, change event, legacy WebKit event, pagehide, failed exit and error-matching cases for
     the screensaver and the YouTube player alike, and "one in-flight fullscreen exit shared by
     both owners" pins the join, including across a hidden page.
-  - Hand-off: `src/ui/__tests__/fullscreen-handoff.test.ts` "shares the screensaver exit instead
-    of issuing a second one" (the screensaver closes on a YouTube takeover and the toggle is
-    tapped before `fullscreenchange`).
+  - Hand-off: `src/ui/__tests__/fullscreen-handoff.test.ts` (the screensaver closes on a YouTube
+    takeover before `fullscreenchange`): "is unavailable until the screensaver exit settles, then
+    enters again", "comes back at the 1.5 s bound when the screensaver exit never reports" and "a
+    YouTube mode exit during the screensaver exit joins it".
+  - Exit rule: `fullscreen.test.ts` "the YouTube player exits through the same door".
 - **Status:** `duplicated` for the request chains only (owner decision). Phase 2 finished the
   exit side: shared helper and constants (C8-I2), one prefixed reader (C8-I5), one bounded exit
-  (C8-I8) and one in-flight exit slot (C8-I9, which retired exception RO-38). See
+  (C8-I8), one in-flight exit slot (C8-I9, which retired exception RO-38) and one exit rule with
+  the toggle unavailable during a screensaver exit (C8-I13). See
   [Screensaver integration](screensaver-integration-2026-10-16.md).
 
 ### RO-27 Playlist rows and scroll position

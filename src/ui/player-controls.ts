@@ -35,7 +35,12 @@ import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { exitYouTubeFullscreen } from '../player/video.ts';
-import { getFullscreenElement, type FullscreenTarget } from '../core/fullscreen.ts';
+import {
+  getFullscreenElement,
+  getFullscreenExitOwner,
+  onFullscreenExitChange,
+  type FullscreenTarget,
+} from '../core/fullscreen.ts';
 import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import {
@@ -1275,7 +1280,21 @@ export function initPlayerControls(): void {
 
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
+  // Owner decision O2 (2026-10-23): while the screensaver's own fullscreen exit
+  // settles (at most FULLSCREEN_SETTLEMENT_MS), a tap could only join that
+  // exit, so the toggle is briefly unavailable and comes back when it settles.
+  const syncFullscreenToggleAvailability = (): void => {
+    const toggle = getUiElement('btn-fullscreen');
+    const unavailable = getFullscreenExitOwner() === 'screensaver';
+    if (!toggle || unavailable === (toggle.getAttribute('aria-disabled') === 'true')) return;
+    if (unavailable) toggle.setAttribute('aria-disabled', 'true');
+    else toggle.removeAttribute('aria-disabled');
+  };
+  syncFullscreenToggleAvailability();
+  const stopFullscreenToggleSync = onFullscreenExitChange(syncFullscreenToggleAvailability);
+  domSignal.addEventListener('abort', stopFullscreenToggleSync, { once: true });
   $on('btn-fullscreen', 'click', () => {
+    if (getFullscreenExitOwner() === 'screensaver') return;
     const videoWrapper = document.querySelector<FullscreenTarget>('.video-wrapper');
     const target = videoWrapper || (document.documentElement as FullscreenTarget);
 

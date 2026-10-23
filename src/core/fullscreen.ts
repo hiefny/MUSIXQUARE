@@ -43,23 +43,18 @@ export function getFullscreenElement(): Element | null {
 type FullscreenOwner = 'screensaver' | 'youtube';
 
 /**
- * 'matching' leaves through the door the state was entered by: the standard
- * exit while the standard element is set, otherwise the prefixed exit first.
- * 'standard-first' is the YouTube player's historical order.
+ * Exit through the door the state was entered by (owner decision O3,
+ * 2026-10-23): the standard exit while the standard element is set, otherwise
+ * the prefixed exit first. Both owners use this one rule.
  */
-type FullscreenExitOrder = 'matching' | 'standard-first';
-
-function resolveFullscreenExit(order: FullscreenExitOrder): {
+function resolveFullscreenExit(): {
   invoke: () => Promise<void> | void;
   errorEvent: (typeof FULLSCREEN_ERROR_EVENTS)[number];
 } | null {
   const doc = document as FullscreenDocument;
   const standard = doc.exitFullscreen;
   const prefixed = doc.webkitExitFullscreen || doc.webkitCancelFullScreen;
-  const exit =
-    order === 'standard-first' || doc.fullscreenElement
-      ? standard || prefixed
-      : prefixed || standard;
+  const exit = doc.fullscreenElement ? standard || prefixed : prefixed || standard;
   return typeof exit === 'function'
     ? {
         invoke: () => exit.call(doc),
@@ -83,6 +78,7 @@ interface FullscreenExitAttempt {
  * earlier element already left, so it settles the earlier attempt first.
  */
 let activeExit: FullscreenExitAttempt | null = null;
+const exitChangeListeners = new Set<() => void>();
 
 function notifyExitObserver(observer: (() => void) | undefined): void {
   try {
@@ -90,6 +86,23 @@ function notifyExitObserver(observer: (() => void) | undefined): void {
   } catch {
     // A surface observer cannot strand the native exit or its other observers.
   }
+}
+
+function notifyExitChange(): void {
+  for (const listener of [...exitChangeListeners]) notifyExitObserver(listener);
+}
+
+/** The owner whose native exit is in flight, or null when none is. */
+export function getFullscreenExitOwner(): FullscreenOwner | null {
+  return activeExit?.owner ?? null;
+}
+
+/** Calls `listener` when an exit starts or settles; returns the unsubscribe. */
+export function onFullscreenExitChange(listener: () => void): () => void {
+  exitChangeListeners.add(listener);
+  return () => {
+    exitChangeListeners.delete(listener);
+  };
 }
 
 /**
@@ -105,10 +118,9 @@ function notifyExitObserver(observer: (() => void) | undefined): void {
 export function exitFullscreenFor(
   owner: FullscreenOwner,
   element: Element | null,
-  options: { exitOrder: FullscreenExitOrder; onSettled?: () => void },
+  onSettled?: () => void,
 ): void {
-  const { onSettled } = options;
-  const exit = resolveFullscreenExit(options.exitOrder);
+  const exit = resolveFullscreenExit();
   if (!exit) {
     notifyExitObserver(onSettled);
     return;
@@ -136,6 +148,7 @@ export function exitFullscreenFor(
     const observers = [...attempt.observers];
     attempt.observers.clear();
     for (const observer of observers) notifyExitObserver(observer);
+    notifyExitChange();
   };
   const onChange = (): void => {
     if (!stillFullscreen()) finish();
@@ -158,6 +171,7 @@ export function exitFullscreenFor(
   for (const name of FULLSCREEN_ERROR_EVENTS) document.addEventListener(name, onError);
   window.addEventListener('pagehide', finish);
   timer = window.setTimeout(finish, FULLSCREEN_SETTLEMENT_MS);
+  notifyExitChange();
 
   try {
     const result = exit.invoke();

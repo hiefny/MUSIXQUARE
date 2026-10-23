@@ -53,13 +53,10 @@ export function beginScreensaverEntry(): ScreensaverEntry | null {
     exitPending = true;
     const finishBackSurface = beginBackSurfaceTransition();
     // Leave only the state this entry acquired, through the door it entered.
-    exitFullscreenFor('screensaver', target, {
-      exitOrder: 'matching',
-      onSettled: () => {
-        exitPending = false;
-        finishBackSurface();
-        finish();
-      },
+    exitFullscreenFor('screensaver', target, () => {
+      exitPending = false;
+      finishBackSurface();
+      finish();
     });
   };
   const release = (): void => {

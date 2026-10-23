@@ -315,11 +315,27 @@ describe('exit method when only the prefixed element is set and both exits exist
     expect(standard).not.toHaveBeenCalled();
   });
 
-  it('the YouTube player tries the standard exit first [C8-I8 drift pin; C8-I13 flips it]', async () => {
+  it('the YouTube player exits through the same door [C8-I13, owner decision O3]', async () => {
     const { standard, native } = bothExits();
     await youtubeCaller.start(native);
-    expect(standard).toHaveBeenCalledOnce();
-    expect(native.exit).not.toHaveBeenCalled();
+    expect(native.exit).toHaveBeenCalledOnce();
+    expect(standard).not.toHaveBeenCalled();
+  });
+
+  it('both owners use the standard exit while the standard element is set', async () => {
+    for (const caller of [youtubeCaller, screensaverCaller]) {
+      const native = nativeFullscreen('standard');
+      native.exit.mockImplementation(() => {
+        native.change(null);
+        return Promise.resolve();
+      });
+      const prefixed = vi.fn();
+      defineDocument('webkitExitFullscreen', { value: prefixed });
+      await caller.start(native);
+      expect(native.exit).toHaveBeenCalledOnce();
+      expect(prefixed).not.toHaveBeenCalled();
+      entry = null;
+    }
   });
 });
 

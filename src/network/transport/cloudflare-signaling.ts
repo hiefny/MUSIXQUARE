@@ -373,15 +373,15 @@ interface StandardSetupRouteRetryDecision {
  * other reason text is recorded as 'unknown'. Diagnostic only: the expiry and
  * PRO epoch handlers compare their own reasons. signaling-close-reason-parity
  * pins every entry to a 1012 reason the signaling Worker actually sends.
+ * This module is in the eager bundle: the other Standard 1012 reasons
+ * (STANDARD_ROOM_AUTHORITY_STALE, GUEST_AUTH_RETRY_REQUIRED,
+ * SERVICE_MAINTENANCE) measured 79 B gzip, so they stay 'unknown' for now.
  */
 const RECOGNIZED_SIGNALING_CLOSE_REASONS = [
   'ROOM_EXPIRED',
   'PRO_ROOM_EPOCH_ADVANCED',
   'HOST_REPLACED',
   'GUEST_REPLACED',
-  'STANDARD_ROOM_AUTHORITY_STALE',
-  'GUEST_AUTH_RETRY_REQUIRED',
-  'SERVICE_MAINTENANCE',
 ] as const;
 type RecognizedSignalingCloseReason = (typeof RECOGNIZED_SIGNALING_CLOSE_REASONS)[number];
 

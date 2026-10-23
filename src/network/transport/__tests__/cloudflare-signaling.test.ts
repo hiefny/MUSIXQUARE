@@ -6702,15 +6702,11 @@ describe('Cloudflare guest signaling reconnect', () => {
   });
 
   it.each([
-    { code: 1012, reason: 'SERVICE_MAINTENANCE', closeReason: 'SERVICE_MAINTENANCE' },
+    // Real Worker reasons left off the eager allow-list for size stay 'unknown'.
+    { code: 1012, reason: 'SERVICE_MAINTENANCE', closeReason: 'unknown' },
     { code: 1006, reason: '', closeReason: 'unknown' },
     { code: 1006, reason: 'ROOM_EXPIRED', closeReason: 'ROOM_EXPIRED' },
-    // A Standard 1012 reason the Worker sends; formerly recorded as 'unknown'.
-    {
-      code: 1012,
-      reason: 'STANDARD_ROOM_AUTHORITY_STALE',
-      closeReason: 'STANDARD_ROOM_AUTHORITY_STALE',
-    },
+    { code: 1012, reason: 'GUEST_REPLACED', closeReason: 'GUEST_REPLACED' },
     { code: 1012, reason: 'NOT_A_WORKER_REASON', closeReason: 'unknown' },
   ])('keeps ordinary guest recovery for $code/$reason', async ({ code, reason, closeReason }) => {
     const { peer, conn, socket } = await establishGuest();

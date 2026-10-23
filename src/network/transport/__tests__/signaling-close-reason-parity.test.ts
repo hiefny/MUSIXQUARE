@@ -42,9 +42,6 @@ describe('signaling close reason parity', () => {
       'PRO_ROOM_EPOCH_ADVANCED',
       'HOST_REPLACED',
       'GUEST_REPLACED',
-      'STANDARD_ROOM_AUTHORITY_STALE',
-      'GUEST_AUTH_RETRY_REQUIRED',
-      'SERVICE_MAINTENANCE',
     ]);
     expect(new Set(allowList).size).toBe(allowList.length);
     for (const reason of allowList) {
@@ -52,6 +49,15 @@ describe('signaling close reason parity', () => {
     }
     // The renamed PRO reason must not come back into the diagnostic list.
     expect(workerReasons).not.toContain('PRO_COORDINATOR_EPOCH_ADVANCED');
+    // Known Standard 1012 reasons left out only for eager-bundle size; they
+    // remain valid candidates for the list.
+    for (const reason of [
+      'STANDARD_ROOM_AUTHORITY_STALE',
+      'GUEST_AUTH_RETRY_REQUIRED',
+      'SERVICE_MAINTENANCE',
+    ]) {
+      expect(workerReasons).toContain(reason);
+    }
   });
 
   it('keeps the Standard expiry boundary on the reason the Worker sends', () => {

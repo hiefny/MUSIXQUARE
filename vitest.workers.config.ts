@@ -27,6 +27,8 @@ export default defineConfig({
       'src/pro-room/__tests__/pro-room-duration-reads.test.ts',
       // C7-2b drift guard: one owner-transfer saga state list (RO-09).
       'src/core/__tests__/owner-transfer-saga-states.test.ts',
+      // Every authority-fence writer through its real caller (RO-25).
+      'src/core/__tests__/developer-api-authority-fence-sqlite.test.ts',
       'src/core/__tests__/translation-community.test.ts',
       'src/core/__tests__/translation-community-catalog.test.ts',
       'src/core/__tests__/translation-community-route.test.ts',

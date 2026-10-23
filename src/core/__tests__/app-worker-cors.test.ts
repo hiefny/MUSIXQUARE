@@ -12360,6 +12360,9 @@ describe('Cloudflare app worker PRO room facade', () => {
     let abortBatches = 0;
     let revokeBatches = 0;
     let terminalBatches = 0;
+    // The owner-transfer entitlement identity each abort batch binds (plan
+    // step C7-8 names it once): the saga's ids and the sweep time.
+    const abortBindings: unknown[][] = [];
 
     const db = {
       prepare: vi.fn((sql: string) => {
@@ -12442,6 +12445,7 @@ describe('Cloudflare app worker PRO room facade', () => {
         async (
           statements: Array<{
             sql: string;
+            values?: unknown[];
             run: () => Promise<unknown>;
           }>,
         ) => {
@@ -12456,6 +12460,7 @@ describe('Cloudflare app worker PRO room facade', () => {
             revokeBatches += 1;
           } else {
             abortBatches += 1;
+            for (const statement of statements) abortBindings.push(statement.values ?? []);
           }
           const results = [];
           for (const statement of statements) results.push(await statement.run());
@@ -12540,6 +12545,13 @@ describe('Cloudflare app worker PRO room facade', () => {
       revokeBatches: 2,
       terminalBatches: 2,
     });
+    const abortIdentity = [saga.target_account_id, roomCode, roomGeneration, saga.request_id];
+    expect(abortBindings).toEqual([
+      [...abortIdentity, nowMs + 2],
+      [...abortIdentity, nowMs + 2],
+      [...abortIdentity, nowMs + 3],
+      [...abortIdentity, nowMs + 3],
+    ]);
     await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 4)).resolves.toBe(0);
     expect({ abortBatches, revokeBatches, terminalBatches }).toEqual({
       abortBatches: 2,

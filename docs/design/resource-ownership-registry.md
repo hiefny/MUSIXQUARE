@@ -898,10 +898,13 @@ RO-47 owner-in-place
 - **Lifecycle operations:** start and cancel grace, ICE restart, background probe, terminate.
 - **Deadline owner:** the original PC's 15 s grace; the side route's 15 s window capped at 30 s,
   deferred while the original is down; the probe's short close.
-- **Timing-constant home:** `DATA_CONNECTION_DISCONNECTED_GRACE_MS` (`cloudflare-signaling.ts`)
-  repeated as `DISCONNECTED_MS` and `RESTART_WINDOW_MS` (`control-isolation.ts`) and as a literal
-  in `src/network/heartbeat-monitor.ts`; `RESTART_CAP_MS` is twice the grace. Target:
-  `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 0d, C5-1).
+- **Timing-constant home:** `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 4,
+  C5-1): the original PC's grace, its background-resume threshold and restart answer wait
+  (`cloudflare-signaling.ts`), the side PC's grace without restart capability
+  (`control-isolation.ts`) and the heartbeat monitor's lease cap (RO-17).
+  `control-isolation.ts` keeps `RESTART_WINDOW_MS` (15 s) and `RESTART_CAP_MS` (30 s) as its own
+  literals: they also bound peer restart requests and offers, which the two ends enforce on each
+  other across builds, so a change to the grace must not move them (RO-35).
 - **Anchor tests:**
   - Supersession: `src/network/transport/__tests__/cloudflare-signaling.test.ts` "rolls an
     unanswered restart back if the old path recovers before its answer".
@@ -914,8 +917,9 @@ RO-47 owner-in-place
   - Mixed versions: `control-isolation.test.ts` with the frozen fixture
     `src/network/transport/__tests__/fixtures/control-isolation-c9.ts`. A Wi-Fi to LTE switch with
     both PCs is device-only.
-- **Status:** `duplicated`. Phase 0d (grace constant), Phase 4 (close causes, link-liveness
-  owner). See [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md).
+- **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1); Phase 4 still owes the close
+  causes and the link-liveness owner. See
+  [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md).
   Exception RO-35.
 
 ### RO-16 Data-PC SDP lane
@@ -960,9 +964,9 @@ RO-47 owner-in-place
 - **Lifecycle operations:** record heartbeat, detach, close, publish disconnect.
 - **Deadline owner:** the monitor's stale thresholds (8 s closed, 30 s recovering, 90 s connected)
   and the transport's recovery deadline.
-- **Timing-constant home:** `HEARTBEAT_RECOVERING_TRANSPORT_GRACE` (a different contract that
-  shares 30 s) and the `15_000` literal copy of the transport grace in `heartbeat-monitor.ts`.
-  Target: import the transport grace constant (Phase 0d).
+- **Timing-constant home:** `HEARTBEAT_RECOVERING_TRANSPORT_GRACE` in `heartbeat-monitor.ts` (a
+  different contract that shares 30 s); the lease cap imports the transport grace
+  `RTC_INTERRUPTION_GRACE_MS` from `src/core/constants.ts` (Phase 4, C5-1).
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/heartbeat-monitor.test.ts` "records heartbeat only for the
     exact connected connection".
@@ -1727,8 +1731,10 @@ entry needs the owner's acceptance and is not implied by this registry.
 ### RO-35 Side-route outage deadline stays in control isolation
 
 - **Parent:** RO-15. Plan step C5-9 deferred.
-- **Exception:** `control-isolation.ts` keeps its own side-route outage deadline and 15 s and 30 s
-  constants (derived from the shared grace after Phase 0d).
+- **Exception:** `control-isolation.ts` keeps its own side-route outage deadline. Its grace without
+  restart capability is the shared `RTC_INTERRUPTION_GRACE_MS`; its 15 s `RESTART_WINDOW_MS` and
+  30 s `RESTART_CAP_MS` stay its own literals because they also bound the restart requests and
+  offers that the two ends, possibly on different builds, enforce on each other (Phase 4, C5-1).
 - **Evidence:** the side route's ICE restart is still under
   [known-accepted #18](../known-accepted.md), awaiting the owner's real-device Wi-Fi to LTE check;
   the same timer also governs active routes to peers without restart capability.
@@ -2011,7 +2017,7 @@ Not checked yet: callers of the other records' lifecycle operations (YouTube pla
 `claimPlaybackOwner`, `setSystemAudioReceiving`), receivers resolved by
 type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
 duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
-in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`), and header loader
+in requester files, and header loader
 holder IDs read from a property, a call or another module (RO-47). Until then, review those by
 hand against each record.
 

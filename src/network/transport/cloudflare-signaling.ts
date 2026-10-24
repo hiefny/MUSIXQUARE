@@ -1,5 +1,5 @@
 import { log } from '../../core/log.ts';
-import { CHUNK_SIZE, MSG } from '../../core/constants.ts';
+import { CHUNK_SIZE, MSG, RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { withRequestDeadline } from '../../core/request-lifetime.ts';
 import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
@@ -954,7 +954,6 @@ function isBenignDataChannelCloseError(event: Event): boolean {
 
 let cloudflareDataConnectionSequence = 0;
 
-const DATA_CONNECTION_DISCONNECTED_GRACE_MS = 15_000;
 const BACKGROUND_RESUME_DISCONNECTED_PROBE_MS = 1_000;
 const BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS = 3_000;
 
@@ -1237,7 +1236,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       this.closed ||
       !this.open ||
       !Number.isFinite(hiddenMs) ||
-      hiddenMs < DATA_CONNECTION_DISCONNECTED_GRACE_MS
+      hiddenMs < RTC_INTERRUPTION_GRACE_MS
     ) {
       return 'not-applicable';
     }
@@ -1391,14 +1390,14 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
 
   private scheduleDisconnectedGrace(pc: RTCPeerConnection): void {
     if (this.closed || getManagedTimer(this.disconnectedGraceTimerKey) !== null) return;
-    this.recoveryDeadline = Date.now() + DATA_CONNECTION_DISCONNECTED_GRACE_MS;
+    this.recoveryDeadline = Date.now() + RTC_INTERRUPTION_GRACE_MS;
     setManagedTimer(
       this.disconnectedGraceTimerKey,
       () => {
         if (pc !== this.peerConnection || pc.connectionState === 'connected') return;
         this.terminate();
       },
-      DATA_CONNECTION_DISCONNECTED_GRACE_MS,
+      RTC_INTERRUPTION_GRACE_MS,
     );
   }
 
@@ -2402,7 +2401,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.hostRoomId !== null ||
       this.proSignalingAccess ||
       !Number.isFinite(hiddenMs) ||
-      hiddenMs < DATA_CONNECTION_DISCONNECTED_GRACE_MS
+      hiddenMs < RTC_INTERRUPTION_GRACE_MS
     ) {
       return { status: 'not-applicable' };
     }
@@ -4661,11 +4660,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (isCurrent() && restart.negotiation) {
         // Release the lane while awaiting the answer so a crossing host media
         // offer can roll this exact offer back (the guest is the polite side).
-        await this.waitForStableSignaling(
-          pc,
-          controller.signal,
-          DATA_CONNECTION_DISCONNECTED_GRACE_MS,
-        );
+        await this.waitForStableSignaling(pc, controller.signal, RTC_INTERRUPTION_GRACE_MS);
       }
     };
     void perform()

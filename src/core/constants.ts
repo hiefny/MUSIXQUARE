@@ -91,6 +91,12 @@ export const SYSTEM_AUDIO_SHARE_LIMIT_MS = 2 * 60 * 60 * 1000;
  *  dialog appear in an otherwise direct-transfer room. */
 export const WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST = 9;
 export const PEER_NAME_PREFIX = 'Peer';
+/** One RTC interruption's non-renewing grace: the original data PC's
+ *  disconnected grace and the longest ICE recovery lease the host heartbeat
+ *  monitor honours. A side control PC without ICE restart gets the same grace;
+ *  the side-route request and offer windows, which the two ends enforce on
+ *  each other, stay their own literals in control-isolation.ts. */
+export const RTC_INTERRUPTION_GRACE_MS = 15_000;
 
 // ─── Chat Wire Caps ────────────────────────────────────────────────
 // Cross-client WIRE CONTRACT — keep bit-identical across releases (deployed

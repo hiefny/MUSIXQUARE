@@ -332,6 +332,7 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   {
     records: ['RO-15', 'RO-17'],
     files: [
+      'src/core/constants.ts',
       'src/network/transport/cloudflare-signaling.ts',
       'src/network/transport/control-isolation.ts',
       'src/network/heartbeat-monitor.ts',

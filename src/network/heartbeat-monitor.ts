@@ -7,6 +7,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { RTC_INTERRUPTION_GRACE_MS } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -110,7 +111,7 @@ function syncHeartbeatMonitor(): void {
         if (
           conn?.open &&
           recoveryRemaining > 0 &&
-          recoveryRemaining <= 15_000 &&
+          recoveryRemaining <= RTC_INTERRUPTION_GRACE_MS &&
           conn.dataChannel?.readyState === 'open' &&
           conn.controlChannel?.readyState === 'open'
         ) {

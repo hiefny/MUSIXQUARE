@@ -118,8 +118,9 @@ fences late results. This follows the provider's
 continuous relay allocation survival over a physical 48-hour session is a
 separate manual verification item, not a claim established by fake-clock tests.
 
-One interruption has a non-renewing 15-second transport grace. The host heartbeat monitor
-respects this exact provider-owned deadline only while both channels are still open, so its
+One interruption has a non-renewing 15-second transport grace (`RTC_INTERRUPTION_GRACE_MS` in
+`src/core/constants.ts`). The host heartbeat monitor respects this exact provider-owned deadline
+only while both channels are still open, so its
 ordinary failed-ICE threshold cannot prematurely consume the recovery window. Expired grace
 or closed channels still terminate the connection. A recovered path or selected-candidate-pair
 change invalidates the old local/remote classification before an asynchronous recheck, with

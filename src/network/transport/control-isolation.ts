@@ -3,6 +3,7 @@
  * Its signaling travels over that connection's original authenticated channel;
  * it never enters the room membership/signaling negotiation namespace.
  */
+import { RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
 import { log } from '../../core/log.ts';
 
 const TYPE = 'mxqr-control-isolation';
@@ -10,13 +11,15 @@ const LABEL = 'musixquare-control-isolated'; // brand-capitalization: allow-tech
 const NONCE = /^[a-f0-9]{32}$/u;
 const DISCOVERY_MS = 1_000;
 const NEGOTIATION_MS = 10_000;
-const DISCONNECTED_MS = 15_000;
 // A restart-capable side route survives an ICE interruption by restarting ICE
 // on the same PC: DTLS/SCTP and its ordered channel remain, so queued and
 // in-flight controls keep their order. Each local interruption gets the
 // original PC's 15-second grace, extended to 15 seconds after the original
 // route recovers when that route was itself unavailable, never beyond 30.
 // Monotonic time keeps a wall-clock correction from moving these deadlines.
+// These two windows also bound peer restart requests and offers, which the
+// two ends, possibly on different builds, enforce on each other: they stay
+// literals rather than follow RTC_INTERRUPTION_GRACE_MS.
 const RESTART_WINDOW_MS = 15_000;
 const RESTART_CAP_MS = 30_000;
 // Per local interruption, and separately per window of peer requests.
@@ -496,7 +499,7 @@ export class ControlIsolation {
         this.disconnectedTimer = setTimeout(() => {
           this.disconnectedTimer = null;
           if (this.current(pc) && pc.connectionState !== 'connected') this.setupFailed();
-        }, DISCONNECTED_MS);
+        }, RTC_INTERRUPTION_GRACE_MS);
       } else if (pc.connectionState === 'connected' && this.disconnectedTimer !== null) {
         clearTimeout(this.disconnectedTimer);
         this.disconnectedTimer = null;

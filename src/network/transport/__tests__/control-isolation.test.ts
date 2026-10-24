@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RTC_INTERRUPTION_GRACE_MS } from '../../../core/constants.ts';
 import { ControlIsolation, type IsolatedControlLease } from '../control-isolation.ts';
 import { ControlIsolation as C9ControlIsolation } from './fixtures/control-isolation-c9.ts';
 import controlIsolationSource from '../control-isolation.ts?raw';
@@ -1373,7 +1374,11 @@ describe('side ICE restart of an active isolated control route', () => {
   });
 });
 
-describe('side-route windows a peer enforces', () => {
+describe('RTC interruption grace and the side-route windows a peer enforces', () => {
+  it('keeps one 15 s grace for an interrupted RTC route', () => {
+    expect(RTC_INTERRUPTION_GRACE_MS).toBe(15_000);
+  });
+
   // These windows bound restart requests and offers between the two ends,
   // which may run different builds (known-accepted #13: no version admission),
   // so they stay their own literals instead of following the RTC grace.

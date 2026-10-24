@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /** A fresh page: the module keeps this page's last close in memory only. */
 async function loadPage() {
@@ -54,6 +54,58 @@ describe("the guest's last close across its disconnect reload (P4-D5 B)", () => 
     // Logging without removing would repeat the line on every later page.
     expect(page.info).not.toHaveBeenCalled();
     expect(sessionStorage.getItem('mxqr-prev-close')).toBe('channel-closed 1792897445678');
+  });
+
+  describe('at the production log level', () => {
+    // Production logs at WARN. Info is on only through ?mxqrLog=info,
+    // ?logLevel or localStorage 'mxqr:logLevel'. A joined guest's address
+    // becomes '/', so the page after its disconnect reload logs at WARN; the
+    // owner's procedure (Rule R) then opens /<code>?mxqrLog=info in the same tab.
+    const KEPT = 'peer-left 1792897445678'; // 2026-10-25 03:04:05.678 UTC
+    const LINE = '[Transport] Previous page closed (peer-left) at 03:04:05 UTC';
+
+    /** A fresh page at `path`, with the real log level gate in front of console.info. */
+    async function loadProductionPage(path: string) {
+      history.replaceState(null, '', path);
+      vi.resetModules();
+      return import('../last-link-close.ts');
+    }
+
+    beforeEach(() => {
+      vi.stubEnv('PROD', true);
+      localStorage.clear();
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+      localStorage.clear();
+      history.replaceState(null, '', '/');
+    });
+
+    it('leaves the kept close on a page that logs no info lines, for the next page that does', async () => {
+      sessionStorage.setItem('mxqr-prev-close', KEPT);
+      const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+      (await loadProductionPage('/')).reportPreviousPageClose();
+      expect(consoleInfo).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem('mxqr-prev-close')).toBe(KEPT);
+
+      const ruleR = await loadProductionPage('/123456?mxqrLog=info');
+      ruleR.reportPreviousPageClose();
+      ruleR.reportPreviousPageClose();
+      expect(consoleInfo.mock.calls).toEqual([[LINE]]);
+      expect(sessionStorage.getItem('mxqr-prev-close')).toBeNull();
+    });
+
+    it('logs the kept close at once when the tab stores the info level', async () => {
+      sessionStorage.setItem('mxqr-prev-close', KEPT);
+      localStorage.setItem('mxqr:logLevel', 'info');
+      const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+      (await loadProductionPage('/')).reportPreviousPageClose();
+      expect(consoleInfo.mock.calls).toEqual([[LINE]]);
+      expect(sessionStorage.getItem('mxqr-prev-close')).toBeNull();
+    });
   });
 
   it.each([

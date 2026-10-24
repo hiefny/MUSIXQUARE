@@ -11,6 +11,7 @@ import {
   CloudflareSignalingPeer,
 } from '../cloudflare-signaling.ts';
 import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
+import { keepLinkCloseForNextPage } from '../../last-link-close.ts';
 
 const originalWebSocket = globalThis.WebSocket;
 const DATA_CONNECTION_DISCONNECTED_GRACE_MS = 15_000;
@@ -8233,6 +8234,28 @@ describe('logical connection close paths', () => {
     await vi.advanceTimersByTimeAsync(DATA_CONNECTION_DISCONNECTED_GRACE_MS);
     expectClosedOnce(link);
     expect(closeLines()).toEqual(['[Transport] Logical connection closed (peer-left) for guest-1']);
+  });
+
+  it("keeps the logged first cause for the guest's next page, not a cause that re-enters", async () => {
+    sessionStorage.removeItem('mxqr-prev-close');
+    const link = await openLink();
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 3, 4, 5, 678));
+    // Disposal closes both channels, whose close events re-enter terminate()
+    // as channel-closed; the later closes name other causes.
+    link.conn.close('peer-left');
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 3, 4, 9));
+    link.conn.close('leave');
+    link.bulk.dispatch('close');
+    link.pc.dispatch('connectionstatechange');
+    keepLinkCloseForNextPage();
+    try {
+      expect(closeLines()).toEqual([
+        '[Transport] Logical connection closed (peer-left) for guest-1',
+      ]);
+      expect(sessionStorage.getItem('mxqr-prev-close')).toBe('peer-left 1792897445678');
+    } finally {
+      sessionStorage.removeItem('mxqr-prev-close');
+    }
   });
 });
 

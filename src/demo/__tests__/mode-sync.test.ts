@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import {
@@ -143,6 +143,29 @@ describe('demo playback sync bootstrap', () => {
 
     await vi.advanceTimersByTimeAsync(250);
 
+    expect(immediateSync).toHaveBeenCalledOnce();
+  });
+
+  it('asks the host for an immediate sync 250 ms after a guest demo start', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    const immediateSync = vi.fn();
+    bus.on('sync:request-immediate-ping', immediateSync);
+
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    setState('demo.active', true);
+
+    await handleData(
+      { type: MSG.DEMO_PLAY, index: 0, time: 42, hostStartAt: 10_200, hostPlayAt: 10_550 },
+      hostConn,
+    );
+
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('demo-play-host-sync')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(249);
+    expect(immediateSync).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
     expect(immediateSync).toHaveBeenCalledOnce();
   });
 

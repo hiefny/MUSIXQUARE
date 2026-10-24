@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getPendingDemoHostStartAt, setDemoHostStartAt } from '../host-start-anchor.ts';
-import { projectDemoPlay } from '../playback-timing.ts';
+import {
+  LEGACY_FILE_SCHEDULE_AHEAD_MS,
+  LOCAL_FILE_START_LEAD_MS,
+} from '../../player/file-play-timing.ts';
+import {
+  DEMO_PLAY_SCHEDULE_AHEAD_MS,
+  DEMO_PLAY_START_LEAD_MS,
+  projectDemoPlay,
+} from '../playback-timing.ts';
 
 afterEach(() => {
   setDemoHostStartAt(null);
@@ -30,6 +38,52 @@ describe('demo shared-start timing', () => {
       expect(projected.ended).toBe(ended);
     },
   );
+
+  it.each([
+    { hostNow: 8_201, position: 5, delay: 1.999 },
+    { hostNow: 8_200, position: 5, delay: 0.2 },
+    { hostNow: 12_200, position: 7, delay: 0 },
+  ])(
+    'trusts a shared demo start up to 2 s ahead and any time behind (host $hostNow)',
+    ({ hostNow, position, delay }) => {
+      const projected = projectDemoPlay(
+        { time: 5, hostStartAt: 10_200, hostPlayAt: 10_550, receivedAt: 1_000 },
+        1_000,
+        hostNow,
+        600,
+      );
+      expect(projected.position).toBeCloseTo(position, 6);
+      expect(projected.delay).toBeCloseTo(delay, 6);
+      expect(projected.ended).toBe(false);
+    },
+  );
+
+  it.each([
+    { hostNow: 8_351, position: 5.35, delay: 1.999 },
+    { hostNow: 8_350, position: 5, delay: 0 },
+    { hostNow: 12_350, position: 7.35, delay: 0 },
+  ])(
+    'applies the same one-sided window to an older demo host (host $hostNow)',
+    ({ hostNow, position, delay }) => {
+      const projected = projectDemoPlay(
+        { time: 5, hostPlayAt: 10_350, receivedAt: 1_000 },
+        1_000,
+        hostNow,
+        600,
+      );
+      expect(projected.position).toBeCloseTo(position, 6);
+      expect(projected.delay).toBeCloseTo(delay, 6);
+      expect(projected.ended).toBe(false);
+    },
+  );
+
+  it('shares the 200 ms start lead with local files but keeps each legacy wire lead', () => {
+    expect(DEMO_PLAY_START_LEAD_MS).toBe(200);
+    expect(LOCAL_FILE_START_LEAD_MS).toBe(200);
+    // Older receivers read hostPlayAt with these leads; they differ on purpose.
+    expect(LEGACY_FILE_SCHEDULE_AHEAD_MS).toBe(200);
+    expect(DEMO_PLAY_SCHEDULE_AHEAD_MS).toBe(350);
+  });
 
   it('keeps the historical 350ms meaning for older demo hosts', () => {
     expect(

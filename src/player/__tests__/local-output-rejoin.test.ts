@@ -818,6 +818,35 @@ describe('participant-local output rejoin', () => {
     vi.useRealTimers();
   });
 
+  it('spaces repeated PRO reconciliation misses on the bounded re-align schedule', async () => {
+    vi.useFakeTimers();
+    mocks.reconcilePro.mockResolvedValue(false);
+    startSession();
+    setProRoom();
+    setPlaybackFilePaused();
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'media-session-play',
+      mode: 'file',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(1);
+
+    for (const [index, delayMs] of [250, 750, 1_500, 3_000, 5_000].entries()) {
+      await vi.advanceTimersByTimeAsync(delayMs - 1);
+      expect(mocks.reconcilePro).toHaveBeenCalledTimes(index + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mocks.reconcilePro).toHaveBeenCalledTimes(index + 2);
+    }
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // The first attempt plus five bounded retries.
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(6);
+    expect(isLocalFilePaused()).toBe(true);
+    vi.useRealTimers();
+  });
+
   it('restores and retries the exact current A after a transient PRO rejection', async () => {
     vi.useFakeTimers();
     mocks.reconcilePro.mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce(true);

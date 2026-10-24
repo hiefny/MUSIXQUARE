@@ -502,6 +502,46 @@ describe('guest file finalization sync', () => {
     },
   );
 
+  it.each([
+    { route: 'preload', timer: 'playback-preload-host-sync' },
+    { route: 'transfer', timer: 'playback-finalize-host-sync' },
+  ])(
+    'asks for an immediate host sync 250 ms after a $route start begins',
+    async ({ route, timer }) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1050);
+      setCurrentAudioBuffer(null);
+      setState('network.hostConn', makeConnection('host-1'));
+      const file = new File([new Uint8Array([1, 2, 3])], 'host-sync.mp3', {
+        type: 'audio/mpeg',
+      });
+      const item = makeFileTrack(file);
+      setState('playlist.items', [item]);
+      setCurrentIndex(0);
+      if (route === 'preload') stagePreload(item, file);
+      else stageMainTransfer(item, file, 7);
+      setPendingPlayTime(0, 1200);
+      const syncRequest = vi.fn();
+      bus.on('sync:request-immediate-ping', syncRequest);
+
+      const { finalizeGuestFile, loadPreloadedTrack } = await import('../decode.ts');
+      const { play } = await import('../transport.ts');
+      vi.mocked(play).mockImplementationOnce(async () => {
+        setState('playback.mode', 'file');
+        setState('playback.activity', 'playing');
+        return true;
+      });
+      if (route === 'preload') await loadPreloadedTrack(item.queueItemId);
+      else await finalizeGuestFile(file, item.queueItemId, 7);
+
+      expect(getManagedTimer(timer)).not.toBeNull();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(syncRequest).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(syncRequest).toHaveBeenCalledOnce();
+    },
+  );
+
   it('treats a user file matching a demo filename as ordinary audio without time wrapping', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-31T00:00:05.000Z'));

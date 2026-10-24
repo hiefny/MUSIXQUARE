@@ -12,6 +12,7 @@ import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import { LOCAL_OUTPUT_REALIGN_RETRY_MS } from '../youtube/constants.ts';
 import { guestRendezvousSync } from '../youtube/sync.ts';
 import { isLocalYouTubePaused, setLocalYouTubePaused } from '../youtube/_state.ts';
 import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
@@ -24,7 +25,6 @@ import {
 
 const SUCCESS_COOLDOWN_MS = 400;
 const RETRY_TIMER = 'local-output-rejoin-retry';
-const REJOIN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 
 interface RejoinRequestPayload {
   reason:
@@ -188,8 +188,8 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
       if (!reconciled && wasLocallyPaused) setLocalPause(mode, true);
       return {
         rejoined: reconciled,
-        ...(!reconciled && request.retryAttempt < REJOIN_RETRY_MS.length
-          ? { retryAfterMs: REJOIN_RETRY_MS[request.retryAttempt] }
+        ...(!reconciled && request.retryAttempt < LOCAL_OUTPUT_REALIGN_RETRY_MS.length
+          ? { retryAfterMs: LOCAL_OUTPUT_REALIGN_RETRY_MS[request.retryAttempt] }
           : {}),
       };
     } catch (error) {
@@ -350,9 +350,9 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
       if (
         requestStillCurrent(request) &&
         request.identity.roomKind === 'pro' &&
-        request.retryAttempt < REJOIN_RETRY_MS.length
+        request.retryAttempt < LOCAL_OUTPUT_REALIGN_RETRY_MS.length
       ) {
-        scheduleRetry(request, REJOIN_RETRY_MS[request.retryAttempt]!);
+        scheduleRetry(request, LOCAL_OUTPUT_REALIGN_RETRY_MS[request.retryAttempt]!);
       }
       return false;
     })

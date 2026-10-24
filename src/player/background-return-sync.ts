@@ -49,6 +49,7 @@ import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import type { TransportBackgroundRecoveryResult } from '../network/transport/types.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import { LOCAL_OUTPUT_REALIGN_RETRY_MS } from '../youtube/constants.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { isYouTubeZeroStartSyncOwned } from '../youtube/zero-start-ownership.ts';
 import { getCurrentAudioBuffer } from './_state.ts';
@@ -56,8 +57,6 @@ import { isPlaybackModeFile, isPlaybackModeYouTube } from './ownership.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
 import { isFilePipelineBusyForPlay } from './transport.ts';
 
-/** Same bounded schedule as the local-output rejoin router. */
-const RENDEZVOUS_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 const RENDEZVOUS_RETRY_TIMER = 'background-return-sync-rendezvous-retry';
 
 type BackgroundReturnSyncAction =
@@ -138,7 +137,7 @@ function attemptGuestRendezvous(
   ) {
     return;
   }
-  const scheduledDelay = RENDEZVOUS_RETRY_MS[attempt];
+  const scheduledDelay = LOCAL_OUTPUT_REALIGN_RETRY_MS[attempt];
   if (scheduledDelay === undefined) {
     log.info('[BackgroundReturnSync] Guest rendezvous retries exhausted', {
       status: result.status,

@@ -88,7 +88,7 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
-**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks.
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments), and 4B goes out no earlier than 7 days after 4A.
 
 ## Index
 
@@ -98,21 +98,21 @@ each record also states the step in words.
 | RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6                        |
 | RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6                        |
 | RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5       |
-| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 0d, 4                        |
-| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 0d, 4                        |
+| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-48   |
+| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-49   |
 | RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                 |
 | RO-08 | PRO asset duration read                                  | Workers        | owner-in-place     | Done (0d, 1)                 |
 | RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                         |
-| RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | 4 (naming only)              |
+| RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | Done (4, C13 docs)           |
 | RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)             |
 | RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                            |
 | RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                         |
 | RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                         |
-| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 0d, 4                        |
+| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (constants done, C5-1)     |
 | RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | 4 (restart gate only)        |
-| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 0d, 4                        |
-| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 0d, 4                        |
-| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | 0d (deadline table)          |
+| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (constants done, C5-1)     |
+| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (constants done, C5-3)     |
+| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)               |
 | RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                         |
 | RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | Owner decision               |
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                        |
@@ -122,7 +122,7 @@ each record also states the step in words.
 | RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision   |
 | RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                     |
 | RO-28 | Account session reads and refresh pulses                 | Account        | owner-in-place     | Done (2)                     |
-| RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | 0d (copy triage)             |
+| RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | Done (4, C5-2)               |
 | RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | Done (2, C6-12)              |
 | RO-31 | Presence delivery does not re-arm the playback outbox    | Workers        | accepted-exception | Revisit on EPOCH_STALE logs  |
 | RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect |
@@ -140,6 +140,8 @@ each record also states the step in words.
 | RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round  |
 | RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision               |
 | RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                     |
+| RO-48 | Guest YouTube re-align lanes stay two                    | Output rejoin  | accepted-exception | Revisit with device evidence |
+| RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect  |
 
 ## Machine-readable ID list
 
@@ -203,6 +205,8 @@ RO-44 accepted-exception
 RO-45 accepted-exception
 RO-46 accepted-exception
 RO-47 owner-in-place
+RO-48 accepted-exception
+RO-49 accepted-exception
 ```
 
 ## Resource records
@@ -407,10 +411,10 @@ RO-47 owner-in-place
 
 - **Resource:** a Standard guest's iframe re-alignment through `guestRendezvousSync`
   (`src/youtube/sync.ts`: pause, seek, `playVideo`).
-- **Current owners/flows:** the rejoin router (`src/player/local-output-rejoin.ts`,
-  `REJOIN_RETRY_MS`, timer `local-output-rejoin-retry`; mainly lock-screen or OS PLAY) and the
-  background-return chain (`src/player/background-return-sync.ts`, `rendezvousChain`,
-  `RENDEZVOUS_RETRY_MS`, timer `background-return-sync-rendezvous-retry`). Both use
+- **Current owners/flows:** the rejoin router (`src/player/local-output-rejoin.ts`, timer
+  `local-output-rejoin-retry`; mainly lock-screen or OS PLAY) and the background-return chain
+  (`src/player/background-return-sync.ts`, `rendezvousChain`, timer
+  `background-return-sync-rendezvous-retry`). Both space their retries with one schedule,
   `[250, 750, 1_500, 3_000, 5_000]`, each cancels only itself, and their only shared guard is the
   rendezvous busy and cooldown result. Since 9.0.1 both end on `youtube:set-local-paused` (G2).
   Single-shot callers: `src/youtube/iframe.ts`, `src/ui/manual-sync-overlay-runtime.ts` and the
@@ -423,8 +427,11 @@ RO-47 owner-in-place
 - **Lifecycle operations:** start a chain, retry on `busy`, wait for a host snapshot, retire on a
   new return, a local pause or an identity change.
 - **Deadline owner:** each chain's retry timer; the rendezvous cooldown in `youtube/sync.ts`.
-- **Timing-constant home:** two copies (`REJOIN_RETRY_MS`, `RENDEZVOUS_RETRY_MS`). Target: export
-  from `local-output-rejoin.ts` and import it (Phase 0d, C3-I1).
+- **Timing-constant home:** `LOCAL_OUTPUT_REALIGN_RETRY_MS` in `src/youtube/constants.ts`, which
+  both chains import (Phase 4 4A, C3-I1); the rendezvous busy retry `MANUAL_RENDEZVOUS_RETRY_MS`
+  and cooldown `RENDEZVOUS_COOLDOWN_MS` live beside it. The schedule sits in that startup leaf
+  rather than in either lazy chain module: a lazy leaf of its own became an extra chunk whose
+  preload entries grew the eager graph.
 - **Anchor tests:**
   - Supersession: `src/player/__tests__/background-return-sync.test.ts` "replaces the previous
     return retry chain instead of stacking a second one"; `local-output-rejoin.test.ts` "drops a
@@ -436,9 +443,14 @@ RO-47 owner-in-place
     restarted session".
   - Visibility: `background-return-sync.test.ts` "ignores a sub-second visibility bounce that is
     not a background return".
-  - Missing: both chains against the real `youtube/sync.ts`; both suites mock it.
-- **Status:** `duplicated`. Phase 0d (one schedule), Phase 4 (one pause rule; the return chain
-  moves into the router only if the owner approves coalescing the lanes).
+  - Both chains against the real `youtube/sync.ts` (Phase 4 4A, tests only):
+    `src/player/__tests__/local-output-realign-cross-flow.test.ts`, the P4-D7 and P4-D8 cases.
+    The two unit suites above still mock it.
+- **Status:** `duplicated`. One schedule since Phase 4 4A (C3-I1); both chains already end on the
+  same local pause (G2). Owner decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3
+  and C3-I4 are not done), and the double alignment after a quick unlock and the return chain's
+  give-up while the host is buffering stay as the cross-flow harness pins them. The owner is
+  asked again only if device evidence shows either one disturbing playback. Exception RO-48.
 
 ### RO-06 Host shared start, playlist queue and guided demo
 
@@ -447,8 +459,9 @@ RO-47 owner-in-place
 - **Current owners/flows:** the queue anchor (`armStandardHostCanonicalTimeline`,
   `getStandardHostPendingFileStartAt`, published by `startHostFileAndBroadcastPlay` in
   `src/player/transport.ts`) and the demo anchor (`setDemoHostStartAt`,
-  `getPendingDemoHostStartAt` in `src/demo/playback-timing.ts`; `startDemoPlayback` in
-  `src/demo/mode.ts`). The modes are mutually exclusive and other modules branch on `demo.active`.
+  `getPendingDemoHostStartAt` in `src/demo/host-start-anchor.ts`, a leaf the startup graph can
+  read without the lazy demo timing module; `startDemoPlayback` in `src/demo/mode.ts`). The modes
+  are mutually exclusive and other modules branch on `demo.active`.
   The queue anchor validates its output identity; the demo anchor only checks that it lies in the
   future, and only demo code clears it.
 - **Target single owner:** `transport.ts`: one pending shared-start anchor for both kinds,
@@ -459,11 +472,15 @@ RO-47 owner-in-place
 - **Lifecycle operations:** arm the anchor, start the source, publish once (including
   `onRecoveredStarted`), clear on pause, stop or exit.
 - **Deadline owner:** the anchor timestamp in each module.
-- **Timing-constant home:** `LOCAL_FILE_START_LEAD_MS` (`src/player/file-play-timing.ts`) and
-  `DEMO_PLAY_START_LEAD_MS` (`playback-timing.ts`), both 200 ms, plus inline 2 s timeline trust
-  windows. The legacy wire leads (200 ms for PLAY, 350 ms `DEMO_PLAY_SCHEDULE_AHEAD_MS`) differ on
-  purpose for older receivers and stay separate. Target: one lead in `file-play-timing.ts`
-  (Phase 0d, C3-I1).
+- **Timing-constant home:** `src/player/file-play-timing.ts`: the 200 ms shared start lead
+  `LOCAL_FILE_START_LEAD_MS` (`DEMO_PLAY_START_LEAD_MS` in the lazy `src/demo/playback-timing.ts`
+  aliases it), the 2 s `HOST_TIMELINE_TRUST_WINDOW_MS` (the file check is two-sided, the demo
+  projection bounds only deadlines ahead) and the guests' 250 ms post-start sync ping
+  `GUEST_START_SYNC_PING_DELAY_MS` (timers `playback-preload-host-sync`,
+  `playback-finalize-host-sync`, `demo-play-host-sync`), all since Phase 4 4A (C3-I1). The legacy
+  wire leads (200 ms `LEGACY_FILE_SCHEDULE_AHEAD_MS` for PLAY, 350 ms
+  `DEMO_PLAY_SCHEDULE_AHEAD_MS` for DEMO_PLAY) differ on purpose for older receivers and stay
+  separate.
 - **Anchor tests:**
   - Supersession: `src/demo/__tests__/mode.test.ts` "does not restore stale media over a local file
     load started during exit".
@@ -473,9 +490,17 @@ RO-47 owner-in-place
   - Teardown: `src/demo/__tests__/mode-recovery.test.ts` "does not retry an aborted guest fetch
     after exit".
   - Visibility: missing.
-- **Status:** `duplicated` (mutually exclusive modes). Phase 0d (one lead), Phase 4 (one anchor
-  after the anchor investigation; one start-and-publish-once primitive). See
+  - Both anchors together (Phase 4 4A, tests only): `src/demo/__tests__/shared-start-anchor.test.ts`
+    (P4-D9).
+- **Status:** `duplicated` (mutually exclusive modes). One lead since Phase 4 4A (C3-I1). The
+  anchor investigation is done (owner decision P4-D9 A, tests only): DEMO_PLAY, SYNC_PONG and the
+  late-join demo bootstrap carry the same demo start, and no frame reads the queue anchor while
+  the demo runs. When a queue item was selected before demo entry, demo playback still arms that
+  item's queue anchor and its canonical timeline governs the demo host's reported position; whether
+  that is a defect is not decided. One anchor (C3-I8) and one start-and-publish-once primitive
+  (C3-I7) are deferred; only a narrow fix of a confirmed problem may go to train 4B. See
   [Standard file common start](standard-file-common-start.md) for the intended separate demo path.
+  Exception RO-49.
 
 ### RO-07 PRO signaling broadcast delivery
 
@@ -730,8 +755,10 @@ RO-47 owner-in-place
   pause flag that `media-session.ts` and `playback.ts` write. `app.ts` maps the source to an
   intent and branches between retry and rejoin.
 - **Target single owner:** unchanged. `play()` and the play lock stay the only starter; the
-  generation fence arbitrates (an output-only rebuild bumps it, so a pending dialog retry is
-  rejected). Naming the failed-PLAY lease and writing the fence down as an invariant is optional.
+  `failedPlayRecoveryGeneration` fence arbitrates. Which `play()` calls move the fence, and which
+  return early and leave a pending dialog retry valid, is invariant C13 in
+  [Playback concurrency invariants](playback-concurrency-invariants.md#3-cross-mechanism-interaction-contracts);
+  read the fence rule there, not here. Naming the failed-PLAY lease stays optional.
 - **Allowed requesters:** the recovery dialog (`app.ts`), the rejoin router, the media session.
 - **Lifecycle operations:** `play()`, `play({ outputOnly })`, stop, generation bump.
 - **Deadline owner:** the recovery dialog (it waits for a user gesture); the router's success
@@ -744,7 +771,11 @@ RO-47 owner-in-place
     a newer PAUSE intent".
   - Teardown: missing.
   - Visibility: missing.
-- **Status:** `owner-in-place`. Phase 4 (optional naming). See
+  - Cross-owner: `concurrency-invariants.test.ts` pin (k) "retires the outstanding retry when the
+    router refresh reaches the claim point first" and "lets the exact retry that holds the lock
+    keep its start and continuation".
+- **Status:** `owner-in-place`. The fence is written down as invariant C13 since Phase 4 4A
+  (C3-I9 docs). The roadmap reduced C3-I9 to these docs, so Phase 4 does not rename the lease. See
   [Playback concurrency invariants](playback-concurrency-invariants.md). Exception RO-36.
 
 ### RO-11 Deferred-start mailbox `playback.pendingPlayTime`
@@ -898,10 +929,13 @@ RO-47 owner-in-place
 - **Lifecycle operations:** start and cancel grace, ICE restart, background probe, terminate.
 - **Deadline owner:** the original PC's 15 s grace; the side route's 15 s window capped at 30 s,
   deferred while the original is down; the probe's short close.
-- **Timing-constant home:** `DATA_CONNECTION_DISCONNECTED_GRACE_MS` (`cloudflare-signaling.ts`)
-  repeated as `DISCONNECTED_MS` and `RESTART_WINDOW_MS` (`control-isolation.ts`) and as a literal
-  in `src/network/heartbeat-monitor.ts`; `RESTART_CAP_MS` is twice the grace. Target:
-  `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 0d, C5-1).
+- **Timing-constant home:** `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 4,
+  C5-1): the original PC's grace, its background-resume threshold and restart answer wait
+  (`cloudflare-signaling.ts`), the side PC's grace without restart capability
+  (`control-isolation.ts`) and the heartbeat monitor's lease cap (RO-17).
+  `control-isolation.ts` keeps `RESTART_WINDOW_MS` (15 s) and `RESTART_CAP_MS` (30 s) as its own
+  literals: they also bound peer restart requests and offers, which the two ends enforce on each
+  other across builds, so a change to the grace must not move them (RO-35).
 - **Anchor tests:**
   - Supersession: `src/network/transport/__tests__/cloudflare-signaling.test.ts` "rolls an
     unanswered restart back if the old path recovers before its answer".
@@ -914,9 +948,20 @@ RO-47 owner-in-place
   - Mixed versions: `control-isolation.test.ts` with the frozen fixture
     `src/network/transport/__tests__/fixtures/control-isolation-c9.ts`. A Wi-Fi to LTE switch with
     both PCs is device-only.
-- **Status:** `duplicated`. Phase 0d (grace constant), Phase 4 (close causes, link-liveness
-  owner). See [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md).
-  Exception RO-35.
+  - Characterization before the owner moves (tests only, #478):
+    `src/network/transport/__tests__/link-liveness-characterization.test.ts` (grace, restart gate,
+    effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471
+    expiry rows); at the browser level the C5-0 lab `e2e/lab/route-outage.lab.ts` on the
+    Cloudflare transport (not in CI).
+- **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
+  (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
+  and the connection keeps the first one and logs one info line per close
+  (`[Transport] Logical connection closed (<cause>) for <peerId>`); no timer or state moved. The
+  link-liveness owner (C5-6) and the background-resume check (C5-7) are held until the #18 and
+  preload-resume device items in the release record close or are waived (owner decisions P4-D6 A
+  and P4-D13 A, 2026-10-24). See
+  [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md) and the
+  [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md). Exception RO-35.
 
 ### RO-16 Data-PC SDP lane
 
@@ -942,15 +987,18 @@ RO-47 owner-in-place
   - Teardown: `cloudflare-signaling.test.ts` "retires the exact shared data connection when owned
     rollback fails".
   - Visibility: n/a.
-- **Status:** `owner-in-place`. Phase 5 starts from a fresh baseline because system audio shares
-  this lane.
+- **Status:** `owner-in-place`. The restart-gate move waits with the link-liveness owner (C5-6,
+  held; see RO-15). Since Phase 4 4A (C5-5) an unprovable restart rollback and the media rollback
+  retirement close with the cause `rollback-unproven`. Phase 5 starts from a fresh baseline
+  because system audio shares this lane.
 
 ### RO-17 Host per-guest connection close
 
 - **Resource:** each guest's connection on the host.
 - **Current owners/flows:** the heartbeat monitor (`src/network/heartbeat-monitor.ts`) detaches
-  and closes stale peers, re-deriving transport grace from raw PC state and honouring
-  `conn.iceRecoveryDeadline`; the transport grace and terminate (RO-15) close independently.
+  and closes stale peers. It classifies transport grace and honours `conn.iceRecoveryDeadline`
+  through the pure read path `src/network/transport-health.ts` (`heartbeatStaleThreshold`,
+  `honoursRecoveryLease`); the transport grace and terminate (RO-15) close independently.
   Detach is fenced by connection identity (`detachHostPeerConnection` in
   `src/network/host-peer-departure.ts`).
 - **Target single owner:** the heartbeat monitor keeps the heartbeat leases and stale fencing that
@@ -960,9 +1008,12 @@ RO-47 owner-in-place
 - **Lifecycle operations:** record heartbeat, detach, close, publish disconnect.
 - **Deadline owner:** the monitor's stale thresholds (8 s closed, 30 s recovering, 90 s connected)
   and the transport's recovery deadline.
-- **Timing-constant home:** `HEARTBEAT_RECOVERING_TRANSPORT_GRACE` (a different contract that
-  shares 30 s) and the `15_000` literal copy of the transport grace in `heartbeat-monitor.ts`.
-  Target: import the transport grace constant (Phase 0d).
+- **Timing-constant home:** the stale thresholds `HEARTBEAT_STALE_THRESHOLD` (8 s),
+  `HEARTBEAT_RECOVERING_TRANSPORT_GRACE` (30 s, a different contract that shares 30 s) and
+  `HEARTBEAT_LIVE_TRANSPORT_GRACE` (90 s) in `src/network/transport-health.ts` (Phase 4, C5-4);
+  the check cadence `HEARTBEAT_CHECK_INTERVAL` (5 s) stays in `heartbeat-monitor.ts`. The lease
+  cap in `transport-health.ts` imports the transport grace `RTC_INTERRUPTION_GRACE_MS` from
+  `src/core/constants.ts` (Phase 4, C5-1).
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/heartbeat-monitor.test.ts` "records heartbeat only for the
     exact connected connection".
@@ -972,7 +1023,13 @@ RO-47 owner-in-place
   - Visibility: missing.
   - Cross-owner: `heartbeat-monitor.test.ts` "honors only an exact bounded ICE recovery lease
     before cleaning a failed PC".
-- **Status:** `duplicated`. Phase 0d, Phase 4 (one transport-health read path).
+- **Status:** `duplicated`. Transport grace imported in Phase 4 (C5-1). One transport-health read
+  path in Phase 4 (C5-4): the monitor reads no raw RTC state except its stale-peer warning
+  (`npm run guard:transport-health`, `scripts/check-transport-health.mts`, in CI; see
+  [Realtime runtime ownership](realtime-runtime-ownership.md)). Its stale close names the cause
+  `heartbeat-stale` (C5-5). The transport's own grace and terminate (RO-15) still close the
+  connection independently until the link-liveness owner, so on the host an original route that
+  fails without a restart binding ends as `original-terminal` before the monitor's threshold.
 
 ### RO-18 Host-to-guest bulk lanes
 
@@ -984,16 +1041,21 @@ RO-47 owner-in-place
   `src/storage/preload.ts` (`_activePreloadUnicasts`, `_preloadPeerOwners`,
   `_suspendedPreloadLanes`; it suspends and resumes from chunk 0 on `network:peer-ice-recovered`).
   The preload lane asks `hasPendingCurrentFileTransfer`; each lane cancels on its own listener.
-  Inferred, untested: after ICE recovery both lanes can stream the same file.
+  Reproduced: when the host promotes an interrupted preload to the current track during an outage,
+  both lanes stream the same file for the same tuple after ICE recovery (the anchor below). Which
+  lane wins is still the owner's decision (P4-D10, C5-12).
 - **Target single owner:** one bulk-lane registry (planned `src/storage/bulk-lanes.ts`); per-lane
   policies, pumps and wire frames unchanged.
 - **Allowed requesters:** file send, preload scheduling, the guest's recovery request.
 - **Lifecycle operations:** register, suspend, resume, cancel, release on disconnect or
   replacement.
 - **Deadline owner:** each lane's backpressure timeout.
-- **Timing-constant home:** `UNICAST_BACKPRESSURE_LIMIT` and `UNICAST_BACKPRESSURE_TIMEOUT`
-  (`transfer-send.ts`) with copies in `preload.ts`. Target: `src/storage/transfer-backpressure.ts`
-  (Phase 0d, C5-3).
+- **Timing-constant home:** `src/storage/transfer-backpressure.ts` (Phase 4, C5-3):
+  `BULK_LOCAL_BUFFER_LIMIT_BYTES` (64 KiB of local queue, every lane) and
+  `BULK_UNICAST_STALL_TIMEOUT_MS` (30 s, the main-file and preload unicasts). The broadcast stall
+  timeouts stay their own constants and differ on purpose: 5 s for the main-file broadcast
+  (`transfer-send.ts`) and 30 s for the preload broadcast (`preload.ts`), which tolerates
+  congestion longer so a guest does not restart the next track from zero.
 - **Anchor tests:**
   - Supersession: `src/storage/__tests__/preload-lane-ownership.test.ts` "forgets a paused lane
     whose connection was replaced".
@@ -1001,9 +1063,14 @@ RO-47 owner-in-place
   - Teardown: `src/storage/__tests__/preload-capacity-lifecycle.test.ts` "cancels a parked sender
     without flushing stale bytes into a replacement unicast or ACK".
   - Visibility: n/a (host lanes do not depend on visibility).
-  - Missing: both lanes after ICE recovery (Phase 0c reproduces or refutes the duplicate traffic).
-- **Status:** `duplicated`. Phase 0d (lane constants), Phase 4 (registry; which lane wins after
-  recovery is an owner decision). See
+  - Both lanes after ICE recovery, expected today:
+    `src/storage/__tests__/ice-recovery-bulk-lanes.test.ts` "the host uploads the file on both
+    lanes when the request arrives %s" (unit), and at the wire the C5-0 lab
+    `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage, observed
+    at the wire (F4)" (17 s outage; not in CI).
+- **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); Phase 4 still owes the
+  registry (which lane wins after recovery is an owner decision, P4-D10; the lab did not
+  reproduce the two streams with a 10 s outage in its one exploratory run). See
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md).
 
 ### RO-19 Guest fetch of the current track
@@ -1021,9 +1088,15 @@ RO-47 owner-in-place
 - **Allowed requesters:** the five waits above, through the request slot.
 - **Lifecycle operations:** begin, send, match the wait response, complete, reset.
 - **Deadline owner:** each wait; `playback.lifecycle` gates them.
-- **Timing-constant home:** `WATCHDOG_TIMEOUT` (`src/core/constants.ts`) and `remote ? 60000 : X`
-  literals in `transfer-receive.ts`. Target: a typed receive-deadline table beside
-  `WATCHDOG_TIMEOUT` (Phase 0d, C5-3).
+- **Timing-constant home:** `src/core/constants.ts` (Phase 4, C5-3).
+  `receiveDeadlineMs(kind, connectionType)` reads a typed table for the waits in
+  `transfer-receive.ts`: the chunk watchdog (12 s local, 60 s remote), FILE_PREPARE (15 s / 60 s)
+  and the awaited preload (30 s / 60 s).
+  `PRELOAD_RECEIVE_DEADLINE_MS` holds the preload admission (30 s) and progress (15 s) windows
+  (`preload.ts`, `preload-watchdog.ts`) and the preload loader watchdog (30 s after PRELOAD_START,
+  15 s after progress). The PLAY_PRELOADED waiter (`playback.ts`) and the R2 wait
+  (`REMOTE_WAIT_MS` in `remote-share.ts`) keep their own single-use values. Managed timer keys
+  are unchanged.
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/file-request-authority.test.ts` "prevents a stale owner
     or completion from clearing its successor".
@@ -1032,7 +1105,7 @@ RO-47 owner-in-place
   - Teardown: `file-request-authority.test.ts` "releases a current owner when its connection
     closes before send".
   - Visibility: missing.
-- **Status:** `owner-in-place`. Phase 0d (deadline table).
+- **Status:** `owner-in-place`. Deadline table done in Phase 4 (C5-3).
 
 ### RO-20 PRO system-audio lease and publication
 
@@ -1622,8 +1695,11 @@ RO-47 owner-in-place
   control-channel recovery, publish signaling exhaustion.
 - **Deadline owner:** `runtime.ts`; recovery is bounded by `SIGNALING_RECOVERY_MAX_ATTEMPTS`.
 - **Timing-constant home:** `HEARTBEAT_INTERVAL_MS` and `CONTROL_CHANNEL_RECOVERY_RETRY_MS`
-  (`runtime.ts`). The same `[1_000, 2_000, 4_000, 8_000, 15_000]` is `RECONNECT_BACKOFF_MS` in
-  `src/network/peer.ts`; Phase 0d decides whether that is one contract.
+  (`runtime.ts`). The same `[1_000, 2_000, 4_000, 8_000, 15_000]` is the Standard signaling
+  reconnect schedule `SIGNALING_RECOVERY_BACKOFF_MS` in `src/network/signaling-health.ts` (Phase 4,
+  C5-2; `src/network/peer.ts` reads it and `SIGNALING_RECOVERY_MAX_ATTEMPTS` is its length).
+  Phase 4 keeps the PRO copy separate and leaves the PRO runtime alone (owner decision,
+  2026-10-24); adopting the shared schedule there would be a later PRO change.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/heartbeat-single-flight.test.ts` "guarantees a fresh
     reconciliation after an epoch event races an old heartbeat".
@@ -1631,7 +1707,8 @@ RO-47 owner-in-place
   - Teardown: `heartbeat-single-flight.test.ts` "does not let a reset flight enqueue work into the
     next room lifecycle".
   - Visibility: missing (the slot's clear and re-arm on visibility, and recovery holding the slot).
-- **Status:** `owner-in-place`. Phase 0d (copy triage only).
+- **Status:** `owner-in-place`. Copy triage (Phase 0d): the Standard copy moved to its home in
+  Phase 4 (C5-2); the PRO copy stays separate and the guard keeps the pair listed.
 
 ### RO-30 Back-button history entries
 
@@ -1727,11 +1804,16 @@ entry needs the owner's acceptance and is not implied by this registry.
 ### RO-35 Side-route outage deadline stays in control isolation
 
 - **Parent:** RO-15. Plan step C5-9 deferred.
-- **Exception:** `control-isolation.ts` keeps its own side-route outage deadline and 15 s and 30 s
-  constants (derived from the shared grace after Phase 0d).
+- **Exception:** `control-isolation.ts` keeps its own side-route outage deadline. Its grace without
+  restart capability is the shared `RTC_INTERRUPTION_GRACE_MS`; its 15 s `RESTART_WINDOW_MS` and
+  30 s `RESTART_CAP_MS` stay its own literals because they also bound the restart requests and
+  offers that the two ends, possibly on different builds, enforce on each other (Phase 4, C5-1).
 - **Evidence:** the side route's ICE restart is still under
   [known-accepted #18](../known-accepted.md), awaiting the owner's real-device Wi-Fi to LTE check;
-  the same timer also governs active routes to peers without restart capability.
+  the same timer also governs active routes to peers without restart capability. The C5-0 lab
+  (#478) shows the side route recovering through its restart after its PC fails, on the
+  Cloudflare transport in one Chromium. Phase 4 train 4A goes out before the device check (a gate
+  deviation, owner decision 2026-10-24), and C5-9 stays out of Phase 4 (P4-D6 A).
 - **Behaviour risk:** known-accepted #18.
 - **Revisit when:** #18 retires.
 - **Status:** `accepted-exception`.
@@ -1914,6 +1996,61 @@ entry needs the owner's acceptance and is not implied by this registry.
   - Visibility: n/a (the header progress snaps while the page is hidden).
 - **Status:** `owner-in-place`. Phase 2 named the owner and the writers instead of adding tokens.
 
+### RO-48 Guest YouTube re-align lanes stay two
+
+- **Parent:** RO-05. Plan steps C3-I3 and C3-I4 not done, and the narrow coalescing changes
+  (P4-D8 B and C) not scheduled (owner decision P4-D8 A, 2026-10-24).
+- **Exception:** the rejoin router (`src/player/local-output-rejoin.ts`) and the background-return
+  chain (`src/player/background-return-sync.ts`) stay two re-align machines on one rendezvous.
+  They share only the retry spacing `LOCAL_OUTPUT_REALIGN_RETRY_MS` (Phase 4 4A, C3-I1), the
+  rendezvous busy and cooldown result and the end on `youtube:set-local-paused` (G2); each cancels
+  only itself.
+- **Evidence:** I3 and I4 change no behaviour. I4 would move two lanes whose policies differ on
+  almost every field (pause handling, visibility, host connection, retirement, snapshot handling,
+  wait mechanism, cooldown, replacement) into one module while keeping them concurrent, and would
+  make the return chain depend on `initLocalOutputRejoin()`, which
+  `src/network/room-session-feature-runtime.ts` runs as an optional enhancement; today the return
+  chain needs no initialization. The cross-flow harness
+  (`src/player/__tests__/local-output-realign-cross-flow.test.ts`, Phase 4 4A, tests only) runs
+  both chains on the real `youtube/sync.ts` and pins the two seams the lanes leave. An unlock
+  between about 1.3 and 3 s after a lock-screen PLAY adds a second pause, seek and play 3,010 ms
+  after the first alignment (P4-D8 (a)). A return while the host is buffering, cued or on another
+  video gives up after 1,250 ms and nothing retries (P4-D8 (b)); the host's own PLAYING state
+  frame then re-aligns the guest, and without that frame only the heartbeat correction remains.
+- **Behaviour risk:** a second short re-align after a quick unlock, and an offset left after a
+  give-up until the host's next state frame or the heartbeat correction. Harness evidence only,
+  not seen on a device; no known-accepted entry.
+- **Revisit when:** a device check of a lock-screen PLAY with a quick unlock, or of a return while
+  the host buffers, or the harness shows either seam disturbing playback; the owner is then asked
+  about the narrow changes for train 4B.
+- **Status:** `accepted-exception`.
+
+### RO-49 Queue and demo start anchors stay two
+
+- **Parent:** RO-06. Plan steps C3-I8 (one pending shared-start anchor) and C3-I7 (one
+  start-and-publish-once primitive) deferred (owner decision P4-D9 A, 2026-10-24).
+- **Exception:** the queue anchor in `src/player/transport.ts` and the demo anchor in
+  `src/demo/host-start-anchor.ts` stay two records with different validation; only the 200 ms
+  lead `LOCAL_FILE_START_LEAD_MS` is shared (Phase 4 4A, C3-I1).
+- **Evidence:** the shared-start harness (`src/demo/__tests__/shared-start-anchor.test.ts`, Phase
+  4 4A, tests only) shows DEMO_PLAY, SYNC_PONG, the late-join demo bootstrap and
+  `getPendingDemoHostStartAt()` carrying one demo start, and no frame reading the queue anchor
+  while the demo runs, so the two records never disagree on the wire. One anchor is not a plain
+  move: the queue anchor is a canonical wall-clock timeline, not only a pending deadline, so
+  recording the demo the same way either gives the demo that timeline or adds a second record
+  behind one getter, and revoking it in `stopPlayerNode` would change queue-anchor behaviour on
+  many paths. Six demo test files mock `player/transport.ts` wholesale, so a shared primitive would
+  make them fail on a missing export or pass against a mock.
+- **Behaviour risk:** when a queue item was selected before demo entry, demo playback still arms
+  that item's queue anchor, and its canonical timeline governs the demo host's reported position
+  (in the harness, 4.8 s instead of 0 s after the page is hidden for 5 s with the audio clock
+  stopped). Whether that is a defect is not decided and the real-device gap is not measured; no
+  known-accepted entry.
+- **Revisit when:** that overlap or another demo or queue anchor problem is confirmed as a defect.
+  Only a narrow fix of it may go to train 4B; one anchor (C3-I8, with C3-I7) needs its own owner
+  decision.
+- **Status:** `accepted-exception`.
+
 ## Checked side flows without a record
 
 The survey also checked these and found one owner with a side flow (WEAK) or a single owner. They
@@ -2011,7 +2148,7 @@ Not checked yet: callers of the other records' lifecycle operations (YouTube pla
 `claimPlaybackOwner`, `setSystemAudioReceiving`), receivers resolved by
 type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
 duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
-in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`), and header loader
+in requester files, and header loader
 holder IDs read from a property, a call or another module (RO-47). Until then, review those by
 hand against each record.
 

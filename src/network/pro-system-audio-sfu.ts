@@ -11,7 +11,7 @@
 import { fetchWithCapability, isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { log } from '../core/log.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { forceStereoSdp, sdpPrefersOpusStereo } from './peer.ts';
+import { forceStereoSdp, sdpPrefersOpusStereo } from './opus-stereo-sdp.ts';
 import {
   cancelResponseBody,
   readBoundedJsonResponse,

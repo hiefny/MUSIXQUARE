@@ -1,6 +1,6 @@
 /** A parked preload is healthy while this receiver's foreground bytes advance. */
 import { getState } from '../core/state.ts';
-import { TRANSFER_STATE } from '../core/constants.ts';
+import { PRELOAD_RECEIVE_DEADLINE_MS, TRANSFER_STATE } from '../core/constants.ts';
 import { setManagedTimer } from '../core/timers.ts';
 
 let mainProgress: { queueItemId: string; sessionId: number; revision: number } | null = null;
@@ -70,7 +70,7 @@ export function armPreloadAdmissionWatchdog(
         // Final bytes still count after the receive handler marks the source
         // complete, allowing a parked sender to resume at the deadline. The new
         // checkpoint consumes that progress: no more bytes means expiry in 15 s.
-        armPreloadAdmissionWatchdog(sessionId, 15_000, onStalled);
+        armPreloadAdmissionWatchdog(sessionId, PRELOAD_RECEIVE_DEADLINE_MS.progress, onStalled);
       } else onStalled();
     },
     timeoutMs,

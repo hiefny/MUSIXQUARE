@@ -31,7 +31,7 @@ import { readSystemAudioStartSurface } from './system-audio-start.ts';
 import { claimGuestDirectSystemAudioRoute } from './system-audio-delivery.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
-import { forceStereoSdp } from './peer.ts';
+import { forceStereoSdp } from './opus-stereo-sdp.ts';
 import {
   cleanupWebRtcAudioDecoderPrimer,
   getAudioTrackStreamKey,

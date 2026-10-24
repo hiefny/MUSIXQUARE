@@ -77,8 +77,7 @@
  * setSystemAudioReceiving, scheduleSessionReset), receivers resolved by type,
  * module-level lifecycle slots, timer-name manifests, shared phase unions,
  * duplicated helper names, "mirrors" copy markers, and registered timings
- * retyped as literals in requester files (the 15 s data-connection grace in
- * heartbeat-monitor.ts).
+ * retyped as literals in requester files.
  *
  * Exit code: 0 if clean, 1 if findings remain.
  */
@@ -326,18 +325,31 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   },
   {
     records: ['RO-05'],
-    files: ['src/player/local-output-rejoin.ts', 'src/player/background-return-sync.ts'],
+    files: [
+      'src/youtube/constants.ts',
+      'src/player/local-output-rejoin.ts',
+      'src/player/background-return-sync.ts',
+    ],
   },
   { records: ['RO-06'], files: ['src/player/file-play-timing.ts', 'src/demo/playback-timing.ts'] },
   {
     records: ['RO-15', 'RO-17'],
     files: [
+      'src/core/constants.ts',
       'src/network/transport/cloudflare-signaling.ts',
       'src/network/transport/control-isolation.ts',
       'src/network/heartbeat-monitor.ts',
+      'src/network/transport-health.ts',
     ],
   },
-  { records: ['RO-18'], files: ['src/storage/transfer-send.ts', 'src/storage/preload.ts'] },
+  {
+    records: ['RO-18'],
+    files: [
+      'src/storage/transfer-backpressure.ts',
+      'src/storage/transfer-send.ts',
+      'src/storage/preload.ts',
+    ],
+  },
   {
     records: ['RO-21'],
     files: ['src/pro-room/runtime.ts', 'src/pro-room/system-audio-service.ts'],
@@ -378,7 +390,10 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
     records: ['RO-28'],
     files: ['src/account/account-sync-protocol.ts', 'src/account/session.ts', 'src/ui/account.ts'],
   },
-  { records: ['RO-29'], files: ['src/pro-room/runtime.ts', 'src/network/peer.ts'] },
+  {
+    records: ['RO-29'],
+    files: ['src/pro-room/runtime.ts', 'src/network/signaling-health.ts', 'src/network/peer.ts'],
+  },
 ];
 
 /**
@@ -416,11 +431,6 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
     { kind: 'copy', reason: 'receive playout delay; Phase 0d C4-1' },
   ],
   [
-    'RO-05 REJOIN_RETRY_MS@src/player/local-output-rejoin.ts = ' +
-      'RENDEZVOUS_RETRY_MS@src/player/background-return-sync.ts ([250,750,1500,3000,5000])',
-    { kind: 'copy', reason: 're-align retry schedule; Phase 0d C3-I1' },
-  ],
-  [
     // Phase 3 R2: the lazy hard reset measures the logo claim's quiet reading
     // so the eager bundle does not carry it; the update machine stays the home.
     'RO-22/RO-23/RO-30 STARTUP_PROMPT_QUIET_MS@src/core/sw-hard-reset.ts = ' +
@@ -429,8 +439,11 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
   ],
   [
     'RO-29 CONTROL_CHANNEL_RECOVERY_RETRY_MS@src/pro-room/runtime.ts = ' +
-      'RECONNECT_BACKOFF_MS@src/network/peer.ts ([1000,2000,4000,8000,15000])',
-    { kind: 'suspect', reason: 'PRO control channel vs signaling reconnect; Phase 0d triages it' },
+      'SIGNALING_RECOVERY_BACKOFF_MS@src/network/signaling-health.ts ([1000,2000,4000,8000,15000])',
+    {
+      kind: 'suspect',
+      reason: 'PRO control channel vs Standard signaling reconnect; PRO copy kept separate (C5-2)',
+    },
   ],
 ]);
 

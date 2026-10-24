@@ -36,7 +36,7 @@ import {
   setPlaybackYouTubePlaying,
 } from '../../player/ownership.ts';
 import { grantStandardRoomAdministrator } from '../standard-room-authority.ts';
-import { setDemoHostStartAt } from '../../demo/playback-timing.ts';
+import { setDemoHostStartAt } from '../../demo/host-start-anchor.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 

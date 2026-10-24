@@ -42,8 +42,8 @@ import {
   cancelProRoomUpload,
   getProRoomUploadRows,
   subscribeProRoomUploadRows,
-  type ProRoomUploadRow,
-} from '../pro-room/upload-queue.ts';
+} from '../pro-room/active-upload-queue.ts';
+import type { ProRoomUploadRow } from '../pro-room/upload-queue.ts';
 
 let _playlistTitleMarqueeList: HTMLElement | null = null;
 

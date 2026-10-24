@@ -52,7 +52,7 @@ import { getRoomContext, isStandardRoomRole } from '../rooms/authority.ts';
 import { readBoundedJsonResponse, withRequestDeadline } from '../core/request-lifetime.ts';
 import { localFirstApiEndpoints } from './api-endpoints.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
-import { forceStereoSdp, sdpPrefersOpusStereo } from './peer.ts';
+import { forceStereoSdp, sdpPrefersOpusStereo } from './opus-stereo-sdp.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';

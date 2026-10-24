@@ -30,7 +30,7 @@ import {
   getStandardHostPendingFileStartAt,
   getLocalFilePendingStartDeadlineMs,
 } from '../player/transport.ts';
-import { getPendingDemoHostStartAt } from '../demo/playback-timing.ts';
+import { getPendingDemoHostStartAt } from '../demo/host-start-anchor.ts';
 import {
   getCurrentAudioBuffer,
   getPlayerNode,

@@ -818,6 +818,35 @@ describe('participant-local output rejoin', () => {
     vi.useRealTimers();
   });
 
+  it('spaces repeated PRO reconciliation misses on the bounded re-align schedule', async () => {
+    vi.useFakeTimers();
+    mocks.reconcilePro.mockResolvedValue(false);
+    startSession();
+    setProRoom();
+    setPlaybackFilePaused();
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'media-session-play',
+      mode: 'file',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(1);
+
+    for (const [index, delayMs] of [250, 750, 1_500, 3_000, 5_000].entries()) {
+      await vi.advanceTimersByTimeAsync(delayMs - 1);
+      expect(mocks.reconcilePro).toHaveBeenCalledTimes(index + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mocks.reconcilePro).toHaveBeenCalledTimes(index + 2);
+    }
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // The first attempt plus five bounded retries.
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(6);
+    expect(isLocalFilePaused()).toBe(true);
+    vi.useRealTimers();
+  });
+
   it('restores and retries the exact current A after a transient PRO rejection', async () => {
     vi.useFakeTimers();
     mocks.reconcilePro.mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce(true);
@@ -916,4 +945,67 @@ describe('participant-local output rejoin', () => {
     bus.emit('playback:local-output-rejoin', request);
     await vi.waitFor(() => expect(refreshPosition).toHaveBeenCalledTimes(2));
   });
+});
+
+describe('participant-local output rejoin intent', () => {
+  // The intent gate decides from the trigger, the room activity and the local
+  // pause bit alone. An earlier OS PLAY that released a paused local output
+  // leaves nothing behind that changes the decision: it neither lets a later
+  // automatic trigger resume a paused room nor stops one the gate admits.
+  const reasons = [
+    'media-session-play',
+    'audio-context-recovered',
+    'audio-recovery-gesture',
+    'background-resume',
+  ] as const;
+  const activities = ['playing', 'paused', 'pending', 'idle'] as const;
+  const cases = (['file', 'youtube'] as const).flatMap((mode) =>
+    reasons.flatMap((reason) =>
+      activities.flatMap((activity) =>
+        [false, true].flatMap((localPaused) =>
+          [false, true].map((earlierReleasedPause) => ({
+            mode,
+            reason,
+            activity,
+            localPaused,
+            earlierReleasedPause,
+            aligns: reason === 'media-session-play' || (activity === 'playing' && !localPaused),
+          })),
+        ),
+      ),
+    ),
+  );
+
+  it.each(cases)(
+    '$mode $reason while $activity (local pause $localPaused, earlier PLAY released a pause: $earlierReleasedPause) aligns: $aligns',
+    async ({ mode, reason, activity, localPaused, earlierReleasedPause, aligns }) => {
+      vi.useFakeTimers();
+      try {
+        startSession();
+        setStandardGuest();
+        setState('playback.mode', mode);
+        setState('playback.activity', activity);
+        const setLocalPaused = mode === 'file' ? setLocalFilePaused : setLocalYouTubePaused;
+        const forceResync = vi.fn();
+        bus.on('sync:force-resync', forceResync);
+        const alignments = (): number =>
+          mode === 'file' ? forceResync.mock.calls.length : mocks.rendezvous.mock.calls.length;
+
+        setLocalPaused(earlierReleasedPause);
+        bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(alignments()).toBe(1);
+        expect(mode === 'file' ? isLocalFilePaused() : isLocalYouTubePaused()).toBe(false);
+        // Past the success cooldown, so the trigger itself reaches the gate.
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        setLocalPaused(localPaused);
+        bus.emit('playback:local-output-rejoin', { reason, mode });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(alignments()).toBe(aligns ? 2 : 1);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 });

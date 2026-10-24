@@ -12,6 +12,7 @@ import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import { LOCAL_OUTPUT_REALIGN_RETRY_MS, MANUAL_RENDEZVOUS_RETRY_MS } from '../youtube/constants.ts';
 import { guestRendezvousSync } from '../youtube/sync.ts';
 import { isLocalYouTubePaused, setLocalYouTubePaused } from '../youtube/_state.ts';
 import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
@@ -24,7 +25,6 @@ import {
 
 const SUCCESS_COOLDOWN_MS = 400;
 const RETRY_TIMER = 'local-output-rejoin-retry';
-const REJOIN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 
 interface RejoinRequestPayload {
   reason:
@@ -62,7 +62,6 @@ let rejoinInFlight: Promise<boolean> | null = null;
 let pendingRejoinRequest: RejoinRequest | null = null;
 let scheduledRetryRequest: RejoinRequest | null = null;
 let stopAwaitingHostSnapshot: (() => void) | null = null;
-let awaitingAuthoritativeResumeMode: 'file' | 'youtube' | null = null;
 let lastSuccessfulRejoinAt = 0;
 let lastSuccessfulRejoinIdentity: (RejoinIdentity & { mode: 'file' | 'youtube' }) | null = null;
 let rejoinGeneration = 0;
@@ -133,23 +132,26 @@ function requestStillOwnsReleasedOutput(request: RejoinRequest): boolean {
 function hasLocalRejoinIntent(request: RejoinRequest): boolean {
   const { mode } = request;
   if (!requestStillCurrent(request)) return false;
-  // A trusted OS PLAY is also the fallback when the browser lost our local
-  // pause bit. It may query authority while the semantic room state is paused;
-  // the local-only reconciliation path cannot manufacture a room PLAY.
-  if (request.reason === 'media-session-play') return true;
-  if (
-    request.reason === 'audio-recovery-gesture' ||
-    request.reason === 'background-resume' ||
-    request.reason === 'audio-context-recovered'
-  ) {
-    return (
-      getState('playback.activity') === 'playing' &&
-      (mode === 'file' ? !isLocalFilePaused() : !isLocalYouTubePaused())
-    );
+  switch (request.reason) {
+    case 'media-session-play':
+      // A trusted OS PLAY is also the fallback when the browser lost our local
+      // pause bit. It may query authority while the semantic room state is paused;
+      // the local-only reconciliation path cannot manufacture a room PLAY.
+      return true;
+    case 'audio-recovery-gesture':
+    case 'background-resume':
+    case 'audio-context-recovered':
+      return (
+        getState('playback.activity') === 'playing' &&
+        (mode === 'file' ? !isLocalFilePaused() : !isLocalYouTubePaused())
+      );
+    default: {
+      // A new reason must choose its gate above; until then it never aligns.
+      const unhandledReason: never = request.reason;
+      void unhandledReason;
+      return false;
+    }
   }
-  if (getState('playback.activity') === 'playing') return true;
-  if (awaitingAuthoritativeResumeMode === mode) return true;
-  return mode === 'file' ? isLocalFilePaused() : isLocalYouTubePaused();
 }
 
 function setLocalPause(mode: 'file' | 'youtube', paused: boolean): void {
@@ -188,8 +190,8 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
       if (!reconciled && wasLocallyPaused) setLocalPause(mode, true);
       return {
         rejoined: reconciled,
-        ...(!reconciled && request.retryAttempt < REJOIN_RETRY_MS.length
-          ? { retryAfterMs: REJOIN_RETRY_MS[request.retryAttempt] }
+        ...(!reconciled && request.retryAttempt < LOCAL_OUTPUT_REALIGN_RETRY_MS.length
+          ? { retryAfterMs: LOCAL_OUTPUT_REALIGN_RETRY_MS[request.retryAttempt] }
           : {}),
       };
     } catch (error) {
@@ -217,30 +219,24 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
 
   setLocalPause(mode, false);
   if (mode === 'file') {
-    if (wasLocallyPaused) awaitingAuthoritativeResumeMode = 'file';
     bus.emit('sync:force-resync');
     return { rejoined: true };
   }
 
-  if (wasLocallyPaused) awaitingAuthoritativeResumeMode = 'youtube';
   let result: ReturnType<typeof guestRendezvousSync>;
   try {
     result = guestRendezvousSync({
       silent: true,
       suppressProgressToast: true,
-      onComplete: () => {
-        if (awaitingAuthoritativeResumeMode === 'youtube') {
-          awaitingAuthoritativeResumeMode = null;
-        }
-      },
+      // The router needs no completion signal; the empty callback keeps the
+      // call shape its tests pin.
+      onComplete: () => {},
     });
   } catch (error) {
-    awaitingAuthoritativeResumeMode = null;
     if (wasLocallyPaused) setLocalPause(mode, true);
     throw error;
   }
   if (result.status === 'started' || result.status === 'completed') {
-    if (result.status === 'completed') awaitingAuthoritativeResumeMode = null;
     return { rejoined: true };
   }
   if (result.status === 'busy') {
@@ -248,12 +244,10 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
     // rendezvous/cooldown owner releases it. A host that is BUFFERING/CUED or
     // on another occurrence can stay busy indefinitely; only its next snapshot
     // can change the answer, so wait for that instead of polling.
-    awaitingAuthoritativeResumeMode = 'youtube';
     return result.awaitHostSnapshot
       ? { rejoined: false, retryOnHostSnapshot: true }
-      : { rejoined: false, retryAfterMs: result.retryAfterMs ?? 250 };
+      : { rejoined: false, retryAfterMs: result.retryAfterMs ?? MANUAL_RENDEZVOUS_RETRY_MS };
   }
-  awaitingAuthoritativeResumeMode = null;
   if (wasLocallyPaused) setLocalPause(mode, true);
   return { rejoined: false };
 }
@@ -350,9 +344,9 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
       if (
         requestStillCurrent(request) &&
         request.identity.roomKind === 'pro' &&
-        request.retryAttempt < REJOIN_RETRY_MS.length
+        request.retryAttempt < LOCAL_OUTPUT_REALIGN_RETRY_MS.length
       ) {
-        scheduleRetry(request, REJOIN_RETRY_MS[request.retryAttempt]!);
+        scheduleRetry(request, LOCAL_OUTPUT_REALIGN_RETRY_MS[request.retryAttempt]!);
       }
       return false;
     })
@@ -381,7 +375,6 @@ function resetLocalOutputRejoinState(): void {
   rejoinInFlight = null;
   pendingRejoinRequest = null;
   cancelScheduledRetry();
-  awaitingAuthoritativeResumeMode = null;
   lastSuccessfulRejoinAt = 0;
   lastSuccessfulRejoinIdentity = null;
 }
@@ -411,15 +404,8 @@ export function initLocalOutputRejoin(): void {
     rejoinGeneration += 1;
     pendingRejoinRequest = null;
     cancelScheduledRetry();
-    awaitingAuthoritativeResumeMode = null;
   });
   scope.on('state:setup.sessionStarted', (started) => {
     if (!started) resetLocalOutputRejoinState();
-  });
-  scope.on('state:playback.activity', (activity) => {
-    if (activity === 'playing' || activity === 'idle') awaitingAuthoritativeResumeMode = null;
-  });
-  scope.on('state:playback.mode', (mode) => {
-    if (mode !== awaitingAuthoritativeResumeMode) awaitingAuthoritativeResumeMode = null;
   });
 }

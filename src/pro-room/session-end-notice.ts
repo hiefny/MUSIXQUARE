@@ -1,6 +1,6 @@
 import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
-import type { ProRoomSessionEndReason } from './api.ts';
+import type { ProRoomSessionEndReason } from './api-error.ts';
 
 /**
  * Tab-scoped acknowledgement that this browsing context already explained a

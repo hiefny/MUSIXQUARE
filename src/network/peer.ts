@@ -46,6 +46,7 @@ import {
   publishSignalingReconnectAttempt,
   publishSignalingRecovered,
   resetSignalingHealth,
+  SIGNALING_RECOVERY_BACKOFF_MS,
   SIGNALING_RECOVERY_MAX_ATTEMPTS,
 } from './signaling-health.ts';
 
@@ -110,78 +111,6 @@ function closeIncomingMediaCall(mediaConn: IncomingMediaConnection): void {
   } catch {
     /* noop */
   }
-}
-
-// ─── SDP Utils ──────────────────────────────────────────────────────
-
-/**
- * Munge SDP to force Opus codec into high-fidelity stereo mode.
- * Fixes Chrome's tendency to downmix to 1-channel mono and limit bitrate.
- */
-export function forceStereoSdp(sdp: string): string {
-  let modified = sdp;
-  const stereoParams = ['stereo=1', 'sprop-stereo=1', 'maxaveragebitrate=256000', 'useinbandfec=1'];
-
-  // 1. Find opus payload types
-  const opusPTs: string[] = [];
-  const rtpmapRegex = /a=rtpmap:(\d+) opus\/48000\/2/g;
-  let match;
-  while ((match = rtpmapRegex.exec(sdp)) !== null) {
-    opusPTs.push(match[1]);
-  }
-
-  // 2. Add/replace stereo params to ALL fmtp lines for these PTs
-  for (const pt of opusPTs) {
-    let foundFmtp = false;
-    const fmtpRegex = new RegExp(`^a=fmtp:${pt}(?:(?:\\s+|;)([^\\r\\n]*))?$`, 'gm');
-    modified = modified.replace(fmtpRegex, (_line, params: string | undefined) => {
-      foundFmtp = true;
-      const preservedParams = (params || '')
-        .split(';')
-        .map((param) => param.trim())
-        .filter(Boolean)
-        .filter((param) => !/^(stereo|sprop-stereo|maxaveragebitrate|useinbandfec)=/i.test(param));
-
-      return `a=fmtp:${pt} ${[...preservedParams, ...stereoParams].join('; ')}`;
-    });
-
-    if (!foundFmtp) {
-      // If no fmtp line exists, append it after the rtpmap line
-      const rtpmapLine = new RegExp(`a=rtpmap:${pt} opus/48000/2`);
-      modified = modified.replace(rtpmapLine, (line) => {
-        return line + `\r\na=fmtp:${pt} ${stereoParams.join('; ')}`;
-      });
-    }
-  }
-  return modified;
-}
-
-/**
- * True only when the remote endpoint explicitly prefers Opus stereo receive.
- * RFC 7587 makes `stereo` unidirectional, so a publisher must inspect the
- * answer instead of assuming its own offer enabled stereo transmission.
- */
-export function sdpPrefersOpusStereo(sdp: string): boolean {
-  const opusPayloadTypes = new Set<string>();
-  for (const match of sdp.matchAll(/^a=rtpmap:(\d+)\s+opus\/48000\/2\s*$/gim)) {
-    if (match[1]) opusPayloadTypes.add(match[1]);
-  }
-  if (opusPayloadTypes.size === 0) return false;
-
-  for (const match of sdp.matchAll(/^a=fmtp:(\d+)\s+([^\r\n]*)$/gim)) {
-    const payloadType = match[1];
-    const parameters = match[2];
-    if (!payloadType || !parameters || !opusPayloadTypes.has(payloadType)) continue;
-    if (
-      parameters
-        .split(';')
-        .map((parameter) => parameter.trim())
-        .some((parameter) => /^stereo\s*=\s*1$/i.test(parameter))
-    ) {
-      return true;
-    }
-  }
-  return false;
 }
 
 // ─── TURN Config Helpers ────────────────────────────────────────────
@@ -627,13 +556,13 @@ export async function createHostSessionWithShortCode(maxAttempts = 12): Promise<
 // before calling reconnect() — if a prior attempt already succeeded (or
 // the user left the session), we bail and reset the counter.
 //
-// Backoff total: 1+2+4+8+15 = 30s across 5 attempts. After that an active,
-// recoverable room keeps its existing channels/media and exposes the failed
-// signaling state in Connect. A guest with no surviving room surface still
-// falls through to the lost-session dialog below.
+// Backoff total: 1+2+4+8+15 = 30s across 5 attempts (SIGNALING_RECOVERY_BACKOFF_MS
+// in signaling-health.ts). After that an active, recoverable room keeps its
+// existing channels/media and exposes the failed signaling state in Connect.
+// A guest with no surviving room surface still falls through to the
+// lost-session dialog below.
 let _reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = SIGNALING_RECOVERY_MAX_ATTEMPTS;
-const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
 let _browserConnectivityRecoveryBound = false;
 
 /** The transport owns the admission terminal reason; this owner cancels its retry work. */
@@ -757,7 +686,9 @@ function attemptPeerReconnect(): void {
     return;
   }
 
-  const delay = RECONNECT_BACKOFF_MS[_reconnectAttempts] ?? 15000;
+  const delay =
+    SIGNALING_RECOVERY_BACKOFF_MS[_reconnectAttempts] ??
+    SIGNALING_RECOVERY_BACKOFF_MS[SIGNALING_RECOVERY_BACKOFF_MS.length - 1];
   _reconnectAttempts++;
   publishSignalingReconnectAttempt(_reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
   log.info(
@@ -1126,13 +1057,13 @@ export function cancelPendingSessionSetup(): void {
   resetSignalingHealth();
 
   try {
-    hostConn?.close();
+    hostConn?.close('leave');
   } catch {
     /* noop */
   }
   for (const connectedPeer of connectedPeers) {
     try {
-      (connectedPeer.conn as DataConnection | null)?.close();
+      (connectedPeer.conn as DataConnection | null)?.close('leave');
     } catch {
       /* noop */
     }
@@ -1241,7 +1172,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   const hostConn = getState('network.hostConn');
   if (hostConn) {
     try {
-      hostConn.close();
+      hostConn.close('leave');
     } catch {
       /* noop */
     }
@@ -1251,7 +1182,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   connectedPeers.forEach((p) => {
     try {
       const conn = p.conn as DataConnection | null;
-      if (conn) conn.close();
+      if (conn) conn.close('leave');
     } catch {
       /* noop */
     }

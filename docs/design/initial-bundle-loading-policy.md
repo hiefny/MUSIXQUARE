@@ -394,6 +394,66 @@ reserve, entry limits, and zero eager fonts are unchanged. These are local
 build measurements taken before the rest of the 9.0.0 batch; the final release
 numbers are in the [9.0.0 report](idle-compute-optimization-2026-10-22.md).
 
+### 2026-10-24 Phase 4 train 4A startup leaves addendum
+
+Merging the two Phase 4 lanes measured 491,726 B eager JavaScript gzip, 158 B
+above the unchanged 491,568 B maintenance ceiling. The demo host-start anchor
+had already moved into the leaf `src/demo/host-start-anchor.ts`, which took
+`src/demo/playback-timing.ts` out of the entry chunk (-171 B); the shared
+constants and the close-cause line then added bytes. Instead of raising
+capacity, three more places where startup code used one name of a module that
+only lazy code otherwise needs were split the same way. Each name moved
+verbatim into a small startup leaf, and the rest of the module left the static
+closure of `src/app.ts` for an existing lazy chunk:
+
+- `ProRoomApiError` and its session-end reason type went to
+  `src/pro-room/api-error.ts`. `src/pro-room/api.ts` and `queue-mode.ts` joined
+  the PRO runtime chunk, which PRO entry already awaits before any API call, and
+  `snapshot.ts` joined the shared `system-audio-service` chunk.
+- The active PRO upload queue port went to `src/pro-room/active-upload-queue.ts`.
+  `src/pro-room/upload-queue.ts` joined the PRO runtime chunk, the only place a
+  queue is created.
+- `forceStereoSdp` and `sdpPrefersOpusStereo` went from `src/network/peer.ts` to
+  `src/network/opus-stereo-sdp.ts`, inside the existing `system-audio-sfu`
+  chunk.
+
+There is no new dynamic import, no new chunk and no new reviewed deferred
+app-shell root. The emitted chunk list (112) and the service worker's app-shell
+manifest (106 assets) are unchanged, so a cold offline launch still has every
+file it needs. Two static edges between chunks changed: `system-audio-service`
+no longer imports the entry chunk, and `system-audio-host` imports
+`system-audio-sfu`, which both of its loaders already import first. The four
+modules that left the static graph are added to `DEFERRED_ENTRY_MODULES` in
+`vite.config.ts`, so the graph guard fails the build if a later static import
+pulls one back.
+
+| Metric                | Before B (`fa256db2`) | Merged lanes B | After B (`b8bc42c4`) | Unchanged 95% ceiling B |
+| --------------------- | --------------------: | -------------: | -------------------: | ----------------------: |
+| Eager JavaScript gzip |               491,481 |        491,726 |              477,138 |                 491,568 |
+| Eager total gzip      |               570,109 |        570,349 |              555,760 |                 570,570 |
+| Eager total raw       |             2,130,277 |      2,130,974 |            2,073,212 |            2,156,096.25 |
+| Entry script gzip     |               126,122 |        125,755 |              111,597 |                 461,890 |
+| Entry script raw      |               423,152 |        422,013 |              365,196 |               1,593,625 |
+
+The bytes moved; they did not disappear. From the merged lanes to `b8bc42c4`
+the PRO runtime chunk grew by 10,182 B gzip, `system-audio-service` by
+3,684 B and `system-audio-sfu` by 448 B. JavaScript fetched per path (gzip sum
+of the eager files plus the static closure of the chunks that path awaits, with
+an empty cache):
+
+| Path                                                 | Merged lanes B | After B | Change B |
+| ---------------------------------------------------- | -------------: | ------: | -------: |
+| First screen (eager JavaScript)                      |        491,726 | 477,138 |  -14,588 |
+| Standard room entry (room features, flight recorder) |        538,075 | 527,638 |  -10,437 |
+| PRO room entry (also the PRO runtime)                |        577,547 | 577,292 |     -255 |
+| Guided demo (demo runtime, flight recorder)          |        512,089 | 497,512 |  -14,577 |
+
+Architectural limits, the 5% reserve, entry limits, and zero eager fonts are
+unchanged. These are local build measurements before the 9.0.7 / v778 version
+bump, not an exact-main CI release candidate. Increments, neutrality evidence
+and limits are in the
+[Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md).
+
 ## Consequences
 
 Setup, the lightweight demo protocol bridge, visualizer, file-drop, and

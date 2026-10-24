@@ -66,10 +66,10 @@ import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
 import {
   DEMO_PLAY_SCHEDULE_AHEAD_MS,
   DEMO_PLAY_START_LEAD_MS,
-  getPendingDemoHostStartAt,
   projectDemoPlay,
-  setDemoHostStartAt,
 } from './playback-timing.ts';
+import { getPendingDemoHostStartAt, setDemoHostStartAt } from './host-start-anchor.ts';
+import { GUEST_START_SYNC_PING_DELAY_MS } from '../player/file-play-timing.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import {
   getRoomContext,
@@ -1355,7 +1355,7 @@ function applyPendingDemoPlayback(): void {
       () => {
         if (isCurrent() && intent.connection.open) bus.emit('sync:request-immediate-ping');
       },
-      250,
+      GUEST_START_SYNC_PING_DELAY_MS,
     );
   }
   syncPlayButton();

@@ -127,25 +127,25 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
     });
 
     it('reads the first Status word with backticks and surrounding punctuation stripped', () => {
-      const field = '- **Status:** `owner-in-place`. Phase 4 (optional naming).';
+      // RO-10's Status field; `rest` is the start of its text after the status word.
+      const rest = ' The fence is written down as invariant C13';
+      const field = `- **Status:** \`owner-in-place\`.${rest}`;
       expect(
         findingsOf(
           withRegistry((registry) =>
-            registry.replace(field, '- **Status:** owner-in-place. Phase 4 (optional naming).'),
+            registry.replace(field, `- **Status:** owner-in-place.${rest}`),
           ),
         ),
       ).toBe('');
       expect(
         findingsOf(
-          withRegistry((registry) =>
-            registry.replace(field, '- **Status:** duplicated, Phase 4 (optional naming).'),
-          ),
+          withRegistry((registry) => registry.replace(field, `- **Status:** duplicated,${rest}`)),
         ),
       ).toMatch(/RO-10 Status field says "duplicated" but the block says "owner-in-place"/u);
       expect(
         findingsOf(
           withRegistry((registry) =>
-            registry.replace(field, '- **Status:** `consolidated`. Phase 4 (optional naming).'),
+            registry.replace(field, `- **Status:** \`consolidated\`.${rest}`),
           ),
         ),
       ).toMatch(/RO-10 Status field starts with unknown status "consolidated"/u);
@@ -172,11 +172,11 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         withRegistry((registry) =>
           registry.replace(
             /^(\| RO-47 .*\r?\n)/mu,
-            '$1| RO-48 | Stray row | All | duplicated | None |\n',
+            '$1| RO-99 | Stray row | All | duplicated | None |\n',
           ),
         ),
       );
-      expect(extra).toMatch(/index row RO-48 has no block line/u);
+      expect(extra).toMatch(/index row RO-99 has no block line/u);
     });
 
     it('rejects a block status that disagrees with the record and the index', () => {
@@ -544,18 +544,39 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
-    it('asks to lower the baseline when a copy is imported from its home', () => {
+    it('rejects a re-typed copy of the shared re-align schedule', () => {
       const findings = findingsOf(
         withSources((sources) =>
           replaceIn(
             sources,
             'src/player/background-return-sync.ts',
-            'const RENDEZVOUS_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;',
-            'const RENDEZVOUS_RETRY_MS = REJOIN_RETRY_MS;',
+            "const RENDEZVOUS_RETRY_TIMER = 'background-return-sync-rendezvous-retry';",
+            'const RENDEZVOUS_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;\n' +
+              "const RENDEZVOUS_RETRY_TIMER = 'background-return-sync-rendezvous-retry';",
           ),
         ),
       );
-      expect(findings).toMatch(/STALE BASELINE copied timing constant: RO-05 REJOIN_RETRY_MS/u);
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-05 ' +
+          'LOCAL_OUTPUT_REALIGN_RETRY_MS@src/youtube/constants.ts = ' +
+          'RENDEZVOUS_RETRY_MS@src/player/background-return-sync.ts ([250,750,1500,3000,5000])',
+      );
+    });
+
+    it('asks to lower the baseline when a copy is imported from its home', () => {
+      const findings = findingsOf(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            'src/core/sw-hard-reset.ts',
+            'const STARTUP_PROMPT_QUIET_MS = 1_000;',
+            'const STARTUP_PROMPT_QUIET_MS = PROMPT_QUIET_MS;',
+          ),
+        ),
+      );
+      expect(findings).toContain(
+        'STALE BASELINE copied timing constant: RO-22/RO-23/RO-30 STARTUP_PROMPT_QUIET_MS',
+      );
     });
 
     it('keeps differently named constants that only share a value report-only', () => {

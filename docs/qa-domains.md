@@ -150,9 +150,11 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **방법:** 자동 / 브라우저 / 실기
 
-**대표 구현:** [src/player/media-session.ts](../src/player/media-session.ts), [src/player/local-output-rejoin.ts](../src/player/local-output-rejoin.ts)
+**소유 규칙:** [재생 동시성 불변식 C13](design/playback-concurrency-invariants.md#3-cross-mechanism-interaction-contracts): 출력 재시작 중재(실패한 PLAY 재시도 `emitFailedPlayRecovery`는 원래 호출의 방 PLAY를 낼 수 있고 재합류 라우터 `requestLocalOutputRejoin`은 방 명령을 내지 않음, claim 지점에 닿은 `play()`가 남은 재시도를 무효화, 복구 대화상자 `requestAudioOutputRecovery`는 한 번에 하나, 타이머 `navigator-lock-watchdog`·`playback-unlock-delay`), [RO-05](design/resource-ownership-registry.md#ro-05-guest-youtube-re-align-retry-chains) YouTube 재정렬 재시도(`local-output-rejoin-retry`, 복귀 Sync `runBackgroundReturnSync`), [RO-10](design/resource-ownership-registry.md#ro-10-local-file-source-node-restart) 파일 소스 재시작
 
-**기존 검사 진입점:** [src/player/__tests__/media-session-file-rejoin.test.ts](../src/player/__tests__/media-session-file-rejoin.test.ts), [src/player/__tests__/local-output-rejoin.test.ts](../src/player/__tests__/local-output-rejoin.test.ts)
+**대표 구현:** [src/player/media-session.ts](../src/player/media-session.ts), [src/player/local-output-rejoin.ts](../src/player/local-output-rejoin.ts), [src/player/background-return-sync.ts](../src/player/background-return-sync.ts), [src/player/transport.ts](../src/player/transport.ts), [src/app.ts](../src/app.ts), [src/youtube/native-control-authority.ts](../src/youtube/native-control-authority.ts)
+
+**기존 검사 진입점:** [src/player/__tests__/media-session-file-rejoin.test.ts](../src/player/__tests__/media-session-file-rejoin.test.ts), [src/player/__tests__/local-output-rejoin.test.ts](../src/player/__tests__/local-output-rejoin.test.ts), [src/player/__tests__/background-return-sync.test.ts](../src/player/__tests__/background-return-sync.test.ts), [src/player/__tests__/local-output-realign-cross-flow.test.ts](../src/player/__tests__/local-output-realign-cross-flow.test.ts), [src/player/__tests__/concurrency-invariants.test.ts](../src/player/__tests__/concurrency-invariants.test.ts), [src/youtube/__tests__/native-control-authority.test.ts](../src/youtube/__tests__/native-control-authority.test.ts), [e2e/background-resume.test.ts](../e2e/background-resume.test.ts)
 
 ## 3. 파일 입력·기본 디코딩
 

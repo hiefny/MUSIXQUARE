@@ -92,9 +92,24 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 4 train 4A: transport liveness and output rejoin, behaviour-neutral (2026-10-24)](design/phase4-4a-transport-rejoin-2026-10-24.md):
+  pending release evidence for the structure program's first Phase 4 app train
+  (9.0.7 / v778 planned, target `app`, not yet released). One home each for the
+  15 s RTC interruption grace, the signaling reconnect schedule, the bulk-lane
+  and guest receive deadlines and the shared start and re-align values; one
+  info line naming the cause of every Standard logical connection close; one
+  transport-health read path with its guard; the rejoin router's dead state
+  deleted; and startup leaves that take lazy-only PRO and system-audio code out
+  of the first load (eager JS 491,726 -> 477,138 B gzip). The report lists each
+  increment and QA round with tested SHAs, the owner's 2026-10-24 decisions
+  (all recommended options, deploy delegated, device baseline deferred so the
+  train's neutrality rests on automated evidence, C5-6 to C5-8 held), the
+  close-cause tokens, the Phase 4 preparation evidence (C5-0 lab, the duplicate
+  upload after ICE recovery, the P4-D7 to P4-D9 harness) and the gate deviation.
+
 - [Phase 3 R2: the logo hard reset asks the update machine (2026-10-24)](design/phase3-r2-logo-reset-2026-10-24.md):
-  pending release evidence for Phase 3 R2 (9.0.6 / v777, target `app`, not yet
-  released). C6-10: the logo reset's prepare step asks the update machine
+  release evidence for Phase 3 R2 (9.0.6 / v777, target `app`), released
+  2026-10-24 12:24 KST in Release 40058005507. C6-10: the logo reset's prepare step asks the update machine
   through a port instead of promoting on its own, controller changes wait while
   a navigation holds the page, the quiet promotions wait for quiet page loads,
   and a new document absorbs the late activation of the generation its tab

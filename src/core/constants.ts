@@ -50,7 +50,42 @@ export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
 export const CHUNK_SIZE = 64 * 1024; // 64 KiB per chunk
 /** Bounded preload bytes that may overtake START on the independent bulk lane. */
 export const MAX_EARLY_PRELOAD_CHUNKS = 64;
-export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog
+
+/**
+ * Guest receive deadlines (RO-19): how long each wait for the host's bytes
+ * runs before the guest recovers. A remote connection shares one 60 s
+ * allowance; every other connection type uses the local value.
+ */
+const RECEIVE_DEADLINE_MS = {
+  /** Main-file chunks; the chunk watchdog checks once a second. */
+  chunk: { local: 12_000, remote: 60_000 },
+  /** FILE_PREPARE until its first data. */
+  prepare: { local: 15_000, remote: 60_000 },
+  /** An awaited preload until it assembles (longer than chunk receive). */
+  preloadWait: { local: 30_000, remote: 60_000 },
+} as const;
+
+export function receiveDeadlineMs(
+  kind: keyof typeof RECEIVE_DEADLINE_MS,
+  connectionType: 'local' | 'remote' | 'unknown',
+): number {
+  return RECEIVE_DEADLINE_MS[kind][connectionType === 'remote' ? 'remote' : 'local'];
+}
+
+/**
+ * Preload receive deadlines (RO-19), the same for every connection type. A
+ * preload without progress of its own is abandoned `admission` after
+ * PRELOAD_START, or `progress` after its last progress, unless the foreground
+ * receive advanced meanwhile, which earns it another `progress` window. The
+ * preload loader clears `loaderAfterStart` after PRELOAD_START and
+ * `loaderAfterProgress` after each progress update.
+ */
+export const PRELOAD_RECEIVE_DEADLINE_MS = {
+  admission: 30_000,
+  progress: 15_000,
+  loaderAfterStart: 30_000,
+  loaderAfterProgress: 15_000,
+} as const;
 
 /** Maximum authenticated whole-object size for standard-room remote sharing. */
 export const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
@@ -91,6 +126,12 @@ export const SYSTEM_AUDIO_SHARE_LIMIT_MS = 2 * 60 * 60 * 1000;
  *  dialog appear in an otherwise direct-transfer room. */
 export const WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST = 9;
 export const PEER_NAME_PREFIX = 'Peer';
+/** One RTC interruption's non-renewing grace: the original data PC's
+ *  disconnected grace and the longest ICE recovery lease the host heartbeat
+ *  monitor honours. A side control PC without ICE restart gets the same grace;
+ *  the side-route request and offer windows, which the two ends enforce on
+ *  each other, stay their own literals in control-isolation.ts. */
+export const RTC_INTERRUPTION_GRACE_MS = 15_000;
 
 // ─── Chat Wire Caps ────────────────────────────────────────────────
 // Cross-client WIRE CONTRACT — keep bit-identical across releases (deployed

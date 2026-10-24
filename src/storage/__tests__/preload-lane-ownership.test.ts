@@ -737,6 +737,71 @@ describe('preload lanes interrupted by ICE', () => {
     expect(types(flaky.wire).at(-1)).toBe(MSG.PRELOAD_END);
   });
 
+  it.each([
+    {
+      verdict: 'pauses',
+      outage: 'only its peer connection is disconnected',
+      pc: 'disconnected',
+      ice: 'connected',
+    },
+    {
+      verdict: 'pauses',
+      outage: 'only its ICE transport is disconnected',
+      pc: 'connected',
+      ice: 'disconnected',
+    },
+    {
+      verdict: 'pauses',
+      outage: 'only its peer connection failed',
+      pc: 'failed',
+      ice: 'connected',
+    },
+    { verdict: 'pauses', outage: 'only its ICE transport failed', pc: 'connected', ice: 'failed' },
+    {
+      verdict: 'aborts',
+      outage: 'only its peer connection is closed',
+      pc: 'closed',
+      ice: 'connected',
+    },
+    {
+      verdict: 'aborts',
+      outage: 'only its ICE transport is closed',
+      pc: 'connected',
+      ice: 'closed',
+    },
+  ] as const)('$verdict a broadcast lane when $outage', async ({ verdict, pc, ice }) => {
+    const healthy = connection('healthy-listener');
+    const flaky = interruptibleConnection('split-state-listener');
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(healthy.peer, flaky.peer);
+    publishPreload(file);
+    setState('preload.ready', null);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    flaky.pc.connectionState = pc;
+    flaky.pc.iceConnectionState = ice;
+    await vi.advanceTimersByTimeAsync(500);
+    const afterOutage =
+      verdict === 'pauses' ? [MSG.PRELOAD_START] : [MSG.PRELOAD_START, MSG.PRELOAD_ABORT];
+    expect(types(flaky.wire)).toEqual(afterOutage);
+
+    // A recovery report while either field still reports the outage keeps waiting.
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual(afterOutage);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual(
+      verdict === 'pauses'
+        ? [MSG.PRELOAD_START, MSG.PRELOAD_START, MSG.PRELOAD_CHUNK, MSG.PRELOAD_END]
+        : afterOutage,
+    );
+  });
+
   it('resumes the same tuple after the host promoted it to the current file', async () => {
     const { flaky, ready } = await interruptBroadcast();
     setState('files.current', ready);

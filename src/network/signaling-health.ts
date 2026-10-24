@@ -2,7 +2,9 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getState, setState } from '../core/state.ts';
 import type { DataConnection, SignalingHealthState } from '../types/index.ts';
 
-export const SIGNALING_RECOVERY_MAX_ATTEMPTS = 5;
+/** The Standard signaling reconnect delay before each attempt: 1+2+4+8+15 = 30 s. */
+export const SIGNALING_RECOVERY_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
+export const SIGNALING_RECOVERY_MAX_ATTEMPTS = SIGNALING_RECOVERY_BACKOFF_MS.length;
 const SIGNALING_RECOVERED_VISIBLE_MS = 4_000;
 
 const RECOVERED_CLEAR_TIMER = 'signaling-health-recovered-clear';

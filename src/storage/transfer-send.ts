@@ -17,7 +17,12 @@ import {
 } from './chunk-pump.ts';
 import type { DataConnection, AnyProtocolMsg } from '../types/index.ts';
 import { freezeFileDeliveryMode, resolvePeerFileDelivery } from '../share/file-delivery-policy.ts';
-import { hasTransferCapacity, waitForTransferCapacity } from './transfer-backpressure.ts';
+import {
+  BULK_LOCAL_BUFFER_LIMIT_BYTES,
+  BULK_UNICAST_STALL_TIMEOUT_MS,
+  hasTransferCapacity,
+  waitForTransferCapacity,
+} from './transfer-backpressure.ts';
 
 // ─── Send-side Module State ──────────────────────────────────────────
 
@@ -107,12 +112,10 @@ function releasePeerTransfer(peerId: string, owner: PeerTransferOwner): void {
   if (ownsPeerTransfer(peerId, owner)) _peerTransferOwners.delete(peerId);
 }
 
-// Local queued-byte threshold; negotiated receiver credit independently bounds
-// unconfirmed payload shared with preload on this exact connection.
-const BROADCAST_BACKPRESSURE_LIMIT = 64 * 1024;
+// Every lane holds its next send above BULK_LOCAL_BUFFER_LIMIT_BYTES. A broadcast
+// excludes a peer stuck there sooner than a unicast lane stops
+// (BULK_UNICAST_STALL_TIMEOUT_MS); recovery handles that peer's missing suffix.
 const BROADCAST_BACKPRESSURE_TIMEOUT = 5_000;
-const UNICAST_BACKPRESSURE_LIMIT = 64 * 1024;
-const UNICAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 // ─── Broadcast Debounce ──────────────────────────────────────────────
 
@@ -443,7 +446,7 @@ export async function broadcastFile(
         size: file.size,
         mime: file.type,
       }),
-      bufferedLimit: BROADCAST_BACKPRESSURE_LIMIT,
+      bufferedLimit: BULK_LOCAL_BUFFER_LIMIT_BYTES,
       stallTimeoutMs: BROADCAST_BACKPRESSURE_TIMEOUT,
       isWritable: (peer) => {
         const owner = ownedPeers.get(peer.id);
@@ -635,8 +638,8 @@ export async function unicastFile(
       while (true) {
         const capacity = await waitForTransferCapacity(
           conn,
-          UNICAST_BACKPRESSURE_LIMIT,
-          UNICAST_BACKPRESSURE_TIMEOUT,
+          BULK_LOCAL_BUFFER_LIMIT_BYTES,
+          BULK_UNICAST_STALL_TIMEOUT_MS,
           canContinue,
           end - start,
         );
@@ -645,7 +648,7 @@ export async function unicastFile(
           return;
         }
         if (!canContinue()) return;
-        if (!hasTransferCapacity(conn, UNICAST_BACKPRESSURE_LIMIT, end - start)) continue;
+        if (!hasTransferCapacity(conn, BULK_LOCAL_BUFFER_LIMIT_BYTES, end - start)) continue;
         if (!chunkBuf) {
           chunkBuf = await file.slice(start, end).arrayBuffer();
           // Credit/local capacity can change during the read. Hold only this

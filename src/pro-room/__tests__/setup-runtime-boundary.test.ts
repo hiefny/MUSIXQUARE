@@ -18,4 +18,9 @@ describe('PRO setup runtime import boundary', () => {
     expect(setupSource).toContain('isLazyFeatureLoadError(error)');
     expect(setupSource).not.toContain("value: await import('./runtime.ts')");
   });
+
+  it('reads the API error from its leaf so the API client stays in the lazy runtime', () => {
+    expect(setupSource).toContain("import { ProRoomApiError } from './api-error.ts';");
+    expect(setupSource).not.toMatch(/from '\.\/api\.ts'/u);
+  });
 });

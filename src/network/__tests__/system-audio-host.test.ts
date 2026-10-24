@@ -29,7 +29,7 @@ vi.mock('../../audio/system-capture.ts', () => ({
   getCapturedAudioStream: mocks.getCapturedAudioStream,
 }));
 
-vi.mock('../peer.ts', () => ({ forceStereoSdp: (sdp: string) => sdp }));
+vi.mock('../opus-stereo-sdp.ts', () => ({ forceStereoSdp: (sdp: string) => sdp }));
 
 import { registerSystemAudioHostListeners } from '../system-audio-host.ts';
 import {

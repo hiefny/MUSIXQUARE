@@ -593,7 +593,7 @@ export function joinSession(
       if (!terminateGuestJoin(joinEpoch)) return;
       log.warn(`[Join] Connection timeout: data channel did not open in ${preOpenTimeoutMs}ms`);
       try {
-        conn.close();
+        conn.close('open-timeout');
       } catch {
         /* noop */
       }

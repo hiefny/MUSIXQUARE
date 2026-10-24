@@ -11,7 +11,10 @@
  * (the leave dialog, core/log). The bootstrap init order is pinned as an
  * ordered subsequence only: other inits run between these three. When a pin
  * fails, update the harness copy in the same change, then the text here.
- * Whitespace and full-line comments are ignored.
+ * Whitespace and full-line comments are ignored. The logo request has a second
+ * copy, in sw-update-transitions.integration.test.ts (the update machine's
+ * transition table); both copies are pinned against the same text, read with
+ * their own names for the owner, the chunk load and the home intent.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -25,6 +28,10 @@ function readSquashed(path: string): string {
 
 const appSource = readSquashed('src/app.ts');
 const playerControlsSource = readSquashed('src/ui/player-controls.ts');
+const harnessSource = readSquashed('src/core/__tests__/__helpers__/page-navigation-harness.ts');
+const transitionTableSource = readSquashed(
+  'src/core/__tests__/sw-update-transitions.integration.test.ts',
+);
 
 /** Each snippet appears after the end of the previous one. */
 function expectInOrder(source: string, snippets: readonly string[]): void {
@@ -138,6 +145,28 @@ describe('app.ts wiring copied by the page navigation harness', () => {
   });
 });
 
+/** The logo request as src/ui/player-controls.ts writes it. */
+const LOGO_REQUEST = [
+  "scheduleSessionReset(t('dialog.leaving_session'), {",
+  'async prepare(signal) {',
+  "const hardReset = await import('../core/sw-hard-reset.ts');",
+  'if (!signal.aborted) await hardReset.default(); },',
+  'navigate: () => navigateToAppHome(), });',
+].join(' ');
+
+/**
+ * A test copy of the logo request, read with player-controls.ts's names: the
+ * copy's owner receiver, message constant, preloaded chunk and home intent.
+ */
+function copiedLogoRequest(source: string, head: string, names: Record<string, string>): string {
+  let copy = `${between(source, head, '});')} });`;
+  for (const [copyName, sourceName] of Object.entries(names)) {
+    expect(copy, `not in the copy: ${copyName}`).toContain(copyName);
+    copy = copy.replace(copyName, sourceName);
+  }
+  return copy;
+}
+
 describe('player-controls.ts logo request copied by the page navigation harness', () => {
   it('prepares with the hard-reset chunk and its promotion unless aborted, then navigates home [updated: C6-8] [update with: C6-10]', () => {
     expect(
@@ -146,14 +175,23 @@ describe('player-controls.ts logo request copied by the page navigation harness'
         "scheduleSessionReset(t('dialog.leaving_session'), {",
         '} finally { _logoNavBusy = false; }',
       ),
-    ).toBe(
-      [
-        "scheduleSessionReset(t('dialog.leaving_session'), {",
-        'async prepare(signal) {',
-        "const hardReset = await import('../core/sw-hard-reset.ts');",
-        'if (!signal.aborted) await hardReset.default(); },',
-        'navigate: () => navigateToAppHome(), });',
-      ].join(' '),
-    );
+    ).toBe(LOGO_REQUEST);
+  });
+
+  it('keeps both test copies equal to it: the harness and the update transition table [update with: C6-10]', () => {
+    expect(
+      copiedLogoRequest(harnessSource, 'scheduleSessionReset(MSG_LEAVING, {', {
+        'scheduleSessionReset(MSG_LEAVING,': "scheduleSessionReset(t('dialog.leaving_session'),",
+        'await loadHardReset()': "await import('../core/sw-hard-reset.ts')",
+      }),
+    ).toBe(LOGO_REQUEST);
+    expect(
+      copiedLogoRequest(transitionTableSource, 'owner.scheduleSessionReset(MSG_LEAVING, {', {
+        'owner.scheduleSessionReset(MSG_LEAVING,':
+          "scheduleSessionReset(t('dialog.leaving_session'),",
+        'await loadHardReset()': "await import('../core/sw-hard-reset.ts')",
+        'navigationIntents.navigateToAppHome()': 'navigateToAppHome()',
+      }),
+    ).toBe(LOGO_REQUEST);
   });
 });

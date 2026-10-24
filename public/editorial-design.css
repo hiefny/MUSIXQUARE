@@ -1152,8 +1152,8 @@
   fill: none;
   stroke: currentColor;
   stroke-width: 2.4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
 }
 
 .playlist-select-mark {
@@ -1798,20 +1798,34 @@
   white-space: nowrap;
 }
 
+/* The app's notice geometry (css/style.css): the dismiss target's centre is
+   the centre of the header line's digits and capitals. */
 .chat-pinned-notice {
-  padding: 10px 16px;
+  position: relative;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
   background: rgba(255, 193, 7, 0.12);
 }
 
-.chat-pinned-notice-body {
+.chat-pinned-notice-open {
   min-width: 0;
   flex: 1;
+  padding: 10px 16px;
+  padding-inline-end: 40px;
+}
+
+.chat-pinned-notice-dismiss {
+  position: absolute;
+  top: 0;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
 }
 
 .chat-pinned-notice-header {
+  height: 13px;
   margin-bottom: 4px;
   display: flex;
   align-items: center;
@@ -1830,6 +1844,7 @@
   flex: 1;
   overflow: hidden;
   font-weight: 700;
+  line-height: normal;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1837,14 +1852,13 @@
 .chat-pinned-notice-time {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
   opacity: 0.55;
 }
 
 .chat-pinned-notice-close {
   width: 10px;
   height: 10px;
-  flex: 0 0 10px;
-  fill: currentColor;
   color: #ffc107;
   opacity: 0.55;
 }

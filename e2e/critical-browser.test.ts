@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { E2E_APP_ORIGIN } from './config.ts';
+import { readInkBox, snapToDevicePixels } from './helpers/ink.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupGuest, setupHostAndStart } from './helpers/setup-flow.ts';
 import { openChatDrawer, sendChat, waitForState } from './helpers/wait.ts';
@@ -112,6 +113,125 @@ test.describe('Critical browser release gate', () => {
         await dismiss.click();
         await expect(banner).toBeHidden();
       }
+    }
+  });
+
+  test('centres the notice dismiss X on the header time in both page directions', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await injectPeerServer(page);
+    await page.route('**/api/announcement/current', (route) =>
+      route.fulfill({ json: { enabled: false } }),
+    );
+    await setupHostAndStart(page);
+    await openChatDrawer(page);
+    const banner = page.locator('#chat-pinned-notice');
+    const label = page.locator('#chat-pinned-notice-label');
+    const time = page.locator('#chat-pinned-notice-time');
+    const close = page.locator('#btn-chat-notice-close .chat-pinned-notice-close');
+    for (const direction of ['ltr', 'rtl']) {
+      // A label in a taller fallback font must not move the time off the X's line.
+      for (const labelText of [null, 'إعلان · HOST']) {
+        await page.evaluate(
+          ({ direction, id }) => {
+            document.documentElement.dir = direction;
+            const bus = (
+              window as unknown as { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } }
+            ).__MUSIXQUARE_BUS__;
+            bus.emit('chat:notice-message', 'HOST', 'Drop your playlist recs', Date.now(), {
+              source: 'service',
+              id,
+            });
+          },
+          { direction, id: `${direction}-${labelText ?? 'label'}` },
+        );
+        await expect(banner).toBeVisible();
+        if (labelText) {
+          await label.evaluate((element, text) => {
+            element.textContent = text;
+          }, labelText);
+        }
+        await snapToDevicePixels(banner);
+        const closeInk = await readInkBox(page, banner, close);
+        const timeInk = await readInkBox(page, banner, time);
+        const width = (await banner.boundingBox())!.width;
+        expect(Math.abs(closeInk.centerY - timeInk.centerY)).toBeLessThanOrEqual(0.5);
+        // The X keeps the label's 16px inset on its own side of the banner.
+        const inset = direction === 'ltr' ? width - closeInk.right : closeInk.left;
+        expect(inset).toBeGreaterThanOrEqual(15.5);
+        expect(inset).toBeLessThanOrEqual(17.5);
+      }
+    }
+  });
+
+  test('keeps the notice X keyboard ring inside the clipped desktop chat drawer', async ({
+    page,
+  }) => {
+    // On desktop the drawer hides its header, so the notice is its first
+    // visible child and the drawer's overflow clips at the X's top edge.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await injectPeerServer(page);
+    await page.route('**/api/announcement/current', (route) =>
+      route.fulfill({ json: { enabled: false } }),
+    );
+    await setupHostAndStart(page);
+    const close = page.locator('#btn-chat-notice-close');
+    for (const forcedColors of ['none', 'active'] as const) {
+      await page.emulateMedia({ forcedColors });
+      await page.evaluate((id) => {
+        const bus = (
+          window as unknown as { __MUSIXQUARE_BUS__: { emit: (...args: unknown[]) => void } }
+        ).__MUSIXQUARE_BUS__;
+        bus.emit('chat:notice-message', 'HOST', 'Drop your playlist recs', Date.now(), {
+          source: 'service',
+          id,
+        });
+      }, `ring-${forcedColors}`);
+      await expect(page.locator('#chat-pinned-notice')).toBeVisible();
+      const readRing = () =>
+        close.evaluate((button) => {
+          const style = getComputedStyle(button);
+          const rect = button.getBoundingClientRect();
+          const banner = button.parentElement!.getBoundingClientRect();
+          let clipper = button.parentElement;
+          while (clipper && getComputedStyle(clipper).overflow === 'visible') {
+            clipper = clipper.parentElement;
+          }
+          const clip = clipper!.getBoundingClientRect();
+          const reach =
+            Number.parseFloat(style.outlineOffset) + Number.parseFloat(style.outlineWidth);
+          return {
+            focusVisible: button.matches(':focus-visible'),
+            outline: `${style.outlineStyle} ${style.outlineWidth} offset ${style.outlineOffset}`,
+            target: [rect.width, rect.height],
+            clipper: clipper!.id,
+            // Gaps from the ring's outer edge to the drawer clip and the banner edges.
+            clipTop: rect.top - reach - clip.top,
+            clipEnd: clip.right - (rect.right + reach),
+            bannerTop: rect.top - reach - banner.top,
+            bannerEnd: banner.right - (rect.right + reach),
+          };
+        });
+      // Real keyboard focus: Tab from the notice's open button to its X.
+      await page.locator('#btn-chat-notice-open').focus();
+      if (forcedColors === 'active') {
+        // The system circle every button gets also stays off the banner edge.
+        const circle = await readRing();
+        expect(circle.outline).toMatch(/^solid 1px/);
+        expect(circle.bannerTop).toBeGreaterThanOrEqual(1);
+      }
+      await page.keyboard.press('Tab');
+      await expect(close).toBeFocused();
+      const ring = await readRing();
+      expect(ring.focusVisible).toBe(true);
+      expect(ring.outline).toMatch(forcedColors === 'active' ? /^solid 3px/ : /^solid 2px/);
+      expect(ring.target).toEqual([32, 32]);
+      expect(ring.clipper).toBe('chat-drawer');
+      expect(ring.clipTop).toBeGreaterThanOrEqual(1);
+      expect(ring.clipEnd).toBeGreaterThanOrEqual(1);
+      expect(ring.bannerTop).toBeGreaterThanOrEqual(1);
+      expect(ring.bannerEnd).toBeGreaterThanOrEqual(1);
     }
   });
 

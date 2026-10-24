@@ -602,6 +602,21 @@ describe('initSettings language controls', () => {
     expect(optionCodes).toEqual(LANGUAGE_OPTIONS.map((language) => language.code));
   });
 
+  it('marks the chosen language with the angular selection check', () => {
+    setLanguageMode('ko');
+    installLanguageSettingsDom();
+    initSettings();
+
+    const check = document.querySelector('.language-option.active .language-option-check');
+    const path = check?.querySelector('svg[viewBox="0 0 24 24"] path');
+    expect(check?.getAttribute('aria-hidden')).toBe('true');
+    // Butt ends and a mitred corner, like the app's X buttons and chevrons.
+    expect(path?.getAttribute('d')).toBe('M4.65 11.95l4.55 4.55L19.35 6.35');
+    expect(path?.getAttribute('stroke-width')).toBe('2.4');
+    expect(path?.getAttribute('stroke-linecap')).toBe('butt');
+    expect(path?.getAttribute('stroke-linejoin')).toBe('miter');
+  });
+
   it('opens the language dialog with all supported languages and a custom scrollbar', async () => {
     setLanguageMode('ko');
     installLanguageSettingsDom();

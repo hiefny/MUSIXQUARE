@@ -93,10 +93,18 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 3 update and Standard-room expiry recovery batch (2026-10-24)](design/phase3-update-and-expiry-recovery-2026-10-24.md):
-  pending release evidence for the Phase 3 train. Explicit room expiry stops
-  automatic guest signaling retries while preserving existing RTC playback;
-  internal diagnostics distinguish expiry and observed host-unavailability state.
-  Subsequent Phase 3 update-path increments share this report.
+  pending release evidence for Phase 3 R1 (9.0.5 / v776, target `all`, not yet
+  released). Explicit room expiry stops automatic guest signaling retries while
+  preserving existing RTC playback; internal diagnostics distinguish expiry and
+  observed host-unavailability state. R1 also carries the angular selection
+  check and minus, the pinned-notice X aligned to its header time, the recovery
+  dialog height cap and notice X keyboard ring, and C6-9 (one activation state
+  and one `SKIP_WAITING` sink in the update machine, behaviour unchanged). The
+  report lists each increment and QA round with its tested SHA, the owner's
+  2026-10-24 decisions (two releases, R2 = C6-10 as 9.0.6 / v777; C6-15
+  rejected), the final eager-JS headroom of 284 B and a real-browser check of
+  a page opened after the deploy applying the update with the new machine. R2
+  (C6-10) ships separately and gets its own dated report.
 
 - [Retired Apps-in-Toss origins (Worker-only, 2026-10-24)](design/retire-toss-origins-2026-10-24.md):
   the App, signaling and remote-share Workers and the remote-share R2 CORS policy stop trusting the

@@ -162,6 +162,32 @@ describe('navigation-sink guard (C6-14)', { timeout: 60_000 }, () => {
     );
   });
 
+  it('counts the calls of the update machine sink per function (C6-9)', () => {
+    expect(analyzeNavigationSinks(realInput()).counts['SKIP_WAITING sink call']).toBe(4);
+    const findings = findingsOf(
+      withSources((sources) => {
+        replaceIn(
+          sources,
+          'src/sw-register.ts',
+          "          log.debug('[SW] Update found during cooldown. Silently activating');\n          activateWaitingWorker(worker);",
+          "          log.debug('[SW] Update found during cooldown. Silently activating');\n          activateWaitingWorker(worker);\n          activateWaitingWorker(worker);",
+        );
+        replaceIn(
+          sources,
+          'src/sw-register.ts',
+          'function publishNavigationSource(',
+          'export function promoteNow(worker: ServiceWorker): void {\n  activateWaitingWorker(worker);\n}\n\nfunction publishNavigationSource(',
+        );
+      }),
+    );
+    expect(findings).toMatch(
+      /RATCHET REGRESSION SKIP_WAITING sink call: src\/sw-register\.ts :: registerServiceWorker\.doRegister\.handleWaitingWorker has 5, baseline 4/u,
+    );
+    expect(findings).toContain(
+      'UNSANCTIONED SKIP_WAITING sink call: src/sw-register.ts :: promoteNow has 1',
+    );
+  });
+
   it('allows history traversal only in the Back guard and its leave', () => {
     const findings = findingsOf(
       withSources((sources) =>
@@ -217,10 +243,15 @@ describe('navigation-sink guard (C6-14)', { timeout: 60_000 }, () => {
           'export function restoreSessionReset(): void {}\n\n/** Whether this document currently owns a blocking hard-reset attempt. */',
         );
         sources.set('src/core/flag.ts', 'export const markIntentionalNav = (): void => undefined;');
+        sources.set(
+          'src/sw-latch.ts',
+          'let _swReloading = false;\nexport const read = () => _swReloading;',
+        );
       }),
     );
     expect(findings).toMatch(/RETIRED NAME: src\/core\/session-reset\.ts:\d+ restoreSessionReset/u);
     expect(findings).toMatch(/RETIRED NAME: src\/core\/flag\.ts:1 markIntentionalNav/u);
+    expect(findings).toMatch(/RETIRED NAME: src\/sw-latch\.ts:1 _swReloading/u);
   });
 
   it('ignores comments, strings and tests', () => {

@@ -12,6 +12,7 @@ import { t } from '../i18n/index.ts';
 import { syncOverlayState, normalizeEmptyContentEditable, onWindowBack } from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { destroyCustomScrollbar, initCustomScrollbar } from './custom-scrollbar.ts';
+import { createSelectionCheckSvg } from './selection-mark.ts';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -204,8 +205,6 @@ export function closeDialog(action = 'close'): void {
   setManagedTimer('dialog-drain', drainDialogQueue, 0);
 }
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
-
 // A stepped dialog reuses both action buttons in place ("Next" becomes "OK",
 // "Back" sits where "Cancel" was). Ignore action activations this soon after
 // a page swap, so a double click or double tap cannot press both.
@@ -219,18 +218,7 @@ function createChoiceCheck(): HTMLSpanElement {
   const check = document.createElement('span');
   check.className = 'dialog-choice-check';
   check.setAttribute('aria-hidden', 'true');
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('focusable', 'false');
-  const path = document.createElementNS(SVG_NS, 'path');
-  path.setAttribute('d', 'M5 12.5l4.2 4.2L19 6.9');
-  path.setAttribute('fill', 'none');
-  path.setAttribute('stroke', 'currentColor');
-  path.setAttribute('stroke-width', '2.4');
-  path.setAttribute('stroke-linecap', 'round');
-  path.setAttribute('stroke-linejoin', 'round');
-  svg.appendChild(path);
-  check.appendChild(svg);
+  check.appendChild(createSelectionCheckSvg());
   return check;
 }
 

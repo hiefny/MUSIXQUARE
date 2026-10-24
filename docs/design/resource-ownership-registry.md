@@ -135,7 +135,7 @@ each record also states the step in words.
 | RO-40 | Hand-copied PRO publication teardown blocks              | System audio   | accepted-exception | Phase 5 or later             |
 | RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit after the 0c test    |
 | RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check  |
-| RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | Revisit after a build check  |
+| RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)        |
 | RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                      |
 | RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round  |
 | RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision               |
@@ -1100,12 +1100,26 @@ RO-47 owner-in-place
 
 - **Resource:** `registration.waiting`, its activation (`SKIP_WAITING`, then `controllerchange`)
   and the navigation that follows.
-- **Current owners/flows:** the update machine in `src/sw-register.ts` (`activationState`,
-  `_swReloading`, four `SKIP_WAITING` sends, the cross-tab prompt lease in
-  `src/sw-update-coordination.ts` and `src/sw-prompt-lock.ts`) and the hard-reset promotion in
-  `src/core/sw-hard-reset.ts` (its own `SKIP_WAITING` and a 1.5 s `controllerchange` wait, called
-  from the logo reset in `src/ui/player-controls.ts`), which does not consult the update machine.
-  The update machine reads that activation as a passive controller change.
+- **Current owners/flows:** the update machine in `src/sw-register.ts` and the hard-reset
+  promotion in `src/core/sw-hard-reset.ts` (its own `SKIP_WAITING` and a 1.5 s
+  `controllerchange` wait, called from the logo reset in `src/ui/player-controls.ts`), which does
+  not consult the update machine. The update machine reads that activation as a passive
+  controller change. Since Phase 3 C6-9 the update machine keeps one typed `activationState`
+  (`passive`, `prompting`, `awaiting-local-controller`, or `reload-scheduled` holding a local
+  identity token for the reload it asked the navigation owner for, since the owner returns no
+  handle, so only that reload's own recovery releases it; the module
+  reload latch `_swReloading` is gone) and sends `SKIP_WAITING` through one sink,
+  `activateWaitingWorker` (Apply, Apply to a replacement, and the quiet cooldown and
+  same-generation promotions; the callers write the next-document markers, and the quiet
+  promotions write none). `guard:navigation-sinks` counts both the one literal and the four
+  calls of the sink in `handleWaitingWorker`, and keeps `_swReloading` and `_swReloadAttempt`
+  retired. A prompt that still answers while that reload is pending (a lost lease, a failed
+  dialog) leaves its phase inside the `reload-scheduled` state, which keeps the pre-C6-9
+  outcomes: a newly waiting worker is still taken up, and the page returns to that phase if the
+  reload recovers. The recovery checks the reload's identity; with the navigation owner settling
+  each attempt once (RO-23) a stale recovery cannot reach it today, so that check is defensive
+  and pinned directly. The cross-tab prompt lease stays in `src/sw-update-coordination.ts` and
+  `src/sw-prompt-lock.ts`.
 - **Target single owner:** the `sw-register.ts` update machine with one activation sink; the hard
   reset becomes a client of a promotion port and keeps standalone promotion when the port times
   out or is unavailable (until two clean production update cycles).
@@ -1134,11 +1148,29 @@ RO-47 owner-in-place
     the same page".
   - Teardown: `src/core/__tests__/sw-hard-reset.test.ts` "fails open after a bounded wait when
     activation stalls".
-  - Visibility: missing.
-  - Missing: a hard reset while an Apply is stalled.
-- **Status:** `duplicated`. Phase 0d, Phase 3 (one activation owner, then the hard reset asks it;
-  each alone). See [Update dialog everywhere](update-dialog-everywhere-2026-10-17.md). Exception
-  RO-43.
+  - Visibility: `src/core/__tests__/sw-update-transitions.integration.test.ts` rows X3b (the
+    document is made visible again after the update reload's pagehide) and X5 (a back-forward
+    cache return of a pending update reload).
+  - Every `SKIP_WAITING` send and the listed exits from `reload-scheduled`, with the navigations,
+    dialogs and next-document markers each produces: the transition table in
+    `sw-update-transitions.integration.test.ts` (on the real navigation owner). A fallback
+    reload held behind the PRO claim fence and a throwing `/CODE` href sink have no row; they
+    reach the machine through the same owner queue and recovery callback as rows X10a/X10b and
+    X2 (by reading). The machine's
+    state is private, so a row checks its resulting state only through a later step: rows X12b
+    to X19 send the next event while the reload is still latched, X20 to X22 answer a prompt
+    after the reload recovered under it, and S1b and S2b end with a probe. Every row has the same
+    effects on main 08003954's `sw-register.ts` and after C6-9; a mutation check of C6-9's state
+    (21 mutants, 20 killed) left only the startup gate's read, which no reachable order can
+    tell apart.
+  - The reload identity check: `sw-register.test.ts` "does not let a stale recovery release a
+    successor reload attempt" hands the machine a stale recovery directly.
+  - A hard reset while an Apply is stalled: the same file's "a stalled Apply, then the logo
+    reset" cases record today's three `SKIP_WAITING` sends and second navigation, the C6-10 input
+    (owner decision P3-10 A).
+- **Status:** `duplicated`. Phase 0d, Phase 3 (one activation owner, done in C6-9; then the hard
+  reset asks it in C6-10; each alone). See
+  [Update dialog everywhere](update-dialog-everywhere-2026-10-17.md). Exception RO-43.
 
 ### RO-23 App-owned page navigation
 
@@ -1172,8 +1204,9 @@ RO-47 owner-in-place
   runs once on every event order. `src/core/document-reload.ts` keeps
   only the PRO claim fence (claim phases, the claim the in-flight reload carries, a narrow port
   `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`; since C6-13 tests reset
-  the owner and the fence with one `__resetPageNavigationForTests`). A stacked requester latch
-  remains in `sw-register.ts` (`_swReloading`, Phase 3); `src/core/reload-recovery-latch.ts` keeps
+  the owner and the fence with one `__resetPageNavigationForTests`). The update machine in
+  `sw-register.ts` keeps its reload inside its own activation state since Phase 3 C6-9 (RO-22;
+  the stacked `_swReloading` latch is gone); `src/core/reload-recovery-latch.ts` keeps
   only its prompt single-flight, its repeated-recovery guard deleted in C6-13 because the owner
   reports a recovery at most once per attempt;
   `src/core/page-lifecycle.ts` keeps only `beforeunload`, the pagehide `leaveSession` and
@@ -1711,13 +1744,18 @@ entry needs the owner's acceptance and is not implied by this registry.
 
 ### RO-43 Update prompt stays eager
 
-- **Parent:** RO-22. Plan step C6-15 deferred.
-- **Exception:** the waiting-worker prompt in `sw-register.ts` stays in the initial bundle.
-- **Evidence:** loading it after a controller change risks the old-chunk criterion of the PWA
-  update QA domain and touches the 2026-10-17 "same dialog everywhere" decision; the saving is
-  unmeasured.
+- **Parent:** RO-22. Plan step C6-15 (load the update dialog lazily) is rejected, not deferred
+  (owner decision 2026-10-24).
+- **Exception:** the waiting-worker prompt in `sw-register.ts` stays in the initial bundle. This
+  is the settled decision, not a placeholder for a later move.
+- **Evidence:** the owner rejected C6-15 on 2026-10-24 for two reasons. A lazily loaded dialog
+  shows late, after the user is already in a room. A chunk that fails to load would need a
+  different fallback dialog, which conflicts with the 2026-10-17
+  [same dialog everywhere](update-dialog-everywhere-2026-10-17.md) rule. Loading it after a
+  controller change would also risk the old-chunk criterion of the PWA update QA domain. The
+  eager saving was never measured and is not a lever for the Phase 3 bundle budget.
 - **Behaviour risk:** none.
-- **Revisit when:** a measured build and an owner decision.
+- **Revisit when:** only if the owner reverses the 2026-10-24 decision.
 - **Status:** `accepted-exception`.
 
 ### RO-44 AudioContext native-call guard is syntactic

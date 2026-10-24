@@ -193,6 +193,14 @@ Prefer an existing path from `index.html` before introducing a new icon.
 - Preserve intentional stroke or mixed-construction exceptions such as the
   reorder grip, disclosure controls, language/device diagrams, and volume
   waves; do not force them into a filled silhouette.
+- Stroked marks that sit beside the filled X keep its angular construction.
+  The selection check (`src/ui/selection-mark.ts`) uses butt ends and a
+  mitred corner, and the selection minus, a single segment, uses butt ends.
+  The playlist-row and device expand chevrons (`.expand-toggle`,
+  `.device-expand-toggle`) use butt ends and a mitred corner. The pinned
+  notice's X uses butt ends (its two strokes never join). The playlist
+  switcher's title chevron (`.playlist-switch-button`) stays round, and the
+  rounded stroke samples in `preview/iconography.html` are generic.
 - Do not add an icon font or runtime icon dependency for a single glyph.
 - Use `assets/logo-wordmark.svg` for the full custom wordmark and
   `assets/favicon.svg` for compact brand placement.

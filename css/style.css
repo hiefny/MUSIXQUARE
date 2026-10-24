@@ -3077,13 +3077,15 @@ Safety is declared first because important layer precedence is reversed; its acc
     overflow: visible;
   }
 
+  /* The selection minus and check (src/ui/selection-mark.ts) on playlist
+     rows and in the move dialog: angular like the app's X and chevrons. */
   .playlist-select-minus,
   .playlist-select-mark {
     fill: none;
     stroke: currentColor;
     stroke-width: 2.4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
+    stroke-linecap: butt;
+    stroke-linejoin: miter;
     transition: opacity 0.16s ease;
   }
 
@@ -3091,7 +3093,8 @@ Safety is declared first because important layer precedence is reversed; its acc
     opacity: 0;
   }
 
-  /* The minus matches the old remove X: about 9px wide, a thinner stroke. */
+  /* The minus is slightly wider than the old 16px remove X (about 9.3px) with
+     a thinner stroke: its ink is 10.9px wide at 22px (11.9 of 24 units). */
   .playlist-select-minus {
     stroke-width: 1.9;
   }
@@ -5728,14 +5731,18 @@ Safety is declared first because important layer precedence is reversed; its acc
   }
 
   /* Keep every generic dialog action reachable even when header, input and
-     wrapped buttons together exceed the available layout viewport height. */
-  #dialog-overlay .dialog {
+     wrapped buttons together exceed the available layout viewport height.
+     The signaling recovery dialog shares it: its expiry copy outgrows a
+     landscape phone in some locales. */
+  #dialog-overlay .dialog,
+  #signaling-recovery-overlay .dialog {
     max-height: calc(var(--app-height, 100vh) - 48px);
     max-height: calc(100dvh - 48px);
     overflow-y: auto;
   }
 
-  #dialog-overlay .dialog > * {
+  #dialog-overlay .dialog > *,
+  #signaling-recovery-overlay .dialog > * {
     flex-shrink: 0;
   }
 
@@ -6480,19 +6487,6 @@ Safety is declared first because important layer precedence is reversed; its acc
 
   .language-option.active .playlist-slot-select-mark {
     color: var(--primary);
-  }
-
-  .playlist-slot-select-mark .playlist-select-minus,
-  .playlist-slot-select-mark .playlist-select-mark {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 2.4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .playlist-slot-select-mark .playlist-select-minus {
-    stroke-width: 1.9;
   }
 
   .playlist-slot-select-mark .playlist-select-mark,
@@ -8436,9 +8430,12 @@ Safety is declared first because important layer precedence is reversed; its acc
     cursor: pointer;
   }
 
+  /* The 32px target's centre, 16px down, is the centre of the header line's
+     digits and capitals (10px padding, 13px line), so the X sits level with
+     the time. public/editorial-design.css mirrors this notice geometry. */
   .chat-pinned-notice-dismiss {
     position: absolute;
-    top: 2px;
+    top: 0;
     right: 4px;
     width: 32px;
     height: 32px;
@@ -8456,11 +8453,21 @@ Safety is declared first because important layer precedence is reversed; its acc
     left: 4px;
   }
 
+  /* The target touches the banner's top edge, which the desktop chat drawer
+     clips (overflow: hidden), so the keyboard ring is drawn inside it, 2px in
+     from the edge. The forced-colors block keeps the same inset. */
+  .chat-pinned-notice-dismiss:focus-visible {
+    outline-offset: -4px;
+  }
+
+  /* Pretendard's 11px line in every locale: a label in a taller fallback
+     font centres in it instead of pushing the time below the X. */
   .chat-pinned-notice-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+    height: 13px;
     margin-bottom: 4px;
   }
 
@@ -12889,6 +12896,18 @@ Safety is declared first because important layer precedence is reversed; its acc
   .language-dialog .language-option.active:focus-visible,
   .language-dialog .language-option.active.language-option-initial-keyboard-focus:focus {
     outline-color: HighlightText !important;
+  }
+
+  /* The pinned notice X touches the banner's top edge, which the desktop chat
+     drawer clips: its system circle and focus ring both end 2px inside the
+     32px target, like the normal ring, so neither meets the banner edge. The
+     parent class outranks the built :is() fallback's button selectors. */
+  .chat-pinned-notice > .chat-pinned-notice-dismiss {
+    outline-offset: -3px;
+  }
+
+  .chat-pinned-notice > .chat-pinned-notice-dismiss:focus-visible {
+    outline-offset: -5px !important;
   }
 
   /* Selected and filled states keep their Highlight fill and border. Chromium

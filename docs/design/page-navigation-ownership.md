@@ -180,9 +180,11 @@ CI) keeps, with exact counts and reasons:
    the owner by owner decision 7: it is the fail-safe full-document switch to a
    localized entry when the History API cannot rewrite the path, it never
    claims the unload exemption, and a live session still asks before leaving.
-2. `SKIP_WAITING` per function: the update machine in `src/sw-register.ts` and
-   the hard-reset promotion in `src/core/sw-hard-reset.ts` (Phase 3 makes the
-   hard reset ask the update machine).
+2. `SKIP_WAITING` per function: the update machine's one sink,
+   `activateWaitingWorker` in `src/sw-register.ts` (Phase 3 C6-9), and the
+   hard-reset promotion in `src/core/sw-hard-reset.ts` (Phase 3 C6-10 makes
+   the hard reset ask the update machine). The calls of that sink are counted
+   per function too: four, all in `handleWaitingWorker`.
 3. History traversal per function: the Back leave in `back-button-history.ts`
    and the guard's `navigateBack` port in `app.ts`.
 4. The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, per
@@ -190,7 +192,8 @@ CI) keeps, with exact counts and reasons:
 5. The `claimUnloadExemption` callers, per file.
 6. Retired names stay gone: `restoreSessionReset`, `requestDocumentReload`,
    `DocumentReloadAttempt`, the intentional-navigation flag functions,
-   `setSessionResetReleaseHandler` and the old test seams.
+   `setSessionResetReleaseHandler`, the old test seams, and the update reload
+   latch `_swReloading` / `_swReloadAttempt` (Phase 3 C6-9).
 
 Out of scope: anchors and forms that navigate on activation, `window.open`,
 `location` reads, and receivers resolved only by type. The resource-ownership
@@ -217,6 +220,16 @@ to the guard's list with its reason and to RO-23 in the same change.
 - `src/core/__tests__/navigation-contract.test.ts`: timing order and the
   next-document marker keys.
 - `src/core/__tests__/navigation-sinks-guard.test.ts`: the guard.
+- `src/core/__tests__/sw-update-transitions.integration.test.ts` and
+  `sw-register.test.ts`: the update machine (RO-22) on the real owner, with
+  every `SKIP_WAITING` send and the listed exits of its update reload in a
+  table (commit deadline, throwing reload sink, a returned or visible
+  document, commit, back-forward cache return, successors, a refused `/CODE`
+  return, and a reload queued behind a navigation that recovers or commits),
+  including events that arrive while the reload is still pending. Two exits
+  have no row of their own: a fallback reload held behind the PRO claim fence
+  and a throwing `/CODE` href sink. They go through the same owner queue and
+  recovery callback as rows X10a/X10b and X2, by reading, not by a test.
 - `e2e/back-navigation.test.ts` (CI critical gate) for the Back flows in a
   browser. jsdom and Chromium under Playwright have no real back-forward cache,
   so the bfcache paths rest on these jsdom pins and device checks.

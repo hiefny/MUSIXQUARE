@@ -14,7 +14,8 @@ const FILE_PATH =
 const CLOSE_PATH =
   'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z';
 const EXPAND_PATH = 'm6.5 9 5.5 5.5L17.5 9';
-const CHECK_PATH = 'M5 12.5l4.2 4.2L19 6.9';
+const CHECK_PATH = 'M4.65 11.95l4.55 4.55L19.35 6.35';
+const MINUS_PATH = 'M6.05 12h11.9';
 const DELETE_PATH = 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z';
 const CROWN_PATH = 'M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z';
 const REPEAT_PATH = 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z';
@@ -332,7 +333,10 @@ describe('public design-system page contract', () => {
       items.every(
         (item) =>
           item.lastElementChild?.classList.contains('playlist-select') &&
-          item.lastElementChild.querySelector('path.playlist-select-minus') !== null,
+          normalizedPath(
+            item.lastElementChild.querySelector('path.playlist-select-minus')?.getAttribute('d') ??
+              null,
+          ) === normalizedPath(MINUS_PATH),
       ),
     ).toBe(true);
     // Rows 1 and 2 are selected and join into one block; row 3 is not.
@@ -705,6 +709,71 @@ describe('public design-system page contract', () => {
             normalizedPath(CLOSE_PATH),
       ),
     ).toBe(true);
+  });
+
+  it('mirrors the app pinned notice, with one angular X centred on its header line', () => {
+    const appDocument = new DOMParser().parseFromString(
+      readFileSync(resolve('index.html'), 'utf8'),
+      'text/html',
+    );
+    const appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
+    // Every declaration of the rules that list exactly this selector.
+    const rule = (stylesheet: string, selector: string): string => {
+      const bodies = [...stylesheet.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+        .filter((match) =>
+          (match[1] ?? '')
+            .replace(/\/\*[\s\S]*?\*\//gu, '')
+            .split(',')
+            .some((candidate) => candidate.trim() === selector),
+        )
+        .map((match) => match[2] ?? '');
+      expect(bodies.length, `${selector} rule`).toBeGreaterThan(0);
+      return bodies.join('\n');
+    };
+    const notice = sectionWithHeading('Components').querySelector('.chat-pinned-notice');
+    const appClose = appDocument.querySelector(
+      '#btn-chat-notice-close > svg.chat-pinned-notice-close',
+    );
+    const pageClose = notice?.querySelector(
+      ':scope > .chat-pinned-notice-dismiss > svg.chat-pinned-notice-close',
+    );
+
+    // One glyph in both places: the app's X with butt ends, like its other X buttons.
+    expect(appClose?.getAttribute('viewBox')).toBe('0 0 12 12');
+    expect(appClose?.querySelector('path')?.getAttribute('stroke-linecap')).toBe('butt');
+    expect(pageClose?.getAttribute('viewBox')).toBe(appClose?.getAttribute('viewBox'));
+    for (const attribute of ['d', 'stroke', 'stroke-width', 'stroke-linecap']) {
+      expect(pageClose?.querySelector('path')?.getAttribute(attribute), attribute).toBe(
+        appClose?.querySelector('path')?.getAttribute(attribute),
+      );
+    }
+    expect(
+      notice?.querySelector(':scope > .chat-pinned-notice-open > .chat-pinned-notice-header'),
+    ).toBeTruthy();
+    // formatNoticeTime pads the hour.
+    expect(notice?.querySelector('.chat-pinned-notice-time')?.textContent?.trim()).toBe('09:12');
+
+    // The same geometry in both stylesheets: the 32px dismiss target's centre
+    // (16px) is the centre of the 13px header line's digits and capitals.
+    for (const stylesheet of [appStylesheet, designStylesheet]) {
+      const dismiss = rule(stylesheet, '.chat-pinned-notice-dismiss');
+      for (const declaration of [
+        /position:\s*absolute;/u,
+        /top:\s*0;/u,
+        /right:\s*4px;/u,
+        /width:\s*32px;/u,
+        /height:\s*32px;/u,
+        /place-items:\s*center;/u,
+      ]) {
+        expect(dismiss).toMatch(declaration);
+      }
+      expect(rule(stylesheet, '.chat-pinned-notice-header')).toMatch(/height:\s*13px;/u);
+      expect(rule(stylesheet, '.chat-pinned-notice-open')).toMatch(/padding:\s*10px 16px;/u);
+      expect(rule(stylesheet, '.chat-pinned-notice-open')).toMatch(/padding-inline-end:\s*40px;/u);
+      expect(rule(stylesheet, '.chat-pinned-notice-time')).toMatch(/line-height:\s*1;/u);
+      expect(rule(stylesheet, '.chat-pinned-notice-close')).toMatch(/width:\s*10px;/u);
+      expect(rule(stylesheet, '.chat-pinned-notice-close')).toMatch(/height:\s*10px;/u);
+    }
   });
 
   it('keeps motion recipes borderless and lets their timing note use the section width', () => {

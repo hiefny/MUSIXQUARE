@@ -2,10 +2,13 @@
  * @vitest-environment jsdom
  */
 import { readFile } from 'node:fs/promises';
+import { parse as parseCss } from 'postcss';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
+import { APP_DICTIONARIES } from '../../i18n/catalogs.ts';
 import { setLanguageMode, t } from '../../i18n/index.ts';
+import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 import type { ConnectedPeer, DataConnection, RoomContext } from '../../types/index.ts';
 import {
   changeActiveProRoomPin,
@@ -85,6 +88,41 @@ const mockedKickActiveProRoomMember = vi.mocked(kickActiveProRoomMember);
 const mockedKickActiveProRoomPresence = vi.mocked(kickActiveProRoomPresence);
 const mockedRevokeActiveProRoomAdministrator = vi.mocked(revokeActiveProRoomAdministrator);
 const mockedUpdateActiveProRoomAdministrator = vi.mocked(updateActiveProRoomAdministrator);
+/**
+ * Every rule whose selector list holds exactly `selector` (not a longer
+ * selector that merely contains it), with its full selector list and its
+ * declarations in source order.
+ */
+function cssRulesWithSelector(stylesheet: string, selector: string) {
+  const rules: { selectors: string[]; declarations: string[] }[] = [];
+  parseCss(stylesheet).walkRules((rule) => {
+    if (!rule.selectors.includes(selector)) return;
+    const declarations: string[] = [];
+    rule.each((node) => {
+      if (node.type === 'decl') declarations.push(`${node.prop}: ${node.value}`);
+    });
+    rules.push({ selectors: rule.selectors, declarations });
+  });
+  return rules;
+}
+
+/** The longest substring of `source` that `target` contains and `accept` allows. */
+function longestSharedText(
+  source: string,
+  target: string,
+  accept: (text: string) => boolean = () => true,
+): string {
+  let best = '';
+  for (let start = 0; start < source.length; start += 1) {
+    for (let end = start + best.length + 1; end <= source.length; end += 1) {
+      const text = source.slice(start, end);
+      if (!target.includes(text)) break;
+      if (accept(text)) best = text;
+    }
+  }
+  return best;
+}
+
 /** Resolve literal or locale-refreshing dialog copy as the dialog renders it. */
 function renderedDialogText(text: unknown): unknown {
   return typeof text === 'function' ? (text as () => string)() : text;
@@ -542,15 +580,88 @@ describe('connect signaling health status', () => {
     expect(stylesheet).not.toContain("[data-theme='light'] .btn-copy-invite-link:hover");
     // Owner decision (2026-10-24): expiry keeps the neutral copy look, so it
     // shares the copy hover/active and touch-reset rules at the same specificity.
+    // Selectors are matched whole: the plain :hover one is also a substring of
+    // the :hover:not(:active) ones, so a substring check would pass without it.
     for (const selector of [
       "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover",
       "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:active",
       ".btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
       "[data-theme='light'] .btn-copy-invite-link[data-mode='expired']:hover:not(:active)",
     ]) {
-      expect(stylesheet).toContain(selector);
+      const expiredRules = cssRulesWithSelector(stylesheet, selector);
+      expect(expiredRules, selector).toHaveLength(1);
+      // Exactly the rules of its copy-mode twin, so the declarations match too.
+      expect(expiredRules, selector).toEqual(
+        cssRulesWithSelector(stylesheet, selector.replace("'expired'", "'copy'")),
+      );
     }
   });
+
+  it('caps the recovery dialog like the generic dialog so short screens scroll to its actions', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    // The expiry copy outgrows a 568x320 landscape phone in el, ml, ru and ta;
+    // e2e/dialog-locale-layout.test.ts checks the real layout.
+    const cap = cssRulesWithSelector(stylesheet, '#signaling-recovery-overlay .dialog');
+    expect(cap).toHaveLength(1);
+    expect(cap[0]!.selectors).toContain('#dialog-overlay .dialog');
+    expect(cap[0]!.declarations).toEqual([
+      'max-height: calc(var(--app-height, 100vh) - 48px)',
+      'max-height: calc(100dvh - 48px)',
+      'overflow-y: auto',
+    ]);
+    const children = cssRulesWithSelector(stylesheet, '#signaling-recovery-overlay .dialog > *');
+    expect(children).toHaveLength(1);
+    expect(children[0]!.selectors).toContain('#dialog-overlay .dialog > *');
+    expect(children[0]!.declarations).toEqual(['flex-shrink: 0']);
+  });
+
+  // The 9.0.5 expiry detail (owner decision 2026-10-24) ends, in every locale,
+  // on "<current playback continues>. <Joining again> + that locale's own
+  // dialog.return_home_detail wording + <and playback stops>". Check that
+  // construction so no locale silently drops the join-again warning.
+  it.each(Object.keys(APP_DICTIONARIES))(
+    'keeps the join-again disconnect and playback-stop warning in the %s expiry detail',
+    (code) => {
+      const dictionary = APP_DICTIONARIES[code as keyof typeof APP_DICTIONARIES] as Record<
+        string,
+        string
+      >;
+      const htmlLang = LANGUAGE_OPTIONS.find((locale) => locale.code === code)!.htmlLang;
+      const fold = (text: string) => text.normalize('NFC').toLocaleLowerCase(htmlLang);
+      const disconnect = fold(dictionary['dialog.return_home_detail']!).replace(/[\s\p{P}]+$/u, '');
+      const warning = fold(dictionary['connect.signaling_expired_detail']!.split('\n').at(-1)!);
+
+      // The last line reuses the return-home wording, allowing the small
+      // changes one sentence needs (en "disconnects you", the inverted subject
+      // in de, nb and sv, the ko connective ending): its shared runs of four
+      // or more characters cover at least 70% of it (en, the loosest, 73%).
+      let unmatched = disconnect;
+      let remaining = warning;
+      let covered = 0;
+      for (
+        let run = longestSharedText(unmatched, remaining);
+        run.trim().length >= 4;
+        run = longestSharedText(unmatched, remaining)
+      ) {
+        covered += run.length;
+        unmatched = unmatched.replace(run, '\u0000');
+        remaining = remaining.replace(run, '\u0001');
+      }
+      expect(covered / disconnect.length).toBeGreaterThanOrEqual(0.7);
+
+      // After that wording the sentence goes on to stop playback: it names
+      // again the playback the line opened with ("Current playback continues").
+      const core = longestSharedText(disconnect, warning);
+      const at = warning.indexOf(core);
+      const playback = longestSharedText(
+        warning.slice(0, at),
+        warning.slice(at + core.length),
+        (text) =>
+          /^\p{L}(?:[\p{L}\p{M}\s]*[\p{L}\p{M}])?$/u.test(text) && !disconnect.includes(text),
+      );
+      expect([...playback].length).toBeGreaterThanOrEqual(2);
+    },
+  );
 
   it('opens the requested failure dialog only after a manual recovery fails', async () => {
     const button = await startHostSessionWithQR();

@@ -1,17 +1,35 @@
 # Phase 3 배포 묶음 — 업데이트 경로와 일반방 만료 복구 (2026-10-24)
 
-| 항목 | 범위 |
-| --- | --- |
-| 기준 | `f5bcafec` (9.0.4 배포 기록 main). 리뷰 반영 라운드는 main `08003954`(문서만)를 합친 트리 |
-| 상태 | PR 후보. 오너 결정에 따라 Phase 3와 함께 배포하며, 이 증분의 단독 배포는 하지 않는다. |
-| 현재 증분 | 일반방의 명시적 만료 뒤 자동 신호 재접속 중단, 기존 재생 보존, 내부 진단 세분화, 6렌즈 리뷰 반영(새 입장의 재접속 표시, 안내 문구·용어, 초대 버튼 상태 표시, 진단 종료 사유) |
-| 제품 식별 | 이 증분은 `9.0.5` / `v774`. 9.0.5는 아직 배포하지 않았으므로 리뷰 반영 뒤 SemVer는 그대로 두고 SW 캐시 epoch만 v773에서 v774로 올렸다. Phase 3 후속 증분은 릴리스 식별 가드에 따라 올리고 최종 배포 값을 여기에 갱신한다. |
-| 환경 | Windows 로컬, Node 24.20.0 / npm 12.0.2, fake WebSocket/WebRTC·Worker 및 jsdom 검사 |
-| 운영 | 이 보고서의 후보는 배포하지 않았다. 실제 기기·운영 장애 주입은 미실행이다. |
+| 항목      | 범위                                                                                                                                                                                                                                                                                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 기준      | `f5bcafec` (9.0.4 배포 기록 main). 리뷰 반영 라운드는 main `08003954`(문서만)를 합친 트리이고, 검증 중 `717d32d4`(#472, Worker만)도 `b2ebcb09`로 합쳤다(QA 라운드 3의 main 합침). main에 들어간 `b19eca9f`는 `7d6c60d6`(#473, 문서만)까지 포함한다.                                                                                                           |
+| R1 묶음   | 브랜치 `agent/phase3-r1`. main `b19eca9f`(#471 머지, SW v774) 위에 각진 선택 표시와 공지 X(`ef96086c..0fff65a7`), R1 작은 수정(`e7ef6ee8..2617075e`), C6-9(`ddc1acec..77d267a3`), 리뷰 문구 정리(`8d4879c4`), RO-43 결정 기록(`43c23144`), SW 캐시 bump(`6ea4fab4`)를 쌓았다. bump 뒤의 문서 커밋은 런타임을 바꾸지 않는다.                                   |
+| 상태      | R1 배포 후보, 미배포. 오너 결정(2026-10-24)대로 Phase 3는 R1과 R2(C6-10) 두 번 배포한다. 이 보고서는 R1의 증분과 QA만 기록한다. R2는 따로 배포하는 묶음이라 자기 날짜의 보고서를 따로 둔다. #471 증분은 단독 배포하지 않고 R1에 실린다.                                                                                                                       |
+| 현재 증분 | 일반방의 명시적 만료 뒤 자동 신호 재접속 중단, 기존 재생 보존, 내부 진단 세분화, 6렌즈 리뷰 반영(새 입장의 재접속 표시, 안내 문구·용어, 초대 버튼 상태 표시, 진단 종료 사유). R1에서 각진 선택 체크·마이너스와 고정 공지 X 정렬, 신호 복구 대화상자 높이 상한과 공지 X 키보드 링, C6-9(업데이트 기계의 활성화 상태 하나와 `SKIP_WAITING` 출구 하나)를 더했다. |
+| 제품 식별 | R1은 `9.0.5` / `v776`. 9.0.5는 아직 배포하지 않았으므로 SemVer는 그대로 두고 SW 캐시 epoch만 올렸다(#471 리뷰 반영 때 v773→v774, R1 묶음 뒤 `6ea4fab4`에서 v774→v775, 개발 의존성 보안 overrides 뒤 `26c807d6`에서 v775→v776, 마지막 런타임 커밋). R2는 `9.0.6` / `v777`로 계획한다.                                                                          |
+| 환경      | Windows 로컬, Node 24.20.0 / npm 12.0.2. 단위·Worker는 fake WebSocket/WebRTC·Worker 및 jsdom, 브라우저는 로컬 헤드리스 Chromium(Playwright)·PeerJS                                                                                                                                                                                                            |
+| 운영      | 이 보고서의 후보는 배포하지 않았다. 실제 기기, WebKit, 운영 장애 주입은 미실행이다.                                                                                                                                                                                                                                                                           |
 
-이 문서는 Phase 3의 같은 배포에 실리는 증분과 QA를 함께 기록한다. 아직 작업하지 않은
-SW 업데이트 경로 증분의 완료나 검증을 주장하지 않는다. 후속 Phase 3 증분은 같은 보고서에
-코드 SHA와 검증 범위를 추가한다.
+이 문서는 Phase 3의 R1 배포에 실리는 증분과 QA를 함께 기록한다. 증분마다 커밋, 검증한
+코드 SHA, 환경, PASS/FAIL/SKIP과 한계를 적는다. 다른 갈래에서 검증한 커밋은 R1 브랜치로
+옮긴 커밋과 patch가 같다(`git range-diff`로 `f5bcafec..4b27eff9` = `b19eca9f..0fff65a7`,
+`08003954..bf909e41` = `2617075e..77d267a3` 확인). R2(C6-10)의 완료나 검증은 주장하지 않는다.
+
+## 오너 결정 (2026-10-24)
+
+- **빠른 경로, 두 번 배포:** Phase 3는 R1(이 묶음, `9.0.5` / `v776`)과 R2(C6-10, 로고 재설정이
+  업데이트 기계에 묻는 증분, `9.0.6` / `v777`) 두 번 배포한다. 2026-10-23 묶음 원칙의 "Phase 3는
+  새 경로 확인용 배포가 한 번 더 필요하다"를 이 두 번으로 채운다.
+- **R2 밤사이 배포:** R2는 자동 게이트(exact-main CI 후보와 Production Release의 배포 검사)가
+  통과하면 실기기 확인 없이 밤사이에 배포해도 된다.
+- **종료 조건:** R1·R2의 실기기 확인을 마치고, R2 배포 뒤 14일 동안 관련 제보가 없으면 Phase 3를
+  닫는다.
+- **C6-15 기각:** 업데이트 대화상자 지연 로딩(C6-15)은 미룬 것이 아니라 기각했다. 지연 로딩한
+  대화상자는 늦게 뜨고(사용자가 이미 방에 들어간 뒤), 청크를 받지 못하면 다른 대체 대화상자가
+  필요해 2026-10-17 [어디서나 같은 대화상자](update-dialog-everywhere-2026-10-17.md) 결정과
+  충돌한다. [RO-43](resource-ownership-registry.md#ro-43-update-prompt-stays-eager)의 예외(대화상자를
+  초기 묶음에 둔다)가 확정 결정이다(`43c23144`). 그래서 C6-15는 초기 JS 여유를 만드는 수단이 아니다.
+- **토스 제외:** 토스 인앱은 범위 밖이다(오너가 접음, #472).
 
 ## 제품·런타임 증분
 
@@ -85,6 +103,112 @@ SW 업데이트 복귀가 쓰는 것과 같은 처리다. 만료는 방장이 �
 네트워크 장애를 확정하지 않으며, 고유 사용자·고유 영향 방 수를 산출하지 않는다. 변경 전
 집계는 소급 분류할 수 없고, 이전 앱은 배포 뒤에도 갱신 전까지 기존 재시도를 할 수 있다.
 
+### 각진 선택 표시와 공지 X (R1)
+
+커밋은 `ef96086c`(테스트 먼저), `7cee9c95`(각진 체크·마이너스), `cd9fca19`(공지 X를 머리글
+시각에 맞춤), `cd2655f7`(E2E 잉크 측정 안정화), `0fff65a7`(디자인 시스템 README)다. 검증은
+QA 라운드 4.
+
+- 선택 체크와 마이너스는 `src/ui/selection-mark.ts` 하나가 그린다(언어 목록, PRO 암호 참여자
+  선택, 재생목록 전환기, 재생목록 행과 이동 대화상자). 끝은 butt, 체크의 꺾임은 miter다. 둥근
+  규칙 사본은 지웠다. 끝점을 바깥으로 옮겨 잉크 상자와 중심을 유지했다(상자 가장자리 0.33 px,
+  무게중심 0.08 px 이내). 굵기(2.4 / 1.9)와 22px 크기는 그대로다.
+- 고정 공지의 X는 머리글 시각과 같은 높이에 온다. 닫기 버튼 top을 2px에서 0으로, 머리글 높이를
+  13px로 고정했고, X는 butt 끝이다. 앱과 디자인 시스템 페이지가 같은 X·마크업·기하를 쓴다. X와
+  시각의 잉크 중심 차이는 앱에서 +1.83~+2.0 px가 −0.17~0 px로, 디자인 시스템 페이지에서
+  −3.0~−3.25 px가 −0.17~0 px로 줄었다. 탭 영역은 32×32 그대로다.
+
+### R1 작은 수정
+
+커밋은 `e7ef6ee8`(신호 복구 대화상자 높이 상한), `8f367fc2`(공지 X 키보드 링), `8454b2f2`(만료
+hover 선택자와 "새로 입장" 문장 테스트), `0aca37da`(디자인 시스템 문구), `2617075e`(문서 정정)다.
+검증은 QA 라운드 5.
+
+- 신호 복구 대화상자(만료 안내 포함)에 일반 대화상자와 같은 높이 상한과 스크롤을 줬다.
+  568×320에서 el·ml·ru·ta 패널 위쪽이 화면 밖(−0.06~−12.9 px)이던 것이 24~296 px 안으로 들어오고,
+  끝까지 스크롤하면 두 버튼을 모두 누를 수 있다. 390×844·1280×800·1440×900은 전후가 같다.
+- 공지 X의 키보드 초점 링을 버튼 안쪽에 그린다(offset −4px, 강제 색상 모드는 링 −5px·원 −3px).
+  데스크톱에서 대화 서랍(overflow hidden)에 위쪽 4~5 px가 잘리던 것이 0 px가 됐다.
+- 테스트만: 만료 상태 초대 버튼의 hover 선택자를 복사 모드의 짝과 통째로 대조하고, 42개 언어의
+  "새로 입장" 마지막 문장이 각 언어의 `dialog.return_home_detail` 표현과 재생 단어를 다시
+  쓰는지 고정했다.
+- 문서: Phase 2 보고서의 적용 주체 정정, 이 보고서의 기준 행.
+
+### C6-9 업데이트 기계의 활성화 상태 하나
+
+커밋은 `ddc1acec`·`0704c37f`(테스트만, 바뀌지 않은 코드), `3fd628ca`(런타임), `6086e5d9`(테스트만),
+`77d267a3`(가드·문서)다. 검증은 QA 라운드 6.
+
+- `src/sw-register.ts`의 업데이트 기계가 활성화 상태 하나(`passive`, `prompting`,
+  `awaiting-local-controller`, 또는 `reload-scheduled`)를 갖는다. 모듈 래치
+  `_swReloading`·`_swReloadAttempt`를 지웠고, 네 `SKIP_WAITING` 전송(Apply, 교체된 워커에 Apply,
+  쿨다운·같은 세대의 조용한 승격)이 `activateWaitingWorker` 한 출구를 지난다. 다음 문서 표지는
+  호출하는 쪽이 같은 바이트로 쓰고, 조용한 승격은 표지를 쓰지 않는다. 동작은 main `08003954`와
+  같다. `sw-hard-reset.ts`는 바꾸지 않았다(C6-10 몫).
+- `guard:navigation-sinks`가 출구 호출을 `handleWaitingWorker`의 4로 세고 래치 이름을 퇴역 목록에
+  둔다. `check-resource-ownership`의 `sw-register.ts` `SKIP_WAITING` 전송은 4에서 1이 됐다.
+  [RO-22](resource-ownership-registry.md#ro-22-waiting-service-worker-activation)와
+  [페이지 이동 계약](page-navigation-ownership.md)을 같은 변경에서 고쳤다.
+- 테스트가 가짜 대신 실제 이동 주인(`session-reset.ts`·`navigation.ts`) 위에서 돈다. 새 전이표
+  `sw-update-transitions.integration.test.ts`(표 42행과 멈춘 Apply 2건)가 모든 `SKIP_WAITING`
+  전송과 나열한 재로딩 출구를 이동·대화상자·다음 문서 표지와 함께 기록한다. PRO 클레임 펜스 뒤에
+  대기하는 대체 재로딩과 던지는 `/CODE` href 출구는 행이 없고, 코드 읽기로는 X10a/X10b·X2와 같은
+  주인 큐와 복구 콜백을 지난다(`8d4879c4`에서 문서 표현을 고침).
+
+**리뷰가 짚은 계획과의 차이.** 2차 리뷰 세 렌즈는 모두 승인했고, 아래는 오너가 알아야 할 차이다.
+
+- **핸들 대신 식별 토큰:** 계획은 `reload-scheduled`가 이동 주인의 핸들을 들도록 했다. 실제로는
+  기계가 만든 로컬 식별 토큰을 든다. `scheduleDocumentReload`는 아무것도, `returnToRoomStart`는
+  boolean만 돌려주므로 주인의 핸들이 기계에 닿지 않는다. 주인이 시도마다 한 번만 정산하므로
+  지금은 같게 동작하고, 기계의 식별 검사는 방어용으로 직접 고정했다
+  (`sw-register.test.ts` "does not let a stale recovery release a successor reload attempt").
+  RO-22 문구를 이에 맞췄다(`8d4879c4`).
+- **절감 약 5 B:** 계획은 초기 JS 100~200 B 절감을 기대했지만 자기 기준(`08003954`)에서
+  490,339 B → 490,334 B로 −5 B였다. 오늘의 동작을 그대로 지키려면 재로딩이 걸린 동안 대화상자의
+  단계를 상태 안에 남겨야 해서, 래치를 지운 만큼이 다시 들었다. 바이트 줄이기는 로드맵 규칙대로
+  하지 않았다. R1 묶음 위에서는 바이트 중립으로 본다(아래 초기 JS 예산).
+- **원본 읽기 고정 대신 행동 확인:** 업데이트 소식을 대화상자로만 알린다는 원본 읽기 고정
+  (`sw-register.ts`에 채팅·토스트·피어 전송 문자열 금지)은 계획대로 행동 확인으로 바뀌었다. 모든
+  `sw-register` 사례의 afterEach가 토스트·채팅 알림·피어 전송 mock이 불리지 않았음을 확인한다.
+  테스트가 돌지 않는 경로나 mock하지 않은 모듈로 새 알림을 내면 잡지 못한다. 2026-10-17 "새로고침
+  안내 없음" 결정을 정적으로도 지키려면 `sw-register.ts`의 import 제한을 정적 가드에 더할 수 있다.
+- **시험할 수 없는 읽기 하나:** 시작 시 조용한 로드 대기 뒤의 상태 읽기
+  (`activationState !== 'passive'`)는 `promptPhase()`로 바꿔도 119개 테스트가 모두 통과하는 유일한
+  읽기다(변이 M12). 대화상자가 재로딩 중 단계를 가지려면 다른 워커의 대화상자가 먼저 답해야 하고,
+  그러면 시작 워커가 먼저 낡게 되므로 도달 가능한 순서로는 둘을 구별할 수 없다는 것이 작성자와
+  리뷰의 판단이다. 테스트로 증명하지는 못했다.
+
+**R2(C6-10)로 넘기는 입력.** C6-9가 바꾸지 않은 오늘의 동작으로, 전이표에 고정돼 있다.
+
+- 멈춘 Apply 뒤 로고 재설정: 쿨다운 안에서 Apply 하나에 `SKIP_WAITING` 3번과 이동 2번, 쿨다운 뒤에는
+  같은 업데이트를 다시 묻는다(`[flips: C6-10]`, 오너 결정 P3-10 A).
+- X17: 방장 방에서 이 탭의 대화상자가 열린 동안 다른 탭이 적용하고, 이 탭의 재로딩이 커밋 대신
+  복구되면, 다시 열 때까지 그 controller로 묻거나 재로딩하지 않는다.
+- X22: 열린 대화상자 아래에서 재로딩이 복구된 뒤 더 새 워커가 `SKIP_WAITING`을 두 번 받는다.
+- 리뷰의 작은 제안: `pendingControllerAfterReload`를 `reload-scheduled` 상태 안으로, 출구 호출
+  가드의 별칭 사용 검사, Apply 경로의 낡은 `sw-controller-confirmed-at` 제거 고정.
+
+### 리뷰 문구 정리, RO-43 결정, 캐시 bump
+
+- `8d4879c4`(문서와 CSS 주석만): 디자인 시스템 README가 표시의 구성을 정확히 적는다. 체크는 butt
+  끝과 miter 꺾임, 한 선분인 마이너스는 butt 끝만, 각진 셰브런은 `.expand-toggle`·
+  `.device-expand-toggle`이고 재생목록 전환기의 제목 셰브런은 둥근 그대로다. `css/style.css`의
+  `.playlist-select-minus` 위 주석은 마이너스가 옛 16px 삭제 X(약 9.3px)보다 조금 넓다고 고쳤다
+  (규칙 변경 없음). Phase 2 보고서 정정은 고치는 문장을 직접 가리킨다. 페이지 이동 계약과 RO-22는
+  전이표 범위를 행이 있는 출구로 좁혀 적고, RO-22는 식별 토큰을 적는다.
+- `43c23144`: RO-43에 C6-15 기각(오너 결정 2026-10-24)을 기록했다.
+- `6ea4fab4`: SW 캐시 epoch v774→v775. 검증은 QA 라운드 7.
+
+### 개발 의존성 보안 overrides와 v776 (R1)
+
+- `f7f55e4c`: PR CI의 `npm audit --audit-level=high`가 같은 날 공개된 보안 공지로 실패했다(undici
+  GHSA-4qv8-2p9j-2685·GHSA-f72v-6w45-q472·GHSA-xjj6-f33q-929c, fast-uri GHSA-w74x-v6f9-j3xg 외 3건,
+  body-parser GHSA-27r3-jxmh-p828). 셋 다 개발 의존성이다(wrangler·miniflare, jsdom, serve·cors 아래
+  express). `overrides`를 undici 7.30.1·8.12.3, fast-uri 3.1.9, body-parser 1.20.9로 올렸고
+  `npm audit`는 0건이다. 앱 번들에는 들어가지 않는다.
+- `26c807d6`: package.json이 PWA 런타임 입력이라 SW 캐시 epoch를 v775→v776으로 올렸다. R1의 마지막
+  런타임 커밋이다. 검증은 QA 라운드 9.
+
 ## QA 라운드
 
 ### 1. 구현·독립 리뷰 (2026-10-24)
@@ -101,15 +225,15 @@ SW 업데이트 복귀가 쓰는 것과 같은 처리다. 만료는 방장이 �
 결과를 적는 문서 커밋은 런타임을 바꾸지 않는다. 로컬 환경은 Windows, Node 24.20.0 /
 npm 12.0.2다.
 
-| 검사 | 결과와 범위 |
-| --- | --- |
-| Transport 회귀 | 2파일 218 tests PASS. WSS·HTTPS 명시적 만료, 기존 RTC 보존, 일반 단절·PRO 제외, 늦은 이벤트, 새 입장, 대기·후발 ICE 후보 취소와 일반 오류 보존. 최종 파일 내용으로 검증 후 위 SHA에 기록했다. |
-| Peer·health·UI·번역 | 4파일 180 tests PASS. 예약된 retry/grace 취소, 수동·foreground·늦은 이벤트 차단, 재생·시스템 오디오 상태 보존, 명시적 새 입장, 42개 언어 키. |
-| Worker·관리자 API | 최종 파일 내용으로 app-worker-cors 280 + signaling-worker 318 = 598 tests PASS(리뷰가 같은 런타임의 `e63aae43`에서 재확인). 처음 기록한 597은 마지막 게스트 종료 회귀를 추가하기 전 트리다. 기존 합계와 세부 상태의 같은 upsert, 만료 정리 후 1회 집계, 관리자 API allowlist를 검증했다. |
-| 타입·정적 검사 | 전체 typecheck·lint·format PASS. 수정한 Worker의 후속 타입 검사, Transport의 후속 lint·format도 PASS. import graph, dead exports, bus pairing, resource ownership, navigation, lifecycle, Standard hot path, D1·ops 계약 가드 PASS. |
-| 프로덕션 빌드 | 위 SHA의 `build:checked` PASS. 초기 JS 479.7 KiB gzip, 초기 전체 556.4 KiB gzip으로 예산과 최소 여유 5% 유지. 캐시 epoch와 bootstrap 경로는 함께 v773이다. |
-| Chromium 기존 재생·연결 | 위 SHA에서 `build:e2e` 후 playback-sync·reconnection 9/9 PASS. 재생·일시정지, 재생목록 동기화, 게스트 종료 뒤 호스트 상태 보존, 새 게스트 입장과 명시적 나가기. 로컬 PeerJS 기반이므로 운영 Cloudflare 만료의 실기기 검증은 아니다. |
-| PR CI | [PR #471](https://github.com/hiefny/MUSIXQUARE/pull/471) head `e63aae43`의 [CI 40003267959](https://github.com/hiefny/MUSIXQUARE/actions/runs/40003267959) 11/11 jobs success. 리뷰 반영 뒤 head는 다시 CI를 받는다. 로컬·PR 결과는 배포 시 필요한 exact-main-SHA CI 후보를 대신하지 않는다. |
+| 검사                    | 결과와 범위                                                                                                                                                                                                                                                                                  |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Transport 회귀          | 2파일 218 tests PASS. WSS·HTTPS 명시적 만료, 기존 RTC 보존, 일반 단절·PRO 제외, 늦은 이벤트, 새 입장, 대기·후발 ICE 후보 취소와 일반 오류 보존. 최종 파일 내용으로 검증 후 위 SHA에 기록했다.                                                                                                |
+| Peer·health·UI·번역     | 4파일 180 tests PASS. 예약된 retry/grace 취소, 수동·foreground·늦은 이벤트 차단, 재생·시스템 오디오 상태 보존, 명시적 새 입장, 42개 언어 키.                                                                                                                                                 |
+| Worker·관리자 API       | 최종 파일 내용으로 app-worker-cors 280 + signaling-worker 318 = 598 tests PASS(리뷰가 같은 런타임의 `e63aae43`에서 재확인). 처음 기록한 597은 마지막 게스트 종료 회귀를 추가하기 전 트리다. 기존 합계와 세부 상태의 같은 upsert, 만료 정리 후 1회 집계, 관리자 API allowlist를 검증했다.     |
+| 타입·정적 검사          | 전체 typecheck·lint·format PASS. 수정한 Worker의 후속 타입 검사, Transport의 후속 lint·format도 PASS. import graph, dead exports, bus pairing, resource ownership, navigation, lifecycle, Standard hot path, D1·ops 계약 가드 PASS.                                                          |
+| 프로덕션 빌드           | 위 SHA의 `build:checked` PASS. 초기 JS 479.7 KiB gzip, 초기 전체 556.4 KiB gzip으로 예산과 최소 여유 5% 유지. 캐시 epoch와 bootstrap 경로는 함께 v773이다.                                                                                                                                   |
+| Chromium 기존 재생·연결 | 위 SHA에서 `build:e2e` 후 playback-sync·reconnection 9/9 PASS. 재생·일시정지, 재생목록 동기화, 게스트 종료 뒤 호스트 상태 보존, 새 게스트 입장과 명시적 나가기. 로컬 PeerJS 기반이므로 운영 Cloudflare 만료의 실기기 검증은 아니다.                                                          |
+| PR CI                   | [PR #471](https://github.com/hiefny/MUSIXQUARE/pull/471) head `e63aae43`의 [CI 40003267959](https://github.com/hiefny/MUSIXQUARE/actions/runs/40003267959) 11/11 jobs success. 리뷰 반영 뒤 head는 다시 CI를 받는다. 로컬·PR 결과는 배포 시 필요한 exact-main-SHA CI 후보를 대신하지 않는다. |
 
 명시적 만료 자체의 검증은 fake WebSocket/WebRTC·Worker와 jsdom 기반이다. 실제 기기의
 음향 연속성, 운영 WSS·HTTPS·백그라운드 조합은 SKIP이며 아래 배포 전 확인 범위로 남긴다.
@@ -126,52 +250,231 @@ npm 12.0.2다.
 이후 이 표를 적는 문서 커밋은 런타임을 바꾸지 않는다. 환경은 Windows 로컬, Node 24.20.0 /
 npm 12.0.2, E2E는 로컬 Chromium·PeerJS(포트 4291/9131)다.
 
-| 검사 | 결과와 범위 |
-| --- | --- |
-| 타입·정적 검사 | `typecheck`, `lint`, `format:check`, `check:workers`(D1·ops 계약 포함) PASS. `check-resource-ownership` 46 records PASS(기준 수치 변화 없음), `guard:navigation-sinks` PASS(location navigation 6). |
-| 단위 전체 | `vitest run --maxWorkers=6` 643 files / 14,694 tests PASS, FAIL 0, SKIP 0. |
-| Worker 전체 | `vitest.workers.config.ts` 60 files / 2,888 tests PASS. 새 parity 테스트는 Worker 소스를 읽기만 하므로 단위 전체에서 돈다. |
-| 번역·연결 | `translations.test.ts`·`connect-i18n.test.ts` 2 files / 134 tests PASS. 안전 구분 테스트가 42개 언어 전체를 돌고, 열린 실패 대화상자가 같은 boundary에서 만료 대화상자로 바뀌는 테스트는 해당 분기를 지우면 실패함을 확인했다. |
-| 프로덕션 빌드 | `build:checked` 전체 PASS(가드 24개, `guard:sw-cache-version` "v774 (d4849257) covers all committed PWA runtime changes", legacy TV CSS 포함). 초기 JS 491,251 B gzip(PR 491,227 B 대비 +24 B, 유지 상한 491,568 B까지 317 B), 초기 전체 569,825 B(상한 570,570 B까지 745 B). Standard `1012` 사유 3개를 넣은 빌드는 491,310 B였다. |
-| Chromium | `build:e2e` 후 `test:e2e:critical` 59/59 PASS(adaptive-actions 포함), `e2e/adaptive-actions.test.ts` 단독 10/10 PASS(만료 라벨과 "새로 입장" 버튼을 42개 언어·RTL·320px·200% 글자에서 넘침 검사), playback-sync·reconnection 9/9 PASS. |
-| SKIP | 실제 기기, 운영 Cloudflare WSS·HTTPS 만료, 백그라운드 복귀, 새 입장에서 방장이 없을 때의 실제 문구, `/api/admin/metrics` 새 카운터는 배포 전 범위로 남긴다. 리뷰 반영 head의 PR CI는 아직 돌지 않았다. |
-| main 합침 | 검증 중 main이 `717d32d4`(#472, 토스 출처 신뢰 제거: Worker·스모크·테스트·문서만, PWA 런타임 변경 없음)로 나아가 `b2ebcb09`로 합쳤다. 충돌은 `docs/README.md`·`docs/release-record.md`의 항목 추가 위치뿐이라 두 항목을 모두 남겼다. `b2ebcb09`에서 typecheck·lint·format·`check:workers`·자원 소유(46)·이동 sink PASS, 단위 643 files / 14,699 tests PASS, Worker 60 files / 2,889 tests PASS, `build:checked` PASS(`sw-cache-version` v774 그대로), 초기 JS 491,251 B·초기 전체 569,825 B로 같다. 앱 묶음이 같으므로 E2E는 다시 돌리지 않았다. |
+| 검사           | 결과와 범위                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 타입·정적 검사 | `typecheck`, `lint`, `format:check`, `check:workers`(D1·ops 계약 포함) PASS. `check-resource-ownership` 46 records PASS(기준 수치 변화 없음), `guard:navigation-sinks` PASS(location navigation 6).                                                                                                                                                                                                                                                                                                                                              |
+| 단위 전체      | `vitest run --maxWorkers=6` 643 files / 14,694 tests PASS, FAIL 0, SKIP 0.                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Worker 전체    | `vitest.workers.config.ts` 60 files / 2,888 tests PASS. 새 parity 테스트는 Worker 소스를 읽기만 하므로 단위 전체에서 돈다.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 번역·연결      | `translations.test.ts`·`connect-i18n.test.ts` 2 files / 134 tests PASS. 안전 구분 테스트가 42개 언어 전체를 돌고, 열린 실패 대화상자가 같은 boundary에서 만료 대화상자로 바뀌는 테스트는 해당 분기를 지우면 실패함을 확인했다.                                                                                                                                                                                                                                                                                                                   |
+| 프로덕션 빌드  | `build:checked` 전체 PASS(가드 24개, `guard:sw-cache-version` "v774 (d4849257) covers all committed PWA runtime changes", legacy TV CSS 포함). 초기 JS 491,251 B gzip(PR 491,227 B 대비 +24 B, 유지 상한 491,568 B까지 317 B), 초기 전체 569,825 B(상한 570,570 B까지 745 B). Standard `1012` 사유 3개를 넣은 빌드는 491,310 B였다.                                                                                                                                                                                                              |
+| Chromium       | `build:e2e` 후 `test:e2e:critical` 59/59 PASS(adaptive-actions 포함), `e2e/adaptive-actions.test.ts` 단독 10/10 PASS(만료 라벨과 "새로 입장" 버튼을 42개 언어·RTL·320px·200% 글자에서 넘침 검사), playback-sync·reconnection 9/9 PASS.                                                                                                                                                                                                                                                                                                           |
+| SKIP           | 실제 기기, 운영 Cloudflare WSS·HTTPS 만료, 백그라운드 복귀, 새 입장에서 방장이 없을 때의 실제 문구, `/api/admin/metrics` 새 카운터는 배포 전 범위로 남긴다. 리뷰 반영 head의 PR CI는 아직 돌지 않았다.                                                                                                                                                                                                                                                                                                                                           |
+| main 합침      | 검증 중 main이 `717d32d4`(#472, 토스 출처 신뢰 제거: Worker·스모크·테스트·문서만, PWA 런타임 변경 없음)로 나아가 `b2ebcb09`로 합쳤다. 충돌은 `docs/README.md`·`docs/release-record.md`의 항목 추가 위치뿐이라 두 항목을 모두 남겼다. `b2ebcb09`에서 typecheck·lint·format·`check:workers`·자원 소유(46)·이동 sink PASS, 단위 643 files / 14,699 tests PASS, Worker 60 files / 2,889 tests PASS, `build:checked` PASS(`sw-cache-version` v774 그대로), 초기 JS 491,251 B·초기 전체 569,825 B로 같다. 앱 묶음이 같으므로 E2E는 다시 돌리지 않았다. |
+
+### 4. 각진 선택 표시와 공지 X 갈래 (2026-10-24)
+
+검증 대상은 `4b27eff90775c0cd3361529e182726d7a2653d27`(코드 검사는 `1e255188`, 마지막 커밋은 README
+한 줄), 기준은 main `f5bcafec`다. R1 브랜치의 `ef96086c..0fff65a7`와 patch가 같다. 환경은 Windows
+로컬, Node 24.20.0, npm ci 뒤다. 화면 측정은 Vite 개발 서버의 실제 `index.html`·CSS·코드 경로를
+헤드리스 Chromium으로 잰 것이다.
+
+| 검사      | 결과와 범위                                                                                                                                                                                                                                                                                                             |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 정적 검사 | `typecheck`, `lint`, `format:check`, `check-resource-ownership`(46 records) PASS.                                                                                                                                                                                                                                       |
+| 단위 전체 | `vitest run --maxWorkers=6` 643 files / 14,666 tests PASS.                                                                                                                                                                                                                                                              |
+| 빌드      | `build:checked`에서 `guard:sw-cache-version`을 뺀 단계와 dead-exports·import-graph·bus-pairing, 27단계 PASS. `guard:sw-cache-version`은 bump 전이라 예상대로 FAIL(R1 bump가 해소).                                                                                                                                      |
+| Chromium  | `test:e2e:critical` 60/60 PASS(새 공지 X 정렬 테스트 포함), 손댄 화면 12개 파일 86/86 PASS.                                                                                                                                                                                                                             |
+| red→green | 기준 제품 파일로 되돌리면 새 단위 테스트 21건, 새 E2E 정렬 테스트 2건이 실패한다(X−시각 2 px와 3 px, 허용 0.5 px).                                                                                                                                                                                                      |
+| 독립 리뷰 | 기하·일관성·회귀 세 렌즈 모두 승인. 각자 만든 작업 트리에서 잰 값이 작성자와 1 px 안에서 같다.                                                                                                                                                                                                                          |
+| 한계·SKIP | 새 잉크 정렬 테스트는 Windows Chromium에서만 돌았고 CI(Linux)의 첫 결과를 봐야 한다. ja·zh-Hans에서 "HOST" 글자가 시각보다 2 px 아래(전 1 px), he는 1 px 아래(전 0)다. 대체 글꼴 기준선 탓이고 X는 모든 언어에서 시각에 맞는다. 강제 색상 모드에서 닫기 원이 배너 위 가장자리에 닿는다(외관만). 실제 기기는 미확인이다. |
+
+### 5. R1 작은 수정 (2026-10-24)
+
+검증 대상은 `2617075e8face2276aea2541027251bc3229a4dd`(R1 브랜치, 기준 `0fff65a7`)다. 환경은 Windows
+로컬, Node 24.20.0 / npm 12.0.2, E2E 포트 4471/9471이다.
+
+| 검사      | 결과와 범위                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 정적 검사 | `typecheck`, `lint`, `format:check` PASS, `check-resource-ownership` 46 records PASS(기준 수치 변화 없음).                                                                                                                                                                                                                                                                                                                                                |
+| 단위      | 전체 644 files / 14,747 tests PASS. `connect-i18n` 섞은 순서 137/137, CSS를 읽는 관련 7 files 135/135 PASS.                                                                                                                                                                                                                                                                                                                                               |
+| 빌드      | `build:checked`에서 `guard:sw-cache-version`을 뺀 24단계 PASS(legacy TV Chromium 79 포함). 초기 JS 491,221 B(같은 트리에 `0fff65a7`의 CSS면 491,220 B), 초기 전체 569,841 B.                                                                                                                                                                                                                                                                              |
+| Chromium  | `test:e2e:critical` 61/61 PASS(새 키보드 링 테스트 포함), `dialog-locale-layout`+`critical-browser` 20/20 PASS. 재시도 없음.                                                                                                                                                                                                                                                                                                                              |
+| red→green | 수정 전 빌드에서 새 만료 E2E가 el·ml·ru·ta에서(위쪽 −0.06~−12.9 px), 링 E2E가 위쪽 잘림 −4 px로 실패한다. CSS 높이 핀, hover 선택자 대조, 42개 언어 문장 테스트도 각각 해당 변이에 실패한다.                                                                                                                                                                                                                                                              |
+| 독립 리뷰 | 승인. 측정값이 작성자와 같고, 320×480 세로에서도 고쳐졌음을 확인했다.                                                                                                                                                                                                                                                                                                                                                                                     |
+| 한계·SKIP | en 568×320은 이제 일반 대화상자의 24px 여백을 지키며 24px 스크롤하고(전에는 11.8px 여백으로 맞았다), 844×390의 ru·ta는 2~4px 스크롤한다. 두 경우 모두 버튼은 스크롤 없이 보인다. Playwright의 강제 색상 에뮬레이션은 미디어 쿼리만 바꾸므로 실제 Windows 고대비는 미확인이다. 같은 원인으로 데스크톱에서 `#btn-chat-notice-open`의 초점 링 위쪽이 잘리는 기존 문제는 후속으로 남는다. "새로 입장" 문장 테스트는 재입장이라는 조건 자체는 확인하지 않는다. |
+
+### 6. C6-9 갈래 (2026-10-24)
+
+검증 대상은 `bf909e41`(런타임은 `76609d4a`부터 같다), 기준은 main `08003954`다. R1 브랜치의
+`ddc1acec..77d267a3`와 patch가 같다. 환경은 Windows 로컬, Node 24.20.0 / npm 12.0.2다.
+
+| 검사           | 결과와 범위                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 정적·가드      | `typecheck`, `lint`, `format:check`, `guard:dead-exports` PASS. `check-resource-ownership` 46 records PASS(SKIP_WAITING send 2). `guard:navigation-sinks` PASS(location navigation 6, SKIP_WAITING send 2, sink call 4, 퇴역 이름 11개 없음).                                                                                                                                                                                    |
+| 손댄 묶음      | 16 files 457/457 PASS, 섞은 순서 시드 1·20261024·777 모두. sw-register 70, 전이표 44, parity 5, 이동 sink 가드 11.                                                                                                                                                                                                                                                                                                               |
+| 이전 코드 대조 | main `08003954`의 `sw-register.ts`를 넣어도 sw-register·전이표·복구 119 tests PASS, 새 행의 기록이 바이트 단위로 같다. 2차 리뷰도 각자 114/114, 119/119, 128 tests로 재확인했다.                                                                                                                                                                                                                                                 |
+| 변이           | 작성자의 `sw-register.ts` 변이 21개 중 20개가 실패한다. 남은 M12는 위의 시작 시 읽기다. 리뷰 두 곳의 변이 24개 중 22개가 실패했고, 남은 것은 동등한 변이이거나 C6-9가 손대지 않은 줄(Apply 경로의 낡은 확인 표지 제거)이다.                                                                                                                                                                                                      |
+| 단위 전체      | `vitest run --maxWorkers=6` 643 files / 14,708 tests PASS. `test:coverage:critical` 74 files / 2,610 tests, 파일별 하한 유지(`sw-register.ts` 89.03/86.83/77.04/89.77, 하한 86/84/74/88).                                                                                                                                                                                                                                        |
+| 빌드           | `build:checked`에서 `guard:sw-cache-version`을 뺀 24단계 PASS. `guard:sw-cache-version`은 bump 전이라 예상대로 FAIL. 초기 JS 490,334 B(기준 490,339 B).                                                                                                                                                                                                                                                                          |
+| Chromium       | `build:e2e` 후 `test:e2e:critical` 59/59 PASS.                                                                                                                                                                                                                                                                                                                                                                                   |
+| 독립 리뷰      | 1차(`76609d4a`) 세 렌즈(동등성, 테스트 타당성, 소유권·예산)가 모두 변경을 요구했다(재로딩이 걸린 상태의 행 누락, 식별 검사 미검증, 타이밍 값 재입력, 출구 호출 미집계 등). `6086e5d9`·`77d267a3`로 반영한 뒤 2차(`bf909e41`) 세 렌즈 모두 승인했고, 남은 지적은 작은 것뿐이다(위 계획과의 차이, R2 입력).                                                                                                                        |
+| 실제 브라우저  | `76609d4a`의 빌드 두 개(캐시 epoch만 임시 값 v990001/v990002, 커밋하지 않음)를 한 출처에서 차례로 서빙하고 헤드리스 Chromium으로 확인: Apply(방 밖), Later 뒤 같은 페이지, Later 뒤 로고, 대기 업데이트가 있을 때 로고, 두 탭의 방 밖 Apply(탭마다 재로딩 한 번, 대화상자는 한 탭만), 다른 탭이 데모일 때 Apply(데모 탭은 같은 대화상자 한 번, 재로딩 없음). 리뷰는 main과 `bf909e41` 양쪽 빌드에서 다섯 장면이 같음을 확인했다. |
+| 한계·SKIP      | 방 게스트의 Apply(`/CODE` 복귀), 실제 방에서 다른 탭의 적용, 멈춘 활성화, WebKit/iOS는 정적 출처에 신호 서버가 없어 미실행이다. 데모는 body의 `mode-demo` 클래스로 흉내 냈다.                                                                                                                                                                                                                                                    |
+
+### 7. R1 최종 검증 (2026-10-24)
+
+검증 대상 코드는 `6ea4fab4fa210d6cb409d04fc23ae838fa47afa6`(SW v775, 마지막 런타임 커밋)이다.
+트리는 #471(main `b19eca9f`), 라운드 4~6의 증분, 문구 정리, RO-43 기록, bump를 모두 담는다. 이후
+이 보고서를 적는 문서 커밋은 런타임을 바꾸지 않는다. 환경은 Windows 로컬, Node 24.20.0 /
+npm 12.0.2, E2E는 로컬 Chromium·PeerJS(포트 4481/9481)다.
+
+| 검사          | 결과와 범위                                                                                                                                                                                                                                                                                                                      |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 정적 검사     | `typecheck`(테스트 포함), `lint`, `format:check`, `check:workers`(D1·ops 계약 포함) PASS.                                                                                                                                                                                                                                        |
+| 소유권·이동   | `check-resource-ownership` 46 records / 430 files PASS(SKIP_WAITING send 2). `guard:navigation-sinks` PASS(388 files, location navigation 6, SKIP_WAITING send 2, sink call 4, history traversal 2, requester 20, unload-exemption claim 2, 퇴역 이름 11개 없음).                                                                |
+| 단위 전체     | `npx vitest run --maxWorkers=6` 645 files / 14,794 tests PASS, FAIL 0, SKIP 0, 재실행 없음.                                                                                                                                                                                                                                      |
+| Worker 전체   | `npx vitest run --config vitest.workers.config.ts` 60 files / 2,889 tests PASS.                                                                                                                                                                                                                                                  |
+| 프로덕션 빌드 | `build:checked` 전체 PASS(가드 24개와 빌드, `guard:sw-cache-version` "v775 (6ea4fab4) covers all committed PWA runtime changes", legacy TV Chromium 79, SW 바이트 일치, app-shell 106 자산). 초기 JS 491,284 B gzip(유지 상한 491,568 B까지 284 B), 초기 전체 569,909 B(상한 570,570 B까지 661 B), 진입 스크립트 125,915 B gzip. |
+| Chromium      | `build:e2e` 후 `test:e2e:critical` 61/61 PASS, `e2e/dialog-locale-layout.test.ts`·`e2e/design-system-page.test.ts` 11/11 PASS. Playwright 설정의 재시도는 0이다.                                                                                                                                                                 |
+| 업데이트 경로 | 아래 실제 브라우저 확인의 네 장면 PASS.                                                                                                                                                                                                                                                                                          |
+| SKIP          | 실제 기기, WebKit, 운영 Cloudflare, 방 게스트·실제 방의 업데이트, 멈춘 활성화. R1 브랜치의 PR CI와 exact-main CI 후보는 아직 없다. 로컬 결과는 배포에 필요한 exact-main-SHA CI 후보를 대신하지 않는다.                                                                                                                           |
+
+**실제 브라우저 업데이트 확인.** 이 트리로 프로덕션 빌드 두 개를 만들었다.
+`scripts/service-worker-asset.ts`의 캐시 epoch와 `index.html`의 `bootstrap.js?cache=` 값만 임시 값
+v990751(A)·v990752(B)로 바꿨고, 빌드 뒤 되돌려 커밋하지 않았다(작업 트리 깨끗). 해시가 붙은 청크
+이름은 epoch가 들어간 진입 청크에서 이어져 바뀐다. 정적 서버가 한 출처(127.0.0.1)에서 A를
+서빙하다 B로 바꾸고, 헤드리스 Chromium(service worker 허용, en-US, 장면마다 새 컨텍스트)이
+`registration.update()`로 매시 확인을 당겨 실행했다. 재설정 상태는 `session-reset-pending` 클래스,
+재설정 덮개, 열린 대화상자, inert 처리된 body 자식 수(처음 34)로 봤다.
+
+| 장면                         | 결과                                                                                                                                                                                                                                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Apply(방 밖)                 | `SKIP_WAITING` 1번, 재로딩 1번(클릭 1.30초 뒤 새 문서), 이후 6초 동안 추가 이동 없음. controller v990752, 캐시는 v990752의 optional·runtime·static 셋만, 대기 워커 없음. `sw-updated-at` = `sw-controller-confirmed-at`, `mxqr-swu`·재접속 표지 없음. 재설정 상태 없음(inert 34).  |
+| Later 뒤 같은 페이지         | `SKIP_WAITING` 0, 이동 0. 대기 워커 installed, 두 세대 캐시 유지, 표지 없음. 같은 페이지의 두 번째 `update()`에도 대화상자 없음. 다시 열면 1.61초 뒤 같은 대화상자. 재설정 상태 없음.                                                                                              |
+| Later 뒤 로고                | 하드 리셋의 `SKIP_WAITING` 1번, 홈 이동 1번(클릭 1.27초 뒤), "Update applied" 토스트, v990752 캐시만, 대기 워커 없음. 두 표지가 같은 값이다(옛 문서의 맞춘 재로딩이 로고 이동 뒤에 대기했다가 커밋 때 버려짐, 전이표 S5a). 재설정 상태 없음.                                       |
+| 대기 업데이트가 있을 때 로고 | 다시 연 뒤 210ms, 시작 시 대화상자 전에 로고를 눌렀다. `SKIP_WAITING` 1번(새 문서 시작 0.25초 뒤), 홈 이동 1번(클릭 1.27초 뒤), "Update applied", 이후 8초 동안 대화상자 없음, v990752 캐시만, 두 표지 같음, 재설정 상태 없음. 문서 기록은 처음 열기·다시 열기·로고 이동 셋뿐이다. |
+
+페이지 오류는 없었고 콘솔에는 Chromium의 "preload했지만 바로 쓰지 않음" 경고만 있었다. 결과는
+C6-9 갈래(`76609d4a`)의 같은 네 장면과 같다. 네 장면은 모두 A로 연 페이지, 곧 R1 코드가 다음
+세대를 적용하는 경우다. 배포 뒤 새로 연 페이지가 옛 controller 아래에서 9.0.5 코드로 적용하는
+경우는 QA 라운드 8에서 따로 확인했다(아래 배포·회복).
+
+### 8. 리뷰 반영: 배포 뒤 새로 연 페이지 (2026-10-24)
+
+R1 최종 리뷰가 혼합 버전 설명의 잘못을 짚었다(배포 뒤 새로 연 페이지의 적용 주체, 아래
+배포·회복). 리뷰는 라운드 7의 빌드로 먼저 재현했고, 이 라운드는 같은 장면을 다시 만든 빌드로
+확인했다. 검증 대상 런타임은 `6ea4fab4`(SW v775)이고, 빌드한 트리 `a8148ac5`는 그 뒤로 문서만
+다르다. 환경과 방법은 라운드 7과 같다(Windows 로컬, Node 24.20.0, 헤드리스 Chromium, service
+worker 허용, en-US, 한 출처 127.0.0.1). 빌드 두 개는 epoch만 임시 값 v990751(A)·v990752(B)로
+바꿨고 커밋하지 않았다(작업 트리 깨끗).
+
+| 장면                   | 결과                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 배포 뒤 새로 연 페이지 | A로 연 탭이 A controller를 얻은 뒤 탭을 닫고 서버를 B로 바꿨다. 새 탭은 B 문서(`bootstrap.js?cache=v990752`)를 A controller(v990751) 아래에서 열었고, B 등록이 B를 설치해 대기시켰다. 연 지 2.1초 뒤 "Update" 대화상자, Apply에 B 문서가 `SKIP_WAITING` 1번, 재로딩 1번(클릭 1.17초 뒤), 이후 6초 동안 추가 이동 없음. controller v990752, 대기 워커 없음, 두 표지 같음, `mxqr-swu`·재접속 표지 없음, 재설정 상태 없음(inert 34). |
+| 라운드 7의 네 장면     | 다시 만든 빌드로 다시 돌렸다. 네 장면 모두 라운드 7과 같은 결과(Apply 재로딩 1번, Later 뒤 이동 0과 두 세대 캐시 유지, 다시 열 때 같은 대화상자, 로고 이동 1번과 "Update applied", Apply·로고 장면의 끝 상태는 v990752 캐시만).                                                                                                                                                                                                   |
+
+새로 연 페이지 장면에서는 재로딩 뒤 v990752 캐시 셋 말고 v990751의 static 캐시 이름 하나가 항목
+0개로 6초와 31초 뒤에 남아 있었고, 페이지를 한 번 더 열자 지워졌다. 옛 워커가 B 페이지의
+요청을 받던 동안의 캐시 이름으로 보이지만 원인은 확인하지 않았다. SW 소스는 운영 v772와 같아서
+R1이 만든 변화가 아니고, 항목이 없어 저장 공간도 거의 쓰지 않는다. 페이지 오류는 없었다.
+
+배포 전부터 열린 9.0.4 탭이 9.0.4 기계로 적용하는 경우는 이 트리에 그 코드가 없어 다시 보지
+않았다. SKIP은 라운드 7과 같다(실제 기기, WebKit, 운영 Cloudflare, 방 게스트·실제 방의 업데이트,
+멈춘 활성화). 이 라운드에서 바뀐 것은 문서뿐이라 문서에 닿는 검사만 다시 돌렸다: 바꾼 문서 셋의
+Prettier 확인, `format:check`, `guard:brand-capitalization`(954 sources), `guard:sw-cache-version`(v775
+`6ea4fab4`가 런타임 변경을 모두 덮음) PASS.
+
+### 9. 개발 의존성 보안 overrides와 v776 (2026-10-24)
+
+PR #474 CI(`6a1fa9f0`)는 `Types and source guards`의 `npm audit --audit-level=high` 한 단계만 실패했다(같은 날
+공개된 개발 의존성 보안 공지, `Static checks`는 그 결과를 모으는 단계). 나머지 9개 작업(단위, 커버리지,
+핵심 브라우저 등)은 통과했다. `f7f55e4c`로 overrides를 올리고 `26c807d6`에서 SW 캐시를 v776으로 올렸다.
+
+| 검사                                                          | 결과                                                                                                                         |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| 대상                                                          | `26c807d6`(SW v776, 마지막 런타임 커밋), Windows 11, Node 24.20.0, npm 12.0.2, 작업 트리에서 새로 `npm install`              |
+| `npm audit`                                                   | 0 vulnerabilities                                                                                                            |
+| typecheck(테스트 포함), `check:workers`, lint, `format:check` | 모두 PASS                                                                                                                    |
+| 단위                                                          | 645 files / 14,794 tests PASS                                                                                                |
+| Worker                                                        | 60 files / 2,889 tests PASS                                                                                                  |
+| `build:checked` 전체                                          | PASS, `guard:sw-cache-version` "v776 (26c807d6) covers all committed PWA runtime changes", 초기 JS 479.8 KiB gzip(예비선 안) |
+| 자원 소유, 이동 가드                                          | 46건 OK, SKIP_WAITING 송신 2·sink 호출 4                                                                                     |
+| `test:e2e:critical`                                           | 61/61 PASS                                                                                                                   |
+
+한계: 의존성은 개발 도구만 바뀌어 앱 번들과 브라우저 동작은 라운드 7·8과 같다. 실기기, WebKit, 운영은 이번 라운드에서도 돌리지 않았다.
 
 ## 초기 JS 예산
 
-실제 빌드로 잰 초기 JS(gzip)는 main 490,339 B에서 이 PR 491,227 B로 888 B 늘었다. 유지 상한
-491,568 B(517,440 B의 95%)까지 341 B가 남고, 9.0.4 이후 남아 있던 여유의 약 72%를 이 증분이
-썼다. 초기 전체는 상한 570,570 B까지 804 B 남는다. 리뷰 반영 뒤(`d4849257`)에는 초기 JS
-491,251 B로 317 B, 초기 전체 569,825 B로 745 B가 남는다(QA 라운드 3).
+실제 빌드로 잰 초기 JS(gzip)와 유지 상한 491,568 B(517,440 B의 95%)까지의 여유다. 초기 전체의
+상한은 570,570 B(600,600 B의 95%)다.
 
-앞으로 들어올 Phase 3 증분(SW 업데이트 경로의 `sw-register.ts`, 각진 선택 표시의
-`selection-mark.ts`)은 모두 초기 묶음에 들어간다. Phase 3 증분은 이 여유로 측정하며, 넘으면
-줄이기 또는 [측정 기준 재설정](initial-bundle-loading-policy.md#reconsideration-criteria)을
-오너가 정한다. 상한을 조금만 넘어도 `build:checked`가 "Initial transfer budget exceeded"로
-실패하므로, 묶은 빌드의 `build:checked`를 다음 증분 착수 전에 잰다.
+| 트리                                                   | 초기 JS               | 여유          | 초기 전체             |
+| ------------------------------------------------------ | --------------------- | ------------- | --------------------- |
+| main `08003954`(9.0.4 기록 뒤)                         | 490,339 B             | 1,229 B       | 568,873 B             |
+| #471 PR(리뷰 반영 전)                                  | 491,227 B             | 341 B         | 569,766 B             |
+| #471 리뷰 반영 `d4849257`(v774)                        | 491,251 B             | 317 B         | 569,825 B             |
+| 각진 표시·작은 수정 뒤 `2617075e`(v774)                | 491,221 B             | 347 B         | 569,841 B             |
+| C6-9까지, 이 트리에 v774를 넣은 측정용 빌드            | 491,255 B             | 313 B         | 569,876 B             |
+| R1 최종 `6ea4fab4`(v775)                               | 491,284 B             | 284 B         | 569,909 B             |
+| 같은 트리, 임시 epoch v990751 / v990752(브라우저 확인) | 491,274 B / 491,260 B | 294 B / 308 B | 569,902 B / 569,887 B |
+
+#471은 888 B를 썼다. 각진 표시와 작은 수정 뒤 값은 `d4849257`보다 30 B 작다(작은 수정 자체는
++1 B). C6-9는 자기 기준에서 −5 B였고 묶음 위에서는 +34 B로 쟀다(CSS 주석 변경 포함). epoch 값만
+다른 빌드끼리도 10~29 B가 달라지므로, 이 크기의 차이는 gzip 문맥 차이로 보고 C6-9를 바이트
+중립으로 본다. R1 최종의 여유는 284 B, 초기 전체는 661 B다.
+
+R2(C6-10)는 계획 추정이 +100~200 B라 이 여유 안에 들 수 있지만, 상한을 조금만 넘어도
+`build:checked`가 "Initial transfer budget exceeded"로 실패한다. C6-15는 기각돼 여유를 만드는
+수단이 아니다. 넘으면 줄이기 또는
+[측정 기준 재설정](initial-bundle-loading-policy.md#reconsideration-criteria)을 오너가 정한다. R2
+착수 전과 bump 뒤에 묶은 빌드의 `build:checked`로 다시 잰다.
 
 ## 배포·회복
 
-배포 대상은 target `all`만 가능하다. 이 증분은 App 런타임 입력(`src`, `browser`, App Worker,
-`package.json`, SW 캐시)과 signaling 런타임 입력(`cloudflare/signaling-worker.ts`)을 함께
-바꾼다. 그래서 부분 게이트(`verifyPartialReleaseCompatibility`)가 app 단독과 signaling 단독을
-첫 배포 단계 전에 거부하고, `release.yml`에는 app+signaling 조합이 없다. 순서는 `all`의 표준
-순서인 PRO room → remote-share → signaling → Developer API → App이다. Phase 3의 SW 업데이트
-증분도 같은 Release 실행에 싣는다. 업데이트 창이 뜨는 배포이므로 직전에 오너 확인이 필요하고,
-exact-main CI 후보는 배포 직전에 다시 확인한다.
+R1의 배포 대상은 target `all`만 가능하다. #471 증분은 App 런타임 입력(`src`, `browser`, App
+Worker, `package.json`, SW 캐시)과 signaling 런타임 입력(`cloudflare/signaling-worker.ts`)을 함께
+바꾼다. 그래서 부분 게이트(`verifyPartialReleaseCompatibility`)가 app 단독과 signaling 단독을 첫
+배포 단계 전에 거부하고, `release.yml`에는 app+signaling 조합이 없다. R1에 더한 각진 표시, 작은
+수정, C6-9는 앱 런타임만 바꾼다. 순서는 `all`의 표준 순서인 PRO room → remote-share → signaling →
+Developer API → App이고, Developer API D1은 `false`다. 업데이트 창이 뜨는 배포이므로 직전에 오너
+확인이 필요하고, exact-main CI 후보는 배포 직전에 다시 확인한다. 새 D1 스키마·비밀·바인딩·통신
+형식은 없다.
 
-main에 머지된 뒤 Phase 3 전에 다른 배포가 필요해지면, exact-main 규칙과 부분 게이트 때문에 이
-증분을 함께 `all`로 보내거나 먼저 되돌려야 한다. 그때 어느 쪽인지는 오너가 정한다.
+#471은 이미 main(`b19eca9f`)에 있다. R1 전에 다른 배포가 필요해지면 exact-main 규칙과 부분
+게이트 때문에 이 증분을 함께 `all`로 보내거나 먼저 되돌려야 하고, 어느 쪽인지는 오너가 정한다.
 
-이 변경만으로 PRO나 개발자 API의 새 계약은 생기지 않는다. 기존 릴리스 절차와 PRO·App
-forward floor를 그대로 따른다. 되돌릴 경우 이전 클라이언트 재시도와 기존 단일 집계가
-돌아오며, 추가한 집계 행은 남겨도 이전 코드가 무시한다. 되돌리는 커밋도 PWA 런타임 변경이라
-새 SW 캐시 bump가 필요하다.
+**혼합 버전.**
 
-운영·실기기에서는 정상 재생 중 명시적 만료, 일반 네트워크 단절, 만료 뒤 foreground 복귀,
-WSS·HTTPS 종료 이유 전달, 안내 확인과 명시적 새 입장(방장이 없을 때 "방장이 세션을 종료한
-것 같아요" 문구 포함), `/api/admin/metrics`의 새 카운터 4개를 확인해야 한다. 운영 데이터나
-서비스에 장애를 주입하는 검사는 이번 로컬 검증에 포함하지 않았다.
+- 이전 앱은 갱신 전까지 만료 뒤에도 기존 재시도를 할 수 있다. 서버는 새 카운터를 낸다.
+- 업데이트 적용 주체(리뷰 정정): 새 워커는 설치 때 `skipWaiting`을 부르지 않고, 페이지 이동은
+  네트워크 우선이다. 그래서 배포 뒤 새로 연 페이지는 v772 워커가 controller인 채로 9.0.5 코드로
+  돌고, 설치된 v776이 대기하면 그 페이지의 업데이트 기계(C6-9)가 대화상자를 띄우고 Apply를
+  처리한다([Phase 2 보고서 정정](phase2-navigation-ui-shells-2026-10-23.md#묶음-호환성)과 같은
+  이치). 다시 오는 사용자에게는 이것이 주 경로이므로 C6-9 기계는 R1 때 처음 운영에서 적용한다.
+  9.0.4 기계로 적용하는 것은 배포 전부터 열려 있던 탭과, 네트워크가 3초 안에 답하지 않아 캐시된
+  화면으로 연 페이지뿐이다. 로컬 근거는 QA 라운드 8의 새로 연 페이지 장면이다.
+  `browser/service-worker.ts`는 운영 v772(`717d32d4`)와 epoch 말고는 같아서, 그 장면의 A 워커가
+  운영 controller 자리에 선다. 같은 이치로 C6-10이 바꾸는 로고 재설정 경로는 R2 배포 뒤 새로 연
+  페이지에서 v777이 대기할 때, 곧 R2 때 처음 운영에서 돈다.
+- C6-9는 다음 문서 표지의 키와 값을 바꾸지 않아, 9.0.4 탭과 9.0.5 탭이 같은 표지를 읽고 쓴다.
+- 각진 표시, 공지 X, 대화상자 높이는 화면만 바꾼다. 다른 버전의 기기와 주고받는 데이터는 없다.
+
+**되돌리기.** 이 변경만으로 PRO나 개발자 API의 새 계약은 생기지 않는다. 기존 릴리스 절차와
+PRO·App forward floor를 그대로 따른다. #471을 되돌리면 이전 클라이언트 재시도와 기존 단일 집계가
+돌아오며, 추가한 집계 행은 남겨도 이전 코드가 무시한다. C6-9를 되돌려도 동작은 같다(전이표가
+main `08003954`의 코드에서도 같은 기록을 낸다). 어느 증분을 되돌리든 PWA 런타임 변경이라 새 SW 캐시
+bump가 필요하다.
+
+**R2 계획.** C6-10(로고 재설정이 업데이트 기계에 묻기, 위 R2 입력)은 `9.0.6` / `v777`이다. 따로
+배포하는 묶음이라 자기 날짜의 보고서를 두고 `docs/README.md` 증거 목록에 더한다. 오너 결정대로
+자동 게이트가 통과하면 실기기 확인 없이 밤사이에 배포해도 된다. 위 정정대로 C6-10의 로고 경로는
+R2 배포 직후부터 새로 연 페이지에서 돈다. 초기 JS 여유 284 B 안에서 재고, 대상은 그때의 Worker
+차이로 다시 판정한다.
+
+**R1 실기기·운영 확인(대기).**
+
+- 만료: 정상 재생 중 명시적 만료, 일반 네트워크 단절, 만료 뒤 foreground 복귀, WSS·HTTPS 종료
+  이유 전달, 안내 확인과 명시적 새 입장(방장이 없을 때 "방장이 세션을 종료한 것 같아요" 문구
+  포함), `/api/admin/metrics`의 새 카운터 4개.
+- 업데이트: 배포 뒤 새로 연 페이지의 대화상자와 Apply(C6-9 기계, iPhone Safari 포함), 배포
+  전부터 열린 탭의 Apply(9.0.4 기계). 둘 다 방 밖과 방 게스트(`/CODE`로 한 번 복귀)를 본다. 실제
+  방에 있는 동안 다른 탭이 적용할 때 방에 한 번만 묻는지, Later, 대기 업데이트가 있을 때 로고
+  재설정.
+- 화면: 각진 체크·마이너스와 공지 X 정렬(휴대폰·데스크톱, ja·zh 포함), 짧은 가로 화면의 만료
+  대화상자, 공지 X 키보드 링, 실제 Windows 고대비.
+- CI: 새 잉크 정렬 테스트의 Linux 첫 결과, 브랜치 push 뒤 `e2e.yml`의 WebKit 레인.
+
+운영 데이터나 서비스에 장애를 주입하는 검사는 이번 로컬 검증에 포함하지 않았다.
 
 관련 계약: [신호 생존과 복구](signaling-liveness.md#explicit-standard-room-expiry),
 [자원 소유권](resource-ownership-registry.md#checked-side-flows-without-a-record),

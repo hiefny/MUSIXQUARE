@@ -1,6 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
+import { APP_DICTIONARIES } from '../src/i18n/catalogs.ts';
 import en from '../src/i18n/en.ts';
 import ko from '../src/i18n/ko.ts';
+import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
+import { injectPeerServer } from './helpers/peer-server.ts';
+import { setupHostAndStart } from './helpers/setup-flow.ts';
 
 // These synthetic account/API routes must reach Playwright. A controlling
 // service worker can bypass route interception; SW behavior has separate tests.
@@ -98,6 +102,107 @@ for (const height of [280, 220]) {
     await expect(segments.last()).toHaveValue('5678');
     await page.locator('#btn-dialog-secondary').click();
     await expect(page.locator('#dialog-overlay')).not.toHaveClass(/show/);
+  });
+}
+
+// el, ml, ru and ta carry the tallest expiry copy; ko is the source wording
+// and en the fallback. 568x320 is a landscape phone, 390x844 a portrait one.
+for (const language of ['el', 'ml', 'ru', 'ta', 'ko', 'en'] as const) {
+  test(`keeps the whole signaling expiry dialog reachable on a landscape phone (${language})`, async ({
+    page,
+  }, info) => {
+    await injectPeerServer(page);
+    await page.addInitScript((locale) => {
+      localStorage.setItem('musixquare-lang', locale);
+    }, language);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupHostAndStart(page);
+    await expect(page.locator('html')).toHaveAttribute(
+      'lang',
+      LANGUAGE_OPTIONS.find((locale) => locale.code === language)!.htmlLang,
+    );
+    await page.locator('.btn-copy-invite-link').first().waitFor({ state: 'attached' });
+    await page.evaluate(() => {
+      const runtime = window as unknown as {
+        __MUSIXQUARE_SET_STATE__: (path: string, value: unknown) => void;
+      };
+      runtime.__MUSIXQUARE_SET_STATE__('network.signalingHealth', {
+        status: 'expired',
+        attempt: 0,
+        maxAttempts: 5,
+      });
+      document.querySelector<HTMLButtonElement>('.btn-copy-invite-link')!.click();
+    });
+    const overlay = page.locator('#signaling-recovery-overlay');
+    const dialog = page.locator('#signaling-recovery-dialog');
+    await expect(overlay).toHaveClass(/show/);
+    await expect(dialog).toHaveAttribute('data-state', 'expired');
+    await expect(page.locator('#signaling-recovery-message')).toHaveText(
+      APP_DICTIONARIES[language]['connect.signaling_expired_detail'],
+    );
+    await page.evaluate(() => document.fonts.ready);
+
+    for (const viewport of [
+      { width: 390, height: 844 },
+      { width: 568, height: 320 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.waitForFunction(
+        ({ width, height }) =>
+          innerWidth === width &&
+          innerHeight === height &&
+          document
+            .getElementById('signaling-recovery-overlay')!
+            .getAnimations({ subtree: true })
+            .every((animation) => ['finished', 'idle'].includes(animation.playState)),
+        viewport,
+      );
+      // The title is reachable at the top of the panel, the actions at its end.
+      const metrics = await dialog.evaluate((panel) => {
+        panel.scrollTop = 0;
+        const rect = panel.getBoundingClientRect();
+        const titleTop = document
+          .getElementById('signaling-recovery-title')!
+          .getBoundingClientRect().top;
+        panel.scrollTop = panel.scrollHeight;
+        const actions = ['btn-signaling-recovery-confirm', 'btn-signaling-recovery-retry'].map(
+          (id) => {
+            const button = document.getElementById(id)!.getBoundingClientRect();
+            return {
+              id,
+              top: button.top,
+              bottom: button.bottom,
+              pointerHit:
+                document
+                  .elementFromPoint(button.x + button.width / 2, button.y + button.height / 2)
+                  ?.closest('button')?.id === id,
+            };
+          },
+        );
+        return {
+          top: rect.top,
+          bottom: rect.bottom,
+          titleTop,
+          clientHeight: panel.clientHeight,
+          scrollHeight: panel.scrollHeight,
+          actions,
+        };
+      });
+      await info.attach(`expiry dialog ${language} ${viewport.width}x${viewport.height}`, {
+        body: JSON.stringify(metrics),
+        contentType: 'application/json',
+      });
+      expect(metrics.top).toBeGreaterThanOrEqual(0);
+      expect(metrics.bottom).toBeLessThanOrEqual(viewport.height);
+      expect(metrics.titleTop).toBeGreaterThanOrEqual(metrics.top);
+      // A roomy portrait screen shows the whole dialog without scrolling.
+      if (viewport.height === 844) expect(metrics.scrollHeight).toBe(metrics.clientHeight);
+      for (const action of metrics.actions) {
+        expect(action.top, action.id).toBeGreaterThanOrEqual(metrics.top);
+        expect(action.bottom, action.id).toBeLessThanOrEqual(metrics.bottom);
+        expect(action.pointerHit, action.id).toBe(true);
+      }
+    }
   });
 }
 

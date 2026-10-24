@@ -1147,11 +1147,12 @@ RO-47 owner-in-place
     queued.
   - The quiet promotions (cooldown, same generation) send once the page's loads are quiet, as the
     startup prompt does (P3-9 A).
-  - A new document that runs the code of the generation an earlier document of this tab asked for
-    (Apply or the logo; read from the next-document markers and the build's
-    `__MXQR_BUILD_CACHE_VERSION__`) absorbs that generation's late activation: no reload, no
-    dialog, no toast, a prompt for it withdrawn (P3-10 A, reproduced first by the C6-9 stalled-Apply
-    case). A document running older code (a cache fallback) still reloads.
+  - A new document absorbs a late activation when the next-document markers still hold a request
+    from an earlier document of this tab that it did not see land (Apply or the logo; no age
+    limit) and the activated generation equals the build's `__MXQR_BUILD_CACHE_VERSION__`: no
+    reload, no dialog, no toast, a prompt for it withdrawn (P3-10 A, reproduced first by the C6-9
+    stalled-Apply case). A document running older code (a cache fallback) still reloads, and a
+    document with no such request treats the activation as before.
 
   `guard:navigation-sinks` counts the one literal in the sink and the one in the hard reset's own
   promotion, the four calls of the sink (Apply and Apply to a replacement in `handleWaitingWorker`,

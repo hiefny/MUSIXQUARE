@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import {
-  getPendingDemoHostStartAt,
-  projectDemoPlay,
-  setDemoHostStartAt,
-} from '../playback-timing.ts';
+import { getPendingDemoHostStartAt, setDemoHostStartAt } from '../host-start-anchor.ts';
+import { projectDemoPlay } from '../playback-timing.ts';
 
 afterEach(() => {
   setDemoHostStartAt(null);

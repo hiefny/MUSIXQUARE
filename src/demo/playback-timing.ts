@@ -3,17 +3,6 @@ export const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
 /** Prepared demo participants share a short start without waiting for downloads. */
 export const DEMO_PLAY_START_LEAD_MS = 200;
 
-let demoHostStartAt: number | null = null;
-
-export function setDemoHostStartAt(timestamp: number | null): void {
-  demoHostStartAt = timestamp !== null && Number.isFinite(timestamp) ? timestamp : null;
-}
-
-/** Published by the exact host output owner; load, pause and exit revoke it. */
-export function getPendingDemoHostStartAt(): number | undefined {
-  return demoHostStartAt !== null && demoHostStartAt > Date.now() ? demoHostStartAt : undefined;
-}
-
 interface DemoPlayTiming {
   readonly time: number;
   readonly hostPlayAt: number;

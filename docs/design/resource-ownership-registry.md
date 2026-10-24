@@ -447,8 +447,8 @@ RO-47 owner-in-place
 - **Current owners/flows:** the queue anchor (`armStandardHostCanonicalTimeline`,
   `getStandardHostPendingFileStartAt`, published by `startHostFileAndBroadcastPlay` in
   `src/player/transport.ts`) and the demo anchor (`setDemoHostStartAt`,
-  `getPendingDemoHostStartAt` in `src/demo/playback-timing.ts`; `startDemoPlayback` in
-  `src/demo/mode.ts`). The modes are mutually exclusive and other modules branch on `demo.active`.
+  `getPendingDemoHostStartAt` in `src/demo/host-start-anchor.ts`, a leaf the startup graph can
+  read without the lazy demo timing module; `startDemoPlayback` in `src/demo/mode.ts`). The modes are mutually exclusive and other modules branch on `demo.active`.
   The queue anchor validates its output identity; the demo anchor only checks that it lies in the
   future, and only demo code clears it.
 - **Target single owner:** `transport.ts`: one pending shared-start anchor for both kinds,

@@ -66,10 +66,9 @@ import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
 import {
   DEMO_PLAY_SCHEDULE_AHEAD_MS,
   DEMO_PLAY_START_LEAD_MS,
-  getPendingDemoHostStartAt,
   projectDemoPlay,
-  setDemoHostStartAt,
 } from './playback-timing.ts';
+import { getPendingDemoHostStartAt, setDemoHostStartAt } from './host-start-anchor.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import {
   getRoomContext,

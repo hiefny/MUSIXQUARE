@@ -91,3 +91,16 @@ run records both bridge open times. These fields identify the failed boundary
 but do not establish an upstream root cause. A 502 or 503 still fails the smoke
 without retrying admission, a failed close is printed without failing it, and a
 later successful run does not explain the earlier failure.
+
+One response is the exception, in this smoke and in the signaling and Remote
+Share smokes (`scripts/live-smoke-rate-limit-retry.mts`): an HTTP 503 whose JSON
+`error` is exactly `RATE_LIMIT_UNAVAILABLE`, which the App and signaling Workers
+return only when their rate-limit Durable Object does not answer within its 2 s
+read timeout. Each smoke process retries that response once, 5 s later, after
+printing the unchanged failure line and a `retried after RATE_LIMIT_UNAVAILABLE`
+line. The HTTPS bridge repeats the identical open, send, or poll, because the App
+answers that code before it reads the body or calls the bridge object. The
+WebSocket smokes read the rejected upgrade's body and repeat their attempt through
+their existing readiness or version-convergence loop. A second such response, any
+other code, a code-less 503, or the code with another status fails exactly as
+before, and a failed close never spends the retry.

@@ -5,6 +5,14 @@ import type { IncomingMessage } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 
+import {
+  RateLimitUnavailableError,
+  createRateLimitUnavailableRetry,
+  readRateLimitUnavailableUpgrade,
+  type RateLimitUnavailableRetry,
+  type UpgradeRejectionResponse,
+} from './live-smoke-rate-limit-retry.mts';
+
 const APP_ORIGIN = 'https://musixquare.com';
 export const PRIMARY_SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
 export const ALTERNATE_SIGNALING_ORIGIN = 'wss://signal-alt.musixquare.com/api/rooms';
@@ -40,6 +48,8 @@ export const STALE_VERSION_RETRY_DELAYS_MS = Object.freeze([1_000, 2_000, 4_000,
 export const ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS = Object.freeze([
   1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 30_000,
 ]);
+// One rate-limit retry per smoke process, outside the readiness ladders above.
+const SMOKE_RATE_LIMIT_RETRY = createRateLimitUnavailableRetry();
 export const SIGNALING_SMOKE_ROOM_READINESS = Object.freeze({
   unprotected: Object.freeze({
     retryDelaysMs: ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS,
@@ -128,6 +138,7 @@ interface ReadinessRetryOptions {
   retryDelaysMs?: readonly number[];
   wait?: (milliseconds: number) => Promise<void>;
   onRetry?: (event: { error: ReadinessError; attempt: number; delayMs: number }) => void;
+  rateLimitRetry?: RateLimitUnavailableRetry;
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -225,23 +236,45 @@ export function initialHostSocketError(
 
 export function settleUnexpectedInitialHostResponse(
   socket: { terminate(): void },
-  response: { statusCode?: number | undefined; resume(): void },
+  response: UpgradeRejectionResponse,
   expectedVersion: string,
   label: string,
   retryDeploymentConvergence = false,
-): Error {
-  const error = initialHostHandshakeError(
-    response.statusCode,
-    expectedVersion,
-    label,
-    retryDeploymentConvergence,
+): Promise<Error> {
+  return settleUnexpectedUpgradeResponse(
+    socket,
+    response,
+    initialHostHandshakeError(
+      response.statusCode,
+      expectedVersion,
+      label,
+      retryDeploymentConvergence,
+    ),
   );
+}
+
+/**
+ * Settles any rejected Standard upgrade with `error`, the line the smoke has
+ * always failed with. Only the exact `503 RATE_LIMIT_UNAVAILABLE` turns it into
+ * a RateLimitUnavailableError with the same message; a 5xx that is already a
+ * deployment-convergence retry keeps its own ladder and is not read.
+ */
+async function settleUnexpectedUpgradeResponse(
+  socket: { terminate(): void },
+  response: UpgradeRejectionResponse,
+  error: Error,
+): Promise<Error> {
+  let rateLimited = false;
+  if (error instanceof InitialHostDeploymentConvergenceError) {
+    response.resume();
+  } else {
+    rateLimited = await readRateLimitUnavailableUpgrade(response);
+  }
   // Registering an `unexpected-response` listener suppresses ws's default
   // abortHandshake path. Discard the response and explicitly close the still-
   // CONNECTING client so a readiness retry never leaks a socket.
-  response.resume();
   socket.terminate();
-  return error;
+  return rateLimited ? new RateLimitUnavailableError(error.message) : error;
 }
 
 export function assertPeerOpenVersion(
@@ -527,21 +560,28 @@ export function createSocketInbox(
       }
       settle(() => reject(new Error(`${label} open timeout`)));
     }, MESSAGE_TIMEOUT_MS);
-    if (expectedInitialHostVersion) {
-      socket.once('unexpected-response', (_request, response) => {
-        settle(() =>
-          reject(
-            settleUnexpectedInitialHostResponse(
+    // Claim the outcome before reading the body: terminating the socket emits
+    // error and 1006 close, which must not be classified as convergence. The
+    // read is bounded well below the open timeout this retires.
+    socket.once('unexpected-response', (_request, response) => {
+      settle(() => {
+        const rejection = expectedInitialHostVersion
+          ? settleUnexpectedInitialHostResponse(
               socket,
               response,
               expectedInitialHostVersion,
               label,
               retryInitialHostDeploymentConvergence,
-            ),
-          ),
-        );
+            )
+          : // The same line ws's default handshake abort used before this listener.
+            settleUnexpectedUpgradeResponse(
+              socket,
+              response,
+              new Error(`Unexpected server response: ${response.statusCode}`),
+            );
+        rejection.then(reject, reject);
       });
-    }
+    });
     socket.once('open', () => {
       settle(resolveOpen);
     });
@@ -659,12 +699,22 @@ export async function withSignalingReadinessRetry<Result>(
           `(attempt ${attempt + 1}/${retryDelaysMs.length + 1})`,
       );
     },
+    rateLimitRetry = SMOKE_RATE_LIMIT_RETRY,
   }: ReadinessRetryOptions = {},
 ): Promise<Result> {
+  // The ladder counts readiness failures only; the process's single
+  // rate-limit retry reruns the attempt without spending a ladder step.
+  let readinessFailures = 0;
   for (let attempt = 1; ; attempt += 1) {
     try {
       return await operation(attempt);
     } catch (error) {
+      if (
+        error instanceof RateLimitUnavailableError &&
+        (await rateLimitRetry.claim(error.message))
+      ) {
+        continue;
+      }
       if (
         !(error instanceof StaleSignalingVersionError) &&
         !(error instanceof InitialHostDeploymentConvergenceError) &&
@@ -673,9 +723,10 @@ export async function withSignalingReadinessRetry<Result>(
       ) {
         throw error;
       }
-      const delayMs = retryDelaysMs[attempt - 1];
+      const delayMs = retryDelaysMs[readinessFailures];
       if (delayMs === undefined) throw error;
-      onRetry?.({ error, attempt, delayMs });
+      readinessFailures += 1;
+      onRetry?.({ error, attempt: readinessFailures, delayMs });
       await wait(delayMs);
     }
   }

@@ -1,7 +1,14 @@
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  RateLimitUnavailableError,
+  createRateLimitUnavailableRetry,
+} from '../../../scripts/live-smoke-rate-limit-retry.mts';
+import { importTranspiledLiveSmoke } from './live-smoke-module-fixture.ts';
 
 class SmokeSocket extends EventEmitter {
   static current: SmokeSocket;
@@ -16,6 +23,10 @@ class SmokeSocket extends EventEmitter {
 }
 
 type OpenAuthority = (...args: unknown[]) => Promise<{ close(): void }>;
+type Convergence = <T>(
+  attempt: (hostSecret: string) => Promise<T>,
+  options: Record<string, unknown>,
+) => Promise<T>;
 const source = readFileSync('scripts/live-remote-share-smoke.ts', 'utf8');
 const parsed = ts.createSourceFile('smoke.ts', source, ts.ScriptTarget.Latest, true);
 const socketDeclaration = parsed.statements.find(
@@ -34,15 +45,18 @@ const instrumented = source
   .replace(socketDeclaration.getText(parsed), 'const WebSocket = globalThis.__mxqrSmokeSocket;')
   .replace(
     'await main();',
-    'globalThis.__mxqrOpenSmokeAuthority = openRoomUploadAssertionAuthorityAttempt;',
+    'globalThis.__mxqrOpenSmokeAuthority = openRoomUploadAssertionAuthorityAttempt;\n' +
+      'globalThis.__mxqrSmokeConvergence = withSignalingVersionConvergence;',
   );
 const compiled = ts.transpileModule(instrumented, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`);
+await importTranspiledLiveSmoke(compiled);
 const openAuthority = fixtureGlobal.__mxqrOpenSmokeAuthority as OpenAuthority;
+const withConvergence = fixtureGlobal.__mxqrSmokeConvergence as Convergence;
 delete fixtureGlobal.__mxqrSmokeSocket;
 delete fixtureGlobal.__mxqrOpenSmokeAuthority;
+delete fixtureGlobal.__mxqrSmokeConvergence;
 
 function open() {
   return openAuthority('123456', { roomUploadAssertionVersion: 1 }, 'version', 'secret', true);
@@ -103,5 +117,76 @@ describe('live remote-share smoke socket ownership', () => {
     expect(vi.getTimerCount()).toBe(0);
     authority.close();
     expect(SmokeSocket.current.close).toHaveBeenCalledOnce();
+  });
+});
+
+describe('live remote-share smoke rate-limited signaling upgrade', () => {
+  function rejectUpgrade(statusCode: number, body: string) {
+    const outcome = open().catch((error: unknown) => error);
+    SmokeSocket.current.emit(
+      'unexpected-response',
+      {},
+      Object.assign(Readable.from([Buffer.from(body)]), { statusCode }),
+    );
+    return outcome;
+  }
+
+  it('marks the rate-limiter 503 with the ws failure line and terminates the socket', async () => {
+    const error = await rejectUpgrade(503, '{"error":"RATE_LIMIT_UNAVAILABLE"}');
+
+    expect(error).toBeInstanceOf(RateLimitUnavailableError);
+    expect((error as Error).message).toBe('Unexpected server response: 503');
+    expect(SmokeSocket.current.terminate).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    [503, '{"error":"SERVICE_MAINTENANCE"}'],
+    [503, '<html>503 Service Unavailable</html>'],
+    [502, '{"error":"RATE_LIMIT_UNAVAILABLE"}'],
+  ])('keeps HTTP %i with %s final', async (statusCode, body) => {
+    const error = await rejectUpgrade(statusCode, body);
+
+    expect(error).not.toBeInstanceOf(RateLimitUnavailableError);
+    expect((error as Error).message).toBe(`Unexpected server response: ${statusCode}`);
+    expect(SmokeSocket.current.terminate).toHaveBeenCalledOnce();
+  });
+
+  it('retries the same room and host secret once', async () => {
+    const log = vi.fn();
+    const secrets: string[] = [];
+    const result = await withConvergence(
+      async (hostSecret) => {
+        secrets.push(hostSecret);
+        if (secrets.length === 1) {
+          throw new RateLimitUnavailableError('Unexpected server response: 503');
+        }
+        return 'authority';
+      },
+      { rateLimitRetry: createRateLimitUnavailableRetry({ log, wait: async () => {} }) },
+    );
+
+    expect(result).toBe('authority');
+    expect(secrets).toHaveLength(2);
+    expect(secrets[1]).toBe(secrets[0]);
+    expect(log.mock.calls[0]).toEqual(['Unexpected server response: 503']);
+    expect(String(log.mock.calls[1]?.[0])).toContain('retried after RATE_LIMIT_UNAVAILABLE');
+  });
+
+  it('throws a second rate-limited upgrade unchanged', async () => {
+    const log = vi.fn();
+    const second = new RateLimitUnavailableError('Unexpected server response: 503');
+    let attempts = 0;
+
+    await expect(
+      withConvergence(
+        async () => {
+          attempts += 1;
+          throw attempts === 1 ? new RateLimitUnavailableError('first') : second;
+        },
+        { rateLimitRetry: createRateLimitUnavailableRetry({ log, wait: async () => {} }) },
+      ),
+    ).rejects.toBe(second);
+    expect(attempts).toBe(2);
+    expect(log).toHaveBeenCalledTimes(2);
   });
 });

@@ -18,6 +18,8 @@
 import { performance as nodePerformance } from 'node:perf_hooks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
+import type { HardResetClaim, HardResetClaimRequest } from '../../sw-register.ts';
+import { HARD_RESET_CLAIM_EVENT } from './__helpers__/hard-reset-port.ts';
 
 const moduleMocks = vi.hoisted(() => ({
   getState: vi.fn((_key?: string): unknown => undefined),
@@ -155,7 +157,7 @@ interface FakeWorker {
 
 interface SwHarness {
   setController(worker: FakeWorker | null, clearWaiting?: boolean, cacheVersion?: string): void;
-  emit(type: 'controllerchange' | 'message', event?: unknown): void;
+  emit(type: 'controllerchange' | 'message' | 'mxqr:hard-reset-claim', event?: unknown): void;
   installUpdate(cacheVersion?: string): {
     emitInstalled(): void;
     waitingWorker: FakeWorker;
@@ -566,13 +568,20 @@ describe('service-worker cache-retirement client handshake', () => {
       sessionStorage.setItem('sw-controller-confirmed-at', at);
     };
 
-    it('activates without asking again and reloads an idle page', async () => {
+    it('activates without asking again, once the page is quiet (P3-9 A), and reloads an idle page', async () => {
       markUpdateReload();
       const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'reload', true);
       await registerWithHarness(harness);
 
-      await vi.waitFor(() =>
-        expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+      // Not while the page's loads may still run (C6-10, owner decision P3-9 A).
+      await waitMs(STARTUP_PROMPT_QUIET_MS / 2);
+      expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+      await vi.waitFor(
+        () =>
+          expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({
+            type: 'SKIP_WAITING',
+          }),
+        STARTUP_PROMPT_WAIT,
       );
       expect(moduleMocks.showDialog).not.toHaveBeenCalled();
       harness.setController(harness.waitingWorker!, true, 'v494');
@@ -588,8 +597,12 @@ describe('service-worker cache-retirement client handshake', () => {
       const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'reload', true);
       await registerWithHarness(harness);
 
-      await vi.waitFor(() =>
-        expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+      await vi.waitFor(
+        () =>
+          expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({
+            type: 'SKIP_WAITING',
+          }),
+        STARTUP_PROMPT_WAIT,
       );
       expect(moduleMocks.showDialog).not.toHaveBeenCalled();
       harness.setController(harness.waitingWorker!, true, 'v494');
@@ -692,7 +705,7 @@ describe('service-worker cache-retirement client handshake', () => {
     );
   });
 
-  it('silently clears an impossible same-cache-generation waiting worker', async () => {
+  it('silently clears an impossible same-cache-generation waiting worker, once the page is quiet (P3-9 A)', async () => {
     const harness = installServiceWorkerHarness(
       { postMessage: vi.fn() },
       'navigate',
@@ -702,8 +715,14 @@ describe('service-worker cache-retirement client handshake', () => {
     );
     await registerWithHarness(harness);
 
-    await vi.waitFor(() =>
-      expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+    await waitMs(STARTUP_PROMPT_QUIET_MS / 2);
+    expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    await vi.waitFor(
+      () =>
+        expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({
+          type: 'SKIP_WAITING',
+        }),
+      STARTUP_PROMPT_WAIT,
     );
     expect(moduleMocks.showDialog).not.toHaveBeenCalled();
   });
@@ -723,8 +742,10 @@ describe('service-worker cache-retirement client handshake', () => {
     const churned = harness.installUpdate('v494');
     churned.emitInstalled();
 
-    await vi.waitFor(() =>
-      expect(churned.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+    await vi.waitFor(
+      () =>
+        expect(churned.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+      STARTUP_PROMPT_WAIT,
     );
     expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
   });
@@ -1741,6 +1762,149 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(resetMessage()).toBe('dialog.refreshing_session');
       for (const notice of Object.values(moduleMocks.notices))
         expect(notice).not.toHaveBeenCalled();
+    });
+  });
+
+  // Phase 3 C6-10: the logo reset's port. The lazy core/sw-hard-reset.ts asks
+  // with this event on the page's container and reads the answer synchronously
+  // (sw-hard-reset.test.ts drives that side; the transition table drives both
+  // on the real navigation owner).
+  describe('the logo hard reset port (C6-10)', () => {
+    async function claimForHardReset(harness: SwHarness): Promise<HardResetClaim | undefined> {
+      // The machine keeps its own copy of the event name; this pins it.
+      const request: HardResetClaimRequest = {};
+      harness.emit(
+        HARD_RESET_CLAIM_EVENT,
+        new CustomEvent<HardResetClaimRequest>(HARD_RESET_CLAIM_EVENT, { detail: request }),
+      );
+      return request.claim;
+    }
+
+    /** A resource of the page finished just now. */
+    function pageStillLoading(): void {
+      const finishedAt = performance.now();
+      vi.mocked(performance.getEntriesByType).mockImplementation((type: string) =>
+        type === 'resource'
+          ? [{ responseEnd: finishedAt } as unknown as PerformanceResourceTiming]
+          : [],
+      );
+    }
+
+    it('before the window load event answers that there is no machine, on a quiet page only (P3-12 A, P3-9 A)', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      Object.defineProperty(document, 'readyState', { configurable: true, value: 'loading' });
+      const { registerServiceWorker } = await import('../../sw-register.ts');
+      registerServiceWorker();
+      expect(harness.register).not.toHaveBeenCalled();
+
+      expect(await claimForHardReset(harness)).toBe('unavailable');
+      pageStillLoading();
+      expect(await claimForHardReset(harness)).toBe('none');
+      expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({
+        type: 'SKIP_WAITING',
+      });
+    });
+
+    it('promotes a waiting worker through the machine, records the request and asks nothing (P3-8 A)', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      expect(await claimForHardReset(harness)).toBe('none');
+
+      const update = harness.installUpdate('v494');
+      // Put off with Later in this page: the logo still applies it.
+      update.emitInstalled();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      await flushAsyncControllerChange();
+      expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+
+      expect(await claimForHardReset(harness)).toBe('promoted');
+      expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+      expect(sessionStorage.getItem('sw-updated-at')).not.toBeNull();
+      expect(sessionStorage.getItem('sw-controller-confirmed-at')).toBeNull();
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    });
+
+    it('promotes nothing while the page is still loading (P3-9 A)', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      const update = harness.installUpdate('v494');
+      update.emitInstalled();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      await flushAsyncControllerChange();
+
+      pageStillLoading();
+      expect(await claimForHardReset(harness)).toBe('none');
+      expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+      expect(sessionStorage.getItem('sw-updated-at')).toBeNull();
+    });
+
+    it('waits for an Apply in flight instead of sending a second SKIP_WAITING (P3-8 A)', async () => {
+      moduleMocks.showDialog.mockResolvedValue({ action: 'ok' });
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      const update = harness.installUpdate('v494');
+      update.emitInstalled();
+      await vi.waitFor(() =>
+        expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+      );
+
+      expect(await claimForHardReset(harness)).toBe('apply-in-flight');
+      const skipWaitingSends = update.waitingWorker.postMessage.mock.calls.filter(
+        ([message]) => (message as { type?: unknown }).type === 'SKIP_WAITING',
+      );
+      expect(skipWaitingSends).toHaveLength(1);
+    });
+
+    it('withdraws the update prompt shown or queued, then applies the update without asking (P3-8 A)', async () => {
+      const prompt = holdRenderingDialog();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      const update = harness.installUpdate('v494');
+      update.emitInstalled();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      const { signal } = moduleMocks.showDialog.mock.calls[0]![0] as { signal: AbortSignal };
+      expect(signal.aborted).toBe(false);
+
+      expect(await claimForHardReset(harness)).toBe('promoted');
+      expect(signal.aborted).toBe(true);
+      prompt.answer('superseded');
+      await flushAsyncControllerChange();
+      expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    });
+
+    it("asks a room about the logo's activation only once its navigation leaves the page (P3-8 A)", async () => {
+      setAppState({ role: 'guest', sessionStarted: true, joinCode: '123456' });
+      // The startup prompt closes without an answer (a generation put off with
+      // Later in this page would not be asked about again).
+      moduleMocks.showDialog.mockResolvedValueOnce({ action: 'superseded' });
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+      await registerWithHarness(harness);
+      await vi.waitFor(
+        () => expect(moduleMocks.showDialog).toHaveBeenCalledOnce(),
+        STARTUP_PROMPT_WAIT,
+      );
+      await flushAsyncControllerChange();
+
+      // The logo reset holds the page and the machine promotes the worker,
+      // which activates.
+      owner.scheduleSessionReset('dialog.leaving_session', () => window.location.replace('/'));
+      expect(await claimForHardReset(harness)).toBe('promoted');
+      harness.setController(harness.waitingWorker!, true, 'v494');
+      harness.emit('controllerchange');
+      await waitMs(PROMPT_ELECTION_SETTLE_MS);
+      // No update dialog under the reset screen, no navigation asked for.
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+
+      // The navigation does not take the page away: the room is asked once.
+      await recoverNavigation(harness, 1);
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledTimes(2));
+      expect(moduleMocks.showDialog).toHaveBeenLastCalledWith(
+        updateDialog('dialog.sw_update_room_guest_msg'),
+      );
+      await waitMs(PROMPT_ELECTION_SETTLE_MS);
+      expect(moduleMocks.showDialog).toHaveBeenCalledTimes(2);
+      expect(navigations(harness)).toEqual(['replace /']);
     });
   });
 });

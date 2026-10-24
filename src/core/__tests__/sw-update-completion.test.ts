@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 import activatePendingServiceWorkerForHardReset from '../sw-hard-reset.ts';
 import { UPDATE_COMPLETION_KEY } from '../navigation-contract.ts';
+import type { HardResetClaimRequest } from '../../sw-register.ts';
+import { HARD_RESET_CLAIM_EVENT } from './__helpers__/hard-reset-port.ts';
 import { recordServiceWorkerUpdateCompletion } from '../sw-update-completion.ts';
 import { compileClassicRuntimeForBrowserTest } from './classic-runtime-test-asset.ts';
 
@@ -60,9 +62,13 @@ describe('service-worker update completion marker', () => {
           controller: previousController,
           getRegistration: vi.fn().mockResolvedValue({ waiting: waitingWorker }),
         });
+        // No update machine yet: the hard reset promotes on its own (C6-10).
+        events.addEventListener(HARD_RESET_CLAIM_EVENT, (event) => {
+          (event as CustomEvent<HardResetClaimRequest>).detail.claim = 'unavailable';
+        });
         vi.stubGlobal('navigator', { serviceWorker: serviceWorkers });
 
-        await activatePendingServiceWorkerForHardReset();
+        await activatePendingServiceWorkerForHardReset(new AbortController().signal);
         expect(waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
         expect(serviceWorkers.controller).toBe(nextController);
         expect(dom.window.sessionStorage.getItem('mxqr-swu')).toBe(expected);

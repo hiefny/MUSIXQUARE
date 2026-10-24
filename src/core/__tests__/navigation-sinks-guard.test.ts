@@ -162,15 +162,15 @@ describe('navigation-sink guard (C6-14)', { timeout: 60_000 }, () => {
     );
   });
 
-  it('counts the calls of the update machine sink per function (C6-9)', () => {
+  it('counts the calls of the update machine sink per function (C6-9, C6-10)', () => {
     expect(analyzeNavigationSinks(realInput()).counts['SKIP_WAITING sink call']).toBe(4);
     const findings = findingsOf(
       withSources((sources) => {
         replaceIn(
           sources,
           'src/sw-register.ts',
-          "          log.debug('[SW] Update found during cooldown. Silently activating');\n          activateWaitingWorker(worker);",
-          "          log.debug('[SW] Update found during cooldown. Silently activating');\n          activateWaitingWorker(worker);\n          activateWaitingWorker(worker);",
+          '          }\n\n          activateWaitingWorker(worker);\n          return;\n        }\n',
+          '          }\n\n          activateWaitingWorker(worker);\n          activateWaitingWorker(worker);\n          return;\n        }\n',
         );
         replaceIn(
           sources,
@@ -181,10 +181,26 @@ describe('navigation-sink guard (C6-14)', { timeout: 60_000 }, () => {
       }),
     );
     expect(findings).toMatch(
-      /RATCHET REGRESSION SKIP_WAITING sink call: src\/sw-register\.ts :: registerServiceWorker\.doRegister\.handleWaitingWorker has 5, baseline 4/u,
+      /RATCHET REGRESSION SKIP_WAITING sink call: src\/sw-register\.ts :: registerServiceWorker\.doRegister\.handleWaitingWorker has 3, baseline 2/u,
     );
     expect(findings).toContain(
       'UNSANCTIONED SKIP_WAITING sink call: src/sw-register.ts :: promoteNow has 1',
+    );
+  });
+
+  it("names a function a `let` takes later after it: the logo port's claim (C6-10)", () => {
+    const findings = findingsOf(
+      withSources((sources) =>
+        replaceIn(
+          sources,
+          'src/sw-register.ts',
+          "        markActivationRequested();\n        activateWaitingWorker(worker);\n        return 'promoted';",
+          "        markActivationRequested();\n        activateWaitingWorker(worker);\n        activateWaitingWorker(worker);\n        return 'promoted';",
+        ),
+      ),
+    );
+    expect(findings).toMatch(
+      /RATCHET REGRESSION SKIP_WAITING sink call: src\/sw-register\.ts :: registerServiceWorker\.doRegister\.claimForHardReset has 2, baseline 1/u,
     );
   });
 

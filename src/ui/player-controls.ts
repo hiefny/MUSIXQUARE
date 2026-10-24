@@ -1094,7 +1094,7 @@ async function handleLogoReturnToMain(): Promise<void> {
     scheduleSessionReset(t('dialog.leaving_session'), {
       async prepare(signal) {
         const hardReset = await import('../core/sw-hard-reset.ts');
-        if (!signal.aborted) await hardReset.default();
+        if (!signal.aborted) await hardReset.default(signal);
       },
       navigate: () => navigateToAppHome(),
     });

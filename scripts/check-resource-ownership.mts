@@ -215,9 +215,11 @@ const LOCATION_NAVIGATION_BASELINE: Baseline = new Map<string, Allowance>([
 
 /** RO-22: 'SKIP_WAITING' messages to a waiting service worker. */
 const SKIP_WAITING_BASELINE: Baseline = new Map<string, Allowance>([
+  // Phase 3 C6-10: the hard reset asks the update machine first; its own send
+  // stays for no machine and, temporarily, after the machine's promotion timed out.
   [
     'src/core/sw-hard-reset.ts',
-    { count: 1, reason: 'hard-reset promotion (Phase 3 makes it ask)' },
+    { count: 1, reason: 'the hard reset own promotion: no machine, or a machine timeout' },
   ],
   // Phase 3 C6-9 put the update machine's four sends (Apply, Apply to a
   // replacement, the cooldown and same-generation promotions) behind one

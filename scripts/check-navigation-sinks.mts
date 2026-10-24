@@ -16,10 +16,12 @@
  *     and the locale navigation (owner decision 7, 2026-10-23).
  *   CHECK 2 `SKIP_WAITING` messages, per `file :: function`: the update
  *     machine's one sink in sw-register.ts (activateWaitingWorker, Phase 3
- *     C6-9) and the hard-reset promotion (until Phase 3 C6-10 makes it ask
- *     the update machine). The calls of that sink are counted per
+ *     C6-9) and the hard reset's own promotion, which since Phase 3 C6-10
+ *     runs only without a machine and, temporarily, after the machine's
+ *     promotion timed out. The calls of that sink are counted per
  *     `file :: function` too, so a new promotion path cannot hide behind the
- *     one literal.
+ *     one literal. A function a `let` takes later (`name = () => …`) is
+ *     named after that `let`.
  *   CHECK 3 History traversal (back/go/forward on a `history` receiver), per
  *     `file :: function`: the Back leave in back-button-history.ts and the
  *     guard's navigateBack port in app.ts.
@@ -103,10 +105,13 @@ const LOCATION_SINK_BASELINE: Baseline = new Map<string, Allowance>([
 /** CHECK 2: 'SKIP_WAITING' messages, per `file :: function`. */
 const SKIP_WAITING_BASELINE: Baseline = new Map<string, Allowance>([
   [
-    'src/core/sw-hard-reset.ts :: activatePendingServiceWorkerForHardReset',
+    'src/core/sw-hard-reset.ts :: promoteWithoutTheUpdateMachine',
     {
       count: 1,
-      reason: 'hard-reset promotion, the logo prepare step (Phase 3 C6-10 makes it ask)',
+      reason:
+        "the hard reset's own promotion (Phase 3 C6-10 made it ask the update machine first): " +
+        'the only path without a machine (owner decision P3-12 A), and TEMPORARILY after the ' +
+        "machine's promotion timed out, until two clean production update cycles",
     },
   ],
   [
@@ -123,12 +128,28 @@ const SKIP_WAITING_BASELINE: Baseline = new Map<string, Allowance>([
 /** CHECK 2: calls of the update machine's SKIP_WAITING sink, per `file :: function`. */
 const ACTIVATION_SINK_CALL_BASELINE: Baseline = new Map<string, Allowance>([
   [
+    'src/sw-register.ts :: registerServiceWorker.doRegister.claimForHardReset',
+    {
+      count: 1,
+      reason: "the logo port: the hard reset's promotion, through the machine (Phase 3 C6-10)",
+    },
+  ],
+  [
     'src/sw-register.ts :: registerServiceWorker.doRegister.handleWaitingWorker',
     {
-      count: 4,
+      count: 2,
       reason:
-        'Apply, Apply to a replacement, and the quiet cooldown and same-generation promotions ' +
-        '(the four SKIP_WAITING sends Phase 3 C6-9 put behind the sink)',
+        'Apply and Apply to a replacement (Phase 3 C6-9 put the four sends behind the sink; ' +
+        'C6-10 moved the two quiet promotions into activateWhenQuiet, 4 to 2)',
+    },
+  ],
+  [
+    'src/sw-register.ts :: registerServiceWorker.doRegister.handleWaitingWorker.activateWhenQuiet',
+    {
+      count: 1,
+      reason:
+        'the quiet cooldown and same-generation promotions, once the page is quiet ' +
+        '(owner decision P3-9 A, Phase 3 C6-10)',
     },
   ],
 ]);
@@ -301,6 +322,16 @@ function functionName(node: ts.Node): string | null {
     if (ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) return parent.name.text;
     if (ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)) {
       return propertyNameText(parent.name);
+    }
+    // `name = () => …`: a function a `let` takes later, such as the update
+    // machine's answer to the logo port (Phase 3 C6-10).
+    if (
+      ts.isBinaryExpression(parent) &&
+      parent.right === node &&
+      parent.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(parent.left)
+    ) {
+      return parent.left.text;
     }
   }
   return null;

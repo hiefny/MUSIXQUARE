@@ -43,7 +43,10 @@
  * after C6-9 replaced the latch with the typed state.
  */
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import { NAVIGATION_COMMIT_TIMEOUT_MS } from '../navigation-contract.ts';
+import {
+  NAVIGATION_COMMIT_TIMEOUT_MS,
+  NAVIGATION_PREPARE_TIMEOUT_MS,
+} from '../navigation-contract.ts';
 import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 // ─── App state, dialogs and module mocks ─────────────────────────────
@@ -58,6 +61,8 @@ interface AppModel {
 interface OpenDialog {
   readonly doc: number;
   readonly message: string;
+  /** How it closed: the answer, or 'superseded' when the machine withdrew it. */
+  readonly outcome: string | undefined;
   answer(action: 'ok' | 'secondary'): void;
 }
 
@@ -71,6 +76,7 @@ const mocks = vi.hoisted(() => {
   const dialogs: Array<{
     doc: number;
     message: string;
+    outcome: string | undefined;
     answer(action: string): void;
   }> = [];
   const page = { doc: 0 };
@@ -91,14 +97,19 @@ const mocks = vi.hoisted(() => {
       signal?: AbortSignal;
     }): Promise<{ action: string }> {
       return new Promise((resolve) => {
-        let open = true;
+        const message = typeof options.message === 'function' ? options.message() : options.message;
+        const entry = {
+          doc: page.doc,
+          message,
+          outcome: undefined as string | undefined,
+          answer: (action: string): void => finish(action),
+        };
         const finish = (action: string): void => {
-          if (!open) return;
-          open = false;
+          if (entry.outcome !== undefined) return;
+          entry.outcome = action;
           resolve({ action });
         };
-        const message = typeof options.message === 'function' ? options.message() : options.message;
-        dialogs.push({ doc: page.doc, message, answer: finish });
+        dialogs.push(entry);
         if (options.signal?.aborted) finish('superseded');
         options.signal?.addEventListener('abort', () => finish('superseded'), { once: true });
       });
@@ -190,6 +201,8 @@ interface PageDocument {
   pagehide(persisted?: boolean): void;
   pageshow(persisted?: boolean): void;
   visible(): void;
+  /** The window load event of a document opened with `loaded: false`. */
+  load(): Promise<void>;
 }
 
 interface Tab {
@@ -197,8 +210,21 @@ interface Tab {
   readonly skipWaiting: string[];
   readonly controller: FakeWorker | null;
   readonly waiting: FakeWorker | null;
-  /** Open a document in this tab; the previous one is gone without running anything more. */
-  open(options: { app?: AppModel; navigation?: NavigationTimingType }): Promise<PageDocument>;
+  /**
+   * Open a document in this tab; the previous one is gone without running
+   * anything more. `build` is the cache generation of the code the document
+   * runs (a production build's __MXQR_BUILD_CACHE_VERSION__); unknown if left
+   * out, as in every other test build.
+   */
+  open(options: {
+    app?: AppModel;
+    navigation?: NavigationTimingType;
+    build?: string;
+    /** false: the window load event has not fired yet, so registration waits for it. */
+    loaded?: boolean;
+  }): Promise<PageDocument>;
+  /** One of the live document's resources finishes loading now (a resource timing entry). */
+  finishResource(): void;
   /** Close the tab's live document the same way. */
   close(): void;
   /** A newer worker installs and waits. */
@@ -224,6 +250,8 @@ function createTab(activeVersion: string): Tab {
   let waiting: FakeWorker | null = null;
   let installing: FakeWorker | null = null;
   let closeLiveDocument: (() => void) | null = null;
+  // The live document's resource timing: when each of its resources finished.
+  const resourceEnds: number[] = [];
 
   const emit = (map: Map<number, Map<string, Set<Listener>>>, type: string, event: unknown) => {
     for (const listener of [...(map.get(liveDoc)?.get(type) ?? [])]) listener(event);
@@ -299,9 +327,11 @@ function createTab(activeVersion: string): Tab {
     get waiting() {
       return waiting;
     },
-    async open({ app = OUTSIDE, navigation = 'navigate' }) {
+    async open({ app = OUTSIDE, navigation = 'navigate', build, loaded = true }) {
       closeLiveDocument?.();
       vi.resetModules();
+      vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', build);
+      resourceEnds.length = 0;
       liveDoc += 1;
       const doc = liveDoc;
       mocks.page.doc = doc;
@@ -334,17 +364,32 @@ function createTab(activeVersion: string): Tab {
           getRegistration: vi.fn(async () => registration),
           addEventListener: container.add,
           removeEventListener: container.remove,
+          // The hard reset's port (HARD_RESET_CLAIM_EVENT) is an event the
+          // page dispatches on its own container.
+          dispatchEvent: (event: Event) => {
+            emit(containerListeners, event.type, event);
+            return true;
+          },
         },
       });
       vi.stubGlobal('performance', {
         now: () => Date.now() - T0,
-        getEntriesByType: (type: string) => (type === 'navigation' ? [{ type: navigation }] : []),
+        getEntriesByType: (type: string) =>
+          type === 'navigation'
+            ? [{ type: navigation }]
+            : type === 'resource'
+              ? resourceEnds.map((responseEnd) => ({ responseEnd }))
+              : [],
       });
 
       // Every listener this document adds on the window or the document goes
       // when the tab opens the next one, as an unloaded document's do.
       const firstListener = listeners.length;
 
+      Object.defineProperty(document, 'readyState', {
+        configurable: true,
+        value: loaded ? 'complete' : 'loading',
+      });
       const owner = await import('../session-reset.ts');
       const navigationIntents = await import('../navigation.ts');
       const hardResetModule = await import('../sw-hard-reset.ts');
@@ -389,7 +434,7 @@ function createTab(activeVersion: string): Tab {
           owner.scheduleSessionReset(MSG_LEAVING, {
             async prepare(signal) {
               const hardReset = await loadHardReset();
-              if (!signal.aborted) await hardReset.default();
+              if (!signal.aborted) await hardReset.default(signal);
             },
             navigate: () => navigationIntents.navigateToAppHome(),
           });
@@ -405,10 +450,18 @@ function createTab(activeVersion: string): Tab {
         visible() {
           setVisibility('visible');
         },
+        async load() {
+          Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
+          actualWindow.dispatchEvent(new Event('load'));
+          await vi.advanceTimersByTimeAsync(0);
+        },
       };
     },
     close() {
       closeLiveDocument?.();
+    },
+    finishResource() {
+      resourceEnds.push(Date.now() - T0);
     },
     install(version, { silent = false } = {}) {
       const worker = createWorker(version, 'installing', silent);
@@ -654,23 +707,58 @@ const ROWS: readonly Row[] = [
     id: 'S1a',
     from: 'passive',
     event:
-      'a worker is waiting when the page opens within 30 s of an update reload (cooldown): quiet SKIP_WAITING; it activates (outside a room)',
+      'a worker is waiting when the page opens within 30 s of an update reload (cooldown): quiet SKIP_WAITING once the page has been quiet for 1 s; it activates (outside a room)',
     then: 'reload-scheduled',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       sessionStorage.setItem('sw-updated-at', String(T0 - 1_000));
       sessionStorage.setItem('sw-controller-confirmed-at', String(T0 - 1_000));
       tab.install('v494');
       await tab.open({ app: OUTSIDE, navigation: 'reload' });
-      await at(500);
+      await at(900);
+      expect(tab.skipWaiting).toEqual([]);
+      await at(1_500);
       tab.activate();
-      await at(500 + PAINT_MS);
+      await at(1_500 + PAINT_MS);
     },
     effects: {
       skipWaiting: ['doc1 → v494'],
       navigations: ['doc1 reload'],
       dialogs: [],
-      markers: { ...NO_MARKERS, 'sw-updated-at': 't+500', 'sw-controller-confirmed-at': 't+500' },
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+1500', 'sw-controller-confirmed-at': 't+1500' },
+    },
+  },
+  {
+    id: 'S1c',
+    from: 'passive',
+    event:
+      "as S1a, but the page's resources keep finishing until t+1200: the quiet SKIP_WAITING waits until no resource has finished for 1 s",
+    then: 'reload-scheduled',
+    label: '[added: C6-10, owner decision P3-9 A]',
+    async run(tab) {
+      sessionStorage.setItem('sw-updated-at', String(T0 - 1_000));
+      sessionStorage.setItem('sw-controller-confirmed-at', String(T0 - 1_000));
+      tab.install('v494');
+      const page = tab.open({ app: OUTSIDE, navigation: 'reload' });
+      tab.finishResource();
+      await page;
+      for (const ms of [400, 800, 1_200]) {
+        await at(ms);
+        tab.finishResource();
+      }
+      await at(2_100);
+      expect(tab.skipWaiting).toEqual([]);
+      await at(2_500);
+      expect(tab.skipWaiting).toEqual(['doc1 → v494']);
+      tab.activate();
+      await at(2_500 + PAINT_MS);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v494'],
+      navigations: ['doc1 reload'],
+      dialogs: [],
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+2500', 'sw-controller-confirmed-at': 't+2500' },
     },
   },
   {
@@ -678,18 +766,19 @@ const ROWS: readonly Row[] = [
     from: 'passive',
     event: 'the same cooldown promotion in a hosted room; it activates',
     then: 'passive',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       sessionStorage.setItem('sw-updated-at', String(T0 - 1_000));
       sessionStorage.setItem('sw-controller-confirmed-at', String(T0 - 1_000));
       tab.install('v494');
       await tab.open({ app: ROOM_HOST, navigation: 'reload' });
-      await at(500);
+      await at(1_500);
       tab.activate();
-      await at(500 + PAINT_MS);
+      await at(1_500 + PAINT_MS);
       // Probe: passive, so another tab's update is offered too.
       tab.replaceController('v495');
-      await at(1_000);
+      await at(2_000);
     },
     effects: {
       skipWaiting: ['doc1 → v494'],
@@ -706,21 +795,24 @@ const ROWS: readonly Row[] = [
     id: 'S2a',
     from: 'passive',
     event:
-      'a waiting worker reuses the active cache generation: quiet SKIP_WAITING; it activates (outside a room)',
+      'a waiting worker reuses the active cache generation: quiet SKIP_WAITING once the page has been quiet for 1 s; it activates (outside a room)',
     then: 'reload-scheduled',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       tab.install('v493');
       await tab.open({ app: OUTSIDE });
-      await at(500);
+      await at(900);
+      expect(tab.skipWaiting).toEqual([]);
+      await at(1_500);
       tab.activate();
-      await at(500 + PAINT_MS);
+      await at(1_500 + PAINT_MS);
     },
     effects: {
       skipWaiting: ['doc1 → v493'],
       navigations: ['doc1 reload'],
       dialogs: [],
-      markers: { ...NO_MARKERS, 'sw-updated-at': 't+500', 'sw-controller-confirmed-at': 't+500' },
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+1500', 'sw-controller-confirmed-at': 't+1500' },
     },
   },
   {
@@ -728,16 +820,17 @@ const ROWS: readonly Row[] = [
     from: 'passive',
     event: 'the same same-generation promotion in a hosted room; it activates',
     then: 'passive',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       tab.install('v493');
       await tab.open({ app: ROOM_HOST });
-      await at(500);
+      await at(1_500);
       tab.activate();
-      await at(500 + PAINT_MS);
+      await at(1_500 + PAINT_MS);
       // Probe: passive, so another tab's update is offered.
       tab.replaceController('v495');
-      await at(1_000);
+      await at(2_000);
     },
     effects: {
       skipWaiting: ['doc1 → v493'],
@@ -834,9 +927,9 @@ const ROWS: readonly Row[] = [
     id: 'S5a',
     from: 'passive',
     event:
-      'the logo reset outside a room with an update put off with Later: the hard reset sends SKIP_WAITING and the worker activates inside its 1.5 s wait; the navigation home commits',
-    then: 'reload-scheduled',
-    label: '[keeps: C6-9] [flips: C6-10, owner decision P3-8 A]',
+      'the logo reset outside a room with an update put off with Later: the update machine sends SKIP_WAITING for it (on main, the hard reset itself) and the worker activates inside the 1.5 s wait; the navigation home commits',
+    then: 'passive',
+    label: '[keeps: C6-9] [keeps effects: C6-10, owner decision P3-8 A]',
     async run(tab) {
       const page = await tab.open({ app: OUTSIDE });
       tab.install('v494');
@@ -850,9 +943,11 @@ const ROWS: readonly Row[] = [
       page.pagehide();
       await at(8_000);
     },
-    // The update machine reads the hard reset's activation as a passive
-    // controller change: its aligned reload waits behind the logo navigation,
-    // with its markers written, and never runs once that navigation commits.
+    // Until C6-10 the update machine read the hard reset's activation as a
+    // passive controller change and asked for its aligned reload, which waited
+    // behind the logo navigation and never ran once that navigation committed.
+    // Since C6-10 the machine asks for nothing while the logo's navigation holds
+    // the page (no second reload request) and writes the same markers.
     effects: {
       skipWaiting: ['doc1 → v494'],
       navigations: ['doc1 replace /'],
@@ -869,9 +964,10 @@ const ROWS: readonly Row[] = [
     id: 'S5e',
     from: 'passive',
     event:
-      'as S5a, but the navigation home does not commit within its 2 s deadline: the waiting aligned reload then runs',
+      'as S5a, but the navigation home does not commit within its 2 s deadline: the aligned reload then runs (on main the one queued behind it, since C6-10 the decision put off until the page was released)',
     then: 'reload-scheduled',
-    label: '[keeps: C6-9] [keeps: C6-10, owner decision P3-8 A: outside a room, an aligned reload]',
+    label:
+      '[keeps: C6-9] [keeps navigations: C6-10, owner decision P3-8 A: outside a room, an aligned reload; the markers carry the moment the decision ran]',
     async run(tab) {
       const page = await tab.open({ app: OUTSIDE });
       tab.install('v494');
@@ -889,8 +985,8 @@ const ROWS: readonly Row[] = [
       dialogs: [`doc1 ${MSG_APPLY}`],
       markers: {
         ...NO_MARKERS,
-        'sw-updated-at': 't+1300',
-        'sw-controller-confirmed-at': 't+1300',
+        'sw-updated-at': 't+3300',
+        'sw-controller-confirmed-at': 't+3300',
         'mxqr-swu': 'Update applied',
       },
     },
@@ -899,9 +995,10 @@ const ROWS: readonly Row[] = [
     id: 'S5b',
     from: 'passive',
     event:
-      'the logo reset as a room guest while another tab owns the prompt: the hard reset activates the worker',
+      'the logo reset as a room guest while another tab owns the prompt: the worker activates and the navigation home commits',
     then: 'passive',
-    label: '[keeps: C6-9] [flips: C6-10, owner decision P3-8 A]',
+    label:
+      '[keeps: C6-9] [flips: C6-10, owner decision P3-8 A: no update dialog under the reset screen]',
     async run(tab) {
       const page = await tab.open({ app: ROOM_GUEST });
       foreignPromptLease('v494');
@@ -910,25 +1007,69 @@ const ROWS: readonly Row[] = [
       page.logoReset();
       await at(1_300);
       tab.activate();
-      await at(4_000);
+      await at(1_400);
       page.pagehide();
       await at(8_000);
     },
-    // A room asks about a passive controller change, so an update dialog opens
-    // under the reset screen while the page leaves.
+    // On main a room asked about the passive controller change, so an update
+    // dialog opened under the reset screen while the page left. The markers
+    // are new since C6-10: the machine records the logo's request and the
+    // activation it saw, as for an Apply.
+    effects: {
+      skipWaiting: ['doc1 → v494'],
+      navigations: ['doc1 replace /'],
+      dialogs: [],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+1300',
+        'sw-controller-confirmed-at': 't+1300',
+        'mxqr-swu': 'Update applied',
+      },
+    },
+  },
+  {
+    id: 'S5f',
+    from: 'passive',
+    event:
+      'as S5b, but the navigation home does not commit within its 2 s deadline: once the page is released, the room asks once',
+    then: 'passive',
+    label:
+      '[keeps dialogs: C6-9] [C6-10, owner decision P3-8 A: the room is asked when the page stays, not under the reset screen]',
+    async run(tab) {
+      const page = await tab.open({ app: ROOM_GUEST });
+      foreignPromptLease('v494');
+      tab.install('v494');
+      await at(1_000);
+      page.logoReset();
+      await at(1_300);
+      tab.activate();
+      await at(1_400);
+      expect(page.owner.isSessionResetPending()).toBe(true);
+      expect(mocks.dialogs).toHaveLength(0);
+      await at(1_300 + COMMIT_DEADLINE_MS + PAINT_MS);
+      expect(page.owner.isSessionResetPending()).toBe(false);
+      await at(8_000);
+    },
     effects: {
       skipWaiting: ['doc1 → v494'],
       navigations: ['doc1 replace /'],
       dialogs: [`doc1 ${MSG_GUEST}`],
-      markers: { ...NO_MARKERS, 'mxqr-swu': 'Update applied' },
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+1300',
+        'sw-controller-confirmed-at': 't+1300',
+        'mxqr-swu': 'Update applied',
+      },
     },
   },
   {
     id: 'S5c',
     from: 'passive',
-    event: 'the logo reset with a waiting update whose activation stalls',
+    event:
+      "the logo reset with a waiting update whose activation stalls: the update machine's SKIP_WAITING, then after the 1.5 s wait the hard reset's own (temporary, P3-12 A); home at the prepare deadline, no toast",
     then: 'passive',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips: C6-10, owner decisions P3-11 A, P3-12 A: the machine records the request; a second SKIP_WAITING from the temporary timeout fallback]',
     async run(tab) {
       const page = await tab.open({ app: OUTSIDE });
       tab.install('v494');
@@ -941,18 +1082,18 @@ const ROWS: readonly Row[] = [
       await at(8_000);
     },
     effects: {
-      skipWaiting: ['doc1 → v494'],
+      skipWaiting: ['doc1 → v494', 'doc1 → v494'],
       navigations: ['doc1 replace /'],
       dialogs: [`doc1 ${MSG_APPLY}`],
-      markers: NO_MARKERS,
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+1024' },
     },
   },
   {
     id: 'S5d',
     from: 'awaiting-local-controller',
     event:
-      'the logo reset during a stalled Apply: a second SKIP_WAITING; the worker activates inside the hard reset wait',
-    then: 'reload-scheduled',
+      'the logo reset during a stalled Apply: it waits for that activation and sends no second SKIP_WAITING (on main it sent one); the worker activates inside the wait',
+    then: 'awaiting-local-controller',
     label: '[keeps: C6-9] [flips: C6-10, owner decision P3-8 A]',
     async run(tab) {
       const page = await tab.open({ app: OUTSIDE });
@@ -968,7 +1109,7 @@ const ROWS: readonly Row[] = [
       await at(10_000);
     },
     effects: {
-      skipWaiting: ['doc1 → v494', 'doc1 → v494'],
+      skipWaiting: ['doc1 → v494'],
       navigations: ['doc1 replace /'],
       dialogs: [`doc1 ${MSG_APPLY}`],
       markers: {
@@ -977,6 +1118,118 @@ const ROWS: readonly Row[] = [
         'sw-controller-confirmed-at': 't+3300',
         'mxqr-swu': 'Update applied',
       },
+    },
+  },
+  {
+    id: 'S5g',
+    from: 'passive',
+    event:
+      "the logo reset while the page's own loads are still finishing: nothing is promoted and the page goes home at once; the next page offers the update with the usual dialog",
+    then: 'passive',
+    label: '[added: C6-10, owner decision P3-9 A]',
+    async run(tab) {
+      const page = await tab.open({ app: OUTSIDE });
+      tab.install('v494');
+      await at(PROMPT_MS);
+      dialog(0).answer('secondary');
+      await at(1_000);
+      tab.finishResource();
+      await at(1_300);
+      page.logoReset();
+      await at(1_300 + PAINT_MS);
+      expect(tab.navigations()).toEqual(['doc1 replace /']);
+      page.pagehide();
+      await tab.open({ app: OUTSIDE });
+      await at(1_300 + PAINT_MS + 1_000 + PROMPT_MS);
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 replace /'],
+      dialogs: [`doc1 ${MSG_APPLY}`, `doc2 ${MSG_APPLY}`],
+      markers: NO_MARKERS,
+    },
+  },
+  {
+    id: 'S5h',
+    from: 'prompting',
+    event:
+      'the logo reset while the update prompt is open (queued behind the return-home question): the prompt is withdrawn, the update machine applies the update, the navigation home commits',
+    then: 'passive',
+    label: '[added: C6-10, owner decision P3-8 A: no update dialog under the reset screen]',
+    async run(tab) {
+      const page = await tab.open({ app: OUTSIDE });
+      tab.install('v494');
+      await at(1_000);
+      expect(mocks.dialogs).toHaveLength(1);
+      page.logoReset();
+      await at(1_100);
+      expect(dialog(0).outcome).toBe('superseded');
+      tab.activate();
+      await at(1_200);
+      page.pagehide();
+      await at(8_000);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v494'],
+      navigations: ['doc1 replace /'],
+      dialogs: [`doc1 ${MSG_APPLY}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+1100',
+        'sw-controller-confirmed-at': 't+1100',
+        'mxqr-swu': 'Update applied',
+      },
+    },
+  },
+  {
+    id: 'S5i',
+    from: 'none',
+    event:
+      'the logo reset before the window load event, so there is no update machine yet: the hard reset promotes on its own once the page is quiet; the worker activates',
+    then: 'passive',
+    label: '[keeps: C6-9] [owner decision P3-12 A: the no-machine promotion stays]',
+    async run(tab) {
+      tab.install('v494');
+      const page = await tab.open({ app: OUTSIDE, loaded: false });
+      await at(1_000);
+      page.logoReset();
+      await at(1_300);
+      tab.activate();
+      await at(1_400);
+      page.pagehide();
+      await at(8_000);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v494'],
+      navigations: ['doc1 replace /'],
+      dialogs: [],
+      markers: { ...NO_MARKERS, 'mxqr-swu': 'Update applied' },
+    },
+  },
+  {
+    id: 'S5j',
+    from: 'none',
+    event:
+      'as S5i, but a resource of the page finished 300 ms before: nothing is promoted (the page is still loading), and the page goes home at once',
+    then: 'passive',
+    label: '[added: C6-10, owner decision P3-9 A]',
+    async run(tab) {
+      tab.install('v494');
+      const page = await tab.open({ app: OUTSIDE, loaded: false });
+      await at(1_000);
+      tab.finishResource();
+      await at(1_300);
+      page.logoReset();
+      await at(1_300 + PAINT_MS);
+      expect(tab.navigations()).toEqual(['doc1 replace /']);
+      page.pagehide();
+      await at(8_000);
+    },
+    effects: {
+      skipWaiting: [],
+      navigations: ['doc1 replace /'],
+      dialogs: [],
+      markers: NO_MARKERS,
     },
   },
 
@@ -1217,9 +1470,10 @@ const ROWS: readonly Row[] = [
     id: 'X9',
     from: 'awaiting-local-controller',
     event:
-      "a room guest's Apply activates while another navigation holds the page: the /CODE return is refused at once; that navigation then recovers; later another update activates",
+      "a room guest's Apply activates while another navigation holds the page; that navigation then recovers: the Apply's /CODE return runs then (on main it was refused at once and lost); it recovers too; later another update activates",
     then: 'passive',
-    label: '[keeps: C6-9]',
+    label:
+      '[flips: C6-10, owner decision P3-8 A: a decision put off while a navigation holds the page runs when the page is released]',
     async run(tab) {
       const page = await tab.open({ app: ROOM_GUEST });
       tab.install('v494');
@@ -1231,19 +1485,20 @@ const ROWS: readonly Row[] = [
       tab.activate();
       expect(page.owner.isSessionResetPending()).toBe(true);
       await at(1_050 + PAINT_MS + COMMIT_DEADLINE_MS + 100);
+      expect(tab.navigations()).toEqual(['doc1 replace /', `doc1 href /${ROOM_CODE}`]);
+      await at(6_000);
       expect(page.owner.isSessionResetPending()).toBe(false);
       tab.replaceController('v495');
-      await at(4_000);
+      await at(7_000);
     },
-    // returnToRoomStart wrote the reconnect marker before the owner refused it.
     effects: {
       skipWaiting: ['doc1 → v494'],
-      navigations: ['doc1 replace /'],
+      navigations: ['doc1 replace /', `doc1 href /${ROOM_CODE}`],
       dialogs: [`doc1 ${MSG_GUEST}`, `doc1 ${MSG_GUEST}`],
       markers: {
         ...NO_MARKERS,
-        'sw-updated-at': 't+1050',
-        'sw-controller-confirmed-at': 't+1050',
+        'sw-updated-at': 't+3024',
+        'sw-controller-confirmed-at': 't+3024',
         mxqr_reconnect_target: ROOM_CODE,
       },
     },
@@ -1252,9 +1507,10 @@ const ROWS: readonly Row[] = [
     id: 'X10a',
     from: 'reload-scheduled',
     event:
-      'the update reload outside a room waits behind another navigation, which recovers: the queued reload then runs; another update activates during it',
+      'the update reload outside a room waits behind another navigation, which recovers: the reload then runs (on main queued at once, since C6-10 asked for when the page is released); another update activates during it',
     then: 'reload-scheduled',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps navigations: C6-9, C6-10] [C6-10, owner decision P3-8 A: the markers carry the moment the reload was asked for]',
     async run(tab) {
       const page = await tab.open({ app: OUTSIDE });
       page.leave();
@@ -1269,16 +1525,17 @@ const ROWS: readonly Row[] = [
       skipWaiting: [],
       navigations: ['doc1 replace /', 'doc1 reload'],
       dialogs: [],
-      markers: { ...NO_MARKERS, 'sw-updated-at': 't+50', 'sw-controller-confirmed-at': 't+50' },
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+2032', 'sw-controller-confirmed-at': 't+2032' },
     },
   },
   {
     id: 'X10b',
     from: 'reload-scheduled',
     event:
-      'the update reload outside a room waits behind another navigation, which commits: the queued reload never runs',
-    then: 'reload-scheduled',
-    label: '[keeps: C6-9]',
+      'the update reload outside a room waits behind another navigation, which commits: the reload never runs (since C6-10 it is never asked for)',
+    then: 'passive',
+    label:
+      '[keeps navigations: C6-9, C6-10] [C6-10: a later controller change in the departed document only records its markers]',
     async run(tab) {
       const page = await tab.open({ app: OUTSIDE });
       page.leave();
@@ -1294,7 +1551,7 @@ const ROWS: readonly Row[] = [
       skipWaiting: [],
       navigations: ['doc1 replace /'],
       dialogs: [],
-      markers: { ...NO_MARKERS, 'sw-updated-at': 't+50', 'sw-controller-confirmed-at': 't+50' },
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+5000', 'sw-controller-confirmed-at': 't+5000' },
     },
   },
   {
@@ -1334,7 +1591,8 @@ const ROWS: readonly Row[] = [
     event:
       "a hosted room: another tab's update is applied from its dialog while this tab's own prompt for a newer worker is open; that prompt then loses its lease to a third tab; a still newer worker installs",
     then: 'passive, latched',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips timing: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       await tab.open({ app: ROOM_HOST });
       tab.replaceController('v494');
@@ -1347,9 +1605,9 @@ const ROWS: readonly Row[] = [
       foreignPromptLease('v495');
       await at(2 * PROMPT_MS + 100);
       // While latched, a waiting worker is still taken up: the cooldown
-      // promotion sends a quiet SKIP_WAITING.
+      // promotion sends a quiet SKIP_WAITING once the page is quiet.
       tab.install('v496');
-      await at(1_000);
+      await at(1_500);
     },
     effects: {
       skipWaiting: ['doc1 → v496'],
@@ -1364,7 +1622,8 @@ const ROWS: readonly Row[] = [
     event:
       'as X12, but the open prompt is answered Later while the reload is pending (not reachable by a user: the reset screen keeps the dialog inert); a newer worker installs',
     then: 'passive, latched',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips timing: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       await tab.open({ app: ROOM_HOST });
       tab.replaceController('v494');
@@ -1376,7 +1635,7 @@ const ROWS: readonly Row[] = [
       dialog(1).answer('secondary');
       await at(2 * PROMPT_MS + 100);
       tab.install('v496');
-      await at(1_000);
+      await at(1_500);
     },
     effects: {
       skipWaiting: ['doc1 → v496'],
@@ -1465,7 +1724,8 @@ const ROWS: readonly Row[] = [
     event:
       'X12, then the quietly promoted worker activates before the reload recovers (activation within milliseconds of SKIP_WAITING)',
     then: 'reload-scheduled',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips timing: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       await tab.open({ app: ROOM_HOST });
       tab.replaceController('v494');
@@ -1477,7 +1737,7 @@ const ROWS: readonly Row[] = [
       foreignPromptLease('v495');
       await at(2 * PROMPT_MS + 100);
       tab.install('v496');
-      await at(400);
+      await at(1_400);
       tab.activate();
       await at(5_000);
     },
@@ -1535,7 +1795,8 @@ const ROWS: readonly Row[] = [
     event:
       'as X12, but the newer worker installs before the prompt loses its lease: the prompt lets go and takes up the newer worker with a quiet SKIP_WAITING',
     then: 'passive, latched',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips timing: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       await tab.open({ app: ROOM_HOST });
       tab.replaceController('v494');
@@ -1547,7 +1808,7 @@ const ROWS: readonly Row[] = [
       tab.install('v496');
       await at(2 * PROMPT_MS + 100);
       foreignPromptLease('v495');
-      await at(1_000);
+      await at(1_500);
     },
     effects: {
       skipWaiting: ['doc1 → v496'],
@@ -1565,7 +1826,8 @@ const ROWS: readonly Row[] = [
     from: 'passive, latched',
     event: 'X13, then the quietly promoted worker activates before the reload recovers',
     then: 'reload-scheduled',
-    label: '[keeps: C6-9]',
+    label:
+      '[keeps: C6-9] [flips timing: C6-10, owner decision P3-9 A: the quiet promotion waits until the page loads are quiet]',
     async run(tab) {
       await tab.open({ app: ROOM_HOST });
       tab.replaceController('v494');
@@ -1577,7 +1839,7 @@ const ROWS: readonly Row[] = [
       dialog(1).answer('secondary');
       await at(2 * PROMPT_MS + 100);
       tab.install('v496');
-      await at(400);
+      await at(1_400);
       tab.activate();
       await at(5_000);
     },
@@ -1803,9 +2065,9 @@ const ROWS: readonly Row[] = [
     id: 'X22',
     from: 'passive',
     event:
-      'as X20, but a newer worker installs before the prompt is answered Apply: two SKIP_WAITING sends to it (the cooldown promotion, then the Apply to the replacement)',
+      'as X20, but a newer worker installs before the prompt is answered Apply: one SKIP_WAITING, the Apply to the replacement (on main the cooldown promotion sent one first; since C6-10 it waits for quiet and finds the worker taken)',
     then: 'reload-scheduled',
-    label: '[keeps: C6-9] [C6-10 input]',
+    label: '[flips: C6-10, owner decision P3-9 A]',
     async run(tab) {
       await recoverWithPromptOpen(tab);
       tab.install('v496');
@@ -1816,7 +2078,7 @@ const ROWS: readonly Row[] = [
       await at(4_000);
     },
     effects: {
-      skipWaiting: ['doc1 → v496', 'doc1 → v496'],
+      skipWaiting: ['doc1 → v496'],
       navigations: ['doc1 reload', 'doc1 reload'],
       dialogs: [`doc1 ${MSG_HOST}`, `doc1 ${MSG_HOST}`],
       markers: {
@@ -1905,17 +2167,23 @@ describe('update machine transition table on the real navigation owner (C6-9 inc
 });
 
 /**
- * C6-9 increment 2: the stalled-Apply-then-logo reproduction, recorded as
- * today's behaviour so that C6-10 (owner decision P3-10 A, "absorb an
- * already-approved late activation, only if reproduced first") has its
- * failing-first input. Apply sends SKIP_WAITING and the activation stalls (as
- * Chromium's did for 43-66 s while a page was loading, 2026-10-17); the logo
- * reset sends a second SKIP_WAITING, waits its 1.5 s and navigates home, which
- * commits; the new home document opens under the old controller with the
- * worker still waiting, and the late activation then reaches it. Nothing here
- * changes behaviour.
+ * The stalled-Apply-then-logo case: C6-9 increment 2 recorded it as the input
+ * of C6-10 (owner decision P3-10 A, "absorb an already-approved late
+ * activation, only if reproduced first"), and C6-10 flipped it. Apply sends
+ * SKIP_WAITING and the activation stalls (as Chromium's did for 43-66 s while
+ * a page was loading, 2026-10-17). On main 08003954 and C6-9 the logo reset
+ * sent a second SKIP_WAITING, waited its 1.5 s and went home; the new home
+ * document opened under the old controller with the worker still waiting, and
+ * when the late activation reached it, it reloaded once more (within the 30 s
+ * cooldown, after promoting the worker a third time) or asked again and
+ * reloaded on the answer (after it). Since C6-10 the logo waits for the Apply's
+ * activation until its prepare window closes and sends nothing (P3-8 A); the
+ * new document, which already runs that generation's code (navigation is
+ * network-first, browser/service-worker.ts), absorbs the late activation: no
+ * reload, no dialog, no toast (P3-10 A). A document that runs older code (a
+ * cache fallback) still reloads.
  */
-describe('a stalled Apply, then the logo reset (C6-9 increment 2: the C6-10 / P3-10 input)', () => {
+describe('a stalled Apply, then the logo reset (C6-9 input, flipped by C6-10 / P3-10 A)', () => {
   /** Apply in an idle page, a stalled activation, then the logo reset home, which commits. */
   async function stallApplyThenLogoHome(): Promise<Tab> {
     const stalled = createTab('v493');
@@ -1927,23 +2195,47 @@ describe('a stalled Apply, then the logo reset (C6-9 increment 2: the C6-10 / P3
     await at(3_000);
     page.logoReset();
     await at(3_000 + PAINT_MS + 1_500);
+    // The logo waits for the Apply's activation, sending nothing (P3-8 A)...
+    expect(stalled.navigations()).toEqual([]);
+    expect(stalled.skipWaiting).toEqual(['doc1 → v494']);
+    // ...until its prepare window closes, then goes home.
+    await at(3_000 + PAINT_MS + NAVIGATION_PREPARE_TIMEOUT_MS);
     expect(stalled.navigations()).toEqual(['doc1 replace /']);
-    expect(stalled.skipWaiting).toEqual(['doc1 → v494', 'doc1 → v494']);
+    expect(stalled.skipWaiting).toEqual(['doc1 → v494']);
     page.pagehide();
     return stalled;
   }
 
-  it('within the 30 s cooldown, the new document promotes the worker again and reloads itself when the late activation lands [flips: C6-10, owner decision P3-10 A]', async () => {
+  it('within the 30 s cooldown, the new document absorbs the late activation of the generation it runs: no reload, no dialog [flipped: C6-10, owner decision P3-10 A]', async () => {
     const stalled = await stallApplyThenLogoHome();
-    await stalled.open({ app: OUTSIDE, navigation: 'navigate' });
+    await stalled.open({ app: OUTSIDE, navigation: 'navigate', build: 'v494' });
+    await at(6_000);
+    stalled.activate();
+    await at(9_000);
+
+    // Until C6-10: three SKIP_WAITING sends for one Apply, and the new home
+    // document reloaded once more (navigations doc1 replace /, doc2 reload).
+    expect(observe(stalled)).toEqual({
+      skipWaiting: ['doc1 → v494'],
+      navigations: ['doc1 replace /'],
+      dialogs: [`doc1 ${MSG_APPLY}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+6000',
+        'sw-controller-confirmed-at': 't+6000',
+      },
+    });
+  });
+
+  it('a new document that runs the older code (a cache fallback) is not absorbed: it reloads for the late activation [added: C6-10, owner decision P3-10 A]', async () => {
+    const stalled = await stallApplyThenLogoHome();
+    await stalled.open({ app: OUTSIDE, navigation: 'navigate', build: 'v493' });
     await at(6_000);
     stalled.activate();
     await at(6_000 + PAINT_MS);
 
-    // Today: three SKIP_WAITING sends for one Apply, and the new home document
-    // reloads once more: the double navigation.
     expect(observe(stalled)).toEqual({
-      skipWaiting: ['doc1 → v494', 'doc1 → v494', 'doc2 → v494'],
+      skipWaiting: ['doc1 → v494'],
       navigations: ['doc1 replace /', 'doc2 reload'],
       dialogs: [`doc1 ${MSG_APPLY}`],
       markers: {
@@ -1954,26 +2246,29 @@ describe('a stalled Apply, then the logo reset (C6-9 increment 2: the C6-10 / P3
     });
   });
 
-  it('after the cooldown, the new document asks about the approved update again, and its answer reloads it once the late activation has landed [flips: C6-10, owner decision P3-10 A]', async () => {
+  it('after the cooldown, the new document asks about the waiting update as usual; the late activation then withdraws that dialog and needs no reload [flipped: C6-10, owner decision P3-10 A]', async () => {
     const stalled = await stallApplyThenLogoHome();
     await at(40_000);
-    await stalled.open({ app: OUTSIDE, navigation: 'navigate' });
+    await stalled.open({ app: OUTSIDE, navigation: 'navigate', build: 'v494' });
     // The startup prompt waits for the page's loads to go quiet (1 s).
     await at(40_000 + 1_000 + PROMPT_MS);
     expect(mocks.dialogs).toHaveLength(2);
     stalled.activate();
     await at(42_000);
+    expect(dialog(1).outcome).toBe('superseded');
     dialog(1).answer('ok');
     await at(42_000 + PAINT_MS);
 
+    // Until C6-10 the activation waited for the dialog, and its Apply then
+    // reloaded the new document (navigations doc1 replace /, doc2 reload).
     expect(observe(stalled)).toEqual({
-      skipWaiting: ['doc1 → v494', 'doc1 → v494'],
-      navigations: ['doc1 replace /', 'doc2 reload'],
+      skipWaiting: ['doc1 → v494'],
+      navigations: ['doc1 replace /'],
       dialogs: [`doc1 ${MSG_APPLY}`, `doc2 ${MSG_APPLY}`],
       markers: {
         ...NO_MARKERS,
-        'sw-updated-at': 't+42000',
-        'sw-controller-confirmed-at': 't+42000',
+        'sw-updated-at': 't+41100',
+        'sw-controller-confirmed-at': 't+41100',
       },
     });
   });

@@ -4795,6 +4795,10 @@ describe('YouTube Sync — Regression Integration', () => {
       syncMod.resetYouTubeSyncState();
       clearAllManagedTimers();
       vi.setSystemTime(new Date(1_700_000_100_000));
+      // Both runs start from the same learned start latency; an earlier run's
+      // calibration (or a value persisted by another test) must not differ.
+      localStorage.removeItem('musixquare-yt-play-latency');
+      setState('youtube.guestPlayLatency', 120);
       setState('network.appRole', 'guest');
       setState('network.hostConn', mockHostConn);
       const player = installPlayer({

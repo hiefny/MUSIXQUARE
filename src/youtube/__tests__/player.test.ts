@@ -1979,10 +1979,14 @@ describe('YouTube Player', () => {
     // and zero-start timeline must publish the position its own speaker plays,
     // as they do after a seek; otherwise every guest re-aligns away from it.
     it.each(
-      [false, true].flatMap((android) => [-0.4, 0, 0.4].map((manual) => ({ android, manual }))),
+      [0, 120].flatMap((releaseTimerLateMs) =>
+        [false, true].flatMap((android) =>
+          [-0.4, 0, 0.4].map((manual) => ({ releaseTimerLateMs, android, manual })),
+        ),
+      ),
     )(
-      'publishes the host speaker after a late zero-start media start, Android=$android manual=$manual',
-      async ({ android, manual }) => {
+      'publishes the host speaker after a late zero-start media start, timer +$releaseTimerLateMs ms, Android=$android manual=$manual',
+      async ({ releaseTimerLateMs, android, manual }) => {
         playbackPlatform.android = android;
         const stateMod = await import('../_state.ts');
         const playerMod = await import('../player.ts');
@@ -2057,16 +2061,32 @@ describe('YouTube Player', () => {
             await vi.advanceTimersByTimeAsync(25);
           }
           expect(controller.getYouTubeZeroStartSnapshot()?.phase).toBe('scheduled');
+          const commit = vi
+            .mocked(safeSend)
+            .mock.calls.map(([, frame]) => frame)
+            .find((frame) => frame.type === MSG.YOUTUBE_ZERO_START_COMMIT);
+          if (!commit || commit.type !== MSG.YOUTUBE_ZERO_START_COMMIT)
+            throw new Error('Expected host COMMIT');
+          // A release timer more than 40ms late seeks to the live position first.
+          if (releaseTimerLateMs > 0) vi.setSystemTime(Date.now() + releaseTimerLateMs);
           await vi.advanceTimersByTimeAsync(12_000);
           expect(releaseCallAt).toBeGreaterThan(0);
           expect(player.getPlayerState()).toBe(1);
+          expect(
+            player.__log.some((call) => call.op === 'seekTo' && call.at === releaseCallAt),
+          ).toBe(releaseTimerLateMs > 40);
 
           // The speaker's own room position: its iframe minus the manual and
           // output advance it deliberately applied, exactly as after a seek.
+          // It trails the signed schedule by the media start delay only.
           const speakerPosition = player.getCurrentTime() - manual - output;
           expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(manual + output, 7);
           expect(toCanonicalYouTubeTime(player.getCurrentTime(), player.getDuration())).toBeCloseTo(
             speakerPosition,
+            7,
+          );
+          expect(speakerPosition).toBeCloseTo(
+            (Date.now() - commit.startAtHost - mediaStartMs) / 1000,
             7,
           );
 

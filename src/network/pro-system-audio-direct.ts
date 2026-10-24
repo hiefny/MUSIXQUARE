@@ -15,7 +15,7 @@ import {
   type ProServerEventEnvelope,
 } from '../pro-room/network-bridge.ts';
 import { sendProRoomRealtime } from '../pro-room/realtime-sender.ts';
-import { forceStereoSdp } from './peer.ts';
+import { forceStereoSdp } from './opus-stereo-sdp.ts';
 
 const DIRECT_NEGOTIATION_TIMEOUT_MS = 2_000;
 const DIRECT_PAIR_POLL_MS = 25;

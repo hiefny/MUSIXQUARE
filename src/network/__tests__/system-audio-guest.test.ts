@@ -93,7 +93,7 @@ vi.mock('../../ui/toast.ts', () => ({
   updateLoader: vi.fn(),
 }));
 
-vi.mock('../peer.ts', () => ({
+vi.mock('../opus-stereo-sdp.ts', () => ({
   forceStereoSdp: vi.fn((sdp: string) => sdp),
 }));
 

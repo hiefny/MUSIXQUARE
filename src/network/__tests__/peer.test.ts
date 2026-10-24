@@ -18,14 +18,13 @@ import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../c
 import { broadcastDeviceList, detectConnectionType, getPeer, setPeer } from '../peer-state.ts';
 import {
   cancelPendingSessionSetup,
-  forceStereoSdp,
   isRemoteGuest,
   isTrustedSystemAudioMediaCall,
   leaveSession,
   safeSend,
-  sdpPrefersOpusStereo,
   waitForGuestConnectionType,
 } from '../peer.ts';
+import { forceStereoSdp, sdpPrefersOpusStereo } from '../opus-stereo-sdp.ts';
 import type {
   AnyProtocolMsg,
   ConnectedPeer,

@@ -27,7 +27,7 @@ import {
   resolveSystemAudioPeerDelivery,
 } from './system-audio-delivery.ts';
 
-import { forceStereoSdp } from './peer.ts';
+import { forceStereoSdp } from './opus-stereo-sdp.ts';
 import { getRoomContext, isStandardRoomRole } from '../rooms/authority.ts';
 
 const DIRECT_CALL_CONNECT_TIMEOUT_MS = 5_000;

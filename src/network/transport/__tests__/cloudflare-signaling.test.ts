@@ -8489,4 +8489,52 @@ describe('logical connection close paths decided by the provider', () => {
     ]);
     peer.destroy();
   });
+
+  it('names pro-epoch-advanced for every connection the PRO epoch batch close tears down', async () => {
+    installFakeWebSocket();
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket: clientProTicket('coordinator-device', {
+          role: 'coordinator',
+          jti: 'epoch-close-cause-ticket',
+        }),
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    await Promise.resolve();
+    const live = ['epoch-member-1', 'epoch-member-2'].map((id) => {
+      const connection = new CloudflareDataConnection(id);
+      connection.attach(
+        new FakePeerConnection() as unknown as RTCPeerConnection,
+        new FakeDataChannel('musixquare-data') as unknown as RTCDataChannel,
+      );
+      connection.attach(
+        connection.peerConnection!,
+        new FakeDataChannel('musixquare-control') as unknown as RTCDataChannel,
+      );
+      privateMaps(peer).connections.set(id, connection);
+      return connection;
+    });
+    await Promise.resolve();
+    const epochAdvanced = vi.fn();
+    peer.on('pro-epoch-advanced', epochAdvanced);
+
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'PRO_COORDINATOR_EPOCH_ADVANCED');
+
+    expect(epochAdvanced).toHaveBeenCalledOnce();
+    expect(live.map((connection) => connection.open)).toEqual([false, false]);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (pro-epoch-advanced) for epoch-member-1',
+      '[Transport] Logical connection closed (pro-epoch-advanced) for epoch-member-2',
+    ]);
+    peer.destroy();
+    expect(closeLines()).toHaveLength(2);
+  });
 });

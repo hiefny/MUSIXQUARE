@@ -475,7 +475,7 @@ export function joinSession(
     if (dataChannelOpened || !terminateGuestJoin(joinEpoch)) return;
     log.warn('[Join] Host connection error before open', err);
     try {
-      conn.close();
+      conn.close('transport-error');
     } catch {
       /* noop */
     }

@@ -962,8 +962,9 @@ let cloudflareDataConnectionSequence = 0;
 /**
  * Why a logical connection closed (RO-15). The connection names the causes it
  * decides itself. The provider and the application name theirs through
- * close(reason); a close that names nothing is intentional, unless an error
- * listener makes it while the provider reports the error of a close it decided.
+ * close(reason); a close that names nothing is intentional. An error listener's
+ * close while the provider reports the error of a close it decided keeps the
+ * provider's cause, whatever the listener names.
  */
 type LinkCloseCause =
   | 'control-send-failed'
@@ -1238,13 +1239,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
 
   close(reason?: TransportCloseReason): void {
     if (!this.intentionalClosing) this.intentionalClosing = true;
-    this.terminate(reason ?? this.errorCloseCause ?? 'intentional');
+    this.terminate(this.errorCloseCause ?? reason ?? 'intentional');
   }
 
   /**
    * Reports a close the provider decided: the error first, then the close.
-   * An error listener may close the connection itself without a reason (the
-   * guest join flow does); that close keeps the provider's cause.
+   * An error listener may close the connection itself (the guest join flow
+   * does, naming transport-error); that close keeps the provider's cause.
    */
   closeAfterError(error: Error, cause: TransportCloseReason): void {
     this.errorCloseCause = cause;

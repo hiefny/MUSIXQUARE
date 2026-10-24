@@ -13,6 +13,12 @@
  *   wait the P2P adapter keeps (guest :309-358 in the C4 design).
  * - S8b on both Standard routes: the 30 s slot deadline firing while an attach
  *   waits in initAudio (the STOP half is in the core suite).
+ * - Attach fences: a replacement call, a handoff to a pending READY, or a
+ *   direct call that supersedes an attach waiting in initAudio, with the
+ *   placeholder unchanged; the stale attach's resume and its rejection.
+ * - Attach failures: a stream with no audio track, and a first SFU
+ *   subscription that fails with no pending READY (silent until the slot
+ *   deadline; an unchanged READY then subscribes again).
  * - Standard SFU: the two-hour remote receive limit stays per subscription (an
  *   unchanged READY keeps the first deadline, a handoff re-arms it from the new
  *   attach, a local-overflow subscription is limited too, and a rejoin lifts
@@ -425,6 +431,212 @@ describe('S8b: the slot deadline while a Standard attach waits in initAudio', ()
       expect(seen.counts.receiveTimeouts).toBe(1);
     },
   );
+});
+
+describe('attach fences: a superseded Standard attach waiting in initAudio (C4-3, C4-4)', () => {
+  // The placeholder and the restore point stay put in every row, so only each
+  // adapter's own identity check after `await initAudio()` (the current P2P
+  // call, the current subscriber PC) and its rejection gate keep the stale
+  // attach out. slot.attach must keep these outcomes when C4-3 and C4-4 move
+  // the attach.
+
+  it('expected today (P2P): a replacement call while the first stream waits in initAudio keeps the first out by call identity alone; only the replacement connects', async () => {
+    await start();
+    webAudio.suspend();
+    const first = directCall();
+    first.stream(streamOf(makeAudioTrack('p2p-a')));
+    await advance(100);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      activity: 'pending',
+      placeholder: true,
+      sources: [],
+      primers: 1,
+    });
+
+    const second = directCall();
+    expect(first.closeCount()).toBe(1);
+    second.stream(streamOf(makeAudioTrack('p2p-b')));
+    await advance(100);
+    webAudio.finishResume();
+    await advance(0);
+    expect(webAudio.sources.map((source) => source.trackIds)).toEqual([['p2p-b']]);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      placeholder: true,
+      sources: ['p2p-b'],
+      primers: 1,
+    });
+    expect(seen.toasts).toEqual([]);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+
+    await stop();
+    expect(slot()).toMatchObject({ receiving: false, activity: 'idle', title: previousTitle });
+  });
+
+  it('expected today (P2P): when the superseded attach fails in initAudio, its rejection neither ends reception nor shows receive_failed', async () => {
+    await start();
+    webAudio.suspend();
+    directCall().stream(streamOf(makeAudioTrack('p2p-a')));
+    await advance(100);
+    const second = directCall();
+    await advance(200);
+    second.stream(streamOf(makeAudioTrack('p2p-b')));
+
+    // The first attach's initAudio gives up at 500 ms; the second waits on.
+    await advance(300);
+    expect(seen.toasts).toEqual([]);
+    expect(second.closeCount()).toBe(0);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
+
+    webAudio.finishResume();
+    await advance(0);
+    expect(slot()).toMatchObject({ receiving: true, activity: 'playing', sources: ['p2p-b'] });
+    expect(webAudio.sources).toHaveLength(1);
+    expect(seen.toasts).toEqual([]);
+    expect(seen.counts.receiveTimeouts).toBe(0);
+  });
+
+  it('expected today (SFU): a handoff to a pending READY while the first track waits in initAudio keeps it out by subscriber-PC identity alone; only the handoff track connects', async () => {
+    await start();
+    webAudio.suspend();
+    realtime.injectFault('renegotiate', 'fail');
+    await ready('rt_host_session_a');
+    await advance(50);
+    await ready('rt_host_session_b');
+    // The first track waits in initAudio from 200 ms; renegotiate fails at
+    // 300 ms and hands off to the pending READY.
+    await advance(SFU_TRACK_AT_MS + 50);
+    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
+
+    webAudio.finishResume();
+    await advance(0);
+    expect(webAudio.sources).toHaveLength(0);
+
+    await advance(SFU_TRACK_AT_MS);
+    expect(webAudio.sources.map((source) => source.trackIds)).toEqual([['sfu-remote-audio-2']]);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      placeholder: true,
+      sources: ['sfu-remote-audio-2'],
+      primers: 1,
+    });
+    expect(seen.toasts).toEqual([]);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('expected today (SFU): when the first track then fails in initAudio after the handoff, its rejection neither releases the successor subscription nor shows receive_failed', async () => {
+    await start();
+    webAudio.suspend();
+    realtime.injectFault('renegotiate', 'fail');
+    await ready('rt_host_session_a');
+    await advance(50);
+    await ready('rt_host_session_b');
+
+    // The first attach's initAudio gives up at 700 ms; the handoff track has
+    // waited since 500 ms.
+    await advance(700);
+    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(seen.toasts).toEqual([]);
+    expect(FakeRTCPeerConnection.instances[1].closed).toBe(false);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
+
+    webAudio.finishResume();
+    await advance(0);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-2'] });
+    expect(webAudio.sources).toHaveLength(1);
+    expect(seen.toasts).toEqual([]);
+  });
+
+  it('expected today (SFU to P2P): a direct call while the SFU track waits in initAudio retires the subscription; only the P2P stream connects', async () => {
+    await start();
+    webAudio.suspend();
+    await ready('rt_host_session_1');
+    await advance(SFU_TRACK_AT_MS + 100);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
+
+    const call = directCall();
+    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
+    call.stream(streamOf(makeAudioTrack('p2p-a')));
+    webAudio.finishResume();
+    await advance(0);
+    expect(webAudio.sources.map((source) => source.trackIds)).toEqual([['p2p-a']]);
+    expect(slot()).toMatchObject({ receiving: true, activity: 'playing', sources: ['p2p-a'] });
+    expect(getGuestSystemAudioShareRoute()).toBe('direct');
+    expect(seen.toasts).toEqual([]);
+  });
+});
+
+describe('Standard attach failures and a silent first subscription failure', () => {
+  it('expected today: a direct stream with no audio track ends reception with receive_failed before any primer', async () => {
+    await start();
+    const call = directCall();
+    call.stream(streamOf());
+    await advance(0);
+    expect(seen.toasts).toEqual(['system_audio.receive_failed']);
+    expect(call.closeCount()).toBe(1);
+    expect(slot()).toEqual({
+      receiving: false,
+      mode: null,
+      activity: 'idle',
+      title: previousTitle,
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    });
+    expect(seen.counts.receiveTimeouts).toBe(0);
+  });
+
+  it('expected today: a failed first SFU subscription with no pending READY is silent, and the placeholder waits for the slot deadline', async () => {
+    const startedAt = Date.now();
+    await start();
+    realtime.injectFault('new-session', 'fail');
+    await ready('rt_host_session_1');
+    await advance(1_000);
+    // The adapter releases only its transport: nothing was attached, so the
+    // shared receive cleanup is skipped and no notice is shown (C4-4's
+    // failure policy per route, notice parity open in the C4 design).
+    expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
+    expect(seen.toasts).toEqual([]);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
+
+    await advance(startedAt + 30_000 - 1 - Date.now());
+    expect(seen.toasts).toEqual([]);
+    await advance(1);
+    expect(seen.toasts).toEqual(['system_audio.receive_failed']);
+    expect(seen.counts.receiveTimeouts).toBe(1);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'idle', title: previousTitle });
+    expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
+  });
+
+  it('expected today: an unchanged READY after a failed subscription subscribes again (a live one is kept), and its track attaches under the first deadline', async () => {
+    const startedAt = Date.now();
+    await start();
+    realtime.injectFault('new-session', 'fail');
+    await ready('rt_host_session_1');
+    await advance(10_000);
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+
+    await ready('rt_host_session_1');
+    await advance(SFU_TRACK_AT_MS);
+    expect(FakeRTCPeerConnection.instances).toHaveLength(2);
+    expect(realtime.count('new-session')).toBe(2);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      sources: ['sfu-remote-audio-2'],
+    });
+    // The attach cleared the START deadline: nothing ends reception at 30 s.
+    await advance(startedAt + 60_000 - Date.now());
+    expect(seen.toasts).toEqual([]);
+    expect(seen.counts.receiveTimeouts).toBe(0);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-2'] });
+  });
 });
 
 describe('Standard SFU: the two-hour limit stays per subscription', () => {

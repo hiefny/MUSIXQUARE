@@ -92,6 +92,21 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 4 train 4B: owner-chosen transport and rejoin behaviour changes (2026-10-25)](design/phase4-4b-behaviour-2026-10-25.md):
+  evidence for the structure program's second Phase 4 app train (9.0.9 / v781
+  planned, not yet released; target `app`). After ICE recovery a resumed
+  preload yields to the main file lane for the same tuple once the host has
+  re-detected the guest as local (C5-12, with its known limits), on top of one
+  release call and a tuple query for both bulk lanes (reduced C5-11); error,
+  failed-join and PRO epoch closes name their own close cause; a Standard guest
+  keeps its last close cause across its disconnect reload for `/debug`; a PRO
+  listener's visible pause ends a pending rejoin retry; and demo playback no
+  longer arms the queue's canonical timeline. The report lists each increment
+  with its failing test, the owner's 2026-10-25 decisions (deploy as soon as the
+  automated gates pass, device checks no longer a gate), the close-cause rows
+  added to the device allow table, the P4-D9 trade-off, the C5-0 lab's
+  single-stream evidence, mixed-version rows and what was not device-checked.
+
 - [YouTube host speaker reference after a zero-start (2026-10-25)](design/youtube-host-speaker-reference-2026-10-25.md):
   9.0.8 / v780 with #483, released 2026-10-25 04:00 KST in Release 40123156024 (target `app`). Owner
   report: a Standard room's first YouTube playback stayed misaligned

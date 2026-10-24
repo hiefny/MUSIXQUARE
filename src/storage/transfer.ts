@@ -6,10 +6,7 @@ import { getState } from '../core/state.ts';
 import { MSG, TRANSFER_STATE } from '../core/constants.ts';
 import { registerHandlers, registerInboundRateLimitExemptionGuard } from '../network/protocol.ts';
 import { resetAllStoredFiles } from './storage.ts';
-import {
-  cancelOutgoingFileTransferForPeer as cancelOutgoingFileTransferForPeerInternal,
-  cancelOutgoingFileTransfers as cancelOutgoingFileTransfersInternal,
-} from './transfer-send.ts';
+import { cancelOutgoingFileTransfers as cancelOutgoingFileTransfersInternal } from './transfer-send.ts';
 import {
   handleFilePrepare,
   handleFileStart,
@@ -86,12 +83,8 @@ export function initTransfer(): void {
     resetAllStoredFiles();
   });
 
-  bus.on('network:peer-disconnected', (peerId: string) => {
-    cancelOutgoingFileTransferForPeerInternal(peerId);
-  });
-  bus.on('network:peer-connection-replaced', (peerId: string) => {
-    cancelOutgoingFileTransferForPeerInternal(peerId);
-  });
+  // A peer disconnect or replacement releases this peer's outgoing file lane
+  // together with its preload lanes, in one call registered by initPreload.
 
   log.info('[Transfer] Handlers registered');
 }

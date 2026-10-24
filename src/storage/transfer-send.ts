@@ -56,10 +56,15 @@ interface PeerTransferOwner {
  * take the lane over.
  */
 const _peerTransferOwners = new Map<string, PeerTransferOwner>();
-const _preparingUnicasts = new Set<{
-  conn: DataConnection;
-  isCurrent: () => boolean;
-}>();
+
+/** A unicast awaiting its transport guard, with the identity it froze first. */
+interface PreparingUnicast {
+  readonly conn: DataConnection;
+  readonly queueItemId: string;
+  readonly sessionId: number;
+  readonly isCurrent: () => boolean;
+}
+const _preparingUnicasts = new Set<PreparingUnicast>();
 
 function isExactPeerTransfer(
   owner: PeerTransferOwner,
@@ -165,6 +170,37 @@ export function hasPendingCurrentFileTransfer(conn: DataConnection): boolean {
   if (pending.sessionId === null) return peer.connectionType !== 'remote';
   const delivery = resolvePeerFileDelivery(peer, pending.sessionId);
   return delivery === 'direct-local' || delivery === 'pending';
+}
+
+/**
+ * RO-18 tuple query: is the main lane preparing or streaming this exact
+ * (connection, queueItemId, sessionId)? Preparing is a unicast still awaiting
+ * its transport guard with a current source; a debounced or starting broadcast
+ * has not chosen its peers yet. A completed owner is a fence, not a stream.
+ * A preload lane restarted after ICE recovery may yield to it (C5-12, P4-D10 A;
+ * RestartedPreloadLane in preload.ts).
+ */
+export function isMainLanePreparingOrActive(
+  conn: DataConnection,
+  queueItemId: string,
+  sessionId: number,
+): boolean {
+  for (const pending of _preparingUnicasts) {
+    if (
+      pending.conn === conn &&
+      pending.queueItemId === queueItemId &&
+      pending.sessionId === sessionId &&
+      pending.isCurrent()
+    )
+      return true;
+  }
+  const owner = _peerTransferOwners.get(conn.peer);
+  return (
+    !!owner &&
+    isExactPeerTransfer(owner, conn, queueItemId, sessionId) &&
+    owner.status === 'active' &&
+    !owner.scope.aborted
+  );
 }
 
 interface PendingBroadcastSuspension {
@@ -541,7 +577,12 @@ export async function unicastFile(
 
   // Transport guard: require this connection's frozen direct assignment.
   // Internal recovery callers can opt out after validating the same policy.
-  const preparing = { conn, isCurrent: isTransferStillCurrent };
+  const preparing: PreparingUnicast = {
+    conn,
+    queueItemId,
+    sessionId: effectiveSessionId,
+    isCurrent: isTransferStillCurrent,
+  };
   _preparingUnicasts.add(preparing);
   try {
     if (!options.skipTransportGuard && !(await canSendFileTo(conn, effectiveSessionId))) {

@@ -35,6 +35,10 @@
  *       aborts the stale finalize via its transfer.localSessionId entry
  *       snapshot: the new download keeps RECEIVING + its chunkWatchdog, no
  *       stale buffer/blob/meta publish, mailbox untouched.
+ *   (k) the rejoin router's output-only refresh and a failed PLAY's retry
+ *       share the failed-PLAY generation (C13): a refresh that reaches the
+ *       claim point retires the retry and its continuation, while a refresh
+ *       that meets the retry's live lock yields to it.
  *
  * transport.ts, decode.ts, playback.ts, lifecycle.ts, and ownership.ts remain
  * real so lock/watchdog behavior is exercised. Only external seams are mocked.
@@ -2518,6 +2522,80 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
     hungOwner.resolve();
     await playPromise;
     expect(mocks.createBufferSource).not.toHaveBeenCalled();
+    expect(isPlayLocked()).toBe(false);
+  });
+});
+
+// ─── Pin (k): failed-PLAY retry against the output refresh (C13) ─────
+
+describe('pin (k) — the failed-PLAY retry and the output refresh share one generation fence', () => {
+  type RecoveryEvent = { isCurrent?: () => boolean; retry?: () => Promise<boolean> };
+
+  /**
+   * A playing queue file whose output start failed: the semantic state still
+   * says playing, no source exists, and the failed PLAY offered its retry.
+   */
+  async function failPlayingFileStart(continuation: () => void): Promise<RecoveryEvent> {
+    selectIndex(0);
+    const item = itemAt(0);
+    const blob = makeFile(item.name);
+    setState('files.current', { ...fileMetaFor(item, blob, 1), blob });
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    setPlaybackFilePlaying();
+    initPlayback();
+    let recoveryEvent: RecoveryEvent | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('WebKit context did not resume'));
+
+    await expect(
+      play(3, 0, undefined, undefined, { onRecoveredStarted: continuation }),
+    ).resolves.toBe(false);
+    expect(getPlayerNode()).toBeNull();
+    expect(recoveryEvent?.isCurrent?.()).toBe(true);
+    return recoveryEvent!;
+  }
+
+  it('retires the outstanding retry when the router refresh reaches the claim point first', async () => {
+    const continuation = vi.fn();
+    const recovery = await failPlayingFileStart(continuation);
+
+    // The rejoin router's Standard host branch: an output-only play().
+    bus.emit('playback:refresh-current-position');
+    await vi.waitFor(() => expect(getPlayerNode()).not.toBeNull());
+
+    expect(recovery.isCurrent?.()).toBe(false);
+    await expect(recovery.retry?.()).resolves.toBe(false);
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+    expect(continuation).not.toHaveBeenCalled();
+  });
+
+  it('lets the exact retry that holds the lock keep its start and continuation', async () => {
+    const continuation = vi.fn();
+    const recovery = await failPlayingFileStart(continuation);
+    const retryResume = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(retryResume.promise);
+
+    const retry = recovery.retry!();
+    await vi.waitFor(() => expect(mocks.ensureRunning).toHaveBeenCalledTimes(2));
+    expect(getPlayLockSnapshot()).toMatchObject({
+      locked: true,
+      consistent: true,
+      phase: 'ensure-running',
+      pending: false,
+      watchdogArmed: true,
+    });
+
+    // The refresh yields to the live owner instead of queuing behind it.
+    bus.emit('playback:refresh-current-position');
+    expect(getPlayLockSnapshot().pending).toBe(false);
+    expect(recovery.isCurrent?.()).toBe(true);
+
+    retryResume.resolve();
+    await expect(retry).resolves.toBe(true);
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+    expect(continuation).toHaveBeenCalledOnce();
     expect(isPlayLocked()).toBe(false);
   });
 });

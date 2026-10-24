@@ -326,7 +326,11 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   },
   {
     records: ['RO-05'],
-    files: ['src/player/local-output-rejoin.ts', 'src/player/background-return-sync.ts'],
+    files: [
+      'src/youtube/constants.ts',
+      'src/player/local-output-rejoin.ts',
+      'src/player/background-return-sync.ts',
+    ],
   },
   { records: ['RO-06'], files: ['src/player/file-play-timing.ts', 'src/demo/playback-timing.ts'] },
   {
@@ -426,11 +430,6 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
     'RO-04 SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-guest.ts = ' +
       'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-sfu.ts (0.5)',
     { kind: 'copy', reason: 'receive playout delay; Phase 0d C4-1' },
-  ],
-  [
-    'RO-05 REJOIN_RETRY_MS@src/player/local-output-rejoin.ts = ' +
-      'RENDEZVOUS_RETRY_MS@src/player/background-return-sync.ts ([250,750,1500,3000,5000])',
-    { kind: 'copy', reason: 're-align retry schedule; Phase 0d C3-I1' },
   ],
   [
     // Phase 3 R2: the lazy hard reset measures the logo claim's quiet reading

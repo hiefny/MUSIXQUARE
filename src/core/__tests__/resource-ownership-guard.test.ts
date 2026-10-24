@@ -544,18 +544,39 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
-    it('asks to lower the baseline when a copy is imported from its home', () => {
+    it('rejects a re-typed copy of the shared re-align schedule', () => {
       const findings = findingsOf(
         withSources((sources) =>
           replaceIn(
             sources,
             'src/player/background-return-sync.ts',
-            'const RENDEZVOUS_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;',
-            'const RENDEZVOUS_RETRY_MS = REJOIN_RETRY_MS;',
+            "const RENDEZVOUS_RETRY_TIMER = 'background-return-sync-rendezvous-retry';",
+            'const RENDEZVOUS_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;\n' +
+              "const RENDEZVOUS_RETRY_TIMER = 'background-return-sync-rendezvous-retry';",
           ),
         ),
       );
-      expect(findings).toMatch(/STALE BASELINE copied timing constant: RO-05 REJOIN_RETRY_MS/u);
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-05 ' +
+          'LOCAL_OUTPUT_REALIGN_RETRY_MS@src/youtube/constants.ts = ' +
+          'RENDEZVOUS_RETRY_MS@src/player/background-return-sync.ts ([250,750,1500,3000,5000])',
+      );
+    });
+
+    it('asks to lower the baseline when a copy is imported from its home', () => {
+      const findings = findingsOf(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            'src/core/sw-hard-reset.ts',
+            'const STARTUP_PROMPT_QUIET_MS = 1_000;',
+            'const STARTUP_PROMPT_QUIET_MS = PROMPT_QUIET_MS;',
+          ),
+        ),
+      );
+      expect(findings).toContain(
+        'STALE BASELINE copied timing constant: RO-22/RO-23/RO-30 STARTUP_PROMPT_QUIET_MS',
+      );
     });
 
     it('keeps differently named constants that only share a value report-only', () => {

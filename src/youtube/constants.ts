@@ -128,6 +128,13 @@ export const RENDEZVOUS_DRIFT_SUPPRESS_MS = 2000;
 // Silent precision rendezvous a Standard-room guest starts on its own. Each
 // one briefly pauses the iframe, so every trigger below is deliberately rare.
 
+/** Bounded retry spacing shared by the participant-local re-align chains: the
+ *  local-output rejoin router (player/local-output-rejoin.ts, including its
+ *  PRO reconciliation misses) and the background-return Sync chain
+ *  (player/background-return-sync.ts). Each chain keeps its own timer and
+ *  cancellation; only the spacing is shared (registry RO-05). */
+export const LOCAL_OUTPUT_REALIGN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
+
 /** Delay before the single follow-up rendezvous after a buffer-gate fallback.
  *  Lands just past the rendezvous cooldown, once the live position has buffered. */
 export const STANDARD_RENDEZVOUS_FOLLOW_UP_DELAY_MS = RENDEZVOUS_COOLDOWN_MS + 250;

@@ -461,6 +461,24 @@ describe('background-return Sync ownership and coalescing', () => {
     expect(mocks.rendezvous).toHaveBeenCalledTimes(6);
   });
 
+  it('spaces the return chain retries on the bounded re-align schedule', async () => {
+    arrange('standard', 'youtube', 'guest', 'playing');
+    mocks.rendezvous.mockReturnValue({ status: 'awaiting-snapshot' });
+    guard = installApp();
+
+    await returnFromBackground(5_000);
+    expect(mocks.rendezvous).toHaveBeenCalledOnce();
+    for (const [index, delayMs] of [250, 750, 1_500, 3_000, 5_000].entries()) {
+      await vi.advanceTimersByTimeAsync(delayMs - 1);
+      expect(mocks.rendezvous).toHaveBeenCalledTimes(index + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(mocks.rendezvous).toHaveBeenCalledTimes(index + 2);
+    }
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(mocks.rendezvous).toHaveBeenCalledTimes(6);
+  });
+
   it('lets a local YouTube pause during the retry wait end the chain', async () => {
     arrange('standard', 'youtube', 'guest', 'playing');
     const player = installGuestIframe();

@@ -407,10 +407,10 @@ RO-47 owner-in-place
 
 - **Resource:** a Standard guest's iframe re-alignment through `guestRendezvousSync`
   (`src/youtube/sync.ts`: pause, seek, `playVideo`).
-- **Current owners/flows:** the rejoin router (`src/player/local-output-rejoin.ts`,
-  `REJOIN_RETRY_MS`, timer `local-output-rejoin-retry`; mainly lock-screen or OS PLAY) and the
-  background-return chain (`src/player/background-return-sync.ts`, `rendezvousChain`,
-  `RENDEZVOUS_RETRY_MS`, timer `background-return-sync-rendezvous-retry`). Both use
+- **Current owners/flows:** the rejoin router (`src/player/local-output-rejoin.ts`, timer
+  `local-output-rejoin-retry`; mainly lock-screen or OS PLAY) and the background-return chain
+  (`src/player/background-return-sync.ts`, `rendezvousChain`, timer
+  `background-return-sync-rendezvous-retry`). Both space their retries with one schedule,
   `[250, 750, 1_500, 3_000, 5_000]`, each cancels only itself, and their only shared guard is the
   rendezvous busy and cooldown result. Since 9.0.1 both end on `youtube:set-local-paused` (G2).
   Single-shot callers: `src/youtube/iframe.ts`, `src/ui/manual-sync-overlay-runtime.ts` and the
@@ -423,8 +423,11 @@ RO-47 owner-in-place
 - **Lifecycle operations:** start a chain, retry on `busy`, wait for a host snapshot, retire on a
   new return, a local pause or an identity change.
 - **Deadline owner:** each chain's retry timer; the rendezvous cooldown in `youtube/sync.ts`.
-- **Timing-constant home:** two copies (`REJOIN_RETRY_MS`, `RENDEZVOUS_RETRY_MS`). Target: export
-  from `local-output-rejoin.ts` and import it (Phase 0d, C3-I1).
+- **Timing-constant home:** `LOCAL_OUTPUT_REALIGN_RETRY_MS` in `src/youtube/constants.ts`, which
+  both chains import (Phase 4 4A, C3-I1); the rendezvous busy retry `MANUAL_RENDEZVOUS_RETRY_MS`
+  and cooldown `RENDEZVOUS_COOLDOWN_MS` live beside it. The schedule sits in that startup leaf
+  rather than in either lazy chain module: a lazy leaf of its own became an extra chunk whose
+  preload entries grew the eager graph.
 - **Anchor tests:**
   - Supersession: `src/player/__tests__/background-return-sync.test.ts` "replaces the previous
     return retry chain instead of stacking a second one"; `local-output-rejoin.test.ts` "drops a
@@ -437,8 +440,8 @@ RO-47 owner-in-place
   - Visibility: `background-return-sync.test.ts` "ignores a sub-second visibility bounce that is
     not a background return".
   - Missing: both chains against the real `youtube/sync.ts`; both suites mock it.
-- **Status:** `duplicated`. Phase 0d (one schedule), Phase 4 (one pause rule; the return chain
-  moves into the router only if the owner approves coalescing the lanes).
+- **Status:** `duplicated`. One schedule since Phase 4 4A (C3-I1). Phase 4 (one pause rule; the
+  return chain moves into the router only if the owner approves coalescing the lanes).
 
 ### RO-06 Host shared start, playlist queue and guided demo
 
@@ -447,8 +450,8 @@ RO-47 owner-in-place
 - **Current owners/flows:** the queue anchor (`armStandardHostCanonicalTimeline`,
   `getStandardHostPendingFileStartAt`, published by `startHostFileAndBroadcastPlay` in
   `src/player/transport.ts`) and the demo anchor (`setDemoHostStartAt`,
-  `getPendingDemoHostStartAt` in `src/demo/playback-timing.ts`; `startDemoPlayback` in
-  `src/demo/mode.ts`). The modes are mutually exclusive and other modules branch on `demo.active`.
+  `getPendingDemoHostStartAt` in `src/demo/host-start-anchor.ts`, a leaf the startup graph can
+  read without the lazy demo timing module; `startDemoPlayback` in `src/demo/mode.ts`). The modes are mutually exclusive and other modules branch on `demo.active`.
   The queue anchor validates its output identity; the demo anchor only checks that it lies in the
   future, and only demo code clears it.
 - **Target single owner:** `transport.ts`: one pending shared-start anchor for both kinds,
@@ -459,11 +462,15 @@ RO-47 owner-in-place
 - **Lifecycle operations:** arm the anchor, start the source, publish once (including
   `onRecoveredStarted`), clear on pause, stop or exit.
 - **Deadline owner:** the anchor timestamp in each module.
-- **Timing-constant home:** `LOCAL_FILE_START_LEAD_MS` (`src/player/file-play-timing.ts`) and
-  `DEMO_PLAY_START_LEAD_MS` (`playback-timing.ts`), both 200 ms, plus inline 2 s timeline trust
-  windows. The legacy wire leads (200 ms for PLAY, 350 ms `DEMO_PLAY_SCHEDULE_AHEAD_MS`) differ on
-  purpose for older receivers and stay separate. Target: one lead in `file-play-timing.ts`
-  (Phase 0d, C3-I1).
+- **Timing-constant home:** `src/player/file-play-timing.ts`: the 200 ms shared start lead
+  `LOCAL_FILE_START_LEAD_MS` (`DEMO_PLAY_START_LEAD_MS` in the lazy `src/demo/playback-timing.ts`
+  aliases it), the 2 s `HOST_TIMELINE_TRUST_WINDOW_MS` (the file check is two-sided, the demo
+  projection bounds only deadlines ahead) and the guests' 250 ms post-start sync ping
+  `GUEST_START_SYNC_PING_DELAY_MS` (timers `playback-preload-host-sync`,
+  `playback-finalize-host-sync`, `demo-play-host-sync`), all since Phase 4 4A (C3-I1). The legacy
+  wire leads (200 ms `LEGACY_FILE_SCHEDULE_AHEAD_MS` for PLAY, 350 ms
+  `DEMO_PLAY_SCHEDULE_AHEAD_MS` for DEMO_PLAY) differ on purpose for older receivers and stay
+  separate.
 - **Anchor tests:**
   - Supersession: `src/demo/__tests__/mode.test.ts` "does not restore stale media over a local file
     load started during exit".
@@ -473,8 +480,8 @@ RO-47 owner-in-place
   - Teardown: `src/demo/__tests__/mode-recovery.test.ts` "does not retry an aborted guest fetch
     after exit".
   - Visibility: missing.
-- **Status:** `duplicated` (mutually exclusive modes). Phase 0d (one lead), Phase 4 (one anchor
-  after the anchor investigation; one start-and-publish-once primitive). See
+- **Status:** `duplicated` (mutually exclusive modes). One lead since Phase 4 4A (C3-I1). Phase 4
+  (one anchor after the anchor investigation; one start-and-publish-once primitive). See
   [Standard file common start](standard-file-common-start.md) for the intended separate demo path.
 
 ### RO-07 PRO signaling broadcast delivery

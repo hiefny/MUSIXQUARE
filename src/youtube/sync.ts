@@ -1789,7 +1789,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   const now = performance.now();
   if (_rt.rendezvous) {
     log.debug('[Rendezvous] Debounced: in progress');
-    return { status: 'busy', retryAfterMs: 250 };
+    return { status: 'busy', retryAfterMs: MANUAL_RENDEZVOUS_RETRY_MS };
   }
   const cooldownRemaining = RENDEZVOUS_COOLDOWN_MS - (now - _rt.lastRendezvousAt);
   if (cooldownRemaining > 0) {

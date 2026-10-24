@@ -1,9 +1,29 @@
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 
-/** Short shared start lead; guests never hold the host waiting for a decoder. */
+/**
+ * Short shared start lead; guests never hold the host waiting for a decoder.
+ * The guided demo uses the same lead (DEMO_PLAY_START_LEAD_MS aliases it).
+ */
 export const LOCAL_FILE_START_LEAD_MS = 200;
-/** Older PLAY receivers interpret hostPlayAt as command time plus this lead. */
+/**
+ * Older PLAY receivers interpret hostPlayAt as command time plus this lead.
+ * A wire contract with already-shipped receivers: never unify it with
+ * LOCAL_FILE_START_LEAD_MS or with the demo's 350 ms DEMO_PLAY_SCHEDULE_AHEAD_MS,
+ * even where the values match.
+ */
 export const LEGACY_FILE_SCHEDULE_AHEAD_MS = 200;
+/**
+ * A calibrated host deadline further than this from the host clock is not
+ * trusted as the guest's timeline. Each guest projection keeps its own
+ * predicate: the local-file check below is two-sided, the demo projection
+ * (demo/playback-timing.ts) only bounds deadlines ahead.
+ */
+export const HOST_TIMELINE_TRUST_WINDOW_MS = 2_000;
+/**
+ * A guest that started a shared start (local file, preload, guided demo) asks
+ * the host for an immediate clock ping this long afterwards.
+ */
+export const GUEST_START_SYNC_PING_DELAY_MS = 250;
 
 interface FilePlayTimeline {
   readonly time: number;
@@ -28,7 +48,7 @@ export function captureGuestFilePlayTiming(
 
   if (hasAnchor && calibrated) {
     const remainingMs = hostAnchor - getHostNow();
-    if (Math.abs(remainingMs) < 2_000) {
+    if (Math.abs(remainingMs) < HOST_TIMELINE_TRUST_WINDOW_MS) {
       return {
         time: time + (hasSharedStart ? 0 : LEGACY_FILE_SCHEDULE_AHEAD_MS / 1_000),
         setAt: receivedAt + remainingMs,

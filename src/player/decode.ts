@@ -66,7 +66,7 @@ import {
 } from './_state.ts';
 
 import { isFilePipelineBusyForPlay, play, stopAllMedia, stopPlayerNode } from './transport.ts';
-import { resolveFilePlayTiming } from './file-play-timing.ts';
+import { GUEST_START_SYNC_PING_DELAY_MS, resolveFilePlayTiming } from './file-play-timing.ts';
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
@@ -1072,7 +1072,7 @@ export async function loadPreloadedTrack(
               bus.emit('sync:request-immediate-ping');
             }
           },
-          250,
+          GUEST_START_SYNC_PING_DELAY_MS,
         );
       };
       const started = await play(
@@ -1417,7 +1417,7 @@ export async function finalizeGuestFile(
               bus.emit('sync:request-immediate-ping');
             }
           },
-          250,
+          GUEST_START_SYNC_PING_DELAY_MS,
         );
       };
       const started = await play(

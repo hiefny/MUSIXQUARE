@@ -3,6 +3,7 @@ import { CHUNK_SIZE, MSG, RTC_INTERRUPTION_GRACE_MS } from '../../core/constants
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { withRequestDeadline } from '../../core/request-lifetime.ts';
 import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
+import { noteLinkClose } from '../last-link-close.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
@@ -1399,6 +1400,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     if (!this.closeCause) {
       this.closeCause = cause;
       log.info(`[Transport] Logical connection closed (${cause}) for ${this.peer}`);
+      noteLinkClose(cause);
     }
     this.cancelDisconnectedGrace();
     this.clearBackgroundResumeRecovery();

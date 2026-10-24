@@ -2043,7 +2043,11 @@ describe('YouTube Player', () => {
             platform: 'other',
           });
           expect(
-            controller.beginYouTubeZeroStart({ queueItemId: QUEUE_ITEM_ID, videoId, subIndex: null }),
+            controller.beginYouTubeZeroStart({
+              queueItemId: QUEUE_ITEM_ID,
+              videoId,
+              subIndex: null,
+            }),
           ).toBe(true);
           for (
             let i = 0;

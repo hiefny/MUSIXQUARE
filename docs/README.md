@@ -92,6 +92,15 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [YouTube host speaker reference after a zero-start (2026-10-25)](design/youtube-host-speaker-reference-2026-10-25.md):
+  owner report that a Standard room's first YouTube playback stayed misaligned
+  however often the host pressed Sync, until a seek. Since 8.10.2 the host kept
+  its own media startup lateness out of the published room position, so every
+  guest re-aligned to a position the host speaker never played. The host now
+  removes only its deliberate advance, as a seek does. The report records a
+  real IFrame API startup probe, the host and guest Sync path comparison,
+  regression and lab evidence with tested SHAs, and the owner device check.
+
 - [Phase 4 train 4A: transport liveness and output rejoin, behaviour-neutral (2026-10-24)](design/phase4-4a-transport-rejoin-2026-10-24.md):
   release evidence for the structure program's first Phase 4 app train
   (9.0.7 / v778, released 2026-10-24 23:26 KST in Release 40102311205, target `app`). One home each for the

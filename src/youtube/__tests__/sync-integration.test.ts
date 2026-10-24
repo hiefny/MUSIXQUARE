@@ -4785,4 +4785,51 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(broadcast).not.toHaveBeenCalled();
     });
   });
+
+  describe('host Sync and guest Sync parity', () => {
+    // A host's Sync and a guest's own Sync re-align this guest to the same
+    // published host timeline, whichever frame carried it. Neither can move
+    // the host speaker, so both inherit any error in what the host publishes.
+    async function rendezvousFrom(trigger: 'host-sync' | 'guest-sync') {
+      const syncMod = await importSync();
+      syncMod.resetYouTubeSyncState();
+      clearAllManagedTimers();
+      vi.setSystemTime(new Date(1_700_000_100_000));
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', mockHostConn);
+      const player = installPlayer({
+        __videoId: 'FAKE_VIDEO',
+        __currentTime: 49.6,
+        __state: 1,
+        __duration: 300,
+        __advanceClock: true,
+      });
+      const now = Date.now();
+      if (trigger === 'host-sync') {
+        capturedHandlers[MSG.YOUTUBE_SYNC](
+          { time: 50, state: 1, videoId: 'FAKE_VIDEO', hostClock: now, isManual: true },
+          mockHostConn,
+        );
+      } else {
+        // The latest ordinary heartbeat of the same host timeline, 2.5 s old.
+        capturedHandlers[MSG.YOUTUBE_SYNC](
+          { time: 47.5, state: 1, videoId: 'FAKE_VIDEO', hostClock: now - 2_500 },
+          mockHostConn,
+        );
+        expect(syncMod.guestRendezvousSync({ suppressProgressToast: true }).status).toBe('started');
+      }
+      await vi.advanceTimersByTimeAsync(3_000);
+      const seek = player.__log.find((call) => call.op === 'seekTo');
+      const play = player.__log.find((call) => call.op === 'playVideo');
+      return { target: seek?.args?.[0] as number, playAt: (play?.at ?? NaN) - now };
+    }
+
+    it('aligns to the same target at the same instant from either button', async () => {
+      const host = await rendezvousFrom('host-sync');
+      const guest = await rendezvousFrom('guest-sync');
+      expect(host.target).toBeCloseTo(51.5, 6);
+      expect(guest.target).toBeCloseTo(host.target, 6);
+      expect(guest.playAt).toBe(host.playAt);
+    });
+  });
 });

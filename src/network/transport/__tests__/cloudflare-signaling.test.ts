@@ -8291,6 +8291,28 @@ describe('logical connection close paths decided by the provider', () => {
     ]);
   });
 
+  it('reports room admission expiry before an error listener closes the connection itself', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const events: string[] = [];
+    conn.on('close', () => events.push('close'));
+    // Mirrors the guest join flow's pre-open error handler: it closes the
+    // connection itself, naming no reason, before the provider's own close.
+    conn.on('error', (error: unknown) => {
+      const { type, message } = error as Error & { type?: string };
+      events.push(`error ${type} ${message} open=${conn.open}`);
+      conn.close();
+    });
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    await flushAsync();
+    expect(events).toEqual(['error peer-unavailable ROOM_EXPIRED open=false', 'close']);
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(events).toEqual(['error peer-unavailable ROOM_EXPIRED open=false', 'close']);
+    expect(closeLines()).toHaveLength(1);
+  });
+
   it('closes the shared connection once when a media rollback cannot be proven', async () => {
     const { peer, conn, socket, pc } = await establishHostWithSignalingState();
     const onClose = vi.fn();

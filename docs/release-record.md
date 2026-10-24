@@ -229,6 +229,17 @@ gh run list --workflow e2e.yml --branch main --limit 3
       [사가 실행기](design/app-worker-saga-executor-2026-10-23.md),
       [아웃박스·길이 읽기](design/pro-room-outbox-duration-owners-2026-10-23.md).
 
+### 일반방 YouTube 첫 재생 뒤 방장 스피커 기준
+
+- [ ] 배포 준비(2026-10-25): 일반방에서 YouTube를 처음 재생하면(빈 목록에 추가, 로컬→YouTube,
+      YouTube→로컬→YouTube) 방장이 zero-start 출발 때 실제 미디어 시작 늦음까지 자기 오프셋에
+      넣어, 하트비트·동기화·zero-start 타임라인이 방장 스피커보다 그만큼 앞선 위치를 발행했다
+      (8.10.2 `80b92c99`부터). 게스트 자동 재정렬과 방장·게스트 동기화가 모두 그 위치로 맞춰
+      방장과 어긋났고, seek만 기준을 방장 스피커로 되돌렸다. 이제 출발 때 의도한 앞당김(수동
+      오프셋+출력 리드)만 빼서 seek와 같은 기준을 발행한다. 일반방 App만, 통신 형식·Worker 변경
+      없음. 실기기(방장·게스트 귀로 듣는 첫 재생 세 경우와 방장 동기화 반복)는 미검증이다.
+      [원인·실측·검증](design/youtube-host-speaker-reference-2026-10-25.md).
+
 ### 9.0.3 PRO SFU 재시도의 수신 대기 유지·느린 제스처 재개 확인
 
 - [ ] App 9.0.3/v771은 2026-10-23 03:07 KST [Release 39828174957](https://github.com/hiefny/MUSIXQUARE/actions/runs/39828174957)로 배포했다(target `app`). 아래 9.0.2를 함께 실었다(오너 결정 2026-10-23). PRO SFU 재시도가 같은 발행이면 수신 대기를

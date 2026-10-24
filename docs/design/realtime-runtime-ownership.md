@@ -36,8 +36,12 @@ predicate:
 - `isRecoverablyInterrupted`: the preload lanes in `src/storage/preload.ts`
   pause instead of aborting. Either field disconnected or failed counts.
 - `heartbeatStaleThreshold` and `honoursRecoveryLease`: the heartbeat
-  monitor's stale threshold and its bounded ICE recovery lease. They follow
-  the peer connection alone.
+  monitor's stale threshold and its bounded ICE recovery lease. Neither reads
+  `iceConnectionState`. The threshold reads whether the connection is open,
+  the peer connection's `connectionState`, and the data and control channel
+  states. The lease reads whether the connection is open, the data and
+  control channel states, and the provider's recovery deadline; it reads no
+  peer connection state.
 
 The module owns no state, timer, or lifecycle. Callers keep their own currency
 checks (the connection is still the peer's current one). The heartbeat

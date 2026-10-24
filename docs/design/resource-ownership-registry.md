@@ -98,12 +98,12 @@ each record also states the step in words.
 | RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6                        |
 | RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6                        |
 | RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5       |
-| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 0d, 4                        |
-| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 0d, 4                        |
+| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (constants done, C3-I1)    |
+| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (constants done, C3-I1)    |
 | RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                 |
 | RO-08 | PRO asset duration read                                  | Workers        | owner-in-place     | Done (0d, 1)                 |
 | RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                         |
-| RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | 4 (naming only)              |
+| RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | Done (4, C13 docs)           |
 | RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)             |
 | RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                            |
 | RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                         |
@@ -451,7 +451,8 @@ RO-47 owner-in-place
   `getStandardHostPendingFileStartAt`, published by `startHostFileAndBroadcastPlay` in
   `src/player/transport.ts`) and the demo anchor (`setDemoHostStartAt`,
   `getPendingDemoHostStartAt` in `src/demo/host-start-anchor.ts`, a leaf the startup graph can
-  read without the lazy demo timing module; `startDemoPlayback` in `src/demo/mode.ts`). The modes are mutually exclusive and other modules branch on `demo.active`.
+  read without the lazy demo timing module; `startDemoPlayback` in `src/demo/mode.ts`). The modes
+  are mutually exclusive and other modules branch on `demo.active`.
   The queue anchor validates its output identity; the demo anchor only checks that it lies in the
   future, and only demo code clears it.
 - **Target single owner:** `transport.ts`: one pending shared-start anchor for both kinds,
@@ -737,8 +738,10 @@ RO-47 owner-in-place
   pause flag that `media-session.ts` and `playback.ts` write. `app.ts` maps the source to an
   intent and branches between retry and rejoin.
 - **Target single owner:** unchanged. `play()` and the play lock stay the only starter; the
-  generation fence arbitrates (an output-only rebuild bumps it, so a pending dialog retry is
-  rejected). Naming the failed-PLAY lease and writing the fence down as an invariant is optional.
+  `failedPlayRecoveryGeneration` fence arbitrates. Which `play()` calls move the fence, and which
+  return early and leave a pending dialog retry valid, is invariant C13 in
+  [Playback concurrency invariants](playback-concurrency-invariants.md#3-cross-mechanism-interaction-contracts);
+  read the fence rule there, not here. Naming the failed-PLAY lease stays optional.
 - **Allowed requesters:** the recovery dialog (`app.ts`), the rejoin router, the media session.
 - **Lifecycle operations:** `play()`, `play({ outputOnly })`, stop, generation bump.
 - **Deadline owner:** the recovery dialog (it waits for a user gesture); the router's success
@@ -751,7 +754,8 @@ RO-47 owner-in-place
     a newer PAUSE intent".
   - Teardown: missing.
   - Visibility: missing.
-- **Status:** `owner-in-place`. Phase 4 (optional naming). See
+- **Status:** `owner-in-place`. The fence is written down as invariant C13 since Phase 4 4A
+  (C3-I9 docs). The roadmap reduced C3-I9 to these docs, so Phase 4 does not rename the lease. See
   [Playback concurrency invariants](playback-concurrency-invariants.md). Exception RO-36.
 
 ### RO-11 Deferred-start mailbox `playback.pendingPlayTime`
@@ -1005,7 +1009,9 @@ RO-47 owner-in-place
   `src/storage/preload.ts` (`_activePreloadUnicasts`, `_preloadPeerOwners`,
   `_suspendedPreloadLanes`; it suspends and resumes from chunk 0 on `network:peer-ice-recovered`).
   The preload lane asks `hasPendingCurrentFileTransfer`; each lane cancels on its own listener.
-  Inferred, untested: after ICE recovery both lanes can stream the same file.
+  Reproduced: when the host promotes an interrupted preload to the current track during an outage,
+  both lanes stream the same file for the same tuple after ICE recovery (the anchor below). Which
+  lane wins is still the owner's decision (P4-D10, C5-12).
 - **Target single owner:** one bulk-lane registry (planned `src/storage/bulk-lanes.ts`); per-lane
   policies, pumps and wire frames unchanged.
 - **Allowed requesters:** file send, preload scheduling, the guest's recovery request.
@@ -1025,7 +1031,11 @@ RO-47 owner-in-place
   - Teardown: `src/storage/__tests__/preload-capacity-lifecycle.test.ts` "cancels a parked sender
     without flushing stale bytes into a replacement unicast or ACK".
   - Visibility: n/a (host lanes do not depend on visibility).
-  - Missing: both lanes after ICE recovery (Phase 0c reproduces or refutes the duplicate traffic).
+  - Both lanes after ICE recovery, expected today:
+    `src/storage/__tests__/ice-recovery-bulk-lanes.test.ts` "the host uploads the file on both
+    lanes when the request arrives %s" (unit), and at the wire the C5-0 lab
+    `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage, observed
+    at the wire (F4)" (17 s outage; not in CI).
 - **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); Phase 4 still owes the
   registry (which lane wins after recovery is an owner decision). See
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md).

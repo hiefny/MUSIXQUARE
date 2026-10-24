@@ -77,8 +77,7 @@
  * setSystemAudioReceiving, scheduleSessionReset), receivers resolved by type,
  * module-level lifecycle slots, timer-name manifests, shared phase unions,
  * duplicated helper names, "mirrors" copy markers, and registered timings
- * retyped as literals in requester files (the 15 s data-connection grace in
- * heartbeat-monitor.ts).
+ * retyped as literals in requester files.
  *
  * Exit code: 0 if clean, 1 if findings remain.
  */

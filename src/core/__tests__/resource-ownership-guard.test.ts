@@ -127,25 +127,25 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
     });
 
     it('reads the first Status word with backticks and surrounding punctuation stripped', () => {
-      const field = '- **Status:** `owner-in-place`. Phase 4 (optional naming).';
+      // RO-10's Status field; `rest` is the start of its text after the status word.
+      const rest = ' The fence is written down as invariant C13';
+      const field = `- **Status:** \`owner-in-place\`.${rest}`;
       expect(
         findingsOf(
           withRegistry((registry) =>
-            registry.replace(field, '- **Status:** owner-in-place. Phase 4 (optional naming).'),
+            registry.replace(field, `- **Status:** owner-in-place.${rest}`),
           ),
         ),
       ).toBe('');
       expect(
         findingsOf(
-          withRegistry((registry) =>
-            registry.replace(field, '- **Status:** duplicated, Phase 4 (optional naming).'),
-          ),
+          withRegistry((registry) => registry.replace(field, `- **Status:** duplicated,${rest}`)),
         ),
       ).toMatch(/RO-10 Status field says "duplicated" but the block says "owner-in-place"/u);
       expect(
         findingsOf(
           withRegistry((registry) =>
-            registry.replace(field, '- **Status:** `consolidated`. Phase 4 (optional naming).'),
+            registry.replace(field, `- **Status:** \`consolidated\`.${rest}`),
           ),
         ),
       ).toMatch(/RO-10 Status field starts with unknown status "consolidated"/u);

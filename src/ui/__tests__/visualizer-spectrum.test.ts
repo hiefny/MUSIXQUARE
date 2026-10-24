@@ -6,7 +6,8 @@ import {
   updateSpectrumPoints,
   type SpectrumPoint,
 } from '../visualizer-spectrum.ts';
-import { dbToY, drawSpectrumGrid } from '../visualizer-spectrum-static.ts';
+import { dbToY, drawSpectrumGrid, drawSpectrumRestingLine } from '../visualizer-spectrum-static.ts';
+import { webKitStrokeRecorder } from './webkit-stroke-recorder.ts';
 
 vi.mock('../../core/log.ts', () => ({ log: { debug: vi.fn() } }));
 
@@ -61,10 +62,8 @@ describe('spectrum aggregation', () => {
 });
 
 function drawingContext() {
-  const transform = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
   const context = {
     canvas: { width: 604, height: 240 },
-    getTransform: vi.fn(() => ({ ...transform })),
     beginPath: vi.fn(),
     moveTo: vi.fn(),
     lineTo: vi.fn(),
@@ -83,41 +82,47 @@ function drawingContext() {
     strokeStyle: '',
     lineWidth: 1,
   };
-  return { context, transform, ctx: context as unknown as CanvasRenderingContext2D };
+  return { context, ctx: context as unknown as CanvasRenderingContext2D };
 }
 
 describe('spectrum drawing caches', () => {
-  it('shares a gradient without retaining stale theme, geometry, density, or transforms', () => {
-    const { context, transform, ctx } = drawingContext();
-    const draw = (height = 240, pad = 8, light = false) =>
-      drawSpectrumGrid(ctx, 604, height, 4, pad, light);
-    draw();
-    draw();
-    expect(context.createLinearGradient).toHaveBeenCalledTimes(1);
-    expect(context.stroke).toHaveBeenCalledTimes(6);
-    draw(240, 8, true);
-    draw(240, 9, true);
-    draw(180, 9, true);
-    context.canvas.width = 1208;
-    context.canvas.height = 480;
-    transform.a = 2;
-    transform.d = 2;
-    draw(180, 9, true);
-    transform.e = 1;
-    draw(180, 9, true);
-    expect(context.createLinearGradient).toHaveBeenCalledTimes(6);
-    const other = drawingContext();
-    drawSpectrumGrid(other.ctx, 604, 240, 4, 8, false);
-    expect(other.context.createLinearGradient).toHaveBeenCalledTimes(1);
-  });
-
-  it('still draws with a context that cannot report its transform', () => {
+  it('gives each grid draw its own theme gradient and shares it across the three lines', () => {
     const { context, ctx } = drawingContext();
-    Object.defineProperty(ctx, 'getTransform', { value: undefined });
+    const styles: unknown[] = [];
+    context.stroke.mockImplementation(() => styles.push(context.strokeStyle));
     drawSpectrumGrid(ctx, 604, 240, 4, 8, false);
     drawSpectrumGrid(ctx, 604, 240, 4, 8, false);
     expect(context.createLinearGradient).toHaveBeenCalledTimes(2);
-    expect(context.stroke).toHaveBeenCalledTimes(6);
+    expect(styles).toHaveLength(6);
+    expect(new Set(styles.slice(0, 3)).size).toBe(1);
+    expect(new Set(styles.slice(3)).size).toBe(1);
+    expect(styles[3]).not.toBe(styles[0]);
+    drawSpectrumGrid(ctx, 604, 180, 4, 9, true);
+    expect(context.createLinearGradient).toHaveBeenLastCalledWith(0, 9, 0, 171);
+    const stops = context.createLinearGradient.mock.results.map(
+      (result) => result.value.addColorStop.mock.calls,
+    );
+    expect(stops[0][1]).toEqual([0.15, 'rgba(255,255,255,0.06)']);
+    expect(stops[2]).toEqual([
+      [0, 'rgba(0,0,0,0)'],
+      [0.15, 'rgba(0,0,0,0.06)'],
+      [0.85, 'rgba(0,0,0,0.06)'],
+      [1, 'rgba(0,0,0,0)'],
+    ]);
+  });
+
+  it('keeps the grid neutral across resting frames on the WebKit GPU recorder', () => {
+    // A paused mode switch draws the resting frame twice in a row.
+    const { ctx, painted } = webKitStrokeRecorder();
+    for (let frame = 0; frame < 2; frame++) {
+      drawSpectrumGrid(ctx, 604, 240, 4, 8, false);
+      drawSpectrumRestingLine(ctx, 604, 240, 4, 8);
+    }
+    const restingBlue = 'rgba(59, 130, 246, 0.38)';
+    expect(painted).toHaveLength(8);
+    for (const index of [0, 1, 2, 4, 5, 6]) expect(typeof painted[index]).toBe('object');
+    expect(painted[3]).toBe(restingBlue);
+    expect(painted[7]).toBe(restingBlue);
   });
 
   it('preserves the open stroke and closed fill with the gradient fallback', () => {

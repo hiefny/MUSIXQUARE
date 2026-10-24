@@ -397,14 +397,21 @@ export function initLocalOutputRejoin(): void {
   scope.on('playback:local-output-rejoin', (request) => {
     return requestLocalOutputRejoin(captureRequest(request));
   });
-  scope.on('youtube:set-local-paused', (paused) => {
-    if (!paused || getState('playback.mode') !== 'youtube') return;
+  const retireYouTubeRejoin = (): void => {
+    if (getState('playback.mode') !== 'youtube') return;
     // An explicit PAUSE also retires a PLAY whose busy/failed attempt has
     // already returned and left a timer behind. A later PLAY captures anew.
     rejoinGeneration += 1;
     pendingRejoinRequest = null;
     cancelScheduledRetry();
+  };
+  scope.on('youtube:set-local-paused', (paused) => {
+    if (paused) retireYouTubeRejoin();
   });
+  // A PRO listener's visible iframe PAUSE is explicit too. A hidden stop is
+  // not: WebKit stops a locked iframe by itself, and a lock-screen PLAY retry
+  // must outlive it.
+  scope.on('youtube:pro-listener-visible-pause', retireYouTubeRejoin);
   scope.on('state:setup.sessionStarted', (started) => {
     if (!started) resetLocalOutputRejoinState();
   });

@@ -410,9 +410,11 @@ function routeNativeAction(
     // automatic alignment retires. WebKit stops a hidden iframe by itself,
     // so a hidden stop only records the local pause. A PRO listener's intent
     // handler drops autoplay intent, which would pause back its next iframe
-    // PLAY before it can rejoin, so PRO keeps recording only.
-    if (room.kind === 'standard' && document.visibilityState === 'visible') {
-      bus.emit('youtube:set-local-paused', true);
+    // PLAY before it can rejoin, so a visible PRO PAUSE only ends a pending
+    // local-output rejoin, whose next retry would release it (P4-D7 B).
+    if (document.visibilityState === 'visible') {
+      if (room.kind === 'standard') bus.emit('youtube:set-local-paused', true);
+      else bus.emit('youtube:pro-listener-visible-pause');
     }
     log.info('[YouTube Native Control] Applied endpoint-local pause');
     return;

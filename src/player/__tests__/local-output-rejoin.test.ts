@@ -227,6 +227,31 @@ describe('participant-local output rejoin', () => {
     }
   });
 
+  it('ends a reserved PRO YouTube retry on a PRO listener visible PAUSE and permits the next PLAY', async () => {
+    vi.useFakeTimers();
+    try {
+      startSession();
+      setProRoom();
+      setPlaybackYouTubePlaying();
+      mocks.reconcilePro.mockResolvedValueOnce(false).mockResolvedValue(true);
+      bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+      // The native-control route writes the local pause, then reports it.
+      setLocalYouTubePaused(true);
+      bus.emit('youtube:pro-listener-visible-pause');
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+      expect(isLocalYouTubePaused()).toBe(true);
+      bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.reconcilePro).toHaveBeenCalledTimes(2);
+      expect(isLocalYouTubePaused()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejoins a standard file guest through a fresh SYNC_PONG, never pausedAt', async () => {
     startSession();
     setStandardGuest();

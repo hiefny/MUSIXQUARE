@@ -417,8 +417,13 @@ RO-49 accepted-exception
   `background-return-sync-rendezvous-retry`). Both space their retries with one schedule,
   `[250, 750, 1_500, 3_000, 5_000]`, each cancels only itself, and their only shared guard is the
   rendezvous busy and cooldown result. Since 9.0.1 both end on `youtube:set-local-paused` (G2).
-  Single-shot callers: `src/youtube/iframe.ts`, `src/ui/manual-sync-overlay-runtime.ts` and the
-  host- or user-commanded attempts inside `youtube/sync.ts`.
+  Since Phase 4 4B (P4-D7 B) the router also ends on `youtube:pro-listener-visible-pause`: a PRO
+  listener's visible iframe PAUSE records the local pause without `youtube:set-local-paused`
+  (whose PRO handler drops autoplay intent), and its PRO reconciliation retries would otherwise
+  release it. A hidden stop of the iframe ends nothing, so a lock-screen PLAY retry outlives a
+  browser stop while locked. Single-shot callers: `src/youtube/iframe.ts`,
+  `src/ui/manual-sync-overlay-runtime.ts` and the host- or user-commanded attempts inside
+  `youtube/sync.ts`.
 - **Target single owner:** `local-output-rejoin.ts` as the re-align owner for participant-local
   automatic and OS-triggered attempts; `youtube/sync.ts` keeps the rendezvous primitive and
   host- or user-commanded attempts.
@@ -438,19 +443,25 @@ RO-49 accepted-exception
     scheduled busy retry after the queue occurrence changes".
   - User pause/stop: `background-return-sync.test.ts` "lets a local YouTube pause during the retry
     wait end the chain"; `local-output-rejoin.test.ts` "cancels a busy YouTube retry on explicit
-    PAUSE and permits the next PLAY".
+    PAUSE and permits the next PLAY" and "ends a reserved PRO YouTube retry on a PRO listener
+    visible PAUSE and permits the next PLAY"; `native-control-authority.test.ts` "records a
+    $visibility $room listener iframe PAUSE as a local pause" (only the visible PRO row emits the
+    router's end event).
   - Teardown: `local-output-rejoin.test.ts` "does not let a stale busy result schedule work into a
     restarted session".
   - Visibility: `background-return-sync.test.ts` "ignores a sub-second visibility bounce that is
     not a background return".
   - Both chains against the real `youtube/sync.ts` (Phase 4 4A, tests only):
-    `src/player/__tests__/local-output-realign-cross-flow.test.ts`, the P4-D7 and P4-D8 cases.
-    The two unit suites above still mock it.
+    `src/player/__tests__/local-output-realign-cross-flow.test.ts`, the P4-D7 cases (the P4-D7 B
+    fix, a locked browser-stop row and a Standard-guest row) and the P4-D8 cases. The two unit
+    suites above still mock it.
 - **Status:** `duplicated`. One schedule since Phase 4 4A (C3-I1); both chains already end on the
-  same local pause (G2). Owner decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3
-  and C3-I4 are not done), and the double alignment after a quick unlock and the return chain's
-  give-up while the host is buffering stay as the cross-flow harness pins them. The owner is
-  asked again only if device evidence shows either one disturbing playback. Exception RO-48.
+  same local pause (G2). Owner decision P4-D7 B (2026-10-25, train 4B): a PRO listener's visible
+  iframe PAUSE also ends the router's retries; browser stops while hidden still do not. Owner
+  decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3 and C3-I4 are not done), and
+  the double alignment after a quick unlock and the return chain's give-up while the host is
+  buffering stay as the cross-flow harness pins them. The owner is asked again only if device
+  evidence shows either one disturbing playback. Exception RO-48.
 
 ### RO-06 Host shared start, playlist queue and guided demo
 
@@ -461,7 +472,12 @@ RO-49 accepted-exception
   `src/player/transport.ts`) and the demo anchor (`setDemoHostStartAt`,
   `getPendingDemoHostStartAt` in `src/demo/host-start-anchor.ts`, a leaf the startup graph can
   read without the lazy demo timing module; `startDemoPlayback` in `src/demo/mode.ts`). The modes
-  are mutually exclusive and other modules branch on `demo.active`.
+  are mutually exclusive and other modules branch on `demo.active`;
+  `armStandardHostCanonicalTimeline` declines demo output (`demo.active` with no resident file;
+  demo tracks publish none) since train 4B (P4-D9), so demo playback never arms the queue anchor
+  or its canonical timeline. A queue file started while the demo flag is still set (an operator
+  guest's track request reaches `playTrack` without a demo check) owns a resident and keeps the
+  queue anchor and its PLAY, as before.
   The queue anchor validates its output identity; the demo anchor only checks that it lies in the
   future, and only demo code clears it.
 - **Target single owner:** `transport.ts`: one pending shared-start anchor for both kinds,
@@ -489,18 +505,23 @@ RO-49 accepted-exception
     pause and stop do not clear the demo anchor).
   - Teardown: `src/demo/__tests__/mode-recovery.test.ts` "does not retry an aborted guest fetch
     after exit".
-  - Visibility: missing.
-  - Both anchors together (Phase 4 4A, tests only): `src/demo/__tests__/shared-start-anchor.test.ts`
-    (P4-D9).
+  - Visibility: demo side `src/demo/__tests__/shared-start-anchor.test.ts` "the demo host reports
+    its own position after a hidden stall" and "a background-resume rebuild restarts the demo at
+    its own position"; queue side, same file, "keeps the queue canonical timeline governing the
+    host position across a hidden stall", whose rebuild still moves the host forward (train 4B,
+    P4-D9).
+  - Both anchors together (Phase 4 4A, tests only; flipped to the fix in train 4B):
+    `src/demo/__tests__/shared-start-anchor.test.ts` (P4-D9).
 - **Status:** `duplicated` (mutually exclusive modes). One lead since Phase 4 4A (C3-I1). The
-  anchor investigation is done (owner decision P4-D9 A, tests only): DEMO_PLAY, SYNC_PONG and the
-  late-join demo bootstrap carry the same demo start, and no frame reads the queue anchor while
-  the demo runs. When a queue item was selected before demo entry, demo playback still arms that
-  item's queue anchor and its canonical timeline governs the demo host's reported position; whether
-  that is a defect is not decided. One anchor (C3-I8) and one start-and-publish-once primitive
-  (C3-I7) are deferred; only a narrow fix of a confirmed problem may go to train 4B. See
-  [Standard file common start](standard-file-common-start.md) for the intended separate demo path.
-  Exception RO-49.
+  anchor investigation (owner decision P4-D9 A, tests only) found that when a queue item was
+  selected before demo entry, demo playback armed that item's queue anchor and its canonical
+  timeline governed the demo host's reported position (4.8 s against 2.8 s audible after a
+  hidden audio-clock stall in the harness). The owner chose the narrow fix on 2026-10-25 (train
+  4B): demo playback never arms that anchor, so the demo host reports its own position, while
+  DEMO_PLAY, SYNC_PONG and the late-join demo bootstrap still carry the same demo start and queue
+  playback after the demo is unchanged. One anchor (C3-I8) and one start-and-publish-once
+  primitive (C3-I7) stay deferred. See [Standard file common start](standard-file-common-start.md)
+  for the separate demo path. Exception RO-49.
 
 ### RO-07 PRO signaling broadcast delivery
 
@@ -2112,27 +2133,39 @@ entry needs the owner's acceptance and is not implied by this registry.
 ### RO-49 Queue and demo start anchors stay two
 
 - **Parent:** RO-06. Plan steps C3-I8 (one pending shared-start anchor) and C3-I7 (one
-  start-and-publish-once primitive) deferred (owner decision P4-D9 A, 2026-10-24).
+  start-and-publish-once primitive) deferred (owner decision P4-D9 A, 2026-10-24; the narrow fix
+  of 2026-10-25 does not schedule them).
 - **Exception:** the queue anchor in `src/player/transport.ts` and the demo anchor in
   `src/demo/host-start-anchor.ts` stay two records with different validation; only the 200 ms
   lead `LOCAL_FILE_START_LEAD_MS` is shared (Phase 4 4A, C3-I1).
 - **Evidence:** the shared-start harness (`src/demo/__tests__/shared-start-anchor.test.ts`, Phase
-  4 4A, tests only) shows DEMO_PLAY, SYNC_PONG, the late-join demo bootstrap and
-  `getPendingDemoHostStartAt()` carrying one demo start, and no frame reading the queue anchor
-  while the demo runs, so the two records never disagree on the wire. One anchor is not a plain
+  4 4A, flipped to the fix in train 4B) shows DEMO_PLAY, SYNC_PONG, the late-join demo bootstrap
+  and `getPendingDemoHostStartAt()` carrying one demo start, and the queue anchor never armed
+  while the demo runs, selected queue item or not, so only one record exists in each mode. Its
+  queue rows show a queue start after the demo still arms the queue anchor, publishes it in PLAY
+  and the PONG, and keeps the canonical timeline across a hidden stall. One anchor is not a plain
   move: the queue anchor is a canonical wall-clock timeline, not only a pending deadline, so
   recording the demo the same way either gives the demo that timeline or adds a second record
   behind one getter, and revoking it in `stopPlayerNode` would change queue-anchor behaviour on
   many paths. Six demo test files mock `player/transport.ts` wholesale, so a shared primitive would
   make them fail on a missing export or pass against a mock.
-- **Behaviour risk:** when a queue item was selected before demo entry, demo playback still arms
-  that item's queue anchor, and its canonical timeline governs the demo host's reported position
-  (in the harness, 4.8 s instead of 0 s after the page is hidden for 5 s with the audio clock
-  stopped). Whether that is a defect is not decided and the real-device gap is not measured; no
-  known-accepted entry.
-- **Revisit when:** that overlap or another demo or queue anchor problem is confirmed as a defect.
-  Only a narrow fix of it may go to train 4B; one anchor (C3-I8, with C3-I7) needs its own owner
-  decision.
+- **Behaviour risk:** the overlap this record named (the demo host's position governed by a
+  selected queue item's timeline, 4.8 s against 2.8 s audible after a hidden stall in the
+  harness) is fixed in train 4B (owner decision 2026-10-25). That timeline also drove the host's
+  background-resume rebuild (`playback:refresh-current-position`), which moved a selected-queue
+  demo host's output forward to the room position (4.8 s). Since the fix the demo host rebuilds
+  at its own position (2.8 s) and its PONG reports that position, also while it answers hidden
+  (0 s), as it already did without a selected queue item; a guest whose position is more than
+  2 s from the host's (`FILE_HARD_RESYNC_DRIFT_SEC` in `src/network/sync.ts`) hard-resyncs back
+  to it, so the guests, not the host, absorb the stall (guest side from code reading). Left as
+  well: the demo anchor is not revoked by transport pause and stop, only by demo code; and a
+  queue file started while the demo flag is still set keeps the queue anchor and publishes its
+  PLAY, while the late-join PONG still advertises the demo track and the demo start (unchanged,
+  pinned by the harness). No known-accepted entry.
+- **Revisit when:** another demo or queue anchor problem is confirmed as a defect; the owner wants
+  the room to keep its position through a demo host's background stall, which needs a
+  demo-owned canonical timeline (C3-I8), not a narrower fix; or the owner schedules one anchor
+  (C3-I8, with C3-I7), which needs its own owner decision.
 - **Status:** `accepted-exception`.
 
 ## Checked side flows without a record

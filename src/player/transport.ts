@@ -101,7 +101,8 @@ export function isFileSourceNodeUsable(
  * wall-clock anchor for the exact queue occurrence and decoded buffer.
  *
  * Guests and PRO rooms deliberately never read this anchor: their timeline is
- * owned by the standard host or PRO server respectively.
+ * owned by the standard host or PRO server respectively. Guided demo playback
+ * never arms it either.
  */
 interface StandardHostCanonicalTimelineAnchor {
   readonly sessionCode: string;
@@ -167,7 +168,13 @@ function armStandardHostCanonicalTimeline(
   positionSeconds: number,
   scheduleDelaySeconds: number,
 ): void {
-  if (!isActiveStandardRoomCoordinator() || !queueItemId) {
+  // Guided demo output has its own published start and reports its own
+  // audio-clock position, so a queue item left selected across demo entry
+  // must not lend it this timeline. Demo tracks publish no resident file
+  // (loadDemoFile); a queue file started while the demo flag is still set
+  // owns one and keeps its anchor.
+  const demoOutput = getState('demo.active') && !getState('files.current');
+  if (!isActiveStandardRoomCoordinator() || !queueItemId || demoOutput) {
     clearStandardHostCanonicalTimeline();
     return;
   }

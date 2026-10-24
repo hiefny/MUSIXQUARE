@@ -162,15 +162,17 @@ describe('iframe-native YouTube control authority', () => {
   });
 
   it.each([
-    { room: 'standard', visibility: 'visible', published: true },
-    { room: 'standard', visibility: 'hidden', published: false },
-    { room: 'pro', visibility: 'visible', published: false },
+    { room: 'standard', visibility: 'visible', published: true, endsProRejoin: false },
+    { room: 'standard', visibility: 'hidden', published: false, endsProRejoin: false },
+    { room: 'pro', visibility: 'visible', published: false, endsProRejoin: true },
+    { room: 'pro', visibility: 'hidden', published: false, endsProRejoin: false },
   ] as const)(
     'records a $visibility $room listener iframe PAUSE as a local pause, published as intent: $published',
-    ({ room, visibility, published }) => {
+    ({ room, visibility, published, endsProRejoin }) => {
       // WebKit stops a hidden iframe by itself; only a visible PAUSE is the
       // participant's own, like a lock-screen or media-key PAUSE. A PRO
-      // listener keeps its iframe PLAY able to rejoin, so nothing is published.
+      // listener keeps its iframe PLAY able to rejoin, so no intent is
+      // published; its visible PAUSE only ends a pending rejoin (P4-D7 B).
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: visibility });
       try {
         const player = createPlayer();
@@ -193,6 +195,8 @@ describe('iframe-native YouTube control authority', () => {
         installCurrentYouTube(player);
         const localPause = vi.fn();
         bus.on('youtube:set-local-paused', localPause);
+        const proRejoinEnd = vi.fn();
+        bus.on('youtube:pro-listener-visible-pause', proRejoinEnd);
 
         player.state = 2;
         setPlaybackYouTubePaused();
@@ -200,6 +204,7 @@ describe('iframe-native YouTube control authority', () => {
         expect(isLocalYouTubePaused()).toBe(true);
         if (published) expect(localPause).toHaveBeenCalledExactlyOnceWith(true);
         else expect(localPause).not.toHaveBeenCalled();
+        expect(proRejoinEnd).toHaveBeenCalledTimes(endsProRejoin ? 1 : 0);
         expect(mocks.safeSend).not.toHaveBeenCalled();
       } finally {
         Reflect.deleteProperty(document, 'visibilityState');

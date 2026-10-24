@@ -105,8 +105,8 @@ runbooks. Neither belongs in a general setup document.
   partial-release gate for target `app`.
 
 - [Phase 3 update and Standard-room expiry recovery batch (2026-10-24)](design/phase3-update-and-expiry-recovery-2026-10-24.md):
-  pending release evidence for Phase 3 R1 (9.0.5 / v776, target `all`, not yet
-  released). Explicit room expiry stops automatic guest signaling retries while
+  release evidence for Phase 3 R1 (9.0.5 / v776, target `all`), released
+  2026-10-24 10:33 KST in Release 40049951071 after two runs recovered automatically. Explicit room expiry stops automatic guest signaling retries while
   preserving existing RTC playback; internal diagnostics distinguish expiry and
   observed host-unavailability state. R1 also carries the angular selection
   check and minus, the pinned-notice X aligned to its header time, the recovery

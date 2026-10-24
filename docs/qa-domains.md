@@ -1280,11 +1280,11 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 **방법:** 자동 / 브라우저 / 실기
 
-**소유 규칙:** [페이지 이동 소유권](design/page-navigation-ownership.md): 로고 reset은 prepare(SW 승격, 2.5초 한도) 뒤 홈 이동, 2초 commit 기한은 마지막 이동 호출부터, reload 대기열
+**소유 규칙:** [페이지 이동 소유권](design/page-navigation-ownership.md): 로고 reset은 prepare(업데이트 기계 포트에 묻는 SW 승격, 2.5초 한도) 뒤 홈 이동, 2초 commit 기한은 마지막 이동 호출부터, reload 대기열
 
 **대표 구현:** [src/core/sw-hard-reset.ts](../src/core/sw-hard-reset.ts), [src/sw-register.ts](../src/sw-register.ts), [src/core/session-reset.ts](../src/core/session-reset.ts)
 
-**기존 검사 진입점:** [src/core/__tests__/sw-hard-reset.test.ts](../src/core/__tests__/sw-hard-reset.test.ts), [src/core/__tests__/sw-register-recovery.integration.test.ts](../src/core/__tests__/sw-register-recovery.integration.test.ts), [src/core/__tests__/page-navigation-owner.integration.test.ts](../src/core/__tests__/page-navigation-owner.integration.test.ts)
+**기존 검사 진입점:** [src/core/__tests__/sw-hard-reset.test.ts](../src/core/__tests__/sw-hard-reset.test.ts), [src/core/__tests__/sw-update-transitions.integration.test.ts](../src/core/__tests__/sw-update-transitions.integration.test.ts), [src/core/__tests__/sw-register-recovery.integration.test.ts](../src/core/__tests__/sw-register-recovery.integration.test.ts), [src/core/__tests__/page-navigation-owner.integration.test.ts](../src/core/__tests__/page-navigation-owner.integration.test.ts)
 
 ## 27. 공개 페이지·콘텐츠 전달
 

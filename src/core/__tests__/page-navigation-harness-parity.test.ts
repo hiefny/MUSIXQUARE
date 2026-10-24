@@ -150,7 +150,7 @@ const LOGO_REQUEST = [
   "scheduleSessionReset(t('dialog.leaving_session'), {",
   'async prepare(signal) {',
   "const hardReset = await import('../core/sw-hard-reset.ts');",
-  'if (!signal.aborted) await hardReset.default(); },',
+  'if (!signal.aborted) await hardReset.default(signal); },',
   'navigate: () => navigateToAppHome(), });',
 ].join(' ');
 
@@ -168,7 +168,7 @@ function copiedLogoRequest(source: string, head: string, names: Record<string, s
 }
 
 describe('player-controls.ts logo request copied by the page navigation harness', () => {
-  it('prepares with the hard-reset chunk and its promotion unless aborted, then navigates home [updated: C6-8] [update with: C6-10]', () => {
+  it('prepares with the hard-reset chunk and its promotion unless aborted, then navigates home [updated: C6-8, C6-10]', () => {
     expect(
       between(
         playerControlsSource,
@@ -178,7 +178,7 @@ describe('player-controls.ts logo request copied by the page navigation harness'
     ).toBe(LOGO_REQUEST);
   });
 
-  it('keeps both test copies equal to it: the harness and the update transition table [update with: C6-10]', () => {
+  it('keeps both test copies equal to it: the harness and the update transition table [updated: C6-10]', () => {
     expect(
       copiedLogoRequest(harnessSource, 'scheduleSessionReset(MSG_LEAVING, {', {
         'scheduleSessionReset(MSG_LEAVING,': "scheduleSessionReset(t('dialog.leaving_session'),",

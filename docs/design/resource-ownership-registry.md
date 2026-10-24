@@ -1100,54 +1100,103 @@ RO-47 owner-in-place
 
 - **Resource:** `registration.waiting`, its activation (`SKIP_WAITING`, then `controllerchange`)
   and the navigation that follows.
-- **Current owners/flows:** the update machine in `src/sw-register.ts` and the hard-reset
-  promotion in `src/core/sw-hard-reset.ts` (its own `SKIP_WAITING` and a 1.5 s
-  `controllerchange` wait, called from the logo reset in `src/ui/player-controls.ts`), which does
-  not consult the update machine. The update machine reads that activation as a passive
-  controller change. Since Phase 3 C6-9 the update machine keeps one typed `activationState`
-  (`passive`, `prompting`, `awaiting-local-controller`, or `reload-scheduled` holding a local
-  identity token for the reload it asked the navigation owner for, since the owner returns no
-  handle, so only that reload's own recovery releases it; the module
-  reload latch `_swReloading` is gone) and sends `SKIP_WAITING` through one sink,
-  `activateWaitingWorker` (Apply, Apply to a replacement, and the quiet cooldown and
-  same-generation promotions; the callers write the next-document markers, and the quiet
-  promotions write none). `guard:navigation-sinks` counts both the one literal and the four
-  calls of the sink in `handleWaitingWorker`, and keeps `_swReloading` and `_swReloadAttempt`
-  retired. A prompt that still answers while that reload is pending (a lost lease, a failed
-  dialog) leaves its phase inside the `reload-scheduled` state, which keeps the pre-C6-9
-  outcomes: a newly waiting worker is still taken up, and the page returns to that phase if the
-  reload recovers. The recovery checks the reload's identity; with the navigation owner settling
-  each attempt once (RO-23) a stale recovery cannot reach it today, so that check is defensive
-  and pinned directly. The cross-tab prompt lease stays in `src/sw-update-coordination.ts` and
-  `src/sw-prompt-lock.ts`.
+- **Current owners/flows:** the update machine in `src/sw-register.ts`. Since Phase 3 C6-9 it
+  keeps one typed `activationState` (`passive`, `prompting`, `awaiting-local-controller`, or
+  `reload-scheduled` holding a local identity token for the reload it asked the navigation owner
+  for, since the owner returns no handle, so only that reload's own recovery releases it; the
+  module reload latch `_swReloading` is gone) and sends `SKIP_WAITING` through one sink,
+  `activateWaitingWorker` (Apply, Apply to a replacement, the quiet cooldown and same-generation
+  promotions, and since C6-10 the logo port; Apply and the logo port write the next-document
+  markers, and the quiet promotions write none). A prompt that still answers while that reload is
+  pending (a lost lease, a failed dialog) leaves its phase inside the `reload-scheduled` state,
+  which keeps the pre-C6-9 outcomes: a newly waiting worker is still taken up, and the page
+  returns to that phase if the reload recovers. The recovery checks the reload's identity; with
+  the navigation owner settling each attempt once (RO-23) a stale recovery cannot reach it today,
+  so that check is defensive and pinned directly. Since Phase 3 C6-10 (owner decisions P3-8 A to
+  P3-12 A, 2026-10-24):
+  - The logo reset asks the machine through a port instead of promoting on its own. The lazy
+    `src/core/sw-hard-reset.ts` (the logo's prepare step, `src/ui/player-controls.ts`) dispatches
+    `HARD_RESET_CLAIM_EVENT` on the page's service-worker container and the machine answers
+    synchronously: `promoted` (it applies the waiting update without asking, Later lasting for
+    that page only, through its sink, records the request like an Apply and withdraws a prompt
+    shown or queued), `apply-in-flight` (an Apply already sent `SKIP_WAITING`: the hard reset waits
+    for that activation until the prepare window closes and sends nothing), `none` (no waiting
+    worker, or the page's loads are not quiet: the logo goes home at once and the next page
+    offers the update) or `unavailable` (no machine yet: before the window load event or after a
+    failed registration, on a quiet page). The request carries whether the page's loads are
+    quiet: the hard reset measures it with a copy of the machine's quiet window, leaving out its
+    own chunk, whose load for the tap does not count as the page loading (found by the 2026-10-24
+    real-browser check: without it the logo never promoted); the machine decides with that
+    reading. The measurement moved into the lazy chunk in Phase 3 R2 to keep the eager bundle
+    under the 5% reserve line; a request without the reading counts as a page still loading.
+    The hard reset then waits for the new controller and
+    leaves "Update applied" for the next document only when it saw one (P3-11 A). The port is an
+    event rather than an import: a static import of `sw-register.ts` from the logo or the lazy
+    chunk reorders the eager bundle (+0.7 KB gzip measured either way).
+  - The hard reset's own promotion stays in `sw-hard-reset.ts` (`promoteWithoutTheUpdateMachine`,
+    P3-12 A): permanently the only path without a machine, and TEMPORARILY also after the
+    machine's own promotion timed out; that use goes in a later Phase 3 release after two clean
+    production update cycles.
+  - A controller change that arrives while a navigation holds the page (the logo's own
+    activation, or any other navigation) is decided only if that navigation releases the page in
+    this document: no update dialog under the reset screen and no second reload request; a room
+    is asked once, a page outside a room makes its aligned reload, and an Apply in flight makes
+    its reload then (P3-8 A). The machine reads `isSessionResetPending` and subscribes to
+    `onNavigationPendingChange` of the navigation owner (RO-23) for this, and writes the
+    controller-confirmed markers when it puts the decision off, as the aligned reload did when it
+    queued.
+  - The quiet promotions (cooldown, same generation) send once the page's loads are quiet, as the
+    startup prompt does (P3-9 A).
+  - A new document absorbs a late activation when the next-document markers still hold a request
+    from an earlier document of this tab that it did not see land (Apply or the logo; no age
+    limit) and the activated generation equals the build's `__MXQR_BUILD_CACHE_VERSION__`: no
+    reload, no dialog, no toast, a prompt for it withdrawn (P3-10 A, reproduced first by the C6-9
+    stalled-Apply case). A document running older code (a cache fallback) still reloads, and a
+    document with no such request treats the activation as before.
+
+  `guard:navigation-sinks` counts the one literal in the sink and the one in the hard reset's own
+  promotion, the four calls of the sink (Apply and Apply to a replacement in `handleWaitingWorker`,
+  the quiet promotions in `activateWhenQuiet`, the logo port in `claimForHardReset`), and keeps
+  `_swReloading` and `_swReloadAttempt` retired. The cross-tab prompt lease stays in
+  `src/sw-update-coordination.ts` and `src/sw-prompt-lock.ts`.
+
 - **Target single owner:** the `sw-register.ts` update machine with one activation sink; the hard
-  reset becomes a client of a promotion port and keeps standalone promotion when the port times
-  out or is unavailable (until two clean production update cycles).
-- **Allowed requesters:** the update dialog (Apply, Later), the logo hard reset, other tabs through
-  the prompt lease.
+  reset is a client of its port and keeps its own promotion only where there is no machine (and,
+  until two clean production update cycles, after a machine timeout).
+- **Allowed requesters:** the update dialog (Apply, Later), the logo hard reset through the port,
+  other tabs through the prompt lease.
 - **Lifecycle operations:** `SKIP_WAITING`, `reg.update()`, the reload, completion markers.
 - **Deadline owner:** the update machine (with the Chromium rule that `SKIP_WAITING` waits until
-  page loads settle) and `ACTIVATION_TIMEOUT_MS` in `sw-hard-reset.ts`, the hard reset's bounded
-  wait. Since Phase 2 C6-8 the logo reset runs the chunk load and that wait as the navigation
-  owner's prepare step, bounded by `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s, which
-  `navigation-contract.test.ts` keeps at least 1 s above the 1.5 s activation wait), and navigates
-  home after it either way; the 2 s commit timeout starts only at that navigation (owner decision
-  2, 2026-10-23). A chunk that lands after the prepare window closed sees its aborted signal and
-  posts no `SKIP_WAITING`.
+  page loads settle: the startup prompt, the quiet promotions and the logo port all follow it)
+  and, for the logo reset, the navigation owner's prepare window. Since Phase 2 C6-8 the logo
+  reset runs the chunk load and the activation wait as the navigation owner's prepare step,
+  bounded by `NAVIGATION_PREPARE_TIMEOUT_MS` (2.5 s, which `navigation-contract.test.ts` keeps at
+  least 1 s above the hard reset's 1.5 s `ACTIVATION_TIMEOUT_MS`), and navigates home after it
+  either way; the 2 s commit timeout starts only at that navigation (owner decision 2,
+  2026-10-23). Since C6-10 the prepare signal reaches the port's wait and the hard reset's own
+  promotion: after it aborts nothing is promoted or awaited, and an Apply in flight is waited for
+  until it aborts.
 - **Timing-constant home:** `src/core/navigation-contract.ts` (the next-document markers
   `SW_UPDATE_KEY`, `SW_CONTROLLER_CONFIRMED_KEY` and `UPDATE_COMPLETION_KEY`; the lazy
   `sw-update-completion.ts` keeps a copy of the last, pinned by
   `src/core/__tests__/sw-update-completion.test.ts`), `sw-update-coordination.ts`
   (`UPDATE_CHECK_INTERVAL_MS` and the page-side message types, pinned against the worker's copies
   by `src/core/__tests__/sw-message-contract.test.ts`), `sw-hard-reset.ts`
-  (`ACTIVATION_TIMEOUT_MS`, lazy) and `sw-register.ts` (prompt timings). Named in Phase 2 (C6-1).
+  (`ACTIVATION_TIMEOUT_MS`, lazy) and `sw-register.ts` (prompt and quiet-load timings, and
+  `HARD_RESET_CLAIM_EVENT`; the lazy `sw-hard-reset.ts` keeps a copy, and `sw-register.test.ts`
+  and `sw-hard-reset.test.ts` pin both to `src/core/__tests__/__helpers__/hard-reset-port.ts`).
+  Since Phase 3 R2 the lazy `sw-hard-reset.ts` also keeps a copy of `STARTUP_PROMPT_QUIET_MS`
+  for the claim's quiet reading: `sw-hard-reset.test.ts` "keeps the update machine's quiet
+  window" pins both sources to the same helper, its quiet-reading rows pin the copy's behaviour,
+  and `scripts/check-resource-ownership.mts` lists the pair as a triaged copy.
+  Named in Phase 2 (C6-1).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/sw-register.test.ts` "drops a stale waiting-worker
     continuation when a newer install replaces it".
   - User pause/stop: `sw-register.test.ts` "does not re-prompt a generation put off with Later in
     the same page".
   - Teardown: `src/core/__tests__/sw-hard-reset.test.ts` "fails open after a bounded wait when
-    activation stalls".
+    activation stalls", and its prepare-abort cases.
   - Visibility: `src/core/__tests__/sw-update-transitions.integration.test.ts` rows X3b (the
     document is made visible again after the update reload's pagehide) and X5 (a back-forward
     cache return of a pending update reload).
@@ -1159,17 +1208,27 @@ RO-47 owner-in-place
     X2 (by reading). The machine's
     state is private, so a row checks its resulting state only through a later step: rows X12b
     to X19 send the next event while the reload is still latched, X20 to X22 answer a prompt
-    after the reload recovered under it, and S1b and S2b end with a probe. Every row has the same
-    effects on main 08003954's `sw-register.ts` and after C6-9; a mutation check of C6-9's state
-    (21 mutants, 20 killed) left only the startup gate's read, which no reachable order can
-    tell apart.
+    after the reload recovered under it, and S1b and S2b end with a probe. C6-9 kept every row's
+    effects of main 08003954's `sw-register.ts`; a mutation check of C6-9's state (21 mutants,
+    20 killed) left only the startup gate's read, which no reachable order can tell apart. Each
+    row is labelled with what C6-9 and C6-10 kept or flipped; the C6-10 rows S5a to S5j cover
+    the logo port (promotion, an Apply in flight, a prompt withdrawn, a page still loading, no
+    machine, a navigation that does not commit) and S1c, X12 to X13b and X22 the quiet
+    promotions. The R2 review added S5k (a quiet promotion leaves a worker the logo claimed
+    alone), the scope of the P3-10 absorb (a document already on the new code with no request
+    of its own still reloads or asks) and the absorbing document's cache-status reply.
+  - The port's answers: `sw-register.test.ts` "the logo hard reset port (C6-10)"; the hard
+    reset's side: `sw-hard-reset.test.ts`.
   - The reload identity check: `sw-register.test.ts` "does not let a stale recovery release a
     successor reload attempt" hands the machine a stale recovery directly.
-  - A hard reset while an Apply is stalled: the same file's "a stalled Apply, then the logo
-    reset" cases record today's three `SKIP_WAITING` sends and second navigation, the C6-10 input
-    (owner decision P3-10 A).
-- **Status:** `duplicated`. Phase 0d, Phase 3 (one activation owner, done in C6-9; then the hard
-  reset asks it in C6-10; each alone). See
+  - A hard reset while an Apply is stalled: the transition test file's "a stalled Apply, then the
+    logo reset" cases, recorded by C6-9 (three `SKIP_WAITING` sends and a second navigation) and
+    flipped by C6-10 (one send, the late activation absorbed by a document that runs that
+    generation's code; a cache-fallback document still reloads).
+- **Status:** `duplicated` until the temporary timeout fallback goes. Phase 0d, Phase 3 (one
+  activation owner, done in C6-9; the hard reset asks it, done in C6-10; the timeout fallback is
+  removed in a later Phase 3 release after two clean production update cycles, which leaves the
+  no-machine promotion as a recorded exception). See
   [Update dialog everywhere](update-dialog-everywhere-2026-10-17.md). Exception RO-43.
 
 ### RO-23 App-owned page navigation
@@ -1206,7 +1265,9 @@ RO-47 owner-in-place
   `isReloadFenced` / `beginFencedReload` / `setReloadFenceOpenHandler`; since C6-13 tests reset
   the owner and the fence with one `__resetPageNavigationForTests`). The update machine in
   `sw-register.ts` keeps its reload inside its own activation state since Phase 3 C6-9 (RO-22;
-  the stacked `_swReloading` latch is gone); `src/core/reload-recovery-latch.ts` keeps
+  the stacked `_swReloading` latch is gone) and, since C6-10, reads `isSessionResetPending` and
+  subscribes to `onNavigationPendingChange` to put a controller change's decision off while a
+  navigation holds the page (a reader, not a requester); `src/core/reload-recovery-latch.ts` keeps
   only its prompt single-flight, its repeated-recovery guard deleted in C6-13 because the owner
   reports a recovery at most once per attempt;
   `src/core/page-lifecycle.ts` keeps only `beforeunload`, the pagehide `leaveSession` and

@@ -57,7 +57,7 @@ const proPlaybackRuntime = vi.hoisted(() => ({
 }));
 
 const hardResetNavigation = vi.hoisted(() => ({
-  activatePendingServiceWorkerForHardReset: vi.fn<() => Promise<undefined>>(),
+  activatePendingServiceWorkerForHardReset: vi.fn<(signal: AbortSignal) => Promise<undefined>>(),
   navigateToAppHome: vi.fn(),
 }));
 
@@ -614,6 +614,10 @@ describe('logo hard reset update hand-off', () => {
   it('hands service-worker activation to the navigation owner before navigating home', async () => {
     await tapLogoAndPaint();
     expect(hardResetNavigation.activatePendingServiceWorkerForHardReset).toHaveBeenCalledOnce();
+    // The prepare step's signal reaches the hand-off, which stops on it (C6-10).
+    const [signal] = hardResetNavigation.activatePendingServiceWorkerForHardReset.mock.calls[0]!;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(true);
     expect(hardResetNavigation.navigateToAppHome).toHaveBeenCalledOnce();
     expect(
       hardResetNavigation.activatePendingServiceWorkerForHardReset.mock.invocationCallOrder[0],

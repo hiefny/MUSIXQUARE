@@ -11,7 +11,11 @@ import { t, type I18nKey } from './i18n/index.ts';
 import { getState } from './core/state.ts';
 import { showDialog, type DialogResult } from './ui/dialog.ts';
 import { setManagedTimer } from './core/timers.ts';
-import { scheduleDocumentReload } from './core/session-reset.ts';
+import {
+  isSessionResetPending,
+  onNavigationPendingChange,
+  scheduleDocumentReload,
+} from './core/session-reset.ts';
 import { returnToRoomStart } from './core/navigation.ts';
 import {
   getRoomContext,
@@ -68,11 +72,52 @@ type ActivationState = PromptPhase | ReloadScheduled;
 
 /**
  * The update machine's one SKIP_WAITING sink. The callers write the
- * next-document markers themselves, before it: an Apply records its request,
- * the quiet promotions (cooldown, same generation) record nothing.
+ * next-document markers themselves, before it: an Apply and the logo's hard
+ * reset record their request, the quiet promotions (cooldown, same
+ * generation) record nothing.
  */
 function activateWaitingWorker(worker: ServiceWorker): void {
   worker.postMessage({ type: 'SKIP_WAITING' });
+}
+
+/**
+ * The logo reset's port into the update machine (RO-22, Phase 3 C6-10): the
+ * lazy core/sw-hard-reset.ts dispatches this event on the page's service-worker
+ * container in the reset's prepare step, and the machine answers in
+ * `detail.claim` before dispatchEvent returns; the hard reset then waits for
+ * the activation. An event, not an import: importing this module statically
+ * from the logo (player-controls.ts) or from the lazy chunk reorders the eager
+ * bundle (measured on 2026-10-24: +0.7 KB eager gzip either way, against
+ * +0.2 KB for the whole of C6-10 with the event after the R2 trims).
+ * core/sw-hard-reset.ts keeps its own copy of the name; the tests pin both
+ * (src/core/__tests__/__helpers__/hard-reset-port.ts).
+ */
+const HARD_RESET_CLAIM_EVENT = 'mxqr:hard-reset-claim';
+
+/**
+ * The machine's answer (owner decisions P3-8 A, P3-9 A and P3-12 A,
+ * 2026-10-24): 'promoted' (it applied the waiting update without asking,
+ * through its one sink, and withdrew a prompt shown or queued),
+ * 'apply-in-flight' (an Apply already sent SKIP_WAITING: the hard reset waits
+ * for that activation and sends nothing), 'none' (no waiting worker, or the
+ * page's loads are not quiet yet: the logo goes home on time and the next page
+ * offers the update) or 'unavailable' (no machine yet, the page is quiet: the
+ * hard reset's own promotion runs).
+ */
+export type HardResetClaim = 'promoted' | 'apply-in-flight' | 'none' | 'unavailable';
+
+/** The detail of HARD_RESET_CLAIM_EVENT. */
+export interface HardResetClaimRequest {
+  claim?: HardResetClaim;
+  /**
+   * No resource of the page finished within STARTUP_PROMPT_QUIET_MS, so a
+   * SKIP_WAITING sent now activates at once (the Chromium rule above). The
+   * hard reset measures it, leaving out its own chunk (the browser loaded it
+   * for this tap), with its copy of that window: the check is the logo's
+   * alone, so it lives in the lazy chunk (Phase 3 R2 eager budget). Absent
+   * means not quiet.
+   */
+  quiet?: boolean;
 }
 
 function publishNavigationSource(navigationFallback: boolean): void {
@@ -99,14 +144,6 @@ function writeSessionMarker(key: string, value: string): void {
   }
 }
 
-function removeSessionMarker(key: string): void {
-  try {
-    globalThis.sessionStorage?.removeItem(key);
-  } catch {
-    // Best-effort marker cleanup only.
-  }
-}
-
 /**
  * Where an update reload returns. Anyone in a room except a standard-room host
  * goes back to that room's Start screen (its /CODE invite page), so entering
@@ -121,19 +158,36 @@ function updateReturnCode(): unknown {
   return getState('network.lastJoinCode');
 }
 
+/** This tab asked a waiting worker to activate (Apply, or the logo's hard reset). */
+function markActivationRequested(): void {
+  writeSessionMarker(SW_UPDATE_KEY, String(Date.now()));
+  try {
+    globalThis.sessionStorage.removeItem(SW_CONTROLLER_CONFIRMED_KEY);
+  } catch {
+    // Best-effort marker cleanup only (missing or denied storage throws here).
+  }
+}
+
+/**
+ * This tab saw the new controller. Both markers carry the same moment, so a
+ * new document can tell this from the legacy v267 flow, which reloaded before
+ * activation completed.
+ */
+function markControllerConfirmed(): void {
+  const confirmedAt = String(Date.now());
+  writeSessionMarker(SW_UPDATE_KEY, confirmedAt);
+  writeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY, confirmedAt);
+}
+
 /**
  * Ask the navigation owner for the update reload. `onRecovered` runs at most
  * once, if this document stays (the reload never committed, or another
  * navigation held the page).
  */
 function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
-  const confirmedAt = Date.now();
-  writeSessionMarker(SW_UPDATE_KEY, String(confirmedAt));
   // Every caller reaches this seam only after controllerchange (or after
-  // proving that navigator.serviceWorker.controller already changed). A new
-  // document can therefore distinguish this aligned reload from the legacy
-  // v267 flow, which reloaded before activation completed.
-  writeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY, String(confirmedAt));
+  // proving that navigator.serviceWorker.controller already changed).
+  markControllerConfirmed();
 
   const message = t('dialog.refreshing_session');
   returnToRoomStart(updateReturnCode(), {
@@ -145,22 +199,24 @@ function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
   });
 }
 
-function isReloadNavigation(): boolean {
-  try {
-    const navigation = performance.getEntriesByType('navigation')[0] as
-      PerformanceNavigationTiming | undefined;
-    return navigation?.type === 'reload';
-  } catch {
-    return false;
-  }
+/** When this tab last asked for an activation it has not seen land yet, or 0. */
+function unconfirmedActivationRequest(): number {
+  // Number(null) is 0: a missing marker reads as never.
+  const updatedAt = Number(readSessionMarker(SW_UPDATE_KEY));
+  return Number(readSessionMarker(SW_CONTROLLER_CONFIRMED_KEY)) < updatedAt ? updatedAt : 0;
 }
 
 function isUnconfirmedRecentUpdateReload(): boolean {
-  if (!isReloadNavigation()) return false;
-  const updatedAt = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
-  const controllerConfirmedAt = Number(readSessionMarker(SW_CONTROLLER_CONFIRMED_KEY) || '0');
+  try {
+    const navigation = performance.getEntriesByType('navigation')[0] as
+      PerformanceNavigationTiming | undefined;
+    if (navigation?.type !== 'reload') return false;
+  } catch {
+    return false;
+  }
+  const updatedAt = unconfirmedActivationRequest();
   const age = Date.now() - updatedAt;
-  return updatedAt > 0 && age >= 0 && age < SW_COOLDOWN_MS && controllerConfirmedAt < updatedAt;
+  return updatedAt > 0 && age >= 0 && age < SW_COOLDOWN_MS;
 }
 
 /**
@@ -267,6 +323,15 @@ export function registerServiceWorker(): void {
     return;
   }
 
+  // The logo's hard reset asks here (HARD_RESET_CLAIM_EVENT). Until the
+  // machine exists (the window load event, then registration) it may promote
+  // on its own, once the page's loads are quiet (P3-12 A, P3-9 A).
+  let claimForHardReset = (quiet?: boolean): HardResetClaim => (quiet ? 'unavailable' : 'none');
+  navigator.serviceWorker.addEventListener(HARD_RESET_CLAIM_EVENT, (event) => {
+    const request = (event as CustomEvent<HardResetClaimRequest>).detail;
+    request.claim = claimForHardReset(request.quiet);
+  });
+
   const doRegister = async () => {
     // Room invite pages live at /CODE. Keep one origin-wide registration
     // instead of resolving the worker and scope relative to that invite URL.
@@ -299,6 +364,39 @@ export function registerServiceWorker(): void {
       typeof activationState === 'object'
         ? activationState.prompt || activationState.phase
         : activationState;
+    /**
+     * The abort of the latest prompt: the logo and an absorbed activation
+     * withdraw a prompt still shown or queued (aborting a finished one does
+     * nothing).
+     */
+    let openPrompt: AbortController | null = null;
+    /**
+     * Put a controller change's decision off while a navigation holds the
+     * page: it runs if that navigation releases the page in this document,
+     * and never if it commits (Phase 3 C6-10, owner decision P3-8 A). This tab
+     * saw the new controller, which the markers record now, as the aligned
+     * reload the decision may make would record it.
+     */
+    const deferWhileNavigating = (decide: () => void): boolean => {
+      if (!isSessionResetPending()) return false;
+      const stopWatching = onNavigationPendingChange(() => {
+        if (isSessionResetPending()) return;
+        stopWatching();
+        decide();
+      });
+      markControllerConfirmed();
+      return true;
+    };
+    /**
+     * The generation of this page's code while an earlier document of this
+     * tab asked for an activation (Apply, or the logo's hard reset) and did
+     * not see it land: that activation, arriving here, is absorbed (C6-10,
+     * owner decision P3-10 A). Null outside a production build.
+     */
+    let absorbGeneration =
+      typeof __MXQR_BUILD_CACHE_VERSION__ === 'string' && unconfirmedActivationRequest()
+        ? __MXQR_BUILD_CACHE_VERSION__
+        : null;
     /** The prompt moves on; while a reload is scheduled, that waits for the reload's recovery. */
     const setPromptPhase = (phase: PromptPhase): void => {
       activationState =
@@ -394,6 +492,13 @@ export function registerServiceWorker(): void {
         return true;
       }
 
+      // A navigation holds the page, such as the logo's hard reset after its
+      // own activation: no update dialog under its reset screen and no second
+      // reload request; the decision waits for the page (the markers record
+      // the new controller now, as the aligned reload this replaces recorded
+      // it when it queued).
+      if (deferWhileNavigating(handlePassiveControllerChange)) return true;
+
       // controllerchange fires in EVERY controlled same-origin tab when any
       // one of them accepts the update (skipWaiting activation migrates all
       // clients). Do not auto-reload another tab that is hosting or joined
@@ -441,20 +546,22 @@ export function registerServiceWorker(): void {
       });
     });
 
-    if (pageController) {
-      const initialController = pageController;
-      observedControllerObjects.add(initialController);
+    /** The page's code loaded under `controller`: record that worker's generation as the page's. */
+    const adoptPageGeneration = (controller: ServiceWorker): void => {
+      observedControllerObjects.add(controller);
       generationResolver
-        .resolve(initialController)
+        .resolve(controller)
         .then((generation) => {
-          if (pageController !== initialController || !generation.cacheVersion) return;
+          if (pageController !== controller || !generation.cacheVersion) return;
           pageCacheVersion = generation.cacheVersion;
           handledControllerGenerations.add(generation.cacheVersion);
         })
         .catch(() => {
-          /* the cache-status probe remains the fallback generation source */
+          /* the cache-status probe and message remain the fallback generation source */
         });
-    }
+    };
+
+    if (pageController) adoptPageGeneration(pageController);
 
     try {
       const reg = await navigator.serviceWorker.register(swUrl, { scope: '/' });
@@ -514,6 +621,19 @@ export function registerServiceWorker(): void {
           return;
         }
         handledControllerGenerations.add(actionIdentity);
+        if (actionIdentity === absorbGeneration) {
+          // The activation an earlier document of this tab asked for, and
+          // this page already runs that generation's code: no reload, no
+          // update dialog, no toast (owner decision P3-10 A). The page is now
+          // aligned with its controller, as after the aligned reload.
+          absorbGeneration = null;
+          pageController = controller;
+          cacheSafeForCurrentController = true;
+          markControllerConfirmed();
+          if (openPrompt) openPrompt.abort();
+          probeCacheStatus();
+          return;
+        }
         if (activationState === 'prompting') {
           controllerChangedWhilePrompting = true;
           return;
@@ -532,19 +652,7 @@ export function registerServiceWorker(): void {
           pageController = controller;
           cacheSafeForCurrentController = true;
           probeCacheStatus();
-          if (controller) {
-            observedControllerObjects.add(controller);
-            generationResolver
-              .resolve(controller)
-              .then((generation) => {
-                if (pageController !== controller || !generation.cacheVersion) return;
-                pageCacheVersion = generation.cacheVersion;
-                handledControllerGenerations.add(generation.cacheVersion);
-              })
-              .catch(() => {
-                /* the cache-status message can still identify this generation */
-              });
-          }
+          if (controller) adoptPageGeneration(controller);
           log.debug('[SW] Controller claimed page for the first time. Skipping reload');
           return;
         }
@@ -564,12 +672,20 @@ export function registerServiceWorker(): void {
           // not depend on an old/mixed worker's generation timeout before it
           // can reserve the successor reload and pagehide boundary.
           pendingControllerAfterReload = controller;
+        } else if (activationState === 'awaiting-local-controller') {
+          controllerChangesWithReservedAction.add(controller);
+          // While a navigation holds the page (the logo's hard reset waiting
+          // for this Apply), the Apply's reload waits for it (P3-8 A); the
+          // markers record the new controller now, as that reload would.
+          if (!deferWhileNavigating(scheduleControllerAlignedReload)) {
+            scheduleControllerAlignedReload();
+          }
+        } else if (absorbGeneration) {
+          // Whether this is the activation an earlier document of this tab
+          // asked for needs the worker's generation (P3-10 A): decided there.
         } else if (activationState === 'prompting') {
           controllerChangedWhilePrompting = true;
           controllerChangesWithReservedAction.add(controller);
-        } else if (activationState === 'awaiting-local-controller') {
-          controllerChangesWithReservedAction.add(controller);
-          scheduleControllerAlignedReload();
         } else if (handlePassiveControllerChange(false)) {
           controllerChangesWithReservedAction.add(controller);
         }
@@ -603,6 +719,14 @@ export function registerServiceWorker(): void {
           });
         };
 
+        // The quiet promotions (cooldown, same generation) send once the
+        // page's own loads have settled (owner decision P3-9 A), if the worker
+        // is still this one's to handle (the logo's hard reset takes it).
+        const activateWhenQuiet = async (): Promise<void> => {
+          await waitForQuietPageLoad();
+          if (waitingWorkerIsCurrent()) activateWaitingWorker(worker);
+        };
+
         if (!waitingWorkerIsCurrent()) {
           continueWithReplacement();
           return;
@@ -611,7 +735,7 @@ export function registerServiceWorker(): void {
         const lastUpdate = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
         if (Date.now() - lastUpdate < SW_COOLDOWN_MS) {
           log.debug('[SW] Update found during cooldown. Silently activating');
-          activateWaitingWorker(worker);
+          await activateWhenQuiet();
           return;
         }
 
@@ -637,7 +761,7 @@ export function registerServiceWorker(): void {
           (activeController === pageController ? pageCacheVersion : null);
         if (generation.cacheVersion && activeCacheVersion === generation.cacheVersion) {
           log.warn('[SW] Waiting worker reused the active cache generation; activating silently');
-          activateWaitingWorker(worker);
+          await activateWhenQuiet();
           return;
         }
         if (dismissedPromptIdentities.has(generation.promptIdentity)) {
@@ -672,6 +796,7 @@ export function registerServiceWorker(): void {
 
         setPromptPhase('prompting');
         controllerChangedWhilePrompting = false;
+        openPrompt = promptAbort;
         let result: Awaited<ReturnType<typeof showDialog>> | undefined;
         try {
           result = await showUpdateDialog(promptAbort.signal);
@@ -703,9 +828,7 @@ export function registerServiceWorker(): void {
           if (result?.action === 'ok' && replacement) {
             handledWaitingWorker = replacement;
             setPromptPhase('awaiting-local-controller');
-            const requestedAt = Date.now();
-            writeSessionMarker(SW_UPDATE_KEY, String(requestedAt));
-            removeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY);
+            markActivationRequested();
             activateWaitingWorker(replacement);
             return;
           }
@@ -740,9 +863,7 @@ export function registerServiceWorker(): void {
         if (result?.action === 'ok') {
           if (isReloadScheduled()) return;
           activationState = 'awaiting-local-controller';
-          const requestedAt = Date.now();
-          writeSessionMarker(SW_UPDATE_KEY, String(requestedAt));
-          removeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY);
+          markActivationRequested();
 
           if (
             controllerChangedWhilePrompting ||
@@ -790,6 +911,23 @@ export function registerServiceWorker(): void {
           log.warn('[SW] Existing waiting worker prompt failed', error);
         });
       }
+
+      // The machine answers the logo now. A worker it promotes is the hard
+      // reset's: no prompt or quiet promotion of this document takes it up.
+      // While a reload is scheduled the reset surface keeps the page inert, so
+      // the logo cannot ask then; that check is defensive.
+      claimForHardReset = (quiet) => {
+        if (activationState === 'awaiting-local-controller') return 'apply-in-flight';
+        const worker = reg.waiting;
+        if (isReloadScheduled() || !worker || worker.state !== 'installed' || !quiet) {
+          return 'none';
+        }
+        if (openPrompt) openPrompt.abort();
+        handledWaitingWorker = null;
+        markActivationRequested();
+        activateWaitingWorker(worker);
+        return 'promoted';
+      };
 
       // Check for updates periodically (every 60 minutes, the check lease interval).
       setManagedTimer(

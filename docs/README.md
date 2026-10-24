@@ -92,9 +92,21 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 3 R2: the logo hard reset asks the update machine (2026-10-24)](design/phase3-r2-logo-reset-2026-10-24.md):
+  pending release evidence for Phase 3 R2 (9.0.6 / v777, target `app`, not yet
+  released). C6-10: the logo reset's prepare step asks the update machine
+  through a port instead of promoting on its own, controller changes wait while
+  a navigation holds the page, the quiet promotions wait for quiet page loads,
+  and a new document absorbs the late activation of the generation its tab
+  asked for. The report lists the C6-10 increments and QA rounds with tested
+  SHAs, the owner decisions P3-8 A to P3-12 A as implemented, the behaviour-free
+  eager-JS trims that restored headroom under the 5% reserve line, the review's
+  four surviving mutants pinned, a real-browser two-build update check and the
+  partial-release gate for target `app`.
+
 - [Phase 3 update and Standard-room expiry recovery batch (2026-10-24)](design/phase3-update-and-expiry-recovery-2026-10-24.md):
-  pending release evidence for Phase 3 R1 (9.0.5 / v776, target `all`, not yet
-  released). Explicit room expiry stops automatic guest signaling retries while
+  release evidence for Phase 3 R1 (9.0.5 / v776, target `all`), released
+  2026-10-24 10:33 KST in Release 40049951071 after two runs recovered automatically. Explicit room expiry stops automatic guest signaling retries while
   preserving existing RTC playback; internal diagnostics distinguish expiry and
   observed host-unavailability state. R1 also carries the angular selection
   check and minus, the pinned-notice X aligned to its header time, the recovery

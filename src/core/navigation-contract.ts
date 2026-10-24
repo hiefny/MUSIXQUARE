@@ -31,9 +31,10 @@ export const NAVIGATION_COMMIT_TIMEOUT_MS = 2_000;
  * A navigation with a prepare step (the logo reset's service-worker promotion)
  * gets this long to prepare; then the owner navigates anyway, and only then
  * does NAVIGATION_COMMIT_TIMEOUT_MS start (owner decision 2, 2026-10-23). It
- * covers the hard reset's own activation wait (ACTIVATION_TIMEOUT_MS, 1.5 s, in
- * the lazy core/sw-hard-reset.ts) plus 1 s for loading that chunk and reading
- * the registration; navigation-contract.test.ts pins the ordering.
+ * covers the hard reset's activation wait (ACTIVATION_TIMEOUT_MS, 1.5 s, in
+ * the lazy core/sw-hard-reset.ts) plus 1 s for loading that chunk and asking
+ * the update machine; navigation-contract.test.ts pins the ordering. An Apply
+ * already in flight is waited for until this window closes (Phase 3 C6-10).
  */
 export const NAVIGATION_PREPARE_TIMEOUT_MS = 2_500;
 

@@ -215,9 +215,11 @@ const LOCATION_NAVIGATION_BASELINE: Baseline = new Map<string, Allowance>([
 
 /** RO-22: 'SKIP_WAITING' messages to a waiting service worker. */
 const SKIP_WAITING_BASELINE: Baseline = new Map<string, Allowance>([
+  // Phase 3 C6-10: the hard reset asks the update machine first; its own send
+  // stays for no machine and, temporarily, after the machine's promotion timed out.
   [
     'src/core/sw-hard-reset.ts',
-    { count: 1, reason: 'hard-reset promotion (Phase 3 makes it ask)' },
+    { count: 1, reason: 'the hard reset own promotion: no machine, or a machine timeout' },
   ],
   // Phase 3 C6-9 put the update machine's four sends (Apply, Apply to a
   // replacement, the cooldown and same-generation promotions) behind one
@@ -417,6 +419,13 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
     'RO-05 REJOIN_RETRY_MS@src/player/local-output-rejoin.ts = ' +
       'RENDEZVOUS_RETRY_MS@src/player/background-return-sync.ts ([250,750,1500,3000,5000])',
     { kind: 'copy', reason: 're-align retry schedule; Phase 0d C3-I1' },
+  ],
+  [
+    // Phase 3 R2: the lazy hard reset measures the logo claim's quiet reading
+    // so the eager bundle does not carry it; the update machine stays the home.
+    'RO-22/RO-23/RO-30 STARTUP_PROMPT_QUIET_MS@src/core/sw-hard-reset.ts = ' +
+      'STARTUP_PROMPT_QUIET_MS@src/sw-register.ts (1000)',
+    { kind: 'copy', reason: 'logo claim quiet window, lazy chunk; sw-hard-reset.test.ts parity' },
   ],
   [
     'RO-29 CONTROL_CHANNEL_RECOVERY_RETRY_MS@src/pro-room/runtime.ts = ' +

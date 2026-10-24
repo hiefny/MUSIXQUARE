@@ -43,6 +43,8 @@
  */
 import { vi, type Mock } from 'vitest';
 import * as swHardReset from '../../sw-hard-reset.ts';
+import type { HardResetClaimRequest } from '../../../sw-register.ts';
+import { HARD_RESET_CLAIM_EVENT } from './hard-reset-port.ts';
 import { stubNavigationSinks, type NavigationSinks } from './navigation-sinks.ts';
 import { createBackButtonGuardController, isGuardedSession } from '../../back-button-guard.ts';
 import { createBackButtonHistory } from '../../back-button-history.ts';
@@ -215,10 +217,14 @@ export class FakeBackHistory {
 // `registrationDelayMs` delays getRegistration on the fake clock. The worker
 // activates only when the test calls `activate()`, so "never" is the stalled
 // activation that sw-hard-reset bounds at 1.5 s. Calibrated against
-// sw-hard-reset.ts:6-41 and the Chromium SKIP_WAITING delay of 43-66 s while a
-// page is loading (docs/design/update-apply-on-reopen-2026-10-16.md). Leaves
-// out the update machine in sw-register.ts, which this harness does not
-// register.
+// sw-hard-reset.ts and the Chromium SKIP_WAITING delay of 43-66 s while a
+// page is loading (docs/design/update-apply-on-reopen-2026-10-16.md). The
+// update machine in sw-register.ts is not registered here: the container
+// answers the hard reset's port (HARD_RESET_CLAIM_EVENT) as sw-register.ts
+// does before its machine exists, on a page whose loads are quiet:
+// 'unavailable', so the hard reset promotes on its own (Phase 3 C6-10, owner
+// decision P3-12 A). The machine's answers are pinned in
+// sw-update-transitions.integration.test.ts.
 
 export interface ServiceWorkerFake {
   readonly waiting: { state: string; postMessage: Mock<(message: unknown) => void> };
@@ -255,6 +261,12 @@ export function installServiceWorkerFake(
       },
       removeEventListener: (type: string, listener: () => void) => {
         if (type === 'controllerchange') listeners.delete(listener);
+      },
+      dispatchEvent: (event: Event) => {
+        if (event.type === HARD_RESET_CLAIM_EVENT) {
+          (event as CustomEvent<HardResetClaimRequest>).detail.claim = 'unavailable';
+        }
+        return true;
       },
     },
   });
@@ -638,7 +650,7 @@ export function bootPageNavigationShell(options: BootOptions = {}): PageNavigati
       scheduleSessionReset(MSG_LEAVING, {
         async prepare(signal) {
           const hardReset = await loadHardReset();
-          if (!signal.aborted) await hardReset.default();
+          if (!signal.aborted) await hardReset.default(signal);
         },
         navigate: () => navigateToAppHome(),
       });

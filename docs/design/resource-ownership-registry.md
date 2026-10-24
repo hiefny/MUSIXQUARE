@@ -445,8 +445,8 @@ RO-49 accepted-exception
     wait end the chain"; `local-output-rejoin.test.ts` "cancels a busy YouTube retry on explicit
     PAUSE and permits the next PLAY" and "ends a reserved PRO YouTube retry on a PRO listener
     visible PAUSE and permits the next PLAY"; `native-control-authority.test.ts` "records a
-    $visibility $room listener iframe PAUSE as a local pause" (only the visible PRO row emits the
-    router's end event).
+    $visibility $room listener iframe PAUSE as a local pause, published as intent: $published"
+    (only the visible PRO row emits the router's end event).
   - Teardown: `local-output-rejoin.test.ts` "does not let a stale busy result schedule work into a
     restarted session".
   - Visibility: `background-return-sync.test.ts` "ignores a sub-second visibility bounce that is
@@ -984,11 +984,13 @@ RO-49 accepted-exception
   handshake that fails on either side) and `pro-epoch-advanced` (the PRO epoch batch close,
   reachable only on the legacy close name while the client and Worker epoch close names differ).
   A cause noted by the provider's own emit-then-close (`closeAfterError`) now wins over the
-  listener's reason, so a room admission expiry still reads `admission-expired`. The guest also
-  keeps its page's last close cause and time across its disconnect reload (P4-D5 B,
+  listener's reason, so a room admission expiry still reads `admission-expired`. A Standard-room
+  guest also keeps its page's last close cause and time across its disconnect reload (P4-D5 B,
   `src/network/last-link-close.ts`, sessionStorage key `mxqr-prev-close` beside the next-document
   markers in `src/core/navigation-contract.ts`), and the next page in the tab that logs info lines
-  logs it once; no timer, deadline or close order changed. The link-liveness owner (C5-6) and the
+  logs it once; no timer, deadline or close order changed. Only the Standard guest's disconnect
+  dialog and removal reload keep it; a PRO room connection's close is noted in memory too, but no
+  PRO path keeps it. The link-liveness owner (C5-6) and the
   background-resume check (C5-7) were held until the #18 and preload-resume device items in the
   release record closed or were waived (owner decisions P4-D6 A and P4-D13 A, 2026-10-24); since
   the owner decision of 2026-10-25 (about 01:50 KST) device evidence no longer gates code, and
@@ -1083,8 +1085,9 @@ RO-49 accepted-exception
   C5-12, owner decision P4-D10 A, 2026-10-25; narrowed by its review the same day): the explicit
   main-lane recovery wins. A guest awaiting the preload takes the main `FILE_START` only while its
   own route is `local` (`shouldAcceptLocalDirectFileStart` in `transfer-receive.ts`); otherwise it
-  drops the header and its chunks and does not ask again, so the restarted preload is its only
-  usable stream. The host learns the recovered route only by re-detecting it (`host.ts` resets the
+  drops the header and its chunks, and the drop itself asks for nothing, so the restarted preload
+  is its only usable stream until its preload stall watchdog asks again (Known limits). The host
+  learns the recovered route only by re-detecting it (`host.ts` resets the
   peer to `unknown` after announcing the recovery) and publishing it: the device list carries it
   to the guest, which adopts the host's type, then `orchestrator:peer-type-detected`. So a preload
   paused by the interruption always restarts from chunk 0 on `network:peer-ice-recovered`
@@ -1127,7 +1130,12 @@ RO-49 accepted-exception
   - The guest reads its own route when the main header arrives, and the host cannot see it. A
     header sent after `local` was published can still reach a guest awaiting the preload that is
     not `local`; the guest then drops the header while the restart yields, and stays in
-    AWAITING_PRELOAD with no stream and no further request. A later host announcement on the same
+    AWAITING_PRELOAD with no stream. If the stall watchdog it armed while awaiting the preload
+    (`preload-blob-watchdog` in `playback.ts`, 10 s without progress; the yield's `PRELOAD_ABORT`
+    skips the session, so no progress re-arms it) has not fired yet, the stall lasts until it sends
+    `REQUEST_DATA_RECOVERY`, and outlasts that request only if the guest's route is still not
+    `local` when its main `FILE_START` arrives. If the dropped header already answered that
+    watchdog's request, nothing asks again (code reading). A later host announcement on the same
     connection no longer leads there (the revoke above). Two paths remain; no unit row or lab run
     shows either:
     - the bulk channel overtakes the control route that carried the device list, and the guest's

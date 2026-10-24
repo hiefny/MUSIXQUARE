@@ -341,7 +341,8 @@ export type TransportCloseReason =
   | 'rollback-unproven'
   | 'admission-expired'
   | 'peer-left'
-  | 'leave';
+  | 'leave'
+  | 'transport-error';
 
 export interface TransportDataConnection {
   peer: string;

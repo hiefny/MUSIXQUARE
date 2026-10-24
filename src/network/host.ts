@@ -1060,7 +1060,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
     if (getState('network.activeHostConnByPeerId').get(peerId) !== conn) {
       try {
-        conn.close();
+        conn.close('transport-error');
       } catch {
         /* noop */
       }
@@ -1084,7 +1084,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       }
     }
     try {
-      conn.close();
+      conn.close('transport-error');
     } catch {
       /* noop */
     }

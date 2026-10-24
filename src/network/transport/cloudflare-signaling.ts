@@ -4539,7 +4539,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (stillCurrent) {
         this.clearIcePeerState(peerId, pc);
       }
-      conn.close();
+      conn.close(stillCurrent ? 'transport-error' : undefined);
       // Supersession is ordinary control flow: only the newest generation may
       // report a negotiation failure or send an answer.
       if (!stillCurrent) return;

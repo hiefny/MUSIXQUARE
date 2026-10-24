@@ -1661,3 +1661,96 @@ describe('standard-room account authority', () => {
     expect(second.close).not.toHaveBeenCalled();
   });
 });
+
+describe('host close causes', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    clearAllManagedTimers();
+    vi.useRealTimers();
+  });
+
+  it('names transport-error when the host closes a connection after its error', () => {
+    const conn = makeIncomingConn('guest-errored');
+    handleHostIncomingConnection(conn);
+    conn.fire('open');
+
+    conn.fire('error', new Error('channel failed'));
+
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith('transport-error');
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+    expect(getState('network.activeHostConnByPeerId').has(conn.peer)).toBe(false);
+  });
+
+  it('names transport-error when a replaced connection reports a late error', () => {
+    const replaced = makeIncomingConn('guest-errored-replaced');
+    const replacement = makeIncomingConn('guest-errored-replaced');
+    handleHostIncomingConnection(replaced);
+    handleHostIncomingConnection(replacement);
+
+    replaced.fire('error', new Error('late channel failure'));
+
+    // The replacement's close is deliberate and names nothing; only the close
+    // that the error drives names a cause.
+    expect(replaced.close.mock.calls).toEqual([[], ['transport-error']]);
+    expect(replacement.close).not.toHaveBeenCalled();
+    expect(getState('network.activeHostConnByPeerId').get(replacement.peer)).toBe(replacement);
+  });
+
+  it.each([
+    {
+      failure: 'no HELLO before the bootstrap deadline',
+      run: (conn: FiringConn) => {
+        conn.fire('open');
+        vi.advanceTimersByTime(JOIN_BOOTSTRAP_TIMEOUT_MS);
+      },
+    },
+    {
+      failure: 'an application frame before HELLO',
+      run: (conn: FiringConn) => {
+        conn.fire('open');
+        conn.fire('data', { type: MSG.SYNC_PING, pingId: 1, guestTime: 1 });
+      },
+    },
+    {
+      failure: 'a WELCOME that cannot be sent',
+      run: (conn: FiringConn) => {
+        conn.send.mockImplementation(() => {
+          throw new Error('send failed');
+        });
+        conn.fire('open');
+      },
+    },
+  ])('names join-bootstrap-failed when a standard join fails on $failure', ({ run }) => {
+    const conn = makeIncomingConn('guest-bootstrap-failed');
+    handleHostIncomingConnection(conn);
+
+    run(conn);
+
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith('join-bootstrap-failed');
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+  });
+
+  it('names join-bootstrap-failed when a PRO WELCOME cannot be sent', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    });
+    const conn = makeIncomingConn('pro-welcome-failed');
+    conn.send.mockImplementation(() => {
+      throw new Error('send failed');
+    });
+    handleHostIncomingConnection(conn);
+
+    conn.fire('open');
+
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith('join-bootstrap-failed');
+  });
+});

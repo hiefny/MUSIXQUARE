@@ -60,6 +60,11 @@ export function setLogLevel(level: LogLevelName | Lowercase<LogLevelName>): void
   if (v !== null) _logLevel = v;
 }
 
+/** Whether info lines reach the console, and so the `/debug console` capture. */
+export function logsInfo(): boolean {
+  return _logLevel <= LOG_LEVEL.INFO;
+}
+
 declare global {
   // Dev-console hook exposed below. Optional because workers may not have a writable global.
   var setLogLevel: ((level: LogLevelName | Lowercase<LogLevelName>) => void) | undefined;

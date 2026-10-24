@@ -27,8 +27,14 @@
  * position. The demo rows state that behaviour; the rows after the demo pin
  * the queue anchor and timeline unchanged once the demo has exited.
  *
+ * Trade-off: the queue timeline also drove the host's background-resume
+ * rebuild, which moved a selected-queue demo host forward to the room
+ * position. The demo host now rebuilds at its own position, as it already did
+ * without a selected queue item, so its guests resync back to it instead.
+ *
  * Not established here (inferred, not measured): how large the hidden-stall
- * gap the fix removes was on real devices.
+ * gap the fix removes was on real devices, and the guests' resync (read from
+ * network/sync.ts, not run).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -498,12 +504,45 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
     },
   );
 
+  it.each([{ selectQueueItem: true }, { selectQueueItem: false }])(
+    'a background-resume rebuild restarts the demo at its own position (queue item selected: $selectQueueItem)',
+    async ({ selectQueueItem }) => {
+      await startDemo({ selectQueueItem });
+      setVisibility('hidden');
+      await vi.advanceTimersByTimeAsync(5_000);
+      setVisibility('visible');
+      edges.getCurrentTime.mockReturnValue(103);
+      const sourcesBefore = edges.createBufferSource.mock.results.length;
+
+      // The standard host's background-resume rejoin rebuilds its own output
+      // at its logical position (local-output-rejoin.ts). Before the 4B fix
+      // the selected case rebuilt at the queue timeline's 4.8 s, moving the
+      // host forward to the room position; now both cases restart at 2.8 s,
+      // and a guest whose position drifted past 2 s hard-resyncs back to it.
+      bus.emit('playback:refresh-current-position');
+      await vi.advanceTimersByTimeAsync(0);
+
+      const rebuilt = edges.createBufferSource.mock.results
+        .slice(sourcesBefore)
+        .map(({ value }) => value as ReturnType<typeof fakeSourceNode>);
+      expect(rebuilt).toHaveLength(1);
+      const [, offset] = rebuilt[0]!.start.mock.calls[0] as [number, number];
+      expect(offset).toBeCloseTo(2.8, 6);
+      expect(Number((await syncPong()).position)).toBeCloseTo(2.8, 6);
+      expect(getStandardHostPendingFileStartAt()).toBeUndefined();
+    },
+  );
+
   it('keeps the queue anchor and PLAY for a queue file started while the demo flag is set', async () => {
     // Not demo output: an operator guest's track request reaches playTrack
     // without a demo check, and the queue file it starts owns a resident.
     // The narrow fix leaves that start on the queue anchor, as before.
     await startDemo({ selectQueueItem: true });
     edges.broadcast.mockClear();
+    // 50 ms later, inside the demo lead, so the two starts differ.
+    await vi.advanceTimersByTimeAsync(50);
+    const demoStartAt = getPendingDemoHostStartAt();
+    expect(demoStartAt).toBeCloseTo(SHARED_START_AT, 6);
 
     const queueStartAt = await startSelectedQueueItem();
 
@@ -515,6 +554,12 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
     expect(plays).toEqual([
       expect.objectContaining({ queueItemId: QUEUE_ITEM_ID, hostStartAt: queueStartAt }),
     ]);
+    // The late-join PONG still advertises the demo track and the demo start
+    // (it reads the record by demo.active), not the queue item or its start.
+    expect(queueStartAt).toBe(SHARED_START_AT + 50);
+    const pong = await syncPong();
+    expect(pong).toMatchObject({ queueItemId: null, demoTrackIndex: 0 });
+    expect(pong.hostStartAt).toBe(demoStartAt);
   });
 });
 
@@ -560,5 +605,17 @@ describe('P4-D9: queue playback after leaving the demo is unchanged', () => {
     edges.getCurrentTime.mockReturnValue(103);
     expect(getTrackPosition()).toBeCloseTo(4.8, 6);
     expect(Number((await syncPong()).position)).toBeCloseTo(4.8, 6);
+
+    // The background-resume rebuild moves the host forward to the room
+    // position, which the demo no longer does.
+    const sourcesBefore = edges.createBufferSource.mock.results.length;
+    bus.emit('playback:refresh-current-position');
+    await vi.advanceTimersByTimeAsync(0);
+    const rebuilt = edges.createBufferSource.mock.results
+      .slice(sourcesBefore)
+      .map(({ value }) => value as ReturnType<typeof fakeSourceNode>);
+    expect(rebuilt).toHaveLength(1);
+    const [, offset] = rebuilt[0]!.start.mock.calls[0] as [number, number];
+    expect(offset).toBeCloseTo(4.8, 6);
   });
 });

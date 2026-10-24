@@ -506,8 +506,10 @@ RO-49 accepted-exception
   - Teardown: `src/demo/__tests__/mode-recovery.test.ts` "does not retry an aborted guest fetch
     after exit".
   - Visibility: demo side `src/demo/__tests__/shared-start-anchor.test.ts` "the demo host reports
-    its own position after a hidden stall"; queue side, same file, "keeps the queue canonical
-    timeline governing the host position across a hidden stall" (train 4B, P4-D9).
+    its own position after a hidden stall" and "a background-resume rebuild restarts the demo at
+    its own position"; queue side, same file, "keeps the queue canonical timeline governing the
+    host position across a hidden stall", whose rebuild still moves the host forward (train 4B,
+    P4-D9).
   - Both anchors together (Phase 4 4A, tests only; flipped to the fix in train 4B):
     `src/demo/__tests__/shared-start-anchor.test.ts` (P4-D9).
 - **Status:** `duplicated` (mutually exclusive modes). One lead since Phase 4 4A (C3-I1). The
@@ -2065,13 +2067,21 @@ entry needs the owner's acceptance and is not implied by this registry.
   make them fail on a missing export or pass against a mock.
 - **Behaviour risk:** the overlap this record named (the demo host's position governed by a
   selected queue item's timeline, 4.8 s against 2.8 s audible after a hidden stall in the
-  harness) is fixed in train 4B (owner decision 2026-10-25). Left: the demo anchor is not revoked
-  by transport pause and stop, only by demo code; the demo host's position follows its audio
-  clock through a hidden stall, as it already did without a selected queue item; and a queue file
-  started while the demo flag is still set keeps the queue anchor and publishes its PLAY while
-  the PONG still advertises the demo (unchanged, pinned by the harness). No known-accepted entry.
-- **Revisit when:** another demo or queue anchor problem is confirmed as a defect, or the owner
-  schedules one anchor (C3-I8, with C3-I7), which needs its own owner decision.
+  harness) is fixed in train 4B (owner decision 2026-10-25). That timeline also drove the host's
+  background-resume rebuild (`playback:refresh-current-position`), which moved a selected-queue
+  demo host's output forward to the room position (4.8 s). Since the fix the demo host rebuilds
+  at its own position (2.8 s) and its PONG reports that position, also while it answers hidden
+  (0 s), as it already did without a selected queue item; a guest whose position is more than
+  2 s from the host's (`FILE_HARD_RESYNC_DRIFT_SEC` in `src/network/sync.ts`) hard-resyncs back
+  to it, so the guests, not the host, absorb the stall (guest side from code reading). Left as
+  well: the demo anchor is not revoked by transport pause and stop, only by demo code; and a
+  queue file started while the demo flag is still set keeps the queue anchor and publishes its
+  PLAY, while the late-join PONG still advertises the demo track and the demo start (unchanged,
+  pinned by the harness). No known-accepted entry.
+- **Revisit when:** another demo or queue anchor problem is confirmed as a defect; the owner wants
+  the room to keep its position through a demo host's background stall, which needs a
+  demo-owned canonical timeline (C3-I8), not a narrower fix; or the owner schedules one anchor
+  (C3-I8, with C3-I7), which needs its own owner decision.
 - **Status:** `accepted-exception`.
 
 ## Checked side flows without a record

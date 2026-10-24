@@ -64,7 +64,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `system-audio-service`가 +3,684 B, `system-audio-sfu`가 +448 B 커져 PRO 방 입장의 JS 합은
       거의 같다(−255 B). C5-6·C5-7·C5-8은 아래 #18과 미리받기 재개가 근거로 닫히거나 면제될
       때까지 보류한다(P4-D6 A, P4-D13 A). 배포 대상은 target `app`, Developer API D1 `false`다.
-      `cloudflare/` 변경이 없고, 운영 배포 기록을 기준으로 부분 게이트 판정을 로컬에서 돌리면 다른
+      App 런타임 입력만 바뀌고, `cloudflare/`에서는 bump가 App Worker의 `ADMIN_ASSET_VERSION`
+      문자열 하나만 바꾼다. 운영 배포 기록을 기준으로 부분 게이트 판정을 로컬에서 돌리면 다른
       다섯 Worker의 런타임 경로 변경과 App 운영 의존성 변화가 0이다(실제 게이트는 Production
       Release가 다시 판정). 업데이트 창이 뜨는 배포이고 오너가 배포를 맡겼다. 새 D1
       스키마·비밀·바인딩·통신 형식은 없다. 혼합 버전(known-accepted #13): 9.0.6과 9.0.7은 같은
@@ -74,15 +75,19 @@ gh run list --workflow e2e.yml --branch main --limit 3
       9.0.5로 되돌려도 PRO 입장 정책 표지는 유지된다(9.0.4 아래는 불가). 로컬 검증(`b8bc42c4`):
       단위 658 files / 15,206, 4A·#478 묶음 42 files / 1,631, 가드(dead-exports 20/20·76/76 그대로,
       resource-ownership 46 records, transport-health 원시 읽기 1), 빌드와 초기 전송 예산 PASS.
-      갈래 라운드의 critical E2E 61/61(네트워크 갈래 `9a0fea2a`)과 커버리지는 보고서에 있다. 통합
-      트리의 Playwright와 4A 코드의 C5-0 랩은 아직 돌리지 않았다. bump 뒤 최종 검증, exact-main CI
+      문서 리뷰 정리(`1320eea6`, 런타임 소스 같음)가 오너 결정 P4-D8 A·P4-D9 A를 registry 허용 예외
+      RO-48·RO-49로 적어 resource-ownership이 48 records가 됐고, 그 SHA에서 단위 658 files /
+      15,206과 그 가드가 다시 PASS했다. 갈래 라운드의 critical E2E 61/61(네트워크 갈래
+      `9a0fea2a`)과 커버리지는 보고서에 있다. 통합 트리의 Playwright와 4A 코드의 C5-0 랩은 아직 돌리지 않았다. bump 뒤 최종 검증, exact-main CI
       후보, Release 실행, 배포 SHA는 배포 뒤 기록 PR이 채운다.
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md).
 - [ ] Phase 4 게이트 편차(오너 결정 2026-10-24): 로드맵의 Phase 4 게이트는 아래 #18 보조 연결 ICE
       재시작과 미리받기 재개를 근거로 닫거나 면제하고, C5-0을 green으로 하고, QA007·QA036·QA040
-      기준선을 먼저 재는 것이다. C5-0 랩은 오늘 main에서 24/24로 통과했다(#478). 기기 부분은
-      면제가 아니라 미뤘다. 오너가 기기 기준선 없이, R2 배포 7일 안에, Phase 3 실기기 확인 전에
-      4A 배포를 맡겼다(P4-D11 예외). 그래서 4A의 중립성은 기기 전후 비교가 아니라 자동 근거(단위,
+      기준선을 먼저 재는 것이다. C5-0 랩은 2026-10-24 main(`fa256db2` 런타임, #478 `b4293768`)에서
+      24/24로 통과했다. 기기 부분은 면제가 아니라 미뤘다. 오너는 기기 기준선 없이, R2 배포 7일
+      안에 4A를 배포해도 된다고 했고, 배포와 기기 평가를 맡기고 자리를 비웠다(P4-D11 예외). Phase
+      3 실기기 확인 전에 배포하는 것은 그 위임 아래의 판단이다(P4-D11 A는 Phase 3 기기 확인 통과를
+      조건으로 둔다). 그래서 4A의 중립성은 기기 전후 비교가 아니라 자동 근거(단위,
       특성화 테스트, C5-0 랩)에 기대고, 기준선은 4A 위에서 처음 잰다. #18과 미리받기 재개는
       아래 실기기 확인에 열린 채로 둔다. Phase 3 시계는 다시 시작하지 않고, 4A 뒤 업데이트 경로
       제보는 Phase 3 몫으로 본다(P4-D11 A). Phase 4의 앱 업데이트는 4A와 4B 두 번이고, 4B(C5-8, 축소
@@ -934,9 +939,10 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       오너 결정(2026-10-24, Phase 4 알림 N1): 두 줄은 방장과 게스트의 `/debug console`을 합쳐 센다.
       `Restarting isolated control ICE` 줄은 두 기기 중 재시작을 시작하는 한쪽만 남기므로 게스트
       콘솔에 없을 수 있다. 다른 SSID 단계를 공유기 조건으로 못 하면 나머지가 통과할 때 닫고 그
-      범위를 적는다(P4-D15 A). C5-0 랩은 오늘 main에서 보조 PC가 failed에 닿은 뒤의 재시작 회복을
-      재현했지만 실기 근거는 아직 없다. 이 항목이 열린 채 4A를 배포하고(위 Phase 4 게이트 편차),
-      C5-6·C5-7·C5-8은 이 항목이 닫히거나 면제될 때까지 보류한다.
+      범위를 적는다(P4-D15 A). C5-0 랩은 2026-10-24 main(`fa256db2` 런타임, #478 `b4293768`)에서
+      보조 PC가 failed에 닿은 뒤의 재시작 회복을 재현했지만 실기 근거는 아직 없다. 이 항목이
+      열린 채 4A를 배포하고(위 Phase 4 게이트 편차), C5-6·C5-7·C5-8은 이 항목이 닫히거나 면제될
+      때까지 보류한다.
       [독립 검증](design/side-ice-restart-independent-verification-2026-10-20.md),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md)
 - [ ] 8.11.25 미리받기 재개: 호스트 노트북은 와이파이에 두고, 폰이 다음 곡을 미리받는 중(다음 곡
@@ -944,7 +950,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       취소된 뒤 다시 시작하지 않았다(오너 확인 2026-10-19). 8.11.25에서 연결이 돌아오면 미리받기가
       이어서 끝나고, 다음 곡으로 넘어갈 때 다시 받지 않고 바로 재생되면 닫는다. `?mxqrLog=info`로
       연 호스트의 `/debug console`에 끊긴 동안 `Paused preload`, 복구 뒤 `Resuming preload`가 보인다.
-      C5-0 랩은 오늘 main에서 같은 재개를 재현했다(그 게스트 PeerID로 Paused·Resuming 한 번씩,
+      C5-0 랩은 2026-10-24 main(`fa256db2` 런타임, #478 `b4293768`)에서 같은 재개를 재현했다(그
+      게스트 PeerID로 Paused·Resuming 한 번씩,
       ABORT 없음, 정확한 SHA-256). 실기 근거는 아직 없고, 이 항목이 열린 채 4A를 배포한다(위 Phase 4
       게이트 편차). C5-6·C5-7·C5-8은 이 항목과 #18이 닫히거나 면제될 때까지 보류한다.
       [native 근거](design/preload-resume-after-ice-recovery-2026-10-20.md),
@@ -1108,7 +1115,8 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       오너 결정(2026-10-24, P4-D3 A): Phase 4는 앱 업데이트 두 번이다. 4A(중립 재구성)와 4B(위험·동작 변경)이고,
       4B는 4A 배포 7일 뒤 이후에 낸다.
       [결정 근거](design/resource-ownership-registry.md#consolidation-phases),
-      [게이트에 막힌 실행](design/server-constant-homes-2026-10-23.md#호환성).
+      [게이트에 막힌 실행](design/server-constant-homes-2026-10-23.md#호환성),
+      [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24).
 - [ ] 8.11.32 배포 뒤 실기 확인(2026-10-21 03:41 KST 배포됨): iPhone에서 재생목록 길게 누르기가 글자를 선택하지
       않는지, 데스크톱 길게 클릭·끌기 가장자리 자동 스크롤, 백그라운드 복귀마다 Sync(일반방 YouTube 방장이 돌아올 때마다
       게스트가 최대 3초에 한 번 다시 맞춘다), 권한 확인 중 안내, 화면 보호기 두 번 탭 종료·저음 밝기를 실제 기기로 본다.

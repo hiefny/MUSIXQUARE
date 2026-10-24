@@ -72,6 +72,7 @@ import {
   refreshProSystemAudioState,
   registerProSystemAudioServiceListeners,
   resetProSystemAudioService,
+  resetProSystemAudioSubscriberRetry,
 } from '../system-audio-service.ts';
 import {
   ProTransportPeerConnection,
@@ -509,6 +510,94 @@ describe('PRO SFU reception through the real subscriber', () => {
     await applyState(idle(2));
     expect(slot()).toEqual(idleWithPreviousTitle());
     expect(restorePlayback).toHaveBeenCalledTimes(1);
+  });
+
+  it('deadlines: the re-subscribe backoff doubles from 2.5 s to 30 s under one notice and one placeholder, and a control-channel reconnect restarts it at 2.5 s', async () => {
+    // Six attempts fail at new-session (100 ms after their TURN read).
+    for (let attempt = 0; attempt < 6; attempt += 1) realtime.injectFault('new-session', 'fail');
+    const t0 = Date.now();
+    const sessionsAt = async (offset: number) => {
+      await advance(t0 + offset - Date.now());
+      return realtime.count('new-session');
+    };
+    await applyState(live(sfuPublication()));
+
+    // Each failure (200 ms into its attempt) schedules the next attempt
+    // 2.5, 5, 10, 20 and then 30 s later; the PRO coordinator keeps this
+    // backoff in the C4 design.
+    const schedule: Array<[number, number]> = [];
+    for (const offset of [
+      99, 100, 2_799, 2_800, 7_999, 8_000, 18_199, 18_200, 38_399, 38_400, 68_599, 68_600,
+    ]) {
+      schedule.push([offset, await sessionsAt(offset)]);
+    }
+    expect(schedule).toEqual([
+      [99, 0],
+      [100, 1],
+      [2_799, 1],
+      [2_800, 2],
+      [7_999, 2],
+      [8_000, 3],
+      [18_199, 3],
+      [18_200, 4],
+      [38_399, 4],
+      [38_400, 5],
+      [68_599, 5],
+      [68_600, 6],
+    ]);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(seen.counts.receiveTimeouts).toBe(0);
+
+    // The seventh attempt waits until 98.7 s. The room's control channel
+    // reconnects at 80 s (runtime: resetProSystemAudioSubscriberRetry), which
+    // restarts the backoff, so it runs 2.5 s later and attaches.
+    await advance(t0 + 80_000 - Date.now());
+    resetProSystemAudioSubscriberRetry();
+    expect(await sessionsAt(82_599)).toBe(6);
+    expect(await sessionsAt(82_600)).toBe(7);
+    await advance(t0 + 82_500 + PRO_TRACK_AT_MS - Date.now());
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      placeholder: true,
+      sources: ['sfu-audio-7'],
+    });
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('expected today: a new publication after a successor replaced the pending placeholder begins again over the successor, whose title becomes the restore point', async () => {
+    await applyState(live(sfuPublication()));
+    claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
+    await advance(PRO_SUBSCRIBED_AT_MS);
+    // The first track waits at the trusted boundary (no placeholder) while
+    // its subscription stays open.
+    expect(slot()).toMatchObject({ mode: 'file', title: 'successor', sources: [] });
+    expect(sfuConnections()[0].closed).toBe(false);
+
+    // A new publication is a new reception start: the coordinator end leaves
+    // the successor alone (it is not a system-audio owner), and the begin
+    // stops its media, takes its title as the restore point and claims the
+    // placeholder. A slot that held a 'pending' phase from the first begin
+    // would refuse this begin (C4 critique, stored phases).
+    await applyState(live(sfuPublication('publication_00002', 'realtime_session_02'), 2));
+    expect(sfuConnections()[0].closed).toBe(true);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(2);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      mode: 'system-audio',
+      activity: 'pending',
+      placeholder: true,
+    });
+    await advance(PRO_TRACK_AT_MS);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-audio-2'] });
+    expect(webAudio.sources).toHaveLength(1);
+
+    await applyState(idle(3));
+    expect(slot()).toMatchObject({ receiving: false, mode: null, title: 'successor' });
+    expect(seen.toasts).toEqual([]);
   });
 
   it('S8 (generations): a new SFU publication while the old track waits in initAudio retires the old session; the stale track never connects and the new one attaches once', async () => {

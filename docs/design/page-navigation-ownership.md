@@ -121,12 +121,12 @@ reset asks the update machine (registry RO-22) instead of promoting on its own.
 It dispatches `HARD_RESET_CLAIM_EVENT` on the page's service-worker container
 and the machine answers at once:
 
-| Answer            | When                                                                      | The hard reset then                                                                                                                       |
-| ----------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `promoted`        | A worker is waiting and the page's loads are quiet                        | Waits up to 1.5 s for the new controller. The machine sent `SKIP_WAITING` through its sink, recorded the request and withdrew any prompt. |
-| `apply-in-flight` | An Apply already sent `SKIP_WAITING`                                      | Waits for that activation until the prepare window closes, sending nothing.                                                               |
-| `none`            | No waiting worker, or a resource of the page finished within the last 1 s | Goes home at once; the next page offers the update with the usual dialog.                                                                 |
-| `unavailable`     | No machine yet (before the window load event, a failed registration)      | Promotes on its own: `SKIP_WAITING` to the waiting worker, then waits up to 1.5 s.                                                        |
+| Answer            | When                                                                                                                                  | The hard reset then                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `promoted`        | A worker is waiting and the page's loads are quiet                                                                                    | Waits up to 1.5 s for the new controller. The machine sent `SKIP_WAITING` through its sink, recorded the request and withdrew any prompt. |
+| `apply-in-flight` | An Apply already sent `SKIP_WAITING`                                                                                                  | Waits for that activation until the prepare window closes, sending nothing.                                                               |
+| `none`            | No waiting worker, or a resource of the page (other than the hard reset's own chunk, loaded for the tap) finished within the last 1 s | Goes home at once; the next page offers the update with the usual dialog.                                                                 |
+| `unavailable`     | No machine yet (before the window load event, a failed registration)                                                                  | Promotes on its own: `SKIP_WAITING` to the waiting worker, then waits up to 1.5 s.                                                        |
 
 "Update applied" is left for the next document only when this document saw the
 new controller. When the machine's own promotion times out, the hard reset

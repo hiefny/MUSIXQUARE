@@ -1123,7 +1123,9 @@ RO-47 owner-in-place
     for that activation until the prepare window closes and sends nothing), `none` (no waiting
     worker, or the page's loads are not quiet: the logo goes home at once and the next page
     offers the update) or `unavailable` (no machine yet: before the window load event or after a
-    failed registration, on a quiet page). The hard reset then waits for the new controller and
+    failed registration, on a quiet page). The request names the hard reset's own chunk, whose
+    load for the tap does not count as the page loading (found by the 2026-10-24 real-browser
+    check: without it the logo never promoted). The hard reset then waits for the new controller and
     leaves "Update applied" for the next document only when it saw one (P3-11 A). The port is an
     event rather than an import: a static import of `sw-register.ts` from the logo or the lazy
     chunk reorders the eager bundle (+0.7 KB gzip measured either way).

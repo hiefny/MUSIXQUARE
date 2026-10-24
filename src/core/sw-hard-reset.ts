@@ -90,7 +90,8 @@ async function promoteWithoutTheUpdateMachine(signal: AbortSignal): Promise<Hard
 
 /** Ask the update machine through its port; without an answer there is nothing to promote. */
 function claimWaitingWorker(): HardResetClaim {
-  const request: HardResetClaimRequest = {};
+  // This chunk's own load, just now, is not the page still loading.
+  const request: HardResetClaimRequest = { chunk: import.meta.url };
   navigator.serviceWorker.dispatchEvent(
     new CustomEvent<HardResetClaimRequest>(HARD_RESET_CLAIM_EVENT, { detail: request }),
   );

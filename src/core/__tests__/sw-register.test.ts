@@ -685,7 +685,12 @@ describe('service-worker cache-retirement client handshake', () => {
     // Keep page resources finishing for a while after registration.
     vi.mocked(performance.getEntriesByType).mockImplementation((type: string) =>
       type === 'resource'
-        ? [{ responseEnd: lastResponseEnd } as unknown as PerformanceResourceTiming]
+        ? [
+            {
+              name: 'https://musixquare.com/assets/page.js',
+              responseEnd: lastResponseEnd,
+            } as unknown as PerformanceResourceTiming,
+          ]
         : [],
     );
     const keepLoading = setInterval(() => {
@@ -1770,9 +1775,12 @@ describe('service-worker cache-retirement client handshake', () => {
   // (sw-hard-reset.test.ts drives that side; the transition table drives both
   // on the real navigation owner).
   describe('the logo hard reset port (C6-10)', () => {
-    async function claimForHardReset(harness: SwHarness): Promise<HardResetClaim | undefined> {
+    async function claimForHardReset(
+      harness: SwHarness,
+      chunk?: string,
+    ): Promise<HardResetClaim | undefined> {
       // The machine keeps its own copy of the event name; this pins it.
-      const request: HardResetClaimRequest = {};
+      const request: HardResetClaimRequest = chunk ? { chunk } : {};
       harness.emit(
         HARD_RESET_CLAIM_EVENT,
         new CustomEvent<HardResetClaimRequest>(HARD_RESET_CLAIM_EVENT, { detail: request }),
@@ -1781,11 +1789,11 @@ describe('service-worker cache-retirement client handshake', () => {
     }
 
     /** A resource of the page finished just now. */
-    function pageStillLoading(): void {
+    function pageStillLoading(name = 'https://musixquare.com/assets/page.js'): void {
       const finishedAt = performance.now();
       vi.mocked(performance.getEntriesByType).mockImplementation((type: string) =>
         type === 'resource'
-          ? [{ responseEnd: finishedAt } as unknown as PerformanceResourceTiming]
+          ? [{ name, responseEnd: finishedAt } as unknown as PerformanceResourceTiming]
           : [],
       );
     }
@@ -1836,6 +1844,21 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(await claimForHardReset(harness)).toBe('none');
       expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
       expect(sessionStorage.getItem('sw-updated-at')).toBeNull();
+    });
+
+    it("does not count the hard reset's own chunk, loaded for this tap, as the page still loading", async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      const update = harness.installUpdate('v494');
+      update.emitInstalled();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      await flushAsyncControllerChange();
+
+      const chunk = 'https://musixquare.com/assets/sw-hard-reset-abc123.js';
+      pageStillLoading(chunk);
+      expect(await claimForHardReset(harness)).toBe('none');
+      expect(await claimForHardReset(harness, chunk)).toBe('promoted');
+      expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
     });
 
     it('waits for an Apply in flight instead of sending a second SKIP_WAITING (P3-8 A)', async () => {

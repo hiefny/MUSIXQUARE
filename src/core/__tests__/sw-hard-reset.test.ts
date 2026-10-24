@@ -17,6 +17,8 @@ interface Harness {
   readonly waitingWorker: { state: string; postMessage: ReturnType<typeof vi.fn> } | null;
   /** Every event type dispatched on the container. */
   readonly dispatched: string[];
+  /** The chunk URL each claim named. */
+  readonly chunks: Array<string | undefined>;
   readonly getRegistration: ReturnType<typeof vi.fn>;
   activate(): void;
 }
@@ -26,6 +28,7 @@ function installHarness(
 ): Harness {
   const events = new EventTarget();
   const dispatched: string[] = [];
+  const chunks: Array<string | undefined> = [];
   const previousController = options.controlled === false ? null : { id: 'old' };
   let controller: object | null = previousController;
   const waitingWorker =
@@ -48,13 +51,16 @@ function installHarness(
   const claim = options.claim === undefined ? 'unavailable' : options.claim;
   if (claim !== null) {
     events.addEventListener(HARD_RESET_CLAIM_EVENT, (event) => {
-      (event as CustomEvent<HardResetClaimRequest>).detail.claim = claim;
+      const request = (event as CustomEvent<HardResetClaimRequest>).detail;
+      chunks.push(request.chunk);
+      request.claim = claim;
     });
   }
   vi.stubGlobal('navigator', { serviceWorker: serviceWorkers });
   return {
     waitingWorker,
     dispatched,
+    chunks,
     getRegistration,
     activate() {
       controller = { id: 'new' };
@@ -83,6 +89,9 @@ describe('the logo hard reset asks the update machine (C6-10)', () => {
     await activatePendingServiceWorkerForHardReset(prepare.signal);
     // The lazy chunk keeps its own copy of the event name; this pins it.
     expect(harness.dispatched).toEqual([HARD_RESET_CLAIM_EVENT]);
+    // It names its own chunk, whose load for this tap is not the page still
+    // loading (found by the 2026-10-24 real-browser check).
+    expect(harness.chunks).toEqual([expect.stringMatching(/\/src\/core\/sw-hard-reset\.ts$/u)]);
   });
 
   it.each([

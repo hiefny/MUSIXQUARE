@@ -42,6 +42,8 @@
  * Rows labelled "[keeps: C6-9]" have the same effects on main 08003954 and
  * after C6-9 replaced the latch with the typed state.
  */
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import {
   NAVIGATION_COMMIT_TIMEOUT_MS,
@@ -154,6 +156,8 @@ const ROOM_HOST: AppModel = {
   joinCode: ROOM_CODE,
 };
 
+/** The URL the lazy hard-reset chunk loads from: its import.meta.url under Vitest. */
+const HARD_RESET_CHUNK_URL = pathToFileURL(resolve('src/core/sw-hard-reset.ts')).href;
 /** The fake clock's start; every row runs from t+0. */
 const T0 = Date.parse('2026-10-24T00:00:00.000Z');
 /** Long enough for the reset to paint and run its navigation (two 16 ms frames). */
@@ -224,7 +228,7 @@ interface Tab {
     loaded?: boolean;
   }): Promise<PageDocument>;
   /** One of the live document's resources finishes loading now (a resource timing entry). */
-  finishResource(): void;
+  finishResource(name?: string): void;
   /** Close the tab's live document the same way. */
   close(): void;
   /** A newer worker installs and waits. */
@@ -250,8 +254,8 @@ function createTab(activeVersion: string): Tab {
   let waiting: FakeWorker | null = null;
   let installing: FakeWorker | null = null;
   let closeLiveDocument: (() => void) | null = null;
-  // The live document's resource timing: when each of its resources finished.
-  const resourceEnds: number[] = [];
+  // The live document's resource timing: each finished resource's URL and end.
+  const resourceEntries: Array<{ name: string; responseEnd: number }> = [];
 
   const emit = (map: Map<number, Map<string, Set<Listener>>>, type: string, event: unknown) => {
     for (const listener of [...(map.get(liveDoc)?.get(type) ?? [])]) listener(event);
@@ -331,7 +335,7 @@ function createTab(activeVersion: string): Tab {
       closeLiveDocument?.();
       vi.resetModules();
       vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', build);
-      resourceEnds.length = 0;
+      resourceEntries.length = 0;
       liveDoc += 1;
       const doc = liveDoc;
       mocks.page.doc = doc;
@@ -378,7 +382,7 @@ function createTab(activeVersion: string): Tab {
           type === 'navigation'
             ? [{ type: navigation }]
             : type === 'resource'
-              ? resourceEnds.map((responseEnd) => ({ responseEnd }))
+              ? resourceEntries.map((entry) => ({ ...entry }))
               : [],
       });
 
@@ -429,8 +433,13 @@ function createTab(activeVersion: string): Tab {
         logoReset() {
           // src/ui/player-controls.ts handleLogoReturnToMain, after its
           // "return home?" question; page-navigation-harness-parity.test.ts
-          // pins this copy. The chunk is preloaded for this document.
-          const loadHardReset = () => Promise.resolve(hardResetModule);
+          // pins this copy. The module is preloaded for this document, but the
+          // browser records the chunk's load as it does on a tap: a resource
+          // of the page that finished just now (2026-10-24 real-browser check).
+          const loadHardReset = () => {
+            tab.finishResource(HARD_RESET_CHUNK_URL);
+            return Promise.resolve(hardResetModule);
+          };
           owner.scheduleSessionReset(MSG_LEAVING, {
             async prepare(signal) {
               const hardReset = await loadHardReset();
@@ -460,8 +469,8 @@ function createTab(activeVersion: string): Tab {
     close() {
       closeLiveDocument?.();
     },
-    finishResource() {
-      resourceEnds.push(Date.now() - T0);
+    finishResource(name = 'https://musixquare.com/assets/page-resource.js') {
+      resourceEntries.push({ name, responseEnd: Date.now() - T0 });
     },
     install(version, { silent = false } = {}) {
       const worker = createWorker(version, 'installing', silent);

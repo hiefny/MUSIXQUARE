@@ -109,6 +109,11 @@ export type HardResetClaim = 'promoted' | 'apply-in-flight' | 'none' | 'unavaila
 /** The detail of HARD_RESET_CLAIM_EVENT. */
 export interface HardResetClaimRequest {
   claim?: HardResetClaim;
+  /**
+   * The URL of the hard reset's own chunk: the browser loaded it for this tap,
+   * so its load does not count as the page still loading.
+   */
+  chunk?: string;
 }
 
 function publishNavigationSource(navigationFallback: boolean): void {
@@ -241,11 +246,15 @@ function isRoomOrDemoActive(): boolean {
   return isRoomSessionActive() || isDemoStateActive() || isDemoSurfaceVisible();
 }
 
-/** When this page's latest resource finished, or `since` if later or unknown. */
-function lastResponseEnd(since: number): number {
+/**
+ * When this page's latest resource finished, or `since` if later or unknown;
+ * the resource at `except` (the URL of the hard reset's own chunk) is left out.
+ */
+function lastResponseEnd(since: number, except?: string): number {
   let last = since;
   try {
     for (const entry of performance.getEntriesByType('resource')) {
+      if (entry.name === except) continue;
       last = Math.max(last, (entry as PerformanceResourceTiming).responseEnd || 0);
     }
   } catch {
@@ -300,8 +309,8 @@ export function registerServiceWorker(): void {
    * No resource of this page finished within STARTUP_PROMPT_QUIET_MS, so a
    * SKIP_WAITING sent now activates at once (the Chromium rule above).
    */
-  const isPageQuietNow = (): boolean =>
-    performance.now() - lastResponseEnd(-Infinity) >= STARTUP_PROMPT_QUIET_MS;
+  const isPageQuietNow = (except?: string): boolean =>
+    performance.now() - lastResponseEnd(-Infinity, except) >= STARTUP_PROMPT_QUIET_MS;
 
   /** Resolve once no page resource has finished for a moment, or at the cap. */
   const waitForQuietPageLoad = (): Promise<void> =>
@@ -324,9 +333,11 @@ export function registerServiceWorker(): void {
   // The logo's hard reset asks here (HARD_RESET_CLAIM_EVENT). Until the
   // machine exists (the window load event, then registration) it may promote
   // on its own, once the page's loads are quiet (P3-12 A, P3-9 A).
-  let claimForHardReset = (): HardResetClaim => (isPageQuietNow() ? 'unavailable' : 'none');
+  let claimForHardReset = (chunk?: string): HardResetClaim =>
+    isPageQuietNow(chunk) ? 'unavailable' : 'none';
   navigator.serviceWorker.addEventListener(HARD_RESET_CLAIM_EVENT, (event) => {
-    (event as CustomEvent<HardResetClaimRequest>).detail.claim = claimForHardReset();
+    const request = (event as CustomEvent<HardResetClaimRequest>).detail;
+    request.claim = claimForHardReset(request.chunk);
   });
 
   const doRegister = async () => {
@@ -910,10 +921,15 @@ export function registerServiceWorker(): void {
 
       // The machine answers the logo now. A worker it promotes is the hard
       // reset's: no prompt or quiet promotion of this document takes it up.
-      claimForHardReset = () => {
+      claimForHardReset = (chunk) => {
         if (activationState === 'awaiting-local-controller') return 'apply-in-flight';
         const worker = reg.waiting;
-        if (isReloadScheduled() || !worker || worker.state !== 'installed' || !isPageQuietNow()) {
+        if (
+          isReloadScheduled() ||
+          !worker ||
+          worker.state !== 'installed' ||
+          !isPageQuietNow(chunk)
+        ) {
           return 'none';
         }
         if (openPrompt) openPrompt.abort();

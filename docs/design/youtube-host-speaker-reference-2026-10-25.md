@@ -183,7 +183,8 @@ epoch moved to v780.
 
 ## Owner device check
 
-Not done yet; for the owner on real devices with 9.0.8:
+Passed: the owner checked 9.0.8 on real devices on 2026-10-25 and reported both
+fixes as perfect (device and OS list not given). The procedure was:
 
 1. Standard room, host and at least one guest, empty playlist. Add YouTube and
    play. After about 10 s, listen for an echo between host and guest. Press

@@ -714,7 +714,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     const departure = detachHostPeerConnection(peerId, conn);
     if (departure) broadcastDeviceList();
     try {
-      conn.close();
+      conn.close('join-bootstrap-failed');
     } catch {
       /* noop */
     }
@@ -910,7 +910,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
     if (!safeSend(conn, welcomeFrame())) {
       if (isProRoom) {
         try {
-          conn.close();
+          conn.close('join-bootstrap-failed');
         } catch {
           /* noop */
         }

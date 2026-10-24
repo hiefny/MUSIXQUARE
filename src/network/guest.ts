@@ -401,7 +401,7 @@ export function joinSession(
       bootstrapId = createJoinBootstrapId();
     } catch (error) {
       try {
-        conn.close();
+        conn.close('join-bootstrap-failed');
       } catch {
         /* noop */
       }
@@ -464,7 +464,7 @@ export function joinSession(
     setState('network.hostConn', null);
     setState('network.isConnecting', false);
     try {
-      conn.close();
+      conn.close('join-bootstrap-failed');
     } catch {
       /* noop */
     }
@@ -565,7 +565,7 @@ export function joinSession(
         if (!terminateGuestJoin(joinEpoch)) return;
         log.warn('[Join] Invalid or excessive data received before connection open');
         try {
-          conn.close();
+          conn.close('join-bootstrap-failed');
         } catch {
           /* noop */
         }

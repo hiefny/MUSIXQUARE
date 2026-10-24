@@ -342,7 +342,8 @@ export type TransportCloseReason =
   | 'admission-expired'
   | 'peer-left'
   | 'leave'
-  | 'transport-error';
+  | 'transport-error'
+  | 'join-bootstrap-failed';
 
 export interface TransportDataConnection {
   peer: string;

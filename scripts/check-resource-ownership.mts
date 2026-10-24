@@ -379,7 +379,10 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
     records: ['RO-28'],
     files: ['src/account/account-sync-protocol.ts', 'src/account/session.ts', 'src/ui/account.ts'],
   },
-  { records: ['RO-29'], files: ['src/pro-room/runtime.ts', 'src/network/peer.ts'] },
+  {
+    records: ['RO-29'],
+    files: ['src/pro-room/runtime.ts', 'src/network/signaling-health.ts', 'src/network/peer.ts'],
+  },
 ];
 
 /**
@@ -430,8 +433,11 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
   ],
   [
     'RO-29 CONTROL_CHANNEL_RECOVERY_RETRY_MS@src/pro-room/runtime.ts = ' +
-      'RECONNECT_BACKOFF_MS@src/network/peer.ts ([1000,2000,4000,8000,15000])',
-    { kind: 'suspect', reason: 'PRO control channel vs signaling reconnect; Phase 0d triages it' },
+      'SIGNALING_RECOVERY_BACKOFF_MS@src/network/signaling-health.ts ([1000,2000,4000,8000,15000])',
+    {
+      kind: 'suspect',
+      reason: 'PRO control channel vs Standard signaling reconnect; PRO copy kept separate (C5-2)',
+    },
   ],
 ]);
 

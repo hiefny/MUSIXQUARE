@@ -18,8 +18,9 @@ its authenticated host epoch before the host knows it must reconnect.
 An authenticated Standard-room host monitors only its exact signaling WebSocket. After ten
 seconds without any server traffic it sends one fixed application-level probe. Any ordinary
 server frame or the fixed pong proves liveness. If eight more seconds pass without a response,
-the exact socket generation is retired and the existing 1/2/4/8/15-second recovery loop starts
-automatically. Existing WebRTC data channels, playback, and system-audio media stay intact.
+the exact socket generation is retired and the existing 1/2/4/8/15-second recovery loop
+(`SIGNALING_RECOVERY_BACKOFF_MS` in `src/network/signaling-health.ts`) starts automatically.
+Existing WebRTC data channels, playback, and system-audio media stay intact.
 
 The Worker advertises protocol version 1 only from deployed Workers carrying version metadata.
 Durable Objects use `setWebSocketAutoResponse()` when available, with an explicit local/test

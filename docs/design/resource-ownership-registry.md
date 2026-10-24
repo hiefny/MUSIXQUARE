@@ -1626,8 +1626,11 @@ RO-47 owner-in-place
   control-channel recovery, publish signaling exhaustion.
 - **Deadline owner:** `runtime.ts`; recovery is bounded by `SIGNALING_RECOVERY_MAX_ATTEMPTS`.
 - **Timing-constant home:** `HEARTBEAT_INTERVAL_MS` and `CONTROL_CHANNEL_RECOVERY_RETRY_MS`
-  (`runtime.ts`). The same `[1_000, 2_000, 4_000, 8_000, 15_000]` is `RECONNECT_BACKOFF_MS` in
-  `src/network/peer.ts`; Phase 0d decides whether that is one contract.
+  (`runtime.ts`). The same `[1_000, 2_000, 4_000, 8_000, 15_000]` is the Standard signaling
+  reconnect schedule `SIGNALING_RECOVERY_BACKOFF_MS` in `src/network/signaling-health.ts` (Phase 4,
+  C5-2; `src/network/peer.ts` reads it and `SIGNALING_RECOVERY_MAX_ATTEMPTS` is its length).
+  Phase 4 keeps the PRO copy separate and leaves the PRO runtime alone (owner decision,
+  2026-10-24); adopting the shared schedule there would be a later PRO change.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/heartbeat-single-flight.test.ts` "guarantees a fresh
     reconciliation after an epoch event races an old heartbeat".
@@ -1635,7 +1638,8 @@ RO-47 owner-in-place
   - Teardown: `heartbeat-single-flight.test.ts` "does not let a reset flight enqueue work into the
     next room lifecycle".
   - Visibility: missing (the slot's clear and re-arm on visibility, and recovery holding the slot).
-- **Status:** `owner-in-place`. Phase 0d (copy triage only).
+- **Status:** `owner-in-place`. Copy triage (Phase 0d): the Standard copy moved to its home in
+  Phase 4 (C5-2); the PRO copy stays separate and the guard keeps the pair listed.
 
 ### RO-30 Back-button history entries
 

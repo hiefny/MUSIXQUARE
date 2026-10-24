@@ -10,6 +10,8 @@ import {
   publishSignalingReconnectAttempt,
   publishSignalingRecovered,
   resetSignalingHealth,
+  SIGNALING_RECOVERY_BACKOFF_MS,
+  SIGNALING_RECOVERY_MAX_ATTEMPTS,
   __signalingHealthForTests,
 } from '../signaling-health.ts';
 
@@ -46,6 +48,11 @@ function beginStandardHostSessionWithLivePeer(): void {
 }
 
 describe('signaling health state', () => {
+  it('keeps the 1/2/4/8/15 s reconnect schedule and one attempt per delay', () => {
+    expect(SIGNALING_RECOVERY_BACKOFF_MS).toEqual([1_000, 2_000, 4_000, 8_000, 15_000]);
+    expect(SIGNALING_RECOVERY_MAX_ATTEMPTS).toBe(5);
+  });
+
   it('keeps expiry terminal until the admission is reset, including a pending recovery clear', () => {
     beginStandardHostSessionWithLivePeer();
     publishSignalingReconnectAttempt(1);

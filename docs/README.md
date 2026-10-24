@@ -102,7 +102,9 @@ runbooks. Neither belongs in a general setup document.
   and one `SKIP_WAITING` sink in the update machine, behaviour unchanged). The
   report lists each increment and QA round with its tested SHA, the owner's
   2026-10-24 decisions (two releases, R2 = C6-10 as 9.0.6 / v776; C6-15
-  rejected) and the final eager-JS headroom of 284 B. R2 shares this report.
+  rejected), the final eager-JS headroom of 284 B and a real-browser check of
+  a page opened after the deploy applying the update with the new machine. R2
+  (C6-10) ships separately and gets its own dated report.
 
 - [Retired Apps-in-Toss origins (Worker-only, 2026-10-24)](design/retire-toss-origins-2026-10-24.md):
   the App, signaling and remote-share Workers and the remote-share R2 CORS policy stop trusting the

@@ -784,6 +784,61 @@ describe('joinSession reconnect racing', () => {
     expect(conns[0].close).toHaveBeenCalledExactlyOnceWith('transport-error');
   });
 
+  it.each([
+    {
+      failure: 'a bootstrap frame out of order',
+      run: (conn: FiringConn) => {
+        conn.fire('open');
+        conn.fire('data', { type: MSG.WELCOME, lockChannel: false, label: 'Guest' });
+        conn.fire('data', { type: MSG.REPEAT_MODE, value: 0, _bootstrap: true });
+      },
+    },
+    {
+      failure: 'no bootstrap before its deadline',
+      run: (conn: FiringConn) => {
+        conn.fire('open');
+        vi.advanceTimersByTime(10_000);
+      },
+    },
+    {
+      failure: 'an overflowing pre-open buffer',
+      run: (conn: FiringConn) => {
+        for (let index = 0; index < 65; index++) {
+          conn.fire('data', { type: MSG.WELCOME, label: `frame-${index}` });
+        }
+      },
+    },
+  ])('names join-bootstrap-failed when the join fails on $failure', ({ run }) => {
+    vi.useFakeTimers();
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    bus.on('network:error', () => undefined);
+
+    joinSession('HOST01');
+    run(conns[0]);
+
+    expect(conns[0].close).toHaveBeenCalledExactlyOnceWith('join-bootstrap-failed');
+  });
+
+  it('names join-bootstrap-failed when no bootstrap id can be created', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    bus.on('network:error', errors);
+    vi.stubGlobal('crypto', {});
+
+    try {
+      joinSession('HOST01');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(conns[0].close).toHaveBeenCalledExactlyOnceWith('join-bootstrap-failed');
+    expect((errors.mock.calls[0]?.[0] as Error).message).toBe(
+      'JOIN_BOOTSTRAP_SECURE_RANDOM_UNAVAILABLE',
+    );
+  });
+
   it('reserves bounded ICE time for a fallback-capable transport before timing out', () => {
     vi.useFakeTimers();
     const { peer, conns } = makeFakePeer(20_000);

@@ -1698,4 +1698,59 @@ describe('host close causes', () => {
     expect(replacement.close).not.toHaveBeenCalled();
     expect(getState('network.activeHostConnByPeerId').get(replacement.peer)).toBe(replacement);
   });
+
+  it.each([
+    {
+      failure: 'no HELLO before the bootstrap deadline',
+      run: (conn: FiringConn) => {
+        conn.fire('open');
+        vi.advanceTimersByTime(JOIN_BOOTSTRAP_TIMEOUT_MS);
+      },
+    },
+    {
+      failure: 'an application frame before HELLO',
+      run: (conn: FiringConn) => {
+        conn.fire('open');
+        conn.fire('data', { type: MSG.SYNC_PING, pingId: 1, guestTime: 1 });
+      },
+    },
+    {
+      failure: 'a WELCOME that cannot be sent',
+      run: (conn: FiringConn) => {
+        conn.send.mockImplementation(() => {
+          throw new Error('send failed');
+        });
+        conn.fire('open');
+      },
+    },
+  ])('names join-bootstrap-failed when a standard join fails on $failure', ({ run }) => {
+    const conn = makeIncomingConn('guest-bootstrap-failed');
+    handleHostIncomingConnection(conn);
+
+    run(conn);
+
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith('join-bootstrap-failed');
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+  });
+
+  it('names join-bootstrap-failed when a PRO WELCOME cannot be sent', () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['members.manage'],
+    });
+    const conn = makeIncomingConn('pro-welcome-failed');
+    conn.send.mockImplementation(() => {
+      throw new Error('send failed');
+    });
+    handleHostIncomingConnection(conn);
+
+    conn.fire('open');
+
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith('join-bootstrap-failed');
+  });
 });

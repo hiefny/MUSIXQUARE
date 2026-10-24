@@ -416,10 +416,10 @@ function abortSuspendedPreloadLane(lane: SuspendedPreloadLane): void {
  * peer's type when it announces the recovery) and then publishes it to the
  * guest, which adopts the host's type. So the lane always restarts at
  * recovery, and it yields only to a main-lane stream that started after the
- * host published 'local' for this connection. A main lane already preparing
- * or streaming at that point may have reached the guest before it knew its
- * route, and a 'remote' or unpublished route gives no such guarantee: the
- * restart then runs to its END, as in 9.0.8.
+ * host published 'local' for this connection, with no recovery announcement
+ * since. A main lane already preparing or streaming at that point may have
+ * reached the guest before it knew its route, and a 'remote' or unpublished
+ * route gives no such guarantee: the restart then runs to its END, as in 9.0.8.
  */
 interface RestartedPreloadLane extends PreloadLaneTuple {
   mainLane: 'route-pending' | 'may-yield' | 'keep';
@@ -438,12 +438,31 @@ function settleRestartedPreloadRoutes(peerId: string): void {
   }
 }
 
+/**
+ * host.ts announces every recovery on the connection, a selected-pair change
+ * that stays connected included, before it resets the peer to 'unknown' and
+ * re-detects it, and the guest resets its own route on the same event. The
+ * published 'local' no longer holds, so a lane that may yield waits for the
+ * next publication. 'keep' stays: that main lane may still be unseen.
+ */
+function revokeRestartedPreloadYields(conn: DataConnection): void {
+  for (const lane of _restartedPreloadLanes) {
+    if (lane.conn === conn && lane.mainLane === 'may-yield') lane.mainLane = 'route-pending';
+  }
+}
+
 /** C5-12 (P4-D10 A): after ICE recovery the main file lane carries this exact tuple. */
 function yieldPreloadToMainLane(lane: PreloadLaneTuple): void {
   log.info(
     `[Preload] Yielding preload for ${lane.conn.peer} to its file transfer after its connection recovered`,
   );
   sendDeferredPreloadAbort(lane);
+}
+
+function onPeerIceRecovered(conn: DataConnection): void {
+  // Before the interrupted check below: host.ts reclassifies the route either way.
+  revokeRestartedPreloadYields(conn);
+  resumeSuspendedPreloadLane(conn);
 }
 
 function resumeSuspendedPreloadLane(conn: DataConnection): void {
@@ -2682,7 +2701,7 @@ export function initPreload(): void {
 
   bus.on('network:peer-disconnected', releaseBulkLanes);
   bus.on('network:peer-connection-replaced', releaseBulkLanes);
-  bus.on('network:peer-ice-recovered', resumeSuspendedPreloadLane);
+  bus.on('network:peer-ice-recovered', onPeerIceRecovered);
   bus.on('orchestrator:peer-type-detected', settleRestartedPreloadRoutes);
 
   // Handle preload file ready from storage (bridged from storage:file-ready via playback.ts)

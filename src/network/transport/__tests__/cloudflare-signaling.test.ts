@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CHUNK_SIZE, MSG } from '../../../core/constants.ts';
 import { log } from '../../../core/log.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
@@ -8040,5 +8040,219 @@ describe('Isolated control peer ownership', () => {
       release(lease);
       peer.destroy();
     }
+  });
+});
+
+describe('logical connection close paths', () => {
+  async function openLink(createIsolatedControl?: () => null) {
+    const conn = new CloudflareDataConnection(
+      'guest-1',
+      undefined,
+      null,
+      undefined,
+      undefined,
+      createIsolatedControl,
+    );
+    const pc = new FakePeerConnection();
+    const bulk = new FakeDataChannel('musixquare-data');
+    const control = new FakeDataChannel('musixquare-control');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(conn.open).toBe(true);
+    return { conn, pc, bulk, control, onClose };
+  }
+
+  /** One close event, one PC close, and both channels disposed. */
+  function expectClosedOnce(link: Awaited<ReturnType<typeof openLink>>): void {
+    expect(link.onClose).toHaveBeenCalledOnce();
+    expect(link.conn.open).toBe(false);
+    expect(link.pc.closeCount).toBe(1);
+    expect(link.bulk.readyState).toBe('closed');
+    expect(link.control.readyState).toBe('closed');
+  }
+
+  function failSends(channel: FakeDataChannel): void {
+    vi.spyOn(channel, 'send').mockImplementation(() => {
+      throw new Error('send failed');
+    });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  it('closes once when the original route outlives its disconnected grace', async () => {
+    const link = await openLink();
+    link.pc.connectionState = 'disconnected';
+    link.pc.dispatch('connectionstatechange');
+    await vi.advanceTimersByTimeAsync(DATA_CONNECTION_DISCONNECTED_GRACE_MS);
+    expectClosedOnce(link);
+  });
+
+  it('closes once when the original route fails without a restart binding', async () => {
+    const link = await openLink();
+    link.pc.connectionState = 'failed';
+    link.pc.dispatch('connectionstatechange');
+    expectClosedOnce(link);
+  });
+
+  it('closes once when a data channel closes', async () => {
+    const link = await openLink();
+    link.bulk.readyState = 'closed';
+    link.bulk.dispatch('close');
+    expectClosedOnce(link);
+  });
+
+  it('closes once when a bulk-flow control frame cannot be sent', async () => {
+    const link = await openLink();
+    failSends(link.control);
+    link.conn.startBulkFlowControl();
+    expectClosedOnce(link);
+  });
+
+  it('closes once when the isolated control route fails', async () => {
+    const link = await openLink(() => null);
+    failSends(link.control);
+    link.conn.startBulkFlowControl();
+    expectClosedOnce(link);
+  });
+
+  it('closes once when the application closes it', async () => {
+    const link = await openLink();
+    link.conn.close();
+    expectClosedOnce(link);
+  });
+
+  it('closes once when the resume liveness probe goes unanswered', async () => {
+    const link = await openLink();
+    expect(link.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS);
+    expectClosedOnce(link);
+  });
+
+  it('closes once when the resume liveness probe cannot be sent', async () => {
+    const link = await openLink();
+    failSends(link.control);
+    expect(link.conn.recoverAfterBackground(60_000, false)).toBe('stale-connection-closed');
+    expectClosedOnce(link);
+  });
+
+  it('closes once when a resumed connection has a channel that is no longer open', async () => {
+    const link = await openLink();
+    link.control.readyState = 'closed';
+    expect(link.conn.recoverAfterBackground(60_000, false)).toBe('stale-connection-closed');
+    expectClosedOnce(link);
+  });
+
+  it('closes once when a resumed disconnected connection has also lost signaling', async () => {
+    const link = await openLink();
+    link.pc.connectionState = 'disconnected';
+    link.pc.dispatch('connectionstatechange');
+    expect(link.conn.recoverAfterBackground(60_000, true)).toBe('stale-connection-closed');
+    expectClosedOnce(link);
+  });
+
+  it('closes once when a resumed connection stays disconnected past its short probe', async () => {
+    const link = await openLink();
+    link.pc.connectionState = 'disconnected';
+    link.pc.dispatch('connectionstatechange');
+    expect(link.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_DISCONNECTED_PROBE_MS);
+    expectClosedOnce(link);
+  });
+
+  it('keeps one close when later closes reach an already closed connection', async () => {
+    const link = await openLink();
+    link.conn.close();
+    link.conn.close();
+    link.bulk.dispatch('close');
+    link.pc.dispatch('connectionstatechange');
+    await vi.advanceTimersByTimeAsync(DATA_CONNECTION_DISCONNECTED_GRACE_MS);
+    expectClosedOnce(link);
+  });
+});
+
+describe('logical connection close paths decided by the provider', () => {
+  it('closes a guest connection once when the host is told the guest left', async () => {
+    const { peer, conn, socket, pc } = await establishHostWithSignalingState('guest-left');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    pc.connectionState = 'failed';
+    socket.dispatch('message', JSON.stringify({ type: 'peer-left', peerId: 'guest-left' }));
+    await flushAsync();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('closes the host connection once when the guest is told the host left', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState();
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    pc.connectionState = 'failed';
+    socket.dispatch('message', JSON.stringify({ type: 'peer-left', peerId: 'host' }));
+    await flushAsync();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('closes an unopened guest connection once when its room admission expires', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    conn.on('error', () => undefined);
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    await flushAsync();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('closes the shared connection once when a media rollback cannot be proven', async () => {
+    const { peer, conn, socket, pc } = await establishHostWithSignalingState();
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    const mediaConn = peer.call('guest-media', fakeAudioStream('unproven-rollback-audio'));
+    await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+    vi.spyOn(pc, 'setLocalDescription').mockRejectedValueOnce(new Error('rollback failed'));
+    mediaConn.close();
+    await vi.waitFor(() => expect(pc.connectionState).toBe('closed'));
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('closes the connection once when an ICE restart rollback cannot be proven', async () => {
+    const { peer, conn, socket, pc } = await establishGuestWithSignalingState(true);
+    const onClose = vi.fn();
+    conn.on('close', onClose);
+    vi.useFakeTimers();
+    pc.connectionState = 'disconnected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentOfType(socket, 'signal-offer')).toHaveLength(2);
+    const setLocalDescription = pc.setLocalDescription.bind(pc);
+    vi.spyOn(pc, 'setLocalDescription').mockImplementation(async (description) => {
+      if (description.type === 'rollback') throw new Error('rollback failed');
+      await setLocalDescription(description);
+    });
+    pc.connectionState = 'connected';
+    pc.dispatch('connectionstatechange', {});
+    await vi.advanceTimersByTimeAsync(DATA_CONNECTION_DISCONNECTED_GRACE_MS);
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(conn.open).toBe(false);
+    expect(pc.connectionState).toBe('closed');
+    peer.destroy();
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

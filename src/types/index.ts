@@ -1473,6 +1473,13 @@ interface BaseEventMap {
   'youtube:toggle-play': [];
   /** Desired participant-local state from OS/headphone media controls. */
   'youtube:set-local-paused': [paused: boolean, reason?: 'media-session-play'];
+  /**
+   * A PRO listener paused its visible iframe with the iframe's own controls.
+   * That route records the local pause without `youtube:set-local-paused`,
+   * whose PRO handler drops autoplay intent; this ends a pending local-output
+   * rejoin instead, as that event does (P4-D7 B).
+   */
+  'youtube:pro-listener-visible-pause': [];
   // isTrackTransition=true: caller is a block-to-block YT-to-YT track switch
   // (existing player ran loadVideoById on a different video). Handler pauses
   // the host and uses TRACK_TRANSITION_RENDEZVOUS_MS so guests get a 4s

@@ -417,8 +417,13 @@ RO-49 accepted-exception
   `background-return-sync-rendezvous-retry`). Both space their retries with one schedule,
   `[250, 750, 1_500, 3_000, 5_000]`, each cancels only itself, and their only shared guard is the
   rendezvous busy and cooldown result. Since 9.0.1 both end on `youtube:set-local-paused` (G2).
-  Single-shot callers: `src/youtube/iframe.ts`, `src/ui/manual-sync-overlay-runtime.ts` and the
-  host- or user-commanded attempts inside `youtube/sync.ts`.
+  Since Phase 4 4B (P4-D7 B) the router also ends on `youtube:pro-listener-visible-pause`: a PRO
+  listener's visible iframe PAUSE records the local pause without `youtube:set-local-paused`
+  (whose PRO handler drops autoplay intent), and its PRO reconciliation retries would otherwise
+  release it. A hidden stop of the iframe ends nothing, so a lock-screen PLAY retry outlives a
+  browser stop while locked. Single-shot callers: `src/youtube/iframe.ts`,
+  `src/ui/manual-sync-overlay-runtime.ts` and the host- or user-commanded attempts inside
+  `youtube/sync.ts`.
 - **Target single owner:** `local-output-rejoin.ts` as the re-align owner for participant-local
   automatic and OS-triggered attempts; `youtube/sync.ts` keeps the rendezvous primitive and
   host- or user-commanded attempts.
@@ -438,19 +443,25 @@ RO-49 accepted-exception
     scheduled busy retry after the queue occurrence changes".
   - User pause/stop: `background-return-sync.test.ts` "lets a local YouTube pause during the retry
     wait end the chain"; `local-output-rejoin.test.ts` "cancels a busy YouTube retry on explicit
-    PAUSE and permits the next PLAY".
+    PAUSE and permits the next PLAY" and "ends a reserved PRO YouTube retry on a PRO listener
+    visible PAUSE and permits the next PLAY"; `native-control-authority.test.ts` "records a
+    $visibility $room listener iframe PAUSE as a local pause" (only the visible PRO row emits the
+    router's end event).
   - Teardown: `local-output-rejoin.test.ts` "does not let a stale busy result schedule work into a
     restarted session".
   - Visibility: `background-return-sync.test.ts` "ignores a sub-second visibility bounce that is
     not a background return".
   - Both chains against the real `youtube/sync.ts` (Phase 4 4A, tests only):
-    `src/player/__tests__/local-output-realign-cross-flow.test.ts`, the P4-D7 and P4-D8 cases.
-    The two unit suites above still mock it.
+    `src/player/__tests__/local-output-realign-cross-flow.test.ts`, the P4-D7 cases (the P4-D7 B
+    fix, a locked browser-stop row and a Standard-guest row) and the P4-D8 cases. The two unit
+    suites above still mock it.
 - **Status:** `duplicated`. One schedule since Phase 4 4A (C3-I1); both chains already end on the
-  same local pause (G2). Owner decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3
-  and C3-I4 are not done), and the double alignment after a quick unlock and the return chain's
-  give-up while the host is buffering stay as the cross-flow harness pins them. The owner is
-  asked again only if device evidence shows either one disturbing playback. Exception RO-48.
+  same local pause (G2). Owner decision P4-D7 B (2026-10-25, train 4B): a PRO listener's visible
+  iframe PAUSE also ends the router's retries; browser stops while hidden still do not. Owner
+  decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3 and C3-I4 are not done), and
+  the double alignment after a quick unlock and the return chain's give-up while the host is
+  buffering stay as the cross-flow harness pins them. The owner is asked again only if device
+  evidence shows either one disturbing playback. Exception RO-48.
 
 ### RO-06 Host shared start, playlist queue and guided demo
 

@@ -17,6 +17,7 @@ import {
   DELAY,
   TRANSFER_STATE,
   PLAYBACK_STATE,
+  PRELOAD_RECEIVE_DEADLINE_MS,
 } from '../core/constants.ts';
 import { nextSessionId, validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer, delay } from '../core/timers.ts';
@@ -77,7 +78,12 @@ import {
 } from '../pro-room/media-hooks.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
 import { hasPendingCurrentFileTransfer } from './transfer-send.ts';
-import { hasTransferCapacity, waitForTransferCapacity } from './transfer-backpressure.ts';
+import {
+  BULK_LOCAL_BUFFER_LIMIT_BYTES,
+  BULK_UNICAST_STALL_TIMEOUT_MS,
+  hasTransferCapacity,
+  waitForTransferCapacity,
+} from './transfer-backpressure.ts';
 import { armPreloadAdmissionWatchdog } from './preload-watchdog.ts';
 
 /**
@@ -1294,11 +1300,9 @@ async function preloadNextTrack(): Promise<void> {
 // ─── Host: Background Transfer ──────────────────────────────────────
 
 // Preload deliberately tolerates congestion longer than active-file broadcast.
-// Both share the bulk channel, and prematurely excluding background work would
-// force that guest to restart the next track from zero.
-// Keep speculative sends from filling the shared transport ahead of control
-// traffic. This is the next-send threshold, not a cap on native network queues.
-const PRELOAD_BACKPRESSURE_LIMIT = 64 * 1024;
+// Both share the bulk channel and its BULK_LOCAL_BUFFER_LIMIT_BYTES, and
+// prematurely excluding background work would force that guest to restart the
+// next track from zero.
 const PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT = 30_000;
 
 async function backgroundTransfer(
@@ -1456,7 +1460,7 @@ async function backgroundTransfer(
         queueItemId: owner.queueItemId,
         sessionId: owner.sessionId,
       }),
-      bufferedLimit: PRELOAD_BACKPRESSURE_LIMIT,
+      bufferedLimit: BULK_LOCAL_BUFFER_LIMIT_BYTES,
       stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
       isWritable: (peer) => {
         const peerOwner = peerOwners.get(peer.id);
@@ -1632,8 +1636,8 @@ export async function unicastPreload(
         let priorityInterrupted = false;
         const capacity = await waitForTransferCapacity(
           conn,
-          PRELOAD_BACKPRESSURE_LIMIT,
-          30_000,
+          BULK_LOCAL_BUFFER_LIMIT_BYTES,
+          BULK_UNICAST_STALL_TIMEOUT_MS,
           () => {
             if (!canContinue()) return false;
             if (canPreloadSend(claimedOwner)) return true;
@@ -1665,7 +1669,7 @@ export async function unicastPreload(
         if (!(await waitForCapacity(end - start))) return;
       } while (
         !canPreloadSend(peerOwner) ||
-        !hasTransferCapacity(conn, PRELOAD_BACKPRESSURE_LIMIT, end - start)
+        !hasTransferCapacity(conn, BULK_LOCAL_BUFFER_LIMIT_BYTES, end - start)
       );
       if (!canContinue()) return;
       if (
@@ -1976,7 +1980,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     0,
   );
 
-  armPreloadAdmissionWatchdog(sid, 30_000, () =>
+  armPreloadAdmissionWatchdog(sid, PRELOAD_RECEIVE_DEADLINE_MS.admission, () =>
     abandonStalledPreloadSession(sid, 'admission watchdog'),
   );
 
@@ -1988,7 +1992,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
       log.warn('[Preload] Watchdog: forcing preload loader reset after 30s');
       showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
     },
-    30000,
+    PRELOAD_RECEIVE_DEADLINE_MS.loaderAfterStart,
   );
 }
 
@@ -2045,7 +2049,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
     clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
   } else if (nextChunkPtr > (session.progress || 0)) {
     clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
-    armPreloadAdmissionWatchdog(sessionId, 15_000, () =>
+    armPreloadAdmissionWatchdog(sessionId, PRELOAD_RECEIVE_DEADLINE_MS.progress, () =>
       abandonStalledPreloadSession(sessionId, 'progress watchdog'),
     );
   }
@@ -2074,7 +2078,7 @@ function drainPreloadReorderBuffer(sessionId: number): void {
       () => {
         showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
       },
-      15000,
+      PRELOAD_RECEIVE_DEADLINE_MS.loaderAfterProgress,
     );
   }
 

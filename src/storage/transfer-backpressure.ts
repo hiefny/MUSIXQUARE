@@ -2,6 +2,15 @@
 import { CHUNK_SIZE, DELAY } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 
+/** Local queued bytes above which the main file and preload lanes hold their
+ * next send. This keeps bulk sends from filling the shared transport ahead of
+ * control traffic; it is not a cap on native network queues, and negotiated
+ * receiver credit independently bounds unconfirmed payload on the connection. */
+export const BULK_LOCAL_BUFFER_LIMIT_BYTES = 64 * 1024;
+/** How long a unicast lane (main file or preload) waits for capacity before
+ * it stops. Broadcasts keep their own, deliberately different, timeouts. */
+export const BULK_UNICAST_STALL_TIMEOUT_MS = 30_000;
+
 type CapacityResult = 'ready' | 'stopped' | 'timeout';
 
 interface ChannelThresholdOwner {

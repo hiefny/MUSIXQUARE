@@ -8,7 +8,7 @@
  * reclassified the route, which is how a remote guest reaches these waits.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CHUNK_SIZE, MSG, PLAYBACK_STATE } from '../../core/constants.ts';
+import { CHUNK_SIZE, MSG, PLAYBACK_STATE, receiveDeadlineMs } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -112,6 +112,17 @@ afterEach(() => {
 });
 
 describe('guest receive deadlines', () => {
+  it('gives every connection type except remote the local deadline', () => {
+    const kinds = ['chunk', 'prepare', 'preloadWait'] as const;
+    expect(kinds.map((kind) => receiveDeadlineMs(kind, 'local'))).toEqual([12_000, 15_000, 30_000]);
+    expect(kinds.map((kind) => receiveDeadlineMs(kind, 'unknown'))).toEqual([
+      12_000, 15_000, 30_000,
+    ]);
+    expect(kinds.map((kind) => receiveDeadlineMs(kind, 'remote'))).toEqual([
+      60_000, 60_000, 60_000,
+    ]);
+  });
+
   it.each([
     ['local', 12_000],
     ['remote', 60_000],

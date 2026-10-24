@@ -111,8 +111,8 @@ each record also states the step in words.
 | RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 0d, 4                        |
 | RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | 4 (restart gate only)        |
 | RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 0d, 4                        |
-| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 0d, 4                        |
-| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | 0d (deadline table)          |
+| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (constants done, C5-3)     |
+| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)               |
 | RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                         |
 | RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | Owner decision               |
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                        |
@@ -995,9 +995,12 @@ RO-47 owner-in-place
 - **Lifecycle operations:** register, suspend, resume, cancel, release on disconnect or
   replacement.
 - **Deadline owner:** each lane's backpressure timeout.
-- **Timing-constant home:** `UNICAST_BACKPRESSURE_LIMIT` and `UNICAST_BACKPRESSURE_TIMEOUT`
-  (`transfer-send.ts`) with copies in `preload.ts`. Target: `src/storage/transfer-backpressure.ts`
-  (Phase 0d, C5-3).
+- **Timing-constant home:** `src/storage/transfer-backpressure.ts` (Phase 4, C5-3):
+  `BULK_LOCAL_BUFFER_LIMIT_BYTES` (64 KiB of local queue, every lane) and
+  `BULK_UNICAST_STALL_TIMEOUT_MS` (30 s, the main-file and preload unicasts). The broadcast stall
+  timeouts stay their own constants and differ on purpose: 5 s for the main-file broadcast
+  (`transfer-send.ts`) and 30 s for the preload broadcast (`preload.ts`), which tolerates
+  congestion longer so a guest does not restart the next track from zero.
 - **Anchor tests:**
   - Supersession: `src/storage/__tests__/preload-lane-ownership.test.ts` "forgets a paused lane
     whose connection was replaced".
@@ -1006,8 +1009,8 @@ RO-47 owner-in-place
     without flushing stale bytes into a replacement unicast or ACK".
   - Visibility: n/a (host lanes do not depend on visibility).
   - Missing: both lanes after ICE recovery (Phase 0c reproduces or refutes the duplicate traffic).
-- **Status:** `duplicated`. Phase 0d (lane constants), Phase 4 (registry; which lane wins after
-  recovery is an owner decision). See
+- **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); Phase 4 still owes the
+  registry (which lane wins after recovery is an owner decision). See
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md).
 
 ### RO-19 Guest fetch of the current track
@@ -1025,9 +1028,15 @@ RO-47 owner-in-place
 - **Allowed requesters:** the five waits above, through the request slot.
 - **Lifecycle operations:** begin, send, match the wait response, complete, reset.
 - **Deadline owner:** each wait; `playback.lifecycle` gates them.
-- **Timing-constant home:** `WATCHDOG_TIMEOUT` (`src/core/constants.ts`) and `remote ? 60000 : X`
-  literals in `transfer-receive.ts`. Target: a typed receive-deadline table beside
-  `WATCHDOG_TIMEOUT` (Phase 0d, C5-3).
+- **Timing-constant home:** `src/core/constants.ts` (Phase 4, C5-3).
+  `receiveDeadlineMs(kind, connectionType)` reads a typed table for the waits in
+  `transfer-receive.ts`: the chunk watchdog (12 s local, 60 s remote), FILE_PREPARE (15 s / 60 s)
+  and the awaited preload (30 s / 60 s).
+  `PRELOAD_RECEIVE_DEADLINE_MS` holds the preload admission (30 s) and progress (15 s) windows
+  (`preload.ts`, `preload-watchdog.ts`) and the preload loader watchdog (30 s after PRELOAD_START,
+  15 s after progress). The PLAY_PRELOADED waiter (`playback.ts`) and the R2 wait
+  (`REMOTE_WAIT_MS` in `remote-share.ts`) keep their own single-use values. Managed timer keys
+  are unchanged.
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/file-request-authority.test.ts` "prevents a stale owner
     or completion from clearing its successor".
@@ -1036,7 +1045,7 @@ RO-47 owner-in-place
   - Teardown: `file-request-authority.test.ts` "releases a current owner when its connection
     closes before send".
   - Visibility: missing.
-- **Status:** `owner-in-place`. Phase 0d (deadline table).
+- **Status:** `owner-in-place`. Deadline table done in Phase 4 (C5-3).
 
 ### RO-20 PRO system-audio lease and publication
 

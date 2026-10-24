@@ -338,7 +338,14 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/network/heartbeat-monitor.ts',
     ],
   },
-  { records: ['RO-18'], files: ['src/storage/transfer-send.ts', 'src/storage/preload.ts'] },
+  {
+    records: ['RO-18'],
+    files: [
+      'src/storage/transfer-backpressure.ts',
+      'src/storage/transfer-send.ts',
+      'src/storage/preload.ts',
+    ],
+  },
   {
     records: ['RO-21'],
     files: ['src/pro-room/runtime.ts', 'src/pro-room/system-audio-service.ts'],

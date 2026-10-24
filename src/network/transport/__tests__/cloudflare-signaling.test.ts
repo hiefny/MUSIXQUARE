@@ -8359,4 +8359,94 @@ describe('logical connection close paths decided by the provider', () => {
       '[Transport] Logical connection closed (rollback-unproven) for 123456',
     ]);
   });
+
+  /** A host peer admitted on its signaling socket, before any guest offer. */
+  async function admittedHost() {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    const onError = vi.fn();
+    peer.on('error', onError);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    return { peer, socket, onError };
+  }
+
+  it('names transport-error when the host cannot answer a guest offer', async () => {
+    const { peer, socket, onError } = await admittedHost();
+    vi.spyOn(FakeRTCPeerConnection.prototype, 'createAnswer').mockRejectedValueOnce(
+      new Error('answer failed'),
+    );
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-unanswered',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'guest-offer' },
+      }),
+    );
+    await flushAsync();
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(FakeRTCPeerConnection.instances[0]?.connectionState).toBe('closed');
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (transport-error) for guest-unanswered',
+    ]);
+    peer.destroy();
+    expect(closeLines()).toHaveLength(1);
+  });
+
+  it('keeps intentional for an offer that a newer offer superseded before it failed', async () => {
+    const { peer, socket, onError } = await admittedHost();
+    let failFirst!: (error: Error) => void;
+    const firstRemoteDescription = new Promise<void>((_resolve, reject) => {
+      failFirst = reject;
+    });
+    vi.spyOn(FakeRTCPeerConnection.prototype, 'setRemoteDescription')
+      .mockImplementationOnce(() => firstRemoteDescription)
+      .mockImplementation(async function (
+        this: FakeRTCPeerConnection,
+        description: RTCSessionDescriptionInit,
+      ) {
+        this.remoteDescription = description;
+      });
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-superseded',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'guest-first-offer' },
+      }),
+    );
+    await Promise.resolve();
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-superseded',
+        negotiationId: NEXT_NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'guest-second-offer' },
+      }),
+    );
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(1));
+
+    failFirst(new Error('superseded remote description failed'));
+    await flushAsync();
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (intentional) for guest-superseded',
+    ]);
+    peer.destroy();
+  });
 });

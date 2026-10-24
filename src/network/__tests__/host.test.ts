@@ -1661,3 +1661,41 @@ describe('standard-room account authority', () => {
     expect(second.close).not.toHaveBeenCalled();
   });
 });
+
+describe('host close causes', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    clearAllManagedTimers();
+    vi.useRealTimers();
+  });
+
+  it('names transport-error when the host closes a connection after its error', () => {
+    const conn = makeIncomingConn('guest-errored');
+    handleHostIncomingConnection(conn);
+    conn.fire('open');
+
+    conn.fire('error', new Error('channel failed'));
+
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith('transport-error');
+    expect(getState('network.connectedPeers')).toHaveLength(0);
+    expect(getState('network.activeHostConnByPeerId').has(conn.peer)).toBe(false);
+  });
+
+  it('names transport-error when a replaced connection reports a late error', () => {
+    const replaced = makeIncomingConn('guest-errored-replaced');
+    const replacement = makeIncomingConn('guest-errored-replaced');
+    handleHostIncomingConnection(replaced);
+    handleHostIncomingConnection(replacement);
+
+    replaced.fire('error', new Error('late channel failure'));
+
+    // The replacement's close is deliberate and names nothing; only the close
+    // that the error drives names a cause.
+    expect(replaced.close.mock.calls).toEqual([[], ['transport-error']]);
+    expect(replacement.close).not.toHaveBeenCalled();
+    expect(getState('network.activeHostConnByPeerId').get(replacement.peer)).toBe(replacement);
+  });
+});

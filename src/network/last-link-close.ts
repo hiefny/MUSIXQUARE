@@ -7,13 +7,17 @@
  * the 4A "Logical connection closed" info line). When the guest's disconnect
  * dialog reloads the page, or the page reloads after the host removed the
  * guest, setup keeps the page's last close in this tab's sessionStorage, and
- * the next page logs it once as an info line for `/debug console` and removes
- * it. Only the cause token and the close time are kept: no peer id, no room
- * code, no network traffic, no UI besides `/debug`. Storage may be refused
- * (iOS Safari private mode); the line is then absent and nothing else changes.
+ * the next page in the tab that logs info lines logs it once for
+ * `/debug console` and removes it. It is the page's most recent Standard close,
+ * which its time identifies, not necessarily the host link's: the removal
+ * reload is decided while that link is still open, so it usually keeps an
+ * earlier close or nothing. Only the cause token and the close time are kept:
+ * no peer id, no room code, no network traffic, no UI besides `/debug`.
+ * Storage may be refused (iOS Safari private mode); the line is then absent
+ * and nothing else changes.
  */
 
-import { log } from '../core/log.ts';
+import { log, logsInfo } from '../core/log.ts';
 import { PREVIOUS_LINK_CLOSE_KEY } from '../core/navigation-contract.ts';
 
 let lastClose = '';
@@ -33,8 +37,14 @@ export function keepLinkCloseForNextPage(): void {
   }
 }
 
-/** Logs the previous page's kept close once, then removes it. */
+/**
+ * Logs the previous page's kept close once, then removes it. A page that logs
+ * no info lines leaves it for the next page in this tab that does: production
+ * logs at WARN, and the joined guest's address has lost ?mxqrLog=info by the
+ * time its disconnect reload lands.
+ */
 export function reportPreviousPageClose(): void {
+  if (!logsInfo()) return;
   let kept: string | null;
   try {
     kept = sessionStorage.getItem(PREVIOUS_LINK_CLOSE_KEY);

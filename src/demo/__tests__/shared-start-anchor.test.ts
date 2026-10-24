@@ -8,7 +8,8 @@
  * and the demo's published start in demo/host-start-anchor.ts. The late-join
  * SYNC_PONG reads one of them by demo.active, DEMO_PLAY carries the demo one,
  * and the queue bootstrap PLAY reads the queue one. This file checks, with the
- * real modules, whether the two records can make those frames disagree.
+ * real modules, that those frames carry one start and which clock governs the
+ * host's reported position.
  *
  * Real: demo/mode.ts, transport.ts, decode.ts, playback.ts (late-join
  * bootstrap), network/sync.ts (SYNC_PING) and the protocol dispatcher. Fakes
@@ -16,16 +17,18 @@
  * effect chain, the network send, the demo download, storage and the demo
  * page chrome.
  *
- * Tests named "expected today" characterize what the owner decision P4-D9 A
- * (2026-10-24, investigate first) asked to establish. They pass on today's
- * code on purpose; a later anchor change updates them in the same change.
+ * The investigation (owner decision P4-D9 A, 2026-10-24, tests only) found
+ * that when a queue item was selected before demo entry, demo playback armed
+ * that item's queue canonical anchor against the demo buffer, and its wall-
+ * clock timeline then governed the demo host's position: after a hidden
+ * audio-clock stall it reported 4.8 s against 2.8 s of audible output. The
+ * owner chose the narrow fix for train 4B (2026-10-25): demo playback never
+ * arms or consults the queue anchor, so the demo host reports its own demo
+ * position. The demo rows state that behaviour; the rows after the demo pin
+ * the queue anchor and timeline unchanged once the demo has exited.
  *
- * Not established here (inferred, not measured): how far apart the two
- * records are in real use. They come from different clocks (the wall clock
- * at the source start against the audio-clock lead remaining at publish) and
- * agree below only because the fake clocks are frozen. Nor whether the queue
- * canonical timeline governing the demo host's position is a defect or
- * intended.
+ * Not established here (inferred, not measured): how large the hidden-stall
+ * gap the fix removes was on real devices.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -136,16 +139,25 @@ vi.mock('../../ui/theme-chrome.ts', () => ({
   syncDemoThemeChrome: vi.fn(),
 }));
 
-import { MSG } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData, resetInboundRateLimit } from '../../network/protocol.ts';
 import { initSync } from '../../network/sync.ts';
 import { setCurrentAudioBuffer, setPlayerNode, setPlayLocked } from '../../player/_state.ts';
+import {
+  LEGACY_FILE_SCHEDULE_AHEAD_MS,
+  LOCAL_FILE_START_LEAD_MS,
+} from '../../player/file-play-timing.ts';
+import { setPlaybackFilePaused } from '../../player/ownership.ts';
 import { initPlayback } from '../../player/playback.ts';
-import { getStandardHostPendingFileStartAt } from '../../player/transport.ts';
-import type { DataConnection, PlaylistItem, QueueItemId } from '../../types/index.ts';
+import {
+  getStandardHostPendingFileStartAt,
+  getTrackPosition,
+  startHostFileAndBroadcastPlay,
+} from '../../player/transport.ts';
+import type { DataConnection, PlaylistItem, QueueItemId, ResidentFile } from '../../types/index.ts';
 import { getPendingDemoHostStartAt } from '../host-start-anchor.ts';
 
 /** Manually resolved stand-in for the demo track download. */
@@ -275,6 +287,47 @@ async function syncPong(): Promise<Record<string, unknown>> {
   return reply;
 }
 
+/** Leave the demo from its exit control; the selected queue item stays selected. */
+async function exitDemo(): Promise<void> {
+  bus.emit('demo:request-exit');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(getState('demo.active')).toBe(false);
+  expect(getState('playlist.currentQueueItemId')).toBe(QUEUE_ITEM_ID);
+  expect(getPendingDemoHostStartAt()).toBeUndefined();
+}
+
+/**
+ * Start the selected queue item through the queue's own shared-start
+ * primitive, as the queue controls do; returns the expected host start.
+ */
+async function startSelectedQueueItem(): Promise<number> {
+  const blob = new Blob(['queue-bytes'], { type: 'audio/mpeg' });
+  const resident: ResidentFile = {
+    queueItemId: QUEUE_ITEM_ID,
+    indexHint: 0,
+    name: 'queue.mp3',
+    sessionId: 1,
+    blob,
+    mime: 'audio/mpeg',
+    size: blob.size,
+  };
+  setState('files.current', resident);
+  setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+  // The queue item's file is loaded and paused, as after its decode.
+  setState('playback.lifecycle', PLAYBACK_STATE.PAUSED);
+  setPlaybackFilePaused();
+  const queueStartAt = Date.now() + LOCAL_FILE_START_LEAD_MS;
+  await expect(
+    startHostFileAndBroadcastPlay({
+      time: 0,
+      queueItemId: QUEUE_ITEM_ID,
+      name: 'queue.mp3',
+      context: 'queue start after the demo',
+    }),
+  ).resolves.toBe(true);
+  return queueStartAt;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(10_000);
@@ -319,7 +372,7 @@ afterEach(() => {
 
 describe('P4-D9: the demo and queue shared-start anchors', () => {
   it.each([{ selectQueueItem: true }, { selectQueueItem: false }])(
-    'expected today: DEMO_PLAY, SYNC_PONG and a late-join bootstrap carry one demo start (queue item selected: $selectQueueItem)',
+    'DEMO_PLAY, SYNC_PONG and a late-join bootstrap carry one demo start (queue item selected: $selectQueueItem)',
     async ({ selectQueueItem }) => {
       await startDemo({ selectQueueItem });
 
@@ -350,11 +403,12 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
     },
   );
 
-  it('reads the demo record, not the queue one, when the two records differ', async () => {
-    // The audio clock moves 50 ms between the source start (the queue anchor
-    // is armed from the wall clock there) and the DEMO_PLAY publish (which
-    // reads the audio-clock lead remaining); the frozen wall clock does not.
-    // Whole milliseconds apart, the records tell which one each frame reads.
+  it('keeps only the demo record when the audio clock moves before the publish', async () => {
+    // The audio clock moves 50 ms between the source start and the DEMO_PLAY
+    // publish (which reads the audio-clock lead remaining); the frozen wall
+    // clock does not. Before the 4B fix the source start also armed the
+    // selected item's queue anchor from the wall clock, 50 ms after the demo
+    // record; no frame read it, and now it is never armed.
     let advanced = false;
     bus.on('visualizer:start', () => {
       if (advanced) return;
@@ -364,7 +418,7 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
     await startDemo({ selectQueueItem: true });
 
     const demoStartAt = getPendingDemoHostStartAt();
-    expect(getStandardHostPendingFileStartAt()).toBe(SHARED_START_AT);
+    expect(getStandardHostPendingFileStartAt()).toBeUndefined();
     expect(demoStartAt).toBeCloseTo(SHARED_START_AT - 50, 6);
     expect(demoPlayFrames().map((frame) => frame.hostStartAt)).toEqual([demoStartAt]);
     expect((await syncPong()).hostStartAt).toBe(demoStartAt);
@@ -380,24 +434,18 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
     ]);
   });
 
-  it.each([
-    { selectQueueItem: true, queueStartAt: SHARED_START_AT },
-    { selectQueueItem: false, queueStartAt: undefined },
-  ])(
-    'expected today: demo playback arms the queue anchor only when a queue item was selected ($selectQueueItem)',
-    async ({ selectQueueItem, queueStartAt }) => {
+  it.each([{ selectQueueItem: true }, { selectQueueItem: false }])(
+    'demo playback never arms the queue anchor (queue item selected: $selectQueueItem)',
+    async ({ selectQueueItem }) => {
       await startDemo({ selectQueueItem });
 
       // The demo neither clears the selected queue occurrence nor owns a
-      // resident file, so transport arms the queue canonical anchor against
-      // the demo buffer. That record is computed separately (wall clock at
-      // the source start) from the demo record (audio-clock lead remaining
-      // at publish); with frozen fake clocks the two agree within 1e-6 ms.
-      // Their real-world gap is inferred, not measured.
+      // resident file, so the queue anchor's identity checks alone would
+      // accept the demo buffer. Demo playback must not arm it at all.
       expect(getState('demo.active')).toBe(true);
       expect(getState('files.current')).toBeNull();
       expect(getState('playlist.currentQueueItemId')).toBe(selectQueueItem ? QUEUE_ITEM_ID : null);
-      expect(getStandardHostPendingFileStartAt()).toBe(queueStartAt);
+      expect(getStandardHostPendingFileStartAt()).toBeUndefined();
       expect(getPendingDemoHostStartAt()).toBeCloseTo(SHARED_START_AT, 6);
     },
   );
@@ -406,7 +454,8 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
     'carries no host start in either record or the PONG after %s',
     async (transition) => {
       await startDemo({ selectQueueItem: true });
-      expect(getStandardHostPendingFileStartAt()).toBe(SHARED_START_AT);
+      expect(getPendingDemoHostStartAt()).toBeCloseTo(SHARED_START_AT, 6);
+      expect(getStandardHostPendingFileStartAt()).toBeUndefined();
 
       if (transition === 'the lead elapsing') {
         edges.getCurrentTime.mockReturnValue(100.3);
@@ -426,25 +475,71 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
     },
   );
 
-  it.each([
-    { selectQueueItem: true, hiddenPosition: 4.8, visiblePosition: 4.8 },
-    { selectQueueItem: false, hiddenPosition: 0, visiblePosition: 2.8 },
-  ])(
-    'expected today: the queue canonical timeline governs the demo position when selected ($selectQueueItem)',
-    async ({ selectQueueItem, hiddenPosition, visiblePosition }) => {
+  it.each([{ selectQueueItem: true }, { selectQueueItem: false }])(
+    'the demo host reports its own position after a hidden stall (queue item selected: $selectQueueItem)',
+    async ({ selectQueueItem }) => {
       await startDemo({ selectQueueItem });
 
-      // Hidden for 5 s while the audio clock does not advance.
+      // Hidden for 5 s while the audio clock does not advance: no demo audio
+      // has played, so the host reports the start (before the 4B fix the
+      // selected case reported 4.8 s from the queue's wall-clock timeline).
       setVisibility('hidden');
       await vi.advanceTimersByTimeAsync(5_000);
-      expect(Number((await syncPong()).position)).toBeCloseTo(hiddenPosition, 6);
+      expect(getTrackPosition()).toBeCloseTo(0, 6);
+      expect(Number((await syncPong()).position)).toBeCloseTo(0, 6);
 
-      // Visible again with only 3 s of audio clock behind it.
+      // Visible again with only 3 s of audio clock behind it: 2.8 s audible
+      // after the 200 ms lead, and that is what the host reports.
       setVisibility('visible');
       edges.getCurrentTime.mockReturnValue(103);
-      expect(Number((await syncPong()).position)).toBeCloseTo(visiblePosition, 6);
-      // This pins the difference only; whether the selected case is a
-      // defect or intended is not established here.
+      expect(getTrackPosition()).toBeCloseTo(2.8, 6);
+      expect(Number((await syncPong()).position)).toBeCloseTo(2.8, 6);
+      expect(getStandardHostPendingFileStartAt()).toBeUndefined();
     },
   );
+});
+
+describe('P4-D9: queue playback after leaving the demo is unchanged', () => {
+  it('arms the queue anchor and publishes it in PLAY and the late-join PONG', async () => {
+    await startDemo({ selectQueueItem: true });
+    await exitDemo();
+    edges.broadcast.mockClear();
+
+    const queueStartAt = await startSelectedQueueItem();
+
+    expect(getStandardHostPendingFileStartAt()).toBe(queueStartAt);
+    const plays = edges.broadcast.mock.calls
+      .map(([frame]) => frame as Record<string, unknown>)
+      .filter((frame) => frame.type === MSG.PLAY);
+    expect(plays).toEqual([
+      expect.objectContaining({
+        time: 0,
+        queueItemId: QUEUE_ITEM_ID,
+        hostStartAt: queueStartAt,
+        hostPlayAt: queueStartAt + LEGACY_FILE_SCHEDULE_AHEAD_MS,
+      }),
+    ]);
+    const pong = await syncPong();
+    expect(pong).toMatchObject({ queueItemId: QUEUE_ITEM_ID, hostStartAt: queueStartAt });
+    expect(pong).not.toHaveProperty('demoTrackIndex');
+  });
+
+  it('keeps the queue canonical timeline governing the host position across a hidden stall', async () => {
+    await startDemo({ selectQueueItem: true });
+    await exitDemo();
+    await startSelectedQueueItem();
+
+    // The same stall as the demo row: hidden for 5 s with the audio clock
+    // stopped, then visible with 3 s of audio clock behind it. The queue's
+    // wall-clock timeline keeps the room position at 4.8 s.
+    setVisibility('hidden');
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(getTrackPosition()).toBeCloseTo(4.8, 6);
+    expect(Number((await syncPong()).position)).toBeCloseTo(4.8, 6);
+
+    setVisibility('visible');
+    edges.getCurrentTime.mockReturnValue(103);
+    expect(getTrackPosition()).toBeCloseTo(4.8, 6);
+    expect(Number((await syncPong()).position)).toBeCloseTo(4.8, 6);
+  });
 });

@@ -104,17 +104,50 @@ still makes one.
 All timings live in `src/core/navigation-contract.ts`, a dependency-free
 module; `navigation-contract.test.ts` pins their order.
 
-| Constant                        | Value  | Contract                                                                                                                                                                            |
-| ------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RESET_PAINT_FALLBACK_MS`       | 120 ms | The request runs after two frames, or this when frames are suspended.                                                                                                               |
-| `NAVIGATION_PREPARE_TIMEOUT_MS` | 2.5 s  | The prepare window. It covers the hard reset's own 1.5 s activation wait (`ACTIVATION_TIMEOUT_MS` in the lazy `sw-hard-reset.ts`) plus 1 s for its chunk and the registration read. |
-| `NAVIGATION_COMMIT_TIMEOUT_MS`  | 2 s    | Starts at the final navigation call (owner decision 2). No `pagehide` within it means the navigation did not commit, and the page is made interactive again.                        |
-| `LEAVE_FALLBACK_MS`             | 1 s    | The Back leave's fallback home navigation; it runs inside the commit window.                                                                                                        |
+| Constant                        | Value  | Contract                                                                                                                                                                                                                                        |
+| ------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESET_PAINT_FALLBACK_MS`       | 120 ms | The request runs after two frames, or this when frames are suspended.                                                                                                                                                                           |
+| `NAVIGATION_PREPARE_TIMEOUT_MS` | 2.5 s  | The prepare window. It covers the hard reset's 1.5 s activation wait (`ACTIVATION_TIMEOUT_MS` in the lazy `sw-hard-reset.ts`) plus 1 s for its chunk and the update machine's answer. An Apply already in flight is waited for until it closes. |
+| `NAVIGATION_COMMIT_TIMEOUT_MS`  | 2 s    | Starts at the final navigation call (owner decision 2). No `pagehide` within it means the navigation did not commit, and the page is made interactive again.                                                                                    |
+| `LEAVE_FALLBACK_MS`             | 1 s    | The Back leave's fallback home navigation; it runs inside the commit window.                                                                                                                                                                    |
 
 The logo reset is a prepare/navigate request: prepare loads the hard-reset
-chunk and, unless aborted, promotes a waiting service worker; navigate goes
-home. A slow chunk or promotion no longer recovers the page silently at 2 s
-from the tap; the logo reaches home after the prepare window at the latest.
+chunk and, unless aborted, applies a waiting update; navigate goes home. A slow
+chunk or promotion no longer recovers the page silently at 2 s from the tap;
+the logo reaches home after the prepare window at the latest.
+
+Since Phase 3 C6-10 (owner decisions P3-8 A to P3-12 A, 2026-10-24) the hard
+reset asks the update machine (registry RO-22) instead of promoting on its own.
+It dispatches `HARD_RESET_CLAIM_EVENT` on the page's service-worker container
+and the machine answers at once:
+
+| Answer            | When                                                                      | The hard reset then                                                                                                                       |
+| ----------------- | ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `promoted`        | A worker is waiting and the page's loads are quiet                        | Waits up to 1.5 s for the new controller. The machine sent `SKIP_WAITING` through its sink, recorded the request and withdrew any prompt. |
+| `apply-in-flight` | An Apply already sent `SKIP_WAITING`                                      | Waits for that activation until the prepare window closes, sending nothing.                                                               |
+| `none`            | No waiting worker, or a resource of the page finished within the last 1 s | Goes home at once; the next page offers the update with the usual dialog.                                                                 |
+| `unavailable`     | No machine yet (before the window load event, a failed registration)      | Promotes on its own: `SKIP_WAITING` to the waiting worker, then waits up to 1.5 s.                                                        |
+
+"Update applied" is left for the next document only when this document saw the
+new controller. When the machine's own promotion times out, the hard reset
+TEMPORARILY promotes on its own too (owner decision P3-12 A); that use goes in a
+later Phase 3 release after two clean production update cycles. The prepare
+signal ends every wait and every send. Later lasts for its page only, so the
+logo applies an update put off with Later.
+
+## The update machine while a navigation holds the page
+
+A controller change that reaches `sw-register.ts` while any navigation holds
+the page (the logo's own activation, a Back leave, a PRO terminal recovery) is
+decided only if that navigation releases the page in this document (Phase 3
+C6-10, owner decision P3-8 A). The machine reads `isSessionResetPending` and
+waits for `onNavigationPendingChange`: no update dialog under the reset screen
+and no second reload request while the navigation runs; afterwards a room is
+asked once, a page outside a room makes its aligned reload, and an Apply in
+flight makes its reload (a guest's `/CODE` return). If the navigation commits,
+nothing more happens in this document. The update reload itself keeps its own
+state (`reload-scheduled`), so a controller change during it waits for that
+reload's recovery as before.
 
 ## Page transitions (one dispatch)
 
@@ -182,9 +215,13 @@ CI) keeps, with exact counts and reasons:
    claims the unload exemption, and a live session still asks before leaving.
 2. `SKIP_WAITING` per function: the update machine's one sink,
    `activateWaitingWorker` in `src/sw-register.ts` (Phase 3 C6-9), and the
-   hard-reset promotion in `src/core/sw-hard-reset.ts` (Phase 3 C6-10 makes
-   the hard reset ask the update machine). The calls of that sink are counted
-   per function too: four, all in `handleWaitingWorker`.
+   hard reset's own promotion, `promoteWithoutTheUpdateMachine` in
+   `src/core/sw-hard-reset.ts` (since Phase 3 C6-10 only without a machine and,
+   temporarily, after the machine's promotion timed out). The calls of that
+   sink are counted per function too: four, Apply and Apply to a replacement
+   in `handleWaitingWorker`, the quiet promotions in `activateWhenQuiet`, and
+   the logo port in `claimForHardReset`. A function a `let` takes later is
+   named after that `let`.
 3. History traversal per function: the Back leave in `back-button-history.ts`
    and the guard's `navigateBack` port in `app.ts`.
 4. The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, per
@@ -226,10 +263,14 @@ to the guard's list with its reason and to RO-23 in the same change.
   table (commit deadline, throwing reload sink, a returned or visible
   document, commit, back-forward cache return, successors, a refused `/CODE`
   return, and a reload queued behind a navigation that recovers or commits),
-  including events that arrive while the reload is still pending. Two exits
-  have no row of their own: a fallback reload held behind the PRO claim fence
-  and a throwing `/CODE` href sink. They go through the same owner queue and
-  recovery callback as rows X10a/X10b and X2, by reading, not by a test.
+  including events that arrive while the reload is still pending, and the
+  logo port's answers and the decisions put off behind a navigation (C6-10).
+  Two exits have no row of their own: a fallback reload held behind the PRO
+  claim fence and a throwing `/CODE` href sink. They go through the same owner
+  queue and recovery callback as rows X10a/X10b and X2, by reading, not by a
+  test.
+- `src/core/__tests__/sw-hard-reset.test.ts`: the hard reset's side of the
+  port, its own promotion and the prepare signal.
 - `e2e/back-navigation.test.ts` (CI critical gate) for the Back flows in a
   browser. jsdom and Chromium under Playwright have no real back-forward cache,
   so the bfcache paths rest on these jsdom pins and device checks.

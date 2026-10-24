@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { webKitStrokeRecorder } from './webkit-stroke-recorder.ts';
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -856,6 +857,39 @@ describe('Visualizer', () => {
       await vi.dynamicImportSettled();
 
       expect(ctx.arc).toHaveBeenCalled();
+    });
+
+    it('keeps the paused spectrum grid neutral after a circular round trip on the WebKit GPU recorder', async () => {
+      vi.resetModules();
+      const { setState } = await import('../../core/state.ts');
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'paused');
+      localStorage.setItem('musixquare-viz-mode', 'spectrum');
+
+      const restingCanvas = document.createElement('canvas');
+      restingCanvas.id = 'visualizerCanvas';
+      document.querySelector('.vinyl-wrapper')!.append(restingCanvas);
+      const { ctx, painted } = webKitStrokeRecorder(restingCanvas);
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+      await vi.dynamicImportSettled();
+      restingCanvas.click();
+      painted.length = 0;
+      restingCanvas.click();
+      await vi.dynamicImportSettled();
+
+      expect(restingCanvas.dataset.visualizerMode).toBe('spectrum');
+      const frames = painted.length / 4;
+      expect(frames).toBeGreaterThanOrEqual(2);
+      const restingFrame = [
+        expect.any(Object),
+        expect.any(Object),
+        expect.any(Object),
+        'rgba(59, 130, 246, 0.38)',
+      ];
+      expect(painted).toEqual(Array.from({ length: frames }, () => restingFrame).flat());
     });
 
     it('settles a cached circular frame before drawing the final resting frame', async () => {

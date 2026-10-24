@@ -93,7 +93,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [YouTube host speaker reference after a zero-start (2026-10-25)](design/youtube-host-speaker-reference-2026-10-25.md):
-  owner report that a Standard room's first YouTube playback stayed misaligned
+  9.0.8 / v780 with #483, released 2026-10-25 04:00 KST in Release 40123156024 (target `app`). Owner
+  report: a Standard room's first YouTube playback stayed misaligned
   however often the host pressed Sync, until a seek. Since 8.10.2 the host kept
   its own media startup lateness out of the published room position, so every
   guest re-aligned to a position the host speaker never played. The host now
@@ -101,8 +102,8 @@ runbooks. Neither belongs in a general setup document.
   real IFrame API startup probe, the host and guest Sync path comparison,
   regression and lab evidence with tested SHAs, and the owner device check.
 
-- [Spectrum grid colour on iOS (2026-10-25)](design/spectrum-grid-ios-color-2026-10-25.md): 9.0.8 / v779
-  fix for the 100 Hz, 1 kHz and 10 kHz lines turning blue on iOS while paused. 8.11.40 (#442) reused one
+- [Spectrum grid colour on iOS (2026-10-25)](design/spectrum-grid-ios-color-2026-10-25.md): 9.0.8
+  (released as v780 with #484 in Release 40123156024, 2026-10-25 04:00 KST) fix for the 100 Hz, 1 kHz and 10 kHz lines turning blue on iOS while paused. 8.11.40 (#442) reused one
   grid gradient object across draws. By WebKit's source, its GPU-process canvas recorder then elides that
   gradient after the batched resting line, so the grid strokes in the line's blue (not yet seen on a
   device). Each draw now creates its own gradient, pinned by unit tests that model the recorder; Chromium

@@ -6,8 +6,11 @@ import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
-import { ControlIsolation, type IsolatedControlLease } from './control-isolation.ts';
-import { recordLinkClose, type LinkCloseCause } from './link-liveness.ts';
+import {
+  ControlIsolation,
+  type IsolatedControlLease,
+  type SideRouteFailure,
+} from './control-isolation.ts';
 import {
   isStandardHttpSignalingSocket,
   StandardHttpSignalingSocket,
@@ -956,6 +959,24 @@ function isBenignDataChannelCloseError(event: Event): boolean {
 
 let cloudflareDataConnectionSequence = 0;
 
+/**
+ * Why a logical connection closed (RO-15). The connection names the causes it
+ * decides itself. The provider and the application name theirs through
+ * close(reason); a close that names nothing is intentional, unless an error
+ * listener makes it while the provider reports the error of a close it decided.
+ */
+type LinkCloseCause =
+  | 'control-send-failed'
+  | `side-failed:${SideRouteFailure}`
+  | 'channel-closed'
+  | 'original-terminal'
+  | 'original-grace-expired'
+  | 'resume-probe-unanswered'
+  | 'resume-stale'
+  | 'resume-disconnected'
+  | TransportCloseReason
+  | 'intentional';
+
 const BACKGROUND_RESUME_DISCONNECTED_PROBE_MS = 1_000;
 const BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS = 3_000;
 
@@ -1372,7 +1393,12 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   }
 
   private terminate(cause: LinkCloseCause): void {
-    this.closeCause = recordLinkClose(this.closeCause, cause, this.peer);
+    // The first cause wins and is reported once: disposing the PC and channels
+    // re-enters terminate() with their own causes.
+    if (!this.closeCause) {
+      this.closeCause = cause;
+      log.info(`[Transport] Logical connection closed (${cause}) for ${this.peer}`);
+    }
     this.cancelDisconnectedGrace();
     this.clearBackgroundResumeRecovery();
     this.disposeResources();

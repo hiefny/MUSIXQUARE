@@ -260,7 +260,7 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
     owners
     ([registry RO-05](resource-ownership-registry.md#ro-05-guest-youtube-re-align-retry-chains)):
     the router's YouTube lane, the background-return chain, the PRO
-    visibility recovery (`pro-room/runtime.ts:187`, :3410-3438), the
+    visibility recovery (`pro-room/runtime.ts:188`, :3411-3439), the
     iframe's deferred crash-recovery rendezvous
     (`youtube/iframe.ts:3514`, :2711-2713) and the native-control pending
     rejoin (`youtube/native-control-authority.ts:361-387`).

@@ -172,11 +172,11 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         withRegistry((registry) =>
           registry.replace(
             /^(\| RO-47 .*\r?\n)/mu,
-            '$1| RO-48 | Stray row | All | duplicated | None |\n',
+            '$1| RO-99 | Stray row | All | duplicated | None |\n',
           ),
         ),
       );
-      expect(extra).toMatch(/index row RO-48 has no block line/u);
+      expect(extra).toMatch(/index row RO-99 has no block line/u);
     });
 
     it('rejects a block status that disagrees with the record and the index', () => {

@@ -88,7 +88,7 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
-**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks.
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments), and 4B goes out no earlier than 7 days after 4A.
 
 ## Index
 
@@ -98,8 +98,8 @@ each record also states the step in words.
 | RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6                        |
 | RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6                        |
 | RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5       |
-| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (constants done, C3-I1)    |
-| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (constants done, C3-I1)    |
+| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-48   |
+| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-49   |
 | RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                 |
 | RO-08 | PRO asset duration read                                  | Workers        | owner-in-place     | Done (0d, 1)                 |
 | RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                         |
@@ -108,9 +108,9 @@ each record also states the step in words.
 | RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                            |
 | RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                         |
 | RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                         |
-| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 0d, 4                        |
+| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (constants done, C5-1)     |
 | RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | 4 (restart gate only)        |
-| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 0d, 4                        |
+| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (constants done, C5-1)     |
 | RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (constants done, C5-3)     |
 | RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)               |
 | RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                         |
@@ -122,7 +122,7 @@ each record also states the step in words.
 | RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision   |
 | RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                     |
 | RO-28 | Account session reads and refresh pulses                 | Account        | owner-in-place     | Done (2)                     |
-| RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | 0d (copy triage)             |
+| RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | Done (4, C5-2)               |
 | RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | Done (2, C6-12)              |
 | RO-31 | Presence delivery does not re-arm the playback outbox    | Workers        | accepted-exception | Revisit on EPOCH_STALE logs  |
 | RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect |
@@ -140,6 +140,8 @@ each record also states the step in words.
 | RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round  |
 | RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision               |
 | RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                     |
+| RO-48 | Guest YouTube re-align lanes stay two                    | Output rejoin  | accepted-exception | Revisit with device evidence |
+| RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect  |
 
 ## Machine-readable ID list
 
@@ -203,6 +205,8 @@ RO-44 accepted-exception
 RO-45 accepted-exception
 RO-46 accepted-exception
 RO-47 owner-in-place
+RO-48 accepted-exception
+RO-49 accepted-exception
 ```
 
 ## Resource records
@@ -446,7 +450,7 @@ RO-47 owner-in-place
   same local pause (G2). Owner decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3
   and C3-I4 are not done), and the double alignment after a quick unlock and the return chain's
   give-up while the host is buffering stay as the cross-flow harness pins them. The owner is
-  asked again only if device evidence shows either one disturbing playback.
+  asked again only if device evidence shows either one disturbing playback. Exception RO-48.
 
 ### RO-06 Host shared start, playlist queue and guided demo
 
@@ -496,6 +500,7 @@ RO-47 owner-in-place
   that is a defect is not decided. One anchor (C3-I8) and one start-and-publish-once primitive
   (C3-I7) are deferred; only a narrow fix of a confirmed problem may go to train 4B. See
   [Standard file common start](standard-file-common-start.md) for the intended separate demo path.
+  Exception RO-49.
 
 ### RO-07 PRO signaling broadcast delivery
 
@@ -1018,9 +1023,9 @@ RO-47 owner-in-place
   - Visibility: missing.
   - Cross-owner: `heartbeat-monitor.test.ts` "honors only an exact bounded ICE recovery lease
     before cleaning a failed PC".
-- **Status:** `duplicated`. Phase 0d. One transport-health read path in Phase 4 (C5-4): the
-  monitor reads no raw RTC state except its stale-peer warning (`npm run guard:transport-health`,
-  `scripts/check-transport-health.mts`, in CI; see
+- **Status:** `duplicated`. Transport grace imported in Phase 4 (C5-1). One transport-health read
+  path in Phase 4 (C5-4): the monitor reads no raw RTC state except its stale-peer warning
+  (`npm run guard:transport-health`, `scripts/check-transport-health.mts`, in CI; see
   [Realtime runtime ownership](realtime-runtime-ownership.md)). Its stale close names the cause
   `heartbeat-stale` (C5-5). The transport's own grace and terminate (RO-15) still close the
   connection independently until the link-liveness owner, so on the host an original route that
@@ -1990,6 +1995,61 @@ entry needs the owner's acceptance and is not implied by this registry.
   - Teardown: `toast.test.ts` "lets a no-ID hide end only the default holder, never a named one".
   - Visibility: n/a (the header progress snaps while the page is hidden).
 - **Status:** `owner-in-place`. Phase 2 named the owner and the writers instead of adding tokens.
+
+### RO-48 Guest YouTube re-align lanes stay two
+
+- **Parent:** RO-05. Plan steps C3-I3 and C3-I4 not done, and the narrow coalescing changes
+  (P4-D8 B and C) not scheduled (owner decision P4-D8 A, 2026-10-24).
+- **Exception:** the rejoin router (`src/player/local-output-rejoin.ts`) and the background-return
+  chain (`src/player/background-return-sync.ts`) stay two re-align machines on one rendezvous.
+  They share only the retry spacing `LOCAL_OUTPUT_REALIGN_RETRY_MS` (Phase 4 4A, C3-I1), the
+  rendezvous busy and cooldown result and the end on `youtube:set-local-paused` (G2); each cancels
+  only itself.
+- **Evidence:** I3 and I4 change no behaviour. I4 would move two lanes whose policies differ on
+  almost every field (pause handling, visibility, host connection, retirement, snapshot handling,
+  wait mechanism, cooldown, replacement) into one module while keeping them concurrent, and would
+  make the return chain depend on `initLocalOutputRejoin()`, which
+  `src/network/room-session-feature-runtime.ts` runs as an optional enhancement; today the return
+  chain needs no initialization. The cross-flow harness
+  (`src/player/__tests__/local-output-realign-cross-flow.test.ts`, Phase 4 4A, tests only) runs
+  both chains on the real `youtube/sync.ts` and pins the two seams the lanes leave. An unlock
+  between about 1.3 and 3 s after a lock-screen PLAY adds a second pause, seek and play 3,010 ms
+  after the first alignment (P4-D8 (a)). A return while the host is buffering, cued or on another
+  video gives up after 1,250 ms and nothing retries (P4-D8 (b)); the host's own PLAYING state
+  frame then re-aligns the guest, and without that frame only the heartbeat correction remains.
+- **Behaviour risk:** a second short re-align after a quick unlock, and an offset left after a
+  give-up until the host's next state frame or the heartbeat correction. Harness evidence only,
+  not seen on a device; no known-accepted entry.
+- **Revisit when:** a device check of a lock-screen PLAY with a quick unlock, or of a return while
+  the host buffers, or the harness shows either seam disturbing playback; the owner is then asked
+  about the narrow changes for train 4B.
+- **Status:** `accepted-exception`.
+
+### RO-49 Queue and demo start anchors stay two
+
+- **Parent:** RO-06. Plan steps C3-I8 (one pending shared-start anchor) and C3-I7 (one
+  start-and-publish-once primitive) deferred (owner decision P4-D9 A, 2026-10-24).
+- **Exception:** the queue anchor in `src/player/transport.ts` and the demo anchor in
+  `src/demo/host-start-anchor.ts` stay two records with different validation; only the 200 ms
+  lead `LOCAL_FILE_START_LEAD_MS` is shared (Phase 4 4A, C3-I1).
+- **Evidence:** the shared-start harness (`src/demo/__tests__/shared-start-anchor.test.ts`, Phase
+  4 4A, tests only) shows DEMO_PLAY, SYNC_PONG, the late-join demo bootstrap and
+  `getPendingDemoHostStartAt()` carrying one demo start, and no frame reading the queue anchor
+  while the demo runs, so the two records never disagree on the wire. One anchor is not a plain
+  move: the queue anchor is a canonical wall-clock timeline, not only a pending deadline, so
+  recording the demo the same way either gives the demo that timeline or adds a second record
+  behind one getter, and revoking it in `stopPlayerNode` would change queue-anchor behaviour on
+  many paths. Six demo test files mock `player/transport.ts` wholesale, so a shared primitive would
+  make them fail on a missing export or pass against a mock.
+- **Behaviour risk:** when a queue item was selected before demo entry, demo playback still arms
+  that item's queue anchor, and its canonical timeline governs the demo host's reported position
+  (in the harness, 4.8 s instead of 0 s after the page is hidden for 5 s with the audio clock
+  stopped). Whether that is a defect is not decided and the real-device gap is not measured; no
+  known-accepted entry.
+- **Revisit when:** that overlap or another demo or queue anchor problem is confirmed as a defect.
+  Only a narrow fix of it may go to train 4B; one anchor (C3-I8, with C3-I7) needs its own owner
+  decision.
+- **Status:** `accepted-exception`.
 
 ## Checked side flows without a record
 

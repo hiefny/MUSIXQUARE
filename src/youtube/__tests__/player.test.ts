@@ -1848,7 +1848,7 @@ describe('YouTube Player', () => {
         [-9.999, -0.4, 0, 0.4, 9.999].map((manual) => ({ delay, manual })),
       ),
     )(
-      'records the actual host zero-start residual for $delay / manual $manual',
+      'publishes the host speaker after a zero-start for $delay / manual $manual',
       async ({ delay, manual }) => {
         playbackPlatform.android = true;
         const stateMod = await import('../_state.ts');
@@ -1948,13 +1948,129 @@ describe('YouTube Player', () => {
             throw new Error('Expected host COMMIT');
           if (delay === 'late-timer') vi.setSystemTime(Date.now() + 30);
           await vi.advanceTimersByTimeAsync(12_000);
-          const residual = manual + (delay === 'late-playing-ack' ? 0.25 : 0.22);
+          // Only the deliberate advance is removed. A media start 30ms late
+          // stays in the published position: it is where this speaker plays.
+          const mediaLateSec = delay === 'late-playing-ack' ? 0 : 0.03;
           expect(player.getPlayerState()).toBe(1);
           expect(getState('sync.youtubeLocalOffset')).toBe(manual);
-          expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(residual, 7);
-          expect(getStandardHostYouTubeAutomaticOffset()).toBeCloseTo(residual - manual, 7);
+          expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(manual + 0.25, 7);
+          expect(getStandardHostYouTubeAutomaticOffset()).toBeCloseTo(0.25, 7);
           expect(toCanonicalYouTubeTime(player.getCurrentTime(), player.getDuration())).toBeCloseTo(
-            (Date.now() - commit.startAtHost) / 1000,
+            (Date.now() - commit.startAtHost) / 1000 - mediaLateSec,
+            7,
+          );
+        } finally {
+          playerMod.stopYouTubeMode();
+          controller.resetYouTubeZeroStart();
+          realTimers.clearAllManagedTimers();
+          vi.mocked(timers.setManagedTimer).mockReset();
+          vi.mocked(timers.clearManagedTimer).mockReset();
+          vi.mocked(timers.getManagedTimer).mockReset().mockReturnValue(null);
+          vi.mocked(safeSend).mockReset();
+          stateMod.setYouTubePlayer(null);
+          clock.resetClockState();
+        }
+      },
+    );
+
+    // The real IFrame API reports the media clock to within ~2ms at PLAYING,
+    // and media started 44ms (warm) to 250ms (seek + play) after playVideo()
+    // in a desktop Chromium probe. A Standard host's heartbeats, manual Sync
+    // and zero-start timeline must publish the position its own speaker plays,
+    // as they do after a seek; otherwise every guest re-aligns away from it.
+    it.each(
+      [false, true].flatMap((android) => [-0.4, 0, 0.4].map((manual) => ({ android, manual }))),
+    )(
+      'publishes the host speaker after a late zero-start media start, Android=$android manual=$manual',
+      async ({ android, manual }) => {
+        playbackPlatform.android = android;
+        const stateMod = await import('../_state.ts');
+        const playerMod = await import('../player.ts');
+        const controller = await import('../zero-start.ts');
+        const timers = await import('../../core/timers.ts');
+        const realTimers =
+          await vi.importActual<typeof import('../../core/timers.ts')>('../../core/timers.ts');
+        const clock = await import('../../network/shared-clock.ts');
+        const { safeSend } = await import('../../network/peer.ts');
+        const { toCanonicalYouTubeTime } = await import('../local-offset.ts');
+        vi.mocked(timers.setManagedTimer).mockImplementation(realTimers.setManagedTimer);
+        vi.mocked(timers.clearManagedTimer).mockImplementation(realTimers.clearManagedTimer);
+        vi.mocked(timers.getManagedTimer).mockImplementation(realTimers.getManagedTimer);
+        vi.mocked(safeSend).mockReturnValue(true);
+        vi.setSystemTime(new Date('2026-10-25T00:00:00Z'));
+        const videoId = 'M7lc1UVf-VE';
+        const guestId = 'speaker-reference-guest';
+        const output = android ? 0.25 : 0;
+        const mediaStartMs = 180;
+        setState('network.appRole', 'host');
+        setState('network.myId', 'speaker-reference-host');
+        setState('network.sessionCode', '123456');
+        setState('setup.sessionStarted', true);
+        setState('network.activeHostConnByPeerId', new Map([[guestId, dataConnection(guestId)]]));
+        setState('sync.youtubeLocalOffset', manual);
+        setState('playlist.items', [
+          { queueItemId: QUEUE_ITEM_ID, type: 'youtube', videoId, playlistId: null, name: 'Host' },
+        ]);
+        setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+        setPlaybackYouTubePlaying();
+        const player = makeFakeYtPlayer({
+          __videoId: videoId,
+          __state: 2,
+          __advanceClock: true,
+          __autoPlayOnLoad: true,
+        });
+        player.__onStateChange = (event) => {
+          controller.handleYouTubeZeroStartPlayerState(event.data);
+        };
+        const immediatePlay = player.playVideo;
+        let releaseCallAt = 0;
+        player.playVideo = () => {
+          if (controller.getYouTubeZeroStartSnapshot()?.phase === 'starting') {
+            releaseCallAt = Date.now();
+            setTimeout(immediatePlay, mediaStartMs);
+          } else immediatePlay();
+        };
+        stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+        stateMod.setYtLoadInProgress(false);
+        expect(stateMod.markYtPlayerReady(player as unknown as YouTubePlayerInstance)).toBe(true);
+        clock.resetClockState();
+        playerMod.initYouTube();
+        try {
+          controller.handleYouTubeZeroStartCapability(guestId, {
+            type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
+            version: 2,
+            ready: true,
+            platform: 'other',
+          });
+          expect(
+            controller.beginYouTubeZeroStart({ queueItemId: QUEUE_ITEM_ID, videoId, subIndex: null }),
+          ).toBe(true);
+          for (
+            let i = 0;
+            i < 120 && controller.getYouTubeZeroStartSnapshot()?.phase !== 'scheduled';
+            i++
+          ) {
+            await vi.advanceTimersByTimeAsync(25);
+          }
+          expect(controller.getYouTubeZeroStartSnapshot()?.phase).toBe('scheduled');
+          await vi.advanceTimersByTimeAsync(12_000);
+          expect(releaseCallAt).toBeGreaterThan(0);
+          expect(player.getPlayerState()).toBe(1);
+
+          // The speaker's own room position: its iframe minus the manual and
+          // output advance it deliberately applied, exactly as after a seek.
+          const speakerPosition = player.getCurrentTime() - manual - output;
+          expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(manual + output, 7);
+          expect(toCanonicalYouTubeTime(player.getCurrentTime(), player.getDuration())).toBeCloseTo(
+            speakerPosition,
+            7,
+          );
+
+          // A seek re-anchors the room on the speaker; the reference is unchanged.
+          playerMod.scheduleYtAutoSync(30);
+          expect(getState('sync.youtubeCoordinatorAppliedOffset')).toBeCloseTo(manual + output, 7);
+          expect(toCanonicalYouTubeTime(player.getCurrentTime(), player.getDuration())).toBeCloseTo(
+            30,
             7,
           );
         } finally {

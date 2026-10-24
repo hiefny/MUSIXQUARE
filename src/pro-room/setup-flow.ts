@@ -8,7 +8,7 @@ import { capturePendingClaimReloadGuard } from '../core/document-reload.ts';
 import { navigateHome } from '../core/navigation.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
-import { ProRoomApiError } from './api.ts';
+import { ProRoomApiError } from './api-error.ts';
 import { takeProRoomClaimsFromFragment } from './claim-fragment.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
 import {

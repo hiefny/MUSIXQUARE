@@ -58,6 +58,10 @@ import {
   isLoopbackHostname,
   localProductionApiFallbackEnabled,
 } from '../network/api-endpoints.ts';
+import { ProRoomApiError, type ProRoomSessionEndReason } from './api-error.ts';
+
+export { ProRoomApiError } from './api-error.ts';
+export type { ProRoomSessionEndReason } from './api-error.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -413,13 +417,6 @@ interface ReportProRoomMediaDurationInput {
   durationSeconds: number;
 }
 
-/**
- * Why the room owner, an administrator, or a sibling device ended this
- * browser's session. The server adds it only to its ordinary terminal
- * `SESSION_REQUIRED` 401, so older Apps keep treating the response as terminal.
- */
-export type ProRoomSessionEndReason = 'PIN_ENABLED' | 'PIN_CHANGED' | 'REMOVED' | 'DEVICE_REMOVED';
-
 const SESSION_END_REASONS: ReadonlySet<string> = new Set<ProRoomSessionEndReason>([
   'PIN_ENABLED',
   'PIN_CHANGED',
@@ -429,27 +426,6 @@ const SESSION_END_REASONS: ReadonlySet<string> = new Set<ProRoomSessionEndReason
 
 /** The only membership choice the App sends; "everyone re-enters" keeps the legacy body. */
 export type ProRoomPinMembershipChoice = 'keep_present';
-
-export class ProRoomApiError extends Error {
-  readonly code: string;
-  readonly status: number;
-  readonly retryAfterSeconds: number | null;
-  readonly sessionEndReason: ProRoomSessionEndReason | null;
-
-  constructor(
-    code: string,
-    status = 0,
-    retryAfterSeconds: number | null = null,
-    sessionEndReason: ProRoomSessionEndReason | null = null,
-  ) {
-    super(`PRO_ROOM_API_${code}`);
-    this.name = 'ProRoomApiError';
-    this.code = code;
-    this.status = status;
-    this.retryAfterSeconds = retryAfterSeconds;
-    this.sessionEndReason = sessionEndReason;
-  }
-}
 
 function parseSessionEndReason(
   status: number,

@@ -12,7 +12,7 @@ import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
-import { LOCAL_OUTPUT_REALIGN_RETRY_MS } from '../youtube/constants.ts';
+import { LOCAL_OUTPUT_REALIGN_RETRY_MS, MANUAL_RENDEZVOUS_RETRY_MS } from '../youtube/constants.ts';
 import { guestRendezvousSync } from '../youtube/sync.ts';
 import { isLocalYouTubePaused, setLocalYouTubePaused } from '../youtube/_state.ts';
 import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
@@ -246,7 +246,7 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
     // can change the answer, so wait for that instead of polling.
     return result.awaitHostSnapshot
       ? { rejoined: false, retryOnHostSnapshot: true }
-      : { rejoined: false, retryAfterMs: result.retryAfterMs ?? 250 };
+      : { rejoined: false, retryAfterMs: result.retryAfterMs ?? MANUAL_RENDEZVOUS_RETRY_MS };
   }
   if (wasLocallyPaused) setLocalPause(mode, true);
   return { rejoined: false };

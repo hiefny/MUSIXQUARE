@@ -255,6 +255,56 @@ describe('host heartbeat monitor', () => {
           controlState: 'open',
         }),
     },
+    {
+      name: 'failed peer connection',
+      threshold: 8_000,
+      connection: () =>
+        makeConnection('guest', {
+          connectionState: 'failed',
+          dataState: 'open',
+          controlState: 'open',
+        }),
+    },
+    {
+      name: 'closed peer connection',
+      threshold: 8_000,
+      connection: () =>
+        makeConnection('guest', {
+          connectionState: 'closed',
+          dataState: 'open',
+          controlState: 'open',
+        }),
+    },
+    {
+      name: 'new peer connection',
+      threshold: 30_000,
+      connection: () => makeConnection('guest', { connectionState: 'new' }),
+    },
+    {
+      name: 'connecting peer connection',
+      threshold: 30_000,
+      connection: () => makeConnection('guest', { connectionState: 'connecting' }),
+    },
+    {
+      name: 'disconnected peer connection with a closed control channel',
+      threshold: 8_000,
+      connection: () =>
+        makeConnection('guest', {
+          connectionState: 'disconnected',
+          dataState: 'open',
+          controlState: 'closed',
+        }),
+    },
+    {
+      name: 'connected peer connection whose data channel is still connecting',
+      threshold: 8_000,
+      connection: () =>
+        makeConnection('guest', {
+          connectionState: 'connected',
+          dataState: 'connecting',
+          controlState: 'open',
+        }),
+    },
   ])('uses the exact $threshold ms grace for a $name', async ({ threshold, connection }) => {
     const conn = connection();
     installPeers([makePeer(conn.peer, conn, Date.now() - (threshold - 5_000))]);
@@ -271,6 +321,44 @@ describe('host heartbeat monitor', () => {
     expect(mocks.detachHostPeerConnection).toHaveBeenCalledOnce();
     expect(mocks.detachHostPeerConnection).toHaveBeenCalledWith(conn.peer, conn);
   });
+
+  it.each([
+    {
+      name: 'its data channel is not open',
+      open: true,
+      dataState: 'connecting',
+      controlState: 'open',
+    },
+    {
+      name: 'its control channel is not open',
+      open: true,
+      dataState: 'open',
+      controlState: 'closing',
+    },
+    { name: 'the connection is not open', open: false, dataState: 'open', controlState: 'open' },
+  ] as const)(
+    'ignores a bounded ICE recovery lease when $name',
+    async ({ open, dataState, controlState }) => {
+      const conn = makeConnection('lease', {
+        open,
+        connectionState: 'failed',
+        dataState,
+        controlState,
+      });
+      Object.assign(conn, { iceRecoveryDeadline: Date.now() + 15_000 });
+      installPeers([makePeer(conn.peer, conn, Date.now() - 3_000)]);
+      setState('setup.sessionStarted', true);
+      const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
+      initHeartbeatMonitor();
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.detachHostPeerConnection).not.toHaveBeenCalled();
+
+      // The lease still has 5 s left, but the 8 s threshold applies.
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.detachHostPeerConnection).toHaveBeenCalledExactlyOnceWith(conn.peer, conn);
+    },
+  );
 
   it('records heartbeat only for the exact connected connection', async () => {
     const staleAlias = makeConnection('reused-peer');

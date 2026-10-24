@@ -1066,6 +1066,27 @@ RO-49 accepted-exception
   lanes always streamed the whole file for the same tuple after recovery (survey F4). A late-join
   unicast and the room's preload broadcast do not yield. A 9.0.4 to 9.0.8 guest has the same
   acceptance rule and adopts the published route the same way (guest code unchanged since 9.0.0).
+  Known limits (C5-12 review, 2026-10-25):
+  - One stream per tuple is not absolute. Both lanes still carry the whole file when the host
+    re-detects `remote` or has not published the route yet, when the main header was queued
+    before `local` was published (a request that crossed the outage on an isolated control
+    route), when the main lane reaches `FILE_END` before the restart's next check (a completed
+    owner is a fence, not a stream), or when the restart reaches `PRELOAD_END` before the guest's
+    request arrives. Each matches 9.0.8; none is a regression.
+  - The abort travels on a control route and the restart header on the bulk channel, so the abort
+    can overtake it (the C5-0 lab's usual order). The guest then admits the restart as an
+    explicit retry of the session the abort skipped and holds an orphan partial preload (an
+    assembling RAM lease, `preload.activeTarget` on the current track, `preload.ready` cleared)
+    until its progress watchdog releases it (two progress deadlines, about 30 s), and its loader
+    watchdog logs the existing WARN `[Preload] Watchdog: forcing preload loader reset after 30s`
+    30 s after that header. Playback takes the main lane. "Never followed by a host preload
+    resend" describes the host's wire order, not what the guest processes. A later guest-side
+    change (9.0.9+ guests only) could ignore a restart START for a session already aborted on the
+    control route.
+  - The guest reads its route when the main header arrives. A header sent after `local` was
+    published could still find the guest `unknown` only if the bulk channel overtook the control
+    route that carried the device list and the guest's own re-detection had not finished; no
+    unit row or lab run shows it.
 - **Target single owner:** one bulk-lane registry (planned `src/storage/bulk-lanes.ts`); per-lane
   policies, pumps and wire frames unchanged.
 - **Allowed requesters:** file send, preload scheduling, the guest's recovery request.
@@ -1093,11 +1114,12 @@ RO-49 accepted-exception
     to a main lane that starts after the host re-detects the guest as local" and "the restarted
     preload keeps going when the request arrives $arrival and the host re-detects $route"; guest:
     "plays the surviving main lane with no second resident copy", "a PRELOAD_ABORT that overtakes
-    the bulk frames leaves the main lane intact", "plays the restarted preload when its route is
-    $guestRoute at the main FILE_START (request $arrival, host re-detects $hostRoute)" and "keeps
-    the 9.0.8 second copy when the main header was queued before the host re-detected local"; and
-    at the wire the C5-0 lab `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced
-    during the outage, observed at the wire (F4)" (17 s outage; not in CI).
+    the bulk frames leaves the main lane intact" (the orphan prefix above), "plays the restarted
+    preload when its route is $guestRoute at the main FILE_START (request $arrival, host
+    re-detects $hostRoute)" and "keeps the 9.0.8 second copy when the main header was queued
+    before the host re-detected local"; and at the wire the C5-0 lab
+    `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage, observed
+    at the wire (F4)" (17 s outage; not in CI).
 - **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); one release call and the
   tuple query added in Phase 4 (reduced C5-11); the main lane wins the tuple after recovery in
   Phase 4 when the host re-detected the guest as local before the main lane started (C5-12,

@@ -78,7 +78,10 @@ import {
   preloadProRoomPlaylistFile,
 } from '../pro-room/media-hooks.ts';
 import { isArrayBuffer } from './transfer-shared.ts';
-import { hasPendingCurrentFileTransfer } from './transfer-send.ts';
+import {
+  cancelOutgoingFileTransferForPeer,
+  hasPendingCurrentFileTransfer,
+} from './transfer-send.ts';
 import {
   BULK_LOCAL_BUFFER_LIMIT_BYTES,
   BULK_UNICAST_STALL_TIMEOUT_MS,
@@ -322,6 +325,20 @@ function releasePreloadPeerConnection(peerId: string): void {
   _preloadPeerOwners.delete(peerId);
   for (const lane of _suspendedPreloadLanes) {
     if (lane.conn.peer === peerId) _suspendedPreloadLanes.delete(lane);
+  }
+}
+
+/**
+ * RO-18: a peer disconnect or replacement releases both bulk lanes of that
+ * peer in one call, the main file lane first and then the preload lanes.
+ * The preload lanes are released even if the main-lane release throws, as
+ * when each lane had its own bus listener.
+ */
+function releaseBulkLanes(peerId: string): void {
+  try {
+    cancelOutgoingFileTransferForPeer(peerId);
+  } finally {
+    releasePreloadPeerConnection(peerId);
   }
 }
 
@@ -2592,8 +2609,8 @@ export function initPreload(): void {
     [MSG.PLAY_PRELOADED]: handlePlayPreloaded,
   });
 
-  bus.on('network:peer-disconnected', releasePreloadPeerConnection);
-  bus.on('network:peer-connection-replaced', releasePreloadPeerConnection);
+  bus.on('network:peer-disconnected', releaseBulkLanes);
+  bus.on('network:peer-connection-replaced', releaseBulkLanes);
   bus.on('network:peer-ice-recovered', resumeSuspendedPreloadLane);
 
   // Handle preload file ready from storage (bridged from storage:file-ready via playback.ts)

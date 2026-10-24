@@ -1040,7 +1040,11 @@ RO-49 accepted-exception
   excludes the peer and relies on the guest's recovery request) and the preload registry in
   `src/storage/preload.ts` (`_activePreloadUnicasts`, `_preloadPeerOwners`,
   `_suspendedPreloadLanes`; it suspends and resumes from chunk 0 on `network:peer-ice-recovered`).
-  The preload lane asks `hasPendingCurrentFileTransfer`; each lane cancels on its own listener.
+  The preload lane asks `hasPendingCurrentFileTransfer`. A peer disconnect or replacement releases
+  both lanes in one call (`releaseBulkLanes` in `preload.ts`, registered by `initPreload`: the main
+  lane first, then the preload lanes), and `isMainLanePreparingOrActive` in `transfer-send.ts`
+  answers whether the main lane is preparing or streaming one exact (connection, queue item,
+  session) tuple (Phase 4 reduced C5-11; only tests ask it until C5-12).
   Reproduced: when the host promotes an interrupted preload to the current track during an outage,
   both lanes stream the same file for the same tuple after ICE recovery (the anchor below). Which
   lane wins is still the owner's decision (P4-D10, C5-12).
@@ -1048,7 +1052,7 @@ RO-49 accepted-exception
   policies, pumps and wire frames unchanged.
 - **Allowed requesters:** file send, preload scheduling, the guest's recovery request.
 - **Lifecycle operations:** register, suspend, resume, cancel, release on disconnect or
-  replacement.
+  replacement (one call for both lanes).
 - **Deadline owner:** each lane's backpressure timeout.
 - **Timing-constant home:** `src/storage/transfer-backpressure.ts` (Phase 4, C5-3):
   `BULK_LOCAL_BUFFER_LIMIT_BYTES` (64 KiB of local queue, every lane) and
@@ -1058,7 +1062,9 @@ RO-49 accepted-exception
   congestion longer so a guest does not restart the next track from zero.
 - **Anchor tests:**
   - Supersession: `src/storage/__tests__/preload-lane-ownership.test.ts` "forgets a paused lane
-    whose connection was replaced".
+    whose connection was replaced"; both lanes in one release:
+    `src/storage/__tests__/bulk-lane-release.test.ts` "%s ends the main lane and the preload lane
+    parked behind it".
   - User pause/stop: missing.
   - Teardown: `src/storage/__tests__/preload-capacity-lifecycle.test.ts` "cancels a parked sender
     without flushing stale bytes into a replacement unicast or ACK".
@@ -1068,9 +1074,10 @@ RO-49 accepted-exception
     lanes when the request arrives %s" (unit), and at the wire the C5-0 lab
     `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage, observed
     at the wire (F4)" (17 s outage; not in CI).
-- **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); Phase 4 still owes the
-  registry (which lane wins after recovery is an owner decision, P4-D10; the lab did not
-  reproduce the two streams with a 10 s outage in its one exploratory run). See
+- **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); one release call and the
+  tuple query added in Phase 4 (reduced C5-11); Phase 4 still owes the registry (which lane wins
+  after recovery is an owner decision, P4-D10; the lab did not reproduce the two streams with a
+  10 s outage in its one exploratory run). See
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md).
 
 ### RO-19 Guest fetch of the current track

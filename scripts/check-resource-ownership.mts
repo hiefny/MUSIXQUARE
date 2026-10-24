@@ -336,6 +336,7 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
       'src/network/transport/cloudflare-signaling.ts',
       'src/network/transport/control-isolation.ts',
       'src/network/heartbeat-monitor.ts',
+      'src/network/transport-health.ts',
     ],
   },
   {

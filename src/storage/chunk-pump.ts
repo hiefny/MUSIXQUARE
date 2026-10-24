@@ -23,6 +23,7 @@ import { getState } from '../core/state.ts';
 import { DELAY } from '../core/constants.ts';
 import { delay } from '../core/timers.ts';
 import { safeSend } from '../network/peer.ts';
+import { isBulkWritable, readTransportHealth } from '../network/transport-health.ts';
 import { hasTransferCapacity, waitForTransferCapacity } from './transfer-backpressure.ts';
 import type { AnyProtocolMsg, ConnectedPeer, DataConnection } from '../types/index.ts';
 
@@ -44,21 +45,12 @@ export function isPeerConnectionCurrent(peerId: string, conn: DataConnection): b
 }
 
 /**
- * Health gate for bulk (chunk) streaming: open conn, open data channel,
- * live peer connection, and the connection is still the peer's current one.
+ * Health gate for bulk (chunk) streaming: a bulk-writable transport
+ * (transport-health.ts) on the connection that is still the peer's current one.
  */
 export function isBulkTransferWritablePeer(peer: ConnectedPeer): boolean {
   const conn = peer.conn as DataConnection | null;
-  if (!conn?.open) return false;
-
-  const dataChannelState = conn.dataChannel?.readyState;
-  if (dataChannelState && dataChannelState !== 'open') return false;
-
-  const pcState = conn.peerConnection?.connectionState;
-  if (pcState === 'closed' || pcState === 'failed' || pcState === 'disconnected') return false;
-
-  const iceState = conn.peerConnection?.iceConnectionState;
-  if (iceState === 'closed' || iceState === 'failed' || iceState === 'disconnected') return false;
+  if (!conn || !isBulkWritable(readTransportHealth(conn))) return false;
 
   return isPeerConnectionCurrent(peer.id, conn);
 }

@@ -22,6 +22,7 @@ export default defineConfig({
       'src/player/__tests__/{busy-guard,concurrency-invariants,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
+      'src/network/__tests__/transport-health.test.ts',
       'src/youtube/__tests__/{search,search-style}.test.ts',
       'src/account/__tests__/{api,session,login-return}.test.ts',
       'src/ui/__tests__/announcement.test.ts',
@@ -60,6 +61,7 @@ export default defineConfig({
         'src/storage/preload.ts',
         'src/network/transport/cloudflare-signaling.ts',
         'src/network/transport/link-liveness.ts',
+        'src/network/transport-health.ts',
         'src/youtube/oembed.ts',
         'src/account/api.ts',
         'src/account/session.ts',
@@ -149,6 +151,14 @@ export default defineConfig({
         // The close-cause record (Phase 4, C5-5) is fully covered by the
         // cloudflare-signaling.test.ts close-path tests on 2026-10-24.
         'src/network/transport/link-liveness.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
+        },
+        // The transport-health read path (Phase 4, C5-4) is fully covered by
+        // transport-health.test.ts on 2026-10-24.
+        'src/network/transport-health.ts': {
           statements: 99,
           branches: 99,
           functions: 99,

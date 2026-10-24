@@ -955,8 +955,9 @@ RO-47 owner-in-place
 
 - **Resource:** each guest's connection on the host.
 - **Current owners/flows:** the heartbeat monitor (`src/network/heartbeat-monitor.ts`) detaches
-  and closes stale peers, re-deriving transport grace from raw PC state and honouring
-  `conn.iceRecoveryDeadline`; the transport grace and terminate (RO-15) close independently.
+  and closes stale peers. It classifies transport grace and honours `conn.iceRecoveryDeadline`
+  through the pure read path `src/network/transport-health.ts` (`heartbeatStaleThreshold`,
+  `honoursRecoveryLease`); the transport grace and terminate (RO-15) close independently.
   Detach is fenced by connection identity (`detachHostPeerConnection` in
   `src/network/host-peer-departure.ts`).
 - **Target single owner:** the heartbeat monitor keeps the heartbeat leases and stale fencing that
@@ -966,9 +967,12 @@ RO-47 owner-in-place
 - **Lifecycle operations:** record heartbeat, detach, close, publish disconnect.
 - **Deadline owner:** the monitor's stale thresholds (8 s closed, 30 s recovering, 90 s connected)
   and the transport's recovery deadline.
-- **Timing-constant home:** `HEARTBEAT_RECOVERING_TRANSPORT_GRACE` in `heartbeat-monitor.ts` (a
-  different contract that shares 30 s); the lease cap imports the transport grace
-  `RTC_INTERRUPTION_GRACE_MS` from `src/core/constants.ts` (Phase 4, C5-1).
+- **Timing-constant home:** the stale thresholds `HEARTBEAT_STALE_THRESHOLD` (8 s),
+  `HEARTBEAT_RECOVERING_TRANSPORT_GRACE` (30 s, a different contract that shares 30 s) and
+  `HEARTBEAT_LIVE_TRANSPORT_GRACE` (90 s) in `src/network/transport-health.ts` (Phase 4, C5-4);
+  the check cadence `HEARTBEAT_CHECK_INTERVAL` (5 s) stays in `heartbeat-monitor.ts`. The lease
+  cap in `transport-health.ts` imports the transport grace `RTC_INTERRUPTION_GRACE_MS` from
+  `src/core/constants.ts` (Phase 4, C5-1).
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/heartbeat-monitor.test.ts` "records heartbeat only for the
     exact connected connection".
@@ -978,7 +982,11 @@ RO-47 owner-in-place
   - Visibility: missing.
   - Cross-owner: `heartbeat-monitor.test.ts` "honors only an exact bounded ICE recovery lease
     before cleaning a failed PC".
-- **Status:** `duplicated`. Phase 0d, Phase 4 (one transport-health read path).
+- **Status:** `duplicated`. Phase 0d. One transport-health read path in Phase 4 (C5-4): the
+  monitor reads no raw RTC state except its stale-peer warning (`npm run guard:transport-health`,
+  `scripts/check-transport-health.mts`, in CI; see
+  [Realtime runtime ownership](realtime-runtime-ownership.md)). The transport's own grace and
+  terminate (RO-15) still close the connection independently until the link-liveness owner.
 
 ### RO-18 Host-to-guest bulk lanes
 

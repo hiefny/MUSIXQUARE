@@ -1,24 +1,26 @@
 /**
  * MUSIXQUARE — Host Heartbeat Monitor
  *
- * Owns transport-liveness observations and stale browser-host peer cleanup.
- * Synchronization code records heartbeat frames through this narrow port but
- * does not own participant lifecycle or RTC cleanup.
+ * Owns heartbeat leases and stale browser-host peer cleanup. Synchronization
+ * code records heartbeat frames through this narrow port but does not own
+ * participant lifecycle or RTC cleanup. Transport state is read only through
+ * transport-health.ts, which also holds the stale thresholds.
  */
 
 import { log } from '../core/log.ts';
-import { RTC_INTERRUPTION_GRACE_MS } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../types/index.ts';
 import { broadcastDeviceList } from './peer-state.ts';
 import { detachHostPeerConnection } from './host-peer-departure.ts';
+import {
+  heartbeatStaleThreshold,
+  honoursRecoveryLease,
+  readTransportHealth,
+} from './transport-health.ts';
 
-const HEARTBEAT_STALE_THRESHOLD = 8_000;
 const HEARTBEAT_CHECK_INTERVAL = 5_000;
-const HEARTBEAT_LIVE_TRANSPORT_GRACE = 90_000;
-const HEARTBEAT_RECOVERING_TRANSPORT_GRACE = 30_000;
 
 // Keying by the live connection prevents a reconnect that reuses a peer id
 // from inheriting the previous connection's heartbeat lease.
@@ -34,36 +36,6 @@ export function recordPeerHeartbeat(conn: DataConnection, now = Date.now()): voi
   } catch (error) {
     log.debug('[Heartbeat] Liveness update error:', error);
   }
-}
-
-function heartbeatTransportGrace(conn: DataConnection | undefined): number {
-  if (!conn?.open) return HEARTBEAT_STALE_THRESHOLD;
-
-  const pcState = conn.peerConnection?.connectionState;
-  const dataState = conn.dataChannel?.readyState;
-  const controlState = conn.controlChannel?.readyState;
-  if (
-    pcState === 'closed' ||
-    pcState === 'failed' ||
-    dataState === 'closed' ||
-    controlState === 'closed'
-  ) {
-    return HEARTBEAT_STALE_THRESHOLD;
-  }
-
-  if (
-    pcState === 'connected' &&
-    (dataState === undefined || dataState === 'open') &&
-    (controlState === undefined || controlState === 'open')
-  ) {
-    return HEARTBEAT_LIVE_TRANSPORT_GRACE;
-  }
-
-  if (pcState === 'disconnected' || pcState === 'connecting' || pcState === 'new') {
-    return HEARTBEAT_RECOVERING_TRANSPORT_GRACE;
-  }
-
-  return HEARTBEAT_STALE_THRESHOLD;
 }
 
 /**
@@ -107,19 +79,11 @@ function syncHeartbeatMonitor(): void {
           (conn ? lastHeartbeatByConnection.get(conn) : undefined) ??
           ((peer.lastHeartbeat as number) || 0);
         const elapsed = now - lastHeartbeat;
-        const recoveryRemaining = (conn?.iceRecoveryDeadline ?? 0) - now;
-        if (
-          conn?.open &&
-          recoveryRemaining > 0 &&
-          recoveryRemaining <= RTC_INTERRUPTION_GRACE_MS &&
-          conn.dataChannel?.readyState === 'open' &&
-          conn.controlChannel?.readyState === 'open'
-        ) {
-          // The transport owns one bounded ICE restart. A stale heartbeat
-          // must not consume its grace early merely because ICE says failed.
-          continue;
-        }
-        const staleThreshold = heartbeatTransportGrace(conn);
+        const health = readTransportHealth(conn);
+        // The transport owns one bounded ICE restart. A stale heartbeat
+        // must not consume its grace early merely because ICE says failed.
+        if (honoursRecoveryLease(health, now)) continue;
+        const staleThreshold = heartbeatStaleThreshold(health);
         if (elapsed > staleThreshold) {
           log.warn(
             `[Heartbeat] Peer ${peer.label || peer.id} stale (${(elapsed / 1_000).toFixed(1)}s; transport=${conn?.peerConnection?.connectionState ?? 'unknown'}): marking disconnected`,

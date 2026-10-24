@@ -41,6 +41,7 @@ import {
   filterEligiblePeers,
   isRemoteGuest,
 } from '../network/peer.ts';
+import { isRecoverablyInterrupted, readTransportHealth } from '../network/transport-health.ts';
 import {
   pumpChunksToPeers,
   isBulkTransferWritablePeer,
@@ -324,17 +325,10 @@ function releasePreloadPeerConnection(peerId: string): void {
   }
 }
 
-/** Disconnected, or failed with an ICE restart pending; the channel itself is still open. */
-function isRecoverablyInterrupted(conn: DataConnection): boolean {
-  if (!conn.open || !isPeerConnectionCurrent(conn.peer, conn)) return false;
-  const channelState = conn.dataChannel?.readyState;
-  if (channelState && channelState !== 'open') return false;
-  const pc = conn.peerConnection;
+/** The peer's current connection, recoverably interrupted (transport-health.ts). */
+function isCurrentConnectionInterrupted(conn: DataConnection): boolean {
   return (
-    pc?.connectionState === 'disconnected' ||
-    pc?.connectionState === 'failed' ||
-    pc?.iceConnectionState === 'disconnected' ||
-    pc?.iceConnectionState === 'failed'
+    isRecoverablyInterrupted(readTransportHealth(conn)) && isPeerConnectionCurrent(conn.peer, conn)
   );
 }
 
@@ -346,7 +340,7 @@ function suspendPreloadPeer(owner: PreloadPeerOwner): boolean {
     !ownsPreloadPeer(owner) ||
     !isResidentPreloadTransfer(owner) ||
     owner.conn.reportsIceRecovery !== true ||
-    !isRecoverablyInterrupted(owner.conn)
+    !isCurrentConnectionInterrupted(owner.conn)
   )
     return false;
   releasePreloadPeer(owner);
@@ -388,7 +382,7 @@ function abortSuspendedPreloadLane(lane: SuspendedPreloadLane): void {
 function resumeSuspendedPreloadLane(conn: DataConnection): void {
   // A selected-pair change can report recovery while the connection is still
   // interrupted. Keep waiting for the transition that makes it writable.
-  if (isRecoverablyInterrupted(conn)) return;
+  if (isCurrentConnectionInterrupted(conn)) return;
   const lanes = [..._suspendedPreloadLanes]
     .filter((lane) => lane.conn === conn)
     .sort((a, b) => Number(isCurrentPreloadTransfer(b)) - Number(isCurrentPreloadTransfer(a)));

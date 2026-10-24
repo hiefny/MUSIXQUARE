@@ -88,8 +88,8 @@ function activateWaitingWorker(worker: ServiceWorker): void {
  * the activation. An event, not an import: importing this module statically
  * from the logo (player-controls.ts) or from the lazy chunk reorders the eager
  * bundle (measured on 2026-10-24: +0.7 KB eager gzip either way, against
- * +0.3 KB for the whole of C6-10 with the event). core/sw-hard-reset.ts keeps
- * its own copy of the name; the tests pin both
+ * +0.2 KB for the whole of C6-10 with the event after the R2 trims).
+ * core/sw-hard-reset.ts keeps its own copy of the name; the tests pin both
  * (src/core/__tests__/__helpers__/hard-reset-port.ts).
  */
 const HARD_RESET_CLAIM_EVENT = 'mxqr:hard-reset-claim';
@@ -110,10 +110,14 @@ export type HardResetClaim = 'promoted' | 'apply-in-flight' | 'none' | 'unavaila
 export interface HardResetClaimRequest {
   claim?: HardResetClaim;
   /**
-   * The URL of the hard reset's own chunk: the browser loaded it for this tap,
-   * so its load does not count as the page still loading.
+   * No resource of the page finished within STARTUP_PROMPT_QUIET_MS, so a
+   * SKIP_WAITING sent now activates at once (the Chromium rule above). The
+   * hard reset measures it, leaving out its own chunk (the browser loaded it
+   * for this tap), with its copy of that window: the check is the logo's
+   * alone, so it lives in the lazy chunk (Phase 3 R2 eager budget). Absent
+   * means not quiet.
    */
-  chunk?: string;
+  quiet?: boolean;
 }
 
 function publishNavigationSource(navigationFallback: boolean): void {
@@ -158,9 +162,9 @@ function updateReturnCode(): unknown {
 function markActivationRequested(): void {
   writeSessionMarker(SW_UPDATE_KEY, String(Date.now()));
   try {
-    globalThis.sessionStorage?.removeItem(SW_CONTROLLER_CONFIRMED_KEY);
+    globalThis.sessionStorage.removeItem(SW_CONTROLLER_CONFIRMED_KEY);
   } catch {
-    // Best-effort marker cleanup only.
+    // Best-effort marker cleanup only (missing or denied storage throws here).
   }
 }
 
@@ -197,8 +201,9 @@ function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
 
 /** When this tab last asked for an activation it has not seen land yet, or 0. */
 function unconfirmedActivationRequest(): number {
-  const updatedAt = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
-  return Number(readSessionMarker(SW_CONTROLLER_CONFIRMED_KEY) || '0') < updatedAt ? updatedAt : 0;
+  // Number(null) is 0: a missing marker reads as never.
+  const updatedAt = Number(readSessionMarker(SW_UPDATE_KEY));
+  return Number(readSessionMarker(SW_CONTROLLER_CONFIRMED_KEY)) < updatedAt ? updatedAt : 0;
 }
 
 function isUnconfirmedRecentUpdateReload(): boolean {
@@ -246,21 +251,34 @@ function isRoomOrDemoActive(): boolean {
   return isRoomSessionActive() || isDemoStateActive() || isDemoSurfaceVisible();
 }
 
-/**
- * When this page's latest resource finished, or `since` if later or unknown;
- * the resource at `except` (the URL of the hard reset's own chunk) is left out.
- */
-function lastResponseEnd(since: number, except?: string): number {
-  let last = since;
-  try {
-    for (const entry of performance.getEntriesByType('resource')) {
-      if (entry.name === except) continue;
-      last = Math.max(last, (entry as PerformanceResourceTiming).responseEnd || 0);
-    }
-  } catch {
-    // Without resource timing the quiet period starts at `since`.
-  }
-  return last;
+/** Resolve once no page resource has finished for a moment, or at the cap. */
+function waitForQuietPageLoad(): Promise<void> {
+  return new Promise((resolve) => {
+    const startedAt = performance.now();
+    const check = () => {
+      const now = performance.now();
+      let lastResponseEnd = startedAt;
+      try {
+        for (const entry of performance.getEntriesByType('resource')) {
+          lastResponseEnd = Math.max(
+            lastResponseEnd,
+            (entry as PerformanceResourceTiming).responseEnd || 0,
+          );
+        }
+      } catch {
+        // Without resource timing the quiet period starts with the wait.
+      }
+      if (
+        now - lastResponseEnd >= STARTUP_PROMPT_QUIET_MS ||
+        now - startedAt >= STARTUP_PROMPT_MAX_WAIT_MS
+      ) {
+        resolve();
+        return;
+      }
+      globalThis.setTimeout(check, STARTUP_PROMPT_POLL_MS);
+    };
+    check();
+  });
 }
 
 /**
@@ -305,39 +323,13 @@ export function registerServiceWorker(): void {
     return;
   }
 
-  /**
-   * No resource of this page finished within STARTUP_PROMPT_QUIET_MS, so a
-   * SKIP_WAITING sent now activates at once (the Chromium rule above).
-   */
-  const isPageQuietNow = (except?: string): boolean =>
-    performance.now() - lastResponseEnd(-Infinity, except) >= STARTUP_PROMPT_QUIET_MS;
-
-  /** Resolve once no page resource has finished for a moment, or at the cap. */
-  const waitForQuietPageLoad = (): Promise<void> =>
-    new Promise((resolve) => {
-      const startedAt = performance.now();
-      const check = () => {
-        const now = performance.now();
-        if (
-          now - lastResponseEnd(startedAt) >= STARTUP_PROMPT_QUIET_MS ||
-          now - startedAt >= STARTUP_PROMPT_MAX_WAIT_MS
-        ) {
-          resolve();
-          return;
-        }
-        globalThis.setTimeout(check, STARTUP_PROMPT_POLL_MS);
-      };
-      check();
-    });
-
   // The logo's hard reset asks here (HARD_RESET_CLAIM_EVENT). Until the
   // machine exists (the window load event, then registration) it may promote
   // on its own, once the page's loads are quiet (P3-12 A, P3-9 A).
-  let claimForHardReset = (chunk?: string): HardResetClaim =>
-    isPageQuietNow(chunk) ? 'unavailable' : 'none';
+  let claimForHardReset = (quiet?: boolean): HardResetClaim => (quiet ? 'unavailable' : 'none');
   navigator.serviceWorker.addEventListener(HARD_RESET_CLAIM_EVENT, (event) => {
     const request = (event as CustomEvent<HardResetClaimRequest>).detail;
-    request.claim = claimForHardReset(request.chunk);
+    request.claim = claimForHardReset(request.quiet);
   });
 
   const doRegister = async () => {
@@ -381,7 +373,9 @@ export function registerServiceWorker(): void {
     /**
      * Put a controller change's decision off while a navigation holds the
      * page: it runs if that navigation releases the page in this document,
-     * and never if it commits (Phase 3 C6-10, owner decision P3-8 A).
+     * and never if it commits (Phase 3 C6-10, owner decision P3-8 A). This tab
+     * saw the new controller, which the markers record now, as the aligned
+     * reload the decision may make would record it.
      */
     const deferWhileNavigating = (decide: () => void): boolean => {
       if (!isSessionResetPending()) return false;
@@ -390,6 +384,7 @@ export function registerServiceWorker(): void {
         stopWatching();
         decide();
       });
+      markControllerConfirmed();
       return true;
     };
     /**
@@ -499,13 +494,10 @@ export function registerServiceWorker(): void {
 
       // A navigation holds the page, such as the logo's hard reset after its
       // own activation: no update dialog under its reset screen and no second
-      // reload request; the decision waits for the page. This tab saw the new
-      // controller, which the markers record now, as the aligned reload this
-      // replaces recorded it when it queued.
-      if (deferWhileNavigating(handlePassiveControllerChange)) {
-        markControllerConfirmed();
-        return true;
-      }
+      // reload request; the decision waits for the page (the markers record
+      // the new controller now, as the aligned reload this replaces recorded
+      // it when it queued).
+      if (deferWhileNavigating(handlePassiveControllerChange)) return true;
 
       // controllerchange fires in EVERY controlled same-origin tab when any
       // one of them accepts the update (skipWaiting activation migrates all
@@ -685,8 +677,9 @@ export function registerServiceWorker(): void {
           // While a navigation holds the page (the logo's hard reset waiting
           // for this Apply), the Apply's reload waits for it (P3-8 A); the
           // markers record the new controller now, as that reload would.
-          if (deferWhileNavigating(scheduleControllerAlignedReload)) markControllerConfirmed();
-          else scheduleControllerAlignedReload();
+          if (!deferWhileNavigating(scheduleControllerAlignedReload)) {
+            scheduleControllerAlignedReload();
+          }
         } else if (absorbGeneration) {
           // Whether this is the activation an earlier document of this tab
           // asked for needs the worker's generation (P3-10 A): decided there.
@@ -921,15 +914,12 @@ export function registerServiceWorker(): void {
 
       // The machine answers the logo now. A worker it promotes is the hard
       // reset's: no prompt or quiet promotion of this document takes it up.
-      claimForHardReset = (chunk) => {
+      // While a reload is scheduled the reset surface keeps the page inert, so
+      // the logo cannot ask then; that check is defensive.
+      claimForHardReset = (quiet) => {
         if (activationState === 'awaiting-local-controller') return 'apply-in-flight';
         const worker = reg.waiting;
-        if (
-          isReloadScheduled() ||
-          !worker ||
-          worker.state !== 'installed' ||
-          !isPageQuietNow(chunk)
-        ) {
+        if (isReloadScheduled() || !worker || worker.state !== 'installed' || !quiet) {
           return 'none';
         }
         if (openPrompt) openPrompt.abort();

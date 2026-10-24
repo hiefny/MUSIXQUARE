@@ -1775,27 +1775,21 @@ describe('service-worker cache-retirement client handshake', () => {
   // (sw-hard-reset.test.ts drives that side; the transition table drives both
   // on the real navigation owner).
   describe('the logo hard reset port (C6-10)', () => {
+    /**
+     * The hard reset's request: by default on a page whose loads are quiet.
+     * The hard reset measures that itself, leaving out its own chunk
+     * (sw-hard-reset.test.ts pins the measurement).
+     */
     async function claimForHardReset(
       harness: SwHarness,
-      chunk?: string,
+      request: HardResetClaimRequest = { quiet: true },
     ): Promise<HardResetClaim | undefined> {
       // The machine keeps its own copy of the event name; this pins it.
-      const request: HardResetClaimRequest = chunk ? { chunk } : {};
       harness.emit(
         HARD_RESET_CLAIM_EVENT,
         new CustomEvent<HardResetClaimRequest>(HARD_RESET_CLAIM_EVENT, { detail: request }),
       );
       return request.claim;
-    }
-
-    /** A resource of the page finished just now. */
-    function pageStillLoading(name = 'https://musixquare.com/assets/page.js'): void {
-      const finishedAt = performance.now();
-      vi.mocked(performance.getEntriesByType).mockImplementation((type: string) =>
-        type === 'resource'
-          ? [{ name, responseEnd: finishedAt } as unknown as PerformanceResourceTiming]
-          : [],
-      );
     }
 
     it('before the window load event answers that there is no machine, on a quiet page only (P3-12 A, P3-9 A)', async () => {
@@ -1806,8 +1800,9 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(harness.register).not.toHaveBeenCalled();
 
       expect(await claimForHardReset(harness)).toBe('unavailable');
-      pageStillLoading();
-      expect(await claimForHardReset(harness)).toBe('none');
+      expect(await claimForHardReset(harness, { quiet: false })).toBe('none');
+      // A request that does not say the page is quiet counts as still loading.
+      expect(await claimForHardReset(harness, {})).toBe('none');
       expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({
         type: 'SKIP_WAITING',
       });
@@ -1840,24 +1835,13 @@ describe('service-worker cache-retirement client handshake', () => {
       await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
       await flushAsyncControllerChange();
 
-      pageStillLoading();
-      expect(await claimForHardReset(harness)).toBe('none');
+      expect(await claimForHardReset(harness, { quiet: false })).toBe('none');
+      expect(await claimForHardReset(harness, {})).toBe('none');
       expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
       expect(sessionStorage.getItem('sw-updated-at')).toBeNull();
-    });
 
-    it("does not count the hard reset's own chunk, loaded for this tap, as the page still loading", async () => {
-      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
-      await registerWithHarness(harness);
-      const update = harness.installUpdate('v494');
-      update.emitInstalled();
-      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
-      await flushAsyncControllerChange();
-
-      const chunk = 'https://musixquare.com/assets/sw-hard-reset-abc123.js';
-      pageStillLoading(chunk);
-      expect(await claimForHardReset(harness)).toBe('none');
-      expect(await claimForHardReset(harness, chunk)).toBe('promoted');
+      // Once the hard reset reads the page as quiet, the same worker goes.
+      expect(await claimForHardReset(harness)).toBe('promoted');
       expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
     });
 

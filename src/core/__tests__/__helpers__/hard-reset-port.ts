@@ -8,3 +8,13 @@
  * sw-update-transitions.integration.test.ts runs the two together.
  */
 export const HARD_RESET_CLAIM_EVENT = 'mxqr:hard-reset-claim';
+
+/**
+ * The quiet window of the logo's claim: STARTUP_PROMPT_QUIET_MS in
+ * src/sw-register.ts (the update machine's, the home) and its copy of the same
+ * name in core/sw-hard-reset.ts, which measures the page's quiet for the claim
+ * so the eager bundle does not carry that check (Phase 3 R2).
+ * sw-hard-reset.test.ts pins the copy's behaviour to this value and both
+ * sources to it.
+ */
+export const STARTUP_PROMPT_QUIET_MS = 1_000;

@@ -1123,9 +1123,13 @@ RO-47 owner-in-place
     for that activation until the prepare window closes and sends nothing), `none` (no waiting
     worker, or the page's loads are not quiet: the logo goes home at once and the next page
     offers the update) or `unavailable` (no machine yet: before the window load event or after a
-    failed registration, on a quiet page). The request names the hard reset's own chunk, whose
-    load for the tap does not count as the page loading (found by the 2026-10-24 real-browser
-    check: without it the logo never promoted). The hard reset then waits for the new controller and
+    failed registration, on a quiet page). The request carries whether the page's loads are
+    quiet: the hard reset measures it with a copy of the machine's quiet window, leaving out its
+    own chunk, whose load for the tap does not count as the page loading (found by the 2026-10-24
+    real-browser check: without it the logo never promoted); the machine decides with that
+    reading. The measurement moved into the lazy chunk in Phase 3 R2 to keep the eager bundle
+    under the 5% reserve line; a request without the reading counts as a page still loading.
+    The hard reset then waits for the new controller and
     leaves "Update applied" for the next document only when it saw one (P3-11 A). The port is an
     event rather than an import: a static import of `sw-register.ts` from the logo or the lazy
     chunk reorders the eager bundle (+0.7 KB gzip measured either way).
@@ -1180,6 +1184,10 @@ RO-47 owner-in-place
   (`ACTIVATION_TIMEOUT_MS`, lazy) and `sw-register.ts` (prompt and quiet-load timings, and
   `HARD_RESET_CLAIM_EVENT`; the lazy `sw-hard-reset.ts` keeps a copy, and `sw-register.test.ts`
   and `sw-hard-reset.test.ts` pin both to `src/core/__tests__/__helpers__/hard-reset-port.ts`).
+  Since Phase 3 R2 the lazy `sw-hard-reset.ts` also keeps a copy of `STARTUP_PROMPT_QUIET_MS`
+  for the claim's quiet reading: `sw-hard-reset.test.ts` "keeps the update machine's quiet
+  window" pins both sources to the same helper, its quiet-reading rows pin the copy's behaviour,
+  and `scripts/check-resource-ownership.mts` lists the pair as a triaged copy.
   Named in Phase 2 (C6-1).
 - **Anchor tests:**
   - Supersession: `src/core/__tests__/sw-register.test.ts` "drops a stale waiting-worker

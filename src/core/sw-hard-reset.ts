@@ -9,6 +9,16 @@ import { recordServiceWorkerUpdateCompletion } from './sw-update-completion.ts';
 const HARD_RESET_CLAIM_EVENT = 'mxqr:hard-reset-claim';
 
 /**
+ * A copy of STARTUP_PROMPT_QUIET_MS in sw-register.ts (the home, RO-22): a
+ * SKIP_WAITING sent once no resource of the page finished for this long
+ * activates at once (Chromium, measured 2026-10-17). The update machine
+ * decides with this chunk's reading, so the check stays out of the eager
+ * bundle (Phase 3 R2). sw-hard-reset.test.ts pins the copy to the home
+ * (src/core/__tests__/__helpers__/hard-reset-port.ts).
+ */
+const STARTUP_PROMPT_QUIET_MS = 1_000;
+
+/**
  * How long the hard reset waits for an activation it asked for. The navigation
  * owner's prepare window (NAVIGATION_PREPARE_TIMEOUT_MS, 2.5 s) leaves at
  * least 1 s beside it for loading this chunk, and its abort ends any wait;
@@ -88,10 +98,30 @@ async function promoteWithoutTheUpdateMachine(signal: AbortSignal): Promise<Hard
   return activation;
 }
 
+/**
+ * No resource of the page finished within STARTUP_PROMPT_QUIET_MS. This chunk's own
+ * load, just now for this tap, is not the page still loading (found by the
+ * 2026-10-24 real-browser check). Without resource timing the page is quiet.
+ */
+function isPageQuiet(): boolean {
+  let lastResponseEnd = -Infinity;
+  try {
+    for (const entry of performance.getEntriesByType('resource')) {
+      if (entry.name === import.meta.url) continue;
+      lastResponseEnd = Math.max(
+        lastResponseEnd,
+        (entry as PerformanceResourceTiming).responseEnd || 0,
+      );
+    }
+  } catch {
+    // Without resource timing nothing says the page is still loading.
+  }
+  return performance.now() - lastResponseEnd >= STARTUP_PROMPT_QUIET_MS;
+}
+
 /** Ask the update machine through its port; without an answer there is nothing to promote. */
 function claimWaitingWorker(): HardResetClaim {
-  // This chunk's own load, just now, is not the page still loading.
-  const request: HardResetClaimRequest = { chunk: import.meta.url };
+  const request: HardResetClaimRequest = { quiet: isPageQuiet() };
   navigator.serviceWorker.dispatchEvent(
     new CustomEvent<HardResetClaimRequest>(HARD_RESET_CLAIM_EVENT, { detail: request }),
   );

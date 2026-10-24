@@ -128,6 +128,12 @@ and the machine answers at once:
 | `none`            | No waiting worker, or a resource of the page (other than the hard reset's own chunk, loaded for the tap) finished within the last 1 s | Goes home at once; the next page offers the update with the usual dialog.                                                                 |
 | `unavailable`     | No machine yet (before the window load event, a failed registration)                                                                  | Promotes on its own: `SKIP_WAITING` to the waiting worker, then waits up to 1.5 s.                                                        |
 
+The request carries whether the page's loads are quiet. The hard reset measures
+it with a copy of the machine's 1 s quiet window, leaving out its own chunk, and
+the machine decides with that reading; a request without it counts as a page
+still loading (Phase 3 R2 moved the measurement into the lazy chunk to keep the
+eager bundle under the reserve line).
+
 "Update applied" is left for the next document only when this document saw the
 new controller. When the machine's own promotion times out, the hard reset
 TEMPORARILY promotes on its own too (owner decision P3-12 A); that use goes in a

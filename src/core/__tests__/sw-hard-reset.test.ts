@@ -8,17 +8,20 @@
  * sw-update-transitions.integration.test.ts.
  */
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import activatePendingServiceWorkerForHardReset from '../sw-hard-reset.ts';
 import type { HardResetClaim, HardResetClaimRequest } from '../../sw-register.ts';
-import { HARD_RESET_CLAIM_EVENT } from './__helpers__/hard-reset-port.ts';
+import { HARD_RESET_CLAIM_EVENT, STARTUP_PROMPT_QUIET_MS } from './__helpers__/hard-reset-port.ts';
 
 interface Harness {
   readonly waitingWorker: { state: string; postMessage: ReturnType<typeof vi.fn> } | null;
   /** Every event type dispatched on the container. */
   readonly dispatched: string[];
-  /** The chunk URL each claim named. */
-  readonly chunks: Array<string | undefined>;
+  /** The page's quiet reading each claim carried. */
+  readonly quiets: Array<boolean | undefined>;
   readonly getRegistration: ReturnType<typeof vi.fn>;
   activate(): void;
 }
@@ -28,7 +31,7 @@ function installHarness(
 ): Harness {
   const events = new EventTarget();
   const dispatched: string[] = [];
-  const chunks: Array<string | undefined> = [];
+  const quiets: Array<boolean | undefined> = [];
   const previousController = options.controlled === false ? null : { id: 'old' };
   let controller: object | null = previousController;
   const waitingWorker =
@@ -52,7 +55,7 @@ function installHarness(
   if (claim !== null) {
     events.addEventListener(HARD_RESET_CLAIM_EVENT, (event) => {
       const request = (event as CustomEvent<HardResetClaimRequest>).detail;
-      chunks.push(request.chunk);
+      quiets.push(request.quiet);
       request.claim = claim;
     });
   }
@@ -60,7 +63,7 @@ function installHarness(
   return {
     waitingWorker,
     dispatched,
-    chunks,
+    quiets,
     getRegistration,
     activate() {
       controller = { id: 'new' };
@@ -89,9 +92,89 @@ describe('the logo hard reset asks the update machine (C6-10)', () => {
     await activatePendingServiceWorkerForHardReset(prepare.signal);
     // The lazy chunk keeps its own copy of the event name; this pins it.
     expect(harness.dispatched).toEqual([HARD_RESET_CLAIM_EVENT]);
-    // It names its own chunk, whose load for this tap is not the page still
-    // loading (found by the 2026-10-24 real-browser check).
-    expect(harness.chunks).toEqual([expect.stringMatching(/\/src\/core\/sw-hard-reset\.ts$/u)]);
+    // With the page's quiet reading: nothing has loaded in this test.
+    expect(harness.quiets).toEqual([true]);
+  });
+
+  // The claim carries whether the page's loads are quiet, which the update
+  // machine needs before it sends SKIP_WAITING (P3-9 A). The hard reset
+  // measures it so the eager bundle does not carry the check (Phase 3 R2).
+  describe("the page's quiet reading sent with the claim (P3-9 A)", () => {
+    const NOW = 10_000;
+    const PAGE_RESOURCE = 'https://musixquare.com/assets/page.js';
+    // The chunk's import.meta.url under Vitest; the transition table uses the same.
+    const OWN_CHUNK = pathToFileURL(resolve('src/core/sw-hard-reset.ts')).href;
+
+    function stubResourceTiming(
+      entries: ReadonlyArray<{ name: string; responseEnd: number }> | 'unsupported',
+    ): void {
+      vi.stubGlobal('performance', {
+        now: () => NOW,
+        getEntriesByType: (type: string) => {
+          if (entries === 'unsupported') throw new TypeError('no resource timing');
+          return type === 'resource' ? entries : [];
+        },
+      });
+    }
+
+    async function quietReading(): Promise<boolean | undefined> {
+      const harness = installHarness({ claim: 'none' });
+      await activatePendingServiceWorkerForHardReset(prepare.signal);
+      expect(harness.quiets).toHaveLength(1);
+      return harness.quiets[0];
+    }
+
+    it.each([
+      ['nothing has loaded', [], true],
+      [
+        'a page resource finished just inside the quiet window',
+        [{ name: PAGE_RESOURCE, responseEnd: NOW - STARTUP_PROMPT_QUIET_MS + 1 }],
+        false,
+      ],
+      [
+        'the last page resource finished a whole quiet window ago',
+        [{ name: PAGE_RESOURCE, responseEnd: NOW - STARTUP_PROMPT_QUIET_MS }],
+        true,
+      ],
+      [
+        // Found by the 2026-10-24 real-browser check: the browser records the
+        // chunk's load for this tap, which is not the page still loading.
+        'only its own chunk finished just now',
+        [{ name: OWN_CHUNK, responseEnd: NOW }],
+        true,
+      ],
+      [
+        'its own chunk and a page resource finished just now',
+        [
+          { name: OWN_CHUNK, responseEnd: NOW },
+          { name: PAGE_RESOURCE, responseEnd: NOW },
+        ],
+        false,
+      ],
+    ] as const)('when %s, reads the page as quiet: %s', async (_description, entries, quiet) => {
+      stubResourceTiming(entries);
+      expect(await quietReading()).toBe(quiet);
+    });
+
+    it('reads the page as quiet without resource timing', async () => {
+      stubResourceTiming('unsupported');
+      expect(await quietReading()).toBe(true);
+    });
+
+    it("keeps the update machine's quiet window", () => {
+      // STARTUP_PROMPT_QUIET_MS in sw-register.ts is the home; the lazy
+      // chunk keeps a copy of the same name, pinned to it here.
+      const constant = (path: string, name: string) => {
+        const match = new RegExp(`const ${name} = ([0-9_]+);`, 'u').exec(
+          readFileSync(resolve(path), 'utf8'),
+        );
+        expect(match, `${name} in ${path}`).not.toBeNull();
+        return Number(match![1]!.replaceAll('_', ''));
+      };
+      for (const path of ['src/sw-register.ts', 'src/core/sw-hard-reset.ts']) {
+        expect(constant(path, 'STARTUP_PROMPT_QUIET_MS')).toBe(STARTUP_PROMPT_QUIET_MS);
+      }
+    });
   });
 
   it.each([

@@ -421,6 +421,13 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
     { kind: 'copy', reason: 're-align retry schedule; Phase 0d C3-I1' },
   ],
   [
+    // Phase 3 R2: the lazy hard reset measures the logo claim's quiet reading
+    // so the eager bundle does not carry it; the update machine stays the home.
+    'RO-22/RO-23/RO-30 STARTUP_PROMPT_QUIET_MS@src/core/sw-hard-reset.ts = ' +
+      'STARTUP_PROMPT_QUIET_MS@src/sw-register.ts (1000)',
+    { kind: 'copy', reason: 'logo claim quiet window, lazy chunk; sw-hard-reset.test.ts parity' },
+  ],
+  [
     'RO-29 CONTROL_CHANNEL_RECOVERY_RETRY_MS@src/pro-room/runtime.ts = ' +
       'RECONNECT_BACKOFF_MS@src/network/peer.ts ([1000,2000,4000,8000,15000])',
     { kind: 'suspect', reason: 'PRO control channel vs signaling reconnect; Phase 0d triages it' },

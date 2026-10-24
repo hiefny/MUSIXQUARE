@@ -169,10 +169,9 @@ const _preloadPeerOwners = new Map<string, Set<PreloadPeerOwner>>();
  * control route, while the resend travels on the bulk route: when the resend's
  * START wins, the receiver ignores it as a duplicate and the late abort then
  * discards the resent bytes. Recovery resumes the exact resident tuple, and
- * every path that abandons the tuple sends the deferred abort instead. When
- * the main file lane holds the same tuple after recovery, the preload yields
- * (C5-12, P4-D10 A): it skips or stops the resume and sends the abort, so the
- * guest receives one stream; no preload resend follows that abort.
+ * every path that abandons the tuple sends the deferred abort instead. A resumed
+ * lane may later yield to the main file lane for the same tuple (C5-12,
+ * P4-D10 A; RestartedPreloadLane below).
  */
 interface SuspendedPreloadLane {
   readonly conn: DataConnection;
@@ -406,6 +405,39 @@ function abortSuspendedPreloadLane(lane: SuspendedPreloadLane): void {
   sendDeferredPreloadAbort(lane);
 }
 
+/**
+ * C5-12 (P4-D10 A): one stream per exact tuple after ICE recovery, when the
+ * guest is known to take the main lane.
+ *
+ * A guest awaiting this preload takes the main FILE_START only while its own
+ * route is 'local' (transfer-receive.ts shouldAcceptLocalDirectFileStart); it
+ * drops that header and its chunks otherwise, and nothing asks again. The host
+ * learns the recovered route only by re-detecting it (host.ts resets the
+ * peer's type when it announces the recovery) and then publishes it to the
+ * guest, which adopts the host's type. So the lane always restarts at
+ * recovery, and it yields only to a main-lane stream that started after the
+ * host published 'local' for this connection. A main lane already preparing
+ * or streaming at that point may have reached the guest before it knew its
+ * route, and a 'remote' or unpublished route gives no such guarantee: the
+ * restart then runs to its END, as in 9.0.8.
+ */
+interface RestartedPreloadLane extends PreloadLaneTuple {
+  mainLane: 'route-pending' | 'may-yield' | 'keep';
+}
+const _restartedPreloadLanes = new Set<RestartedPreloadLane>();
+
+/** The host published a re-detected route for this peer (host.ts publishDetectedConnectionType). */
+function settleRestartedPreloadRoutes(peerId: string): void {
+  for (const lane of _restartedPreloadLanes) {
+    if (lane.conn.peer !== peerId || lane.mainLane !== 'route-pending') continue;
+    const peer = getState('network.connectedPeers').find((p) => p.conn === lane.conn);
+    if (peer?.connectionType !== 'local') continue;
+    lane.mainLane = isMainLanePreparingOrActive(lane.conn, lane.queueItemId, lane.sessionId)
+      ? 'keep'
+      : 'may-yield';
+  }
+}
+
 /** C5-12 (P4-D10 A): after ICE recovery the main file lane carries this exact tuple. */
 function yieldPreloadToMainLane(lane: PreloadLaneTuple): void {
   log.info(
@@ -430,10 +462,8 @@ function resumeSuspendedPreloadLane(conn: DataConnection): void {
       continue;
     }
     _suspendedPreloadLanes.delete(lane);
-    if (isMainLanePreparingOrActive(conn, lane.queueItemId, lane.sessionId)) {
-      yieldPreloadToMainLane(lane);
-      continue;
-    }
+    // The route is not re-detected yet, so the lane restarts even when the main
+    // lane already holds the tuple (RestartedPreloadLane).
     log.info(`[Preload] Resuming preload for ${conn.peer} after its connection recovered`);
     // Restart from chunk 0. A current receiver releases a partial session it
     // still holds; a legacy receiver retains the previous retry behavior.
@@ -1604,11 +1634,17 @@ export async function unicastPreload(
       Number(current.sessionId) === sessionId
     );
   };
-  // C5-12 (P4-D10 A): a resumed lane stops for good once the main file lane
-  // prepares or streams its exact tuple, and owes the receiver the abort.
+  // C5-12 (P4-D10 A): once the host has published 'local' for this connection,
+  // a resumed lane stops for good when a main-lane stream for its exact tuple
+  // starts, and owes the receiver the abort.
+  const restarted: RestartedPreloadLane | null = restart
+    ? { conn, queueItemId, sessionId, mainLane: 'route-pending' }
+    : null;
   let yielded = false;
   const yieldsToMainLane = (): boolean => {
-    if (restart && !yielded) yielded = isMainLanePreparingOrActive(conn, queueItemId, sessionId);
+    if (restarted?.mainLane === 'may-yield' && !yielded) {
+      yielded = isMainLanePreparingOrActive(conn, queueItemId, sessionId);
+    }
     return yielded;
   };
   const canContinue = (): boolean =>
@@ -1625,6 +1661,9 @@ export async function unicastPreload(
     scope.dispose();
     _activePreloadUnicasts.delete(scope);
   };
+  // Registered before the first await: the host publishes the re-detected
+  // route only after its recovery announcement has started this restart.
+  if (restarted) _restartedPreloadLanes.add(restarted);
 
   try {
     // Transport guard: block remote/unknown peers. Revalidate the frozen
@@ -1734,6 +1773,7 @@ export async function unicastPreload(
     // Always dispose our own scope; remove the registry entry only if this
     // invocation still owns it. A stale failure must not detach its successor.
     releaseScope();
+    if (restarted) _restartedPreloadLanes.delete(restarted);
     if (peerOwner?.status === 'active') releasePreloadPeer(peerOwner);
     if (yielded) yieldPreloadToMainLane({ conn, queueItemId, sessionId });
   }
@@ -2643,6 +2683,7 @@ export function initPreload(): void {
   bus.on('network:peer-disconnected', releaseBulkLanes);
   bus.on('network:peer-connection-replaced', releaseBulkLanes);
   bus.on('network:peer-ice-recovered', resumeSuspendedPreloadLane);
+  bus.on('orchestrator:peer-type-detected', settleRestartedPreloadRoutes);
 
   // Handle preload file ready from storage (bridged from storage:file-ready via playback.ts)
   bus.on(

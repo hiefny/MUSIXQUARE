@@ -27,7 +27,7 @@ import {
  * The main file lane and the preload lanes of one peer are released by one
  * call on a disconnect or a replacement, and the main lane answers one exact
  * tuple query: is it preparing or streaming (conn, queueItemId, sessionId)?
- * After ICE recovery a resumed preload yields to it (C5-12, owner decision
+ * After ICE recovery a resumed preload may yield to it (C5-12, owner decision
  * P4-D10 A; ice-recovery-bulk-lanes.test.ts).
  */
 

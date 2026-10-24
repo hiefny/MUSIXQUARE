@@ -557,10 +557,12 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
       // One stream per tuple (C5-12, owner decision P4-D10 A; before it, both
       // bulk lanes carried the whole track). The guest's progress watchdog
       // released the stalled partial preload during the outage, so after
-      // recovery it asks for L on the main lane. The main lane carries the whole
-      // track once; the paused preload yields to it: it either never resumes, or
-      // stops its restart once the main lane takes the tuple, and sends one
-      // PRELOAD_ABORT on the control channel instead of reaching its END.
+      // recovery it asks for L on the main lane. The paused preload restarts at
+      // recovery; the host re-detects the guest as local and tells it so long
+      // before that request arrives, so the main lane, started after that,
+      // carries the whole track once, and the restart stops once the main lane
+      // takes the tuple and sends one PRELOAD_ABORT on the control channel
+      // instead of reaching its END.
       expect(wire.guestRecoveryRequests, 'guest recovery requests').toHaveLength(1);
       expect(
         wire.fileStarts.map((x) => x.startChunk),
@@ -581,12 +583,15 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
       expect(wire.hostLines.paused[0]!, 'Paused during the cut').toBeLessThan(0);
       expect(wire.hostLines.yielding.length, 'Yielding line').toBe(1);
       expect(wire.hostLines.yielding[0]!, 'Yielding after restore').toBeGreaterThan(0);
-      // Resuming only where a resume happened: one per restart header.
+      // One restart at recovery, with its Resuming line, before the yield.
       expect(
         wire.preloadStarts.map((x) => x.restart),
         'preload restarts',
-      ).toEqual(wire.hostLines.resuming.map(() => true));
-      expect(wire.hostLines.resuming.length, 'Resuming line').toBeLessThanOrEqual(1);
+      ).toEqual([true]);
+      expect(wire.hostLines.resuming.length, 'Resuming line').toBe(1);
+      expect(wire.hostLines.resuming[0]!, 'Resuming before Yielding').toBeLessThan(
+        wire.hostLines.yielding[0]!,
+      );
     } finally {
       await room.close(testInfo);
     }

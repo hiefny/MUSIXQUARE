@@ -49,6 +49,7 @@ import {
   NAVIGATION_COMMIT_TIMEOUT_MS,
   NAVIGATION_PREPARE_TIMEOUT_MS,
 } from '../navigation-contract.ts';
+import { CACHE_CLIENT_STATUS, CACHE_STATUS_REQUEST } from '../../sw-update-coordination.ts';
 import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
 
 // ─── App state, dialogs and module mocks ─────────────────────────────
@@ -239,6 +240,11 @@ interface Tab {
   replaceController(version: string, options?: { silent?: boolean }): FakeWorker;
   /** The registration is gone: the page has no controller any more. */
   dropController(): void;
+  /**
+   * The controller asks the live document whether its old caches may go
+   * (CACHE_STATUS_REQUEST); returns the document's CACHE_CLIENT_STATUS reply.
+   */
+  requestCacheStatus(): unknown;
   /** The next reload sink call throws. */
   failNextReload(): void;
   navigations(): string[];
@@ -509,6 +515,19 @@ function createTab(activeVersion: string): Tab {
     dropController() {
       controller = null;
       emit(containerListeners, 'controllerchange', {});
+    },
+    requestCacheStatus() {
+      const asking = controller;
+      if (!asking) throw new Error('no controller to ask');
+      const sent = asking.postMessage.mock.calls.length;
+      emit(containerListeners, 'message', {
+        data: { type: CACHE_STATUS_REQUEST, cacheVersion: asking.version },
+        source: asking,
+      });
+      return asking.postMessage.mock.calls
+        .slice(sent)
+        .map(([message]) => message)
+        .find((message) => (message as { type?: unknown }).type === CACHE_CLIENT_STATUS);
     },
     failNextReload() {
       const record = sinks.reload.getMockImplementation();
@@ -1239,6 +1258,44 @@ const ROWS: readonly Row[] = [
       navigations: ['doc1 replace /'],
       dialogs: [],
       markers: NO_MARKERS,
+    },
+  },
+  {
+    id: 'S5k',
+    from: 'passive',
+    event:
+      "as S1a, but the logo is tapped before the quiet promotion has sent: the machine promotes the worker for the logo, and the quiet promotion, once the page is quiet again (1 s after the hard reset's chunk), finds the worker no longer its own and sends nothing; the worker activates inside the logo's 1.5 s wait",
+    then: 'passive',
+    label:
+      "[added: R2 review, C6-10 owner decision P3-8 A: a worker the logo promotes is the hard reset's]",
+    async run(tab) {
+      sessionStorage.setItem('sw-updated-at', String(T0 - 1_000));
+      sessionStorage.setItem('sw-controller-confirmed-at', String(T0 - 1_000));
+      tab.install('v494');
+      const page = await tab.open({ app: OUTSIDE, navigation: 'reload' });
+      await at(200);
+      page.logoReset();
+      await at(200 + PAINT_MS);
+      expect(tab.skipWaiting).toEqual(['doc1 → v494']);
+      // The quiet promotion's wait ends by t+1550 (the chunk finished at
+      // t+300); the logo's own 1.5 s wait runs until t+1800.
+      await at(1_700);
+      expect(tab.skipWaiting).toEqual(['doc1 → v494']);
+      tab.activate();
+      await at(1_800);
+      page.pagehide();
+      await at(8_000);
+    },
+    effects: {
+      skipWaiting: ['doc1 → v494'],
+      navigations: ['doc1 replace /'],
+      dialogs: [],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+1700',
+        'sw-controller-confirmed-at': 't+1700',
+        'mxqr-swu': 'Update applied',
+      },
     },
   },
 
@@ -2221,6 +2278,9 @@ describe('a stalled Apply, then the logo reset (C6-9 input, flipped by C6-10 / P
     await at(6_000);
     stalled.activate();
     await at(9_000);
+    // The absorbing document is aligned with its new controller, as after the
+    // aligned reload: the new worker may retire the old caches now.
+    expect(stalled.requestCacheStatus()).toMatchObject({ cacheVersion: 'v494', ready: true });
 
     // Until C6-10: three SKIP_WAITING sends for one Apply, and the new home
     // document reloaded once more (navigations doc1 replace /, doc2 reload).
@@ -2265,6 +2325,7 @@ describe('a stalled Apply, then the logo reset (C6-9 input, flipped by C6-10 / P
     stalled.activate();
     await at(42_000);
     expect(dialog(1).outcome).toBe('superseded');
+    expect(stalled.requestCacheStatus()).toMatchObject({ cacheVersion: 'v494', ready: true });
     dialog(1).answer('ok');
     await at(42_000 + PAINT_MS);
 
@@ -2279,6 +2340,49 @@ describe('a stalled Apply, then the logo reset (C6-9 input, flipped by C6-10 / P
         'sw-updated-at': 't+41100',
         'sw-controller-confirmed-at': 't+41100',
       },
+    });
+  });
+});
+
+/**
+ * The absorb is scoped to this tab's own request (owner decision P3-10 A):
+ * a document absorbs an activation only while the next-document markers say
+ * an earlier document of this tab asked for one and did not see it land. A
+ * document that already runs the new code, opened with no such request,
+ * treats another tab's activation as before (R2 review pin).
+ */
+describe('a document already on the new code, with no request of its own (P3-10 A scope)', () => {
+  it('outside a room, makes its aligned reload when another tab applies that generation [added: R2 review]', async () => {
+    tab = createTab('v493');
+    await tab.open({ app: OUTSIDE, navigation: 'navigate', build: 'v494' });
+    await at(1_000);
+    tab.replaceController('v494');
+    await at(1_000 + PAINT_MS);
+
+    expect(observe(tab)).toEqual({
+      skipWaiting: [],
+      navigations: ['doc1 reload'],
+      dialogs: [],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+1000',
+        'sw-controller-confirmed-at': 't+1000',
+      },
+    });
+  });
+
+  it('in a room, asks once when another tab applies that generation [added: R2 review]', async () => {
+    tab = createTab('v493');
+    await tab.open({ app: ROOM_GUEST, navigation: 'navigate', build: 'v494' });
+    await at(1_000);
+    tab.replaceController('v494');
+    await at(1_000 + PROMPT_MS);
+
+    expect(observe(tab)).toEqual({
+      skipWaiting: [],
+      navigations: [],
+      dialogs: [`doc1 ${MSG_GUEST}`],
+      markers: NO_MARKERS,
     });
   });
 });

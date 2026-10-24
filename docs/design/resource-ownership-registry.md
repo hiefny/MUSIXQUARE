@@ -1213,7 +1213,9 @@ RO-47 owner-in-place
     row is labelled with what C6-9 and C6-10 kept or flipped; the C6-10 rows S5a to S5j cover
     the logo port (promotion, an Apply in flight, a prompt withdrawn, a page still loading, no
     machine, a navigation that does not commit) and S1c, X12 to X13b and X22 the quiet
-    promotions.
+    promotions. The R2 review added S5k (a quiet promotion leaves a worker the logo claimed
+    alone), the scope of the P3-10 absorb (a document already on the new code with no request
+    of its own still reloads or asks) and the absorbing document's cache-status reply.
   - The port's answers: `sw-register.test.ts` "the logo hard reset port (C6-10)"; the hard
     reset's side: `sw-hard-reset.test.ts`.
   - The reload identity check: `sw-register.test.ts` "does not let a stale recovery release a

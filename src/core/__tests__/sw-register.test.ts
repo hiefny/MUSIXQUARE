@@ -1845,6 +1845,24 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
     });
 
+    it('promotes nothing while an update reload is scheduled (a defensive check: the reset surface keeps the page inert then)', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      // Another tab's update takes over this idle page: its aligned reload is scheduled.
+      harness.setController({ postMessage: vi.fn() });
+      harness.emit('controllerchange');
+      expect(owner.isSessionResetPending()).toBe(true);
+      const confirmedAt = sessionStorage.getItem('sw-controller-confirmed-at');
+      expect(confirmedAt).not.toBeNull();
+
+      // A newer worker waits; the machine has not taken it up yet.
+      const update = harness.installUpdate('v495');
+      expect(await claimForHardReset(harness)).toBe('none');
+      expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+      // No request recorded: the reload's markers stand.
+      expect(sessionStorage.getItem('sw-controller-confirmed-at')).toBe(confirmedAt);
+    });
+
     it('waits for an Apply in flight instead of sending a second SKIP_WAITING (P3-8 A)', async () => {
       moduleMocks.showDialog.mockResolvedValue({ action: 'ok' });
       const harness = installServiceWorkerHarness({ postMessage: vi.fn() });

@@ -2064,7 +2064,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // The signaling close is an authority event, not a transient network
     // blip. Tear down every RTC facade immediately; the PRO runtime fetches
     // the new snapshot/epoch and constructs a fresh transport.
-    for (const conn of this.connections.values()) conn.close();
+    for (const conn of this.connections.values()) conn.close('pro-epoch-advanced');
     this.connections.clear();
     this.peerIdentityProjections.clear();
     this.peerOfferSequences.clear();

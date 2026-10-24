@@ -343,7 +343,8 @@ export type TransportCloseReason =
   | 'peer-left'
   | 'leave'
   | 'transport-error'
-  | 'join-bootstrap-failed';
+  | 'join-bootstrap-failed'
+  | 'pro-epoch-advanced';
 
 export interface TransportDataConnection {
   peer: string;

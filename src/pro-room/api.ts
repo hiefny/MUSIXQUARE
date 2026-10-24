@@ -61,7 +61,6 @@ import {
 import { ProRoomApiError, type ProRoomSessionEndReason } from './api-error.ts';
 
 export { ProRoomApiError } from './api-error.ts';
-export type { ProRoomSessionEndReason } from './api-error.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';

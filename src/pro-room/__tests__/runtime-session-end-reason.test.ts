@@ -9,12 +9,8 @@ import * as navigation from '../../core/navigation.ts';
 import * as sessionReset from '../../core/session-reset.ts';
 import { t } from '../../i18n/index.ts';
 import { showDialog, type DialogResult } from '../../ui/dialog.ts';
-import {
-  ProRoomApiClient,
-  ProRoomApiError,
-  type ProRoomSessionEndReason,
-  type ProRoomSignalingAccess,
-} from '../api.ts';
+import { ProRoomApiClient, ProRoomApiError, type ProRoomSignalingAccess } from '../api.ts';
+import type { ProRoomSessionEndReason } from '../api-error.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_QUOTA_BYTES,

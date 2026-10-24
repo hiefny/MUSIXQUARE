@@ -439,9 +439,14 @@ RO-47 owner-in-place
     restarted session".
   - Visibility: `background-return-sync.test.ts` "ignores a sub-second visibility bounce that is
     not a background return".
-  - Missing: both chains against the real `youtube/sync.ts`; both suites mock it.
-- **Status:** `duplicated`. One schedule since Phase 4 4A (C3-I1). Phase 4 (one pause rule; the
-  return chain moves into the router only if the owner approves coalescing the lanes).
+  - Both chains against the real `youtube/sync.ts` (Phase 4 4A, tests only):
+    `src/player/__tests__/local-output-realign-cross-flow.test.ts`, the P4-D7 and P4-D8 cases.
+    The two unit suites above still mock it.
+- **Status:** `duplicated`. One schedule since Phase 4 4A (C3-I1); both chains already end on the
+  same local pause (G2). Owner decision P4-D8 A (2026-10-24): the lanes are not coalesced (C3-I3
+  and C3-I4 are not done), and the double alignment after a quick unlock and the return chain's
+  give-up while the host is buffering stay as the cross-flow harness pins them. The owner is
+  asked again only if device evidence shows either one disturbing playback.
 
 ### RO-06 Host shared start, playlist queue and guided demo
 
@@ -481,8 +486,15 @@ RO-47 owner-in-place
   - Teardown: `src/demo/__tests__/mode-recovery.test.ts` "does not retry an aborted guest fetch
     after exit".
   - Visibility: missing.
-- **Status:** `duplicated` (mutually exclusive modes). One lead since Phase 4 4A (C3-I1). Phase 4
-  (one anchor after the anchor investigation; one start-and-publish-once primitive). See
+  - Both anchors together (Phase 4 4A, tests only): `src/demo/__tests__/shared-start-anchor.test.ts`
+    (P4-D9).
+- **Status:** `duplicated` (mutually exclusive modes). One lead since Phase 4 4A (C3-I1). The
+  anchor investigation is done (owner decision P4-D9 A, tests only): DEMO_PLAY, SYNC_PONG and the
+  late-join demo bootstrap carry the same demo start, and no frame reads the queue anchor while
+  the demo runs. When a queue item was selected before demo entry, demo playback still arms that
+  item's queue anchor and its canonical timeline governs the demo host's reported position; whether
+  that is a defect is not decided. One anchor (C3-I8) and one start-and-publish-once primitive
+  (C3-I7) are deferred; only a narrow fix of a confirmed problem may go to train 4B. See
   [Standard file common start](standard-file-common-start.md) for the intended separate demo path.
 
 ### RO-07 PRO signaling broadcast delivery
@@ -754,6 +766,9 @@ RO-47 owner-in-place
     a newer PAUSE intent".
   - Teardown: missing.
   - Visibility: missing.
+  - Cross-owner: `concurrency-invariants.test.ts` pin (k) "retires the outstanding retry when the
+    router refresh reaches the claim point first" and "lets the exact retry that holds the lock
+    keep its start and continuation".
 - **Status:** `owner-in-place`. The fence is written down as invariant C13 since Phase 4 4A
   (C3-I9 docs). The roadmap reduced C3-I9 to these docs, so Phase 4 does not rename the lease. See
   [Playback concurrency invariants](playback-concurrency-invariants.md). Exception RO-36.
@@ -928,12 +943,20 @@ RO-47 owner-in-place
   - Mixed versions: `control-isolation.test.ts` with the frozen fixture
     `src/network/transport/__tests__/fixtures/control-isolation-c9.ts`. A Wi-Fi to LTE switch with
     both PCs is device-only.
+  - Characterization before the owner moves (tests only, #478):
+    `src/network/transport/__tests__/link-liveness-characterization.test.ts` (grace, restart gate,
+    effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471
+    expiry rows); at the browser level the C5-0 lab `e2e/lab/route-outage.lab.ts` on the
+    Cloudflare transport (not in CI).
 - **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
   (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
-  and the connection keeps the first one and logs one info line per close; no timer or state
-  moved. Phase 4 still owes the link-liveness owner. See
-  [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md).
-  Exception RO-35.
+  and the connection keeps the first one and logs one info line per close
+  (`[Transport] Logical connection closed (<cause>) for <peerId>`); no timer or state moved. The
+  link-liveness owner (C5-6) and the background-resume check (C5-7) are held until the #18 and
+  preload-resume device items in the release record close or are waived (owner decisions P4-D6 A
+  and P4-D13 A, 2026-10-24). See
+  [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md) and the
+  [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md). Exception RO-35.
 
 ### RO-16 Data-PC SDP lane
 
@@ -959,8 +982,10 @@ RO-47 owner-in-place
   - Teardown: `cloudflare-signaling.test.ts` "retires the exact shared data connection when owned
     rollback fails".
   - Visibility: n/a.
-- **Status:** `owner-in-place`. Phase 5 starts from a fresh baseline because system audio shares
-  this lane.
+- **Status:** `owner-in-place`. The restart-gate move waits with the link-liveness owner (C5-6,
+  held; see RO-15). Since Phase 4 4A (C5-5) an unprovable restart rollback and the media rollback
+  retirement close with the cause `rollback-unproven`. Phase 5 starts from a fresh baseline
+  because system audio shares this lane.
 
 ### RO-17 Host per-guest connection close
 
@@ -996,8 +1021,10 @@ RO-47 owner-in-place
 - **Status:** `duplicated`. Phase 0d. One transport-health read path in Phase 4 (C5-4): the
   monitor reads no raw RTC state except its stale-peer warning (`npm run guard:transport-health`,
   `scripts/check-transport-health.mts`, in CI; see
-  [Realtime runtime ownership](realtime-runtime-ownership.md)). The transport's own grace and
-  terminate (RO-15) still close the connection independently until the link-liveness owner.
+  [Realtime runtime ownership](realtime-runtime-ownership.md)). Its stale close names the cause
+  `heartbeat-stale` (C5-5). The transport's own grace and terminate (RO-15) still close the
+  connection independently until the link-liveness owner, so on the host an original route that
+  fails without a restart binding ends as `original-terminal` before the monitor's threshold.
 
 ### RO-18 Host-to-guest bulk lanes
 
@@ -1037,7 +1064,8 @@ RO-47 owner-in-place
     `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage, observed
     at the wire (F4)" (17 s outage; not in CI).
 - **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); Phase 4 still owes the
-  registry (which lane wins after recovery is an owner decision). See
+  registry (which lane wins after recovery is an owner decision, P4-D10; the lab did not
+  reproduce the two streams with a 10 s outage in its one exploratory run). See
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md).
 
 ### RO-19 Guest fetch of the current track
@@ -1777,7 +1805,10 @@ entry needs the owner's acceptance and is not implied by this registry.
   offers that the two ends, possibly on different builds, enforce on each other (Phase 4, C5-1).
 - **Evidence:** the side route's ICE restart is still under
   [known-accepted #18](../known-accepted.md), awaiting the owner's real-device Wi-Fi to LTE check;
-  the same timer also governs active routes to peers without restart capability.
+  the same timer also governs active routes to peers without restart capability. The C5-0 lab
+  (#478) shows the side route recovering through its restart after its PC fails, on the
+  Cloudflare transport in one Chromium. Phase 4 train 4A goes out before the device check (a gate
+  deviation, owner decision 2026-10-24), and C5-9 stays out of Phase 4 (P4-D6 A).
 - **Behaviour risk:** known-accepted #18.
 - **Revisit when:** #18 retires.
 - **Status:** `accepted-exception`.

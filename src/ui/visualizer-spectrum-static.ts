@@ -15,19 +15,6 @@ export function dbToY(db: number, height: number, padY: number): number {
   return padY + (1 - (clamped - MIN_DB) / (MAX_DB - MIN_DB)) * (height - 2 * padY);
 }
 
-interface GridCache {
-  context: CanvasRenderingContext2D;
-  width: number;
-  height: number;
-  logicalHeight: number;
-  padY: number;
-  isLight: boolean;
-  transform: DOMMatrix;
-  gradient: CanvasGradient;
-}
-
-let gridCache: GridCache | null = null;
-
 export function drawSpectrumGrid(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -37,47 +24,17 @@ export function drawSpectrumGrid(
   isLight: boolean,
   gridXValues?: readonly number[],
 ): void {
-  const transform = ctx.getTransform?.();
-  const cached = gridCache;
-  let gradient = cached?.gradient;
-  if (
-    !transform ||
-    !cached ||
-    cached.context !== ctx ||
-    cached.width !== ctx.canvas.width ||
-    cached.height !== ctx.canvas.height ||
-    cached.logicalHeight !== height ||
-    cached.padY !== padY ||
-    cached.isLight !== isLight ||
-    cached.transform.a !== transform.a ||
-    cached.transform.b !== transform.b ||
-    cached.transform.c !== transform.c ||
-    cached.transform.d !== transform.d ||
-    cached.transform.e !== transform.e ||
-    cached.transform.f !== transform.f
-  ) {
-    gradient = ctx.createLinearGradient(0, padY, 0, height - padY);
-    const color = isLight ? '0,0,0' : '255,255,255';
-    gradient.addColorStop(0, `rgba(${color},0)`);
-    gradient.addColorStop(0.15, `rgba(${color},0.06)`);
-    gradient.addColorStop(0.85, `rgba(${color},0.06)`);
-    gradient.addColorStop(1, `rgba(${color},0)`);
-    // Older/constrained contexts can still share one gradient within this draw.
-    gridCache = transform
-      ? {
-          context: ctx,
-          width: ctx.canvas.width,
-          height: ctx.canvas.height,
-          logicalHeight: height,
-          padY,
-          isLight,
-          transform,
-          gradient,
-        }
-      : null;
-  }
+  // One new gradient per draw. WebKit's GPU canvas recorder can treat a gradient
+  // object it saw before a one-segment solid line (the resting line) as already
+  // applied, and then strokes the grid in that line's blue.
+  const gradient = ctx.createLinearGradient(0, padY, 0, height - padY);
+  const color = isLight ? '0,0,0' : '255,255,255';
+  gradient.addColorStop(0, `rgba(${color},0)`);
+  gradient.addColorStop(0.15, `rgba(${color},0.06)`);
+  gradient.addColorStop(0.85, `rgba(${color},0.06)`);
+  gradient.addColorStop(1, `rgba(${color},0)`);
   ctx.lineWidth = 1;
-  ctx.strokeStyle = gradient!;
+  ctx.strokeStyle = gradient;
   const xValues =
     gridXValues ?? GRID_FREQUENCIES.map((frequency) => freqToX(frequency, width, padX));
   for (const x of xValues) {

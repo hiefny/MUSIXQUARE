@@ -2423,14 +2423,14 @@ export function initYouTube(): void {
     },
     onPlaybackStarted: (event) => {
       if (getYouTubeZeroStartRole() === 'host') {
-        // Keep the committed clock independent from this speaker's release.
-        // A late PLAYING callback is not itself media startup latency: measure
-        // the media position against the signed canonical position instead.
+        // A Standard room follows its host's speaker, as after a seek. Remove
+        // only the advance this release applied on purpose (manual offset and
+        // output lead). Media startup lateness stays in the published room
+        // position; measuring it into this offset would publish a timeline the
+        // host never plays, and every guest Sync would re-align away from it.
         const scheduledAdvance = (getYouTubeZeroStartSnapshot()?.releaseLeadMs ?? 0) / 1000;
         const appliedOffset =
-          event.localPositionSec !== null
-            ? event.localPositionSec - event.canonicalPositionSec
-            : (getState('sync.youtubeCoordinatorAppliedOffset') || 0) + scheduledAdvance;
+          (getState('sync.youtubeCoordinatorAppliedOffset') || 0) + scheduledAdvance;
         setState('sync.youtubeCoordinatorAppliedOffset', appliedOffset);
         recordStandardHostYouTubeAutomaticOffset(
           appliedOffset - (getState('sync.youtubeLocalOffset') || 0),

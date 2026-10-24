@@ -3,6 +3,12 @@
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
+import {
+  createRateLimitUnavailableRetry,
+  isRateLimitUnavailableResponse,
+  type RateLimitUnavailableRetry,
+} from './live-smoke-rate-limit-retry.mts';
+
 const APP_ORIGIN = 'https://musixquare.com';
 const BRIDGE_PREFIX = `${APP_ORIGIN}/api/standard-signaling/v1/bridge`;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -48,6 +54,8 @@ const BRIDGE_ERROR_CODES = new Set([
 ]);
 // A Ray ID names one request in Cloudflare logs; it carries no credential.
 const RAY_ID_RE = /^[0-9a-f]{16}(?:-[A-Z]{3,4})?$/;
+// One rate-limit retry per smoke process, shared by the host and guest clients.
+const SMOKE_RATE_LIMIT_RETRY = createRateLimitUnavailableRetry();
 
 type JsonObject = Record<string, unknown>;
 type BridgeOperation = 'open' | 'send' | 'poll' | 'close';
@@ -173,6 +181,28 @@ function describeBridgeFailure(
   return `HTTP signaling bridge ${operation} failed (${fields.join('; ')})`;
 }
 
+/**
+ * Sends one bridge request and, on the exact `503 RATE_LIMIT_UNAVAILABLE`,
+ * repeats it once unchanged. The App answers that code from its rate gate,
+ * before it reads the body or calls the bridge object, so the first request
+ * consumed no sequence number, poll epoch or session.
+ */
+async function exchangeBridgeRetryingRateLimit(
+  path: BridgeOperation,
+  init: RequestInit,
+  rateLimitRetry: RateLimitUnavailableRetry,
+  describeFirstFailure: (exchange: BridgeExchange) => string,
+): Promise<BridgeExchange> {
+  const exchange = await exchangeBridge(path, init);
+  if (
+    !isRateLimitUnavailableResponse(exchange.response?.status, exchange.payload) ||
+    !(await rateLimitRetry.claim(describeFirstFailure(exchange)))
+  ) {
+    return exchange;
+  }
+  return exchangeBridge(path, init);
+}
+
 function hasLeadingZeroBits(bytes: Uint8Array, difficulty: number): boolean {
   let remaining = difficulty;
   for (const byte of bytes) {
@@ -262,28 +292,41 @@ export class StandardHttpBridgeSmokeClient {
   private readonly queued: JsonObject[] = [];
   private readonly sessionToken: string;
   private readonly role: BridgeRole;
+  private readonly rateLimitRetry: RateLimitUnavailableRetry;
   /** Wall time of the successful open, for the release log's latency record. */
   readonly openElapsedMs: number;
 
-  private constructor(sessionToken: string, role: BridgeRole, openElapsedMs: number) {
+  private constructor(
+    sessionToken: string,
+    role: BridgeRole,
+    openElapsedMs: number,
+    rateLimitRetry: RateLimitUnavailableRetry,
+  ) {
     this.sessionToken = sessionToken;
     this.role = role;
     this.openElapsedMs = openElapsedMs;
+    this.rateLimitRetry = rateLimitRetry;
   }
 
   static async open(
     capabilityToken: string,
     input: { roomId: string; role: BridgeRole; peerId: string },
+    rateLimitRetry: RateLimitUnavailableRetry = SMOKE_RATE_LIMIT_RETRY,
   ): Promise<StandardHttpBridgeSmokeClient> {
-    const opened = await exchangeBridge('open', {
-      method: 'POST',
-      headers: {
-        Origin: APP_ORIGIN,
-        'Content-Type': 'application/json',
-        'X-MXQR-Capability': capabilityToken,
+    const opened = await exchangeBridgeRetryingRateLimit(
+      'open',
+      {
+        method: 'POST',
+        headers: {
+          Origin: APP_ORIGIN,
+          'Content-Type': 'application/json',
+          'X-MXQR-Capability': capabilityToken,
+        },
+        body: JSON.stringify(input),
       },
-      body: JSON.stringify(input),
-    });
+      rateLimitRetry,
+      (exchange) => describeBridgeFailure('open', input.role, exchange),
+    );
     const keys = isJsonObject(opened.payload) ? Object.keys(opened.payload) : [];
     const token = isJsonObject(opened.payload) ? opened.payload.sessionToken : null;
     if (
@@ -294,7 +337,7 @@ export class StandardHttpBridgeSmokeClient {
     ) {
       throw new Error(describeBridgeFailure('open', input.role, opened));
     }
-    return new StandardHttpBridgeSmokeClient(token, input.role, opened.elapsedMs);
+    return new StandardHttpBridgeSmokeClient(token, input.role, opened.elapsedMs, rateLimitRetry);
   }
 
   private authorizationHeaders(): Record<string, string> {
@@ -307,40 +350,46 @@ export class StandardHttpBridgeSmokeClient {
 
   async send(frame: JsonObject): Promise<void> {
     this.clientSequence += 1;
-    const sent = await exchangeBridge('send', {
-      method: 'POST',
-      headers: this.authorizationHeaders(),
-      body: JSON.stringify({ v: 1, cseq: this.clientSequence, frame: JSON.stringify(frame) }),
-    });
+    const frameType =
+      typeof frame.type === 'string' && SEND_FRAME_TYPES.has(frame.type) ? frame.type : 'unknown';
+    const detail = [`cseq=${this.clientSequence}`, `frame=${frameType}`];
+    const sent = await exchangeBridgeRetryingRateLimit(
+      'send',
+      {
+        method: 'POST',
+        headers: this.authorizationHeaders(),
+        body: JSON.stringify({ v: 1, cseq: this.clientSequence, frame: JSON.stringify(frame) }),
+      },
+      this.rateLimitRetry,
+      (exchange) => describeBridgeFailure('send', this.role, exchange, detail),
+    );
     if (
       !sent.response?.ok ||
       !isJsonObject(sent.payload) ||
       sent.payload.v !== 1 ||
       sent.payload.ack !== this.clientSequence
     ) {
-      const frameType =
-        typeof frame.type === 'string' && SEND_FRAME_TYPES.has(frame.type) ? frame.type : 'unknown';
-      throw new Error(
-        describeBridgeFailure('send', this.role, sent, [
-          `cseq=${this.clientSequence}`,
-          `frame=${frameType}`,
-        ]),
-      );
+      throw new Error(describeBridgeFailure('send', this.role, sent, detail));
     }
   }
 
   async poll(waitMs = 1_000): Promise<JsonObject[]> {
     this.requestEpoch += 1;
-    const polled = await exchangeBridge('poll', {
-      method: 'POST',
-      headers: this.authorizationHeaders(),
-      body: JSON.stringify({
-        v: 1,
-        requestEpoch: this.requestEpoch,
-        ack: this.serverAck,
-        waitMs,
-      }),
-    });
+    const polled = await exchangeBridgeRetryingRateLimit(
+      'poll',
+      {
+        method: 'POST',
+        headers: this.authorizationHeaders(),
+        body: JSON.stringify({
+          v: 1,
+          requestEpoch: this.requestEpoch,
+          ack: this.serverAck,
+          waitMs,
+        }),
+      },
+      this.rateLimitRetry,
+      (exchange) => describeBridgeFailure('poll', this.role, exchange),
+    );
     if (!polled.response?.ok || !isJsonObject(polled.payload)) {
       throw new Error(describeBridgeFailure('poll', this.role, polled));
     }
@@ -402,7 +451,8 @@ export class StandardHttpBridgeSmokeClient {
 
   async close(): Promise<void> {
     // Cleanup is best-effort; the bridge lease is the bounded fallback. A
-    // failure is still printed, but it never replaces the smoke's own result.
+    // failure is still printed, but it never replaces the smoke's own result,
+    // so it never spends the run's rate-limit retry either.
     const closed = await exchangeBridge('close', {
       method: 'POST',
       headers: this.authorizationHeaders(),

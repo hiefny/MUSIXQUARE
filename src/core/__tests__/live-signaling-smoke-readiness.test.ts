@@ -1,8 +1,13 @@
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 
+import {
+  RateLimitUnavailableError,
+  createRateLimitUnavailableRetry,
+} from '../../../scripts/live-smoke-rate-limit-retry.mts';
 import {
   ALTERNATE_SIGNALING_ORIGIN,
   ALTERNATE_SIGNALING_HTTP_ORIGIN,
@@ -44,6 +49,28 @@ class FakeWebSocket extends EventEmitter {
 
   terminate(): void {
     this.readyState = 3;
+  }
+}
+
+// A rejected upgrade as `ws` hands it over: an IncomingMessage with a body.
+function upgradeResponse(statusCode: number, body: string, onResume?: () => void) {
+  const stream = Readable.from([Buffer.from(body)]);
+  if (onResume) {
+    const resume = stream.resume.bind(stream);
+    stream.resume = () => {
+      onResume();
+      return resume();
+    };
+  }
+  return Object.assign(stream, { statusCode });
+}
+
+// Like ws, terminating a CONNECTING client reports error and close 1006.
+class AbortingWebSocket extends FakeWebSocket {
+  override terminate(): void {
+    super.terminate();
+    this.emit('error', new Error('WebSocket was closed before the connection was established'));
+    this.emit('close', 1006, Buffer.alloc(0));
   }
 }
 
@@ -281,12 +308,12 @@ describe('live signaling smoke deployment readiness', () => {
     }
   });
 
-  it('drains and terminates an intercepted initial host response', () => {
+  it('drains and terminates an intercepted initial host response', async () => {
     let resumed = 0;
     let terminated = 0;
-    const error = settleUnexpectedInitialHostResponse(
+    const error = await settleUnexpectedInitialHostResponse(
       { terminate: () => (terminated += 1) },
-      { statusCode: 500, resume: () => (resumed += 1) },
+      upgradeResponse(500, '{"error":"RATE_LIMIT_UNAVAILABLE"}', () => (resumed += 1)),
       EXPECTED_VERSION,
       'host',
       true,
@@ -295,6 +322,21 @@ describe('live signaling smoke deployment readiness', () => {
     expect(error).toBeInstanceOf(InitialHostDeploymentConvergenceError);
     expect(resumed).toBe(1);
     expect(terminated).toBe(1);
+  });
+
+  it('leaves a convergence-classified 503 on its own ladder without reading the body', async () => {
+    const response = upgradeResponse(503, '{"error":"RATE_LIMIT_UNAVAILABLE"}');
+    const on = vi.spyOn(response, 'on');
+    const error = await settleUnexpectedInitialHostResponse(
+      { terminate: () => {} },
+      response,
+      EXPECTED_VERSION,
+      'passwordless host',
+      true,
+    );
+
+    expect(error).toBeInstanceOf(InitialHostDeploymentConvergenceError);
+    expect(on).not.toHaveBeenCalled();
   });
 
   it('classifies only a pre-frame initial host 1006 as deployment convergence', () => {
@@ -645,5 +687,141 @@ describe('live signaling smoke deployment readiness', () => {
       ),
     ).rejects.toBeInstanceOf(InitialHostSocketConvergenceError);
     expect(attempts).toBe(3);
+  });
+
+  describe('rate-limited Standard upgrades', () => {
+    const RATE_LIMITED_BODY = '{"error":"RATE_LIMIT_UNAVAILABLE"}';
+
+    function rejectGuest(statusCode: number, body: string) {
+      const socket = new AbortingWebSocket();
+      const inbox = createSocketInbox('wss://signal.example/room', 'guest', {
+        createWebSocket: () => socket,
+      });
+      socket.emit('unexpected-response', {}, upgradeResponse(statusCode, body));
+      return { opened: inbox.opened, socket };
+    }
+
+    function rejectLegacyHost(body: string) {
+      const socket = new AbortingWebSocket();
+      const inbox = createSocketInbox('wss://signal.example/room', 'legacy compatibility host', {
+        expectedInitialHostVersion: EXPECTED_VERSION,
+        createWebSocket: () => socket,
+      });
+      socket.emit('unexpected-response', {}, upgradeResponse(503, body));
+      return inbox.opened;
+    }
+
+    it('marks a guest upgrade rejected by the rate limiter, keeping the ws failure line', async () => {
+      const { opened, socket } = rejectGuest(503, RATE_LIMITED_BODY);
+
+      const error: unknown = await opened.catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(RateLimitUnavailableError);
+      expect((error as Error).message).toBe('Unexpected server response: 503');
+      expect(socket.readyState).toBe(3);
+    });
+
+    it.each([
+      [503, '{"error":"SERVICE_MAINTENANCE"}'],
+      [503, '<html>503 Service Unavailable</html>'],
+      [502, RATE_LIMITED_BODY],
+      [403, '{"error":"Forbidden"}'],
+    ])('keeps a guest upgrade rejected with HTTP %i and %s final', async (statusCode, body) => {
+      const { opened } = rejectGuest(statusCode, body);
+
+      const error: unknown = await opened.catch((caught: unknown) => caught);
+
+      expect(error).not.toBeInstanceOf(RateLimitUnavailableError);
+      expect((error as Error).message).toBe(`Unexpected server response: ${statusCode}`);
+    });
+
+    it('classifies the initial host 503 before the terminate close can look like convergence', async () => {
+      const error: unknown = await rejectLegacyHost(RATE_LIMITED_BODY).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(RateLimitUnavailableError);
+      expect((error as Error).message).toBe(
+        'legacy compatibility host WebSocket upgrade returned HTTP 503',
+      );
+    });
+
+    it('keeps any other initial host 503 a final failure, not convergence', async () => {
+      const error: unknown = await rejectLegacyHost('{"error":"SERVICE_MAINTENANCE"}').catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).not.toBeInstanceOf(RateLimitUnavailableError);
+      expect(error).not.toBeInstanceOf(InitialHostSocketConvergenceError);
+      expect((error as Error).message).toBe(
+        'legacy compatibility host WebSocket upgrade returned HTTP 503',
+      );
+    });
+
+    it('reruns the room once without spending a readiness ladder step', async () => {
+      const log = vi.fn();
+      const rateLimitWaits: number[] = [];
+      const ladderWaits: number[] = [];
+      const retryEvents: number[] = [];
+      const attempts: number[] = [];
+      const result = await withSignalingReadinessRetry(
+        async (attempt: number) => {
+          attempts.push(attempt);
+          if (attempt === 1) {
+            throw new RateLimitUnavailableError(
+              'legacy compatibility host WebSocket upgrade returned HTTP 503',
+            );
+          }
+          if (attempt === 2) throw new StaleSignalingVersionError(EXPECTED_VERSION, STALE_VERSION);
+          return 'room-ready';
+        },
+        {
+          retryDelaysMs: [10],
+          wait: async (milliseconds: number) => {
+            ladderWaits.push(milliseconds);
+          },
+          onRetry: ({ attempt }) => retryEvents.push(attempt),
+          rateLimitRetry: createRateLimitUnavailableRetry({
+            log,
+            wait: async (milliseconds: number) => {
+              rateLimitWaits.push(milliseconds);
+            },
+          }),
+        },
+      );
+
+      expect(result).toBe('room-ready');
+      expect(attempts).toEqual([1, 2, 3]);
+      expect(rateLimitWaits).toEqual([5_000]);
+      expect(ladderWaits).toEqual([10]);
+      expect(retryEvents).toEqual([1]);
+      expect(log.mock.calls[0]).toEqual([
+        'legacy compatibility host WebSocket upgrade returned HTTP 503',
+      ]);
+      expect(String(log.mock.calls[1]?.[0])).toContain('retried after RATE_LIMIT_UNAVAILABLE');
+    });
+
+    it('throws a second rate-limited upgrade unchanged', async () => {
+      const log = vi.fn();
+      const second = new RateLimitUnavailableError('guest WebSocket upgrade returned HTTP 503');
+      let attempts = 0;
+
+      await expect(
+        withSignalingReadinessRetry(
+          async () => {
+            attempts += 1;
+            throw attempts === 1 ? new RateLimitUnavailableError('first') : second;
+          },
+          {
+            retryDelaysMs: [0, 0, 0],
+            wait: async () => {},
+            onRetry: () => {},
+            rateLimitRetry: createRateLimitUnavailableRetry({ log, wait: async () => {} }),
+          },
+        ),
+      ).rejects.toBe(second);
+      expect(attempts).toBe(2);
+      expect(log).toHaveBeenCalledTimes(2);
+    });
   });
 });

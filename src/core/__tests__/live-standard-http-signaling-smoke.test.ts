@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  RATE_LIMIT_UNAVAILABLE_RETRY_DELAY_MS,
+  createRateLimitUnavailableRetry,
+  type RateLimitUnavailableRetry,
+} from '../../../scripts/live-smoke-rate-limit-retry.mts';
+import {
   main,
   StandardHttpBridgeSmokeClient,
 } from '../../../scripts/live-standard-http-signaling-smoke.mts';
@@ -11,6 +16,9 @@ function jsonResponse(value: unknown, status = 200): Response {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });
 }
+
+// For tests of the final failure line: the run's one retry is already used.
+const SPENT_RATE_LIMIT_RETRY: RateLimitUnavailableRetry = { claim: async () => false };
 
 describe('live Standard HTTPS signaling smoke', () => {
   afterEach(() => {
@@ -111,11 +119,15 @@ describe('live Standard HTTPS signaling smoke', () => {
           ),
         );
       vi.stubGlobal('fetch', fetchMock);
-      const client = await StandardHttpBridgeSmokeClient.open('private-capability', {
-        roomId: '123456',
-        role: 'guest',
-        peerId: 'http-guest-abcdef12',
-      });
+      const client = await StandardHttpBridgeSmokeClient.open(
+        'private-capability',
+        {
+          roomId: '123456',
+          role: 'guest',
+          peerId: 'http-guest-abcdef12',
+        },
+        SPENT_RATE_LIMIT_RETRY,
+      );
 
       const failure: unknown = await client
         .send({
@@ -168,11 +180,15 @@ describe('live Standard HTTPS signaling smoke', () => {
     }
 
     function openHost() {
-      return StandardHttpBridgeSmokeClient.open('private-capability', {
-        roomId: '654321',
-        role: 'host',
-        peerId: 'http-host-private',
-      });
+      return StandardHttpBridgeSmokeClient.open(
+        'private-capability',
+        {
+          roomId: '654321',
+          role: 'host',
+          peerId: 'http-host-private',
+        },
+        SPENT_RATE_LIMIT_RETRY,
+      );
     }
 
     function expectNoSecrets(message: string) {
@@ -329,6 +345,170 @@ describe('live Standard HTTPS signaling smoke', () => {
           'code=STANDARD_HTTP_BRIDGE_AUTHORITY_MISMATCH; elapsedMs=0; ray=none)',
       );
       expectNoSecrets(JSON.stringify([(failure as Error).message, warn.mock.calls]));
+    });
+  });
+
+  describe('single RATE_LIMIT_UNAVAILABLE retry', () => {
+    const RAY_ID = '8d1f2c3b4a5e6f70-ORD';
+    const rateLimited = () =>
+      Response.json(
+        { error: 'RATE_LIMIT_UNAVAILABLE' },
+        { status: 503, headers: { 'cf-ray': RAY_ID } },
+      );
+    const opened = () => Response.json({ sessionToken: 'private-bridge-session' });
+
+    function trackedRetry() {
+      const log = vi.fn();
+      const wait = vi.fn(async () => {});
+      return { retry: createRateLimitUnavailableRetry({ log, wait }), log, wait };
+    }
+
+    function open(role: 'host' | 'guest', retry: RateLimitUnavailableRetry) {
+      return StandardHttpBridgeSmokeClient.open(
+        'private-capability',
+        { roomId: '654321', role, peerId: `http-${role}-private` },
+        retry,
+      );
+    }
+
+    function sentBodies(fetchMock: ReturnType<typeof vi.fn>) {
+      return fetchMock.mock.calls.map(([, init]) => (init as RequestInit | undefined)?.body);
+    }
+
+    it('repeats a rate-limited open once, unchanged, after logging its failure line', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(rateLimited())
+        .mockResolvedValueOnce(opened());
+      vi.stubGlobal('fetch', fetchMock);
+      const { retry, log, wait } = trackedRetry();
+
+      await expect(open('host', retry)).resolves.toBeInstanceOf(StandardHttpBridgeSmokeClient);
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]?.[0]).toBe(fetchMock.mock.calls[0]?.[0]);
+      const [firstBody, secondBody] = sentBodies(fetchMock);
+      expect(secondBody).toBe(firstBody);
+      expect(log).toHaveBeenCalledTimes(2);
+      expect(log.mock.calls[0]?.[0]).toMatch(
+        /^HTTP signaling bridge open failed \(role=host; HTTP 503; code=RATE_LIMIT_UNAVAILABLE; elapsedMs=\d+; ray=8d1f2c3b4a5e6f70-ORD\)$/,
+      );
+      expect(log.mock.calls[1]?.[0]).toContain('retried after RATE_LIMIT_UNAVAILABLE');
+      expect(wait).toHaveBeenCalledExactlyOnceWith(RATE_LIMIT_UNAVAILABLE_RETRY_DELAY_MS);
+    });
+
+    it('resends the same send sequence number and keeps counting after it', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(opened())
+        .mockResolvedValueOnce(rateLimited())
+        .mockResolvedValueOnce(Response.json({ v: 1, ack: 1 }))
+        .mockResolvedValueOnce(Response.json({ v: 1, ack: 2 }));
+      vi.stubGlobal('fetch', fetchMock);
+      const { retry, log } = trackedRetry();
+      const client = await open('host', retry);
+
+      await client.send({ type: 'host-auth', secret: 'private-secret' });
+      await client.send({ type: 'room-password-set', password: '' });
+
+      const sequences = sentBodies(fetchMock)
+        .slice(1)
+        .map((body) => (JSON.parse(String(body)) as { cseq: number }).cseq);
+      expect(sequences).toEqual([1, 1, 2]);
+      expect(sentBodies(fetchMock)[2]).toBe(sentBodies(fetchMock)[1]);
+      expect(log.mock.calls[0]?.[0]).toMatch(
+        /^HTTP signaling bridge send failed \(role=host; HTTP 503; cseq=1; frame=host-auth; code=RATE_LIMIT_UNAVAILABLE; elapsedMs=\d+; ray=8d1f2c3b4a5e6f70-ORD\)$/,
+      );
+      expect(JSON.stringify(log.mock.calls)).not.toContain('private-');
+    });
+
+    it('fails with the unchanged line when the repeated request is rate-limited again', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(opened())
+        .mockResolvedValueOnce(rateLimited())
+        .mockResolvedValueOnce(rateLimited());
+      vi.stubGlobal('fetch', fetchMock);
+      const { retry, log } = trackedRetry();
+      const client = await open('guest', retry);
+
+      const failure: unknown = await client
+        .send({ type: 'guest-auth', password: '', reconnectSecret: 'private-secret' })
+        .catch((error: unknown) => error);
+
+      expect((failure as Error).message).toMatch(
+        /^HTTP signaling bridge send failed \(role=guest; HTTP 503; cseq=1; frame=guest-auth; code=RATE_LIMIT_UNAVAILABLE; elapsedMs=\d+; ray=8d1f2c3b4a5e6f70-ORD\)$/,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(log).toHaveBeenCalledTimes(2);
+    });
+
+    it('shares the one retry between the host and guest clients', async () => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(opened())
+        .mockResolvedValueOnce(opened())
+        .mockResolvedValueOnce(rateLimited())
+        .mockResolvedValueOnce(Response.json({ v: 1, events: [] }))
+        .mockResolvedValueOnce(rateLimited());
+      vi.stubGlobal('fetch', fetchMock);
+      const { retry, log } = trackedRetry();
+      const host = await open('host', retry);
+      const guest = await open('guest', retry);
+
+      await expect(host.poll(0)).resolves.toEqual([]);
+      const failure: unknown = await guest
+        .send({ type: 'guest-auth', password: '', reconnectSecret: 'private-secret' })
+        .catch((error: unknown) => error);
+
+      expect((failure as Error).message).toContain(
+        'send failed (role=guest; HTTP 503; cseq=1; frame=guest-auth; code=RATE_LIMIT_UNAVAILABLE;',
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      expect(log).toHaveBeenCalledTimes(2);
+      expect(log.mock.calls[0]?.[0]).toContain('poll failed (role=host; HTTP 503;');
+    });
+
+    it.each([
+      ['another 503 code', () => Response.json({ error: 'SERVICE_MAINTENANCE' }, { status: 503 })],
+      [
+        'the code on a 502',
+        () => Response.json({ error: 'RATE_LIMIT_UNAVAILABLE' }, { status: 502 }),
+      ],
+      ['a 429', () => Response.json({ error: 'Too Many Requests' }, { status: 429 })],
+      ['a code-less 503 page', () => new Response('<html>503</html>', { status: 503 })],
+    ])('never retries %s', async (_label, response) => {
+      const fetchMock = vi.fn().mockResolvedValueOnce(opened()).mockResolvedValueOnce(response());
+      vi.stubGlobal('fetch', fetchMock);
+      const { retry, log, wait } = trackedRetry();
+      const client = await open('host', retry);
+
+      await expect(client.poll(0)).rejects.toThrow('HTTP signaling bridge poll failed');
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(log).not.toHaveBeenCalled();
+      expect(wait).not.toHaveBeenCalled();
+    });
+
+    it('does not spend the retry on best-effort cleanup', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(opened())
+        .mockResolvedValueOnce(rateLimited());
+      vi.stubGlobal('fetch', fetchMock);
+      const { retry, log } = trackedRetry();
+      const client = await open('host', retry);
+
+      await expect(client.close()).resolves.toBeUndefined();
+
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(log).not.toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledOnce();
+      expect(String(warn.mock.calls[0]?.[0])).toContain(
+        'close failed (role=host; HTTP 503; code=RATE_LIMIT_UNAVAILABLE;',
+      );
+      await expect(retry.claim('later failure line')).resolves.toBe(true);
     });
   });
 

@@ -6,7 +6,7 @@
 | 4B 묶음   | 브랜치 `agent/phase4-4b`. 대용량 레인 갈래 `agent/p4b-f4`(`a92fdaa7..aa0814d5`, 축소 C5-11·C5-12, 10 커밋과 main 합침 하나)를 `0fa2790c`로, 종료 원인 갈래 `agent/p4b-close`(`289c497b..dd262b34`, 새 종료 원인 토큰 셋·P4-D5 B, 12 커밋)를 `28afdc09`로, 출력 재합류 갈래 `agent/p4b-c3`(`5cc9df66..e8318040`, P4-D7 B·P4-D9 좁은 수정, 5 커밋)를 `65391edb`로 `--no-ff` 합쳤다. 이 보고서와 기록·registry 커밋은 문서만 바꾼다.                                                                    |
 | 상태      | 배포 전. 오너 결정(2026-10-25 약 01:50 KST)대로 자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke)가 통과하면 바로 배포한다. PR·CI·배포 결과는 배포 뒤 이 표와 release-record에 적는다.                                                                                                                                                                                                                                                                                         |
 | 현재 증분 | 오너가 2026-10-25에 고른 동작 변경과 그 전제인 중립 증분 하나. ICE 복구 뒤 방장이 그 게스트를 `local`로 다시 판정해 알린 다음에는 같은 파일을 본 레인 하나로만 보내고(C5-12, 알려진 한계 밖에서), 오류로 시작한 닫힘·입장 실패·PRO epoch 일괄 닫힘이 자기 원인 토큰을 갖고, 일반방 게스트가 끊김 창으로 다시 읽힌 뒤 앞 페이지의 마지막 닫힘 원인을 한 번 보이고(P4-D5 B), PRO 청취자의 보이는 일시정지가 남은 재합류 재시도를 끝내고(P4-D7 B), 데모 재생이 대기열 정준 시간선을 켜지 않는다(P4-D9). |
-| 제품 식별 | `9.0.9` / `v781` 예정. 9.0.8은 배포됐으므로 마지막 런타임 커밋에서 SemVer와 SW 캐시 epoch를 함께 올린다(올리기 직전 origin/main 확인). 이 문서를 쓴 트리에는 아직 bump가 없다.                                                                                                                                                                                                                                                                                                                       |
+| 제품 식별 | `9.0.9` / `v781`. 9.0.8은 배포됐으므로 SemVer와 SW 캐시 epoch를 함께 올렸다(마지막 런타임 커밋 `aba30ccb`. 올리기 직전 fetch한 origin/main은 `47b9a273` 그대로였다).                                                                                                                                                                                                                                                                                                                                 |
 | 배포 대상 | target `app`, Developer API D1 `false`. 4B는 `src`만 바꾸고(`e2e/lab`의 C5-0 랩은 배포 입력이 아니다), `cloudflare/` 변경은 없다. bump가 App Worker의 `ADMIN_ASSET_VERSION` 문자열 하나를 바꾼다(4A와 같은 자리).                                                                                                                                                                                                                                                                                    |
 | 환경      | Windows 11 로컬, Node 24.20.0 / npm 12.0.2. 단위는 jsdom과 가짜 WebRTC·WebSocket이다. C5-0 랩은 헤드리스 Chromium과 `wrangler dev --local`로 띄운 신호 Worker 위에서 게스트 페이지의 P2P만 CDP로 끊는다.                                                                                                                                                                                                                                                                                             |
 | 운영      | 미실행. 실제 기기, iOS·WebKit, 운영 Cloudflare 전송 경로, 브라우저의 PRO 방은 4B 코드로 실행하지 않았다(아래 실기기로 확인하지 않은 것).                                                                                                                                                                                                                                                                                                                                                             |
@@ -298,12 +298,16 @@ provider가 원인을 알고 오류를 낸 뒤 스스로 닫는 `closeAfterError
 알린다. 게스트 쪽은 코드 읽기이고 하네스로 돌리지 않았다. 데모 방장의 멈춤을 건너 방 위치를 지키려면
 좁은 수정이 아니라 데모가 소유하는 정준 시간선(C3-I8)이 필요하다(RO-49의 다시 볼 조건).
 
-### 9.0.9 / v781 (예정)
+### 9.0.9 / v781
 
-마지막 런타임 커밋에서 4A의 `8a9e1772`와 같은 자리를 올린다. `package.json`, `package-lock.json` 두
-곳, App Worker의 `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`,
-`SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리다. bump SHA에서 `build:checked` 전체와
-Worker 전체를 다시 돌린다. 결과는 배포 뒤 이 절에 적는다.
+마지막 런타임 커밋 `aba30ccb`에서 4A의 `8a9e1772`와 같은 자리를 올렸다. `package.json`,
+`package-lock.json` 두 곳, App Worker의 `ADMIN_ASSET_VERSION`, 관리자 스크립트의
+`ADMIN_SCRIPT_VERSION`, `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리다. 올리기 직전
+fetch한 origin/main은 `47b9a273` 그대로라 다시 합칠 것이 없었다. `guard:release-identity`(MUSIXQUARE
+9.0.9, cache v781)와 `guard:sw-cache-version`(v781 `aba30ccb`가 커밋된 PWA 런타임 변경을 모두 덮음)이
+통과했다. `git grep`으로 보면 문서 밖에 남은 `9.0.8`은 C5-12 테스트와 `preload.ts` 주석이 옛 동작을
+가리키는 비교 문장뿐이고 `v780`은 없다. bump SHA에서 `build:checked` 전체와 Worker 전체를 다시
+돌렸다(아래 QA 라운드 6).
 
 ## QA 라운드
 
@@ -372,7 +376,7 @@ Worker 전체를 다시 돌린다. 결과는 배포 뒤 이 절에 적는다.
 | 리뷰    | 통합 트리 독립 리뷰 셋(동작, 배포, 문서). 높음 없음. 중간 하나(4B가 고친 release-record §2 항목 다섯이 이 보고서를 링크하지 않음)와 낮음들을 문서로 반영했다(`2cbda424`와 이 커밋). P4-D5 B가 PRO 방에도 남는다는 지적은 코드로 보면 일부만 맞다. PRO 방은 일반방 게스트 흐름을 쓰지 않고 `HOST_DISCONNECTED`를 창 전에 돌리므로 남기는 경로에 닿지 않고, 메모리 기록만 방 종류를 보지 않는다(위 P4-D5 B 절). 런타임은 바꾸지 않았다. |
 | C5-0 랩 | F4가 미리받기 바이트를 '트랙보다 적게'로만 보던 것을, 본 레인 `FILE_START`부터 보낸 미리받기 청크가 청크 하나(65,536 B) 이하인지도 보게 했다. F4 1/1 PASS(2.3분, 위 C5-12 표). 이번 실행은 본 레인 시작 280 ms 전(+3.21초)에 미리받기 청크 0번 하나를 보냈다(앞선 실행은 모두 0 B). 그래서 상한은 전체 0 B가 아니라 본 레인 시작 기준이다.                                                                                            |
 | 정적    | `tsc -p tsconfig.e2e.json`, tooling eslint(랩 파일), prettier(랩 파일과 바뀐 문서), `guard:playwright-api`, `check-resource-ownership`(48 records / 436 files) PASS.                                                                                                                                                                                                                                                                  |
-| SKIP    | 단위 전체, 빌드, critical E2E, 랩 전체 8개(런타임과 단위 테스트가 바뀌지 않았고 랩은 F4만 바뀜). SemVer·SW 캐시 bump는 아직 하지 않았다(위 9.0.9 / v781 절).                                                                                                                                                                                                                                                                          |
+| SKIP    | 단위 전체, 빌드, critical E2E, 랩 전체 8개(런타임과 단위 테스트가 바뀌지 않았고 랩은 F4만 바뀜). 이 라운드 때는 SemVer·SW 캐시 bump 전이었다(bump와 그 뒤 검증은 라운드 6).                                                                                                                                                                                                                                                           |
 
 ## 혼합 버전
 

@@ -93,8 +93,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 4 train 4B: owner-chosen transport and rejoin behaviour changes (2026-10-25)](design/phase4-4b-behaviour-2026-10-25.md):
-  evidence for the structure program's second Phase 4 app train (9.0.9 / v781
-  planned, not yet released; target `app`). After ICE recovery a resumed
+  evidence for the structure program's second Phase 4 app train (9.0.9 / v781,
+  not yet released; target `app`). After ICE recovery a resumed
   preload yields to the main file lane for the same tuple once the host has
   re-detected the guest as local (C5-12, with its known limits), on top of one
   release call and a tuple query for both bulk lanes (reduced C5-11); error,

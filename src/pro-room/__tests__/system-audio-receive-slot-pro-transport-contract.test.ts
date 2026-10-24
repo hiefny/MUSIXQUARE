@@ -12,7 +12,10 @@
  * proof, the transport's 5 s track-ready deadline next to the coordinator's
  * 30 s one, route supersession by generation, the signals a listener sends its
  * publisher, S8b on both routes, LAN-direct begin re-entrancy, iOS initAudio
- * rejection, adopt idempotence, the retire paths and the /debug sections.
+ * rejection, the transports' own attach fences for a same-publication route
+ * retirement (the SFU subscriber epoch and the LAN receiver route, C4-9 and
+ * P5-D8), adopt idempotence (also while an attach waits), the retire paths and
+ * the /debug sections.
  *
  * Registry records (docs/design/resource-ownership-registry.md):
  * - RO-04 System-audio receive slot (placeholder, receiving flag, restore meta,
@@ -989,6 +992,198 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
         title: previousTitle,
         sources: [trackId],
       });
+      expect(seen.toasts).toEqual([]);
+    },
+  );
+});
+
+describe('attach fences: the same publication retires its route while the attach waits in initAudio (C4-9, P5-D8)', () => {
+  // The publication, its owner and the placeholder all stay current here, so
+  // the coordinator's own identity checks in attachCoordinatorTrack pass. Only
+  // the transport's isCurrent() (the SFU subscriber epoch, the LAN receiver
+  // route) and the transports' rejection gates keep the stale attach out. C4-5
+  // routes both through the slot and must keep these outcomes.
+
+  it('expected today (SFU): a live ICE failure while the attach waits in initAudio keeps the stale track out by the subscriber epoch alone; the same-publication retry attaches once', async () => {
+    webAudio.suspend();
+    await applyState(live(sfuPublication()));
+    await advance(PRO_TRACK_AT_MS + 100);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      activity: 'pending',
+      placeholder: true,
+      sources: [],
+    });
+
+    sfuConnections()[0].setConnectionState('failed');
+    await advance(0);
+    expect(sfuConnections()[0].closed).toBe(true);
+    expect(realtime.count('tracks-close')).toBe(1);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+
+    webAudio.finishResume();
+    await advance(0);
+    expect(webAudio.sources).toHaveLength(0);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      activity: 'pending',
+      placeholder: true,
+      sources: [],
+      primers: 0,
+    });
+
+    // The retry keeps the publication key (G6): no second reception start,
+    // which is also why the coordinator's identity check alone would have let
+    // the stale track through.
+    await advance(RETRY_MS + PRO_TRACK_AT_MS);
+    expect(webAudio.sources.map((source) => source.trackIds)).toEqual([['sfu-audio-2']]);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      placeholder: true,
+      sources: ['sfu-audio-2'],
+      primers: 1,
+    });
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(seen.counts.hostStarted).toBe(1);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+  });
+
+  it('expected today (SFU): when the stale attach then fails in initAudio, its rejection neither notifies again nor restarts the re-subscribe backoff', async () => {
+    webAudio.suspend();
+    await applyState(live(sfuPublication()));
+    await advance(PRO_TRACK_AT_MS + 100);
+    sfuConnections()[0].setConnectionState('failed');
+    await advance(0);
+    const failedAt = Date.now();
+
+    // The stale attach's initAudio gives up 500 ms after the track (at 800 ms).
+    await advance(500);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', placeholder: true });
+    webAudio.finishResume();
+
+    // The retry still runs 2.5 s after the ICE failure. A rejection that
+    // retried again would restart the backoff at its second step (5 s).
+    // The retry reads TURN first, so its new-session goes out 100 ms later.
+    await advance(failedAt + RETRY_MS + 99 - Date.now());
+    expect(realtime.count('new-session')).toBe(1);
+    await advance(1);
+    expect(realtime.count('new-session')).toBe(2);
+    await advance(PRO_TRACK_AT_MS - 100);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-audio-2'] });
+    expect(webAudio.sources).toHaveLength(1);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('expected today (LAN-direct): a receiver route failure while the attach waits in initAudio keeps the stale track out by the route alone; the promotion attaches', async () => {
+    await applyState(live(directPublication()));
+    webAudio.suspend();
+    await lanPublisherDelivers();
+    await advance(100);
+    expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
+
+    lanConnections()[0].setConnectionState('disconnected');
+    expect(lanConnections()[0].closed).toBe(true);
+    expect(proRelay.signals('close').map((signal) => signal.reason)).toEqual(['fallback']);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+
+    webAudio.finishResume();
+    await advance(0);
+    expect(webAudio.sources).toHaveLength(0);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      activity: 'pending',
+      placeholder: true,
+      sources: [],
+      primers: 0,
+    });
+
+    // The publisher promotes the listener it lost to the SFU.
+    await applyState(live(sfuPublication()));
+    await advance(PRO_TRACK_AT_MS);
+    expect(webAudio.sources.map((source) => source.trackIds)).toEqual([['sfu-audio-1']]);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-audio-1'] });
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+  });
+
+  it('expected today (LAN-direct): when the stale attach then fails in initAudio, the dead route sends no second fallback close and the slot hears nothing more', async () => {
+    await applyState(live(directPublication()));
+    webAudio.suspend();
+    await lanPublisherDelivers();
+    await advance(100);
+    lanConnections()[0].setConnectionState('disconnected');
+
+    // The stale attach's initAudio gives up 500 ms after the track.
+    await advance(500);
+    expect(proRelay.signals('close')).toHaveLength(1);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      activity: 'pending',
+      placeholder: true,
+      sources: [],
+    });
+    await advance(60_000);
+    expect(proRelay.signals('close')).toHaveLength(1);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    expect(seen.counts.receiveTimeouts).toBe(0);
+  });
+
+  it.each([
+    {
+      route: 'SFU',
+      state: () => live(sfuPublication()),
+      trackId: 'sfu-audio-1',
+      waitInInitAudio: async () => {
+        webAudio.suspend();
+        await applyState(live(sfuPublication()));
+        await advance(PRO_TRACK_AT_MS + 100);
+      },
+      connections: sfuConnections,
+    },
+    {
+      route: 'LAN-direct',
+      state: () => live(directPublication()),
+      trackId: 'direct-audio-1',
+      waitInInitAudio: async () => {
+        await applyState(live(directPublication()));
+        webAudio.suspend();
+        await lanPublisherDelivers();
+        await advance(100);
+      },
+      connections: lanConnections,
+    },
+  ])(
+    'expected today ($route): heartbeats and a room-context re-emission while the attach waits in initAudio neither offer the track again nor begin again; the waiting attach connects once',
+    async ({ state, trackId, waitInInitAudio, connections }) => {
+      await waitInInitAudio();
+      const requestsBefore = realtime.requests.length;
+      const signalsBefore = proRelay.sent.length;
+
+      bindProSystemAudioSession(snapshot());
+      acceptProSystemAudioHeartbeatState(state(), snapshot());
+      setState('room.context', proContext());
+      await advance(100);
+      expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
+
+      webAudio.finishResume();
+      await advance(0);
+      expect(webAudio.sources.map((source) => source.trackIds)).toEqual([[trackId]]);
+      expect(slot()).toMatchObject({
+        receiving: true,
+        activity: 'playing',
+        placeholder: true,
+        sources: [trackId],
+        primers: 1,
+      });
+      expect(connections()).toHaveLength(1);
+      expect(connections()[0].closed).toBe(false);
+      expect(realtime.requests.length).toBe(requestsBefore);
+      expect(proRelay.sent.length).toBe(signalsBefore);
+      expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+      expect(seen.counts.visualizerStarts).toBe(1);
       expect(seen.toasts).toEqual([]);
     },
   );

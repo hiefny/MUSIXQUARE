@@ -76,7 +76,7 @@ import { runBackgroundResumeRecovery } from '../../core/background-resume-recove
 import { bus } from '../../core/events.ts';
 import { log } from '../../core/log.ts';
 import { resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { initProtocol, resetInboundRateLimit } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type { TransportBackgroundRecoveryResult } from '../../network/transport/types.ts';
@@ -520,11 +520,35 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
     return returnedAt;
   }
 
+  /** Host heartbeats every 3 s, the first one now; returns the fake times they went out. */
+  async function heartbeatsEvery3s(beats: number, frame: Record<string, unknown> = {}) {
+    const sentAt: number[] = [];
+    for (let beat = 0; beat < beats; beat += 1) {
+      sentAt.push(Date.now());
+      heartbeat(frame);
+      await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    }
+    return sentAt;
+  }
+
+  /** Guest position minus the host's timeline position, in ms. */
+  function guestOffsetMs(player: GuestIframe): number {
+    const hostPosition = 100 + (Date.now() - hostTimelineOrigin) / 1000;
+    return Math.round((player.getCurrentTime() - hostPosition) * 1000);
+  }
+
+  /** The iframe's pause, seek and play calls, each with its time after the return. */
+  function alignmentOps(player: GuestIframe, returnedAt: number): string[] {
+    return player.__log
+      .filter(({ op }) => op === 'pauseVideo' || op === 'seekTo' || op === 'playVideo')
+      .map(({ op, at }) => `${op}@${at - returnedAt}`);
+  }
+
   it.each([
     ['BUFFERING', 3],
     ['CUED', 5],
   ] as const)(
-    'expected today: a return gives up 1,250 ms after it while the host is %s',
+    'expected today: the return chain stops 1,250 ms after a return while the host is %s and nothing retries it',
     async (_name, hostState) => {
       const player = installStandardGuest({ iframeState: 1, locallyPaused: false });
       const returnedAt = await returnWhileHost(player, { state: hostState });
@@ -536,14 +560,73 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
         '[BackgroundReturnSync] Guest rendezvous retries exhausted',
         { status: 'busy' },
       );
+      expect(getManagedTimer('background-return-sync-rendezvous-retry')).toBeNull();
 
-      // The host plays again at 2 s; nothing re-aligns this return any more.
+      // The host plays again at 2 s. The chain does not come back for it. This
+      // guest is still on the host timeline (the heartbeat drift seeks while
+      // locked kept it there), so no ordinary heartbeat correction fires
+      // either; the residual-offset cases below show those corrections.
       await vi.advanceTimersByTimeAsync(2_000 - RETURN_GIVE_UP_MS);
-      heartbeat();
-      await vi.advanceTimersByTimeAsync(8_000);
-      expect(Date.now() - returnedAt).toBe(10_000);
+      await heartbeatsEvery3s(3);
+      expect(Date.now() - returnedAt).toBe(11_000);
       expect(rendezvousStartedAt).toEqual([]);
-      expect(mutationOps(player).filter((op) => op === 'pauseVideo')).toEqual([]);
+      expect(alignmentOps(player, returnedAt)).toEqual([]);
+      expect(guestOffsetMs(player)).toBe(0);
+      expect(
+        infoMessages().filter(
+          (message) => message === '[BackgroundReturnSync] Guest rendezvous retries exhausted',
+        ),
+      ).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    // Below the 150 ms automatic trigger: nothing corrects it until a Sync.
+    { host: 'BUFFERING', state: 3, stallMs: 100, ops: [], rendezvous: [], offsetMs: 100 },
+    // 150 ms to 3 s: two confirming PLAYING heartbeats (2 s, 5 s) admit the
+    // automatic precision rendezvous; it plays at its 1.5 s margin.
+    {
+      host: 'BUFFERING',
+      state: 3,
+      stallMs: 1_000,
+      ops: ['pauseVideo@5000', 'seekTo@5000', 'playVideo@6500'],
+      rendezvous: [5_000],
+      offsetMs: 0,
+    },
+    {
+      host: 'CUED',
+      state: 5,
+      stallMs: 1_000,
+      ops: ['pauseVideo@5000', 'seekTo@5000', 'playVideo@6500'],
+      rendezvous: [5_000],
+      offsetMs: 0,
+    },
+    // Above 3 s: the first PLAYING heartbeat's drift seek.
+    {
+      host: 'BUFFERING',
+      state: 3,
+      stallMs: 4_000,
+      ops: ['seekTo@2000'],
+      rendezvous: [],
+      offsetMs: 0,
+    },
+  ])(
+    'expected today: after the give-up, the ordinary heartbeat corrections act on a $stallMs ms $host stall',
+    async ({ state, stallMs, ops, rendezvous, offsetMs }) => {
+      const player = installStandardGuest({ iframeState: 1, locallyPaused: false });
+      const returnedAt = await returnWhileHost(player, { state });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(returnChainGaveUp()).toBe(true);
+
+      // The host's timeline stood still for the stall while this guest kept
+      // playing, so the guest is that far ahead when the host plays again.
+      hostTimelineOrigin += stallMs;
+      expect(guestOffsetMs(player)).toBe(stallMs);
+      await heartbeatsEvery3s(4);
+
+      expect(alignmentOps(player, returnedAt)).toEqual(ops);
+      expect(rendezvousStartedAt.map((at) => at - returnedAt)).toEqual(rendezvous);
+      expect(guestOffsetMs(player)).toBe(offsetMs);
     },
   );
 
@@ -555,15 +638,20 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
     });
     // The heartbeat naming the next video also starts loading it (the
     // heartbeat's own mismatch branch); the iframe reports it after 2 s.
-    await returnWhileHost(player, { state: 1, videoId: NEXT_VIDEO_ID });
+    const returnedAt = await returnWhileHost(player, { state: 1, videoId: NEXT_VIDEO_ID });
 
     await vi.advanceTimersByTimeAsync(RETURN_GIVE_UP_MS);
     expect(returnChainGaveUp()).toBe(true);
     await vi.advanceTimersByTimeAsync(2_000);
     expect(player.getVideoData().video_id).toBe(NEXT_VIDEO_ID);
-    heartbeat({ videoId: NEXT_VIDEO_ID });
-    await vi.advanceTimersByTimeAsync(6_000);
-    expect(rendezvousStartedAt).toEqual([]);
+    // The load left the guest 2 s behind. The chain does not come back for
+    // it; the ordinary heartbeats do. The load's 5 s drift suppression drops
+    // the one at 3.25 s, and those at 6.25 s and 9.25 s confirm the drift and
+    // admit the automatic precision rendezvous.
+    expect(guestOffsetMs(player)).toBe(-2_000);
+    await heartbeatsEvery3s(4, { videoId: NEXT_VIDEO_ID });
+    expect(rendezvousStartedAt.map((at) => at - returnedAt)).toEqual([9_250]);
+    expect(guestOffsetMs(player)).toBe(0);
   });
 
   it('aligns at once when the iframe already reports the host video at the return', async () => {

@@ -19,6 +19,13 @@
  * Tests named "expected today" characterize what the owner decision P4-D9 A
  * (2026-10-24, investigate first) asked to establish. They pass on today's
  * code on purpose; a later anchor change updates them in the same change.
+ *
+ * Not established here (inferred, not measured): how far apart the two
+ * records are in real use. They come from different clocks (the wall clock
+ * at the source start against the audio-clock lead remaining at publish) and
+ * agree below only because the fake clocks are frozen. Nor whether the queue
+ * canonical timeline governing the demo host's position is a defect or
+ * intended.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -343,6 +350,36 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
     },
   );
 
+  it('reads the demo record, not the queue one, when the two records differ', async () => {
+    // The audio clock moves 50 ms between the source start (the queue anchor
+    // is armed from the wall clock there) and the DEMO_PLAY publish (which
+    // reads the audio-clock lead remaining); the frozen wall clock does not.
+    // Whole milliseconds apart, the records tell which one each frame reads.
+    let advanced = false;
+    bus.on('visualizer:start', () => {
+      if (advanced) return;
+      advanced = true;
+      edges.getCurrentTime.mockReturnValue(100.05);
+    });
+    await startDemo({ selectQueueItem: true });
+
+    const demoStartAt = getPendingDemoHostStartAt();
+    expect(getStandardHostPendingFileStartAt()).toBe(SHARED_START_AT);
+    expect(demoStartAt).toBeCloseTo(SHARED_START_AT - 50, 6);
+    expect(demoPlayFrames().map((frame) => frame.hostStartAt)).toEqual([demoStartAt]);
+    expect((await syncPong()).hostStartAt).toBe(demoStartAt);
+
+    const newcomer = connection('anchor-newcomer');
+    bus.emit('network:peer-connected', newcomer);
+    const bootstrap = edges.safeSend.mock.calls
+      .filter(([conn]) => conn === newcomer)
+      .map(([, frame]) => frame as Record<string, unknown>);
+    expect(bootstrap.map((frame) => [frame.type, frame.hostStartAt])).toEqual([
+      [MSG.DEMO_ENTER, undefined],
+      [MSG.DEMO_PLAY, demoStartAt],
+    ]);
+  });
+
   it.each([
     { selectQueueItem: true, queueStartAt: SHARED_START_AT },
     { selectQueueItem: false, queueStartAt: undefined },
@@ -356,6 +393,7 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
       // the demo buffer. That record is computed separately (wall clock at
       // the source start) from the demo record (audio-clock lead remaining
       // at publish); with frozen fake clocks the two agree within 1e-6 ms.
+      // Their real-world gap is inferred, not measured.
       expect(getState('demo.active')).toBe(true);
       expect(getState('files.current')).toBeNull();
       expect(getState('playlist.currentQueueItemId')).toBe(selectQueueItem ? QUEUE_ITEM_ID : null);
@@ -405,6 +443,8 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
       setVisibility('visible');
       edges.getCurrentTime.mockReturnValue(103);
       expect(Number((await syncPong()).position)).toBeCloseTo(visiblePosition, 6);
+      // This pins the difference only; whether the selected case is a
+      // defect or intended is not established here.
     },
   );
 });

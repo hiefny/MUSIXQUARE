@@ -64,7 +64,7 @@ interface ProRoomUploadQueueOptions {
   createId?: () => string;
 }
 
-type UploadQueueListener = () => void;
+export type UploadQueueListener = () => void;
 
 function defaultUploadId(): string {
   if (!globalThis.crypto || typeof globalThis.crypto.randomUUID !== 'function') {
@@ -432,44 +432,4 @@ export class ProRoomUploadQueue {
       }
     }
   }
-}
-
-let activeQueue: ProRoomUploadQueue | null = null;
-let unsubscribeActiveQueue: (() => void) | null = null;
-const activeQueueListeners = new Set<UploadQueueListener>();
-
-function notifyActiveQueueListeners(): void {
-  for (const listener of [...activeQueueListeners]) {
-    try {
-      listener();
-    } catch {
-      // One detached view must not block the remaining projection observers.
-    }
-  }
-}
-
-export function setActiveProRoomUploadQueue(queue: ProRoomUploadQueue | null): void {
-  if (activeQueue === queue) return;
-  unsubscribeActiveQueue?.();
-  unsubscribeActiveQueue = null;
-  activeQueue = queue;
-  if (queue) unsubscribeActiveQueue = queue.subscribe(notifyActiveQueueListeners);
-  notifyActiveQueueListeners();
-}
-
-export function getProRoomUploadRows(): readonly ProRoomUploadRow[] {
-  return activeQueue?.rows ?? [];
-}
-
-export function subscribeProRoomUploadRows(listener: UploadQueueListener): () => void {
-  activeQueueListeners.add(listener);
-  return () => activeQueueListeners.delete(listener);
-}
-
-export function cancelProRoomUpload(id: string): boolean {
-  return activeQueue?.cancel(id) ?? false;
-}
-
-export function acknowledgeCommittedProRoomUploads(ids: ReadonlySet<string>): boolean {
-  return activeQueue?.acknowledgeCommitted(ids) ?? false;
 }

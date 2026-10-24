@@ -29,7 +29,7 @@ import {
   handleProRoomYouTubeForSession,
 } from '../media-hooks.ts';
 import { ProRoomMediaTransfer } from '../media-transfer.ts';
-import { getProRoomUploadRows } from '../upload-queue.ts';
+import { getProRoomUploadRows } from '../active-upload-queue.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 import { proHeartbeat } from './__helpers__/pro-heartbeat.ts';
 

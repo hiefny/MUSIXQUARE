@@ -159,7 +159,8 @@ import {
   ProRoomPlaylistStateManager,
   type ProRoomFirstAppendSelectionRequest,
 } from './playlist-state-manager.ts';
-import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from './upload-queue.ts';
+import { ProRoomUploadQueue } from './upload-queue.ts';
+import { setActiveProRoomUploadQueue } from './active-upload-queue.ts';
 import { resolveProRoomUploadFailureDialog } from './upload-failure-dialog.ts';
 import {
   findRemovedProRoomQueueItemIds,

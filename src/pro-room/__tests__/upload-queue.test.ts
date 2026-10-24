@@ -2,12 +2,12 @@
  * @vitest-environment jsdom
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ProRoomUploadQueue } from '../upload-queue.ts';
 import {
-  ProRoomUploadQueue,
   getProRoomUploadRows,
   setActiveProRoomUploadQueue,
   subscribeProRoomUploadRows,
-} from '../upload-queue.ts';
+} from '../active-upload-queue.ts';
 
 const A = '00000000-0000-4000-8000-000000000001';
 const B = '00000000-0000-4000-8000-000000000002';

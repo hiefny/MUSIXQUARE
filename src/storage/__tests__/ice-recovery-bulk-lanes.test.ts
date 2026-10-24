@@ -39,11 +39,18 @@ import { cancelOutgoingFileTransfers } from '../transfer-send.ts';
  * C5-12, owner decision P4-D10 A). A local guest is preloading the next track
  * when its original route drops; the host advances to that track during the
  * outage, and the guest's stall request asks for it on the main file lane.
- * The main lane wins the exact tuple (connection, queueItemId, sessionId): the
- * paused preload yields instead of restarting from chunk 0, or stops as soon as
- * the main lane takes the tuple if it had already resumed, and owes the guest
- * the deferred PRELOAD_ABORT for its prefix. Until 9.0.8 both lanes carried the
- * whole file after recovery.
+ *
+ * A guest awaiting the preload takes the main FILE_START only while its own
+ * route is 'local' (transfer-receive.ts shouldAcceptLocalDirectFileStart), and
+ * the host learns the recovered route only by re-detecting it (host.ts). The
+ * paused preload therefore always restarts from chunk 0 at recovery, and the
+ * main lane wins the exact tuple (connection, queueItemId, sessionId) only when
+ * its stream starts after the host has re-detected the guest as local and told
+ * it so: the restart then stops at its next check and owes the guest the
+ * deferred PRELOAD_ABORT for its prefix. Otherwise (the host re-detects
+ * 'remote', has not re-detected yet, or the main header was already queued) the
+ * preload keeps going as in 9.0.8, so a guest that dropped the main header
+ * still plays the track. Until 9.0.8 both lanes always carried the whole file.
  */
 
 // Native decode alone is stubbed. The guest's choice stays observable: the main
@@ -72,6 +79,11 @@ const PAYLOAD = Uint8Array.from({ length: CHUNK_SIZE * 3 }, (_, i) => (i * 31 + 
 const PLAY_AT = 500;
 const REQUEST_AT = PLAY_AT + 10_000;
 const RECOVER_AT = REQUEST_AT + 1_500;
+// After recovery the host re-detects the guest's route and publishes it (device
+// list, then orchestrator:peer-type-detected); a request held behind the outage
+// lands one message later.
+const REDETECTED_AT = RECOVER_AT + 10;
+const LATE_REQUEST_AT = RECOVER_AT + 30;
 
 type Frame = Record<string, unknown>;
 interface Sent {
@@ -79,6 +91,8 @@ interface Sent {
   readonly frame: Frame;
 }
 type RequestArrival = 'during-outage' | 'after-recovery';
+/** The host's re-detected route for the guest after recovery; 'pending' never resolves here. */
+type HostRoute = 'local' | 'remote' | 'pending';
 
 const PLAY: Sent = {
   at: PLAY_AT,
@@ -131,7 +145,7 @@ afterEach(async () => {
 });
 
 /** The host, driven through the real preload, file-send and recovery modules. */
-async function runHost(requestArrives: RequestArrival) {
+async function runHost(requestArrives: RequestArrival, route: HostRoute = 'local') {
   const sent: Sent[] = [];
   // Every preload lane line the host logs for this guest, with its level.
   const evidence: unknown[][] = [];
@@ -221,20 +235,30 @@ async function runHost(requestArrives: RequestArrival) {
   if (requestArrives === 'during-outage') served = handleData(request, conn);
   await vi.advanceTimersByTimeAsync(RECOVER_AT - REQUEST_AT);
 
-  // host.ts order: announce the recovery, then reclassify the route.
+  const reclassify = (connectionType: ConnectedPeer['connectionType']) =>
+    setState(
+      'network.connectedPeers',
+      getState('network.connectedPeers').map((candidate) =>
+        candidate.conn === conn ? { ...candidate, connectionType } : candidate,
+      ),
+    );
+  // host.ts order: announce the recovery, then reclassify the route as unknown
+  // until its re-detection publishes the result.
   channel.bufferedAmount = 0;
   pc.connectionState = 'connected';
   pc.iceConnectionState = 'connected';
   bus.emit('network:peer-ice-recovered', conn);
-  setState(
-    'network.connectedPeers',
-    getState('network.connectedPeers').map((candidate) =>
-      candidate.conn === conn ? { ...candidate, connectionType: 'unknown' as const } : candidate,
-    ),
-  );
+  reclassify('unknown');
+  if (route !== 'pending') {
+    await vi.advanceTimersByTimeAsync(REDETECTED_AT - RECOVER_AT);
+    reclassify(route);
+    bus.emit('orchestrator:peer-type-detected', GUEST_PEER, false);
+  }
   if (requestArrives === 'after-recovery') {
     // Held behind the outage, the request lands one message after recovery.
-    await vi.advanceTimersByTimeAsync(30);
+    await vi.advanceTimersByTimeAsync(
+      LATE_REQUEST_AT - (route === 'pending' ? RECOVER_AT : REDETECTED_AT),
+    );
     served = handleData(request, conn);
   }
   await vi.advanceTimersByTimeAsync(2_000);
@@ -310,36 +334,85 @@ async function storedBytesEqual(isPreload: boolean, sid: number): Promise<boolea
 }
 
 describe('one stream per tuple after ICE recovery (C5-12, P4-D10 A)', () => {
+  it('the restarted preload yields to a main lane that starts after the host re-detects the guest as local', async () => {
+    const { sent, sid, evidence } = await runHost('after-recovery', 'local');
+
+    // Every frame carries the same tuple on the guest's single connection.
+    for (const { frame } of sent) {
+      expect(frame).toMatchObject({ queueItemId: NEXT, sessionId: sid });
+    }
+    // The paused lane restarts at recovery and stops at its next check once
+    // the main lane takes the tuple.
+    expect(lane(sent, 'preload-')).toEqual([
+      MSG.PRELOAD_START,
+      `${MSG.PRELOAD_CHUNK} #0`,
+      `${MSG.PRELOAD_START} restart`,
+      `${MSG.PRELOAD_CHUNK} #0`,
+      `${MSG.PRELOAD_CHUNK} #1`,
+      MSG.PRELOAD_ABORT,
+    ]);
+    expect(lane(sent, 'file-')).toEqual([
+      MSG.FILE_START,
+      `${MSG.FILE_CHUNK} #0`,
+      `${MSG.FILE_CHUNK} #1`,
+      `${MSG.FILE_CHUNK} #2`,
+      MSG.FILE_END,
+    ]);
+    const mainStart = sent.find(({ frame }) => frame.type === MSG.FILE_START)!;
+    expect(mainStart.frame).toMatchObject({ startChunk: 0, total: 3, size: PAYLOAD.length });
+    expect(mainStart.at).toBeGreaterThan(REDETECTED_AT);
+    const restart = sent.find(({ frame }) => frame.restart === true)!;
+    expect(restart.at).toBe(RECOVER_AT);
+    expect(restart.frame).toMatchObject({ skipped: false, total: 3, size: PAYLOAD.length });
+    expect(sent.indexOf(restart)).toBeLessThan(sent.indexOf(mainStart));
+
+    // After recovery the whole payload crosses the connection once, on the
+    // main lane; the preload never reaches its END.
+    const resent = afterOutage(sent);
+    const chunks = (type: string) => resent.filter(({ frame }) => frame.type === type);
+    expect(chunks(MSG.FILE_CHUNK)).toHaveLength(3);
+    expect(chunks(MSG.PRELOAD_CHUNK).length).toBeLessThan(3);
+    expect(chunks(MSG.PRELOAD_END)).toEqual([]);
+
+    // Deferred-abort rule: one PRELOAD_ABORT, never sent into the outage, and
+    // only after the main lane announced the tuple.
+    const aborts = sent.filter(({ frame }) => frame.type === MSG.PRELOAD_ABORT);
+    expect(aborts).toHaveLength(1);
+    expect(aborts[0]!.at).toBeGreaterThanOrEqual(RECOVER_AT);
+    expect(sent.indexOf(mainStart)).toBeLessThan(sent.indexOf(aborts[0]!));
+
+    // Host console (`?mxqrLog=info`): Paused, Resuming, then one Yielding line,
+    // each at info with the guest's PeerID alone.
+    expect(evidence).toEqual([PAUSED, RESUMING, YIELDING].map((line) => ['info', line]));
+  });
+
+  // The guest takes the main header only while its own route is local. Without
+  // a host re-detection of 'local' before the main lane started, the host
+  // cannot know the guest took it, so the restart runs to its END (9.0.8).
   it.each([
-    {
-      arrival: 'during-outage',
-      // The main lane already holds the tuple at recovery: no resume at all.
-      preloadLane: [MSG.PRELOAD_START, `${MSG.PRELOAD_CHUNK} #0`, MSG.PRELOAD_ABORT],
-      lines: [PAUSED, YIELDING],
-    },
-    {
-      arrival: 'after-recovery',
-      // The resumed lane stops at its next chunk once the main lane takes the tuple.
-      preloadLane: [
+    // The header was queued into the outage, before any post-recovery route.
+    { arrival: 'during-outage', route: 'local' },
+    { arrival: 'during-outage', route: 'remote' },
+    { arrival: 'after-recovery', route: 'remote' },
+    { arrival: 'during-outage', route: 'pending' },
+    { arrival: 'after-recovery', route: 'pending' },
+  ] as const)(
+    'the restarted preload keeps going when the request arrives $arrival and the host re-detects $route',
+    async ({ arrival, route }) => {
+      const { sent, sid, evidence } = await runHost(arrival, route);
+
+      for (const { frame } of sent) {
+        expect(frame).toMatchObject({ queueItemId: NEXT, sessionId: sid });
+      }
+      expect(lane(sent, 'preload-')).toEqual([
         MSG.PRELOAD_START,
         `${MSG.PRELOAD_CHUNK} #0`,
         `${MSG.PRELOAD_START} restart`,
         `${MSG.PRELOAD_CHUNK} #0`,
         `${MSG.PRELOAD_CHUNK} #1`,
-        MSG.PRELOAD_ABORT,
-      ],
-      lines: [PAUSED, RESUMING, YIELDING],
-    },
-  ] as const)(
-    'the preload yields to the main lane when the request arrives $arrival',
-    async ({ arrival, preloadLane, lines }) => {
-      const { sent, sid, evidence } = await runHost(arrival);
-
-      // Every frame carries the same tuple on the guest's single connection.
-      for (const { frame } of sent) {
-        expect(frame).toMatchObject({ queueItemId: NEXT, sessionId: sid });
-      }
-      expect(lane(sent, 'preload-')).toEqual(preloadLane);
+        `${MSG.PRELOAD_CHUNK} #2`,
+        MSG.PRELOAD_END,
+      ]);
       expect(lane(sent, 'file-')).toEqual([
         MSG.FILE_START,
         `${MSG.FILE_CHUNK} #0`,
@@ -347,135 +420,183 @@ describe('one stream per tuple after ICE recovery (C5-12, P4-D10 A)', () => {
         `${MSG.FILE_CHUNK} #2`,
         MSG.FILE_END,
       ]);
+      const restart = sent.find(({ frame }) => frame.restart === true)!;
+      expect(restart.at).toBe(RECOVER_AT);
       const mainStart = sent.find(({ frame }) => frame.type === MSG.FILE_START)!;
-      expect(mainStart.frame).toMatchObject({ startChunk: 0, total: 3, size: PAYLOAD.length });
-
-      // After recovery the whole payload crosses the connection once, on the
-      // main lane; the preload never reaches its END.
-      const resent = afterOutage(sent);
-      const chunks = (type: string) => resent.filter(({ frame }) => frame.type === type);
-      expect(chunks(MSG.FILE_CHUNK)).toHaveLength(3);
-      expect(chunks(MSG.PRELOAD_CHUNK).length).toBeLessThan(3);
-      expect(chunks(MSG.PRELOAD_END)).toEqual([]);
-
-      // Deferred-abort rule: one PRELOAD_ABORT, never sent into the outage, and
-      // only after the main lane announced the tuple.
-      const aborts = sent.filter(({ frame }) => frame.type === MSG.PRELOAD_ABORT);
-      expect(aborts).toHaveLength(1);
-      expect(aborts[0]!.at).toBeGreaterThanOrEqual(RECOVER_AT);
-      expect(sent.indexOf(mainStart)).toBeLessThan(sent.indexOf(aborts[0]!));
-      if (arrival === 'during-outage') {
-        expect(mainStart.at).toBe(REQUEST_AT);
-        expect(aborts[0]!.at).toBe(RECOVER_AT);
-      } else {
-        const restart = sent.find(({ frame }) => frame.restart === true)!;
-        expect(restart.at).toBe(RECOVER_AT);
-        expect(restart.frame).toMatchObject({ skipped: false, total: 3, size: PAYLOAD.length });
-        expect(sent.indexOf(restart)).toBeLessThan(sent.indexOf(mainStart));
-      }
-
-      // Host console (`?mxqrLog=info`): Resuming only where a resume happens,
-      // and one Yielding line, each at info with the guest's PeerID alone.
-      expect(evidence).toEqual(lines.map((line) => ['info', line]));
+      expect(mainStart.at).toBe(arrival === 'during-outage' ? REQUEST_AT : LATE_REQUEST_AT);
+      expect(sent.some(({ frame }) => frame.type === MSG.PRELOAD_ABORT)).toBe(false);
+      expect(evidence).toEqual([PAUSED, RESUMING].map((line) => ['info', line]));
     },
   );
 });
 
 describe('the guest under one stream per tuple', () => {
-  it.each(['during-outage', 'after-recovery'] as const)(
-    'plays the surviving main lane with no second resident copy when the request arrives %s',
-    async (arrival) => {
-      const { sent, sid, request } = await runHost(arrival);
-      resetAll();
-      initRoom();
-      const guest = await guestAwaitingPromotedPreload(sent, request);
+  it('plays the surviving main lane with no second resident copy', async () => {
+    const { sent, sid, request } = await runHost('after-recovery', 'local');
+    resetAll();
+    initRoom();
+    const guest = await guestAwaitingPromotedPreload(sent, request);
 
-      // A local guest accepts the main FILE_START while AWAITING_PRELOAD.
-      const resumed = afterOutage(sent);
-      const mainStart = resumed.findIndex(({ frame }) => frame.type === MSG.FILE_START);
-      await guest.deliver(resumed.slice(0, mainStart + 1));
-      expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
-      expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.FRESH);
-      expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
-      await guest.deliver(resumed.slice(mainStart + 1));
-      await vi.advanceTimersByTimeAsync(1_000);
+    // A local guest accepts the main FILE_START while AWAITING_PRELOAD.
+    const resumed = afterOutage(sent);
+    const mainStart = resumed.findIndex(({ frame }) => frame.type === MSG.FILE_START);
+    await guest.deliver(resumed.slice(0, mainStart + 1));
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DOWNLOADING);
+    expect(getState('playback.loadSource')).toBe(LOAD_SOURCE.FRESH);
+    expect(getState('transfer.state')).toBe(TRANSFER_STATE.RECEIVING);
+    await guest.deliver(resumed.slice(mainStart + 1));
+    await vi.advanceTimersByTimeAsync(1_000);
 
-      // Playback takes the main lane; the yielded preload is released, never activated.
-      expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
-      expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledWith(expect.any(File), NEXT, sid);
-      expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
-      expect(await storedBytesEqual(false, sid)).toBe(true);
-      expect(getState('preload.sessionState').get(sid)).toMatchObject({
-        skipped: true,
-        finalized: false,
-      });
-      expect(getState('preload.ready')).toBeNull();
-      expect(getState('preload.activeTarget')).toBeNull();
-      expect(await readStoredFile(NEXT, NAME, true, sid)).toBeNull();
-      // Only the main lane's receive lease remains: no second copy is reserved.
-      expect(storedFileAdmissionStatsForTests()).toEqual([
-        expect.objectContaining({ queueItemId: NEXT, isPreload: false, sessionId: sid }),
-      ]);
-      // The main lane's completion is the guest's one ACK.
-      expect(guest.outgoing.slice(1)).toEqual([
-        { type: MSG.PRELOAD_ACK, queueItemId: NEXT, sessionId: sid },
-      ]);
-    },
-  );
+    // Playback takes the main lane; the yielded preload is released, never activated.
+    expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
+    expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledWith(expect.any(File), NEXT, sid);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+    expect(await storedBytesEqual(false, sid)).toBe(true);
+    expect(getState('preload.sessionState').get(sid)).toMatchObject({
+      skipped: true,
+      finalized: false,
+    });
+    expect(getState('preload.ready')).toBeNull();
+    expect(getState('preload.activeTarget')).toBeNull();
+    expect(await readStoredFile(NEXT, NAME, true, sid)).toBeNull();
+    // Only the main lane's receive lease remains: no second copy is reserved.
+    expect(storedFileAdmissionStatsForTests()).toEqual([
+      expect.objectContaining({ queueItemId: NEXT, isPreload: false, sessionId: sid }),
+    ]);
+    // The main lane's completion is the guest's one ACK.
+    expect(guest.outgoing.slice(1)).toEqual([
+      { type: MSG.PRELOAD_ACK, queueItemId: NEXT, sessionId: sid },
+    ]);
+  });
 
   // PRELOAD_ABORT travels on the control route and the bulk frames on the bulk
-  // route, so the abort can overtake every bulk frame sent after recovery.
-  it.each(['during-outage', 'after-recovery'] as const)(
-    'a PRELOAD_ABORT that overtakes the bulk frames leaves the main lane intact when the request arrives %s',
-    async (arrival) => {
-      const { sent, sid, request } = await runHost(arrival);
-      const resumed = afterOutage(sent);
-      const abort = resumed.find(({ frame }) => frame.type === MSG.PRELOAD_ABORT);
-      expect(abort, 'the host sends the deferred PRELOAD_ABORT').toBeDefined();
+  // route, so the abort can overtake every bulk frame sent after recovery,
+  // the restart header included (the C5-0 lab's usual order).
+  it('a PRELOAD_ABORT that overtakes the bulk frames leaves the main lane intact', async () => {
+    const { sent, sid, request } = await runHost('after-recovery', 'local');
+    const resumed = afterOutage(sent);
+    const abort = resumed.find(({ frame }) => frame.type === MSG.PRELOAD_ABORT);
+    expect(abort, 'the host sends the deferred PRELOAD_ABORT').toBeDefined();
+    resetAll();
+    initRoom();
+    const guest = await guestAwaitingPromotedPreload(sent, request);
+
+    await guest.deliver([
+      { at: RECOVER_AT, frame: abort!.frame },
+      ...resumed.filter((event) => event !== abort),
+    ]);
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
+    expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledWith(expect.any(File), NEXT, sid);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+    expect(await storedBytesEqual(false, sid)).toBe(true);
+    expect(getState('preload.ready')).toBeNull();
+    expect(await readStoredFile(NEXT, NAME, true, sid)).toBeNull();
+    expect(guest.outgoing.slice(1)).toEqual([
+      { type: MSG.PRELOAD_ACK, queueItemId: NEXT, sessionId: sid },
+    ]);
+
+    // Known limit (RO-18): the restart START came after the abort, so the guest
+    // admitted the restart as an explicit retry and holds an orphan partial
+    // prefix. Nothing finishes it; the existing progress watchdog releases it
+    // once the main lane stops advancing (two progress deadlines), never
+    // activating it.
+    const preloadLeases = () => storedFileAdmissionStatsForTests().filter((a) => a.isPreload);
+    expect(getState('preload.sessionState').get(sid)).toMatchObject({
+      skipped: false,
+      finalized: false,
+      progress: 2,
+    });
+    expect(preloadLeases()).toEqual([
+      expect.objectContaining({ queueItemId: NEXT, sessionId: sid, phase: 'assembling' }),
+    ]);
+    await vi.advanceTimersByTimeAsync(2 * PRELOAD_RECEIVE_DEADLINE_MS.progress);
+    expect(getState('preload.sessionState').get(sid)).toMatchObject({ skipped: true });
+    expect(preloadLeases()).toEqual([]);
+    expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
+  });
+
+  // A guest awaiting the preload drops the main FILE_START and its chunks
+  // unless its own route is local when the header arrives. Its 10 s stall
+  // waiter has already asked once, and nothing else asks again, so the
+  // restarted preload is its one usable stream.
+  it.each([
+    { arrival: 'during-outage', hostRoute: 'remote', guestRoute: 'remote' },
+    { arrival: 'after-recovery', hostRoute: 'remote', guestRoute: 'remote' },
+    { arrival: 'during-outage', hostRoute: 'pending', guestRoute: 'unknown' },
+    { arrival: 'after-recovery', hostRoute: 'pending', guestRoute: 'unknown' },
+    // The header queued into the outage reached the guest before it learned
+    // its recovered route; the host re-detects local only afterwards.
+    { arrival: 'during-outage', hostRoute: 'local', guestRoute: 'unknown' },
+  ] as const)(
+    'plays the restarted preload when its route is $guestRoute at the main FILE_START (request $arrival, host re-detects $hostRoute)',
+    async ({ arrival, hostRoute, guestRoute }) => {
+      const { sent, sid, request } = await runHost(arrival, hostRoute);
       resetAll();
       initRoom();
       const guest = await guestAwaitingPromotedPreload(sent, request);
+      setState('network.connectionType', guestRoute);
 
-      await guest.deliver([
-        { at: RECOVER_AT, frame: abort!.frame },
-        ...resumed.filter((event) => event !== abort),
-      ]);
-      await vi.advanceTimersByTimeAsync(1_000);
+      const resumed = afterOutage(sent);
+      const mainStart = resumed.findIndex(({ frame }) => frame.type === MSG.FILE_START);
+      const preloadEnd = resumed.findIndex(({ frame }) => frame.type === MSG.PRELOAD_END);
+      expect(preloadEnd, 'the restarted preload reaches its END').toBeGreaterThan(mainStart);
+      await guest.deliver(resumed.slice(0, mainStart + 1));
+      // Not local at the header: the guest drops it and keeps awaiting the preload.
+      expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+      expect(getState('transfer.state')).not.toBe(TRANSFER_STATE.RECEIVING);
 
-      expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
-      expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledTimes(1);
-      expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledWith(expect.any(File), NEXT, sid);
+      // The restarted preload completes and the guest activates it.
+      await guest.deliver(resumed.slice(mainStart + 1, preloadEnd + 1));
+      expect(vi.mocked(loadPreloadedTrack)).toHaveBeenCalledTimes(1);
+      expect(vi.mocked(loadPreloadedTrack).mock.calls[0]![0]).toBe(NEXT);
       expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
-      expect(await storedBytesEqual(false, sid)).toBe(true);
-      expect(getState('preload.ready')).toBeNull();
-      expect(await readStoredFile(NEXT, NAME, true, sid)).toBeNull();
-      expect(guest.outgoing.slice(1)).toEqual([
-        { type: MSG.PRELOAD_ACK, queueItemId: NEXT, sessionId: sid },
-      ]);
-
-      const preloadLeases = () => storedFileAdmissionStatsForTests().filter((a) => a.isPreload);
-      if (arrival === 'during-outage') {
-        expect(getState('preload.sessionState').get(sid)).toMatchObject({ skipped: true });
-        expect(preloadLeases()).toEqual([]);
-      } else {
-        // The restart START came after the abort, so the guest admitted the
-        // restart as an explicit retry and holds its partial prefix. Nothing
-        // finishes it; the existing progress watchdog releases it once the main
-        // lane stops advancing (two progress deadlines), never activating it.
-        expect(getState('preload.sessionState').get(sid)).toMatchObject({
-          skipped: false,
-          finalized: false,
-          progress: 2,
-        });
-        expect(preloadLeases()).toEqual([
-          expect.objectContaining({ queueItemId: NEXT, sessionId: sid, phase: 'assembling' }),
-        ]);
-        await vi.advanceTimersByTimeAsync(2 * PRELOAD_RECEIVE_DEADLINE_MS.progress);
-        expect(getState('preload.sessionState').get(sid)).toMatchObject({ skipped: true });
-        expect(preloadLeases()).toEqual([]);
-        expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
-      }
+      expect(getState('preload.sessionState').get(sid)).toMatchObject({
+        finalized: true,
+        skipped: false,
+        progress: 3,
+      });
+      await guest.deliver(resumed.slice(preloadEnd + 1));
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(getState('playback.lifecycle')).not.toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+      expect(guest.outgoing.filter(({ type }) => type === MSG.REQUEST_DATA_RECOVERY)).toHaveLength(
+        1,
+      );
     },
   );
+
+  // The same queued header reached a guest that was already local again: it
+  // plays the main lane, and the restarted preload also completes (9.0.8).
+  it('keeps the 9.0.8 second copy when the main header was queued before the host re-detected local', async () => {
+    const { sent, sid, request } = await runHost('during-outage', 'local');
+    resetAll();
+    initRoom();
+    const guest = await guestAwaitingPromotedPreload(sent, request);
+
+    await guest.deliver(afterOutage(sent));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(vi.mocked(loadPreloadedTrack)).not.toHaveBeenCalled();
+    expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(finalizeGuestFile)).toHaveBeenCalledWith(expect.any(File), NEXT, sid);
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
+    expect(await storedBytesEqual(false, sid)).toBe(true);
+    expect(getState('preload.sessionState').get(sid)).toMatchObject({
+      finalized: true,
+      skipped: false,
+      progress: 3,
+    });
+    expect(getState('preload.ready')).toMatchObject({
+      queueItemId: NEXT,
+      sessionId: sid,
+      size: PAYLOAD.length,
+    });
+    expect(await storedBytesEqual(true, sid)).toBe(true);
+    expect(guest.outgoing.slice(1)).toEqual([
+      { type: MSG.PRELOAD_ACK, queueItemId: NEXT, sessionId: sid },
+    ]);
+  });
 });

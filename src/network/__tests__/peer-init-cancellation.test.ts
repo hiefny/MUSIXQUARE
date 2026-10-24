@@ -898,7 +898,10 @@ describe('network initialization ownership', () => {
     expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 
-  async function exhaustedStandardHost(): Promise<{ peer: FiringPeer; reconnectTimes: number[] }> {
+  async function playingStandardHostRecordingReconnects(): Promise<{
+    peer: FiringPeer;
+    reconnectTimes: number[];
+  }> {
     vi.useFakeTimers();
     const peer = makePeer('STANDARD-HOST', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
@@ -911,7 +914,7 @@ describe('network initialization ownership', () => {
   }
 
   it('reconnects signaling 1, 3, 7, 15 and 30 s after a drop, then publishes exhaustion', async () => {
-    const { peer, reconnectTimes } = await exhaustedStandardHost();
+    const { peer, reconnectTimes } = await playingStandardHostRecordingReconnects();
     const start = Date.now();
 
     peer.fire('disconnected');
@@ -947,7 +950,7 @@ describe('network initialization ownership', () => {
     ['an online event', () => window.dispatchEvent(new Event('online'))],
     ['a foreground return', () => recoverPeerAfterBackground(60_000)],
   ])('restarts exhausted host signaling at attempt 1 after %s', async (_name, hint) => {
-    const { peer, reconnectTimes } = await exhaustedStandardHost();
+    const { peer, reconnectTimes } = await playingStandardHostRecordingReconnects();
     peer.fire('disconnected');
     await vi.advanceTimersByTimeAsync(30_000);
     expect(getState('network.signalingHealth').status).toBe('exhausted');

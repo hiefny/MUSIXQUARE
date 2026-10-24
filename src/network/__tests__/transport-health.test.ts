@@ -26,15 +26,41 @@ function health(overrides: Partial<Health> = {}): Health {
   };
 }
 
+/** A copy of `fields` whose getters count each read under `prefix` + key. */
+function countingFields(
+  prefix: string,
+  fields: Record<string, unknown>,
+  reads: Map<string, number>,
+): Record<string, unknown> {
+  const target: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    Object.defineProperty(target, key, {
+      enumerable: true,
+      get: () => {
+        const name = `${prefix}${key}`;
+        reads.set(name, (reads.get(name) ?? 0) + 1);
+        return value;
+      },
+    });
+  }
+  return target;
+}
+
 describe('readTransportHealth', () => {
   it('reads every field of one connection once', () => {
-    const conn = {
-      open: true,
-      peerConnection: { connectionState: 'disconnected', iceConnectionState: 'checking' },
-      dataChannel: { readyState: 'open' },
-      controlChannel: { readyState: 'closing' },
-      iceRecoveryDeadline: 12_345,
-    } as unknown as DataConnection;
+    const reads = new Map<string, number>();
+    const conn = Object.assign(
+      countingFields('', { open: true, iceRecoveryDeadline: 12_345 }, reads),
+      {
+        peerConnection: countingFields(
+          'peerConnection.',
+          { connectionState: 'disconnected', iceConnectionState: 'checking' },
+          reads,
+        ),
+        dataChannel: countingFields('dataChannel.', { readyState: 'open' }, reads),
+        controlChannel: countingFields('controlChannel.', { readyState: 'closing' }, reads),
+      },
+    ) as unknown as DataConnection;
 
     expect(readTransportHealth(conn)).toEqual({
       open: true,
@@ -43,6 +69,14 @@ describe('readTransportHealth', () => {
       data: 'open',
       control: 'closing',
       recoveryDeadline: 12_345,
+    });
+    expect(Object.fromEntries(reads)).toEqual({
+      open: 1,
+      iceRecoveryDeadline: 1,
+      'peerConnection.connectionState': 1,
+      'peerConnection.iceConnectionState': 1,
+      'dataChannel.readyState': 1,
+      'controlChannel.readyState': 1,
     });
   });
 

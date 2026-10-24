@@ -8315,6 +8315,46 @@ describe('logical connection close paths decided by the provider', () => {
     ]);
   });
 
+  it('keeps room admission expiry when a closing error listener names its own cause', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const events: string[] = [];
+    conn.on('close', () => events.push('close'));
+    // Mirrors the guest join flow's pre-open error handler, which names the
+    // generic transport-error: the provider decided this close and knows why.
+    conn.on('error', (error: unknown) => {
+      const { type, message } = error as Error & { type?: string };
+      events.push(`error ${type} ${message} open=${conn.open}`);
+      conn.close('transport-error');
+    });
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    await flushAsync();
+    expect(events).toEqual(['error peer-unavailable ROOM_EXPIRED open=false', 'close']);
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(events).toEqual(['error peer-unavailable ROOM_EXPIRED open=false', 'close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (admission-expired) for 123456',
+    ]);
+  });
+
+  it('names the reason of an error listener that closes on an error the provider only reports', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    conn.on('error', () => conn.close('transport-error'));
+    // A signaling close before admission is reported, not decided: the
+    // provider emits the error and leaves the close to the listener.
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'network blip', 1006, false);
+    await flushAsync();
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (transport-error) for 123456',
+    ]);
+  });
+
   it('closes the shared connection once when a media rollback cannot be proven', async () => {
     const { peer, conn, socket, pc } = await establishHostWithSignalingState();
     const onClose = vi.fn();

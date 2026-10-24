@@ -773,6 +773,17 @@ describe('joinSession reconnect racing', () => {
     expect(conns[0].close).toHaveBeenCalledExactlyOnceWith('open-timeout');
   });
 
+  it('names transport-error as the cause when the join closes on a pre-open error', () => {
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    bus.on('network:error', () => undefined);
+
+    joinSession('HOST01');
+    conns[0].fire('error', new Error('pre-open failed'));
+
+    expect(conns[0].close).toHaveBeenCalledExactlyOnceWith('transport-error');
+  });
+
   it('reserves bounded ICE time for a fallback-capable transport before timing out', () => {
     vi.useFakeTimers();
     const { peer, conns } = makeFakePeer(20_000);

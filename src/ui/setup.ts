@@ -704,11 +704,13 @@ export function initSetup(): void {
       })
         .then((res) => {
           if (res.action === 'ok') {
-            // Hard-reset reconnect: reload the page and auto-join via the
-            // /CODE path. This guarantees a pristine state — no stale timers,
-            // transport connections, audio contexts, or sync runtime leftovers.
-            // The auto-join URL detection in initSetupOverlay picks up the
-            // code on bootstrap and enters guest flow automatically.
+            // Hard-reset reconnect: reload the page at the /CODE path. This
+            // guarantees a pristine state — no stale timers, transport
+            // connections, audio contexts, or sync runtime leftovers.
+            // On bootstrap the /CODE detection in initSetup opens the invite
+            // start screen with this code; the guest joins again only after
+            // pressing its Start button (_handleInviteLinkJoin in
+            // setup-guest.ts), not automatically.
             const lastCode = getState('network.lastJoinCode') || '';
             // Defense-in-depth: returnToRoomStart re-validates the format at the
             // URL navigation sink. Writers in setup-guest.ts already gate on

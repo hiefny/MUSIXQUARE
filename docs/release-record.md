@@ -56,8 +56,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       local로 다시 판정해 알린 다음 본 레인이 같은 (연결, 대기열 항목, 세션)을 가져가면 재개한
       미리받기가 물러나 `PRELOAD_ABORT` 하나와 `[Preload] Yielding preload for <peer> ...` info 줄을
       남긴다(C5-12, P4-D10 A. 그 밖의 경우는 9.0.8처럼 두 레인이 보내고, 남은 두 경로에서는 게스트가
-      본 레인 머리를 버려 기존 진행 감시의 다시 요청까지 미리받기 대기에 머물 수 있다, RO-18의 알려진
-      한계). 오류로 시작한 닫힘·입장 실패·PRO epoch 일괄 닫힘의 원인 줄이 `intentional` 대신
+      본 레인 머리를 버려 미리받기 대기에 머물 수 있다(기존 진행 감시가 남아 있고 그 다시 요청의 머리가
+      닿을 때 경로가 `local`이면 그 요청까지), RO-18의 알려진 한계). 오류로 시작한 닫힘·입장
+      실패·PRO epoch 일괄 닫힘의 원인 줄이 `intentional` 대신
       `transport-error`·`join-bootstrap-failed`·`pro-epoch-advanced`가 된다(`pro-epoch-advanced`는
       클라이언트와 Worker의 epoch 닫힘 이름이 달라 아직 기기에서 닿지 않는다). 일반방 게스트는 끊김
       창의 다시 읽기를 건너 마지막 닫힘 원인과 시각을 sessionStorage `mxqr-prev-close`에 두고, info를

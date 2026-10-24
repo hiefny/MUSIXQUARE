@@ -973,6 +973,8 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private controlReceiveTail: Promise<void> = Promise.resolve();
   private closed = false;
   private closeCause: LinkCloseCause | null = null;
+  /** The provider's cause while its error listeners may close without one. */
+  private errorCloseCause: TransportCloseReason | null = null;
   private intentionalClosing = false;
   private pcListenersAttached = false;
   private resourcesDisposed = false;
@@ -1215,7 +1217,18 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
 
   close(reason?: TransportCloseReason): void {
     if (!this.intentionalClosing) this.intentionalClosing = true;
-    this.terminate(reason ?? 'intentional');
+    this.terminate(reason ?? this.errorCloseCause ?? 'intentional');
+  }
+
+  /**
+   * Reports a close the provider decided: the error first, then the close.
+   * An error listener may close the connection itself without a reason (the
+   * guest join flow does); that close keeps the provider's cause.
+   */
+  closeAfterError(error: Error, cause: TransportCloseReason): void {
+    this.errorCloseCause = cause;
+    this.emit('error', error);
+    this.close(cause);
   }
 
   beginIceRestart(): boolean {
@@ -3694,8 +3707,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         );
         this.emit('signaling-recovery-blocked');
         if (!conn.open) {
-          conn.emit('error', createTransportError('peer-unavailable', 'ROOM_EXPIRED'));
-          conn.close('admission-expired');
+          conn.closeAfterError(
+            createTransportError('peer-unavailable', 'ROOM_EXPIRED'),
+            'admission-expired',
+          );
         }
         return;
       }

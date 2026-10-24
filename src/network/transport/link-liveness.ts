@@ -13,7 +13,8 @@ import type { TransportCloseReason } from './types.ts';
 /**
  * The connection names the causes it decides itself. The provider and the
  * application name theirs through close(reason); a close that names nothing
- * is intentional.
+ * is intentional, unless an error listener makes it while the provider
+ * reports the error of a close it decided.
  */
 export type LinkCloseCause =
   | 'control-send-failed'

@@ -8310,7 +8310,9 @@ describe('logical connection close paths decided by the provider', () => {
     expect(conn.open).toBe(false);
     peer.destroy();
     expect(events).toEqual(['error peer-unavailable ROOM_EXPIRED open=false', 'close']);
-    expect(closeLines()).toHaveLength(1);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (admission-expired) for 123456',
+    ]);
   });
 
   it('closes the shared connection once when a media rollback cannot be proven', async () => {

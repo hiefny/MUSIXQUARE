@@ -331,6 +331,18 @@ export interface TransportBulkFlowControl {
   subscribe(listener: () => void): () => void;
 }
 
+/**
+ * Why a caller closes a data connection, named at the decision for the
+ * provider's close-cause line. It never changes how the connection closes.
+ */
+export type TransportCloseReason =
+  | 'heartbeat-stale'
+  | 'open-timeout'
+  | 'rollback-unproven'
+  | 'admission-expired'
+  | 'peer-left'
+  | 'leave';
+
 export interface TransportDataConnection {
   peer: string;
   open: boolean;
@@ -357,7 +369,8 @@ export interface TransportDataConnection {
   readonly reportsIceRecovery?: boolean;
 
   send(data: unknown): void;
-  close(): void;
+  /** PeerJS ignores the reason: its close option bag reads only `flush`. */
+  close(reason?: TransportCloseReason): void;
   on(event: 'open', callback: () => void): void;
   on(event: 'data', callback: (data: unknown) => void): void;
   on(event: 'close', callback: () => void): void;

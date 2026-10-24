@@ -917,8 +917,10 @@ RO-47 owner-in-place
   - Mixed versions: `control-isolation.test.ts` with the frozen fixture
     `src/network/transport/__tests__/fixtures/control-isolation-c9.ts`. A Wi-Fi to LTE switch with
     both PCs is device-only.
-- **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1); Phase 4 still owes the close
-  causes and the link-liveness owner. See
+- **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
+  (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
+  and `src/network/transport/link-liveness.ts` keeps the first one and logs one info line per
+  close; no timer or state moved. Phase 4 still owes the link-liveness owner. See
   [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md).
   Exception RO-35.
 

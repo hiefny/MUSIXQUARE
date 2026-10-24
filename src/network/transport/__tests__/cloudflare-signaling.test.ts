@@ -8043,7 +8043,21 @@ describe('Isolated control peer ownership', () => {
   });
 });
 
+/** Silences info logging and reads back only the close-cause lines. */
+function spyCloseCauseLines(): () => string[] {
+  const info = vi.spyOn(log, 'info').mockImplementation(() => undefined);
+  return () =>
+    info.mock.calls
+      .map(([line]) => line)
+      .filter(
+        (line): line is string =>
+          typeof line === 'string' && line.startsWith('[Transport] Logical connection closed'),
+      );
+}
+
 describe('logical connection close paths', () => {
+  let closeLines: () => string[];
+
   async function openLink(createIsolatedControl?: () => null) {
     const conn = new CloudflareDataConnection(
       'guest-1',
@@ -8082,6 +8096,7 @@ describe('logical connection close paths', () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    closeLines = spyCloseCauseLines();
   });
 
   it('closes once when the original route outlives its disconnected grace', async () => {
@@ -8090,6 +8105,9 @@ describe('logical connection close paths', () => {
     link.pc.dispatch('connectionstatechange');
     await vi.advanceTimersByTimeAsync(DATA_CONNECTION_DISCONNECTED_GRACE_MS);
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (original-grace-expired) for guest-1',
+    ]);
   });
 
   it('closes once when the original route fails without a restart binding', async () => {
@@ -8097,6 +8115,9 @@ describe('logical connection close paths', () => {
     link.pc.connectionState = 'failed';
     link.pc.dispatch('connectionstatechange');
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (original-terminal) for guest-1',
+    ]);
   });
 
   it('closes once when a data channel closes', async () => {
@@ -8104,6 +8125,9 @@ describe('logical connection close paths', () => {
     link.bulk.readyState = 'closed';
     link.bulk.dispatch('close');
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (channel-closed) for guest-1',
+    ]);
   });
 
   it('closes once when a bulk-flow control frame cannot be sent', async () => {
@@ -8111,6 +8135,9 @@ describe('logical connection close paths', () => {
     failSends(link.control);
     link.conn.startBulkFlowControl();
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (control-send-failed) for guest-1',
+    ]);
   });
 
   it('closes once when the isolated control route fails', async () => {
@@ -8118,12 +8145,29 @@ describe('logical connection close paths', () => {
     failSends(link.control);
     link.conn.startBulkFlowControl();
     expectClosedOnce(link);
+    // The side route fails first; the credit sender's own report of the same
+    // send failure re-enters the closed connection and is not a second cause.
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (side-failed:send) for guest-1',
+    ]);
   });
 
   it('closes once when the application closes it', async () => {
     const link = await openLink();
     link.conn.close();
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (intentional) for guest-1',
+    ]);
+  });
+
+  it('closes once with the reason the application names', async () => {
+    const link = await openLink();
+    link.conn.close('heartbeat-stale');
+    expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (heartbeat-stale) for guest-1',
+    ]);
   });
 
   it('closes once when the resume liveness probe goes unanswered', async () => {
@@ -8131,6 +8175,9 @@ describe('logical connection close paths', () => {
     expect(link.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
     await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS);
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-probe-unanswered) for guest-1',
+    ]);
   });
 
   it('closes once when the resume liveness probe cannot be sent', async () => {
@@ -8138,6 +8185,9 @@ describe('logical connection close paths', () => {
     failSends(link.control);
     expect(link.conn.recoverAfterBackground(60_000, false)).toBe('stale-connection-closed');
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-probe-unanswered) for guest-1',
+    ]);
   });
 
   it('closes once when a resumed connection has a channel that is no longer open', async () => {
@@ -8145,6 +8195,9 @@ describe('logical connection close paths', () => {
     link.control.readyState = 'closed';
     expect(link.conn.recoverAfterBackground(60_000, false)).toBe('stale-connection-closed');
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-stale) for guest-1',
+    ]);
   });
 
   it('closes once when a resumed disconnected connection has also lost signaling', async () => {
@@ -8153,6 +8206,9 @@ describe('logical connection close paths', () => {
     link.pc.dispatch('connectionstatechange');
     expect(link.conn.recoverAfterBackground(60_000, true)).toBe('stale-connection-closed');
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-stale) for guest-1',
+    ]);
   });
 
   it('closes once when a resumed connection stays disconnected past its short probe', async () => {
@@ -8162,20 +8218,31 @@ describe('logical connection close paths', () => {
     expect(link.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
     await vi.advanceTimersByTimeAsync(BACKGROUND_RESUME_DISCONNECTED_PROBE_MS);
     expectClosedOnce(link);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-disconnected) for guest-1',
+    ]);
   });
 
-  it('keeps one close when later closes reach an already closed connection', async () => {
+  it('keeps the first cause when later closes reach an already closed connection', async () => {
     const link = await openLink();
-    link.conn.close();
+    link.conn.close('peer-left');
+    link.conn.close('leave');
     link.conn.close();
     link.bulk.dispatch('close');
     link.pc.dispatch('connectionstatechange');
     await vi.advanceTimersByTimeAsync(DATA_CONNECTION_DISCONNECTED_GRACE_MS);
     expectClosedOnce(link);
+    expect(closeLines()).toEqual(['[Transport] Logical connection closed (peer-left) for guest-1']);
   });
 });
 
 describe('logical connection close paths decided by the provider', () => {
+  let closeLines: () => string[];
+
+  beforeEach(() => {
+    closeLines = spyCloseCauseLines();
+  });
+
   it('closes a guest connection once when the host is told the guest left', async () => {
     const { peer, conn, socket, pc } = await establishHostWithSignalingState('guest-left');
     const onClose = vi.fn();
@@ -8187,6 +8254,9 @@ describe('logical connection close paths decided by the provider', () => {
     expect(conn.open).toBe(false);
     peer.destroy();
     expect(onClose).toHaveBeenCalledOnce();
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (peer-left) for guest-left',
+    ]);
   });
 
   it('closes the host connection once when the guest is told the host left', async () => {
@@ -8200,6 +8270,7 @@ describe('logical connection close paths decided by the provider', () => {
     expect(conn.open).toBe(false);
     peer.destroy();
     expect(onClose).toHaveBeenCalledOnce();
+    expect(closeLines()).toEqual(['[Transport] Logical connection closed (peer-left) for 123456']);
   });
 
   it('closes an unopened guest connection once when its room admission expires', async () => {
@@ -8215,6 +8286,9 @@ describe('logical connection close paths decided by the provider', () => {
     expect(conn.open).toBe(false);
     peer.destroy();
     expect(onClose).toHaveBeenCalledOnce();
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (admission-expired) for 123456',
+    ]);
   });
 
   it('closes the shared connection once when a media rollback cannot be proven', async () => {
@@ -8230,6 +8304,9 @@ describe('logical connection close paths decided by the provider', () => {
     expect(conn.open).toBe(false);
     peer.destroy();
     expect(onClose).toHaveBeenCalledOnce();
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (rollback-unproven) for guest-media',
+    ]);
   });
 
   it('closes the connection once when an ICE restart rollback cannot be proven', async () => {
@@ -8254,5 +8331,8 @@ describe('logical connection close paths decided by the provider', () => {
     expect(pc.connectionState).toBe('closed');
     peer.destroy();
     expect(onClose).toHaveBeenCalledOnce();
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (rollback-unproven) for 123456',
+    ]);
   });
 });

@@ -1129,13 +1129,13 @@ export function cancelPendingSessionSetup(): void {
   resetSignalingHealth();
 
   try {
-    hostConn?.close();
+    hostConn?.close('leave');
   } catch {
     /* noop */
   }
   for (const connectedPeer of connectedPeers) {
     try {
-      (connectedPeer.conn as DataConnection | null)?.close();
+      (connectedPeer.conn as DataConnection | null)?.close('leave');
     } catch {
       /* noop */
     }
@@ -1244,7 +1244,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   const hostConn = getState('network.hostConn');
   if (hostConn) {
     try {
-      hostConn.close();
+      hostConn.close('leave');
     } catch {
       /* noop */
     }
@@ -1254,7 +1254,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   connectedPeers.forEach((p) => {
     try {
       const conn = p.conn as DataConnection | null;
-      if (conn) conn.close();
+      if (conn) conn.close('leave');
     } catch {
       /* noop */
     }

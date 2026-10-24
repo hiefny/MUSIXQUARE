@@ -59,6 +59,7 @@ export default defineConfig({
         'src/audio/context-recovery.ts',
         'src/storage/preload.ts',
         'src/network/transport/cloudflare-signaling.ts',
+        'src/network/transport/link-liveness.ts',
         'src/youtube/oembed.ts',
         'src/account/api.ts',
         'src/account/session.ts',
@@ -144,6 +145,14 @@ export default defineConfig({
           branches: 71,
           functions: 72,
           lines: 78,
+        },
+        // The close-cause record (Phase 4, C5-5) is fully covered by the
+        // cloudflare-signaling.test.ts close-path tests on 2026-10-24.
+        'src/network/transport/link-liveness.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
         },
         'src/player/local-output-rejoin.ts': {
           statements: 80,

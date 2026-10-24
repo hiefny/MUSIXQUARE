@@ -852,7 +852,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
       const departure = detachHostPeerConnection(peerId, conn);
       if (!departure) return;
       try {
-        conn.close();
+        conn.close('open-timeout');
       } catch {
         /* noop */
       }

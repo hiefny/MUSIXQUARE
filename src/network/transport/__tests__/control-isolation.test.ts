@@ -1387,3 +1387,66 @@ describe('RTC interruption grace and the side-route windows a peer enforces', ()
     expect(controlIsolationSource).toMatch(/^const RESTART_CAP_MS = 30_000;$/mu);
   });
 });
+
+describe('side failure reasons the logical owner receives', () => {
+  it('names a restart window that ran out', async () => {
+    const p = await live();
+    for (const e of [p.a, p.b]) {
+      e.route.originalUp = false;
+      restarting(e).originalChanged();
+    }
+    p.a.peer.state('failed');
+    p.b.peer.state('failed');
+    await p.pump();
+    await vi.advanceTimersByTimeAsync(30_000);
+    for (const e of [p.a, p.b]) expect(e.fail).toHaveBeenCalledExactlyOnceWith('expired');
+  });
+
+  it('names a route that a fenced endpoint can no longer use', async () => {
+    const declined = pair();
+    await declined.negotiate();
+    declined.a.peer.channel!.open();
+    declined.a.flow.handleOriginal(
+      { ...hello(declined.b), kind: 'decline', target: hello(declined.a).nonce },
+      true,
+    );
+    expect(declined.a.fail).toHaveBeenCalledExactlyOnceWith('route');
+
+    const closed = await live();
+    closed.a.peer.state('closed');
+    expect(closed.a.fail).toHaveBeenCalledExactlyOnceWith('route');
+  });
+
+  it('names a local send that throws', async () => {
+    const p = pair();
+    await p.activate();
+    p.a.peer.channel!.sendHook = () => {
+      throw new Error('native rejected');
+    };
+    expect(() => p.a.flow.send('{"type":"play"}')).toThrow('native rejected');
+    expect(p.a.fail).toHaveBeenCalledExactlyOnceWith('send');
+  });
+
+  it('names an application frame on the original route after its fence', async () => {
+    const p = pair();
+    await p.activate();
+    expect(p.a.flow.acceptOriginalApplication()).toBe(false);
+    expect(p.a.fail).toHaveBeenCalledExactlyOnceWith('protocol');
+  });
+
+  it('names a bound that a peer exceeded', async () => {
+    const p = pair();
+    await p.negotiate();
+    for (let i = 0; i < 129; i++)
+      p.a.flow.handleOriginal(
+        {
+          ...hello(p.b),
+          kind: 'candidate',
+          target: hello(p.a).nonce,
+          candidate: { candidate: `candidate-${i}` },
+        },
+        true,
+      );
+    expect(p.a.fail).toHaveBeenCalledExactlyOnceWith('limit');
+  });
+});

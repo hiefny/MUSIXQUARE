@@ -141,7 +141,7 @@ function syncHeartbeatMonitor(): void {
       // from close(); host.ts must see that connection as stale and ignore it.
       for (const departure of departures) {
         try {
-          departure.connection?.close();
+          departure.connection?.close('heartbeat-stale');
         } catch {
           /* noop */
         }

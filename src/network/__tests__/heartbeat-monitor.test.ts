@@ -378,4 +378,17 @@ describe('host heartbeat monitor', () => {
     ]);
     expect(mocks.broadcastDeviceList).toHaveBeenCalledOnce();
   });
+
+  it('names heartbeat-stale as the cause when it closes a stale connection', async () => {
+    const conn = makeConnection('stale', { open: false });
+    installPeers([makePeer(conn.peer, conn, Date.now() - 9_000)]);
+    setState('setup.sessionStarted', true);
+    const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
+    initHeartbeatMonitor();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(mocks.detachHostPeerConnection).toHaveBeenCalledWith(conn.peer, conn);
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith('heartbeat-stale');
+  });
 });

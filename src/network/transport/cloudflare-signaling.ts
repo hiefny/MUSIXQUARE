@@ -7,6 +7,7 @@ import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
 import { ControlIsolation, type IsolatedControlLease } from './control-isolation.ts';
+import { recordLinkClose, type LinkCloseCause } from './link-liveness.ts';
 import {
   isStandardHttpSignalingSocket,
   StandardHttpSignalingSocket,
@@ -20,6 +21,7 @@ import type {
   DeveloperInvalidationFrame,
   ProQueueAdditionFrame,
   ProSignalingOptions,
+  TransportCloseReason,
   TransportConnectOptions,
   TransportDataConnection,
   TransportBackgroundRecoveryResult,
@@ -964,12 +966,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   controlChannel?: RTCDataChannel;
   private readonly bulkCredit = new BulkFlowControl(
     (frame) => this.sendControl(JSON.stringify(frame)),
-    () => this.terminate(),
+    () => this.terminate('control-send-failed'),
   );
   readonly controlIsolation?: ControlIsolation;
   readonly bulkFlowControl = this.createBulkFlowPort();
   private controlReceiveTail: Promise<void> = Promise.resolve();
   private closed = false;
+  private closeCause: LinkCloseCause | null = null;
   private intentionalClosing = false;
   private pcListenersAttached = false;
   private resourcesDisposed = false;
@@ -1016,7 +1019,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         sendOriginal: (data) => this.sendOriginalControl(data),
         receive: (data) => this.receiveControl(data, false),
         changed: (active) => this.bulkCredit.setControlIsolationActive(active),
-        fail: () => this.terminate(),
+        fail: (reason) => this.terminate(`side-failed:${reason}`),
         // Side ICE-restart signaling waits while the original PC recovers.
         originalReady: () =>
           this.open &&
@@ -1120,7 +1123,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         .catch((error) => this.emit('error', error));
     });
     channel.addEventListener('close', () => {
-      this.terminate();
+      this.terminate('channel-closed');
     });
     channel.addEventListener('error', (event) => {
       // Chromium can synchronously report `OperationError: ... Close called`
@@ -1180,7 +1183,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
             this.controlIsolation?.originalChanged();
             return;
           }
-          this.terminate();
+          this.terminate('original-terminal');
         }
       });
     }
@@ -1210,9 +1213,9 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     this.bulkCredit.noteSent(creditedBytes);
   }
 
-  close(): void {
+  close(reason?: TransportCloseReason): void {
     if (!this.intentionalClosing) this.intentionalClosing = true;
-    this.terminate();
+    this.terminate(reason ?? 'intentional');
   }
 
   beginIceRestart(): boolean {
@@ -1251,7 +1254,8 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     setManagedTimer(
       this.backgroundResumeLivenessTimerKey,
       () => {
-        if (this.backgroundResumeRecoveryArmed && !this.closed) this.terminate();
+        if (this.backgroundResumeRecoveryArmed && !this.closed)
+          this.terminate('resume-probe-unanswered');
       },
       BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS,
     );
@@ -1265,7 +1269,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         guestTime: Date.now(),
       });
     } catch {
-      this.terminate();
+      this.terminate('resume-probe-unanswered');
       return 'stale-connection-closed';
     }
     return status;
@@ -1299,7 +1303,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     // room worker retains guest signaling for the host's 60-second reclaim
     // window even after the host transport has gone away.
     if (rtcTerminal || dataChannelsUnhealthy) {
-      this.terminate();
+      this.terminate('resume-stale');
       return 'stale-connection-closed';
     }
 
@@ -1310,7 +1314,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     if (rtcState === 'disconnected' || sideState === 'disconnected') {
       this.backgroundResumeSawDisconnected = true;
       if (signalingDisconnected) {
-        this.terminate();
+        this.terminate('resume-stale');
         return 'stale-connection-closed';
       }
       setManagedTimer(
@@ -1329,7 +1333,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
             // WebKit silently mutates the property, keep waiting for the reply.
             return;
           }
-          this.terminate();
+          this.terminate('resume-disconnected');
         },
         BACKGROUND_RESUME_DISCONNECTED_PROBE_MS,
       );
@@ -1354,7 +1358,8 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     return record.type === MSG.SYNC_PONG && record.pingId === this.backgroundResumeProbePingId;
   }
 
-  private terminate(): void {
+  private terminate(cause: LinkCloseCause): void {
+    this.closeCause = recordLinkClose(this.closeCause, cause, this.peer);
     this.cancelDisconnectedGrace();
     this.clearBackgroundResumeRecovery();
     this.disposeResources();
@@ -1395,7 +1400,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       this.disconnectedGraceTimerKey,
       () => {
         if (pc !== this.peerConnection || pc.connectionState === 'connected') return;
-        this.terminate();
+        this.terminate('original-grace-expired');
       },
       RTC_INTERRUPTION_GRACE_MS,
     );
@@ -3690,7 +3695,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         this.emit('signaling-recovery-blocked');
         if (!conn.open) {
           conn.emit('error', createTransportError('peer-unavailable', 'ROOM_EXPIRED'));
-          conn.close();
+          conn.close('admission-expired');
         }
         return;
       }
@@ -4138,7 +4143,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         );
         return;
       }
-      conn?.close();
+      conn?.close('peer-left');
       for (const [callId, mediaConn] of this.mediaCalls) {
         if (mediaConn.peer === message.peerId) {
           mediaConn.closeFromRemote();
@@ -4269,7 +4274,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         log.info('[Transport] Ignoring signaling peer-left for host; data channel is still alive');
         return;
       }
-      conn.close();
+      conn.close('peer-left');
     }
   }
 
@@ -4793,7 +4798,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.clearExactIceNegotiation(negotiation);
     } catch {
       // A PC with unprovable SDP ownership must not keep shared media alive.
-      if (this.connections.get(conn.peer) === conn) conn.close();
+      if (this.connections.get(conn.peer) === conn) conn.close('rollback-unproven');
     }
   }
 
@@ -5098,7 +5103,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
             }
           }
           try {
-            currentConnection.close();
+            currentConnection.close('rollback-unproven');
           } catch (closeError) {
             log.warn('[Transport] Data close listener threw during RTC retirement', closeError);
           }

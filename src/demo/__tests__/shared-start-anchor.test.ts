@@ -497,6 +497,25 @@ describe('P4-D9: the demo and queue shared-start anchors', () => {
       expect(getStandardHostPendingFileStartAt()).toBeUndefined();
     },
   );
+
+  it('keeps the queue anchor and PLAY for a queue file started while the demo flag is set', async () => {
+    // Not demo output: an operator guest's track request reaches playTrack
+    // without a demo check, and the queue file it starts owns a resident.
+    // The narrow fix leaves that start on the queue anchor, as before.
+    await startDemo({ selectQueueItem: true });
+    edges.broadcast.mockClear();
+
+    const queueStartAt = await startSelectedQueueItem();
+
+    expect(getState('demo.active')).toBe(true);
+    expect(getStandardHostPendingFileStartAt()).toBe(queueStartAt);
+    const plays = edges.broadcast.mock.calls
+      .map(([frame]) => frame as Record<string, unknown>)
+      .filter((frame) => frame.type === MSG.PLAY);
+    expect(plays).toEqual([
+      expect.objectContaining({ queueItemId: QUEUE_ITEM_ID, hostStartAt: queueStartAt }),
+    ]);
+  });
 });
 
 describe('P4-D9: queue playback after leaving the demo is unchanged', () => {

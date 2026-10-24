@@ -472,7 +472,12 @@ RO-49 accepted-exception
   `src/player/transport.ts`) and the demo anchor (`setDemoHostStartAt`,
   `getPendingDemoHostStartAt` in `src/demo/host-start-anchor.ts`, a leaf the startup graph can
   read without the lazy demo timing module; `startDemoPlayback` in `src/demo/mode.ts`). The modes
-  are mutually exclusive and other modules branch on `demo.active`.
+  are mutually exclusive and other modules branch on `demo.active`;
+  `armStandardHostCanonicalTimeline` declines demo output (`demo.active` with no resident file;
+  demo tracks publish none) since train 4B (P4-D9), so demo playback never arms the queue anchor
+  or its canonical timeline. A queue file started while the demo flag is still set (an operator
+  guest's track request reaches `playTrack` without a demo check) owns a resident and keeps the
+  queue anchor and its PLAY, as before.
   The queue anchor validates its output identity; the demo anchor only checks that it lies in the
   future, and only demo code clears it.
 - **Target single owner:** `transport.ts`: one pending shared-start anchor for both kinds,
@@ -500,18 +505,21 @@ RO-49 accepted-exception
     pause and stop do not clear the demo anchor).
   - Teardown: `src/demo/__tests__/mode-recovery.test.ts` "does not retry an aborted guest fetch
     after exit".
-  - Visibility: missing.
-  - Both anchors together (Phase 4 4A, tests only): `src/demo/__tests__/shared-start-anchor.test.ts`
-    (P4-D9).
+  - Visibility: demo side `src/demo/__tests__/shared-start-anchor.test.ts` "the demo host reports
+    its own position after a hidden stall"; queue side, same file, "keeps the queue canonical
+    timeline governing the host position across a hidden stall" (train 4B, P4-D9).
+  - Both anchors together (Phase 4 4A, tests only; flipped to the fix in train 4B):
+    `src/demo/__tests__/shared-start-anchor.test.ts` (P4-D9).
 - **Status:** `duplicated` (mutually exclusive modes). One lead since Phase 4 4A (C3-I1). The
-  anchor investigation is done (owner decision P4-D9 A, tests only): DEMO_PLAY, SYNC_PONG and the
-  late-join demo bootstrap carry the same demo start, and no frame reads the queue anchor while
-  the demo runs. When a queue item was selected before demo entry, demo playback still arms that
-  item's queue anchor and its canonical timeline governs the demo host's reported position; whether
-  that is a defect is not decided. One anchor (C3-I8) and one start-and-publish-once primitive
-  (C3-I7) are deferred; only a narrow fix of a confirmed problem may go to train 4B. See
-  [Standard file common start](standard-file-common-start.md) for the intended separate demo path.
-  Exception RO-49.
+  anchor investigation (owner decision P4-D9 A, tests only) found that when a queue item was
+  selected before demo entry, demo playback armed that item's queue anchor and its canonical
+  timeline governed the demo host's reported position (4.8 s against 2.8 s audible after a
+  hidden audio-clock stall in the harness). The owner chose the narrow fix on 2026-10-25 (train
+  4B): demo playback never arms that anchor, so the demo host reports its own position, while
+  DEMO_PLAY, SYNC_PONG and the late-join demo bootstrap still carry the same demo start and queue
+  playback after the demo is unchanged. One anchor (C3-I8) and one start-and-publish-once
+  primitive (C3-I7) stay deferred. See [Standard file common start](standard-file-common-start.md)
+  for the separate demo path. Exception RO-49.
 
 ### RO-07 PRO signaling broadcast delivery
 
@@ -2039,27 +2047,31 @@ entry needs the owner's acceptance and is not implied by this registry.
 ### RO-49 Queue and demo start anchors stay two
 
 - **Parent:** RO-06. Plan steps C3-I8 (one pending shared-start anchor) and C3-I7 (one
-  start-and-publish-once primitive) deferred (owner decision P4-D9 A, 2026-10-24).
+  start-and-publish-once primitive) deferred (owner decision P4-D9 A, 2026-10-24; the narrow fix
+  of 2026-10-25 does not schedule them).
 - **Exception:** the queue anchor in `src/player/transport.ts` and the demo anchor in
   `src/demo/host-start-anchor.ts` stay two records with different validation; only the 200 ms
   lead `LOCAL_FILE_START_LEAD_MS` is shared (Phase 4 4A, C3-I1).
 - **Evidence:** the shared-start harness (`src/demo/__tests__/shared-start-anchor.test.ts`, Phase
-  4 4A, tests only) shows DEMO_PLAY, SYNC_PONG, the late-join demo bootstrap and
-  `getPendingDemoHostStartAt()` carrying one demo start, and no frame reading the queue anchor
-  while the demo runs, so the two records never disagree on the wire. One anchor is not a plain
+  4 4A, flipped to the fix in train 4B) shows DEMO_PLAY, SYNC_PONG, the late-join demo bootstrap
+  and `getPendingDemoHostStartAt()` carrying one demo start, and the queue anchor never armed
+  while the demo runs, selected queue item or not, so only one record exists in each mode. Its
+  queue rows show a queue start after the demo still arms the queue anchor, publishes it in PLAY
+  and the PONG, and keeps the canonical timeline across a hidden stall. One anchor is not a plain
   move: the queue anchor is a canonical wall-clock timeline, not only a pending deadline, so
   recording the demo the same way either gives the demo that timeline or adds a second record
   behind one getter, and revoking it in `stopPlayerNode` would change queue-anchor behaviour on
   many paths. Six demo test files mock `player/transport.ts` wholesale, so a shared primitive would
   make them fail on a missing export or pass against a mock.
-- **Behaviour risk:** when a queue item was selected before demo entry, demo playback still arms
-  that item's queue anchor, and its canonical timeline governs the demo host's reported position
-  (in the harness, 4.8 s instead of 0 s after the page is hidden for 5 s with the audio clock
-  stopped). Whether that is a defect is not decided and the real-device gap is not measured; no
-  known-accepted entry.
-- **Revisit when:** that overlap or another demo or queue anchor problem is confirmed as a defect.
-  Only a narrow fix of it may go to train 4B; one anchor (C3-I8, with C3-I7) needs its own owner
-  decision.
+- **Behaviour risk:** the overlap this record named (the demo host's position governed by a
+  selected queue item's timeline, 4.8 s against 2.8 s audible after a hidden stall in the
+  harness) is fixed in train 4B (owner decision 2026-10-25). Left: the demo anchor is not revoked
+  by transport pause and stop, only by demo code; the demo host's position follows its audio
+  clock through a hidden stall, as it already did without a selected queue item; and a queue file
+  started while the demo flag is still set keeps the queue anchor and publishes its PLAY while
+  the PONG still advertises the demo (unchanged, pinned by the harness). No known-accepted entry.
+- **Revisit when:** another demo or queue anchor problem is confirmed as a defect, or the owner
+  schedules one anchor (C3-I8, with C3-I7), which needs its own owner decision.
 - **Status:** `accepted-exception`.
 
 ## Checked side flows without a record

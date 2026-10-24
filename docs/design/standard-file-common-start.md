@@ -51,7 +51,10 @@ invocation, occurrence and load-epoch fences.
 ## Guided demo preparation
 
 Demo tracks are identified by demo index and decoded buffer, without creating
-an ordinary queue item. With an open participant connection, the host schedules
+an ordinary queue item. Demo playback never arms the queue's canonical
+wall-clock timeline, even when a queue item stays selected across entry, so the
+demo host's position and its SYNC_PONG follow its own audio clock.
+With an open participant connection, the host schedules
 its source 200 ms ahead after its own download, decode and audio preparation
 succeed. It captures the actual
 scheduled source deadline as `DEMO_PLAY.hostStartAt`; `DEMO_PLAY.time` is the

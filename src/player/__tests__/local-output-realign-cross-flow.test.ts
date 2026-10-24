@@ -537,6 +537,21 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
     return Math.round((player.getCurrentTime() - hostPosition) * 1000);
   }
 
+  /**
+   * The host iframe's own BUFFERING or CUED -> PLAYING change. A Standard
+   * host broadcasts it as raw feedback, a YOUTUBE_STATE without hostPlayAt
+   * (youtube/iframe.ts onStateChange). It skips it in a PRO room, while its
+   * own scheduled sync or zero-start protocol is in flight, and for a repeat
+   * of the same state within 300 ms. The heartbeat-only cases below stand for
+   * a skipped or lost frame.
+   */
+  function hostResumeStateFrame(): void {
+    hostFrame(MSG.YOUTUBE_STATE, {
+      state: 1,
+      time: 100 + (Date.now() - hostTimelineOrigin) / 1000,
+    });
+  }
+
   /** The iframe's pause, seek and play calls, each with its time after the return. */
   function alignmentOps(player: GuestIframe, returnedAt: number): string[] {
     return player.__log
@@ -562,10 +577,11 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
       );
       expect(getManagedTimer('background-return-sync-rendezvous-retry')).toBeNull();
 
-      // The host plays again at 2 s. The chain does not come back for it. This
-      // guest is still on the host timeline (the heartbeat drift seeks while
-      // locked kept it there), so no ordinary heartbeat correction fires
-      // either; the residual-offset cases below show those corrections.
+      // The host plays again at 2 s. The chain does not come back for it.
+      // Heartbeats only here: this guest is still on the host timeline (the
+      // heartbeat drift seeks while locked kept it there), so no heartbeat
+      // correction fires either. The cases below add a residual offset, with
+      // and without the host's own resume state frame.
       await vi.advanceTimersByTimeAsync(2_000 - RETURN_GIVE_UP_MS);
       await heartbeatsEvery3s(3);
       expect(Date.now() - returnedAt).toBe(11_000);
@@ -581,7 +597,56 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
   );
 
   it.each([
-    // Below the 150 ms automatic trigger: nothing corrects it until a Sync.
+    { host: 'BUFFERING', state: 3, stallMs: 100 },
+    { host: 'BUFFERING', state: 3, stallMs: 1_000 },
+    { host: 'CUED', state: 5, stallMs: 1_000 },
+    { host: 'BUFFERING', state: 3, stallMs: 4_000 },
+  ])(
+    'expected today: after the give-up, the host resume state frame re-aligns a $stallMs ms $host stall at once',
+    async ({ state, stallMs }) => {
+      const player = installStandardGuest({ iframeState: 1, locallyPaused: false });
+      const returnedAt = await returnWhileHost(player, { state });
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(returnChainGaveUp()).toBe(true);
+
+      hostTimelineOrigin += stallMs;
+      expect(guestOffsetMs(player)).toBe(stallMs);
+      // The host plays again at 2 s; its iframe's PLAYING goes out first.
+      hostResumeStateFrame();
+      await heartbeatsEvery3s(1);
+      // Whatever the residual, the frame paused, sought and played the guest
+      // at once. The play waits the 150 ms seek-play gap, so the guest trails
+      // by that much, and the 3 s cooldown after it drops the 2 s heartbeat.
+      expect(guestOffsetMs(player)).toBe(-150);
+      await heartbeatsEvery3s(3);
+
+      // The heartbeats at 5 s and 8 s confirm the lag and admit the automatic
+      // precision rendezvous, 6 s after the resume; it plays at its 1.5 s margin.
+      expect(alignmentOps(player, returnedAt)).toEqual([
+        'pauseVideo@2000',
+        'seekTo@2000',
+        'playVideo@2150',
+        'pauseVideo@8000',
+        'seekTo@8000',
+        'playVideo@9500',
+      ]);
+      expect(rendezvousStartedAt.map((at) => at - returnedAt)).toEqual([8_000]);
+      expect(guestOffsetMs(player)).toBe(0);
+    },
+  );
+
+  // When the host's resume state frame is lost or suppressed, only the
+  // heartbeat backstops remain: the drift seek above 3 s, and the automatic
+  // precision rendezvous from 150 ms to 3 s (two confirming heartbeats, at
+  // most 3 per occurrence, a 30 s cooldown). That rendezvous also needs an
+  // eligible clock with the drift above twice its uncertainty, runway (past
+  // 1 s, more than 5 s left) and a Standard room; this harness's clock is
+  // eligible at 5 ms, so those gates pass here. The times are heartbeat-only:
+  // a raw host state frame (the host's stall-start BUFFERING among them)
+  // suppresses drift correction for the next 3 s, which moves a correction to
+  // a later heartbeat.
+  it.each([
+    // Below the 150 ms automatic trigger: no heartbeat correction acts on it.
     { host: 'BUFFERING', state: 3, stallMs: 100, ops: [], rendezvous: [], offsetMs: 100 },
     // 150 ms to 3 s: two confirming PLAYING heartbeats (2 s, 5 s) admit the
     // automatic precision rendezvous; it plays at its 1.5 s margin.
@@ -611,7 +676,7 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
       offsetMs: 0,
     },
   ])(
-    'expected today: after the give-up, the ordinary heartbeat corrections act on a $stallMs ms $host stall',
+    'expected today: without the host resume state frame, the heartbeat backstops act on a $stallMs ms $host stall',
     async ({ state, stallMs, ops, rendezvous, offsetMs }) => {
       const player = installStandardGuest({ iframeState: 1, locallyPaused: false });
       const returnedAt = await returnWhileHost(player, { state });
@@ -645,9 +710,10 @@ describe('P4-D8 (b): the host is BUFFERING, CUED or on another video when the gu
     await vi.advanceTimersByTimeAsync(2_000);
     expect(player.getVideoData().video_id).toBe(NEXT_VIDEO_ID);
     // The load left the guest 2 s behind. The chain does not come back for
-    // it; the ordinary heartbeats do. The load's 5 s drift suppression drops
-    // the one at 3.25 s, and those at 6.25 s and 9.25 s confirm the drift and
-    // admit the automatic precision rendezvous.
+    // it; the heartbeats do. The load's 5 s drift suppression drops the one
+    // at 3.25 s, and those at 6.25 s and 9.25 s confirm the drift and admit
+    // the automatic precision rendezvous. Heartbeats only: the host's own
+    // track-change and resume state frames are not modelled here.
     expect(guestOffsetMs(player)).toBe(-2_000);
     await heartbeatsEvery3s(4, { videoId: NEXT_VIDEO_ID });
     expect(rendezvousStartedAt.map((at) => at - returnedAt)).toEqual([9_250]);

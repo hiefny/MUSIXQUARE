@@ -80,6 +80,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
       204/204, resource-ownership 48 records / 436 files), 핵심 커버리지 75 files / 2,862, 빌드와 초기
       전송 예산(초기 JS 477,501 B, main 대비 +567 B), critical E2E 61/61, C5-0 랩 8/8(F4는 본 레인
       23,040,044 B 한 번, 미리받기 청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나) PASS.
+      bump 뒤 최종 로컬 검증(`93fb3d66`, 런타임은 bump `aba30ccb`): release-identity(9.0.9, v781)·
+      sw-cache-version, 단위 663 files / 15,382, Worker 60 files / 2,914, `build:checked` 전체, 같은
+      가드 값, 핵심 커버리지 75 files / 2,862, critical E2E 61/61, C5-0 랩 8/8(F4 같은 전선 결과), 초기
+      JS 477,516 B(프로덕션 빌드 두 번 같음) PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
       갈래 라운드는 보고서에 있다.
       [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md).
 - [ ] 4B 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 4B 코드로 실제 기기를 아직 돌리지 않았다.

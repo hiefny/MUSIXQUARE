@@ -18,7 +18,7 @@ import { initTransfer } from '../transfer.ts';
 import {
   broadcastFile,
   cancelOutgoingFileTransfers,
-  isMainLanePreparingOrActiveForTests as isMainLanePreparingOrActive,
+  isMainLanePreparingOrActive,
   unicastFile,
 } from '../transfer-send.ts';
 
@@ -27,7 +27,8 @@ import {
  * The main file lane and the preload lanes of one peer are released by one
  * call on a disconnect or a replacement, and the main lane answers one exact
  * tuple query: is it preparing or streaming (conn, queueItemId, sessionId)?
- * Which lane wins after ICE recovery is C5-12 (owner decision P4-D10).
+ * After ICE recovery a resumed preload yields to it (C5-12, owner decision
+ * P4-D10 A; ice-recovery-bulk-lanes.test.ts).
  */
 
 const CURRENT = '60000000-0000-4000-8000-000000000001';

@@ -81,6 +81,7 @@ import { isArrayBuffer } from './transfer-shared.ts';
 import {
   cancelOutgoingFileTransferForPeer,
   hasPendingCurrentFileTransfer,
+  isMainLanePreparingOrActive,
 } from './transfer-send.ts';
 import {
   BULK_LOCAL_BUFFER_LIMIT_BYTES,
@@ -168,7 +169,10 @@ const _preloadPeerOwners = new Map<string, Set<PreloadPeerOwner>>();
  * control route, while the resend travels on the bulk route: when the resend's
  * START wins, the receiver ignores it as a duplicate and the late abort then
  * discards the resent bytes. Recovery resumes the exact resident tuple, and
- * every path that abandons the tuple sends the deferred abort instead.
+ * every path that abandons the tuple sends the deferred abort instead. When
+ * the main file lane holds the same tuple after recovery, the preload yields
+ * (C5-12, P4-D10 A): it skips or stops the resume and sends the abort, so the
+ * guest receives one stream; no preload resend follows that abort.
  */
 interface SuspendedPreloadLane {
   readonly conn: DataConnection;
@@ -386,14 +390,28 @@ function suspendPreloadPeer(owner: PreloadPeerOwner): boolean {
   return true;
 }
 
-function abortSuspendedPreloadLane(lane: SuspendedPreloadLane): void {
-  _suspendedPreloadLanes.delete(lane);
+type PreloadLaneTuple = Pick<SuspendedPreloadLane, 'conn' | 'queueItemId' | 'sessionId'>;
+
+function sendDeferredPreloadAbort(lane: PreloadLaneTuple): void {
   if (!lane.conn.open || !isPeerConnectionCurrent(lane.conn.peer, lane.conn)) return;
   safeSend(lane.conn, {
     type: MSG.PRELOAD_ABORT,
     queueItemId: lane.queueItemId,
     sessionId: lane.sessionId,
   });
+}
+
+function abortSuspendedPreloadLane(lane: SuspendedPreloadLane): void {
+  _suspendedPreloadLanes.delete(lane);
+  sendDeferredPreloadAbort(lane);
+}
+
+/** C5-12 (P4-D10 A): after ICE recovery the main file lane carries this exact tuple. */
+function yieldPreloadToMainLane(lane: PreloadLaneTuple): void {
+  log.info(
+    `[Preload] Yielding preload for ${lane.conn.peer} to its file transfer after its connection recovered`,
+  );
+  sendDeferredPreloadAbort(lane);
 }
 
 function resumeSuspendedPreloadLane(conn: DataConnection): void {
@@ -412,6 +430,10 @@ function resumeSuspendedPreloadLane(conn: DataConnection): void {
       continue;
     }
     _suspendedPreloadLanes.delete(lane);
+    if (isMainLanePreparingOrActive(conn, lane.queueItemId, lane.sessionId)) {
+      yieldPreloadToMainLane(lane);
+      continue;
+    }
     log.info(`[Preload] Resuming preload for ${conn.peer} after its connection recovered`);
     // Restart from chunk 0. A current receiver releases a partial session it
     // still holds; a legacy receiver retains the previous retry behavior.
@@ -1582,6 +1604,13 @@ export async function unicastPreload(
       Number(current.sessionId) === sessionId
     );
   };
+  // C5-12 (P4-D10 A): a resumed lane stops for good once the main file lane
+  // prepares or streams its exact tuple, and owes the receiver the abort.
+  let yielded = false;
+  const yieldsToMainLane = (): boolean => {
+    if (restart && !yielded) yielded = isMainLanePreparingOrActive(conn, queueItemId, sessionId);
+    return yielded;
+  };
   const canContinue = (): boolean =>
     !scope.aborted &&
     (!peerOwner || ownsPreloadPeer(peerOwner)) &&
@@ -1590,7 +1619,8 @@ export async function unicastPreload(
     isSourceCurrent() &&
     // A resumed or late-join unicast needs the same restart boundary as a
     // broadcast: the receiver may discard its prefix during another outage.
-    (!peerOwner || !suspendPreloadPeer(peerOwner));
+    (!peerOwner || !suspendPreloadPeer(peerOwner)) &&
+    !yieldsToMainLane();
   const releaseScope = (): void => {
     scope.dispose();
     _activePreloadUnicasts.delete(scope);
@@ -1705,6 +1735,7 @@ export async function unicastPreload(
     // invocation still owns it. A stale failure must not detach its successor.
     releaseScope();
     if (peerOwner?.status === 'active') releasePreloadPeer(peerOwner);
+    if (yielded) yieldPreloadToMainLane({ conn, queueItemId, sessionId });
   }
 }
 

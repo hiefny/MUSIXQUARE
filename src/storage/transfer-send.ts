@@ -177,8 +177,9 @@ export function hasPendingCurrentFileTransfer(conn: DataConnection): boolean {
  * (connection, queueItemId, sessionId)? Preparing is a unicast still awaiting
  * its transport guard with a current source; a debounced or starting broadcast
  * has not chosen its peers yet. A completed owner is a fence, not a stream.
+ * A preload lane resumed after ICE recovery yields to it (C5-12, P4-D10 A).
  */
-function isMainLanePreparingOrActive(
+export function isMainLanePreparingOrActive(
   conn: DataConnection,
   queueItemId: string,
   sessionId: number,
@@ -200,9 +201,6 @@ function isMainLanePreparingOrActive(
     !owner.scope.aborted
   );
 }
-
-/** Only tests ask this until C5-12 (P4-D10) lets a resumed preload yield to the main lane. */
-export const isMainLanePreparingOrActiveForTests = isMainLanePreparingOrActive;
 
 interface PendingBroadcastSuspension {
   readonly id: number;

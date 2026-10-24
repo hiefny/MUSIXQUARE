@@ -1044,15 +1044,22 @@ RO-49 accepted-exception
   both lanes in one call (`releaseBulkLanes` in `preload.ts`, registered by `initPreload`: the main
   lane first, then the preload lanes), and `isMainLanePreparingOrActive` in `transfer-send.ts`
   answers whether the main lane is preparing or streaming one exact (connection, queue item,
-  session) tuple (Phase 4 reduced C5-11; only tests ask it until C5-12).
-  Reproduced: when the host promotes an interrupted preload to the current track during an outage,
-  both lanes stream the same file for the same tuple after ICE recovery (the anchor below). Which
-  lane wins is still the owner's decision (P4-D10, C5-12).
+  session) tuple (Phase 4 reduced C5-11).
+  One stream per tuple after ICE recovery (Phase 4 C5-12, owner decision P4-D10 A, 2026-10-25):
+  the explicit main-lane recovery wins. When the main lane is preparing or streaming the exact
+  tuple, a preload paused by the interruption yields instead of restarting from chunk 0
+  (`resumeSuspendedPreloadLane`), and a restart already running stops at its next check once the
+  main lane takes the tuple (`unicastPreload` with `restart`). Either way the yield follows the
+  deferred-abort rule: one `PRELOAD_ABORT` for the tuple, sent after recovery and never followed
+  by a preload resend, and one info line, `[Preload] Yielding preload for <peer> to its file
+  transfer after its connection recovered`. The `Resuming` line appears only where a resume
+  starts. Until 9.0.8 both lanes streamed the whole file for the same tuple after recovery
+  (survey F4). A late-join unicast and the room's preload broadcast do not yield.
 - **Target single owner:** one bulk-lane registry (planned `src/storage/bulk-lanes.ts`); per-lane
   policies, pumps and wire frames unchanged.
 - **Allowed requesters:** file send, preload scheduling, the guest's recovery request.
-- **Lifecycle operations:** register, suspend, resume, cancel, release on disconnect or
-  replacement (one call for both lanes).
+- **Lifecycle operations:** register, suspend, resume (or yield to the main lane for the same
+  tuple, C5-12), cancel, release on disconnect or replacement (one call for both lanes).
 - **Deadline owner:** each lane's backpressure timeout.
 - **Timing-constant home:** `src/storage/transfer-backpressure.ts` (Phase 4, C5-3):
   `BULK_LOCAL_BUFFER_LIMIT_BYTES` (64 KiB of local queue, every lane) and
@@ -1069,15 +1076,16 @@ RO-49 accepted-exception
   - Teardown: `src/storage/__tests__/preload-capacity-lifecycle.test.ts` "cancels a parked sender
     without flushing stale bytes into a replacement unicast or ACK".
   - Visibility: n/a (host lanes do not depend on visibility).
-  - Both lanes after ICE recovery, expected today:
-    `src/storage/__tests__/ice-recovery-bulk-lanes.test.ts` "the host uploads the file on both
-    lanes when the request arrives %s" (unit), and at the wire the C5-0 lab
-    `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage, observed
-    at the wire (F4)" (17 s outage; not in CI).
+  - One stream per tuple after ICE recovery (C5-12):
+    `src/storage/__tests__/ice-recovery-bulk-lanes.test.ts` "the preload yields to the main lane
+    when the request arrives $arrival" (host, both request orders) and "plays the surviving main
+    lane with no second resident copy when the request arrives %s" (guest), and at the wire the
+    C5-0 lab `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage,
+    observed at the wire (F4)" (17 s outage; not in CI).
 - **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); one release call and the
-  tuple query added in Phase 4 (reduced C5-11); Phase 4 still owes the registry (which lane wins
-  after recovery is an owner decision, P4-D10; the lab did not reproduce the two streams with a
-  10 s outage in its one exploratory run). See
+  tuple query added in Phase 4 (reduced C5-11); the main lane wins the tuple after recovery in
+  Phase 4 (C5-12, P4-D10 A). The single bulk-lane registry stays a target; the lanes keep their
+  own maps, policies and pumps. See
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md).
 
 ### RO-19 Guest fetch of the current track

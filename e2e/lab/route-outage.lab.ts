@@ -26,7 +26,8 @@ const PRELOAD_COMPLETION_AFTER_RESTORE_MS = 100_000;
 /**
  * F4 needs the guest's 15 s preload progress watchdog to fire before the
  * restore (I17 of the independent verification); the original route's grace
- * still ends after it. Two full copies at 1 MB/s take about 80 s.
+ * still ends after it. Before C5-12 two full copies at 1 MB/s took about 80 s;
+ * the bound keeps that margin so a regression to two streams still finishes.
  */
 const F4_OUTAGE_MS = 17_000;
 const F4_COMPLETION_AFTER_RESTORE_MS = 150_000;
@@ -507,12 +508,17 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
         sha256: l.sha256,
       });
 
-      // What the host sent for L after the restore, per lane, for the C5-12
-      // owner decision; also kept as an annotation and in the evidence file.
+      // What the host sent for L after the restore, per lane (C5-12); also kept
+      // as an annotation and in the evidence file.
       const sentForL = probes.host.frames.filter(
         (f) => f.dir === 'send' && f.queueItemId === qidL && f.at > restore,
       );
       const lane = (type: string) => sentForL.filter((f) => f.type === type);
+      const guestPeer = before.host.peerId;
+      const hostLine = (text: string) =>
+        lines(room, 'host', cut, `[Preload] ${text} preload for ${guestPeer} `).map(
+          (row) => row.at - restore,
+        );
       const wire = {
         preloadStarts: lane('preload-start').map((f) => ({
           restart: f.restart ?? null,
@@ -524,11 +530,21 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
         })),
         preloadChunkBytes: lane('preload-chunk').reduce((sum, f) => sum + f.payloadBytes, 0),
         fileChunkBytes: lane('file-chunk').reduce((sum, f) => sum + f.payloadBytes, 0),
+        preloadEnds: lane('preload-end').map((f) => f.at - restore),
+        preloadAborts: lane('preload-abort').map((f) => ({
+          channel: f.channel,
+          at: f.at - restore,
+        })),
         guestRecoveryRequests: probes.guest.frames
           .filter(
             (f) => f.dir === 'send' && f.type === 'request-data-recovery' && f.queueItemId === qidL,
           )
           .map((f) => f.at - restore),
+        hostLines: {
+          paused: hostLine('Paused'),
+          resuming: hostLine('Resuming'),
+          yielding: hostLine('Yielding'),
+        },
         trackBytes: l.bytes,
       };
       room.notes.f4Wire = wire;
@@ -538,22 +554,39 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
         description: JSON.stringify(wire),
       });
 
-      // Expected today (the wire form of T2-F4; the C5-12 owner decision rewrites
-      // these rows rather than adding beside them). The guest's progress watchdog
-      // released the stalled partial preload during the outage, so after recovery
-      // it asks for L on the main lane while the host restarts the paused preload:
-      // both bulk lanes carry the whole track for the same tuple.
-      expect(
-        wire.preloadStarts.map((x) => x.restart),
-        'preload restarts',
-      ).toEqual([true]);
+      // One stream per tuple (C5-12, owner decision P4-D10 A; before it, both
+      // bulk lanes carried the whole track). The guest's progress watchdog
+      // released the stalled partial preload during the outage, so after
+      // recovery it asks for L on the main lane. The main lane carries the whole
+      // track once; the paused preload yields to it: it either never resumes, or
+      // stops its restart once the main lane takes the tuple, and sends one
+      // PRELOAD_ABORT on the control channel instead of reaching its END.
       expect(wire.guestRecoveryRequests, 'guest recovery requests').toHaveLength(1);
       expect(
         wire.fileStarts.map((x) => x.startChunk),
         'main-lane starts',
       ).toEqual([0]);
-      expect(wire.preloadChunkBytes, 'preload lane bytes').toBe(l.bytes);
       expect(wire.fileChunkBytes, 'main lane bytes').toBe(l.bytes);
+      expect(wire.preloadEnds, 'preload ends').toEqual([]);
+      expect(wire.preloadChunkBytes, 'preload lane bytes').toBeLessThan(l.bytes);
+      expect(wire.preloadAborts.length, 'preload aborts').toBe(1);
+      // A control route (original or isolated), never the bulk channel.
+      expect(wire.preloadAborts[0]!.channel, 'preload abort channel').toMatch(
+        /^musixquare-control(?:-isolated)?$/u,
+      );
+      expect(wire.preloadAborts[0]!.at, 'abort after the main FILE_START').toBeGreaterThanOrEqual(
+        wire.fileStarts[0]!.at,
+      );
+      expect(wire.hostLines.paused.length, 'Paused line').toBe(1);
+      expect(wire.hostLines.paused[0]!, 'Paused during the cut').toBeLessThan(0);
+      expect(wire.hostLines.yielding.length, 'Yielding line').toBe(1);
+      expect(wire.hostLines.yielding[0]!, 'Yielding after restore').toBeGreaterThan(0);
+      // Resuming only where a resume happened: one per restart header.
+      expect(
+        wire.preloadStarts.map((x) => x.restart),
+        'preload restarts',
+      ).toEqual(wire.hostLines.resuming.map(() => true));
+      expect(wire.hostLines.resuming.length, 'Resuming line').toBeLessThanOrEqual(1);
     } finally {
       await room.close(testInfo);
     }

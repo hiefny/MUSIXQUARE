@@ -814,6 +814,64 @@ describe('pre-admission preload buffer bounds', () => {
     setState('network.sessionCode', '');
     resetStoredFileAdmissionsForTests();
   });
+
+  it('gives an idle preload 30 s after PRELOAD_START and 15 s after each progress', async () => {
+    vi.useFakeTimers();
+    initPreload();
+    const hostConn = {
+      open: true,
+      peer: 'host-deadline',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'local');
+    setState('network.sessionCode', '123456');
+    setState('playlist.items', [makeFileTrack('idle.mp3', Q0), makeFileTrack('slow.mp3', Q1)]);
+    const start = (sessionId: number, queueItemId: string, name: string) =>
+      handleData(
+        {
+          type: MSG.PRELOAD_START,
+          sessionId,
+          queueItemId,
+          name,
+          total: 3,
+          size: 2 * CHUNK_SIZE + 1,
+        },
+        hostConn,
+      );
+
+    await start(23, Q0, 'idle.mp3');
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(getState('preload.sessionState').get(23)?.skipped).toBe(false);
+    expect(getManagedTimer('preloadUiWatchdog')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getState('preload.sessionState').get(23)?.skipped).toBe(true);
+    expect(getManagedTimer('preloadUiWatchdog')).toBeNull();
+
+    await start(24, Q1, 'slow.mp3');
+    await vi.advanceTimersByTimeAsync(10_000);
+    await handleData(
+      {
+        type: MSG.PRELOAD_CHUNK,
+        sessionId: 24,
+        queueItemId: Q1,
+        chunkIndex: 0,
+        chunk: new Uint8Array([1]),
+      },
+      hostConn,
+    );
+    expect(getState('preload.sessionState').get(24)?.progress).toBe(1);
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(getState('preload.sessionState').get(24)?.skipped).toBe(false);
+    expect(getManagedTimer('preloadUiWatchdog')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(getState('preload.sessionState').get(24)?.skipped).toBe(true);
+    expect(getManagedTimer('preloadUiWatchdog')).toBeNull();
+
+    setState('network.sessionCode', '');
+    const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
+    resetStoredFileAdmissionsForTests();
+  });
 });
 
 // ─── Shuffle end-of-pass preload ─────────────────────────────────────

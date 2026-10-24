@@ -121,6 +121,8 @@ import { setupRenderActions, setupRenderActionsInTransition } from '../setup-sha
 import { restoreGuestJoinControlsAfterFailure, startGuestFlow } from '../setup-guest.ts';
 import { showToast } from '../toast.ts';
 import { scheduleDocumentReload, scheduleSessionReset } from '../../core/session-reset.ts';
+import { log } from '../../core/log.ts';
+import { CloudflareDataConnection } from '../../network/transport/cloudflare-signaling.ts';
 
 function startJoining(): void {
   setState('network.appRole', 'guest');
@@ -402,6 +404,155 @@ describe('terminal host loss: Reconnect or Go back', () => {
     expect(scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith('dialog.leaving_session');
     expect(scheduleSessionReset).not.toHaveBeenCalled();
     expect(sessionStorage.getItem('mxqr_reconnect_target')).toBeNull();
+  });
+});
+
+describe("the guest's last close cause outlives the disconnect-dialog reload (P4-D5 B)", () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const KEPT_CLOSE_KEY = 'mxqr-prev-close';
+  // 2026-10-25 03:04:05.678 UTC. The line shows whole seconds, as the 4A
+  // close line's capture time does.
+  const CLOSED_AT = Date.UTC(2026, 9, 25, 3, 4, 5, 678);
+  const PREVIOUS_CLOSE_LINE = '[Transport] Previous page closed (peer-left) at 03:04:05 UTC';
+
+  /** Closes a real Standard logical connection; its first cause is the named reason. */
+  function closeHostLink(reason: 'peer-left' | 'transport-error', closedAt = CLOSED_AT): void {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(closedAt);
+    const info = vi.spyOn(log, 'info').mockImplementation(() => undefined);
+    try {
+      new CloudflareDataConnection('host-link').close(reason);
+    } finally {
+      info.mockRestore();
+      now.mockRestore();
+    }
+  }
+
+  /** Boots setup again as the next page in this tab and reads back its previous-close lines. */
+  function bootNextPage(): string[] {
+    const info = vi.spyOn(log, 'info').mockImplementation(() => undefined);
+    try {
+      bus.clear();
+      initSetup();
+      return info.mock.calls
+        .map(([line]) => line)
+        .filter(
+          (line): line is string =>
+            typeof line === 'string' && line.startsWith('[Transport] Previous page closed'),
+        );
+    } finally {
+      info.mockRestore();
+    }
+  }
+
+  function refuseStorage(method: 'getItem' | 'setItem') {
+    return vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+      throw new DOMException('The operation is insecure.', 'SecurityError');
+    });
+  }
+
+  beforeEach(() => {
+    vi.mocked(scheduleSessionReset).mockClear();
+    vi.mocked(scheduleDocumentReload).mockClear();
+    vi.mocked(startGuestFlow).mockClear();
+    setState('network.isConnecting', false);
+    setState('setup.sessionStarted', true);
+    setState('network.lastJoinCode', '123456');
+  });
+
+  it('keeps the last cause when Go back reloads, and the next page logs it once', async () => {
+    closeHostLink('transport-error', CLOSED_AT - 60_000);
+    closeHostLink('peer-left');
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'secondary' });
+
+    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+    await flush();
+
+    expect(scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith('dialog.leaving_session');
+    // The cause token and the close time only: no peer id and no room code.
+    expect(sessionStorage.getItem(KEPT_CLOSE_KEY)).toBe(`peer-left ${CLOSED_AT}`);
+    expect(bootNextPage()).toEqual([PREVIOUS_CLOSE_LINE]);
+    expect(sessionStorage.getItem(KEPT_CLOSE_KEY)).toBeNull();
+    expect(bootNextPage()).toEqual([]);
+  });
+
+  it('keeps the cause when the dialog is dismissed, which also reloads', async () => {
+    closeHostLink('peer-left');
+
+    bus.emit('network:error', new Error('HOST_CONNECTION_ERROR'));
+    await flush();
+
+    expect(scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith('dialog.leaving_session');
+    expect(bootNextPage()).toEqual([PREVIOUS_CLOSE_LINE]);
+  });
+
+  it('keeps the cause when Reconnect returns to the room Start screen', async () => {
+    closeHostLink('peer-left');
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'ok' });
+
+    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+    await flush();
+
+    expect(scheduleSessionReset).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem('mxqr_reconnect_target')).toBe('123456');
+    expect(sessionStorage.getItem(KEPT_CLOSE_KEY)).toBe(`peer-left ${CLOSED_AT}`);
+    expect(bootNextPage()).toEqual([PREVIOUS_CLOSE_LINE]);
+  });
+
+  it('keeps nothing when Reconnect stays on this page', async () => {
+    closeHostLink('peer-left');
+    setState('network.lastJoinCode', '../evil');
+    vi.mocked(showDialog).mockResolvedValueOnce({ action: 'ok' });
+
+    bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+    await flush();
+
+    expect(startGuestFlow).toHaveBeenCalledOnce();
+    expect(sessionStorage.getItem(KEPT_CLOSE_KEY)).toBeNull();
+  });
+
+  it('keeps the cause when the host removes the guest and the page reloads by itself', () => {
+    closeHostLink('peer-left');
+
+    bus.emit('network:kicked-from-session');
+
+    expect(scheduleDocumentReload).toHaveBeenCalledExactlyOnceWith('dialog.leaving_session');
+    expect(sessionStorage.getItem(KEPT_CLOSE_KEY)).toBe(`peer-left ${CLOSED_AT}`);
+  });
+
+  it('still reloads when sessionStorage refuses the write (iOS Safari private mode)', async () => {
+    closeHostLink('peer-left');
+    const setItem = refuseStorage('setItem');
+    try {
+      vi.mocked(showDialog).mockResolvedValueOnce({ action: 'secondary' });
+      bus.emit('network:error', new Error('HOST_DISCONNECTED'));
+      await flush();
+      bus.emit('network:kicked-from-session');
+    } finally {
+      setItem.mockRestore();
+    }
+
+    expect(vi.mocked(scheduleDocumentReload).mock.calls).toEqual([
+      ['dialog.leaving_session'],
+      ['dialog.leaving_session'],
+    ]);
+    expect(sessionStorage.getItem(KEPT_CLOSE_KEY)).toBeNull();
+  });
+
+  it('boots the next page normally when sessionStorage refuses the read', () => {
+    sessionStorage.setItem(KEPT_CLOSE_KEY, `peer-left ${CLOSED_AT}`);
+    const getItem = refuseStorage('getItem');
+    try {
+      expect(bootNextPage()).toEqual([]);
+    } finally {
+      getItem.mockRestore();
+    }
+  });
+
+  it('drops a malformed kept value without logging it', () => {
+    sessionStorage.setItem(KEPT_CLOSE_KEY, '<img src=x onerror=alert(1)> 1');
+
+    expect(bootNextPage()).toEqual([]);
+    expect(sessionStorage.getItem(KEPT_CLOSE_KEY)).toBeNull();
   });
 });
 

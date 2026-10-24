@@ -5,6 +5,14 @@ import { createRequire } from 'node:module';
 import type WebSocketClient from 'ws';
 import type { RawData } from 'ws';
 
+import {
+  RateLimitUnavailableError,
+  createRateLimitUnavailableRetry,
+  readRateLimitUnavailableUpgrade,
+  type RateLimitUnavailableRetry,
+  type UpgradeRejectionResponse,
+} from './live-smoke-rate-limit-retry.mts';
+
 const WebSocket = createRequire(`${process.cwd()}/package.json`)('ws') as typeof WebSocketClient;
 
 const APP_ORIGIN = 'https://musixquare.com';
@@ -34,6 +42,8 @@ const RETRYABLE_SESSION_ERRORS = new Set([
   'room storage quota unavailable',
   'upload session replay unavailable',
 ]);
+// One rate-limit retry per smoke process, for the signaling host upgrade.
+const SMOKE_RATE_LIMIT_RETRY = createRateLimitUnavailableRetry();
 
 interface RemoteShareReadiness {
   roomUploadAssertionVersion: 1;
@@ -60,6 +70,7 @@ interface SignalingVersionConvergenceOptions {
   sleep?: (delayMs: number) => Promise<void>;
   timeoutMs?: number;
   retryIntervalMs?: number;
+  rateLimitRetry?: RateLimitUnavailableRetry;
 }
 
 interface RemoteShareSession {
@@ -431,12 +442,23 @@ async function openRoomUploadAssertionAuthorityAttempt(
         socket.off('open', onOpen);
         socket.off('error', onError);
         socket.off('close', onClose);
+        socket.off('unexpected-response', onUnexpectedResponse);
         if (error) reject(error);
         else resolve();
       };
       const onOpen = () => finish();
       const onError = (error: Error) => finish(error);
       const onClose = () => finish(new Error('remote-share signaling host closed before open'));
+      // Replaces ws's default handshake abort, keeping its failure line. The
+      // socket stays CONNECTING and silent until the catch below terminates it.
+      const onUnexpectedResponse = (_request: unknown, response: UpgradeRejectionResponse) => {
+        const message = `Unexpected server response: ${response.statusCode}`;
+        const settleRejection = (rateLimited: boolean) =>
+          finish(rateLimited ? new RateLimitUnavailableError(message) : new Error(message));
+        readRateLimitUnavailableUpgrade(response).then(settleRejection, () =>
+          settleRejection(false),
+        );
+      };
       const timer = setTimeout(
         () => finish(new Error('remote-share signaling host open timeout')),
         REQUEST_TIMEOUT_MS,
@@ -444,6 +466,7 @@ async function openRoomUploadAssertionAuthorityAttempt(
       socket.once('open', onOpen);
       socket.once('error', onError);
       socket.once('close', onClose);
+      socket.once('unexpected-response', onUnexpectedResponse);
     });
     const admitted = waitForSignalingMessage(
       socket,
@@ -533,6 +556,7 @@ async function withSignalingVersionConvergence<T>(
     ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
   const timeoutMs = options.timeoutMs ?? WORKER_PROPAGATION_TIMEOUT_MS;
   const retryIntervalMs = options.retryIntervalMs ?? WORKER_RETRY_INTERVAL_MS;
+  const rateLimitRetry = options.rateLimitRetry ?? SMOKE_RATE_LIMIT_RETRY;
   const deadline = now() + timeoutMs;
   // A stale edge may have already admitted this room before revealing its
   // version. Reuse the same authority secret so the current edge can recover
@@ -543,6 +567,14 @@ async function withSignalingVersionConvergence<T>(
     try {
       return await attempt(hostSecret);
     } catch (error) {
+      // The signaling Worker answers the rate-limiter 503 before it reaches
+      // the room, so the same room and secret are retried unchanged.
+      if (
+        error instanceof RateLimitUnavailableError &&
+        (await rateLimitRetry.claim(error.message))
+      ) {
+        continue;
+      }
       if (!(error instanceof StaleSignalingVersionError) || now() >= deadline) throw error;
       await sleep(Math.min(retryIntervalMs, Math.max(0, deadline - now())));
     }

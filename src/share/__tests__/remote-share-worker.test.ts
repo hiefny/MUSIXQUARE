@@ -7,6 +7,7 @@ import {
   createRemoteShareUploadAssertion,
 } from '../../../cloudflare/remote-share-upload-assertion.ts';
 import { SERVICE_CONTROL_OBJECT_NAME } from '../../../cloudflare/service-maintenance.ts';
+import { importTranspiledLiveSmoke } from '../../core/__tests__/live-smoke-module-fixture.ts';
 import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
 
 type RemoteShareWorker = {
@@ -693,7 +694,7 @@ async function loadLiveSmokeRequestSession(): Promise<LiveSmokeRequestSession> {
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`);
+  await importTranspiledLiveSmoke(compiled);
   const captured = (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
   delete (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
   if (typeof captured !== 'function') {
@@ -720,7 +721,7 @@ async function loadLiveSmokeWaitForRemoteShareWorkerReady(): Promise<LiveSmokeWa
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`);
+  await importTranspiledLiveSmoke(compiled);
   const captured = (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
   delete (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
   if (typeof captured !== 'function') {
@@ -749,7 +750,7 @@ async function loadLiveSmokeSignalingVersionConvergence(): Promise<LiveSmokeSign
       target: ts.ScriptTarget.ES2022,
     },
   }).outputText;
-  await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`);
+  await importTranspiledLiveSmoke(compiled);
   const captured = (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
   delete (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
   if (!captured || typeof captured !== 'object') {

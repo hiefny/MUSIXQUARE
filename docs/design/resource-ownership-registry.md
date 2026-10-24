@@ -88,60 +88,60 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
-**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments), and 4B goes out no earlier than 7 days after 4A.
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked.
 
 ## Index
 
-| ID    | Resource                                                 | Area           | Status             | Consolidation                |
-| ----- | -------------------------------------------------------- | -------------- | ------------------ | ---------------------------- |
-| RO-01 | AudioContext running state                               | Audio          | duplicated         | 0d, 7; fix lane G7           |
-| RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6                        |
-| RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6                        |
-| RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5       |
-| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-48   |
-| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-49   |
-| RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                 |
-| RO-08 | PRO asset duration read                                  | Workers        | owner-in-place     | Done (0d, 1)                 |
-| RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                         |
-| RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | Done (4, C13 docs)           |
-| RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)             |
-| RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                            |
-| RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                         |
-| RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                         |
-| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (constants done, C5-1)     |
-| RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | 4 (restart gate only)        |
-| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (constants done, C5-1)     |
-| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (constants done, C5-3)     |
-| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)               |
-| RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                         |
-| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | Owner decision               |
-| RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                        |
-| RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                        |
-| RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | Done (2, C6-11)              |
-| RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)               |
-| RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision   |
-| RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                     |
-| RO-28 | Account session reads and refresh pulses                 | Account        | owner-in-place     | Done (2)                     |
-| RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | Done (4, C5-2)               |
-| RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | Done (2, C6-12)              |
-| RO-31 | Presence delivery does not re-arm the playback outbox    | Workers        | accepted-exception | Revisit on EPOCH_STALE logs  |
-| RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect |
-| RO-33 | Guest YouTube recovery stays its own owner               | YouTube        | accepted-exception | Revisit with device evidence |
-| RO-34 | PRO YouTube arm adapter stays eager                      | YouTube        | accepted-exception | Revisit with an iOS proof    |
-| RO-35 | Side-route outage deadline stays in control isolation    | Transport      | accepted-exception | Revisit when #18 retires     |
-| RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7           |
-| RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7           |
-| RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check  |
-| RO-40 | Hand-copied PRO publication teardown blocks              | System audio   | accepted-exception | Phase 5 or later             |
-| RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit after the 0c test    |
-| RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check  |
-| RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)        |
-| RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                      |
-| RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round  |
-| RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision               |
-| RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                     |
-| RO-48 | Guest YouTube re-align lanes stay two                    | Output rejoin  | accepted-exception | Revisit with device evidence |
-| RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect  |
+| ID    | Resource                                                 | Area           | Status             | Consolidation                  |
+| ----- | -------------------------------------------------------- | -------------- | ------------------ | ------------------------------ |
+| RO-01 | AudioContext running state                               | Audio          | duplicated         | 0d, 7; fix lane G7             |
+| RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6                          |
+| RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6                          |
+| RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5         |
+| RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-48     |
+| RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-49     |
+| RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                   |
+| RO-08 | PRO asset duration read                                  | Workers        | owner-in-place     | Done (0d, 1)                   |
+| RO-09 | Owner-transfer saga row                                  | Workers        | owner-in-place     | None                           |
+| RO-10 | Local-file source node restart                           | Output rejoin  | owner-in-place     | Done (4, C13 docs)             |
+| RO-11 | Deferred-start mailbox `playback.pendingPlayTime`        | Playback       | accepted-exception | None (by design)               |
+| RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                              |
+| RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                           |
+| RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                           |
+| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (constants done, C5-1)       |
+| RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | 4 (restart gate only)          |
+| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (constants done, C5-1)       |
+| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
+| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)                 |
+| RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                           |
+| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | Owner decision                 |
+| RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                          |
+| RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                          |
+| RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | Done (2, C6-11)                |
+| RO-25 | Developer API authority fence row                        | Workers        | owner-in-place     | None (D5 open)                 |
+| RO-26 | Top-document fullscreen state                            | UI             | duplicated         | 2 done; requests: decision     |
+| RO-27 | Playlist rows and scroll position                        | UI             | owner-in-place     | Done (2)                       |
+| RO-28 | Account session reads and refresh pulses                 | Account        | owner-in-place     | Done (2)                       |
+| RO-29 | PRO presence heartbeat timer slot                        | PRO room       | owner-in-place     | Done (4, C5-2)                 |
+| RO-30 | Back-button history entries                              | Page lifecycle | owner-in-place     | Done (2, C6-12)                |
+| RO-31 | Presence delivery does not re-arm the playback outbox    | Workers        | accepted-exception | Revisit on EPOCH_STALE logs    |
+| RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect   |
+| RO-33 | Guest YouTube recovery stays its own owner               | YouTube        | accepted-exception | Revisit with device evidence   |
+| RO-34 | PRO YouTube arm adapter stays eager                      | YouTube        | accepted-exception | Revisit with an iOS proof      |
+| RO-35 | Side-route outage deadline stays in control isolation    | Transport      | accepted-exception | Revisit when #18 retires       |
+| RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7             |
+| RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7             |
+| RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
+| RO-40 | Hand-copied PRO publication teardown blocks              | System audio   | accepted-exception | Phase 5 or later               |
+| RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit after the 0c test      |
+| RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check    |
+| RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)          |
+| RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                        |
+| RO-45 | No guard for new module-level lifecycle slots            | All            | accepted-exception | After the first guard round    |
+| RO-46 | Invalidation events are sent once                        | Workers        | accepted-exception | Owner decision                 |
+| RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                       |
+| RO-48 | Guest YouTube re-align lanes stay two                    | Output rejoin  | accepted-exception | Revisit with device evidence   |
+| RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect    |
 
 ## Machine-readable ID list
 
@@ -977,12 +977,25 @@ RO-49 accepted-exception
 - **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
   (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
   and the connection keeps the first one and logs one info line per close
-  (`[Transport] Logical connection closed (<cause>) for <peerId>`); no timer or state moved. The
-  link-liveness owner (C5-6) and the background-resume check (C5-7) are held until the #18 and
-  preload-resume device items in the release record close or are waived (owner decisions P4-D6 A
-  and P4-D13 A, 2026-10-24). See
-  [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md) and the
-  [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md). Exception RO-35.
+  (`[Transport] Logical connection closed (<cause>) for <peerId>`); no timer or state moved.
+  Train 4B (owner decisions 2026-10-25) adds three causes that no longer read `intentional`:
+  `transport-error` (the host's per-connection error handler, a host that cannot answer a current
+  guest offer, the guest join's pre-open error handler), `join-bootstrap-failed` (a join
+  handshake that fails on either side) and `pro-epoch-advanced` (the PRO epoch batch close,
+  reachable only on the legacy close name while the client and Worker epoch close names differ).
+  A cause noted by the provider's own emit-then-close (`closeAfterError`) now wins over the
+  listener's reason, so a room admission expiry still reads `admission-expired`. The guest also
+  keeps its page's last close cause and time across its disconnect reload (P4-D5 B,
+  `src/network/last-link-close.ts`, sessionStorage key `mxqr-prev-close` beside the next-document
+  markers in `src/core/navigation-contract.ts`), and the next page in the tab that logs info lines
+  logs it once; no timer, deadline or close order changed. The link-liveness owner (C5-6) and the
+  background-resume check (C5-7) were held until the #18 and preload-resume device items in the
+  release record closed or were waived (owner decisions P4-D6 A and P4-D13 A, 2026-10-24); since
+  the owner decision of 2026-10-25 (about 01:50 KST) device evidence no longer gates code, and
+  both proceed after train 4B as their own train. See
+  [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md), the
+  [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md) and the
+  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md). Exception RO-35.
 
 ### RO-16 Data-PC SDP lane
 
@@ -1009,9 +1022,9 @@ RO-49 accepted-exception
     rollback fails".
   - Visibility: n/a.
 - **Status:** `owner-in-place`. The restart-gate move waits with the link-liveness owner (C5-6,
-  held; see RO-15). Since Phase 4 4A (C5-5) an unprovable restart rollback and the media rollback
-  retirement close with the cause `rollback-unproven`. Phase 5 starts from a fresh baseline
-  because system audio shares this lane.
+  after train 4B; see RO-15). Since Phase 4 4A (C5-5) an unprovable restart rollback and the
+  media rollback retirement close with the cause `rollback-unproven`. Phase 5 starts from a fresh
+  baseline because system audio shares this lane.
 
 ### RO-17 Host per-guest connection close
 
@@ -1084,8 +1097,9 @@ RO-49 accepted-exception
   resets its own route) revokes that permission until the next `local` publication
   (`revokeRestartedPreloadYields`, second C5-12 review); a restart already kept stays kept. The
   yield follows the deferred-abort rule: one `PRELOAD_ABORT` for the tuple, sent after recovery
-  and never followed by a host preload resend, and one info line, `[Preload] Yielding preload for
-  <peer> to its file transfer after its connection recovered`. A `remote` or unpublished route, or
+  and never followed by a host preload resend, and one info line,
+  `[Preload] Yielding preload for <peer> to its file transfer after its connection recovered`.
+  A `remote` or unpublished route, or
   a main lane that already held the tuple when `local` was published (its header may have reached
   the guest before the guest knew its route), keeps the restart running to its END, as in 9.0.8.
   Until 9.0.8 both lanes always streamed the whole file for the same tuple after recovery (survey
@@ -1176,7 +1190,8 @@ RO-49 accepted-exception
   Phase 4 when the host re-detected the guest as local before the main lane started, with no
   recovery announcement since (C5-12, P4-D10 A). The single bulk-lane registry stays a target;
   the lanes keep their own maps, policies and pumps. See
-  [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md).
+  [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md) and the
+  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md).
 
 ### RO-19 Guest fetch of the current track
 
@@ -1918,7 +1933,8 @@ entry needs the owner's acceptance and is not implied by this registry.
   the same timer also governs active routes to peers without restart capability. The C5-0 lab
   (#478) shows the side route recovering through its restart after its PC fails, on the
   Cloudflare transport in one Chromium. Phase 4 train 4A goes out before the device check (a gate
-  deviation, owner decision 2026-10-24), and C5-9 stays out of Phase 4 (P4-D6 A).
+  deviation, owner decision 2026-10-24), train 4B too (since 2026-10-25 device evidence no longer
+  gates code), and C5-9 stays out of Phase 4 (P4-D6 A).
 - **Behaviour risk:** known-accepted #18.
 - **Revisit when:** #18 retires.
 - **Status:** `accepted-exception`.

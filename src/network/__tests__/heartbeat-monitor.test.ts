@@ -99,6 +99,31 @@ describe('host heartbeat monitor', () => {
     expect(mocks.detachHostPeerConnection).toHaveBeenCalledWith(conn.peer, conn);
   });
 
+  it('ignores a recovery lease longer than one transport grace and detaches at the ordinary threshold', async () => {
+    const failedWithChannels = (peer: string) =>
+      makeConnection(peer, { connectionState: 'failed', dataState: 'open', controlState: 'open' });
+    const bounded = failedWithChannels('bounded');
+    const overlong = failedWithChannels('overlong');
+    // At the 10 s check one lease has exactly 15_000 ms left, the other 15_001.
+    Object.assign(bounded, { iceRecoveryDeadline: Date.now() + 10_000 + 15_000 });
+    Object.assign(overlong, { iceRecoveryDeadline: Date.now() + 10_000 + 15_001 });
+    installPeers([
+      makePeer(bounded.peer, bounded, Date.now()),
+      makePeer(overlong.peer, overlong, Date.now(), { joinOrder: 2, slot: 2 }),
+    ]);
+    setState('setup.sessionStarted', true);
+    const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
+    initHeartbeatMonitor();
+
+    // Within the ordinary 8 s failed-transport threshold neither is stale.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.detachHostPeerConnection).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.detachHostPeerConnection).toHaveBeenCalledOnce();
+    expect(mocks.detachHostPeerConnection).toHaveBeenCalledWith(overlong.peer, overlong);
+  });
+
   beforeEach(() => {
     clearAllManagedTimers();
     resetState();

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ControlIsolation, type IsolatedControlLease } from '../control-isolation.ts';
 import { ControlIsolation as C9ControlIsolation } from './fixtures/control-isolation-c9.ts';
+import controlIsolationSource from '../control-isolation.ts?raw';
 
 const TYPE = 'mxqr-control-isolation';
 const LABEL = 'musixquare-control-isolated';
@@ -1369,5 +1370,15 @@ describe('side ICE restart of an active isolated control route', () => {
     p.b.peer.state('connected');
     await vi.advanceTimersByTimeAsync(60_000);
     for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+  });
+});
+
+describe('side-route windows a peer enforces', () => {
+  // These windows bound restart requests and offers between the two ends,
+  // which may run different builds (known-accepted #13: no version admission),
+  // so they stay their own literals instead of following the RTC grace.
+  it('keeps the 15 s peer-request window and the 30 s offer window as literals', () => {
+    expect(controlIsolationSource).toMatch(/^const RESTART_WINDOW_MS = 15_000;$/mu);
+    expect(controlIsolationSource).toMatch(/^const RESTART_CAP_MS = 30_000;$/mu);
   });
 });

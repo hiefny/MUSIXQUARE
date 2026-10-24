@@ -93,8 +93,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 4 train 4A: transport liveness and output rejoin, behaviour-neutral (2026-10-24)](design/phase4-4a-transport-rejoin-2026-10-24.md):
-  pending release evidence for the structure program's first Phase 4 app train
-  (9.0.7 / v778 planned, target `app`, not yet released). One home each for the
+  release evidence for the structure program's first Phase 4 app train
+  (9.0.7 / v778, released 2026-10-24 23:26 KST in Release 40102311205, target `app`). One home each for the
   15 s RTC interruption grace, the signaling reconnect schedule, the bulk-lane
   and guest receive deadlines and the shared start and re-align values; one
   info line naming the cause of every Standard logical connection close; one

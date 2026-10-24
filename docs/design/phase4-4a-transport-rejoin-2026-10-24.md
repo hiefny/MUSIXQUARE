@@ -4,12 +4,12 @@
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 기준      | origin/main `fa256db2`(R2 기록 #477. 런타임은 운영 9.0.6 / v777의 배포 SHA `035abaae`와 같다). 작업 중 main이 `b4293768`(#478, 테스트와 C5-0 랩만)로 나아가 `b8bc42c4`로 합쳤다. 겹치는 파일이 없어 충돌은 없었고 런타임은 그대로다.                                                                                                                                                                                                                                                                                                                                                                          |
 | 4A 묶음   | 브랜치 `agent/phase4-4a`. 네트워크 갈래 `agent/p4-net`(`f3cce1ec..9a0fea2a`, C5-1·C5-2·C5-3·C5-5·C5-4, 12 커밋)를 `32a290d2`로, 출력 재합류 갈래 `agent/p4-c3`(`d1ce030d..298c2278`, I8a·C3-I1·죽은 상태 삭제·C3 하네스·C13 문서, 10 커밋)를 `7af1723b`로 합쳤다. 그 위에 초기 JS 줄이기 셋(`4103d42e`·`61187df3`·`a54fcba8`)과 그 정리(`c5dd68ab`·`32439cc0`·`b35b95ff`), 리뷰 정리(`fe327649`·`2a02c75c`·`d5155dcd`·`9ff32f42`)를 쌓았다. 이 보고서와 기록 커밋, registry 커밋 `0c94e421`, 문서 리뷰 정리 `1320eea6`(registry 허용 예외 RO-48·RO-49, 가드 테스트의 빈 ID 하나)은 문서와 그 테스트만 바꾼다. |
-| 상태      | 4A 배포 후보, 미배포, 버전 bump 전. 오너 결정(2026-10-24 약 15:20 KST)대로 기기 기준선 없이, R2 배포 7일 안에 배포해도 된다(아래 오너 결정).                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 상태      | 2026-10-24 23:26 KST [Release 40102311205](https://github.com/hiefny/MUSIXQUARE/actions/runs/40102311205)(target `app`)로 `9.0.7` / `v778` 배포됨. 바로 앞 [Release 40101887540](https://github.com/hiefny/MUSIXQUARE/actions/runs/40101887540)은 signaling smoke의 `HTTP 503 RATE_LIMIT_UNAVAILABLE`로 실패해 자동 복구됐다. 오너 결정(2026-10-24 약 15:20 KST)대로 기기 기준선 없이 배포했다(아래 오너 결정).                                                                                                                                                                                               |
 | 현재 증분 | 동작을 바꾸지 않는 재구성. 15초 RTC 끊김 유예, 신호 재접속 간격, 전송 레인과 게스트 수신 마감, 공유 시작·재정렬 시간 값을 각각 한 곳에 두었다. 일반방 논리 연결이 끝날 때마다 원인 한 줄(info)을 남기고, 전송 상태 읽기를 한 경로와 가드로 모으고, 재합류 라우터의 죽은 상태를 지웠다. 게으른 경로만 쓰는 모듈을 첫 로딩에서 빼 초기 JS가 두 갈래를 합친 491,726 B에서 477,138 B(gzip)가 됐다.                                                                                                                                                                                                                |
-| 제품 식별 | `9.0.7` / `v778` 예정. 9.0.6은 배포됐으므로 SemVer와 SW 캐시 epoch를 함께 올린다. 올리기 직전 origin/main을 확인하고 마지막 런타임 커밋에서 올린다. 이 문서 커밋 시점의 트리는 아직 `9.0.6` / `v777`이다.                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 제품 식별 | `9.0.7` / `v778`. 9.0.6은 배포됐으므로 SemVer와 SW 캐시 epoch를 함께 올렸다(마지막 런타임 커밋 `8a9e1772`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | 배포 대상 | target `app`, Developer API D1 `false`. App 런타임 입력만 바뀌고, `cloudflare/`에서는 bump가 App Worker의 `ADMIN_ASSET_VERSION` 문자열 하나만 바꾼다. 다른 Worker의 런타임 경로는 바뀌지 않는다(아래 배포·회복).                                                                                                                                                                                                                                                                                                                                                                                              |
 | 환경      | Windows 11 로컬, Node 24.20.0 / npm 12.0.2. 단위는 jsdom과 가짜 WebRTC·WebSocket, 브라우저 검사는 로컬 헤드리스 Chromium(Playwright 1.63, PeerJS)이다. C5-0 랩은 헤드리스 Chromium 153.0.8010.12와 `wrangler dev --local`로 띄운 신호 Worker 위에서 게스트 페이지의 P2P만 CDP로 끊는다.                                                                                                                                                                                                                                                                                                                       |
-| 운영      | 이 보고서의 후보는 배포하지 않았다. 실제 기기, iOS·WebKit, 랩 밖의 운영 Cloudflare 전송 경로, 브라우저의 PRO 방은 미실행이다.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 운영      | 배포 뒤 운영 업데이트 경로(대화상자, 나중에, 적용하기 한 번, 옛 탭 자동 새로고침)를 데스크톱 Chromium에서 방 밖으로 확인했다. 실제 기기, iOS·WebKit, 운영 Cloudflare 전송 경로, 브라우저의 PRO 방은 미실행이다.                                                                                                                                                                                                                                                                                                                                                                                               |
 
 이 문서는 구조 개선 Phase 4의 첫 앱 배포(4A)에 실리는 증분과 QA를 기록한다. 4A는 동작을
 바꾸지 않는 묶음이고, 동작을 바꾸는 증분은 4B로 따로 낸다(P4-D3 A). 증분마다 커밋, 검증한 코드
@@ -282,8 +282,8 @@ RO-99를 쓴다(단언은 그대로). 문서와 그 테스트만 바뀌었다.
 곳, App Worker의 `ADMIN_ASSET_VERSION`, 관리자 스크립트의 `ADMIN_SCRIPT_VERSION`,
 `SERVICE_WORKER_CACHE_VERSION`, `index.html`의 bootstrap 쿼리다. App Worker 줄이 `cloudflare/`의
 유일한 변경이므로 R2처럼 bump SHA에서 `build:checked` 전체와 Worker 전체
-(`vitest run --config vitest.workers.config.ts`)를 다시 돌린다. 커밋 SHA와
-`guard:release-identity`·`guard:sw-cache-version` 결과는 배포 뒤 기록 PR이 채운다.
+(`vitest run --config vitest.workers.config.ts`)를 다시 돌린다. bump 커밋은 `8a9e1772`이고 `guard:release-identity`(MUSIXQUARE 9.0.7, cache v778)와
+`guard:sw-cache-version`(v778이 모든 PWA 런타임 변경을 덮음)이 PASS했다.
 
 ## Phase 4 준비 근거
 
@@ -422,8 +422,17 @@ bootstrap이 대기열 기준을 고름, 데모 중 대기열 기준을 켜지 �
 
 ### 6. bump 뒤 최종 검증과 배포
 
-bump 커밋의 최종 검증, exact-main CI 후보, Production Release 실행, 배포 SHA는 배포 뒤 기록 PR이
-채운다. 로컬 결과는 배포에 필요한 exact-main-SHA CI 후보를 대신하지 않는다.
+| 검사                  | 결과와 범위                                                                                                                                                                                                                                                                                                                         |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 로컬 최종(`8a9e1772`) | unit 658 files / 15,206, Worker 60 / 2,908, critical coverage 75 / 2,855(모든 하한), typecheck·`check:workers`·lint·format·`build:checked` 전체, 가드 묶음, critical E2E 61/61, C5-0 랩 16/16(두 번 반복, flaky 0), 기본 Playwright 목록 722 tests / 104 files(랩 없음). 초기 JS 477,114 B.                                         |
+| PR #479 CI·리뷰       | PR head CI 통과, Codex 리뷰 지적 없음. squash 머지 `aededf3c`(트리는 `8a9e1772`와 같음).                                                                                                                                                                                                                                            |
+| exact-main CI         | [40100871405](https://github.com/hiefny/MUSIXQUARE/actions/runs/40100871405). attempt 1에서 Critical browser gate의 `screensaver.test.ts:1074`(저음 반응 289 ms > 220 ms) 하나가 실패했다. 4A가 닿지 않는 경로이고 PR CI와 로컬에서는 통과해 실패 작업만 다시 돌렸고 attempt 2에서 통과했다. 후보는 attempt 1 artifact 12562623025. |
+| Release 1             | [40101887540](https://github.com/hiefny/MUSIXQUARE/actions/runs/40101887540) 실패·자동 복구. App `8d7ca12e` 배포 뒤 Standard HTTPS signaling smoke가 `HTTP 503 RATE_LIMIT_UNAVAILABLE`(호스트 브리지). App을 R2 `47df5afa`로 되돌리고 최종 경계 verified.                                                                           |
+| Release 2             | [40102311205](https://github.com/hiefny/MUSIXQUARE/actions/runs/40102311205) attempt 1 성공. App `1afafcdd`, 23:26:03 KST 소유권 verified, smoke success(`bridgeOpenMs` 방장 844ms·게스트 427ms), generation `main-BFojFck4.js` 365,196 B·33 assets.                                                                                |
+| 운영 확인             | 공개 GET `/` 145,216 B(`bootstrap.js?cache=v778`), `/service-worker.js` 39,517 B(`CACHE_VERSION = "v778"`). 데스크톱 Chromium 방 밖: 새 탭 대화상자, 나중에, 적용하기 한 번, 캐시 v778만, 옛 9.0.6 탭 셋 자동 새로고침.                                                                                                             |
+| Drift Audit           | [40102714167](https://github.com/hiefny/MUSIXQUARE/actions/runs/40102714167) automated-checks-passed: 31 pass / 0 fail / 5 manual-only.                                                                                                                                                                                             |
+
+로컬 결과는 exact-main-SHA CI 후보를 대신하지 않았다. 실제 기기 확인은 release-record §2에 열려 있다.
 
 ## 초기 JS 예산
 
@@ -461,8 +470,8 @@ raw 값은 진입 스크립트 423,152 → 422,013 → 365,196 B, 초기 전체 
 PRO 방 입장은 거의 같고, PRO가 아닌 경로는 PRO 코드를 더 받지 않는다. 청크 목록과 서비스 워커
 앱 셸 목록이 같아 오프라인 설치가 받는 파일은 그대로다(바이트는 옮긴 만큼 청크 사이에서 바뀐다). Phase 4 4A의 순 변화는 491,481 → 477,138 B(−14,343 B)로, 로드맵의 'Phase당
 순 +200 B'와 '프로그램 순 0 이하'(시작점 489,199 B) 목표 안이다. 아키텍처 상한, 5% 예비, 진입 상한,
-첫 로딩 글꼴 0은 그대로다. bump는 epoch 문자열만 바꾸지만 같은 코드도 빌드마다 수십 B 흔들리므로,
-bump 뒤 값은 배포 뒤 기록 PR이 채운다. 정책 문서의
+첫 로딩 글꼴 0은 그대로다. bump 뒤(`8a9e1772`) 프로덕션 빌드를 두 번 재면 초기 JS 477,114 B(유지 상한까지 14,454 B), 진입
+111,585 B, 초기 전체 555,735 B로 같았다(버전 문자열과 청크 해시로 −24 B). 정책 문서의
 [2026-10-24 덧붙임](initial-bundle-loading-policy.md#2026-10-24-phase-4-train-4a-startup-leaves-addendum)에
 같은 표가 있다.
 

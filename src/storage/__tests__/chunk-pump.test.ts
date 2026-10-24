@@ -6,8 +6,11 @@
  * on machine speed. Wrapper-visible behavior lives in transfer/preload tests.
  */
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
-import { pumpChunksToPeers } from '../chunk-pump.ts';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { isBulkTransferWritablePeer, pumpChunksToPeers } from '../chunk-pump.ts';
 import { DELAY, MSG } from '../../core/constants.ts';
+import { resetState, setState } from '../../core/state.ts';
 import type { ConnectedPeer, DataConnection, AnyProtocolMsg } from '../../types/index.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
@@ -732,6 +735,100 @@ describe('pumpChunksToPeers — per-peer priority gates', () => {
     expect(await pending).toEqual({ status: 'complete', excluded: new Set() });
     expect(conn.send).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('isBulkTransferWritablePeer — transport truth table', () => {
+  const PC_STATES = [
+    undefined,
+    'new',
+    'connecting',
+    'connected',
+    'disconnected',
+    'failed',
+    'closed',
+  ] as const satisfies readonly (RTCPeerConnectionState | undefined)[];
+  const ICE_STATES = [
+    undefined,
+    'new',
+    'checking',
+    'connected',
+    'completed',
+    'disconnected',
+    'failed',
+    'closed',
+  ] as const satisfies readonly (RTCIceConnectionState | undefined)[];
+  const CHANNEL_STATES = [
+    undefined,
+    'connecting',
+    'open',
+    'closing',
+    'closed',
+  ] as const satisfies readonly (RTCDataChannelState | undefined)[];
+  const GOLDEN_TABLE = 'src/storage/__tests__/__fixtures__/bulk-writable-truth-table.txt';
+
+  function installCurrent(peer: ConnectedPeer): void {
+    setState('network.connectedPeers', [peer]);
+    setState('network.activeHostConnByPeerId', new Map([[peer.id, peer.conn as DataConnection]]));
+  }
+
+  /** One row per open flag, PC state and ICE state; see the fixture header. */
+  function bulkWritableTable(): string {
+    const conn: Record<string, unknown> = { peer: 'truth-table' };
+    const peer = makePeer('truth-table', conn as unknown as MockConn);
+    installCurrent(peer);
+    const column = (state: string | undefined) => (state ?? '-').padEnd(12);
+    const rows: string[] = [];
+    for (const open of [false, true]) {
+      for (const pc of PC_STATES) {
+        for (const ice of ICE_STATES) {
+          const groups = CHANNEL_STATES.map((data) =>
+            CHANNEL_STATES.map((control) => {
+              conn.open = open;
+              conn.peerConnection =
+                pc === undefined && ice === undefined
+                  ? undefined
+                  : {
+                      ...(pc === undefined ? {} : { connectionState: pc }),
+                      ...(ice === undefined ? {} : { iceConnectionState: ice }),
+                    };
+              conn.dataChannel = data === undefined ? undefined : { readyState: data };
+              conn.controlChannel = control === undefined ? undefined : { readyState: control };
+              return isBulkTransferWritablePeer(peer) ? '1' : '0';
+            }).join(''),
+          );
+          rows.push(`open=${open ? 1 : 0} pc=${column(pc)} ice=${column(ice)} ${groups.join(' ')}`);
+        }
+      }
+    }
+    return `${rows.join('\n')}\n`;
+  }
+
+  beforeEach(() => resetState());
+
+  it('matches the golden table for every open, PC, ICE, data and control state', () => {
+    const golden = readFileSync(join(process.cwd(), GOLDEN_TABLE), 'utf8')
+      .split('\n')
+      .filter((line) => !line.startsWith('#'))
+      .join('\n');
+    const table = bulkWritableTable();
+    expect(table.split('\n').filter(Boolean)).toHaveLength(2 * 7 * 8);
+    expect(table).toBe(golden);
+  });
+
+  it('still requires the peer’s current connection on a writable transport', () => {
+    const current = makeConn('peer');
+    const peer = makePeer('peer', current);
+    installCurrent(peer);
+    expect(isBulkTransferWritablePeer(peer)).toBe(true);
+
+    const replaced = makeConn('peer');
+    expect(isBulkTransferWritablePeer(makePeer('peer', replaced))).toBe(false);
+    setState(
+      'network.activeHostConnByPeerId',
+      new Map([['peer', replaced as unknown as DataConnection]]),
+    );
+    expect(isBulkTransferWritablePeer(peer)).toBe(false);
   });
 });
 

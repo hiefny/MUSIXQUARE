@@ -29,6 +29,7 @@
     "guard:prod-security": "node scripts/assert-production-security-config.mts",
     "guard:bus-pairing": "node scripts/check-bus-pairing.mts",
     "guard:chunk-pump": "node scripts/check-chunk-pump.mts",
+    "guard:transport-health": "node scripts/check-transport-health.mts",
     "guard:import-graph": "node scripts/check-import-graph.mts",
     "generate:profanity-patterns": "node scripts/generate-profanity-patterns.mts",
     "generate:index-hreflang": "node scripts/sync-index-hreflang.mts",

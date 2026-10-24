@@ -761,6 +761,18 @@ describe('joinSession reconnect racing', () => {
     expect(inbound).not.toHaveBeenCalled();
   });
 
+  it('names open-timeout as the cause when the data channel never opens', () => {
+    vi.useFakeTimers();
+    const { peer, conns } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+    bus.on('network:error', () => undefined);
+
+    joinSession('HOST01');
+    vi.advanceTimersByTime(10_000);
+
+    expect(conns[0].close).toHaveBeenCalledExactlyOnceWith('open-timeout');
+  });
+
   it('reserves bounded ICE time for a fallback-capable transport before timing out', () => {
     vi.useFakeTimers();
     const { peer, conns } = makeFakePeer(20_000);

@@ -3,6 +3,7 @@
  * Its signaling travels over that connection's original authenticated channel;
  * it never enters the room membership/signaling negotiation namespace.
  */
+import { RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
 import { log } from '../../core/log.ts';
 
 const TYPE = 'mxqr-control-isolation';
@@ -10,13 +11,15 @@ const LABEL = 'musixquare-control-isolated'; // brand-capitalization: allow-tech
 const NONCE = /^[a-f0-9]{32}$/u;
 const DISCOVERY_MS = 1_000;
 const NEGOTIATION_MS = 10_000;
-const DISCONNECTED_MS = 15_000;
 // A restart-capable side route survives an ICE interruption by restarting ICE
 // on the same PC: DTLS/SCTP and its ordered channel remain, so queued and
 // in-flight controls keep their order. Each local interruption gets the
 // original PC's 15-second grace, extended to 15 seconds after the original
 // route recovers when that route was itself unavailable, never beyond 30.
 // Monotonic time keeps a wall-clock correction from moving these deadlines.
+// These two windows also bound peer restart requests and offers, which the
+// two ends, possibly on different builds, enforce on each other: they stay
+// literals rather than follow RTC_INTERRUPTION_GRACE_MS.
 const RESTART_WINDOW_MS = 15_000;
 const RESTART_CAP_MS = 30_000;
 // Per local interruption, and separately per window of peer requests.
@@ -66,12 +69,20 @@ export interface IsolatedControlLease {
   prepareRestart?(): Promise<void>;
 }
 
+/**
+ * Why the side route ended its logical connection: its restart window ran
+ * out, the route failed or was refused once fenced, a local send threw, a
+ * frame broke the protocol or could not be delivered, or a frame, candidate,
+ * offer or queue bound was hit.
+ */
+export type SideRouteFailure = 'expired' | 'route' | 'send' | 'protocol' | 'limit';
+
 interface Options {
   createPeerConnection(): IsolatedControlLease | null;
   sendOriginal(data: string): void;
   receive(data: string): void;
   changed(active: boolean): void;
-  fail(): void;
+  fail(reason: SideRouteFailure): void;
   /** Whether the original route is connected rather than itself recovering. */
   originalReady?(): boolean;
 }
@@ -328,7 +339,7 @@ export class ControlIsolation {
         this.sideChannel.send(data);
       } else this.options.sendOriginal(data);
     } catch (error) {
-      this.fail();
+      this.fail('send');
       throw error;
     }
   }
@@ -358,7 +369,7 @@ export class ControlIsolation {
       else this.begin();
     } else if (frame.kind === 'decline') {
       // The refusing endpoint never creates an answer or sends a fence.
-      if (this.localFence || this.remoteFence || this.state === 'active') this.fail();
+      if (this.localFence || this.remoteFence || this.state === 'active') this.fail('route');
       else this.fallback();
     } else if (frame.kind === 'fence') {
       if (this.state !== 'negotiating' && this.state !== 'fencing') return true;
@@ -376,7 +387,7 @@ export class ControlIsolation {
       if (this.state !== 'negotiating' && this.state !== 'fencing' && this.state !== 'active')
         return true;
       if (++this.candidateCount > MAX_CANDIDATES) {
-        this.fail();
+        this.fail('limit');
         return true;
       }
       if (!this.remoteDescriptionReady) this.remoteCandidates.push(frame.candidate!);
@@ -398,7 +409,7 @@ export class ControlIsolation {
     if (this.state === 'closed') return false;
     if (!this.remoteFence) return true;
     // Never silently mix old and new routes after the ordered remote fence.
-    this.fail();
+    this.fail('protocol');
     return false;
   }
 
@@ -477,7 +488,7 @@ export class ControlIsolation {
       if (!this.current(pc) || !event.candidate) return;
       const candidate = event.candidate.toJSON();
       if (this.localEpoch > 0) return this.localRestartCandidate(candidate);
-      if (++this.localCandidateCount > MAX_CANDIDATES) return this.fail();
+      if (++this.localCandidateCount > MAX_CANDIDATES) return this.fail('limit');
       this.sendFrame('candidate', { candidate });
     });
     pc.addEventListener('datachannel', (event) => {
@@ -496,7 +507,7 @@ export class ControlIsolation {
         this.disconnectedTimer = setTimeout(() => {
           this.disconnectedTimer = null;
           if (this.current(pc) && pc.connectionState !== 'connected') this.setupFailed();
-        }, DISCONNECTED_MS);
+        }, RTC_INTERRUPTION_GRACE_MS);
       } else if (pc.connectionState === 'connected' && this.disconnectedTimer !== null) {
         clearTimeout(this.disconnectedTimer);
         this.disconnectedTimer = null;
@@ -544,7 +555,7 @@ export class ControlIsolation {
       channel.maxPacketLifeTime != null
     ) {
       channel.close();
-      this.fail();
+      this.fail('protocol');
       return;
     }
     this.sideChannel = channel;
@@ -558,12 +569,13 @@ export class ControlIsolation {
     });
     channel.addEventListener('message', (event) => {
       if (this.state === 'closed' || this.sideChannel !== channel) return;
-      if (typeof event.data !== 'string' || event.data.length > MAX_TEXT_UNITS) return this.fail();
+      if (typeof event.data !== 'string' || event.data.length > MAX_TEXT_UNITS)
+        return this.fail('protocol');
       let payload: unknown;
       try {
         payload = JSON.parse(event.data);
       } catch {
-        return this.fail();
+        return this.fail('protocol');
       }
       if (
         payload &&
@@ -577,7 +589,7 @@ export class ControlIsolation {
           frame.nonce !== this.remoteNonce ||
           frame.target !== this.localNonce
         )
-          return this.fail();
+          return this.fail('protocol');
         this.remoteReady = true;
         this.advance();
       } else if (this.state === 'active') this.deliver(event.data);
@@ -605,7 +617,7 @@ export class ControlIsolation {
       try {
         this.sideChannel.send(JSON.stringify(this.frame('ready')));
       } catch {
-        return this.fail();
+        return this.fail('send');
       }
     }
     if (!this.takeOverDisconnectGrace()) return;
@@ -622,7 +634,7 @@ export class ControlIsolation {
         this.sideChannel.send(data);
       }
     } catch {
-      return this.fail();
+      return this.fail('send');
     } finally {
       this.flushing = false;
     }
@@ -681,7 +693,7 @@ export class ControlIsolation {
       if (this.offerer || epoch !== this.remoteEpochSeen + 1) return;
       // Ignoring an excess offer would strand the peer's attempt: close instead.
       const now = performance.now();
-      if (this.offerWindowFull(now)) return this.fail();
+      if (this.offerWindowFull(now)) return this.fail('limit');
       this.restartOffers.push(now);
       this.remoteEpochSeen = epoch;
       this.remoteRestartCandidates = 0;
@@ -704,7 +716,7 @@ export class ControlIsolation {
       });
     } else if (frame.kind === 'restart-candidate') {
       if (epoch !== this.remoteEpochSeen) return;
-      if (++this.remoteRestartCandidates > MAX_CANDIDATES) return this.fail();
+      if (++this.remoteRestartCandidates > MAX_CANDIDATES) return this.fail('limit');
       this.serialize(async () => {
         const pc = this.lease?.pc;
         if (!pc || !this.current(pc) || this.remoteEpoch !== epoch) return;
@@ -877,11 +889,11 @@ export class ControlIsolation {
 
   private localRestartCandidate(candidate: RTCIceCandidateInit): void {
     if (this.heldCandidates) {
-      if (this.heldCandidates.length >= MAX_CANDIDATES) return this.fail();
+      if (this.heldCandidates.length >= MAX_CANDIDATES) return this.fail('limit');
       this.heldCandidates.push(candidate);
       return;
     }
-    if (++this.localRestartCandidates > MAX_CANDIDATES) return this.fail();
+    if (++this.localRestartCandidates > MAX_CANDIDATES) return this.fail('limit');
     this.sendFrame('restart-candidate', { epoch: this.localEpoch, candidate });
   }
 
@@ -908,7 +920,7 @@ export class ControlIsolation {
       return this.armDeadline(interruption, cap);
     }
     log.warn('[Transport] Isolated control ICE did not recover; closing its logical connection');
-    this.fail();
+    this.fail('expired');
   }
 
   private endInterruption(): void {
@@ -924,7 +936,7 @@ export class ControlIsolation {
   }
 
   private enqueue(queue: string[], data: string, outgoing: boolean): void {
-    if (data.length > MAX_TEXT_UNITS) return this.fail();
+    if (data.length > MAX_TEXT_UNITS) return this.fail('limit');
     const bytes = encoder.encode(data).byteLength;
     const next = (outgoing ? this.outgoingBytes : this.incomingBytes) + bytes;
     // Preserve the existing per-frame text envelope without permitting a queue
@@ -934,7 +946,8 @@ export class ControlIsolation {
       outgoing ? this.largestOutgoingBytes : this.largestIncomingBytes,
       bytes,
     );
-    if (queue.length >= MAX_QUEUE_MESSAGES || next > MAX_QUEUE_BYTES + largest) return this.fail();
+    if (queue.length >= MAX_QUEUE_MESSAGES || next > MAX_QUEUE_BYTES + largest)
+      return this.fail('limit');
     if (outgoing) this.largestOutgoingBytes = largest;
     else this.largestIncomingBytes = largest;
     if (outgoing) this.outgoingBytes = next;
@@ -946,7 +959,7 @@ export class ControlIsolation {
     try {
       this.options.receive(data);
     } catch {
-      this.fail();
+      this.fail('protocol');
     }
   }
 
@@ -975,16 +988,16 @@ export class ControlIsolation {
   private sendFrame(kind: Kind, extra: Partial<Frame> = {}): void {
     if (this.state === 'closed') return;
     const frame = this.frame(kind, extra);
-    if (!parse({ ...frame })) return this.fail();
+    if (!parse({ ...frame })) return this.fail('protocol');
     try {
       this.options.sendOriginal(JSON.stringify(frame));
     } catch {
-      this.fail();
+      this.fail('send');
     }
   }
   private fallback(): void {
     if (this.state === 'closed' || this.state === 'fallback') return;
-    if (this.localFence || this.remoteFence) return this.fail();
+    if (this.localFence || this.remoteFence) return this.fail('route');
     this.state = 'fallback';
     this.clearTimers();
     this.closeSide();
@@ -993,7 +1006,8 @@ export class ControlIsolation {
   }
   private setupFailed(): void {
     if (this.state === 'closed' || this.state === 'fallback') return;
-    if (this.state !== 'negotiating' || this.localFence || this.remoteFence) return this.fail();
+    if (this.state !== 'negotiating' || this.localFence || this.remoteFence)
+      return this.fail('route');
     // A refusal is ordered before any following old-route application message.
     // If the other endpoint has already fenced, it closes the entire connection.
     this.sendFrame('decline');
@@ -1028,10 +1042,10 @@ export class ControlIsolation {
     this.discoveryTimer = this.negotiationTimer = this.disconnectedTimer = null;
     this.interruption = null;
   }
-  private fail(): void {
+  private fail(reason: SideRouteFailure): void {
     if (this.state === 'closed') return;
     this.dispose();
-    this.options.fail();
+    this.options.fail(reason);
   }
   private notify(): void {
     for (const listener of this.listeners) listener();

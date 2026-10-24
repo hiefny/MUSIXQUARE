@@ -111,8 +111,8 @@ each record also states the step in words.
 | RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 0d, 4                        |
 | RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | 4 (restart gate only)        |
 | RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 0d, 4                        |
-| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 0d, 4                        |
-| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | 0d (deadline table)          |
+| RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (constants done, C5-3)     |
+| RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)               |
 | RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                         |
 | RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | Owner decision               |
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                        |
@@ -898,10 +898,13 @@ RO-47 owner-in-place
 - **Lifecycle operations:** start and cancel grace, ICE restart, background probe, terminate.
 - **Deadline owner:** the original PC's 15 s grace; the side route's 15 s window capped at 30 s,
   deferred while the original is down; the probe's short close.
-- **Timing-constant home:** `DATA_CONNECTION_DISCONNECTED_GRACE_MS` (`cloudflare-signaling.ts`)
-  repeated as `DISCONNECTED_MS` and `RESTART_WINDOW_MS` (`control-isolation.ts`) and as a literal
-  in `src/network/heartbeat-monitor.ts`; `RESTART_CAP_MS` is twice the grace. Target:
-  `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 0d, C5-1).
+- **Timing-constant home:** `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 4,
+  C5-1): the original PC's grace, its background-resume threshold and restart answer wait
+  (`cloudflare-signaling.ts`), the side PC's grace without restart capability
+  (`control-isolation.ts`) and the heartbeat monitor's lease cap (RO-17).
+  `control-isolation.ts` keeps `RESTART_WINDOW_MS` (15 s) and `RESTART_CAP_MS` (30 s) as its own
+  literals: they also bound peer restart requests and offers, which the two ends enforce on each
+  other across builds, so a change to the grace must not move them (RO-35).
 - **Anchor tests:**
   - Supersession: `src/network/transport/__tests__/cloudflare-signaling.test.ts` "rolls an
     unanswered restart back if the old path recovers before its answer".
@@ -914,8 +917,11 @@ RO-47 owner-in-place
   - Mixed versions: `control-isolation.test.ts` with the frozen fixture
     `src/network/transport/__tests__/fixtures/control-isolation-c9.ts`. A Wi-Fi to LTE switch with
     both PCs is device-only.
-- **Status:** `duplicated`. Phase 0d (grace constant), Phase 4 (close causes, link-liveness
-  owner). See [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md).
+- **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
+  (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
+  and the connection keeps the first one and logs one info line per close; no timer or state
+  moved. Phase 4 still owes the link-liveness owner. See
+  [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md).
   Exception RO-35.
 
 ### RO-16 Data-PC SDP lane
@@ -949,8 +955,9 @@ RO-47 owner-in-place
 
 - **Resource:** each guest's connection on the host.
 - **Current owners/flows:** the heartbeat monitor (`src/network/heartbeat-monitor.ts`) detaches
-  and closes stale peers, re-deriving transport grace from raw PC state and honouring
-  `conn.iceRecoveryDeadline`; the transport grace and terminate (RO-15) close independently.
+  and closes stale peers. It classifies transport grace and honours `conn.iceRecoveryDeadline`
+  through the pure read path `src/network/transport-health.ts` (`heartbeatStaleThreshold`,
+  `honoursRecoveryLease`); the transport grace and terminate (RO-15) close independently.
   Detach is fenced by connection identity (`detachHostPeerConnection` in
   `src/network/host-peer-departure.ts`).
 - **Target single owner:** the heartbeat monitor keeps the heartbeat leases and stale fencing that
@@ -960,9 +967,12 @@ RO-47 owner-in-place
 - **Lifecycle operations:** record heartbeat, detach, close, publish disconnect.
 - **Deadline owner:** the monitor's stale thresholds (8 s closed, 30 s recovering, 90 s connected)
   and the transport's recovery deadline.
-- **Timing-constant home:** `HEARTBEAT_RECOVERING_TRANSPORT_GRACE` (a different contract that
-  shares 30 s) and the `15_000` literal copy of the transport grace in `heartbeat-monitor.ts`.
-  Target: import the transport grace constant (Phase 0d).
+- **Timing-constant home:** the stale thresholds `HEARTBEAT_STALE_THRESHOLD` (8 s),
+  `HEARTBEAT_RECOVERING_TRANSPORT_GRACE` (30 s, a different contract that shares 30 s) and
+  `HEARTBEAT_LIVE_TRANSPORT_GRACE` (90 s) in `src/network/transport-health.ts` (Phase 4, C5-4);
+  the check cadence `HEARTBEAT_CHECK_INTERVAL` (5 s) stays in `heartbeat-monitor.ts`. The lease
+  cap in `transport-health.ts` imports the transport grace `RTC_INTERRUPTION_GRACE_MS` from
+  `src/core/constants.ts` (Phase 4, C5-1).
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/heartbeat-monitor.test.ts` "records heartbeat only for the
     exact connected connection".
@@ -972,7 +982,11 @@ RO-47 owner-in-place
   - Visibility: missing.
   - Cross-owner: `heartbeat-monitor.test.ts` "honors only an exact bounded ICE recovery lease
     before cleaning a failed PC".
-- **Status:** `duplicated`. Phase 0d, Phase 4 (one transport-health read path).
+- **Status:** `duplicated`. Phase 0d. One transport-health read path in Phase 4 (C5-4): the
+  monitor reads no raw RTC state except its stale-peer warning (`npm run guard:transport-health`,
+  `scripts/check-transport-health.mts`, in CI; see
+  [Realtime runtime ownership](realtime-runtime-ownership.md)). The transport's own grace and
+  terminate (RO-15) still close the connection independently until the link-liveness owner.
 
 ### RO-18 Host-to-guest bulk lanes
 
@@ -991,9 +1005,12 @@ RO-47 owner-in-place
 - **Lifecycle operations:** register, suspend, resume, cancel, release on disconnect or
   replacement.
 - **Deadline owner:** each lane's backpressure timeout.
-- **Timing-constant home:** `UNICAST_BACKPRESSURE_LIMIT` and `UNICAST_BACKPRESSURE_TIMEOUT`
-  (`transfer-send.ts`) with copies in `preload.ts`. Target: `src/storage/transfer-backpressure.ts`
-  (Phase 0d, C5-3).
+- **Timing-constant home:** `src/storage/transfer-backpressure.ts` (Phase 4, C5-3):
+  `BULK_LOCAL_BUFFER_LIMIT_BYTES` (64 KiB of local queue, every lane) and
+  `BULK_UNICAST_STALL_TIMEOUT_MS` (30 s, the main-file and preload unicasts). The broadcast stall
+  timeouts stay their own constants and differ on purpose: 5 s for the main-file broadcast
+  (`transfer-send.ts`) and 30 s for the preload broadcast (`preload.ts`), which tolerates
+  congestion longer so a guest does not restart the next track from zero.
 - **Anchor tests:**
   - Supersession: `src/storage/__tests__/preload-lane-ownership.test.ts` "forgets a paused lane
     whose connection was replaced".
@@ -1002,8 +1019,8 @@ RO-47 owner-in-place
     without flushing stale bytes into a replacement unicast or ACK".
   - Visibility: n/a (host lanes do not depend on visibility).
   - Missing: both lanes after ICE recovery (Phase 0c reproduces or refutes the duplicate traffic).
-- **Status:** `duplicated`. Phase 0d (lane constants), Phase 4 (registry; which lane wins after
-  recovery is an owner decision). See
+- **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); Phase 4 still owes the
+  registry (which lane wins after recovery is an owner decision). See
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md).
 
 ### RO-19 Guest fetch of the current track
@@ -1021,9 +1038,15 @@ RO-47 owner-in-place
 - **Allowed requesters:** the five waits above, through the request slot.
 - **Lifecycle operations:** begin, send, match the wait response, complete, reset.
 - **Deadline owner:** each wait; `playback.lifecycle` gates them.
-- **Timing-constant home:** `WATCHDOG_TIMEOUT` (`src/core/constants.ts`) and `remote ? 60000 : X`
-  literals in `transfer-receive.ts`. Target: a typed receive-deadline table beside
-  `WATCHDOG_TIMEOUT` (Phase 0d, C5-3).
+- **Timing-constant home:** `src/core/constants.ts` (Phase 4, C5-3).
+  `receiveDeadlineMs(kind, connectionType)` reads a typed table for the waits in
+  `transfer-receive.ts`: the chunk watchdog (12 s local, 60 s remote), FILE_PREPARE (15 s / 60 s)
+  and the awaited preload (30 s / 60 s).
+  `PRELOAD_RECEIVE_DEADLINE_MS` holds the preload admission (30 s) and progress (15 s) windows
+  (`preload.ts`, `preload-watchdog.ts`) and the preload loader watchdog (30 s after PRELOAD_START,
+  15 s after progress). The PLAY_PRELOADED waiter (`playback.ts`) and the R2 wait
+  (`REMOTE_WAIT_MS` in `remote-share.ts`) keep their own single-use values. Managed timer keys
+  are unchanged.
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/file-request-authority.test.ts` "prevents a stale owner
     or completion from clearing its successor".
@@ -1032,7 +1055,7 @@ RO-47 owner-in-place
   - Teardown: `file-request-authority.test.ts` "releases a current owner when its connection
     closes before send".
   - Visibility: missing.
-- **Status:** `owner-in-place`. Phase 0d (deadline table).
+- **Status:** `owner-in-place`. Deadline table done in Phase 4 (C5-3).
 
 ### RO-20 PRO system-audio lease and publication
 
@@ -1622,8 +1645,11 @@ RO-47 owner-in-place
   control-channel recovery, publish signaling exhaustion.
 - **Deadline owner:** `runtime.ts`; recovery is bounded by `SIGNALING_RECOVERY_MAX_ATTEMPTS`.
 - **Timing-constant home:** `HEARTBEAT_INTERVAL_MS` and `CONTROL_CHANNEL_RECOVERY_RETRY_MS`
-  (`runtime.ts`). The same `[1_000, 2_000, 4_000, 8_000, 15_000]` is `RECONNECT_BACKOFF_MS` in
-  `src/network/peer.ts`; Phase 0d decides whether that is one contract.
+  (`runtime.ts`). The same `[1_000, 2_000, 4_000, 8_000, 15_000]` is the Standard signaling
+  reconnect schedule `SIGNALING_RECOVERY_BACKOFF_MS` in `src/network/signaling-health.ts` (Phase 4,
+  C5-2; `src/network/peer.ts` reads it and `SIGNALING_RECOVERY_MAX_ATTEMPTS` is its length).
+  Phase 4 keeps the PRO copy separate and leaves the PRO runtime alone (owner decision,
+  2026-10-24); adopting the shared schedule there would be a later PRO change.
 - **Anchor tests:**
   - Supersession: `src/pro-room/__tests__/heartbeat-single-flight.test.ts` "guarantees a fresh
     reconciliation after an epoch event races an old heartbeat".
@@ -1631,7 +1657,8 @@ RO-47 owner-in-place
   - Teardown: `heartbeat-single-flight.test.ts` "does not let a reset flight enqueue work into the
     next room lifecycle".
   - Visibility: missing (the slot's clear and re-arm on visibility, and recovery holding the slot).
-- **Status:** `owner-in-place`. Phase 0d (copy triage only).
+- **Status:** `owner-in-place`. Copy triage (Phase 0d): the Standard copy moved to its home in
+  Phase 4 (C5-2); the PRO copy stays separate and the guard keeps the pair listed.
 
 ### RO-30 Back-button history entries
 
@@ -1727,8 +1754,10 @@ entry needs the owner's acceptance and is not implied by this registry.
 ### RO-35 Side-route outage deadline stays in control isolation
 
 - **Parent:** RO-15. Plan step C5-9 deferred.
-- **Exception:** `control-isolation.ts` keeps its own side-route outage deadline and 15 s and 30 s
-  constants (derived from the shared grace after Phase 0d).
+- **Exception:** `control-isolation.ts` keeps its own side-route outage deadline. Its grace without
+  restart capability is the shared `RTC_INTERRUPTION_GRACE_MS`; its 15 s `RESTART_WINDOW_MS` and
+  30 s `RESTART_CAP_MS` stay its own literals because they also bound the restart requests and
+  offers that the two ends, possibly on different builds, enforce on each other (Phase 4, C5-1).
 - **Evidence:** the side route's ICE restart is still under
   [known-accepted #18](../known-accepted.md), awaiting the owner's real-device Wi-Fi to LTE check;
   the same timer also governs active routes to peers without restart capability.
@@ -2011,7 +2040,7 @@ Not checked yet: callers of the other records' lifecycle operations (YouTube pla
 `claimPlaybackOwner`, `setSystemAudioReceiving`), receivers resolved by
 type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
 duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
-in requester files (the 15 s data-connection grace in `heartbeat-monitor.ts`), and header loader
+in requester files, and header loader
 holder IDs read from a property, a call or another module (RO-47). Until then, review those by
 hand against each record.
 

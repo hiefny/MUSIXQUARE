@@ -1340,6 +1340,15 @@ describe('standard-room account authority', () => {
     expect(anonymous.close).toHaveBeenCalledTimes(1);
   });
 
+  it('names open-timeout as the cause when a connection never opens', () => {
+    const conn = makeIncomingConn('never-opens');
+    handleHostIncomingConnection(conn);
+
+    vi.advanceTimersByTime(15_000);
+
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith('open-timeout');
+  });
+
   it('does not transfer an anonymous grant to a replacement connection with the same peer ID', () => {
     const original = makeIncomingConn('anonymous-replaced');
     handleHostIncomingConnection(original);

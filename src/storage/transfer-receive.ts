@@ -12,9 +12,9 @@ import {
   MSG,
   CHUNK_SIZE,
   TRANSFER_STATE,
-  WATCHDOG_TIMEOUT,
   PLAYBACK_STATE,
   LOAD_SOURCE,
+  receiveDeadlineMs,
 } from '../core/constants.ts';
 import { validateSessionId } from '../core/session.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
@@ -593,7 +593,7 @@ function switchRemoteWaitToLocalDirect(data: Record<string, unknown>): void {
 // ─── Chunk Watchdog ──────────────────────────────────────────────────
 
 function getEffectiveWatchdogTimeout(): number {
-  return getState('network.connectionType') === 'remote' ? 60000 : WATCHDOG_TIMEOUT;
+  return receiveDeadlineMs('chunk', getState('network.connectionType'));
 }
 
 function startChunkWatchdog(): void {
@@ -1216,7 +1216,10 @@ export async function handleFilePrepare(
       // receive allowance; local preload gets 30s (longer than chunk receive).
       restorePendingFileIntent(pendingFileIntent, data, 'preload-waiting stopAllMedia');
 
-      const preloadWatchdogMs = getState('network.connectionType') === 'remote' ? 60000 : 30000;
+      const preloadWatchdogMs = receiveDeadlineMs(
+        'preloadWait',
+        getState('network.connectionType'),
+      );
       setManagedTimer(
         'preloadRecoveryWatchdog',
         () => {
@@ -1345,7 +1348,7 @@ export async function handleFilePrepare(
   restorePendingFileIntent(pendingFileIntent, data, 'file-prepare reset');
 
   // Prepare watchdog with jitter recovery
-  const prepareTimeout = getState('network.connectionType') === 'remote' ? 60000 : 15000;
+  const prepareTimeout = receiveDeadlineMs('prepare', getState('network.connectionType'));
   setManagedTimer(
     'prepareWatchdog',
     () => {

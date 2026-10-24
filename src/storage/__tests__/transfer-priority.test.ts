@@ -390,6 +390,42 @@ describe('current-file priority across real sender and preload lanes', () => {
       MSG.PRELOAD_END,
     ]);
   });
+
+  it.each([
+    ['main', MSG.FILE_START],
+    ['preload', MSG.PRELOAD_START],
+  ] as const)(
+    'stops a %s unicast lane held above 64 KiB of local queue for 30 s',
+    async (lane, header) => {
+      const target = connection(`stalled-${lane}`, 64 * 1024 + 1);
+      const current = new File(['main'], 'current.mp3');
+      const next = new File(['next'], 'next.mp3');
+      installPeers(target.peer);
+      setState('playlist.items', [item(CURRENT, current), item(NEXT, next)]);
+      publishCurrent(current);
+      if (lane === 'preload') publishPreload(next);
+      let stopped = false;
+      const sender = (
+        lane === 'main'
+          ? unicastFile(target.conn, current, 0, 6, { queueItemId: CURRENT })
+          : unicastPreload(target.conn, next, NEXT, 7)
+      ).then(() => {
+        stopped = true;
+      });
+
+      // The capacity wait starts within 200 ms and arms its low-water event at the limit.
+      await vi.advanceTimersByTimeAsync(200);
+      expect(target.wire.map((frame) => frame.type)).toEqual([header]);
+      expect(target.channel.bufferedAmountLowThreshold).toBe(64 * 1024);
+      await vi.advanceTimersByTimeAsync(29_700);
+      expect(stopped).toBe(false);
+      await vi.advanceTimersByTimeAsync(400);
+      expect(stopped).toBe(true);
+      await sender;
+      expect(target.wire.map((frame) => frame.type)).toEqual([header]);
+      expect(target.channel.bufferedAmountLowThreshold).toBe(0);
+    },
+  );
 });
 
 describe('preload receive watchdog while the main file owns bandwidth', () => {

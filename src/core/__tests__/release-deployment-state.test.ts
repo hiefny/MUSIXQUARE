@@ -2753,9 +2753,11 @@ describe('release deployment rollback state', () => {
     const releaseWorkflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     expect(ciWorkflow).toContain('npm run guard:chunk-pump');
     expect(ciWorkflow).toContain('npm run guard:lifecycle-writes');
+    expect(ciWorkflow).toContain('npm run guard:transport-health');
     expect(ciWorkflow).toContain('run: npm run format:check');
     expect(releaseWorkflow).not.toContain('npm run guard:chunk-pump');
     expect(releaseWorkflow).not.toContain('npm run guard:lifecycle-writes');
+    expect(releaseWorkflow).not.toContain('npm run guard:transport-health');
     expect(releaseWorkflow).not.toContain('run: npm run format:check');
   });
 

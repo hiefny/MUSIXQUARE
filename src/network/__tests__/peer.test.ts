@@ -26,7 +26,12 @@ import {
   sdpPrefersOpusStereo,
   waitForGuestConnectionType,
 } from '../peer.ts';
-import type { AnyProtocolMsg, DataConnection, PeerInstance } from '../../types/index.ts';
+import type {
+  AnyProtocolMsg,
+  ConnectedPeer,
+  DataConnection,
+  PeerInstance,
+} from '../../types/index.ts';
 import {
   __accountLoginReturnForTests,
   rememberAccountLoginReturn,
@@ -305,7 +310,35 @@ describe('leaveSession', () => {
     expect(getState('youtube.currentSubIndex')).toBe(-1);
     expect(getState('systemAudio.isReceiving')).toBe(false);
   });
+
+  it('names leave as the cause for every connection it closes', () => {
+    const hostConn = makeConnection({ close: vi.fn() });
+    const guestConn = makeConnection({ close: vi.fn() });
+    setState('network.hostConn', hostConn);
+    setState('network.connectedPeers', [makePeerRow(guestConn)]);
+
+    leaveSession();
+
+    expect(hostConn.close).toHaveBeenCalledExactlyOnceWith('leave');
+    expect(guestConn.close).toHaveBeenCalledExactlyOnceWith('leave');
+  });
 });
+
+function makePeerRow(conn: DataConnection): ConnectedPeer {
+  return {
+    id: 'guest-1',
+    slot: 1,
+    conn,
+    isOp: false,
+    preloadedQueueItemIds: new Set(),
+    status: 'connected',
+    connectionType: 'local',
+    isDataTarget: true,
+    joinOrder: 1,
+    lastHeartbeat: 0,
+    label: 'guest-1',
+  };
+}
 
 describe('cancelPendingSessionSetup', () => {
   it('destroys a provisional peer without clearing the local playlist', () => {
@@ -349,6 +382,20 @@ describe('cancelPendingSessionSetup', () => {
     expect(destroy).not.toHaveBeenCalled();
     expect(getPeer()).not.toBeNull();
     expect(getState('network.myId')).toBe('active-host');
+  });
+
+  it('names leave as the cause for every provisional connection it closes', () => {
+    const hostConn = makeConnection({ close: vi.fn() });
+    const guestConn = makeConnection({ close: vi.fn() });
+    setState('network.appRole', 'idle');
+    setState('setup.sessionStarted', false);
+    setState('network.hostConn', hostConn);
+    setState('network.connectedPeers', [makePeerRow(guestConn)]);
+
+    cancelPendingSessionSetup();
+
+    expect(hostConn.close).toHaveBeenCalledExactlyOnceWith('leave');
+    expect(guestConn.close).toHaveBeenCalledExactlyOnceWith('leave');
   });
 });
 

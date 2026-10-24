@@ -18,8 +18,9 @@ its authenticated host epoch before the host knows it must reconnect.
 An authenticated Standard-room host monitors only its exact signaling WebSocket. After ten
 seconds without any server traffic it sends one fixed application-level probe. Any ordinary
 server frame or the fixed pong proves liveness. If eight more seconds pass without a response,
-the exact socket generation is retired and the existing 1/2/4/8/15-second recovery loop starts
-automatically. Existing WebRTC data channels, playback, and system-audio media stay intact.
+the exact socket generation is retired and the existing 1/2/4/8/15-second recovery loop
+(`SIGNALING_RECOVERY_BACKOFF_MS` in `src/network/signaling-health.ts`) starts automatically.
+Existing WebRTC data channels, playback, and system-audio media stay intact.
 
 The Worker advertises protocol version 1 only from deployed Workers carrying version metadata.
 Durable Objects use `setWebSocketAutoResponse()` when available, with an explicit local/test
@@ -118,8 +119,9 @@ fences late results. This follows the provider's
 continuous relay allocation survival over a physical 48-hour session is a
 separate manual verification item, not a claim established by fake-clock tests.
 
-One interruption has a non-renewing 15-second transport grace. The host heartbeat monitor
-respects this exact provider-owned deadline only while both channels are still open, so its
+One interruption has a non-renewing 15-second transport grace (`RTC_INTERRUPTION_GRACE_MS` in
+`src/core/constants.ts`). The host heartbeat monitor respects this exact provider-owned deadline
+only while both channels are still open, so its
 ordinary failed-ICE threshold cannot prematurely consume the recovery window. Expired grace
 or closed channels still terminate the connection. A recovered path or selected-candidate-pair
 change invalidates the old local/remote classification before an asynchronous recheck, with

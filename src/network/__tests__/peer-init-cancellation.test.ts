@@ -898,6 +898,79 @@ describe('network initialization ownership', () => {
     expect(mocks.showDialog).not.toHaveBeenCalled();
   });
 
+  async function exhaustedStandardHost(): Promise<{ peer: FiringPeer; reconnectTimes: number[] }> {
+    vi.useFakeTimers();
+    const peer = makePeer('STANDARD-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    setState('network.sessionCode', await createHostSessionWithShortCode(1));
+    setState('setup.sessionStarted', true);
+    setState('playback.activity', 'playing');
+    const reconnectTimes: number[] = [];
+    peer.reconnect.mockImplementation(() => reconnectTimes.push(Date.now()));
+    return { peer, reconnectTimes };
+  }
+
+  it('reconnects signaling 1, 3, 7, 15 and 30 s after a drop, then publishes exhaustion', async () => {
+    const { peer, reconnectTimes } = await exhaustedStandardHost();
+    const start = Date.now();
+
+    peer.fire('disconnected');
+    expect(getState('network.signalingHealth')).toEqual({
+      status: 'reconnecting',
+      attempt: 1,
+      maxAttempts: 5,
+    });
+    const attempts: number[] = [];
+    for (const step of [1_000, 2_000, 4_000, 8_000]) {
+      await vi.advanceTimersByTimeAsync(step);
+      attempts.push(getState('network.signalingHealth').attempt);
+    }
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(getState('network.signalingHealth').status).toBe('reconnecting');
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(reconnectTimes.map((time) => time - start)).toEqual([
+      1_000, 3_000, 7_000, 15_000, 30_000,
+    ]);
+    expect(attempts).toEqual([2, 3, 4, 5]);
+    expect(getState('network.signalingHealth')).toEqual({
+      status: 'exhausted',
+      attempt: 0,
+      maxAttempts: 5,
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(peer.reconnect).toHaveBeenCalledTimes(5);
+  });
+
+  it.each([
+    ['a manual retry', () => expect(retryPeerSignalingConnection()).toBe(true)],
+    ['an online event', () => window.dispatchEvent(new Event('online'))],
+    ['a foreground return', () => recoverPeerAfterBackground(60_000)],
+  ])('restarts exhausted host signaling at attempt 1 after %s', async (_name, hint) => {
+    const { peer, reconnectTimes } = await exhaustedStandardHost();
+    peer.fire('disconnected');
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(getState('network.signalingHealth').status).toBe('exhausted');
+    reconnectTimes.length = 0;
+    const restart = Date.now();
+
+    hint();
+    // The hint itself is attempt 1; the second attempt is already scheduled.
+    expect(getState('network.signalingHealth')).toEqual({
+      status: 'reconnecting',
+      attempt: 2,
+      maxAttempts: 5,
+    });
+    await vi.advanceTimersByTimeAsync(28_999);
+    expect(getState('network.signalingHealth').status).toBe('reconnecting');
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(reconnectTimes.map((time) => time - restart)).toEqual([0, 2_000, 6_000, 14_000, 29_000]);
+    expect(getState('network.signalingHealth').status).toBe('exhausted');
+    expect(peer.destroy).not.toHaveBeenCalled();
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
   it('keeps ordinary-room signaling reconnect independent of the PRO ticket hook', async () => {
     const peer = makePeer('STANDARD-HOST', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);

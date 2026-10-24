@@ -81,6 +81,9 @@ jobs:
       - name: Storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 
+      - name: Transport-health read path
+        run: npm run guard:transport-health
+
   static-style:
     name: Lint and formatting
     runs-on: ubuntu-latest

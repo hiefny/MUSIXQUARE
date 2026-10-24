@@ -94,9 +94,10 @@ runbooks. Neither belongs in a general setup document.
 
 - [Spectrum grid colour on iOS (2026-10-25)](design/spectrum-grid-ios-color-2026-10-25.md): 9.0.8 / v779
   fix for the 100 Hz, 1 kHz and 10 kHz lines turning blue on iOS while paused. 8.11.40 (#442) reused one
-  grid gradient object across draws, and WebKit's GPU-process canvas recorder elides that gradient after
-  the batched resting line, so the grid strokes in the line's blue. Each draw now creates its own gradient,
-  pinned by unit tests that model the recorder; Chromium and Windows WebKit pixels are unchanged.
+  grid gradient object across draws. By WebKit's source, its GPU-process canvas recorder then elides that
+  gradient after the batched resting line, so the grid strokes in the line's blue (not yet seen on a
+  device). Each draw now creates its own gradient, pinned by unit tests that model the recorder; Chromium
+  and Windows WebKit pixels are unchanged.
 - [Phase 4 train 4A: transport liveness and output rejoin, behaviour-neutral (2026-10-24)](design/phase4-4a-transport-rejoin-2026-10-24.md):
   release evidence for the structure program's first Phase 4 app train
   (9.0.7 / v778, released 2026-10-24 23:26 KST in Release 40102311205, target `app`). One home each for the

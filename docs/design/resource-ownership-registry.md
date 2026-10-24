@@ -1089,10 +1089,30 @@ RO-49 accepted-exception
     resend" describes the host's wire order, not what the guest processes. A later guest-side
     change (9.0.9+ guests only) could ignore a restart START for a session already aborted on the
     control route.
-  - The guest reads its route when the main header arrives. A header sent after `local` was
-    published could still find the guest `unknown` only if the bulk channel overtook the control
-    route that carried the device list and the guest's own re-detection had not finished; no
-    unit row or lab run shows it.
+  - The guest reads its own route when the main header arrives, and the host cannot see it. A
+    header sent after `local` was published can still reach a guest awaiting the preload that is
+    not `local`; the guest then drops the header while the restart yields, and stays in
+    AWAITING_PRELOAD with no stream and no further request. A later host announcement on the same
+    connection no longer leads there (the revoke above). Two paths remain; no unit row or lab run
+    shows either:
+    - the bulk channel overtakes the control route that carried the device list, and the guest's
+      own re-detection has not finished;
+    - the guest handles its own `ice-recovered` (its connection-state transition or its
+      selected-pair change; each side emits its own) after it applied the host's `local` device
+      list. That event clears the host-reported route and sets `unknown` (`guest.ts`) until the
+      guest's own detection finishes. If that detection returns `remote` (the asymmetry the guest
+      otherwise settles by trusting the host), the guest keeps `remote`: no host-reported route
+      is left to defer to, and the host sends no new device list for that recovery. The host
+      publishes within milliseconds of its own recovery (C5-0 lab, three F4 runs after the
+      restore: restart header at +236 to +264 ms, host re-detection from +234 to +263 ms), so a
+      guest whose state change lags the host's by a few milliseconds plus the one-way latency
+      meets this order; it ends in the stall only when the guest's own detection disagrees with
+      the host's. In those runs the guest's detection was host/host on its first try, long before
+      the main header (+1.3 to +3.5 s). This path cannot
+      be closed on the host without a guest acknowledgement. A later guest change (9.0.9+ guests
+      only) could keep the host-reported route across the guest's own recovery, or accept a main
+      `FILE_START` in AWAITING_PRELOAD when `isGuestDirectFileDelivery(queueItemId, sessionId)`
+      holds. Neither helps 9.0.4 to 9.0.8 guests.
 - **Target single owner:** one bulk-lane registry (planned `src/storage/bulk-lanes.ts`); per-lane
   policies, pumps and wire frames unchanged.
 - **Allowed requesters:** file send, preload scheduling, the guest's recovery request.

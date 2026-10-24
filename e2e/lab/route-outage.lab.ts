@@ -10,6 +10,7 @@
  * today's main does, so the LinkLiveness lanes (C5-6..C5-9, C5-12) can rerun it.
  */
 import { expect, test, type Page } from '@playwright/test';
+import { CHUNK_SIZE } from '../../src/core/constants.ts';
 import { clickPlayButton, waitForPlaybackProjection } from '../helpers/wait.ts';
 import type { FrameRow, ProbeExport, WsRow } from './lab-probe.ts';
 import { LabRoom, writeWavFixture, type ConnectionSnapshot, type WavFixture } from './lab-room.ts';
@@ -519,6 +520,7 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
         lines(room, 'host', cut, `[Preload] ${text} preload for ${guestPeer} `).map(
           (row) => row.at - restore,
         );
+      const mainStartAt = lane('file-start')[0]?.at ?? Number.POSITIVE_INFINITY;
       const wire = {
         preloadStarts: lane('preload-start').map((f) => ({
           restart: f.restart ?? null,
@@ -529,6 +531,9 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
           at: f.at - restore,
         })),
         preloadChunkBytes: lane('preload-chunk').reduce((sum, f) => sum + f.payloadBytes, 0),
+        preloadChunkBytesFromMainStart: lane('preload-chunk')
+          .filter((f) => f.at >= mainStartAt)
+          .reduce((sum, f) => sum + f.payloadBytes, 0),
         fileChunkBytes: lane('file-chunk').reduce((sum, f) => sum + f.payloadBytes, 0),
         preloadEnds: lane('preload-end').map((f) => f.at - restore),
         preloadAborts: lane('preload-abort').map((f) => ({
@@ -571,6 +576,13 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
       expect(wire.fileChunkBytes, 'main lane bytes').toBe(l.bytes);
       expect(wire.preloadEnds, 'preload ends').toEqual([]);
       expect(wire.preloadChunkBytes, 'preload lane bytes').toBeLessThan(l.bytes);
+      // The main lane is preparing before its FILE_START leaves, and the restart
+      // checks it synchronously before every chunk, so no preload chunk should
+      // follow that header; one chunk of slack covers a same-millisecond stamp.
+      expect(
+        wire.preloadChunkBytesFromMainStart,
+        'preload lane bytes from the main FILE_START on',
+      ).toBeLessThanOrEqual(CHUNK_SIZE);
       expect(wire.preloadAborts.length, 'preload aborts').toBe(1);
       // A control route (original or isolated), never the bulk channel.
       expect(wire.preloadAborts[0]!.channel, 'preload abort channel').toMatch(

@@ -94,7 +94,10 @@ ignored.
   closes immediately. (Since Phase 4 C5-10, 2026-10-25, `fail()` reaches
   `terminate()` only through the link-liveness owner's close,
   `LinkLiveness.close('side-failed:<reason>')`, which keeps the link's first
-  cause; this deadline and restart stay here, registry RO-35.)
+  cause. Since Phase 4 C5-9, train 4D, the link-liveness owner also keeps this
+  deadline, with the same 15 seconds, wait, re-arm, 30-second cap and monotonic
+  clock, and the same grace for a route that cannot restart; the restart, its
+  windows and its frames stay here, registry RO-15.)
 - At most 16 restart offers per rolling 30 seconds: the offerer stops there,
   and an answerer offered more closes the connection rather than ignoring the
   offer, which would strand the offerer's attempt.

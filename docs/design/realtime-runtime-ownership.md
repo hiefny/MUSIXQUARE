@@ -75,16 +75,16 @@ which prints the peer connection's state and decides nothing. Media-PC readers
 ## Link-liveness owner and close authority
 
 Amended 2026-10-25 (Phase 4, C5-6, C5-7, C5-8 and the connection part of
-C5-10; C5-9 stays out; registry RO-15). One owner per Cloudflare logical data
+C5-10, then C5-9 in train 4D; registry RO-15). One owner per Cloudflare logical data
 connection (`CloudflareDataConnection`, in Standard and PRO rooms alike)
 decides whether the link may still recover and why it
 closed. A PRO connection has no isolated control side route and binds no ICE
 restart, so its owner holds the grace and the close but never admits a
 restart:
 
-| Module                                   | Sole responsibility                                                                                                                                                                                                     |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/network/transport/link-liveness.ts` | the original route's interruption, 15-second grace, published recovery deadline and one-restart gate; the guest background-resume probe over both routes; and the one close of the link with its cause (`LinkLiveness`) |
+| Module                                   | Sole responsibility                                                                                                                                                                                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/network/transport/link-liveness.ts` | the original route's interruption, 15-second grace, published recovery deadline and one-restart gate; the isolated control side PC's outage deadline; the guest background-resume probe over both routes; and the one close of the link with its cause (`LinkLiveness`) |
 
 Evidence sources versus close authority:
 
@@ -93,7 +93,8 @@ Evidence sources versus close authority:
   owner's inputs. The data and control channels' close events, the bulk credit
   sender's control-send failure and the isolated control side route's
   `fail(reason)` report through the owner's close input with their cause. The
-  side route keeps its own outage deadline and restart (registry RO-35).
+  side route reports its side PC's states to the owner, which keeps that
+  route's outage deadline (C5-9); the route keeps its restart protocol.
   Transport health only reads the owner's view (above).
 - `LinkLiveness` is the only transport-internal close authority. Every close
   enters `close(cause)`, which keeps the link's first cause. Its close port is

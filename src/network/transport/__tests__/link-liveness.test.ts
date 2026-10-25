@@ -132,7 +132,7 @@ async function connection(
   conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
   conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
   await flush();
-  vi.spyOn(conn.controlIsolation!, 'originalChanged').mockImplementation(() => {
+  vi.spyOn(conn.controlIsolation!, 'mayRestart').mockImplementation(() => {
     trace.push('side');
   });
   conn.on('ice-recovered', () => trace.push('ice-recovered'));
@@ -265,7 +265,7 @@ describe('original-route transitions with a re-entrant state callback', () => {
       bound: true,
       onStateChange: (conn, trace) => trace.push(['callback', conn.iceRecoveryDeadline]),
     });
-    vi.spyOn(e.conn.controlIsolation!, 'originalChanged').mockImplementation(() => {
+    vi.spyOn(e.conn.controlIsolation!, 'mayRestart').mockImplementation(() => {
       e.trace.push(['side', e.conn.iceRecoveryDeadline, armedLinkTimerKeys().length]);
     });
     const start = Date.now();

@@ -1,10 +1,11 @@
 // Resource owner: RO-15 (the original route's outage grace, published recovery
-// deadline and ICE-restart gate, the guest background-resume probe, and the one
-// close with its cause, of one Cloudflare logical data connection, Standard or
-// PRO room).
+// deadline and ICE-restart gate, the side route's outage deadline, the guest
+// background-resume probe, and the one close with its cause, of one Cloudflare
+// logical data connection, Standard or PRO room).
 import { MSG, RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
+import { log } from '../../core/log.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
-import type { SideRouteFailure } from './control-isolation.ts';
+import type { SideOutageOwner, SideRouteFailure } from './control-isolation.ts';
 import type {
   TransportBackgroundRecoveryStatus,
   TransportCloseReason,
@@ -34,8 +35,17 @@ export type LinkCloseCause =
 const BACKGROUND_RESUME_DISCONNECTED_PROBE_MS = 1_000;
 /** How long the exact reply to the resume challenge may take. */
 const BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS = 3_000;
+/**
+ * A side PC's outage gets the original route's grace. While the original route
+ * is down the outage waits for it, and once it recovers the outage gets a full
+ * grace again, but never runs past two graces from its start. The side route's
+ * own 15 s request and 30 s offer windows, which the two ends enforce on each
+ * other, stay its literals (control-isolation.ts).
+ */
+const SIDE_OUTAGE_MS = RTC_INTERRUPTION_GRACE_MS;
+const SIDE_OUTAGE_CAP_MS = 2 * RTC_INTERRUPTION_GRACE_MS;
 
-/** The link as the resume probe reads it at one instant: both routes and their channels. */
+/** The link as the owner reads it at one instant: both routes and their channels. */
 interface LinkSnapshot {
   readonly original: RTCPeerConnection | undefined;
   /** The isolated control side PC, while the connection has one. */
@@ -44,12 +54,44 @@ interface LinkSnapshot {
   readonly channelsOpen: boolean;
   /** The side route is active and its channel does not read open. */
   readonly sideChannelDown: boolean;
+  /**
+   * The original route's control channel reads open: the side route's restart
+   * signaling travels on it. Only a link with a side route needs to say.
+   */
+  readonly controlOpen?: boolean;
+}
+
+/** The side route (control isolation) as the owner drives its outages. */
+interface SideRoute {
+  /** The side PC while the route is current (not closed or fallen back). */
+  readonly peerConnection: RTCPeerConnection | undefined;
+  /** An outage began: the route's restart attempts and request start over. */
+  outageStarted(): void;
+  /** The outage ended: the side PC connected again. */
+  outageEnded(): void;
+  /**
+   * The outage's deadline ran out: a restartable route ends the link
+   * (`side-failed:expired`), one that cannot restart fails its setup.
+   */
+  outageExpired(restartable: boolean): void;
+}
+
+/** One outage of the side PC (monotonic times). */
+interface SideOutage {
+  readonly route: SideRoute;
+  /** false: the grace of a route that cannot restart (before READY, or a peer without restart). */
+  readonly restartable: boolean;
+  readonly start: number;
+  deadline: number;
+  timer: ReturnType<typeof setTimeout> | null;
+  /** The original route was unavailable during this outage. */
+  originalDown: boolean;
 }
 
 /**
  * What the owner does outside itself. The connection (CloudflareDataConnection)
- * keeps its channels, its send and its close; the side route keeps its own
- * deadline and restart (RO-35).
+ * keeps its channels, its send and its close; the side route keeps its restart
+ * protocol.
  */
 interface LinkLivenessPorts {
   /** The connection's current original PC; a replaced PC's grace closes nothing. */
@@ -66,7 +108,10 @@ interface LinkLivenessPorts {
   readonly close: (cause: LinkCloseCause, first: boolean) => void;
   /** The connection's state callback: the guest reconciles, then restarts ICE. */
   readonly changed: () => void;
-  /** The side route defers its own restart while the original route recovers. */
+  /**
+   * The original route changed and is not holding back a side outage: the
+   * side route restarts its ICE if one is due.
+   */
   readonly sideMayRestart: () => void;
   /** A genuine interruption ended on an open link ('ice-recovered'). */
   readonly recovered: () => void;
@@ -98,10 +143,14 @@ function randomResumeProbePingId(): number {
  * `linkLiveness` view, from which transport health reads the original route's
  * phase and the published deadline. Since C5-10 every close of the link
  * enters `close(cause)`, which keeps the first cause and is the only caller of
- * the connection's terminate (`npm run guard:transport-health`). It is a
+ * the connection's terminate (`npm run guard:transport-health`). Since C5-9 it
+ * also owns the side (isolated control) PC's outage deadline, which control
+ * isolation reports to it as the SideOutageOwner. It is a
  * module of its own because that state has its own start, cancel, expiry and
  * stop lifecycle with its own tests and two readers (the connection and
- * transport health); the SDP executors and the side route (RO-35) stay with
+ * transport health) besides that reporter; the SDP executors and the side
+ * route's restart protocol
+ * (its attempts, offer window, epochs, candidates, fence and READY) stay with
  * their owners.
  *
  * Rules kept from the connection:
@@ -126,8 +175,25 @@ function randomResumeProbePingId(): number {
  *   pong settles the probe, or, without a side PC, a genuine disconnected ->
  *   connected transition of the original route. Stop clears the probe and its
  *   timers.
+ *
+ * Rules kept from control isolation for the side PC's outage (C5-9):
+ * - A side route that restarts its ICE gets 15 s per outage, from its first
+ *   disconnected or failed reading until connected. While the original route
+ *   is down (not connected, or its control channel not open) the outage waits,
+ *   and once the original recovers it is re-armed to 15 s from then, never past
+ *   30 s from the outage's start. At its deadline a connected side PC ends the
+ *   outage quietly; otherwise it ends the link (`side-failed:expired`) after
+ *   the did-not-recover warning. The recovered line is the end that saw the
+ *   outage; the restart line stays control isolation's.
+ * - A side route that cannot restart (before READY, or a peer without restart)
+ *   gets one non-renewing 15 s grace while its PC reads disconnected, which
+ *   only `connected` clears and which never waits for the original route; at
+ *   its end the route fails its setup (decline and fall back, or end the link).
+ *   READY turns a running grace into a restart outage that starts then.
+ * - The side deadline runs on the monotonic clock, in a timer of its own
+ *   that the side PC's close and stop clear.
  */
-export class LinkLiveness implements TransportLinkLivenessView {
+export class LinkLiveness implements TransportLinkLivenessView, SideOutageOwner {
   /** The negotiation that made this link restartable (the bind input), or null. */
   binding: string | null = null;
   private interrupted = false;
@@ -137,6 +203,8 @@ export class LinkLiveness implements TransportLinkLivenessView {
   /** The cause the link closed with: the first close's. */
   private cause: LinkCloseCause | null = null;
   private probe: ResumeProbe | null = null;
+  /** The side PC's current outage or grace (C5-9). */
+  private side: SideOutage | null = null;
   private readonly probeTimerKey: string;
   private readonly probeDisconnectedTimerKey: string;
 
@@ -181,7 +249,7 @@ export class LinkLiveness implements TransportLinkLivenessView {
       const probe = this.probe;
       if (!probe || (probe.sawDisconnected && !ports.snapshot().side)) this.clearProbe();
       ports.changed();
-      ports.sideMayRestart();
+      this.sideFollowsOriginal();
       if (recovered && ports.open()) ports.recovered();
       return;
     }
@@ -194,7 +262,7 @@ export class LinkLiveness implements TransportLinkLivenessView {
       ports.changed();
       if (this.stopped) return;
       this.armGrace(pc);
-      ports.sideMayRestart();
+      this.sideFollowsOriginal();
       return;
     }
     if (state === 'closed' || state === 'failed') {
@@ -202,7 +270,7 @@ export class LinkLiveness implements TransportLinkLivenessView {
         this.interrupted = true;
         this.armGrace(pc);
         ports.changed();
-        ports.sideMayRestart();
+        this.sideFollowsOriginal();
         return;
       }
       this.close('original-terminal');
@@ -220,6 +288,55 @@ export class LinkLiveness implements TransportLinkLivenessView {
 
   finishRestart(): void {
     this.restartInFlight = false;
+  }
+
+  /**
+   * One state change of the current side PC, as control isolation reports it,
+   * with whether that route restarts its ICE. A failed or closed PC of a route
+   * that cannot restart fails its setup there, without reaching here.
+   */
+  sideChanged(route: SideRoute, state: RTCPeerConnectionState, restartable: boolean): void {
+    if (this.stopped) return;
+    const held = this.side;
+    if (!restartable) {
+      if (state === 'disconnected') {
+        if (!held) this.startSide(route, false);
+      } else if (state === 'connected' && held) this.dropSide();
+      return;
+    }
+    // The restart path owns the outage from here on, a grace from before READY included.
+    if (held && !held.restartable) this.dropSide();
+    if (state === 'connected') {
+      if (!this.side) return;
+      this.dropSide();
+      route.outageEnded();
+      log.info('[Transport] Isolated control ICE recovered');
+      return;
+    }
+    if ((state === 'disconnected' || state === 'failed') && !this.side) {
+      this.startSide(route, true);
+      route.outageStarted();
+    }
+  }
+
+  /** A grace of a side route that cannot restart is running (READY takes it over). */
+  get sideGraceRunning(): boolean {
+    return this.side?.restartable === false;
+  }
+
+  /**
+   * Whether the side route's restart signaling may travel now. When it may
+   * not, a side outage waits for the original route.
+   */
+  sideMaySignal(): boolean {
+    if (this.originalUp()) return true;
+    if (this.side?.restartable) this.side.originalDown = true;
+    return false;
+  }
+
+  /** The side PC is gone (fallback or close): its outage ends without a callback. */
+  sideClosed(): void {
+    this.dropSide();
   }
 
   /**
@@ -335,10 +452,14 @@ export class LinkLiveness implements TransportLinkLivenessView {
     this.ports.close(cause, first);
   }
 
-  /** The connection is closing: cancel the grace and the probe and arm nothing after it. */
+  /**
+   * The connection is closing: cancel the grace, the side outage and the probe
+   * and arm nothing after it.
+   */
   stop(): void {
     this.stopped = true;
     this.cancelGrace();
+    this.dropSide();
     this.clearProbe();
   }
 
@@ -368,5 +489,99 @@ export class LinkLiveness implements TransportLinkLivenessView {
   private cancelGrace(): void {
     this.deadline = 0;
     clearManagedTimer(this.graceTimerKey);
+  }
+
+  /**
+   * The original route can carry the side route's restart signaling: the link
+   * is open, its PC reads connected and its control channel reads open.
+   */
+  private originalUp(): boolean {
+    if (this.stopped || !this.ports.open()) return false;
+    const link = this.ports.snapshot();
+    return link.original?.connectionState === 'connected' && link.controlOpen === true;
+  }
+
+  /**
+   * The original route changed (connected, disconnected, or a failure the
+   * grace holds). A side outage waits while it is down; once it is up again
+   * the outage gets a full window, and the side route may restart.
+   */
+  private sideFollowsOriginal(): void {
+    const side = this.side;
+    if (side?.restartable) {
+      if (!this.originalUp()) {
+        side.originalDown = true;
+        return;
+      }
+      if (side.originalDown) {
+        side.originalDown = false;
+        // Waiting for the original route must not consume the side's own window.
+        this.armSide(
+          side,
+          Math.min(
+            side.start + SIDE_OUTAGE_CAP_MS,
+            Math.max(side.deadline, performance.now() + SIDE_OUTAGE_MS),
+          ),
+        );
+      }
+    }
+    this.ports.sideMayRestart();
+  }
+
+  private startSide(route: SideRoute, restartable: boolean): void {
+    const start = performance.now();
+    const side: SideOutage = {
+      route,
+      restartable,
+      start,
+      deadline: start + SIDE_OUTAGE_MS,
+      timer: null,
+      originalDown: restartable && !this.originalUp(),
+    };
+    this.side = side;
+    this.armSide(side, side.deadline);
+  }
+
+  private armSide(side: SideOutage, deadline: number): void {
+    if (side.timer !== null) clearTimeout(side.timer);
+    side.deadline = deadline;
+    // eslint-disable-next-line no-restricted-globals -- one bounded deadline per side outage, on the monotonic clock; its end, the side PC's close and stop clear it, and room timer cleanup must not drop it while the connection lives
+    side.timer = setTimeout(
+      () => this.sideExpired(side),
+      Math.max(0, deadline - performance.now()),
+    );
+  }
+
+  /** Its timer is cleared whenever the outage is replaced or dropped, so it is current. */
+  private sideExpired(side: SideOutage): void {
+    side.timer = null;
+    const pc = side.route.peerConnection;
+    if (!side.restartable) {
+      this.side = null;
+      if (pc && pc.connectionState !== 'connected') side.route.outageExpired(false);
+      return;
+    }
+    if (!pc) return;
+    if (pc.connectionState === 'connected') {
+      this.side = null;
+      side.route.outageEnded();
+      return;
+    }
+    const cap = side.start + SIDE_OUTAGE_CAP_MS;
+    if (!this.originalUp() && performance.now() < cap) {
+      // The original route owns its own bounded recovery; do not pre-empt it.
+      side.originalDown = true;
+      this.armSide(side, cap);
+      return;
+    }
+    log.warn('[Transport] Isolated control ICE did not recover; closing its logical connection');
+    side.route.outageExpired(true);
+  }
+
+  private dropSide(): void {
+    const side = this.side;
+    if (!side) return;
+    if (side.timer !== null) clearTimeout(side.timer);
+    this.side = null;
   }
 }

@@ -13,8 +13,9 @@ import { ControlIsolation as C9ControlIsolation } from './fixtures/control-isola
  * standalone ControlIsolation suites stub the original route's readiness;
  * these cases drive the original PC's real transitions instead, so they must
  * hold unchanged when C5-9 moves the side deadline into LinkLiveness:
- * - 15 s per side outage, deferred while the original route is down, re-armed
- *   to 15 s after the original recovers and capped at 30 s from its start;
+ * - 15 s per side outage, deferred while the original route is down (its PC
+ *   disconnected or failed), re-armed to 15 s after the original recovers and
+ *   capped at 30 s from its start, even while the original is down again;
  * - the grace before READY with its decline and fallback, and its hand-over
  *   to the restart deadline at READY;
  * - the restart attempt budget, the restart offer bound and the monotonic
@@ -199,7 +200,7 @@ async function pair({ activate = true } = {}) {
     }
   };
   /** Both original PCs change state together; a down route holds its lane. */
-  const original = (state: 'disconnected' | 'connected'): void => {
+  const original = (state: 'disconnected' | 'failed' | 'connected'): void => {
     lanes.original = state === 'connected';
     a.pc.state(state);
     b.pc.state(state);
@@ -410,125 +411,169 @@ describe('a side-route outage while the original route is up', () => {
   });
 });
 
-describe("a side-route outage and the original route's own outage", () => {
-  it('original down, then side down: the side waits without a restart and the original grace closes both links at 15 s', async () => {
-    const p = await pair();
-    const at = timeline();
-    p.original('disconnected');
-    await at(2_000);
-    p.offerer.side.state('failed');
-    p.answerer.side.state('failed');
-    await p.pump();
-    for (const e of [p.a, p.b]) expect(e.conn.linkLiveness.phase).toBe('recovering');
-    await at(GRACE_MS - 1);
-    expect(transcript()).toEqual([]);
-    expect(p.a.conn.open && p.b.conn.open).toBe(true);
-    await at(GRACE_MS);
-    expect(transcript()).toEqual([
-      closed('original-grace-expired', p.a),
-      closed('original-grace-expired', p.b),
-    ]);
-    for (const e of [p.a, p.b]) expectClosed(e);
-    for (const e of [p.a, p.b]) expect(frames(e, 'restart-offer')).toEqual([]);
-    await at(60_000);
-    expect(transcript()).toHaveLength(2);
-  });
+// A failed original PC on an open, bound link is held for the same grace as a
+// disconnected one, so the side route defers to it in the same way.
+describe.each(['disconnected', 'failed'] as const)(
+  "a side-route outage and the original route's own outage (original PC %s)",
+  (down) => {
+    it('original down, then side down: the side waits without a restart and the original grace closes both links at 15 s', async () => {
+      const p = await pair();
+      const at = timeline();
+      p.original(down);
+      await at(2_000);
+      p.offerer.side.state('failed');
+      p.answerer.side.state('failed');
+      await p.pump();
+      for (const e of [p.a, p.b]) expect(e.conn.linkLiveness.phase).toBe('recovering');
+      await at(GRACE_MS - 1);
+      expect(transcript()).toEqual([]);
+      expect(p.a.conn.open && p.b.conn.open).toBe(true);
+      await at(GRACE_MS);
+      expect(transcript()).toEqual([
+        closed('original-grace-expired', p.a),
+        closed('original-grace-expired', p.b),
+      ]);
+      for (const e of [p.a, p.b]) expectClosed(e);
+      for (const e of [p.a, p.b]) expect(frames(e, 'restart-offer')).toEqual([]);
+      await at(60_000);
+      expect(transcript()).toHaveLength(2);
+    });
 
-  it("side down, then original down: the side's 15 s defers to the original grace, which closes both links", async () => {
-    const p = await pair();
-    const at = timeline();
-    p.offerer.side.state('failed');
-    p.answerer.side.state('failed');
-    await p.pump();
-    await at(5_000);
-    p.original('disconnected');
-    await at(GRACE_MS);
-    expect(p.a.conn.open && p.b.conn.open).toBe(true);
-    await at(5_000 + GRACE_MS - 1);
-    expect(transcript()).toEqual([['info', restarting(1)]]);
-    await at(5_000 + GRACE_MS);
-    expect(transcript()).toEqual([
-      ['info', restarting(1)],
-      closed('original-grace-expired', p.a),
-      closed('original-grace-expired', p.b),
-    ]);
-    for (const e of [p.a, p.b]) expectClosed(e);
-  });
+    it("side down, then original down: the side's 15 s defers to the original grace, which closes both links", async () => {
+      const p = await pair();
+      const at = timeline();
+      p.offerer.side.state('failed');
+      p.answerer.side.state('failed');
+      await p.pump();
+      await at(5_000);
+      p.original(down);
+      await at(GRACE_MS);
+      expect(p.a.conn.open && p.b.conn.open).toBe(true);
+      await at(5_000 + GRACE_MS - 1);
+      expect(transcript()).toEqual([['info', restarting(1)]]);
+      await at(5_000 + GRACE_MS);
+      expect(transcript()).toEqual([
+        ['info', restarting(1)],
+        closed('original-grace-expired', p.a),
+        closed('original-grace-expired', p.b),
+      ]);
+      for (const e of [p.a, p.b]) expectClosed(e);
+    });
 
-  it('original recovers at +14 s: the side restarts then, re-arms 15 s from then, and a side still failed closes at +29 s', async () => {
-    const p = await pair();
-    const at = timeline();
-    p.original('disconnected');
-    p.offerer.side.state('failed');
-    p.answerer.side.state('failed');
-    await p.pump();
-    await at(14_000);
-    expect(transcript()).toEqual([]);
-    p.original('connected');
-    // The offerer's restart starts inside its original route's recovery.
-    expect(transcript()).toEqual([['info', restarting(1)]]);
-    await p.pump();
-    expect(frames(p.offerer, 'restart-offer')).toHaveLength(1);
-    await at(29_000 - 1);
-    expect(p.a.conn.open && p.b.conn.open).toBe(true);
-    await at(29_000);
-    expect(transcript()).toEqual([
-      ['info', restarting(1)],
-      ['warn', DID_NOT_RECOVER],
-      closed('side-failed:expired', p.a),
-      ['warn', DID_NOT_RECOVER],
-      closed('side-failed:expired', p.b),
-    ]);
-    for (const e of [p.a, p.b]) expectClosed(e);
-  });
+    it('original recovers at +14 s: the side restarts then, re-arms 15 s from then, and a side still failed closes at +29 s', async () => {
+      const p = await pair();
+      const at = timeline();
+      p.original(down);
+      p.offerer.side.state('failed');
+      p.answerer.side.state('failed');
+      await p.pump();
+      await at(14_000);
+      expect(transcript()).toEqual([]);
+      p.original('connected');
+      // The offerer's restart starts inside its original route's recovery.
+      expect(transcript()).toEqual([['info', restarting(1)]]);
+      await p.pump();
+      expect(frames(p.offerer, 'restart-offer')).toHaveLength(1);
+      await at(29_000 - 1);
+      expect(p.a.conn.open && p.b.conn.open).toBe(true);
+      await at(29_000);
+      expect(transcript()).toEqual([
+        ['info', restarting(1)],
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.a),
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.b),
+      ]);
+      for (const e of [p.a, p.b]) expectClosed(e);
+    });
 
-  it('caps the re-armed deadline at 30 s from the side outage start', async () => {
-    const p = await pair();
-    const at = timeline();
-    p.offerer.side.state('failed');
-    p.answerer.side.state('failed');
-    await p.pump();
-    await at(5_000);
-    p.original('disconnected');
-    await at(18_000);
-    p.original('connected');
-    await p.pump();
-    await at(SIDE_CAP_MS - 1);
-    expect(p.a.conn.open && p.b.conn.open).toBe(true);
-    await at(SIDE_CAP_MS);
-    expect(transcript()).toEqual([
-      ['info', restarting(1)],
-      ['warn', DID_NOT_RECOVER],
-      closed('side-failed:expired', p.a),
-      ['warn', DID_NOT_RECOVER],
-      closed('side-failed:expired', p.b),
-    ]);
-    for (const e of [p.a, p.b]) expectClosed(e);
-  });
+    it('caps the re-armed deadline at 30 s from the side outage start', async () => {
+      const p = await pair();
+      const at = timeline();
+      p.offerer.side.state('failed');
+      p.answerer.side.state('failed');
+      await p.pump();
+      await at(5_000);
+      p.original(down);
+      await at(18_000);
+      p.original('connected');
+      await p.pump();
+      await at(SIDE_CAP_MS - 1);
+      expect(p.a.conn.open && p.b.conn.open).toBe(true);
+      await at(SIDE_CAP_MS);
+      expect(transcript()).toEqual([
+        ['info', restarting(1)],
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.a),
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.b),
+      ]);
+      for (const e of [p.a, p.b]) expectClosed(e);
+    });
 
-  it('a brief original outage moves the side deadline to 15 s after the original recovers', async () => {
-    const p = await pair();
-    const at = timeline();
-    p.offerer.side.state('failed');
-    p.answerer.side.state('failed');
-    await p.pump();
-    await at(3_000);
-    p.original('disconnected');
-    await at(5_000);
-    p.original('connected');
-    await p.pump();
-    await at(20_000 - 1);
-    expect(p.a.conn.open && p.b.conn.open).toBe(true);
-    await at(20_000);
-    expect(transcript()).toEqual([
-      ['info', restarting(1)],
-      ['warn', DID_NOT_RECOVER],
-      closed('side-failed:expired', p.a),
-      ['warn', DID_NOT_RECOVER],
-      closed('side-failed:expired', p.b),
-    ]);
-  });
-});
+    it('does not defer past the 30 s cap while the original is down again: closes at the cap with side-failed:expired before the original grace ends, for good', async () => {
+      const p = await pair();
+      const at = timeline();
+      p.offerer.side.state('failed');
+      p.answerer.side.state('failed');
+      await p.pump();
+      await at(10_000);
+      p.original(down);
+      await at(12_000);
+      // Re-armed to 27 s; the original's second outage holds its grace to 35 s.
+      p.original('connected');
+      await p.pump();
+      await at(20_000);
+      p.original(down);
+      await at(SIDE_CAP_MS - 1);
+      expect(p.a.conn.open && p.b.conn.open).toBe(true);
+      for (const e of [p.a, p.b]) expect(e.conn.linkLiveness.phase).toBe('recovering');
+      await at(SIDE_CAP_MS);
+      const atCap = [
+        ['info', restarting(1)],
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.a),
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.b),
+      ];
+      expect(transcript()).toEqual(atCap);
+      for (const e of [p.a, p.b]) expectClosed(e);
+      // Both routes coming back after the cap reopen nothing.
+      await at(32_000);
+      p.original('connected');
+      p.offerer.side.state('connected');
+      p.answerer.side.state('connected');
+      await p.pump();
+      await at(60_000);
+      expect(transcript()).toEqual(atCap);
+      for (const e of [p.a, p.b]) expect(e.conn.open).toBe(false);
+    });
+
+    it('a brief original outage moves the side deadline to 15 s after the original recovers', async () => {
+      const p = await pair();
+      const at = timeline();
+      p.offerer.side.state('failed');
+      p.answerer.side.state('failed');
+      await p.pump();
+      await at(3_000);
+      p.original(down);
+      for (const e of [p.a, p.b]) expect(e.conn.linkLiveness.phase).toBe('recovering');
+      await at(5_000);
+      p.original('connected');
+      await p.pump();
+      await at(20_000 - 1);
+      expect(p.a.conn.open && p.b.conn.open).toBe(true);
+      await at(20_000);
+      expect(transcript()).toEqual([
+        ['info', restarting(1)],
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.a),
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.b),
+      ]);
+    });
+  },
+);
 
 describe('a side restart in flight across an original-route recovery', () => {
   it('keeps the restart begun at the recovery the only one through a second original outage, and the side recovers', async () => {
@@ -738,6 +783,14 @@ describe('repeated side-route outages and the restart budget', () => {
     expect(frames(o, 'restart-offer')).toHaveLength(2);
     await at(10_000);
     n.side.state('connected');
+    // Still inside the window that opened at 0 s.
+    await at(12_000);
+    n.side.state('failed');
+    await p.pump();
+    expect(frames(n, 'restart-request')).toHaveLength(4);
+    expect(frames(o, 'restart-offer')).toHaveLength(2);
+    await at(13_000);
+    n.side.state('connected');
     await at(16_000);
     n.side.state('failed');
     await p.pump();
@@ -750,10 +803,11 @@ describe('repeated side-route outages and the restart budget', () => {
       ['info', restarting(2)],
       ['info', RECOVERED],
       ['info', RECOVERED],
+      ['info', RECOVERED],
       ['info', restarting(1)],
       ['info', RECOVERED],
     ]);
-    expect(frames(n, 'restart-request')).toHaveLength(4);
+    expect(frames(n, 'restart-request')).toHaveLength(5);
     expect(frames(o, 'restart-offer')).toHaveLength(3);
     for (const e of [o, n]) expect(e.conn.open).toBe(true);
   });
@@ -786,6 +840,38 @@ describe('repeated side-route outages and the restart budget', () => {
     expect(transcript().filter(([, text]) => text === RECOVERED)).toHaveLength(8);
     expect(p.answerer.conn.open).toBe(true);
     expect(p.answerer.conn.controlIsolation?.phase).toBe('active');
+  });
+
+  it('counts those 16 offers over 30 s: an outage 20 s after the first offers gets none, one 30 s after them restarts again', async () => {
+    const p = await pair();
+    const at = timeline();
+    const o = p.offerer;
+    for (let outage = 0; outage < 8; outage++) {
+      await at(outage * 1_000);
+      o.side.state('failed');
+      await p.pump();
+      o.side.state('connecting');
+      o.side.state('failed');
+      await p.pump();
+      o.side.state('connected');
+    }
+    expect(frames(o, 'restart-offer')).toHaveLength(16);
+    await at(20_000);
+    expect(logged(() => o.side.state('failed'))).toEqual([]);
+    await p.pump();
+    expect(frames(o, 'restart-offer')).toHaveLength(16);
+    await at(21_000);
+    expect(logged(() => o.side.state('connected'))).toEqual([['info', RECOVERED]]);
+    await at(SIDE_CAP_MS);
+    expect(logged(() => o.side.state('failed'))).toEqual([['info', restarting(1)]]);
+    await p.pump();
+    expect(frames(o, 'restart-offer')).toHaveLength(17);
+    expect(logged(() => o.side.state('connected'))).toEqual([['info', RECOVERED]]);
+    await p.pump();
+    for (const e of [o, p.answerer]) {
+      expect(e.conn.open).toBe(true);
+      expect(e.conn.controlIsolation?.phase).toBe('active');
+    }
   });
 });
 
@@ -821,6 +907,23 @@ describe('side-route device evidence lines', () => {
       ['info', restarting(1)],
       ['info', RECOVERED],
     ]);
+  });
+
+  it('logs no recovery on either end when its side PC connects again without an outage', async () => {
+    const p = await pair();
+    for (const e of [p.offerer, p.answerer]) {
+      expect(
+        logged(() => {
+          e.side.state('connecting');
+          e.side.state('connected');
+          e.side.state('connected');
+        }),
+      ).toEqual([]);
+    }
+    await p.pump();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(transcript()).toEqual([]);
+    for (const e of [p.a, p.b]) expect(e.conn.open).toBe(true);
   });
 
   it("logs the did-not-recover warning on each end whose side deadline expired, right before that end's close", async () => {
@@ -890,20 +993,21 @@ describe('a peer on the frozen C9 build (mixed version)', () => {
     expectClosed(m.a);
   });
 
-  it('keeps the link when the side PC reconnects within 15 s, logging nothing, and gives the next disconnect a fresh 15 s', async () => {
+  it('keeps the link when the side PC reconnects within 15 s, logging nothing, and gives the next disconnect a fresh 15 s even inside the first one', async () => {
     const m = await legacyPair();
     const at = timeline();
     m.a.side.state('disconnected');
     await at(10_000);
     m.a.side.state('connected');
+    await at(12_000);
+    m.a.side.state('disconnected');
+    // The first disconnect's 15 s ended here; the reconnect cleared it.
     await at(GRACE_MS);
     expect(m.a.conn.open).toBe(true);
-    await at(20_000);
-    m.a.side.state('disconnected');
-    await at(20_000 + GRACE_MS - 1);
+    await at(12_000 + GRACE_MS - 1);
     expect(m.a.conn.open).toBe(true);
     expect(transcript()).toEqual([]);
-    await at(20_000 + GRACE_MS);
+    await at(12_000 + GRACE_MS);
     expect(transcript()).toEqual([closed('side-failed:route', m.a)]);
   });
 });

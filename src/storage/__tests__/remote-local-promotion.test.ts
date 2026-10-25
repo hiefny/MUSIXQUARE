@@ -382,7 +382,10 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playlist.currentQueueItemId')).toBe(Q1);
   });
 
-  it('holds an exact resident for an already-open host that still delays PLAY', async () => {
+  // Survey OV-B03: only hosts before 8.4.59 sent the retired autoPlayDelayMs
+  // hint. FILE_PREPARE still accepts unknown fields, but no longer silences
+  // the exact resident until such a host's delayed PLAY.
+  it('leaves an exact resident playing when FILE_PREPARE carries the retired delay hint', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
     const { pause } = await import('../../player/transport.ts');
     const blob = new Blob(['abcd'], { type: 'audio/mpeg' });
@@ -390,7 +393,8 @@ describe('remote-share to local direct transfer promotion', () => {
     setState('transfer.meta', { queueItemId: Q0, indexHint: 0, name: 'song.mp3', sessionId: 7 });
     await handleFilePrepare({ ...prepareFrame(Q0, 7), autoPlayDelayMs: 3000 }, conn);
 
-    expect(pause).toHaveBeenCalledWith(0, { holdVisualizer: false, showToast: false });
+    expect(getState('files.current')).toEqual(expect.objectContaining({ queueItemId: Q0 }));
+    expect(pause).not.toHaveBeenCalled();
   });
 
   it('keeps a newer FILE_PREPARE owner when an older connection check resumes last', async () => {

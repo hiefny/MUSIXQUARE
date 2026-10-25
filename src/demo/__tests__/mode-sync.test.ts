@@ -116,7 +116,7 @@ describe('demo playback sync bootstrap', () => {
     vi.useRealTimers();
   });
 
-  it('compensates late demo play delivery by the full host scheduling window', async () => {
+  it('compensates late demo play delivery by the time since the shared start', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     const immediateSync = vi.fn();
     bus.on('sync:request-immediate-ping', immediateSync);
@@ -131,6 +131,7 @@ describe('demo playback sync bootstrap', () => {
         type: MSG.DEMO_PLAY,
         index: 0,
         time: 42,
+        hostStartAt: 8_650,
         hostPlayAt: 9_000,
       },
       hostConn,
@@ -193,7 +194,7 @@ describe('demo playback sync bootstrap', () => {
     },
   );
 
-  it('compensates early demo play delivery without dropping one-way latency', async () => {
+  it('waits for the shared start when the demo play arrives early', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     mocks.getHostNow.mockReturnValue(8_800);
 
@@ -207,19 +208,18 @@ describe('demo playback sync bootstrap', () => {
         type: MSG.DEMO_PLAY,
         index: 0,
         time: 42,
-        hostPlayAt: 9_000,
+        hostStartAt: 9_000,
+        hostPlayAt: 9_350,
       },
       hostConn,
     );
 
-    // The host command happened at 8,650ms. The guest starts at the 9,000ms
-    // rendezvous, so it must begin at 42.350s rather than 42.200s.
     expect(mocks.play).toHaveBeenCalledTimes(1);
-    expect(mocks.play.mock.calls[0][0]).toBeCloseTo(42.35, 3);
+    expect(mocks.play.mock.calls[0][0]).toBeCloseTo(42, 3);
     expect(mocks.play.mock.calls[0][1]).toBeCloseTo(0.2, 3);
   });
 
-  it('ignores hostPlayAt while the shared clock is uncalibrated', async () => {
+  it('gives only the local lead while the shared clock is uncalibrated', async () => {
     const hostConn = { open: true, peer: 'host-1' } as DataConnection;
     mocks.getHostNow.mockReturnValue(100_000);
     mocks.isClockCalibrated.mockReturnValue(false);
@@ -234,13 +234,52 @@ describe('demo playback sync bootstrap', () => {
         type: MSG.DEMO_PLAY,
         index: 0,
         time: 42,
-        hostPlayAt: 9_000,
+        hostStartAt: 9_000,
+        hostPlayAt: 9_350,
       },
       hostConn,
     );
 
-    expect(mocks.play).toHaveBeenCalledWith(42, 0, expect.any(Number), expect.any(Function));
+    expect(mocks.play).toHaveBeenCalledWith(42, 0.2, expect.any(Number), expect.any(Function));
     expect(mocks.getHostNow).not.toHaveBeenCalled();
+  });
+
+  // Survey OV-B02 stage 1: hostStartAt is required and hostPlayAt is ignored,
+  // so whether the guest follows the host timeline depends only on the clock
+  // calibration.
+  it.each([
+    { label: 'without hostPlayAt', extra: {} },
+    { label: 'with a zero hostPlayAt', extra: { hostPlayAt: 0 } },
+  ])('projects a shared demo start $label on the host timeline', async ({ extra }) => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    mocks.getHostNow.mockReturnValue(10_300);
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    setState('demo.active', true);
+
+    await handleData(
+      { type: MSG.DEMO_PLAY, index: 0, time: 42, hostStartAt: 10_200, ...extra },
+      hostConn,
+    );
+
+    expect(mocks.play).toHaveBeenCalledTimes(1);
+    expect(mocks.play.mock.calls[0][0]).toBeCloseTo(42.1, 6);
+    expect(mocks.play.mock.calls[0][1]).toBe(0);
+  });
+
+  it('drops a demo play without a shared start from a host before 8.6.54', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    setState('demo.active', true);
+
+    await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 42, hostPlayAt: 9_000 }, hostConn);
+
+    expect(mocks.play).not.toHaveBeenCalled();
+    expect(mocks.pause).not.toHaveBeenCalled();
+    expect(getManagedTimer('demo-play-host-sync')).toBeNull();
   });
 
   it.each([
@@ -255,7 +294,7 @@ describe('demo playback sync bootstrap', () => {
       markQueueAuthorityReady(hostConn);
       setState('demo.active', true);
       await handleData(
-        { type: MSG.DEMO_PLAY, index: 0, time: position, hostPlayAt: 5_000 },
+        { type: MSG.DEMO_PLAY, index: 0, time: position, hostStartAt: 4_650, hostPlayAt: 5_000 },
         hostConn,
       );
       if (ended) {
@@ -274,7 +313,10 @@ describe('demo playback sync bootstrap', () => {
       markQueueAuthorityReady(hostConn);
       setState('demo.active', true);
       setLocalFilePaused(true);
-      await handleData({ type, index: 0, time: 20, hostPlayAt: 0 }, hostConn);
+      await handleData(
+        { type, index: 0, time: 20, hostStartAt: 10_000, hostPlayAt: 10_350 },
+        hostConn,
+      );
       expect(isLocalFilePaused()).toBe(false);
     },
   );
@@ -287,12 +329,18 @@ describe('demo playback sync bootstrap', () => {
       setState('network.appRole', 'guest');
       markQueueAuthorityReady(hostConn);
       setState('demo.active', true);
-      await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 10, hostPlayAt: 10_100 }, hostConn);
+      await handleData(
+        { type: MSG.DEMO_PLAY, index: 0, time: 10, hostStartAt: 10_100, hostPlayAt: 10_450 },
+        hostConn,
+      );
       const isCurrent = mocks.play.mock.calls[0][3]!;
       expect(isCurrent()).toBe(true);
       if (replacement === 'pause') await handleData({ type: MSG.DEMO_PAUSE, time: 11 }, hostConn);
       if (replacement === 'play')
-        await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 30, hostPlayAt: 10_100 }, hostConn);
+        await handleData(
+          { type: MSG.DEMO_PLAY, index: 0, time: 30, hostStartAt: 10_100, hostPlayAt: 10_450 },
+          hostConn,
+        );
       if (replacement === 'connection')
         setState('network.hostConn', { open: true, peer: 'host-1' } as DataConnection);
       if (replacement === 'buffer') setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
@@ -310,7 +358,10 @@ describe('demo playback sync bootstrap', () => {
     markQueueAuthorityReady(hostConn);
     setState('demo.active', true);
     const monotonicNow = performance.now();
-    await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 10, hostPlayAt: 10_100 }, hostConn);
+    await handleData(
+      { type: MSG.DEMO_PLAY, index: 0, time: 10, hostStartAt: 10_100, hostPlayAt: 10_450 },
+      hostConn,
+    );
     expect(mocks.play.mock.calls[0][2]).toBeCloseTo(monotonicNow + 100, 3);
   });
 });

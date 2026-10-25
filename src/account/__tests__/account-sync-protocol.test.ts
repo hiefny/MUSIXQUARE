@@ -6,9 +6,13 @@
  * 8..160 characters), and ui/account.ts accepted only a completion result with
  * a known accountAuth and an id and accountClient of 8..160 characters. These
  * rows are the union of both validators. Each states the parsed pulse and the
- * two projections the receivers make from it, which equal the old parsers'
- * results; account-pulse-contract.test.ts pins the receivers end to end. The
- * events page keeps its own inline check (another document, owner decision O6).
+ * two projections the receivers make from it; account-pulse-contract.test.ts
+ * pins the receivers end to end. The events page keeps its own inline check
+ * (another document, owner decision O6).
+ *
+ * Survey OV-B08: every pulse carries an id of 8..160 characters since 8.3.30
+ * (5981d1c9). A message without one is no pulse: the session no longer
+ * reconciles such a message as an unidentified refresh.
  */
 import { describe, expect, it } from 'vitest';
 import { parseAccountPulse, parseAccountPulseStorageValue } from '../account-sync-protocol.ts';
@@ -81,20 +85,8 @@ const MESSAGE_ROWS: readonly Row[] = [
     { id: 'refresh:parser-0001', loginSuccess: false },
     null,
   ],
-  [
-    'a legacy pulse without an id',
-    { type: 'refresh' },
-    { id: null, auth: null, accountClient: null },
-    { id: null, loginSuccess: false },
-    null,
-  ],
-  [
-    'an id of 7 characters',
-    completion({ id: 'r'.repeat(7) }),
-    { ...SUCCESS, id: null },
-    { id: null, loginSuccess: true },
-    null,
-  ],
+  ['a pulse without an id from a tab before 8.3.30', { type: 'refresh' }, null, null, null],
+  ['an id of 7 characters', completion({ id: 'r'.repeat(7) }), null, null, null],
   [
     'an id of 8 characters',
     completion({ id: 'r'.repeat(8) }),
@@ -109,21 +101,9 @@ const MESSAGE_ROWS: readonly Row[] = [
     { id: 'r'.repeat(160), loginSuccess: true },
     { outcome: 'success', id: 'r'.repeat(160), accountClient: CLIENT },
   ],
-  [
-    'an id of 161 characters',
-    completion({ id: 'r'.repeat(161) }),
-    { ...SUCCESS, id: null },
-    { id: null, loginSuccess: true },
-    null,
-  ],
-  [
-    'a numeric id',
-    completion({ id: 12_345_678 }),
-    { ...SUCCESS, id: null },
-    { id: null, loginSuccess: true },
-    null,
-  ],
-  ['no id', withoutField('id'), { ...SUCCESS, id: null }, { id: null, loginSuccess: true }, null],
+  ['an id of 161 characters', completion({ id: 'r'.repeat(161) }), null, null, null],
+  ['a numeric id', completion({ id: 12_345_678 }), null, null, null],
+  ['no id', withoutField('id'), null, null, null],
   [
     'an unknown accountAuth',
     completion({ accountAuth: 'pending' }),
@@ -210,10 +190,9 @@ describe('parseAccountPulse (BroadcastChannel and window messages)', () => {
 });
 
 /**
- * The storage event carries a string, or null when the key was removed. The
- * session receiver reconciles every value of its key, as an unidentified
- * refresh when the parser returns null (session.ts
- * reconcileExternalAccountChange(null)); the account UI ignores a null.
+ * The storage event carries a string, or null when the key was removed. Both
+ * receivers ignore a value the parser returns null for, including the opaque
+ * token tabs before 8.3.30 stored and the removal of the key.
  */
 const STORAGE_ROWS: ReadonlyArray<readonly [label: string, value: string | null, pulse: Pulse]> = [
   ['the completion JSON', JSON.stringify(completion()), SUCCESS],
@@ -222,7 +201,7 @@ const STORAGE_ROWS: ReadonlyArray<readonly [label: string, value: string | null,
     JSON.stringify({ type: 'refresh', id: 'refresh:parser-0001' }),
     { id: 'refresh:parser-0001', auth: null, accountClient: null },
   ],
-  ['a legacy opaque token', 'legacy-opaque-token-0001', null],
+  ['an opaque token from a tab before 8.3.30', 'legacy-opaque-token-0001', null],
   ['JSON that is not a pulse', '{"type":"other"}', null],
   ['a JSON number', '42', null],
   ['JSON null', 'null', null],

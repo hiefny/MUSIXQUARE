@@ -631,7 +631,11 @@ describe('pre-admission preload buffer bounds', () => {
     );
   });
 
-  it('caps unknown sessions globally while preserving the newest contiguous prefix', async () => {
+  // Survey OV-B04: since 8.11.23 (#410) PRELOAD_START travels on the ordered
+  // bulk lane ahead of its chunks, so a chunk of a session this guest has not
+  // admitted belongs to an older host or to an ignored or skipped START. It is
+  // dropped, not held until a START that may never come.
+  it('drops preload chunks of a session whose START has not arrived', async () => {
     vi.useFakeTimers();
     initPreload();
     const hostConn = { open: true, peer: 'host-early', send: vi.fn() } as unknown as DataConnection;
@@ -658,9 +662,9 @@ describe('pre-admission preload buffer bounds', () => {
     }
 
     expect(getPreloadMemoryStats()).toMatchObject({
-      reorderSessions: 4,
-      reorderChunks: 44,
-      reorderBytes: 44,
+      reorderSessions: 0,
+      reorderChunks: 0,
+      reorderBytes: 0,
     });
 
     await handleData(
@@ -674,8 +678,15 @@ describe('pre-admission preload buffer bounds', () => {
       },
       hostConn,
     );
-    await vi.runOnlyPendingTimersAsync();
-    expect(getState('preload.sessionState').get(5)?.progress).toBe(11);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getState('preload.sessionState').get(5)).toMatchObject({
+      progress: 0,
+      nextExpectedChunk: 0,
+      finalized: false,
+    });
+    expect(storageMocks.postCommand).not.toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'STORAGE_WRITE', sessionId: 5 }),
+    );
 
     setState('network.sessionCode', '');
     const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');

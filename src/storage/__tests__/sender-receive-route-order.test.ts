@@ -289,36 +289,36 @@ for (const kind of ['main', 'preload'] as const) {
   }
 }
 
-for (const chunks of [60, 64]) {
-  for (const order of ['headers-first', 'bulk-first'] as const) {
-    it(`admits ${chunks} legacy preload chunks with ${order} channel order`, async () => {
-      const trace = await capture(chunks * CHUNK_SIZE, 'preload');
-      // Preserve the old cross-channel race deliberately: the new sender's
-      // START is captured on bulk, then replayed on legacy control.
-      const headers = [...trace.sender.control.sent, trace.start];
-      const g = await guest(trace);
-      if (order === 'headers-first') for (const frame of headers) await g.deliver(frame, 'control');
-      for (const frame of trace.sender.bulk.sent.slice(1)) await g.deliver(frame, 'bulk');
-      if (order === 'bulk-first') for (const frame of headers) await g.deliver(frame, 'control');
-      await assertBytes(trace);
-    });
-  }
-}
-
-it('admits legacy control START beyond the early buffer cap and completes on the missing suffix', async () => {
-  const trace = await capture(65 * CHUNK_SIZE, 'preload');
-  const headers = [...trace.sender.control.sent, trace.start];
-  const g = await guest(trace);
-  for (const frame of trace.sender.bulk.sent.slice(1)) await g.deliver(frame, 'bulk');
-  for (const frame of headers) await g.deliver(frame, 'control');
-  expect(getState('preload.sessionState').get(SID)).toMatchObject({
-    nextExpectedChunk: 64,
-    total: 65,
-    finalized: false,
+for (const chunks of [60, 64, 65]) {
+  it(`admits ${chunks} preload chunks behind a legacy control START that arrives first`, async () => {
+    const trace = await capture(chunks * CHUNK_SIZE, 'preload');
+    // The new sender's START is captured on bulk, then replayed on the legacy
+    // control lane ahead of its chunks.
+    const headers = [...trace.sender.control.sent, trace.start];
+    const g = await guest(trace);
+    for (const frame of headers) await g.deliver(frame, 'control');
+    for (const frame of trace.sender.bulk.sent.slice(1)) await g.deliver(frame, 'bulk');
+    await assertBytes(trace);
   });
-  for (const frame of trace.sender.bulk.sent.slice(65)) await g.deliver(frame, 'bulk');
-  await assertBytes(trace);
-});
+
+  // Survey OV-B04: only hosts before 8.11.23 (#410) sent PRELOAD_START on the
+  // control lane, where their chunks could overtake it. Those chunks are no
+  // longer held for a later START; that host's preload stalls and its
+  // watchdog hands the track to the main lane.
+  it(`drops ${chunks} preload chunks that overtake a legacy control START`, async () => {
+    const trace = await capture(chunks * CHUNK_SIZE, 'preload');
+    const headers = [...trace.sender.control.sent, trace.start];
+    const g = await guest(trace);
+    for (const frame of trace.sender.bulk.sent.slice(1)) await g.deliver(frame, 'bulk');
+    for (const frame of headers) await g.deliver(frame, 'control');
+    expect(getState('preload.sessionState').get(SID)).toMatchObject({
+      nextExpectedChunk: 0,
+      total: chunks,
+      finalized: false,
+    });
+    expect(ramContiguousCount(trace.qid, true, SID)).toBe(0);
+  });
+}
 
 it('retains ordinary partial direct-file recovery after the same connection becomes remote', async () => {
   const trace = await capture(2 * CHUNK_SIZE + 11);

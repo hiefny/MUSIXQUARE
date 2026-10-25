@@ -279,18 +279,27 @@ describe('bounded control-frame validation', () => {
     expect(handler).toHaveBeenCalledTimes(5);
   });
 
-  it('accepts legacy and scheduled demo play frames while rejecting invalid start clocks', async () => {
+  it('requires the shared demo start and lets hostPlayAt go', async () => {
+    // Survey OV-B02 stage 1: every demo host since 8.6.54 (#235) sends
+    // hostStartAt. 9.0.10 and 9.0.11 hosts still add hostPlayAt, which is
+    // accepted and ignored; a frame without hostStartAt is an older host's.
     const handler = vi.fn();
     registerHandler(MSG.DEMO_PLAY, handler);
     const conn = connection('demo-start-validation');
-    const base = { type: MSG.DEMO_PLAY, index: 1, time: 0, hostPlayAt: 1550 };
-    const scheduled = { ...base, hostStartAt: 1200 };
-    await handleData(base, conn);
-    await handleData(scheduled, conn);
+    const shared = { type: MSG.DEMO_PLAY, index: 1, time: 0, hostStartAt: 1200 };
+    const current = { ...shared, hostPlayAt: 1550 };
+    await handleData(shared, conn);
+    await handleData(current, conn);
+    await handleData({ type: MSG.DEMO_PLAY, index: 1, time: 0, hostPlayAt: 1550 }, conn);
+    await handleData({ type: MSG.DEMO_PLAY, index: 1, time: 0 }, conn);
     for (const hostStartAt of [NaN, Infinity, -Infinity, -1, 0, '1200', null]) {
-      await handleData({ ...base, hostStartAt }, conn);
+      await handleData({ ...shared, hostStartAt }, conn);
+      await handleData({ ...current, hostStartAt }, conn);
     }
-    expect(handler.mock.calls.map(([frame]) => frame)).toEqual([base, scheduled]);
+    for (const hostPlayAt of [NaN, Infinity, '1550', null]) {
+      await handleData({ ...shared, hostPlayAt }, conn);
+    }
+    expect(handler.mock.calls.map(([frame]) => frame)).toEqual([shared, current]);
   });
 
   it('accepts legacy PLAY frames and independent common-start anchors', async () => {

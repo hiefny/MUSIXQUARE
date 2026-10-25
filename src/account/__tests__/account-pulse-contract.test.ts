@@ -339,14 +339,10 @@ const BROADCAST_ROWS: ReadonlyArray<
     () => ({ type: 'refresh', id: 'refresh:contract-0001' }),
     { ...EVERY_SESSION_READS, ui: null },
   ],
-  // ui/account.ts rejects an out-of-range id; session.ts and the events page
-  // still refresh (session.ts as an unidentified pulse, pinned by the
-  // two-copy table below).
-  [
-    'an id of 7 characters',
-    (own) => success(own, { id: 'r'.repeat(7) }),
-    { ...EVERY_SESSION_READS, ui: null },
-  ],
+  // Survey OV-B08: every pulse has carried an id of 8..160 characters since
+  // 8.3.30, so no receiver acts on a message without one. These rows also pin
+  // the events page's copy of the bounds.
+  ['an id of 7 characters', (own) => success(own, { id: 'r'.repeat(7) }), NONE],
   [
     'an id of 8 characters',
     (own) => success(own, { id: 'r'.repeat(8) }),
@@ -357,12 +353,16 @@ const BROADCAST_ROWS: ReadonlyArray<
     (own) => success(own, { id: 'r'.repeat(160) }),
     { ...EVERY_SESSION_READS, ui: 'welcome' },
   ],
+  ['an id of 161 characters', (own) => success(own, { id: 'r'.repeat(161) }), NONE],
+  ['a numeric id', (own) => success(own, { id: 12_345_678 }), NONE],
   [
-    'an id of 161 characters',
-    (own) => success(own, { id: 'r'.repeat(161) }),
-    { ...EVERY_SESSION_READS, ui: null },
+    'a pulse without an id',
+    (own) => {
+      const { id: _dropped, ...rest } = success(own);
+      return rest;
+    },
+    NONE,
   ],
-  ['a numeric id', (own) => success(own, { id: 12_345_678 }), { ...EVERY_SESSION_READS, ui: null }],
   [
     'an unknown accountAuth',
     (own) => success(own, { accountAuth: 'pending' }),
@@ -473,31 +473,22 @@ const STORAGE_ROWS: ReadonlyArray<
       storage.setItem(STORAGE_KEY, JSON.stringify({ type: 'refresh', id: 'refresh:c-0001' })),
     { ...EVERY_SESSION_READS, ui: null },
   ],
-  // Older clients stored an opaque token (session.ts refreshAfterStoragePulse).
+  // Survey OV-B08: tabs before 8.3.30 stored an opaque token or a pulse
+  // without an id. No receiver refreshes on a value that is not an identified
+  // pulse, nor on the removal of the key.
   [
-    'a legacy opaque token',
+    'an opaque token from a tab before 8.3.30',
     (storage) => storage.setItem(STORAGE_KEY, 'legacy-opaque-token-0001'),
-    { ...EVERY_SESSION_READS, ui: null },
-  ],
-  // Divergence: session.ts refreshes on any value it cannot read as a pulse,
-  // the events page ignores JSON that is not a pulse. C8-I4 keeps the session
-  // parser's tolerance and leaves the events page's inline check (its step 4),
-  // so both rows stay.
-  [
-    'JSON that is not a pulse',
-    (storage) => storage.setItem(STORAGE_KEY, '{"type":"other"}'),
-    { appA: 1, ui: null, appB: 1, events: 0 },
+    NONE,
   ],
   [
-    'a JSON number',
-    (storage) => storage.setItem(STORAGE_KEY, '42'),
-    { appA: 1, ui: null, appB: 1, events: 0 },
+    'a pulse JSON without an id',
+    (storage) => storage.setItem(STORAGE_KEY, JSON.stringify({ type: 'refresh' })),
+    NONE,
   ],
-  [
-    'removal of the key',
-    (storage) => storage.removeItem(STORAGE_KEY),
-    { ...EVERY_SESSION_READS, ui: null },
-  ],
+  ['JSON that is not a pulse', (storage) => storage.setItem(STORAGE_KEY, '{"type":"other"}'), NONE],
+  ['a JSON number', (storage) => storage.setItem(STORAGE_KEY, '42'), NONE],
+  ['removal of the key', (storage) => storage.removeItem(STORAGE_KEY), NONE],
   ['clear() of the whole area', (storage) => storage.clear(), NONE],
   [
     'another key',
@@ -528,21 +519,20 @@ describe('C8-I4 receiver acceptance on the storage event', () => {
 });
 
 /**
- * session.ts's id bounds (8..160). One copy of a success pulse costs one read
- * whether session.ts keeps its id or drops it to null, so these rows send the
- * same pulse on BroadcastChannel and storage: an id in range is one shared
- * login-result read in app-b, an id out of range two unidentified refreshes.
- * The events page keeps no id and reads once per copy whatever the id; that
+ * session.ts's id bounds (8..160) over two copies of one success pulse, on
+ * BroadcastChannel and storage: an id in range is one shared login-result
+ * read in app-b, an id out of range is no pulse (survey OV-B08). The events
+ * page keeps no id set and reads once per copy of an identified pulse; that
  * Known gap is pinned in account-pulse-cross-document.test.ts (Phase 2 Train D
  * added no dedupe there), so these rows leave the events page out.
  */
 const TWO_COPY_ID_ROWS: ReadonlyArray<
   readonly [length: number, expected: Omit<Expected, 'events'>]
 > = [
-  [7, { appA: 2, ui: null, appB: 2 }],
+  [7, { appA: 0, ui: null, appB: 0 }],
   [8, { appA: 1, ui: 'welcome', appB: 1 }],
   [160, { appA: 1, ui: 'welcome', appB: 1 }],
-  [161, { appA: 2, ui: null, appB: 2 }],
+  [161, { appA: 0, ui: null, appB: 0 }],
 ];
 
 describe('C8-I4 session id bounds over two copies', () => {

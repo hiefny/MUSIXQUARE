@@ -1041,7 +1041,7 @@ describe('account session mutation ordering', () => {
     window.dispatchEvent(
       new MessageEvent('message', {
         origin: 'https://untrusted.example',
-        data: { type: 'refresh', accountAuth: 'success' },
+        data: { type: 'refresh', accountAuth: 'success', id: 'result:popup-origin-0001' },
       }),
     );
     await Promise.resolve();
@@ -1050,7 +1050,7 @@ describe('account session mutation ordering', () => {
     window.dispatchEvent(
       new MessageEvent('message', {
         origin: window.location.origin,
-        data: { type: 'refresh', accountAuth: 'success' },
+        data: { type: 'refresh', accountAuth: 'success', id: 'result:popup-origin-0002' },
       }),
     );
 
@@ -1212,45 +1212,32 @@ describe('account session mutation ordering', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it('preserves a valid legacy pulse result when its duplicate follow-up fails', async () => {
-    const initialRead = deferred<Response>();
-    const completedLoginRead = deferred<Response>();
-    const duplicateFollowUpRead = deferred<Response>();
-    const sessionReads = [initialRead, completedLoginRead, duplicateFollowUpRead];
-    const fetchMock = vi.fn((input: RequestInfo | URL) => {
-      expect(String(input)).toBe('/api/auth/session');
-      return sessionReads.shift()!.promise;
-    });
+  it('ignores pulses without an id from tabs before 8.3.30', async () => {
+    // Survey OV-B08: every pulse has carried an id since 8.3.30 (5981d1c9).
+    // A tab still on an older build wakes this one only through the focus,
+    // visibility and online triggers.
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse(ANONYMOUS));
     vi.stubGlobal('fetch', fetchMock);
 
     startAccountSessionRefresh();
-    initialRead.resolve(jsonResponse(ANONYMOUS));
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // Older completion pages sent equivalent pulses without an ID. The first
-    // fresh response must remain applicable; later copies only queue a
-    // compatibility follow-up rather than fencing it.
-    window.dispatchEvent(
-      new MessageEvent('message', {
-        origin: window.location.origin,
-        data: { type: 'refresh' },
-      }),
-    );
-    window.dispatchEvent(
-      new StorageEvent('storage', {
-        key: 'mxqr-account-refresh',
-        newValue: 'legacy-opaque-pulse',
-      }),
-    );
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    completedLoginRead.resolve(jsonResponse(AUTHENTICATED_NEW));
-    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
-
-    duplicateFollowUpRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    const send = (data: unknown) =>
+      window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, data }));
+    const store = (newValue: string | null) =>
+      window.dispatchEvent(new StorageEvent('storage', { key: 'mxqr-account-refresh', newValue }));
+    send({ type: 'refresh' });
+    send({ type: 'refresh', accountAuth: 'success' });
+    send({ type: 'refresh', id: 'r'.repeat(7) });
+    send({ type: 'refresh', accountAuth: 'success', id: 'r'.repeat(161) });
+    store('legacy-opaque-pulse');
+    store(JSON.stringify({ type: 'refresh' }));
+    store('{"type":"other"}');
+    store(null);
     await new Promise((resolve) => window.setTimeout(resolve, 0));
-    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('reconciles the exact popup session and fences an older account read', async () => {
@@ -1711,11 +1698,6 @@ describe('the single account pulse receiver', () => {
         'an unknown accountAuth',
         () => storePulse(JSON.stringify({ ...COMPLETION, accountAuth: 'x', id: 'result:s-0003' })),
       ],
-      [
-        'an id out of bounds',
-        () => DeliveringBroadcastChannel.deliver({ ...COMPLETION, id: 'r'.repeat(161) }),
-      ],
-      ['a legacy opaque token', () => storePulse('legacy-opaque-token-0001')],
     ];
     for (const [label, deliver] of incomplete) {
       const before = fetchMock.mock.calls.length;

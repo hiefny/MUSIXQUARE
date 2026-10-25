@@ -45,6 +45,42 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 구조 개선 Phase 4 4D(배포 전): 보조 경로의 끊김 기한도 연결 생존 주인으로
+
+- [ ] 4D 범위(오너 결정 2026-10-25 약 16:30 KST): 허용 위험 #18이 오너의 와이파이→LTE 실기기 확인(운영
+      9.0.10, 2026-10-25, #491)으로 은퇴한 뒤, 오너가 Phase 4 밖(P4-D6 A, registry RO-35)에 두었던 C5-9를
+      그 ratchet(C5-10의 제어 격리 부분)과 함께 네 번째 앱 열차 4D로 내기로 했다. 코드로는 위험이 높지만 쓰는
+      데는 위험이 높지 않다는 판단이고, 나중의 기기 확인이 실패하면 9.0.10의 보조 경로 동작으로 돌아가는
+      forward revert를 낸다(미리 정한 되돌리기 계획). 바뀌는 것(중립): 보조(격리 제어) 경로 PC의 끊김
+      기한(끊김당 15초, 원래 경로가 끊긴 동안 미룸, 원래 경로 회복 뒤 15초로 다시 걸되 끊김 시작에서 30초
+      상한, READY 전처럼 재시작할 수 없는 경로의 15초 유예와 그 끝의 거절·fallback)이 `ControlIsolation`에서
+      `LinkLiveness`로 옮기고, 제어 격리는 재시작 통신(시도, 창, epoch, 후보, fence, READY)만 갖는다. 기기
+      근거 세 줄(`Restarting isolated control ICE (n/m)`, `Isolated control ICE recovered`,
+      `Isolated control ICE did not recover; closing its logical connection`)은 바이트·수준·쓰는 끝이
+      같고, 닫힘 원인 낱말, `RESTART_WINDOW_MS`·`RESTART_CAP_MS` 리터럴, 통신은 그대로이며, 동결 fixture
+      `control-isolation-c9.ts`는 바뀌지 않았다. registry RO-35는 지웠고 RO-15가 `owner-in-place`가 됐다. 브랜치 `agent/phase4-4d`
+      (origin/main `a8dfd2ac`에서 시작): D0 테스트 먼저 `ea6a5781`·`72cdce0d`(9.0.10 코드에서 통과하는 두 연결
+      통합 묶음 34행), D1 C5-9 `d5c66b9a`, D2 가드 `b385fad0`(transport-health 은퇴 이름 16 → 24). 로컬
+      검증(`b385fad0`): D0 묶음을 9.0.10 런타임 파일 위에서 다시 34/34, 단위 666 files / 15,594, 핵심 커버리지
+      79 files / 3,074(`link-liveness.ts` 100), 가드(transport-health, dead-exports 20/20·76/76 그대로,
+      resource-ownership 47 records / 437 files), 빌드 두 번과 초기 전송 예산(초기 JS 478,196 B, main
+      478,015 B 대비 +181 B, 유지 상한까지 13,372 B) PASS. 남은 것: origin/main #491 합침(registry RO-35는
+      삭제를 지키고, 최근 해결 근거의 #18 문단 끝 'C5-9는 결함이 나오지 않으면 하지 않는다'를 4D로 고침),
+      SemVer·SW 캐시 epoch bump(올리기 직전 origin/main 확인, 다른 앱 열차가 먼저 나가지 않으면 `9.0.11` /
+      `v784`), bump 뒤 `build:checked`·Worker 단위·critical E2E·C5-0 랩, 리뷰, PR CI, Codex, exact-main CI,
+      릴리스 smoke, 배포(target `app`, Developer API D1 `false`, 자동 게이트가 통과하면 바로). 로컬 결과는
+      exact-main-SHA 후보를 대신하지 않는다.
+      [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md).
+- [ ] 4D 배포 뒤 실기기 확인(게이트는 아니지만 되돌리기 판정, 오너 결정 2026-10-25 약 16:30 KST): Windows
+      Chrome 방장과 같은 와이파이의 iPhone Safari 게스트(`?mxqrLog=info`, 할 수 있으면 Android Chrome도)로,
+      게스트가 대기열 항목을 직접 받은 뒤(격리 제어 경로가 생김) (1) 와이파이→LTE: 창 없이 재생과 조작이
+      이어지고 합친 콘솔에 재시작 줄 다음 회복 줄, did-not-recover 경고와 `side-failed:*` 원인 줄 없음(9.0.10
+      기준선은 재시작 뒤 3.2초에 회복), (2) 비행기 모드 약 40초: 그 게스트의 원인 줄이 하나이고 원래 경로
+      토큰(`original-grace-expired` 기대), `side-failed:expired`와 경고 없음, (3) 할 수 있으면 직접 받기
+      시작 직후 끊어 READY 전 경우를 기록만 한다. (1)이나 (2)가 실패하면 forward revert를 낸다. 기준은 결과
+      전에 보고서에 고정했다.
+      [실기기로 확인하지 않은 것](design/phase4-4d-side-route-owner-2026-10-25.md#실기기로-확인하지-않은-것).
+
 ### 구조 개선 Phase 4 4C(9.0.10/v783) 배포 뒤 확인: Cloudflare 데이터 연결마다 연결 생존 주인 하나
 
 - [ ] 4C 범위(오너 결정 2026-10-25 약 01:50 KST): 4A 때 기기 근거를 기다리며 보류한 C5-6·C5-7·C5-8(P4-D6 A, P4-D13 A)은 오너
@@ -1278,12 +1314,15 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       Codex, exact-main CI, 릴리스 smoke)가 통과하면 바로 내고, 7일 간격(4B의 '4A 배포 7일 뒤' 포함)과 기기
       라운드를 기다리지 않는다. 열차 보고서마다 기기로 확인하지 않은 것을 적는다. 같은 결정으로 C5-6·C5-7·
       C5-8이 4B 다음 자기 열차로 가서 Phase 4는 4C까지 앱 업데이트 세 번이 된다. 4C는 C5-6, C5-7, C5-8과
-      C5-10의 연결 부분을 싣고 C5-9는 Phase 4 밖이다(RO-35).
+      C5-10의 연결 부분을 싣고 C5-9는 처음엔 Phase 4 밖이었다(RO-35). #18이 은퇴한 뒤 오너 결정(2026-10-25
+      약 16:30 KST)으로 C5-9와 C5-10의 제어 격리 부분이 네 번째 앱 열차 4D로 가서 Phase 4는 4D까지 앱 업데이트
+      네 번이 된다(기기 확인이 실패하면 9.0.10의 보조 경로 동작으로 forward revert, RO-35는 4D에서 지움).
       [결정 근거](design/resource-ownership-registry.md#consolidation-phases),
       [게이트에 막힌 실행](design/server-constant-homes-2026-10-23.md#호환성),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24),
       [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25),
-      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md#오너-결정).
+      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md#오너-결정),
+      [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정).
 - [ ] 8.11.32 배포 뒤 실기 확인(2026-10-21 03:41 KST 배포됨): iPhone에서 재생목록 길게 누르기가 글자를 선택하지
       않는지, 데스크톱 길게 클릭·끌기 가장자리 자동 스크롤, 백그라운드 복귀마다 Sync(일반방 YouTube 방장이 돌아올 때마다
       게스트가 최대 3초에 한 번 다시 맞춘다), 권한 확인 중 안내, 화면 보호기 두 번 탭 종료·저음 밝기를 실제 기기로 본다.

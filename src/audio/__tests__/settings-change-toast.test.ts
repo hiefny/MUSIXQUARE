@@ -203,6 +203,35 @@ describe('EQ preset synchronization through the inbound protocol budget', () => 
     expect(replacement.send).toHaveBeenCalledTimes(15);
   });
 
+  it('sends late joins, replacement channels and explicit resyncs one complete snapshot', () => {
+    const established = connection('established-atomic');
+    configureRoom();
+    setState('network.connectedPeers', [connectedPeer(established.conn)]);
+    bus.emit('effects:resync-peer', established.conn);
+    expect(established.send).toHaveBeenCalledExactlyOnceWith(snapshot(0, settings(), true));
+    setEQPreset(warm);
+    established.send.mockClear();
+
+    const late = connection('late-atomic');
+    setState('network.connectedPeers', [connectedPeer(established.conn), connectedPeer(late.conn)]);
+    setEQPreset(bright);
+    expect(late.send).toHaveBeenCalledExactlyOnceWith(snapshot(2));
+    expect(established.send).toHaveBeenCalledExactlyOnceWith(snapshot(2));
+
+    // Same peer ID, different channel: no old delivery baseline may carry over.
+    const replacement = connection('late-atomic');
+    setState('network.connectedPeers', [connectedPeer(replacement.conn)]);
+    setEQPreset(warm);
+    expect(replacement.send).toHaveBeenCalledExactlyOnceWith(snapshot(3));
+    replacement.send.mockClear();
+    bus.emit('effects:resync-peer', replacement.conn);
+    expect(replacement.send).toHaveBeenCalledExactlyOnceWith(snapshot(3, settings(), true));
+    replacement.send.mockClear();
+    setState('room.context', { ...getState('room.context'), epoch: 4 });
+    setEQPreset(bright);
+    expect(replacement.send).toHaveBeenCalledExactlyOnceWith({ ...snapshot(1), epoch: 4 });
+  });
+
   it('repairs a failed legacy band on the next unrelated edit', () => {
     const follower = connection('legacy-send-failure');
     configureRoom();

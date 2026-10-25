@@ -3841,6 +3841,60 @@ describe('request-setting authorization', () => {
     expect(getState('playlist.isShuffle')).toBe(true);
   });
 
+  it('ignores per-effect request-setting frames from demo guests and administrators', async () => {
+    const before = {
+      eq: [...getState('audio.eqValues')],
+      preamp: getState('audio.userPreampGain'),
+      bass: getState('audio.virtualBass'),
+      treble: getState('audio.exciter'),
+      width: getState('audio.stereoWidth'),
+      mix: getState('audio.reverbMix'),
+      decay: getState('audio.reverbDecay'),
+    };
+    const demoGuest = makeConnection('guest-demo-per-effect');
+    setState('demo.active', true);
+    await handleData(
+      { type: MSG.REQUEST_SETTING, settingType: 'eq', band: 0, value: 6 },
+      demoGuest,
+    );
+    await handleData({ type: MSG.REQUEST_SETTING, settingType: 'vbass', value: 60 }, demoGuest);
+    await handleData({ type: MSG.REQUEST_SETTING, settingType: 'exciter', value: 1 }, demoGuest);
+    await handleData(
+      { type: MSG.REQUEST_SETTING, settingType: 'stereo-width', value: 120 },
+      demoGuest,
+    );
+    setState('demo.active', false);
+
+    const administrator = makeConnection('guest-op-per-effect');
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[administrator.peer, administrator]]));
+    setState('network.connectedPeers', [
+      {
+        ...makeConnectedPeer(administrator.peer, true),
+        conn: administrator,
+        roomCapabilities: ['effects.control'],
+      },
+    ]);
+    for (const [settingType, value] of [
+      ['preamp', 6],
+      ['reverb', 70],
+      ['reverb-decay', 8],
+      ['vbass', 60],
+    ] as const) {
+      await handleData({ type: MSG.REQUEST_SETTING, settingType, value }, administrator);
+    }
+
+    expect({
+      eq: getState('audio.eqValues'),
+      preamp: getState('audio.userPreampGain'),
+      bass: getState('audio.virtualBass'),
+      treble: getState('audio.exciter'),
+      width: getState('audio.stereoWidth'),
+      mix: getState('audio.reverbMix'),
+      decay: getState('audio.reverbDecay'),
+    }).toEqual(before);
+  });
+
   it('lets standard administrators control full room effects', async () => {
     const conn = makeConnection('guest-op');
     setState('network.appRole', 'host');

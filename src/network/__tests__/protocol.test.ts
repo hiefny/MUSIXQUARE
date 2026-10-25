@@ -1563,4 +1563,30 @@ describe('REQUEST_SETTING validation', () => {
 
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it('drops the per-effect setting types from before atomic settings sync', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_SETTING, handler);
+    const conn = makeConnection('peer-request-setting-per-effect');
+
+    const perEffectMessages = [
+      { settingType: 'eq', band: 4, value: -12 },
+      { settingType: 'preamp', value: -48 },
+      { settingType: 'stereo-width', value: 200 },
+      { settingType: 'vbass', value: 100 },
+      { settingType: 'exciter', value: 1 },
+      { settingType: 'reverb', value: 100 },
+      { settingType: 'reverb-type', value: 'arena' },
+      { settingType: 'reverb-decay', value: 10 },
+      { settingType: 'reverb-predelay', value: 0.5 },
+      { settingType: 'reverb-lowcut', value: 100 },
+      { settingType: 'reverb-highcut', value: 100 },
+    ];
+
+    for (const message of perEffectMessages) {
+      await handleData({ type: MSG.REQUEST_SETTING, ...message }, conn);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+  });
 });

@@ -1021,3 +1021,164 @@ describe('request-eq-reset authorization', () => {
     expect(getState('audio.userPreampGain')).toBe(1);
   });
 });
+
+describe('room settings move only through the sequenced snapshot', () => {
+  // Hosts since 8.3.7 (9b106a5b) move room volume and DSP only through
+  // SETTINGS_SYNC_SNAPSHOT. 9.0.10 and 9.0.11 hosts still follow each snapshot
+  // with these per-effect frames, carrying the values the snapshot just set.
+  const perEffectFrames: Record<string, unknown>[] = [
+    { type: 'volume', value: 0.3 },
+    { type: 'eq-update', band: 2, value: 6 },
+    { type: 'preamp', value: 6 },
+    { type: 'reverb', value: 70 },
+    { type: 'reverb-type', value: 'arena' },
+    { type: 'reverb-decay', value: 4 },
+    { type: 'reverb-predelay', value: 0.2 },
+    { type: 'reverb-lowcut', value: 40 },
+    { type: 'reverb-highcut', value: 60 },
+    { type: 'stereo-width', value: 150 },
+    { type: 'vbass', value: 80 },
+    { type: 'exciter', value: 0 },
+  ];
+
+  beforeEach(() => {
+    initEffectsHandlers();
+    setState('setup.sessionStarted', true);
+  });
+
+  it('keeps a guest on its accepted snapshot through per-effect frames, without a toast', async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<div id="toast"><span id="toast-msg"></span></div>';
+    const host = {
+      peer: 'host-per-effect',
+      open: true,
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    resetSettingsSyncAuthorityForTests();
+    await handleData(
+      {
+        type: MSG.SETTINGS_SYNC_SNAPSHOT,
+        version: 1,
+        epoch: 0,
+        sequence: 0,
+        settings: { masterVolume: 0.42, effects: synchronizedEffects },
+        _bootstrap: true,
+      },
+      host,
+    );
+    const accepted = captureRoomSettingsSyncState();
+    const preampGain = getState('audio.userPreampGain');
+    expect(accepted).toEqual({ masterVolume: 0.42, effects: synchronizedEffects });
+
+    for (const frame of perEffectFrames) {
+      await handleData(frame, host);
+      await handleData({ ...frame, _bootstrap: true }, host);
+    }
+    await handleData({ type: 'eq-reset' }, host);
+    await vi.advanceTimersByTimeAsync(301);
+
+    expect(captureRoomSettingsSyncState()).toEqual(accepted);
+    expect(getState('audio.userPreampGain')).toBe(preampGain);
+    expect(document.getElementById('toast')?.classList.contains('show')).toBe(false);
+  });
+
+  it('ignores an administrator request-eq-reset and sends nothing', async () => {
+    const send = vi.fn();
+    const conn = { peer: 'guest-op-eq-reset', open: true, send } as unknown as DataConnection;
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    setState('network.connectedPeers', [
+      { ...makeConnectedPeer(conn.peer, true), conn, roomCapabilities: ['effects.control'] },
+    ]);
+    setState('audio.eqValues', [1, 2, 3, 4, 5]);
+    setState('audio.userPreampGain', 2);
+
+    await handleData({ type: 'request-eq-reset' }, conn);
+
+    expect(getState('audio.eqValues')).toEqual([1, 2, 3, 4, 5]);
+    expect(getState('audio.userPreampGain')).toBe(2);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('sends a newly connected or resynced follower one complete snapshot and nothing else', () => {
+    const delivered: unknown[] = [];
+    const follower = {
+      peer: 'snapshot-only-follower',
+      open: true,
+      send: (frame: unknown) => delivered.push(frame),
+    } as unknown as DataConnection;
+    setState('network.appRole', 'host');
+    const snapshot = {
+      type: MSG.SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      epoch: 0,
+      sequence: 0,
+      settings: captureRoomSettingsSyncState(),
+      _bootstrap: true,
+    };
+
+    bus.emit('network:peer-connected', follower);
+    bus.emit('effects:resync-peer', follower);
+
+    expect(delivered).toEqual([snapshot, snapshot]);
+  });
+
+  it('commits a host edit to each follower as one snapshot frame', () => {
+    const send = vi.fn();
+    const follower = { peer: 'commit-follower', open: true, send } as unknown as DataConnection;
+    setState('network.appRole', 'host');
+    setState('network.connectedPeers', [
+      { ...makeConnectedPeer(follower.peer, false), conn: follower },
+    ]);
+    setState('network.activeHostConnByPeerId', new Map([[follower.peer, follower]]));
+
+    bus.emit('audio:set-virtual-effects', { bass: true, treble: false, surround: false });
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith({
+      type: MSG.SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      epoch: 0,
+      sequence: 1,
+      settings: captureRoomSettingsSyncState(),
+    });
+  });
+
+  it('acknowledges and relays an administrator publish as one snapshot frame per peer', async () => {
+    const adminSend = vi.fn();
+    const followerSend = vi.fn();
+    const admin = {
+      peer: 'publish-admin',
+      open: true,
+      send: adminSend,
+    } as unknown as DataConnection;
+    const follower = {
+      peer: 'publish-follower',
+      open: true,
+      send: followerSend,
+    } as unknown as DataConnection;
+    const peers = [admin, follower].map((conn) => ({
+      ...makeConnectedPeer(conn.peer, conn === admin),
+      conn,
+      roomCapabilities: conn === admin ? ['effects.control' as const] : [],
+    }));
+    setState('network.appRole', 'host');
+    setState('network.connectedPeers', peers);
+    setState('network.activeHostConnByPeerId', new Map(peers.map((peer) => [peer.id, peer.conn])));
+    const settings = { masterVolume: 0.2, effects: synchronizedEffects };
+
+    await handleData({ type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT, version: 1, settings }, admin);
+
+    const committed = {
+      type: MSG.SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      epoch: 0,
+      sequence: 1,
+      settings,
+    };
+    expect(adminSend.mock.calls).toEqual([[{ ...committed, _bootstrap: true }]]);
+    expect(followerSend.mock.calls).toEqual([[committed]]);
+  });
+});

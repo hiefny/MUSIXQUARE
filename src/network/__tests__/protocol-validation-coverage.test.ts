@@ -19,8 +19,29 @@ describe('protocol validation coverage', () => {
   it('classifies every declared message type', () => {
     const types = Object.values(MSG);
 
-    expect(types).toHaveLength(118);
+    expect(types).toHaveLength(104);
     expect(new Set(types).size).toBe(types.length);
+  });
+
+  it('no longer declares the per-effect sync from before atomic settings sync', () => {
+    const removed = [
+      'volume',
+      'eq-update',
+      'eq-reset',
+      'preamp',
+      'reverb',
+      'reverb-type',
+      'reverb-decay',
+      'reverb-predelay',
+      'reverb-lowcut',
+      'reverb-highcut',
+      'stereo-width',
+      'vbass',
+      'exciter',
+      'request-eq-reset',
+    ];
+
+    expect(Object.values(MSG).filter((type) => removed.includes(type))).toEqual([]);
   });
 });
 

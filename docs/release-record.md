@@ -4,7 +4,7 @@
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Status             | Runbook — 현재 릴리스 상태. 프로덕션 배포·롤백마다 §1을 덮어쓰고, 열린 항목이 바뀌면 §2를 고친다                                                                                                                |
 | Applies to         | 프로덕션 App·Worker 6종의 현재 배포 상태, 열린 확인 항목, 릴리스·QA 때 지킬 기준                                                                                                                                |
-| Last source review | 2026-10-25 (배포 SHA `aa23172a`, Release `40151618508` attempt 1 성공)                                                                                                                                          |
+| Last source review | 2026-10-25 (배포 SHA `2038b51f`, Release `40166305040` attempt 1 성공)                                                                                                                                          |
 | Executable sources | [CI](../.github/workflows/ci.yml), [Production Release](../.github/workflows/release.yml), [배포 범위·복구 판정](../scripts/release-deployment-state.mts), [D1 계약](../cloudflare/d1-migrations.manifest.json) |
 | Related documents  | [릴리스 이력](release-history.md), [정식 배포·복구 절차](hotfix-procedure.md), [버전 규칙](release-versioning.md), [QA 범위 설계](qa-domains.md), [허용한 위험](known-accepted.md), [작업 지침](../AGENTS.md)   |
 
@@ -23,39 +23,91 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 ## 1. 현재 운영 상태
 
-아래는 2026-10-25 10:43 KST 배포 후 공개 자산·Drift Audit까지의 상태다. 후속 기록 PR은 배포된 코드 SHA나 exact-main 후보를 대신하지 않는다. 다음 배포 전 Git·CI·Cloudflare 상태를 다시 확인한다.
+아래는 2026-10-25 14:41 KST 배포 후 공개 자산·Drift Audit까지의 상태다. 후속 기록 PR은 배포된 코드 SHA나 exact-main 후보를 대신하지 않는다. 다음 배포 전 Git·CI·Cloudflare 상태를 다시 확인한다.
 
-| 항목                   | 값                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App 버전 / SW 캐시     | `9.0.9` / `v782` (구조 개선 Phase 4 4B, 오너가 고른 연결·재합류 동작 변경, 업데이트 창이 뜬다). bump `aba30ccb`에서 9.0.9 / v781로 올린 뒤 PR #487의 Codex P2 반영(`bfd84f6a`)이 런타임을 바꿔, 배포 전이던 SemVer 9.0.9는 두고 SW 캐시 epoch만 `f207d094`에서 v782로 올렸다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| 마지막 프로덕션 변경   | 2026-10-25 10:43:21 KST deploy job 완료, [Release 40151618508](https://github.com/hiefny/MUSIXQUARE/actions/runs/40151618508) attempt 1 성공, target=app, Developer API D1=false. 오너 결정(2026-10-25 약 01:50 KST): 자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke)가 통과하면 따로 묻지 않고 배포하고, 기기 근거는 게이트가 아니다. Phase 4 4B([#487](https://github.com/hiefny/MUSIXQUARE/pull/487)): ICE 복구 뒤 방장이 그 게스트를 local로 다시 판정해 알린 다음 본 레인이 같은 (연결, 대기열 항목, 세션)을 가져가면 재개한 미리받기가 물러난다(C5-12, P4-D10 A, 축소 C5-11 위, 알려진 한계 밖에서). 9.0.9 게스트는 경로가 아직 `unknown`이어도 자기 복구 요청의 정확한 튜플인 본 레인 머리를 받는다(Codex P2). 오류로 시작한 닫힘·입장 실패·PRO epoch 일괄 닫힘의 원인 줄이 `transport-error`·`join-bootstrap-failed`·`pro-epoch-advanced`가 되고, 일반방 게스트가 끊김 창의 다시 읽기 뒤 앞 페이지의 마지막 닫힘 원인을 한 번 보이고(P4-D5 B), PRO 청취자의 보이는 일시정지가 남은 재합류 재시도를 끝내고(P4-D7 B), 데모 재생이 대기열 정준 시간선을 켜지 않는다(P4-D9). 이 SHA의 실패한 실행은 없다. 부분 릴리스 호환성 판정과 재판정 모두 compatible |
-| 배포 main SHA          | `aa23172a53434ff8f4277de7c4a200d7cfa733a5`, PR [#487](https://github.com/hiefny/MUSIXQUARE/pull/487) squash. Exact-main push [CI 40151096199](https://github.com/hiefny/MUSIXQUARE/actions/runs/40151096199) attempt 1의 후보 [artifact 12581414111](https://github.com/hiefny/MUSIXQUARE/actions/runs/40151096199/artifacts/12581414111)(digest sha256 `5c62bceaf2f0eb62aa412621e3ee24c9a438332bb7d1964c606ba0513fb878a7`)를 사용했다. 11 jobs 모두 첫 시도 success. main 트리는 CI를 통과한 PR head `bd41075f`와 같다(마지막 런타임 커밋은 SW 캐시 bump `f207d094`, 그 뒤는 문서만). Node 24.20.0. PR·로컬 결과를 exact-main 후보로 대체하지 않았다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Worker                 | App만 이번 실행의 버전: App `990ae9f3-1aad-4bf6-89f7-af5e5a83aacc`, 100%, message=`git:aa23172a53434ff8f4277de7c4a200d7cfa733a5`, 최종 소유권 10:43:15 KST verified. 나머지 다섯(PRO room `49fc11aa`, remote-share `0f49a77a`, signaling `23b823eb`, Developer API facade `fc2e0910`, Developer API `a4e576d3`)은 R1 `572880a2`(Release 40049951071)의 버전 그대로이고, PRO generation readiness는 R1 때의 `ready`(release `572880a2`)다. [배포 원본](https://github.com/hiefny/MUSIXQUARE/actions/runs/40151618508/artifacts/12583230923)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| 운영 smoke / 공개 자산 | App(generation `main-DOlyYtcX.js` 364,761 B·33 assets 수렴, 익명 계정 경계, PRO 공개 경계 `49fc11aa`)과 Standard HTTPS signaling(`bridgeOpenMs` 방장 850ms·게스트 390ms) success. generation은 보고서 라운드 8의 로컬 진입 청크와 이름·크기가 같다. 배포 뒤 공개 GET 200: `/` 145,216 B(`bootstrap.js?cache=v782`), `/service-worker.js` 39,517 B(`CACHE_VERSION = "v782"`). 운영 브라우저의 업데이트 대화상자 확인은 기록되지 않았다(4B는 업데이트 기계를 바꾸지 않는다). 일반방·PRO 방을 운영에서 돌린 기록이 없어 4B 코드의 운영 Cloudflare 전송 경로는 아직 확인하지 않았고, 실기기 확인도 아직이다(§2). [보고서](design/phase4-4b-behaviour-2026-10-25.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 복구                   | 성공한 실행은 rollback 불필요·미실행, 독립 recovery job skipped. 배포 전 [checkpoint](https://github.com/hiefny/MUSIXQUARE/actions/runs/40151618508/artifacts/12582711631)는 9.0.8 App `8c3fdcab`(version `1513bc69-8f01-4e83-b19d-ff7ec8c32d66`)를 보존한다. 같은 PRO 입장 정책 표지를 가진 9.0.8·9.0.7·9.0.6·9.0.5로의 App rollback은 가능하다(9.0.4 아래는 불가). 9.0.8로 되돌리면 ICE 복구 뒤 두 스트림, `intentional`로 읽히는 오류 시작 닫힘, PRO 청취자 일시정지 틈, 대기열이 선택된 데모 방장의 앞선 보고 위치가 돌아오고 남은 `mxqr-prev-close` 값은 무시될 뿐 통신·저장 형식은 같다. 기본 되돌리기는 더 높은 SemVer의 코드 되돌리기다. checkpoint는 사용자 데이터 백업이 아니다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| 활성 복구 floor        | App 단독 릴리스라 PRO generation floor 검사는 skip이며 새 floor는 없다. PRO 입장 정책 계약 표지 `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`(9.0.4부터), 9.0.0의 시스템 오디오 계약 표지 `single-stereo-v3+heartbeat-state-v1`, 8.11.33의 다중 재생목록 파일 앞으로만 복구(§4)와 기존 service-control·Soro·PRO 선택형 입장 암호 계약 유지                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| 검증 범위              | Exact-main CI success(attempt 1, 11 jobs). PR #487 head `bd41075f` CI 11/11 통과. Codex는 `b1962ed5`에서 P2 하나(ICE 복구 뒤 경로가 아직 `unknown`인 게스트가 먼저 닿은 본 레인 머리를 버릴 수 있음)를 냈고, 실패 테스트 `4a319b62`와 수정 `bfd84f6a`로 고친 뒤 PR에 답했다. 마지막 head의 Codex 리뷰는 20분 안에 오지 않아 그 상한 뒤 머지했다. 로컬 Windows 최종 `40210903`(런타임은 v782 bump `f207d094`): unit 663 files 15,388 pass(기기 근거 다섯 줄 고정 포함), Worker 60 files 2,914 pass, critical coverage 75 files 2,862 pass, typecheck(테스트 포함)·`check:workers`·lint·format·`build:checked` 전체(`guard:release-identity` 9.0.9/v782, 초기 JS 477,600 B로 유지 상한까지 13,968 B, main 대비 +666 B), 가드 묶음(dead-exports 20/20·76/76, bus-pairing 204/204, resource-ownership 48 records / 436 files), critical E2E 61/61, C5-0 Cloudflare 랩 8/8(F4는 본 레인 23,040,044 B 한 번, 미리받기 청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나). 갈래마다 독립 검토, 통합 트리는 세 관점 검토(동작·배포·문서). Codex P2의 게스트 받기 규칙은 단위 행으로만 확인했다. 실기기는 아직이다(§2). [보고서](design/phase4-4b-behaviour-2026-10-25.md)           |
-| 잔여 성능 조사         | 리버브 팝 원인은 실기기에서 미확정이다(9.0.0 이후 변화 없음). 9.0.0으로 리버브 Off의 계산은 거의 0이 됐고 켠 상태에서도 가상 저음·익사이터 몫이 빠졌다. 제보 기기 재확인과 기존 [허용 위험 #18](known-accepted.md#18-isolated-standard-room-control-route-ends-on-a-network-change) 실기 확인은 §2에 유지한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Operations Drift Audit | 배포 후 [40151798739](https://github.com/hiefny/MUSIXQUARE/actions/runs/40151798739) attempt 1, `aa23172a`, automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 매일 03:37 UTC 일정과 §3 수동 항목 유지                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Full E2E               | 매주 월 18:17 UTC. 이번에 전체 직렬 E2E를 재실행하지 않았다. 최신 정기 main 실행은 여전히 [39334520177](https://github.com/hiefny/MUSIXQUARE/actions/runs/39334520177)(`3d409c9a`, failure)이고, 그때 확인한 `playlist-delete-mode-layout` 실패는 #444에서 고쳤다. 이번 브라우저 근거는 exact-main CI의 candidate·critical browser와 로컬 critical 61/61, C5-0 Cloudflare 랩 8/8이다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| 의존성·호환            | 신규 의존성·D1 스키마·비밀·바인딩·통신 형식·메시지 종류 변경 없음(App 런타임만, `cloudflare/`에서는 bump의 App Worker `ADMIN_ASSET_VERSION` 한 줄). 새 영구 값은 탭 sessionStorage 진단 키 `mxqr-prev-close` 하나다. 혼합 방(known-accepted #13): 9.0.4~9.0.8 게스트는 경로가 `local`일 때만 본 레인 머리를 받아 Codex P2의 경로 1이 옛 게스트에는 열려 있고, 방장은 통신 형식 변경 없이 게스트 버전을 알 수 없어 그 몫을 혼합 버전 기간의 남은 위험으로 둔다. 9.0.8 이하 방장은 계속 두 스트림을 보내고, 9.0.9 게스트는 자기 요청에 답한 머리를 받으면 9.0.8의 `local` 게스트처럼 본 레인을 재생한다. 9.0.5의 개발 의존성 보안 overrides와 일반방 `1012 / ROOM_EXPIRED` 처리, 9.0.4의 통신 변화(PRO 이전 PREPARE의 `newPin`은 선택), 9.0.0의 호환 변경과 계약 표지 `single-stereo-v3+heartbeat-state-v1`, 8.11.37 프리로드 복구 정책, 8.11.33 PRO 저장 키·opt-in 헤더·Developer API 1.1과 일반방 메시지 계약 유지                                                                                                                                                                                                                                                                     |
+| 항목                   | 값                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App 버전 / SW 캐시     | `9.0.10` / `v783` (구조 개선 Phase 4 4C, Cloudflare 데이터 연결마다 연결 생존 주인 하나, 업데이트 창이 뜬다). 9.0.9는 배포됐으므로 마지막 런타임 커밋인 bump `d52427e2`에서 SemVer와 SW 캐시 epoch를 함께 올렸다(올리기 직전 origin/main은 `9fca1cad`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| 마지막 프로덕션 변경   | 2026-10-25 14:41:30 KST deploy job 완료, [Release 40166305040](https://github.com/hiefny/MUSIXQUARE/actions/runs/40166305040) attempt 1 성공, target=app, Developer API D1=false. 오너 결정(2026-10-25 약 01:50 KST): 자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke)가 통과하면 따로 묻지 않고 배포하고, 기기 근거는 게이트가 아니다. 같은 결정으로 4A 때 보류한 C5-6·C5-7·C5-8이 4B 다음 자기 열차(4C)로 나갔다. Phase 4 4C([#489](https://github.com/hiefny/MUSIXQUARE/pull/489)): 원래 경로의 15초 유예, 공개하는 복구 마감, 끊김당 ICE 재시작 하나의 문(C5-6), 게스트 백그라운드 복귀 확인(C5-7), 링크의 모든 닫힘과 첫 원인(C5-10의 연결 부분)을 `LinkLiveness` 하나가 갖는다(중립, 타이머 키·마감·효과 순서·원인 낱말 그대로). 전송 상태 읽기가 그 주인의 보기를 읽어(C5-8, 이 열차의 유일한 동작 변경), 주인이 원래 경로의 끊김을 쥔 채 경로가 `connecting`·`new`로 읽히는 재시작 창에서는 그 peer가 bulk-writable이 아니어서 새 본 레인·미리받기 스트림이 그 peer를 빼고, 미리받기 레인은 주인의 `connected`(`ice-recovered`)까지 멈춘 채 있다가 청크 0부터 다시 시작한다. C5-9는 싣지 않았다(Phase 4 밖, RO-35). 이 SHA의 실패한 실행은 없다. 부분 릴리스 호환성 판정과 재판정 모두 compatible |
+| 배포 main SHA          | `2038b51f3488ee3244f539fc0936802e73ea8691`, PR [#489](https://github.com/hiefny/MUSIXQUARE/pull/489) squash. Exact-main push [CI 40165795418](https://github.com/hiefny/MUSIXQUARE/actions/runs/40165795418) attempt 1의 후보 [artifact 12588356738](https://github.com/hiefny/MUSIXQUARE/actions/runs/40165795418/artifacts/12588356738)(digest sha256 `debd6c00fde9f562d17186c897ccbcff9b04b8b5ba5a61956f7aa73d92f017fe`)를 사용했다. 11 jobs 모두 첫 시도 success. main 트리는 CI를 통과한 PR head `9d9a801f`와 같다(마지막 런타임 커밋은 bump `d52427e2`, 그 뒤는 문서만). Node 24.20.0. PR·로컬 결과를 exact-main 후보로 대체하지 않았다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Worker                 | App만 이번 실행의 버전: App `40bc262f-dd20-4a39-9ae3-05a35f1cd2e9`, 100%, message=`git:2038b51f3488ee3244f539fc0936802e73ea8691`, 최종 소유권 14:41:23 KST verified. 나머지 다섯(PRO room `49fc11aa`, remote-share `0f49a77a`, signaling `23b823eb`, Developer API facade `fc2e0910`, Developer API `a4e576d3`)은 R1 `572880a2`(Release 40049951071)의 버전 그대로이고, PRO generation readiness는 R1 때의 `ready`(release `572880a2`)다. [배포 원본](https://github.com/hiefny/MUSIXQUARE/actions/runs/40166305040/artifacts/12587763714)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| 운영 smoke / 공개 자산 | App(generation `main-CqeugccX.js` 364,761 B·33 assets 수렴, 익명 계정 경계, PRO 공개 경계 `49fc11aa`)과 Standard HTTPS signaling(`bridgeOpenMs` 방장 917ms·게스트 345ms) success. generation은 보고서 라운드 4의 로컬 진입 청크와 이름·크기가 같다. 배포 뒤 공개 GET 200: `/` 145,216 B(`bootstrap.js?cache=v783`), `/service-worker.js` 39,517 B(`CACHE_VERSION = "v783"`). 이번에는 운영 브라우저의 업데이트 대화상자를 확인하지 않았다(4C는 업데이트 기계를 바꾸지 않는다). 일반방·PRO 방을 운영에서 돌린 기록이 없어 4C 코드의 운영 Cloudflare 전송 경로는 아직 확인하지 않았고, 실기기 확인도 아직이다(§2). [보고서](design/phase4-4c-link-liveness-2026-10-25.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 복구                   | 성공한 실행은 rollback 불필요·미실행, 독립 recovery job skipped. 배포 전 [checkpoint](https://github.com/hiefny/MUSIXQUARE/actions/runs/40166305040/artifacts/12587763638)는 9.0.9 App `aa23172a`(version `990ae9f3-1aad-4bf6-89f7-af5e5a83aacc`)를 보존한다. 같은 PRO 입장 정책 표지를 가진 9.0.9·9.0.8·9.0.7·9.0.6·9.0.5로의 App rollback은 가능하다(9.0.4 아래는 불가). 9.0.9로 되돌리면 전송 상태가 다시 원시 PC 상태를 읽고(재시작 창의 `connecting`이 다시 bulk-writable, 미리받기는 선택 쌍 보고에서도 재개) 연결 생존 기계들이 연결 안으로 돌아갈 뿐 통신·저장 형식은 같다. 기본 되돌리기는 더 높은 SemVer의 코드 되돌리기다. checkpoint는 사용자 데이터 백업이 아니다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| 활성 복구 floor        | App 단독 릴리스라 PRO generation floor 검사는 skip이며 새 floor는 없다. PRO 입장 정책 계약 표지 `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`(9.0.4부터), 9.0.0의 시스템 오디오 계약 표지 `single-stereo-v3+heartbeat-state-v1`, 8.11.33의 다중 재생목록 파일 앞으로만 복구(§4)와 기존 service-control·Soro·PRO 선택형 입장 암호 계약 유지                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 검증 범위              | Exact-main CI success(attempt 1, 11 jobs). PR #489 head `9d9a801f` [CI 40165356355](https://github.com/hiefny/MUSIXQUARE/actions/runs/40165356355) 11/11 통과. Codex는 `9d9a801f`를 리뷰해 지적이 없었다. 증분마다 테스트 먼저 커밋과 독립 검토가 있었고 통합 열차는 두 번 더 검토했다. 테스트 먼저: 중립 증분의 테스트 커밋 넷은 바꾸기 전 소스에서 통과했고, C5-8의 새 21행은 `76ecc766` 소스에서 실패했다. 로컬 Windows 최종 `d52427e2`(bump): release-identity(9.0.10, v783)·sw-cache-version, unit 664 files 15,542 pass(기기 근거 다섯 줄 고정 포함), Worker 60 files 2,914 pass, critical coverage 77 files 3,025 pass(`link-liveness.ts`·`transport-health.ts` 100), typecheck(테스트 포함)·`check:workers`·lint·format·`build:checked` 전체(초기 JS 478,015 B로 유지 상한까지 13,553 B, main 대비 +415 B), 가드 묶음(dead-exports 20/20·76/76, bus-pairing 204/204, transport-health 은퇴 이름 16, resource-ownership 48 records / 437 files), critical E2E 61/61, C5-0 Cloudflare 랩 8/8(F4는 본 레인 23,040,044 B 한 번, 미리받기 청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나). 실기기는 아직이다(§2). [보고서](design/phase4-4c-link-liveness-2026-10-25.md)                                        |
+| 잔여 성능 조사         | 리버브 팝 원인은 실기기에서 미확정이다(9.0.0 이후 변화 없음). 9.0.0으로 리버브 Off의 계산은 거의 0이 됐고 켠 상태에서도 가상 저음·익사이터 몫이 빠졌다. 제보 기기 재확인과 기존 [허용 위험 #18](known-accepted.md#18-isolated-standard-room-control-route-ends-on-a-network-change) 실기 확인은 §2에 유지한다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Operations Drift Audit | 배포 후 [40166472246](https://github.com/hiefny/MUSIXQUARE/actions/runs/40166472246) attempt 1, `2038b51f`, automated-checks-passed: 31 pass / 0 fail / 5 manual-only. 매일 03:37 UTC 일정과 §3 수동 항목 유지                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Full E2E               | 매주 월 18:17 UTC. 이번에 전체 직렬 E2E를 재실행하지 않았다. 최신 정기 main 실행은 여전히 [39334520177](https://github.com/hiefny/MUSIXQUARE/actions/runs/39334520177)(`3d409c9a`, failure)이고, 그때 확인한 `playlist-delete-mode-layout` 실패는 #444에서 고쳤다. 이번 브라우저 근거는 exact-main CI의 candidate·critical browser와 로컬 critical 61/61, C5-0 Cloudflare 랩 8/8이다                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| 의존성·호환            | 신규 의존성·D1 스키마·비밀·바인딩·통신 형식·메시지 종류·영구 데이터 모양 변경 없음(App 런타임만, `cloudflare/`에서는 bump의 App Worker `ADMIN_ASSET_VERSION` 한 줄). 타이밍 값, 타이머 키, 기존 로그 문자열도 그대로이고, #18과 미리받기 재개 판정이 읽는 다섯 줄과 `[Transport] Logical connection closed (<cause>) for <peerId>` 줄은 바이트가 같다. 혼합 방(known-accepted #13): 변화는 방장 기기 안의 재시작 창 판단이고, 옛 게스트는 같은 프레임과 복구 요청 경로를 쓴다. 9.0.9 이하 방장은 전처럼 원시 PC 상태를 읽고, 4C 게스트는 복귀 확인과 닫힘 원인이 정해지는 자리만 바뀌어 결과·원인 낱말·프레임이 같다. 4B의 C5-12 규칙과 그 혼합 버전 남은 위험(9.0.4~9.0.8 게스트는 경로가 `local`일 때만 본 레인 머리를 받음)은 그대로다. 9.0.9의 탭 sessionStorage 진단 키 `mxqr-prev-close`, 9.0.5의 개발 의존성 보안 overrides와 일반방 `1012 / ROOM_EXPIRED` 처리, 9.0.4의 통신 변화(PRO 이전 PREPARE의 `newPin`은 선택), 9.0.0의 호환 변경과 계약 표지 `single-stereo-v3+heartbeat-state-v1`, 8.11.37 프리로드 복구 정책, 8.11.33 PRO 저장 키·opt-in 헤더·Developer API 1.1과 일반방 메시지 계약 유지                                                                                                                      |
 
 ## 2. 열린 확인 항목
 
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### 구조 개선 Phase 4 4C 배포 전: Cloudflare 데이터 연결마다 연결 생존 주인 하나
+### 구조 개선 Phase 4 4D(9.0.11/v784, 배포 전): 보조 경로의 끊김 기한도 연결 생존 주인으로
 
-- [ ] 4C 범위와 배포(대기): 4A 때 기기 근거를 기다리며 보류한 C5-6·C5-7·C5-8(P4-D6 A, P4-D13 A)은 오너
+- [ ] 4D 범위(오너 결정 2026-10-25 약 16:30 KST): 허용 위험 #18이 오너의 와이파이→LTE 실기기 확인(운영
+      9.0.10, 2026-10-25, #491)으로 은퇴한 뒤, 오너가 Phase 4 밖(P4-D6 A, registry RO-35)에 두었던 C5-9를
+      그 ratchet(C5-10의 제어 격리 부분)과 함께 네 번째 앱 열차 4D로 내기로 했다. 코드로는 위험이 높지만 쓰는
+      데는 위험이 높지 않다는 판단이고, 나중의 기기 확인이 실패하면 9.0.10의 보조 경로 동작으로 돌아가는
+      forward revert를 낸다(미리 정한 되돌리기 계획). 바뀌는 것(중립): 보조(격리 제어) 경로 PC의 끊김
+      기한(끊김당 15초, 원래 경로가 끊긴 동안 미룸, 원래 경로 회복 뒤 15초로 다시 걸되 끊김 시작에서 30초
+      상한, READY 전처럼 재시작할 수 없는 경로의 15초 유예와 그 끝의 거절·fallback)이 `ControlIsolation`에서
+      `LinkLiveness`로 옮기고, 제어 격리는 재시작 통신(시도, 창, epoch, 후보, fence, READY)만 갖는다. 기기
+      근거 세 줄(`Restarting isolated control ICE (n/m)`, `Isolated control ICE recovered`,
+      `Isolated control ICE did not recover; closing its logical connection`)은 바이트·수준·쓰는 끝이
+      같고, 닫힘 원인 낱말, `RESTART_WINDOW_MS`·`RESTART_CAP_MS` 리터럴, 통신은 그대로이며, 동결 fixture
+      `control-isolation-c9.ts`는 바뀌지 않았다. registry RO-35는 지웠고 RO-15가 `owner-in-place`가 됐다. 브랜치 `agent/phase4-4d`
+      (origin/main `a8dfd2ac`에서 시작): D0 테스트 먼저 `ea6a5781`·`72cdce0d`(9.0.10 코드에서 통과하는 두 연결
+      통합 묶음 34행), D1 C5-9 `d5c66b9a`, D2 가드 `b385fad0`(transport-health 은퇴 이름 16 → 24). 로컬
+      검증(`b385fad0`): D0 묶음을 9.0.10 런타임 파일 위에서 다시 34/34, 단위 666 files / 15,594, 핵심 커버리지
+      79 files / 3,074(`link-liveness.ts` 100), 가드(transport-health, dead-exports 20/20·76/76 그대로,
+      resource-ownership 47 records / 437 files), 빌드 두 번과 초기 전송 예산(초기 JS 478,196 B, main
+      478,015 B 대비 +181 B, 유지 상한까지 13,372 B) PASS. origin/main #491은 `b7927afb`에서 합쳤다(registry
+      RO-35는 삭제를 지키고, 최근 해결 근거의 #18 문단 끝을 4D로 고침). 리뷰(코드 승인, 문서 지적) 반영으로
+      snapshot의 `controlOpen`을 필수 필드로 하고(타입만, 내보내는 JS 같음), 이 기록의 Phase 4 게이트 편차와
+      4C 범위 항목을 4D 결정에 맞추고, registry RO-15 문장을 코드와 가드 테스트에 맞췄다(단위 666 files /
+      15,594, 핵심 커버리지 79 files / 3,074, 가드 PASS, 보고서 QA 라운드 3). 구현 중 정한 세부(기한 값을
+      `RTC_INTERRUPTION_GRACE_MS`에서 끌어내 유예를 바꾸면 보조 경로 끊김 창과 상한도 함께 움직이고 peer 창은
+      그대로임, 관리 타이머로 바꾸지 않음, 원래 경로를 읽는 자리)는 오너가 맡긴 판단이고 오너 확인을 기다린다
+      (게이트 아님). 9.0.10은 배포됐으므로 SemVer와 SW 캐시 epoch를 마지막 런타임 커밋 `cf555b01`에서
+      `9.0.11` / `v784`로 함께 올렸다(올리기 직전 fetch한 origin/main은 여전히 `f91c538e`). bump 뒤 최종 로컬
+      검증(`cf555b01`): release-identity(9.0.11, v784)·sw-cache-version, 단위 666 files / 15,594(D0 묶음, 기기
+      근거 세 줄 고정, 동결 C9 fixture 포함), Worker 60 files / 2,914, typecheck(테스트 포함)·`check:workers`·
+      lint·format, `build:checked` 전체, 가드(dead-exports 20/20·76/76 그대로, transport-health 은퇴 이름 24,
+      resource-ownership 47 records / 437 files), 핵심 커버리지 79 files / 3,074(`link-liveness.ts` 100),
+      critical E2E 61/61, C5-0 랩 `--repeat-each=2` 16/16(보조 PC failed 뒤 offerer의 재시작 줄 하나와
+      회복 줄, did-not-recover 경고와 닫힘 원인 줄 없음. F4는 두 번 모두 본 레인 23,040,044 B 한 번, 미리받기
+      청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나), 초기 JS 478,186 B(랩 뒤 프로덕션 빌드 두 번
+      같음, main 478,015 B 대비 +171 B, 유지 상한까지 13,382 B) PASS. 남은 것: PR CI, Codex, exact-main CI,
+      릴리스 smoke, 배포(target `app`, Developer API D1 `false`, 자동 게이트가 통과하면 바로), 배포 기록 때
+      4D가 아래 4A 기기 라운드보다 먼저 나갔으면 그 항목의 '4C 위에서 처음 재는 기준선' 문장을 4D로 고침. 로컬
+      결과는 exact-main-SHA 후보를 대신하지 않는다. [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md).
+- [ ] 4D 배포 뒤 실기기 확인(게이트는 아니지만 되돌리기 판정, 오너 결정 2026-10-25 약 16:30 KST): Windows
+      Chrome 방장과 같은 와이파이의 iPhone Safari 게스트(`?mxqrLog=info`, 할 수 있으면 Android Chrome도)로,
+      게스트가 대기열 항목을 직접 받은 뒤(격리 제어 경로가 생김) (1) 와이파이→LTE: 창 없이 재생과 조작이
+      이어지고 합친 콘솔에 재시작 줄 다음 회복 줄, did-not-recover 경고와 `side-failed:*` 원인 줄 없음(9.0.10
+      기준선은 재시작 뒤 3.2초에 회복), (2) 비행기 모드 약 40초: 그 게스트의 원인 줄이 하나이고 원래 경로
+      토큰(`original-grace-expired` 기대), `side-failed:expired`와 경고 없음, (3) 할 수 있으면 직접 받기
+      시작 직후 끊어 READY 전 경우를 기록만 한다. (1)이나 (2)가 실패하면 forward revert를 낸다. 기준은 결과
+      전에 보고서에 고정했다.
+      [실기기로 확인하지 않은 것](design/phase4-4d-side-route-owner-2026-10-25.md#실기기로-확인하지-않은-것).
+
+### 구조 개선 Phase 4 4C(9.0.10/v783) 배포 뒤 확인: Cloudflare 데이터 연결마다 연결 생존 주인 하나
+
+- [ ] 4C 범위(오너 결정 2026-10-25 약 01:50 KST): 4A 때 기기 근거를 기다리며 보류한 C5-6·C5-7·C5-8(P4-D6 A, P4-D13 A)은 오너
       결정(2026-10-25 약 01:50 KST)으로 기기 근거가 코드의 게이트가 아니게 되어 4B 다음 자기 열차(4C)로
-      간다. 4C는 C5-10의 연결 부분을 함께 싣고 C5-9는 싣지 않는다(Phase 4 밖, RO-35). 브랜치
+      갔다. 4C는 C5-10의 연결 부분을 함께 싣고 C5-9는 싣지 않았다. C5-9는 그때 Phase 4 밖이었고(RO-35), #18
+      은퇴 뒤 오너 결정(2026-10-25 약 16:30 KST)으로 4D로 간다(위 4D 항목). `9.0.10` / `v783`(마지막
+      런타임 커밋 `d52427e2`)으로 2026-10-25 14:41 KST [Release 40166305040](https://github.com/hiefny/MUSIXQUARE/actions/runs/40166305040)(target `app`)에 배포됐다(§1). 브랜치
       `agent/phase4-4c`(4B 브랜치 끝 `b1962ed5`에서 시작, origin/main `9fca1cad`를 `c23f3057`로 합침,
-      리뷰 낮음 반영 `ab4ba114`)는 아직 main에 없고 배포되지 않았다. 9.0.9는 배포됐으므로 SemVer와 SW 캐시
+      리뷰 낮음 반영 `ab4ba114`)는 PR #489 squash `2038b51f`로 main에 들어갔다. 9.0.9는 배포됐으므로 SemVer와 SW 캐시
       epoch를 마지막 런타임 커밋 `d52427e2`에서 `9.0.10` / `v783`으로 함께 올렸다(올리기 직전 origin/main은
       여전히 `9fca1cad`. bump는 C5-6~C5-10의 런타임 변경 전체를 덮는다). 오너 결정대로
-      자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke)가 통과하면 따로 묻지 않고
-      target `app`, Developer API D1 `false`(예상)로 낸다. 바뀌는 것: 원래 경로의 15초 유예, 공개하는 복구
+      자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke)가 통과해 따로 묻지 않고
+      target `app`, Developer API D1 `false`로 배포했다. PR head `9d9a801f`의 Codex 리뷰는 지적이 없었다(§1
+      검증 범위). 바뀌는 것: 원래 경로의 15초 유예, 공개하는 복구
       마감, 끊김당 ICE 재시작 하나의 문(C5-6), 게스트 백그라운드 복귀 확인(C5-7), 링크의 모든 닫힘과 첫
       원인(C5-10)을 `LinkLiveness` 하나가 갖고(중립, 타이머 키·마감·효과 순서·원인 낱말 그대로), 전송 상태
       읽기가 그 주인의 보기를 읽는다(C5-8, 동작 위험). C5-8 뒤로는 주인이 원래 경로의 끊김을 쥔 채 경로가
@@ -84,13 +136,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
       그대로, transport-health, resource-ownership 48 records / 437 files), 핵심 커버리지 77 files / 3,025,
       critical E2E 61/61, C5-0 랩 8/8(F4는 본 레인 23,040,044 B 한 번, 미리받기 청크 0 B, `PRELOAD_END` 없음,
       제어 채널 `PRELOAD_ABORT` 하나), 초기 JS 478,015 B(프로덕션 빌드 두 번 같음, main 477,600 B 대비 +415 B,
-      유지 상한까지 13,553 B) PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 이 항목을 실제
-      CI·Release 값으로 고친다.
+      유지 상한까지 13,553 B) PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. exact-main CI, Release
+      실행, 배포 SHA는 §1에 있다.
       [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md).
 - [ ] 4C 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 4C 코드로 실제 기기를 아직 돌리지 않았다. 원래
-      경로의 짧은 끊김과 15초 넘는 끊김(원인 줄), 와이파이→LTE의 원래 경로 재시작, iPhone Safari 게스트의 15초
-      넘는 백그라운드 복귀(방장이 있을 때와 없을 때), 미리받기 재개 단계에서 `Resuming preload`가 방장 원래 PC의
-      connected 뒤에 나오는지와 재시작 창의 새 트랙 받기, WebKit 레인, 운영 Cloudflare 전송 경로, 브라우저의 PRO
+      경로의 짧은 끊김과 15초 넘는 끊김(원인 줄), 와이파이→LTE의 원래 경로 재시작(2026-10-25 #18 확인에서
+      Safari 게스트 콘솔에 재시작 줄이 한 번 보였고 원래 경로는 relay 쌍으로 다시 이어졌다. 방장 콘솔과
+      Android는 아직이다. 아래 최근 해결 근거), iPhone Safari 게스트의 15초 넘는 백그라운드 복귀(방장이 있을
+      때와 없을 때), 미리받기 재개 단계에서 `Resuming preload`가 방장 원래 PC의 connected 뒤에 나오는지와 재시작 창의 새 트랙 받기, WebKit 레인, 운영 Cloudflare 전송 경로, 브라우저의 PRO
       방이 남았다. 4A·4B 기기 라운드도 아직 없어 전후 비교 기준이 없다. 기기 절차는 보고서에 고정했다.
       [실기기로 확인하지 않은 것](design/phase4-4c-link-liveness-2026-10-25.md#실기기로-확인하지-않은-것).
 
@@ -189,7 +242,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       거의 같다(−255 B). C5-6·C5-7·C5-8은 아래 #18과 미리받기 재개가 근거로 닫히거나 면제될
       때까지 보류했다(P4-D6 A, P4-D13 A). 오너 결정(2026-10-25 약 01:50 KST) 뒤로는 기기 근거가
       코드의 게이트가 아니어서 셋은 4B 다음 자기 열차로 진행한다(4C, C5-10의 연결 부분과 함께
-      준비됨, 배포 전. 위 4C 항목,
+      9.0.10 / v783으로 2026-10-25 14:41 KST 배포됨. 위 4C 항목,
       [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)). 배포 대상은 target `app`, Developer API D1 `false`다.
       App 런타임 입력만 바뀌고, `cloudflare/`에서는 bump가 App Worker의 `ADMIN_ASSET_VERSION`
       문자열 하나만 바꾼다. 운영 배포 기록을 기준으로 부분 게이트 판정을 로컬에서 돌리면 다른
@@ -216,15 +269,19 @@ gh run list --workflow e2e.yml --branch main --limit 3
       안에 4A를 배포해도 된다고 했고, 배포와 기기 평가를 맡기고 자리를 비웠다(P4-D11 예외). Phase
       3 실기기 확인 전에 배포하는 것은 그 위임 아래의 판단이다(P4-D11 A는 Phase 3 기기 확인 통과를
       조건으로 둔다). 그래서 4A의 중립성은 기기 전후 비교가 아니라 자동 근거(단위,
-      특성화 테스트, C5-0 랩)에 기대고, 기준선은 4A 위에서 처음 잰다. #18과 미리받기 재개는
-      아래 실기기 확인에 열린 채로 둔다. Phase 3 시계는 다시 시작하지 않고, 4A 뒤 업데이트 경로
+      특성화 테스트, C5-0 랩)에 기대고, 기준선은 4A 위에서 처음 잰다. #18은 2026-10-25 운영
+      9.0.10에서 오너 실기기 확인으로 닫혔다(아래 최근 해결 근거). 미리받기 재개는 아래 실기기
+      확인에 열린 채로 둔다. Phase 3 시계는 다시 시작하지 않고, 4A 뒤 업데이트 경로
       제보는 Phase 3 몫으로 본다(P4-D11 A). Phase 4의 앱 업데이트는 4A와 4B 두 번이다(P4-D3 A).
       오너 결정(2026-10-25 약 01:50 KST)이 시점 부분을 대신해, 4B는 4A 배포 7일 뒤나 4A 기기
       라운드를 기다리지 않고 자동 게이트가 통과하면 바로 나가며 기기 근거는 코드의 게이트가
       아니다. 4B는 축소 C5-11, C5-12, 새 종료 원인 토큰, P4-D5 B, P4-D7 B, P4-D9 좁은 수정을 싣고
-      C5-6·C5-7·C5-8은 4B 다음 자기 열차로 간다(4C로 준비됨, 배포 전. C5-10은 연결 부분만 싣고
-      C5-9는 Phase 4 밖이다, [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)). Phase 4의
-      앱 업데이트는 P4-D3 A의 두 번이 아니라 4C까지 세 번이 된다. ICE 복구 뒤 같은 파일을 두 레인으로 보내는
+      C5-6·C5-7·C5-8은 4B 다음 자기 열차로 간다(4C로 2026-10-25 14:41 KST 배포됨. C5-10은 연결 부분만
+      실었다, [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)). #18이 은퇴한 뒤 오너 결정(2026-10-25
+      약 16:30 KST)으로 C5-9와 C5-10의 제어 격리 부분이 네 번째 앱 열차 4D로 간다(기기 확인이 실패하면
+      9.0.10의 보조 경로 동작으로 forward revert, 위 4D 항목,
+      [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정)). 그래서 Phase 4의 앱 업데이트는
+      P4-D3 A의 두 번이 아니라 4D까지 네 번이 된다. ICE 복구 뒤 같은 파일을 두 레인으로 보내는
       경우(F4)는 단위 테스트와 랩 17초 끊김에서 재현했고(10초 끊김은 한 번 실행에서 미재현),
       오너는 본 레인이 이기게 했다(P4-D10 A, 2026-10-25, 4B의 C5-12).
       [4A 보고서의 오너 결정](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24),
@@ -232,8 +289,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] 4A 배포 뒤 실기기 확인: 결과 전에 고정한 블라인드 절차로 #18(와이파이→LTE와 회귀), 미리받기
       재개, QA036 원격 게스트, QA040 연결 생존, QA007 YouTube·로컬 복귀, 홈 화면 앱을 iPhone
       Safari·Android Chrome 게스트와 Windows Chrome 방장으로 잰다. 기준선을 4A 위에서 처음 재므로 4A
-      전후 비교는 없다. 2026-10-25 결정대로 4B가 이 라운드 전에 나갔으므로(2026-10-25 10:43 KST) 이
-      라운드는 4B 위에서 처음 재는 기준선이 되고 4B 전후 비교도 없다. 창으로 끝나는 단계마다 방장
+      전후 비교는 없다. #18은 2026-10-25 Safari 게스트의 와이파이→LTE 한 번으로 닫혔다(아래 최근 해결
+      근거). 이 라운드의 그 단계는 닫는 조건이 아니라 기준선과 회귀로 남고, Android Chrome 게스트, 같은
+      공유기의 다른 SSID로 옮기는 IP 변경, 원격(LTE) 게스트가 와이파이로 오는 방향, 방장 콘솔은 아직
+      보지 않았다. 2026-10-25 결정대로 4B(2026-10-25 10:43 KST)와 4C(14:41 KST)가 이 라운드 전에
+      나갔으므로 이 라운드는 4C 위에서 처음 재는 기준선이 되고 4B·4C 전후 비교도 없다. 창으로 끝나는 단계마다 방장
       콘솔(`?mxqrLog=info`)에 그 게스트 PeerID의 원인 줄이 하나 있고 그 토큰이 미리 고정한 단계별
       허용표 안인지 본다. 운영 Cloudflare 전송 경로, iOS, 브라우저의 PRO 방(입장, 업로드 대기열,
       시스템 오디오)은 4A 코드로 아직 실행하지 않았다. CI는 exact-main 후보와 push 뒤 WebKit
@@ -548,8 +608,8 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       (−33%), 느린 망 +1.3%, 급락 8→2→8 −21%, 로컬 파일 재생 중 프리로드 65.3→33.3초로
       기준을 통과했다. 모든 응용 제어 최대는 1초 미만(급락 557ms)이고 재생 조작·로컬
       보정은 0이었다. 보조 연결 ICE restart는 다음 릴리스로 미뤘고, 망 전환 시 연결 종료는
-      [허용 위험 #18](known-accepted.md#18-isolated-standard-room-control-route-ends-on-a-network-change)에
-      둔다. 2026-10-19 18:14 KST Release 39228199282로 배포했다. 실기 Android/iOS·
+      허용 위험 #18에 두었다(2026-10-25 [은퇴](known-accepted.md#retired-risks), 아래 최근 해결
+      근거). 2026-10-19 18:14 KST Release 39228199282로 배포했다. 실기 Android/iOS·
       가청 싱크·live 공급자는 여전히 미검증이다.
       [통합 릴리스 검증](design/transport-release-bundle-2026-10-19.md).
       오너는 같은 날 운영 8.11.23에서 직접 파일을 받은 폰을 와이파이→LTE로 바꿔 연결 끊김을
@@ -646,6 +706,33 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       [작업 시계 고정 후보·대조와 한계](design/transport-candidate-roundtable-2026-10-18.md#qlease-대조).
 
 ### 최근 해결 근거
+
+허용 위험 #18(일반방 격리 제어 경로가 망 전환에서 끝남)은 오너 실기기 확인(2026-10-25, 운영 9.0.10 / v783)으로
+은퇴하고, 8.11.25 보조 연결 ICE restart 실기기 항목을 닫는다. 일반방에서 방장은 집 와이파이에 두고, 게스트는
+오너 기기의 Safari 탭을 `?mxqrLog=info`로 열었다(기종은 적지 않음). 게스트가 같은 와이파이에서 현재 대기열
+항목을 직접 받은 뒤(이 직접 전달이 격리 제어 경로를 만든다) 와이파이를 꺼 LTE로 옮겼다. 연결 끊김 창이 뜨지
+않았고 소리가 이어졌으며, LTE에 있는 동안 방장의 일시정지와 재생이 기기에 바로 반영됐다. 게스트
+`/debug console`(UTC, KST는 +9시간): 06:55:22.341 `[Peer] ICE (try 1): local=host, remote=host`, 06:55:22.342
+`[Peer] Connection type: local`, 06:55:22.451
+`[Guest] PLAY for current queue item with no buffer/pipeline; requesting file`, 와이파이 끔, 06:56:05.155
+`[Transport] Restarting isolated control ICE (1/2)`, 06:56:05.378 `[HostPresence] ok -> unresponsive (host)`,
+06:56:05.703 `[Transport] Restarting established Standard-room ICE within disconnect grace`, 06:56:08.356
+`[Transport] Isolated control ICE recovered`, 06:56:08.565 `[Peer] ICE (try 8): local=relay, remote=srflx`,
+06:56:09.389 `[HostPresence] unresponsive -> ok (host)`. 보조 경로는 재시작 시작 뒤 3.2초에 회복했고 원래 경로도
+같은 유예 안에서 재시작해 relay 쌍으로 이어졌다. 닫는 조건(창·재접속 없이 재생과 조작이 이어지고 게스트 콘솔에
+`Restarting isolated control ICE` 다음 `Isolated control ICE recovered`)을 채운다. 같은 세션의 앞선 시도는
+트랙이 이미 재생 중일 때 다시 들어와 직접 전달이 없었고(보조 경로가 생기지 않음) 원래 경로의 재시작 줄만
+남았으므로 근거에서 뺐다. 확인하지 않은 것: Android 폰, 방장 콘솔, 그리고 닫는 조건과 별도로 회귀로 보던
+두 단계인 같은 공유기의 다른 SSID로 옮기는 IP 변경과 원격(LTE) 게스트가 와이파이로 오는 방향(기록에 이미
+복구됨으로 적힌 방향). 다른 SSID 단계는 오너 결정 P4-D15 A대로 범위를 적고 닫는다. 이 회귀들은 따로 열린
+항목을 두지 않고 Phase 4 기기 라운드(위 4A 배포 뒤 실기기 확인)의 단계로 남는다. 이 확인은 보조 경로의 기한과
+재시작이 아직 제어 격리에 있던 9.0.10 코드에서 했다. 은퇴 기록(#491)은 C5-9를 결함이 나오지 않으면 하지
+않는다고 적었지만(P4-D6 A), 같은 날 오너 결정(약 16:30 KST)으로 C5-9와 C5-10의 제어 격리 부분이 네 번째 앱 열차
+4D로 가고, 이 확인이 4D 기기 확인의 기준선이 된다(위 4D 항목,
+[4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정)).
+[허용 위험 은퇴 기록](known-accepted.md#retired-risks),
+[독립 검증](design/side-ice-restart-independent-verification-2026-10-20.md),
+[통합 릴리스 검증](design/transport-release-bundle-2026-10-19.md#남은-실기-확인).
 
 App 9.0.8/v780의 두 수정은 오너 실기기 확인(2026-10-25, 오너 보고 "실기결과 완벽. 유튜브도 눈금선도",
 기기·OS 목록은 받지 않음)으로 닫는다. 일반방 YouTube 첫 재생 뒤 방장 스피커 기준(PR
@@ -1076,26 +1163,6 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       끊김(회복해야 정상)을 확인하고, 보조 연결이 하나 더 생기는 데 따른 배터리·발열도 본다.
       데스크톱 Chromium native 라운드만 있다.
       [남은 실기 확인](design/transport-release-bundle-2026-10-19.md#남은-실기-확인)
-- [ ] 8.11.25 보조 연결 ICE restart: 호스트 노트북은 와이파이에 두고, 같은 와이파이의 폰이 직접
-      파일을 받은 뒤 와이파이→LTE로 바꾼다. 8.11.23에서는 연결 끊김 창이 떴다(오너 확인
-      2026-10-19). 8.11.25에서 창·재접속 없이 재생과 조작이 이어지고, `?mxqrLog=info`로 연
-      게스트의 `/debug console`에 `Restarting isolated control ICE` 다음
-      `Isolated control ICE recovered`가 보이면 허용 위험 #18을 닫는다. 같은 공유기의 다른 SSID로
-      옮기는 IP 변경과, 원격(LTE) 게스트가 와이파이로 오는 반대 방향(이미 복구됨)도 회귀로 본다.
-      오너 결정(2026-10-24, Phase 4 알림 N1): 두 줄은 방장과 게스트의 `/debug console`을 합쳐 센다.
-      `Restarting isolated control ICE` 줄은 두 기기 중 재시작을 시작하는 한쪽만 남기므로 게스트
-      콘솔에 없을 수 있다. 다른 SSID 단계를 공유기 조건으로 못 하면 나머지가 통과할 때 닫고 그
-      범위를 적는다(P4-D15 A). C5-0 랩은 2026-10-24 main(`fa256db2` 런타임, #478 `b4293768`)에서
-      보조 PC가 failed에 닿은 뒤의 재시작 회복을 재현했지만 실기 근거는 아직 없다. 이 항목이
-      열린 채 4A를 배포했다(위 Phase 4 게이트 편차). 오너 결정(2026-10-25 약 01:50 KST)으로 기기
-      근거는 코드의 게이트가 아니어서 4B와 그 뒤 C5-6·C5-7·C5-8 열차도 이 항목이 열린 채 나간다.
-      4C(배포 전)는 원래 경로의 유예·재시작 게이트, 게스트 복귀 확인과 모든 닫힘을 한 주인
-      (`LinkLiveness`)으로 옮기지만 보조 연결의 기한·재시작과 이 두 줄은 그대로 둔다(RO-35, C5-9는
-      Phase 4 밖). 이 단계를 4C 위에서 돌리면 원래 경로의 재시작도 함께 본다(4C 보고서의 기기 절차).
-      [독립 검증](design/side-ice-restart-independent-verification-2026-10-20.md),
-      [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md),
-      [4B 보고서의 오너 결정](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25),
-      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)
 - [ ] 8.11.25 미리받기 재개: 호스트 노트북은 와이파이에 두고, 폰이 다음 곡을 미리받는 중(다음 곡
       준비 로더가 보일 때)에 와이파이를 몇 초 껐다 켜거나 LTE로 바꾼다. 8.11.23에서는 미리받기가
       취소된 뒤 다시 시작하지 않았다(오너 확인 2026-10-19). 8.11.25에서 연결이 돌아오면 미리받기가
@@ -1107,7 +1174,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       게이트 편차). 오너 결정(2026-10-25 약 01:50 KST)으로 4B와 그 뒤 C5-6·C5-7·C5-8 열차도 이
       항목이 열린 채 나간다. 4B의 C5-12 뒤로는 복구 뒤 방장이 그 게스트를 local로 다시 판정해 알린
       다음 본 레인이 같은 트랙을 가져가면 재개한 미리받기가 멈추고 방장에 `Yielding preload for` 줄이
-      하나 더 남는다(`Paused`·`Resuming` 줄은 바이트가 같고 그대로 남는다). 4C의 C5-8(배포 전)
+      하나 더 남는다(`Paused`·`Resuming` 줄은 바이트가 같고 그대로 남는다). 4C의 C5-8(9.0.10 / v783, 2026-10-25 14:41 KST 배포)
       뒤로는 방장의 원래 경로가 ICE 재시작 중 `connecting`으로 읽히는 동안에도 미리받기가 멈춘 채
       있고, `Resuming` 줄은 그 경로의 `connected`(연결 생존 주인의 `ice-recovered`) 뒤에 나온다.
       그 전의 선택 쌍 변경 보고로는 재개하지 않는다(줄 바이트는 같다).
@@ -1276,12 +1343,15 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       Codex, exact-main CI, 릴리스 smoke)가 통과하면 바로 내고, 7일 간격(4B의 '4A 배포 7일 뒤' 포함)과 기기
       라운드를 기다리지 않는다. 열차 보고서마다 기기로 확인하지 않은 것을 적는다. 같은 결정으로 C5-6·C5-7·
       C5-8이 4B 다음 자기 열차로 가서 Phase 4는 4C까지 앱 업데이트 세 번이 된다. 4C는 C5-6, C5-7, C5-8과
-      C5-10의 연결 부분을 싣고 C5-9는 Phase 4 밖이다(RO-35).
+      C5-10의 연결 부분을 싣고 C5-9는 처음엔 Phase 4 밖이었다(RO-35). #18이 은퇴한 뒤 오너 결정(2026-10-25
+      약 16:30 KST)으로 C5-9와 C5-10의 제어 격리 부분이 네 번째 앱 열차 4D로 가서 Phase 4는 4D까지 앱 업데이트
+      네 번이 된다(기기 확인이 실패하면 9.0.10의 보조 경로 동작으로 forward revert, RO-35는 4D에서 지움).
       [결정 근거](design/resource-ownership-registry.md#consolidation-phases),
       [게이트에 막힌 실행](design/server-constant-homes-2026-10-23.md#호환성),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24),
       [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25),
-      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md#오너-결정).
+      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md#오너-결정),
+      [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정).
 - [ ] 8.11.32 배포 뒤 실기 확인(2026-10-21 03:41 KST 배포됨): iPhone에서 재생목록 길게 누르기가 글자를 선택하지
       않는지, 데스크톱 길게 클릭·끌기 가장자리 자동 스크롤, 백그라운드 복귀마다 Sync(일반방 YouTube 방장이 돌아올 때마다
       게스트가 최대 3초에 한 번 다시 맞춘다), 권한 확인 중 안내, 화면 보호기 두 번 탭 종료·저음 밝기를 실제 기기로 본다.

@@ -85,6 +85,7 @@ function interruptibleConnection(
             side: undefined,
             channelsOpen: true,
             sideChannelDown: false,
+            controlOpen: true,
           }),
           ping: () => undefined,
           close: () => {

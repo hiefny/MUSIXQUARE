@@ -969,9 +969,10 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private pcListenersAttached = false;
   private resourcesDisposed = false;
   /**
-   * The original route's grace, recovery deadline and restart gate, the guest
-   * background-resume probe over both routes, and every close of the link with
-   * its cause (RO-15). Its timer keys start with this connection's grace key.
+   * The original route's grace, recovery deadline and restart gate, the side
+   * route's outage deadline, the guest background-resume probe over both
+   * routes, and every close of the link with its cause (RO-15). Its timer keys
+   * start with this connection's grace key.
    */
   private readonly liveness = new LinkLiveness(
     `cloudflare-data-disconnected-grace-${++cloudflareDataConnectionSequence}`,
@@ -986,12 +987,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         sideChannelDown:
           this.controlIsolation?.phase === 'active' &&
           this.controlIsolation.channel?.readyState !== 'open',
+        controlOpen: this.controlChannel?.readyState === 'open',
       }),
       ping: (pingId) => this.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() }),
       // The close port: the only caller of terminate() (guard:transport-health).
       close: (cause, first) => this.terminate(cause, first),
       changed: () => this.onConnectionStateChange?.(),
-      sideMayRestart: () => this.controlIsolation?.originalChanged(),
+      sideMayRestart: () => this.controlIsolation?.mayRestart(),
       recovered: () => this.emit('ice-recovered'),
     },
   );
@@ -1039,12 +1041,9 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         receive: (data) => this.receiveControl(data, false),
         changed: (active) => this.bulkCredit.setControlIsolationActive(active),
         fail: (reason) => this.liveness.close(`side-failed:${reason}`),
-        // Side ICE-restart signaling waits while the original PC recovers.
-        originalReady: () =>
-          this.open &&
-          !this.closed &&
-          this.peerConnection?.connectionState === 'connected' &&
-          this.controlChannel?.readyState === 'open',
+        // The side PC's outage deadline, which waits while the original route
+        // recovers, is the link-liveness owner's (Phase 4 C5-9).
+        outages: this.liveness,
       });
     }
   }

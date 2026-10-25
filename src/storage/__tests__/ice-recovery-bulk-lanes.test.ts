@@ -243,7 +243,13 @@ async function runHost(
     const owner: LinkLiveness = new LinkLiveness('ice-recovery-bulk-lanes-grace', {
       route: () => original,
       open: () => conn.open,
-      snapshot: () => ({ original, side: undefined, channelsOpen: true, sideChannelDown: false }),
+      snapshot: () => ({
+        original,
+        side: undefined,
+        channelsOpen: true,
+        sideChannelDown: false,
+        controlOpen: true,
+      }),
       ping: () => undefined,
       close: () => {
         owner.stop();

@@ -94,8 +94,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 4 train 4D: the side route's outage deadline joins the link-liveness owner (2026-10-25)](design/phase4-4d-side-route-owner-2026-10-25.md):
-  evidence for the structure program's fourth Phase 4 app train (9.0.11 / v784, not yet released;
-  target `app`). After known-accepted #18 retired on the owner's Wi-Fi to LTE device check on 9.0.10,
+  release evidence for the structure program's fourth Phase 4 app train (9.0.11 / v784,
+  released 2026-10-25 21:30 KST in Release 40193266364, target `app`). After known-accepted #18 retired on the owner's Wi-Fi to LTE device check on 9.0.10,
   the owner chose (2026-10-25, about 16:30 KST) to ship C5-9 with a forward revert to the 9.0.10
   side-route behaviour if the later device check fails. `LinkLiveness` now also holds the side
   (isolated control) PC's outage deadline: 15 s per outage, deferred while the original route is
@@ -106,7 +106,8 @@ runbooks. Neither belongs in a general setup document.
   two-connection suite green on the 9.0.10 code), what stays byte-identical (the three device
   evidence lines, close causes, the peer restart windows, every frame), mixed versions with the
   frozen C9 fixture, the eager JS delta (+181 B at D1, +171 B after the bump), the local
-  verification after the bump (C5-0 lab included), the remaining release steps and the owner's device procedure for 4D.
+  verification after the bump (C5-0 lab included), the PR, exact-main CI and release round, and the
+  owner's device procedure for 4D.
 
 - [Phase 4 train 4C: one link-liveness owner per Cloudflare data connection (2026-10-25)](design/phase4-4c-link-liveness-2026-10-25.md):
   release evidence for the structure program's third Phase 4 app train (9.0.10 / v783,

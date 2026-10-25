@@ -22,8 +22,10 @@ export default defineConfig({
       'src/player/__tests__/{busy-guard,concurrency-invariants,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
-      // The link-liveness owner (RO-15): enrolled in Phase 4 C5-6, the resume probe since C5-7.
-      'src/network/transport/__tests__/{link-liveness,link-liveness-characterization}.test.ts',
+      // The link-liveness owner (RO-15): enrolled in Phase 4 C5-6, the resume probe since C5-7,
+      // the side route's outage deadline since C5-9 (its owner unit suite and the
+      // two-connection side-route suite).
+      'src/network/transport/__tests__/{link-liveness,link-liveness-characterization,link-liveness-side-outage,side-route-outage-integration}.test.ts',
       'src/network/__tests__/transport-health.test.ts',
       'src/youtube/__tests__/{search,search-style}.test.ts',
       'src/account/__tests__/{api,session,login-return}.test.ts',
@@ -151,7 +153,8 @@ export default defineConfig({
           lines: 78,
         },
         // The link-liveness owner (Phase 4, C5-6 and C5-7) is fully covered
-        // by link-liveness.test.ts on 2026-10-25.
+        // by link-liveness.test.ts on 2026-10-25, and its side-route outage
+        // deadline (C5-9) by link-liveness-side-outage.test.ts.
         'src/network/transport/link-liveness.ts': {
           statements: 99,
           branches: 99,

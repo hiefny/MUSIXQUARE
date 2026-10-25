@@ -132,7 +132,7 @@ async function connection(
   conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
   conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
   await flush();
-  vi.spyOn(conn.controlIsolation!, 'originalChanged').mockImplementation(() => {
+  vi.spyOn(conn.controlIsolation!, 'mayRestart').mockImplementation(() => {
     trace.push('side');
   });
   conn.on('ice-recovered', () => trace.push('ice-recovered'));
@@ -265,7 +265,7 @@ describe('original-route transitions with a re-entrant state callback', () => {
       bound: true,
       onStateChange: (conn, trace) => trace.push(['callback', conn.iceRecoveryDeadline]),
     });
-    vi.spyOn(e.conn.controlIsolation!, 'originalChanged').mockImplementation(() => {
+    vi.spyOn(e.conn.controlIsolation!, 'mayRestart').mockImplementation(() => {
       e.trace.push(['side', e.conn.iceRecoveryDeadline, armedLinkTimerKeys().length]);
     });
     const start = Date.now();
@@ -798,8 +798,8 @@ describe('background-resume probe on the original route', () => {
 /**
  * Phase 4 C5-8: transport health reads the owner's view of the original route
  * on a Standard-room connection (the bulk lanes, the preload pause and the
- * heartbeat lease). The side route keeps its own outage (RO-35), so it never
- * blocks bulk or pauses preload.
+ * heartbeat lease). The owner keeps the side route's outage apart from the
+ * original route's (C5-9), so it never blocks bulk or pauses preload.
  */
 describe('the original route as transport health reads it', () => {
   it('keeps bulk writable and counts no interruption through a side-only outage', async () => {
@@ -959,6 +959,7 @@ describe('LinkLiveness ports', () => {
           side: link.side as unknown as RTCPeerConnection | undefined,
           channelsOpen: link.channelsOpen,
           sideChannelDown: link.sideChannelDown,
+          controlOpen: link.channelsOpen,
         };
       },
       ping: (pingId) => {
@@ -1510,7 +1511,7 @@ describe('LinkLiveness ports', () => {
     expect(o.liveness.phase).toBe('opening');
     o.setOpen(true);
     expect(o.liveness.phase).toBe('live');
-    // A side PC never makes the phase recovering (RO-35).
+    // A side PC never makes the phase recovering (its outage is kept apart, C5-9).
     o.link.side = side('disconnected');
     expect(o.liveness.phase).toBe('live');
     o.transition('disconnected');
@@ -1546,6 +1547,7 @@ describe('the one close input (C5-10)', () => {
         side: undefined,
         channelsOpen: true,
         sideChannelDown: false,
+        controlOpen: true,
       }),
       ping: () => undefined,
       close: (cause, first) => {

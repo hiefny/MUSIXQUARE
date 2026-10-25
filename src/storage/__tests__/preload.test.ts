@@ -1111,6 +1111,7 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
         side: undefined,
         channelsOpen: true,
         sideChannelDown: false,
+        controlOpen: true,
       }),
       ping: () => undefined,
       close: () => liveness.stop(),

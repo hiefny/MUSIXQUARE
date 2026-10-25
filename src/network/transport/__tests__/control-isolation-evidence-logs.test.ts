@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { log } from '../../../core/log.ts';
 import { ControlIsolation, type IsolatedControlLease } from '../control-isolation.ts';
+import { sideOutageOwner } from './fixtures/side-outage-owner.ts';
 
 /**
  * Device evidence freeze. Release-record item #18 and the Phase 4 device
@@ -17,7 +18,7 @@ const DID_NOT_RECOVER =
 const LABEL = 'musixquare-control-isolated';
 type Frame = Record<string, unknown>;
 type Level = 'debug' | 'info' | 'warn' | 'error';
-const owners: ControlIsolation[] = [];
+const owners: Array<{ dispose(): void }> = [];
 let lines: Array<[Level, ...unknown[]]> = [];
 
 class Channel extends EventTarget {
@@ -89,7 +90,9 @@ function endpoint() {
   const original: string[] = [];
   const fail = vi.fn();
   const route = { originalUp: true };
-  const flow = new ControlIsolation({
+  // A test LinkLiveness keeps the side PC's outage deadline (Phase 4 C5-9).
+  const owner = sideOutageOwner(() => flow);
+  const flow: ControlIsolation = new ControlIsolation({
     createPeerConnection: (): IsolatedControlLease => ({
       pc: peer as unknown as RTCPeerConnection,
       release: () => {},
@@ -101,10 +104,12 @@ function endpoint() {
     receive: () => {},
     changed: () => {},
     fail,
-    originalReady: () => route.originalUp,
+    outages: owner.liveness,
   });
-  owners.push(flow);
-  return { flow, peer, original, fail, route };
+  owners.push(flow, { dispose: () => owner.liveness.stop() });
+  /** Reports `route.originalUp` to the outage owner as an original PC transition. */
+  const originalChanged = () => owner.original(route.originalUp);
+  return { flow, peer, original, fail, route, originalChanged };
 }
 type Endpoint = ReturnType<typeof endpoint>;
 
@@ -246,7 +251,7 @@ describe('isolated control ICE device evidence lines', () => {
     // Restart signaling travels on the original route, so the side waits.
     for (const e of [p.a, p.b]) {
       e.route.originalUp = false;
-      e.flow.originalChanged();
+      e.originalChanged();
     }
     for (const e of [p.a, p.b]) e.peer.state('failed');
     await p.pump();
@@ -260,7 +265,7 @@ describe('isolated control ICE device evidence lines', () => {
     ]);
     for (const e of [p.a, p.b]) {
       e.route.originalUp = true;
-      e.flow.originalChanged();
+      e.originalChanged();
     }
     await vi.advanceTimersByTimeAsync(60_000);
     expect(evidence()).toHaveLength(2);

@@ -4,7 +4,8 @@
 - **Decision date:** 2026-08-20
 - **Scope:** Standard-room signaling and established RTC recovery
 - **Recovery review:** 2026-09-20
-- **Amended:** 2026-10-25, the link-liveness owner of established RTC recovery (Phase 4)
+- **Amended:** 2026-10-25, the link-liveness owner of established RTC recovery (Phase 4),
+  including the isolated control side route's outage deadline (Phase 4 C5-9, train 4D)
 
 ## Problem
 
@@ -125,10 +126,17 @@ One interruption has a non-renewing 15-second transport grace (`RTC_INTERRUPTION
 connection (Standard and PRO rooms alike), `LinkLiveness` in `src/network/transport/link-liveness.ts` (registry RO-15), holds
 that grace, its published wall-clock deadline, the one-restart gate and the guest
 background-resume probe, and every close of the connection goes through it with a cause (see
-[Realtime runtime ownership](realtime-runtime-ownership.md)). The host heartbeat monitor
-respects this exact owner-published deadline, read through `src/network/transport-health.ts`,
-only while both channels are still open, so its ordinary failed-ICE threshold cannot
-prematurely consume the recovery window. Expired grace or closed channels still close the
+[Realtime runtime ownership](realtime-runtime-ownership.md)). Since C5-9 (train 4D) it also
+holds the isolated control side PC's outage deadline: 15 seconds per outage, waiting while the
+original route is down, re-armed to 15 seconds once it recovers and never past 30 seconds from
+the outage's start, on the monotonic clock. The side route keeps its ICE restart protocol and
+its own 15-second request and 30-second offer windows, and that outage never counts as an
+interruption of the original route, so it neither moves the published deadline nor pauses bulk
+or preload (see
+[Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md)). The
+host heartbeat monitor respects the original route's exact owner-published deadline, read
+through `src/network/transport-health.ts`, only while both channels are still open, so its
+ordinary failed-ICE threshold cannot prematurely consume the recovery window. Expired grace or closed channels still close the
 connection, through that owner. A recovered path or selected-candidate-pair
 change invalidates the old local/remote classification before an asynchronous recheck, with
 generation guards against stale results. Existing per-transfer delivery decisions stay frozen;

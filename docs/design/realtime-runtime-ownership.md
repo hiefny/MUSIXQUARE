@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Decision date:** 2026-08-18
 - **Amended:** 2026-10-24, the transport-health read rule (Phase 4, C5-4); 2026-10-25, the
-  link-liveness owner view (Phase 4, C5-8) and the link-liveness owner and close authority
-  (Phase 4, C5-10)
+  link-liveness owner view (Phase 4, C5-8), the link-liveness owner and close authority
+  (Phase 4, C5-10) and the side route's outage deadline in that owner (Phase 4, C5-9, train 4D)
 - **Applies to:** standard-room browser control, synchronization, and peer liveness
 
 ## Decision
@@ -75,16 +75,16 @@ which prints the peer connection's state and decides nothing. Media-PC readers
 ## Link-liveness owner and close authority
 
 Amended 2026-10-25 (Phase 4, C5-6, C5-7, C5-8 and the connection part of
-C5-10; C5-9 stays out; registry RO-15). One owner per Cloudflare logical data
+C5-10, then C5-9 in train 4D; registry RO-15). One owner per Cloudflare logical data
 connection (`CloudflareDataConnection`, in Standard and PRO rooms alike)
 decides whether the link may still recover and why it
 closed. A PRO connection has no isolated control side route and binds no ICE
 restart, so its owner holds the grace and the close but never admits a
 restart:
 
-| Module                                   | Sole responsibility                                                                                                                                                                                                     |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/network/transport/link-liveness.ts` | the original route's interruption, 15-second grace, published recovery deadline and one-restart gate; the guest background-resume probe over both routes; and the one close of the link with its cause (`LinkLiveness`) |
+| Module                                   | Sole responsibility                                                                                                                                                                                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/network/transport/link-liveness.ts` | the original route's interruption, 15-second grace, published recovery deadline and one-restart gate; the isolated control side PC's outage deadline; the guest background-resume probe over both routes; and the one close of the link with its cause (`LinkLiveness`) |
 
 Evidence sources versus close authority:
 
@@ -93,7 +93,8 @@ Evidence sources versus close authority:
   owner's inputs. The data and control channels' close events, the bulk credit
   sender's control-send failure and the isolated control side route's
   `fail(reason)` report through the owner's close input with their cause. The
-  side route keeps its own outage deadline and restart (registry RO-35).
+  side route reports its side PC's states to the owner, which keeps that
+  route's outage deadline (C5-9); the route keeps its restart protocol.
   Transport health only reads the owner's view (above).
 - `LinkLiveness` is the only transport-internal close authority. Every close
   enters `close(cause)`, which keeps the link's first cause. Its close port is
@@ -114,10 +115,15 @@ Evidence sources versus close authority:
   `close('heartbeat-stale')`.
 
 `npm run guard:transport-health` locks this: the names of the machines the
-owner replaced appear only in `link-liveness.ts`, production code constructs
-the owner only in `CloudflareDataConnection`, `terminate()` is private and
-referenced only inside the `close` port the connection hands the owner, and
-the owner calls that port only from `close(cause)`.
+owner replaced appear only in `link-liveness.ts` (in the connection, the
+original route's grace and restart gate, the resume probe and the first
+cause; since C5-9, in control isolation, the side route's former outage
+deadline: `beginInterruption`, `armDeadline`, `restartExpired`,
+`endInterruption`, `originalReady`, `originalChanged`, `originalDown` and
+`disconnectedTimer`), production code constructs the owner only in
+`CloudflareDataConnection`, `terminate()` is private and referenced only
+inside the `close` port the connection hands the owner, and the owner calls
+that port only from `close(cause)`.
 
 ## Authority rules
 
@@ -176,9 +182,10 @@ The repository guards this decision through:
 - the transport-health read-path guard, the bulk-writability golden truth
   table (`src/storage/__tests__/__fixtures__/bulk-writable-truth-table.txt`),
   and `transport-health.test.ts` in the critical-runtime coverage profile;
-- the link-liveness owner lock in the same guard, and `link-liveness.test.ts`
-  and `link-liveness-characterization.test.ts` in the critical-runtime
-  coverage profile;
+- the link-liveness owner lock in the same guard, and `link-liveness.test.ts`,
+  `link-liveness-characterization.test.ts`, `link-liveness-side-outage.test.ts`
+  and `side-route-outage-integration.test.ts` in the critical-runtime coverage
+  profile;
 - focused room-control and heartbeat-monitor tests plus synchronization
   integration regressions through the `initSync()` compatibility facade;
 - broad, critical-runtime, and Worker coverage ratchets;

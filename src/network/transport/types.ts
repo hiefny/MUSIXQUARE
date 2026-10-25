@@ -355,7 +355,8 @@ export interface TransportLinkLivenessView {
    * `recovering` while the owner holds an interruption of the original route
    * (disconnected, or failed with a restart binding, until it reads connected
    * again), `opening` until the connection opens, `closed` once it closes.
-   * The side route's outages never make it `recovering` (RO-35).
+   * The side route's outages, which the owner keeps apart since C5-9, never
+   * make it `recovering`.
    */
   readonly phase: 'opening' | 'live' | 'recovering' | 'closed';
   /** The owner's published, non-renewing recovery deadline (wall clock), or 0. */

@@ -88,7 +88,7 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
-**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 stays out of Phase 4 (RO-35; [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)).
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 first stayed out of Phase 4 ([Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)). After known-accepted #18 retired, owner decision 2026-10-25 (about 16:30 KST) adds a fourth app update, train 4D: C5-9 (the side route's outage deadline moves into the link-liveness owner, RO-15) and its ratchet, with a forward revert to the 9.0.10 side-route behaviour if the owner's later device check fails ([Phase 4 train 4D report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)).
 
 ## Index
 
@@ -108,7 +108,7 @@ each record also states the step in words.
 | RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                              |
 | RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                           |
 | RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                           |
-| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (C5-1/6/7/8/10 done); RO-35  |
+| RO-15 | Standard logical data connection liveness                | Transport      | owner-in-place     | Done (4, C5-1 and C5-6 to 10)  |
 | RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | Done (4, C5-6)                 |
 | RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (C5-1 and C5-8 done)         |
 | RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
@@ -128,7 +128,6 @@ each record also states the step in words.
 | RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect   |
 | RO-33 | Guest YouTube recovery stays its own owner               | YouTube        | accepted-exception | Revisit with device evidence   |
 | RO-34 | PRO YouTube arm adapter stays eager                      | YouTube        | accepted-exception | Revisit with an iOS proof      |
-| RO-35 | Side-route outage deadline stays in control isolation    | Transport      | accepted-exception | Revisit on a side-route defect |
 | RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
@@ -173,7 +172,7 @@ RO-11 accepted-exception
 RO-12 duplicated
 RO-13 owner-in-place
 RO-14 owner-in-place
-RO-15 duplicated
+RO-15 owner-in-place
 RO-16 owner-in-place
 RO-17 duplicated
 RO-18 duplicated
@@ -193,7 +192,6 @@ RO-31 accepted-exception
 RO-32 accepted-exception
 RO-33 accepted-exception
 RO-34 accepted-exception
-RO-35 accepted-exception
 RO-36 accepted-exception
 RO-37 accepted-exception
 RO-39 accepted-exception
@@ -955,29 +953,45 @@ RO-49 accepted-exception
   `LinkLiveness.close(cause)`, which keeps the link's first cause and calls the connection's
   private `terminate()` through its close port; `terminate()` writes the one cause line and
   disposes the PC and channels.
-  The side PC's own deadline and ICE restart stay in `ControlIsolation`
-  (`src/network/transport/control-isolation.ts`, deferring to the original through
-  `originalReady` and `originalChanged`; RO-35).
+  Since C5-9 the owner also keeps the side (isolated control) PC's outage deadline.
+  `ControlIsolation` (`src/network/transport/control-isolation.ts`) reports each side PC state
+  to it as its `SideOutageOwner` (`sideChanged` with whether the route restarts its ICE,
+  `sideGraceRunning`, `sideMaySignal` before restart signaling, `sideClosed`) and keeps the
+  restart protocol: attempts, the 15 s peer-request and 30 s offer windows, epochs, candidates,
+  fence and READY. The owner calls back `outageStarted`, `outageEnded` and `outageExpired`, and
+  on each original transition that is not holding back a side outage (the original route is up,
+  or no restartable side outage is held) the connection's `sideMayRestart` port calls
+  `mayRestart`; a transition that leaves the original down while such an outage is held only
+  marks it deferred, as control isolation's `originalChanged` returned early before C5-9.
 - **Target single owner:** the link-liveness owner `src/network/transport/link-liveness.ts`
-  (the original route since C5-6, the resume probe since C5-7) holding the per-route outage
-  deadlines, the resume probe and one close with a cause; the two modules keep their SDP and
-  in-band restart executors.
+  (the original route since C5-6, the resume probe since C5-7, the side route's outage deadline
+  since C5-9) holding the per-route outage deadlines, the resume probe and one close with a
+  cause; the two modules keep their SDP and in-band restart executors.
 - **Allowed requesters:** transport consumers through `close(reason)`, which enters the owner's
   close (C5-10); transport health reads the owner's `linkLiveness` view for the bulk lanes, the
   preload pause and the heartbeat lease (RO-17, RO-18; Phase 4 C5-8).
 - **Lifecycle operations:** start and cancel grace, ICE restart, background probe, close with a
   cause (through `terminate()`).
-- **Deadline owner:** the original PC's 15 s grace; the side route's 15 s window capped at 30 s,
-  deferred while the original is down; the probe's short close (its 3 s challenge window and its
-  1 s look at a disconnected route, both in `link-liveness.ts` since C5-7).
+- **Deadline owner:** the original PC's 15 s grace; the side route's 15 s per outage, deferred
+  while the original is down, re-armed to 15 s after it recovers and capped at 30 s from the
+  outage's start, and its non-renewing 15 s grace without restart capability (in
+  `link-liveness.ts` since C5-9, on the monotonic clock); the probe's short close (its 3 s
+  challenge window and its 1 s look at a disconnected route, both in `link-liveness.ts` since
+  C5-7).
 - **Timing-constant home:** `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 4,
   C5-1): the original PC's grace and the connection's background-resume threshold
   (`link-liveness.ts`), the provider's background-resume threshold and the restart answer wait
-  (`cloudflare-signaling.ts`), the side PC's grace without restart capability
-  (`control-isolation.ts`) and the heartbeat monitor's lease cap (RO-17).
-  `control-isolation.ts` keeps `RESTART_WINDOW_MS` (15 s) and `RESTART_CAP_MS` (30 s) as its own
-  literals: they also bound peer restart requests and offers, which the two ends enforce on each
-  other across builds, so a change to the grace must not move them (RO-35).
+  (`cloudflare-signaling.ts`), the side PC's outage window, its cap of two graces and its grace
+  without restart capability (`link-liveness.ts`, since C5-9) and the heartbeat monitor's lease
+  cap (RO-17). `control-isolation.ts` keeps `RESTART_WINDOW_MS` (15 s) and `RESTART_CAP_MS`
+  (30 s) as its own literals: since C5-9 they bound only the peer restart requests and offers,
+  which the two ends enforce on each other across builds, so a change to the grace must not move
+  them (`control-isolation.test.ts` "keeps the 15 s peer-request window and the 30 s offer window
+  as literals"). Before C5-9 the side outage window and cap were those two literals; since C5-9
+  they follow the grace (one grace and two graces, the same values today), so a change to
+  `RTC_INTERRUPTION_GRACE_MS` also moves the local side outage window and cap while the peer
+  windows stay. This coupling is an implementation choice the owner delegated in train 4D and has
+  not yet confirmed ([report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)).
 - **Anchor tests:**
   - Supersession: `src/network/transport/__tests__/cloudflare-signaling.test.ts` "rolls an
     unanswered restart back if the old path recovers before its answer".
@@ -988,8 +1002,9 @@ RO-49 accepted-exception
   - Visibility: `cloudflare-signaling.test.ts` "does not grant a fresh full grace when a
     long-hidden disconnected RTC resumes".
   - Mixed versions: `control-isolation.test.ts` with the frozen fixture
-    `src/network/transport/__tests__/fixtures/control-isolation-c9.ts`. A Wi-Fi to LTE switch with
-    both PCs is device-only.
+    `src/network/transport/__tests__/fixtures/control-isolation-c9.ts`, and "a peer on the frozen
+    C9 build (mixed version)" in `side-route-outage-integration.test.ts`. A Wi-Fi to LTE switch
+    with both PCs is device-only.
   - Characterization before the owner moves (tests only, #478):
     `src/network/transport/__tests__/link-liveness-characterization.test.ts` (grace, restart gate,
     effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471
@@ -1019,8 +1034,26 @@ RO-49 accepted-exception
     channel and the PC close) and "the one close input (C5-10)"; the static lock in
     `src/core/__tests__/transport-health-guard.test.ts` "transport-health guard: the link-liveness
     owner (C5-10)" (16 retired names since the 4C review added the connection's former first-cause
-    field `closeCause`).
-- **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
+    field `closeCause`, 24 since train 4D added the side route's eight former deadline names) and
+    "transport-health guard: the side outage deadline (C5-9)" (each of the eight names fails in
+    `control-isolation.ts` as a member, a call or a string key, `originalChanged` fails in the
+    connection, the owner may keep them, and the frozen C9 fixture, a test file, stays out of
+    scope; the guard itself flags them in any production file under `src/` but `link-liveness.ts`).
+  - The side route's outage (C5-9): `src/network/transport/__tests__/side-route-outage-integration.test.ts`
+    (two real connections, each with its real owner and side route, written and green on the
+    9.0.10 code before the move, train 4D D0: the side's own 15 s, the original down before or
+    after it, the re-arm 15 s after the original recovers and the 30 s cap also while the
+    original is down again, a restart in flight across a recovery, the grace before READY with
+    its fall back and its take-over at READY, the restart budget and the offer bound, the three
+    device lines by level and end, the close causes, the frozen C9 peer and the monotonic clock)
+    and `link-liveness-side-outage.test.ts` (the owner's side outage on its own: every call on the
+    side route and line in order, the original route's readings, the side PC's close and stop),
+    both in the critical coverage profile. `control-isolation.test.ts` and
+    `control-isolation-evidence-logs.test.ts` keep their assertions and drive a real owner
+    through `__tests__/fixtures/side-outage-owner.ts`.
+- **Status:** `owner-in-place` since C5-9 (train 4D), which moved the last second machine, the
+  side route's outage deadline, into the owner; see the end of this field. Grace constant shared
+  in Phase 4 (C5-1). Close causes in Phase 4
   (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
   and the connection keeps the first one and logs one info line per close
   (`[Transport] Logical connection closed (<cause>) for <peerId>`); no timer or state moved.
@@ -1071,23 +1104,48 @@ RO-49 accepted-exception
   longer counts as bulk-writable and pauses a preload lane, which resumes on the owner's
   `connected` (`ice-recovered`) rather than on an earlier selected-pair report. The owner, its
   timers, deadlines, effect order and close causes are unchanged. A connection without an owner
-  (PeerJS) is read as before. The side route stays in control isolation (RO-35), and every close
-  still goes through the connection's `terminate()`. C5-10 (the connection part; C5-9 stays out,
-  so control isolation keeps its own deadline, `originalReady` and `originalChanged`) routed every
-  close through the owner without a behaviour change: the owner's `close(cause)` keeps the first
-  cause and passes every close, the ones the connection's disposal re-enters included, to the
+  (PeerJS) is read as before. The side route stayed in control isolation then, and every close
+  still goes through the connection's `terminate()`. C5-10 (the connection part; C5-9 was not in
+  train 4C, so control isolation kept its own deadline, `originalReady` and `originalChanged`)
+  routed every close through the owner without a behaviour change: the owner's `close(cause)`
+  keeps the first cause and passes every close, the ones the connection's disposal re-enters included, to the
   connection's private `terminate()`, so the cause line, the next-page note, the place of the
   `close` event during disposal and the dispose order are unchanged. It removed the connection's
   first-cause field and its grace key field (the key text is unchanged). The transport-health
   guard now locks the owner: the names of the machines it replaced appear only in
   `link-liveness.ts`, production code constructs it only in the connection, `terminate()` stays
   private and is referenced only inside the owner's close port, and the owner calls that port
-  only from `close(cause)`. The side route's outage (RO-35) is the one second machine left
-  on the resource, so the record stays `duplicated` until C5-9 or a decision to keep it. See
+  only from `close(cause)`. The side route's outage was then the one second machine left on the
+  resource (exception RO-35, deleted by C5-9). After known-accepted #18 retired on 2026-10-25
+  (the owner's Wi-Fi to LTE device check on production 9.0.10 with a Safari guest; an Android
+  phone, another SSID, a remote LTE guest moving to Wi-Fi and the host console were not checked;
+  [release record](../release-record.md#최근-해결-근거)), the owner decided the same day
+  (about 16:30 KST) to do C5-9 as train 4D, with a forward revert to the 9.0.10 side-route
+  behaviour if the later device check fails. C5-9 moved the side PC's outage into `LinkLiveness`
+  without a behaviour change: 15 s per outage of a restartable route, deferred while the original
+  route is down (its PC not connected or its control channel not open, sampled where control
+  isolation sampled it), re-armed to 15 s after the original recovers and capped at 30 s from the
+  outage's start, a connected side PC at the deadline ending the outage quietly; the non-renewing
+  15 s grace of a route that cannot restart (before READY, or a peer without restart), which the
+  original never defers and whose end fails the route's setup (decline and fall back, or end the
+  link with `side-failed:route`), taken over at READY by a restart outage that starts then; the
+  monotonic clock and a timer of its own (not a managed one) that the side PC's close and stop
+  clear. The recovered and did-not-recover lines moved with it, byte-identical at the same level
+  and on the same end; the restart line, the attempts, the windows, every frame, epoch,
+  candidate, fence and READY rule and the close causes stay in control isolation, and no wire
+  frame changed. Control isolation lost its outage deadline, timer and original-down flag, its
+  disconnect grace timer, `beginInterruption`, `armDeadline`, `restartExpired`,
+  `endInterruption`, `originalChanged` and its `originalReady` option. The transport-health
+  guard's retired names now include these eight (`beginInterruption`, `armDeadline`,
+  `restartExpired`, `endInterruption`, `originalReady`, `originalChanged`, `originalDown`,
+  `disconnectedTimer`; train 4D, the control-isolation part of C5-10), so none of them can come back in a
+  production file but `link-liveness.ts`, where only the owner's `originalDown` flag lives on;
+  the frozen C9 fixture keeps its old grace timer as a test file, outside the guard. See
   [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md), the
   [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md), the
-  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md) and the
-  [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md). Exception RO-35.
+  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md), the
+  [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md) and the
+  [Phase 4 train 4D report](phase4-4d-side-route-owner-2026-10-25.md).
 
 ### RO-16 Data-PC SDP lane
 
@@ -2083,39 +2141,6 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Behaviour risk:** none (bundle size only).
 - **Revisit when:** a design keeps the gesture proof eager and an iPhone test of the first PREPARE
   after a cold room entry passes.
-- **Status:** `accepted-exception`.
-
-### RO-35 Side-route outage deadline stays in control isolation
-
-- **Parent:** RO-15. Plan step C5-9 deferred.
-- **Exception:** `control-isolation.ts` keeps its own side-route outage deadline. Its grace without
-  restart capability is the shared `RTC_INTERRUPTION_GRACE_MS`; its 15 s `RESTART_WINDOW_MS` and
-  30 s `RESTART_CAP_MS` stay its own literals because they also bound the restart requests and
-  offers that the two ends, possibly on different builds, enforce on each other (Phase 4, C5-1).
-  Since C5-6 the original route's owner (`link-liveness.ts`) notifies it of each original
-  transition (`originalChanged`, in the same place in the order), and it still reads
-  `originalReady` from the connection. Since C5-7 that owner's resume probe reads the side PC's
-  state and an active side channel through the connection's snapshot, as the connection did; the
-  side route's own deadline and restart stay here. Since C5-8 transport health reads only the
-  original route's phase from that owner, so a side-route outage neither blocks bulk nor pauses
-  preload (`link-liveness.test.ts` "keeps bulk writable and counts no interruption through a
-  side-only outage"). Since C5-10 its `fail(reason)` closes the link through that owner's close
-  (cause `side-failed:<reason>`), which keeps the link's first cause; its deadline, restart and
-  failure reasons are unchanged.
-- **Evidence:** the same timer also governs active routes to peers without restart capability.
-  The C5-0 lab (#478) shows the side route recovering through its restart after its PC fails, on
-  the Cloudflare transport in one Chromium. Phase 4 train 4A goes out before the device check (a
-  gate deviation, owner decision 2026-10-24), train 4B too (since 2026-10-25 device evidence no
-  longer gates code), and so does train 4C (C5-6, C5-7, C5-8 and the connection part of C5-10;
-  [report](phase4-4c-link-liveness-2026-10-25.md)). The device check then passed: known-accepted
-  #18 retired on 2026-10-25 after the owner's real-device Wi-Fi to LTE check on production 9.0.10
-  (a Safari guest; its console showed `Restarting isolated control ICE (1/2)` then
-  `Isolated control ICE recovered` with no disconnect dialog;
-  [release record](../release-record.md#최근-해결-근거)). An Android phone, an IP change to another
-  SSID and a remote LTE guest moving to Wi-Fi were not checked. Retiring #18 does not schedule
-  C5-9: it stays out of Phase 4 and is not done unless a defect appears (P4-D6 A).
-- **Behaviour risk:** none known; known-accepted #18 is retired.
-- **Revisit when:** a side-route defect appears (P4-D6 A).
 - **Status:** `accepted-exception`.
 
 ### RO-36 Failed-PLAY confirm closure stays on the bus

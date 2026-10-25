@@ -158,11 +158,12 @@ describe('transport-health guard: the link-liveness owner (C5-10)', { timeout: 6
   it('passes on the real tree with the retired names only in the owner and one close port call', () => {
     const report = assertTransportHealth(realInput());
     expect(report.findings).toEqual([]);
-    // randomResumeProbePingId and the two probe windows, each declared and used once.
-    expect(report.retiredNamesInOwner).toBe(6);
+    // randomResumeProbePingId and the two probe windows, each declared and used
+    // once (6), and since C5-9 the side outage's originalDown flag (7).
+    expect(report.retiredNamesInOwner).toBe(13);
     expect(report.closePortCalls).toBe(1);
     expect(runGuard().stdout).toContain(
-      '16 retired liveness names only in src/network/transport/link-liveness.ts; ' +
+      '24 retired liveness names only in src/network/transport/link-liveness.ts; ' +
         'terminate() only from the close port of LinkLiveness.',
     );
   });
@@ -233,7 +234,7 @@ describe('transport-health guard: the link-liveness owner (C5-10)', { timeout: 6
       ),
     );
     expect(report.findings).toEqual([]);
-    expect(report.retiredNamesInOwner).toBe(7);
+    expect(report.retiredNamesInOwner).toBe(14);
   });
 
   it('rejects a close of the connection that bypasses the owner', () => {
@@ -368,5 +369,92 @@ describe('transport-health guard: the link-liveness owner (C5-10)', { timeout: 6
     expect(missing).toContain(
       `MISSING CLOSE INPUT: LinkLiveness.close(cause) not found in ${OWNER}`,
     );
+  });
+});
+
+const SIDE_ROUTE = 'src/network/transport/control-isolation.ts';
+const C9_FIXTURE = 'src/network/transport/__tests__/fixtures/control-isolation-c9.ts';
+
+describe('transport-health guard: the side outage deadline (C5-9)', { timeout: 60_000 }, () => {
+  it('rejects the side route taking its outage deadline back, in a member, a call or a key', () => {
+    const findings = findingsOf(
+      withSources((sources) => {
+        replaceIn(
+          sources,
+          SIDE_ROUTE,
+          '  readonly outages: SideOutageOwner;',
+          '  readonly outages: SideOutageOwner;\n  originalReady?(): boolean;',
+        );
+        replaceIn(
+          sources,
+          SIDE_ROUTE,
+          '  private negotiationTimer: ReturnType<typeof setTimeout> | null = null;',
+          '  private negotiationTimer: ReturnType<typeof setTimeout> | null = null;\n' +
+            '  private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;',
+        );
+        replaceIn(
+          sources,
+          SIDE_ROUTE,
+          '  /** The original route changed and may carry restart signaling: restart if one is due. */',
+          [
+            '  // armDeadline in a comment does not count',
+            '  originalChanged(): void {',
+            '    const interruption = this.beginInterruption();',
+            '    if (!this.options.originalReady?.()) interruption.originalDown = true;',
+            "    else this['armDeadline'](interruption);",
+            '  }',
+            '  private restartExpired(): void {',
+            "    log.warn('restartExpired in a string does not count');",
+            '    this.endInterruption();',
+            '  }',
+            '  /** The original route changed and may carry restart signaling: restart if one is due. */',
+          ].join('\n'),
+        );
+        replaceIn(
+          sources,
+          CONNECTION,
+          'sideMayRestart: () => this.controlIsolation?.mayRestart(),',
+          'sideMayRestart: () => this.controlIsolation?.originalChanged(),',
+        );
+      }),
+    );
+    const deadline = 'the C5-9 side outage deadline belongs to LinkLiveness';
+    const wait = "the C5-9 side outage's wait for the original route belongs to LinkLiveness";
+    for (const line of [
+      `${SIDE_ROUTE} uses armDeadline 1 time(s) - ${deadline}`,
+      `${SIDE_ROUTE} uses beginInterruption 1 time(s) - ${deadline}`,
+      `${SIDE_ROUTE} uses disconnectedTimer 1 time(s) - ` +
+        'the C5-9 side grace without restart belongs to LinkLiveness',
+      `${SIDE_ROUTE} uses endInterruption 1 time(s) - ${deadline}`,
+      `${SIDE_ROUTE} uses originalChanged 1 time(s) - ${wait}`,
+      `${SIDE_ROUTE} uses originalDown 1 time(s) - ${wait}`,
+      `${SIDE_ROUTE} uses originalReady 2 time(s) - ${wait}`,
+      `${SIDE_ROUTE} uses restartExpired 1 time(s) - ${deadline}`,
+      `${CONNECTION} uses originalChanged 1 time(s) - ${wait}`,
+    ]) {
+      expect(findings).toContain(`RETIRED LIVENESS NAME: ${line}`);
+    }
+    expect(findings.split('\n')).toHaveLength(9);
+  });
+
+  it("allows those names in the owner's module", () => {
+    const report = analyzeTransportHealth(
+      withSources((sources) => {
+        const owner = sources.get(OWNER) ?? '';
+        // armSide: declared once and called three times.
+        expect(owner.match(/\barmSide\b/gu)).toHaveLength(4);
+        sources.set(OWNER, owner.replaceAll('armSide', 'armDeadline'));
+      }),
+    );
+    expect(report.findings).toEqual([]);
+    expect(report.retiredNamesInOwner).toBe(17);
+  });
+
+  it('leaves the frozen C9 peer, a test fixture that keeps its old grace timer, out of scope', () => {
+    expect(readFileSync(C9_FIXTURE, 'utf8')).toContain('private disconnectedTimer');
+    const paths = [...realInput().sources.keys()];
+    expect(paths).toContain(SIDE_ROUTE);
+    expect(paths).not.toContain(C9_FIXTURE);
+    expect(paths.filter((relPath) => relPath.includes('__tests__'))).toEqual([]);
   });
 });

@@ -3,7 +3,6 @@
  * Its signaling travels over that connection's original authenticated channel;
  * it never enters the room membership/signaling negotiation namespace.
  */
-import { RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
 import { log } from '../../core/log.ts';
 
 const TYPE = 'mxqr-control-isolation';
@@ -13,13 +12,12 @@ const DISCOVERY_MS = 1_000;
 const NEGOTIATION_MS = 10_000;
 // A restart-capable side route survives an ICE interruption by restarting ICE
 // on the same PC: DTLS/SCTP and its ordered channel remain, so queued and
-// in-flight controls keep their order. Each local interruption gets the
-// original PC's 15-second grace, extended to 15 seconds after the original
-// route recovers when that route was itself unavailable, never beyond 30.
-// Monotonic time keeps a wall-clock correction from moving these deadlines.
-// These two windows also bound peer restart requests and offers, which the
-// two ends, possibly on different builds, enforce on each other: they stay
-// literals rather than follow RTC_INTERRUPTION_GRACE_MS.
+// in-flight controls keep their order. How long an outage may last is its
+// outage owner's (SideOutageOwner, since Phase 4 C5-9). These two windows
+// bound peer restart requests (15 s) and restart offers (30 s), which the two
+// ends, possibly on different builds, enforce on each other: they stay
+// literals rather than follow RTC_INTERRUPTION_GRACE_MS. Monotonic time keeps
+// a wall-clock correction from moving them.
 const RESTART_WINDOW_MS = 15_000;
 const RESTART_CAP_MS = 30_000;
 // Per local interruption, and separately per window of peer requests.
@@ -70,12 +68,31 @@ export interface IsolatedControlLease {
 }
 
 /**
- * Why the side route ended its logical connection: its restart window ran
- * out, the route failed or was refused once fenced, a local send threw, a
- * frame broke the protocol or could not be delivered, or a frame, candidate,
- * offer or queue bound was hit.
+ * Why the side route ended its logical connection: its outage owner's restart
+ * window ran out, the route failed or was refused once fenced, a local send
+ * threw, a frame broke the protocol or could not be delivered, or a frame,
+ * candidate, offer or queue bound was hit.
  */
 export type SideRouteFailure = 'expired' | 'route' | 'send' | 'protocol' | 'limit';
+
+/**
+ * The owner of the side PC's outage deadline: the connection's link-liveness
+ * owner (registry RO-15; Phase 4 C5-9 moved the deadline there). This route
+ * reports each side PC state to it and asks it before restart signaling; the
+ * owner starts, ends and expires each outage through outageStarted,
+ * outageEnded and outageExpired, and calls mayRestart (through the
+ * connection) when the original route changes.
+ */
+export interface SideOutageOwner {
+  /** One state change of the current side PC, with whether this route restarts its ICE. */
+  sideChanged(route: ControlIsolation, state: RTCPeerConnectionState, restartable: boolean): void;
+  /** A grace for a side PC that cannot restart is running. */
+  readonly sideGraceRunning: boolean;
+  /** Restart signaling may travel on the original route now; if not, the outage waits for it. */
+  sideMaySignal(): boolean;
+  /** The side PC is gone (fallback or close): its outage ends without a callback. */
+  sideClosed(): void;
+}
 
 interface Options {
   createPeerConnection(): IsolatedControlLease | null;
@@ -83,20 +100,16 @@ interface Options {
   receive(data: string): void;
   changed(active: boolean): void;
   fail(reason: SideRouteFailure): void;
-  /** Whether the original route is connected rather than itself recovering. */
-  originalReady?(): boolean;
+  /** Keeps the side PC's outage deadline. */
+  readonly outages: SideOutageOwner;
 }
 
-/** The exact side PC's own disconnected/failed outage (monotonic times). */
+/** The restart protocol's part of the exact side PC's current outage (monotonic time). */
 interface Interruption {
   readonly start: number;
-  deadline: number;
-  timer: ReturnType<typeof setTimeout> | null;
   attempts: number;
   /** A restart offer (offerer) or request (answerer) is due for this outage. */
   wanted: boolean;
-  /** The original route was unavailable during this interruption. */
-  originalDown: boolean;
 }
 
 interface Attempt {
@@ -230,7 +243,6 @@ export class ControlIsolation {
   private discoveryDone = false;
   private discoveryTimer: ReturnType<typeof setTimeout> | null = null;
   private negotiationTimer: ReturnType<typeof setTimeout> | null = null;
-  private disconnectedTimer: ReturnType<typeof setTimeout> | null = null;
   private lease: IsolatedControlLease | null = null;
   private sideChannel: RTCDataChannel | null = null;
   private localFence = false;
@@ -413,26 +425,30 @@ export class ControlIsolation {
     return false;
   }
 
-  /** The owner reports original-PC state changes; side restarts wait for its recovery. */
-  originalChanged(): void {
-    if (!this.restartReady()) return;
-    const interruption = this.interruption;
-    if (!this.originalReady()) {
-      if (interruption) interruption.originalDown = true;
-      return;
-    }
-    if (interruption?.originalDown) {
-      interruption.originalDown = false;
-      // Waiting for the original route must not consume the side's own window.
-      this.armDeadline(
-        interruption,
-        Math.min(
-          interruption.start + RESTART_CAP_MS,
-          Math.max(interruption.deadline, performance.now() + RESTART_WINDOW_MS),
-        ),
-      );
-    }
-    this.progressRestart();
+  /** The outage owner began an outage of the side PC: its attempts and request start over. */
+  outageStarted(): void {
+    this.interruption = { start: performance.now(), attempts: 0, wanted: false };
+    this.requestedEpoch = -1;
+  }
+
+  /** The outage owner ended the side PC's outage. */
+  outageEnded(): void {
+    this.interruption = null;
+    this.requestedEpoch = -1;
+  }
+
+  /** The original route changed and may carry restart signaling: restart if one is due. */
+  mayRestart(): void {
+    if (this.restartReady()) this.progressRestart();
+  }
+
+  /**
+   * The outage owner's deadline ran out: a restartable route ends its logical
+   * connection, one that cannot restart fails its setup.
+   */
+  outageExpired(restartable: boolean): void {
+    if (restartable) this.fail('expired');
+    else this.setupFailed();
   }
 
   dispose(): void {
@@ -500,18 +516,10 @@ export class ControlIsolation {
     });
     pc.addEventListener('connectionstatechange', () => {
       if (!this.current(pc)) return;
-      if (this.restartReady() && pc.connectionState !== 'closed') return this.sideStateChanged(pc);
-      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') this.setupFailed();
-      else if (pc.connectionState === 'disconnected' && this.disconnectedTimer === null) {
-        // eslint-disable-next-line no-restricted-globals -- non-renewing grace for the separately owned control PC
-        this.disconnectedTimer = setTimeout(() => {
-          this.disconnectedTimer = null;
-          if (this.current(pc) && pc.connectionState !== 'connected') this.setupFailed();
-        }, RTC_INTERRUPTION_GRACE_MS);
-      } else if (pc.connectionState === 'connected' && this.disconnectedTimer !== null) {
-        clearTimeout(this.disconnectedTimer);
-        this.disconnectedTimer = null;
-      }
+      const state = pc.connectionState;
+      const restartable = this.restartReady() && state !== 'closed';
+      if (!restartable && (state === 'failed' || state === 'closed')) return this.setupFailed();
+      this.sideStateChanged(state, restartable);
     });
     return pc;
   }
@@ -650,8 +658,8 @@ export class ControlIsolation {
 
   /** A restart-capable route takes over a disconnect grace armed before READY. */
   private takeOverDisconnectGrace(): boolean {
-    if (this.restartReady() && this.disconnectedTimer !== null && this.lease)
-      this.sideStateChanged(this.lease.pc);
+    if (this.restartReady() && this.options.outages.sideGraceRunning && this.lease)
+      this.sideStateChanged(this.lease.pc.connectionState, true);
     return this.state !== 'closed';
   }
 
@@ -669,10 +677,6 @@ export class ControlIsolation {
 
   private get offerer(): boolean {
     return this.remoteNonce !== null && this.localNonce < this.remoteNonce;
-  }
-
-  private originalReady(): boolean {
-    return this.options.originalReady?.() ?? true;
   }
 
   /** An offer or answer of the latest generation is still being applied. */
@@ -726,22 +730,14 @@ export class ControlIsolation {
     }
   }
 
-  private sideStateChanged(pc: RTCPeerConnection): void {
-    if (this.disconnectedTimer !== null) {
-      // The restart path owns this outage from here on.
-      clearTimeout(this.disconnectedTimer);
-      this.disconnectedTimer = null;
-    }
-    const state = pc.connectionState;
-    if (state === 'connected') {
-      if (this.interruption) {
-        this.endInterruption();
-        log.info('[Transport] Isolated control ICE recovered');
-      }
-      return;
-    }
-    if (state !== 'disconnected' && state !== 'failed') return;
-    const interruption = this.beginInterruption();
+  /**
+   * Reports a side PC state to the outage owner, which starts or ends the
+   * outage; an outage reading then wants a restart.
+   */
+  private sideStateChanged(state: RTCPeerConnectionState, restartable: boolean): void {
+    this.options.outages.sideChanged(this, state, restartable);
+    const interruption = this.interruption;
+    if (!interruption || (state !== 'disconnected' && state !== 'failed')) return;
     // An offer/answer still being applied already restarts this generation.
     if (!this.restartInFlight()) interruption.wanted = true;
     this.progressRestart();
@@ -753,32 +749,12 @@ export class ControlIsolation {
     this.progressRestart();
   }
 
-  private beginInterruption(): Interruption {
-    if (this.interruption) return this.interruption;
-    const start = performance.now();
-    const interruption: Interruption = {
-      start,
-      deadline: start + RESTART_WINDOW_MS,
-      timer: null,
-      attempts: 0,
-      wanted: false,
-      originalDown: !this.originalReady(),
-    };
-    this.interruption = interruption;
-    this.requestedEpoch = -1;
-    this.armDeadline(interruption, interruption.deadline);
-    return interruption;
-  }
-
   private progressRestart(): void {
     const interruption = this.interruption;
     if (!(interruption?.wanted || this.peerWanted)) return;
     if (!this.restartReady() || this.restartInFlight()) return;
     // The restart signaling travels on the original route: let it recover first.
-    if (!this.originalReady()) {
-      if (interruption) interruption.originalDown = true;
-      return;
-    }
+    if (!this.options.outages.sideMaySignal()) return;
     if (interruption) interruption.wanted = false;
     this.peerWanted = false;
     if (!this.offerer) {
@@ -897,40 +873,6 @@ export class ControlIsolation {
     this.sendFrame('restart-candidate', { epoch: this.localEpoch, candidate });
   }
 
-  private armDeadline(interruption: Interruption, deadline: number): void {
-    if (interruption.timer !== null) clearTimeout(interruption.timer);
-    interruption.deadline = deadline;
-    // eslint-disable-next-line no-restricted-globals -- one bounded recovery deadline per exact side interruption, disposed with the connection
-    interruption.timer = setTimeout(
-      () => this.restartExpired(interruption),
-      Math.max(0, deadline - performance.now()),
-    );
-  }
-
-  private restartExpired(interruption: Interruption): void {
-    if (this.interruption !== interruption) return;
-    interruption.timer = null;
-    const pc = this.lease?.pc;
-    if (!pc || !this.current(pc)) return;
-    if (pc.connectionState === 'connected') return this.endInterruption();
-    const cap = interruption.start + RESTART_CAP_MS;
-    if (!this.originalReady() && performance.now() < cap) {
-      // The original route owns its own bounded recovery; do not pre-empt it.
-      interruption.originalDown = true;
-      return this.armDeadline(interruption, cap);
-    }
-    log.warn('[Transport] Isolated control ICE did not recover; closing its logical connection');
-    this.fail('expired');
-  }
-
-  private endInterruption(): void {
-    const interruption = this.interruption;
-    if (!interruption) return;
-    if (interruption.timer !== null) clearTimeout(interruption.timer);
-    this.interruption = null;
-    this.requestedEpoch = -1;
-  }
-
   private ownsAttempt(pc: RTCPeerConnection, attempt: Attempt): boolean {
     return this.current(pc) && this.attempt === attempt;
   }
@@ -1030,17 +972,14 @@ export class ControlIsolation {
     }
     lease?.release();
   }
+  /** Clears this route's timers and its outage; the side PC is about to go. */
   private clearTimers(): void {
-    for (const timer of [
-      this.discoveryTimer,
-      this.negotiationTimer,
-      this.disconnectedTimer,
-      this.interruption?.timer ?? null,
-    ]) {
+    for (const timer of [this.discoveryTimer, this.negotiationTimer]) {
       if (timer !== null) clearTimeout(timer);
     }
-    this.discoveryTimer = this.negotiationTimer = this.disconnectedTimer = null;
+    this.discoveryTimer = this.negotiationTimer = null;
     this.interruption = null;
+    this.options.outages.sideClosed();
   }
   private fail(reason: SideRouteFailure): void {
     if (this.state === 'closed') return;

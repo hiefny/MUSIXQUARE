@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RTC_INTERRUPTION_GRACE_MS } from '../../../core/constants.ts';
 import { ControlIsolation, type IsolatedControlLease } from '../control-isolation.ts';
 import { ControlIsolation as C9ControlIsolation } from './fixtures/control-isolation-c9.ts';
+import { sideOutageOwner } from './fixtures/side-outage-owner.ts';
 import controlIsolationSource from '../control-isolation.ts?raw';
 
 const TYPE = 'mxqr-control-isolation';
@@ -116,7 +117,8 @@ function endpoint(build: 'current' | 'c9' = 'current') {
   const release = vi.fn();
   const changed = vi.fn();
   const fail = vi.fn();
-  // The owner's original-route readiness and credential hook (current build only).
+  // The original route the side outage owner reads, and the owner's credential
+  // hook (current build only).
   const route = { originalUp: true };
   const prepareRestart = vi.fn(async () => {});
   const create = vi.fn((): IsolatedControlLease | null => ({
@@ -131,11 +133,14 @@ function endpoint(build: 'current' | 'c9' = 'current') {
     received.push(data);
   });
   const options = { createPeerConnection: create, sendOriginal, receive, changed, fail };
+  // A test LinkLiveness keeps the side PC's outage deadline (Phase 4 C5-9).
+  let current: ControlIsolation | undefined;
+  const owner = sideOutageOwner(() => current);
   const flow =
     build === 'c9'
       ? new C9ControlIsolation(options)
-      : new ControlIsolation({ ...options, originalReady: () => route.originalUp });
-  owners.push(flow);
+      : (current = new ControlIsolation({ ...options, outages: owner.liveness }));
+  owners.push(flow, { dispose: () => owner.liveness.stop() });
   return {
     flow,
     peer,
@@ -148,6 +153,8 @@ function endpoint(build: 'current' | 'c9' = 'current') {
     sendOriginal,
     receive,
     route,
+    /** Reports `route.originalUp` to the outage owner as an original PC transition. */
+    originalChanged: () => owner.original(route.originalUp),
     prepareRestart,
   };
 }
@@ -826,7 +833,7 @@ describe('side ICE restart of an active isolated control route', () => {
     p.link.original = false;
     for (const e of [p.a, p.b]) {
       e.route.originalUp = false;
-      restarting(e).originalChanged();
+      e.originalChanged();
     }
     const sent = [p.a.original.length, p.b.original.length];
     p.a.peer.state('failed');
@@ -840,7 +847,7 @@ describe('side ICE restart of an active isolated control route', () => {
     p.link.original = true;
     for (const e of [p.a, p.b]) {
       e.route.originalUp = true;
-      restarting(e).originalChanged();
+      e.originalChanged();
     }
     await p.pump();
     expect(frames(offerer, 'restart-offer')).toHaveLength(1);
@@ -861,14 +868,14 @@ describe('side ICE restart of an active isolated control route', () => {
     const p = await live();
     for (const e of [p.a, p.b]) {
       e.route.originalUp = false;
-      restarting(e).originalChanged();
+      e.originalChanged();
     }
     p.a.peer.state('failed');
     p.b.peer.state('failed');
     await vi.advanceTimersByTimeAsync(5_000);
     for (const e of [p.a, p.b]) {
       e.route.originalUp = true;
-      restarting(e).originalChanged();
+      e.originalChanged();
     }
     await p.pump();
     expect(frames(roles(p).offerer, 'restart-offer')).toHaveLength(1);
@@ -885,7 +892,7 @@ describe('side ICE restart of an active isolated control route', () => {
     const p = await live();
     for (const e of [p.a, p.b]) {
       e.route.originalUp = false;
-      restarting(e).originalChanged();
+      e.originalChanged();
     }
     p.a.peer.state('failed');
     p.b.peer.state('failed');
@@ -1021,7 +1028,7 @@ describe('side ICE restart of an active isolated control route', () => {
       // Late PC events, owner notifications and frames after disposal change nothing.
       offerer.peer.state('connected');
       offerer.peer.state('failed');
-      restarting(offerer).originalChanged();
+      offerer.originalChanged();
       offerer.flow.handleOriginal(
         fromPeer(answerer, offerer, 'restart-answer', { epoch: 1, sdp: 'late' }),
         true,
@@ -1352,7 +1359,7 @@ describe('side ICE restart of an active isolated control route', () => {
     const p = await live();
     for (const e of [p.a, p.b]) {
       e.route.originalUp = false;
-      restarting(e).originalChanged();
+      e.originalChanged();
     }
     p.a.peer.state('failed');
     p.b.peer.state('failed');
@@ -1361,7 +1368,7 @@ describe('side ICE restart of an active isolated control route', () => {
     vi.setSystemTime(Date.now() + 120_000);
     for (const e of [p.a, p.b]) {
       e.route.originalUp = true;
-      restarting(e).originalChanged();
+      e.originalChanged();
     }
     await p.pump();
     expect(frames(roles(p).offerer, 'restart-offer')).toHaveLength(1);
@@ -1393,7 +1400,7 @@ describe('side failure reasons the logical owner receives', () => {
     const p = await live();
     for (const e of [p.a, p.b]) {
       e.route.originalUp = false;
-      restarting(e).originalChanged();
+      e.originalChanged();
     }
     p.a.peer.state('failed');
     p.b.peer.state('failed');

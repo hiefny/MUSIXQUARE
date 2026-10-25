@@ -266,7 +266,7 @@ describe('original-route transition effect order', () => {
       },
     });
     conn = e.conn;
-    vi.spyOn(conn.controlIsolation!, 'originalChanged').mockImplementation(() => {
+    vi.spyOn(conn.controlIsolation!, 'mayRestart').mockImplementation(() => {
       trace.push('isolation-original-changed');
     });
     conn.on('ice-recovered', () => trace.push('ice-recovered'));

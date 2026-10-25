@@ -93,8 +93,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 4 train 4C: one link-liveness owner per Cloudflare data connection (2026-10-25)](design/phase4-4c-link-liveness-2026-10-25.md):
-  evidence for the structure program's third Phase 4 app train (9.0.10 / v783, not yet released;
-  target `app`). One owner, `LinkLiveness`, now holds the original
+  release evidence for the structure program's third Phase 4 app train (9.0.10 / v783,
+  released 2026-10-25 14:41 KST in Release 40166305040, target `app`). One owner, `LinkLiveness`, now holds the original
   route's 15 s grace, published recovery deadline and one-restart gate (C5-6), the guest
   background-resume probe over both routes (C5-7) and every close of the link with its first
   cause (C5-10, the connection part; C5-9 and the side route's own deadline stay out). Transport
@@ -103,8 +103,8 @@ runbooks. Neither belongs in a general setup document.
   bulk-writable and its preload lane stays paused until the owner's `connected`. The report lists
   each increment with its tests-first evidence, the owner's decisions (deploy as soon as the
   automated gates pass, device checks no longer a gate, no raw-versus-view log), the merge of
-  4B's final main, the review lows, the eager JS delta, mixed versions, and the device
-  procedures not yet run for C5-6, C5-7 and C5-8.
+  4B's final main, the review lows, the eager JS delta, the PR, exact-main CI and release
+  round, mixed versions, and the device procedures not yet run for C5-6, C5-7 and C5-8.
 
 - [Phase 4 train 4B: owner-chosen transport and rejoin behaviour changes (2026-10-25)](design/phase4-4b-behaviour-2026-10-25.md):
   release evidence for the structure program's second Phase 4 app train (9.0.9 / v782,

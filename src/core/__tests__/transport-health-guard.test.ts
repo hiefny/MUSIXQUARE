@@ -162,7 +162,7 @@ describe('transport-health guard: the link-liveness owner (C5-10)', { timeout: 6
     expect(report.retiredNamesInOwner).toBe(6);
     expect(report.closePortCalls).toBe(1);
     expect(runGuard().stdout).toContain(
-      '15 retired liveness names only in src/network/transport/link-liveness.ts; ' +
+      '16 retired liveness names only in src/network/transport/link-liveness.ts; ' +
         'terminate() only from the close port of LinkLiveness.',
     );
   });
@@ -190,7 +190,8 @@ describe('transport-health guard: the link-liveness owner (C5-10)', { timeout: 6
           CONNECTION,
           '  private resourcesDisposed = false;',
           '  private resourcesDisposed = false;\n' +
-            "  private readonly disconnectedGraceTimerKey = 'cloudflare-data-disconnected-grace-0';",
+            "  private readonly disconnectedGraceTimerKey = 'cloudflare-data-disconnected-grace-0';\n" +
+            '  private closeCause: string | null = null;',
         );
       }),
     );
@@ -213,6 +214,10 @@ describe('transport-health guard: the link-liveness owner (C5-10)', { timeout: 6
     expect(findings).toContain(
       `RETIRED LIVENESS NAME: ${CONNECTION} uses disconnectedGraceTimerKey 1 time(s) - ` +
         'the C5-10 grace key field belongs to LinkLiveness',
+    );
+    expect(findings).toContain(
+      `RETIRED LIVENESS NAME: ${CONNECTION} uses closeCause 1 time(s) - ` +
+        'the C5-10 first close cause belongs to LinkLiveness',
     );
   });
 

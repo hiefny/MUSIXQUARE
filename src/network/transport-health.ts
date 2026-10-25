@@ -9,10 +9,11 @@
  * keep their own currency check (the connection is still the peer's current
  * one), which reads room state that this module never touches.
  *
- * A Standard-room Cloudflare connection exposes its link-liveness owner
- * (`linkLiveness`, registry RO-15). Since Phase 4 C5-8 the bulk and preload
- * predicates take the original route from that owner's phase instead of the
- * peer connection's connectionState, and the recovery lease from its deadline.
+ * Every Cloudflare connection (Standard and PRO rooms alike) exposes its
+ * link-liveness owner (`linkLiveness`, registry RO-15). Since Phase 4 C5-8
+ * the bulk and preload predicates take the original route from that owner's
+ * phase instead of the peer connection's connectionState, and the recovery
+ * lease from its deadline.
  * A connection without one (PeerJS) is read raw. The owner does not observe
  * iceConnectionState, so its disconnected, failed and closed rows still apply
  * on both paths. The heartbeat threshold follows the peer connection alone.

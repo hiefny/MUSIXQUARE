@@ -26,8 +26,9 @@
  *
  *   CHECK 3 Retired names: the identifiers of the machines the owner replaced
  *     in the connection (C5-6 the original route's grace and restart gate,
- *     C5-7 the background-resume probe, C5-10 the grace key field) appear in
- *     no production file but the owner's module, where some of them live on.
+ *     C5-7 the background-resume probe, C5-10 the grace key field and the
+ *     first close cause) appear in no production file but the owner's module,
+ *     where some of them live on.
  *   CHECK 4 Close port: production code constructs the owner once, in
  *     cloudflare-signaling.ts, and the connection's private terminate() is
  *     referenced only inside the `close` port it hands that owner, so every
@@ -125,6 +126,7 @@ const RETIRED_LIVENESS_NAMES = new Map<string, string>([
   ['BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS', 'C5-7 resume probe'],
   ['BACKGROUND_RESUME_DISCONNECTED_PROBE_MS', 'C5-7 resume probe'],
   ['disconnectedGraceTimerKey', 'C5-10 grace key field'],
+  ['closeCause', 'C5-10 first close cause'],
 ]);
 
 // ── Input ────────────────────────────────────────────────────────────────

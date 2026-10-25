@@ -347,8 +347,8 @@ export type TransportCloseReason =
   | 'pro-epoch-advanced';
 
 /**
- * The original route of a Standard-room logical data connection as its
- * link-liveness owner reads it (registry RO-15, Phase 4 C5-8).
+ * The original route of a Cloudflare logical data connection (Standard or
+ * PRO room) as its link-liveness owner reads it (registry RO-15, Phase 4 C5-8).
  */
 export interface TransportLinkLivenessView {
   /**
@@ -386,9 +386,10 @@ export interface TransportDataConnection {
   readonly iceRecoveryDeadline?: number;
   /**
    * The link-liveness owner's view of the original route, on a provider that
-   * has one (a Standard-room Cloudflare connection). Transport health reads
-   * its phase instead of the peer connection's connectionState, and its
-   * deadline as the recovery lease (Phase 4 C5-8).
+   * has one (every Cloudflare connection, Standard and PRO rooms alike; a
+   * PeerJS connection has none). Transport health reads its phase instead of
+   * the peer connection's connectionState, and its deadline as the recovery
+   * lease (Phase 4 C5-8).
    */
   readonly linkLiveness?: TransportLinkLivenessView;
   /**

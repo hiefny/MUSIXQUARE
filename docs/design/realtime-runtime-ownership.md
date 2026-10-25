@@ -30,12 +30,18 @@ one read path from a data connection's raw RTC state (the peer connection's
 `connectionState` and `iceConnectionState`, the data and control channel
 states, and the provider's ICE recovery deadline) to the decisions made on it.
 A caller takes one snapshot with `readTransportHealth()` and asks a pure
-predicate. Since 2026-10-25 (Phase 4, C5-8) a Standard-room Cloudflare
-connection exposes its link-liveness owner (`linkLiveness`, registry RO-15):
-the snapshot then takes the original route from the owner's phase instead of
-the peer connection's `connectionState`, and the recovery deadline from the
-owner. The owner does not observe `iceConnectionState`, so those rows still
-apply. A connection without an owner (PeerJS) is read raw.
+predicate. Since 2026-10-25 (Phase 4, C5-8) every Cloudflare data connection
+(`CloudflareDataConnection`, Standard and PRO rooms alike) exposes its
+link-liveness owner (`linkLiveness`, registry RO-15): the snapshot then takes
+the original route from the owner's phase instead of the peer connection's
+`connectionState`, and the recovery deadline from the owner. The owner does
+not observe `iceConnectionState`, so those rows still apply. A connection
+without an owner (PeerJS) is read raw. In a PRO room the bulk and preload
+lanes carry no persistent playlist media (each participant fetches it from
+the room bucket; `src/player/decode.ts`, `src/storage/preload.ts`), so the
+owner's view changes a PRO room only where a legacy lane still runs, and the
+heartbeat lease reads the deadline `iceRecoveryDeadline` already delegated to
+the owner.
 
 - `isBulkWritable`: the bulk (chunk) senders, through
   `isBulkTransferWritablePeer` in `src/storage/chunk-pump.ts`. Raw, either
@@ -69,8 +75,11 @@ which prints the peer connection's state and decides nothing. Media-PC readers
 ## Link-liveness owner and close authority
 
 Amended 2026-10-25 (Phase 4, C5-6 to C5-10; registry RO-15). One owner per
-Standard-room logical data connection (`CloudflareDataConnection`) decides
-whether the link may still recover and why it closed:
+Cloudflare logical data connection (`CloudflareDataConnection`, in Standard
+and PRO rooms alike) decides whether the link may still recover and why it
+closed. A PRO connection has no isolated control side route and binds no ICE
+restart, so its owner holds the grace and the close but never admits a
+restart:
 
 | Module                                   | Sole responsibility                                                                                                                                                                                                     |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -91,12 +100,16 @@ Evidence sources versus close authority:
   `[Transport] Logical connection closed (<cause>) for <peerId>` and disposes
   the PCs and channels. Later closes, including the ones that disposal
   re-enters, still reach `terminate()` and add no line.
-- External closers must name a reason. The heartbeat monitor's stale close,
-  the host's open timeout, an unprovable rollback, a departure or admission
-  expiry, an error or join failure and the guest's own leave call
-  `close(reason)` with a `TransportCloseReason`, which enters the same owner;
-  a close that names nothing reads `intentional`. The heartbeat monitor keeps
-  its leases, fencing and disconnect publication and ends a link only through
+- External closers enter the same owner through `close(reason)`, and naming
+  a reason is optional. The heartbeat monitor's stale close, the host's open
+  timeout, an unprovable rollback, a departure or admission expiry, an error
+  or join failure, a PRO epoch advance and the guest's own leave pass a
+  `TransportCloseReason`. The intended closes (a kick or PIN revocation, the
+  replacement of a duplicate or stale open, a capacity rejection, a
+  superseded negotiation, a guest's stale or replaced join, a back-navigation
+  cancel, destroy) still call `close()` with none and read `intentional`; no
+  guard requires a reason. The heartbeat monitor keeps its leases, fencing
+  and disconnect publication and ends a link only through
   `close('heartbeat-stale')`.
 
 `npm run guard:transport-health` locks this: the names of the machines the

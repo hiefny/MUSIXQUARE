@@ -1003,7 +1003,11 @@ RO-49 accepted-exception
     PC that reads failed or closed, an active side channel that is not open, the 1 s look's three
     conditions, the side-route challenge and its exact pong, and a probe close inside an original
     transition before the state callback; the owner's own cases pin every probe outcome, the timer
-    keys and the stop.
+    keys and the stop. The 4C review added "the connection's managed timer keys" (the grace key
+    `cloudflare-data-disconnected-grace-N`, numbered per connection, and its two probe suffixes),
+    the grace armed and published before the side route hears a disconnected (on the owner and
+    through a connection), and a second resume that starts a probe that saw no disconnected while
+    a running 1 s look keeps its first deadline.
   - The view (C5-8): `link-liveness.test.ts` "the original route as transport health reads it"
     (the phases through a restart that reads connecting, a side-only outage that neither blocks
     bulk nor counts as an interruption) and "reads its phase from the original route alone";
@@ -1014,7 +1018,8 @@ RO-49 accepted-exception
     a close re-entered while the connection disposes still emits `close` before the second
     channel and the PC close) and "the one close input (C5-10)"; the static lock in
     `src/core/__tests__/transport-health-guard.test.ts` "transport-health guard: the link-liveness
-    owner (C5-10)".
+    owner (C5-10)" (16 retired names since the 4C review added the connection's former first-cause
+    field `closeCause`).
 - **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
   (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
   and the connection keeps the first one and logs one info line per close
@@ -1053,7 +1058,8 @@ RO-49 accepted-exception
   the gate, before the state callback; on disconnected before the state callback). The provider's
   and the peer's background-resume calls and `TransportBackgroundRecoveryStatus` are unchanged.
   C5-8 (behaviour-risk) made transport health read the owner instead of re-deriving the original
-  route from the PC's `connectionState`: the connection exposes the owner as `linkLiveness`, whose
+  route from the PC's `connectionState`: every `CloudflareDataConnection` (Standard and PRO rooms
+  alike; a PeerJS connection has none) exposes the owner as `linkLiveness`, whose
   phase is `opening` until the link opens, `recovering` while the owner holds an interruption
   (disconnected, or a restartable failed, until a `connected` event) and the route does not read
   `connected` (the condition under which its grace closes), `closed` once stopped, and `live`
@@ -1118,8 +1124,9 @@ RO-49 accepted-exception
 - **Current owners/flows:** the heartbeat monitor (`src/network/heartbeat-monitor.ts`) detaches
   and closes stale peers. It classifies transport grace and honours the transport's recovery
   lease through the pure read path `src/network/transport-health.ts` (`heartbeatStaleThreshold`,
-  `honoursRecoveryLease`): on a Standard-room connection the link-liveness owner's published
-  deadline (`linkLiveness.recoveryDeadline`, C5-8), otherwise `conn.iceRecoveryDeadline`; the
+  `honoursRecoveryLease`): on a Cloudflare connection (every `CloudflareDataConnection`, PRO
+  included) the link-liveness owner's published deadline (`linkLiveness.recoveryDeadline`, C5-8),
+  otherwise (PeerJS) `conn.iceRecoveryDeadline`; the
   transport grace and the link-liveness owner's close (RO-15) close independently.
   Detach is fenced by connection identity (`detachHostPeerConnection` in
   `src/network/host-peer-departure.ts`).
@@ -1168,7 +1175,8 @@ RO-49 accepted-exception
   `src/storage/preload.ts` (`_activePreloadUnicasts`, `_preloadPeerOwners`,
   `_suspendedPreloadLanes`; it suspends and resumes from chunk 0 on `network:peer-ice-recovered`).
   Both lanes read writability and the preload lanes read an interruption through
-  `transport-health.ts`, which on a Standard-room connection takes the original route from the
+  `transport-health.ts`, which on a Cloudflare connection (every `CloudflareDataConnection`, PRO
+  included, though PRO persistent media does not use these lanes) takes the original route from the
   link-liveness owner's phase (Phase 4 C5-8, RO-15): a lane stays paused while the owner holds the
   interruption, also while the restarted route reads `connecting`, and a side-only outage neither
   blocks bulk nor pauses preload. The preload lane asks `hasPendingCurrentFileTransfer`. A peer disconnect or replacement releases
@@ -1329,7 +1337,7 @@ RO-49 accepted-exception
   Phase 4 when the host re-detected the guest as local before the main lane started, with no
   recovery announcement since (C5-12, P4-D10 A), and a 9.0.9 guest still `unknown` takes the main
   header its own recovery request asked for (Codex P2 on #487). Writability and the preload pause
-  read the link-liveness owner on a Standard-room connection (C5-8, behaviour-risk: the restart
+  read the link-liveness owner on every Cloudflare connection (C5-8, behaviour-risk: the restart
   window that reads `connecting` now excludes the peer from a new bulk stream and pauses a preload
   lane until the owner's `connected`). The single bulk-lane registry stays a target; the lanes
   keep their own maps, policies and pumps. See

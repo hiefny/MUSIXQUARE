@@ -1,6 +1,7 @@
 // Resource owner: RO-15 (the original route's outage grace, published recovery
 // deadline and ICE-restart gate, the guest background-resume probe, and the one
-// close with its cause, of one Standard-room logical data connection).
+// close with its cause, of one Cloudflare logical data connection, Standard or
+// PRO room).
 import { MSG, RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import type { SideRouteFailure } from './control-isolation.ts';
@@ -86,12 +87,14 @@ function randomResumeProbePingId(): number {
 }
 
 /**
- * The single owner of whether one Standard-room logical data connection may
- * still recover (registry RO-15). Since Phase 4 C5-6 it owns the original
- * route's interruption, the 15 s grace, the wall-clock recovery deadline it
- * publishes and the gate that admits one ICE restart per interruption; since
- * C5-7 it also owns the guest background-resume probe, which reads both routes
- * and their channels. Since C5-8 the connection exposes it as its
+ * The single owner of whether one Cloudflare logical data connection (a
+ * Standard or PRO room's; a PRO connection has no side route and binds no
+ * restart) may still recover (registry RO-15). Since Phase 4 C5-6 it owns
+ * the original route's interruption, the 15 s grace, the wall-clock recovery
+ * deadline it publishes and the gate that admits one ICE restart per
+ * interruption; since C5-7 it also owns the guest background-resume probe,
+ * which reads both routes and their channels. Since C5-8 every connection
+ * exposes it as its
  * `linkLiveness` view, from which transport health reads the original route's
  * phase and the published deadline. Since C5-10 every close of the link
  * enters `close(cause)`, which keeps the first cause and is the only caller of

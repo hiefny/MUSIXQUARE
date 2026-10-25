@@ -154,6 +154,25 @@ function spyCloseCauseLines(): () => string[] {
       );
 }
 
+/**
+ * The armed managed timers of every connection made so far, by their key: the
+ * grace (`cloudflare-data-disconnected-grace-N`) and its two probe suffixes.
+ */
+function armedLinkTimerKeys(): string[] {
+  const keys: string[] = [];
+  for (let sequence = 1; sequence <= 10_000; sequence++) {
+    const grace = `cloudflare-data-disconnected-grace-${sequence}`;
+    for (const key of [
+      grace,
+      `${grace}-background-resume-liveness`,
+      `${grace}-background-resume-disconnected`,
+    ]) {
+      if (getManagedTimer(key) !== null) keys.push(key);
+    }
+  }
+  return keys;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   closeLines = spyCloseCauseLines();
@@ -241,6 +260,22 @@ describe('original-route transitions with a re-entrant state callback', () => {
     ]);
   });
 
+  it('on disconnected: the grace is armed and published before the side route hears it', async () => {
+    const e = await connection({
+      bound: true,
+      onStateChange: (conn, trace) => trace.push(['callback', conn.iceRecoveryDeadline]),
+    });
+    vi.spyOn(e.conn.controlIsolation!, 'originalChanged').mockImplementation(() => {
+      e.trace.push(['side', e.conn.iceRecoveryDeadline, armedLinkTimerKeys().length]);
+    });
+    const start = Date.now();
+    e.pc.state('disconnected');
+    expect(e.trace).toEqual([
+      ['callback', 0],
+      ['side', start + GRACE_MS, 1],
+    ]);
+  });
+
   it('on disconnected: a callback that closes the connection arms no grace and skips the side route', async () => {
     const e = await connection({
       bound: true,
@@ -294,6 +329,29 @@ describe('original-route transitions with a re-entrant state callback', () => {
     e.pc.state('connecting');
     expect(e.trace).toEqual([]);
     expect(e.conn.iceRecoveryDeadline).toBe(0);
+  });
+});
+
+describe("the connection's managed timer keys", () => {
+  it('names the grace cloudflare-data-disconnected-grace-N, numbered per connection, and the two probe timers after it', async () => {
+    const first = await connection({ bound: true });
+    first.pc.state('disconnected');
+    const [graceKey] = armedLinkTimerKeys();
+    const sequence = Number(/^cloudflare-data-disconnected-grace-(\d+)$/u.exec(graceKey!)?.[1]);
+    expect(Number.isSafeInteger(sequence)).toBe(true);
+    expect(armedLinkTimerKeys()).toEqual([graceKey]);
+
+    const second = await connection();
+    second.pc.connectionState = 'disconnected';
+    expect(second.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    second.pc.state('disconnected');
+    const next = `cloudflare-data-disconnected-grace-${sequence + 1}`;
+    expect(armedLinkTimerKeys()).toEqual([
+      graceKey,
+      next,
+      `${next}-background-resume-liveness`,
+      `${next}-background-resume-disconnected`,
+    ]);
   });
 });
 
@@ -676,6 +734,48 @@ describe('background-resume probe on the original route', () => {
     ]);
   });
 
+  it('keeps a running 1 s look on its first deadline when a second resume reads the route connected', async () => {
+    const e = await connection();
+    e.pc.connectionState = 'disconnected';
+    expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    await vi.advanceTimersByTimeAsync(400);
+    e.pc.connectionState = 'connected';
+    expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    // WebKit reports disconnected again without an event.
+    e.pc.connectionState = 'disconnected';
+    await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS - 400 - 1);
+    expect(e.conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(e.trace).toEqual(['close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-disconnected) for peer-0',
+    ]);
+  });
+
+  it('does not let a connected event settle the probe of a second resume that read connected', async () => {
+    const settled = await connection();
+    settled.pc.connectionState = 'disconnected';
+    expect(settled.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    settled.pc.state('connected');
+    // One resume that saw disconnected: the connected event settles its probe.
+    await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS);
+    expect(settled.conn.open).toBe(true);
+
+    const e = await connection();
+    e.pc.connectionState = 'disconnected';
+    expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    e.pc.connectionState = 'connected';
+    expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    e.pc.state('connected');
+    await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS - 1);
+    expect(e.conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(e.trace).toEqual(['side', 'close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-probe-unanswered) for peer-1',
+    ]);
+  });
+
   it('keeps a link whose grace fired against a stale connected read until the probe window ends', async () => {
     const e = await connection({ bound: true });
     e.pc.state('disconnected');
@@ -841,6 +941,7 @@ describe('LinkLiveness ports', () => {
     let open = options.open ?? true;
     let route: PeerConnection | undefined = new PeerConnection();
     let reenter: ((liveness: LinkLiveness) => void) | null = null;
+    let sideHook: (() => void) | null = null;
     // What the resume probe reads (C5-7): the side PC and the channels.
     const link = {
       side: undefined as PeerConnection | undefined,
@@ -873,7 +974,10 @@ describe('LinkLiveness ports', () => {
         trace.push(['changed', liveness.recoveryDeadline]);
         reenter?.(liveness);
       },
-      sideMayRestart: () => trace.push('side'),
+      sideMayRestart: () => {
+        trace.push('side');
+        sideHook?.();
+      },
       recovered: () => trace.push('recovered'),
     });
     if (options.bound ?? true) liveness.binding = 'negotiation_liveness_03';
@@ -889,6 +993,7 @@ describe('LinkLiveness ports', () => {
       setOpen: (value: boolean) => (open = value),
       replaceRoute: (value: PeerConnection | undefined) => (route = value),
       onChanged: (fn: ((liveness: LinkLiveness) => void) | null) => (reenter = fn),
+      onSide: (fn: (() => void) | null) => (sideHook = fn),
     };
   }
   type Owner = ReturnType<typeof owner>;
@@ -931,6 +1036,15 @@ describe('LinkLiveness ports', () => {
     expect(o.trace).toEqual([['snapshot', 0], ['changed', 0], 'side']);
     expect(o.liveness.recoveryDeadline).toBe(start + GRACE_MS);
     expect(getManagedTimer(KEY)).not.toBeNull();
+  });
+
+  it('arms and publishes the grace before the side route hears a disconnected', () => {
+    const o = owner();
+    const seen: unknown[] = [];
+    o.onSide(() => seen.push([getManagedTimer(KEY) !== null, o.liveness.recoveryDeadline]));
+    const start = Date.now();
+    o.transition('disconnected');
+    expect(seen).toEqual([[true, start + GRACE_MS]]);
   });
 
   it('arms no grace and skips the side route when the callback closes on disconnected', () => {
@@ -1300,6 +1414,32 @@ describe('LinkLiveness ports', () => {
       expect(closes(o.trace)).toEqual([]);
       await vi.advanceTimersByTimeAsync(1);
       expect(closes(o.trace)).toEqual([['close', 'resume-disconnected']]);
+    });
+
+    it('a second resume starts a probe that saw no disconnected and leaves a running 1 s look on its deadline', async () => {
+      const o = owner();
+      o.route()!.connectionState = 'disconnected';
+      expect(o.liveness.backgroundResume(60_000, false)).toBe('monitoring');
+      await vi.advanceTimersByTimeAsync(400);
+      // WebKit now reports connected without an event; the second resume reads it.
+      o.route()!.connectionState = 'connected';
+      expect(o.liveness.backgroundResume(60_000, false)).toBe('monitoring');
+      // The 1 s look the first resume armed is not cleared.
+      expect(armedTimers()).toEqual([true, true]);
+      // The new probe saw no disconnected, so a connected event does not settle it.
+      o.transition('connected');
+      expect(armedTimers()).toEqual([true, true]);
+      o.trace.length = 0;
+      await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS - 400 - 1);
+      expect(o.trace).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      // The look ends on the first resume's deadline, reads connected and keeps waiting.
+      expect(o.trace).toEqual([['snapshot', 0]]);
+      expect(armedTimers()).toEqual([true, false]);
+      await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS - 600 - 1);
+      expect(closes(o.trace)).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(closes(o.trace)).toEqual([['close', 'resume-probe-unanswered']]);
     });
 
     it('is not applicable without an armed probe', () => {

@@ -61,3 +61,11 @@ export const SW_CONTROLLER_CONFIRMED_KEY = 'sw-controller-confirmed-at';
 
 /** The localized "Update applied" toast the next document shows once. */
 export const UPDATE_COMPLETION_KEY = 'mxqr-swu';
+
+/**
+ * A Standard-room guest's last logical-connection close, "<cause> <epoch ms>",
+ * kept across its disconnect reload; the next document in the tab that logs
+ * info lines logs it once for `/debug console` (network/last-link-close.ts,
+ * Phase 4 4B, P4-D5 B).
+ */
+export const PREVIOUS_LINK_CLOSE_KEY = 'mxqr-prev-close';

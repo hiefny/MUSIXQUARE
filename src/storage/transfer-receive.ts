@@ -26,6 +26,7 @@ import {
   beginFileRequest,
   completeFileRequest,
   isCurrentFileRequestOwner,
+  isPendingRecoveryRequestFor,
   matchFileWaitResponse,
   sendFileRequest,
 } from '../network/file-request-authority.ts';
@@ -527,12 +528,26 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
   return false;
 }
 
-function shouldAcceptLocalDirectFileStart(data: Record<string, unknown>): boolean {
-  if (getState('network.connectionType') !== 'local') return false;
+/**
+ * A guest awaiting a preload takes a direct main FILE_START for that track
+ * while its route is 'local'. While its route is still 'unknown', it takes only
+ * the exact tuple its own recovery request asked for on this connection, on an
+ * admitted direct session (C5-12, RO-18): after ICE recovery the host may let
+ * the restarted preload yield once it has published 'local', but it sends that
+ * publication on the control route and this header on the independently
+ * ordered bulk channel, so the header can arrive first.
+ */
+function shouldAcceptLocalDirectFileStart(
+  data: Record<string, unknown>,
+  conn: DataConnection | undefined,
+): boolean {
+  const route = getState('network.connectionType');
+  if (route !== 'local' && route !== 'unknown') return false;
 
   const queueItemId = incomingQueueItemId(data);
   if (!queueItemId) return false;
-  if (isGuestR2FileDelivery(queueItemId, Number(data.sessionId))) return false;
+  const sessionId = Number(data.sessionId);
+  if (isGuestR2FileDelivery(queueItemId, sessionId)) return false;
 
   const pendingTarget = getState('playback.pendingRecoveryTarget');
   const meta = getState('transfer.meta');
@@ -542,8 +557,13 @@ function shouldAcceptLocalDirectFileStart(data: Record<string, unknown>): boolea
     meta?.queueItemId === queueItemId ||
     preloadTarget?.queueItemId === queueItemId;
   const isWaitingForPreload = getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD;
+  if (!isWaitingForPreload || !identityMatches) return false;
+  if (route === 'local') return true;
 
-  return isWaitingForPreload && identityMatches;
+  return (
+    isPendingRecoveryRequestFor(conn, queueItemId, sessionId) &&
+    isGuestDirectFileDelivery(queueItemId, sessionId)
+  );
 }
 
 function adoptIncomingTrackTarget(data: Record<string, unknown>): void {
@@ -1409,7 +1429,7 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     return;
   }
   if (!isRemoteGuest()) recordGuestFileDelivery(queueItemId, incomingSid, 'direct-local');
-  const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data);
+  const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data, conn);
 
   // Persistent PRO occurrences are participant-owned R2 downloads. Even a
   // same-session FILE_START from a stale coordinator must not be interpreted

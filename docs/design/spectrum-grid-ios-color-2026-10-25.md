@@ -119,12 +119,18 @@ macOS Safari에서도 생길 수 있지만 확인하지 않았다.
 
 ## Release and recovery
 
-오너 결정(2026-10-25)으로 이 수정은 YouTube 싱크 수정과 같은 9.0.8 배포에 실린다. 배포, release-record·
-release-history 기록, release-record §2의 iPhone 확인 항목 추가는 그 작업의 기록 PR이 맡는다. 되돌리면(App을
-9.0.7 / v778로) iOS에서 멈춤 화면의 눈금선이 다시 파래지는 것 말고는 바뀌는 것이 없다.
+오너 결정(2026-10-25)으로 이 수정은 YouTube 싱크 수정([#484](https://github.com/hiefny/MUSIXQUARE/pull/484))과
+한 번에 9.0.8 / v780으로 배포됐다. 9.0.8 / v779는 배포 전이라 캐시 epoch만 v780으로 올렸다. main `8c3fdcab`
+(이 수정은 `bd94075c`)로 [Release 40122870289](https://github.com/hiefny/MUSIXQUARE/actions/runs/40122870289)는
+App 배포 뒤 Standard HTTPS signaling smoke의 일시 502로 9.0.7로 자동 복구됐고(최종 경계 verified), 같은 SHA의
+[Release 40123156024](https://github.com/hiefny/MUSIXQUARE/actions/runs/40123156024)가 2026-10-25 04:00 KST에
+성공했다(App `1513bc69`, smoke 모두 success, 공개 SW v780,
+[Drift 40123389462](https://github.com/hiefny/MUSIXQUARE/actions/runs/40123389462) 31 pass / 0 fail / 5
+manual-only). release-record §2에 iPhone 확인 항목을 두었다. 되돌리면(App을 9.0.7 / v778로) iOS에서 멈춤
+화면의 눈금선이 다시 파래지고 일반방 YouTube 수정이 함께 빠진다.
 
 ## 한계
 
-실제 iPhone에서 결함과 수정을 확인하지 않았다(위 절차는 오너 몫). 원인은 WebKit 소스와 그 동작을 흉내 낸
+이 세션은 실제 iPhone에서 결함과 수정을 확인하지 않았다. 오너가 2026-10-25 9.0.8 실기기에서 정상으로 확인했다(기기·iOS 버전 목록은 받지 않음). 원인은 WebKit 소스와 그 동작을 흉내 낸
 단위 시험으로 밝혔고, 오너 기기의 iOS 버전에 해당 WebKit 코드가 들어 있는지는 확인하지 않았다. macOS
 Safari는 확인하지 않았다.

@@ -8,6 +8,7 @@ import {
   getCurrentFileRequestOwnerForTests,
   isCurrentFileRequestOwner,
   isFileRequestId,
+  isPendingRecoveryRequestFor,
   matchFileWaitResponse,
   resetFileRequestAuthority,
   sendFileRequest,
@@ -139,5 +140,57 @@ describe('file request authority', () => {
     ).toBe(false);
     expect(getCurrentFileRequestOwnerForTests()).toBeNull();
     expect(conn.send).not.toHaveBeenCalled();
+  });
+
+  // C5-12 (RO-18): before its route is published, a guest awaiting a preload
+  // takes a main FILE_START only for the exact tuple its own recovery asked for.
+  it('answers a pending recovery only for its sent request, connection and exact session', () => {
+    const conn = connection();
+    const owner = beginFileRequest(conn, QID_A, 7);
+    expect(isPendingRecoveryRequestFor(conn, QID_A, 7)).toBe(false);
+
+    expect(
+      sendFileRequest(owner, { type: MSG.REQUEST_DATA_RECOVERY, nextChunk: 0, fileName: 'a.wav' }),
+    ).toBe(true);
+    expect(isPendingRecoveryRequestFor(conn, QID_A, 7)).toBe(true);
+    expect(isPendingRecoveryRequestFor(connection(), QID_A, 7)).toBe(false);
+    expect(isPendingRecoveryRequestFor(conn, QID_B, 7)).toBe(false);
+    expect(isPendingRecoveryRequestFor(conn, QID_A, 8)).toBe(false);
+
+    expect(completeFileRequest(conn, QID_A, 7)).toBe(true);
+    expect(isPendingRecoveryRequestFor(conn, QID_A, 7)).toBe(false);
+  });
+
+  it('does not treat a current-file request, an unscoped recovery or a replaced one as pending', () => {
+    const conn = connection();
+    const current = beginFileRequest(conn, QID_A, 7);
+    expect(sendFileRequest(current, { type: MSG.REQUEST_CURRENT_FILE, name: 'a.wav' })).toBe(true);
+    expect(isPendingRecoveryRequestFor(conn, QID_A, 7)).toBe(false);
+
+    const unscoped = beginFileRequest(conn, QID_A);
+    expect(
+      sendFileRequest(unscoped, {
+        type: MSG.REQUEST_DATA_RECOVERY,
+        nextChunk: 0,
+        fileName: 'a.wav',
+      }),
+    ).toBe(true);
+    expect(isPendingRecoveryRequestFor(conn, QID_A, 7)).toBe(false);
+
+    const recovery = beginFileRequest(conn, QID_A, 7);
+    expect(
+      sendFileRequest(recovery, {
+        type: MSG.REQUEST_DATA_RECOVERY,
+        nextChunk: 0,
+        fileName: 'a.wav',
+      }),
+    ).toBe(true);
+    beginFileRequest(conn, QID_A, 7);
+    expect(isPendingRecoveryRequestFor(conn, QID_A, 7)).toBe(false);
+
+    const again = beginFileRequest(conn, QID_A, 7);
+    sendFileRequest(again, { type: MSG.REQUEST_DATA_RECOVERY, nextChunk: 0, fileName: 'a.wav' });
+    resetFileRequestAuthority();
+    expect(isPendingRecoveryRequestFor(conn, QID_A, 7)).toBe(false);
   });
 });

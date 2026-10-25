@@ -2,6 +2,12 @@
 
 Status: local implementation and verification; not deployed.
 
+2026-10-25: the Standard zero-start rule below that keeps real delayed host
+media progress out of the shared clock is superseded. The host now publishes its
+own speaker after a zero-start, as after a seek; see
+[YouTube host speaker reference after a zero-start](youtube-host-speaker-reference-2026-10-25.md).
+The Android 250 ms baseline and the removal of the applied host advance stand.
+
 ## Decision and scope
 
 The owner reported audio approximately 250 ms behind video on two Android

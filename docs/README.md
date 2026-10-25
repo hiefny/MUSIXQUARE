@@ -92,12 +92,55 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [Spectrum grid colour on iOS (2026-10-25)](design/spectrum-grid-ios-color-2026-10-25.md): 9.0.8 / v779
-  fix for the 100 Hz, 1 kHz and 10 kHz lines turning blue on iOS while paused. 8.11.40 (#442) reused one
+- [Phase 4 train 4C: one link-liveness owner per Cloudflare data connection (2026-10-25)](design/phase4-4c-link-liveness-2026-10-25.md):
+  evidence for the structure program's third Phase 4 app train (9.0.10 / v783, not yet released;
+  target `app`). One owner, `LinkLiveness`, now holds the original
+  route's 15 s grace, published recovery deadline and one-restart gate (C5-6), the guest
+  background-resume probe over both routes (C5-7) and every close of the link with its first
+  cause (C5-10, the connection part; C5-9 and the side route's own deadline stay out). Transport
+  health reads that owner's view (C5-8, the one behaviour change): while the owner holds an
+  original-route interruption whose restart reads `connecting` or `new`, the peer is no longer
+  bulk-writable and its preload lane stays paused until the owner's `connected`. The report lists
+  each increment with its tests-first evidence, the owner's decisions (deploy as soon as the
+  automated gates pass, device checks no longer a gate, no raw-versus-view log), the merge of
+  4B's final main, the review lows, the eager JS delta, mixed versions, and the device
+  procedures not yet run for C5-6, C5-7 and C5-8.
+
+- [Phase 4 train 4B: owner-chosen transport and rejoin behaviour changes (2026-10-25)](design/phase4-4b-behaviour-2026-10-25.md):
+  release evidence for the structure program's second Phase 4 app train (9.0.9 / v782,
+  released 2026-10-25 10:43 KST in Release 40151618508, target `app`). After ICE recovery a resumed
+  preload yields to the main file lane for the same tuple once the host has
+  re-detected the guest as local (C5-12, with its known limits; a 9.0.9 guest
+  still re-detecting its route takes the main header its own recovery request
+  asked for, Codex P2 on #487, and older guests keep that residual), on top of one
+  release call and a tuple query for both bulk lanes (reduced C5-11); error,
+  failed-join and PRO epoch closes name their own close cause; a Standard guest
+  keeps its last close cause across its disconnect reload for `/debug`; a PRO
+  listener's visible pause ends a pending rejoin retry; and demo playback no
+  longer arms the queue's canonical timeline. The report lists each increment
+  with its failing test, the owner's 2026-10-25 decisions (deploy as soon as the
+  automated gates pass, device checks no longer a gate), the close-cause rows
+  added to the device allow table, the P4-D9 trade-off, the C5-0 lab's
+  single-stream evidence, mixed-version rows, the PR, exact-main CI and release
+  round, and what was not device-checked.
+
+- [YouTube host speaker reference after a zero-start (2026-10-25)](design/youtube-host-speaker-reference-2026-10-25.md):
+  9.0.8 / v780 with #483, released 2026-10-25 04:00 KST in Release 40123156024 (target `app`). Owner
+  report: a Standard room's first YouTube playback stayed misaligned
+  however often the host pressed Sync, until a seek. Since 8.10.2 the host kept
+  its own media startup lateness out of the published room position, so every
+  guest re-aligned to a position the host speaker never played. The host now
+  removes only its deliberate advance, as a seek does. The report records a
+  real IFrame API startup probe, the host and guest Sync path comparison,
+  regression and lab evidence with tested SHAs, and the owner device check.
+
+- [Spectrum grid colour on iOS (2026-10-25)](design/spectrum-grid-ios-color-2026-10-25.md): 9.0.8
+  (released as v780 with #484 in Release 40123156024, 2026-10-25 04:00 KST) fix for the 100 Hz, 1 kHz and 10 kHz lines turning blue on iOS while paused. 8.11.40 (#442) reused one
   grid gradient object across draws. By WebKit's source, its GPU-process canvas recorder then elides that
   gradient after the batched resting line, so the grid strokes in the line's blue (not yet seen on a
   device). Each draw now creates its own gradient, pinned by unit tests that model the recorder; Chromium
   and Windows WebKit pixels are unchanged.
+
 - [Phase 4 train 4A: transport liveness and output rejoin, behaviour-neutral (2026-10-24)](design/phase4-4a-transport-rejoin-2026-10-24.md):
   release evidence for the structure program's first Phase 4 app train
   (9.0.7 / v778, released 2026-10-24 23:26 KST in Release 40102311205, target `app`). One home each for the

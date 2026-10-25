@@ -64,12 +64,18 @@ gh run list --workflow e2e.yml --branch main --limit 3
       검증(`b385fad0`): D0 묶음을 9.0.10 런타임 파일 위에서 다시 34/34, 단위 666 files / 15,594, 핵심 커버리지
       79 files / 3,074(`link-liveness.ts` 100), 가드(transport-health, dead-exports 20/20·76/76 그대로,
       resource-ownership 47 records / 437 files), 빌드 두 번과 초기 전송 예산(초기 JS 478,196 B, main
-      478,015 B 대비 +181 B, 유지 상한까지 13,372 B) PASS. 남은 것: origin/main #491 합침(registry RO-35는
-      삭제를 지키고, 최근 해결 근거의 #18 문단 끝 'C5-9는 결함이 나오지 않으면 하지 않는다'를 4D로 고침),
-      SemVer·SW 캐시 epoch bump(올리기 직전 origin/main 확인, 다른 앱 열차가 먼저 나가지 않으면 `9.0.11` /
-      `v784`), bump 뒤 `build:checked`·Worker 단위·critical E2E·C5-0 랩, 리뷰, PR CI, Codex, exact-main CI,
-      릴리스 smoke, 배포(target `app`, Developer API D1 `false`, 자동 게이트가 통과하면 바로). 로컬 결과는
-      exact-main-SHA 후보를 대신하지 않는다.
+      478,015 B 대비 +181 B, 유지 상한까지 13,372 B) PASS. origin/main #491은 `b7927afb`에서 합쳤다(registry
+      RO-35는 삭제를 지키고, 최근 해결 근거의 #18 문단 끝을 4D로 고침). 리뷰(코드 승인, 문서 지적) 반영으로
+      snapshot의 `controlOpen`을 필수 필드로 하고(타입만, 내보내는 JS 같음), 이 기록의 Phase 4 게이트 편차와
+      4C 범위 항목을 4D 결정에 맞추고, registry RO-15 문장을 코드와 가드 테스트에 맞췄다(단위 666 files /
+      15,594, 핵심 커버리지 79 files / 3,074, 가드 PASS, 보고서 QA 라운드 3). 구현 중 정한 세부(기한 값을
+      `RTC_INTERRUPTION_GRACE_MS`에서 끌어내 유예를 바꾸면 보조 경로 끊김 창과 상한도 함께 움직이고 peer 창은
+      그대로임, 관리 타이머로 바꾸지 않음, 원래 경로를 읽는 자리)는 오너가 맡긴 판단이고 오너 확인을 기다린다
+      (게이트 아님). 남은 것: SemVer·SW 캐시 epoch bump(올리기 직전 origin/main 확인, 다른 앱 열차가 먼저
+      나가지 않으면 `9.0.11` / `v784`), bump 뒤 `build:checked`·Worker 단위·critical E2E·C5-0 랩, PR CI,
+      Codex, exact-main CI, 릴리스 smoke, 배포(target `app`, Developer API D1 `false`, 자동 게이트가 통과하면
+      바로), 배포 기록 때 4D가 아래 4A 기기 라운드보다 먼저 나갔으면 그 항목의 '4C 위에서 처음 재는 기준선'
+      문장을 4D로 고침. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
       [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md).
 - [ ] 4D 배포 뒤 실기기 확인(게이트는 아니지만 되돌리기 판정, 오너 결정 2026-10-25 약 16:30 KST): Windows
       Chrome 방장과 같은 와이파이의 iPhone Safari 게스트(`?mxqrLog=info`, 할 수 있으면 Android Chrome도)로,
@@ -85,7 +91,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 - [ ] 4C 범위(오너 결정 2026-10-25 약 01:50 KST): 4A 때 기기 근거를 기다리며 보류한 C5-6·C5-7·C5-8(P4-D6 A, P4-D13 A)은 오너
       결정(2026-10-25 약 01:50 KST)으로 기기 근거가 코드의 게이트가 아니게 되어 4B 다음 자기 열차(4C)로
-      갔다. 4C는 C5-10의 연결 부분을 함께 싣고 C5-9는 싣지 않는다(Phase 4 밖, RO-35). `9.0.10` / `v783`(마지막
+      갔다. 4C는 C5-10의 연결 부분을 함께 싣고 C5-9는 싣지 않았다. C5-9는 그때 Phase 4 밖이었고(RO-35), #18
+      은퇴 뒤 오너 결정(2026-10-25 약 16:30 KST)으로 4D로 간다(위 4D 항목). `9.0.10` / `v783`(마지막
       런타임 커밋 `d52427e2`)으로 2026-10-25 14:41 KST [Release 40166305040](https://github.com/hiefny/MUSIXQUARE/actions/runs/40166305040)(target `app`)에 배포됐다(§1). 브랜치
       `agent/phase4-4c`(4B 브랜치 끝 `b1962ed5`에서 시작, origin/main `9fca1cad`를 `c23f3057`로 합침,
       리뷰 낮음 반영 `ab4ba114`)는 PR #489 squash `2038b51f`로 main에 들어갔다. 9.0.9는 배포됐으므로 SemVer와 SW 캐시
@@ -262,9 +269,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       오너 결정(2026-10-25 약 01:50 KST)이 시점 부분을 대신해, 4B는 4A 배포 7일 뒤나 4A 기기
       라운드를 기다리지 않고 자동 게이트가 통과하면 바로 나가며 기기 근거는 코드의 게이트가
       아니다. 4B는 축소 C5-11, C5-12, 새 종료 원인 토큰, P4-D5 B, P4-D7 B, P4-D9 좁은 수정을 싣고
-      C5-6·C5-7·C5-8은 4B 다음 자기 열차로 간다(4C로 2026-10-25 14:41 KST 배포됨. C5-10은 연결 부분만 싣고
-      C5-9는 Phase 4 밖이다, [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)). Phase 4의
-      앱 업데이트는 P4-D3 A의 두 번이 아니라 4C까지 세 번이 된다. ICE 복구 뒤 같은 파일을 두 레인으로 보내는
+      C5-6·C5-7·C5-8은 4B 다음 자기 열차로 간다(4C로 2026-10-25 14:41 KST 배포됨. C5-10은 연결 부분만
+      실었다, [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)). #18이 은퇴한 뒤 오너 결정(2026-10-25
+      약 16:30 KST)으로 C5-9와 C5-10의 제어 격리 부분이 네 번째 앱 열차 4D로 간다(기기 확인이 실패하면
+      9.0.10의 보조 경로 동작으로 forward revert, 위 4D 항목,
+      [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정)). 그래서 Phase 4의 앱 업데이트는
+      P4-D3 A의 두 번이 아니라 4D까지 네 번이 된다. ICE 복구 뒤 같은 파일을 두 레인으로 보내는
       경우(F4)는 단위 테스트와 랩 17초 끊김에서 재현했고(10초 끊김은 한 번 실행에서 미재현),
       오너는 본 레인이 이기게 했다(P4-D10 A, 2026-10-25, 4B의 C5-12).
       [4A 보고서의 오너 결정](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24),

@@ -959,7 +959,10 @@ RO-49 accepted-exception
   `sideGraceRunning`, `sideMaySignal` before restart signaling, `sideClosed`) and keeps the
   restart protocol: attempts, the 15 s peer-request and 30 s offer windows, epochs, candidates,
   fence and READY. The owner calls back `outageStarted`, `outageEnded` and `outageExpired`, and
-  on each original transition the connection's `sideMayRestart` port calls `mayRestart`.
+  on each original transition that is not holding back a side outage (the original route is up,
+  or no restartable side outage is held) the connection's `sideMayRestart` port calls
+  `mayRestart`; a transition that leaves the original down while such an outage is held only
+  marks it deferred, as control isolation's `originalChanged` returned early before C5-9.
 - **Target single owner:** the link-liveness owner `src/network/transport/link-liveness.ts`
   (the original route since C5-6, the resume probe since C5-7, the side route's outage deadline
   since C5-9) holding the per-route outage deadlines, the resume probe and one close with a
@@ -984,7 +987,11 @@ RO-49 accepted-exception
   (30 s) as its own literals: since C5-9 they bound only the peer restart requests and offers,
   which the two ends enforce on each other across builds, so a change to the grace must not move
   them (`control-isolation.test.ts` "keeps the 15 s peer-request window and the 30 s offer window
-  as literals").
+  as literals"). Before C5-9 the side outage window and cap were those two literals; since C5-9
+  they follow the grace (one grace and two graces, the same values today), so a change to
+  `RTC_INTERRUPTION_GRACE_MS` also moves the local side outage window and cap while the peer
+  windows stay. This coupling is an implementation choice the owner delegated in train 4D and has
+  not yet confirmed ([report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)).
 - **Anchor tests:**
   - Supersession: `src/network/transport/__tests__/cloudflare-signaling.test.ts` "rolls an
     unanswered restart back if the old path recovers before its answer".
@@ -1029,8 +1036,9 @@ RO-49 accepted-exception
     owner (C5-10)" (16 retired names since the 4C review added the connection's former first-cause
     field `closeCause`, 24 since train 4D added the side route's eight former deadline names) and
     "transport-health guard: the side outage deadline (C5-9)" (each of the eight names fails in
-    `control-isolation.ts` and in the connection, the owner may keep them, and the frozen C9
-    fixture, a test file, stays out of scope).
+    `control-isolation.ts` as a member, a call or a string key, `originalChanged` fails in the
+    connection, the owner may keep them, and the frozen C9 fixture, a test file, stays out of
+    scope; the guard itself flags them in any production file under `src/` but `link-liveness.ts`).
   - The side route's outage (C5-9): `src/network/transport/__tests__/side-route-outage-integration.test.ts`
     (two real connections, each with its real owner and side route, written and green on the
     9.0.10 code before the move, train 4D D0: the side's own 15 s, the original down before or
@@ -1109,7 +1117,9 @@ RO-49 accepted-exception
   private and is referenced only inside the owner's close port, and the owner calls that port
   only from `close(cause)`. The side route's outage was then the one second machine left on the
   resource (exception RO-35, deleted by C5-9). After known-accepted #18 retired on 2026-10-25
-  (the owner's Wi-Fi to LTE device check on production 9.0.10), the owner decided the same day
+  (the owner's Wi-Fi to LTE device check on production 9.0.10 with a Safari guest; an Android
+  phone, another SSID, a remote LTE guest moving to Wi-Fi and the host console were not checked;
+  [release record](../release-record.md#최근-해결-근거)), the owner decided the same day
   (about 16:30 KST) to do C5-9 as train 4D, with a forward revert to the 9.0.10 side-route
   behaviour if the later device check fails. C5-9 moved the side PC's outage into `LinkLiveness`
   without a behaviour change: 15 s per outage of a restartable route, deferred while the original

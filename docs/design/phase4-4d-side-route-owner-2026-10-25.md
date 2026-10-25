@@ -2,9 +2,9 @@
 
 | 항목      | 범위                                                                                                                                                                                                                                                                                                                                                                                                   |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 기준      | origin/main `a8dfd2ac`(4C 기록 #490. 런타임은 운영 9.0.10 / v783의 배포 SHA `2038b51f`와 같고, 그 뒤로는 문서만 바뀌었다). 브랜치를 자른 뒤 origin/main에 #491 `f91c538e`(문서만, #18 은퇴 기록)가 들어왔고, 이 보고서를 쓴 시점의 브랜치는 아직 그것을 합치지 않았다(아래 배포 전 남은 단계).                                                                                                         |
-| 4D 묶음   | 브랜치 `agent/phase4-4d`. D0 테스트 먼저 `ea6a5781`과 그 리뷰 반영 `72cdce0d`(테스트만), D1 C5-9 코드 `d5c66b9a`, D2 C5-10의 제어 격리 부분 `b385fad0`(가드, 테스트, 문서), 그 위에 이 보고서와 기록 커밋(문서만)이 있다.                                                                                                                                                                              |
-| 상태      | 배포 전. SemVer와 SW 캐시 epoch를 아직 올리지 않았고, main 합침, bump, 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke, 배포가 남았다. 오너 결정(2026-10-25 약 01:50 KST)대로 자동 게이트가 통과하면 따로 묻지 않고 낸다.                                                                                                                                                                              |
+| 기준      | origin/main `a8dfd2ac`(4C 기록 #490. 런타임은 운영 9.0.10 / v783의 배포 SHA `2038b51f`와 같고, 그 뒤로는 문서만 바뀌었다). 브랜치를 자른 뒤 origin/main에 #491 `f91c538e`(문서만, #18 은퇴 기록)가 들어왔고, 보고서 커밋 뒤 `b7927afb`에서 합쳤다(문서만, 아래 QA 라운드 3).                                                                                                                           |
+| 4D 묶음   | 브랜치 `agent/phase4-4d`. D0 테스트 먼저 `ea6a5781`과 그 리뷰 반영 `72cdce0d`(테스트만), D1 C5-9 코드 `d5c66b9a`, D2 C5-10의 제어 격리 부분 `b385fad0`(가드, 테스트, 문서), 그 위에 이 보고서와 기록 커밋 `00aacf99`(문서만), #491 합침 `b7927afb`(문서만), 리뷰 반영 `6c69651b`(타입, 테스트)와 그 문서 커밋이 있다.                                                                                  |
+| 상태      | 배포 전. SemVer와 SW 캐시 epoch를 아직 올리지 않았고, bump, bump 뒤 검증, PR CI, Codex, exact-main CI, 릴리스 smoke, 배포가 남았다. 오너 결정(2026-10-25 약 01:50 KST)대로 자동 게이트가 통과하면 따로 묻지 않고 낸다.                                                                                                                                                                                 |
 | 현재 증분 | 보조(격리 제어) 경로 PC의 끊김 기한을 `ControlIsolation`에서 `LinkLiveness`로 옮긴다(C5-9, 중립). 끊김당 15초, 원래 경로가 끊긴 동안 미룸, 원래 경로 회복 뒤 15초로 다시 걸되 끊김 시작에서 30초 상한, 재시작할 수 없는 경로의 15초 유예가 모두 주인에게 간다. 제어 격리는 재시작 통신(시도, 창, epoch, 후보, fence, READY)만 갖고, 정적 ratchet이 옛 기한 이름 여덟을 막는다(C5-10의 제어 격리 부분). |
 | 제품 식별 | 아직 올리지 않았다(운영은 `9.0.10` / `v783`). bump 단계에서 올리기 직전 origin/main을 다시 확인해 정한다. 그 사이 다른 앱 열차가 나가지 않으면 `9.0.11` / `v784`다.                                                                                                                                                                                                                                    |
 | 배포 대상 | 예정 target `app`, Developer API D1 `false`. 4D는 App 런타임 네 파일(`src/network/transport/`의 `control-isolation.ts`, `link-liveness.ts`, `cloudflare-signaling.ts`, `types.ts`)과 가드·테스트 설정(`scripts/check-transport-health.mts`, `vitest.critical.config.ts`)만 바꾼다. `cloudflare/`는 바뀌지 않았다(bump가 4A~4C처럼 App Worker의 `ADMIN_ASSET_VERSION` 한 줄을 바꿀 것이다).             |
@@ -40,13 +40,15 @@
   일부러 은퇴시키기 전까지 회귀 테스트로 남는다. 4D는 중립 이동이라 동결 fixture
   `control-isolation-c9.ts`와 제어 격리의 두 창 리터럴을 그대로 둔다(아래 혼합 버전).
 
-**구현 중 정한 세부(오너가 맡긴 판단, 2026-10-25).** 오너가 돌아와 다시 확인한다.
+**구현 중 정한 세부(오너가 맡긴 판단, 2026-10-25).** 오너 확인을 기다린다. 배포의 게이트는 아니고, 현재 릴리스
+기록의 4D 범위 항목에 남겨 두었다.
 
 - **기한 값은 `RTC_INTERRUPTION_GRACE_MS`에서 끌어낸다.** 끊김당 한 유예(15초), 상한은 두 유예(30초)다.
   바꾸기 전 제어 격리는 끊김 기한에 자기 리터럴 `RESTART_WINDOW_MS`(15,000)와 `RESTART_CAP_MS`(30,000)를,
   재시작할 수 없는 경로의 유예에 `RTC_INTERRUPTION_GRACE_MS`를 썼다. 값은 같다. 두 리터럴은 제어
   격리에 남아 이제 peer 재시작 요청과 offer만 묶는다. 두 끝이 서로에게 강제하는 창이라 유예가 바뀌어도
-  움직이면 안 된다.
+  움직이면 안 된다. 그 결과 앞으로 유예를 바꾸면 이 끝의 보조 경로 끊김 창과 상한도 함께 움직이고 peer
+  창은 그대로다(리뷰가 짚은 결합. registry RO-15의 타이밍 집에 적었다).
 - **관리 타이머로 바꾸지 않았다.** 보조 경로 기한은 바꾸기 전처럼 끊김마다 자기 원시 타이머 하나를
   쓰고(새 관리 타이머 키 없음) 단조 시계로 잰다. 보조 PC의 닫힘과 주인의 stop이 그 타이머를 지운다.
 - **원래 경로를 읽는 자리와 조건이 같다.** 주인은 원래 경로를 연결이 열리지 않았거나 멈췄거나 PC가
@@ -127,7 +129,9 @@ testsFirst). 고정한 것:
   끊김 기록의 기한·타이머·`originalDown`, `disconnectedTimer`, `armDeadline`, `restartExpired`,
   `endInterruption`, `beginInterruption`, `originalChanged`, `Options.originalReady`.
 - 연결은 자기 `LinkLiveness`를 보조 경로의 끊김 주인으로 넘기고, snapshot 포트에 원래 제어 채널
-  (`controlOpen`)을 더하며, `sideMayRestart` 포트가 `originalChanged` 대신 `mayRestart`를 부른다.
+  (`controlOpen`)을 더하며, `sideMayRestart` 포트가 `originalChanged` 대신 `mayRestart`를 부른다. 주인은
+  보조 끊김을 붙잡은 채 원래 경로가 끊긴 전이에서는 포트를 부르지 않고 미룸만 적는다(옛
+  `originalChanged`의 이른 반환과 같다). `controlOpen`은 리뷰 반영으로 필수 필드가 됐다(아래 QA 라운드 3).
   `types.ts`는 보기의 주석만 바뀌었다.
 - registry: RO-35(보조 경로 기한이 제어 격리에 남는 예외)는 그 대상이 없어져 지웠고(48 → 47 records),
   RO-15는 `owner-in-place`가 되어 기한 주인, 타이밍 집, anchor 테스트를 고쳤다. 실시간 런타임 소유권 ADR,
@@ -154,7 +158,8 @@ stop, 닫힘을 하나씩 바꾸면 각각 행이 실패한다(커밋 기록). �
   `originalDown` 플래그만 남는다). 9.0.10 트리(`a8dfd2ac`)에 돌리면 여덟 모두를 `control-isolation.ts`에서,
   `originalReady`와 `originalChanged`를 연결에서 잡는다. 동결 C9 fixture는 테스트 파일이라 범위 밖이고 옛
   유예 타이머를 그대로 갖는다.
-- 자기 테스트: 새 describe가 각 이름을 제어 격리(멤버, 호출, 문자열 키)와 연결에 다시 심어 발견을 보이고,
+- 자기 테스트: 새 describe가 여덟 이름을 모두 제어 격리(멤버, 호출, 문자열 키)에, `originalChanged`를 연결에
+  다시 심어 발견을 보이고(가드 자체는 `link-liveness.ts` 밖 `src/`의 모든 production 파일에서 여덟을 잡는다),
   주석이나 다른 문자열은 세지 않으며, 주인은 그 이름을 가져도 되고, fixture는 범위 밖임을 고정한다. 실제
   트리 수치는 그 때문에만 움직인다: 은퇴 이름 16 → 24, 주인 안에서 허용되는 이름의 쓰임 6 → 13
   (`originalDown` 7회). 여덟 항목을 빼면 네 행이 실패한다.
@@ -215,16 +220,56 @@ stop, 닫힘을 하나씩 바꾸면 각각 행이 실패한다(커밋 기록). �
 | 빌드 바이트      | `npm run build` 두 번, 두 번 모두 `guard:initial-transfer-budget` PASS. 두 번째 빌드를 `measureInitialTransfer`로 재서 초기 JS 478,196 B, 진입 청크 `main-CnH4m-NG.js`(raw 364,761 B, 4C와 같음), peer 청크 gzip 103,560 B로 D1 커밋의 값과 같다(아래 초기 JS 예산).                                                                       |
 | SKIP             | `build:checked`(bump 전이라 `guard:sw-cache-version`이 설계대로 실패한다), Worker 단위와 `check:workers`(`cloudflare/` 변경 없음, bump 뒤에 돌린다), `test:e2e:critical`(PeerJS 경로라 보조 경로를 타지 않는다), C5-0 랩, 실제 기기, WebKit, PR CI·Codex·exact-main CI·릴리스 smoke(이 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다). |
 
+### 3. #491 합침과 리뷰 반영 (2026-10-25)
+
+`00aacf99`에 대한 리뷰 두 갈래(코드: 승인, 높음·중간 없음, 낮음 3. 문서: 중간 1, 낮음 3)를 반영했다. 검증
+대상은 `b7927afb`(#491 합침) 위의 리뷰 반영 `6c69651b`(문서 커밋은 그 위에 문서만 더한다)이고, 환경은 위와 같다.
+
+- **코드 낮음 1(#491 미합침):** `b7927afb`에서 합쳤다(아래 배포 전 남은 단계).
+- **코드 낮음 2(`controlOpen` 선택 필드):** `LinkSnapshot.controlOpen`을 필수로 했다. 빠뜨린 snapshot
+  포트가 원래 경로를 늘 끊긴 것으로 읽어 모든 보조 끊김을 30초 상한까지 붙잡고 재시작 신호를 보내지
+  않는 일을 이제 타입 오류가 막는다. 비교 `=== true`는 그대로라 내보내는 JS가 같다(`link-liveness.ts`를
+  바꾸기 전과 뒤로 esbuild minify한 결과가 바이트 단위로 같음). 그래서 빌드 바이트는 라운드 2의 값
+  그대로다. 이 필드를 주지 않던 테스트 snapshot 다섯 곳(`link-liveness.test.ts` 둘, 미리받기·bulk 레인
+  묶음 셋)에 값을 넣었고(그 묶음들은 보조 끊김을 몰지 않아 읽히지 않는다),
+  `link-liveness-side-outage.test.ts`의 '값 없음' 한 줄은 '닫힌 제어 채널'(`false`)로 바꿨다.
+- **코드 낮음 3(기한 값과 유예의 결합):** 코드는 그대로 두고, 유예를 바꾸면 보조 경로 끊김 창과 상한도
+  함께 움직이고 peer 창은 그대로라는 점을 registry RO-15의 타이밍 집과 위 오너 결정의 세부에 적었다.
+  오너 확인을 기다리는 판단이다.
+- **문서 중간(낡은 Phase 4 범위 문장):** 현재 릴리스 기록의 Phase 4 게이트 편차 항목('C5-9는 Phase 4
+  밖', '4C까지 세 번')과 4C 범위 항목의 'C5-9는 싣지 않는다(Phase 4 밖)'를 4D 결정(오너 결정
+  2026-10-25 약 16:30 KST, 4D까지 네 번, 실패 시 forward revert)으로 고쳤다.
+- **문서 낮음(가드 자기 테스트 설명):** registry RO-15와 D2 설명을 테스트에 맞췄다. 여덟 이름은 모두
+  `control-isolation.ts`에 심고, 연결에는 `originalChanged`만 심는다.
+- **문서 낮음(`sideMayRestart` 설명):** RO-15를 코드에 맞췄다. 보조 끊김을 붙잡은 채 원래 경로가 끊긴
+  전이에서는 포트를 부르지 않는다.
+- **문서 낮음(배포 전 상태의 남은 문장):** 4A 기기 라운드의 기준선 문장은 4D 배포 기록 때 고칠 일로
+  아래 남은 단계와 기록의 4D 항목에 적었다. 8.11.25 보조 연결 ICE restart 항목은 합침으로 지워졌다.
+  '오너가 돌아와 다시 확인한다'는 문장은 기록의 4D 항목에 오너 확인 대기로 남겼다.
+
+| 검사          | 결과와 범위                                                                                                                                                                                                                                          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 정적          | `tsc --noEmit`, `typecheck:tests` PASS. 바뀐 TS 파일 여섯의 `prettier --check`와 `eslint` PASS.                                                                                                                                                      |
+| 단위 전체     | `vitest run --maxWorkers=6` 666 files / 15,594 tests PASS, FAIL 0(236초).                                                                                                                                                                            |
+| 핵심 커버리지 | `vitest.critical.config.ts` 커버리지(출력은 scratch) 79 files / 3,074 tests PASS, 하한 유지. `link-liveness.ts` 176/176 줄, 160/160 분기, 29/29 함수.                                                                                                |
+| 가드          | transport-health(은퇴 이름 24), dead-exports(테스트 전용 20/20, 자기만 76/76), `check-resource-ownership`(47 records / 437 files), import-graph, source-complexity, bus-pairing, lifecycle-writes PASS. release-identity는 `9.0.10` / `v783` 그대로. |
+| 동결 fixture  | `control-isolation-c9.ts`는 `a8dfd2ac`와 같다. 런타임 파일은 여전히 네 개이고 `cloudflare/`는 바뀌지 않았다.                                                                                                                                         |
+| SKIP          | 빌드(내보내는 JS가 같아 라운드 2의 바이트를 그대로 쓴다), 라운드 2와 같은 SKIP 전부.                                                                                                                                                                 |
+
 ## 배포 전 남은 단계
 
-- **origin/main 합침.** #491 `f91c538e`(문서만)는 registry RO-35의 색인 행과 기록을 고쳤다. D1이 RO-35를
-  지웠으므로 그 두 곳은 삭제를 지킨다. 같은 PR이 release-record의 최근 해결 근거에 둔 #18 문단은 끝에서
-  'C5-9는 결함이 나오지 않으면 하지 않는다(registry RO-35, P4-D6 A)'라고 적었으므로, 합칠 때 4D(오너 결정
-  2026-10-25 약 16:30 KST)를 가리키게 고친다. 런타임 파일은 겹치지 않는다.
+- **origin/main 합침(끝남).** `b7927afb`에서 #491 `f91c538e`(문서만)를 합쳤다. registry는 RO-35의 색인
+  행과 기록에서 충돌했고 삭제를 지켰다(RO-15는 `owner-in-place` 그대로). release-record의 최근 해결 근거에
+  있는 #18 문단 끝('C5-9는 결함이 나오지 않으면 하지 않는다')은 4D(오너 결정 2026-10-25 약 16:30 KST)를
+  가리키게 고쳤다. 리뷰 반영 커밋이 같은 기록의 Phase 4 게이트 편차 항목('C5-9는 Phase 4 밖', '4C까지 세
+  번')과 4C 범위 항목의 남은 문장도 4D 결정으로 고쳤다. known-accepted와 두 #18 근거 보고서의 #491 문장은
+  그대로다. 런타임 파일은 겹치지 않는다.
 - **bump와 최종 검증.** 올리기 직전 origin/main을 다시 확인하고 SemVer와 SW 캐시 epoch를 함께 올린다. bump
   뒤 `build:checked` 전체, Worker 단위와 `check:workers`, 단위 전체, 핵심 커버리지, `test:e2e:critical`, C5-0
   랩(보조 PC가 failed에 닿은 뒤의 재시작 회복 행 포함)을 돌린다.
 - **리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke, 배포.** 배포 뒤 release-record §1과 이력 한 줄을 쓴다.
+  4D가 그 기기 라운드보다 먼저 나가면, 같은 기록 커밋에서 '4A 배포 뒤 실기기 확인' 항목의 '4C 위에서 처음
+  재는 기준선' 문장을 4D로 고친다.
 
 ## 혼합 버전
 

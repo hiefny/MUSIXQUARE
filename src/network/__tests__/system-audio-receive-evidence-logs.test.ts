@@ -359,6 +359,36 @@ describe('Standard SFU receive evidence lines', () => {
     expect(primerEvidence()).toEqual([['info', SFU_PRIMED]]);
   });
 
+  it("logs connected and a primer again for a re-publication's track, once per subscription", async () => {
+    await start();
+    await ready('rt_host_session_a');
+    await advance(SFU_SUBSCRIBED_AT_MS);
+    const first = getSystemAudioSfuDebugSnapshot().guest.sessionId;
+
+    // The host re-publishes while this guest receives: the teardown keeps the
+    // receiving flag, and the new subscription's attach starts the reception
+    // again (C4-4 keeps this per subscription, not per slot).
+    await ready('rt_host_session_b');
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    await advance(SFU_SUBSCRIBED_AT_MS);
+    const second = getSystemAudioSfuDebugSnapshot().guest.sessionId;
+    expect(second).not.toBe(first);
+    expect(webAudio.connectedTrackIds()).toEqual(['sfu-remote-audio-2']);
+
+    expect(routeEvidence()).toEqual([
+      ['info', SFU_CONNECTED],
+      ['info', sfuSubscribed(first)],
+      ['info', SFU_CONNECTED],
+      ['info', sfuSubscribed(second)],
+    ]);
+    expect(primerEvidence()).toEqual([
+      ['info', SFU_PRIMED],
+      ['info', SFU_PRIMED],
+    ]);
+    expect(primerTrackIds()).toEqual([['sfu-remote-audio-2']]);
+    expect(seen.counts.visualizerStarts).toBe(2);
+  });
+
   it('logs a blocked primer at warn with the SFU prefix; audio still attaches', async () => {
     const blocked = new DOMException('play() was blocked', 'NotAllowedError');
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockRejectedValue(blocked);

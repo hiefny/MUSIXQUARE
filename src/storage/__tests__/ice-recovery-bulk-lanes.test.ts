@@ -15,6 +15,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData, resetInboundRateLimit } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
+import { LinkLiveness } from '../../network/transport/link-liveness.ts';
 import { finalizeGuestFile, loadPreloadedTrack } from '../../player/decode.ts';
 import { initPlayback } from '../../player/playback.ts';
 import { resetFileDeliveryPolicies } from '../../share/file-delivery-policy.ts';
@@ -96,6 +97,12 @@ const REDETECTED_AT = RECOVER_AT + 10;
 const REANNOUNCED_AT = RECOVER_AT + 12;
 const REDETECTED_AGAIN_AT = RECOVER_AT + 20;
 const LATE_REQUEST_AT = RECOVER_AT + 30;
+// The owner-view path (OwnerView): the original route's ICE restart is in
+// flight and reads connecting when a selected-pair change reports recovery,
+// and the host may re-detect and publish a route before the owner hears
+// connected at RECOVER_AT.
+const CONNECTING_AT = RECOVER_AT - 1_000;
+const CONNECTING_REDETECTED_AT = CONNECTING_AT + 10;
 
 type Frame = Record<string, unknown>;
 interface Sent {
@@ -105,6 +112,20 @@ interface Sent {
 type RequestArrival = 'during-outage' | 'after-recovery';
 /** The host's re-detected route for the guest after recovery; 'pending' never resolves here. */
 type HostRoute = 'local' | 'remote' | 'pending';
+
+/**
+ * The owner-view path (Phase 4 C5-8). Without it the connection has no
+ * link-liveness owner and transport health reads the peer connection's own
+ * state (the PeerJS path). With it a real LinkLiveness, as every Cloudflare
+ * connection exposes it, hears each original-route transition, and its
+ * `recovered` port is the connection's 'ice-recovered' on connected. Before
+ * that, the restarted route reads connecting when a selected-pair change
+ * reports recovery (the connection's other 'ice-recovered').
+ */
+interface OwnerView {
+  /** The route the host re-detects and publishes after that report, before connected. */
+  readonly publishedWhileConnecting: HostRoute;
+}
 
 const PLAY: Sent = {
   at: PLAY_AT,
@@ -159,12 +180,14 @@ afterEach(async () => {
 /**
  * The host, driven through the real preload, file-send and recovery modules.
  * `reannounced` adds a second recovery announcement after the first route was
- * published, with the route that re-detection then publishes.
+ * published, with the route that re-detection then publishes. `view` reads
+ * the connection through its link-liveness owner (OwnerView).
  */
 async function runHost(
   requestArrives: RequestArrival,
   route: HostRoute = 'local',
   reannounced?: HostRoute,
+  view?: OwnerView,
 ) {
   const sent: Sent[] = [];
   // Every preload lane line the host logs for this guest, with its level.
@@ -178,6 +201,14 @@ async function runHost(
   const channel = { readyState: 'open', bufferedAmount: 0 };
   const pc: { connectionState: RTCPeerConnectionState; iceConnectionState: RTCIceConnectionState } =
     { connectionState: 'connected', iceConnectionState: 'connected' };
+  const original = pc as unknown as RTCPeerConnection;
+  let liveness: LinkLiveness | null = null;
+  // One original-route transition, heard by the owner on the view path.
+  const routeChanged = (state: RTCPeerConnectionState, ice: RTCIceConnectionState): void => {
+    pc.connectionState = state;
+    pc.iceConnectionState = ice;
+    liveness?.routeChanged(original);
+  };
   const t0 = Date.now();
   const conn = {
     open: true,
@@ -191,11 +222,41 @@ async function runHost(
       if (frame.chunk instanceof Uint8Array) channel.bufferedAmount += frame.chunk.byteLength;
       if (sent.length === 2) {
         channel.bufferedAmount = 1024 * 1024;
-        pc.connectionState = 'disconnected';
-        pc.iceConnectionState = 'disconnected';
+        routeChanged('disconnected', 'disconnected');
       }
     }),
   } as unknown as DataConnection;
+  const reclassify = (connectionType: ConnectedPeer['connectionType']) =>
+    setState(
+      'network.connectedPeers',
+      getState('network.connectedPeers').map((candidate) =>
+        candidate.conn === conn ? { ...candidate, connectionType } : candidate,
+      ),
+    );
+  // host.ts on the connection's 'ice-recovered': announce the recovery, then
+  // reclassify the route as unknown until its re-detection publishes the result.
+  const announce = (): void => {
+    bus.emit('network:peer-ice-recovered', conn);
+    reclassify('unknown');
+  };
+  if (view) {
+    const owner: LinkLiveness = new LinkLiveness('ice-recovery-bulk-lanes-grace', {
+      route: () => original,
+      open: () => conn.open,
+      snapshot: () => ({ original, side: undefined, channelsOpen: true, sideChannelDown: false }),
+      ping: () => undefined,
+      close: () => {
+        owner.stop();
+        conn.open = false;
+      },
+      changed: () => undefined,
+      sideMayRestart: () => undefined,
+      recovered: announce,
+    });
+    owner.binding = 'negotiation_ice_recovery_bulk_lanes_01';
+    Object.assign(conn, { linkLiveness: owner });
+    liveness = owner;
+  }
   // A live route drains one chunk per 25 ms; an interrupted one holds its backlog.
   const drain = setInterval(() => {
     if (pc.connectionState === 'connected') {
@@ -253,24 +314,26 @@ async function runHost(
   await vi.advanceTimersByTimeAsync(REQUEST_AT - PLAY_AT);
   // An isolated control route can carry the request while the original is down.
   if (requestArrives === 'during-outage') served = handleData(request, conn);
-  await vi.advanceTimersByTimeAsync(RECOVER_AT - REQUEST_AT);
-
-  const reclassify = (connectionType: ConnectedPeer['connectionType']) =>
-    setState(
-      'network.connectedPeers',
-      getState('network.connectedPeers').map((candidate) =>
-        candidate.conn === conn ? { ...candidate, connectionType } : candidate,
-      ),
-    );
-  // host.ts order: announce the recovery, then reclassify the route as unknown
-  // until its re-detection publishes the result.
-  channel.bufferedAmount = 0;
-  pc.connectionState = 'connected';
-  pc.iceConnectionState = 'connected';
-  bus.emit('network:peer-ice-recovered', conn);
-  reclassify('unknown');
   const advanceTo = (at: number) =>
     vi.advanceTimersByTimeAsync(Math.max(0, at - (Date.now() - t0)));
+  if (view) {
+    // The owner still holds the interruption: the report announces a recovery
+    // that resumes nothing (transport health reads the phase as recovering).
+    await advanceTo(CONNECTING_AT);
+    routeChanged('connecting', 'checking');
+    announce();
+    if (view.publishedWhileConnecting !== 'pending') {
+      await advanceTo(CONNECTING_REDETECTED_AT);
+      reclassify(view.publishedWhileConnecting);
+      bus.emit('orchestrator:peer-type-detected', GUEST_PEER, false);
+    }
+  }
+  await advanceTo(RECOVER_AT);
+
+  channel.bufferedAmount = 0;
+  routeChanged('connected', 'connected');
+  // On the owner-view path the owner's recovered port has announced it.
+  if (!liveness) announce();
   if (route !== 'pending') {
     await advanceTo(REDETECTED_AT);
     reclassify(route);
@@ -278,9 +341,9 @@ async function runHost(
   }
   if (reannounced) {
     // The connection stays connected; host.ts announces again, then resets.
+    // On the owner-view path this is a selected-pair change on a live route.
     await advanceTo(REANNOUNCED_AT);
-    bus.emit('network:peer-ice-recovered', conn);
-    reclassify('unknown');
+    announce();
     if (reannounced !== 'pending') {
       await advanceTo(REDETECTED_AGAIN_AT);
       reclassify(reannounced);
@@ -611,6 +674,83 @@ describe('one stream per tuple after ICE recovery (C5-12, P4-D10 A)', () => {
 
   it('the restarted preload yields again once the host re-publishes local after a second announcement', async () => {
     expectRestartYielded(await runHost('after-recovery', 'local', 'local'), REDETECTED_AGAIN_AT);
+  });
+});
+
+/**
+ * The same host rows through the connection's link-liveness owner (Phase 4
+ * C5-8, OwnerView). The selected-pair report while the restart reads
+ * connecting resumes nothing (no restarted lane exists yet to revoke); the
+ * owner's connected restarts the lane as route-pending, and only a 'local'
+ * published after that lets it yield. A later announcement on the live route
+ * revokes the yield as on the raw path. A revocation while the owner holds a
+ * new interruption has no row of its own: the restarted lane then pauses at
+ * its next check (canContinue asks suspendPreloadPeer before the yield), and
+ * the next connected restarts a fresh route-pending lane.
+ */
+describe('one stream per tuple through the link-liveness owner view (C5-8)', () => {
+  const NOT_PUBLISHED: OwnerView = { publishedWhileConnecting: 'pending' };
+
+  /** The connecting report resumed nothing: no preload frame until the owner's connected. */
+  function expectNothingResumedWhileConnecting({ sent }: HostRun): void {
+    expect(
+      sent.filter(
+        ({ at, frame }) =>
+          at >= CONNECTING_AT && at < RECOVER_AT && String(frame.type).startsWith('preload-'),
+      ),
+    ).toEqual([]);
+  }
+
+  it.each(['pending', 'local'] as const)(
+    'the restarted preload waits for its owner to hear connected, then yields to a main lane that starts after the host re-detects the guest as local (published while connecting: %s)',
+    async (publishedWhileConnecting) => {
+      const run = await runHost('after-recovery', 'local', undefined, {
+        publishedWhileConnecting,
+      });
+      expectNothingResumedWhileConnecting(run);
+      expectRestartYielded(run, REDETECTED_AT);
+    },
+  );
+
+  // A 'local' published before the owner's connected settles no lane: the
+  // lane restarts only then, as route-pending, and the announcement resets the
+  // route, so it waits for the next publication.
+  it('the restarted preload keeps going when the host published local only while the route read connecting', async () => {
+    const run = await runHost('after-recovery', 'pending', undefined, {
+      publishedWhileConnecting: 'local',
+    });
+    expectNothingResumedWhileConnecting(run);
+    expectRestartKept(run, LATE_REQUEST_AT);
+  });
+
+  it.each([
+    { arrival: 'during-outage', route: 'local' },
+    { arrival: 'during-outage', route: 'remote' },
+    { arrival: 'after-recovery', route: 'remote' },
+    { arrival: 'during-outage', route: 'pending' },
+    { arrival: 'after-recovery', route: 'pending' },
+  ] as const)(
+    'the restarted preload keeps going through the owner view when the request arrives $arrival and the host re-detects $route',
+    async ({ arrival, route }) => {
+      const run = await runHost(arrival, route, undefined, NOT_PUBLISHED);
+      expectNothingResumedWhileConnecting(run);
+      expectRestartKept(run, arrival === 'during-outage' ? REQUEST_AT : LATE_REQUEST_AT);
+    },
+  );
+
+  it.each(['remote', 'pending'] as const)(
+    'the restarted preload keeps going through the owner view when a second recovery announcement after local re-detects %s',
+    async (reannounced) => {
+      const run = await runHost('after-recovery', 'local', reannounced, NOT_PUBLISHED);
+      expectNothingResumedWhileConnecting(run);
+      expectRestartKept(run, LATE_REQUEST_AT);
+    },
+  );
+
+  it('the restarted preload yields again through the owner view once the host re-publishes local after a second announcement', async () => {
+    const run = await runHost('after-recovery', 'local', 'local', NOT_PUBLISHED);
+    expectNothingResumedWhileConnecting(run);
+    expectRestartYielded(run, REDETECTED_AGAIN_AT);
   });
 });
 

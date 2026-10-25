@@ -848,6 +848,42 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       expect(analyzeResourceOwnership(realInput()).receiveSlotWrites).toEqual(TODAY);
     });
 
+    it('allows no route adapter a direct write: one there is unsanctioned, not a raised count', () => {
+      // The routes that receive into the slot: the Standard direct call and
+      // SFU, the PRO coordinator and its two transports.
+      const routes = [
+        'src/network/system-audio-guest.ts',
+        'src/network/system-audio-sfu.ts',
+        'src/pro-room/system-audio-service.ts',
+        'src/network/pro-system-audio-sfu.ts',
+        'src/network/pro-system-audio-direct.ts',
+      ];
+      const report = analyzeResourceOwnership(
+        withSources((sources) => {
+          for (const route of routes) {
+            expect(sources.has(route)).toBe(true);
+            sources.set(
+              route,
+              `${sources.get(route) ?? ''}\n` +
+                'export function rogueAttach(source: AudioNode, widener: { input: AudioNode }): void {\n' +
+                '  source.connect(widener.input);\n' +
+                '  setSystemAudioReceiving(true);\n' +
+                "  claimPlaybackOwner('system-audio');\n" +
+                "  batchSetState({ 'systemAudio.isReceiving': true });\n" +
+                '}\n',
+            );
+          }
+        }),
+      );
+      const findings = report.findings.join('\n');
+      for (const route of routes) {
+        for (const label of Object.keys(TODAY)) {
+          expect(findings).toContain(`UNSANCTIONED ${label} (RO-04): ${route} has 1 - `);
+        }
+      }
+      expect(findings).not.toMatch(/RATCHET REGRESSION|STALE BASELINE/u);
+    });
+
     it('rejects a new route that writes the slot directly, called or passed on', () => {
       const report = analyzeResourceOwnership(
         withSources((sources) => {

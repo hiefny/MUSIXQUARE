@@ -7,9 +7,6 @@ import type { DataConnection, MediaConnection, TrackMeta } from '../../types/ind
 import { handleData } from '../protocol.ts';
 import { markQueueAuthorityReady } from '../queue-authority.ts';
 import {
-  awaitTrustedSystemAudioReceptionBoundary,
-  beginTrustedSystemAudioReception,
-  cleanupGuestSystemAudio,
   getSystemAudioGuestDebugSnapshot,
   registerSystemAudioGuestListeners,
 } from '../system-audio-guest.ts';
@@ -29,6 +26,9 @@ import {
   resetGuestSystemAudioShareRoute,
 } from '../system-audio-delivery.ts';
 import {
+  awaitTrustedSystemAudioReceptionBoundary,
+  beginTrustedSystemAudioReception,
+  endTrustedSystemAudioReception,
   handOffTrustedSystemAudioReception,
   registerSystemAudioReceiveRoute,
 } from '../system-audio-receive-slot.ts';
@@ -234,7 +234,7 @@ describe('system audio guest receive watchdog', () => {
 
   beforeEach(() => {
     sfuDeadlineReaction = () => undefined;
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
     resetState();
     bus.clear();
     vi.clearAllMocks();
@@ -568,7 +568,7 @@ describe('system audio guest receive watchdog', () => {
     setSystemAudioReceiving(true);
     claimPlaybackOwner('system-audio');
 
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
 
     expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
     expect(getState('systemAudio.isReceiving')).toBe(false);
@@ -931,11 +931,11 @@ describe('system audio guest receive watchdog', () => {
     );
   });
 
-  // Phase 5 C4-2 moves the trusted reception (its generation, boundary
+  // Phase 5 C4-2 moved the trusted reception (its generation, boundary
   // waiters, restore point, receive watchdog, begin and cleanup) out of this
-  // module into the receive slot, and this module keeps the names below as
-  // aliases. These pin that machine through the names the Standard SFU and
-  // PRO routes call, before the move.
+  // module into the receive slot. These pin that machine, written before the
+  // move, through the names the Standard SFU and PRO routes call: the slot's
+  // own (this module's compatibility aliases of them until C4-8).
   describe('trusted reception: generation, waiters, restore point and watchdog', () => {
     function settledValue(wait: Promise<boolean>): { value: boolean | undefined } {
       const result: { value: boolean | undefined } = { value: undefined };
@@ -985,7 +985,7 @@ describe('system audio guest receive watchdog', () => {
       const first = settledValue(awaitTrustedSystemAudioReceptionBoundary('STEREO'));
       const second = settledValue(awaitTrustedSystemAudioReceptionBoundary('sfu-stereo'));
 
-      cleanupGuestSystemAudio();
+      endTrustedSystemAudioReception();
       await flushAsyncStreamHandler();
 
       expect(first.value).toBe(false);
@@ -1149,7 +1149,7 @@ describe('system audio guest receive watchdog', () => {
       });
 
       // As the Standard SFU and PRO routes call it.
-      cleanupGuestSystemAudio();
+      endTrustedSystemAudioReception();
 
       expect(replacement.mediaConn.close).toHaveBeenCalledOnce();
       expect(source.disconnect).toHaveBeenCalledOnce();

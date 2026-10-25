@@ -873,6 +873,10 @@ describe('ordered host bootstrap phases', () => {
     }
 
     expect(conn.close).toHaveBeenCalledExactlyOnceWith();
+    expect(mocks.info).toHaveBeenCalledWith(
+      '[Host] Refused a data connection in a PRO room:',
+      conn.peer,
+    );
     expect(conn.send).not.toHaveBeenCalled();
     expect(bootstrapped).not.toHaveBeenCalled();
     expect(connected).not.toHaveBeenCalled();

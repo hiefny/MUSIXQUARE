@@ -406,6 +406,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
   // can reach a PRO endpoint only through a Peer that outlived its Standard
   // room, so refuse it before it gets a slot, a label or any authority.
   if (getRoomContext().kind === 'pro') {
+    log.info('[Host] Refused a data connection in a PRO room:', conn.peer);
     try {
       conn.close();
     } catch {

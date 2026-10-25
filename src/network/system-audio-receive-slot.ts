@@ -21,8 +21,12 @@
  * handoff (handOffTrustedSystemAudioReception) and the receive deadline's
  * expiry with its route reactions (expireTrustedSystemAudioReception and a
  * route's onDeadline), and each start and interrupt names who bounds the wait
- * (ReceiveDeadline). Until C4-8 system-audio-guest.ts keeps the old names as
- * aliases, and the timer names keep their `sys-audio-guest-` prefix.
+ * (ReceiveDeadline). C4-7 gave the slot its adopt
+ * (adoptSystemAudioReceiveRoute): the PRO coordinator retires the Standard SFU
+ * route through it, so the PRO service reaches the Standard routes through the
+ * slot only. Until C4-8 system-audio-guest.ts keeps the old names as aliases
+ * for the Standard SFU, and the timer names keep their `sys-audio-guest-`
+ * prefix.
  *
  * Deferred-only: it loads with the room session (vite.config.ts
  * DEFERRED_ENTRY_MODULES).
@@ -114,6 +118,12 @@ interface ReceiveRoutePort {
    * Standard SFU drops a subscription that never delivered.
    */
   readonly onDeadline?: () => void;
+  /**
+   * Drops what the route holds when another route adopts the slot (see
+   * adoptSystemAudioReceiveRoute), without ending the reception: the Standard
+   * SFU closes its subscription and thaws its frozen share route.
+   */
+  readonly retire?: () => void;
 }
 
 /**
@@ -168,11 +178,28 @@ function isSystemAudioPlaceholder(): boolean {
 // ─── Routes ───────────────────────────────────────────────────────
 
 /**
- * A route adapter joins the end of every reception and the receive deadline's
- * expiry (one port per route).
+ * A route adapter joins the end of every reception, the receive deadline's
+ * expiry and another route's adopt (one port per route).
  */
 export function registerSystemAudioReceiveRoute(route: ReceiveRoute, port: ReceiveRoutePort): void {
   routes.set(route, port);
+}
+
+/**
+ * `route` takes the slot over from the other routes: each other route's
+ * retire runs, and the slot itself changes nothing. The reception, its
+ * placeholder and restore point, the receiving flag, the owner claim and the
+ * receive deadline stay as they are. A retiring route drops only its own
+ * source and primer, so the adopting route's source is never touched (its
+ * attach swaps it, its detach drops it). The PRO coordinator adopts wherever
+ * it takes the slot over (the room turning PRO, every live reconcile, a
+ * retry's cleanup) and so retires the Standard SFU route, the only route with
+ * a retire, without an idle flash.
+ */
+export function adoptSystemAudioReceiveRoute(route: ReceiveRoute): void {
+  for (const [registered, port] of routes) {
+    if (registered !== route) port.retire?.();
+  }
 }
 
 // ─── Route Media ──────────────────────────────────────────────────

@@ -2499,6 +2499,56 @@ describe('guest SFU attach: graph, primer and reception start per subscription',
     }
   });
 
+  // Phase 5 C4-7: the PRO coordinator no longer imports this module. It adopts
+  // the receive slot, which calls the retire this route registered.
+  it("is retired by the PRO coordinator's adopt: an attached subscription and its share route go, the reception stays", async () => {
+    const guest = await joinAsSfuGuest();
+    const seen = await observeAttach();
+    const firstPrimer = { primer: 'publication-a' };
+    vi.mocked(seen.primer.primeWebRtcAudioDecoder).mockReturnValueOnce(firstPrimer as never);
+    const { adoptSystemAudioReceiveRoute, registerSystemAudioReceiveRoute } =
+      await import('../system-audio-receive-slot.ts');
+    const port = vi
+      .mocked(registerSystemAudioReceiveRoute)
+      .mock.calls.find(([route]) => route === 'standard-sfu')?.[1];
+    expect(port?.retire).toBeTypeOf('function');
+    const { getGuestSystemAudioShareRoute } = await import('../system-audio-delivery.ts');
+    try {
+      await guest.subscribe('publication-a');
+      await vi.waitFor(() => expect(guest.sources).toHaveLength(1));
+      expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
+
+      // The adopting route's own retire, if it had one, would not run.
+      adoptSystemAudioReceiveRoute('standard-sfu');
+      expect(guest.sources[0].disconnect).not.toHaveBeenCalled();
+
+      adoptSystemAudioReceiveRoute('pro-coordinator');
+      expect(pcInstances[0].close).toHaveBeenCalledOnce();
+      expect(guest.sources[0].disconnect).toHaveBeenCalledOnce();
+      expect(seen.primer.cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(firstPrimer);
+      expect(getGuestSystemAudioShareRoute()).toBe('unselected');
+      // The subscription's Realtime tracks are closed with it.
+      expect(pendingRealtimeCalls.map((call) => call.action)).toEqual(['tracks-close']);
+      // No reception end and no new claim: the coordinator's start or attach
+      // replaces the reception.
+      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).not.toHaveBeenCalled();
+      expect(seen.receivingWrites()).toEqual([[true]]);
+      expect(seen.ownerClaims()).toEqual([['system-audio']]);
+      expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+        pcState: null,
+        sessionId: null,
+        subscriptionKey: null,
+        receiving: false,
+        sourceStereo: false,
+        decoderPrimerCount: 0,
+        limitTimerActive: false,
+      });
+    } finally {
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    }
+  });
+
   it('warns about a context that is not running only once the graph is confirmed, and still attaches', async () => {
     const guest = await joinAsSfuGuest();
     const seen = await observeAttach();

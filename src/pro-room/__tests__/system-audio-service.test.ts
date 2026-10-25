@@ -115,14 +115,15 @@ vi.mock('../../network/pro-system-audio-direct.ts', () => ({
   reconcileProSystemAudioDirectTargets: mocks.reconcileDirect,
   resetProSystemAudioDirectTransport: mocks.resetDirect,
 }));
-vi.mock('../../network/system-audio-sfu.ts', () => ({
-  cleanupSystemAudioSfuGuestRoute: mocks.cleanupLegacySubscriber,
-}));
-vi.mock('../../network/system-audio-guest.ts', () => ({
+// The service reaches the Standard routes only through the receive slot
+// (Phase 5 C4-7). The slot's start, trust boundary and end are spies here;
+// the Standard SFU route's retire is a spy registered with the real slot,
+// which the coordinator's adopt calls.
+vi.mock('../../network/system-audio-receive-slot.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../network/system-audio-receive-slot.ts')>()),
   awaitTrustedSystemAudioReceptionBoundary: mocks.awaitTrustedReceptionBoundary,
   beginTrustedSystemAudioReception: mocks.beginReception,
-  cleanupGuestSystemAudio: mocks.cleanupReception,
-  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS: 30_000,
+  endTrustedSystemAudioReception: mocks.cleanupReception,
 }));
 vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
   cleanupWebRtcAudioDecoderPrimer: vi.fn(),
@@ -179,6 +180,7 @@ import {
   canPublishProSystemAudioWithCurrentCoordinator,
   restoreProPlaybackAfterSystemAudioRelease,
 } from '../system-audio-bridge.ts';
+import { registerSystemAudioReceiveRoute } from '../../network/system-audio-receive-slot.ts';
 
 const LOCAL_ID = 'participant_local1';
 const REMOTE_ID = 'participant_remote1';
@@ -485,6 +487,8 @@ function deferred<T>(): {
 }
 
 beforeAll(() => {
+  // The Standard SFU route as the slot sees it: only its retire.
+  registerSystemAudioReceiveRoute('standard-sfu', { retire: mocks.cleanupLegacySubscriber });
   configureProSystemAudioService(api as unknown as ProRoomApiClient, mocks.restorePlayback);
   registerProSystemAudioServiceListeners();
 });
@@ -1891,7 +1895,8 @@ describe('PRO system-audio service orchestration', () => {
   // The coordinator retires the Standard SFU guest route (its subscription and
   // frozen share route) wherever it takes the slot over: the top of every live
   // reconcile, before its own cleanup, start or subscription, and a retry's
-  // cleanup (above). C4-7 routes this through the receive slot's adopt.
+  // cleanup (above). Since C4-7 it does so through the receive slot's adopt,
+  // which calls the retire the route registered (the spy, see beforeAll).
   it('retires the Standard SFU guest route at the top of every live reconcile, whoever publishes, and never on idle', async () => {
     mocks.cleanupLegacySubscriber.mockClear();
     await observeState(live());
@@ -1918,7 +1923,8 @@ describe('PRO system-audio service orchestration', () => {
   // The playback owner 'system-audio' is shared by a local share and a
   // reception. Only the coordinator cleanup's local-owner check keeps that
   // cleanup from ending a reception over this device's own share, and the
-  // reset cleans the graph before it forgets the local owner. C4-7 keeps both.
+  // reset cleans the graph before it forgets the local owner. C4-7 kept both
+  // when the end moved from the guest alias to the slot.
   it('skips the receive end in the coordinator cleanup while this device publishes, the reset included', async () => {
     await startLocalShare();
     expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', isLocalOwner: true });

@@ -417,16 +417,25 @@ RO-49 accepted-exception
   had. The Standard SFU registers only an `onDeadline` (from `registerSystemAudioSfuListeners`,
   where its bus listener was): as a guest it drops its subscription (`cleanupGuestSfu()`); the
   fan-out still reaches no other route. Both bus events are gone from the event map. The timer
-  names (`sys-audio-guest-*`) are unchanged. `src/network/system-audio-guest.ts` keeps the
-  slot's names, the end as `cleanupGuestSystemAudio`, and `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` as
-  compatibility aliases (removed in C4-8) and the host START/STOP trust gate; the Standard SFU
-  and the PRO coordinator still reach the start, the trust boundary and the end through them.
-  The service calls the Standard SFU adapter's cleanup directly (the slot's end through the guest
-  alias).
+  names (`sys-audio-guest-*`) are unchanged. Since C4-7 the PRO coordinator imports neither
+  Standard adapter (`system-audio-guest.ts`, `system-audio-sfu.ts`): it starts, waits on and
+  ends a reception through the slot, its end still behind the `!latestView.isLocalOwner` guard
+  in `cleanupCoordinatorGraph` (the `'system-audio'` owner is also a local share's claim), which
+  `resetProSystemAudioService` still runs before it forgets the local owner; it reads the
+  receive deadline from its home (`DIRECT_RECEIVE_DEADLINE_MS`); and it retires the Standard SFU
+  route through the slot's adopt (`adoptSystemAudioReceiveRoute('pro-coordinator')`, where it
+  called the SFU adapter's cleanup: the room turning PRO, the top of every live reconcile and a
+  retry's cleanup). The adopt runs every other registered route's `retire` and changes nothing in
+  the slot itself; the Standard SFU registers one (its subscription through
+  `cleanupGuestSfu(false)` and its frozen share route, no reception end), and no other route has
+  one. `src/network/system-audio-guest.ts` keeps the slot's names and the end as
+  `cleanupGuestSystemAudio` as compatibility aliases for the Standard SFU (removed in C4-8) and
+  the host START/STOP trust gate.
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
   register and call begin, attach, interrupt, resume, detach, adopt and end; the later Phase 5
-  increments move the attaches and the route cleanups into it (the bus pairs moved in C4-6).
+  increments move the attaches and the route cleanups into it (the bus pairs moved in C4-6, the
+  PRO coordinator's retire of the Standard SFU route became the adopt in C4-7).
 - **Allowed requesters:** the route adapters (Standard P2P, Standard SFU, PRO SFU, PRO direct)
   through the slot. `src/audio/system-capture.ts` and the Standard host only emit
   `system-audio:*` events.
@@ -454,8 +463,9 @@ RO-49 accepted-exception
   back a sender that lists no encoding) and the Cloudflare Realtime STUN entry, 15 s request
   deadline and 1 MiB response cap both SFU transports share. Since C4-2 it also holds the
   receive deadline `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` (30 s), which the slot's watchdog and its
-  trust-boundary wait (`TRUSTED_BOUNDARY_WAIT_MS`), the direct call's replacement watchdog and,
-  through the guest alias until C4-7, the service's direct receive deadline read. No eager module
+  trust-boundary wait (`TRUSTED_BOUNDARY_WAIT_MS`), the direct call's replacement watchdog and
+  the service's direct receive deadline (`DIRECT_RECEIVE_DEADLINE_MS`, imported from here since
+  C4-7, through the guest alias before) read. No eager module
   may import it or the slot (`vite.config.ts` `DEFERRED_ENTRY_MODULES`). `RECOVERY_DELAY_MS` and
   `SUBSCRIBER_RETRY_MAX_DELAY_MS` stay in the service until the receive-slot increments move them.
 - **Anchor tests:**
@@ -500,11 +510,23 @@ RO-49 accepted-exception
     `system-audio-guest.test.ts` deadline-reaction and handoff rows and the
     `system-audio-sfu.test.ts` group "guest SFU receive slot inputs" (the guest-role check on
     both inputs, the SFU's deadline-only port).
+  - The PRO coordinator's adopt (C4-7) is pinned, before the move, by the PRO contract suite's
+    two S7 rows (a Standard-to-PRO switch retires an attached or a still-connecting Standard SFU
+    subscription and thaws its share route with no activity change, notice or force-stop, and
+    leaves the placeholder and the Standard start's slot deadline as they were), its S11 rows
+    and the `system-audio-service.test.ts` rows "retires the Standard SFU guest route at the top
+    of every live reconcile, whoever publishes, and never on idle" and "skips the receive end in
+    the coordinator cleanup while this device publishes, the reset included" (the local-owner
+    guard and the reset order); after it by the `system-audio-sfu.test.ts` row "is retired by the
+    PRO coordinator's adopt" (the SFU's retire through the real slot adopt).
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
-    guest module and slot with the service (G1). `system-audio-service.test.ts` mocks the guest
-    and SFU modules and hand-mocks state, so it cannot see their interplay; since C4-5 it runs
-    the real slot with the receiving flag and owner claim stubbed, and its assertions on those
-    writes moved to the real-state PRO contract suites.
+    guest module and slot with the service (G1), with a spy retire registered for the Standard
+    SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the
+    routes' interplay; it stubs the slot's start, trust boundary and end (the guest aliases
+    before C4-7) and registers a spy retire for the Standard SFU route with the real slot (it
+    mocked the SFU module's cleanup before C4-7). Since C4-5 it runs the real slot attach with
+    the receiving flag and owner claim stubbed, and its assertions on those writes moved to the
+    real-state PRO contract suites.
   - Guard: the resource-ownership guard fails when the PRO SFU reception start arms the guest
     watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`
     (read from `src/network/system-audio-media.ts` since C4-2), and when an armed
@@ -530,15 +552,19 @@ RO-49 accepted-exception
     in `src/network/system-audio-*.ts` and `src/network/pro-system-audio-*.ts`, only
     `system-audio-media.ts` writes `playoutDelayHint` or `maxBitrate` or names
     `stun.cloudflare.com` (3 sites), and a route adapter that re-types one of its timing
-    constants is a copied-timing finding.
+    constants is a copied-timing finding. Since C4-7 the import-graph guard
+    (`scripts/check-import-graph.mts`, RULE D) fails any `src/pro-room/**` production import of
+    `src/network/system-audio-guest.ts` or `src/network/system-audio-sfu.ts` (tests excluded),
+    and a boundary whose target module no longer exists.
 - **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrived after the
   30 s watchdog stayed silent) is fixed in 9.0.2. G6 (each PRO SFU retry re-runs the reception
   start, including `stopAllMedia` and the host-started notice) is an open release-record item.
   Phase 5 (slot); its first increment, C4-1, moved the media constants (planned for Phase 0d),
   C4-2 created the slot module with the trusted reception, C4-3 moved the Standard direct
   call's attach and primer into it, C4-4 the Standard SFU guest's, C4-5 the PRO
-  coordinator's attach, resume, interrupts and detach, and C4-6 the two bus pairs (the delivery
-  handoff and the receive deadline's expiry) with an explicit deadline kind. Exception RO-39.
+  coordinator's attach, resume, interrupts and detach, C4-6 the two bus pairs (the delivery
+  handoff and the receive deadline's expiry) with an explicit deadline kind, and C4-7 the PRO
+  coordinator's adopt (the service imports no Standard receive adapter). Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 

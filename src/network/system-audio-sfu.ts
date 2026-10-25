@@ -843,7 +843,8 @@ function cleanupGuestSfu(updateState = true): void {
   // The route's source and primer, which the receive slot holds. The SFU does
   // not join the slot's end of every reception: an end leaves its transport,
   // source and primer to this cleanup, as before. It joins only the receive
-  // deadline's expiry (registerSystemAudioSfuListeners).
+  // deadline's expiry and another route's adopt
+  // (registerSystemAudioSfuListeners).
   detachSystemAudioRoute(GUEST_SFU_ROUTE);
   if (pc) {
     pc.close();
@@ -874,11 +875,12 @@ function handOffGuestSfuReception(): void {
 }
 
 /**
- * Drop only the legacy guest SFU transport when adopting the PRO subscriber.
- * Playback ownership is preserved until the role-independent PRO subscriber
- * replaces it, avoiding both double audio and an unnecessary idle flash.
+ * Another route adopted the receive slot (the PRO coordinator): drop only the
+ * legacy guest SFU transport and thaw its frozen share route. Playback
+ * ownership is preserved until the role-independent PRO subscriber replaces
+ * it, avoiding both double audio and an unnecessary idle flash.
  */
-export function cleanupSystemAudioSfuGuestRoute(): void {
+function retireGuestSfuRoute(): void {
   cleanupGuestSfu(false);
   resetGuestSystemAudioShareRoute();
 }
@@ -1322,12 +1324,14 @@ export function registerSystemAudioSfuListeners(): void {
     resetGuestSystemAudioShareRoute();
   });
   // A receive deadline expired the guest's reception: drop a subscription
-  // that never delivered before the slot ends the reception.
+  // that never delivered before the slot ends the reception. Another route
+  // (the PRO coordinator) adopting the slot retires this one.
   registerSystemAudioReceiveRoute(GUEST_SFU_ROUTE, {
     onDeadline: () => {
       if (!isGuestSfuReceiver()) return;
       cleanupGuestSfu();
     },
+    retire: retireGuestSfuRoute,
   });
   bus.on('system-audio:force-stop', () => {
     directFailureHandoffPeerIds.clear();

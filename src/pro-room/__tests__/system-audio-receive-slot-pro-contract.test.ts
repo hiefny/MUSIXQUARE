@@ -486,7 +486,8 @@ describe('PRO SFU reception', () => {
     // reaches only the guest placeholder, so the retry still opens a
     // subscription and holds it with nothing attached until the publication
     // changes or the room resets. Planned: a slot end() that covers every
-    // route (C4-5/C4-7, a behaviour decision).
+    // route (a behaviour decision for 5B; the neutral C4-5 and C4-7 kept the
+    // route-scoped ends).
     expect(proSfu.isSubscribed).toBe(true);
     resetProSystemAudioService();
     expect(proSfu.isSubscribed).toBe(false);
@@ -752,8 +753,9 @@ describe('PRO LAN-direct reception', () => {
     // re-checks only the route, the publication and the owner, and a
     // force-stop changes none of them, so audio plays after the force-stop
     // under the restored title. Planned: the slot attach fence (C4-3,
-    // inherited by C4-5) and a slot end() that covers every route (C4-5/C4-7);
-    // both need owner sign-off.
+    // inherited by C4-5) and a slot end() that covers every route (5B; the
+    // neutral C4-5 and C4-7 kept the route-scoped ends); both need owner
+    // sign-off.
     expect(slot()).toMatchObject({
       receiving: true,
       mode: 'system-audio',
@@ -935,7 +937,7 @@ describe('room switch, share end, leave and force-stop', () => {
     expect(slot()).toMatchObject({ receiving: true, placeholder: true, sources: [] });
     // The retire also thaws the frozen Standard share route, and it is no end:
     // no playback activity change (no idle flash), no notice, no force-stop.
-    // C4-7 moves this retire behind the receive slot's adopt and keeps all of it.
+    // Since C4-7 the retire runs behind the receive slot's adopt, unchanged.
     expect(getGuestSystemAudioShareRoute()).toBe('unselected');
     expect(getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
       pcState: null,
@@ -995,7 +997,8 @@ describe('room switch, share end, leave and force-stop', () => {
     setState('room.context', proContext());
     // The retire aborts the connecting subscription and thaws the share route,
     // but leaves the reception, its placeholder and the Standard start's slot
-    // deadline as they were: C4-7's adopt neither ends nor re-arms anything.
+    // deadline as they were: the slot's adopt (C4-7) neither ends nor re-arms
+    // anything.
     expect(getGuestSystemAudioShareRoute()).toBe('unselected');
     expect(getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
       pcState: null,
@@ -1082,7 +1085,8 @@ describe('room switch, share end, leave and force-stop', () => {
     // unchanged publication does not notice. On a leave (peer.ts
     // leaveSession requests the PRO leave and emits force-stop) the service
     // reset follows and closes it. Planned: a slot end() that covers every
-    // route (C4-5/C4-7, a behaviour decision).
+    // route (a behaviour decision for 5B; the neutral C4-5 and C4-7 kept the
+    // route-scoped ends).
     expect(slot()).toMatchObject({ sources: ['pro-sfu-audio-1'], primers: 1 });
     bindProSystemAudioSession(snapshot());
     await advance(15_000);
@@ -1106,8 +1110,9 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     await applyState(localLive(3));
     // The coordinator ends its (empty) slot for the local publication. Only
     // service.ts cleanupCoordinatorGraph's `!latestView.isLocalOwner` guard
-    // keeps that end from releasing the publisher's claim; C4-7 replaces the
-    // call with slot.end('pro-coordinator') and must keep an equivalent test.
+    // keeps that end from releasing the publisher's claim. Since C4-7 the
+    // call is the slot's end (endTrustedSystemAudioReception) behind the same
+    // guard, and this row and the service suite's local-owner row pin it.
     const sharing = {
       receiving: false,
       mode: 'system-audio',
@@ -1145,9 +1150,10 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     // Known gap (observed on d84f53f5, not device-verified): the source and
     // primer leave, but systemAudio.isReceiving stays true and the receive
     // restore point stays held, so the mode stays 'system-audio' on the
-    // receiving flag as well as on the claim. Planned: the C4-7 slot end with
-    // an ownership test that tells the slot's claim from a publisher's (C4
-    // critique: placeholder, receiving meta or a slot-held claim token).
+    // receiving flag as well as on the claim. Planned: a slot end with an
+    // ownership test that tells the slot's claim from a publisher's (C4
+    // critique: placeholder, receiving meta or a slot-held claim token), a
+    // behaviour change for 5B; the neutral C4-7 kept the guard as it was.
     expect(slot()).toEqual({
       receiving: true,
       mode: 'system-audio',

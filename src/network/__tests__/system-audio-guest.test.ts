@@ -12,8 +12,8 @@ import {
   cleanupGuestSystemAudio,
   getSystemAudioGuestDebugSnapshot,
   registerSystemAudioGuestListeners,
-  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
 } from '../system-audio-guest.ts';
+import { SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS } from '../system-audio-media.ts';
 import {
   claimPlaybackOwner,
   setPlaybackFilePlaying,

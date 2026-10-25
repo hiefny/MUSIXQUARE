@@ -41,14 +41,14 @@ import {
 } from './system-audio-receive-slot.ts';
 import { getAudioTrackStreamKey } from './webrtc-audio-decoder-primer.ts';
 
-// Compatibility aliases (Phase 5 C4-2, removed in C4-8): the Standard SFU, the
-// PRO coordinator and their tests still reach the receive slot and its
-// deadline through this module.
+// Compatibility aliases (Phase 5 C4-2, removed in C4-8): the Standard SFU and
+// the tests still reach the receive slot through this module. The PRO
+// coordinator imports the slot and the receive deadline's home directly since
+// C4-7.
 export {
   awaitTrustedSystemAudioReceptionBoundary,
   beginTrustedSystemAudioReception,
   endTrustedSystemAudioReception as cleanupGuestSystemAudio,
-  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
 };
 
 // ─── Tuning ───────────────────────────────────────────────────────

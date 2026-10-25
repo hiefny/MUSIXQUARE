@@ -56,9 +56,6 @@ vi.mock('../../network/pro-system-audio-direct.ts', () => ({
   reconcileProSystemAudioDirectTargets: vi.fn(async () => true),
   resetProSystemAudioDirectTransport: vi.fn(),
 }));
-vi.mock('../../network/system-audio-sfu.ts', () => ({
-  cleanupSystemAudioSfuGuestRoute: mocks.cleanupSfuGuestRoute,
-}));
 vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
   cleanupWebRtcAudioDecoderPrimer: vi.fn(),
   getAudioTrackStreamKey: vi.fn(),
@@ -67,6 +64,7 @@ vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
 
 import { configureProSystemAudioDirectTransport } from '../../network/pro-system-audio-direct.ts';
 import { registerSystemAudioGuestListeners } from '../../network/system-audio-guest.ts';
+import { registerSystemAudioReceiveRoute } from '../../network/system-audio-receive-slot.ts';
 import { countReceiveDeadlineLines } from '../../network/__tests__/__helpers__/system-audio-receive-harness.ts';
 import {
   bindProSystemAudioSession,
@@ -129,6 +127,9 @@ const receiveTimeouts = (): number => countReceiveDeadlineLines(warn.mock.calls)
 let testListeners: BusScope;
 
 beforeAll(() => {
+  // The Standard SFU route as the receive slot sees it: only its retire, which
+  // the coordinator's adopt calls (Phase 5 C4-7).
+  registerSystemAudioReceiveRoute('standard-sfu', { retire: mocks.cleanupSfuGuestRoute });
   configureProSystemAudioService(api as unknown as ProRoomApiClient);
   registerProSystemAudioServiceListeners();
 });

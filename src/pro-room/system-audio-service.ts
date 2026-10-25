@@ -30,16 +30,17 @@ import {
   type ProSystemAudioDirectTarget,
   type ProSystemAudioDirectTrackReadyEvent,
 } from '../network/pro-system-audio-direct.ts';
-import { cleanupSystemAudioSfuGuestRoute } from '../network/system-audio-sfu.ts';
+// The PRO coordinator reaches the Standard receive routes only through the
+// receive slot (Phase 5 C4-7): it imports neither system-audio-guest.ts nor
+// system-audio-sfu.ts (scripts/check-import-graph.mts RULE D).
+import { SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS } from '../network/system-audio-media.ts';
 import {
+  adoptSystemAudioReceiveRoute,
+  attachSystemAudioSource,
   awaitTrustedSystemAudioReceptionBoundary,
   beginTrustedSystemAudioReception,
-  cleanupGuestSystemAudio,
-  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
-} from '../network/system-audio-guest.ts';
-import {
-  attachSystemAudioSource,
   detachSystemAudioRoute,
+  endTrustedSystemAudioReception,
   getSystemAudioReceiveRouteSnapshot,
   interruptTrustedSystemAudioReception,
   primeSystemAudioDecoder,
@@ -77,6 +78,9 @@ const PUBLISHER_RETRY_TIMER = 'pro-system-audio-publisher-retry';
 const DIRECT_PROMOTION_RETRY_TIMER = 'pro-system-audio-direct-promotion-retry';
 const SUBSCRIBER_DISCONNECT_TIMER = 'pro-system-audio-subscriber-disconnect';
 const DIRECT_RECEIVE_DEADLINE_TIMER = 'pro-system-audio-direct-receive-deadline';
+// A LAN-direct listener reports a missing track after the receive deadline the
+// slot's watchdog uses (its home is system-audio-media.ts).
+const DIRECT_RECEIVE_DEADLINE_MS = SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS;
 // The coordinator's route in the receive slot, which holds the source and the
 // decoder primer of the track either transport (SFU or LAN-direct) delivered.
 const COORDINATOR_ROUTE = 'pro-coordinator';
@@ -500,8 +504,11 @@ function cleanupCoordinatorGraph(): void {
   coordinatorSubscriptionKey = null;
   coordinatorSubscriptionFlight = null;
   stopProSystemAudioSfuSubscriber();
+  // The 'system-audio' playback owner is also a local share's claim: never end
+  // the reception over this device's own publication. resetProSystemAudioService
+  // runs this cleanup before it forgets the local owner.
   if (getState('playback.mode') === 'system-audio' && !latestView.isLocalOwner) {
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
   }
 }
 
@@ -516,7 +523,7 @@ function cleanupCoordinatorSubscriptionForRetry(): void {
   // re-ran stopAllMedia, the transfer cancels and 'system-audio:host-started'.
   coordinatorSubscriptionFlight = null;
   stopProSystemAudioSfuSubscriber();
-  cleanupSystemAudioSfuGuestRoute();
+  adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
 }
 
 async function attachCoordinatorTrack(
@@ -774,7 +781,7 @@ async function ensureCoordinatorSubscription(
 ): Promise<void> {
   if (!isActiveProRoom() || !identity || !coordinatorPublicationMatches(identity)) return;
   const key = coordinatorPublicationKey(identity);
-  cleanupSystemAudioSfuGuestRoute();
+  adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
   if (
     isProRoomSystemAudioDirectPublication(state.publication) &&
     currentDirectTargets().length > MAX_DIRECT_TARGETS
@@ -888,7 +895,7 @@ function notifySubscriberFailure(
 /**
  * A LAN-direct listener waits in one receive placeholder for the publisher's
  * offer, which can come late (a late join, or a page that slept). When no
- * track has attached by the guest receive timeout, say so once per generation
+ * track has attached by the receive deadline, say so once per generation
  * and keep the placeholder, so a late track still attaches; the publisher
  * promotes a listener it cannot reach to the SFU, which is a new publication.
  * An attached track, a failed route (which reports on its own), another
@@ -909,7 +916,7 @@ function armDirectReceiveDeadline(identity: CoordinatorPublicationIdentity, key:
       }
       notifySubscriberFailure(state);
     },
-    SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
+    DIRECT_RECEIVE_DEADLINE_MS,
   );
 }
 
@@ -2046,7 +2053,7 @@ export function registerProSystemAudioServiceListeners(): void {
       subscriberFailureGeneration = null;
       return;
     }
-    cleanupSystemAudioSfuGuestRoute();
+    adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
     const state = controller?.getCurrentState();
     if (state) reconcileCoordinatorState(state);
     // The PRO runtime owns the authoritative initial read, and every presence

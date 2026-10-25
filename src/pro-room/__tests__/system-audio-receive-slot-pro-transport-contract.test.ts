@@ -981,8 +981,8 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
       // re-checks only the route, the publication and the owner after
       // `await initAudio()`. Audio then plays with no placeholder under the
       // restored title. Planned: the slot attach fence (C4-3, inherited by
-      // C4-5) and a slot end() that covers every route (C4-5/C4-7); both need
-      // owner sign-off.
+      // C4-5) and a slot end() that covers every route (5B; the neutral C4-5
+      // and C4-7 kept the route-scoped ends); both need owner sign-off.
       expect(connections()[0].closed).toBe(false);
       expect(slot()).toMatchObject({
         receiving: true,

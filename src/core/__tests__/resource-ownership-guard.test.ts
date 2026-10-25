@@ -471,7 +471,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         withSources((sources) => {
           sources.set(
             'src/pro-room/rogue-reception.ts',
-            "import { beginTrustedSystemAudioReception } from '../network/system-audio-guest.ts';\n" +
+            "import { beginTrustedSystemAudioReception } from '../network/system-audio-receive-slot.ts';\n" +
               'export const starts = [beginTrustedSystemAudioReception];\n' +
               'export function restart(): void {\n' +
               "  beginTrustedSystemAudioReception('display', { deadline: 'slot' });\n" +

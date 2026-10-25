@@ -4,7 +4,7 @@
  *
  * Static guard for the production import graph.
  *
- * Three rules over src/ production files:
+ * Four rules over src/ production files:
  *
  *   RULE A — app.ts is import-terminal (hard, no allowlist).
  *     The bootstrap module imports every domain and runs top-level side
@@ -32,6 +32,15 @@
  *     src/app.ts is exempt as importer (the composition root imports
  *     everything by design). Allowlist is shrink-only: remove entries when
  *     the import disappears; never broaden without an explicit decision.
+ *
+ *   RULE D — import boundaries (deny list of importer -> module pairs).
+ *     Files under a directory may not import the listed modules, statically
+ *     or with import() (type-only imports make no edge, as above), each for
+ *     its stated reason. For example, the PRO room
+ *     reaches the Standard system-audio receive routes only through the
+ *     receive slot (registry RO-04, Phase 5 C4-7), so a pro-room file that
+ *     imports a Standard receive adapter again fails here even though no
+ *     cycle forms. Removing an entry needs an explicit decision.
  *
  * Scope / deliberate limitations (honest, not magic):
  *   - Only relative specifiers ending in '.ts' are resolved. Bare modules
@@ -121,6 +130,33 @@ const UI_LAYERING_ALLOWLIST: readonly UiLayeringAllowance[] = [
     importer: 'src/demo/mode.ts',
     target: 'src/ui/theme-chrome.ts',
     reason: 'demo mode swaps theme-color chrome on enter/exit',
+  },
+];
+
+// ── RULE D boundaries ────────────────────────────────────────────
+// Production imports a directory may never make, each with its reason.
+interface ImportBoundary {
+  readonly importerPrefix: string;
+  readonly target: string;
+  readonly reason: string;
+}
+
+const IMPORT_BOUNDARIES: readonly ImportBoundary[] = [
+  {
+    importerPrefix: 'src/pro-room/',
+    target: 'src/network/system-audio-guest.ts',
+    reason:
+      'the PRO coordinator starts, waits on and ends a reception through the receive slot ' +
+      '(src/network/system-audio-receive-slot.ts), not the Standard direct-call adapter ' +
+      '(registry RO-04, Phase 5 C4-7)',
+  },
+  {
+    importerPrefix: 'src/pro-room/',
+    target: 'src/network/system-audio-sfu.ts',
+    reason:
+      "the PRO coordinator retires the Standard SFU guest route through the receive slot's " +
+      'adopt (adoptSystemAudioReceiveRoute), not by importing the Standard SFU adapter ' +
+      '(registry RO-04, Phase 5 C4-7)',
   },
 ];
 
@@ -341,6 +377,29 @@ for (const [importer, list] of edges) {
   }
 }
 
+// ── RULE D: import boundaries ────────────────────────────────────
+
+const ruleDViolations: string[] = [];
+for (const boundary of IMPORT_BOUNDARIES) {
+  // A renamed or deleted module would silently disable its boundary.
+  if (!fileSet.has(boundary.target)) {
+    ruleDViolations.push(
+      `boundary target ${boundary.target} is not a production file - move the entry with the module`,
+    );
+  }
+}
+for (const [importer, list] of edges) {
+  for (const boundary of IMPORT_BOUNDARIES) {
+    if (!importer.startsWith(boundary.importerPrefix)) continue;
+    for (const e of list) {
+      if (e.target !== boundary.target) continue;
+      ruleDViolations.push(
+        `${importer}:${e.line} ${e.kind} import of ${e.target} (${boundary.reason})`,
+      );
+    }
+  }
+}
+
 // ── Report ───────────────────────────────────────────────────────
 
 const pad = (value: string): string => `  ${value}`;
@@ -386,6 +445,14 @@ if (ruleCViolations.length) {
   console.log('');
 }
 
+if (ruleDViolations.length) {
+  findings += ruleDViolations.length;
+  console.log(`RULE D — import boundary crossed: ${ruleDViolations.length} violation(s)`);
+  for (const v of ruleDViolations) console.log(pad(v));
+  console.log(pad('Reach the module through the owner the reason names instead.'));
+  console.log('');
+}
+
 // Non-fatal hygiene note: allowlist entries whose import disappeared should
 // be deleted (shrink-only ratchet). Reported, not failed, so a concurrent
 // refactor cannot brick CI.
@@ -400,7 +467,9 @@ if (staleEntries.length && !findings) {
 }
 
 if (!findings) {
-  console.log('OK — app.ts is import-terminal, no new cycles, ui layering respected.');
+  console.log(
+    'OK — app.ts is import-terminal, no new cycles, ui layering and import boundaries respected.',
+  );
   process.exit(0);
 }
 

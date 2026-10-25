@@ -33,6 +33,12 @@ const systemAudioGuestMocks = vi.hoisted(() => ({
   cleanupGuestSystemAudio: vi.fn(),
 }));
 
+// The receive slot runs for real, except its delivery-handoff input, whose
+// calls these tests count, and the route registration, whose port they read.
+const receiveSlotMocks = vi.hoisted(() => ({
+  handOff: vi.fn(),
+}));
+
 const standardRoomPrerequisiteMocks = vi.hoisted(() => ({
   getTurnCredentials: vi.fn(),
 }));
@@ -96,6 +102,15 @@ vi.mock('../system-audio-guest.ts', () => ({
   beginTrustedSystemAudioReception: systemAudioGuestMocks.beginTrustedReception,
   awaitTrustedSystemAudioReceptionBoundary: systemAudioGuestMocks.awaitTrustedReceptionBoundary,
 }));
+
+vi.mock('../system-audio-receive-slot.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../system-audio-receive-slot.ts')>();
+  return {
+    ...actual,
+    handOffTrustedSystemAudioReception: receiveSlotMocks.handOff,
+    registerSystemAudioReceiveRoute: vi.fn(actual.registerSystemAudioReceiveRoute),
+  };
+});
 
 vi.mock('../webrtc-audio-decoder-primer.ts', () => ({
   cleanupWebRtcAudioDecoderPrimer: vi.fn(),
@@ -1237,8 +1252,6 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       hostConn,
     );
     await waitForNewSessionCalls(1);
-    const deliveryHandoff = vi.fn();
-    bus.on('system-audio:delivery-handoff', deliveryHandoff);
     handler!(
       {
         version: 2,
@@ -1253,7 +1266,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     // must cancel that attempt and discard its queued successor.
     bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(true);
-    expect(deliveryHandoff).toHaveBeenCalledTimes(1);
+    expect(receiveSlotMocks.handOff).toHaveBeenCalledTimes(1);
     await resolveRealtime('new-session', {
       sessionId: 'superseded-guest-session',
       sessionOwnerToken: 'superseded-guest-owner',
@@ -1333,7 +1346,9 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     );
 
     expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledTimes(1);
-    expect(systemAudioGuestMocks.beginTrustedReception).toHaveBeenCalledWith('window');
+    expect(systemAudioGuestMocks.beginTrustedReception).toHaveBeenCalledWith('window', {
+      deadline: 'slot',
+    });
     await waitForNewSessionCalls(1);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
     bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
@@ -1352,8 +1367,6 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', hostConn);
     setState('network.connectionType', 'remote');
-    const handoff = vi.fn();
-    bus.on('system-audio:delivery-handoff', handoff);
 
     const { registerHandler } = await import('../protocol.ts');
     const handler = vi
@@ -1392,7 +1405,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
 
     await waitForNewSessionCalls(2);
-    expect(handoff).toHaveBeenCalledTimes(1);
+    expect(receiveSlotMocks.handOff).toHaveBeenCalledTimes(1);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toContain(
       'retry-host-publication',
     );
@@ -1809,6 +1822,106 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
 
     bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+  });
+});
+
+// Phase 5 C4-6 turned the two bus signals this route shared with the receive
+// slot into slot inputs; the guest role still gates both, as it gated the bus
+// listeners they replace.
+describe('guest SFU receive slot inputs', () => {
+  function sfuReadyHandler() {
+    return (async () => {
+      const { registerHandler } = await import('../protocol.ts');
+      const handler = vi
+        .mocked(registerHandler)
+        .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+        ((data: unknown, conn?: unknown) => void) | undefined;
+      expect(handler).toBeDefined();
+      return handler!;
+    })();
+  }
+
+  function ready(sessionId: string) {
+    return {
+      version: 2,
+      audience: 'remote',
+      sessionId,
+      track: { trackName: `audio-${sessionId}`, mid: '0' },
+    };
+  }
+
+  it('hands delivery off to the receive slot only while this device is a guest', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+    const handler = await sfuReadyHandler();
+
+    handler(ready('failing-host-publication'), hostConn);
+    await waitForNewSessionCalls(1);
+    handler(ready('pending-host-publication'), hostConn);
+    // The role changes before the first subscription fails: the pending READY
+    // still subscribes, but the receive slot is not interrupted.
+    setState('network.appRole', 'host');
+    await resolveRealtime('new-session', {
+      sessionId: 'failing-guest-session',
+      sessionOwnerToken: 'failing-guest-owner',
+    });
+    await resolveRealtime('tracks-new', { errorCode: 'FIRST_SUBSCRIBE_FAILED', tracks: [] });
+
+    await waitForNewSessionCalls(2);
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toContain(
+      'pending-host-publication',
+    );
+    expect(receiveSlotMocks.handOff).not.toHaveBeenCalled();
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+  });
+
+  it("drops a guest's in-flight subscription when a receive deadline expires, and keeps a non-guest's", async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const { registerSystemAudioReceiveRoute } = await import('../system-audio-receive-slot.ts');
+    const port = vi
+      .mocked(registerSystemAudioReceiveRoute)
+      .mock.calls.find(([route]) => route === 'standard-sfu')?.[1];
+    // The route joins only the deadline's expiry, not the end of every reception.
+    expect(port?.endReception).toBeUndefined();
+    expect(port?.onDeadline).toBeTypeOf('function');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+    const handler = await sfuReadyHandler();
+
+    handler(ready('deadline-host-publication'), hostConn);
+    await waitForNewSessionCalls(1);
+    await vi.waitFor(() => {
+      expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toContain(
+        'deadline-host-publication',
+      );
+    });
+
+    setState('network.appRole', 'host');
+    port?.onDeadline?.();
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toContain(
+      'deadline-host-publication',
+    );
+    expect(pcInstances[0]?.close).not.toHaveBeenCalled();
+
+    setState('network.appRole', 'guest');
+    port?.onDeadline?.();
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toBeNull();
+    expect(pcInstances[0]?.close).toHaveBeenCalledOnce();
+    // Nothing was attached, so the shared receive cleanup is left to the slot.
+    expect(systemAudioGuestMocks.cleanupGuestSystemAudio).not.toHaveBeenCalled();
+
     await rejectAllRealtimeCalls();
   });
 });

@@ -43,7 +43,9 @@ import {
   attachSystemAudioSource,
   detachSystemAudioRoute,
   getSystemAudioReceiveRouteSnapshot,
+  handOffTrustedSystemAudioReception,
   primeSystemAudioDecoder,
+  registerSystemAudioReceiveRoute,
 } from './system-audio-receive-slot.ts';
 import { getAudioTrackStreamKey } from './webrtc-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
@@ -840,7 +842,8 @@ function cleanupGuestSfu(updateState = true): void {
 
   // The route's source and primer, which the receive slot holds. The SFU does
   // not join the slot's end of every reception: an end leaves its transport,
-  // source and primer to this cleanup, as before.
+  // source and primer to this cleanup, as before. It joins only the receive
+  // deadline's expiry (registerSystemAudioSfuListeners).
   detachSystemAudioRoute(GUEST_SFU_ROUTE);
   if (pc) {
     pc.close();
@@ -849,6 +852,25 @@ function cleanupGuestSfu(updateState = true): void {
   if (shouldCleanupGuestReceiveState) {
     cleanupGuestSystemAudio();
   }
+}
+
+/**
+ * Only a Standard guest receives through this route: the guest role gates the
+ * receive slot's two inputs from it (the delivery handoff and its reaction to
+ * the receive deadline), as it gated the bus listeners they replace.
+ */
+function isGuestSfuReceiver(): boolean {
+  return getState('network.appRole') === 'guest';
+}
+
+/**
+ * This subscription handed delivery to another route (a pending READY, or a
+ * direct call): the guest's receive slot keeps its placeholder and restore
+ * point and waits for that route under a re-armed slot deadline.
+ */
+function handOffGuestSfuReception(): void {
+  if (!isGuestSfuReceiver()) return;
+  handOffTrustedSystemAudioReception();
 }
 
 /**
@@ -1092,10 +1114,10 @@ function beginGuestSfuSubscription(payload: SfuReadyPayload): void {
         !!getState('network.hostConn');
       if (canHandoffToPending) {
         // Keep the system-audio placeholder while replacing only the failed
-        // adapter. The guest receiver re-arms its watchdog so a second failed
+        // adapter. The receive slot re-arms its deadline so a second failed
         // publication cannot leave a permanent silent "receiving" state.
         cleanupGuestSfu(false);
-        bus.emit('system-audio:delivery-handoff');
+        handOffGuestSfuReception();
         beginGuestSfuSubscription(pendingPayload);
       } else {
         cleanupGuestSfu();
@@ -1140,7 +1162,7 @@ function handleSfuReady(
     const surface = getState('player.currentTrackMeta')?.systemAudioSurface;
     cleanupGuestSystemAudio();
     resetGuestSystemAudioShareRoute();
-    beginTrustedSystemAudioReception(surface);
+    beginTrustedSystemAudioReception(surface, { deadline: 'slot' });
   }
   if (getGuestSystemAudioShareRoute() === 'unselected') {
     if (
@@ -1289,7 +1311,7 @@ export function registerSystemAudioSfuListeners(): void {
     if (!guestPc && !guestConnectPromise) return;
     log.info('[SysAudioSFU] Local P2P system audio arrived; switching away from SFU');
     cleanupGuestSfu(false);
-    bus.emit('system-audio:delivery-handoff');
+    handOffGuestSfuReception();
   });
 
   bus.on('system-audio:host-started', () => {
@@ -1299,9 +1321,13 @@ export function registerSystemAudioSfuListeners(): void {
     cleanupGuestSfu();
     resetGuestSystemAudioShareRoute();
   });
-  bus.on('system-audio:receive-timeout', () => {
-    if (getState('network.appRole') !== 'guest') return;
-    cleanupGuestSfu();
+  // A receive deadline expired the guest's reception: drop a subscription
+  // that never delivered before the slot ends the reception.
+  registerSystemAudioReceiveRoute(GUEST_SFU_ROUTE, {
+    onDeadline: () => {
+      if (!isGuestSfuReceiver()) return;
+      cleanupGuestSfu();
+    },
   });
   bus.on('system-audio:force-stop', () => {
     directFailureHandoffPeerIds.clear();

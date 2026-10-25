@@ -29,10 +29,11 @@
  *     functions.
  *   CHECK 4 One deadline owner per PRO SFU attempt (RO-04, the G1 lesson).
  *     The PRO subscriber retry maximum stays below the guest receive
- *     watchdog, or the PRO SFU reception start in the subscribing function
- *     passes `{ receiveWatchdog: false }`. A start is a no-op while the receive
- *     placeholder is active, so an armed start elsewhere (the retry path, a
- *     new module) would also re-arm the watchdog: armed
+ *     watchdog (the receive slot's deadline), or the PRO SFU reception start
+ *     in the subscribing function passes `{ deadline: 'route' }` (before
+ *     Phase 5 C4-6, `{ receiveWatchdog: false }`). A start is a no-op while
+ *     the receive placeholder is active, so an armed start elsewhere (the
+ *     retry path, a new module) would also re-arm the watchdog: armed
  *     beginTrustedSystemAudioReception() callers are an exact list per
  *     `file :: function`.
  *   CHECK 5 Copied timing constants (principle 4). Inside each contract the
@@ -294,7 +295,8 @@ const G1_RECEPTION_START_CALL = 'beginTrustedSystemAudioReception';
 /**
  * RO-04: armed reception starts, exact per `file :: function`. Any value use
  * of beginTrustedSystemAudioReception counts unless it is a direct call whose
- * options are the literal `{ receiveWatchdog: false }`, so passing the start
+ * options are the literal `{ deadline: 'route' }` (Phase 5 C4-6 replaced
+ * `{ receiveWatchdog: false }` with this deadline kind), so passing the start
  * around cannot hide an armed caller. The start returns early while the
  * placeholder is active, so an armed start that runs before the PRO SFU
  * start (for example in the retry path) re-arms the 30 s watchdog across the
@@ -305,12 +307,16 @@ const ARMED_RECEPTION_START_BASELINE: Baseline = new Map<string, Allowance>([
     'src/network/system-audio-guest.ts :: registerSystemAudioGuestListeners',
     {
       count: 1,
-      reason: 'host SYSTEM_AUDIO_START frame (Standard P2P): the watchdog is its deadline',
+      reason:
+        "host SYSTEM_AUDIO_START frame (Standard P2P): { deadline: 'slot' }, the watchdog is its deadline",
     },
   ],
   [
     'src/network/system-audio-sfu.ts :: handleSfuReady',
-    { count: 1, reason: 'Standard SFU after a direct-route failure handoff' },
+    {
+      count: 1,
+      reason: "Standard SFU after a direct-route failure handoff: { deadline: 'slot' }",
+    },
   ],
 ]);
 
@@ -1548,15 +1554,17 @@ function exitsBefore(call: ts.Node, target: ts.Node, scope: ts.Node): boolean {
   return false;
 }
 
+/** True when the start's options are the literal `{ deadline: 'route' }`. */
 function disablesWatchdog(call: ts.CallExpression): boolean {
   const options = call.arguments[1];
   if (!options || !ts.isObjectLiteralExpression(unwrap(options))) return false;
-  return (unwrap(options) as ts.ObjectLiteralExpression).properties.some(
-    (property) =>
-      ts.isPropertyAssignment(property) &&
-      propertyNameText(property.name) === 'receiveWatchdog' &&
-      unwrap(property.initializer).kind === ts.SyntaxKind.FalseKeyword,
-  );
+  return (unwrap(options) as ts.ObjectLiteralExpression).properties.some((property) => {
+    if (!ts.isPropertyAssignment(property) || propertyNameText(property.name) !== 'deadline') {
+      return false;
+    }
+    const value = unwrap(property.initializer);
+    return ts.isStringLiteralLike(value) && value.text === 'route';
+  });
 }
 
 interface DeadlineOwnership {
@@ -1634,7 +1642,7 @@ function checkDeadlineOwnership(
       `DEADLINE OWNER (RO-04, G1): ${G1_SERVICE_FILE}:${lineOf(file, start)} starts PRO SFU ` +
         `reception with the guest receive watchdog armed (${G1_WATCHDOG_CONSTANT} = ${watchdogMs} ms) ` +
         `while the subscriber retry backs off up to ${G1_RETRY_MAX_CONSTANT} = ${retryMaxMs} ms. ` +
-        'One attempt needs one deadline owner: pass { receiveWatchdog: false } or keep the ' +
+        "One attempt needs one deadline owner: pass { deadline: 'route' } or keep the " +
         'retry maximum below the watchdog (registry principle 2)',
     );
   }
@@ -1925,7 +1933,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
       record: 'RO-04',
       hint:
         `a ${G1_RECEPTION_START_CALL}() that runs before the PRO SFU start keeps the guest ` +
-        'watchdog armed through the retry backoff (G1); pass { receiveWatchdog: false } or ' +
+        "watchdog armed through the retry backoff (G1); pass { deadline: 'route' } or " +
         'add a reasoned entry naming the deadline owner',
       measured: armedStarts,
       baseline: ARMED_RECEPTION_START_BASELINE,

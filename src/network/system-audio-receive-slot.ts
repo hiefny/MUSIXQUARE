@@ -16,9 +16,13 @@
  * Phase 5 C4-2 moved the trusted reception here from system-audio-guest.ts
  * unchanged, C4-3 the Standard direct call's attach and primer, C4-4 the
  * Standard SFU guest's, and C4-5 the PRO coordinator's receive inputs (its
- * attach, the SFU resume, the interrupts and the detach). Until C4-8
- * system-audio-guest.ts keeps the old names as aliases, and the timer names
- * keep their `sys-audio-guest-` prefix.
+ * attach, the SFU resume, the interrupts and the detach). C4-6 made the two
+ * signals the routes shared on the bus slot inputs: a Standard delivery
+ * handoff (handOffTrustedSystemAudioReception) and the receive deadline's
+ * expiry with its route reactions (expireTrustedSystemAudioReception and a
+ * route's onDeadline), and each start and interrupt names who bounds the wait
+ * (ReceiveDeadline). Until C4-8 system-audio-guest.ts keeps the old names as
+ * aliases, and the timer names keep their `sys-audio-guest-` prefix.
  *
  * Deferred-only: it loads with the room session (vite.config.ts
  * DEFERRED_ENTRY_MODULES).
@@ -103,8 +107,24 @@ interface ReceiveRoutePort {
    * route ends it: after the restore point is taken and the watchdog cleared,
    * before the receiving flag drops and the title is restored.
    */
-  readonly endReception: () => void;
+  readonly endReception?: () => void;
+  /**
+   * The route's reaction when a receive deadline expires the reception (see
+   * expireTrustedSystemAudioReception), before the reception ends: the
+   * Standard SFU drops a subscription that never delivered.
+   */
+  readonly onDeadline?: () => void;
 }
+
+/**
+ * Who bounds a reception's wait for a route's audio (P5-D7):
+ * - 'slot': the slot's 30 s receive deadline, which expires the reception
+ *   when nothing plays by then (the Standard routes);
+ * - 'route': the route's own deadlines, so the slot arms none (the PRO
+ *   coordinator: its backed-off SFU retries and its direct receive deadline
+ *   report a failure once and keep the placeholder for a late track).
+ */
+type ReceiveDeadline = 'slot' | 'route';
 
 /**
  * What one route attached: its source on widener.input and its decoder
@@ -147,7 +167,10 @@ function isSystemAudioPlaceholder(): boolean {
 
 // ─── Routes ───────────────────────────────────────────────────────
 
-/** A route adapter joins the end of every reception (one port per route). */
+/**
+ * A route adapter joins the end of every reception and the receive deadline's
+ * expiry (one port per route).
+ */
 export function registerSystemAudioReceiveRoute(route: ReceiveRoute, port: ReceiveRoutePort): void {
   routes.set(route, port);
 }
@@ -419,28 +442,50 @@ function armReceiveWatchdog(): void {
       debug.watchdogActive = false;
       debug.watchdogTimedOutAt = Date.now();
       log.warn('[SysAudioGuest] Timed out waiting for system audio stream');
-      bus.emit('system-audio:receive-timeout');
-      endTrustedSystemAudioReception();
-      bus.emit('ui:show-toast', t('system_audio.receive_failed'));
+      expireTrustedSystemAudioReception();
     },
     SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
   );
 }
 
 /**
+ * A receive deadline passed with nothing playing (P5-D7's slot.fail): every
+ * route's deadline reaction runs first, then the reception ends, then
+ * receive_failed. The slot's 30 s deadline and the Standard direct call's
+ * replacement deadline expire the reception here, each after its own line.
+ */
+export function expireTrustedSystemAudioReception(): void {
+  for (const port of routes.values()) port.onDeadline?.();
+  endTrustedSystemAudioReception();
+  bus.emit('ui:show-toast', t('system_audio.receive_failed'));
+}
+
+/**
  * A route stopped playing inside its reception. Keep the placeholder and the
  * restore point, but make the next attach or resume earn the receiving state
- * again. A Standard route handed delivery to another (the SFU retry or the
- * bounded direct fallback) and the watchdog bounds the wait. The PRO
- * coordinator passes `receiveWatchdog: false` (its SFU disconnect grace, a
- * retry, a receiver fallback): it owns its deadlines, the retry backoff and
- * the direct receive deadline, as it does at its start.
+ * again. With `deadline: 'slot'` (a Standard delivery handoff, below) the
+ * slot deadline bounds the wait from now. The PRO coordinator passes
+ * `deadline: 'route'` (its SFU disconnect grace, a retry, a receiver
+ * fallback): it owns its deadlines, the retry backoff and the direct receive
+ * deadline, as it does at its start.
  */
-export function interruptTrustedSystemAudioReception(
-  options: { receiveWatchdog?: boolean } = {},
-): void {
+export function interruptTrustedSystemAudioReception(options: {
+  readonly deadline: ReceiveDeadline;
+}): void {
   setSystemAudioReceiving(false);
-  if (options.receiveWatchdog ?? true) armReceiveWatchdog();
+  if (options.deadline === 'slot') armReceiveWatchdog();
+}
+
+/**
+ * A Standard route handed delivery to another (the SFU retry to a pending
+ * READY, or the SFU giving way to a direct call): while the placeholder is
+ * up, interrupt the reception under the slot deadline, so the next route
+ * earns the receiving state again within it. The SFU adapter keeps the
+ * guest-role check.
+ */
+export function handOffTrustedSystemAudioReception(): void {
+  if (!isSystemAudioPlaceholder()) return;
+  interruptTrustedSystemAudioReception({ deadline: 'slot' });
 }
 
 // ─── End ──────────────────────────────────────────────────────────
@@ -462,7 +507,7 @@ export function endTrustedSystemAudioReception(): void {
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
   const wasSystemAudioOwner = isSystemAudioOwner();
   clearSystemAudioReceiveWatchdog();
-  for (const port of routes.values()) port.endReception();
+  for (const port of routes.values()) port.endReception?.();
 
   setSystemAudioReceiving(false);
   if (!wasSystemAudioOwner && !wasSystemAudioPlaceholder) {
@@ -486,17 +531,18 @@ export function endTrustedSystemAudioReception(): void {
  * frame. PRO rooms call this only after authenticating the server-owned
  * live-share lease.
  *
- * `receiveWatchdog: false` leaves the receive deadline to the caller. The PRO
- * coordinator reports a failure once per generation on both routes: the SFU
- * subscription keeps this placeholder through its backed-off retries, and the
- * LAN-direct listener keeps it past its own deadline, while the publisher
- * promotes a listener it cannot reach to the SFU. The watchdog would instead
- * show receive_failed and drop to idle while a longer retry waits, or before a
+ * `deadline` names who bounds the wait (ReceiveDeadline): the Standard routes
+ * pass 'slot', the PRO coordinator 'route'. The coordinator reports a failure
+ * once per generation on both of its routes: the SFU subscription keeps this
+ * placeholder through its backed-off retries, and the LAN-direct listener
+ * keeps it past its own deadline, while the publisher promotes a listener it
+ * cannot reach to the SFU. The slot deadline would instead show
+ * receive_failed and drop to idle while a longer retry waits, or before a
  * slow attempt's track or a late direct offer arrives.
  */
 export function beginTrustedSystemAudioReception(
   surface: unknown = 'display',
-  options: { receiveWatchdog?: boolean } = {},
+  options: { readonly deadline: ReceiveDeadline },
 ): boolean {
   if (isSystemAudioPlaceholder() || slot.phase === 'claiming') {
     return false;
@@ -508,11 +554,7 @@ export function beginTrustedSystemAudioReception(
     generation,
     restoreMeta: previous.phase === 'idle' ? null : previous.restoreMeta,
   };
-  const committed = commitTrustedSystemAudioReception(
-    generation,
-    surface,
-    options.receiveWatchdog ?? true,
-  );
+  const committed = commitTrustedSystemAudioReception(generation, surface, options.deadline);
   // A reception end nested in the commit (a force-stop from stopAllMedia)
   // has already moved the slot on, and emptied this start's restore point.
   if (slot.phase === 'claiming' && slot.generation === generation) {
@@ -528,7 +570,7 @@ export function beginTrustedSystemAudioReception(
 function commitTrustedSystemAudioReception(
   generation: number,
   surface: unknown,
-  receiveWatchdog: boolean,
+  deadline: ReceiveDeadline,
 ): boolean {
   if (isSystemAudioPlaceholder()) return false;
   debug.lastStartAt = Date.now();
@@ -548,7 +590,7 @@ function commitTrustedSystemAudioReception(
     currentTrackMeta: createSystemAudioTrackMeta('receiving', undefined, surface),
   });
   bus.emit('system-audio:host-started');
-  if (receiveWatchdog) armReceiveWatchdog();
+  if (deadline === 'slot') armReceiveWatchdog();
   else clearSystemAudioReceiveWatchdog();
   return true;
 }

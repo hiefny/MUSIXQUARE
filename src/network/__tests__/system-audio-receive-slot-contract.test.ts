@@ -837,9 +837,9 @@ describe('Standard SFU guest receive', () => {
     await advance(20_000);
     // A READY 10 s before the deadline whose tracks-new is still in flight
     // when it fires (new-session answers at 26 s, tracks-new at 32 s), well
-    // inside each request's own 15 s deadline. Only the SFU adapter's
-    // 'system-audio:receive-timeout' reaction can close it at 30 s; C4-6 moves
-    // that reaction into the slot's deadline fan-out.
+    // inside each request's own 15 s deadline. Only the SFU adapter's reaction
+    // to the slot deadline can close it at 30 s (the 'system-audio:receive-
+    // timeout' bus listener until C4-6, the slot's deadline fan-out since).
     realtime.latencyMs = 6_000;
     await ready('rt_host_session_1');
     await advance(9_999);

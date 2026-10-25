@@ -826,11 +826,11 @@ async function ensureCoordinatorSubscription(
     if (coordinatorSubscriptionKey !== key) {
       cleanupCoordinatorGraph();
       coordinatorSubscriptionKey = key;
-      // The coordinator owns this publication's receive deadline. The guest
-      // receive watchdog would end the placeholder while a late offer is still
+      // The coordinator owns this publication's receive deadline. The slot's
+      // receive deadline would end the placeholder while a late offer is still
       // on its way, and an unchanged live state never re-enters it, so that
       // offer's track would attach nowhere.
-      beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });
+      beginTrustedSystemAudioReception(undefined, { deadline: 'route' });
       armDirectReceiveDeadline(identity, key);
     }
     await activateProSystemAudioDirectPublication({
@@ -848,8 +848,8 @@ async function ensureCoordinatorSubscription(
     cleanupCoordinatorGraph();
     coordinatorSubscriptionKey = key;
     // This subscription and its backed-off retries own the receive deadline;
-    // the guest receive watchdog would fire while a longer retry still waits.
-    beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });
+    // the slot's receive deadline would fire while a longer retry still waits.
+    beginTrustedSystemAudioReception(undefined, { deadline: 'route' });
   }
   let flight = coordinatorSubscriptionFlight;
   if (!flight || flight.key !== key) {
@@ -974,7 +974,7 @@ function retryCoordinatorSubscription(identity: CoordinatorPublicationIdentity):
   )
     return;
   cleanupCoordinatorSubscriptionForRetry();
-  interruptTrustedSystemAudioReception({ receiveWatchdog: false });
+  interruptTrustedSystemAudioReception({ deadline: 'route' });
   notifySubscriberFailure(state);
   scheduleCoordinatorSubscriptionRetry(identity);
 }
@@ -996,7 +996,7 @@ function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): vo
   if (event.role === 'receiver' && state.ownerParticipantId !== localParticipantId()) {
     clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
     detachSystemAudioRoute(COORDINATOR_ROUTE);
-    interruptTrustedSystemAudioReception({ receiveWatchdog: false });
+    interruptTrustedSystemAudioReception({ deadline: 'route' });
     notifySubscriberFailure(state);
   }
 }
@@ -2106,7 +2106,7 @@ export function registerProSystemAudioServiceListeners(): void {
         () => {
           if (!coordinatorPublicationMatches(identity)) return;
           // Keep the source: a 'subscribed' on the same session resumes it.
-          interruptTrustedSystemAudioReception({ receiveWatchdog: false });
+          interruptTrustedSystemAudioReception({ deadline: 'route' });
         },
         RECOVERY_DELAY_MS,
       );

@@ -419,8 +419,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
 
   describe('CHECK 4 one deadline owner per PRO SFU attempt (G1)', () => {
     const service = 'src/pro-room/system-audio-service.ts';
-    const watchdogOffStart =
-      'beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });';
+    const watchdogOffStart = "beginTrustedSystemAudioReception(undefined, { deadline: 'route' });";
     const retryMax = 'const SUBSCRIBER_RETRY_MAX_DELAY_MS = 30_000;';
 
     // The LAN-direct branch (G5) passes the same options before the SFU start,
@@ -432,7 +431,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       sources.set(
         service,
         source.slice(0, at) +
-          'beginTrustedSystemAudioReception();' +
+          "beginTrustedSystemAudioReception(undefined, { deadline: 'slot' });" +
           source.slice(at + watchdogOffStart.length),
       );
     }
@@ -455,10 +454,10 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
             sources,
             service,
             '  cleanupCoordinatorSubscriptionForRetry();\n' +
-              '  interruptTrustedSystemAudioReception({ receiveWatchdog: false });\n',
+              "  interruptTrustedSystemAudioReception({ deadline: 'route' });\n",
             '  cleanupCoordinatorSubscriptionForRetry();\n' +
-              '  interruptTrustedSystemAudioReception({ receiveWatchdog: false });\n' +
-              '  beginTrustedSystemAudioReception();\n',
+              "  interruptTrustedSystemAudioReception({ deadline: 'route' });\n" +
+              "  beginTrustedSystemAudioReception(undefined, { deadline: 'slot' });\n",
           ),
         ),
       );
@@ -475,8 +474,8 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
             "import { beginTrustedSystemAudioReception } from '../network/system-audio-guest.ts';\n" +
               'export const starts = [beginTrustedSystemAudioReception];\n' +
               'export function restart(): void {\n' +
-              "  beginTrustedSystemAudioReception('display', { receiveWatchdog: true });\n" +
-              '  beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false });\n' +
+              "  beginTrustedSystemAudioReception('display', { deadline: 'slot' });\n" +
+              "  beginTrustedSystemAudioReception(undefined, { deadline: 'route' });\n" +
               '}\n',
           );
         }),
@@ -509,7 +508,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
 
     it('rejects a LAN-direct reception start that re-arms the guest watchdog (G5)', () => {
       const input = withSources((sources) =>
-        replaceIn(sources, service, watchdogOffStart, 'beginTrustedSystemAudioReception();'),
+        replaceIn(
+          sources,
+          service,
+          watchdogOffStart,
+          "beginTrustedSystemAudioReception(undefined, { deadline: 'slot' });",
+        ),
       );
       const report = analyzeResourceOwnership(input);
       expect(report.deadline.mode).toBe('watchdog-off');
@@ -919,8 +923,8 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           replaceIn(
             sources,
             'src/network/system-audio-receive-slot.ts',
-            '  setSystemAudioReceiving(false);\n  if (options.receiveWatchdog ?? true) armReceiveWatchdog();\n',
-            '  if (options.receiveWatchdog ?? true) armReceiveWatchdog();\n',
+            "  setSystemAudioReceiving(false);\n  if (options.deadline === 'slot') armReceiveWatchdog();\n",
+            "  if (options.deadline === 'slot') armReceiveWatchdog();\n",
           );
           replaceIn(sources, 'src/network/peer.ts', "    'systemAudio.isReceiving': false,\n", '');
         }),

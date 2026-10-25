@@ -361,9 +361,10 @@ RO-49 accepted-exception
   only while the slot still holds the placeholder or the `'system-audio'` owner). A route joins
   every end through one port (`registerSystemAudioReceiveRoute`), which the end calls after
   taking the restore point and clearing the watchdog and before it drops the receiving flag; the
-  Standard direct call is the only route registered so far. Since C4-3 the slot also holds what
-  a route attaches, per route: its decoder primer (`primeSystemAudioDecoder`, one per stream
-  key), its source (`attachSystemAudioSource`: replace the route's previous source on
+  Standard direct call is the only route with an end port. Since C4-6 the same port also carries
+  a route's reaction to the receive deadline (`onDeadline`, below). Since C4-3 the slot also
+  holds what a route attaches, per route: its decoder primer (`primeSystemAudioDecoder`, one per
+  stream key), its source (`attachSystemAudioSource`: replace the route's previous source on
   `widener.input` and, on a reception's first attach, clear the watchdog, set the receiving flag,
   claim the `'system-audio'` owner and start the visualizer) and their release
   (`detachSystemAudioRoute`); `getSystemAudioReceiveRouteSnapshot` answers whether a route
@@ -393,7 +394,7 @@ RO-49 accepted-exception
   deadline once the source is connected; it logs no connected line. The SFU `'subscribed'` state
   resumes the route (`resumeSystemAudioRoute`: the reception start again only while the route
   still has a source). The disconnect grace, a retry and a receiver fallback interrupt the slot
-  with `receiveWatchdog: false` (`interruptTrustedSystemAudioReception`: the receiving flag drops
+  with `deadline: 'route'` (`interruptTrustedSystemAudioReception`: the receiving flag drops
   and no watchdog is armed, because the coordinator owns its deadlines); the retry and the
   fallback detach the route first, the disconnect grace keeps the source. The coordinator's
   cleanups detach the route, and its direct receive deadline asks the slot whether the route
@@ -401,31 +402,48 @@ RO-49 accepted-exception
   start (G6), the direct receive deadline with its five releases and the order in which a
   LAN-direct start arms it after the start, and registers no end port: an end leaves its source,
   primer and subscription to the coordinator's own cleanups (the force-stop gap the PRO contract
-  suite pins). `src/network/system-audio-guest.ts` keeps the slot's names, the end as
-  `cleanupGuestSystemAudio`, and `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` as compatibility aliases
-  (removed in C4-8), the host START/STOP trust gate and the bus listeners; the Standard SFU and
-  the PRO coordinator still reach the start, the trust boundary and the end through them. The
-  service calls the Standard SFU adapter's cleanup directly (the slot's end through the guest
-  alias); bus pairs `system-audio:delivery-handoff` and `system-audio:receive-timeout` connect
-  the rest.
+  suite pins). Since C4-6 (owner decision P5-D7 A) the two bus pairs the routes shared are slot
+  inputs, and every start and interrupt names its deadline kind (`ReceiveDeadline`, replacing
+  the `receiveWatchdog` boolean): `'slot'` arms the slot's 30 s deadline (the host START and the
+  Standard SFU after a direct-route failure), `'route'` arms none (the PRO coordinator's two
+  starts and three interrupts). A Standard SFU delivery handoff (a failed subscription handing
+  over to a pending READY, or a direct call replacing the SFU) calls
+  `handOffTrustedSystemAudioReception`, which interrupts under the slot deadline while the
+  placeholder is up; the SFU keeps the guest-role check (`isGuestSfuReceiver`) the guest's
+  `system-audio:delivery-handoff` listener made. The slot deadline and the direct call's
+  replacement deadline each log their line and call `expireTrustedSystemAudioReception`: every
+  registered route's `onDeadline` runs first, then the end of reception, then
+  `receive_failed`, the order the `system-audio:receive-timeout` emit, the end and the toast
+  had. The Standard SFU registers only an `onDeadline` (from `registerSystemAudioSfuListeners`,
+  where its bus listener was): as a guest it drops its subscription (`cleanupGuestSfu()`); the
+  fan-out still reaches no other route. Both bus events are gone from the event map. The timer
+  names (`sys-audio-guest-*`) are unchanged. `src/network/system-audio-guest.ts` keeps the
+  slot's names, the end as `cleanupGuestSystemAudio`, and `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` as
+  compatibility aliases (removed in C4-8) and the host START/STOP trust gate; the Standard SFU
+  and the PRO coordinator still reach the start, the trust boundary and the end through them.
+  The service calls the Standard SFU adapter's cleanup directly (the slot's end through the guest
+  alias).
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
   register and call begin, attach, interrupt, resume, detach, adopt and end; the later Phase 5
-  increments move the attaches, the route cleanups and the bus pairs into it.
+  increments move the attaches and the route cleanups into it (the bus pairs moved in C4-6).
 - **Allowed requesters:** the route adapters (Standard P2P, Standard SFU, PRO SFU, PRO direct)
   through the slot. `src/audio/system-capture.ts` and the Standard host only emit
   `system-audio:*` events.
 - **Lifecycle operations:** begin reception, attach, set receiving, claim the playback owner, arm
   or clear the receive deadline, cleanup with meta restore.
-- **Deadline owner:** per route today. Standard P2P: the 30 s receive watchdog, the receive
-  slot's since C4-2 (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the
-  guard's findings), and the direct call's own replacement watchdog. PRO SFU: the
-  subscription retry backoff (2.5 s doubling to 30 s); since 9.0.1 it begins with
-  `receiveWatchdog: false` (G1). PRO LAN-direct: since 9.0.2 it also begins with
-  `receiveWatchdog: false`, and the service's direct receive deadline
+- **Deadline owner:** per route today, named at each start and interrupt since C4-6
+  (`ReceiveDeadline`). Standard P2P: the 30 s receive watchdog, the receive slot's since C4-2
+  (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the guard's
+  findings; `deadline: 'slot'`), and the direct call's own replacement watchdog; both expire the
+  reception through `expireTrustedSystemAudioReception`. PRO SFU: the subscription retry
+  backoff (2.5 s doubling to 30 s); since 9.0.1 it begins without the slot deadline (G1;
+  `deadline: 'route'` since C4-6, `receiveWatchdog: false` before). PRO LAN-direct: since 9.0.2
+  it also begins with `deadline: 'route'`, and the service's direct receive deadline
   (`DIRECT_RECEIVE_DEADLINE_TIMER`, 30 s from `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`) only
   reports the failure once and keeps the listener in reception for a late track (G5).
-  Standard SFU guests also react to `system-audio:receive-timeout`.
+  Standard SFU guests react to the slot's expiry through their `onDeadline` port (the
+  `system-audio:receive-timeout` bus listener until C4-6).
   Target: one receive deadline per attempt in the slot.
 - **Timing-constant home:** the deferred-only `src/network/system-audio-media.ts` (Phase 5 5A,
   C4-1). It holds the receivers' playout-delay hint (`SYSTEM_AUDIO_PLAYOUT_DELAY_S`, 0.5 s, set
@@ -474,6 +492,14 @@ RO-49 accepted-exception
     retry detached the source, and every coordinator attach starting the reception again) with
     that suite's SFU, LAN-direct, retry, fallback and promotion rows and the pro-transport
     contract suite, which run the service with real state.
+  - The bus pairs as slot inputs (C4-6) are pinned, before the move, by the Standard and
+    lifecycle contract suites, which since then read a handoff as the slot deadline re-armed from
+    it (the `/debug` guest keys) and a receive timeout as the deadline's warn line, and by the
+    Standard suite's "the slot deadline lets the SFU adapter drop its subscription before the
+    reception ends, and shows receive_failed after the title is back"; after it by the
+    `system-audio-guest.test.ts` deadline-reaction and handoff rows and the
+    `system-audio-sfu.test.ts` group "guest SFU receive slot inputs" (the guest-role check on
+    both inputs, the SFU's deadline-only port).
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1). `system-audio-service.test.ts` mocks the guest
     and SFU modules and hand-mocks state, so it cannot see their interplay; since C4-5 it runs
@@ -482,7 +508,8 @@ RO-49 accepted-exception
   - Guard: the resource-ownership guard fails when the PRO SFU reception start arms the guest
     watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`
     (read from `src/network/system-audio-media.ts` since C4-2), and when an armed
-    `beginTrustedSystemAudioReception` start appears in a new function. The
+    `beginTrustedSystemAudioReception` start (any use without the literal
+    `{ deadline: 'route' }` since C4-6) appears in a new function. The
     start returns early while the placeholder is active, so an armed start on the retry path
     would re-arm the watchdog before the SFU start runs. Since Phase 5 prep (T5) it also counts the
     slot's direct writers per file, exactly: `setSystemAudioReceiving` value uses (3: the slot),
@@ -509,8 +536,9 @@ RO-49 accepted-exception
   start, including `stopAllMedia` and the host-started notice) is an open release-record item.
   Phase 5 (slot); its first increment, C4-1, moved the media constants (planned for Phase 0d),
   C4-2 created the slot module with the trusted reception, C4-3 moved the Standard direct
-  call's attach and primer into it, C4-4 the Standard SFU guest's, and C4-5 the PRO
-  coordinator's attach, resume, interrupts and detach. Exception RO-39.
+  call's attach and primer into it, C4-4 the Standard SFU guest's, C4-5 the PRO
+  coordinator's attach, resume, interrupts and detach, and C4-6 the two bus pairs (the delivery
+  handoff and the receive deadline's expiry) with an explicit deadline kind. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 
@@ -2565,9 +2593,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
 4. **One deadline owner per PRO SFU attempt** (RO-04, principle 2): the subscriber retry maximum
    stays below the guest receive watchdog (the receive slot's since Phase 5 C4-2; its
    `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` is read from `src/network/system-audio-media.ts`), or the PRO
-   SFU reception start passes `receiveWatchdog: false`. Armed `beginTrustedSystemAudioReception`
-   starts (any use without the literal `{ receiveWatchdog: false }`) are an exact list per
-   function.
+   SFU reception start passes `deadline: 'route'` (`receiveWatchdog: false` before Phase 5 C4-6).
+   Armed `beginTrustedSystemAudioReception` starts (any use without the literal
+   `{ deadline: 'route' }`) are an exact list per function.
 5. **Copied timing constants** inside the files a record names as its timing home (principle 4):
    same-named constants, identical numeric tuples and shared timing objects form a triaged list.
    Constants that share only a value are report-only, because round values such as 1 s, 15 s and

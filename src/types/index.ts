@@ -1737,10 +1737,8 @@ interface BaseEventMap {
   'system-audio:force-stop': [];
   'system-audio:streams-ready': [];
   'system-audio:incoming-call': [mediaConn: unknown, channel: string];
-  'system-audio:receive-timeout': [];
   'system-audio:sfu-fallback': [reason: string];
   'system-audio:sfu-peer-needed': [peerId: string, reason: string];
-  'system-audio:delivery-handoff': [];
   'system-audio:host-started': [];
   'system-audio:host-stopped': [];
   'pro-system-audio:state-changed': [state: ProSystemAudioUiState, ownerDisplayName: string | null];

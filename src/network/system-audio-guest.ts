@@ -32,9 +32,9 @@ import {
   clearSystemAudioReceiveWatchdog,
   detachSystemAudioRoute,
   endTrustedSystemAudioReception,
+  expireTrustedSystemAudioReception,
   getSystemAudioReceiveRouteSnapshot,
   getSystemAudioReceiveSlotDebugSnapshot,
-  interruptTrustedSystemAudioReception,
   noteIgnoredSystemAudioStart,
   primeSystemAudioDecoder,
   registerSystemAudioReceiveRoute,
@@ -176,9 +176,9 @@ function armReplacementWatchdog(channel: string, mediaConn: MediaConnection): vo
       if (!isCurrentMediaConnection(channel, mediaConn)) return;
 
       log.warn(`[SysAudioGuest] Timed out waiting for replacement ${channel} stream`);
-      bus.emit('system-audio:receive-timeout');
-      endTrustedSystemAudioReception();
-      bus.emit('ui:show-toast', t('system_audio.receive_failed'));
+      // The receive slot runs the routes' deadline reactions, ends the
+      // reception and shows receive_failed, as its own deadline does.
+      expireTrustedSystemAudioReception();
     },
     SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
   );
@@ -506,7 +506,8 @@ export function registerSystemAudioGuestListeners(): void {
         return;
       }
       log.info('[SysAudioGuest] Host started system audio sharing');
-      beginTrustedSystemAudioReception(readSystemAudioStartSurface(data));
+      // The slot's 30 s receive deadline bounds the wait for a route.
+      beginTrustedSystemAudioReception(readSystemAudioStartSurface(data), { deadline: 'slot' });
     },
   );
 
@@ -543,15 +544,6 @@ export function registerSystemAudioGuestListeners(): void {
 
   bus.on('state:systemAudio.isReceiving', (value) => {
     if (value === true) clearSystemAudioReceiveWatchdog();
-  });
-
-  bus.on('system-audio:delivery-handoff', () => {
-    if (getState('network.appRole') !== 'guest') return;
-    if (!isSystemAudioPlaceholder()) return;
-    // Preserve the current system-audio placeholder/previous-track restore
-    // point, but make the replacement adapter earn the receiving state again.
-    // This covers both SFU retry handoff and SFU -> bounded direct fallback.
-    interruptTrustedSystemAudioReception();
   });
 
   bus.on('system-audio:force-stop', () => {

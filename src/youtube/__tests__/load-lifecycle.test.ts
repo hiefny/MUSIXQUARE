@@ -678,7 +678,7 @@ describe('QA3 R17 actual registered lifecycle probes', () => {
       } else {
         const { beginTrustedSystemAudioReception } =
           await import('../../network/system-audio-guest.ts');
-        expect(beginTrustedSystemAudioReception()).toBe(true);
+        expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
       }
       expect(player.destroy).toHaveBeenCalledOnce();
       expect(ytState.getYouTubePlayer()).toBeNull();

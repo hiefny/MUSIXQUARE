@@ -454,8 +454,10 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           replaceIn(
             sources,
             service,
-            '  cleanupCoordinatorSubscriptionForRetry();\n  setSystemAudioReceiving(false);\n',
-            '  cleanupCoordinatorSubscriptionForRetry();\n  setSystemAudioReceiving(false);\n' +
+            '  cleanupCoordinatorSubscriptionForRetry();\n' +
+              '  interruptTrustedSystemAudioReception({ receiveWatchdog: false });\n',
+            '  cleanupCoordinatorSubscriptionForRetry();\n' +
+              '  interruptTrustedSystemAudioReception({ receiveWatchdog: false });\n' +
               '  beginTrustedSystemAudioReception();\n',
           ),
         ),
@@ -829,10 +831,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
     // Phase 5 prep T5: today's writers, which each 5A increment lowers as the
     // receive slot takes the writes. C4-4 lowered the first three by one: the
     // Standard SFU attaches through the slot's attach the direct call uses.
+    // C4-5 removed the PRO coordinator's (5, 2 and 1): it attaches, resumes
+    // and interrupts through the slot's existing writes.
     const TODAY = {
-      'receiving flag write': 8,
-      'system-audio owner claim': 5,
-      'widener.input use': 4,
+      'receiving flag write': 3,
+      'system-audio owner claim': 3,
+      'widener.input use': 3,
       'raw receiving flag write': 1,
     };
 
@@ -908,21 +912,21 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         withSources((sources) => {
           replaceIn(
             sources,
-            'src/pro-room/system-audio-service.ts',
-            '  source.connect(widener.input);\n',
-            '  source.connect(widener.input);\n  source.connect(widener.input);\n',
+            'src/network/system-audio-receive-slot.ts',
+            '  media.source.connect(widener.input);\n',
+            '  media.source.connect(widener.input);\n  media.source.connect(widener.input);\n',
           );
           replaceIn(
             sources,
             'src/network/system-audio-receive-slot.ts',
-            '  setSystemAudioReceiving(false);\n  armReceiveWatchdog();\n',
-            '  armReceiveWatchdog();\n',
+            '  setSystemAudioReceiving(false);\n  if (options.receiveWatchdog ?? true) armReceiveWatchdog();\n',
+            '  if (options.receiveWatchdog ?? true) armReceiveWatchdog();\n',
           );
           replaceIn(sources, 'src/network/peer.ts', "    'systemAudio.isReceiving': false,\n", '');
         }),
       );
       expect(findings).toMatch(
-        /RATCHET REGRESSION widener\.input use \(RO-04\): src\/pro-room\/system-audio-service\.ts has 2, baseline 1/u,
+        /RATCHET REGRESSION widener\.input use \(RO-04\): src\/network\/system-audio-receive-slot\.ts has 2, baseline 1/u,
       );
       expect(findings).toMatch(
         /STALE BASELINE receiving flag write \(RO-04\): src\/network\/system-audio-receive-slot\.ts has 2, baseline 3 - lower the baseline to 2/u,

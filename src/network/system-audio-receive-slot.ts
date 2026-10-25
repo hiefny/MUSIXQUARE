@@ -14,9 +14,9 @@
  * starts a reception sets.
  *
  * Phase 5 C4-2 moved the trusted reception here from system-audio-guest.ts
- * unchanged, C4-3 the Standard direct call's attach and primer, and C4-4 the
- * Standard SFU guest's. The PRO coordinator still attaches its own source; a
- * later Phase 5 increment moves that attach into this slot. Until then
+ * unchanged, C4-3 the Standard direct call's attach and primer, C4-4 the
+ * Standard SFU guest's, and C4-5 the PRO coordinator's receive inputs (its
+ * attach, the SFU resume, the interrupts and the detach). Until C4-8
  * system-audio-guest.ts keeps the old names as aliases, and the timer names
  * keep their `sys-audio-guest-` prefix.
  *
@@ -89,8 +89,13 @@ type ReceiveSlot =
       readonly restoreMeta: TrackMeta | null;
     };
 
-/** The routes that receive into the slot. */
-type ReceiveRoute = 'standard-direct' | 'standard-sfu' | 'pro-sfu' | 'pro-direct';
+/**
+ * The routes that receive into the slot. The PRO coordinator is one route for
+ * both of its transports (SFU and LAN-direct): it holds one source and one
+ * primer whichever transport delivered the track, so its next attach swaps
+ * and its detach drops that one, as before the slot.
+ */
+type ReceiveRoute = 'standard-direct' | 'standard-sfu' | 'pro-coordinator';
 
 interface ReceiveRoutePort {
   /**
@@ -190,7 +195,7 @@ export function primeSystemAudioDecoder(
 /**
  * What a route received: a stream it connects as it is (the Standard direct
  * call), or a bare track it connects in a stream of its own (the Standard
- * SFU).
+ * SFU and the PRO coordinator).
  */
 type ReceivedAudio = { readonly stream: MediaStream } | { readonly track: MediaStreamTrack };
 
@@ -203,20 +208,24 @@ type ReceivedAudio = { readonly stream: MediaStream } | { readonly track: MediaS
  *   while the slot is receiving. The Standard SFU: each subscription starts
  *   the reception again (a re-publication tears the old one down without
  *   dropping the receiving flag), with its own two-hour limit.
+ * - 'every-attach': every attach, even while the slot is receiving. The PRO
+ *   coordinator: each track its transports deliver (a subscription, a retry,
+ *   a promotion or a new direct route) starts the reception again.
  */
-type ReceptionStart = 'first-for-slot' | 'first-for-route';
+type ReceptionStart = 'first-for-slot' | 'first-for-route' | 'every-attach';
 
 interface SourceAttachRequest {
   readonly startsReception: ReceptionStart;
   /**
    * The route's step once the audio graph is confirmed and before its
    * previous source is swapped (the SFU reports a context that is not
-   * running and primes its track here).
+   * running and primes its track here; the PRO coordinator primes its track).
    */
   readonly onGraphReady?: (context: AudioContext) => void;
   /**
    * The route's own bookkeeping once its source is on widener.input, before
-   * an attach that starts the reception sets the receiving flag.
+   * an attach that starts the reception sets the receiving flag (the PRO
+   * coordinator clears its direct receive deadline here).
    */
   readonly onConnected?: () => void;
   /**
@@ -224,8 +233,11 @@ interface SourceAttachRequest {
    * receiving flag is set (the SFU arms its two-hour limit).
    */
   readonly onReceptionStart?: () => void;
-  /** The route's line when its attach starts the reception. */
-  readonly connectedLog: string;
+  /**
+   * The route's line when its attach starts the reception. The PRO
+   * coordinator logs none (its transports log the track themselves).
+   */
+  readonly connectedLog?: string;
 }
 
 /**
@@ -266,18 +278,39 @@ export function attachSystemAudioSource(
   // Update state once at least one stream is connected
   const slotWasReceiving = getState('systemAudio.isReceiving');
   const startsReception =
-    request.startsReception === 'first-for-route' ? !routeWasAttached : !slotWasReceiving;
+    request.startsReception === 'every-attach' ||
+    (request.startsReception === 'first-for-route' ? !routeWasAttached : !slotWasReceiving);
   if (startsReception) {
     // Setting the flag meets the receive deadline (its state listener in the
     // guest clears the watchdog as well); a flag already set leaves it alone.
     if (!slotWasReceiving) clearSystemAudioReceiveWatchdog();
     request.onReceptionStart?.();
-    setSystemAudioReceiving(true);
-    claimPlaybackOwner('system-audio');
-    bus.emit('visualizer:start');
-    log.info(request.connectedLog);
+    markSystemAudioReceiving();
+    if (request.connectedLog) log.info(request.connectedLog);
   }
   return true;
+}
+
+/**
+ * The reception plays: set the receiving flag, claim the 'system-audio'
+ * playback owner and start the visualizer.
+ */
+function markSystemAudioReceiving(): void {
+  setSystemAudioReceiving(true);
+  claimPlaybackOwner('system-audio');
+  bus.emit('visualizer:start');
+}
+
+/**
+ * The route's transport is connected again (the PRO SFU subscription's
+ * 'subscribed'): while the route still has its source on widener.input, set
+ * the receiving flag, claim the 'system-audio' owner and start the visualizer
+ * again. A route with no source (its attach still waits, or a retry or a
+ * fallback detached it) changes nothing.
+ */
+export function resumeSystemAudioRoute(route: ReceiveRoute): void {
+  if (!routeMedia.get(route)?.source) return;
+  markSystemAudioReceiving();
 }
 
 /** Drops what the route attached: its source and its decoder primer. */
@@ -297,8 +330,9 @@ export function detachSystemAudioRoute(route: ReceiveRoute): void {
 
 /**
  * Whether the route has a source on widener.input and holds a primer: the
- * route's /debug keys, and for the Standard SFU whether its cleanup ends the
- * reception.
+ * route's /debug keys, for the Standard SFU whether its cleanup ends the
+ * reception, and for the PRO coordinator whether its direct receive deadline
+ * still has a failure to report.
  */
 export function getSystemAudioReceiveRouteSnapshot(route: ReceiveRoute): {
   sourceAttached: boolean;
@@ -394,13 +428,19 @@ function armReceiveWatchdog(): void {
 }
 
 /**
- * A Standard route handed delivery to another (the SFU retry or the bounded
- * direct fallback). Keep the placeholder and the restore point, but make the
- * next route earn the receiving state again under the watchdog.
+ * A route stopped playing inside its reception. Keep the placeholder and the
+ * restore point, but make the next attach or resume earn the receiving state
+ * again. A Standard route handed delivery to another (the SFU retry or the
+ * bounded direct fallback) and the watchdog bounds the wait. The PRO
+ * coordinator passes `receiveWatchdog: false` (its SFU disconnect grace, a
+ * retry, a receiver fallback): it owns its deadlines, the retry backoff and
+ * the direct receive deadline, as it does at its start.
  */
-export function interruptTrustedSystemAudioReception(): void {
+export function interruptTrustedSystemAudioReception(
+  options: { receiveWatchdog?: boolean } = {},
+): void {
   setSystemAudioReceiving(false);
-  armReceiveWatchdog();
+  if (options.receiveWatchdog ?? true) armReceiveWatchdog();
 }
 
 // ─── End ──────────────────────────────────────────────────────────

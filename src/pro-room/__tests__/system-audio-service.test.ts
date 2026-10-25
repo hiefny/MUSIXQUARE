@@ -70,8 +70,6 @@ const mocks = vi.hoisted(() => ({
   initAudio: vi.fn().mockResolvedValue(undefined),
   getAudioContext: vi.fn(),
   getWidener: vi.fn(),
-  setSystemAudioReceiving: vi.fn(),
-  claimPlaybackOwner: vi.fn(),
   roomContextKind: 'pro' as 'pro' | 'standard',
   playbackMode: 'none' as 'none' | 'system-audio',
   sfuListener: null as ((event: Record<string, unknown>) => void) | null,
@@ -131,11 +129,18 @@ vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
   getAudioTrackStreamKey: vi.fn(),
   primeWebRtcAudioDecoder: vi.fn(),
 }));
+// The coordinator attaches, resumes, interrupts and detaches through the real
+// receive slot (network/system-audio-receive-slot.ts), which writes the
+// receiving flag and the 'system-audio' owner claim. This suite hand-mocks
+// core/state, so it cannot see those writes: the real-state receive-slot
+// contract suites pin them (Phase 5 C4-5 moved this suite's assertions on
+// them there), and they are stubs here. The graph assertions below read the
+// mocked Web Audio seam.
 vi.mock('../../player/ownership.ts', () => ({
-  claimPlaybackOwner: mocks.claimPlaybackOwner,
+  claimPlaybackOwner: vi.fn(),
   isSystemAudioPlaceholderMeta: (meta: { systemAudioPlaceholder?: boolean } | null) =>
     meta?.systemAudioPlaceholder === true,
-  setSystemAudioReceiving: mocks.setSystemAudioReceiving,
+  setSystemAudioReceiving: vi.fn(),
 }));
 vi.mock('../../core/state.ts', () => ({
   getState: (path: string) => {
@@ -1611,15 +1616,13 @@ describe('PRO system-audio service orchestration', () => {
     expect(mocks.publish).not.toHaveBeenCalled();
   });
 
-  it('activates a remote direct route as pending and starts receiving after the stereo track attaches', async () => {
+  it('activates a remote direct route as pending and attaches the stereo track after the trusted boundary', async () => {
     const graph = installAudioGraphHarness();
     const trackBoundary = deferred<boolean>();
     mocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(trackBoundary.promise);
     api.getSystemAudioState.mockResolvedValueOnce(directLive());
     mocks.beginReception.mockClear();
     mocks.subscribe.mockClear();
-    mocks.setSystemAudioReceiving.mockClear();
-    mocks.claimPlaybackOwner.mockClear();
 
     await refreshProSystemAudioState();
     await vi.waitFor(() => expect(mocks.beginReception).toHaveBeenCalledTimes(1));
@@ -1630,7 +1633,7 @@ describe('PRO system-audio service orchestration', () => {
       generation: 1,
       publicationId: 'publication_00001',
     });
-    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
+    expect(graph.sources).toHaveLength(0);
 
     const event: ProSystemAudioDirectTrackReadyEvent = {
       ownerParticipantId: REMOTE_ID,
@@ -1642,16 +1645,13 @@ describe('PRO system-audio service orchestration', () => {
     };
     const trackHandoff = Promise.resolve(mocks.directCallbacks?.onReceiverTrackReady(event));
     await vi.waitFor(() => expect(mocks.awaitTrustedReceptionBoundary).toHaveBeenCalledTimes(1));
-    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
+    expect(graph.sources).toHaveLength(0);
     trackBoundary.resolve(true);
     await trackHandoff;
 
     expect(mocks.awaitTrustedReceptionBoundary).toHaveBeenCalledWith('pro-stereo');
     expect(graph.sources).toHaveLength(1);
     expect(graph.sources[0]?.connect).toHaveBeenCalledWith(graph.widenerInput);
-    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(true);
-    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledTimes(1);
-    expect(mocks.claimPlaybackOwner).toHaveBeenCalledWith('system-audio');
   });
 
   it('does not attach a stale direct track after the trusted boundary resolves', async () => {
@@ -1661,7 +1661,6 @@ describe('PRO system-audio service orchestration', () => {
     api.getSystemAudioState.mockResolvedValueOnce(directLive());
     await refreshProSystemAudioState();
     await vi.waitFor(() => expect(mocks.beginReception).toHaveBeenCalled());
-    mocks.setSystemAudioReceiving.mockClear();
     let current = true;
     const event: ProSystemAudioDirectTrackReadyEvent = {
       ownerParticipantId: REMOTE_ID,
@@ -1679,7 +1678,6 @@ describe('PRO system-audio service orchestration', () => {
 
     expect(graph.sources).toHaveLength(0);
     expect(mocks.initAudio).not.toHaveBeenCalled();
-    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalledWith(true);
   });
 
   it('cleans a remote direct graph when an authenticated refresh returns idle', async () => {
@@ -1752,14 +1750,13 @@ describe('PRO system-audio service orchestration', () => {
     mocks.resetDirect.mockClear();
     mocks.subscribe.mockClear();
     mocks.cleanupReception.mockClear();
-    mocks.claimPlaybackOwner.mockClear();
     await refreshProSystemAudioState();
     await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
 
     expect(mocks.resetDirect).toHaveBeenCalledWith({ notifyPeers: false });
     expect(graph.sources[0]?.disconnect).toHaveBeenCalledTimes(1);
     expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
-    expect(mocks.claimPlaybackOwner).not.toHaveBeenCalled();
+    expect(graph.sources).toHaveLength(1);
     expect(mocks.subscribe).toHaveBeenCalledWith({
       version: 2,
       sessionId: 'realtime_session_01',
@@ -1798,14 +1795,10 @@ describe('PRO system-audio service orchestration', () => {
       current = false;
       mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
       expect(mocks.stopSubscriber).toHaveBeenCalled();
-      mocks.setSystemAudioReceiving.mockClear();
-      mocks.claimPlaybackOwner.mockClear();
       pending.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(graph.sources).toHaveLength(0);
-      expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalledWith(true);
-      expect(mocks.claimPlaybackOwner).not.toHaveBeenCalled();
       if (boundary === 'trusted-boundary') expect(mocks.initAudio).not.toHaveBeenCalled();
     },
   );
@@ -1850,7 +1843,7 @@ describe('PRO system-audio service orchestration', () => {
     expect(mocks.subscribe).toHaveBeenCalledTimes(attempts + 4);
   });
 
-  it('returns a failed playing SFU subscription to pending until the retry track attaches', async () => {
+  it('retires a failed playing SFU subscription inside the placeholder until the retry track attaches', async () => {
     const graph = installAudioGraphHarness();
     const descriptor = {
       version: 2,
@@ -1869,11 +1862,9 @@ describe('PRO system-audio service orchestration', () => {
       track: { id: 'first-stereo' } as MediaStreamTrack,
     });
     await vi.waitFor(() => expect(graph.sources).toHaveLength(1));
-    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(true);
 
     mocks.playbackMode = 'system-audio';
     vi.useFakeTimers();
-    mocks.setSystemAudioReceiving.mockClear();
     mocks.stopSubscriber.mockClear();
     mocks.cleanupLegacySubscriber.mockClear();
     mocks.cleanupReception.mockClear();
@@ -1883,7 +1874,6 @@ describe('PRO system-audio service orchestration', () => {
     expect(mocks.stopSubscriber).toHaveBeenCalledTimes(1);
     expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(1);
     expect(mocks.cleanupReception).not.toHaveBeenCalled();
-    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(false);
 
     await vi.advanceTimersByTimeAsync(2_500);
     vi.useRealTimers();
@@ -1895,7 +1885,7 @@ describe('PRO system-audio service orchestration', () => {
       track: { id: 'retry-stereo' } as MediaStreamTrack,
     });
     await vi.waitFor(() => expect(graph.sources).toHaveLength(2));
-    expect(mocks.setSystemAudioReceiving.mock.calls).toEqual([[false], [true]]);
+    expect(graph.sources[1]?.connect).toHaveBeenCalledWith(graph.widenerInput);
   });
 
   it('retires an SFU receive attempt when native audio resume times out and retries its track', async () => {
@@ -1936,7 +1926,6 @@ describe('PRO system-audio service orchestration', () => {
     expect(nativeContext.resume).toHaveBeenCalledOnce();
     expect(graph.sources).toHaveLength(0);
     expect(mocks.stopSubscriber).toHaveBeenCalledTimes(1);
-    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(false);
     expect(getManagedTimer('pro-system-audio-subscriber-retry')).not.toBeNull();
 
     // The next attempt must allocate a fresh subscription: simply subscribing
@@ -1952,7 +1941,7 @@ describe('PRO system-audio service orchestration', () => {
     });
     await vi.advanceTimersByTimeAsync(1);
     expect(graph.sources).toHaveLength(1);
-    expect(mocks.setSystemAudioReceiving).toHaveBeenLastCalledWith(true);
+    expect(graph.sources[0]?.connect).toHaveBeenCalledWith(graph.widenerInput);
   });
 
   it.each(['transport-replaced', 'publication-replaced', 'room-left'] as const)(
@@ -1984,17 +1973,15 @@ describe('PRO system-audio service orchestration', () => {
         bus.emit('state:room.context', { kind: 'standard' } as never, { kind: 'pro' } as never);
       }
       mocks.stopSubscriber.mockClear();
-      mocks.setSystemAudioReceiving.mockClear();
       pendingAudio.reject(new Error('native audio initialization failed late'));
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(mocks.stopSubscriber).not.toHaveBeenCalled();
-      expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
       expect(getManagedTimer('pro-system-audio-subscriber-retry')).toBeNull();
     },
   );
 
-  it('debounces SFU disconnects and restores playing without removing the pending placeholder', async () => {
+  it('debounces SFU disconnects without removing the source or the pending placeholder', async () => {
     const graph = installAudioGraphHarness();
     const descriptor = {
       version: 2,
@@ -2015,24 +2002,21 @@ describe('PRO system-audio service orchestration', () => {
 
     mocks.playbackMode = 'system-audio';
     vi.useFakeTimers();
-    mocks.setSystemAudioReceiving.mockClear();
     mocks.cleanupReception.mockClear();
     mocks.sfuListener?.({ type: 'subscriber-state', state: 'disconnected', descriptor });
     await vi.advanceTimersByTimeAsync(2_499);
-    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
+    expect(getManagedTimer('pro-system-audio-subscriber-disconnect')).not.toBeNull();
     mocks.sfuListener?.({ type: 'subscriber-state', state: 'subscribed', descriptor });
-    await vi.advanceTimersByTimeAsync(1);
-    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledTimes(1);
-    expect(mocks.setSystemAudioReceiving).toHaveBeenLastCalledWith(true);
+    expect(getManagedTimer('pro-system-audio-subscriber-disconnect')).toBeNull();
 
-    mocks.setSystemAudioReceiving.mockClear();
     mocks.sfuListener?.({ type: 'subscriber-state', state: 'disconnected', descriptor });
     await vi.advanceTimersByTimeAsync(2_500);
-    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(false);
+    expect(getManagedTimer('pro-system-audio-subscriber-disconnect')).toBeNull();
     expect(graph.sources[0]?.disconnect).not.toHaveBeenCalled();
     expect(mocks.cleanupReception).not.toHaveBeenCalled();
     mocks.sfuListener?.({ type: 'subscriber-state', state: 'subscribed', descriptor });
-    expect(mocks.setSystemAudioReceiving.mock.calls).toEqual([[false], [true]]);
+    expect(graph.sources).toHaveLength(1);
+    expect(graph.sources[0]?.disconnect).not.toHaveBeenCalled();
   });
 
   it('acquires through the room server without peer fanout', async () => {
@@ -2335,16 +2319,12 @@ describe('PRO system-audio service orchestration', () => {
     bindProSystemAudioSession(snapshot('presence_local_02', '000002'));
     await refreshProSystemAudioState();
     mocks.getAudioContext.mockClear();
-    mocks.setSystemAudioReceiving.mockClear();
-    mocks.claimPlaybackOwner.mockClear();
 
     pendingAudio.resolve(undefined);
     await Promise.resolve();
     await Promise.resolve();
 
     expect(mocks.getAudioContext).not.toHaveBeenCalled();
-    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
-    expect(mocks.claimPlaybackOwner).not.toHaveBeenCalled();
   });
 
   it('does not attach a PRO SFU track before the trusted owner-switch boundary settles', async () => {
@@ -2404,7 +2384,6 @@ describe('PRO system-audio service orchestration', () => {
     await Promise.resolve();
 
     expect(mocks.getAudioContext).not.toHaveBeenCalled();
-    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
   });
 
   it('keeps one subscription flight across consecutive identical live reconciles', async () => {

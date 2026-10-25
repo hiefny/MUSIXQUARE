@@ -566,9 +566,12 @@ const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // of reception, the delivery-handoff interrupt and the placeholder claim)
 // from the guest into src/network/system-audio-receive-slot.ts, C4-3 the
 // Standard direct call's attach (its receiving flag, owner claim and
-// widener.input source), which leaves the guest none, and C4-4 the Standard
+// widener.input source), which leaves the guest none, C4-4 the Standard
 // SFU guest's attach through the same slot attach, which leaves the SFU none
-// and lowers each total by one.
+// and lowers each total by one, and C4-5 the PRO coordinator's attach, resume
+// and interrupts, which leaves the service none: its attach shares the slot
+// attach, its resume the attach's reception start and its three interrupts
+// the slot's interrupt, so the slot's counts stay as they were.
 
 const RECEIVING_FLAG_SETTER = 'setSystemAudioReceiving';
 const PLAYBACK_OWNER_CLAIM = 'claimPlaybackOwner';
@@ -584,17 +587,9 @@ const RECEIVING_FLAG_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
     {
       count: 3,
       reason:
-        'the slot: the end of reception and the delivery-handoff interrupt (C4-2), and the ' +
-        "attach a route's source starts the reception with (Standard direct C4-3, SFU C4-4)",
-    },
-  ],
-  [
-    'src/pro-room/system-audio-service.ts',
-    {
-      count: 5,
-      reason:
-        'coordinator attach, subscription retry, direct-route fallback, SFU subscribed and ' +
-        'the disconnect debounce (C4-5)',
+        'the slot: the end of reception, the interrupt (the Standard delivery handoff, C4-2; ' +
+        'the PRO disconnect grace, retry and receiver fallback, C4-5) and the reception start ' +
+        "a route's attach or resume runs (Standard direct C4-3, SFU C4-4, PRO coordinator C4-5)",
     },
   ],
 ]);
@@ -610,13 +605,9 @@ const SYSTEM_AUDIO_OWNER_CLAIM_BASELINE: Baseline = new Map<string, Allowance>([
     {
       count: 2,
       reason:
-        "the slot: the trusted reception placeholder (C4-2) and the attach a route's source " +
-        'starts the reception with (Standard direct C4-3, SFU C4-4)',
+        "the slot: the trusted reception placeholder (C4-2) and the reception start a route's " +
+        'attach or resume runs (Standard direct C4-3, SFU C4-4, PRO coordinator C4-5)',
     },
-  ],
-  [
-    'src/pro-room/system-audio-service.ts',
-    { count: 2, reason: 'coordinator attach and SFU subscribed (C4-5)' },
   ],
 ]);
 
@@ -630,10 +621,11 @@ const WIDENER_INPUT_USE_BASELINE: Baseline = new Map<string, Allowance>([
     'src/network/system-audio-receive-slot.ts',
     {
       count: 1,
-      reason: "the slot's attach: the Standard direct call's (C4-3) and SFU guest's (C4-4) source",
+      reason:
+        "the slot's attach: the Standard direct call's (C4-3), SFU guest's (C4-4) and PRO " +
+        "coordinator's (C4-5) source",
     },
   ],
-  ['src/pro-room/system-audio-service.ts', { count: 1, reason: 'PRO coordinator source (C4-5)' }],
 ]);
 
 /** RO-04: raw 'systemAudio.isReceiving' writes outside the setter's home. */

@@ -1,5 +1,4 @@
-import { initAudio, getWidener } from '../audio/engine.ts';
-import { getAudioContext } from '../audio/context.ts';
+import { initAudio } from '../audio/engine.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
@@ -39,16 +38,15 @@ import {
   SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
 } from '../network/system-audio-guest.ts';
 import {
-  cleanupWebRtcAudioDecoderPrimer,
-  getAudioTrackStreamKey,
-  primeWebRtcAudioDecoder,
-  type WebRtcAudioDecoderPrimer,
-} from '../network/webrtc-audio-decoder-primer.ts';
-import {
-  claimPlaybackOwner,
-  isSystemAudioPlaceholderMeta,
-  setSystemAudioReceiving,
-} from '../player/ownership.ts';
+  attachSystemAudioSource,
+  detachSystemAudioRoute,
+  getSystemAudioReceiveRouteSnapshot,
+  interruptTrustedSystemAudioReception,
+  primeSystemAudioDecoder,
+  resumeSystemAudioRoute,
+} from '../network/system-audio-receive-slot.ts';
+import { getAudioTrackStreamKey } from '../network/webrtc-audio-decoder-primer.ts';
+import { isSystemAudioPlaceholderMeta } from '../player/ownership.ts';
 import type { ProRoomApiClient } from './api.ts';
 import type { ProRoomPlaybackReconciliationLiveness } from './playback-controller.ts';
 import type {
@@ -79,6 +77,9 @@ const PUBLISHER_RETRY_TIMER = 'pro-system-audio-publisher-retry';
 const DIRECT_PROMOTION_RETRY_TIMER = 'pro-system-audio-direct-promotion-retry';
 const SUBSCRIBER_DISCONNECT_TIMER = 'pro-system-audio-subscriber-disconnect';
 const DIRECT_RECEIVE_DEADLINE_TIMER = 'pro-system-audio-direct-receive-deadline';
+// The coordinator's route in the receive slot, which holds the source and the
+// decoder primer of the track either transport (SFU or LAN-direct) delivered.
+const COORDINATOR_ROUTE = 'pro-coordinator';
 const PLAYBACK_RESTORE_TIMER = 'pro-system-audio-playback-restore';
 const PLAYBACK_RESTORE_DELAYS_MS = [250, 1_000, 2_500, 5_000, 15_000] as const;
 const LEASE_HEARTBEAT_MS = 15_000;
@@ -138,10 +139,8 @@ let playbackRestore: ProRoomPlaybackReconciliationLiveness | null = null;
 let hiddenPlaybackRestoreRetry: (() => void) | null = null;
 let interruptedReceiverPlayback: { roomCode: string | null; generation: number } | null = null;
 
-let coordinatorSource: MediaStreamAudioSourceNode | null = null;
 let coordinatorSubscriptionKey: string | null = null;
 let coordinatorSubscriptionFlight: { key: string; promise: Promise<void> } | null = null;
-let coordinatorPrimer: WebRtcAudioDecoderPrimer | null = null;
 
 function observeSystemAudioTask(operation: Promise<unknown>, context: string): void {
   operation.catch((error) => {
@@ -493,22 +492,11 @@ function notifyMutation(state: ProRoomSystemAudioState): void {
   reconcileCoordinatorState(state);
 }
 
-function cleanupCoordinatorAudioNodes(): void {
-  try {
-    coordinatorSource?.disconnect();
-  } catch {
-    /* already disconnected */
-  }
-  coordinatorSource = null;
-  cleanupWebRtcAudioDecoderPrimer(coordinatorPrimer);
-  coordinatorPrimer = null;
-}
-
 function cleanupCoordinatorGraph(): void {
   clearSubscriberRetry();
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
   clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
-  cleanupCoordinatorAudioNodes();
+  detachSystemAudioRoute(COORDINATOR_ROUTE);
   coordinatorSubscriptionKey = null;
   coordinatorSubscriptionFlight = null;
   stopProSystemAudioSfuSubscriber();
@@ -521,7 +509,7 @@ function cleanupCoordinatorSubscriptionForRetry(): void {
   clearSubscriberRetry();
   clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
   clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
-  cleanupCoordinatorAudioNodes();
+  detachSystemAudioRoute(COORDINATOR_ROUTE);
   // Keep coordinatorSubscriptionKey: the retry re-subscribes the same
   // publication inside the receive placeholder it already holds. Clearing the
   // key made every retry tear the placeholder down and begin it again, which
@@ -556,28 +544,26 @@ async function attachCoordinatorTrack(
   ) {
     return;
   }
-  const ctx = getAudioContext();
-  const widener = getWidener();
-  if (!widener) throw new Error('PRO_SYSTEM_AUDIO_GRAPH_UNAVAILABLE');
-  try {
-    coordinatorSource?.disconnect();
-  } catch {
-    /* already disconnected */
-  }
-  coordinatorPrimer = primeWebRtcAudioDecoder(
-    coordinatorPrimer,
-    [track],
-    getAudioTrackStreamKey('pro-stereo', [track]),
-    'stereo',
-    '[ProSysAudio]',
+  // The receive slot swaps the coordinator's source for the track
+  // (synchronously, so nothing separates the checks above from the graph).
+  // Every coordinator attach starts the reception again, whichever transport
+  // delivered the track.
+  const attached = attachSystemAudioSource(
+    COORDINATOR_ROUTE,
+    { track },
+    {
+      startsReception: 'every-attach',
+      onGraphReady: () => {
+        primeSystemAudioDecoder(COORDINATOR_ROUTE, [track], {
+          streamKey: getAudioTrackStreamKey('pro-stereo', [track]),
+          label: 'stereo',
+          logPrefix: '[ProSysAudio]',
+        });
+      },
+      onConnected: () => clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER),
+    },
   );
-  const source = ctx.createMediaStreamSource(new MediaStream([track]));
-  source.connect(widener.input);
-  coordinatorSource = source;
-  clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
-  setSystemAudioReceiving(true);
-  claimPlaybackOwner('system-audio');
-  bus.emit('visualizer:start');
+  if (!attached) throw new Error('PRO_SYSTEM_AUDIO_GRAPH_UNAVAILABLE');
 }
 
 async function attachDirectCoordinatorTrack(
@@ -914,7 +900,7 @@ function armDirectReceiveDeadline(identity: CoordinatorPublicationIdentity, key:
     () => {
       const state = controller?.getCurrentState() ?? null;
       if (
-        coordinatorSource ||
+        getSystemAudioReceiveRouteSnapshot(COORDINATOR_ROUTE).sourceAttached ||
         coordinatorSubscriptionKey !== key ||
         !isSystemAudioPlaceholderMeta(getState('player.currentTrackMeta')) ||
         !coordinatorPublicationMatches(identity, state)
@@ -988,7 +974,7 @@ function retryCoordinatorSubscription(identity: CoordinatorPublicationIdentity):
   )
     return;
   cleanupCoordinatorSubscriptionForRetry();
-  setSystemAudioReceiving(false);
+  interruptTrustedSystemAudioReception({ receiveWatchdog: false });
   notifySubscriberFailure(state);
   scheduleCoordinatorSubscriptionRetry(identity);
 }
@@ -1009,8 +995,8 @@ function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): vo
   }
   if (event.role === 'receiver' && state.ownerParticipantId !== localParticipantId()) {
     clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
-    cleanupCoordinatorAudioNodes();
-    setSystemAudioReceiving(false);
+    detachSystemAudioRoute(COORDINATOR_ROUTE);
+    interruptTrustedSystemAudioReception({ receiveWatchdog: false });
     notifySubscriberFailure(state);
   }
 }
@@ -2111,18 +2097,16 @@ export function registerProSystemAudioServiceListeners(): void {
       if (!identity || !coordinatorPublicationMatches(identity, state)) return;
       if (event.state === 'subscribed') {
         clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
-        if (coordinatorSource) {
-          setSystemAudioReceiving(true);
-          claimPlaybackOwner('system-audio');
-          bus.emit('visualizer:start');
-        }
+        // Plays again only on a source the coordinator still has attached.
+        resumeSystemAudioRoute(COORDINATOR_ROUTE);
         return;
       }
       setManagedTimer(
         SUBSCRIBER_DISCONNECT_TIMER,
         () => {
           if (!coordinatorPublicationMatches(identity)) return;
-          setSystemAudioReceiving(false);
+          // Keep the source: a 'subscribed' on the same session resumes it.
+          interruptTrustedSystemAudioReception({ receiveWatchdog: false });
         },
         RECOVERY_DELAY_MS,
       );

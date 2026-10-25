@@ -368,6 +368,150 @@ describe('YOUTUBE_PLAYLIST_INFO validation', () => {
   });
 });
 
+describe('YouTube playback frame validation', () => {
+  const HOST_CLOCK = 1_793_000_000_000.5;
+
+  it('accepts a string or null YOUTUBE_PLAY playlistId and rejects a list', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.YOUTUBE_PLAY, handler);
+    const conn = makeConnection('host-youtube-play');
+    // The shapes every current host sends: a video with its playlist context,
+    // a single video, and an unresolved playlist entry.
+    const play = {
+      type: MSG.YOUTUBE_PLAY,
+      videoId: YOUTUBE_VIDEO_ID,
+      playlistId: 'PL1234567890',
+      name: 'Track',
+      queueItemId: QUEUE_ITEM_ID,
+      autoplay: false,
+      subIndex: 0,
+    };
+
+    await handleData(play, conn);
+    await handleData({ ...play, playlistId: null }, conn);
+    await handleData({ ...play, videoId: null }, conn);
+    for (const invalid of [
+      { ...play, playlistId: ['PL1234567890'] },
+      { ...play, videoId: null, playlistId: [YOUTUBE_VIDEO_ID] },
+      { ...play, playlistId: [] },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+
+  it('accepts the YOUTUBE_SYNC and YOUTUBE_STATE frames every current host sends', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.YOUTUBE_SYNC, handler);
+    registerHandler(MSG.YOUTUBE_STATE, handler);
+    const conn = makeConnection('host-youtube-sync-valid');
+    const frames = [
+      // Heartbeat without a selected sub-video or a readable video id.
+      {
+        type: MSG.YOUTUBE_SYNC,
+        queueItemId: QUEUE_ITEM_ID,
+        time: 12.5,
+        state: 1,
+        subIndex: -1,
+        videoId: '',
+        hostClock: HOST_CLOCK,
+        isManual: false,
+        title: 'Track',
+      },
+      // Paused late-join bootstrap.
+      {
+        type: MSG.YOUTUBE_SYNC,
+        queueItemId: QUEUE_ITEM_ID,
+        time: 3,
+        state: 2,
+        subIndex: 0,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostClock: HOST_CLOCK,
+      },
+      // Pause and seek broadcasts.
+      {
+        type: MSG.YOUTUBE_STATE,
+        queueItemId: QUEUE_ITEM_ID,
+        state: 2,
+        time: 3,
+        subIndex: -1,
+        videoId: '',
+        hostClock: HOST_CLOCK,
+      },
+      // Stage 1 of a transport action.
+      {
+        type: MSG.YOUTUBE_STATE,
+        queueItemId: QUEUE_ITEM_ID,
+        state: 1,
+        time: 0,
+        subIndex: 0,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostPlayAt: 0,
+        hostClock: HOST_CLOCK,
+        title: '',
+      },
+      // Playing late-join bootstrap with a future admission deadline.
+      {
+        type: MSG.YOUTUBE_STATE,
+        queueItemId: QUEUE_ITEM_ID,
+        state: 1,
+        time: 41.75,
+        subIndex: 2,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostPlayAt: HOST_CLOCK + 1_500,
+        hostClock: HOST_CLOCK,
+      },
+    ];
+
+    for (const frame of frames) await handleData(frame, conn);
+
+    expect(handler).toHaveBeenCalledTimes(frames.length);
+  });
+
+  it('rejects YOUTUBE_SYNC and YOUTUBE_STATE frames without a finite host clock', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.YOUTUBE_SYNC, handler);
+    registerHandler(MSG.YOUTUBE_STATE, handler);
+    const conn = makeConnection('host-youtube-sync-invalid');
+    const sync = {
+      type: MSG.YOUTUBE_SYNC,
+      queueItemId: QUEUE_ITEM_ID,
+      time: 12.5,
+      state: 1,
+      subIndex: -1,
+      videoId: '',
+      hostClock: HOST_CLOCK,
+    };
+    const state = {
+      type: MSG.YOUTUBE_STATE,
+      queueItemId: QUEUE_ITEM_ID,
+      state: 1,
+      time: 41.75,
+      subIndex: 0,
+      videoId: YOUTUBE_VIDEO_ID,
+      hostPlayAt: HOST_CLOCK + 1_500,
+      hostClock: HOST_CLOCK,
+    };
+    const { hostClock: _syncClock, ...syncWithoutClock } = sync;
+    const { hostClock: _stateClock, ...stateWithoutClock } = state;
+
+    for (const invalid of [
+      syncWithoutClock,
+      stateWithoutClock,
+      { ...sync, hostClock: null },
+      { ...state, hostClock: null },
+      { ...sync, hostClock: Number.NaN },
+      { ...state, hostClock: Number.POSITIVE_INFINITY },
+      { ...sync, hostClock: String(HOST_CLOCK) },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe('YouTube zero-start protocol validation', () => {
   const identity = {
     version: 1 as const,
@@ -380,11 +524,6 @@ describe('YouTube zero-start protocol validation', () => {
     const handler = vi.fn();
     const conn = makeConnection('zero-start-valid');
     const frames = [
-      {
-        type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
-        version: 1,
-        platform: 'android',
-      },
       {
         type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
         version: 2,
@@ -488,6 +627,8 @@ describe('YouTube zero-start protocol validation', () => {
       cohort: ['host-peer', 'guest-peer'],
     };
     const malformedFrames = [
+      // Every current guest advertises the runtime-aware v2 shape.
+      { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 1, platform: 'android' },
       { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 2, platform: 'android' },
       {
         type: MSG.YOUTUBE_ZERO_START_CAPABILITY,

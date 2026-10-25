@@ -108,15 +108,35 @@ for (const entry of ['invite', 'claim'] as const) {
     expect(new URL(page.url()).pathname).toBe(`/${ROOM_CODE}`);
 
     const navigatedBefore = fixture.navigations.length;
+    // Apply first settles the dialog's Back guard (a same-document history
+    // entry, which also reports a navigation), so wait for the next document's
+    // load and tell it from the old one by a mark the old document carries.
+    await page.evaluate(() => {
+      (window as { forcedApplyOldDocument?: boolean }).forcedApplyOldDocument = true;
+    });
+    const reloaded = page.waitForEvent('load');
     await page.locator('#btn-dialog-ok').click();
-    await expect.poll(() => fixture.navigations.length).toBeGreaterThan(navigatedBefore);
-    const applied = fixture.navigations.slice(navigatedBefore);
+    await reloaded;
+    expect(
+      await page.evaluate(
+        () => (window as { forcedApplyOldDocument?: boolean }).forcedApplyOldDocument ?? false,
+      ),
+      'Apply loaded a new document',
+    ).toBe(false);
     // An invite returns to this room's /CODE start screen; a claim link
     // reloads in place with the claim restored for the reload.
-    expect(applied.every((url) => new URL(url).pathname === `/${ROOM_CODE}`)).toBe(true);
     if (entry === 'claim') {
-      expect(applied.some((url) => url.includes(`#pro-claim=${CLAIM}`))).toBe(true);
+      await expect
+        .poll(() =>
+          fixture.navigations
+            .slice(navigatedBefore)
+            .some((url) => url.includes(`#pro-claim=${CLAIM}`)),
+        )
+        .toBe(true);
     }
+    const applied = fixture.navigations.slice(navigatedBefore);
+    expect(applied.length).toBeGreaterThan(0);
+    expect(applied.every((url) => new URL(url).pathname === `/${ROOM_CODE}`)).toBe(true);
     expect(await page.evaluate(() => sessionStorage.getItem('mxqr-forced-apply'))).toBe(
       `${build}:${FLOOR}`,
     );

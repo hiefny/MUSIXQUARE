@@ -93,8 +93,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 4 train 4B: owner-chosen transport and rejoin behaviour changes (2026-10-25)](design/phase4-4b-behaviour-2026-10-25.md):
-  evidence for the structure program's second Phase 4 app train (9.0.9 / v782,
-  not yet released; target `app`). After ICE recovery a resumed
+  release evidence for the structure program's second Phase 4 app train (9.0.9 / v782,
+  released 2026-10-25 10:43 KST in Release 40151618508, target `app`). After ICE recovery a resumed
   preload yields to the main file lane for the same tuple once the host has
   re-detected the guest as local (C5-12, with its known limits; a 9.0.9 guest
   still re-detecting its route takes the main header its own recovery request
@@ -107,7 +107,8 @@ runbooks. Neither belongs in a general setup document.
   with its failing test, the owner's 2026-10-25 decisions (deploy as soon as the
   automated gates pass, device checks no longer a gate), the close-cause rows
   added to the device allow table, the P4-D9 trade-off, the C5-0 lab's
-  single-stream evidence, mixed-version rows and what was not device-checked.
+  single-stream evidence, mixed-version rows, the PR, exact-main CI and release
+  round, and what was not device-checked.
 
 - [YouTube host speaker reference after a zero-start (2026-10-25)](design/youtube-host-speaker-reference-2026-10-25.md):
   9.0.8 / v780 with #483, released 2026-10-25 04:00 KST in Release 40123156024 (target `app`). Owner

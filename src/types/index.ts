@@ -694,7 +694,7 @@ export interface ProtocolMap {
   // ── YouTube ──────────────────────────────────────────────────────
   'youtube-play': {
     videoId?: string | null;
-    playlistId?: string | string[] | null;
+    playlistId?: string | null;
     name?: string | null;
     queueItemId: QueueItemId;
     autoplay: boolean;
@@ -708,7 +708,7 @@ export interface ProtocolMap {
     subIndex?: number;
     videoId?: string;
     hostPlayAt?: number;
-    hostClock?: number;
+    hostClock: number;
     title?: string;
   };
   'youtube-sync': {
@@ -717,22 +717,16 @@ export interface ProtocolMap {
     state: number;
     subIndex?: number;
     videoId?: string;
-    hostClock?: number;
+    hostClock: number;
     isManual?: boolean;
     title?: string;
   };
-  'youtube-zero-start-capability':
-    | {
-        /** Legacy support-only advertisement. Never implies runtime readiness. */
-        version: 1;
-        platform: YouTubeZeroStartPlatform;
-      }
-    | {
-        /** Runtime-aware advertisement used by the bounded zero-start barrier. */
-        version: 2;
-        platform: YouTubeZeroStartPlatform;
-        ready: boolean;
-      };
+  'youtube-zero-start-capability': {
+    /** Runtime-aware advertisement used by the bounded zero-start barrier. */
+    version: 2;
+    platform: YouTubeZeroStartPlatform;
+    ready: boolean;
+  };
   'youtube-zero-start-prepare': {
     version: 1;
     runId: string;

@@ -685,10 +685,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.YOUTUBE_PLAY]: (d) =>
     isQueueItemId(d.queueItemId) &&
     (d.videoId === undefined || d.videoId === null || typeof d.videoId === 'string') &&
-    (d.playlistId === undefined ||
-      d.playlistId === null ||
-      typeof d.playlistId === 'string' ||
-      (Array.isArray(d.playlistId) && d.playlistId.every((id) => typeof id === 'string'))) &&
+    (d.playlistId === undefined || d.playlistId === null || typeof d.playlistId === 'string') &&
     typeof d.autoplay === 'boolean' &&
     (d.subIndex === undefined || isNonNegInt(d.subIndex)),
   [MSG.YOUTUBE_STOP]: (d) => isQueueItemId(d.queueItemId),
@@ -696,17 +693,18 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.time) &&
     isFiniteNumber(d.state) &&
-    (d.subIndex === undefined || isFiniteNumber(d.subIndex)),
+    (d.subIndex === undefined || isFiniteNumber(d.subIndex)) &&
+    isFiniteNumber(d.hostClock),
   [MSG.YOUTUBE_STATE]: (d) =>
     isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.state) &&
     isFiniteNumber(d.time) &&
-    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
+    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)) &&
+    isFiniteNumber(d.hostClock),
   [MSG.YOUTUBE_ZERO_START_CAPABILITY]: (d) =>
-    ((d.version === 1 && hasExactKeys(d, ['type', 'version', 'platform'])) ||
-      (d.version === 2 &&
-        hasExactKeys(d, ['type', 'version', 'platform', 'ready']) &&
-        typeof d.ready === 'boolean')) &&
+    hasExactKeys(d, ['type', 'version', 'platform', 'ready']) &&
+    d.version === 2 &&
+    typeof d.ready === 'boolean' &&
     isYouTubeZeroStartPlatform(d.platform),
   [MSG.YOUTUBE_ZERO_START_PREPARE]: (d) =>
     hasExactKeys(d, [

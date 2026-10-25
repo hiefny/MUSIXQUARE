@@ -326,12 +326,6 @@ describe('YouTubeZeroStartController', () => {
     expect(controller.canBeginHostTransition()).toBe(false);
     controller.handleCapability(GUEST_ID, {
       type: 'youtube-zero-start-capability',
-      version: 1,
-      platform: 'ios',
-    });
-    expect(controller.canBeginHostTransition()).toBe(false);
-    controller.handleCapability(GUEST_ID, {
-      type: 'youtube-zero-start-capability',
       version: 2,
       platform: 'ios',
       ready: false,

@@ -633,8 +633,8 @@ function retireYouTubeAutoSync(): void {
 
 /**
  * Start the bounded 0-second barrier only when every live participant has
- * advertised support. A mixed-version room fails closed to the existing
- * rendezvous path as one cohort, so an old client can never be stranded.
+ * advertised support on its current connection. Until a newly connected guest
+ * has advertised, the room uses the rendezvous path as one cohort.
  */
 function tryBeginYouTubeZeroStart(videoId: string, subIndex: number | null): boolean {
   const queueItemId = getCurrentQueueItemId();
@@ -4712,7 +4712,7 @@ export function initYouTube(): void {
       // Send sync frame immediately. Single-video mode means the guest does
       // a quick loadVideoById (no async playlist engine load), so there's no
       // need to delay. Use YOUTUBE_STATE (with hostPlayAt) whenever host is
-      // playing — even at ytTime === 0 — so the guest's auto-sync path
+      // playing — even at ytTime === 0 — so the guest's scheduled play
       // handles pause → seek → timed play correctly for a rendezvous-aligned
       // start. YOUTUBE_SYNC suffices only when host is paused.
       // NOTE: only the late-joining conn receives this — existing guests are

@@ -128,7 +128,7 @@ each record also states the step in words.
 | RO-32 | Two R2 duration readers                                  | Workers        | accepted-exception | Revisit on a coupling defect   |
 | RO-33 | Guest YouTube recovery stays its own owner               | YouTube        | accepted-exception | Revisit with device evidence   |
 | RO-34 | PRO YouTube arm adapter stays eager                      | YouTube        | accepted-exception | Revisit with an iOS proof      |
-| RO-35 | Side-route outage deadline stays in control isolation    | Transport      | accepted-exception | Revisit when #18 retires       |
+| RO-35 | Side-route outage deadline stays in control isolation    | Transport      | accepted-exception | Revisit on a side-route defect |
 | RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
@@ -2102,16 +2102,20 @@ entry needs the owner's acceptance and is not implied by this registry.
   side-only outage"). Since C5-10 its `fail(reason)` closes the link through that owner's close
   (cause `side-failed:<reason>`), which keeps the link's first cause; its deadline, restart and
   failure reasons are unchanged.
-- **Evidence:** the side route's ICE restart is still under
-  [known-accepted #18](../known-accepted.md), awaiting the owner's real-device Wi-Fi to LTE check;
-  the same timer also governs active routes to peers without restart capability. The C5-0 lab
-  (#478) shows the side route recovering through its restart after its PC fails, on the
-  Cloudflare transport in one Chromium. Phase 4 train 4A goes out before the device check (a gate
-  deviation, owner decision 2026-10-24), train 4B too (since 2026-10-25 device evidence no longer
-  gates code), and so does train 4C (C5-6, C5-7, C5-8 and the connection part of C5-10;
-  [report](phase4-4c-link-liveness-2026-10-25.md)). C5-9 stays out of Phase 4 (P4-D6 A).
-- **Behaviour risk:** known-accepted #18.
-- **Revisit when:** #18 retires.
+- **Evidence:** the same timer also governs active routes to peers without restart capability.
+  The C5-0 lab (#478) shows the side route recovering through its restart after its PC fails, on
+  the Cloudflare transport in one Chromium. Phase 4 train 4A goes out before the device check (a
+  gate deviation, owner decision 2026-10-24), train 4B too (since 2026-10-25 device evidence no
+  longer gates code), and so does train 4C (C5-6, C5-7, C5-8 and the connection part of C5-10;
+  [report](phase4-4c-link-liveness-2026-10-25.md)). The device check then passed: known-accepted
+  #18 retired on 2026-10-25 after the owner's real-device Wi-Fi to LTE check on production 9.0.10
+  (a Safari guest; its console showed `Restarting isolated control ICE (1/2)` then
+  `Isolated control ICE recovered` with no disconnect dialog;
+  [release record](../release-record.md#최근-해결-근거)). An Android phone, an IP change to another
+  SSID and a remote LTE guest moving to Wi-Fi were not checked. Retiring #18 does not schedule
+  C5-9: it stays out of Phase 4 and is not done unless a defect appears (P4-D6 A).
+- **Behaviour risk:** none known; known-accepted #18 is retired.
+- **Revisit when:** a side-route defect appears (P4-D6 A).
 - **Status:** `accepted-exception`.
 
 ### RO-36 Failed-PLAY confirm closure stays on the bus

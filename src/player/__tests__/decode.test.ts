@@ -17,7 +17,6 @@ import {
   setPendingPlayTime,
 } from '../_state.ts';
 import { broadcastFileDebounced } from '../../storage/transfer.ts';
-import { registerProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import type { LargeAudioTrack } from '../file-playback-resource.ts';
 import { withAudioDecoderStartup } from '../large-audio/startup-error.ts';
 import type {
@@ -294,7 +293,6 @@ function stageMainTransfer(item: PlaylistItem, file: Blob, sessionId: number): v
 }
 
 afterEach(() => {
-  registerProRoomMediaHooks(null);
   clearAllManagedTimers();
   vi.useRealTimers();
 });

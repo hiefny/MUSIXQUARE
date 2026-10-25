@@ -328,11 +328,6 @@ describe('schedulePreload', () => {
   it('keeps its R2 preload when only the obsolete PRO role label changes', async () => {
     vi.useFakeTimers();
     initPreload();
-    const lateMember = {
-      open: true,
-      peer: 'late-member',
-      send: vi.fn(),
-    } as unknown as DataConnection;
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
@@ -366,8 +361,6 @@ describe('schedulePreload', () => {
     });
     expect(getState('preload.activeTarget')).toBe(preparedTarget);
     expect(getState('preload.nextQueueItemId')).toBe(Q1);
-    bus.emit('orchestrator:peer-joined', lateMember.peer);
-    expect(lateMember.send).not.toHaveBeenCalled();
   });
 
   it('sends no PRO preload hint to an initial or promoted late peer', () => {

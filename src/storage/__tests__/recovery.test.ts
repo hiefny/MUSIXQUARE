@@ -14,7 +14,6 @@ import {
   getCurrentFileRequestOwnerForTests,
   resetFileRequestAuthority,
 } from '../../network/file-request-authority.ts';
-import { registerProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import {
   claimPlaybackOwner,
   createSystemAudioTrackMeta,
@@ -167,7 +166,6 @@ function arrangeStoreChunks(name: string, sid: number, count: number, queueItemI
 }
 
 afterEach(() => {
-  registerProRoomMediaHooks(null);
   vi.useRealTimers();
   vi.restoreAllMocks();
 });

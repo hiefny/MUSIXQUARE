@@ -9,13 +9,16 @@
  * playback, take the restore point, claim the receive placeholder), the 30 s
  * receive watchdog, and the end of reception that restores the previous title
  * only while this slot still holds the placeholder or the 'system-audio'
- * owner.
+ * owner. It also owns what a route attaches: its source on widener.input,
+ * its decoder primer, and the receiving flag and owner claim the first
+ * attach of a reception sets.
  *
- * Phase 5 C4-2 moved it here from system-audio-guest.ts unchanged. The route
- * adapters (the Standard direct call and SFU, the PRO coordinator) still
- * attach their own sources; later Phase 5 increments move those attaches
- * into this slot. Until then system-audio-guest.ts keeps the old names as
- * aliases, and the timer names keep their `sys-audio-guest-` prefix.
+ * Phase 5 C4-2 moved the trusted reception here from system-audio-guest.ts
+ * unchanged, and C4-3 the Standard direct call's attach and primer. The
+ * Standard SFU and the PRO coordinator still attach their own sources; later
+ * Phase 5 increments move those attaches into this slot. Until then
+ * system-audio-guest.ts keeps the old names as aliases, and the timer names
+ * keep their `sys-audio-guest-` prefix.
  *
  * Deferred-only: it loads with the room session (vite.config.ts
  * DEFERRED_ENTRY_MODULES).
@@ -26,6 +29,8 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
+import { getAudioContext } from '../audio/context.ts';
+import { getWidener } from '../audio/engine.ts';
 import { stopAllMedia } from '../player/transport.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
@@ -40,6 +45,11 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS } from './system-audio-media.ts';
+import {
+  cleanupWebRtcAudioDecoderPrimer,
+  primeWebRtcAudioDecoder,
+  type WebRtcAudioDecoderPrimer,
+} from './webrtc-audio-decoder-primer.ts';
 import type { TrackMeta } from '../types/index.ts';
 
 // ─── Tuning ───────────────────────────────────────────────────────
@@ -53,11 +63,12 @@ const TRUSTED_BOUNDARY_WAIT_MS = SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS;
 
 /**
  * What the slot stores. Only what cannot be read back is kept: the reception
- * generation that fences boundary waits and the restore point a start took.
- * Whether the slot is pending (the system-audio placeholder meta) or receiving
- * (systemAudio.isReceiving) is read from player state at each input, because
- * other writers change both: leaveSession's reset and a successor playback
- * owner.
+ * generation that fences boundary waits and the restore point a start took
+ * (and, apart from the phase, each route's source and primer, see
+ * RouteMedia). Whether the slot is pending (the system-audio placeholder
+ * meta) or receiving (systemAudio.isReceiving) is read from player state at
+ * each input, because other writers change both: leaveSession's reset and a
+ * successor playback owner.
  */
 type ReceiveSlot =
   /** No restore point held; the next start takes `generation + 1`. */
@@ -90,8 +101,19 @@ interface ReceiveRoutePort {
   readonly endReception: () => void;
 }
 
+/**
+ * What one route attached: its source on widener.input and its decoder
+ * primer. Kept per route, because a route's attach swaps and its detach drops
+ * only its own; another route's source is never touched.
+ */
+interface RouteMedia {
+  source: MediaStreamAudioSourceNode | null;
+  primer: WebRtcAudioDecoderPrimer | null;
+}
+
 let slot: ReceiveSlot = { phase: 'idle', generation: 0 };
 const routes = new Map<ReceiveRoute, ReceiveRoutePort>();
+const routeMedia = new Map<ReceiveRoute, RouteMedia>();
 
 interface TrustedReceptionWaiter {
   expectedGeneration: number;
@@ -123,6 +145,121 @@ function isSystemAudioPlaceholder(): boolean {
 /** A route adapter joins the end of every reception (one port per route). */
 export function registerSystemAudioReceiveRoute(route: ReceiveRoute, port: ReceiveRoutePort): void {
   routes.set(route, port);
+}
+
+// ─── Route Media ──────────────────────────────────────────────────
+
+function mediaOf(route: ReceiveRoute): RouteMedia {
+  let media = routeMedia.get(route);
+  if (!media) {
+    media = { source: null, primer: null };
+    routeMedia.set(route, media);
+  }
+  return media;
+}
+
+interface DecoderPrimerRequest {
+  /** One primer per stream key: the same key keeps the route's primer. */
+  readonly streamKey: string;
+  /** The label the primed line names (the route's channel). */
+  readonly label: string;
+  /** The route's own prefix on the primed and primer-blocked lines. */
+  readonly logPrefix: string;
+}
+
+/**
+ * Starts the route's WebRTC decoder for these tracks (some Chromium builds
+ * leave a received track muted until a playing media element consumes it).
+ * A new stream key replaces the route's primer; the same key keeps it.
+ */
+export function primeSystemAudioDecoder(
+  route: ReceiveRoute,
+  tracks: readonly MediaStreamTrack[],
+  request: DecoderPrimerRequest,
+): void {
+  const media = mediaOf(route);
+  media.primer = primeWebRtcAudioDecoder(
+    media.primer,
+    tracks,
+    request.streamKey,
+    request.label,
+    request.logPrefix,
+  );
+}
+
+interface SourceAttachRequest {
+  /**
+   * The route's own bookkeeping once its source is on widener.input, before
+   * a first attach sets the receiving flag.
+   */
+  readonly onConnected: () => void;
+  /** The route's line when its attach starts the reception. */
+  readonly connectedLog: string;
+}
+
+/**
+ * Connects a route's received stream to widener.input. The route awaits
+ * initAudio and re-checks its own identity first; this runs synchronously
+ * after that, so no await separates the route's check from the graph.
+ * Returns false, changing nothing, while the audio graph is not built.
+ * Otherwise it replaces the route's previous source and, unless the slot is
+ * receiving already, clears the receive deadline, sets the receiving flag,
+ * claims the 'system-audio' playback owner and starts the visualizer.
+ */
+export function attachSystemAudioSource(
+  route: ReceiveRoute,
+  stream: MediaStream,
+  request: SourceAttachRequest,
+): boolean {
+  const ctx = getAudioContext();
+  const widener = getWidener();
+  if (!widener) return false;
+
+  const media = mediaOf(route);
+  if (media.source) {
+    try {
+      media.source.disconnect();
+    } catch {
+      /* noop */
+    }
+  }
+  media.source = ctx.createMediaStreamSource(stream);
+  media.source.connect(widener.input);
+  request.onConnected();
+
+  // Update state once at least one stream is connected
+  if (!getState('systemAudio.isReceiving')) {
+    clearSystemAudioReceiveWatchdog();
+    setSystemAudioReceiving(true);
+    claimPlaybackOwner('system-audio');
+    bus.emit('visualizer:start');
+    log.info(request.connectedLog);
+  }
+  return true;
+}
+
+/** Drops what the route attached: its source and its decoder primer. */
+export function detachSystemAudioRoute(route: ReceiveRoute): void {
+  const media = mediaOf(route);
+  if (media.source) {
+    try {
+      media.source.disconnect();
+    } catch {
+      /* noop */
+    }
+    media.source = null;
+  }
+  cleanupWebRtcAudioDecoderPrimer(media.primer);
+  media.primer = null;
+}
+
+/** Whether the route has a source on widener.input and holds a primer (/debug). */
+export function getSystemAudioReceiveRouteSnapshot(route: ReceiveRoute): {
+  sourceAttached: boolean;
+  decoderPrimed: boolean;
+} {
+  const media = routeMedia.get(route);
+  return { sourceAttached: !!media?.source, decoderPrimed: !!media?.primer };
 }
 
 // ─── Trust Boundary ───────────────────────────────────────────────

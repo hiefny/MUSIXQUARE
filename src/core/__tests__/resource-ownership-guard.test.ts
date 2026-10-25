@@ -924,7 +924,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /RATCHET REGRESSION widener\.input use \(RO-04\): src\/network\/system-audio-sfu\.ts has 2, baseline 1/u,
       );
       expect(findings).toMatch(
-        /STALE BASELINE receiving flag write \(RO-04\): src\/network\/system-audio-receive-slot\.ts has 1, baseline 2 - lower the baseline to 1/u,
+        /STALE BASELINE receiving flag write \(RO-04\): src\/network\/system-audio-receive-slot\.ts has 2, baseline 3 - lower the baseline to 2/u,
       );
       expect(findings).toMatch(
         /STALE BASELINE raw receiving flag write \(RO-04\): src\/network\/peer\.ts has 0 - remove its entry/u,

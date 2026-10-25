@@ -564,7 +564,9 @@ const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // today; each Phase 5 increment that moves a write into the receive slot
 // lowers its count here. C4-2 moved the trusted reception's writes (the end
 // of reception, the delivery-handoff interrupt and the placeholder claim)
-// from the guest into src/network/system-audio-receive-slot.ts.
+// from the guest into src/network/system-audio-receive-slot.ts, and C4-3 the
+// Standard direct call's attach (its receiving flag, owner claim and
+// widener.input source), which leaves the guest none.
 
 const RECEIVING_FLAG_SETTER = 'setSystemAudioReceiving';
 const PLAYBACK_OWNER_CLAIM = 'claimPlaybackOwner';
@@ -575,12 +577,13 @@ const RECEIVING_FLAG_OWNER_FILE = 'src/player/ownership.ts';
 
 /** RO-04: setSystemAudioReceiving value uses (calls or the setter passed on). */
 const RECEIVING_FLAG_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
-  ['src/network/system-audio-guest.ts', { count: 1, reason: 'Standard P2P attach (C4-3)' }],
   [
     'src/network/system-audio-receive-slot.ts',
     {
-      count: 2,
-      reason: 'the slot: the end of reception and the delivery-handoff interrupt (C4-2)',
+      count: 3,
+      reason:
+        'the slot: the end of reception and the delivery-handoff interrupt (C4-2), and the ' +
+        "attach a route's source starts the reception with (C4-3)",
     },
   ],
   ['src/network/system-audio-sfu.ts', { count: 1, reason: 'Standard SFU guest attach (C4-4)' }],
@@ -601,10 +604,14 @@ const SYSTEM_AUDIO_OWNER_CLAIM_BASELINE: Baseline = new Map<string, Allowance>([
     'src/audio/system-capture.ts',
     { count: 1, reason: "the sharer's own capture, not the receive slot" },
   ],
-  ['src/network/system-audio-guest.ts', { count: 1, reason: 'Standard P2P attach (C4-3)' }],
   [
     'src/network/system-audio-receive-slot.ts',
-    { count: 1, reason: 'the slot: the trusted reception placeholder (C4-2)' },
+    {
+      count: 2,
+      reason:
+        "the slot: the trusted reception placeholder (C4-2) and the attach a route's source " +
+        'starts the reception with (C4-3)',
+    },
   ],
   ['src/network/system-audio-sfu.ts', { count: 1, reason: 'Standard SFU guest attach (C4-4)' }],
   [
@@ -619,7 +626,10 @@ const WIDENER_INPUT_USE_BASELINE: Baseline = new Map<string, Allowance>([
     'src/audio/engine.ts',
     { count: 2, reason: 'the file playback route, at graph build and on reconnect' },
   ],
-  ['src/network/system-audio-guest.ts', { count: 1, reason: 'Standard P2P source (C4-3)' }],
+  [
+    'src/network/system-audio-receive-slot.ts',
+    { count: 1, reason: "the slot's attach: the Standard direct call's source (C4-3)" },
+  ],
   ['src/network/system-audio-sfu.ts', { count: 1, reason: 'Standard SFU guest source (C4-4)' }],
   ['src/pro-room/system-audio-service.ts', { count: 1, reason: 'PRO coordinator source (C4-5)' }],
 ]);

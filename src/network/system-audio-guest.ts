@@ -1,8 +1,9 @@
 /**
  * MUSIXQUARE — System Audio Guest Receiver
  *
- * Receives the original Standard-room stereo track and connects it as-is. The
- * trust boundary and the end of reception belong to the receive slot
+ * Receives the original Standard-room stereo track over the direct call and
+ * connects it as-is. The trust boundary, the end of reception, and the
+ * call's source and decoder primer belong to the receive slot
  * (system-audio-receive-slot.ts), shared with the SFU and PRO receivers.
  */
 
@@ -12,13 +13,8 @@ import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
-import { getAudioContext } from '../audio/context.ts';
-import { initAudio, getWidener } from '../audio/engine.ts';
-import {
-  claimPlaybackOwner,
-  isSystemAudioPlaceholderMeta,
-  setSystemAudioReceiving,
-} from '../player/ownership.ts';
+import { initAudio } from '../audio/engine.ts';
+import { isSystemAudioPlaceholderMeta } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { readSystemAudioStartSurface } from './system-audio-start.ts';
 import { claimGuestDirectSystemAudioRoute } from './system-audio-delivery.ts';
@@ -30,21 +26,20 @@ import {
   SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
 } from './system-audio-media.ts';
 import {
+  attachSystemAudioSource,
   awaitTrustedSystemAudioReceptionBoundary,
   beginTrustedSystemAudioReception,
   clearSystemAudioReceiveWatchdog,
+  detachSystemAudioRoute,
   endTrustedSystemAudioReception,
+  getSystemAudioReceiveRouteSnapshot,
   getSystemAudioReceiveSlotDebugSnapshot,
   interruptTrustedSystemAudioReception,
   noteIgnoredSystemAudioStart,
+  primeSystemAudioDecoder,
   registerSystemAudioReceiveRoute,
 } from './system-audio-receive-slot.ts';
-import {
-  cleanupWebRtcAudioDecoderPrimer,
-  getAudioTrackStreamKey,
-  primeWebRtcAudioDecoder,
-  type WebRtcAudioDecoderPrimer,
-} from './webrtc-audio-decoder-primer.ts';
+import { getAudioTrackStreamKey } from './webrtc-audio-decoder-primer.ts';
 
 // Compatibility aliases (Phase 5 C4-2, removed in C4-8): the Standard SFU, the
 // PRO coordinator and their tests still reach the receive slot and its
@@ -61,13 +56,13 @@ export {
 // system-audio-media.ts with the other routes'.
 const SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX = 'sys-audio-guest-replacement-watchdog';
 const SYSTEM_AUDIO_CHANNEL = 'STEREO';
+// The direct call's route in the receive slot, which holds its source and
+// decoder primer.
+const DIRECT_ROUTE = 'standard-direct';
 
 // ─── Module State ─────────────────────────────────────────────────
 
 let _mediaConnStereo: MediaConnection | null = null;
-let _sourceStereo: MediaStreamAudioSourceNode | null = null;
-let _decoderPrimer: WebRtcAudioDecoderPrimer | null = null;
-let _gotStereo = false;
 
 let _initialUnmuteWaitSeq = 0;
 const _replacementWatchdogs = new Map<string, MediaConnection>();
@@ -202,13 +197,11 @@ function describeAudioTracks(tracks: MediaStreamTrack[]): string {
 }
 
 function primeGuestWindowsAudioDecoder(channel: string, tracks: MediaStreamTrack[]): void {
-  _decoderPrimer = primeWebRtcAudioDecoder(
-    _decoderPrimer,
-    tracks,
-    getAudioTrackStreamKey(channel, tracks),
-    channel,
-    '[SysAudioGuest]',
-  );
+  primeSystemAudioDecoder(DIRECT_ROUTE, tracks, {
+    streamKey: getAudioTrackStreamKey(channel, tracks),
+    label: channel,
+    logPrefix: '[SysAudioGuest]',
+  });
 }
 
 async function waitForInitialUnmute(
@@ -266,6 +259,9 @@ async function waitForInitialUnmute(
 
 export function getSystemAudioGuestDebugSnapshot() {
   const slot = getSystemAudioReceiveSlotDebugSnapshot();
+  // gotStereo and sourceStereo both mean "the direct call attached a source";
+  // the primer is reported apart (it is taken before the trust boundary).
+  const direct = getSystemAudioReceiveRouteSnapshot(DIRECT_ROUTE);
   const channels = [..._debugChannels.values()].map((channel) => ({
     channel: channel.channel,
     incomingAt: channel.incomingAt,
@@ -291,9 +287,9 @@ export function getSystemAudioGuestDebugSnapshot() {
   return {
     systemReceiving: getState('systemAudio.isReceiving'),
     placeholder: isSystemAudioPlaceholder(),
-    gotStereo: _gotStereo,
-    sourceStereo: !!_sourceStereo,
-    decoderPrimer: !!_decoderPrimer,
+    gotStereo: direct.sourceAttached,
+    sourceStereo: direct.sourceAttached,
+    decoderPrimer: direct.decoderPrimed,
     lastStartAt: slot.lastStartAt,
     lastStartIgnoredAt: slot.lastStartIgnoredAt,
     lastStartIgnoredReason: slot.lastStartIgnoredReason,
@@ -394,35 +390,21 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
     await initAudio();
     if (!isCurrentMediaConnection(channel, mediaConn)) return;
-    const ctx = getAudioContext();
-    const widener = getWidener();
-    if (!widener) {
+    // The receive slot swaps the call's previous source for this stream and,
+    // on a reception's first attach, sets receiving and claims the owner. The
+    // primer above stays as it is: a later stream may already have replaced
+    // it while this one waited.
+    const attached = attachSystemAudioSource(DIRECT_ROUTE, remoteStream, {
+      onConnected: () => {
+        debug.graphAt = Date.now();
+        debug.graphError = undefined;
+        clearReplacementWatchdog(channel, mediaConn);
+      },
+      connectedLog: `[SysAudioGuest] System audio connected to graph (${channel})`,
+    });
+    if (!attached) {
       log.error('[SysAudioGuest] Audio graph not ready');
       throw new Error('audio-graph-not-ready');
-    }
-
-    if (_sourceStereo) {
-      try {
-        _sourceStereo.disconnect();
-      } catch {
-        /* noop */
-      }
-    }
-    _sourceStereo = ctx.createMediaStreamSource(remoteStream);
-    _sourceStereo.connect(widener.input);
-    _gotStereo = true;
-
-    debug.graphAt = Date.now();
-    debug.graphError = undefined;
-    clearReplacementWatchdog(channel, mediaConn);
-
-    // Update state once at least one stream is connected
-    if (!getState('systemAudio.isReceiving')) {
-      clearSystemAudioReceiveWatchdog();
-      setSystemAudioReceiving(true);
-      claimPlaybackOwner('system-audio');
-      bus.emit('visualizer:start');
-      log.info(`[SysAudioGuest] System audio connected to graph (${channel})`);
     }
   };
 
@@ -445,7 +427,6 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     debug.closedAt = Date.now();
     clearReplacementWatchdog(channel, mediaConn);
     setCurrentMediaConnection(channel, null);
-    _gotStereo = false;
     endTrustedSystemAudioReception();
   });
 
@@ -480,25 +461,15 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 function endStandardDirectReception(): void {
   cancelInitialUnmuteWaiters();
   clearAllReplacementWatchdogs();
-  if (_sourceStereo) {
-    try {
-      _sourceStereo.disconnect();
-    } catch {
-      /* noop */
-    }
-    _sourceStereo = null;
-  }
-  cleanupWebRtcAudioDecoderPrimer(_decoderPrimer);
-  _decoderPrimer = null;
+  detachSystemAudioRoute(DIRECT_ROUTE);
   // Clear identities before close() so synchronous/stale close events cannot
   // recursively clean the graph or null a replacement connection.
   const mediaConnection = _mediaConnStereo;
   _mediaConnStereo = null;
   closeMediaConnection(mediaConnection);
-  _gotStereo = false;
 }
 
-registerSystemAudioReceiveRoute('standard-direct', { endReception: endStandardDirectReception });
+registerSystemAudioReceiveRoute(DIRECT_ROUTE, { endReception: endStandardDirectReception });
 
 // ─── Bus Listeners ────────────────────────────────────────────────
 

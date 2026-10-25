@@ -14,6 +14,13 @@ export default defineConfig({
       'src/core/__tests__/fullscreen.test.ts',
       'src/ui/__tests__/fullscreen-handoff.test.ts',
       'src/network/__tests__/*system-audio-sfu.test.ts',
+      // The system-audio receive slot (RO-04): its four contract suites, the
+      // guest receiver and the G1 watchdog harness, enrolled in Phase 5 prep
+      // (T4) before the slot moves.
+      'src/network/__tests__/system-audio-receive-slot-{contract,lifecycle-contract}.test.ts',
+      'src/pro-room/__tests__/system-audio-receive-slot-{pro-contract,pro-transport-contract}.test.ts',
+      'src/network/__tests__/system-audio-guest.test.ts',
+      'src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts',
       'src/audio/__tests__/{context-health,context-recovery,foreground-output-health,output-health,system-capture,system-capture-stop}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',
@@ -50,6 +57,9 @@ export default defineConfig({
         'src/core/fullscreen.ts',
         'src/network/system-audio-sfu.ts',
         'src/network/pro-system-audio-sfu.ts',
+        'src/network/system-audio-guest.ts',
+        'src/network/pro-system-audio-direct.ts',
+        'src/pro-room/system-audio-service.ts',
         'src/audio/system-capture.ts',
         'src/pro-room/api.ts',
         'src/pro-room/media-transfer.ts',
@@ -143,6 +153,30 @@ export default defineConfig({
           branches: 59,
           functions: 80,
           lines: 80,
+        },
+        // The system-audio receive slot's route adapters, enrolled on
+        // 2026-10-25 (Phase 5 prep T4) about one point below two identical
+        // Node 24 runs on agent/phase5-5a aa62fe34. The service and the PRO
+        // direct transport are measured only through the suites enrolled
+        // above (the receive-slot contracts and the G1 harness); their own
+        // unit suites stay outside this profile.
+        'src/network/system-audio-guest.ts': {
+          statements: 90,
+          branches: 80,
+          functions: 97,
+          lines: 93,
+        },
+        'src/network/pro-system-audio-direct.ts': {
+          statements: 37,
+          branches: 37,
+          functions: 52,
+          lines: 42,
+        },
+        'src/pro-room/system-audio-service.ts': {
+          statements: 50,
+          branches: 40,
+          functions: 56,
+          lines: 53,
         },
         'src/network/transport/cloudflare-signaling.ts': {
           statements: 72,

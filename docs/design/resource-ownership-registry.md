@@ -978,20 +978,25 @@ RO-49 accepted-exception
   cause (through `terminate()`).
 - **Deadline owner:** the original PC's 15 s grace; the side route's 15 s per outage, deferred
   while the original is down, re-armed to 15 s after it recovers and capped at 30 s from the
-  outage's start, and its non-renewing 15 s grace without restart capability (in
-  `link-liveness.ts` since C5-9, on the monotonic clock); the probe's short close (its 3 s
+  outage's start, and its non-renewing 15 s grace before READY (in `link-liveness.ts` since
+  C5-9, on the monotonic clock); the probe's short close (its 3 s
   challenge window and its 1 s look at a disconnected route, both in `link-liveness.ts` since
   C5-7).
 - **Timing-constant home:** `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 4,
   C5-1): the original PC's grace and the connection's background-resume threshold
   (`link-liveness.ts`), the provider's background-resume threshold and the restart answer wait
   (`cloudflare-signaling.ts`), the side PC's outage window, its cap of two graces and its grace
-  without restart capability (`link-liveness.ts`, since C5-9) and the heartbeat monitor's lease
-  cap (RO-17). `control-isolation.ts` keeps `RESTART_WINDOW_MS` (15 s) and `RESTART_CAP_MS`
-  (30 s) as its own literals: since C5-9 they bound only the peer restart requests and offers,
-  which the two ends enforce on each other across builds, so a change to the grace must not move
-  them (`control-isolation.test.ts` "keeps the 15 s peer-request window and the 30 s offer window
-  as literals"). Before C5-9 the side outage window and cap were those two literals; since C5-9
+  before READY (`link-liveness.ts`, since C5-9) and the heartbeat monitor's lease cap (RO-17).
+  `control-isolation.ts` keeps `RESTART_WINDOW_MS` (15 s) and `RESTART_CAP_MS` (30 s) as its own
+  literals: since C5-9 they bound only the peer restart requests and offers, which the two ends
+  enforce on each other, so a change to the grace must not move them (`control-isolation.test.ts`
+  "keeps the 15 s peer-request window and the 30 s offer window as literals"). The old-version
+  removal train revisited this (survey TR-15) and kept both literals: older builds are no longer a
+  design constraint, but consecutive builds still meet in a room while the update dialog lets a
+  tab wait, and the two windows are a wire contract between them (an answerer closes on the 17th
+  offer inside its own 30 s, so an offerer with a shorter window would trip it). Changing one is a
+  wire change: the receiver first, then a client floor, then the sender. Before C5-9 the side
+  outage window and cap were those two literals; since C5-9
   they follow the grace (one grace and two graces, the same values today), so a change to
   `RTC_INTERRUPTION_GRACE_MS` also moves the local side outage window and cap while the peer
   windows stay. This coupling is an implementation choice the owner delegated in train 4D and has
@@ -1005,10 +1010,17 @@ RO-49 accepted-exception
     after disconnected grace expires".
   - Visibility: `cloudflare-signaling.test.ts` "does not grant a fresh full grace when a
     long-hidden disconnected RTC resumes".
-  - Mixed versions: `control-isolation.test.ts` with the frozen fixture
-    `src/network/transport/__tests__/fixtures/control-isolation-c9.ts`, and "a peer on the frozen
-    C9 build (mixed version)" in `side-route-outage-integration.test.ts`. A Wi-Fi to LTE switch
-    with both PCs is device-only.
+  - Mixed versions: since the old-version removal train (survey OV-B07, TR-03 stage 1) every
+    isolated-control peer is restart-capable, and the frozen C9 fixture (the 8.11.23 runtime) and
+    its rows are deleted under the owner's old-version policy of 2026-10-25.
+    `control-isolation.test.ts` "still advertises the restart capability, exactly, before its
+    request and its fence" pins the frame that ends before this train still wait for (it can stop
+    once the client floor reaches this train, OV-F03); "restarts a %s side PC in place although no
+    advertisement arrived" and "ends the route at its own 15 s deadline when a %s side PC gets no
+    restart answer" (the accepted degradation with an 8.11.23 peer) pin the change, and
+    `side-route-outage-integration.test.ts` "a peer whose restart-capable advertisement or restart
+    answer never arrives" pins it through two real connections with the device lines. A Wi-Fi to
+    LTE switch with both PCs is device-only.
   - Characterization before the owner moves (tests only, #478):
     `src/network/transport/__tests__/link-liveness-characterization.test.ts` (grace, restart gate,
     effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471
@@ -1041,15 +1053,17 @@ RO-49 accepted-exception
     field `closeCause`, 24 since train 4D added the side route's eight former deadline names) and
     "transport-health guard: the side outage deadline (C5-9)" (each of the eight names fails in
     `control-isolation.ts` as a member, a call or a string key, `originalChanged` fails in the
-    connection, the owner may keep them, and the frozen C9 fixture, a test file, stays out of
-    scope; the guard itself flags them in any production file under `src/` but `link-liveness.ts`).
+    connection, the owner may keep them, and test files stay out of scope; the guard itself flags
+    them in any production file under `src/` but `link-liveness.ts`).
   - The side route's outage (C5-9): `src/network/transport/__tests__/side-route-outage-integration.test.ts`
     (two real connections, each with its real owner and side route, written and green on the
     9.0.10 code before the move, train 4D D0: the side's own 15 s, the original down before or
     after it, the re-arm 15 s after the original recovers and the 30 s cap also while the
     original is down again, a restart in flight across a recovery, the grace before READY with
     its fall back and its take-over at READY, the restart budget and the offer bound, the three
-    device lines by level and end, the close causes, the frozen C9 peer and the monotonic clock)
+    device lines by level and end, the close causes, the monotonic clock and, since the old-version
+    removal train, a peer whose advertisement or restart answer never arrives, which replaced the
+    frozen C9 peer)
     and `link-liveness-side-outage.test.ts` (the owner's side outage on its own: every call on the
     side route and line in order, the original route's readings, the side PC's close and stop),
     both in the critical coverage profile. `control-isolation.test.ts` and
@@ -1130,7 +1144,8 @@ RO-49 accepted-exception
   route is down (its PC not connected or its control channel not open, sampled where control
   isolation sampled it), re-armed to 15 s after the original recovers and capped at 30 s from the
   outage's start, a connected side PC at the deadline ending the outage quietly; the non-renewing
-  15 s grace of a route that cannot restart (before READY, or a peer without restart), which the
+  15 s grace of a route that cannot restart (before READY, or, until the old-version removal
+  train, with a peer without restart), which the
   original never defers and whose end fails the route's setup (decline and fall back, or end the
   link with `side-failed:route`), taken over at READY by a restart outage that starts then; the
   monotonic clock and a timer of its own (not a managed one) that the side PC's close and stop
@@ -1144,7 +1159,20 @@ RO-49 accepted-exception
   `restartExpired`, `endInterruption`, `originalReady`, `originalChanged`, `originalDown`,
   `disconnectedTimer`; train 4D, the control-isolation part of C5-10), so none of them can come back in a
   production file but `link-liveness.ts`, where only the owner's `originalDown` flag lives on;
-  the frozen C9 fixture keeps its old grace timer as a test file, outside the guard. See
+  the frozen C9 fixture kept its old grace timer as a test file, outside the guard. The
+  old-version removal train (survey OV-B07, TR-03 stage 1) then made every isolated-control peer
+  restart-capable: control isolation no longer waits for the peer's `restart-capable` frame,
+  which it still sends before its request and fence, so a route that cannot restart is one before
+  READY only. Control isolation's 10 s negotiation bound, armed before the side PC exists, ends
+  such a route (decline and fall back, or `side-failed:route` once fenced) before the owner's
+  15 s grace can run out, or READY takes the grace over; the owner keeps that grace and the
+  take-over unchanged, and the grace's own end stays pinned on the owner alone
+  (`link-liveness-side-outage.test.ts`). With an 8.11.23 peer, which neither advertises nor
+  answers a restart, a side outage now ends the link at its own 15 s deadline with
+  `side-failed:expired` after the did-not-recover warning, instead of at once (failed) or after
+  the grace (disconnected) with `side-failed:route`; the owner's policy of 2026-10-25 accepts
+  this. The frozen C9 fixture and its rows are deleted, and the device lines, the owner, the
+  windows and the wire are unchanged. See
   [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md), the
   [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md), the
   [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md), the

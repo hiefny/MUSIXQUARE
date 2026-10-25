@@ -1412,9 +1412,11 @@ describe('RTC interruption grace and the side-route windows a peer enforces', ()
     expect(RTC_INTERRUPTION_GRACE_MS).toBe(15_000);
   });
 
-  // These windows bound restart requests and offers between the two ends,
-  // which may run different builds (known-accepted #13: no version admission),
-  // so they stay their own literals instead of following the RTC grace.
+  // These windows bound restart requests and offers between the two ends.
+  // Consecutive builds meet in a room while the update dialog lets a tab wait,
+  // so they are a wire contract and stay their own literals instead of
+  // following the RTC grace (survey TR-15, kept by the old-version removal
+  // train: a change goes receiver first, then a client floor, then sender).
   it('keeps the 15 s peer-request window and the 30 s offer window as literals', () => {
     expect(controlIsolationSource).toMatch(/^const RESTART_WINDOW_MS = 15_000;$/mu);
     expect(controlIsolationSource).toMatch(/^const RESTART_CAP_MS = 30_000;$/mu);

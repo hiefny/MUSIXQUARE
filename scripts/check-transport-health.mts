@@ -113,8 +113,8 @@ const CLOSE_INPUT = 'close';
  * LIVENESS_MODULE may use them. The C5-9 names are control isolation's (its
  * side PC's outage deadline and timer, the original-route readiness it read
  * and the transition notice it took, and its non-renewing grace timer); of
- * them only the owner's `originalDown` flag lives on. The frozen C9 peer in
- * the transport tests' fixtures keeps its old grace timer and is out of scope.
+ * them only the owner's `originalDown` flag lives on. Test files are out of
+ * scope.
  */
 const RETIRED_LIVENESS_NAMES = new Map<string, string>([
   ['scheduleDisconnectedGrace', 'C5-6 original-route grace'],

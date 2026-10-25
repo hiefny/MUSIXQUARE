@@ -126,9 +126,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
       실행, 배포 SHA는 §1에 있다.
       [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md).
 - [ ] 4C 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 4C 코드로 실제 기기를 아직 돌리지 않았다. 원래
-      경로의 짧은 끊김과 15초 넘는 끊김(원인 줄), 와이파이→LTE의 원래 경로 재시작, iPhone Safari 게스트의 15초
-      넘는 백그라운드 복귀(방장이 있을 때와 없을 때), 미리받기 재개 단계에서 `Resuming preload`가 방장 원래 PC의
-      connected 뒤에 나오는지와 재시작 창의 새 트랙 받기, WebKit 레인, 운영 Cloudflare 전송 경로, 브라우저의 PRO
+      경로의 짧은 끊김과 15초 넘는 끊김(원인 줄), 와이파이→LTE의 원래 경로 재시작(2026-10-25 #18 확인에서
+      Safari 게스트 콘솔에 재시작 줄이 한 번 보였고 원래 경로는 relay 쌍으로 다시 이어졌다. 방장 콘솔과
+      Android는 아직이다. 아래 최근 해결 근거), iPhone Safari 게스트의 15초 넘는 백그라운드 복귀(방장이 있을
+      때와 없을 때), 미리받기 재개 단계에서 `Resuming preload`가 방장 원래 PC의 connected 뒤에 나오는지와 재시작 창의 새 트랙 받기, WebKit 레인, 운영 Cloudflare 전송 경로, 브라우저의 PRO
       방이 남았다. 4A·4B 기기 라운드도 아직 없어 전후 비교 기준이 없다. 기기 절차는 보고서에 고정했다.
       [실기기로 확인하지 않은 것](design/phase4-4c-link-liveness-2026-10-25.md#실기기로-확인하지-않은-것).
 
@@ -254,8 +255,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       안에 4A를 배포해도 된다고 했고, 배포와 기기 평가를 맡기고 자리를 비웠다(P4-D11 예외). Phase
       3 실기기 확인 전에 배포하는 것은 그 위임 아래의 판단이다(P4-D11 A는 Phase 3 기기 확인 통과를
       조건으로 둔다). 그래서 4A의 중립성은 기기 전후 비교가 아니라 자동 근거(단위,
-      특성화 테스트, C5-0 랩)에 기대고, 기준선은 4A 위에서 처음 잰다. #18과 미리받기 재개는
-      아래 실기기 확인에 열린 채로 둔다. Phase 3 시계는 다시 시작하지 않고, 4A 뒤 업데이트 경로
+      특성화 테스트, C5-0 랩)에 기대고, 기준선은 4A 위에서 처음 잰다. #18은 2026-10-25 운영
+      9.0.10에서 오너 실기기 확인으로 닫혔다(아래 최근 해결 근거). 미리받기 재개는 아래 실기기
+      확인에 열린 채로 둔다. Phase 3 시계는 다시 시작하지 않고, 4A 뒤 업데이트 경로
       제보는 Phase 3 몫으로 본다(P4-D11 A). Phase 4의 앱 업데이트는 4A와 4B 두 번이다(P4-D3 A).
       오너 결정(2026-10-25 약 01:50 KST)이 시점 부분을 대신해, 4B는 4A 배포 7일 뒤나 4A 기기
       라운드를 기다리지 않고 자동 게이트가 통과하면 바로 나가며 기기 근거는 코드의 게이트가
@@ -270,7 +272,10 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] 4A 배포 뒤 실기기 확인: 결과 전에 고정한 블라인드 절차로 #18(와이파이→LTE와 회귀), 미리받기
       재개, QA036 원격 게스트, QA040 연결 생존, QA007 YouTube·로컬 복귀, 홈 화면 앱을 iPhone
       Safari·Android Chrome 게스트와 Windows Chrome 방장으로 잰다. 기준선을 4A 위에서 처음 재므로 4A
-      전후 비교는 없다. 2026-10-25 결정대로 4B(2026-10-25 10:43 KST)와 4C(14:41 KST)가 이 라운드 전에
+      전후 비교는 없다. #18은 2026-10-25 Safari 게스트의 와이파이→LTE 한 번으로 닫혔다(아래 최근 해결
+      근거). 이 라운드의 그 단계는 닫는 조건이 아니라 기준선과 회귀로 남고, Android Chrome 게스트, 같은
+      공유기의 다른 SSID로 옮기는 IP 변경, 원격(LTE) 게스트가 와이파이로 오는 방향, 방장 콘솔은 아직
+      보지 않았다. 2026-10-25 결정대로 4B(2026-10-25 10:43 KST)와 4C(14:41 KST)가 이 라운드 전에
       나갔으므로 이 라운드는 4C 위에서 처음 재는 기준선이 되고 4B·4C 전후 비교도 없다. 창으로 끝나는 단계마다 방장
       콘솔(`?mxqrLog=info`)에 그 게스트 PeerID의 원인 줄이 하나 있고 그 토큰이 미리 고정한 단계별
       허용표 안인지 본다. 운영 Cloudflare 전송 경로, iOS, 브라우저의 PRO 방(입장, 업로드 대기열,
@@ -586,8 +591,8 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       (−33%), 느린 망 +1.3%, 급락 8→2→8 −21%, 로컬 파일 재생 중 프리로드 65.3→33.3초로
       기준을 통과했다. 모든 응용 제어 최대는 1초 미만(급락 557ms)이고 재생 조작·로컬
       보정은 0이었다. 보조 연결 ICE restart는 다음 릴리스로 미뤘고, 망 전환 시 연결 종료는
-      [허용 위험 #18](known-accepted.md#18-isolated-standard-room-control-route-ends-on-a-network-change)에
-      둔다. 2026-10-19 18:14 KST Release 39228199282로 배포했다. 실기 Android/iOS·
+      허용 위험 #18에 두었다(2026-10-25 [은퇴](known-accepted.md#retired-risks), 아래 최근 해결
+      근거). 2026-10-19 18:14 KST Release 39228199282로 배포했다. 실기 Android/iOS·
       가청 싱크·live 공급자는 여전히 미검증이다.
       [통합 릴리스 검증](design/transport-release-bundle-2026-10-19.md).
       오너는 같은 날 운영 8.11.23에서 직접 파일을 받은 폰을 와이파이→LTE로 바꿔 연결 끊김을
@@ -684,6 +689,33 @@ App 8.11.20/v723에서 일반 직접 전송·프리로드의 local threshold를 
       [작업 시계 고정 후보·대조와 한계](design/transport-candidate-roundtable-2026-10-18.md#qlease-대조).
 
 ### 최근 해결 근거
+
+허용 위험 #18(일반방 격리 제어 경로가 망 전환에서 끝남)은 오너 실기기 확인(2026-10-25, 운영 9.0.10 / v783)으로
+은퇴하고, 8.11.25 보조 연결 ICE restart 실기기 항목을 닫는다. 일반방에서 방장은 집 와이파이에 두고, 게스트는
+오너 기기의 Safari 탭을 `?mxqrLog=info`로 열었다(기종은 적지 않음). 게스트가 같은 와이파이에서 현재 대기열
+항목을 직접 받은 뒤(이 직접 전달이 격리 제어 경로를 만든다) 와이파이를 꺼 LTE로 옮겼다. 연결 끊김 창이 뜨지
+않았고 소리가 이어졌으며, LTE에 있는 동안 방장의 일시정지와 재생이 기기에 바로 반영됐다. 게스트
+`/debug console`(UTC, KST는 +9시간): 06:55:22.341 `[Peer] ICE (try 1): local=host, remote=host`, 06:55:22.342
+`[Peer] Connection type: local`, 06:55:22.451
+`[Guest] PLAY for current queue item with no buffer/pipeline; requesting file`, 와이파이 끔, 06:56:05.155
+`[Transport] Restarting isolated control ICE (1/2)`, 06:56:05.378 `[HostPresence] ok -> unresponsive (host)`,
+06:56:05.703 `[Transport] Restarting established Standard-room ICE within disconnect grace`, 06:56:08.356
+`[Transport] Isolated control ICE recovered`, 06:56:08.565 `[Peer] ICE (try 8): local=relay, remote=srflx`,
+06:56:09.389 `[HostPresence] unresponsive -> ok (host)`. 보조 경로는 재시작 시작 뒤 3.2초에 회복했고 원래 경로도
+같은 유예 안에서 재시작해 relay 쌍으로 이어졌다. 닫는 조건(창·재접속 없이 재생과 조작이 이어지고 게스트 콘솔에
+`Restarting isolated control ICE` 다음 `Isolated control ICE recovered`)을 채운다. 같은 세션의 앞선 시도는
+트랙이 이미 재생 중일 때 다시 들어와 직접 전달이 없었고(보조 경로가 생기지 않음) 원래 경로의 재시작 줄만
+남았으므로 근거에서 뺐다. 확인하지 않은 것: Android 폰, 방장 콘솔, 그리고 닫는 조건과 별도로 회귀로 보던
+두 단계인 같은 공유기의 다른 SSID로 옮기는 IP 변경과 원격(LTE) 게스트가 와이파이로 오는 방향(기록에 이미
+복구됨으로 적힌 방향). 다른 SSID 단계는 오너 결정 P4-D15 A대로 범위를 적고 닫는다. 이 회귀들은 따로 열린
+항목을 두지 않고 Phase 4 기기 라운드(위 4A 배포 뒤 실기기 확인)의 단계로 남는다. 이 확인은 보조 경로의 기한과
+재시작이 아직 제어 격리에 있던 9.0.10 코드에서 했다. 은퇴 기록(#491)은 C5-9를 결함이 나오지 않으면 하지
+않는다고 적었지만(P4-D6 A), 같은 날 오너 결정(약 16:30 KST)으로 C5-9와 C5-10의 제어 격리 부분이 네 번째 앱 열차
+4D로 가고, 이 확인이 4D 기기 확인의 기준선이 된다(위 4D 항목,
+[4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정)).
+[허용 위험 은퇴 기록](known-accepted.md#retired-risks),
+[독립 검증](design/side-ice-restart-independent-verification-2026-10-20.md),
+[통합 릴리스 검증](design/transport-release-bundle-2026-10-19.md#남은-실기-확인).
 
 App 9.0.8/v780의 두 수정은 오너 실기기 확인(2026-10-25, 오너 보고 "실기결과 완벽. 유튜브도 눈금선도",
 기기·OS 목록은 받지 않음)으로 닫는다. 일반방 YouTube 첫 재생 뒤 방장 스피커 기준(PR
@@ -1114,26 +1146,6 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       끊김(회복해야 정상)을 확인하고, 보조 연결이 하나 더 생기는 데 따른 배터리·발열도 본다.
       데스크톱 Chromium native 라운드만 있다.
       [남은 실기 확인](design/transport-release-bundle-2026-10-19.md#남은-실기-확인)
-- [ ] 8.11.25 보조 연결 ICE restart: 호스트 노트북은 와이파이에 두고, 같은 와이파이의 폰이 직접
-      파일을 받은 뒤 와이파이→LTE로 바꾼다. 8.11.23에서는 연결 끊김 창이 떴다(오너 확인
-      2026-10-19). 8.11.25에서 창·재접속 없이 재생과 조작이 이어지고, `?mxqrLog=info`로 연
-      게스트의 `/debug console`에 `Restarting isolated control ICE` 다음
-      `Isolated control ICE recovered`가 보이면 허용 위험 #18을 닫는다. 같은 공유기의 다른 SSID로
-      옮기는 IP 변경과, 원격(LTE) 게스트가 와이파이로 오는 반대 방향(이미 복구됨)도 회귀로 본다.
-      오너 결정(2026-10-24, Phase 4 알림 N1): 두 줄은 방장과 게스트의 `/debug console`을 합쳐 센다.
-      `Restarting isolated control ICE` 줄은 두 기기 중 재시작을 시작하는 한쪽만 남기므로 게스트
-      콘솔에 없을 수 있다. 다른 SSID 단계를 공유기 조건으로 못 하면 나머지가 통과할 때 닫고 그
-      범위를 적는다(P4-D15 A). C5-0 랩은 2026-10-24 main(`fa256db2` 런타임, #478 `b4293768`)에서
-      보조 PC가 failed에 닿은 뒤의 재시작 회복을 재현했지만 실기 근거는 아직 없다. 이 항목이
-      열린 채 4A를 배포했다(위 Phase 4 게이트 편차). 오너 결정(2026-10-25 약 01:50 KST)으로 기기
-      근거는 코드의 게이트가 아니어서 4B와 그 뒤 C5-6·C5-7·C5-8 열차도 이 항목이 열린 채 나간다.
-      4C(9.0.10 / v783, 2026-10-25 14:41 KST 배포)는 원래 경로의 유예·재시작 게이트, 게스트 복귀 확인과 모든 닫힘을 한 주인
-      (`LinkLiveness`)으로 옮기지만 보조 연결의 기한·재시작과 이 두 줄은 그대로 둔다(RO-35, C5-9는
-      Phase 4 밖). 이 단계를 4C 위에서 돌리면 원래 경로의 재시작도 함께 본다(4C 보고서의 기기 절차).
-      [독립 검증](design/side-ice-restart-independent-verification-2026-10-20.md),
-      [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md),
-      [4B 보고서의 오너 결정](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25),
-      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)
 - [ ] 8.11.25 미리받기 재개: 호스트 노트북은 와이파이에 두고, 폰이 다음 곡을 미리받는 중(다음 곡
       준비 로더가 보일 때)에 와이파이를 몇 초 껐다 켜거나 LTE로 바꾼다. 8.11.23에서는 미리받기가
       취소된 뒤 다시 시작하지 않았다(오너 확인 2026-10-19). 8.11.25에서 연결이 돌아오면 미리받기가

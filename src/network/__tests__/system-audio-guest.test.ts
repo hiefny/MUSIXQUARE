@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { log } from '../../core/log.ts';
 import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../../types/index.ts';
@@ -827,6 +828,95 @@ describe('system audio guest receive watchdog', () => {
     expect(audio.playoutDelayHint).toBe(0.5);
     expect(video).not.toHaveProperty('playoutDelayHint');
     expect(trackless).not.toHaveProperty('playoutDelayHint');
+  });
+
+  // Phase 5 C4-3 moves the direct call's attach (the source on widener.input,
+  // the receiving flag, the owner claim) and its primer into the receive
+  // slot. These pin what the direct call hands it and what its /debug
+  // channel keeps, before the move.
+  describe('direct call attach', () => {
+    it('connects the remote stream object itself to the widener input and stamps the graph time', async () => {
+      const source = { connect: vi.fn(), disconnect: vi.fn() };
+      const createMediaStreamSource = vi.fn(() => source);
+      vi.mocked(getAudioContext).mockReturnValue({
+        createMediaStreamSource,
+      } as unknown as AudioContext);
+      const widener = { input: { connect: vi.fn() } };
+      vi.mocked(getWidener).mockReturnValueOnce(
+        widener as unknown as ReturnType<typeof getWidener>,
+      );
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+      const incoming = createMediaConnection();
+      bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+      const stream = audioStreamWithTrack();
+      incoming.emit('stream', stream);
+      await flushAsyncStreamHandler();
+
+      expect(createMediaStreamSource).toHaveBeenCalledExactlyOnceWith(stream);
+      expect(source.connect).toHaveBeenCalledExactlyOnceWith(widener.input);
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+      expect(getState('playback.mode')).toBe('system-audio');
+      const snapshot = getSystemAudioGuestDebugSnapshot();
+      // The primer is mocked to hold nothing here: the source alone is reported.
+      expect(snapshot).toMatchObject({ gotStereo: true, sourceStereo: true, decoderPrimer: false });
+      expect(snapshot.channels).toEqual([
+        expect.objectContaining({
+          channel: 'STEREO',
+          graphAt: expect.any(Number),
+          graphError: undefined,
+        }),
+      ]);
+    });
+
+    it.each([
+      {
+        failure: 'a missing audio graph',
+        arrange: () => vi.mocked(getWidener).mockReturnValueOnce(null),
+        message: 'audio-graph-not-ready',
+        graphLog: true,
+      },
+      {
+        failure: 'an initAudio rejection',
+        arrange: () => vi.mocked(initAudio).mockRejectedValueOnce(new Error('audio init failed')),
+        message: 'audio init failed',
+        graphLog: false,
+      },
+    ])(
+      'keeps $failure on the call /debug channel and logs it as the stream graph failure',
+      async ({ arrange, message, graphLog }) => {
+        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        arrange();
+
+        const failed = createMediaConnection();
+        bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+        failed.emit('stream', audioStreamWithTrack());
+        await flushAsyncStreamHandler();
+
+        expect(failed.mediaConn.close).toHaveBeenCalledTimes(1);
+        // The listener registration in beforeEach warns about re-registered
+        // protocol handlers; only the receiver's own lines count here.
+        const receiverLines = (level: 'warn' | 'error') =>
+          vi
+            .mocked(log[level])
+            .mock.calls.filter(([first]) => String(first).startsWith('[SysAudioGuest]'));
+        expect(receiverLines('warn')).toEqual([
+          ['[SysAudioGuest] STEREO stream graph failed:', expect.objectContaining({ message })],
+        ]);
+        expect(receiverLines('error')).toEqual(
+          graphLog ? [['[SysAudioGuest] Audio graph not ready']] : [],
+        );
+        const snapshot = getSystemAudioGuestDebugSnapshot();
+        expect(snapshot).toMatchObject({
+          systemReceiving: false,
+          gotStereo: false,
+          sourceStereo: false,
+        });
+        expect(snapshot.channels).toEqual([
+          expect.objectContaining({ channel: 'STEREO', graphAt: undefined, graphError: message }),
+        ]);
+      },
+    );
   });
 
   // Phase 5 C4-2 moves the trusted reception (its generation, boundary

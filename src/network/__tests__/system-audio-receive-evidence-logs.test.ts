@@ -188,6 +188,13 @@ function mutedTrack(id: string): { track: MediaStreamTrack; unmute(): void } {
 
 const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms);
 
+/** The track ids each decoder-primer element in the DOM plays. */
+function primerTrackIds(): string[][] {
+  return primerElements().map((element) =>
+    (element.srcObject as unknown as FakeMediaStream).tracks.map((track) => track.id),
+  );
+}
+
 beforeAll(() => {
   registerSystemAudioGuestListeners();
   registerSystemAudioSfuListeners();
@@ -281,6 +288,55 @@ describe('Standard direct (P2P) receive evidence lines', () => {
 
     expect(primerEvidence()).toEqual([['warn', P2P_PRIMER_BLOCKED, blocked]]);
     expect(routeEvidence()).toEqual([['info', P2P_CONNECTED]]);
+  });
+
+  // C4-3 moves the P2P source and primer into the receive slot. The direct
+  // call primes each stream when it arrives, before the unmute wait and the
+  // trust boundary, and its attach never primes again: a stream that is still
+  // waiting in initAudio when the next one arrives must not take the primer
+  // back from it.
+  it('logs the primer once per stream key, at the stream, never again at the attach', async () => {
+    await start();
+    webAudio.suspend();
+    const call = directCall();
+    call.stream(streamOf(makeAudioTrack('p2p-track-a')));
+    await advance(100);
+    expect(primerEvidence()).toEqual([['info', P2P_PRIMED]]);
+
+    // The same call delivers a second stream while the first waits in
+    // initAudio: its key replaces the primer at once.
+    call.stream(streamOf(makeAudioTrack('p2p-track-b')));
+    await advance(100);
+    expect(primerEvidence()).toEqual([
+      ['info', P2P_PRIMED],
+      ['info', P2P_PRIMED],
+    ]);
+    expect(primerTrackIds()).toEqual([['p2p-track-b']]);
+    expect(webAudio.sources).toHaveLength(0);
+
+    // Both attaches run in arrival order; the later one swaps the source, and
+    // neither primes or claims again.
+    webAudio.finishResume();
+    await advance(0);
+    expect(webAudio.sources.map((source) => source.trackIds)).toEqual([
+      ['p2p-track-a'],
+      ['p2p-track-b'],
+    ]);
+    expect(webAudio.connectedTrackIds()).toEqual(['p2p-track-b']);
+    expect(primerTrackIds()).toEqual([['p2p-track-b']]);
+    expect(primerEvidence()).toEqual([
+      ['info', P2P_PRIMED],
+      ['info', P2P_PRIMED],
+    ]);
+    expect(routeEvidence()).toEqual([['info', P2P_CONNECTED]]);
+    expect(seen.counts.visualizerStarts).toBe(1);
+
+    // A repeat of the attached stream's key reuses its primer.
+    call.stream(streamOf(makeAudioTrack('p2p-track-b')));
+    await advance(0);
+    expect(primerEvidence()).toHaveLength(2);
+    expect(primerTrackIds()).toEqual([['p2p-track-b']]);
+    expect(webAudio.connectedTrackIds()).toEqual(['p2p-track-b']);
   });
 });
 
@@ -417,6 +473,64 @@ describe('/debug sa receive lines and snapshot keys', () => {
     });
 
     await stop();
+    expect(await debugLines()).toEqual({
+      playback: '[Playback] owner:none mode:none/idle receiving:no placeholder:no',
+      directGuest: directGuestBlock(
+        'receiving:no placeholder:no gotStereo:no',
+        'no',
+        'sourceStereo:no primer:no',
+      ),
+      sfuGuest: '[SFUGuest] session:- receiving:no connecting:no sourceStereo:no pc:none',
+    });
+  });
+
+  // C4-3 deletes the guest's source, primer and gotStereo fields; the slot
+  // keeps the direct call's source and primer apart, and these values must
+  // keep meaning "the direct call attached a source" and "the direct call
+  // holds a primer".
+  it('reports the P2P primer apart from its source, and neither once the current call closes', async () => {
+    // A stream before START is primed at the trust boundary, not attached.
+    const early = directCall();
+    early.stream(streamOf(makeAudioTrack('p2p-early')));
+    await advance(0);
+    expect((await debugLines()).directGuest).toEqual(
+      directGuestBlock(
+        'receiving:no placeholder:no gotStereo:no',
+        'no',
+        'sourceStereo:no primer:yes',
+      ),
+    );
+
+    await start();
+    expect(webAudio.connectedTrackIds()).toEqual(['p2p-early']);
+    expect((await debugLines()).directGuest).toEqual(
+      directGuestBlock(
+        'receiving:yes placeholder:yes gotStereo:yes',
+        'no',
+        'sourceStereo:yes primer:yes',
+      ),
+    );
+
+    // A replacement whose stream waits to unmute already holds the primer,
+    // while the first stream's source plays on.
+    const replacement = directCall();
+    replacement.stream(streamOf(mutedTrack('p2p-muted-track').track));
+    await advance(0);
+    expect(webAudio.connectedTrackIds()).toEqual(['p2p-early']);
+    expect(primerTrackIds()).toEqual([['p2p-muted-track']]);
+    expect((await debugLines()).directGuest).toEqual(
+      directGuestBlock(
+        'receiving:yes placeholder:yes gotStereo:yes',
+        'no',
+        'sourceStereo:yes primer:yes',
+      ),
+    );
+
+    // The transport closes the current call: reception ends idle.
+    replacement.mediaConn.close();
+    await advance(0);
+    expect(webAudio.connectedTrackIds()).toEqual([]);
+    expect(primerElements()).toHaveLength(0);
     expect(await debugLines()).toEqual({
       playback: '[Playback] owner:none mode:none/idle receiving:no placeholder:no',
       directGuest: directGuestBlock(

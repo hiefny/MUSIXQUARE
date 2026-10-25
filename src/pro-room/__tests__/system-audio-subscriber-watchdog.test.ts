@@ -1,6 +1,16 @@
 /** @vitest-environment jsdom */
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type MockInstance,
+} from 'vitest';
 import { bus, createBusScope, type BusScope } from '../../core/events.ts';
+import { log } from '../../core/log.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ProRoomApiClient } from '../api.ts';
@@ -57,6 +67,7 @@ vi.mock('../../network/webrtc-audio-decoder-primer.ts', () => ({
 
 import { configureProSystemAudioDirectTransport } from '../../network/pro-system-audio-direct.ts';
 import { registerSystemAudioGuestListeners } from '../../network/system-audio-guest.ts';
+import { countReceiveDeadlineLines } from '../../network/__tests__/__helpers__/system-audio-receive-harness.ts';
 import {
   bindProSystemAudioSession,
   configureProSystemAudioService,
@@ -109,7 +120,10 @@ function isReceivingPlaceholder(): boolean {
 }
 
 let toasts: string[];
-let receiveTimeouts: number;
+// The receive deadline's expiry lines (see the receive harness): none may
+// fire for a PRO reception, which owns its deadlines.
+let warn: MockInstance<typeof log.warn>;
+const receiveTimeouts = (): number => countReceiveDeadlineLines(warn.mock.calls);
 // Only the test's own listeners: the service registers its bus listeners once,
 // as the app does, and every test must keep them.
 let testListeners: BusScope;
@@ -151,13 +165,10 @@ beforeEach(() => {
   bindProSystemAudioSession(snapshot());
   api.getSystemAudioState.mockReset().mockResolvedValue(live());
   toasts = [];
-  receiveTimeouts = 0;
+  warn = vi.spyOn(log, 'warn');
   testListeners = createBusScope();
   testListeners.on('ui:show-toast', (message) => {
     toasts.push(String(message));
-  });
-  testListeners.on('system-audio:receive-timeout', () => {
-    receiveTimeouts += 1;
   });
 });
 
@@ -165,6 +176,7 @@ afterEach(() => {
   resetProSystemAudioService();
   clearAllManagedTimers();
   testListeners.dispose();
+  warn.mockRestore();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -192,7 +204,7 @@ describe('PRO SFU subscriber retry and the guest receive watchdog', () => {
 
     expect(mocks.subscribe.mock.calls.length).toBeGreaterThanOrEqual(8);
     expect(idleAtSeconds).toEqual([]);
-    expect(receiveTimeouts).toBe(0);
+    expect(receiveTimeouts()).toBe(0);
     expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(getState('systemAudio.isReceiving')).toBe(false);
   });
@@ -216,7 +228,7 @@ describe('PRO SFU subscriber retry and the guest receive watchdog', () => {
     await vi.advanceTimersByTimeAsync(70_000);
 
     expect(mocks.subscribe).toHaveBeenCalledTimes(1);
-    expect(receiveTimeouts).toBe(0);
+    expect(receiveTimeouts()).toBe(0);
     expect(toasts).toEqual([]);
     expect(getState('systemAudio.isReceiving')).toBe(true);
     expect(getState('playback.mode')).toBe('system-audio');
@@ -320,7 +332,7 @@ describe('PRO SFU subscription that rejects synchronously', () => {
     expect(mocks.subscribe.mock.calls.length).toBeGreaterThanOrEqual(8);
     expect(mocks.subscribe.mock.calls.length).toBeLessThanOrEqual(11);
     expect(idleAtSeconds).toEqual([]);
-    expect(receiveTimeouts).toBe(0);
+    expect(receiveTimeouts()).toBe(0);
     expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(getState('systemAudio.isReceiving')).toBe(false);
   }
@@ -479,7 +491,7 @@ describe('PRO LAN-direct listener and its reception deadline', () => {
     await handoff;
 
     expect(getState('systemAudio.isReceiving')).toBe(true);
-    expect(receiveTimeouts).toBe(0);
+    expect(receiveTimeouts()).toBe(0);
     expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(getState('playback.mode')).toBe('system-audio');
@@ -503,7 +515,7 @@ describe('PRO LAN-direct listener and its reception deadline', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(await idleSecondsOverThreeMinutes()).toEqual([]);
-    expect(receiveTimeouts).toBe(0);
+    expect(receiveTimeouts()).toBe(0);
     expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(hostStarted).toBe(1);
@@ -518,7 +530,7 @@ describe('PRO LAN-direct listener and its reception deadline', () => {
     expect(getState('systemAudio.isReceiving')).toBe(true);
 
     expect(await idleSecondsOverThreeMinutes()).toEqual([]);
-    expect(receiveTimeouts).toBe(0);
+    expect(receiveTimeouts()).toBe(0);
     expect(toasts).toEqual([]);
     expect(getState('systemAudio.isReceiving')).toBe(true);
   });
@@ -556,7 +568,7 @@ describe('PRO LAN-direct listener and its reception deadline', () => {
     });
 
     expect(await idleSecondsOverThreeMinutes()).toEqual([]);
-    expect(receiveTimeouts).toBe(0);
+    expect(receiveTimeouts()).toBe(0);
     expect(toasts).toEqual(['system_audio.connection_unstable']);
     expect(mocks.stopAllMedia).toHaveBeenCalledTimes(1);
   });

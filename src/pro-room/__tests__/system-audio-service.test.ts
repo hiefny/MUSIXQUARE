@@ -1888,6 +1888,65 @@ describe('PRO system-audio service orchestration', () => {
     expect(graph.sources[1]?.connect).toHaveBeenCalledWith(graph.widenerInput);
   });
 
+  // The coordinator retires the Standard SFU guest route (its subscription and
+  // frozen share route) wherever it takes the slot over: the top of every live
+  // reconcile, before its own cleanup, start or subscription, and a retry's
+  // cleanup (above). C4-7 routes this through the receive slot's adopt.
+  it('retires the Standard SFU guest route at the top of every live reconcile, whoever publishes, and never on idle', async () => {
+    mocks.cleanupLegacySubscriber.mockClear();
+    await observeState(live());
+    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(1);
+    expect(mocks.cleanupLegacySubscriber.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.beginReception.mock.invocationCallOrder[0],
+    );
+    expect(mocks.cleanupLegacySubscriber.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.subscribe.mock.invocationCallOrder[0],
+    );
+
+    // An identical reconcile (the same presence bound again) retires it again.
+    bindProSystemAudioSession(snapshot());
+    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(2);
+
+    await observeState(directLive(REMOTE_ID, 2));
+    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(3);
+    await observeState(localLive(3));
+    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(4);
+    await observeState(idle(4));
+    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(4);
+  });
+
+  // The playback owner 'system-audio' is shared by a local share and a
+  // reception. Only the coordinator cleanup's local-owner check keeps that
+  // cleanup from ending a reception over this device's own share, and the
+  // reset cleans the graph before it forgets the local owner. C4-7 keeps both.
+  it('skips the receive end in the coordinator cleanup while this device publishes, the reset included', async () => {
+    await startLocalShare();
+    expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', isLocalOwner: true });
+    mocks.playbackMode = 'system-audio';
+    mocks.cleanupReception.mockClear();
+
+    // A reconcile of the local publication runs the coordinator cleanup.
+    bindProSystemAudioSession(snapshot());
+    expect(mocks.stopSubscriber).toHaveBeenCalled();
+    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+    mocks.stopSubscriber.mockClear();
+    resetProSystemAudioService();
+    expect(mocks.stopSubscriber).toHaveBeenCalled();
+    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+
+    // A listener's view ends the reception in the same cleanup, before its
+    // start for the remote publication.
+    bindProSystemAudioSession(snapshot());
+    mocks.beginReception.mockClear();
+    mocks.cleanupReception.mockClear();
+    await observeState(live(2));
+    expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
+    expect(mocks.beginReception).toHaveBeenCalledTimes(1);
+    expect(mocks.cleanupReception.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.beginReception.mock.invocationCallOrder[0],
+    );
+  });
+
   it('retires an SFU receive attempt when native audio resume times out and retries its track', async () => {
     const graph = installAudioGraphHarness();
     // A PRO member may enter before its first audio graph has been created.

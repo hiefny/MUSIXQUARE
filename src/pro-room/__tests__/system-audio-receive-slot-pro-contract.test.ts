@@ -54,8 +54,15 @@ import { batchSetState, getState, resetState, setState } from '../../core/state.
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
-import { registerSystemAudioGuestListeners } from '../../network/system-audio-guest.ts';
-import { registerSystemAudioSfuListeners } from '../../network/system-audio-sfu.ts';
+import { getGuestSystemAudioShareRoute } from '../../network/system-audio-delivery.ts';
+import {
+  getSystemAudioGuestDebugSnapshot,
+  registerSystemAudioGuestListeners,
+} from '../../network/system-audio-guest.ts';
+import {
+  getSystemAudioSfuDebugSnapshot,
+  registerSystemAudioSfuListeners,
+} from '../../network/system-audio-sfu.ts';
 import {
   claimPlaybackOwner,
   createFileTrackMeta,
@@ -915,6 +922,8 @@ describe('room switch, share end, leave and force-stop', () => {
     );
     await advance(1_000);
     expect(slot().sources).toEqual(['sfu-remote-audio-1']);
+    expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
+    const activitiesBeforeSwitch = [...seen.activities];
 
     // The PRO bridge takes over the media engine, then the room context flips.
     batchSetState({ 'network.appRole': 'host', 'network.hostConn': null });
@@ -924,12 +933,96 @@ describe('room switch, share end, leave and force-stop', () => {
     expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
     expect(realtime.count('tracks-close')).toBe(1);
     expect(slot()).toMatchObject({ receiving: true, placeholder: true, sources: [] });
+    // The retire also thaws the frozen Standard share route, and it is no end:
+    // no playback activity change (no idle flash), no notice, no force-stop.
+    // C4-7 moves this retire behind the receive slot's adopt and keeps all of it.
+    expect(getGuestSystemAudioShareRoute()).toBe('unselected');
+    expect(getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+      pcState: null,
+      sessionId: null,
+      subscriptionKey: null,
+    });
+    expect(seen.activities).toEqual(activitiesBeforeSwitch);
+    expect(seen.toasts).toEqual([]);
+    expect(seen.counts.forceStops).toBe(0);
 
     bindProSystemAudioSession(snapshot());
     await applyState(live(sfuPublication()));
     await advance(PRO_TRACK_AT_MS);
     expect(slot()).toMatchObject({ receiving: true, sources: ['pro-sfu-audio-1'] });
     expect(webAudio.maxConnected).toBe(1);
+    // The idle step is the PRO reconcile's own (its coordinator cleanup ends
+    // the Standard reception before its start), not the retire's.
+    expect(seen.activities).toEqual([
+      ...activitiesBeforeSwitch,
+      'pending',
+      'idle',
+      'pending',
+      'playing',
+    ]);
+    await applyState(idle(2));
+    expect(slot().title).toBe(previousTitle);
+  });
+
+  it("S7: a Standard-to-PRO switch while the Standard SFU subscription still connects retires it and leaves the Standard start's slot deadline to the PRO start", async () => {
+    resetProSystemAudioService();
+    setState('room.context', { ...proContext(), kind: 'standard', roomId: null, role: 'idle' });
+    const hostConn = { open: true, peer: 'host-peer-0001', send: vi.fn() } as unknown;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn as DataConnection);
+    setState('network.connectionType', 'remote');
+    markQueueAuthorityReady(hostConn as DataConnection);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn as DataConnection);
+    // The Standard subscription's track request never answers.
+    realtime.injectFault('tracks-new', 'hang');
+    await handleData(
+      {
+        type: MSG.SYSTEM_AUDIO_SFU_READY,
+        version: 2,
+        audience: 'remote',
+        sessionId: 'rt_host_session_1',
+        track: { trackName: 'stereo-standard', mid: '0' },
+      },
+      hostConn as DataConnection,
+    );
+    await advance(1_000);
+    expect(realtime.count('tracks-new')).toBe(1);
+    expect(slot()).toMatchObject({ receiving: false, placeholder: true, sources: [] });
+    const { watchdogArmedAt } = getSystemAudioGuestDebugSnapshot();
+    expect(getSystemAudioGuestDebugSnapshot().watchdogActive).toBe(true);
+
+    batchSetState({ 'network.appRole': 'host', 'network.hostConn': null });
+    setState('room.context', proContext());
+    // The retire aborts the connecting subscription and thaws the share route,
+    // but leaves the reception, its placeholder and the Standard start's slot
+    // deadline as they were: C4-7's adopt neither ends nor re-arms anything.
+    expect(getGuestSystemAudioShareRoute()).toBe('unselected');
+    expect(getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+      pcState: null,
+      sessionId: null,
+      subscriptionKey: null,
+    });
+    expect(slot()).toMatchObject({ receiving: false, placeholder: true, sources: [] });
+    expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+      watchdogActive: true,
+      watchdogArmedAt,
+    });
+
+    // The PRO reconcile's coordinator cleanup ends the Standard reception and
+    // its start (deadline 'route') clears that deadline; the aborted Standard
+    // subscription never retries or attaches.
+    bindProSystemAudioSession(snapshot());
+    await applyState(live(sfuPublication()));
+    expect(getSystemAudioGuestDebugSnapshot().watchdogActive).toBe(false);
+    expect(seen.counts.hostStarted).toBe(2);
+    await advance(PRO_TRACK_AT_MS);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['pro-sfu-audio-1'] });
+    await advance(60_000);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['pro-sfu-audio-1'] });
+    expect(realtime.count('tracks-new')).toBe(1);
+    expect(webAudio.maxConnected).toBe(1);
+    expect(seen.counts.receiveTimeouts).toBe(0);
+    expect(seen.toasts).toEqual([]);
     await applyState(idle(2));
     expect(slot().title).toBe(previousTitle);
   });

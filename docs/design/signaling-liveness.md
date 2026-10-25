@@ -121,8 +121,8 @@ continuous relay allocation survival over a physical 48-hour session is a
 separate manual verification item, not a claim established by fake-clock tests.
 
 One interruption has a non-renewing 15-second transport grace (`RTC_INTERRUPTION_GRACE_MS` in
-`src/core/constants.ts`). Since Phase 4 (2026-10-25) one owner per Standard-room logical
-connection, `LinkLiveness` in `src/network/transport/link-liveness.ts` (registry RO-15), holds
+`src/core/constants.ts`). Since Phase 4 (2026-10-25) one owner per Cloudflare logical data
+connection (Standard and PRO rooms alike), `LinkLiveness` in `src/network/transport/link-liveness.ts` (registry RO-15), holds
 that grace, its published wall-clock deadline, the one-restart gate and the guest
 background-resume probe, and every close of the connection goes through it with a cause (see
 [Realtime runtime ownership](realtime-runtime-ownership.md)). The host heartbeat monitor

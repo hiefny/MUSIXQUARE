@@ -74,9 +74,10 @@ which prints the peer connection's state and decides nothing. Media-PC readers
 
 ## Link-liveness owner and close authority
 
-Amended 2026-10-25 (Phase 4, C5-6 to C5-10; registry RO-15). One owner per
-Cloudflare logical data connection (`CloudflareDataConnection`, in Standard
-and PRO rooms alike) decides whether the link may still recover and why it
+Amended 2026-10-25 (Phase 4, C5-6, C5-7, C5-8 and the connection part of
+C5-10; C5-9 stays out; registry RO-15). One owner per Cloudflare logical data
+connection (`CloudflareDataConnection`, in Standard and PRO rooms alike)
+decides whether the link may still recover and why it
 closed. A PRO connection has no isolated control side route and binds no ICE
 restart, so its owner holds the grace and the close but never admits a
 restart:

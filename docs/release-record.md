@@ -70,14 +70,16 @@ gh run list --workflow e2e.yml --branch main --limit 3
       같다. 동결 fixture `control-isolation-c9.ts`는 바뀌지 않았다. 혼합 버전(known-accepted #13): 변화는
       방장 기기 안의 재시작 창 판단이고, 옛 게스트는 같은 프레임과 복구 요청 경로를 쓴다. 되돌리기는 더
       높은 SemVer의 코드 되돌리기가 기본이고, 급할 때 Cloudflare App을 9.0.9·9.0.8·9.0.7·9.0.6·9.0.5로
-      되돌려도 PRO 입장 정책 표지는 유지된다. 로컬 검증(`ab4ba114`): 테스트 먼저(중립 넷의 테스트 커밋이
+      되돌려도 PRO 입장 정책 표지는 유지된다. 로컬 검증(`ab4ba114`): 테스트 먼저(테스트 커밋 넷이
       바꾸기 전 소스에서 통과, C5-8의 새 21행이 `76ecc766` 소스에서 실패), 단위 664 files / 15,531,
       typecheck(테스트 포함)·lint·format, 가드(dead-exports 20/20·76/76 그대로, transport-health 은퇴 이름
       16, resource-ownership 48 records / 437 files), 핵심 커버리지 77 files / 3,025(`link-liveness.ts`·
       `transport-health.ts` 100), 빌드 두 번과 초기 전송 예산(초기 JS 478,019 B, 같은 기계의 main 477,600 B
       대비 +419 B, 유지 상한까지 13,549 B), critical E2E 61/61, C5-0 랩 8/8(F4는 본 레인 23,040,044 B 한
-      번, 미리받기 청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나) PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지
-      않는다. 배포 뒤 이 항목을 실제 bump·CI·Release 값으로 고친다.
+      번, 미리받기 청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나) PASS. 두 번째 리뷰
+      반영(`8582e71c`, C5-12 물러남·철회 행을 실제 주인 보기로도 돌리는 테스트 11행과 문서, 런타임 그대로) 뒤
+      단위 664 files / 15,542 PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 이 항목을 실제
+      bump·CI·Release 값으로 고친다.
       [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md).
 - [ ] 4C 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 4C 코드로 실제 기기를 아직 돌리지 않았다. 원래
       경로의 짧은 끊김과 15초 넘는 끊김(원인 줄), 와이파이→LTE의 원래 경로 재시작, iPhone Safari 게스트의 15초
@@ -1266,11 +1268,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       오너 결정(2026-10-24, P4-D3 A): Phase 4는 앱 업데이트 두 번이다. 4A(중립 재구성)와 4B(위험·동작 변경)다.
       오너 결정(2026-10-25 약 01:50 KST)이 시점 부분을 대신한다: 모든 열차는 자동 게이트(로컬 검사, 리뷰, PR CI,
       Codex, exact-main CI, 릴리스 smoke)가 통과하면 바로 내고, 7일 간격(4B의 '4A 배포 7일 뒤' 포함)과 기기
-      라운드를 기다리지 않는다. 열차 보고서마다 기기로 확인하지 않은 것을 적는다.
+      라운드를 기다리지 않는다. 열차 보고서마다 기기로 확인하지 않은 것을 적는다. 같은 결정으로 C5-6·C5-7·
+      C5-8이 4B 다음 자기 열차로 가서 Phase 4는 4C까지 앱 업데이트 세 번이 된다. 4C는 C5-6, C5-7, C5-8과
+      C5-10의 연결 부분을 싣고 C5-9는 Phase 4 밖이다(RO-35).
       [결정 근거](design/resource-ownership-registry.md#consolidation-phases),
       [게이트에 막힌 실행](design/server-constant-homes-2026-10-23.md#호환성),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24),
-      [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25).
+      [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25),
+      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md#오너-결정).
 - [ ] 8.11.32 배포 뒤 실기 확인(2026-10-21 03:41 KST 배포됨): iPhone에서 재생목록 길게 누르기가 글자를 선택하지
       않는지, 데스크톱 길게 클릭·끌기 가장자리 자동 스크롤, 백그라운드 복귀마다 Sync(일반방 YouTube 방장이 돌아올 때마다
       게스트가 최대 3초에 한 번 다시 맞춘다), 권한 확인 중 안내, 화면 보호기 두 번 탭 종료·저음 밝기를 실제 기기로 본다.

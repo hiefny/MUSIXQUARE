@@ -21,8 +21,8 @@
  *     import their predicates from transport-health.ts, so deleting a health
  *     check cannot pass CHECK 1.
  *
- * It also keeps one Standard-room logical data connection's liveness and close
- * with their one owner, LinkLiveness in src/network/transport/link-liveness.ts:
+ * It also keeps one Cloudflare logical data connection's (Standard or PRO
+ * room) liveness and close with their one owner, LinkLiveness in src/network/transport/link-liveness.ts:
  *
  *   CHECK 3 Retired names: the identifiers of the machines the owner replaced
  *     in the connection (C5-6 the original route's grace and restart gate,

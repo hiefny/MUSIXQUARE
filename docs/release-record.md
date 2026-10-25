@@ -97,8 +97,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       테스트 먼저(`4a319b62`가 `b1962ed5` 소스에서 23행 중 5행 실패), 단위 663 files / 15,388, `tsc`·
       `typecheck:tests`·lint·format, 같은 가드 값(dead-exports 20/20·76/76, bus-pairing 204/204,
       resource-ownership 48 records / 436 files), 초기 JS 477,607 B(빌드 한 번, main 대비 +673 B) PASS.
-      `guard:sw-cache-version`은 v782 bump 전이라 FAIL이고, bump 뒤 최종 라운드(Worker, `build:checked`,
-      핵심 커버리지, critical E2E, C5-0 랩)는 아직이다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
+      v782 bump 뒤 최종 로컬 검증(`40210903`, 런타임은 v782 bump `f207d094`): release-identity(9.0.9,
+      v782)·sw-cache-version, 단위 663 files / 15,388(기기 근거 다섯 줄 고정 포함), Worker 60 files /
+      2,914, typecheck·`typecheck:tests`·`check:workers`·lint·format, `build:checked` 전체, 같은 가드
+      값, 핵심 커버리지 75 files / 2,862, critical E2E 61/61, C5-0 랩 8/8(F4 같은 전선 결과), 초기 JS
+      477,600 B(프로덕션 빌드 두 번 같음, main 대비 +666 B) PASS. 로컬 결과는 exact-main-SHA 후보를
+      대신하지 않는다.
       갈래 라운드는 보고서에 있다.
       [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md).
 - [ ] 4B 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 4B 코드로 실제 기기를 아직 돌리지 않았다.

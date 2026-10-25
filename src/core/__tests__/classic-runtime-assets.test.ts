@@ -1065,7 +1065,7 @@ describe('strict TypeScript classic browser runtimes', () => {
           dom.window.dispatchEvent(
             new dom.window.MessageEvent('message', {
               origin: 'https://musixquare.com',
-              data: { type: 'refresh' },
+              data: { type: 'refresh', id: 'refresh:classic-runtime-0001' },
             }),
           );
         if (scenario === 'refresh') {
@@ -1172,7 +1172,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       dom.window.dispatchEvent(
         new dom.window.MessageEvent('message', {
           origin: 'https://musixquare.com',
-          data: { type: 'refresh' },
+          data: { type: 'refresh', id: 'refresh:classic-runtime-0001' },
         }),
       );
     try {
@@ -1309,7 +1309,7 @@ describe('strict TypeScript classic browser runtimes', () => {
           dom.window.dispatchEvent(
             new dom.window.MessageEvent('message', {
               origin: 'https://musixquare.com',
-              data: { type: 'refresh' },
+              data: { type: 'refresh', id: 'refresh:classic-runtime-0001' },
             }),
           );
           await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));

@@ -72,7 +72,6 @@ import {
   recordGuestFileDelivery,
 } from '../share/file-delivery-policy.ts';
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
-import { pause } from '../player/transport.ts';
 import { recordMainReceiveProgress } from './preload-watchdog.ts';
 import { captureGuestFilePause, restoreGuestFilePause } from '../player/guest-file-pause.ts';
 
@@ -86,19 +85,6 @@ let rejectedMainSessionId = 0;
 let _filePrepareGeneration = 0;
 let lastTransferProgressSessionId = 0;
 let lastTransferProgressPercent = -1;
-
-/**
- * A page that was already open before this release can still send the retired
- * delayed-start hint. Do not reproduce that delay locally; only silence the
- * resident source until the old host eventually sends its authoritative PLAY.
- * Unknown FILE_PREPARE fields are intentionally accepted for rolling updates.
- */
-function holdResidentForRetiredDelayedStart(data: Record<string, unknown>): void {
-  const delayHint = data.autoPlayDelayMs;
-  if (typeof delayHint === 'number' && Number.isSafeInteger(delayHint) && delayHint > 0) {
-    pause(0, { holdVisualizer: false, showToast: false });
-  }
-}
 
 function resetDecodeFailureCountForNewOccurrence(queueItemId: QueueItemId): void {
   if (getState('player.decodeFailureQueueItemId') !== queueItemId) {
@@ -769,7 +755,6 @@ function retainLoadedSameFileForPrepare(data: Record<string, unknown>): boolean 
   showLoader(false);
   // FILE_PREPARE establishes transport ownership only. PLAY is the sole
   // authority that may start or restart the resident buffer.
-  holdResidentForRetiredDelayedStart(data);
   return true;
 }
 
@@ -1078,7 +1063,6 @@ export async function handleFilePrepare(
       name: data.name as string,
     });
     showLoader(false);
-    holdResidentForRetiredDelayedStart(data);
     return;
   }
 

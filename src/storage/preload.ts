@@ -13,7 +13,6 @@ import { batchSetState, getState, setState } from '../core/state.ts';
 import {
   MSG,
   CHUNK_SIZE,
-  MAX_EARLY_PRELOAD_CHUNKS,
   DELAY,
   TRANSFER_STATE,
   PLAYBACK_STATE,
@@ -119,15 +118,11 @@ function showPreloadProgress(pct: number, awaited: boolean): void {
 }
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
-// sessionId → Map(chunkIndex → Uint8Array)
+// sessionId → Map(chunkIndex → Uint8Array), only for an admitted session.
 const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
-/** Queue identity bound to each buffered transfer session, including early chunks. */
-const preloadQueueItemBySid = new Map<number, string>();
 let latestPreloadSessionId = 0;
 let lastPreloadUiSessionId = 0;
 let lastPreloadUiPercent = -1;
-const MAX_EARLY_PRELOAD_SESSIONS = 4;
-const MAX_EARLY_PRELOAD_BYTES = 4 * 1024 * 1024;
 let _activePlayPreloadedQueueItemId: string | undefined;
 let _preloadScope: SessionScope | null = null;
 /** Per-transfer unicast preload abort controls (key: owning scope).
@@ -722,7 +717,6 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
   for (const sid of preloadReorderBuffer.keys()) {
     if (sid !== keepSessionId) {
       preloadReorderBuffer.delete(sid);
-      preloadQueueItemBySid.delete(sid);
     }
   }
   // Clean up finalized/skipped session entries (immutable update)
@@ -748,8 +742,6 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
     for (const sid of toRemove) {
       updated.delete(sid);
       preloadReorderBuffer.delete(sid);
-      preloadQueueItemBySid.delete(sid);
-      preloadQueueItemBySid.delete(sid);
       clearManagedTimer(`preload-admission-watchdog-${sid}`);
       postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId: sid });
     }
@@ -767,8 +759,6 @@ function abandonStalledPreloadSession(sessionId: number, reason: string): void {
   updated.set(sessionId, { ...session, skipped: true });
   setState('preload.sessionState', updated);
   preloadReorderBuffer.delete(sessionId);
-  preloadQueueItemBySid.delete(sessionId);
-  clearManagedTimer(`preload-drain-${sessionId}`);
   clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
   postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
 }
@@ -865,11 +855,9 @@ export function resetPreloadReceiveAuthority(): void {
     ...getState('preload.sessionState').keys(),
   ]);
   for (const sessionId of sessionIds) {
-    clearManagedTimer(`preload-drain-${sessionId}`);
     clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
   }
   preloadReorderBuffer.clear();
-  preloadQueueItemBySid.clear();
 
   cancelInFlightBackgroundTransfer();
   _preloadScope?.dispose();
@@ -1851,11 +1839,6 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     }
   }
   recordGuestFileDelivery(incomingQueueItemId, sid, 'direct-local');
-  const earlyQueueItemId = preloadQueueItemBySid.get(sid);
-  if (earlyQueueItemId && earlyQueueItemId !== incomingQueueItemId) {
-    preloadReorderBuffer.delete(sid);
-  }
-  preloadQueueItemBySid.set(sid, incomingQueueItemId);
 
   clearManagedTimer('prepareWatchdog');
 
@@ -1882,12 +1865,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
       finalized: false,
     });
     setState('preload.sessionState', skipSessionState);
-    try {
-      preloadReorderBuffer.delete(sid);
-      preloadQueueItemBySid.delete(sid);
-    } catch (e) {
-      log.debug('[Preload] reorder buffer cleanup:', e);
-    }
+    preloadReorderBuffer.delete(sid);
     return;
   }
 
@@ -1991,20 +1969,6 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     sessionId: validateSessionId(sid),
     size: CHUNK_SIZE,
   });
-
-  // Drain chunks that arrived before PRELOAD_START after the start state has
-  // been published for this event turn.
-  setManagedTimer(
-    'preload-drain-' + sid,
-    () => {
-      try {
-        drainPreloadReorderBuffer(sid);
-      } catch (e) {
-        log.debug('[Preload] drain reorder buffer:', e);
-      }
-    },
-    0,
-  );
 
   armPreloadAdmissionWatchdog(sid, PRELOAD_RECEIVE_DEADLINE_MS.admission, () =>
     abandonStalledPreloadSession(sid, 'admission watchdog'),
@@ -2141,91 +2105,33 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
   // got superseded by a track advance) to finish naturally and be promoted
   // to the current track without forcing a 0% recovery restart.
 
-  const sessionState = getState('preload.sessionState');
-  const session = sessionState.get(sid);
-  if (session && session.queueItemId !== queueItemId) return;
-  const bufferedQueueItemId = preloadQueueItemBySid.get(sid);
-  if (bufferedQueueItemId && bufferedQueueItemId !== queueItemId) return;
-  preloadQueueItemBySid.set(sid, queueItemId);
+  // Only an admitted session takes bytes. PRELOAD_START travels on the
+  // ordered bulk lane ahead of its chunks (8.11.23, #410), so a chunk without
+  // its session belongs to an ignored or skipped START, to an evicted
+  // session, or to an older host whose control-lane START it overtook.
+  const session = getState('preload.sessionState').get(sid);
+  if (!session || session.queueItemId !== queueItemId) return;
 
   // If session state is marked skipped/finalized, ignore
-  if (session?.skipped || session?.finalized) return;
+  if (session.skipped || session.finalized) return;
 
   // Overlapping bootstrap/broadcast lanes may repeat an already-stored
   // prefix. It cannot advance the drain pointer and must not accumulate a
   // second encoded copy in the reorder buffer until transfer completion.
-  if (session && (data.chunkIndex as number) < session.nextExpectedChunk) return;
+  if ((data.chunkIndex as number) < session.nextExpectedChunk) return;
 
   // Bounds check: drop chunks beyond the advertised total.
-  if (session && session.total > 0 && (data.chunkIndex as number) >= session.total) {
+  if (session.total > 0 && (data.chunkIndex as number) >= session.total) {
     log.warn(`[Preload] Out-of-bounds chunk index ${data.chunkIndex} (total: ${session.total})`);
     return;
   }
 
   // Buffer the chunk in the reorder map
-  if (!preloadReorderBuffer.has(sid)) {
-    if (!session) {
-      const earlySessionIds = [...preloadReorderBuffer.keys()].filter(
-        (bufferSid) => !sessionState.has(bufferSid),
-      );
-      if (earlySessionIds.length >= MAX_EARLY_PRELOAD_SESSIONS) {
-        const evictedSid = earlySessionIds[0]!;
-        preloadReorderBuffer.delete(evictedSid);
-        preloadQueueItemBySid.delete(evictedSid);
-        log.warn(`[Preload] Early buffer evicted stale session ${evictedSid}`);
-      }
-    }
-    preloadReorderBuffer.set(sid, new Map());
-  }
+  if (!preloadReorderBuffer.has(sid)) preloadReorderBuffer.set(sid, new Map());
   const sessionBuffer = preloadReorderBuffer.get(sid)!;
 
   // Clone data before storing to avoid detached ArrayBuffer issues
   sessionBuffer.set(data.chunkIndex as number, new Uint8Array(data.chunk as Uint8Array));
-
-  // If PRELOAD_START hasn't been processed yet (unordered delivery),
-  // keep buffering until sessionState exists so we have a reliable filename/total.
-  if (!session) {
-    const earlyFootprint = (): { chunks: number; bytes: number } => {
-      let chunks = 0;
-      let bytes = 0;
-      for (const [bufferSid, buffer] of preloadReorderBuffer) {
-        if (sessionState.has(bufferSid)) continue;
-        chunks += buffer.size;
-        for (const chunk of buffer.values()) bytes += chunk.byteLength;
-      }
-      return { chunks, bytes };
-    };
-    if (sessionBuffer.size > MAX_EARLY_PRELOAD_CHUNKS) {
-      // Drop highest-index chunk — the drain loop starts from chunk 0, so
-      // evicting low indices (especially 0) permanently stalls the drain.
-      const highestKey = Math.max(...sessionBuffer.keys());
-      sessionBuffer.delete(highestKey);
-      log.warn(`[Preload] Early chunk buffer overflow (SID: ${sid}). Dropped chunk ${highestKey}.`);
-    }
-    let footprint = earlyFootprint();
-    while (
-      footprint.chunks > MAX_EARLY_PRELOAD_CHUNKS ||
-      footprint.bytes > MAX_EARLY_PRELOAD_BYTES
-    ) {
-      const oldestStaleSid = [...preloadReorderBuffer.keys()].find(
-        (bufferSid) => bufferSid !== sid && !sessionState.has(bufferSid),
-      );
-      if (oldestStaleSid !== undefined) {
-        preloadReorderBuffer.delete(oldestStaleSid);
-        preloadQueueItemBySid.delete(oldestStaleSid);
-        footprint = earlyFootprint();
-        continue;
-      }
-      // Preserve low indexes so START can still drain a contiguous prefix.
-      const highestKey = sessionBuffer.size > 0 ? Math.max(...sessionBuffer.keys()) : -1;
-      if (highestKey < 0) break;
-      sessionBuffer.delete(highestKey);
-      footprint = earlyFootprint();
-      log.warn(`[Preload] Global early-buffer cap dropped SID ${sid} chunk ${highestKey}`);
-    }
-    if (sessionBuffer.size === 0) preloadReorderBuffer.delete(sid);
-    return;
-  }
 
   // Drain the reorder buffer sequentially
   drainPreloadReorderBuffer(sid);
@@ -2325,7 +2231,6 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   // Drop any reorder buffer entries for this sid — they would otherwise
   // wait forever for chunks that aren't coming. Idempotent.
   preloadReorderBuffer.delete(sid);
-  preloadQueueItemBySid.delete(sid);
 
   if (!session || session.finalized || session.skipped) {
     log.debug(

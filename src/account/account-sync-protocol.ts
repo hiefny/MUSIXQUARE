@@ -13,6 +13,11 @@
  *   accountClient }`, where accountAuth is 'success', 'cancelled' or 'error'
  *   and accountClient names the tab that opened the login.
  *
+ * Every sender has included the id since 8.3.30 (5981d1c9), so a message
+ * without a valid one is not a pulse (old-version removal train, survey
+ * OV-B08). A tab still on an older build wakes the others only through their
+ * focus, visibility and online triggers.
+ *
  * Tabs opened before a deploy keep their old code on the same channel and key,
  * so these literals and field names are frozen. The OAuth completion page
  * (browser/classic-runtime/account-complete.ts) and the events page
@@ -33,13 +38,13 @@ export type AccountAuthOutcome = 'success' | 'cancelled' | 'error';
 
 /**
  * A pulse as the app reads it (C8-I4: the one parser for every transport).
- * A field a receiver cannot rely on is null, so one result serves both uses:
- * the session reconciles any pulse, by its id when it has one, and the account
- * UI acts only on a completion result that has all three fields.
+ * An optional field a receiver cannot rely on is null, so one result serves
+ * both uses: the session reconciles every pulse by its id, and the account UI
+ * acts only on a completion result that also has an outcome and a client.
  */
 export interface AccountPulse {
   /** The nonce shared by one change's copies on every transport. */
-  readonly id: string | null;
+  readonly id: string;
   /** The completion page's outcome; null on a mutation pulse or an unknown value. */
   readonly auth: AccountAuthOutcome | null;
   /** The tab that opened the login. */
@@ -58,7 +63,7 @@ function parseAccountAuthOutcome(value: unknown): AccountAuthOutcome | null {
   return value === 'success' || value === 'cancelled' || value === 'error' ? value : null;
 }
 
-/** Read a BroadcastChannel or window message; null when it is not a pulse at all. */
+/** Read a BroadcastChannel or window message; null when it is not a pulse with an id. */
 export function parseAccountPulse(value: unknown): AccountPulse | null {
   if (!value || typeof value !== 'object') return null;
   const message = value as {
@@ -67,9 +72,9 @@ export function parseAccountPulse(value: unknown): AccountPulse | null {
     id?: unknown;
     accountClient?: unknown;
   };
-  if (message.type !== 'refresh') return null;
+  if (message.type !== 'refresh' || !isAccountPulseToken(message.id)) return null;
   return {
-    id: isAccountPulseToken(message.id) ? message.id : null,
+    id: message.id,
     auth: parseAccountAuthOutcome(message.accountAuth),
     accountClient: isAccountPulseToken(message.accountClient) ? message.accountClient : null,
   };
@@ -77,9 +82,8 @@ export function parseAccountPulse(value: unknown): AccountPulse | null {
 
 /**
  * Read the new value of a storage event for ACCOUNT_SYNC_STORAGE_KEY. Null
- * when the key was removed or the value is not pulse JSON, including the
- * opaque token older clients stored; the session still refreshes on those as
- * an unidentified pulse, and they never carry a login result.
+ * when the key was removed or the value is not pulse JSON with an id,
+ * including the opaque token tabs before 8.3.30 stored.
  */
 export function parseAccountPulseStorageValue(newValue: string | null): AccountPulse | null {
   if (!newValue) return null;

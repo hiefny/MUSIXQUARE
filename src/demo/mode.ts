@@ -140,7 +140,7 @@ type DemoPlaybackIntent = Readonly<{
   room: DemoRoomIdentity;
 }> &
   (
-    | Readonly<{ kind: 'play'; hostPlayAt: number; hostStartAt?: number; receivedAt: number }>
+    | Readonly<{ kind: 'play'; hostStartAt: number; receivedAt: number }>
     | Readonly<{ kind: 'pause' }>
   );
 
@@ -1326,7 +1326,7 @@ function applyPendingDemoPlayback(): void {
     const projected = projectDemoPlay(
       intent,
       now,
-      intent.hostPlayAt > 0 && isClockCalibrated() ? getHostNow() : null,
+      isClockCalibrated() ? getHostNow() : null,
       buffer.duration,
     );
     const isCurrent = () =>
@@ -1846,8 +1846,8 @@ function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnect
     room: captureDemoRoomIdentity(),
     index,
     time: Math.max(0, Number(data.time) || 0),
-    hostPlayAt: Number(data.hostPlayAt) || 0,
-    ...(typeof data.hostStartAt === 'number' ? { hostStartAt: data.hostStartAt } : {}),
+    // The validator requires a finite positive hostStartAt; hostPlayAt is ignored.
+    hostStartAt: Number(data.hostStartAt),
     receivedAt: Date.now(),
   };
 

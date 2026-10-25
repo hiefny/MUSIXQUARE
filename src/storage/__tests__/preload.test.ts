@@ -413,7 +413,7 @@ describe('initial preload state', () => {
 });
 
 describe('preload MIME preservation', () => {
-  it('preserves PRELOAD_START MIME when metadata arrives after an early chunk', async () => {
+  it('opens the preload storage slot with the PRELOAD_START MIME', async () => {
     vi.useFakeTimers();
     initPreload();
     const hostConn = { open: true, peer: 'host-mime', send: vi.fn() } as unknown as DataConnection;
@@ -422,16 +422,6 @@ describe('preload MIME preservation', () => {
     setState('network.sessionCode', '123456');
     setState('playlist.items', [makeFileTrack('concert.flac', Q0)]);
 
-    await handleData(
-      {
-        type: MSG.PRELOAD_CHUNK,
-        sessionId: 30,
-        queueItemId: Q0,
-        chunkIndex: 0,
-        chunk: new Uint8Array([1, 2, 3]),
-      },
-      hostConn,
-    );
     await handleData(
       {
         type: MSG.PRELOAD_START,
@@ -573,8 +563,8 @@ describe('preload MIME preservation', () => {
   });
 });
 
-describe('pre-admission preload buffer bounds', () => {
-  it('clears high-water marks and early chunks on a direct room-code switch', async () => {
+describe('preload receive buffer bounds', () => {
+  it('clears high-water marks and reordered chunks on a direct room-code switch', async () => {
     initPreload();
     const hostConn = {
       open: true,
@@ -588,15 +578,32 @@ describe('pre-admission preload buffer bounds', () => {
 
     await handleData(
       {
+        type: MSG.PRELOAD_START,
+        sessionId: 50,
+        queueItemId: Q0,
+        name: 'room-b.mp3',
+        mime: 'audio/mpeg',
+        total: 2,
+        size: CHUNK_SIZE + 1,
+      },
+      hostConn,
+    );
+    // Chunk 1 ahead of chunk 0 waits in the admitted session's reorder buffer.
+    await handleData(
+      {
         type: MSG.PRELOAD_CHUNK,
         sessionId: 50,
         queueItemId: Q0,
-        chunkIndex: 0,
+        chunkIndex: 1,
         chunk: new Uint8Array([1]),
       },
       hostConn,
     );
-    expect(getPreloadMemoryStats().reorderChunks).toBe(1);
+    expect(getPreloadMemoryStats()).toMatchObject({
+      reorderSessions: 1,
+      reorderChunks: 1,
+      latestSessionId: 50,
+    });
     setState('preload.isPreloading', true);
     setState('preload.nextQueueItemId', Q0);
 
@@ -629,6 +636,10 @@ describe('pre-admission preload buffer bounds', () => {
         queueItemId: Q0,
       }),
     );
+
+    setState('network.sessionCode', '');
+    const { resetStoredFileAdmissionsForTests } = await import('../storage.ts');
+    resetStoredFileAdmissionsForTests();
   });
 
   // Survey OV-B04: since 8.11.23 (#410) PRELOAD_START travels on the ordered

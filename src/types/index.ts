@@ -393,9 +393,10 @@ export interface ProtocolMap {
   'demo-play': {
     index: number;
     time: number;
-    hostPlayAt: number;
     /** Host-clock instant at which `time` becomes the shared demo position. */
-    hostStartAt?: number;
+    hostStartAt: number;
+    /** hostStartAt plus 350 ms, sent for guests up to 9.0.11 and ignored on receipt. */
+    hostPlayAt?: number;
   };
   'request-demo-enter': NoPayload;
   'request-demo-exit': NoPayload;
@@ -419,7 +420,6 @@ export interface ProtocolMap {
     time: number;
     queueItemId: QueueItemId;
     name?: string | null;
-    hostPlayAt?: number;
     /** Host-clock instant at which this local-file position becomes audible. */
     hostStartAt?: number;
   };

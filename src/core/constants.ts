@@ -48,7 +48,7 @@ export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
 
 // ─── File Transfer ─────────────────────────────────────────────────
 export const CHUNK_SIZE = 64 * 1024; // 64 KiB per chunk
-/** Bounded preload bytes that may overtake START on the independent bulk lane. */
+/** Inbound burst for host preload chunks of a session this guest has not admitted. */
 export const MAX_EARLY_PRELOAD_CHUNKS = 64;
 
 /**

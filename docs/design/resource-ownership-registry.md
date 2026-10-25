@@ -491,10 +491,13 @@ RO-49 accepted-exception
   aliases it), the 2 s `HOST_TIMELINE_TRUST_WINDOW_MS` (the file check is two-sided, the demo
   projection bounds only deadlines ahead) and the guests' 250 ms post-start sync ping
   `GUEST_START_SYNC_PING_DELAY_MS` (timers `playback-preload-host-sync`,
-  `playback-finalize-host-sync`, `demo-play-host-sync`), all since Phase 4 4A (C3-I1). The legacy
-  wire leads (200 ms `LEGACY_FILE_SCHEDULE_AHEAD_MS` for PLAY, 350 ms
-  `DEMO_PLAY_SCHEDULE_AHEAD_MS` for DEMO_PLAY) differ on purpose for older receivers and stay
-  separate.
+  `playback-finalize-host-sync`, `demo-play-host-sync`), all since Phase 4 4A (C3-I1). The
+  old-version removal train dropped the 200 ms PLAY wire lead `LEGACY_FILE_SCHEDULE_AHEAD_MS`
+  (survey OV-B01): PLAY carries only `hostStartAt`, and a guest starts a PLAY without it at
+  receipt. DEMO_PLAY still carries `hostPlayAt`, the start plus the separate 350 ms
+  `DEMO_PLAY_SCHEDULE_AHEAD_MS`, because demo guests up to 9.0.11 require it; guests now require
+  `hostStartAt`, ignore `hostPlayAt` and gate the host timeline on clock calibration alone
+  (OV-B02 stage 1). Hosts stop sending it only after a client floor (OV-F05).
 - **Anchor tests:**
   - Supersession: `src/demo/__tests__/mode.test.ts` "does not restore stale media over a local file
     load started during exit".
@@ -1987,7 +1990,9 @@ RO-49 accepted-exception
   in `browser/classic-runtime/account-complete.ts` and the third receiver in
   `browser/classic-runtime/events/event.ts`, which reads its campaign session once per pulse copy
   (no nonce dedupe; a known gap the tests pin). A shared promise per login nonce and a generation
-  fence make the reads converge.
+  fence make the reads converge. Every pulse has carried an id since 8.3.30, so since the
+  old-version removal train (survey OV-B08) all three receivers ignore a message without an id of
+  8 to 160 characters, including the opaque token and the key removal of older tabs.
 - **Target single owner:** reached in Phase 2: `src/account/session.ts` is the single pulse
   receiver (C8-I10) with the wire-contract module `src/account/account-sync-protocol.ts` (C8-I1)
   pinned against the classic runtimes by a contract test.
@@ -1999,7 +2004,8 @@ RO-49 accepted-exception
   (`ACCOUNT_SYNC_CHANNEL`, `ACCOUNT_SYNC_STORAGE_KEY`, the 8 to 160 character pulse token bounds and
   the mutation pulse) for the app (Phase 2, C8-I1). The completion page and the events page cannot
   import it and keep their own literals (owner decision O6, 2026-10-23), pinned by
-  `src/account/__tests__/account-pulse-contract.test.ts`. `ACCOUNT_LOGIN_POPUP_POLL_MS`
+  `src/account/__tests__/account-pulse-contract.test.ts` (the events page's copy of the id bounds
+  by its BroadcastChannel acceptance rows, since OV-B08). `ACCOUNT_LOGIN_POPUP_POLL_MS`
   (`account.ts`) and a 250 ms copy in `event.ts` are separate popup monitors in separate documents.
 - **Anchor tests:**
   - Supersession: `src/account/__tests__/session.test.ts` "reconciles the exact popup session and

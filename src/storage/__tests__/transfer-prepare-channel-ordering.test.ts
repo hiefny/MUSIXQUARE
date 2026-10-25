@@ -157,8 +157,23 @@ function weaves(control: number, bulk: number, prefix = ''): string[] {
     ...(bulk ? weaves(control, bulk - 1, prefix + 'B') : []),
   ];
 }
+// Survey OV-B04: a guest drops preload chunks that overtake their START, so a
+// legacy weave stays in the matrix only while PRELOAD_START (the third legacy
+// control frame) arrives before the first preload chunk (the fourth legacy
+// bulk frame). The main lane keeps every legacy weave.
+function preloadStartLeads(order: string): boolean {
+  let control = 0;
+  let bulk = 0;
+  for (const lane of order) {
+    if (lane === 'C' && ++control === 3) return true;
+    if (lane === 'B' && ++bulk === 4) return false;
+  }
+  return false;
+}
 const orders = [
-  ...weaves(3, 6).map((order) => ({ layout: 'legacy', order })),
+  ...weaves(3, 6)
+    .filter(preloadStartLeads)
+    .map((order) => ({ layout: 'legacy', order })),
   ...weaves(1, 8).map((order) => ({ layout: 'current', order })),
 ];
 it.each(orders)(

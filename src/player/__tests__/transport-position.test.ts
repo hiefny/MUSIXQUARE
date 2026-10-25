@@ -8,6 +8,7 @@ import { IS_WINDOWS } from '../../core/platform.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
+import { processSyncPong, registerPing, resetClockState } from '../../network/shared-clock.ts';
 import { initPlayback } from '../playback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
@@ -164,8 +165,14 @@ describe('transport position', () => {
     setState('sync.localOffset', IS_WINDOWS ? -0.02 : 0);
     vi.spyOn(Date, 'now').mockReturnValue(1_000);
     vi.spyOn(performance, 'now').mockReturnValue(100);
+    // A calibrated guest whose shared demo start is now starts without a lead.
+    registerPing(1);
+    processSyncPong(1, 1_000);
     try {
-      await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 100, hostPlayAt: 0 }, host);
+      await handleData(
+        { type: MSG.DEMO_PLAY, index: 0, time: 100, hostStartAt: 1_000, hostPlayAt: 1_350 },
+        host,
+      );
       await vi.waitFor(() => expect(mocks.start).toHaveBeenCalledExactlyOnceWith(0, 100));
       expect(getState('files.current')).toBeNull();
       expect(getState('player.startedAt')).toBe(0);
@@ -179,6 +186,7 @@ describe('transport position', () => {
       stopAllMedia({ cancelInFlight: true, clearBuffer: true });
       expect(getTrackPosition()).toBe(0);
     } finally {
+      resetClockState();
       vi.restoreAllMocks();
     }
   });

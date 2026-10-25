@@ -484,6 +484,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.time) &&
     (d.name === undefined || d.name === null || typeof d.name === 'string') &&
+    // Ignored on receipt. 9.0.10 and 9.0.11 hosts still add it.
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)) &&
     (d.hostStartAt === undefined || (isFiniteNumber(d.hostStartAt) && d.hostStartAt > 0)),
   [MSG.PAUSE]: (d) =>
@@ -1052,8 +1053,10 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.DEMO_PLAY]: (d) =>
     isNonNegInt(d.index) &&
     isFiniteNumber(d.time) &&
-    isFiniteNumber(d.hostPlayAt) &&
-    (d.hostStartAt === undefined || (isFiniteNumber(d.hostStartAt) && d.hostStartAt > 0)),
+    isFiniteNumber(d.hostStartAt) &&
+    d.hostStartAt > 0 &&
+    // Ignored on receipt. Hosts still send it for guests up to 9.0.11.
+    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
   [MSG.DEMO_PAUSE]: (d) => isFiniteNumber(d.time),
   [MSG.DEMO_EXIT]: () => true,
   [MSG.REQUEST_DEMO_ENTER]: () => true,
@@ -1102,10 +1105,11 @@ if (UNCLASSIFIED_PROTOCOL_TYPES.length > 0) {
 const INBOUND_BURST = 60;
 const INBOUND_REFILL_MS = 50;
 const _inboundBuckets = new Map<string, { tokens: number; lastRefill: number }>();
-// Valid host preload bytes can overtake START on a different ordered lane.
-// Keep their bounded pre-admission budget separate so they cannot consume the
-// control token needed to admit (or recover) the transfer. They remain limited;
-// only an exact active transfer qualifies for the exemption below.
+// Host preload chunks without an admitted session (an ignored or skipped
+// START, or an older host's chunks that overtook its control-lane START) keep
+// a bounded budget of their own so they cannot consume the control token
+// needed to admit (or recover) a transfer; preload.ts then drops them. Only an
+// exact active transfer qualifies for the exemption below.
 const _earlyPreloadBuckets = new Map<string, { tokens: number; lastRefill: number }>();
 
 type InboundRateLimitExemptionGuard = (

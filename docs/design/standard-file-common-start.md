@@ -86,26 +86,31 @@ Manual synchronization values persist across demo entry, track changes and exit.
 
 ## Compatibility and verification
 
-Both command families preserve their historical legacy timestamp meaning:
+Since the old-version removal train (survey OV-B01 and OV-B02 stage 1), only
+the common start carries timing. `hostStartAt` must be positive and finite:
 
-| Command     | Common start  | Legacy timestamp                    |
-| ----------- | ------------- | ----------------------------------- |
-| `PLAY`      | `hostStartAt` | `hostPlayAt = hostStartAt + 200 ms` |
-| `DEMO_PLAY` | `hostStartAt` | `hostPlayAt = hostStartAt + 350 ms` |
+| Command     | Common start           | Legacy timestamp                                              |
+| ----------- | ---------------------- | ------------------------------------------------------------- |
+| `PLAY`      | `hostStartAt`          | not sent; a received `hostPlayAt` is ignored                  |
+| `DEMO_PLAY` | `hostStartAt` required | `hostPlayAt = hostStartAt + 350 ms`, still sent, then ignored |
 
-Older ready-buffer guests therefore join 200 ms or 350 ms after the respective
-common start at the correct elapsed position. Updated guests still understand
-an older host's `hostPlayAt`-only message. The new `hostStartAt` field is optional
-and must be positive and finite; DEMO_PLAY retains its existing required
-`hostPlayAt` field. YouTube messages are unchanged. Older guests do not understand
-the pending-start PONG extension and retain their former bootstrap behavior.
+A PLAY without `hostStartAt` (a running late join, or a host before 8.6.53)
+starts at receipt, and guests before 8.6.53 start the current host's PLAY at
+receipt, about 200 ms early, until drift correction aligns them. DEMO_PLAY still
+carries `hostPlayAt` because demo guests up to 9.0.11 require it and use it to
+gate their host clock; hosts can stop sending it once a client floor is in place
+(survey OV-F05). A guest drops a DEMO_PLAY without `hostStartAt` from a demo
+host before 8.6.54. YouTube messages are unchanged. Older guests do not
+understand the pending-start PONG extension and retain their former bootstrap
+behavior.
 
-Deterministic regressions cover early/late decode, route waits, cold clocks,
-legacy messages, slow engine preparation, pause cancellation, canonical end
-timing, nonzero seek positions, and PONGs received during setup/start. Demo
-regressions additionally cover a faster guest waiting through host download,
-legacy 350 ms commands, expired commands, previous/next authority and persistent
-manual offsets. Browser tests exercise real host/guest transport and Web Audio
+Deterministic regressions cover early/late decode, route waits, cold clocks, a
+PLAY without a common start, slow engine preparation, pause cancellation,
+canonical end timing, nonzero seek positions, and PONGs received during
+setup/start. Demo regressions additionally cover a faster guest waiting through
+host download, a DEMO_PLAY without a common start, expired commands,
+previous/next authority and persistent manual offsets. Browser tests exercise
+real host/guest transport and Web Audio
 source scheduling, including entry from a playing file while the host's demo
 download is held and the guest receives a real PONG. These checks establish
 application timing and cancellation, not identical speaker or

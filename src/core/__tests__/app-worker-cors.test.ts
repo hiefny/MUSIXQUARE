@@ -2734,6 +2734,11 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     const control = createAtomicRateControlBinding();
     const openedFromIp = '203.0.113.210';
     const resumedFromIp = '203.0.113.211';
+    const bridgedAuthFrame = JSON.stringify({
+      type: 'guest-auth',
+      reconnectSecret: 'ram-only',
+      appBuild: 785,
+    });
     const internalRequests: Array<{ objectName: string; request: Request; body: unknown }> = [];
     const signalingRooms = {
       idFromName: vi.fn((name: string) => name),
@@ -2801,11 +2806,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
           'CF-Connecting-IP': resumedFromIp,
           Authorization: `Bearer ${openPayload.sessionToken}`,
         },
-        body: JSON.stringify({
-          v: 1,
-          cseq: 1,
-          frame: JSON.stringify({ type: 'guest-auth', reconnectSecret: 'ram-only' }),
-        }),
+        body: JSON.stringify({ v: 1, cseq: 1, frame: bridgedAuthFrame }),
       }),
       env,
     );
@@ -2822,6 +2823,8 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       request: {
         v: 1,
         cseq: 1,
+        // The frame (with the client's build) reaches the bridge byte-identical.
+        frame: bridgedAuthFrame,
       },
     });
 

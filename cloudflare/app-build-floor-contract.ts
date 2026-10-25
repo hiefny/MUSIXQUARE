@@ -14,8 +14,14 @@
 /** Request header that carries the client's build on PRO API requests. */
 export const APP_BUILD_HEADER = 'X-MXQR-App-Build';
 
-/** Error code of a refusal below the floor (the PRO JSON `error`). */
+/**
+ * Error code of a refusal below the floor: the PRO JSON `error`, and the
+ * Signaling error frame's `message` and close reason.
+ */
 export const APP_UPDATE_REQUIRED_CODE = 'APP_UPDATE_REQUIRED';
+
+/** `errorType` of the Signaling error frame sent only to a refused socket. */
+export const APP_UPDATE_REQUIRED_ERROR_TYPE = 'app-update-required';
 
 /** Largest build any client, setter or live report may carry. */
 export const APP_BUILD_MAX = 2_147_483_647;
@@ -46,6 +52,15 @@ export function parseAppBuild(value: unknown): number | null {
     return null;
   }
   return candidate + 0;
+}
+
+/**
+ * The `appBuild` key of a Signaling `host-auth` or `guest-auth` frame: absent
+ * (an older client, counted as build 0) or a JSON number build. Header text is
+ * the PRO form only, so a string here is malformed like any other bad field.
+ */
+export function isOptionalAppBuild(value: unknown): boolean {
+  return value === undefined || (typeof value === 'number' && parseAppBuild(value) !== null);
 }
 
 export interface AppBuildFloorInputs {

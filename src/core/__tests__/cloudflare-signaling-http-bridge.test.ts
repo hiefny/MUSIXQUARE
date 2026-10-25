@@ -343,6 +343,35 @@ describe('Cloudflare Standard HTTP signaling bridge', () => {
     );
   });
 
+  it('passes an appBuild auth frame and the floor refusal through unchanged', async () => {
+    const { state, namespace, room } = createBridge();
+    await openBridge(room);
+    const socket = namespace.sockets[0];
+    const authFrame =
+      '{"type":"host-auth","secret":"bridge-floor-secret","desiredRoomPassword":"","pinMutationId":"bridge-floor-mutation-0000000001","appBuild":784}';
+    const sent = await room.fetch(
+      bridgeRequest('send', envelope({ v: 1, cseq: 1, frame: authFrame })),
+    );
+    expect(sent.status).toBe(200);
+    expect(socket?.sent).toEqual([authFrame]);
+
+    // The room socket refuses the build: one error frame, then close 1008.
+    const refusal =
+      '{"type":"error","errorType":"app-update-required","message":"APP_UPDATE_REQUIRED","minAppBuild":785}';
+    socket?.emitMessage(refusal);
+    socket?.emitClose(1008, 'APP_UPDATE_REQUIRED');
+    await state.flushWaitUntil();
+
+    const poll = await room.fetch(
+      bridgeRequest('poll', envelope({ v: 1, requestEpoch: 1, ack: 0, waitMs: 0 })),
+    );
+    expect(responseJson(poll)).toEqual({
+      v: 1,
+      events: [{ sseq: 1, data: refusal }],
+      terminal: { code: 1008, reason: 'APP_UPDATE_REQUIRED' },
+    });
+  });
+
   it('makes send sequence replay idempotent and rejects mismatch or gaps', async () => {
     const { namespace, room } = createBridge();
     await openBridge(room);

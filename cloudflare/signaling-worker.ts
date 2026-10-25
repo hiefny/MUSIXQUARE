@@ -20,8 +20,14 @@ import {
 import {
   consumeAbuseRateLimit,
   gateServiceMaintenance,
+  readAppBuildFloor,
   readServiceMaintenance,
 } from './service-maintenance.ts';
+import {
+  APP_UPDATE_REQUIRED_CODE,
+  APP_UPDATE_REQUIRED_ERROR_TYPE,
+  parseAppBuild,
+} from './app-build-floor-contract.ts';
 import {
   createRemoteShareUploadAssertion,
   parseRemoteShareUploadAssertionKeyring,
@@ -7262,6 +7268,7 @@ export class MusixquareRoom {
     if (attachment.role === 'host') {
       if (attachment.auth === 'pending') {
         if (!this.pendingHosts.has(ws)) return;
+        if (await this.refuseBelowAppBuildFloor(ws, message, this.pendingHosts)) return;
         await this.handleHostAuth(ws, message, attachment, ingress.preclaimedAuth);
         return;
       }
@@ -7282,6 +7289,7 @@ export class MusixquareRoom {
 
     if (attachment.auth === 'pending') {
       if (!this.pendingGuests.has(ws)) return;
+      if (await this.refuseBelowAppBuildFloor(ws, message, this.pendingGuests)) return;
       await this.handleGuestAuth(ws, message, attachment, ingress.preclaimedAuth);
       return;
     }
@@ -7683,6 +7691,32 @@ export class MusixquareRoom {
       if (!actor) return;
       this.broadcastProRealtimeRelay(ws, actor, normalized);
     }
+  }
+
+  /**
+   * Forced update: a valid first auth frame whose `appBuild` (absent = 0) is
+   * below the effective App build floor is refused before admission, so a
+   * below-floor guest of a PIN room never reaches the PIN check or a reconnect
+   * binding. Only this socket hears it: one error frame carrying the floor,
+   * then close 1008. Admitted sockets are never re-checked, so a floor change
+   * ends no established session. The floor read fails open (0) and is cached.
+   */
+  private async refuseBelowAppBuildFloor(
+    ws: SocketPort,
+    message: JsonRecord,
+    pending: Set<SocketPort>,
+  ): Promise<boolean> {
+    const floor = (await readAppBuildFloor(this.env)).effectiveMinAppBuild;
+    if (floor <= 0 || (parseAppBuild(message.appBuild) ?? 0) >= floor) return false;
+    // The read yielded: a socket the auth timeout already retired stays as it is.
+    if (!pending.has(ws)) return false;
+    pending.delete(ws);
+    closeWithError(ws, APP_UPDATE_REQUIRED_ERROR_TYPE, APP_UPDATE_REQUIRED_CODE, 1008, {
+      minAppBuild: floor,
+    });
+    await this.handleWebSocketClose(ws);
+    this.recordMetric('app_update_required');
+    return true;
   }
 
   private async handleHostAuth(

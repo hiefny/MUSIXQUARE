@@ -10,7 +10,16 @@ import {
   verifyRemoteShareUploadAssertion,
 } from '../../../../cloudflare/remote-share-upload-assertion.ts';
 import {
+  APP_BUILD_MAX,
+  APP_UPDATE_REQUIRED_CODE,
+  APP_UPDATE_REQUIRED_ERROR_TYPE,
+} from '../../../../cloudflare/app-build-floor-contract.ts';
+import {
   ABUSE_RATE_CONSUME_PATH,
+  APP_BUILD_FLOOR_STATUS_HEADERS,
+  APP_BUILD_FLOOR_STATUS_PATH,
+  clearServiceMaintenanceCacheForTests,
+  readAppBuildFloor,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
   SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_ENABLED_HEADER,
@@ -9130,6 +9139,23 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       return meta;
     };
 
+    // Release the cleanup only once the reconnect waits in the admission
+    // queue, so the host reclaims the room first however many reads the
+    // pending-auth path awaits before admission.
+    const admission = room as unknown as {
+      enqueueHostAdmission<T>(task: () => Promise<T>): Promise<T>;
+    };
+    const originalEnqueueHostAdmission = admission.enqueueHostAdmission.bind(room);
+    let markReconnectQueued!: () => void;
+    const reconnectQueued = new Promise<void>((resolve) => {
+      markReconnectQueued = resolve;
+    });
+    admission.enqueueHostAdmission = (task) => {
+      const queued = originalEnqueueHostAdmission(task);
+      markReconnectQueued();
+      return queued;
+    };
+
     guest.close();
     const cleanup = room.webSocketClose(guest);
     await cleanupEntered;
@@ -9146,6 +9172,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       }),
     );
 
+    await reconnectQueued;
     releaseCleanup();
     await Promise.all([cleanup, reconnect]);
 
@@ -12387,5 +12414,369 @@ describe('Standard-room PIN membership and wrong-PIN limit', () => {
       }),
     );
     expect(admitted(malformed)).toBe(true);
+  });
+});
+
+describe('Standard signaling App build floor (forced update)', () => {
+  // The exact bytes a refused socket hears before close 1008. Old clients
+  // read error frames field by field, and only the refused socket gets it.
+  const REFUSAL_FRAME =
+    '{"type":"error","errorType":"app-update-required","message":"APP_UPDATE_REQUIRED","minAppBuild":785}';
+  const ROOM_SECRET = 'floor-room-secret';
+  type Room = InstanceType<WorkerModule['MusixquareRoom']>;
+
+  /**
+   * A service-control object whose floor status (HEAD) carries a stored floor
+   * and a fresh live report at `effectiveMinAppBuild` (0 = never set), with
+   * maintenance off. Floor reads are counted, and can wait on `gate`.
+   */
+  function appBuildFloorBinding(
+    effectiveMinAppBuild: number,
+    gate?: { entered(): void; release: Promise<void> },
+  ): {
+    binding: Record<string, unknown>;
+    floorReads(): number;
+  } {
+    let floorReads = 0;
+    const changedAt = Date.now();
+    const on = effectiveMinAppBuild > 0;
+    const header = APP_BUILD_FLOOR_STATUS_HEADERS;
+    return {
+      binding: {
+        getByName: vi.fn(() => ({
+          fetch: vi.fn(async (request: Request) => {
+            if (new URL(request.url).pathname === APP_BUILD_FLOOR_STATUS_PATH) {
+              floorReads += 1;
+              if (gate) {
+                gate.entered();
+                await gate.release;
+              }
+              return new originalResponse(null, {
+                headers: {
+                  [header.version]: '1',
+                  [header.minAppBuild]: String(effectiveMinAppBuild),
+                  [header.effectiveMinAppBuild]: String(effectiveMinAppBuild),
+                  [header.revision]: on ? '1' : '0',
+                  [header.updatedAt]: on ? String(changedAt) : 'null',
+                  [header.liveAppBuild]: on ? String(effectiveMinAppBuild) : 'null',
+                  [header.liveReportedAt]: on ? String(changedAt) : 'null',
+                  [header.state]: 'valid',
+                },
+              });
+            }
+            if (request.method === 'HEAD') return new originalResponse(null, { status: 404 });
+            return originalResponse.json({
+              serviceStatus: { enabled: false, revision: 0, updatedAt: null, activatedAt: null },
+            });
+          }),
+        })),
+      },
+      floorReads: () => floorReads,
+    };
+  }
+
+  function floorRoom(binding: Record<string, unknown> | undefined) {
+    const state = new FakeDurableObjectState();
+    const metrics = createMetricsEnv();
+    const env: Record<string, unknown> = {
+      ...metrics.env,
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      ...(binding ? { MUSIXQUARE_SERVICE_CONTROL: binding } : {}),
+    };
+    const room = new workerModule.MusixquareRoom(state, env);
+    return { state, env, room, metrics };
+  }
+
+  async function openHost(
+    room: Room,
+    peerId: string,
+    appBuild?: unknown,
+    desiredRoomPassword = '',
+  ): Promise<FakeSocket> {
+    await room.fetch(wsRequest('123456', 'host', peerId));
+    const host = lastServer();
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: ROOM_SECRET,
+        desiredRoomPassword,
+        pinMutationId: TEST_PIN_MUTATION_ID,
+        ...(appBuild === undefined ? {} : { appBuild }),
+      }),
+    );
+    if (sent(host).some((message) => message.type === 'peer-open')) {
+      await room.webSocketMessage(
+        host,
+        JSON.stringify({
+          type: 'room-password-set',
+          password: desiredRoomPassword,
+          pinMutationId: TEST_PIN_MUTATION_ID,
+        }),
+      );
+    }
+    return host;
+  }
+
+  async function openGuest(
+    room: Room,
+    peerId: string,
+    options: { appBuild?: unknown; password?: string; reconnectSecret?: string } = {},
+  ): Promise<FakeSocket> {
+    await room.fetch(wsRequest('123456', 'guest', peerId));
+    const guest = lastServer();
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: options.password ?? '',
+        reconnectSecret: options.reconnectSecret ?? DEFAULT_RECONNECT_SECRET,
+        ...(options.appBuild === undefined ? {} : { appBuild: options.appBuild }),
+      }),
+    );
+    return guest;
+  }
+
+  const opened = (ws: FakeSocket) => sent(ws).some((message) => message.type === 'peer-open');
+  const pendingSockets = (room: Room) =>
+    room as unknown as { pendingHosts: Set<unknown>; pendingGuests: Set<unknown> };
+
+  afterEach(() => {
+    clearServiceMaintenanceCacheForTests();
+  });
+
+  it('accepts an optional JSON-number appBuild in both first auth frames', () => {
+    const hostAuth = {
+      type: 'host-auth',
+      secret: ROOM_SECRET,
+      desiredRoomPassword: '',
+      pinMutationId: TEST_PIN_MUTATION_ID,
+    };
+    const guestAuth = {
+      type: 'guest-auth',
+      password: '',
+      reconnectSecret: DEFAULT_RECONNECT_SECRET,
+    };
+    const validate = signalingProtocol.validateIncomingMessage;
+    expect(validate(hostAuth, 'host-pending')).toBe('valid');
+    expect(validate(guestAuth, 'pending')).toBe('valid');
+    for (const appBuild of [0, 1, 785, APP_BUILD_MAX]) {
+      expect(validate({ ...hostAuth, appBuild }, 'host-pending'), String(appBuild)).toBe('valid');
+      expect(validate({ ...guestAuth, appBuild }, 'pending'), String(appBuild)).toBe('valid');
+    }
+    for (const appBuild of ['785', null, -1, 785.5, APP_BUILD_MAX + 1, true, {}, [785]]) {
+      const label = JSON.stringify(appBuild);
+      expect(validate({ ...hostAuth, appBuild }, 'host-pending'), label).toBe('ignore');
+      expect(validate({ ...guestAuth, appBuild }, 'pending'), label).toBe('ignore');
+    }
+    // The host frame stays exact-key: only the one new optional key is added.
+    expect(validate({ ...hostAuth, appBuild: 785, build: 785 }, 'host-pending')).toBe('ignore');
+  });
+
+  it('keeps a malformed appBuild a first-frame failure at every floor', async () => {
+    const floor = appBuildFloorBinding(0);
+    const { room } = floorRoom(floor.binding);
+    const host = await openHost(room, 'malformed-build-host', '785');
+    expect(host.closeEvents).toEqual([{ code: 1008, reason: 'HOST_AUTH_FIRST_FRAME_INVALID' }]);
+
+    await openHost(room, 'floor-host', 785);
+    const guest = await openGuest(room, 'malformed-build-guest', { appBuild: 785.5 });
+    expect(guest.closeEvents).toEqual([{ code: 1008, reason: 'GUEST_AUTH_FIRST_FRAME_INVALID' }]);
+    expect(opened(guest)).toBe(false);
+  });
+
+  it('refuses a pending host below the effective floor with one frame and close 1008', async () => {
+    const floor = appBuildFloorBinding(785);
+    expect(
+      await readAppBuildFloor({ MUSIXQUARE_SERVICE_CONTROL: floor.binding } as never),
+    ).toMatchObject({ effectiveMinAppBuild: 785, source: 'live' });
+    clearServiceMaintenanceCacheForTests();
+
+    for (const appBuild of [undefined, 0, 784]) {
+      const label = String(appBuild);
+      const { state, room, metrics } = floorRoom(floor.binding);
+      const host = await openHost(room, 'old-host', appBuild);
+      await state.flushWaitUntil();
+
+      expect(host.sent, label).toEqual([REFUSAL_FRAME]);
+      expect(sent(host)[0], label).toMatchObject({
+        errorType: APP_UPDATE_REQUIRED_ERROR_TYPE,
+        message: APP_UPDATE_REQUIRED_CODE,
+      });
+      expect(host.closeEvents, label).toEqual([{ code: 1008, reason: 'APP_UPDATE_REQUIRED' }]);
+      expect(pendingSockets(room).pendingHosts.size, label).toBe(0);
+      expect(await state.storage.get('roomMeta'), label).toBeUndefined();
+      expect(
+        metrics.events.filter((entry) => entry.event === 'app_update_required'),
+        label,
+      ).toHaveLength(1);
+    }
+  });
+
+  it('admits a host at or above the floor, and every host while the floor is off', async () => {
+    const floor = appBuildFloorBinding(785);
+    for (const appBuild of [785, 786]) {
+      const { room } = floorRoom(floor.binding);
+      const host = await openHost(room, 'current-host', appBuild);
+      expect(opened(host), String(appBuild)).toBe(true);
+      expect(host.closed, String(appBuild)).toBe(false);
+    }
+    const off: Array<[string, Record<string, unknown> | undefined]> = [
+      ['never set', appBuildFloorBinding(0).binding],
+      ['object without the floor routes', maintenanceBinding(false)],
+      ['no binding', undefined],
+    ];
+    for (const [label, binding] of off) {
+      for (const appBuild of [undefined, 1]) {
+        const { room, metrics } = floorRoom(binding);
+        const host = await openHost(room, 'legacy-host', appBuild);
+        expect(opened(host), `${label} ${String(appBuild)}`).toBe(true);
+        expect(metrics.events.some((entry) => entry.event === 'app_update_required')).toBe(false);
+      }
+    }
+  });
+
+  it('refuses a below-floor guest before any PIN check and keeps the older host room', async () => {
+    const { state, env, room, metrics } = floorRoom(appBuildFloorBinding(0).binding);
+    // An older host (no build) opened its PIN room before the floor was raised.
+    const host = await openHost(room, 'older-host', undefined, '12345678');
+    expect(opened(host)).toBe(true);
+    env.MUSIXQUARE_SERVICE_CONTROL = appBuildFloorBinding(785).binding;
+    host.sent.length = 0;
+    const storageBefore = JSON.stringify([...state.storage.data]);
+
+    for (const appBuild of [undefined, 784]) {
+      const guest = await openGuest(room, `old-guest-${String(appBuild)}`, {
+        appBuild,
+        password: '00000000',
+      });
+      expect(guest.sent).toEqual([REFUSAL_FRAME]);
+      expect(guest.closeEvents).toEqual([{ code: 1008, reason: 'APP_UPDATE_REQUIRED' }]);
+    }
+    await state.flushWaitUntil();
+    expect(pendingSockets(room).pendingGuests.size).toBe(0);
+    // No wrong-PIN failure, membership or admission was recorded for them.
+    expect(JSON.stringify([...state.storage.data])).toBe(storageBefore);
+    expect(host.sent).toEqual([]);
+    expect(host.closed).toBe(false);
+    expect(metrics.events.filter((entry) => entry.event === 'app_update_required')).toHaveLength(2);
+
+    // A current guest joins the older host's room on its own build.
+    const guest = await openGuest(room, 'current-guest', {
+      appBuild: 785,
+      password: '12345678',
+    });
+    expect(opened(guest)).toBe(true);
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'signal-candidate',
+        to: 'current-guest',
+        negotiationId: NEGOTIATION_ID,
+        candidate: { candidate: 'older-host-still-relays' },
+      }),
+    );
+    expect(sent(guest).at(-1)).toMatchObject({
+      type: 'signal-candidate',
+      candidate: { candidate: 'older-host-still-relays' },
+    });
+  });
+
+  it('refuses a reconnecting guest with a live binding and keeps its admitted socket', async () => {
+    const { env, room } = floorRoom(appBuildFloorBinding(0).binding);
+    const host = await openHost(room, 'floor-host', 785);
+    const original = await openGuest(room, 'reconnecting-guest');
+    expect(opened(original)).toBe(true);
+    env.MUSIXQUARE_SERVICE_CONTROL = appBuildFloorBinding(785).binding;
+
+    const refused = await openGuest(room, 'reconnecting-guest');
+    expect(refused.sent).toEqual([REFUSAL_FRAME]);
+    expect(refused.closeEvents).toEqual([{ code: 1008, reason: 'APP_UPDATE_REQUIRED' }]);
+    expect(original.closed).toBe(false);
+    await room.webSocketMessage(
+      original,
+      JSON.stringify({
+        type: 'signal-candidate',
+        to: 'host',
+        negotiationId: NEGOTIATION_ID,
+        candidate: { candidate: 'admitted-guest-survives' },
+      }),
+    );
+    expect(sent(host).at(-1)).toMatchObject({
+      type: 'signal-candidate',
+      from: 'reconnecting-guest',
+      candidate: { candidate: 'admitted-guest-survives' },
+    });
+
+    const updated = await openGuest(room, 'reconnecting-guest', { appBuild: 785 });
+    expect(opened(updated)).toBe(true);
+    expect(original.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
+  });
+
+  it('reads the floor only for pending auth frames, never for admitted sockets', async () => {
+    const floor = appBuildFloorBinding(785);
+    const { room } = floorRoom(floor.binding);
+    const host = await openHost(room, 'floor-host', 785);
+    clearServiceMaintenanceCacheForTests();
+    const guest = await openGuest(room, 'floor-guest', { appBuild: 785 });
+    expect(opened(guest)).toBe(true);
+    expect(floor.floorReads()).toBe(2);
+
+    clearServiceMaintenanceCacheForTests();
+    for (const [from, to, peer] of [
+      [guest, 'host', 'to-host'],
+      [host, 'floor-guest', 'to-guest'],
+    ] as const) {
+      await room.webSocketMessage(
+        from,
+        JSON.stringify({
+          type: 'signal-candidate',
+          to,
+          negotiationId: NEGOTIATION_ID,
+          candidate: { candidate: peer },
+        }),
+      );
+    }
+    expect(sent(host).at(-1)).toMatchObject({ candidate: { candidate: 'to-host' } });
+    expect(sent(guest).at(-1)).toMatchObject({ candidate: { candidate: 'to-guest' } });
+    expect(floor.floorReads()).toBe(2);
+  });
+
+  it('leaves a socket that closed while its floor read was in flight unrefused', async () => {
+    let markEntered!: () => void;
+    let release!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      markEntered = resolve;
+    });
+    const floor = appBuildFloorBinding(785, {
+      entered: markEntered,
+      release: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    });
+    const { state, room, metrics } = floorRoom(floor.binding);
+    await room.fetch(wsRequest('123456', 'host', 'closing-host'));
+    const host = lastServer();
+    const auth = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: ROOM_SECRET,
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
+    );
+    await entered;
+    host.close(1001, 'client gone');
+    await room.webSocketClose(host);
+    expect(pendingSockets(room).pendingHosts.size).toBe(0);
+
+    release();
+    await auth;
+    await state.flushWaitUntil();
+    expect(host.sent).toEqual([]);
+    expect(host.closeEvents).toEqual([{ code: 1001, reason: 'client gone' }]);
+    expect(await state.storage.get('roomMeta')).toBeUndefined();
+    expect(metrics.events.some((entry) => entry.event === 'app_update_required')).toBe(false);
   });
 });

@@ -1,4 +1,5 @@
 // Pure signaling validation; storage and socket lifecycle stay in signaling-worker.ts.
+import { isOptionalAppBuild } from './app-build-floor-contract.ts';
 import { validateStandardRoomPasswordSetFrame } from './standard-room-pin-membership.ts';
 export const WS_MESSAGE_MAX_BYTES = 64 * 1024;
 export const PRO_REALTIME_BODY_MAX_BYTES = 8 * 1024;
@@ -811,10 +812,11 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
     return hasExactObjectKeys(
       message,
       ['type', 'secret'],
-      ['accountAssertion', 'desiredRoomPassword', 'pinMutationId'],
+      ['accountAssertion', 'appBuild', 'desiredRoomPassword', 'pinMutationId'],
     ) &&
       message.type === 'host-auth' &&
       isPeerId(message.secret) &&
+      isOptionalAppBuild(message.appBuild) &&
       (message.accountAssertion === undefined ||
         (typeof message.accountAssertion === 'string' &&
           message.accountAssertion.length <= 2048)) &&
@@ -840,6 +842,7 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
     if (!isValidGuestReconnectSecret(message.reconnectSecret)) {
       return 'ignore';
     }
+    if (!isOptionalAppBuild(message.appBuild)) return 'ignore';
     return 'valid';
   }
   if (role === 'guest') {

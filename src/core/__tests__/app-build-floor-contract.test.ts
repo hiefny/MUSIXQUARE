@@ -5,7 +5,9 @@ import {
   APP_BUILD_HEADER,
   APP_BUILD_MAX,
   APP_UPDATE_REQUIRED_CODE,
+  APP_UPDATE_REQUIRED_ERROR_TYPE,
   effectiveAppBuildFloor,
+  isOptionalAppBuild,
   parseAppBuild,
 } from '../../../cloudflare/app-build-floor-contract.ts';
 
@@ -13,8 +15,32 @@ describe('App build floor wire contract', () => {
   it('pins the wire names and bounds that every Worker, script and client share', () => {
     expect(APP_BUILD_HEADER).toBe('X-MXQR-App-Build');
     expect(APP_UPDATE_REQUIRED_CODE).toBe('APP_UPDATE_REQUIRED');
+    expect(APP_UPDATE_REQUIRED_ERROR_TYPE).toBe('app-update-required');
     expect(APP_BUILD_MAX).toBe(2_147_483_647);
     expect(APP_BUILD_FLOOR_REPORT_STALE_MS).toBe(300_000);
+  });
+
+  it('accepts an absent or JSON-number build in a signaling auth frame and nothing else', () => {
+    for (const value of [undefined, 0, -0, 1, 785, APP_BUILD_MAX]) {
+      expect(isOptionalAppBuild(value), String(value)).toBe(true);
+    }
+    // Header text is the PRO form only; a frame carries a JSON number.
+    for (const value of [
+      '785',
+      '0',
+      null,
+      -1,
+      785.5,
+      APP_BUILD_MAX + 1,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      true,
+      {},
+      [785],
+      785n,
+    ]) {
+      expect(isOptionalAppBuild(value), JSON.stringify(String(value))).toBe(false);
+    }
   });
 
   it('accepts only safe integer builds within the wire range', () => {

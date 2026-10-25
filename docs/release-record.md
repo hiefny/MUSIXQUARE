@@ -49,15 +49,21 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 - [ ] 4B 범위(오너 결정 2026-10-25 약 01:35 KST, 배포 시점은 약 01:50 KST 결정): 4B는 Phase 4의 두
       번째 앱 배포이고 오너가 고른 동작 변경만 싣는다. 아직 배포 전이다(통합 브랜치
-      `agent/phase4-4b`, 세 갈래 합침 `65391edb`, 9.0.8 / v780 main `47b9a273` 위). 마지막 런타임
-      커밋 `aba30ccb`에서 `9.0.9` / `v781`로 올렸고, 자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI,
+      `agent/phase4-4b`, 세 갈래 합침 `65391edb`, 9.0.8 / v780 main `47b9a273` 위). bump 커밋
+      `aba30ccb`에서 `9.0.9` / `v781`로 올렸고, 그 뒤 PR #487의 Codex P2 반영(`4a319b62` 테스트,
+      `bfd84f6a` 게스트 받기 규칙)이 런타임을 바꿨으므로 SemVer 9.0.9는 두고 SW 캐시 epoch를 v782로
+      다시 올리는 커밋을 마지막 런타임 커밋으로 둔다(아직 올리지 않음). 자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI,
       릴리스 smoke)가 통과하면 따로 묻지 않고 target `app`, Developer API D1 `false`로 배포한다. 배포
       뒤 §1을 덮어쓰고 이 항목에 실행 ID를 적는다. 바뀌는 동작: ICE 복구 뒤 방장이 그 게스트를
       local로 다시 판정해 알린 다음 본 레인이 같은 (연결, 대기열 항목, 세션)을 가져가면 재개한
       미리받기가 물러나 `PRELOAD_ABORT` 하나와 `[Preload] Yielding preload for <peer> ...` info 줄을
-      남긴다(C5-12, P4-D10 A. 그 밖의 경우는 9.0.8처럼 두 레인이 보내고, 남은 두 경로에서는 게스트가
-      본 레인 머리를 버려 미리받기 대기에 머물 수 있다(기존 진행 감시가 남아 있고 그 다시 요청의 머리가
-      닿을 때 경로가 `local`이면 그 요청까지), RO-18의 알려진 한계). 오류로 시작한 닫힘·입장
+      남긴다(C5-12, P4-D10 A. 그 밖의 경우는 9.0.8처럼 두 레인이 보낸다). 미리받기를 기다리는 9.0.9
+      게스트는 경로가 아직 `unknown`이어도 자기 `REQUEST_DATA_RECOVERY`의 정확한 (연결, 대기열 항목,
+      세션)인 본 레인 머리를 받는다(Codex P2: 방장의 `local` 알림은 제어 채널, 머리는 대용량 채널이라
+      머리가 먼저 닿을 수 있음). 그래도 남은 경우에는 게스트가 본 레인 머리를 버려 미리받기 대기에 머물
+      수 있다(9.0.9 게스트는 자기 판정이 `remote`로 끝난 경로 2만, 9.0.4~9.0.8 게스트는 두 경로 모두.
+      기존 진행 감시가 남아 있고 그 다시 요청의 머리가 닿을 때 받을 수 있으면 그 요청까지), RO-18의
+      알려진 한계). 오류로 시작한 닫힘·입장
       실패·PRO epoch 일괄 닫힘의 원인 줄이 `intentional` 대신
       `transport-error`·`join-bootstrap-failed`·`pro-epoch-advanced`가 된다(`pro-epoch-advanced`는
       클라이언트와 Worker의 epoch 닫힘 이름이 달라 아직 기기에서 닿지 않는다). 일반방 게스트는 끊김
@@ -71,8 +77,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       메시지 종류, 영구 데이터 모양(탭 sessionStorage 진단 키 `mxqr-prev-close` 하나가 새로 생김),
       타이밍 값, 타이머 키, 기존 로그 문자열(원인 줄의 원인 낱말만 바뀜)은 그대로이고, #18과 미리받기
       재개 판정이 읽는 다섯 줄은 바이트가 같다. `cloudflare/` 변경은 없다(bump의 App Worker
-      `ADMIN_ASSET_VERSION`만). 혼합 버전(known-accepted #13): 받는 쪽을 정하는 게스트 코드가 9.0.0
-      뒤 그대로라 단위의 게스트 행이 옛 게스트 행이고, 9.0.8 이하 방장은 계속 두 스트림을 보낸다. 나머지
+      `ADMIN_ASSET_VERSION`만). 혼합 버전(known-accepted #13): 9.0.4~9.0.8 게스트는 경로가 `local`일
+      때만 본 레인 머리를 받으므로(9.0.0의 받기 코드) Codex P2의 경로 1이 옛 게스트에는 열려 있다.
+      게스트가 이미 보내는 어떤 값(복구 요청 포함)도 방장에게 게스트 버전을 알려 주지 않아, 방장은 통신
+      형식 변경 없이 둘을 가를 수 없고 P4-D10 A의 물러남을 유지한다. 그 옛 게스트 몫은 혼합 버전 기간의
+      남은 위험으로 둔다. 9.0.8 이하 방장은 계속 두 스트림을 보내고, 9.0.9 게스트가 `unknown`일 때 자기
+      요청에 답한 머리를 받으면 9.0.8의 `local` 게스트처럼 본 레인을 재생한다. 나머지
       변경은 기기 안의 로그·탭 저장·재시도 판단이다. 되돌리기는 더 높은 SemVer의 코드 되돌리기가
       기본이고, 급할 때 Cloudflare App을 9.0.8·9.0.7·9.0.6·9.0.5로 되돌려도 PRO 입장 정책 표지는
       유지된다(9.0.4 아래는 불가). 로컬 검증(`65391edb`): 단위 663 files / 15,382, typecheck·
@@ -83,7 +93,12 @@ gh run list --workflow e2e.yml --branch main --limit 3
       bump 뒤 최종 로컬 검증(`93fb3d66`, 런타임은 bump `aba30ccb`): release-identity(9.0.9, v781)·
       sw-cache-version, 단위 663 files / 15,382, Worker 60 files / 2,914, `build:checked` 전체, 같은
       가드 값, 핵심 커버리지 75 files / 2,862, critical E2E 61/61, C5-0 랩 8/8(F4 같은 전선 결과), 초기
-      JS 477,516 B(프로덕션 빌드 두 번 같음) PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
+      JS 477,516 B(프로덕션 빌드 두 번 같음) PASS. Codex P2 반영 로컬 검증(`bfd84f6a`, v782 bump 전):
+      테스트 먼저(`4a319b62`가 `b1962ed5` 소스에서 23행 중 5행 실패), 단위 663 files / 15,388, `tsc`·
+      `typecheck:tests`·lint·format, 같은 가드 값(dead-exports 20/20·76/76, bus-pairing 204/204,
+      resource-ownership 48 records / 436 files), 초기 JS 477,607 B(빌드 한 번, main 대비 +673 B) PASS.
+      `guard:sw-cache-version`은 v782 bump 전이라 FAIL이고, bump 뒤 최종 라운드(Worker, `build:checked`,
+      핵심 커버리지, critical E2E, C5-0 랩)는 아직이다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
       갈래 라운드는 보고서에 있다.
       [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md).
 - [ ] 4B 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 4B 코드로 실제 기기를 아직 돌리지 않았다.

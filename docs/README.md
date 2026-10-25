@@ -96,7 +96,9 @@ runbooks. Neither belongs in a general setup document.
   evidence for the structure program's second Phase 4 app train (9.0.9 / v781,
   not yet released; target `app`). After ICE recovery a resumed
   preload yields to the main file lane for the same tuple once the host has
-  re-detected the guest as local (C5-12, with its known limits), on top of one
+  re-detected the guest as local (C5-12, with its known limits; a 9.0.9 guest
+  still re-detecting its route takes the main header its own recovery request
+  asked for, Codex P2 on #487, and older guests keep that residual), on top of one
   release call and a tuple query for both bulk lanes (reduced C5-11); error,
   failed-join and PRO epoch closes name their own close cause; a Standard guest
   keeps its last close cause across its disconnect reload for `/debug`; a PRO

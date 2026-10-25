@@ -324,6 +324,23 @@ describe('release deployment rollback state', () => {
     }
   });
 
+  it('maps the App build floor wire leaf into every Worker that reads the service-control floor', () => {
+    // service-maintenance.ts imports the wire leaf, and every Worker bundles
+    // service-maintenance.ts, so a partial release must carry the leaf with it.
+    for (const worker of [
+      'remote-share',
+      'signaling',
+      'pro-room',
+      'developer-api-facade',
+      'developer-api',
+      'app',
+    ]) {
+      expect(runtimePathsForWorker(worker), worker).toContain(
+        'cloudflare/app-build-floor-contract.ts',
+      );
+    }
+  });
+
   it('maps Worker-side modules bundled into the browser App into the App contract', () => {
     // The App bundle also ships cloudflare/ modules that browser code imports
     // (for example the PRO upload probe's media duration readers). A change to

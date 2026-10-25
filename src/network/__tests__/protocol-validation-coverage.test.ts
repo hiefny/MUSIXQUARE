@@ -62,13 +62,22 @@ describe('device-list-update validation', () => {
     );
 
     const fullList = [
-      { id: null, label: 'HOST', status: 'connected', isHost: true, joinOrder: 0 },
+      {
+        id: null,
+        label: 'HOST',
+        status: 'connected',
+        isHost: true,
+        joinOrder: 0,
+        devicePlatform: 'other',
+      },
       ...Array.from({ length: MAX_GUEST_SLOTS }, (_, index) => ({
         id: `guest-${index + 1}`,
         label: `Guest ${index + 1}`,
         status: 'connected',
         isHost: false,
         joinOrder: index + 1,
+        connectionType: 'local',
+        devicePlatform: 'other',
         memberDisplayNumber: index + 2,
       })),
     ];
@@ -93,6 +102,7 @@ describe('device-list-update validation', () => {
             isOp: true,
             joinOrder: 0,
             connectionType: null,
+            devicePlatform: 'macos',
             memberId: null,
             memberDisplayNumber: null,
             capabilities: null,
@@ -122,9 +132,22 @@ describe('device-list-update validation', () => {
   it('rejects empty, oversized, duplicate, hostless, and malformed projections', async () => {
     const handler = vi.fn();
     registerHandler(MSG.DEVICE_LIST_UPDATE, handler);
-    const host = { id: 'host-1', label: 'HOST', status: 'connected', isHost: true };
-    const guest = { id: 'guest-1', label: 'Guest', status: 'connected', isHost: false };
-    const oversized = [host];
+    const host = {
+      id: 'host-1',
+      label: 'HOST',
+      status: 'connected',
+      isHost: true,
+      devicePlatform: 'windows',
+    };
+    const guest = {
+      id: 'guest-1',
+      label: 'Guest',
+      status: 'connected',
+      isHost: false,
+      connectionType: 'local',
+      devicePlatform: 'android',
+    };
+    const oversized: Array<Record<string, unknown>> = [host];
     for (let index = 0; index <= MAX_GUEST_SLOTS; index += 1) {
       oversized.push({ ...guest, id: `guest-${index}` });
     }

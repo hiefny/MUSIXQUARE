@@ -3852,6 +3852,7 @@ describe('YouTube Player', () => {
       setState('network.appRole', 'guest');
       setState('network.hostConn', hostConn);
       setState('network.isOperator', true);
+      setState('network.standardRoomCapabilities', ['media.add']);
       setState('playlist.revision', 8);
       const { initYouTube } = await import('../player.ts');
       initYouTube();

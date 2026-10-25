@@ -75,6 +75,7 @@ function enterOperatorGuest(conn: DataConnection): void {
   setState('network.sessionCode', '123456');
   setState('network.hostConn', conn);
   setState('network.isOperator', true);
+  setState('network.standardRoomCapabilities', ['asset.upload']);
 }
 
 function startMessage(size: number, overrides: Record<string, unknown> = {}) {

@@ -100,6 +100,8 @@ function canonicalUploadHeaders(
   };
 }
 
+const issueRoomUploadAssertion = async (): Promise<string> => `${'a'.repeat(80)}.${'b'.repeat(43)}`;
+
 function securityConfig(overrides: Record<string, unknown> = {}): Response {
   return Response.json({
     capabilityRequired: false,
@@ -109,7 +111,7 @@ function securityConfig(overrides: Record<string, unknown> = {}): Response {
     wholeObjectVersion: 1,
     downloadAuthorizationVersion: 1,
     roomUploadAssertionVersion: 1,
-    roomUploadAssertionMode: 'optional',
+    roomUploadAssertionMode: 'required',
     ...overrides,
   });
 }
@@ -321,6 +323,7 @@ describe('R2 canonical whole-object upload', () => {
       size: 4,
       sessionId: 7,
       queueItemId,
+      requestRoomUploadAssertion: issueRoomUploadAssertion,
     });
     await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
     const xhr = FakeXmlHttpRequest.instances[0]!;
@@ -650,6 +653,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
@@ -700,6 +704,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
@@ -747,6 +752,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
@@ -789,6 +795,7 @@ describe('R2 canonical whole-object upload', () => {
       size: 4,
       sessionId: 7,
       queueItemId,
+      requestRoomUploadAssertion: issueRoomUploadAssertion,
     });
     await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
     const xhr = FakeXmlHttpRequest.instances[0]!;
@@ -836,6 +843,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);

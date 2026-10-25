@@ -301,7 +301,7 @@ it('public offset edit during shared lead then pause cancels every delayed sourc
   bus.emit('sync:set-manual-offset', 9999);
   await advance(0);
   expect(getTrackPosition()).toBe(0);
-  await handleData({ type: MSG.PAUSE, queueItemId: Q, time: 0 }, host);
+  await handleData({ type: MSG.PAUSE, queueItemId: Q, time: 0, reason: 'pause' }, host);
   await advance(12000);
   expect(m.outputs.every((x) => x.stopped)).toBe(true);
   expect(outputPosition()).toBeNull();

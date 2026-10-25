@@ -725,18 +725,12 @@ async function requestUploadSession(
       size: meta.size,
       bodySha256,
     };
-    const requestAssertionHeaders = async (
-      config: RemoteShareSecurityConfig,
-    ): Promise<Record<string, string>> => {
+    const requestAssertionHeaders = async (): Promise<Record<string, string>> => {
       const assertion = meta.requestRoomUploadAssertion
         ? await meta.requestRoomUploadAssertion(assertionRequest, signal)
         : null;
-      if (!assertion) {
-        if (config.roomUploadAssertionMode === 'required') {
-          throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
-        }
-        return {};
-      }
+      // Every session carries the room assertion, whatever mode the Worker advertises.
+      if (!assertion) throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
       if (
         assertion.length < 64 ||
         assertion.length > REMOTE_SHARE_UPLOAD_ASSERTION_MAX_LENGTH ||
@@ -778,7 +772,7 @@ async function requestUploadSession(
       );
     let securityConfig = await getRemoteShareSecurityConfig(endpoint, signal);
     let capabilityHeaders = await getRemoteShareSessionHeaders(securityConfig, signal);
-    let assertionHeaders = await requestAssertionHeaders(securityConfig);
+    let assertionHeaders = await requestAssertionHeaders();
     let { response, body } = await requestOnce({ ...capabilityHeaders, ...assertionHeaders });
 
     // A 401 may mean the token is stale or the capability probe was inaccurate.
@@ -788,7 +782,7 @@ async function requestUploadSession(
       invalidateRemoteShareSecurityConfig(endpoint);
       securityConfig = await getRemoteShareSecurityConfig(endpoint, signal);
       capabilityHeaders = await getRemoteShareSessionHeaders(securityConfig, signal);
-      assertionHeaders = await requestAssertionHeaders(securityConfig);
+      assertionHeaders = await requestAssertionHeaders();
       ({ response, body } = await requestOnce({ ...capabilityHeaders, ...assertionHeaders }));
     }
 

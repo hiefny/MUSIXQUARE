@@ -593,6 +593,7 @@ describe('guest file finalization sync', () => {
       setState('network.appRole', 'guest');
       setState('network.hostConn', makeConnection('host'));
       setState('network.isOperator', isOperator);
+      setState('network.standardRoomCapabilities', isOperator ? ['playback.control'] : null);
       const item = makeTrack('song.mp3');
       const file = new File([new Uint8Array([1, 2, 3])], item.name, { type: 'audio/mpeg' });
       setState('playlist.items', [item]);

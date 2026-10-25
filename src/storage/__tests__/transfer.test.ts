@@ -259,6 +259,7 @@ describe('host outgoing transfer routing', () => {
         queueItemId: Q0,
         sessionId: 30,
         mime: 'audio/mpeg',
+        size: 4,
       },
       30,
     );
@@ -298,6 +299,7 @@ describe('host outgoing transfer routing', () => {
       queueItemId: Q0,
       sessionId: 32,
       mime: 'audio/mpeg',
+      size: 4,
     } as const;
 
     sendFilePrepareByDelivery(prepare, 32);
@@ -329,6 +331,7 @@ describe('host outgoing transfer routing', () => {
       queueItemId: Q0,
       sessionId: 33,
       mime: 'audio/mpeg',
+      size: 4,
     } as const;
 
     sendFilePrepareByDelivery(prepare, 33);
@@ -360,6 +363,7 @@ describe('host outgoing transfer routing', () => {
       queueItemId: Q0,
       sessionId: 34,
       mime: 'audio/mpeg',
+      size: 4,
     } as const;
 
     sendFilePrepareByDelivery(prepare, 34, { announcePending: true });
@@ -971,6 +975,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 101,
         mime: first.type,
+        size: first.size,
       });
 
       const suspension = beginPendingBroadcastSuspension();
@@ -981,6 +986,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q1,
         sessionId: 102,
         mime: latest.type,
+        size: latest.size,
       });
 
       // A native display picker can remain open far beyond the normal
@@ -1041,6 +1047,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 103,
         mime: file.type,
+        size: file.size,
       });
 
       const suspension = beginPendingBroadcastSuspension();
@@ -1079,6 +1086,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 104,
         mime: first.type,
+        size: first.size,
       });
       const staleSuspension = beginPendingBroadcastSuspension();
 
@@ -1089,6 +1097,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q1,
         sessionId: 105,
         mime: latest.type,
+        size: latest.size,
       });
       const currentSuspension = beginPendingBroadcastSuspension();
 
@@ -1149,6 +1158,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 1,
         mime: 'audio/mpeg',
+        size: 4,
       });
       cancelOutgoingFileTransfers();
       await vi.advanceTimersByTimeAsync(301);
@@ -1197,6 +1207,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 51,
         mime: file.type,
+        size: file.size,
       } as const;
       // playback.ts sends this peer-specific bootstrap PREPARE immediately.
       conn.send(prepare);
@@ -1256,6 +1267,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 78,
         mime: oldFile.type,
+        size: oldFile.size,
       });
       const oldRoomSuspension = beginPendingBroadcastSuspension();
 
@@ -1275,6 +1287,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q1,
         sessionId: 79,
         mime: newFile.type,
+        size: newFile.size,
       });
 
       // The abandoned picker may settle either way after the new room starts.
@@ -1290,6 +1303,7 @@ describe('debounced broadcast cancellation', () => {
           name: newFile.name,
           queueItemId: Q1,
           sessionId: 79,
+          size: newFile.size,
         }),
       );
       expect(send).toHaveBeenCalledWith(
@@ -1328,6 +1342,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 1,
         mime: 'audio/mpeg',
+        size: 4,
       });
       publishHostFile(fileB, Q1, 2);
       broadcastFileDebounced(fileB, Q1, 2, {
@@ -1336,6 +1351,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q1,
         sessionId: 2,
         mime: 'audio/mpeg',
+        size: 4,
       });
       await vi.advanceTimersByTimeAsync(301);
       // Allow the fire-and-forget transfer to finish after the debounce fires.

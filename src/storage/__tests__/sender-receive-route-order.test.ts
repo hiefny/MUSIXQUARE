@@ -229,8 +229,8 @@ async function guest(trace: Awaited<ReturnType<typeof capture>>) {
           status: 'connected',
           isHost: true,
           isOp: true,
-          connectionType: 'local',
           joinOrder: 0,
+          devicePlatform: 'windows',
         },
         {
           id: 'guest',
@@ -239,6 +239,7 @@ async function guest(trace: Awaited<ReturnType<typeof capture>>) {
           isHost: false,
           isOp: false,
           connectionType,
+          devicePlatform: 'android',
           joinOrder: 1,
         },
       ],

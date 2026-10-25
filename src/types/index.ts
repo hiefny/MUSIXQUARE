@@ -84,7 +84,7 @@ export interface RemoteFileSharePayload {
   queueItemId: QueueItemId;
   sessionId: number;
   expiresAt: number;
-  /** Explicit host-authorized object-storage delivery for a local guest. */
+  /** Always 'r2' on a REMOTE_FILE_SHARE frame; the host adds it when it sends a descriptor. */
   delivery?: 'r2';
   /** Background next-track delivery. Absence means the active playback file. */
   preload?: true;
@@ -440,7 +440,7 @@ export interface ProtocolMap {
     time: number;
     queueItemId: QueueItemId | null;
     endOfPlaylist?: boolean;
-    reason?: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';
+    reason: 'pause' | 'stop' | 'seek' | 'transition' | 'end-of-playlist';
   };
   'play-preloaded': { queueItemId: QueueItemId; name: string; mime?: string };
   'file-prepare': {
@@ -448,7 +448,7 @@ export interface ProtocolMap {
     queueItemId: QueueItemId;
     sessionId: number;
     mime: string;
-    size?: number;
+    size: number;
     delivery?: 'r2';
   };
   'file-r2-capability': {
@@ -460,9 +460,9 @@ export interface ProtocolMap {
     queueItemId: QueueItemId;
     sessionId: number;
     limited?: boolean;
-    delivery?: 'r2';
+    delivery: 'r2';
   };
-  'remote-file-share': RemoteFileSharePayload;
+  'remote-file-share': RemoteFileSharePayload & { delivery: 'r2' };
   // ── Playlist ─────────────────────────────────────────────────────
   'playlist-update': {
     list: PlaylistWireItem[];
@@ -578,8 +578,9 @@ export interface ProtocolMap {
       status: string;
       isHost: boolean;
       isOp?: boolean;
+      /** Absent only on the host's own row. */
       connectionType?: string;
-      devicePlatform?: DevicePlatform;
+      devicePlatform: DevicePlatform;
       joinOrder?: number;
       memberId?: string;
       memberDisplayNumber?: number;
@@ -595,7 +596,7 @@ export interface ProtocolMap {
   };
   /** A hidden Standard host refuses a command that would start or move playback. */
   'host-command-rejected': { reason: 'host-hidden'; command: string };
-  'operator-grant': { capabilities?: RoomCapability[]; silent?: boolean };
+  'operator-grant': { capabilities: RoomCapability[]; silent?: boolean };
   'operator-revoke': { silent?: boolean };
 
   // ── Guest Requests ───────────────────────────────────────────────
@@ -1040,7 +1041,7 @@ export interface StateTree {
     hostConn: DataConnection | null;
     connectedPeers: ConnectedPeer[];
     isOperator: boolean;
-    /** Explicit current standard-room grant. `null` means a legacy boolean-only host. */
+    /** Explicit current standard-room grant. `null` means no grant (plain or unconfirmed). */
     standardRoomCapabilities: RoomCapability[] | null;
     /**
      * A PRO member's outbound row-selection request while this endpoint is

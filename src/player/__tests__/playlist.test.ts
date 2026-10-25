@@ -2188,6 +2188,7 @@ describe('playTrack YouTube auto-rendezvous', () => {
       queueItemId: local.queueItemId,
       sessionId: 1,
       mime: 'audio/mpeg',
+      size: file.size,
     });
 
     await playTrack(video.queueItemId);
@@ -2289,6 +2290,7 @@ describe('playTrack explicit file playback intent', () => {
       queueItemId: previous.queueItemId,
       name: oldFile.name,
       mime: oldFile.type,
+      size: oldFile.size,
       sessionId: 1,
     });
 
@@ -2360,6 +2362,7 @@ describe('playTrack explicit file playback intent', () => {
       queueItemId: previous.queueItemId,
       name: oldFile.name,
       mime: oldFile.type,
+      size: oldFile.size,
       sessionId: 1,
     });
     let finishDecode!: (loaded: boolean) => void;

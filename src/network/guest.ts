@@ -911,8 +911,8 @@ const STANDARD_GRANT_CAPABILITIES = new Set<RoomCapability>([
   'room.configure',
 ]);
 
-function normalizeStandardGrantCapabilities(value: unknown): RoomCapability[] | null {
-  if (!Array.isArray(value)) return null;
+function normalizeStandardGrantCapabilities(value: unknown): RoomCapability[] {
+  if (!Array.isArray(value)) return [];
   return [
     ...new Set(
       value.filter(
@@ -949,7 +949,7 @@ function handleOperatorGrant(data: Record<string, unknown>, conn?: DataConnectio
   markStandardRoomAuthorityConfirmed(hostConn);
   const wasOperator = getState('network.isOperator');
   const capabilities = normalizeStandardGrantCapabilities(data.capabilities);
-  const isOwnerProjection = capabilities?.includes('room.configure') === true;
+  const isOwnerProjection = capabilities.includes('room.configure');
   setState('network.standardRoomCapabilities', capabilities);
   setState('network.isOperator', true);
   // `silent` was added compatibly: older hosts omit it, so transition

@@ -159,12 +159,9 @@ const REMOTE_FILE_SHARE_COMMON_REQUIRED_KEYS = Object.freeze([
   'queueItemId',
   'sessionId',
   'expiresAt',
-] as const);
-const REMOTE_FILE_SHARE_COMMON_OPTIONAL_KEYS = Object.freeze([
-  'downloadUrl',
   'delivery',
-  'preload',
 ] as const);
+const REMOTE_FILE_SHARE_COMMON_OPTIONAL_KEYS = Object.freeze(['downloadUrl', 'preload'] as const);
 const REMOTE_FILE_SHARE_REQUIRED_KEYS = Object.freeze([
   ...REMOTE_FILE_SHARE_COMMON_REQUIRED_KEYS,
   'storageFormat',
@@ -193,7 +190,7 @@ function hasValidRemoteFileShareCommonFields(d: Record<string, unknown>): boolea
     (d.size as number) > 0 &&
     (d.size as number) <= REMOTE_SHARE_MAX_BYTES &&
     isFiniteNumber(d.expiresAt) &&
-    (d.delivery === undefined || d.delivery === 'r2') &&
+    d.delivery === 'r2' &&
     (d.preload === undefined || d.preload === true)
   );
 }
@@ -371,12 +368,12 @@ function isDeviceListUpdate(data: Record<string, unknown>): boolean {
       device.status !== 'connected' ||
       typeof device.isHost !== 'boolean' ||
       (!isWireAbsent(device.isOp) && typeof device.isOp !== 'boolean') ||
-      (!isWireAbsent(device.connectionType) &&
+      // The host's own row has no route; every guest row carries one.
+      ((!device.isHost || !isWireAbsent(device.connectionType)) &&
         (typeof device.connectionType !== 'string' ||
           !DEVICE_CONNECTION_TYPES.has(device.connectionType))) ||
-      (!isWireAbsent(device.devicePlatform) &&
-        (typeof device.devicePlatform !== 'string' ||
-          !DEVICE_PLATFORMS.has(device.devicePlatform))) ||
+      typeof device.devicePlatform !== 'string' ||
+      !DEVICE_PLATFORMS.has(device.devicePlatform) ||
       (!isWireAbsent(device.joinOrder) &&
         (!isNonNegSafeInt(device.joinOrder) || (device.joinOrder as number) > MAX_GUEST_SLOTS)) ||
       (!isWireAbsent(device.memberId) &&
@@ -519,8 +516,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.queueItemId === null || isQueueItemId(d.queueItemId)) &&
     isFiniteNumber(d.time) &&
     (d.endOfPlaylist === undefined || typeof d.endOfPlaylist === 'boolean') &&
-    (d.reason === undefined ||
-      d.reason === 'pause' ||
+    (d.reason === 'pause' ||
       d.reason === 'stop' ||
       d.reason === 'seek' ||
       d.reason === 'transition' ||
@@ -539,7 +535,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.OPERATOR_GRANT]: (d) =>
     // Rolling hosts may include transport-only roles. The guest handler owns
     // the standard-room subset projection and strips those roles before state.
-    (d.capabilities === undefined || isKnownRoomCapabilityList(d.capabilities)) &&
+    isKnownRoomCapabilityList(d.capabilities) &&
     (d.silent === undefined || typeof d.silent === 'boolean'),
   [MSG.OPERATOR_REVOKE]: (d) => d.silent === undefined || typeof d.silent === 'boolean',
   [MSG.SYNC_PING]: (d) =>
@@ -955,7 +951,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isQueueItemId(d.queueItemId) &&
     isPositiveSafeInt(d.sessionId) &&
     typeof d.mime === 'string' &&
-    (d.size === undefined || isPositiveSafeInt(d.size)) &&
+    isPositiveSafeInt(d.size) &&
     (d.delivery === undefined || d.delivery === 'r2'),
   [MSG.FILE_R2_CAPABILITY]: (d) => d.version === 1 && d.localAudience === true,
   [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>
@@ -964,7 +960,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isQueueItemId(d.queueItemId) &&
     isPositiveSafeInt(d.sessionId) &&
     (d.limited === undefined || typeof d.limited === 'boolean') &&
-    (d.delivery === undefined || d.delivery === 'r2'),
+    d.delivery === 'r2',
   [MSG.REMOTE_FILE_SHARE]: isRemoteFileShare,
   // Without `name`, a malicious peer can send file-resume with no name to
   // poison the host's transfer.localSessionId (the transfer-receive handler

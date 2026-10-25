@@ -43,6 +43,7 @@ function configureGuest(conn: DataConnection): void {
   setState('network.appRole', 'guest');
   setState('network.hostConn', conn);
   setState('network.isOperator', true);
+  setState('network.standardRoomCapabilities', ['media.add']);
 }
 
 function configureHost(conn: DataConnection): void {

@@ -17,6 +17,7 @@ it('asks the host to pause before it seeks to the start', () => {
   setState('network.appRole', 'guest');
   setState('network.hostConn', hostConn);
   setState('network.isOperator', true);
+  setState('network.standardRoomCapabilities', ['playback.control']);
   setState('playlist.currentQueueItemId', QUEUE_ITEM);
 
   stopPlayback();

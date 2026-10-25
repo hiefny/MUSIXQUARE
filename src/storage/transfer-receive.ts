@@ -308,7 +308,7 @@ function hasMatchingDirectReceivePrefix(
     meta?.queueItemId === queueItemId &&
     meta.sessionId === sessionId &&
     meta.name === data.name &&
-    (data.size === undefined || meta.size === data.size) &&
+    meta.size === data.size &&
     (data.total === undefined || meta.total === data.total) &&
     (data.mime === undefined || meta.mime === data.mime) &&
     receivedCount > 0 &&
@@ -751,7 +751,7 @@ function retainLoadedSameFileForPrepare(data: Record<string, unknown>): boolean 
   const loadedSessionId = Number(resident?.sessionId);
   const metadataConsistent =
     (!requestedName || requestedName === resident?.name) &&
-    (data.size === undefined || Number(data.size) === resident?.blob.size);
+    Number(data.size) === resident?.blob.size;
 
   if (
     !resident ||
@@ -810,7 +810,7 @@ function projectFilePrepareBeforeRouteCheck(
     indexHint,
     name,
     sessionId,
-    size: (data.size as number) || 0,
+    size: data.size as number,
     mime: (data.mime as string) || '',
   });
   setPlaybackTrackMeta(getQueueItemById(queueItemId)!);
@@ -1147,8 +1147,7 @@ export async function handleFilePrepare(
     incomingSameFileSessionId > 0 &&
     incomingSameFileSessionId === loadedSameFileSessionId;
   const loadedMetadataConsistent =
-    data.name === currentResident?.name &&
-    (data.size === undefined || Number(data.size) === currentResident?.blob.size);
+    data.name === currentResident?.name && Number(data.size) === currentResident?.blob.size;
   if (
     currentResident &&
     currentResident.queueItemId === queueItemId &&

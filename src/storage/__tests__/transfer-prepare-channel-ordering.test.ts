@@ -477,11 +477,8 @@ it('does not revive an already stopped receive merely because its stored prefix 
   expect(finalizeGuestFile).not.toHaveBeenCalled();
 });
 
-it('accepts omitted optional PREPARE metadata and preserves pending PLAY through the real stop', async () => {
-  const { file, sender, legacyBulk, receiver, deliver, prepare, start } = await captureMain(
-    3,
-    true,
-  );
+it('preserves pending PLAY through the real stop when the matching PREPARE repeats mid-receive', async () => {
+  const { file, legacyBulk, receiver, deliver, prepare, start } = await captureMain(3, true);
   await deliver(legacyBulk[0]!, 'bulk');
   expect(getState('playback.pendingPlayTime')).toBe(12.5);
   const pendingSetAt = getState('playback.pendingPlayTimeSetAt');
@@ -492,12 +489,9 @@ it('accepts omitted optional PREPARE metadata and preserves pending PLAY through
   bus.on('ui:seek-reset', seekReset);
   bus.on('player:stop-all-media', () => stoppedStates.push(getState('transfer.state')));
 
-  // Older senders can omit these advisory fields. Queue id, session and name
-  // still identify the exact live receive; absent metadata is not a mismatch.
-  const legacyPrepare = JSON.parse(prepare as string);
-  delete legacyPrepare.size;
-  delete legacyPrepare.total;
-  await deliver(encodeLegacyControl(sender, legacyPrepare), 'control');
+  // The debounced repeat of the same PREPARE (queue id, session, name, size and
+  // mime all match) identifies the exact live receive.
+  await deliver(prepare, 'control');
   expect(seekReset).toHaveBeenCalledOnce();
   expect(stoppedStates).toEqual(['IDLE']);
   expect(getState('transfer.state')).toBe('RECEIVING');

@@ -21,6 +21,17 @@ vi.mock('../../ui/toast.ts', () => ({
   showToast: mocks.showToast,
 }));
 
+// What a current host grants an ordinary administrator with every permission.
+const ADMIN_GRANT = [
+  'effects.control',
+  'media.add',
+  'queue.mutate',
+  'asset.upload',
+  'playback.control',
+  'members.manage',
+  'chat.notice',
+];
+
 describe('guest connection type authority', () => {
   const conn = { open: true, peer: 'host-1' } as DataConnection;
 
@@ -43,7 +54,14 @@ describe('guest connection type authority', () => {
       {
         type: MSG.DEVICE_LIST_UPDATE,
         list: [
-          { id: 'host-1', label: 'HOST', status: 'connected', isHost: true, joinOrder: 0 },
+          {
+            id: 'host-1',
+            label: 'HOST',
+            status: 'connected',
+            isHost: true,
+            joinOrder: 0,
+            devicePlatform: 'windows',
+          },
           {
             id: 'guest-1',
             label: 'Guest',
@@ -51,6 +69,7 @@ describe('guest connection type authority', () => {
             isHost: false,
             joinOrder: 1,
             connectionType: 'remote',
+            devicePlatform: 'ios',
           },
         ],
       },
@@ -139,7 +158,16 @@ describe('guest connection type authority', () => {
       await handleData(
         {
           type: MSG.DEVICE_LIST_UPDATE,
-          list: [{ id: 'host-1', label: 'HOST', status: 'connected', isHost: true, joinOrder: 0 }],
+          list: [
+            {
+              id: 'host-1',
+              label: 'HOST',
+              status: 'connected',
+              isHost: true,
+              joinOrder: 0,
+              devicePlatform: 'windows',
+            },
+          ],
         },
         gatedHostConn,
       );
@@ -152,10 +180,10 @@ describe('guest connection type authority', () => {
     it('rejects forged operator grants and strips a stale operator flag on host welcome', async () => {
       const { handleData } = await import('../protocol.ts');
 
-      await handleData({ type: MSG.OPERATOR_GRANT }, evilConn);
+      await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ADMIN_GRANT }, evilConn);
       expect(getState('network.isOperator')).toBe(false);
 
-      await handleData({ type: MSG.OPERATOR_GRANT }, gatedHostConn);
+      await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ADMIN_GRANT }, gatedHostConn);
       expect(getState('network.isOperator')).toBe(true);
 
       await handleData({ type: MSG.WELCOME, label: 'PWNED' }, evilConn);
@@ -240,13 +268,13 @@ describe('guest connection type authority', () => {
       expect(getState('network.isOperator')).toBe(false);
       expect(mocks.showToast).not.toHaveBeenCalled();
 
-      await handleData({ type: MSG.OPERATOR_GRANT }, gatedHostConn);
+      await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ADMIN_GRANT }, gatedHostConn);
       expect(getState('network.isOperator')).toBe(true);
       expect(mocks.showToast).toHaveBeenCalledTimes(1);
 
       // Duplicate projections still refresh the state but cannot announce a
       // second promotion.
-      await handleData({ type: MSG.OPERATOR_GRANT }, gatedHostConn);
+      await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ADMIN_GRANT }, gatedHostConn);
       expect(getState('network.isOperator')).toBe(true);
       expect(mocks.showToast).toHaveBeenCalledTimes(1);
 
@@ -338,7 +366,7 @@ describe('guest connection type authority', () => {
     expect(getState('network.isOperator')).toBe(true);
 
     setState('network.isOperator', false);
-    await handleData({ type: MSG.OPERATOR_GRANT }, conn);
+    await handleData({ type: MSG.OPERATOR_GRANT, capabilities: [] }, conn);
     expect(getState('network.isOperator')).toBe(true);
     expect(playButtonState).toHaveBeenNthCalledWith(1, true);
     expect(playButtonState).toHaveBeenNthCalledWith(2, true);

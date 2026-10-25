@@ -671,7 +671,6 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   const rawTime = Number(data.time);
   const time = Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : 0;
   const endOfPlaylist = !!data.endOfPlaylist;
-  const reason = typeof data.reason === 'string' ? data.reason : undefined;
   const rawQueueItemId = data.queueItemId;
   if (rawQueueItemId !== null && !isQueueItemId(rawQueueItemId)) return;
   const incomingQueueItemId = rawQueueItemId as QueueItemId | null;
@@ -727,7 +726,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   setState('player.pausedAt', time);
   if (incomingQueueItemId) rememberGuestFilePause(incomingQueueItemId, time);
 
-  const isUserPause = reason === undefined || reason === 'pause';
+  const isUserPause = data.reason === 'pause';
   // Stop the concrete WebAudio node before moving semantic state to PAUSED.
   // pause() intentionally no-ops once file ownership is already paused, so
   // doing the lifecycle transition first can leave audio audible while the UI

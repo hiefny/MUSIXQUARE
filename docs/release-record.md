@@ -51,9 +51,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       결정(2026-10-25 약 01:50 KST)으로 기기 근거가 코드의 게이트가 아니게 되어 4B 다음 자기 열차(4C)로
       간다. 4C는 C5-10의 연결 부분을 함께 싣고 C5-9는 싣지 않는다(Phase 4 밖, RO-35). 브랜치
       `agent/phase4-4c`(4B 브랜치 끝 `b1962ed5`에서 시작, origin/main `9fca1cad`를 `c23f3057`로 합침,
-      리뷰 낮음 반영 `ab4ba114`)는 아직 main에 없고 배포되지 않았다. SemVer와 SW 캐시 epoch bump 전이다
-      (9.0.9는 배포됐으므로 둘을 함께 올린다. bump 전이라 `guard:sw-cache-version`이 설계대로 실패하고,
-      가드는 v782를 합침 커밋에서 세지만 bump는 C5-6~C5-10의 런타임 변경 전체를 덮는다). 오너 결정대로
+      리뷰 낮음 반영 `ab4ba114`)는 아직 main에 없고 배포되지 않았다. 9.0.9는 배포됐으므로 SemVer와 SW 캐시
+      epoch를 마지막 런타임 커밋 `d52427e2`에서 `9.0.10` / `v783`으로 함께 올렸다(올리기 직전 origin/main은
+      여전히 `9fca1cad`. bump는 C5-6~C5-10의 런타임 변경 전체를 덮는다). 오너 결정대로
       자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke)가 통과하면 따로 묻지 않고
       target `app`, Developer API D1 `false`(예상)로 낸다. 바뀌는 것: 원래 경로의 15초 유예, 공개하는 복구
       마감, 끊김당 ICE 재시작 하나의 문(C5-6), 게스트 백그라운드 복귀 확인(C5-7), 링크의 모든 닫힘과 첫
@@ -78,8 +78,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
       대비 +419 B, 유지 상한까지 13,549 B), critical E2E 61/61, C5-0 랩 8/8(F4는 본 레인 23,040,044 B 한
       번, 미리받기 청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나) PASS. 두 번째 리뷰
       반영(`8582e71c`, C5-12 물러남·철회 행을 실제 주인 보기로도 돌리는 테스트 11행과 문서, 런타임 그대로) 뒤
-      단위 664 files / 15,542 PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 이 항목을 실제
-      bump·CI·Release 값으로 고친다.
+      단위 664 files / 15,542 PASS. bump 뒤 최종 로컬 검증(`d52427e2`): release-identity(9.0.10, v783)·
+      sw-cache-version, 단위 664 files / 15,542(기기 근거 다섯 줄 고정 포함), Worker 60 files / 2,914,
+      typecheck(테스트 포함)·`check:workers`·lint·format, `build:checked` 전체, 가드(dead-exports 20/20·76/76
+      그대로, transport-health, resource-ownership 48 records / 437 files), 핵심 커버리지 77 files / 3,025,
+      critical E2E 61/61, C5-0 랩 8/8(F4는 본 레인 23,040,044 B 한 번, 미리받기 청크 0 B, `PRELOAD_END` 없음,
+      제어 채널 `PRELOAD_ABORT` 하나), 초기 JS 478,015 B(프로덕션 빌드 두 번 같음, main 477,600 B 대비 +415 B,
+      유지 상한까지 13,553 B) PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다. 배포 뒤 이 항목을 실제
+      CI·Release 값으로 고친다.
       [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md).
 - [ ] 4C 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 4C 코드로 실제 기기를 아직 돌리지 않았다. 원래
       경로의 짧은 끊김과 15초 넘는 끊김(원인 줄), 와이파이→LTE의 원래 경로 재시작, iPhone Safari 게스트의 15초

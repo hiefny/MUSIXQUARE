@@ -93,8 +93,8 @@ runbooks. Neither belongs in a general setup document.
 ## Maintained evidence and completed records
 
 - [Phase 4 train 4C: one link-liveness owner per Cloudflare data connection (2026-10-25)](design/phase4-4c-link-liveness-2026-10-25.md):
-  evidence for the structure program's third Phase 4 app train (not yet released; the SemVer and
-  service-worker cache bump comes after it). One owner, `LinkLiveness`, now holds the original
+  evidence for the structure program's third Phase 4 app train (9.0.10 / v783, not yet released;
+  target `app`). One owner, `LinkLiveness`, now holds the original
   route's 15 s grace, published recovery deadline and one-restart gate (C5-6), the guest
   background-resume probe over both routes (C5-7) and every close of the link with its first
   cause (C5-10, the connection part; C5-9 and the side route's own deadline stay out). Transport

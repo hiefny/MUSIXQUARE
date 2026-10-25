@@ -17,7 +17,7 @@ describe('room-authority static boundary', { timeout: 30_000 }, () => {
     expect(assertRoomAuthorityBoundaries(sources())).toMatchObject({
       directReads: 84,
       stateEvents: 22,
-      writes: 16,
+      writes: 13,
       proDirectReads: 0,
       snapshotLegacyReads: 0,
       proSnapshotLegacyReads: 0,

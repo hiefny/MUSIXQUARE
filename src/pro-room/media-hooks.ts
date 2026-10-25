@@ -77,17 +77,10 @@ interface ProRoomMediaHookRenewal {
   readonly [proRoomMediaHookRenewalBrand]: true;
 }
 
-type ProRoomDirectFileHandler = (
-  file: File,
-  queueItemId: QueueItemId,
-  sessionId: number,
-) => Promise<void>;
-
 let proRoomMediaHookGeneration = 0;
 let activeMediaHookSession: ActiveProRoomMediaHookSession | null = null;
 let registeredMediaHooks: ProRoomMediaHooks | null = null;
 let pendingMediaHookRenewal: ProRoomMediaHookRenewal | null = null;
-let activeDirectFileHandler: ProRoomDirectFileHandler | null = null;
 
 function abortActiveMediaHookSession(): void {
   const session = activeMediaHookSession;
@@ -266,16 +259,4 @@ export function isProRoomPersistentPlaylistFile(queueItemId: QueueItemId): boole
 
 export function cancelProRoomPlaylistFileResolution(): void {
   activeMediaHookSession?.hooks.cancelFileResolution?.();
-}
-
-export function registerProRoomDirectFileHandler(handler: ProRoomDirectFileHandler | null): void {
-  activeDirectFileHandler = handler;
-}
-
-export function finalizeProRoomDirectFile(
-  file: File,
-  queueItemId: QueueItemId,
-  sessionId: number,
-): Promise<void> {
-  return activeDirectFileHandler?.(file, queueItemId, sessionId) ?? Promise.resolve();
 }

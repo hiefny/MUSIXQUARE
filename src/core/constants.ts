@@ -181,7 +181,6 @@ export const MSG = {
   PLAY: 'play',
   PLAYLIST_UPDATE: 'playlist-update',
   PLAYLIST_SLOTS: 'playlist-slots',
-  PRO_FILE_PRELOAD: 'pro-file-preload',
   PLAY_PRELOADED: 'play-preloaded',
   PRELOAD_ABORT: 'preload-abort',
   PRELOAD_ACK: 'preload-ack',

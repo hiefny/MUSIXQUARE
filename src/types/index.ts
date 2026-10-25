@@ -460,8 +460,6 @@ export interface ProtocolMap {
     /** Repaint an equal-revision operator view after a rejected/no-op mutation. */
     refresh?: true;
   };
-  /** Legacy host hint for the next persistent file; the recipient self-preloads from R2. */
-  'pro-file-preload': { queueItemId: QueueItemId; sessionId: number };
   // _bootstrap marks a re-baseline frame (join bootstrap / OPERATOR_REVOKE
   // resync) — the receiving handler applies the value but skips the toast.
   'repeat-mode': { value: number; _bootstrap?: boolean };

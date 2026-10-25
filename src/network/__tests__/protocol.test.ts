@@ -927,32 +927,6 @@ describe('system-audio SFU frame validation', () => {
 });
 
 describe('file-transfer frame validation', () => {
-  it('accepts only exact PRO file preload ownership hints', async () => {
-    const handler = vi.fn();
-    const conn = makeConnection('peer-pro-preload');
-    registerHandler(MSG.PRO_FILE_PRELOAD, handler);
-
-    await handleData(
-      { type: MSG.PRO_FILE_PRELOAD, queueItemId: QUEUE_ITEM_ID, sessionId: 1 },
-      conn,
-    );
-
-    for (const invalid of [
-      { type: MSG.PRO_FILE_PRELOAD, queueItemId: QUEUE_ITEM_ID, sessionId: 0 },
-      { type: MSG.PRO_FILE_PRELOAD, queueItemId: 'not-a-queue-id', sessionId: 1 },
-      {
-        type: MSG.PRO_FILE_PRELOAD,
-        queueItemId: QUEUE_ITEM_ID,
-        sessionId: 1,
-        unexpected: true,
-      },
-    ]) {
-      await handleData(invalid, conn);
-    }
-
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
   it('accepts only the explicit current local R2 capability marker', async () => {
     const handler = vi.fn();
     const conn = makeConnection('peer-file-r2-capability');

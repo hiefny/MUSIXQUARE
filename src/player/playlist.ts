@@ -18,7 +18,6 @@ import { MSG, WARN_WHEN_CONNECTED_LOCAL_GUESTS_AT_LEAST } from '../core/constant
 import { nextSessionId } from '../core/session.ts';
 import { clearManagedTimer, delay, setManagedTimer } from '../core/timers.ts';
 import {
-  play,
   pause,
   stopAllMedia,
   getTrackPosition,
@@ -107,7 +106,6 @@ import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { hasFileShareWarned, markFileShareWarned } from '../ui/large-room-warnings.ts';
 import { cancelRemoteShareWait, shareRemoteFileIfNeeded } from '../share/remote-share.ts';
-import { getHostNow } from '../network/shared-clock.ts';
 import { hasQueueAuthority, markQueueAuthorityReady } from '../network/queue-authority.ts';
 import { resetRecoveryAuthority } from '../storage/recovery.ts';
 import { getRoomContext, hasRoomCapability, isCoordinator } from '../rooms/authority.ts';
@@ -159,8 +157,6 @@ import {
   moveQueueItemBefore,
   selectQueueItemById,
 } from './queue-model.ts';
-
-const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
 
 interface DeferredStandardHostManualNavigation {
   token: number;
@@ -251,14 +247,10 @@ interface PlayTrackOptions {
   };
 }
 
+/** A PRO PREPARE loads its file paused at the server position. */
 interface ProRoomFilePreparation {
   queueItemId: QueueItemId;
   positionSeconds: number;
-  state: 'playing' | 'paused';
-}
-
-function getLocalFileHostPlayAt(): number {
-  return getHostNow() + LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS;
 }
 
 function startLocalFileAndBroadcastPlay({
@@ -1035,17 +1027,9 @@ export async function playTrack(
             type: readyPreload.mime || preloadBlob.type || 'application/octet-stream',
           }));
     const fileName = preloadFile.name || readyPreload.name || item.name;
+    // A PRO participant fetched these bytes itself and has no peer to tell.
     const isProDirect = isProRoomPersistentPlaylistFile(queueItemId);
-    if (isProDirect) {
-      broadcast({
-        type: MSG.FILE_PREPARE,
-        queueItemId,
-        name: fileName,
-        mime: preloadFile.type || readyPreload.mime || 'application/octet-stream',
-        size: preloadFile.size,
-        sessionId: getState('transfer.currentSessionId'),
-      });
-    } else {
+    if (!isProDirect) {
       const preloadSessionId = getState('transfer.currentSessionId');
       sendFilePrepareByDelivery(
         {
@@ -1388,9 +1372,8 @@ export async function playTrack(
       size: file.size,
       mime: file.type,
     };
-    if (isProRoomPersistentPlaylistFile(queueItemId)) {
-      broadcast(prepareMsg);
-    } else {
+    // A PRO participant fetched this file itself and has no peer to tell.
+    if (!isProRoomPersistentPlaylistFile(queueItemId)) {
       sendFilePrepareByDelivery(prepareMsg, sessionId, { announcePending: true });
     }
     const mayAutoStart = captureFilePlayIntentGuard();
@@ -1414,72 +1397,29 @@ export async function playTrack(
 
       const restorePosition = clampRestorePosition(options.proFilePreparation.positionSeconds);
       setState('player.isFirstTrackLoad', false);
-
-      if (options.proFilePreparation.state === 'paused') {
-        setState('player.pausedAt', restorePosition);
-        transition({
-          type: 'PAUSE',
-          time: restorePosition,
-          queueItemId,
-          endOfPlaylist: false,
-        });
-        if (getState('playback.activity') !== 'paused') return;
-        const duration = getCurrentAudioBuffer()?.duration ?? 0;
-        bus.emit(
-          'ui:time-update',
-          fmtTime(restorePosition),
-          fmtTime(duration),
-          restorePosition,
-          duration,
-        );
-        bus.emit('ui:update-play-state', false);
-        broadcast({
-          type: MSG.PAUSE,
-          time: restorePosition,
-          queueItemId,
-          reason: 'seek',
-        });
-        return;
-      }
-
-      let recoveredStartPublished = false;
-      const publishRecoveredRestoredStart = (): void => {
-        if (
-          recoveredStartPublished ||
-          !isCurrentLoadEpoch(myLoadEpoch) ||
-          getCurrentQueueItemId() !== queueItemId ||
-          getState('playback.activity') !== 'playing'
-        ) {
-          return;
-        }
-        recoveredStartPublished = true;
-        broadcast({
-          type: MSG.PLAY,
-          time: restorePosition,
-          queueItemId,
-          name: file.name,
-          hostPlayAt: getLocalFileHostPlayAt(),
-        });
-      };
-      let started: boolean;
-      try {
-        started = await play(restorePosition, 0, undefined, undefined, {
-          timing: 'catch-up',
-          onRecoveredStarted: publishRecoveredRestoredStart,
-        });
-      } catch (error) {
-        log.warn('[Playlist] Failed to restore file playback:', error);
-        return;
-      }
-      if (
-        !started ||
-        !isCurrentLoadEpoch(myLoadEpoch) ||
-        getCurrentQueueItemId() !== queueItemId ||
-        getState('playback.activity') !== 'playing'
-      ) {
-        return;
-      }
-      publishRecoveredRestoredStart();
+      setState('player.pausedAt', restorePosition);
+      transition({
+        type: 'PAUSE',
+        time: restorePosition,
+        queueItemId,
+        endOfPlaylist: false,
+      });
+      if (getState('playback.activity') !== 'paused') return;
+      const duration = getCurrentAudioBuffer()?.duration ?? 0;
+      bus.emit(
+        'ui:time-update',
+        fmtTime(restorePosition),
+        fmtTime(duration),
+        restorePosition,
+        duration,
+      );
+      bus.emit('ui:update-play-state', false);
+      broadcast({
+        type: MSG.PAUSE,
+        time: restorePosition,
+        queueItemId,
+        reason: 'seek',
+      });
       return;
     }
 
@@ -2773,7 +2713,6 @@ async function prepareAuthoritativePlayback(
             proFilePreparation: {
               queueItemId: request.queueItemId,
               positionSeconds,
-              state: 'paused' as const,
             },
           }
         : {}),

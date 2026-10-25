@@ -144,7 +144,7 @@ const EVENT_ALLOWLIST = new Map<string, EventAllowance>([
 const WRITE_ALLOWLIST = new Map<string, WriteAllowance>([
   [
     'src/network/guest.ts',
-    { appRoleDirect: 0, isOperatorDirect: 6, appRoleObject: 0, isOperatorObject: 0 },
+    { appRoleDirect: 0, isOperatorDirect: 3, appRoleObject: 0, isOperatorObject: 0 },
   ],
   [
     'src/network/peer.ts',
@@ -239,11 +239,8 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
       "read:isOperator @ function:handleOperatorToast :: if (!hostConn || conn !== hostConn || !getState('network.isOperator'))",
       "read:isOperator @ function:handleWelcome :: if (getState('network.isOperator'))",
       "write-direct:isOperator @ function:handleOperatorGrant :: setState('network.isOperator', true)",
-      "write-direct:isOperator @ function:handleOperatorGrant :: setState('network.isOperator', true)",
       "write-direct:isOperator @ function:handleOperatorRevoke :: setState('network.isOperator', false)",
-      "write-direct:isOperator @ function:handleOperatorRevoke :: setState('network.isOperator', true)",
       "write-direct:isOperator @ function:handleWelcome :: setState('network.isOperator', false)",
-      "write-direct:isOperator @ function:handleWelcome :: setState('network.isOperator', true)",
     ],
   ],
   [

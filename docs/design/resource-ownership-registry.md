@@ -819,9 +819,9 @@ RO-49 accepted-exception
   `invalidatePendingFilePlayIntent` (`pause`, `seekTo`, `skipTime`, `applyProPlaybackFileCommit`
   and `handleRequestSeek` in `playback.ts`). §4 also names `tryFetchDemoForRemote`, which no
   longer exists, and `capturePendingPlaySnapshot`/`restorePendingPlaySnapshot`, now
-  `capturePendingFileIntent`/`restorePendingFileIntent` with five restore sites: the three §4
-  names plus the route-pending file prepare and the PRO direct R2 prepare. This record does not
-  edit §4; its table still sets the policy for each path it lists.
+  `capturePendingFileIntent`/`restorePendingFileIntent` with four restore sites: the three §4
+  names plus the route-pending file prepare. This record does not edit §4; its table still sets
+  the policy for each path it lists.
 - **Target single owner:** unchanged. The asymmetric preserve and clear policy is deliberate (§4).
 - **Allowed requesters:** the writers above, through the accessors. The `leaveSession` reset is
   the one allowed direct write: it sets the same cleared values as `setPendingPlayTime(undefined)`

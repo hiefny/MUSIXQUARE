@@ -56,9 +56,10 @@ interface LinkSnapshot {
   readonly sideChannelDown: boolean;
   /**
    * The original route's control channel reads open: the side route's restart
-   * signaling travels on it. Only a link with a side route needs to say.
+   * signaling travels on it. Required, so that no snapshot port can leave it
+   * out and hold every side outage to its 30 s cap without a type error.
    */
-  readonly controlOpen?: boolean;
+  readonly controlOpen: boolean;
 }
 
 /** The side route (control isolation) as the owner drives its outages. */

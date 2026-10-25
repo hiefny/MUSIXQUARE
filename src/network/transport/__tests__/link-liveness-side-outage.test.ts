@@ -24,7 +24,7 @@ function owner() {
   const original = { connectionState: 'connected' as RTCPeerConnectionState };
   const link = {
     open: true,
-    controlOpen: true as boolean | undefined,
+    controlOpen: true,
     original: original as unknown as RTCPeerConnection | undefined,
   };
   const sidePc = { connectionState: 'new' as RTCPeerConnectionState };
@@ -227,7 +227,7 @@ describe('a side outage of a route that restarts its ICE', () => {
     o.link.original = undefined;
     expect(o.liveness.sideMaySignal()).toBe(false);
     o.link.original = { connectionState: 'connected' } as unknown as RTCPeerConnection;
-    o.link.controlOpen = undefined;
+    o.link.controlOpen = false;
     expect(o.liveness.sideMaySignal()).toBe(false);
     o.link.controlOpen = true;
     expect(o.liveness.sideMaySignal()).toBe(true);

@@ -959,6 +959,7 @@ describe('LinkLiveness ports', () => {
           side: link.side as unknown as RTCPeerConnection | undefined,
           channelsOpen: link.channelsOpen,
           sideChannelDown: link.sideChannelDown,
+          controlOpen: link.channelsOpen,
         };
       },
       ping: (pingId) => {
@@ -1546,6 +1547,7 @@ describe('the one close input (C5-10)', () => {
         side: undefined,
         channelsOpen: true,
         sideChannelDown: false,
+        controlOpen: true,
       }),
       ping: () => undefined,
       close: (cause, first) => {

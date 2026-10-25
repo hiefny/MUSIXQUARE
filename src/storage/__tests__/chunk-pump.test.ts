@@ -816,6 +816,62 @@ describe('isBulkTransferWritablePeer — transport truth table', () => {
     expect(table).toBe(golden);
   });
 
+  const OWNER_PHASES = ['opening', 'live', 'recovering', 'closed'] as const;
+  const OWNER_VIEW_TABLE =
+    'src/storage/__tests__/__fixtures__/bulk-writable-owner-view-truth-table.txt';
+
+  /**
+   * One row per open flag, owner phase and ICE state for a connection whose
+   * provider exposes a link-liveness owner (Phase 4 C5-8), with every PC
+   * connectionState given as `pc`; see the fixture header.
+   */
+  function ownerViewTable(pc: (typeof PC_STATES)[number]): string {
+    const view: { phase: (typeof OWNER_PHASES)[number]; recoveryDeadline: number } = {
+      phase: 'live',
+      recoveryDeadline: 0,
+    };
+    const conn: Record<string, unknown> = { peer: 'owner-view', linkLiveness: view };
+    const peer = makePeer('owner-view', conn as unknown as MockConn);
+    installCurrent(peer);
+    const column = (state: string | undefined) => (state ?? '-').padEnd(12);
+    const rows: string[] = [];
+    for (const open of [false, true]) {
+      for (const phase of OWNER_PHASES) {
+        for (const ice of ICE_STATES) {
+          const groups = CHANNEL_STATES.map((data) =>
+            CHANNEL_STATES.map((control) => {
+              conn.open = open;
+              view.phase = phase;
+              conn.peerConnection =
+                pc === undefined && ice === undefined
+                  ? undefined
+                  : {
+                      ...(pc === undefined ? {} : { connectionState: pc }),
+                      ...(ice === undefined ? {} : { iceConnectionState: ice }),
+                    };
+              conn.dataChannel = data === undefined ? undefined : { readyState: data };
+              conn.controlChannel = control === undefined ? undefined : { readyState: control };
+              return isBulkTransferWritablePeer(peer) ? '1' : '0';
+            }).join(''),
+          );
+          rows.push(
+            `open=${open ? 1 : 0} phase=${column(phase)} ice=${column(ice)} ${groups.join(' ')}`,
+          );
+        }
+      }
+    }
+    return `${rows.join('\n')}\n`;
+  }
+
+  it('matches the owner-view golden table whatever the PC connectionState reads', () => {
+    const golden = readFileSync(join(process.cwd(), OWNER_VIEW_TABLE), 'utf8')
+      .split('\n')
+      .filter((line) => !line.startsWith('#'))
+      .join('\n');
+    expect(golden.split('\n').filter(Boolean)).toHaveLength(2 * 4 * 8);
+    for (const pc of PC_STATES) expect(ownerViewTable(pc), `pc=${pc ?? '-'}`).toBe(golden);
+  });
+
   it('still requires the peer’s current connection on a writable transport', () => {
     const current = makeConn('peer');
     const peer = makePeer('peer', current);

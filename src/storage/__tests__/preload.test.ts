@@ -7,6 +7,7 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
+import { LinkLiveness } from '../../network/transport/link-liveness.ts';
 import {
   cancelPreloadTransfer,
   getPreloadMemoryStats,
@@ -1093,6 +1094,74 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
     Object.assign(conn, { peerConnection: pc, reportsIceRecovery: true });
     return pc;
   }
+
+  /**
+   * The same route under a real link-liveness owner, as a Standard-room
+   * Cloudflare connection exposes it (Phase 4 C5-8): `state` is the owner's
+   * connectionstatechange.
+   */
+  function withLinkLiveness(conn: DataConnection) {
+    const pc = withIceState(conn);
+    const route = pc as unknown as RTCPeerConnection;
+    const liveness: LinkLiveness = new LinkLiveness(`preload-test-grace-${conn.peer}`, {
+      route: () => route,
+      open: () => conn.open,
+      snapshot: () => ({
+        original: route,
+        side: undefined,
+        channelsOpen: true,
+        sideChannelDown: false,
+      }),
+      ping: () => undefined,
+      close: () => liveness.stop(),
+      changed: () => undefined,
+      sideMayRestart: () => undefined,
+      recovered: () => undefined,
+    });
+    liveness.binding = 'negotiation_preload_test_01';
+    Object.assign(conn, { linkLiveness: liveness });
+    return (state: RTCPeerConnectionState): void => {
+      pc.connectionState = state;
+      liveness.routeChanged(route);
+    };
+  }
+
+  it('keeps a lane paused while its link owner holds the interruption through connecting (C5-8)', async () => {
+    const healthyConn = makeBulkConn('peer-healthy');
+    const flakyConn = makeBulkConn('peer-flaky', 10 * 1024 * 1024);
+    const state = withLinkLiveness(flakyConn);
+    connectBulkPeers([healthyConn, flakyConn]);
+    initPreload();
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    const sessionId = getState('preload.sessionId');
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
+    state('disconnected');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+
+    // The restart reads connecting and a selected-pair change reports
+    // recovery; the owner still holds the interruption.
+    state('connecting');
+    (flakyConn.dataChannel as unknown as { bufferedAmount: number }).bufferedAmount = 0;
+    bus.emit('network:peer-ice-recovered', flakyConn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_START)).toHaveLength(1);
+
+    state('connected');
+    bus.emit('network:peer-ice-recovered', flakyConn);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_START)).toEqual([
+      expect.not.objectContaining({ restart: true }),
+      expect.objectContaining({ sessionId, restart: true }),
+    ]);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_CHUNK).map((message) => message.chunkIndex)).toEqual([
+      0, 1,
+    ]);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_END)).toHaveLength(1);
+    expect(msgsOf(flakyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+  });
 
   it('pauses an ICE-interrupted lane and restarts it when the exact connection recovers', async () => {
     const healthyConn = makeBulkConn('peer-healthy');

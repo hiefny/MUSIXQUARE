@@ -17,6 +17,7 @@ type Health = ReturnType<typeof readTransportHealth>;
 function health(overrides: Partial<Health> = {}): Health {
   return {
     open: true,
+    link: undefined,
     pc: 'connected',
     ice: 'connected',
     data: 'open',
@@ -194,4 +195,204 @@ describe('honoursRecoveryLease', () => {
     const leased = health({ pc: 'failed', recoveryDeadline: NOW + 5_000, ...overrides });
     expect(honoursRecoveryLease(leased, NOW)).toBe(false);
   });
+});
+
+/**
+ * Phase 4 C5-8 (behaviour-risk): for a connection whose provider exposes a
+ * link-liveness owner (a Standard-room Cloudflare connection, RO-15), the
+ * owner's phase of the original route replaces the PC connectionState rows of
+ * the bulk and preload predicates, and the lease comes from the owner's
+ * deadline. The raw iceConnectionState rows, which the owner does not observe,
+ * still apply. The heartbeat threshold keeps reading the PC state.
+ */
+describe('with the link-liveness owner view', () => {
+  type Phase = 'opening' | 'live' | 'recovering' | 'closed';
+
+  function viewed(link: Phase, overrides: Partial<Health> = {}): Health {
+    return health({ link, ...overrides });
+  }
+
+  it('reads the owner phase and its deadline once each, and not the connection deadline', () => {
+    const reads = new Map<string, number>();
+    const conn = Object.assign(
+      countingFields('', { open: true, iceRecoveryDeadline: 99_999 }, reads),
+      {
+        linkLiveness: countingFields(
+          'linkLiveness.',
+          { phase: 'recovering', recoveryDeadline: 12_345 },
+          reads,
+        ),
+        peerConnection: countingFields(
+          'peerConnection.',
+          { connectionState: 'connecting', iceConnectionState: 'checking' },
+          reads,
+        ),
+        dataChannel: countingFields('dataChannel.', { readyState: 'open' }, reads),
+        controlChannel: countingFields('controlChannel.', { readyState: 'open' }, reads),
+      },
+    ) as unknown as DataConnection;
+
+    expect(readTransportHealth(conn)).toEqual({
+      open: true,
+      link: 'recovering',
+      pc: 'connecting',
+      ice: 'checking',
+      data: 'open',
+      control: 'open',
+      recoveryDeadline: 12_345,
+    });
+    expect(Object.fromEntries(reads)).toEqual({
+      open: 1,
+      'linkLiveness.phase': 1,
+      'linkLiveness.recoveryDeadline': 1,
+      'peerConnection.connectionState': 1,
+      'peerConnection.iceConnectionState': 1,
+      'dataChannel.readyState': 1,
+      'controlChannel.readyState': 1,
+    });
+  });
+
+  it.each([
+    { name: 'a live route', link: 'live', overrides: {}, writable: true },
+    {
+      name: 'a live route whose PC reads connecting',
+      link: 'live',
+      overrides: { pc: 'connecting', ice: 'checking' },
+      writable: true,
+    },
+    {
+      name: 'a live route whose PC reads disconnected before its owner hears it',
+      link: 'live',
+      overrides: { pc: 'disconnected' },
+      writable: true,
+    },
+    {
+      name: 'a recovering route whose restart reads connecting',
+      link: 'recovering',
+      overrides: { pc: 'connecting', ice: 'checking' },
+      writable: false,
+    },
+    { name: 'a recovering route', link: 'recovering', overrides: {}, writable: false },
+    { name: 'an opening route', link: 'opening', overrides: {}, writable: false },
+    { name: 'a closed route', link: 'closed', overrides: {}, writable: false },
+    {
+      name: 'a live route whose ICE transport disconnected',
+      link: 'live',
+      overrides: { ice: 'disconnected' },
+      writable: false,
+    },
+    {
+      name: 'a live route whose ICE transport failed',
+      link: 'live',
+      overrides: { ice: 'failed' },
+      writable: false,
+    },
+    {
+      name: 'a live route whose ICE transport closed',
+      link: 'live',
+      overrides: { ice: 'closed' },
+      writable: false,
+    },
+    {
+      name: 'a live route on a closed connection',
+      link: 'live',
+      overrides: { open: false },
+      writable: false,
+    },
+    {
+      name: 'a live route whose data channel is closing',
+      link: 'live',
+      overrides: { data: 'closing' },
+      writable: false,
+    },
+  ] as const)('bulk is $writable for $name', ({ link, overrides, writable }) => {
+    expect(isBulkWritable(viewed(link, overrides))).toBe(writable);
+  });
+
+  it.each([
+    { name: 'a recovering route', link: 'recovering', overrides: {}, interrupted: true },
+    {
+      name: 'a recovering route whose restart reads connecting',
+      link: 'recovering',
+      overrides: { pc: 'connecting', ice: 'checking' },
+      interrupted: true,
+    },
+    {
+      name: 'a recovering route without a data channel',
+      link: 'recovering',
+      overrides: { data: undefined },
+      interrupted: true,
+    },
+    {
+      name: 'a live route whose PC reads disconnected before its owner hears it',
+      link: 'live',
+      overrides: { pc: 'disconnected' },
+      interrupted: false,
+    },
+    {
+      name: 'a live route whose PC reads failed before its owner hears it',
+      link: 'live',
+      overrides: { pc: 'failed' },
+      interrupted: false,
+    },
+    {
+      name: 'a live route whose ICE transport disconnected',
+      link: 'live',
+      overrides: { ice: 'disconnected' },
+      interrupted: true,
+    },
+    {
+      name: 'a live route whose ICE transport failed',
+      link: 'live',
+      overrides: { ice: 'failed' },
+      interrupted: true,
+    },
+    { name: 'a live route', link: 'live', overrides: {}, interrupted: false },
+    {
+      name: 'a closed route',
+      link: 'closed',
+      overrides: { pc: 'disconnected' },
+      interrupted: false,
+    },
+    {
+      name: 'a recovering route on a closed connection',
+      link: 'recovering',
+      overrides: { open: false },
+      interrupted: false,
+    },
+    {
+      name: 'a recovering route whose data channel is closing',
+      link: 'recovering',
+      overrides: { data: 'closing' },
+      interrupted: false,
+    },
+  ] as const)('is $interrupted interrupted for $name', ({ link, overrides, interrupted }) => {
+    expect(isRecoverablyInterrupted(viewed(link, overrides))).toBe(interrupted);
+  });
+
+  it.each([
+    {
+      name: 'a recovering route whose PC reads connected',
+      link: 'recovering',
+      pc: 'connected',
+      threshold: 90_000,
+    },
+    {
+      name: 'a live route whose PC reads disconnected',
+      link: 'live',
+      pc: 'disconnected',
+      threshold: 30_000,
+    },
+    {
+      name: 'a recovering route whose PC reads failed',
+      link: 'recovering',
+      pc: 'failed',
+      threshold: 8_000,
+    },
+  ] as const)(
+    'keeps the heartbeat threshold on the PC state: $threshold ms for $name',
+    ({ link, pc, threshold }) => {
+      expect(heartbeatStaleThreshold(viewed(link, { pc }))).toBe(threshold);
+    },
+  );
 });

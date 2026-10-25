@@ -1,0 +1,77 @@
+# Golden truth table for isBulkTransferWritablePeer (src/storage/chunk-pump.ts)
+# on a connection that is still the peer's current one and exposes a
+# link-liveness owner (a Standard-room Cloudflare connection, registry RO-15).
+# Recorded for Phase 4 C5-8 (behaviour-risk): the owner's phase of the original
+# route replaces the PC connectionState rows of bulk-writable-truth-table.txt,
+# which stays the table of a connection without an owner (PeerJS). The test
+# checks that every PC connectionState ("-" included) gives this same table.
+#
+# Rows: the connection's open flag, the owner's phase and the RTCPeerConnection
+# iceConnectionState ("-" = not present). Columns: five groups, one per data
+# channel readyState in the order - connecting open closing closed; each group
+# holds five results, one per control channel readyState in the same order.
+# 1 = writable, 0 = not writable.
+open=0 phase=opening      ice=-            00000 00000 00000 00000 00000
+open=0 phase=opening      ice=new          00000 00000 00000 00000 00000
+open=0 phase=opening      ice=checking     00000 00000 00000 00000 00000
+open=0 phase=opening      ice=connected    00000 00000 00000 00000 00000
+open=0 phase=opening      ice=completed    00000 00000 00000 00000 00000
+open=0 phase=opening      ice=disconnected 00000 00000 00000 00000 00000
+open=0 phase=opening      ice=failed       00000 00000 00000 00000 00000
+open=0 phase=opening      ice=closed       00000 00000 00000 00000 00000
+open=0 phase=live         ice=-            00000 00000 00000 00000 00000
+open=0 phase=live         ice=new          00000 00000 00000 00000 00000
+open=0 phase=live         ice=checking     00000 00000 00000 00000 00000
+open=0 phase=live         ice=connected    00000 00000 00000 00000 00000
+open=0 phase=live         ice=completed    00000 00000 00000 00000 00000
+open=0 phase=live         ice=disconnected 00000 00000 00000 00000 00000
+open=0 phase=live         ice=failed       00000 00000 00000 00000 00000
+open=0 phase=live         ice=closed       00000 00000 00000 00000 00000
+open=0 phase=recovering   ice=-            00000 00000 00000 00000 00000
+open=0 phase=recovering   ice=new          00000 00000 00000 00000 00000
+open=0 phase=recovering   ice=checking     00000 00000 00000 00000 00000
+open=0 phase=recovering   ice=connected    00000 00000 00000 00000 00000
+open=0 phase=recovering   ice=completed    00000 00000 00000 00000 00000
+open=0 phase=recovering   ice=disconnected 00000 00000 00000 00000 00000
+open=0 phase=recovering   ice=failed       00000 00000 00000 00000 00000
+open=0 phase=recovering   ice=closed       00000 00000 00000 00000 00000
+open=0 phase=closed       ice=-            00000 00000 00000 00000 00000
+open=0 phase=closed       ice=new          00000 00000 00000 00000 00000
+open=0 phase=closed       ice=checking     00000 00000 00000 00000 00000
+open=0 phase=closed       ice=connected    00000 00000 00000 00000 00000
+open=0 phase=closed       ice=completed    00000 00000 00000 00000 00000
+open=0 phase=closed       ice=disconnected 00000 00000 00000 00000 00000
+open=0 phase=closed       ice=failed       00000 00000 00000 00000 00000
+open=0 phase=closed       ice=closed       00000 00000 00000 00000 00000
+open=1 phase=opening      ice=-            00000 00000 00000 00000 00000
+open=1 phase=opening      ice=new          00000 00000 00000 00000 00000
+open=1 phase=opening      ice=checking     00000 00000 00000 00000 00000
+open=1 phase=opening      ice=connected    00000 00000 00000 00000 00000
+open=1 phase=opening      ice=completed    00000 00000 00000 00000 00000
+open=1 phase=opening      ice=disconnected 00000 00000 00000 00000 00000
+open=1 phase=opening      ice=failed       00000 00000 00000 00000 00000
+open=1 phase=opening      ice=closed       00000 00000 00000 00000 00000
+open=1 phase=live         ice=-            11111 00000 11111 00000 00000
+open=1 phase=live         ice=new          11111 00000 11111 00000 00000
+open=1 phase=live         ice=checking     11111 00000 11111 00000 00000
+open=1 phase=live         ice=connected    11111 00000 11111 00000 00000
+open=1 phase=live         ice=completed    11111 00000 11111 00000 00000
+open=1 phase=live         ice=disconnected 00000 00000 00000 00000 00000
+open=1 phase=live         ice=failed       00000 00000 00000 00000 00000
+open=1 phase=live         ice=closed       00000 00000 00000 00000 00000
+open=1 phase=recovering   ice=-            00000 00000 00000 00000 00000
+open=1 phase=recovering   ice=new          00000 00000 00000 00000 00000
+open=1 phase=recovering   ice=checking     00000 00000 00000 00000 00000
+open=1 phase=recovering   ice=connected    00000 00000 00000 00000 00000
+open=1 phase=recovering   ice=completed    00000 00000 00000 00000 00000
+open=1 phase=recovering   ice=disconnected 00000 00000 00000 00000 00000
+open=1 phase=recovering   ice=failed       00000 00000 00000 00000 00000
+open=1 phase=recovering   ice=closed       00000 00000 00000 00000 00000
+open=1 phase=closed       ice=-            00000 00000 00000 00000 00000
+open=1 phase=closed       ice=new          00000 00000 00000 00000 00000
+open=1 phase=closed       ice=checking     00000 00000 00000 00000 00000
+open=1 phase=closed       ice=connected    00000 00000 00000 00000 00000
+open=1 phase=closed       ice=completed    00000 00000 00000 00000 00000
+open=1 phase=closed       ice=disconnected 00000 00000 00000 00000 00000
+open=1 phase=closed       ice=failed       00000 00000 00000 00000 00000
+open=1 phase=closed       ice=closed       00000 00000 00000 00000 00000

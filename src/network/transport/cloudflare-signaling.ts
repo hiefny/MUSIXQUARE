@@ -29,6 +29,7 @@ import type {
   TransportCloseReason,
   TransportConnectOptions,
   TransportDataConnection,
+  TransportLinkLivenessView,
   TransportBackgroundRecoveryResult,
   TransportBackgroundRecoveryStatus,
   TransportAnswerOptions,
@@ -1014,6 +1015,8 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     sideMayRestart: () => this.controlIsolation?.originalChanged(),
     recovered: () => this.emit('ice-recovered'),
   });
+  /** What transport health reads of the original route (Phase 4 C5-8). */
+  readonly linkLiveness: TransportLinkLivenessView = this.liveness;
   readonly reportsIceRecovery = true;
   private selectedPairTransport: RTCIceTransport | null = null;
   private readonly onSelectedPairChange = (): void => {

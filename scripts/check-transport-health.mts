@@ -4,7 +4,8 @@
  *
  * Static ratchet for the one transport-health read path (Phase 4, C5-4;
  * docs/design/realtime-runtime-ownership.md, registry RO-17).
- * src/network/transport-health.ts reads a data connection's raw RTC state and
+ * src/network/transport-health.ts reads a data connection's raw RTC state (and,
+ * since C5-8, its link-liveness owner's view of the original route) and
  * answers the bulk, preload and heartbeat questions through pure predicates.
  * This guard keeps the host's bulk senders, preload lanes and heartbeat
  * monitor on that path:

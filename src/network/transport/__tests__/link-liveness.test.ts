@@ -706,9 +706,60 @@ describe('the original route as transport health reads it', () => {
     const { a } = await activeSidePair();
     a.sidePc.state('disconnected');
     const health = readTransportHealth(a.conn);
+    expect(a.conn.linkLiveness.phase).toBe('live');
     expect(isBulkWritable(health)).toBe(true);
     expect(isRecoverablyInterrupted(health)).toBe(false);
     expect(a.conn.open).toBe(true);
+  });
+
+  it('reads opening, live, recovering through a restart that reads connecting, live, then closed', async () => {
+    const e = await connection({ bound: true, opened: false });
+    expect(e.conn.linkLiveness.phase).toBe('opening');
+    e.bulk.open();
+    e.control.open();
+    expect(e.conn.open).toBe(true);
+    expect(e.conn.linkLiveness.phase).toBe('live');
+    expect(isBulkWritable(readTransportHealth(e.conn))).toBe(true);
+
+    e.pc.state('disconnected');
+    expect(e.conn.linkLiveness.phase).toBe('recovering');
+    expect(readTransportHealth(e.conn).recoveryDeadline).toBe(Date.now() + GRACE_MS);
+    expect(e.conn.linkLiveness.recoveryDeadline).toBe(e.conn.iceRecoveryDeadline);
+    expect(e.conn.beginIceRestart()).toBe(true);
+    e.pc.state('connecting');
+    const restarting = readTransportHealth(e.conn);
+    expect(restarting.link).toBe('recovering');
+    expect(isBulkWritable(restarting)).toBe(false);
+    expect(isRecoverablyInterrupted(restarting)).toBe(true);
+
+    e.pc.state('connected');
+    expect(e.conn.linkLiveness.phase).toBe('live');
+    expect(isBulkWritable(readTransportHealth(e.conn))).toBe(true);
+    expect(e.trace).toEqual(['side', 'side', 'ice-recovered']);
+
+    e.conn.close();
+    expect(e.conn.linkLiveness.phase).toBe('closed');
+    expect(isBulkWritable(readTransportHealth(e.conn))).toBe(false);
+  });
+
+  it('reads live once an interrupted route reads connected without its event', async () => {
+    const e = await connection({ bound: true });
+    e.pc.state('disconnected');
+    // The owner's own grace closes nothing on that read either.
+    e.pc.connectionState = 'connected';
+    expect(e.conn.linkLiveness.phase).toBe('live');
+    expect(isBulkWritable(readTransportHealth(e.conn))).toBe(true);
+    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    expect(e.conn.open).toBe(true);
+  });
+
+  it('stays live through a restart begun on a connected route, whose lease it still publishes', async () => {
+    const e = await connection({ bound: true });
+    expect(e.conn.beginIceRestart()).toBe(true);
+    const health = readTransportHealth(e.conn);
+    expect(health.link).toBe('live');
+    expect(health.recoveryDeadline).toBe(Date.now() + GRACE_MS);
+    expect(isBulkWritable(health)).toBe(true);
   });
 });
 
@@ -1246,5 +1297,27 @@ describe('LinkLiveness ports', () => {
       await vi.advanceTimersByTimeAsync(60_000);
       expect(closes(o.trace)).toEqual([]);
     });
+  });
+
+  it('reads its phase from the original route alone, without a port call beyond open and route (C5-8)', () => {
+    const o = owner({ open: false });
+    expect(o.liveness.phase).toBe('opening');
+    o.setOpen(true);
+    expect(o.liveness.phase).toBe('live');
+    // A side PC never makes the phase recovering (RO-35).
+    o.link.side = side('disconnected');
+    expect(o.liveness.phase).toBe('live');
+    o.transition('disconnected');
+    expect(o.liveness.phase).toBe('recovering');
+    o.route()!.connectionState = 'connecting';
+    expect(o.liveness.phase).toBe('recovering');
+    // The condition under which its grace would close: not reading connected.
+    o.route()!.connectionState = 'connected';
+    expect(o.liveness.phase).toBe('live');
+    o.replaceRoute(undefined);
+    expect(o.liveness.phase).toBe('recovering');
+    o.liveness.stop();
+    expect(o.liveness.phase).toBe('closed');
+    expect(o.trace).toEqual([['changed', 0], 'side']);
   });
 });

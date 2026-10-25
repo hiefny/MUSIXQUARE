@@ -2,7 +2,8 @@
 
 - **Status:** Accepted
 - **Decision date:** 2026-08-18
-- **Amended:** 2026-10-24, the transport-health read rule (Phase 4, C5-4)
+- **Amended:** 2026-10-24, the transport-health read rule (Phase 4, C5-4); 2026-10-25, the
+  link-liveness owner view (Phase 4, C5-8)
 - **Applies to:** standard-room browser control, synchronization, and peer liveness
 
 ## Decision
@@ -28,20 +29,30 @@ one read path from a data connection's raw RTC state (the peer connection's
 `connectionState` and `iceConnectionState`, the data and control channel
 states, and the provider's ICE recovery deadline) to the decisions made on it.
 A caller takes one snapshot with `readTransportHealth()` and asks a pure
-predicate:
+predicate. Since 2026-10-25 (Phase 4, C5-8) a Standard-room Cloudflare
+connection exposes its link-liveness owner (`linkLiveness`, registry RO-15):
+the snapshot then takes the original route from the owner's phase instead of
+the peer connection's `connectionState`, and the recovery deadline from the
+owner. The owner does not observe `iceConnectionState`, so those rows still
+apply. A connection without an owner (PeerJS) is read raw.
 
 - `isBulkWritable`: the bulk (chunk) senders, through
-  `isBulkTransferWritablePeer` in `src/storage/chunk-pump.ts`. Either field
-  disconnected, failed, or closed blocks the lane.
+  `isBulkTransferWritablePeer` in `src/storage/chunk-pump.ts`. Raw, either
+  field disconnected, failed, or closed blocks the lane. With an owner, only
+  its `live` phase is writable, and ICE disconnected, failed, or closed still
+  blocks the lane.
 - `isRecoverablyInterrupted`: the preload lanes in `src/storage/preload.ts`
-  pause instead of aborting. Either field disconnected or failed counts.
+  pause instead of aborting. Raw, either field disconnected or failed counts.
+  With an owner, its `recovering` phase counts (also while a restarted route
+  reads `connecting`), and so does ICE disconnected or failed; a side-route
+  outage never does.
 - `heartbeatStaleThreshold` and `honoursRecoveryLease`: the heartbeat
   monitor's stale threshold and its bounded ICE recovery lease. Neither reads
   `iceConnectionState`. The threshold reads whether the connection is open,
   the peer connection's `connectionState`, and the data and control channel
   states. The lease reads whether the connection is open, the data and
-  control channel states, and the provider's recovery deadline; it reads no
-  peer connection state.
+  control channel states, and the provider's recovery deadline (the owner's,
+  when the connection has one); it reads no peer connection state.
 
 The module owns no state, timer, or lifecycle. Callers keep their own currency
 checks (the connection is still the peer's current one). The heartbeat

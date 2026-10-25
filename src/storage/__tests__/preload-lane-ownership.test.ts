@@ -825,6 +825,62 @@ describe('preload lanes interrupted by ICE', () => {
     ]);
   });
 
+  it('keeps an owner-view lane paused while its restart reads connecting, then restarts it on connected (C5-8)', async () => {
+    const healthy = connection('healthy-listener');
+    const flaky = interruptibleConnection('owner-view-restart', true, 'view');
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(healthy.peer, flaky.peer);
+    publishPreload(file);
+    setState('preload.ready', null);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    flaky.interrupt();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    // A selected-pair change reports recovery while the owner still holds the
+    // interruption and the restarted route reads connecting.
+    flaky.restarting();
+    flaky.channel.bufferedAmount = 0;
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
+  });
+
+  it('pauses an owner-view unicast whose interrupted route already reads connecting (C5-8)', async () => {
+    const target = interruptibleConnection('owner-view-unicast', true, 'view');
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(target.peer);
+    publishPreload(file);
+    const sending = unicastPreload(target.conn, file, NEXT, 7);
+    await vi.advanceTimersByTimeAsync(100);
+    target.interrupt();
+    target.restarting();
+    await vi.advanceTimersByTimeAsync(100);
+    await sending;
+    expect(types(target.wire)).toEqual([MSG.PRELOAD_START]);
+
+    target.recover();
+    bus.emit('network:peer-ice-recovered', target.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(target.wire)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
+  });
+
   it.each([
     {
       verdict: 'pauses',

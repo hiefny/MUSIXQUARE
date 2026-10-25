@@ -3,7 +3,7 @@
 // Standard-room logical data connection).
 import { MSG, RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
-import type { TransportBackgroundRecoveryStatus } from './types.ts';
+import type { TransportBackgroundRecoveryStatus, TransportLinkLivenessView } from './types.ts';
 
 /** A disconnected route at resume gets this one short look, not a fresh grace. */
 const BACKGROUND_RESUME_DISCONNECTED_PROBE_MS = 1_000;
@@ -70,8 +70,11 @@ function randomResumeProbePingId(): number {
  * route's interruption, the 15 s grace, the wall-clock recovery deadline it
  * publishes and the gate that admits one ICE restart per interruption; since
  * C5-7 it also owns the guest background-resume probe, which reads both routes
- * and their channels. It is a module of its own because that state has its own
- * start, cancel, expiry and stop lifecycle with its own tests; the SDP
+ * and their channels. Since C5-8 the connection exposes it as its
+ * `linkLiveness` view, from which transport health reads the original route's
+ * phase and the published deadline. It is a module of its own because that
+ * state has its own start, cancel, expiry and stop lifecycle with its own
+ * tests and two readers (the connection and transport health); the SDP
  * executors and the side route (RO-35) stay with their owners.
  *
  * Rules kept from the connection:
@@ -97,7 +100,7 @@ function randomResumeProbePingId(): number {
  *   connected transition of the original route. Stop clears the probe and its
  *   timers.
  */
-export class LinkLiveness {
+export class LinkLiveness implements TransportLinkLivenessView {
   /** The negotiation that made this link restartable (the bind input), or null. */
   binding: string | null = null;
   private interrupted = false;
@@ -119,6 +122,19 @@ export class LinkLiveness {
   /** The published recovery deadline (wall clock), or 0. */
   get recoveryDeadline(): number {
     return this.binding ? this.deadline : 0;
+  }
+
+  /**
+   * The original route as transport health reads it (Phase 4 C5-8):
+   * recovering while an interruption is held and the route does not read
+   * connected, the condition under which the grace closes the link.
+   */
+  get phase(): TransportLinkLivenessView['phase'] {
+    if (this.stopped) return 'closed';
+    if (!this.ports.open()) return 'opening';
+    return this.interrupted && this.ports.route()?.connectionState !== 'connected'
+      ? 'recovering'
+      : 'live';
   }
 
   /** One `connectionstatechange` of the original PC. */

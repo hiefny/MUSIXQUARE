@@ -1,7 +1,7 @@
 /**
  * MUSIXQUARE — Transport Health
  *
- * The one read path from a data connection's raw RTC state to the decisions
+ * The one read path from a data connection's transport state to the decisions
  * the host's bulk senders, preload lanes and heartbeat monitor make on it.
  * Each caller takes a snapshot with readTransportHealth() and asks one of the
  * pure predicates below instead of reading `connectionState` or
@@ -9,10 +9,13 @@
  * keep their own currency check (the connection is still the peer's current
  * one), which reads room state that this module never touches.
  *
- * A peer connection's connectionState and its iceConnectionState describe the
- * same route but do not always change together. The bulk and preload
- * predicates act on either field; the heartbeat grace follows the peer
- * connection alone.
+ * A Standard-room Cloudflare connection exposes its link-liveness owner
+ * (`linkLiveness`, registry RO-15). Since Phase 4 C5-8 the bulk and preload
+ * predicates take the original route from that owner's phase instead of the
+ * peer connection's connectionState, and the recovery lease from its deadline.
+ * A connection without one (PeerJS) is read raw. The owner does not observe
+ * iceConnectionState, so its disconnected, failed and closed rows still apply
+ * on both paths. The heartbeat threshold follows the peer connection alone.
  */
 
 import { RTC_INTERRUPTION_GRACE_MS } from '../core/constants.ts';
@@ -25,6 +28,8 @@ const HEARTBEAT_RECOVERING_TRANSPORT_GRACE = 30_000;
 /** One synchronous read of a data connection's transport state. */
 interface TransportHealth {
   readonly open: boolean;
+  /** The link-liveness owner's phase of the original route, when the connection has one. */
+  readonly link: NonNullable<DataConnection['linkLiveness']>['phase'] | undefined;
   readonly pc: RTCPeerConnectionState | undefined;
   readonly ice: RTCIceConnectionState | undefined;
   readonly data: RTCDataChannelState | undefined;
@@ -34,20 +39,23 @@ interface TransportHealth {
 }
 
 export function readTransportHealth(conn: DataConnection | null | undefined): TransportHealth {
+  const owner = conn?.linkLiveness;
   return {
     open: !!conn?.open,
+    link: owner?.phase,
     pc: conn?.peerConnection?.connectionState,
     ice: conn?.peerConnection?.iceConnectionState,
     data: conn?.dataChannel?.readyState,
     control: conn?.controlChannel?.readyState,
-    recoveryDeadline: conn?.iceRecoveryDeadline,
+    recoveryDeadline: owner ? owner.recoveryDeadline : conn?.iceRecoveryDeadline,
   };
 }
 
 /**
- * Bulk (chunk) streaming needs an open connection and data channel, and
- * neither the peer connection nor ICE disconnected, failed or closed. New and
- * connecting routes stay writable.
+ * Bulk (chunk) streaming needs an open connection and data channel, an
+ * original route its owner reads live (raw: a peer connection that is not
+ * disconnected, failed or closed), and ICE not disconnected, failed or
+ * closed. New and connecting raw routes stay writable.
  */
 export function isBulkWritable(health: TransportHealth): boolean {
   if (!health.open) return false;
@@ -55,26 +63,33 @@ export function isBulkWritable(health: TransportHealth): boolean {
   const dataChannelState = health.data;
   if (dataChannelState && dataChannelState !== 'open') return false;
 
-  const pcState = health.pc;
-  if (pcState === 'closed' || pcState === 'failed' || pcState === 'disconnected') return false;
+  if (health.link) {
+    if (health.link !== 'live') return false;
+  } else {
+    const pcState = health.pc;
+    if (pcState === 'closed' || pcState === 'failed' || pcState === 'disconnected') return false;
+  }
 
+  // The owner does not observe ICE: its rows apply on both paths.
   const iceState = health.ice;
   if (iceState === 'closed' || iceState === 'failed' || iceState === 'disconnected') return false;
 
   return true;
 }
 
-/** Disconnected, or failed with an ICE restart pending; the channel itself is still open. */
+/**
+ * The owner holds an interruption of the original route (raw: the peer
+ * connection is disconnected, or failed with an ICE restart pending), or ICE
+ * is disconnected or failed; the channel itself is still open.
+ */
 export function isRecoverablyInterrupted(health: TransportHealth): boolean {
   if (!health.open) return false;
   const channelState = health.data;
   if (channelState && channelState !== 'open') return false;
-  return (
-    health.pc === 'disconnected' ||
-    health.pc === 'failed' ||
-    health.ice === 'disconnected' ||
-    health.ice === 'failed'
-  );
+  const routeInterrupted = health.link
+    ? health.link === 'recovering'
+    : health.pc === 'disconnected' || health.pc === 'failed';
+  return routeInterrupted || health.ice === 'disconnected' || health.ice === 'failed';
 }
 
 /**
@@ -116,7 +131,8 @@ export function heartbeatStaleThreshold(health: TransportHealth): number {
 /**
  * A recovery lease the heartbeat monitor honours: an open connection whose
  * data and control channels are open, inside the provider's deadline for this
- * interruption, and that deadline at most one RTC interruption grace away.
+ * interruption (the link-liveness owner's, when the connection has one), and
+ * that deadline at most one RTC interruption grace away.
  */
 export function honoursRecoveryLease(health: TransportHealth, now: number): boolean {
   const recoveryRemaining = (health.recoveryDeadline ?? 0) - now;

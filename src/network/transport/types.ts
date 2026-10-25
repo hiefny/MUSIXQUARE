@@ -346,6 +346,22 @@ export type TransportCloseReason =
   | 'join-bootstrap-failed'
   | 'pro-epoch-advanced';
 
+/**
+ * The original route of a Standard-room logical data connection as its
+ * link-liveness owner reads it (registry RO-15, Phase 4 C5-8).
+ */
+export interface TransportLinkLivenessView {
+  /**
+   * `recovering` while the owner holds an interruption of the original route
+   * (disconnected, or failed with a restart binding, until it reads connected
+   * again), `opening` until the connection opens, `closed` once it closes.
+   * The side route's outages never make it `recovering` (RO-35).
+   */
+  readonly phase: 'opening' | 'live' | 'recovering' | 'closed';
+  /** The owner's published, non-renewing recovery deadline (wall clock), or 0. */
+  readonly recoveryDeadline: number;
+}
+
 export interface TransportDataConnection {
   peer: string;
   open: boolean;
@@ -363,8 +379,18 @@ export interface TransportDataConnection {
   readonly bulkFlowControl?: TransportBulkFlowControl;
   /** Activate private flow frames only after the application join handshake settles. */
   startBulkFlowControl?(): void;
-  /** Provider-owned, non-renewing deadline for this exact ICE interruption. */
+  /**
+   * Provider-owned, non-renewing deadline for this exact ICE interruption.
+   * Transport health reads it only on a connection without `linkLiveness`.
+   */
   readonly iceRecoveryDeadline?: number;
+  /**
+   * The link-liveness owner's view of the original route, on a provider that
+   * has one (a Standard-room Cloudflare connection). Transport health reads
+   * its phase instead of the peer connection's connectionState, and its
+   * deadline as the recovery lease (Phase 4 C5-8).
+   */
+  readonly linkLiveness?: TransportLinkLivenessView;
   /**
    * The provider emits `ice-recovered` when this connection survives an ICE
    * interruption. Work paused until that event requires it.

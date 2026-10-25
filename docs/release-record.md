@@ -45,7 +45,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### 구조 개선 Phase 4 4D(배포 전): 보조 경로의 끊김 기한도 연결 생존 주인으로
+### 구조 개선 Phase 4 4D(9.0.11/v784, 배포 전): 보조 경로의 끊김 기한도 연결 생존 주인으로
 
 - [ ] 4D 범위(오너 결정 2026-10-25 약 16:30 KST): 허용 위험 #18이 오너의 와이파이→LTE 실기기 확인(운영
       9.0.10, 2026-10-25, #491)으로 은퇴한 뒤, 오너가 Phase 4 밖(P4-D6 A, registry RO-35)에 두었던 C5-9를
@@ -71,12 +71,19 @@ gh run list --workflow e2e.yml --branch main --limit 3
       15,594, 핵심 커버리지 79 files / 3,074, 가드 PASS, 보고서 QA 라운드 3). 구현 중 정한 세부(기한 값을
       `RTC_INTERRUPTION_GRACE_MS`에서 끌어내 유예를 바꾸면 보조 경로 끊김 창과 상한도 함께 움직이고 peer 창은
       그대로임, 관리 타이머로 바꾸지 않음, 원래 경로를 읽는 자리)는 오너가 맡긴 판단이고 오너 확인을 기다린다
-      (게이트 아님). 남은 것: SemVer·SW 캐시 epoch bump(올리기 직전 origin/main 확인, 다른 앱 열차가 먼저
-      나가지 않으면 `9.0.11` / `v784`), bump 뒤 `build:checked`·Worker 단위·critical E2E·C5-0 랩, PR CI,
-      Codex, exact-main CI, 릴리스 smoke, 배포(target `app`, Developer API D1 `false`, 자동 게이트가 통과하면
-      바로), 배포 기록 때 4D가 아래 4A 기기 라운드보다 먼저 나갔으면 그 항목의 '4C 위에서 처음 재는 기준선'
-      문장을 4D로 고침. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
-      [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md).
+      (게이트 아님). 9.0.10은 배포됐으므로 SemVer와 SW 캐시 epoch를 마지막 런타임 커밋 `cf555b01`에서
+      `9.0.11` / `v784`로 함께 올렸다(올리기 직전 fetch한 origin/main은 여전히 `f91c538e`). bump 뒤 최종 로컬
+      검증(`cf555b01`): release-identity(9.0.11, v784)·sw-cache-version, 단위 666 files / 15,594(D0 묶음, 기기
+      근거 세 줄 고정, 동결 C9 fixture 포함), Worker 60 files / 2,914, typecheck(테스트 포함)·`check:workers`·
+      lint·format, `build:checked` 전체, 가드(dead-exports 20/20·76/76 그대로, transport-health 은퇴 이름 24,
+      resource-ownership 47 records / 437 files), 핵심 커버리지 79 files / 3,074(`link-liveness.ts` 100),
+      critical E2E 61/61, C5-0 랩 `--repeat-each=2` 16/16(보조 PC failed 뒤 offerer의 재시작 줄 하나와
+      회복 줄, did-not-recover 경고와 닫힘 원인 줄 없음. F4는 두 번 모두 본 레인 23,040,044 B 한 번, 미리받기
+      청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나), 초기 JS 478,186 B(랩 뒤 프로덕션 빌드 두 번
+      같음, main 478,015 B 대비 +171 B, 유지 상한까지 13,382 B) PASS. 남은 것: PR CI, Codex, exact-main CI,
+      릴리스 smoke, 배포(target `app`, Developer API D1 `false`, 자동 게이트가 통과하면 바로), 배포 기록 때
+      4D가 아래 4A 기기 라운드보다 먼저 나갔으면 그 항목의 '4C 위에서 처음 재는 기준선' 문장을 4D로 고침. 로컬
+      결과는 exact-main-SHA 후보를 대신하지 않는다. [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md).
 - [ ] 4D 배포 뒤 실기기 확인(게이트는 아니지만 되돌리기 판정, 오너 결정 2026-10-25 약 16:30 KST): Windows
       Chrome 방장과 같은 와이파이의 iPhone Safari 게스트(`?mxqrLog=info`, 할 수 있으면 Android Chrome도)로,
       게스트가 대기열 항목을 직접 받은 뒤(격리 제어 경로가 생김) (1) 와이파이→LTE: 창 없이 재생과 조작이

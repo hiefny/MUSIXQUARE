@@ -99,7 +99,6 @@ const BOT_REQUEST_ID_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
 // prevents control characters from reaching diagnostics and map keys.
 const YOUTUBE_ZERO_START_RUN_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
-const PRO_SYSTEM_AUDIO_PUBLIC_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const OPERATOR_FILE_UPLOAD_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -443,90 +442,6 @@ function isYouTubeZeroStartCohort(value: unknown): boolean {
   );
 }
 
-function isProSystemAudioPublication(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const publication = value as Record<string, unknown>;
-  if (
-    !hasExactKeys(publication, ['publicationId', 'sessionId', 'track']) ||
-    typeof publication.publicationId !== 'string' ||
-    !PRO_SYSTEM_AUDIO_PUBLIC_ID_RE.test(publication.publicationId) ||
-    typeof publication.sessionId !== 'string' ||
-    !PRO_SYSTEM_AUDIO_PUBLIC_ID_RE.test(publication.sessionId)
-  ) {
-    return false;
-  }
-  const trackValue = publication.track;
-  if (!trackValue || typeof trackValue !== 'object' || Array.isArray(trackValue)) return false;
-  const track = trackValue as Record<string, unknown>;
-  return (
-    hasExactKeys(track, ['trackName'], ['mid']) &&
-    typeof track.trackName === 'string' &&
-    track.trackName.length > 0 &&
-    track.trackName.length <= 160 &&
-    track.trackName.trim() === track.trackName &&
-    (track.mid === undefined ||
-      (typeof track.mid === 'string' &&
-        track.mid.length > 0 &&
-        track.mid.length <= 64 &&
-        track.mid.trim() === track.mid))
-  );
-}
-
-function isProSystemAudioState(data: Record<string, unknown>): boolean {
-  if (
-    !hasExactKeys(data, [
-      'type',
-      'version',
-      'generation',
-      'status',
-      'ownerParticipantId',
-      'ownerDisplayName',
-      'claimExpiresAt',
-      'liveExpiresAt',
-      'publication',
-    ]) ||
-    data.version !== 2 ||
-    !isNonNegSafeInt(data.generation) ||
-    (data.ownerDisplayName !== null &&
-      (typeof data.ownerDisplayName !== 'string' || data.ownerDisplayName.length > 64))
-  ) {
-    return false;
-  }
-  if (data.status === 'idle') {
-    return (
-      data.ownerParticipantId === null &&
-      data.ownerDisplayName === null &&
-      data.claimExpiresAt === null &&
-      data.liveExpiresAt === null &&
-      data.publication === null
-    );
-  }
-  if (
-    !isPositiveSafeInt(data.generation) ||
-    typeof data.ownerParticipantId !== 'string' ||
-    !PRO_SYSTEM_AUDIO_PUBLIC_ID_RE.test(data.ownerParticipantId) ||
-    typeof data.ownerDisplayName !== 'string' ||
-    data.ownerDisplayName.length === 0 ||
-    data.ownerDisplayName.length > 64 ||
-    data.ownerDisplayName.trim() !== data.ownerDisplayName
-  ) {
-    return false;
-  }
-  if (data.status === 'preparing') {
-    return (
-      isPositiveSafeInt(data.claimExpiresAt) &&
-      data.liveExpiresAt === null &&
-      data.publication === null
-    );
-  }
-  return (
-    data.status === 'live' &&
-    data.claimExpiresAt === null &&
-    isPositiveSafeInt(data.liveExpiresAt) &&
-    isProSystemAudioPublication(data.publication)
-  );
-}
-
 function isValidRequestSetting(data: Record<string, unknown>): boolean {
   if (typeof data.settingType !== 'string') return false;
 
@@ -594,11 +509,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     hasExactKeys(d, ['type', 'version', 'settings']) &&
     d.version === 1 &&
     isValidSettingsSyncState(d.settings),
-  [MSG.PRO_ROOM_INVALIDATED]: (d) =>
-    isNonNegSafeInt(d.revision) && isNonNegSafeInt(d.playlistRevision),
-  [MSG.PRO_SYSTEM_AUDIO_HINT]: (d) =>
-    hasExactKeys(d, ['type', 'generation']) && isNonNegSafeInt(d.generation),
-  [MSG.PRO_SYSTEM_AUDIO_STATE]: isProSystemAudioState,
   [MSG.PLAY]: (d) =>
     isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.time) &&

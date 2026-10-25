@@ -2012,8 +2012,8 @@ RO-49 accepted-exception
   - Cross-document: `src/account/__tests__/account-pulse-cross-document.test.ts` runs the app tab and the
     events document together over a same-origin BroadcastChannel fake, and
     `account-pulse-contract.test.ts` freezes the pulse wire format, channel names and storage keys
-    (Phase 0c C8 harness), and runs session.ts as App 9.0.3 shipped it as the old tab of a mixed
-    rollout; `account-sync-protocol.test.ts` pins the parser over both former validators.
+    (Phase 0c C8 harness); `account-sync-protocol.test.ts` pins the parser over both former
+    validators.
   - Single receiver: `src/ui/__tests__/account-pulse-receivers.test.ts` (one channel and one
     listener per transport for the session and the UI together, the I10 cases (a) to (e), the
     popup-only context and the backgrounded-opener resume orders) and `session.test.ts` "the

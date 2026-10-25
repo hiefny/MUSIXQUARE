@@ -188,7 +188,7 @@ function compileOnce(request: Record<string, unknown>): Promise<string> {
             new Error(`${COMPILER} exited ${code}: ${Buffer.concat(stderr).toString('utf8')}`),
           );
       });
-      // The request travels on stdin: a frozen source copy exceeds Windows' argv limit.
+      // The request travels on stdin: a whole-file source override exceeds Windows' argv limit.
       child.stdin.end(key);
     });
     compileCache.set(key, compiled);
@@ -209,18 +209,14 @@ async function classicRuntime(outputPath: string, drift?: SourceDrift): Promise<
 
 /**
  * An IIFE of the real session.ts and state.ts for a JSDOM app document.
- * `sources` replaces whole repository files in that module graph (a frozen
- * older copy for a mixed-version tab); `drift` edits one file on top
- * (session.ts unless it names another).
+ * `drift` edits one file of that module graph (session.ts unless it names
+ * another).
  */
-async function sessionBundle(
-  drift?: SourceDrift,
-  sources: Readonly<Record<string, string>> = {},
-): Promise<string> {
-  const overrides = { ...sources };
+async function sessionBundle(drift?: SourceDrift): Promise<string> {
+  const overrides: Record<string, string> = {};
   if (drift) {
     const path = drift.path ?? 'src/account/session.ts';
-    overrides[path] = applyDrift(overrides[path] ?? (await repositoryFile(path)), drift, path);
+    overrides[path] = applyDrift(await repositoryFile(path), drift, path);
   }
   return compileOnce({
     kind: 'session',
@@ -333,14 +329,13 @@ export class AccountPulseHarness {
 
   /**
    * A second (third, ...) app tab running the real session.ts in its own JSDOM
-   * window. `sources` swaps whole files of its module graph, for example a
-   * frozen pre-change session.ts to run an old tab beside new ones.
+   * window.
    */
   async loadSessionDocument(
     name: string,
-    options: DocumentLoadOptions & { readonly sources?: Readonly<Record<string, string>> } = {},
+    options: DocumentLoadOptions = {},
   ): Promise<SessionDocument> {
-    const code = await sessionBundle(options.drift, options.sources);
+    const code = await sessionBundle(options.drift);
     const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
       url: `${this.origin.origin}/`,
       runScripts: 'outside-only',

@@ -339,7 +339,7 @@ async function handleRequestDataRecovery(
     if (Number.isFinite(n) && n > 0) startChunk = Math.floor(n);
   }
 
-  const reqName = data.fileName || data.name ? String(data.fileName || data.name) : '';
+  const reqName = data.fileName ? String(data.fileName) : '';
   const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
   if (!queueItemId) return;
   if (routeProRoomFileRequest(data, conn, queueItemId)) return;

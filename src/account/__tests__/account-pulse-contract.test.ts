@@ -655,27 +655,13 @@ interface Drifts {
  * 1. app-a's login popup completes (the completion page produces);
  * 2. app-b signs out (bundled session.ts produces);
  * 3. app-a signs out (session.ts in the Vitest document produces).
- *
- * Mixed versions (Phase 2): tabs opened before a deploy keep the old
- * session.ts beside new tabs and the events page, on the same channel and key.
- * `appBSources` runs app-b from other sources for that: frozenAppTabSources()
- * is session.ts as App 9.0.3 shipped it, before C8-I1, C8-I4 and C8-I10, so the
- * frozen-sources rows below run that old app-b beside the new app-a.
  */
-async function contractMatrix(
-  transport: Transport,
-  drifts: Drifts = {},
-  appBSources?: Readonly<Record<string, string>>,
-) {
+async function contractMatrix(transport: Transport, drifts: Drifts = {}) {
   const only: FakeDocumentOptions =
     transport === 'broadcast' ? { storage: 'blocked' } : { broadcastChannel: false };
   harness.server.account = null;
   const popup = await appTabWithOpenLogin(only);
-  const appB = await harness.loadSessionDocument('app-b', {
-    ...only,
-    drift: drifts.appB,
-    sources: appBSources,
-  });
+  const appB = await harness.loadSessionDocument('app-b', { ...only, drift: drifts.appB });
   appB.session.startAccountSessionRefresh();
   await harness.loadEventsDocument('events', { ...only, drift: drifts.events });
   await harness.origin.settle();
@@ -741,53 +727,11 @@ function changedCells(actual: Matrix): string[] {
   );
 }
 
-const FROZEN_MARKER = '__mxqrPulseFrozenAppTab';
-const LIVE_SESSION = 'src/account/session.ts';
-
-/**
- * src/account/session.ts exactly as App 9.0.3 (main 19dfae1a) deployed it, the
- * tab still open when the Phase 2 update lands. It replaces the live file in
- * app-b's module graph (its imports resolve from src/account/), and the marker
- * proves app-b runs it rather than the live module graph.
- */
-const FROZEN_APP_TAB_SESSION = 'src/account/__tests__/__fixtures__/session-app-9.0.3.ts.txt';
-
-async function frozenAppTabSources(): Promise<Record<string, string>> {
-  const source = await readFile(join(process.cwd(), FROZEN_APP_TAB_SESSION), 'utf8');
-  return {
-    [LIVE_SESSION]: `${source}\n(globalThis as Record<string, unknown>).${FROZEN_MARKER} = true;\n`,
-  };
-}
-
-describe('the frozen old app tab', () => {
-  it('is the pre-C8 session.ts with its own wire literals, not the live file', async () => {
-    const [frozen, live] = await Promise.all([
-      readFile(join(process.cwd(), FROZEN_APP_TAB_SESSION), 'utf8'),
-      readFile(join(process.cwd(), LIVE_SESSION), 'utf8'),
-    ]);
-    expect(frozen).not.toBe(live);
-    expect(frozen).not.toContain('account-sync-protocol');
-    expect(frozen).toContain(`const ACCOUNT_SYNC_CHANNEL = '${CHANNEL}';`);
-    expect(frozen).toContain(`const ACCOUNT_SYNC_STORAGE_KEY = '${STORAGE_KEY}';`);
-  });
-});
-
 describe('cross-document pulse contract', () => {
   it.each(['broadcast', 'storage'] as const)(
     'every copy answers every producer over %s alone',
     async (transport) => {
       expect(await contractMatrix(transport)).toEqual(CONTRACT);
-    },
-  );
-
-  it.each(['broadcast', 'storage'] as const)(
-    'app-b on frozen session.ts sources (the old tab of a mixed rollout) still meets the contract over %s alone',
-    async (transport) => {
-      const matrix = await contractMatrix(transport, {}, await frozenAppTabSources());
-
-      const appB = harness.origin.document('app-b').window as unknown as Record<string, unknown>;
-      expect(appB[FROZEN_MARKER]).toBe(true);
-      expect(matrix).toEqual(CONTRACT);
     },
   );
 

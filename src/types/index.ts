@@ -475,28 +475,6 @@ export interface ProtocolMap {
   };
   /** Legacy host hint for the next persistent file; the recipient self-preloads from R2. */
   'pro-file-preload': { queueItemId: QueueItemId; sessionId: number };
-  /** Member hint that the authenticated PRO service has a newer snapshot. */
-  'pro-room-invalidated': { revision: number; playlistRevision: number };
-  /** Legacy member-to-host hint requesting a server-owned live-share refresh. */
-  'pro-system-audio-hint': { generation: number };
-  /** Legacy host fanout of an already server-validated PRO live-share state. */
-  'pro-system-audio-state': {
-    version: 2;
-    generation: number;
-    status: 'idle' | 'preparing' | 'live';
-    ownerParticipantId: string | null;
-    ownerDisplayName: string | null;
-    claimExpiresAt: number | null;
-    liveExpiresAt: number | null;
-    publication: null | {
-      publicationId: string;
-      sessionId: string;
-      track: {
-        trackName: string;
-        mid?: string;
-      };
-    };
-  };
   // _bootstrap marks a re-baseline frame (join bootstrap / OPERATOR_REVOKE
   // resync) — the receiving handler applies the value but skips the toast.
   'repeat-mode': { value: number; _bootstrap?: boolean };

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  APP_BUILD_FLOOR_CLIENT_PATH,
+  APP_BUILD_FLOOR_EDGE_CACHE_TTL_S,
+  APP_BUILD_FLOOR_OPS_AUDIENCE,
+  APP_BUILD_FLOOR_OPS_PATH,
+  APP_BUILD_FLOOR_PUBLIC_STATUS_PATH,
   APP_BUILD_FLOOR_REPORT_STALE_MS,
   APP_BUILD_HEADER,
   APP_BUILD_MAX,
@@ -18,6 +23,17 @@ describe('App build floor wire contract', () => {
     expect(APP_UPDATE_REQUIRED_ERROR_TYPE).toBe('app-update-required');
     expect(APP_BUILD_MAX).toBe(2_147_483_647);
     expect(APP_BUILD_FLOOR_REPORT_STALE_MS).toBe(300_000);
+  });
+
+  it('pins the App Worker floor routes, the ops audience and the client read cache lifetime', () => {
+    expect(APP_BUILD_FLOOR_CLIENT_PATH).toBe('/api/app-build-floor/effective');
+    expect(APP_BUILD_FLOOR_PUBLIC_STATUS_PATH).toBe('/api/app-build-floor');
+    expect(APP_BUILD_FLOOR_OPS_PATH).toBe('/api/ops/app-build-floor');
+    expect(APP_BUILD_FLOOR_OPS_AUDIENCE).toBe(`https://musixquare.com${APP_BUILD_FLOOR_OPS_PATH}`);
+    expect(APP_BUILD_FLOOR_EDGE_CACHE_TTL_S).toBe(30);
+    // A lowered floor reaches every colo's client read well before a stale
+    // live report could turn the floor off.
+    expect(APP_BUILD_FLOOR_EDGE_CACHE_TTL_S * 1_000).toBeLessThan(APP_BUILD_FLOOR_REPORT_STALE_MS);
   });
 
   it('accepts an absent or JSON-number build in a signaling auth frame and nothing else', () => {

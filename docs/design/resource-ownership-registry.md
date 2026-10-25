@@ -141,6 +141,7 @@ each record also states the step in words.
 | RO-47 | Header loader `_default` holder                          | UI             | owner-in-place     | Done (2)                       |
 | RO-48 | Guest YouTube re-align lanes stay two                    | Output rejoin  | accepted-exception | Revisit with device evidence   |
 | RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect    |
+| RO-50 | App build floor                                          | Workers        | owner-in-place     | None                           |
 
 ## Machine-readable ID list
 
@@ -205,6 +206,7 @@ RO-46 accepted-exception
 RO-47 owner-in-place
 RO-48 accepted-exception
 RO-49 accepted-exception
+RO-50 owner-in-place
 ```
 
 ## Resource records
@@ -2387,6 +2389,70 @@ entry needs the owner's acceptance and is not implied by this registry.
   demo-owned canonical timeline (C3-I8), not a narrower fix; or the owner schedules one anchor
   (C3-I8, with C3-I7), which needs its own owner decision.
 - **Status:** `accepted-exception`.
+
+### RO-50 App build floor
+
+- **Resource:** the App build floor in the main global service-control object
+  (`MusixquareServiceControl`, `cloudflare/service-control-object.ts`): the stored `minAppBuild`
+  with its revision, request journal and history, the live-App report `{appBuild, reportedAt}`,
+  and the effective floor the entry gates enforce (`effectiveAppBuildFloor` in
+  `cloudflare/app-build-floor-contract.ts`: the lower of the stored floor and a report at most
+  `APP_BUILD_FLOOR_REPORT_STALE_MS` old, otherwise 0). Forced update, train 9.0.12.
+- **Current owners/flows:** the object is the single owner. One mutation queue serializes both
+  writers; it checks the expected revision, replays by request id, refuses a raise that names no
+  live App build or exceeds it, and writes a raise's live build as a fresh report. Two machines
+  write it, both in `cloudflare/app-worker.ts` through `cloudflare/service-maintenance.ts`:
+  - the setters, through `updateAppBuildFloor`: the GitHub Actions ops route
+    (`APP_BUILD_FLOOR_OPS_PATH`, verified by `cloudflare/github-actions-oidc.ts` against pinned
+    repository, ref, environment, event, runner and workflow claims; `set` names the build the
+    App serves, `lower` names none) and the admin view `/api/admin/app-build-floor`, which is
+    lower-only because it never names a live build;
+  - the minute cron report (`reportServedAppBuild`, then `reportLiveAppBuild`), which runs before
+    the maintenance return of `scheduled()` and writes only the report, never the stored floor,
+    its revision or its history. The build is read from the App's own `/service-worker.js`
+    asset, so no copy of the cache epoch lives in the Worker.
+
+  Readers: the Signaling pending-auth check and the PRO front door through `readAppBuildFloor`
+  (one isolate cache, fail-open), the public status (`APP_BUILD_FLOOR_PUBLIC_STATUS_PATH`) and the
+  page's client read (`APP_BUILD_FLOOR_CLIENT_PATH`). The client read publishes 0 unless the floor
+  was read live, keeps a live value in the colo's edge cache, and clamps the answer to the build
+  its own assets serve on every request. The edge cache is a reader's cache with one lifetime,
+  not a writer. A setter's or reporter's answer refreshes its own isolate's cached view.
+- **Target single owner:** reached. A new writer goes through `updateAppBuildFloor` or
+  `reportLiveAppBuild`; nothing else posts to the object's floor paths.
+- **Allowed requesters:** writes from `handleAppBuildFloorOps` and `handleAdminAppBuildFloor`
+  (setters) and `reportServedAppBuild` (report) in `cloudflare/app-worker.ts`, and later the C5-0
+  lab's generated local control route; reads through `readAppBuildFloor` in
+  `cloudflare/signaling-worker.ts`, `cloudflare/pro-room-worker.ts` and `cloudflare/app-worker.ts`,
+  and `readAppBuildFloorHistory` in the admin view.
+- **Lifecycle operations:** set (a raise up to the live build, or a lower), lower, replay,
+  conflict, repair an unreadable stored record, report the live build, read the effective floor.
+- **Deadline owner:** none of its own. Each object call is bounded by
+  `SERVICE_CONTROL_READ_TIMEOUT_MS`. A report older than `APP_BUILD_FLOOR_REPORT_STALE_MS` turns
+  enforcement off, so a broken cron or an App older than 9.0.12 never leaves the floor on.
+- **Timing-constant home:** `cloudflare/app-build-floor-contract.ts`:
+  `APP_BUILD_FLOOR_REPORT_STALE_MS` (5 min) and `APP_BUILD_FLOOR_EDGE_CACHE_TTL_S` (30 s). The
+  isolate cache uses `SERVICE_CONTROL_CACHE_TTL_MS` in `cloudflare/service-maintenance.ts`. The
+  key-set refresh spacing `GITHUB_OIDC_JWKS_REFRESH_MIN_INTERVAL_MS` (60 s) belongs to the
+  verifier in `cloudflare/github-actions-oidc.ts`, not to the floor.
+- **Anchor tests:**
+  - Supersession: `src/pro-room/__tests__/service-control.test.ts` "replays, refuses reuse,
+    supersedes, conflicts and keeps a no-op revision" and "bounds the effective floor by a fresh
+    report that never changes the stored floor or history";
+    `src/core/__tests__/app-build-floor-app-worker.test.ts` "bounds an older stored floor by the
+    build it reports and never writes the floor" and "refreshes the isolate floor after its own
+    lower, so the gates follow without a read".
+  - User pause/stop: n/a (server).
+  - Teardown: `app-build-floor-app-worker.test.ts` "publishes 0 while the floor is off or once the
+    live report is stale" and "publishes 0 for an object without the floor routes, no binding or
+    a failed read"; `src/core/__tests__/service-maintenance.test.ts` "keeps the last canonical
+    floor as stale when a later read fails, and 0 before any".
+  - Visibility: n/a.
+  - Setters: `src/core/__tests__/app-build-floor-ops.test.ts` (the abuse limit before any token
+    parse or key fetch, each pinned claim, `set` above the live build refused, `lower` refusing a
+    raise) and the admin rows of `app-build-floor-app-worker.test.ts`.
+- **Status:** `owner-in-place`. Added with forced update Inc 3 (train 9.0.12), when the cron
+  report became a second machine on the floor beside the setters.
 
 ## Checked side flows without a record
 

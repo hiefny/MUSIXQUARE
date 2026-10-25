@@ -10,6 +10,7 @@
     "pro-room-grants.ts",
     "pro-bot.ts",
     "service-maintenance.ts",
+    "github-actions-oidc.ts",
     "standard-room-account-assertion.ts",
     "standard-room-pin-membership.ts"
   ],

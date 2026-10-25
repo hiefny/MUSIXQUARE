@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/core/__tests__/network-guard.setup.ts'],
     include: [
-      'src/core/__tests__/{about-lifetime-room-count-worker,account-assertion,account-auth,account-auth-request-lifetime,account-auth-sqlite,account-nickname-policy,app-build-floor-contract,app-maintenance-admin,app-worker-cors,auxiliary-service-maintenance,designsystem-preview-indexing,display-name-policy,event-campaign-route,pro-bot-worker,service-maintenance,standard-room-account-assertion,standard-room-pin-membership}.test.ts',
+      'src/core/__tests__/{about-lifetime-room-count-worker,account-assertion,account-auth,account-auth-request-lifetime,account-auth-sqlite,account-nickname-policy,app-build-floor-app-worker,app-build-floor-contract,app-build-floor-ops,app-maintenance-admin,app-worker-cors,auxiliary-service-maintenance,designsystem-preview-indexing,display-name-policy,event-campaign-route,pro-bot-worker,service-maintenance,standard-room-account-assertion,standard-room-pin-membership}.test.ts',
       'src/core/__tests__/account-cookie-ordering.test.ts',
       'src/core/__tests__/screensaver-security.test.ts',
       'src/core/__tests__/announcement-expiry.test.ts',

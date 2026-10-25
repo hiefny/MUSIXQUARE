@@ -31,11 +31,14 @@ import {
   normalizeServiceMaintenanceState,
   readAdminAnnouncementControl,
   readAppBuildFloor,
+  readAppBuildFloorHistory,
   readCachedServiceMaintenance,
   readServiceMaintenance,
   readServiceMaintenanceHistory,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
+  reportLiveAppBuild,
+  updateAppBuildFloor,
   updateServiceMaintenance,
   updateAdminAnnouncementControl,
   type ServiceMaintenanceState,
@@ -2900,5 +2903,109 @@ describe('shared App build floor read', () => {
       source: 'live',
     });
     await expect(readServiceMaintenance(env)).resolves.toMatchObject({ enabled: false });
+  });
+});
+
+describe('shared App build floor writes', () => {
+  function writeEnv(handler: (request: Request) => unknown) {
+    const fetch = vi.fn(handler);
+    return {
+      env: { MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) } },
+      fetch,
+    };
+  }
+
+  const lower = {
+    minAppBuild: 0,
+    expectedRevision: 1,
+    requestId: 'consumer-floor-lower',
+    reason: 'consumer contract',
+  };
+
+  it('answers unavailable without a binding, from an object without the floor routes or with a broken answer', async () => {
+    await expect(updateAppBuildFloor({}, lower)).resolves.toEqual({ status: 'unavailable' });
+    await expect(reportLiveAppBuild({}, 785)).resolves.toBe(false);
+    await expect(readAppBuildFloorHistory({})).resolves.toEqual({ status: 'unavailable' });
+    for (const answer of [
+      () => Response.json({ error: 'NOT_FOUND' }, { status: 404 }),
+      () => new Response(null, { status: 503 }),
+      () => Response.json({ ok: true }),
+      () => {
+        throw new Error('binding failed');
+      },
+      () => 'not a response',
+    ]) {
+      const { env } = writeEnv(answer);
+      await expect(updateAppBuildFloor(env, lower)).resolves.toEqual({ status: 'unavailable' });
+      await expect(reportLiveAppBuild(env, 785)).resolves.toBe(false);
+      await expect(readAppBuildFloorHistory(env)).resolves.toEqual({ status: 'unavailable' });
+    }
+  });
+
+  it("maps the object's validation refusals and sends the live build only when named", async () => {
+    const { env, fetch } = writeEnv(() =>
+      Response.json({ error: 'INVALID_REQUEST' }, { status: 400 }),
+    );
+    await expect(updateAppBuildFloor(env, lower)).resolves.toEqual({
+      status: 'rejected',
+      error: 'INVALID_REQUEST',
+    });
+    await updateAppBuildFloor(env, { ...lower, liveAppBuild: null });
+    await updateAppBuildFloor(env, { ...lower, minAppBuild: 785, liveAppBuild: 785 });
+    const bodies = await Promise.all(
+      fetch.mock.calls.map(async ([request]) => {
+        expect(new URL(request.url).pathname).toBe(APP_BUILD_FLOOR_STATE_PATH);
+        expect(request.method).toBe('POST');
+        return JSON.parse(await request.text()) as Record<string, unknown>;
+      }),
+    );
+    expect(bodies[0]).toEqual(lower);
+    expect(bodies[1]).toEqual(lower);
+    expect(bodies[2]).toEqual({ ...lower, minAppBuild: 785, liveAppBuild: 785 });
+
+    const tooLarge = writeEnv(() => new Response(null, { status: 413 }));
+    await expect(updateAppBuildFloor(tooLarge.env, lower)).resolves.toEqual({
+      status: 'rejected',
+      error: 'INVALID_REQUEST',
+    });
+  });
+
+  it('refuses a malformed or inconsistent history', async () => {
+    const row = (revision: number, overrides: Record<string, unknown> = {}) => ({
+      minAppBuild: 785,
+      revision,
+      updatedAt: 1_800_000_000_000 + revision,
+      reason: 'consumer contract',
+      note: null,
+      ...overrides,
+    });
+    const answer = (payload: unknown) => writeEnv(() => Response.json(payload)).env;
+    await expect(
+      readAppBuildFloorHistory(answer({ history: [row(2), row(1)], truncated: false })),
+    ).resolves.toEqual({ status: 'ok', history: [row(2), row(1)], truncated: false });
+    await expect(
+      readAppBuildFloorHistory(answer({ history: [row(3)], truncated: true })),
+    ).resolves.toEqual({ status: 'ok', history: [row(3)], truncated: true });
+    for (const payload of [
+      { history: [row(2), row(1)], truncated: true },
+      { history: [row(1), row(2)], truncated: false },
+      { history: [row(1), row(1)], truncated: false },
+      { history: [row(1, { minAppBuild: '785' })], truncated: false },
+      { history: [row(1, { minAppBuild: -1 })], truncated: false },
+      { history: [row(1, { revision: 0 })], truncated: false },
+      { history: [row(1, { updatedAt: null })], truncated: false },
+      { history: [row(1, { reason: 7 })], truncated: false },
+      { history: [row(1, { note: false })], truncated: false },
+      { history: [null], truncated: false },
+      { history: 'none', truncated: false },
+      { history: [], truncated: 'no' },
+      { history: Array.from({ length: 65 }, (_entry, index) => row(65 - index)), truncated: false },
+      [],
+    ]) {
+      await expect(
+        readAppBuildFloorHistory(answer(payload)),
+        JSON.stringify(payload),
+      ).resolves.toEqual({ status: 'unavailable' });
+    }
   });
 });

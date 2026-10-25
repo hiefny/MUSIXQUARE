@@ -44,15 +44,34 @@ import {
   consumeAbuseRateLimit,
   consumeAbuseRateLimitPair,
   readAdminAnnouncementControl,
+  readAppBuildFloor,
+  readAppBuildFloorHistory,
   readCachedServiceMaintenance,
   readServiceMaintenance,
   readServiceMaintenanceHistory,
+  reportLiveAppBuild,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
   ServiceMaintenanceState,
   updateAdminAnnouncementControl,
+  updateAppBuildFloor,
   updateServiceMaintenance,
+  type AppBuildFloorRead,
+  type AppBuildFloorUpdateResult,
 } from './service-maintenance.ts';
+import {
+  APP_BUILD_FLOOR_CLIENT_PATH,
+  APP_BUILD_FLOOR_EDGE_CACHE_TTL_S,
+  APP_BUILD_FLOOR_OPS_AUDIENCE,
+  APP_BUILD_FLOOR_OPS_PATH,
+  APP_BUILD_FLOOR_PUBLIC_STATUS_PATH,
+  parseAppBuild,
+} from './app-build-floor-contract.ts';
+import {
+  GITHUB_ACTIONS_OIDC_TOKEN_MAX_BYTES,
+  verifyGitHubActionsOidcToken,
+  type GitHubActionsOidcPolicy,
+} from './github-actions-oidc.ts';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.ts';
 import {
   LANGUAGE_OPTIONS,
@@ -531,7 +550,37 @@ const ADMIN_METRIC_EVENTS = [
   },
   { key: 'ws_message_oversized', label: 'Oversized signaling messages' },
   { key: 'ws_message_rate_limited', label: 'Rate-limited signaling messages' },
+  // The Signaling Worker refused a host or guest entry below the App build floor.
+  { key: 'app_update_required', label: 'App update required refusals' },
 ];
+// App build floor (forced update; resource record RO-50). The client read is
+// edge-cached under this synthetic key; the setters and the cron report write
+// the global service-control object, which owns the floor.
+const APP_BUILD_FLOOR_ADMIN_PATH = '/api/admin/app-build-floor';
+const APP_BUILD_FLOOR_EDGE_CACHE_KEY_PATH = '/.well-known/mxqr-cache/app-build-floor/v1';
+const APP_SERVICE_WORKER_ASSET_PATH = '/service-worker.js';
+const APP_SERVICE_WORKER_ASSET_MAX_BYTES = 1024 * 1024;
+// The build writes exactly one canonical line (scripts/service-worker-asset.ts).
+const APP_SERVICE_WORKER_CACHE_VERSION_RE = /\bconst\s+CACHE_VERSION\s*=\s*['"]v(\d+)['"]\s*;/g;
+const APP_BUILD_FLOOR_ADMIN_REASON = 'Lowered from the admin dashboard';
+// A release raise and a standalone run make a few calls each; this only bounds
+// forged-token traffic before any token parse or key fetch.
+const APP_BUILD_FLOOR_OPS_RATE_LIMIT = 20;
+const APP_BUILD_FLOOR_OPS_RATE_WINDOW_SECONDS = 600;
+const APP_BUILD_FLOOR_OPS_POLICY: GitHubActionsOidcPolicy = Object.freeze({
+  audience: APP_BUILD_FLOOR_OPS_AUDIENCE,
+  repository: 'hiefny/MUSIXQUARE',
+  repositoryId: '1141408724',
+  repositoryOwnerId: '257024056',
+  ref: 'refs/heads/main',
+  environment: 'production',
+  eventName: 'workflow_dispatch',
+  runnerEnvironment: 'github-hosted',
+  jobWorkflowRefs: Object.freeze([
+    'hiefny/MUSIXQUARE/.github/workflows/release.yml@refs/heads/main',
+    'hiefny/MUSIXQUARE/.github/workflows/app-build-floor.yml@refs/heads/main',
+  ]),
+});
 
 let soroBackgroundRefreshPromise: Promise<void> | null = null;
 let soroBackgroundRefreshStartedAt = 0;
@@ -11513,7 +11562,13 @@ function isServiceMaintenanceAdminBypass(request: Request, url: URL) {
     pathname === '/api/admin/session' ||
     pathname === '/api/admin/service-status' ||
     pathname === '/api/admin/service-status/history' ||
-    pathname === ADMIN_MAINTENANCE_PREVIEW_PATH
+    pathname === ADMIN_MAINTENANCE_PREVIEW_PATH ||
+    // The App build floor stays readable and lowerable during maintenance.
+    // The client read is not here: under maintenance it gets the JSON
+    // maintenance answer, which the page treats as a failed read.
+    pathname === APP_BUILD_FLOOR_PUBLIC_STATUS_PATH ||
+    pathname === APP_BUILD_FLOOR_ADMIN_PATH ||
+    pathname === APP_BUILD_FLOOR_OPS_PATH
   ) {
     return true;
   }
@@ -11995,6 +12050,387 @@ async function handlePublicAnnouncement(
   );
 }
 
+// ── App build floor (forced update; resource record RO-50) ──────────────────
+// The global service-control object owns the stored floor, its journal and the
+// live-App report. This Worker is its only writer: the minute cron reports the
+// build its own assets serve, the admin view lowers, and GitHub Actions sets
+// through the ops route. The gates (Signaling, PRO) and the client read below
+// only read it.
+
+const servedAppBuildByAssets = new WeakMap<object, number>();
+const servedAppBuildReads = new WeakMap<object, Promise<number | null>>();
+
+async function fetchServedAppBuild(assets: AppAssetFetcher): Promise<number | null> {
+  try {
+    const response = await assets.fetch(
+      new Request(`https://musixquare.com${APP_SERVICE_WORKER_ASSET_PATH}`, { method: 'GET' }),
+    );
+    if (!response.ok) {
+      cancelResponseBody(response, 'APP_BUILD_UNREADABLE');
+      return null;
+    }
+    const bytes = await readResponseBodyLimited(
+      response,
+      APP_SERVICE_WORKER_ASSET_MAX_BYTES,
+      new AbortController().signal,
+    );
+    const matches = [
+      ...new TextDecoder().decode(bytes).matchAll(APP_SERVICE_WORKER_CACHE_VERSION_RE),
+    ];
+    const build = matches.length === 1 ? parseAppBuild(matches[0]?.[1]) : null;
+    return build !== null && build > 0 ? build : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The App build this Worker version serves: the cache epoch of its own deployed
+ * service worker, so no copy of the epoch lives here. An isolate runs one
+ * Worker version, whose assets never change, so the first successful read is
+ * kept per assets binding; an unreadable asset is read again next time.
+ */
+async function readServedAppBuild(env: AppEnv): Promise<number | null> {
+  const assets = env.ASSETS;
+  if (!assets || typeof assets.fetch !== 'function') return null;
+  const known = servedAppBuildByAssets.get(assets);
+  if (known !== undefined) return known;
+  let pending = servedAppBuildReads.get(assets);
+  if (!pending) {
+    pending = fetchServedAppBuild(assets)
+      .then((build) => {
+        if (build !== null) servedAppBuildByAssets.set(assets, build);
+        return build;
+      })
+      .finally(() => servedAppBuildReads.delete(assets));
+    servedAppBuildReads.set(assets, pending);
+  }
+  return pending;
+}
+
+/** The minute cron's live-App report. It never writes the stored floor. */
+async function reportServedAppBuild(env: AppEnv): Promise<void> {
+  const build = await readServedAppBuild(env);
+  if (build === null) return;
+  if (!(await reportLiveAppBuild(env, build))) {
+    console.warn('[App build floor] live App build report failed');
+  }
+}
+
+function appBuildFloorStatusPayload(floor: AppBuildFloorRead, liveAppBuild: number | null) {
+  return {
+    minAppBuild: floor.minAppBuild,
+    effectiveMinAppBuild: floor.effectiveMinAppBuild,
+    revision: floor.revision,
+    updatedAt: floor.updatedAt,
+    liveAppBuild,
+    reportedLiveAppBuild: floor.liveAppBuild,
+    reportedAt: floor.liveReportedAt,
+    state: floor.state,
+    generatedAt: Date.now(),
+  };
+}
+
+function withoutBodyForHead(request: Request, response: Response) {
+  return request.method === 'HEAD'
+    ? new Response(null, { status: response.status, headers: response.headers })
+    : response;
+}
+
+/** Public, uncached status for the floor script, the drift audit and the emergency guard. */
+async function handleAppBuildFloorStatus(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
+  if (methodError) return methodError;
+  const [floor, liveAppBuild] = await Promise.all([
+    readAppBuildFloor(env, { context }),
+    readServedAppBuild(env),
+  ]);
+  if (floor.source !== 'live') return json({ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503);
+  return withoutBodyForHead(request, json(appBuildFloorStatusPayload(floor, liveAppBuild)));
+}
+
+async function readEdgeCachedAppBuildFloor(cache: AppDefaultCache, key: Request) {
+  try {
+    const cached = await cache.match(key);
+    if (!cached) return null;
+    const payload: unknown = await cached.json();
+    const value = isJsonObject(payload) ? payload.effectiveMinAppBuild : undefined;
+    return typeof value === 'number' ? parseAppBuild(value) : null;
+  } catch {
+    // A corrupt or unreadable entry falls through to the control object.
+    return null;
+  }
+}
+
+/**
+ * The page's floor read at start and on every return to the foreground. Every
+ * page gets the same answer, so it is edge-cached; only a floor read live is
+ * cached, so a recovered control object is seen at the next request. The
+ * clamp runs after the cache, on every request: an App never tells a page to
+ * update past the build it serves itself, also right after a rollback.
+ */
+async function handleAppBuildFloorClientRead(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
+  const methodError = adminApiMethodAllowed(request, ['GET']);
+  if (methodError) return methodError;
+  const cache = getAppDefaultCache();
+  const cacheKey = new Request(new URL(APP_BUILD_FLOOR_EDGE_CACHE_KEY_PATH, request.url), {
+    method: 'GET',
+  });
+  let floor = cache ? await readEdgeCachedAppBuildFloor(cache, cacheKey) : null;
+  if (floor === null) {
+    const read = await readAppBuildFloor(env, { context });
+    floor = read.source === 'live' ? read.effectiveMinAppBuild : 0;
+    if (cache && read.source === 'live') {
+      const cacheWrite = cache
+        .put(
+          cacheKey,
+          new Response(JSON.stringify({ effectiveMinAppBuild: floor }), {
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': `public, max-age=${APP_BUILD_FLOOR_EDGE_CACHE_TTL_S}`,
+            },
+          }),
+        )
+        .catch(() => undefined);
+      if (typeof context?.waitUntil === 'function') context.waitUntil(cacheWrite);
+      else await cacheWrite;
+    }
+  }
+  const servedBuild = await readServedAppBuild(env);
+  return json(
+    { effectiveMinAppBuild: servedBuild === null ? 0 : Math.min(floor, servedBuild) },
+    200,
+    {
+      'Cache-Control': 'no-store',
+    },
+  );
+}
+
+async function appBuildFloorUpdateResponse(
+  env: AppEnv,
+  result: AppBuildFloorUpdateResult,
+  extra: Record<string, unknown> = {},
+) {
+  if (result.status === 'unavailable') {
+    return json({ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503);
+  }
+  if (result.status === 'rejected') return json({ error: 'INVALID_REQUEST' }, 400);
+  const appBuildFloor = appBuildFloorStatusPayload(result.floor, await readServedAppBuild(env));
+  if (result.status === 'conflict') {
+    // Without a live build the object refuses every raise; for the admin view
+    // and the ops `lower` action that is their lower-only rule.
+    const error =
+      result.error === 'APP_BUILD_FLOOR_LIVE_BUILD_REQUIRED'
+        ? 'APP_BUILD_FLOOR_LOWER_ONLY'
+        : result.error;
+    return json({ error, appBuildFloor }, 409);
+  }
+  return json({
+    ok: true,
+    ...extra,
+    changed: result.changed,
+    replayed: result.replayed,
+    appBuildFloor,
+  });
+}
+
+/**
+ * Admin view and emergency switch. POST is lower-only: it never names the live
+ * build, so the control object refuses any raise. Raises go only through
+ * GitHub Actions, which shares the release concurrency group.
+ */
+async function handleAdminAppBuildFloor(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  if (request.method !== 'POST') {
+    const [floor, liveAppBuild, history] = await Promise.all([
+      readAppBuildFloor(env, { context }),
+      readServedAppBuild(env),
+      readAppBuildFloorHistory(env),
+    ]);
+    if (floor.source !== 'live') return json({ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503);
+    return withoutBodyForHead(
+      request,
+      json({
+        generatedAt: new Date().toISOString(),
+        appBuildFloor: appBuildFloorStatusPayload(floor, liveAppBuild),
+        floorHistory:
+          history.status === 'ok'
+            ? history.history.map((entry) => ({
+                ...entry,
+                updatedAt: new Date(entry.updatedAt).toISOString(),
+              }))
+            : null,
+        floorHistoryTruncated: history.status === 'ok' ? history.truncated : null,
+      }),
+    );
+  }
+
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+  const minAppBuild =
+    isJsonObject(body) && typeof body.minAppBuild === 'number'
+      ? parseAppBuild(body.minAppBuild)
+      : null;
+  if (
+    !isJsonObject(body) ||
+    !hasExactObjectKeys(body, ['minAppBuild', 'expectedRevision', 'requestId']) ||
+    minAppBuild === null ||
+    typeof body.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(body.expectedRevision) ||
+    body.expectedRevision < 0 ||
+    typeof body.requestId !== 'string' ||
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+  const result = await updateAppBuildFloor(env, {
+    minAppBuild,
+    expectedRevision: body.expectedRevision,
+    requestId: body.requestId,
+    reason: APP_BUILD_FLOOR_ADMIN_REASON,
+  });
+  return appBuildFloorUpdateResponse(env, result);
+}
+
+type AppBuildFloorOpsCommand =
+  | { action: 'check' }
+  | {
+      action: 'set' | 'lower';
+      minAppBuild: number;
+      expectedRevision: number;
+      requestId: string;
+      reason: string;
+    };
+
+function parseAppBuildFloorOpsCommand(value: unknown): AppBuildFloorOpsCommand | null {
+  if (!isJsonObject(value)) return null;
+  if (value.action === 'check') {
+    const optional = ['requestId', 'reason'];
+    return Object.keys(value).every(
+      (key) => key === 'action' || (optional.includes(key) && typeof value[key] === 'string'),
+    )
+      ? { action: 'check' }
+      : null;
+  }
+  const minAppBuild =
+    typeof value.minAppBuild === 'number' ? parseAppBuild(value.minAppBuild) : null;
+  if (
+    (value.action !== 'set' && value.action !== 'lower') ||
+    !hasExactObjectKeys(value, [
+      'action',
+      'minAppBuild',
+      'expectedRevision',
+      'requestId',
+      'reason',
+    ]) ||
+    minAppBuild === null ||
+    typeof value.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(value.expectedRevision) ||
+    value.expectedRevision < 0 ||
+    // The control object owns the request-id and reason formats.
+    typeof value.requestId !== 'string' ||
+    typeof value.reason !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    action: value.action,
+    minAppBuild,
+    expectedRevision: value.expectedRevision,
+    requestId: value.requestId,
+    reason: value.reason,
+  };
+}
+
+/**
+ * GitHub Actions floor setter. Order of work: the abuse limit, then the bearer
+ * token (at most 8 KiB) and its GitHub OIDC verification, then the body.
+ * `check` authenticates and reads; `set` passes the build this Worker serves,
+ * so the control object refuses a raise above it; `lower` passes none, so it
+ * can only lower and works while the live build is unreadable.
+ */
+async function handleAppBuildFloorOps(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
+  if (request.method !== 'POST') {
+    return json({ error: 'METHOD_NOT_ALLOWED' }, 405, { Allow: 'POST' });
+  }
+  const rate = await checkPaidRateLimit(
+    request,
+    env,
+    'ops-app-build-floor',
+    APP_BUILD_FLOOR_OPS_RATE_LIMIT,
+    APP_BUILD_FLOOR_OPS_RATE_WINDOW_SECONDS,
+  );
+  if (rate.status !== 'ok') return rateLimitUnavailableResponse();
+  if (!rate.allowed) return rateLimitResponse({}, rate.retryAfterSeconds);
+
+  const bearer = /^Bearer ([^\s]+)$/u.exec(request.headers.get('Authorization') || '');
+  const token = bearer?.[1] ?? '';
+  if (!token || token.length > GITHUB_ACTIONS_OIDC_TOKEN_MAX_BYTES) {
+    return json({ error: 'OIDC_TOKEN_INVALID' }, 401);
+  }
+  const verified = await verifyGitHubActionsOidcToken(token, APP_BUILD_FLOOR_OPS_POLICY);
+  if (!verified.ok) return json({ error: verified.error }, verified.status);
+
+  const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
+  if (!/^application\/json(?:\s*;|$)/.test(contentType)) {
+    return json({ error: 'JSON_REQUIRED' }, 415);
+  }
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const command = parseAppBuildFloorOpsCommand(parsedBody.value);
+  if (!command) return json({ error: 'INVALID_REQUEST' }, 400);
+  const workflow = verified.jobWorkflowRef;
+
+  if (command.action === 'check') {
+    const [floor, liveAppBuild] = await Promise.all([
+      readAppBuildFloor(env, { context }),
+      readServedAppBuild(env),
+    ]);
+    if (floor.source !== 'live') return json({ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503);
+    return json({
+      ok: true,
+      action: 'check',
+      workflow,
+      appBuildFloor: appBuildFloorStatusPayload(floor, liveAppBuild),
+    });
+  }
+  let liveAppBuild: number | null = null;
+  if (command.action === 'set') {
+    liveAppBuild = await readServedAppBuild(env);
+    if (liveAppBuild === null) {
+      return json({ error: 'APP_BUILD_FLOOR_LIVE_BUILD_UNAVAILABLE' }, 503);
+    }
+  }
+  const result = await updateAppBuildFloor(env, {
+    minAppBuild: command.minAppBuild,
+    expectedRevision: command.expectedRevision,
+    requestId: command.requestId,
+    reason: command.reason,
+    liveAppBuild,
+  });
+  return appBuildFloorUpdateResponse(env, result, { action: command.action, workflow });
+}
+
 function isLifetimeRoomCount(value: unknown) {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
@@ -12196,6 +12632,27 @@ function renderAdminPage(request: Request, env: AppEnv) {
           </div>
           <p role="status" data-service-history-status></p>
           <ol class="service-history-list" data-service-history-list></ol>
+        </section>
+        <section class="panel app-build-floor-panel" aria-labelledby="app-build-floor-title" data-state="unknown" data-app-build-floor-panel>
+          <div class="panel-head">
+            <h2 id="app-build-floor-title">App build floor</h2>
+            <button type="button" data-app-build-floor-refresh>Refresh</button>
+          </div>
+          <p class="app-build-floor-state" data-app-build-floor-state>Checking the floor</p>
+          <p class="app-build-floor-summary" data-app-build-floor-summary>New room entries from App builds below the enforced floor are refused and asked to update; open sessions continue. The enforced floor never exceeds the App build that is live. The release workflow raises it; here you can only lower it.</p>
+          <dl class="app-build-floor-facts" data-app-build-floor-facts></dl>
+          <form class="app-build-floor-form" data-app-build-floor-form>
+            <label class="pro-room-field">
+              <span>Lower to build</span>
+              <input type="number" inputmode="numeric" min="0" step="1" autocomplete="off" data-app-build-floor-input>
+            </label>
+            <div class="service-status-actions">
+              <button type="submit" data-app-build-floor-lower disabled>Lower</button>
+            </div>
+          </form>
+          <p role="alert" data-app-build-floor-error hidden></p>
+          <p role="status" data-app-build-floor-history-status></p>
+          <ol class="service-history-list" data-app-build-floor-history-list></ol>
         </section>
       </section>
       <section class="admin-view is-active" data-admin-view="operations">
@@ -16282,10 +16739,15 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
 export default {
   async scheduled(event: { cron?: unknown }, env: unknown, ctx: AppExecutionContext) {
     if (!isAppEnv(env)) throw new TypeError('App Worker environment unavailable');
+    const cron = typeof event?.cron === 'string' ? event.cron : null;
+    // The live-App report runs before the maintenance return: the effective
+    // App build floor must follow whatever App is live, maintenance or not.
+    if ((cron === null || cron === '* * * * *') && env.ASSETS && env.MUSIXQUARE_SERVICE_CONTROL) {
+      ctx.waitUntil(reportServedAppBuild(env));
+    }
     const serviceStatus = await readServiceMaintenance(env, { context: ctx });
     if (serviceStatus.enabled) return;
 
-    const cron = typeof event?.cron === 'string' ? event.cron : null;
     if (cron === null || cron === '0 */6 * * *') {
       ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
       ctx.waitUntil(cleanupExpiredAdminMetrics(env));
@@ -16588,6 +17050,14 @@ export default {
         return handleRealtime(request, env);
       case '/api/announcement/current':
         return handlePublicAnnouncement(request, env, ctx);
+      case APP_BUILD_FLOOR_CLIENT_PATH:
+        return handleAppBuildFloorClientRead(request, env, ctx);
+      case APP_BUILD_FLOOR_PUBLIC_STATUS_PATH:
+        return handleAppBuildFloorStatus(request, env, ctx);
+      case APP_BUILD_FLOOR_ADMIN_PATH:
+        return handleAdminAppBuildFloor(request, env, ctx);
+      case APP_BUILD_FLOOR_OPS_PATH:
+        return handleAppBuildFloorOps(request, env, ctx);
       case '/api/admin/login':
         return handleAdminLogin(request, env);
       case '/api/admin/logout':

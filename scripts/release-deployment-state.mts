@@ -461,6 +461,8 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/pro-room-generation.ts',
     'cloudflare/pro-room-validation.ts',
     'cloudflare/account-auth.ts',
+    // The App build floor ops route verifies GitHub Actions OIDC tokens.
+    'cloudflare/github-actions-oidc.ts',
     'cloudflare/translation-community.ts',
     'cloudflare/translation-community-catalog.ts',
     ...APP_D1_PATHS,

@@ -1,3 +1,5 @@
+// Resource owner: RO-50 (the App build floor: stored floor, journal and live-App
+// report; see docs/design/resource-ownership-registry.md).
 import { readBodyBytesLimited } from './pro-room-body.ts';
 import { parseAnnouncementExpiry } from './announcement-expiry.ts';
 import { hasExactKeys } from './pro-room-validation.ts';

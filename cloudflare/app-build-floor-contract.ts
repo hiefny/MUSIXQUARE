@@ -34,6 +34,29 @@ export const APP_BUILD_MAX = 2_147_483_647;
  */
 export const APP_BUILD_FLOOR_REPORT_STALE_MS = 300_000;
 
+/**
+ * App Worker route of the page's floor read at start and on every return to
+ * the foreground: `{"effectiveMinAppBuild":N}`, never above the App build that
+ * answers, 0 unless the floor was read live.
+ */
+export const APP_BUILD_FLOOR_CLIENT_PATH = '/api/app-build-floor/effective';
+
+/** App Worker route of the public, uncached floor status for scripts and audits. */
+export const APP_BUILD_FLOOR_PUBLIC_STATUS_PATH = '/api/app-build-floor';
+
+/** App Worker route of the floor setter that GitHub Actions calls. */
+export const APP_BUILD_FLOOR_OPS_PATH = '/api/ops/app-build-floor';
+
+/** The only GitHub Actions OIDC audience the ops route accepts. */
+export const APP_BUILD_FLOOR_OPS_AUDIENCE = `https://musixquare.com${APP_BUILD_FLOOR_OPS_PATH}`;
+
+/**
+ * Edge-cache lifetime of the client floor read, in seconds (timing home of the
+ * floor record). A lower reaches every colo's client read within this time;
+ * the entry gates never read through this cache.
+ */
+export const APP_BUILD_FLOOR_EDGE_CACHE_TTL_S = 30;
+
 const APP_BUILD_TEXT_RE = /^(?:0|[1-9]\d{0,9})$/u;
 
 /**

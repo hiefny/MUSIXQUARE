@@ -11,14 +11,15 @@ history projections for its room lifecycle.
 
 The checked-in database identity, schema and binding consumers were last
 reconciled with the current Worker sources on 2026-08-17. The event inventory
-is the 22 events in the table below (`ADMIN_METRIC_EVENTS` in the App Worker).
+is the 23 events in the table below (`ADMIN_METRIC_EVENTS` in the App Worker).
 App 8.10.0 added `guest_auth_rate_limited`, which the Operations view shows as
 "Password lockouts" in its Signals panel. App 9.0.5 adds the three
 `guest_host_unavailable_*` state details and `standard_room_expired`; the
 Operations view does not show these four, and its Signals panel keeps the "Host
-missing" total. Read them from the `summary` object of the `/api/admin/metrics`
-JSON (`last24`, `previous24`, `last7`, `hourly`, `daily`, `daily30`) or from
-`mxqr_metric_buckets` rows in D1.
+missing" total. App 9.0.12 adds `app_update_required`, which the Operations
+view does not show either. Read them from the `summary` object of the
+`/api/admin/metrics` JSON (`last24`, `previous24`, `last7`, `hourly`, `daily`,
+`daily30`) or from `mxqr_metric_buckets` rows in D1.
 That source review is not proof of the live D1 table set; use the read-only drift
 query below before production schema maintenance.
 
@@ -136,6 +137,7 @@ Events:
 | `remote_share_upload_assertion_rejected`   | A required or presented assertion was missing or invalid; writes are capped at 10 per IP-derived limiter key per normal rate window.  |
 | `ws_message_oversized`                     | A WebSocket frame or validated signaling payload exceeded its size limit.                                                             |
 | `ws_message_rate_limited`                  | A guest exceeded the per-connection signaling message rate.                                                                           |
+| `app_update_required`                      | A host or guest entry was refused before admission because its App build was below the effective App build floor.                     |
 
 Metric writes are deferred with the Worker execution context, so D1 latency is
 not part of the room admission path. They are operational counters rather than
@@ -214,6 +216,29 @@ credentials or authentication state. They require no deletion or migration.
 Because `host_legacy_url_auth` is no longer in the current event inventory, the
 dashboard summary ignores those rows while the raw retention data remains
 available for audit.
+
+## App Build Floor
+
+App 9.0.12 adds an App build floor (forced update; resource record RO-50 in
+`docs/design/resource-ownership-registry.md`). The global service-control
+object holds the stored floor with its revision and history, plus a live-App
+report that the App Worker's minute cron writes from its own
+`/service-worker.js`. The Signaling and PRO Workers refuse new room entries
+whose App build is below the effective floor, the lower of the stored floor
+and a report at most five minutes old (0 otherwise). Open sessions continue.
+
+The Maintenance view's "App build floor" panel shows the stored and enforced
+floor, the revision and update time, the build this App serves, the reported
+build with its age, and the change history with each reason. Its only control
+lowers the floor, including to 0 (off); the server refuses a raise from the
+dashboard. Raises go through GitHub Actions (the release workflow or the floor
+workflow), which share the release concurrency group. The panel and its
+`/api/admin/app-build-floor` route stay available during maintenance.
+
+The public `GET /api/app-build-floor` answers the same state uncached for
+scripts and audits; `GET /api/app-build-floor/effective` is the App's own read
+at start and on return to the foreground, edge-cached for 30 seconds and never
+above the build the answering App serves.
 
 ## Cloudflare Setup
 

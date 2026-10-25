@@ -232,6 +232,33 @@ export interface AppBuildFloorRead {
   source: 'live' | 'stale' | 'unsupported' | 'unbound';
 }
 
+export interface AppBuildFloorUpdateInput {
+  minAppBuild: number;
+  expectedRevision: number;
+  requestId: string;
+  reason: string;
+  /** Required for a raise, which the object refuses above it; omit to lower. */
+  liveAppBuild?: number | null;
+}
+
+export type AppBuildFloorUpdateResult =
+  | { status: 'ok'; floor: AppBuildFloorRead; changed: boolean; replayed: boolean }
+  | { status: 'conflict'; floor: AppBuildFloorRead; error: string }
+  | { status: 'rejected'; error: string }
+  | { status: 'unavailable' };
+
+export interface AppBuildFloorHistoryEntry {
+  minAppBuild: number;
+  revision: number;
+  updatedAt: number;
+  reason: string | null;
+  note: string | null;
+}
+
+export type AppBuildFloorHistoryResult =
+  | { status: 'ok'; history: AppBuildFloorHistoryEntry[]; truncated: boolean }
+  | { status: 'unavailable' };
+
 interface ServiceMaintenanceResponseOptions {
   format?: 'auto' | 'html' | 'json';
 }
@@ -1174,18 +1201,7 @@ function settleAppBuildFloorRead(
   return outcome.value;
 }
 
-/**
- * Reads the effective App build floor that the Signaling and PRO entry gates
- * enforce. It fails open: the floor is a compatibility gate, not a security
- * boundary, and a total control outage already closes the service through the
- * maintenance read that every gated path awaits first.
- */
-export async function readAppBuildFloor(
-  env: ServiceMaintenanceEnvironment,
-  options: Pick<ServiceMaintenanceReadOptions, 'context'> = {},
-): Promise<AppBuildFloorRead> {
-  const binding = serviceControlBinding(env);
-  if (!binding) return offAppBuildFloor('unbound');
+function appBuildFloorCache(binding: ServiceControlBinding): AppBuildFloorCache {
   let cache = appBuildFloorCacheByBinding.get(binding);
   if (!cache) {
     cache = {
@@ -1198,7 +1214,39 @@ export async function readAppBuildFloor(
     };
     appBuildFloorCacheByBinding.set(binding, cache);
   }
-  const owned = cache;
+  return cache;
+}
+
+/**
+ * A setter's or reporter's answer is this isolate's newest view of the floor:
+ * the next read within the TTL uses it, and a read that started earlier and
+ * finishes later cannot replace it.
+ */
+function rememberAppBuildFloorAnswer(
+  binding: ServiceControlBinding,
+  value: AppBuildFloorRead,
+): void {
+  const cache = appBuildFloorCache(binding);
+  const result = settleAppBuildFloorRead(cache, { kind: 'live', value });
+  cache.readSequence += 1;
+  cache.settledReadSequence = cache.readSequence;
+  cache.value = result;
+  cache.expiresAt = Date.now() + SERVICE_CONTROL_CACHE_TTL_MS;
+}
+
+/**
+ * Reads the effective App build floor that the Signaling and PRO entry gates
+ * enforce. It fails open: the floor is a compatibility gate, not a security
+ * boundary, and a total control outage already closes the service through the
+ * maintenance read that every gated path awaits first.
+ */
+export async function readAppBuildFloor(
+  env: ServiceMaintenanceEnvironment,
+  options: Pick<ServiceMaintenanceReadOptions, 'context'> = {},
+): Promise<AppBuildFloorRead> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return offAppBuildFloor('unbound');
+  const owned = appBuildFloorCache(binding);
   if (owned.value && owned.expiresAt > Date.now()) return owned.value;
   if (owned.refresh) return owned.refresh;
   const readSequence = ++owned.readSequence;
@@ -1224,6 +1272,159 @@ export async function readAppBuildFloor(
     owned.refresh = refresh;
   }
   return refresh;
+}
+
+function appBuildFloorPostRequest(path: string, body: Record<string, unknown>): Request {
+  return new Request(`${SERVICE_CONTROL_ORIGIN}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Writes the stored floor (App Worker setters only). The object refuses a raise
+ * that names no live App build or exceeds it, so a caller that omits
+ * `liveAppBuild` can only lower the floor. No maintenance-style fence: a floor
+ * change never closes the service.
+ */
+export async function updateAppBuildFloor(
+  env: ServiceMaintenanceEnvironment,
+  input: AppBuildFloorUpdateInput,
+): Promise<AppBuildFloorUpdateResult> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return { status: 'unavailable' };
+  try {
+    const stub = serviceControlStub(binding);
+    if (!isServiceControlStub(stub)) return { status: 'unavailable' };
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      appBuildFloorPostRequest(APP_BUILD_FLOOR_STATE_PATH, {
+        minAppBuild: input.minAppBuild,
+        expectedRevision: input.expectedRevision,
+        requestId: input.requestId,
+        reason: input.reason,
+        ...(input.liveAppBuild === undefined || input.liveAppBuild === null
+          ? {}
+          : { liveAppBuild: input.liveAppBuild }),
+      }),
+    );
+    if (outcome.kind !== 'response') return { status: 'unavailable' };
+    const { response, payload } = outcome;
+    const error = recordProperty(payload, 'error');
+    const parsed = appBuildFloorFromHeaders(response);
+    if (parsed.kind === 'floor' && (response.ok || response.status === 409)) {
+      rememberAppBuildFloorAnswer(binding, parsed.value);
+      if (response.ok) {
+        return {
+          status: 'ok',
+          floor: parsed.value,
+          changed: recordProperty(payload, 'changed') === true,
+          replayed: recordProperty(payload, 'replayed') === true,
+        };
+      }
+      return {
+        status: 'conflict',
+        floor: parsed.value,
+        error: typeof error === 'string' ? error : 'APP_BUILD_FLOOR_CONFLICT',
+      };
+    }
+    if (parsed.kind === 'absent' && [400, 413, 415].includes(response.status)) {
+      return { status: 'rejected', error: typeof error === 'string' ? error : 'INVALID_REQUEST' };
+    }
+    return { status: 'unavailable' };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+/**
+ * The App Worker's minute heartbeat: the build its own assets serve. It never
+ * changes the stored floor, its revision or its history; it only bounds what
+ * the gates enforce. Returns whether the object took it.
+ */
+export async function reportLiveAppBuild(
+  env: ServiceMaintenanceEnvironment,
+  appBuild: number,
+): Promise<boolean> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return false;
+  try {
+    const stub = serviceControlStub(binding);
+    if (!isServiceControlStub(stub)) return false;
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      appBuildFloorPostRequest(APP_BUILD_FLOOR_LIVE_REPORT_PATH, { appBuild }),
+    );
+    if (outcome.kind !== 'response' || !outcome.response.ok) return false;
+    const parsed = appBuildFloorFromHeaders(outcome.response);
+    if (parsed.kind !== 'floor') return false;
+    rememberAppBuildFloorAnswer(binding, parsed.value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function appBuildFloorHistoryEntry(value: unknown): AppBuildFloorHistoryEntry | null {
+  if (!isUnknownRecord(value)) return null;
+  const minAppBuild =
+    typeof value.minAppBuild === 'number' ? parseAppBuild(value.minAppBuild) : null;
+  const { revision, updatedAt, reason, note } = value;
+  if (
+    minAppBuild === null ||
+    !isSafeInteger(revision) ||
+    revision < 1 ||
+    !isSafeInteger(updatedAt) ||
+    updatedAt <= 0 ||
+    !Number.isFinite(new Date(updatedAt).getTime()) ||
+    (reason !== null && typeof reason !== 'string') ||
+    (note !== null && typeof note !== 'string')
+  ) {
+    return null;
+  }
+  return { minAppBuild, revision, updatedAt, reason, note };
+}
+
+/** The floor's change history, newest first, for the admin view. */
+export async function readAppBuildFloorHistory(
+  env: ServiceMaintenanceEnvironment,
+): Promise<AppBuildFloorHistoryResult> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return { status: 'unavailable' };
+  try {
+    const stub = serviceControlStub(binding);
+    if (!isServiceControlStub(stub)) return { status: 'unavailable' };
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      new Request(`${SERVICE_CONTROL_ORIGIN}${APP_BUILD_FLOOR_HISTORY_PATH}`),
+    );
+    if (outcome.kind !== 'response' || !outcome.response.ok) return { status: 'unavailable' };
+    const payload = outcome.payload;
+    if (
+      !isUnknownRecord(payload) ||
+      !Array.isArray(payload.history) ||
+      payload.history.length > SERVICE_CONTROL_HISTORY_LIMIT ||
+      typeof payload.truncated !== 'boolean'
+    ) {
+      return { status: 'unavailable' };
+    }
+    const history: AppBuildFloorHistoryEntry[] = [];
+    for (const value of payload.history) {
+      const entry = appBuildFloorHistoryEntry(value);
+      const previous = history.at(-1);
+      if (!entry || (previous && entry.revision >= previous.revision)) {
+        return { status: 'unavailable' };
+      }
+      history.push(entry);
+    }
+    if (payload.truncated !== (history.length !== (history[0]?.revision ?? 0))) {
+      return { status: 'unavailable' };
+    }
+    return { status: 'ok', history, truncated: payload.truncated };
+  } catch {
+    return { status: 'unavailable' };
+  }
 }
 
 async function fetchServiceControlStatus(stub: ServiceControlStub): Promise<ServiceControlOutcome> {

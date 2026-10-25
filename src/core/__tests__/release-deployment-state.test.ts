@@ -341,6 +341,22 @@ describe('release deployment rollback state', () => {
     }
   });
 
+  it('maps the GitHub Actions OIDC verifier into the App Worker contract only', () => {
+    // The App Worker alone serves the floor ops endpoint that verifies it.
+    expect(runtimePathsForWorker('app')).toContain('cloudflare/github-actions-oidc.ts');
+    for (const worker of [
+      'remote-share',
+      'signaling',
+      'pro-room',
+      'developer-api-facade',
+      'developer-api',
+    ]) {
+      expect(runtimePathsForWorker(worker), worker).not.toContain(
+        'cloudflare/github-actions-oidc.ts',
+      );
+    }
+  });
+
   it('maps Worker-side modules bundled into the browser App into the App contract', () => {
     // The App bundle also ships cloudflare/ modules that browser code imports
     // (for example the PRO upload probe's media duration readers). A change to

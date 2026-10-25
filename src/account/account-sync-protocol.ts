@@ -15,8 +15,9 @@
  *
  * Every sender has included the id since 8.3.30 (5981d1c9), so a message
  * without a valid one is not a pulse (old-version removal train, survey
- * OV-B08). A tab still on an older build wakes the others only through their
- * focus, visibility and online triggers.
+ * OV-B08). After a tab still on an older build signs in or out, app tabs catch
+ * up through their focus, visibility and online triggers; the events page has
+ * none outside its own login popup and catches up when it is reopened.
  *
  * Tabs opened before a deploy keep their old code on the same channel and key,
  * so these literals and field names are frozen. The OAuth completion page

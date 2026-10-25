@@ -37,12 +37,11 @@ export function captureGuestFilePlayTiming(
   // A PLAY without hostStartAt (a running late join) starts at receipt. Any
   // hostPlayAt is ignored: only hosts before 8.6.53 sent it alone.
   const hostStartAt = data.hostStartAt;
-  const hasSharedStart = typeof hostStartAt === 'number' && hostStartAt > 0;
-  const hasAnchor =
+  const hasSharedStart =
     typeof hostStartAt === 'number' && Number.isFinite(hostStartAt) && hostStartAt > 0;
   const calibrated = isClockCalibrated();
 
-  if (hasAnchor && calibrated) {
+  if (hasSharedStart && calibrated) {
     const remainingMs = hostStartAt - getHostNow();
     if (Math.abs(remainingMs) < HOST_TIMELINE_TRUST_WINDOW_MS) {
       return {
@@ -61,7 +60,7 @@ export function captureGuestFilePlayTiming(
     time,
     setAt: receivedAt + (hasSharedStart ? LOCAL_FILE_START_LEAD_MS : 0),
     monotonicSetAt: receivedMonotonicAt + (hasSharedStart ? LOCAL_FILE_START_LEAD_MS : 0),
-    needsClockSync: hasAnchor && !calibrated,
+    needsClockSync: hasSharedStart && !calibrated,
   };
 }
 

@@ -26,7 +26,7 @@ function sessionProjection(pulse: Pulse) {
 
 /** ui/account.ts handles a result only with an outcome, an id and an accountClient. */
 function uiProjection(pulse: Pulse) {
-  return pulse?.auth && pulse.id !== null && pulse.accountClient !== null
+  return pulse?.auth && pulse.accountClient !== null
     ? { outcome: pulse.auth, id: pulse.id, accountClient: pulse.accountClient }
     : null;
 }

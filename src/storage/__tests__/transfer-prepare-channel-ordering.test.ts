@@ -160,7 +160,10 @@ function weaves(control: number, bulk: number, prefix = ''): string[] {
 // Survey OV-B04: a guest drops preload chunks that overtake their START, so a
 // legacy weave stays in the matrix only while PRELOAD_START (the third legacy
 // control frame) arrives before the first preload chunk (the fourth legacy
-// bulk frame). The main lane keeps every legacy weave.
+// bulk frame): 20 of the 84 legacy weaves. Those 20 still cover all 10 orders
+// of the main lane's own frames (FILE_PREPARE and FILE_START against its two
+// chunks and FILE_END); the dropped weaves are those where any control header
+// trails the first preload chunk.
 function preloadStartLeads(order: string): boolean {
   let control = 0;
   let bulk = 0;
@@ -244,7 +247,8 @@ it.each(orders)(
     expect(JSON.parse(sender.bulk.sent[0] as string).type).toBe(MSG.FILE_START);
     expect(JSON.parse(sender.bulk.sent[4] as string).type).toBe(MSG.PRELOAD_START);
     // Current senders serialize START with its bytes. Reconstruct old senders'
-    // control headers explicitly so every historical cross-lane weave remains.
+    // control headers explicitly for the legacy weaves the matrix keeps
+    // (preloadStartLeads).
     const wire =
       layout === 'legacy'
         ? {

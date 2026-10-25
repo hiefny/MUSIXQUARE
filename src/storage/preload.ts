@@ -2107,8 +2107,10 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
 
   // Only an admitted session takes bytes. PRELOAD_START travels on the
   // ordered bulk lane ahead of its chunks (8.11.23, #410), so a chunk without
-  // its session belongs to an ignored or skipped START, to an evicted
-  // session, or to an older host whose control-lane START it overtook.
+  // its session belongs to a START that was skipped or ignored (including one
+  // for a queue item this guest does not know yet, or one dropped before the
+  // queue-authority baseline), to an evicted session, or to an older host
+  // whose control-lane START it overtook.
   const session = getState('preload.sessionState').get(sid);
   if (!session || session.queueItemId !== queueItemId) return;
 

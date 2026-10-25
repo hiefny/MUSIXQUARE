@@ -13,6 +13,10 @@ import type {
   PlaylistItem,
   ResidentFile,
 } from '../../types/index.ts';
+import {
+  freezeFileDeliveryMode,
+  resetFileDeliveryPolicies,
+} from '../../share/file-delivery-policy.ts';
 import { setCurrentAudioBuffer } from '../_state.ts';
 import { setPlaybackFilePlaying } from '../ownership.ts';
 
@@ -31,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   unicastFile: vi.fn(),
   unicastPreload: vi.fn(),
   sendToHost: vi.fn(),
+  safeSend: vi.fn(),
   broadcast: vi.fn(),
 }));
 
@@ -74,6 +79,7 @@ vi.mock('../../storage/preload.ts', async (importOriginal) => {
 
 vi.mock('../../network/peer.ts', () => ({
   broadcast: mocks.broadcast,
+  safeSend: mocks.safeSend,
   sendToHost: mocks.sendToHost,
   isRemoteGuest: vi.fn(() => false),
   waitForGuestConnectionType: vi.fn(async () => 'local' as const),
@@ -374,6 +380,59 @@ describe('preload and late-join resident identity', () => {
       expect(getState('preload.ready')).toBe(ready);
     },
   );
+
+  it('routes a late ninth local guest through R2 before its capability frame arrives', async () => {
+    resetFileDeliveryPolicies();
+    setState('network.sessionCode', '246810');
+    const current = resident(QID_A, 0, 'current.mp3', 31);
+    setState('playlist.items', [item(QID_A, current.name)]);
+    setState('playlist.currentQueueItemId', QID_A);
+    setState('files.current', current);
+    setState('transfer.currentSessionId', 31);
+    const guest = (index: number): ConnectedPeer => {
+      const id = `late-room-guest-${index}`;
+      return {
+        id,
+        slot: index,
+        label: id,
+        conn: { open: true, peer: id, send: vi.fn() } as unknown as DataConnection,
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: index,
+        connectionType: 'local',
+        lastHeartbeat: 0,
+      };
+    };
+    const firstEight = Array.from({ length: 8 }, (_, index) => guest(index + 1));
+    setState('network.connectedPeers', firstEight);
+    expect(freezeFileDeliveryMode(31)).toBe('direct-local');
+    // ICE has already classified the ninth guest as local; the host has seen no
+    // FILE_R2_CAPABILITY frame from it yet.
+    const ninth = guest(9);
+    setState('network.connectedPeers', [...firstEight, ninth]);
+    initPlayback();
+
+    bus.emit('orchestrator:peer-joined', ninth.id);
+
+    await vi.waitFor(() =>
+      expect(mocks.safeSend).toHaveBeenCalledWith(
+        ninth.conn,
+        expect.objectContaining({
+          type: MSG.FILE_PREPARE,
+          queueItemId: QID_A,
+          sessionId: 31,
+          delivery: 'r2',
+        }),
+      ),
+    );
+    expect(mocks.safeSend).not.toHaveBeenCalledWith(
+      ninth.conn,
+      expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE }),
+    );
+    expect(mocks.unicastFile).not.toHaveBeenCalled();
+  });
 
   it.each(['no-selection', 'missing-item'] as const)(
     'retains the late-join bootstrap guard for %s',

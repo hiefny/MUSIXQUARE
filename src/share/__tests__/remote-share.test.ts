@@ -955,21 +955,16 @@ describe('remote file share policy', () => {
     });
   });
 
-  it('recovers only an authenticated unadvertised overflow connection after capability arrives', async () => {
+  it('routes nine local guests through R2 before any capability frame and ignores a late one', async () => {
     const { handleData } = await import('../../network/protocol.ts');
     const { safeSend } = await import('../../network/peer.ts');
-    const {
-      freezeFileDeliveryMode,
-      getDirectFilePeers,
-      getR2FileTargets,
-      getUnsupportedFileTargetsForTests,
-      isLocalFileR2CapableForTests,
-    } = await import('../file-delivery-policy.ts');
+    const { freezeFileDeliveryMode, getDirectFilePeers, getR2FileTargets } =
+      await import('../file-delivery-policy.ts');
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
 
     const peers = Array.from({ length: 9 }, (_, index) => {
-      const id = `local-unadvertised-${index + 1}`;
+      const id = `local-guest-${index + 1}`;
       return {
         id,
         status: 'connected' as const,
@@ -990,8 +985,9 @@ describe('remote file share policy', () => {
       'network.activeHostConnByPeerId',
       new Map(peers.map((peer) => [peer.id, peer.conn as DataConnection])),
     );
-    expect(freezeFileDeliveryMode(11)).toBe('mixed');
-    expect(getUnsupportedFileTargetsForTests(11).map((item) => item.peer)).toEqual([target.id]);
+    expect(freezeFileDeliveryMode(11)).toBe('r2-fanout');
+    expect(getDirectFilePeers(11)).toHaveLength(0);
+    expect(getR2FileTargets(11)).toHaveLength(9);
 
     const next = new File(['next'], 'next.flac', { type: 'audio/flac' });
     setState(
@@ -1017,28 +1013,18 @@ describe('remote file share policy', () => {
       sessionId: 11,
       blob: next,
     });
-    mocks.uploadRemoteFile.mockResolvedValueOnce(
-      descriptor({ objectId: OBJECT_2, name: next.name, queueItemId: Q1, sessionId: 11 }),
-    );
 
     await handleData(
       { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: true },
       target.conn as DataConnection,
     );
 
-    expect(isLocalFileR2CapableForTests(target.id)).toBe(true);
-    expect(getDirectFilePeers(11)).toHaveLength(8);
-    expect(getR2FileTargets(11).map((item) => item.peer)).toEqual([target.id]);
-    expect(getUnsupportedFileTargetsForTests(11)).toHaveLength(0);
-    expect(safeSend).toHaveBeenCalledWith(
-      target.conn,
-      expect.objectContaining({
-        type: MSG.REMOTE_FILE_SHARE,
-        queueItemId: Q1,
-        sessionId: 11,
-        preload: true,
-      }),
-    );
+    // The route was already R2 when the session froze, so a late capability
+    // frame has nothing to recover and replays no descriptor.
+    expect(getDirectFilePeers(11)).toHaveLength(0);
+    expect(getR2FileTargets(11)).toHaveLength(9);
+    expect(mocks.uploadRemoteFile).not.toHaveBeenCalled();
+    expect(safeSend).not.toHaveBeenCalled();
   });
 
   it('does not let a stale descriptor replace a newer transfer owner', async () => {

@@ -9,6 +9,7 @@ import {
   getDirectFilePeers,
   getR2FileTargets,
   getUnsupportedFileTargetsForTests,
+  isConnectionFileDeliveryUnsupported,
   isGuestR2FileDelivery,
   isGuestDirectFileDelivery,
   isLocalFileR2CapableForTests,
@@ -102,6 +103,55 @@ describe('bounded local file delivery policy', () => {
     );
   });
 
+  // Every current guest advertises local R2 support, so the host routes by room
+  // size alone: eight or fewer local guests stay direct, nine or more all use R2.
+  it.each([
+    [1, 'direct-local'],
+    [8, 'direct-local'],
+    [9, 'r2-fanout'],
+    [12, 'r2-fanout'],
+    [20, 'r2-fanout'],
+  ] as const)(
+    'routes a room of %i local guests as %s without any capability frame',
+    (count, mode) => {
+      const peers = Array.from({ length: count }, (_, index) => peer(index + 1, 'local'));
+      setState('network.connectedPeers', peers);
+      const sessionId = 200 + count;
+
+      expect(freezeFileDeliveryMode(sessionId)).toBe(mode);
+      const route = mode === 'direct-local' ? 'direct-local' : 'r2';
+      expect(peers.map((item) => resolvePeerFileDelivery(item, sessionId))).toEqual(
+        peers.map(() => route),
+      );
+      expect(getDirectFilePeers(sessionId)).toHaveLength(mode === 'direct-local' ? count : 0);
+      expect(getR2FileTargets(sessionId)).toHaveLength(mode === 'direct-local' ? 0 : count);
+    },
+  );
+
+  it('fills a direct session to eight and routes every later local guest through R2', () => {
+    const firstSix = Array.from({ length: 6 }, (_, index) => peer(index + 1, 'local'));
+    setState('network.connectedPeers', firstSix);
+    setState('transfer.currentSessionId', 21);
+    expect(freezeFileDeliveryMode(21)).toBe('direct-local');
+
+    const late = Array.from({ length: 6 }, (_, index) => peer(index + 7, 'local'));
+    setState('network.connectedPeers', [...firstSix, ...late]);
+    for (const item of late) markLateLocalPeerForR2(item.id);
+
+    expect(late.map((item) => resolvePeerFileDelivery(item, 21))).toEqual([
+      'direct-local',
+      'direct-local',
+      'r2',
+      'r2',
+      'r2',
+      'r2',
+    ]);
+    expect(getDirectFilePeers(21)).toHaveLength(8);
+    expect(getR2FileTargets(21).map((conn) => conn.peer)).toEqual(
+      late.slice(2).map((item) => item.id),
+    );
+  });
+
   it('keeps an in-flight direct snapshot and offloads only the ninth newcomer', () => {
     const firstEight = Array.from({ length: 8 }, (_, index) => peer(index + 1, 'local'));
     setState('network.connectedPeers', firstEight);
@@ -109,7 +159,6 @@ describe('bounded local file delivery policy', () => {
     expect(freezeFileDeliveryMode(4)).toBe('direct-local');
 
     const ninth = peer(9, 'local');
-    markLocalFileR2Capable(ninth.id);
     setState('network.connectedPeers', [...firstEight, ninth]);
     markLateLocalPeerForR2(ninth.id);
 
@@ -117,9 +166,45 @@ describe('bounded local file delivery policy', () => {
     expect(getR2FileTargets(4).map((conn) => conn.peer)).toEqual([ninth.id]);
 
     // The next transfer takes a fresh room snapshot and moves everyone.
-    expect(freezeFileDeliveryMode(5)).toBe('mixed');
-    expect(getDirectFilePeers(5)).toHaveLength(8);
-    expect(getR2FileTargets(5).map((conn) => conn.peer)).toEqual([ninth.id]);
+    expect(freezeFileDeliveryMode(5)).toBe('r2-fanout');
+    expect(getDirectFilePeers(5)).toHaveLength(0);
+    expect(getR2FileTargets(5)).toHaveLength(9);
+  });
+
+  it('keeps every late local guest of an all-R2 session on R2', () => {
+    const initial = Array.from({ length: 9 }, (_, index) => peer(index + 1, 'local'));
+    setState('network.connectedPeers', initial);
+    setState('transfer.currentSessionId', 71);
+    expect(freezeFileDeliveryMode(71)).toBe('r2-fanout');
+
+    const late = Array.from({ length: 9 }, (_, index) => peer(index + 10, 'local'));
+    setState('network.connectedPeers', [...initial, ...late]);
+    for (const item of late) markLateLocalPeerForR2(item.id);
+
+    expect(getDirectFilePeers(71)).toHaveLength(0);
+    expect(getR2FileTargets(71)).toHaveLength(18);
+  });
+
+  it('keeps unknown overflow guests pending until local ICE, then routes them through R2', () => {
+    const direct = Array.from({ length: 8 }, (_, index) => peer(index + 1, 'local'));
+    setState('network.connectedPeers', direct);
+    expect(freezeFileDeliveryMode(92)).toBe('direct-local');
+
+    const unknown = [peer(9, 'unknown'), peer(10, 'unknown')];
+    setState('network.connectedPeers', [...direct, ...unknown]);
+    expect(unknown.map((item) => resolvePeerFileDelivery(item, 92))).toEqual([
+      'pending',
+      'pending',
+    ]);
+
+    const resolved = unknown.map((item) => ({
+      ...item,
+      connectionType: 'local' as const,
+      isDataTarget: true,
+    }));
+    setState('network.connectedPeers', [...direct, ...resolved]);
+    expect(resolved.map((item) => resolvePeerFileDelivery(item, 92))).toEqual(['r2', 'r2']);
+    expect(getDirectFilePeers(92)).toHaveLength(8);
   });
 
   it('keeps capable late peers on R2 and reserves free mixed-mode direct slots for unadvertised peers', () => {
@@ -160,24 +245,15 @@ describe('bounded local file delivery policy', () => {
     expect(getUnsupportedFileTargetsForTests(6)).toHaveLength(0);
   });
 
-  it('gives an all-R2 session up to eight bounded direct slots for late unadvertised guests', () => {
-    const initial = Array.from({ length: 9 }, (_, index) => peer(index + 1, 'local'));
-    for (const item of initial) markLocalFileR2Capable(item.id);
-    setState('network.connectedPeers', initial);
-    setState('transfer.currentSessionId', 7);
-    expect(freezeFileDeliveryMode(7)).toBe('r2-fanout');
+  it('still fails closed for a connection with no connected peer or no valid session', () => {
+    const local = peer(1, 'local');
+    setState('network.connectedPeers', [local]);
+    const stranger = { open: true, peer: 'not-connected' } as DataConnection;
 
-    const lateUnadvertised = Array.from({ length: 9 }, (_, index) => peer(index + 10, 'local'));
-    setState('network.connectedPeers', [...initial, ...lateUnadvertised]);
-    for (const item of lateUnadvertised) markLateLocalPeerForR2(item.id);
-
-    expect(getR2FileTargets(7)).toHaveLength(9);
-    expect(getDirectFilePeers(7).map((item) => item.id)).toEqual(
-      lateUnadvertised.slice(0, 8).map((item) => item.id),
-    );
-    expect(getUnsupportedFileTargetsForTests(7).map((conn) => conn.peer)).toEqual([
-      lateUnadvertised[8]!.id,
-    ]);
+    expect(isConnectionFileDeliveryUnsupported(stranger, 22)).toBe(true);
+    expect(isConnectionFileDeliveryUnsupported(local.conn as DataConnection, 22)).toBe(false);
+    expect(isConnectionFileDeliveryUnsupported(local.conn as DataConnection, 0)).toBe(true);
+    expect(resolvePeerFileDelivery(local, 0)).toBe('unsupported');
   });
 
   it('preserves the existing R2 route for remote guests in a small room', () => {
@@ -234,37 +310,6 @@ describe('bounded local file delivery policy', () => {
 
     expect(markLocalFileR2Capable(unadvertisedLocal.id)).toEqual([]);
     expect(resolvePeerFileDelivery(unadvertisedLocal, 9)).toBe('direct-local');
-  });
-
-  it('resolves unknown capable and unadvertised overflow only after local ICE evaluation', () => {
-    const direct = Array.from({ length: 8 }, (_, index) => peer(index + 1, 'local'));
-    setState('network.connectedPeers', direct);
-    expect(freezeFileDeliveryMode(91)).toBe('direct-local');
-
-    const capableUnknown = peer(9, 'unknown');
-    const unadvertisedUnknown = peer(10, 'unknown');
-    setState('network.connectedPeers', [...direct, capableUnknown, unadvertisedUnknown]);
-    markLocalFileR2Capable(capableUnknown.id);
-    expect(resolvePeerFileDelivery(capableUnknown, 91)).toBe('pending');
-    expect(resolvePeerFileDelivery(unadvertisedUnknown, 91)).toBe('pending');
-    expect(getUnsupportedFileTargetsForTests(91)).toHaveLength(0);
-
-    const capableLocal = {
-      ...capableUnknown,
-      connectionType: 'local' as const,
-      isDataTarget: true,
-    };
-    const unadvertisedLocal = {
-      ...unadvertisedUnknown,
-      connectionType: 'local' as const,
-      isDataTarget: true,
-    };
-    setState('network.connectedPeers', [...direct, capableLocal, unadvertisedLocal]);
-    expect(resolvePeerFileDelivery(capableLocal, 91)).toBe('r2');
-    expect(resolvePeerFileDelivery(unadvertisedLocal, 91)).toBe('unsupported');
-
-    expect(markLocalFileR2Capable(unadvertisedLocal.id)).toEqual([91]);
-    expect(resolvePeerFileDelivery(unadvertisedLocal, 91)).toBe('r2');
   });
 
   it('drops connection-bound capability and route assignments before reconnect', () => {

@@ -18,7 +18,6 @@ import {
 import { setRepeatMode, setShuffle } from '../../player/playlist.ts';
 import {
   freezeFileDeliveryMode,
-  markLocalFileR2Capable,
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
 import type {
@@ -1992,7 +1991,6 @@ describe('unicastPreload source liveness', () => {
         };
       }),
     ];
-    for (const peer of peers) markLocalFileR2Capable(peer.id);
     setState('network.connectedPeers', peers);
 
     expect(freezeFileDeliveryMode(20)).toBe('r2-fanout');

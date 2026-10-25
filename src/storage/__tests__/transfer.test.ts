@@ -241,21 +241,19 @@ describe('host outgoing transfer routing', () => {
     }
   });
 
-  it('marks capable mixed-room peers for R2 and rejects unadvertised overflow explicitly', async () => {
+  it('marks every guest of a ten-local room for R2 and sends no unavailable frame', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const peers = Array.from({ length: 10 }, (_, index) => {
-      const id = `mixed-peer-${index + 1}`;
+      const id = `large-room-peer-${index + 1}`;
       const conn = { open: true, peer: id, send: vi.fn() } as unknown as DataConnection;
       return connectedPeer(id, conn, { joinOrder: index + 1 });
     });
-    const capable = peers[9]!;
-    markLocalFileR2Capable(capable.id);
     setState('network.connectedPeers', peers);
 
     sendFilePrepareByDelivery(
       {
         type: MSG.FILE_PREPARE,
-        name: 'mixed.mp3',
+        name: 'large-room.mp3',
         queueItemId: Q0,
         sessionId: 30,
         mime: 'audio/mpeg',
@@ -264,21 +262,14 @@ describe('host outgoing transfer routing', () => {
       30,
     );
 
-    for (const peer of peers.slice(0, 8)) {
-      expect(peer.conn.send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: MSG.FILE_PREPARE }),
+    for (const peer of peers) {
+      expect(peer.conn.send).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ type: MSG.FILE_PREPARE, delivery: 'r2' }),
       );
-      expect(peer.conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ delivery: 'r2' }));
+      expect(peer.conn.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE }),
+      );
     }
-    expect(peers[8]!.conn.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE, delivery: 'r2' }),
-    );
-    expect(peers[8]!.conn.send).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.FILE_PREPARE }),
-    );
-    expect(capable.conn.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.FILE_PREPARE, delivery: 'r2' }),
-    );
   });
 
   it('defers an unadvertised peer until ICE chooses remote R2 or local overflow', async () => {

@@ -28,6 +28,7 @@ import {
 } from './system-audio-delivery.ts';
 
 import { forceStereoSdp } from './opus-stereo-sdp.ts';
+import { tuneSystemAudioMusicSender } from './system-audio-media.ts';
 import { getRoomContext, isStandardRoomRole } from '../rooms/authority.ts';
 
 const DIRECT_CALL_CONNECT_TIMEOUT_MS = 5_000;
@@ -70,41 +71,6 @@ function armDirectCallConnectTimeout(peerId: string, mediaConn: MediaConnection)
     },
     DIRECT_CALL_CONNECT_TIMEOUT_MS,
   );
-}
-
-// ─── SDP Munging & Track Constraints ──────────────────────────────
-
-/** Boost bitrate and disable microphone DSP once for one media-call sender. */
-function tuneSystemAudioSender(sender: RTCRtpSender): void {
-  if (sender.track?.kind !== 'audio') return;
-  const track = sender.track;
-  // Preserve music dynamics instead of applying microphone-oriented DSP.
-  try {
-    track
-      .applyConstraints({
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      })
-      .catch(() => {
-        /* noop */
-      });
-  } catch {
-    /* noop */
-  }
-
-  // A single stereo track carries both channels, preserving the previous
-  // dual-mono aggregate budget on one sender.
-  try {
-    const params = sender.getParameters();
-    if (!params.encodings) params.encodings = [{}];
-    params.encodings[0].maxBitrate = 256000;
-    sender.setParameters(params).catch(() => {
-      /* noop */
-    });
-  } catch {
-    /* noop */
-  }
 }
 
 // ─── Module State ─────────────────────────────────────────────────
@@ -244,7 +210,7 @@ function callGuest(guestPeerId: string): void {
     const mc = peer.call(guestPeerId, capturedAudioStream, {
       metadata: { type: 'system-audio-stereo' },
       sdpTransform: forceStereoSdp,
-      senderTuning: tuneSystemAudioSender,
+      senderTuning: tuneSystemAudioMusicSender,
     });
 
     _mediaConns.set(guestPeerId, mc);

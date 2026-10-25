@@ -32,6 +32,7 @@ import { claimGuestDirectSystemAudioRoute } from './system-audio-delivery.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
 import { forceStereoSdp } from './opus-stereo-sdp.ts';
+import { applySystemAudioPlayoutDelay } from './system-audio-media.ts';
 import {
   cleanupWebRtcAudioDecoderPrimer,
   getAudioTrackStreamKey,
@@ -40,21 +41,7 @@ import {
 } from './webrtc-audio-decoder-primer.ts';
 
 // ─── Tuning ───────────────────────────────────────────────────────
-//
-// playoutDelayHint target for the WebRTC audio receivers. WebRTC's NetEq
-// adapts each receiver's jitter buffer independently based on packet arrival
-// pattern, so two guests in the same room drift in and out of phase with each
-// other as their buffers grow/shrink at different times. Setting the same
-// hint on every receiver nudges them all toward the same effective delay,
-// narrowing the cross-device variance.
-//
-// Tuning rationale:
-//   < 200ms — NetEq's natural adaptive range often exceeds this anyway, so
-//             the hint doesn't cap anything and we get the same drift.
-//   > 600ms — host pause/skip becomes obviously laggy on guests.
-//   300-500ms — hint caps adaptation while keeping responsiveness acceptable.
-//   500ms favors lower cross-device variance at the upper end of that range.
-const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
+// The playout-delay hint lives in system-audio-media.ts with the other routes'.
 const SYSTEM_AUDIO_RECEIVE_WATCHDOG = 'sys-audio-guest-receive-watchdog';
 const SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX = 'sys-audio-guest-replacement-watchdog';
 const SYSTEM_AUDIO_CHANNEL = 'STEREO';
@@ -479,20 +466,12 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     }
 
     // Pin every audio receiver to the same playout-delay target so NetEq's
-    // adaptive jitter buffer doesn't drift independently per device. See the
-    // SYSTEM_AUDIO_PLAYOUT_DELAY_S comment for the rationale + tuning notes.
-    // Direct-call adapters expose the underlying RTCPeerConnection here.
+    // adaptive jitter buffer doesn't drift independently per device (the
+    // rationale and tuning notes are in system-audio-media.ts). Direct-call
+    // adapters expose the underlying RTCPeerConnection here.
     const pc = mediaConn.peerConnection;
     if (pc) {
-      for (const r of pc.getReceivers()) {
-        // playoutDelayHint is in the WebRTC spec but not in TS's lib.dom yet.
-        // Chrome/Edge implement it; on browsers that don't, the assignment is
-        // a no-op (still a regular property), so the cast is safe at runtime.
-        const recv = r as RTCRtpReceiver & { playoutDelayHint?: number };
-        if (recv.track && recv.track.kind === 'audio') {
-          recv.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
-        }
-      }
+      for (const receiver of pc.getReceivers()) applySystemAudioPlayoutDelay(receiver);
     }
 
     await initAudio();

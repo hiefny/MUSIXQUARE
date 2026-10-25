@@ -64,6 +64,14 @@
  *     key such as a batchSetState reset) outside src/player/ownership.ts, the
  *     setter's home. Phase 5 lowers these as the receive slot takes the
  *     writes.
+ *   CHECK 10 System-audio media tuning home (RO-04, Phase 5 C4-1), per file
+ *     in the system-audio route files (src/network/system-audio-*.ts and
+ *     src/network/pro-system-audio-*.ts): writes of `playoutDelayHint` or
+ *     `maxBitrate` (an assignment or an object-literal key) and string
+ *     literals naming stun.cloudflare.com stay in
+ *     src/network/system-audio-media.ts. The eager STUN entries outside those
+ *     files (peer.ts, standard-room-prerequisites.ts) are out of scope: they
+ *     cannot import the deferred home.
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -326,6 +334,8 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
   {
     records: ['RO-04'],
     files: [
+      // The media home since Phase 5 C4-1 (MEDIA_TUNING_HOME, CHECK 10).
+      'src/network/system-audio-media.ts',
       'src/network/system-audio-guest.ts',
       'src/network/system-audio-sfu.ts',
       'src/network/pro-system-audio-sfu.ts',
@@ -420,26 +430,6 @@ const TIMING_PAIR_BASELINE = new Map<string, PairAllowance>([
     'RO-02/RO-03/RO-12 TIMING@src/youtube/authority-arm.ts = ' +
       'YOUTUBE_ZERO_START_TIMING@src/youtube/zero-start.ts (10 shared values)',
     { kind: 'copy', reason: 'arm timing copied for PRO; Phase 0d C2-1 shares it' },
-  ],
-  [
-    'RO-04 SFU_CONTROL_REQUEST_TIMEOUT_MS@src/network/pro-system-audio-sfu.ts = ' +
-      'SFU_CONTROL_REQUEST_TIMEOUT_MS@src/network/system-audio-sfu.ts (15000)',
-    { kind: 'copy', reason: 'Realtime control timeout; Phase 0d C4-1' },
-  ],
-  [
-    'RO-04 SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/pro-system-audio-sfu.ts = ' +
-      'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-guest.ts (0.5)',
-    { kind: 'copy', reason: 'receive playout delay; Phase 0d C4-1' },
-  ],
-  [
-    'RO-04 SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/pro-system-audio-sfu.ts = ' +
-      'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-sfu.ts (0.5)',
-    { kind: 'copy', reason: 'receive playout delay; Phase 0d C4-1' },
-  ],
-  [
-    'RO-04 SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-guest.ts = ' +
-      'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-sfu.ts (0.5)',
-    { kind: 'copy', reason: 'receive playout delay; Phase 0d C4-1' },
   ],
   [
     // Phase 3 R2: the lazy hard reset measures the logo claim's quiet reading
@@ -632,6 +622,33 @@ const RAW_RECEIVING_FLAG_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   [
     'src/network/peer.ts',
     { count: 1, reason: 'the leaveSession batchSetState reset, with the rest of the session' },
+  ],
+]);
+
+// ── CHECK 10 baseline: system-audio media tuning home (RO-04) ────────────
+// Phase 5 5A C4-1 moved the receivers' playout-delay hint, the senders'
+// stereo bitrate cap and the Cloudflare Realtime STUN entry out of the route
+// adapters into one deferred module. Only the system-audio route files are
+// scanned: the eager STUN entries in peer.ts and standard-room-prerequisites
+// .ts cannot import a deferred module without pulling it into the first load.
+
+const MEDIA_TUNING_HOME = 'src/network/system-audio-media.ts';
+const MEDIA_TUNING_SCOPE_RE = /^src\/network\/(?:pro-)?system-audio-[^/]+\.ts$/u;
+const MEDIA_TUNING_MEMBERS = new Set(['playoutDelayHint', 'maxBitrate']);
+const REALTIME_STUN_HOST = 'stun.cloudflare.com';
+
+/**
+ * RO-04: `playoutDelayHint` and `maxBitrate` writes (an assignment, or an
+ * object-literal key such as a sendEncodings entry) and string literals
+ * naming the Realtime STUN host, per system-audio route file.
+ */
+const MEDIA_TUNING_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    MEDIA_TUNING_HOME,
+    {
+      count: 3,
+      reason: 'the home: the playout-delay hint, the stereo bitrate cap and the STUN entry',
+    },
   ],
 ]);
 
@@ -927,6 +944,7 @@ interface FileFacts {
   systemAudioOwnerClaims: number;
   widenerInputUses: number;
   rawReceivingFlagWrites: number;
+  mediaTuningSites: number;
   readonly broadcastEndpointSites: string[];
   readonly durationReadSites: string[];
   readonly armedReceptionStartSites: string[];
@@ -1055,6 +1073,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
     systemAudioOwnerClaims: 0,
     widenerInputUses: 0,
     rawReceivingFlagWrites: 0,
+    mediaTuningSites: 0,
     broadcastEndpointSites: [],
     durationReadSites: [],
     armedReceptionStartSites: [],
@@ -1078,6 +1097,7 @@ function collectFacts(relPath: string, text: string): FileFacts {
         facts.broadcastEndpointSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
       }
       if (node.text === 'SKIP_WAITING') facts.skipWaitingSends += 1;
+      if (node.text.toLowerCase().includes(REALTIME_STUN_HOST)) facts.mediaTuningSites += 1;
     } else if (ts.isIdentifier(node) && node.text === DURATION_READER && isValueReference(node)) {
       // Any value use, so passing the reader around cannot hide a caller.
       facts.durationReadSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
@@ -1120,6 +1140,15 @@ function collectFacts(relPath: string, text: string): FileFacts {
       // A batchSetState (or any object-literal) write of the flag.
       facts.rawReceivingFlagWrites += 1;
     }
+    if (
+      (ts.isPropertyAssignment(node) &&
+        MEDIA_TUNING_MEMBERS.has(staticPropertyName(node.name) ?? '')) ||
+      (ts.isShorthandPropertyAssignment(node) && MEDIA_TUNING_MEMBERS.has(node.name.text))
+    ) {
+      // An object literal that carries the hint or the bitrate, such as a
+      // sendEncodings entry or an Object.assign source.
+      facts.mediaTuningSites += 1;
+    }
 
     const member = memberName(node);
     if (
@@ -1128,6 +1157,9 @@ function collectFacts(relPath: string, text: string): FileFacts {
     ) {
       const receiver = node.expression;
       if (member === 'inert' && isAssignmentTarget(node)) facts.inertWrites += 1;
+      if (MEDIA_TUNING_MEMBERS.has(member) && isAssignmentTarget(node)) {
+        facts.mediaTuningSites += 1;
+      }
       if (member === 'ariaHidden' && isAssignmentTarget(node)) facts.ariaHiddenWrites += 1;
       if ((member === 'children' || member === 'childNodes') && receiverName(receiver) === 'body') {
         facts.bodyChildrenWalks += 1;
@@ -1739,6 +1771,7 @@ export interface ResourceOwnershipReport {
   readonly audioContextNativeCalls: number;
   readonly defaultLoaderWrites: number;
   readonly receiveSlotWrites: Readonly<Record<string, number>>;
+  readonly mediaTuningSites: number;
 }
 
 function perFile(
@@ -1970,6 +2003,24 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
   ];
   for (const check of receiveSlotChecks) compareExact(check, findings);
 
+  const mediaTuningSites = perFile(
+    facts,
+    (f) => f.mediaTuningSites,
+    (relPath) => MEDIA_TUNING_SCOPE_RE.test(relPath),
+  );
+  compareExact(
+    {
+      label: 'system-audio media tuning',
+      record: 'RO-04',
+      hint:
+        'set the playout-delay hint and the sender bitrate, and name the Realtime STUN ' +
+        `server, through ${MEDIA_TUNING_HOME}`,
+      measured: mediaTuningSites,
+      baseline: MEDIA_TUNING_BASELINE,
+    },
+    findings,
+  );
+
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);
   const receiveSlotWrites: Record<string, number> = {};
@@ -2001,6 +2052,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     audioContextNativeCalls: total(audioContextCalls),
     defaultLoaderWrites: total(defaultLoaderWrites),
     receiveSlotWrites,
+    mediaTuningSites: total(mediaTuningSites),
   };
 }
 
@@ -2042,7 +2094,8 @@ function main(argv: readonly string[]): void {
       `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.\n` +
       `  Developer API authority fence writes: ${report.authorityFenceWrites}.\n` +
       `  Header loader default holder writes: ${report.defaultLoaderWrites}.\n` +
-      `  system-audio receive slot writes: ${summary(report.receiveSlotWrites)}.`,
+      `  system-audio receive slot writes: ${summary(report.receiveSlotWrites)}.\n` +
+      `  system-audio media tuning sites: ${report.mediaTuningSites}, all in ${MEDIA_TUNING_HOME}.`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);

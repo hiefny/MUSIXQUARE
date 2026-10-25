@@ -53,15 +53,18 @@ import { readBoundedJsonResponse, withRequestDeadline } from '../core/request-li
 import { localFirstApiEndpoints } from './api-endpoints.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 import { forceStereoSdp, sdpPrefersOpusStereo } from './opus-stereo-sdp.ts';
+import {
+  BASE_SFU_ICE_SERVERS,
+  SFU_CONTROL_REQUEST_TIMEOUT_MS,
+  SFU_CONTROL_RESPONSE_MAX_BYTES,
+  applySystemAudioPlayoutDelay,
+  tuneSystemAudioMusicSender,
+} from './system-audio-media.ts';
 
-const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
 const HOST_SFU_RETRY_TIMER = 'system-audio-sfu-host-retry';
 const HOST_SFU_RETRY_DELAY_MS = 2500;
 const HOST_SFU_MAX_RETRIES = 1;
-const SFU_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
-const SFU_CONTROL_RESPONSE_MAX_BYTES = 1024 * 1024;
-const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
 
 interface RealtimeSessionDescription {
   type: 'offer' | 'answer';
@@ -346,38 +349,6 @@ function sessionDescriptionFromInit(desc: RTCSessionDescriptionInit): RealtimeSe
   return { type: desc.type, sdp: forceStereoSdp(desc.sdp) };
 }
 
-function applyAudioSenderTuning(sender: RTCRtpSender): void {
-  const track = sender.track;
-  if (!track || track.kind !== 'audio') return;
-
-  try {
-    track
-      .applyConstraints({
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      })
-      .catch(() => {
-        /* noop */
-      });
-  } catch {
-    /* noop */
-  }
-
-  try {
-    const params = sender.getParameters();
-    if (!params.encodings) params.encodings = [{}];
-    // The former L/R contract allocated 128 kbps to each mono sender. Keep the
-    // same aggregate quality budget on the single stereo Opus sender.
-    params.encodings[0].maxBitrate = 256000;
-    sender.setParameters(params).catch(() => {
-      /* noop */
-    });
-  } catch {
-    /* noop */
-  }
-}
-
 function makeReadyMessage(
   publication: HostPublication,
   audience: 'remote' | 'all',
@@ -551,7 +522,7 @@ async function publishHostTracks(
     direction: 'sendonly',
     streams: [capturedStream],
   });
-  applyAudioSenderTuning(transceiver.sender);
+  tuneSystemAudioMusicSender(transceiver.sender);
 
   const offer = await pc.createOffer();
   const offerDescription = sessionDescriptionFromInit(offer);
@@ -795,12 +766,6 @@ function cleanupHostSfu(
   }
 }
 
-function setReceiverDelay(receiver: RTCRtpReceiver): void {
-  if (receiver.track?.kind !== 'audio') return;
-  const delayedReceiver = receiver as RTCRtpReceiver & { playoutDelayHint?: number };
-  delayedReceiver.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
-}
-
 async function connectGuestTrack(track: MediaStreamTrack, pc: RTCPeerConnection): Promise<void> {
   if (guestPc !== pc) return;
   // SYSTEM_AUDIO_START and the SFU descriptor share a reliable data channel,
@@ -991,7 +956,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
     if (attachedTrackKeys.has(key)) return;
     attachedTrackKeys.add(key);
 
-    setReceiverDelay(receiver);
+    applySystemAudioPlayoutDelay(receiver);
     log.info(`[SysAudioSFU] Received stereo remote track (${reason}, mid=${mid || 'none'})`);
     connectGuestTrack(track, pc).catch((error) => {
       if (guestPc !== pc) return;

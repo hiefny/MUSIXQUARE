@@ -381,11 +381,17 @@ RO-49 accepted-exception
   reports the failure once and keeps the listener in reception for a late track (G5).
   Standard SFU guests also react to `system-audio:receive-timeout`.
   Target: one receive deadline per attempt in the slot.
-- **Timing-constant home:** none. `SYSTEM_AUDIO_PLAYOUT_DELAY_S` is defined in
-  `system-audio-guest.ts`, `system-audio-sfu.ts` and `pro-system-audio-sfu.ts`;
-  `SFU_CONTROL_REQUEST_TIMEOUT_MS` in the two SFU modules; `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` in the
-  guest module; `RECOVERY_DELAY_MS` and `SUBSCRIBER_RETRY_MAX_DELAY_MS` in the service. Target: a
-  deferred-only `src/network/system-audio-media.ts` (Phase 0d, C4-1).
+- **Timing-constant home:** the deferred-only `src/network/system-audio-media.ts` (Phase 5 5A,
+  C4-1). It holds the receivers' playout-delay hint (`SYSTEM_AUDIO_PLAYOUT_DELAY_S`, 0.5 s, set
+  through `applySystemAudioPlayoutDelay` on the Standard direct, Standard SFU and PRO SFU
+  receivers; the PRO LAN-direct receiver sets none), the senders' 256 kbps stereo bitrate and
+  music constraints (`tuneSystemAudioMusicSender` for the Standard direct call and both SFU
+  publishers; `tuneSystemAudioLanDirectSender`, bitrate only, for PRO LAN-direct, which also sets
+  back a sender that lists no encoding) and the Cloudflare Realtime STUN entry, 15 s request
+  deadline and 1 MiB response cap both SFU transports share. No eager module may import it
+  (`vite.config.ts` `DEFERRED_ENTRY_MODULES`). The receive deadline
+  `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` stays in the guest module and `RECOVERY_DELAY_MS` and
+  `SUBSCRIBER_RETRY_MAX_DELAY_MS` in the service until the receive-slot increments move them.
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/system-audio-guest.test.ts` "does not let a stale async
     stream failure tear down its replacement connection".
@@ -408,11 +414,16 @@ RO-49 accepted-exception
     `widener.input` uses (5: the file playback route's 2 in `engine.ts`, guest, Standard SFU and
     service 1 each) and raw `'systemAudio.isReceiving'` writes outside `src/player/ownership.ts`
     (1: the `leaveSession` batch reset in `peer.ts`). Each Phase 5 increment that moves a write
-    into the slot lowers its count.
+    into the slot lowers its count. Since Phase 5 C4-1 it also keeps the media tuning in its home:
+    in `src/network/system-audio-*.ts` and `src/network/pro-system-audio-*.ts`, only
+    `system-audio-media.ts` writes `playoutDelayHint` or `maxBitrate` or names
+    `stun.cloudflare.com` (3 sites), and a route adapter that re-types one of its timing
+    constants is a copied-timing finding.
 - **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrived after the
   30 s watchdog stayed silent) is fixed in 9.0.2. G6 (each PRO SFU retry re-runs the reception
   start, including `stopAllMedia` and the host-started notice) is an open release-record item.
-  Phase 0d (media constants), Phase 5 (slot). Exception RO-39.
+  Phase 5 (slot); its first increment, C4-1, moved the media constants (planned for Phase 0d).
+  Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 
@@ -2148,7 +2159,9 @@ entry needs the owner's acceptance and is not implied by this registry.
 
 - **Parent:** RO-04 and RO-20. Plan step C4-11 deferred.
 - **Exception:** the Realtime control calls (request, response check, track close) stay copied in
-  `src/network/system-audio-sfu.ts` and `src/network/pro-system-audio-sfu.ts`.
+  `src/network/system-audio-sfu.ts` and `src/network/pro-system-audio-sfu.ts`. Their shared
+  values (the STUN entry, the request deadline and the response cap) come from
+  `src/network/system-audio-media.ts` since Phase 5 C4-1.
 - **Evidence:** the copies sit in different lazy chunks, and a shared module could become a new
   shared chunk on cellular joins; the name builders and error-text fallbacks differ, and the
   Standard SFU branches on error text.
@@ -2462,6 +2475,12 @@ and unrelated strings never count, and every baseline is an exact count or list 
    `widener`; and raw `'systemAudio.isReceiving'` writes (a `setState()` call or an object-literal
    key such as a `batchSetState` reset) outside `src/player/ownership.ts`, the setter's home. The
    widener match is by name, so a widener held under another name is not seen.
+10. **System-audio media tuning home, per file** (RO-04, Phase 5 C4-1): in the system-audio route
+    files (`src/network/system-audio-*.ts` and `src/network/pro-system-audio-*.ts`), writes of
+    `playoutDelayHint` or `maxBitrate` (an assignment or an object-literal key) and string
+    literals naming `stun.cloudflare.com` stay in `src/network/system-audio-media.ts`. The eager
+    STUN entries in `src/network/peer.ts` and `src/network/standard-room-prerequisites.ts` are
+    out of scope, because importing the deferred home there would pull it into the first load.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
 sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).

@@ -579,6 +579,24 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
 
+    it('rejects a route adapter that re-types a system-audio media value beside its home (C4-1)', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const file = 'src/network/system-audio-guest.ts';
+          sources.set(
+            file,
+            `${sources.get(file) ?? ''}\nconst SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;\n` +
+              'void SYSTEM_AUDIO_PLAYOUT_DELAY_S;\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'COPIED TIMING CONSTANT (principle 4): RO-04 ' +
+          'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-guest.ts = ' +
+          'SYSTEM_AUDIO_PLAYOUT_DELAY_S@src/network/system-audio-media.ts (0.5)',
+      );
+    });
+
     it('keeps differently named constants that only share a value report-only', () => {
       const input = withSources((sources) => {
         const file = 'src/player/background-return-sync.ts';
@@ -881,6 +899,100 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
       expect(findings).toMatch(
         /STALE BASELINE raw receiving flag write \(RO-04\): src\/network\/peer\.ts has 0 - remove its entry/u,
+      );
+    });
+  });
+
+  describe('CHECK 10 system-audio media tuning home (RO-04, C4-1)', () => {
+    const HOME = 'src/network/system-audio-media.ts';
+
+    it('keeps the hint, the bitrate and the STUN entry in the media home on the real tree', () => {
+      const report = analyzeResourceOwnership(realInput());
+      expect(report.findings).toEqual([]);
+      expect(report.mediaTuningSites).toBe(3);
+    });
+
+    it('rejects a route adapter that sets them itself, however it writes them', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const sfu = 'src/network/system-audio-sfu.ts';
+          sources.set(
+            sfu,
+            `${sources.get(sfu) ?? ''}\n` +
+              'export function retune(\n' +
+              '  receiver: RTCRtpReceiver & { playoutDelayHint?: number },\n' +
+              '  encoding: RTCRtpEncodingParameters,\n' +
+              '): void {\n' +
+              '  receiver.playoutDelayHint = 0.5;\n' +
+              "  encoding['maxBitrate'] = 256_000;\n" +
+              '  Object.assign(receiver, { playoutDelayHint: 0.5 });\n' +
+              '}\n' +
+              'export const ICE = [{ urls: `stun:STUN.cloudflare.com:3478` }];\n',
+          );
+          const direct = 'src/network/pro-system-audio-direct.ts';
+          sources.set(
+            direct,
+            `${sources.get(direct) ?? ''}\n` +
+              'const maxBitrate = 128_000;\n' +
+              'export const SEND_ENCODINGS = [{ maxBitrate }];\n',
+          );
+        }),
+      );
+      expect(findings).toContain(
+        'UNSANCTIONED system-audio media tuning (RO-04): src/network/system-audio-sfu.ts has 4',
+      );
+      expect(findings).toContain(
+        'UNSANCTIONED system-audio media tuning (RO-04): ' +
+          'src/network/pro-system-audio-direct.ts has 1',
+      );
+    });
+
+    it('ignores reads, type members, comments and files outside the system-audio routes', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          const guest = 'src/network/system-audio-guest.ts';
+          sources.set(
+            guest,
+            `${sources.get(guest) ?? ''}\n` +
+              'export function readHint(\n' +
+              '  receiver: RTCRtpReceiver & { playoutDelayHint?: number },\n' +
+              '): number | undefined {\n' +
+              '  // receiver.playoutDelayHint = 0.5 and stun.cloudflare.com in a comment.\n' +
+              '  return receiver.playoutDelayHint;\n' +
+              '}\n',
+          );
+          // The eager STUN entries live outside the deferred route files.
+          const prerequisites = 'src/network/standard-room-prerequisites.ts';
+          sources.set(
+            prerequisites,
+            `${sources.get(prerequisites) ?? ''}\n` +
+              "export const EXTRA = [{ urls: 'stun:stun.cloudflare.com:3478' }];\n",
+          );
+        }),
+      );
+      expect(findings).toBe('');
+    });
+
+    it('fails a raised count in the home and a home that stops holding one of them', () => {
+      const raised = findingsOf(
+        withSources((sources) => {
+          sources.set(
+            HOME,
+            `${sources.get(HOME) ?? ''}\nexport const SEND_ENCODINGS = [{ maxBitrate: 1 }];\n`,
+          );
+        }),
+      );
+      expect(raised).toContain(
+        `RATCHET REGRESSION system-audio media tuning (RO-04): ${HOME} has 4, baseline 3`,
+      );
+
+      const lowered = findingsOf(
+        withSources((sources) =>
+          replaceIn(sources, HOME, "'stun:stun.cloudflare.com:3478'", 'TURN_ONLY'),
+        ),
+      );
+      expect(lowered).toContain(
+        `STALE BASELINE system-audio media tuning (RO-04): ${HOME} has 2, baseline 3`,
       );
     });
   });

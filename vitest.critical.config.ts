@@ -21,6 +21,8 @@ export default defineConfig({
       'src/pro-room/__tests__/system-audio-receive-slot-{pro-contract,pro-transport-contract}.test.ts',
       'src/network/__tests__/system-audio-guest.test.ts',
       'src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts',
+      // The routes' shared media home, enrolled with it in Phase 5 C4-1.
+      'src/network/__tests__/system-audio-media.test.ts',
       'src/audio/__tests__/{context-health,context-recovery,foreground-output-health,output-health,system-capture,system-capture-stop}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',
@@ -59,6 +61,7 @@ export default defineConfig({
         'src/network/pro-system-audio-sfu.ts',
         'src/network/system-audio-guest.ts',
         'src/network/pro-system-audio-direct.ts',
+        'src/network/system-audio-media.ts',
         'src/pro-room/system-audio-service.ts',
         'src/audio/system-capture.ts',
         'src/pro-room/api.ts',
@@ -177,6 +180,14 @@ export default defineConfig({
           branches: 40,
           functions: 56,
           lines: 53,
+        },
+        // The routes' shared media home (Phase 5 C4-1) is fully covered by
+        // system-audio-media.test.ts on 2026-10-25.
+        'src/network/system-audio-media.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
         },
         'src/network/transport/cloudflare-signaling.ts': {
           statements: 72,

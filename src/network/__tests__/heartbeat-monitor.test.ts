@@ -24,6 +24,32 @@ vi.mock('../../core/log.ts', () => ({
   },
 }));
 
+/** The two channels of a Standard-room connection, open from the start. */
+class FakeChannel extends EventTarget {
+  binaryType: BinaryType = 'arraybuffer';
+  readyState: RTCDataChannelState = 'open';
+  constructor(readonly label: string) {
+    super();
+  }
+  send(): void {}
+  close(): void {
+    if (this.readyState === 'closed') return;
+    this.readyState = 'closed';
+    this.dispatchEvent(new Event('close'));
+  }
+}
+
+class FakePeerConnection extends EventTarget {
+  connectionState: RTCPeerConnectionState = 'connected';
+  close(): void {
+    this.connectionState = 'closed';
+  }
+  state(value: RTCPeerConnectionState): void {
+    this.connectionState = value;
+    this.dispatchEvent(new Event('connectionstatechange'));
+  }
+}
+
 type CloseMock = ReturnType<typeof vi.fn<() => void>>;
 type TestConnection = DataConnection & { close: CloseMock };
 
@@ -97,6 +123,41 @@ describe('host heartbeat monitor', () => {
     expect(mocks.detachHostPeerConnection).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(5_000);
     expect(mocks.detachHostPeerConnection).toHaveBeenCalledWith(conn.peer, conn);
+  });
+
+  it('honors the real lease of a Standard-room connection through a restart until its grace closes it', async () => {
+    // The lease as the link-liveness owner publishes it (RO-15), not a copied
+    // deadline: a bound CloudflareDataConnection whose original route failed.
+    const { CloudflareDataConnection } = await import('../transport/cloudflare-signaling.ts');
+    const conn = new CloudflareDataConnection('standard-lease');
+    conn.iceRestartBinding = 'negotiation_heartbeat_01';
+    const pc = new FakePeerConnection();
+    const bulk = new FakeChannel('musixquare-data');
+    const control = new FakeChannel('musixquare-control');
+    conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+    conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(conn.open).toBe(true);
+    pc.state('failed');
+    expect(conn.iceRecoveryDeadline).toBe(Date.now() + 15_000);
+    installPeers([makePeer(conn.peer, conn, Date.now() - 90_000)]);
+    setState('setup.sessionStarted', true);
+    const { initHeartbeatMonitor } = await import('../heartbeat-monitor.ts');
+    initHeartbeatMonitor();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    // A restart inside the interruption keeps the same, non-renewing lease.
+    expect(conn.beginIceRestart()).toBe(true);
+    expect(conn.iceRecoveryDeadline).toBe(1_000_000 + 15_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mocks.detachHostPeerConnection).not.toHaveBeenCalled();
+    expect(conn.open).toBe(true);
+
+    // The owner's grace ends the link at 15 s; the monitor's next tick then
+    // detaches the stale peer at its ordinary threshold.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(conn.open).toBe(false);
+    expect(mocks.detachHostPeerConnection).toHaveBeenCalledExactlyOnceWith(conn.peer, conn);
   });
 
   it('ignores a recovery lease longer than one transport grace and detaches at the ordinary threshold', async () => {

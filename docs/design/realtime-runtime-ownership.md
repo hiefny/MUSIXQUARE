@@ -2,7 +2,9 @@
 
 - **Status:** Accepted
 - **Decision date:** 2026-08-18
-- **Amended:** 2026-10-24, the transport-health read rule (Phase 4, C5-4)
+- **Amended:** 2026-10-24, the transport-health read rule (Phase 4, C5-4); 2026-10-25, the
+  link-liveness owner view (Phase 4, C5-8) and the link-liveness owner and close authority
+  (Phase 4, C5-10)
 - **Applies to:** standard-room browser control, synchronization, and peer liveness
 
 ## Decision
@@ -28,20 +30,36 @@ one read path from a data connection's raw RTC state (the peer connection's
 `connectionState` and `iceConnectionState`, the data and control channel
 states, and the provider's ICE recovery deadline) to the decisions made on it.
 A caller takes one snapshot with `readTransportHealth()` and asks a pure
-predicate:
+predicate. Since 2026-10-25 (Phase 4, C5-8) every Cloudflare data connection
+(`CloudflareDataConnection`, Standard and PRO rooms alike) exposes its
+link-liveness owner (`linkLiveness`, registry RO-15): the snapshot then takes
+the original route from the owner's phase instead of the peer connection's
+`connectionState`, and the recovery deadline from the owner. The owner does
+not observe `iceConnectionState`, so those rows still apply. A connection
+without an owner (PeerJS) is read raw. In a PRO room the bulk and preload
+lanes carry no persistent playlist media (each participant fetches it from
+the room bucket; `src/player/decode.ts`, `src/storage/preload.ts`), so the
+owner's view changes a PRO room only where a legacy lane still runs, and the
+heartbeat lease reads the deadline `iceRecoveryDeadline` already delegated to
+the owner.
 
 - `isBulkWritable`: the bulk (chunk) senders, through
-  `isBulkTransferWritablePeer` in `src/storage/chunk-pump.ts`. Either field
-  disconnected, failed, or closed blocks the lane.
+  `isBulkTransferWritablePeer` in `src/storage/chunk-pump.ts`. Raw, either
+  field disconnected, failed, or closed blocks the lane. With an owner, only
+  its `live` phase is writable, and ICE disconnected, failed, or closed still
+  blocks the lane.
 - `isRecoverablyInterrupted`: the preload lanes in `src/storage/preload.ts`
-  pause instead of aborting. Either field disconnected or failed counts.
+  pause instead of aborting. Raw, either field disconnected or failed counts.
+  With an owner, its `recovering` phase counts (also while a restarted route
+  reads `connecting`), and so does ICE disconnected or failed; a side-route
+  outage never does.
 - `heartbeatStaleThreshold` and `honoursRecoveryLease`: the heartbeat
   monitor's stale threshold and its bounded ICE recovery lease. Neither reads
   `iceConnectionState`. The threshold reads whether the connection is open,
   the peer connection's `connectionState`, and the data and control channel
   states. The lease reads whether the connection is open, the data and
-  control channel states, and the provider's recovery deadline; it reads no
-  peer connection state.
+  control channel states, and the provider's recovery deadline (the owner's,
+  when the connection has one); it reads no peer connection state.
 
 The module owns no state, timer, or lifecycle. Callers keep their own currency
 checks (the connection is still the peer's current one). The heartbeat
@@ -53,6 +71,53 @@ in CI) allows no raw `connectionState` or `iceConnectionState` read in
 which prints the peer connection's state and decides nothing. Media-PC readers
 (system audio) and the provider's own liveness readers in
 `src/network/transport/` are outside this rule.
+
+## Link-liveness owner and close authority
+
+Amended 2026-10-25 (Phase 4, C5-6, C5-7, C5-8 and the connection part of
+C5-10; C5-9 stays out; registry RO-15). One owner per Cloudflare logical data
+connection (`CloudflareDataConnection`, in Standard and PRO rooms alike)
+decides whether the link may still recover and why it
+closed. A PRO connection has no isolated control side route and binds no ICE
+restart, so its owner holds the grace and the close but never admits a
+restart:
+
+| Module                                   | Sole responsibility                                                                                                                                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/network/transport/link-liveness.ts` | the original route's interruption, 15-second grace, published recovery deadline and one-restart gate; the guest background-resume probe over both routes; and the one close of the link with its cause (`LinkLiveness`) |
+
+Evidence sources versus close authority:
+
+- Evidence sources report; they do not end the link themselves. The original
+  PC's state changes, the resume challenge and its exact `SYNC_PONG` are the
+  owner's inputs. The data and control channels' close events, the bulk credit
+  sender's control-send failure and the isolated control side route's
+  `fail(reason)` report through the owner's close input with their cause. The
+  side route keeps its own outage deadline and restart (registry RO-35).
+  Transport health only reads the owner's view (above).
+- `LinkLiveness` is the only transport-internal close authority. Every close
+  enters `close(cause)`, which keeps the link's first cause. Its close port is
+  the connection's private `terminate()`, which writes the one info line
+  `[Transport] Logical connection closed (<cause>) for <peerId>` and disposes
+  the PCs and channels. Later closes, including the ones that disposal
+  re-enters, still reach `terminate()` and add no line.
+- External closers enter the same owner through `close(reason)`, and naming
+  a reason is optional. The heartbeat monitor's stale close, the host's open
+  timeout, an unprovable rollback, a departure or admission expiry, an error
+  or join failure, a PRO epoch advance and the guest's own leave pass a
+  `TransportCloseReason`. The intended closes (a kick or PIN revocation, the
+  replacement of a duplicate or stale open, a capacity rejection, a
+  superseded negotiation, a guest's stale or replaced join, a back-navigation
+  cancel, destroy) still call `close()` with none and read `intentional`; no
+  guard requires a reason. The heartbeat monitor keeps its leases, fencing
+  and disconnect publication and ends a link only through
+  `close('heartbeat-stale')`.
+
+`npm run guard:transport-health` locks this: the names of the machines the
+owner replaced appear only in `link-liveness.ts`, production code constructs
+the owner only in `CloudflareDataConnection`, `terminate()` is private and
+referenced only inside the `close` port the connection hands the owner, and
+the owner calls that port only from `close(cause)`.
 
 ## Authority rules
 
@@ -111,6 +176,9 @@ The repository guards this decision through:
 - the transport-health read-path guard, the bulk-writability golden truth
   table (`src/storage/__tests__/__fixtures__/bulk-writable-truth-table.txt`),
   and `transport-health.test.ts` in the critical-runtime coverage profile;
+- the link-liveness owner lock in the same guard, and `link-liveness.test.ts`
+  and `link-liveness-characterization.test.ts` in the critical-runtime
+  coverage profile;
 - focused room-control and heartbeat-monitor tests plus synchronization
   integration regressions through the `initSync()` compatibility facade;
 - broad, critical-runtime, and Worker coverage ratchets;

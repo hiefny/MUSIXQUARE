@@ -7,11 +7,8 @@ import { noteLinkClose } from '../last-link-close.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
-import {
-  ControlIsolation,
-  type IsolatedControlLease,
-  type SideRouteFailure,
-} from './control-isolation.ts';
+import { LinkLiveness, type LinkCloseCause } from './link-liveness.ts';
+import { ControlIsolation, type IsolatedControlLease } from './control-isolation.ts';
 import {
   isStandardHttpSignalingSocket,
   StandardHttpSignalingSocket,
@@ -28,6 +25,7 @@ import type {
   TransportCloseReason,
   TransportConnectOptions,
   TransportDataConnection,
+  TransportLinkLivenessView,
   TransportBackgroundRecoveryResult,
   TransportBackgroundRecoveryStatus,
   TransportAnswerOptions,
@@ -758,14 +756,6 @@ function randomBase64Url(bytes = 18): string {
   return btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
-function randomResumeProbePingId(): number {
-  const words = new Uint32Array(2);
-  crypto.getRandomValues(words);
-  // Reserve the upper half of the safe-integer range so this transport-owned
-  // probe cannot realistically collide with the app sync counter.
-  return 2 ** 52 + ((words[0] ?? 0) & 0xfffff) * 2 ** 32 + (words[1] ?? 0);
-}
-
 interface ProTicketClaims {
   roomCode: string;
   participantId: string;
@@ -960,28 +950,6 @@ function isBenignDataChannelCloseError(event: Event): boolean {
 
 let cloudflareDataConnectionSequence = 0;
 
-/**
- * Why a logical connection closed (RO-15). The connection names the causes it
- * decides itself. The provider and the application name theirs through
- * close(reason); a close that names nothing is intentional. An error listener's
- * close while the provider reports the error of a close it decided keeps the
- * provider's cause, whatever the listener names.
- */
-type LinkCloseCause =
-  | 'control-send-failed'
-  | `side-failed:${SideRouteFailure}`
-  | 'channel-closed'
-  | 'original-terminal'
-  | 'original-grace-expired'
-  | 'resume-probe-unanswered'
-  | 'resume-stale'
-  | 'resume-disconnected'
-  | TransportCloseReason
-  | 'intentional';
-
-const BACKGROUND_RESUME_DISCONNECTED_PROBE_MS = 1_000;
-const BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS = 3_000;
-
 export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {
   open = false;
   peerConnection?: RTCPeerConnection;
@@ -989,37 +957,63 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   controlChannel?: RTCDataChannel;
   private readonly bulkCredit = new BulkFlowControl(
     (frame) => this.sendControl(JSON.stringify(frame)),
-    () => this.terminate('control-send-failed'),
+    () => this.liveness.close('control-send-failed'),
   );
   readonly controlIsolation?: ControlIsolation;
   readonly bulkFlowControl = this.createBulkFlowPort();
   private controlReceiveTail: Promise<void> = Promise.resolve();
   private closed = false;
-  private closeCause: LinkCloseCause | null = null;
   /** The provider's cause while its error listeners may close without one. */
   private errorCloseCause: TransportCloseReason | null = null;
   private intentionalClosing = false;
   private pcListenersAttached = false;
   private resourcesDisposed = false;
-  private readonly disconnectedGraceTimerKey = `cloudflare-data-disconnected-grace-${++cloudflareDataConnectionSequence}`;
-  private readonly backgroundResumeLivenessTimerKey = `${this.disconnectedGraceTimerKey}-background-resume-liveness`;
-  private readonly backgroundResumeDisconnectedTimerKey = `${this.disconnectedGraceTimerKey}-background-resume-disconnected`;
-  private backgroundResumeRecoveryArmed = false;
-  private backgroundResumeProbePingId: number | null = null;
-  private backgroundResumeSawDisconnected = false;
-  /** Initial SDP exchange binds recovery to this exact established connection. */
-  iceRestartBinding: string | null = null;
+  /**
+   * The original route's grace, recovery deadline and restart gate, the guest
+   * background-resume probe over both routes, and every close of the link with
+   * its cause (RO-15). Its timer keys start with this connection's grace key.
+   */
+  private readonly liveness = new LinkLiveness(
+    `cloudflare-data-disconnected-grace-${++cloudflareDataConnectionSequence}`,
+    {
+      route: () => this.peerConnection,
+      open: () => this.open,
+      snapshot: () => ({
+        original: this.peerConnection,
+        side: this.controlIsolation?.peerConnection,
+        channelsOpen:
+          this.dataChannel?.readyState === 'open' && this.controlChannel?.readyState === 'open',
+        sideChannelDown:
+          this.controlIsolation?.phase === 'active' &&
+          this.controlIsolation.channel?.readyState !== 'open',
+      }),
+      ping: (pingId) => this.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() }),
+      // The close port: the only caller of terminate() (guard:transport-health).
+      close: (cause, first) => this.terminate(cause, first),
+      changed: () => this.onConnectionStateChange?.(),
+      sideMayRestart: () => this.controlIsolation?.originalChanged(),
+      recovered: () => this.emit('ice-recovered'),
+    },
+  );
+  /** What transport health reads of the original route (Phase 4 C5-8). */
+  readonly linkLiveness: TransportLinkLivenessView = this.liveness;
   readonly reportsIceRecovery = true;
-  private iceRestartAttempted = false;
-  private connectionInterrupted = false;
-  private recoveryDeadline = 0;
   private selectedPairTransport: RTCIceTransport | null = null;
   private readonly onSelectedPairChange = (): void => {
     if (this.open && !this.closed) this.emit('ice-recovered');
   };
 
+  /** Initial SDP exchange binds recovery to this exact established connection. */
+  get iceRestartBinding(): string | null {
+    return this.liveness.binding;
+  }
+
+  set iceRestartBinding(negotiationId: string | null) {
+    this.liveness.binding = negotiationId;
+  }
+
   get iceRecoveryDeadline(): number {
-    return this.iceRestartBinding ? this.recoveryDeadline : 0;
+    return this.liveness.recoveryDeadline;
   }
 
   startBulkFlowControl(): void {
@@ -1044,7 +1038,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         sendOriginal: (data) => this.sendOriginalControl(data),
         receive: (data) => this.receiveControl(data, false),
         changed: (active) => this.bulkCredit.setControlIsolationActive(active),
-        fail: (reason) => this.terminate(`side-failed:${reason}`),
+        fail: (reason) => this.liveness.close(`side-failed:${reason}`),
         // Side ICE-restart signaling waits while the original PC recovers.
         originalReady: () =>
           this.open &&
@@ -1097,7 +1091,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         if (original && this.controlIsolation && !this.controlIsolation.acceptOriginalApplication())
           return;
         if (this.bulkCredit.handleControl(payload, true)) return;
-        if (this.isBackgroundResumeProbePong(payload)) this.clearBackgroundResumeRecovery();
+        this.liveness.inbound(payload);
         this.emit('data', payload);
       })
       .catch((error) => {
@@ -1140,15 +1134,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
           // frozen SCTP association. Only the exact reply to our post-resume
           // challenge proves that this connection reaches the live host. Other
           // frames may have been queued before the app was suspended.
-          if (this.isBackgroundResumeProbePong(payload)) {
-            this.clearBackgroundResumeRecovery();
-          }
+          this.liveness.inbound(payload);
           this.emit('data', payload);
         })
         .catch((error) => this.emit('error', error));
     });
     channel.addEventListener('close', () => {
-      this.terminate('channel-closed');
+      this.liveness.close('channel-closed');
     });
     channel.addEventListener('error', (event) => {
       // Chromium can synchronously report `OperationError: ... Close called`
@@ -1169,48 +1161,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
 
     if (!this.pcListenersAttached) {
       this.pcListenersAttached = true;
-      pc.addEventListener('connectionstatechange', () => {
-        if (pc.connectionState === 'connected') {
-          this.cancelDisconnectedGrace();
-          this.iceRestartAttempted = false;
-          const recovered = this.connectionInterrupted;
-          this.connectionInterrupted = false;
-          // A genuine disconnected -> connected transition is ICE-level proof.
-          // A redundant connected event on a stale WebKit object is not.
-          if (
-            !this.backgroundResumeRecoveryArmed ||
-            (this.backgroundResumeSawDisconnected && !this.controlIsolation?.peerConnection)
-          ) {
-            this.clearBackgroundResumeRecovery();
-          }
-          this.onConnectionStateChange?.();
-          this.controlIsolation?.originalChanged();
-          if (recovered && this.open) this.emit('ice-recovered');
-          return;
-        }
-        if (pc.connectionState === 'disconnected') {
-          this.connectionInterrupted = true;
-          // Let the peer combine this RTC transition with its signaling state
-          // before granting a fresh grace period. A long-hidden outage may
-          // already have consumed the entire grace while WebKit was suspended.
-          this.reconcileBackgroundResumeRecovery(false);
-          this.onConnectionStateChange?.();
-          if (this.closed) return;
-          this.scheduleDisconnectedGrace(pc);
-          this.controlIsolation?.originalChanged();
-          return;
-        }
-        if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
-          if (pc.connectionState === 'failed' && this.open && this.iceRestartBinding) {
-            this.connectionInterrupted = true;
-            this.scheduleDisconnectedGrace(pc);
-            this.onConnectionStateChange?.();
-            this.controlIsolation?.originalChanged();
-            return;
-          }
-          this.terminate('original-terminal');
-        }
-      });
+      pc.addEventListener('connectionstatechange', () => this.liveness.routeChanged(pc));
     }
 
     if (channel.readyState === 'open') queueMicrotask(() => this.markOpenIfReady());
@@ -1238,9 +1189,14 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     this.bulkCredit.noteSent(creditedBytes);
   }
 
+  /**
+   * A close the provider or the application asks for, with its reason. An
+   * error listener's close while the provider reports the error of a close it
+   * decided keeps the provider's cause, whatever the listener names.
+   */
   close(reason?: TransportCloseReason): void {
     if (!this.intentionalClosing) this.intentionalClosing = true;
-    this.terminate(this.errorCloseCause ?? reason ?? 'intentional');
+    this.liveness.close(this.errorCloseCause ?? reason ?? 'intentional');
   }
 
   /**
@@ -1255,155 +1211,38 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   }
 
   beginIceRestart(): boolean {
-    if (this.closed || !this.open || !this.iceRestartBinding || this.iceRestartAttempted) {
-      return false;
-    }
-    this.iceRestartAttempted = true;
-    if (this.peerConnection) this.scheduleDisconnectedGrace(this.peerConnection);
-    return true;
+    return this.liveness.beginRestart();
   }
 
   finishIceRestart(): void {
-    this.iceRestartAttempted = false;
+    this.liveness.finishRestart();
   }
 
+  /** The guest's resume probe, owned by the link-liveness owner since C5-7. */
   recoverAfterBackground(
     hiddenMs: number,
     signalingDisconnected: boolean,
   ): TransportBackgroundRecoveryStatus {
-    if (
-      this.closed ||
-      !this.open ||
-      !Number.isFinite(hiddenMs) ||
-      hiddenMs < RTC_INTERRUPTION_GRACE_MS
-    ) {
-      return 'not-applicable';
-    }
-
-    this.backgroundResumeRecoveryArmed = true;
-    this.backgroundResumeSawDisconnected = false;
-    this.backgroundResumeProbePingId = randomResumeProbePingId();
-    // visibilitychange can run while WebKit still reports a dead RTC object as
-    // connected/open. Require a bounded, connection-bound SYNC_PONG instead of
-    // trusting that cached state. Existing hosts already answer SYNC_PING, so
-    // the liveness challenge remains compatible across a rolling static deploy.
-    setManagedTimer(
-      this.backgroundResumeLivenessTimerKey,
-      () => {
-        if (this.backgroundResumeRecoveryArmed && !this.closed)
-          this.terminate('resume-probe-unanswered');
-      },
-      BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS,
-    );
-    const status = this.reconcileBackgroundResumeRecovery(signalingDisconnected);
-    if (status === 'stale-connection-closed') return status;
-
-    try {
-      this.send({
-        type: MSG.SYNC_PING,
-        pingId: this.backgroundResumeProbePingId,
-        guestTime: Date.now(),
-      });
-    } catch {
-      this.terminate('resume-probe-unanswered');
-      return 'stale-connection-closed';
-    }
-    return status;
+    return this.liveness.backgroundResume(hiddenMs, signalingDisconnected);
   }
 
   reconcileBackgroundResumeRecovery(
     signalingDisconnected: boolean,
   ): TransportBackgroundRecoveryStatus {
-    if (this.closed || !this.backgroundResumeRecoveryArmed) return 'not-applicable';
-
-    const rtcState = this.peerConnection?.connectionState;
-    const sideState = this.controlIsolation?.peerConnection?.connectionState;
-    const rtcTerminal =
-      !this.peerConnection ||
-      rtcState === 'failed' ||
-      rtcState === 'closed' ||
-      sideState === 'failed' ||
-      sideState === 'closed';
-    const dataChannelsUnhealthy =
-      this.dataChannel?.readyState !== 'open' ||
-      this.controlChannel?.readyState !== 'open' ||
-      (this.controlIsolation?.phase === 'active' &&
-        this.controlIsolation.channel?.readyState !== 'open');
-
-    // Terminal RTC/data-channel state is already conclusive after an absence
-    // longer than the ordinary grace. A disconnected PC with open channels is
-    // less certain: iOS can briefly report it while restoring the radio, so
-    // give that foreground hand-off one bounded probe instead of another full
-    // 15-second grace. Lost signaling strengthens the stale-session evidence
-    // and makes that probe unnecessary, but is deliberately not required: the
-    // room worker retains guest signaling for the host's 60-second reclaim
-    // window even after the host transport has gone away.
-    if (rtcTerminal || dataChannelsUnhealthy) {
-      this.terminate('resume-stale');
-      return 'stale-connection-closed';
-    }
-
-    if (rtcState === 'connected' && sideState !== 'disconnected') {
-      return 'monitoring';
-    }
-
-    if (rtcState === 'disconnected' || sideState === 'disconnected') {
-      this.backgroundResumeSawDisconnected = true;
-      if (signalingDisconnected) {
-        this.terminate('resume-stale');
-        return 'stale-connection-closed';
-      }
-      setManagedTimer(
-        this.backgroundResumeDisconnectedTimerKey,
-        () => {
-          if (!this.backgroundResumeRecoveryArmed || this.closed) return;
-          const currentState = this.peerConnection?.connectionState;
-          const channelsOpen =
-            this.dataChannel?.readyState === 'open' && this.controlChannel?.readyState === 'open';
-          if (
-            currentState === 'connected' &&
-            channelsOpen &&
-            this.controlIsolation?.peerConnection?.connectionState !== 'disconnected'
-          ) {
-            // A state transition event or the nonce reply clears recovery. If
-            // WebKit silently mutates the property, keep waiting for the reply.
-            return;
-          }
-          this.terminate('resume-disconnected');
-        },
-        BACKGROUND_RESUME_DISCONNECTED_PROBE_MS,
-      );
-    }
-
-    return 'monitoring';
+    return this.liveness.reconcileResume(signalingDisconnected);
   }
 
-  clearBackgroundResumeRecovery(): void {
-    this.backgroundResumeRecoveryArmed = false;
-    this.backgroundResumeProbePingId = null;
-    this.backgroundResumeSawDisconnected = false;
-    clearManagedTimer(this.backgroundResumeLivenessTimerKey);
-    clearManagedTimer(this.backgroundResumeDisconnectedTimerKey);
-  }
-
-  private isBackgroundResumeProbePong(payload: unknown): boolean {
-    if (this.backgroundResumeProbePingId === null || !payload || typeof payload !== 'object') {
-      return false;
-    }
-    const record = payload as Record<string, unknown>;
-    return record.type === MSG.SYNC_PONG && record.pingId === this.backgroundResumeProbePingId;
-  }
-
-  private terminate(cause: LinkCloseCause): void {
-    // The first cause wins and is reported once: disposing the PC and channels
-    // re-enters terminate() with their own causes.
-    if (!this.closeCause) {
-      this.closeCause = cause;
+  /**
+   * The link-liveness owner's close port, its only caller. The first cause is
+   * reported once: disposing the PC and channels re-enters the owner's close
+   * with their own causes, which still reach here.
+   */
+  private terminate(cause: LinkCloseCause, first: boolean): void {
+    if (first) {
       log.info(`[Transport] Logical connection closed (${cause}) for ${this.peer}`);
       noteLinkClose(cause);
     }
-    this.cancelDisconnectedGrace();
-    this.clearBackgroundResumeRecovery();
+    this.liveness.stop();
     this.disposeResources();
     this.markClosed();
   }
@@ -1433,24 +1272,6 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     } catch {
       /* noop */
     }
-  }
-
-  private scheduleDisconnectedGrace(pc: RTCPeerConnection): void {
-    if (this.closed || getManagedTimer(this.disconnectedGraceTimerKey) !== null) return;
-    this.recoveryDeadline = Date.now() + RTC_INTERRUPTION_GRACE_MS;
-    setManagedTimer(
-      this.disconnectedGraceTimerKey,
-      () => {
-        if (pc !== this.peerConnection || pc.connectionState === 'connected') return;
-        this.terminate('original-grace-expired');
-      },
-      RTC_INTERRUPTION_GRACE_MS,
-    );
-  }
-
-  private cancelDisconnectedGrace(): void {
-    this.recoveryDeadline = 0;
-    clearManagedTimer(this.disconnectedGraceTimerKey);
   }
 
   private markOpenIfReady(): void {

@@ -88,7 +88,7 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
-**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked.
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 stays out of Phase 4 (RO-35; [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)).
 
 ## Index
 
@@ -108,9 +108,9 @@ each record also states the step in words.
 | RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                              |
 | RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                           |
 | RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                           |
-| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (constants done, C5-1)       |
-| RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | 4 (restart gate only)          |
-| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (constants done, C5-1)       |
+| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (C5-1/6/7/8/10 done); RO-35  |
+| RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | Done (4, C5-6)                 |
+| RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (C5-1 and C5-8 done)         |
 | RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
 | RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)                 |
 | RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                           |
@@ -933,25 +933,46 @@ RO-49 accepted-exception
 ### RO-15 Standard logical data connection liveness
 
 - **Resource:** one admitted `CloudflareDataConnection` (original data PC, isolated control side
-  PC, data and control channels); every machine ends it through `terminate()`.
-- **Current owners/flows:** the original PC's disconnected grace and ICE restart
-  (`scheduleDisconnectedGrace`, `beginIceRestart` in
-  `src/network/transport/cloudflare-signaling.ts`); the side PC's own deadline and ICE restart
-  (`ControlIsolation` in `src/network/transport/control-isolation.ts`, deferring to the original
-  through `originalReady` and `originalChanged`); the guest background-resume probe
-  (`recoverAfterBackground`, reached from `app.ts` through `recoverPeerAfterBackground` in
-  `src/network/peer.ts`), which deliberately closes after a long hidden period unless both PCs are
-  connected.
-- **Target single owner:** a link-liveness owner (planned
-  `src/network/transport/link-liveness.ts`) holding the per-route outage deadlines, the resume
-  probe and one close with a cause; the two modules keep their SDP and in-band restart executors.
-- **Allowed requesters:** transport consumers through `close(reason)`; the heartbeat monitor reads
-  liveness (RO-17).
-- **Lifecycle operations:** start and cancel grace, ICE restart, background probe, terminate.
+  PC, data and control channels); every machine ends it through the link-liveness owner's
+  `close(cause)`, whose close port is the connection's private `terminate()` (since C5-10).
+- **Current owners/flows:** `LinkLiveness` in `src/network/transport/link-liveness.ts` owns the
+  original PC's outage since Phase 4 C5-6 (its interruption, disconnected grace, published
+  recovery deadline, restartability binding and one-restart gate) and the guest background-resume
+  probe since C5-7 (`recoverAfterBackground`, reached from `app.ts` through
+  `recoverPeerAfterBackground` in `src/network/peer.ts`; it deliberately closes after a long
+  hidden period unless both PCs are connected and the exact challenge reply arrives).
+  `CloudflareDataConnection` in `src/network/transport/cloudflare-signaling.ts` creates it, feeds
+  it the original PC's state changes and every received frame, reads both PCs and their channels
+  for it through one snapshot port, sends its challenge, and delegates `iceRestartBinding`,
+  `iceRecoveryDeadline`, `beginIceRestart`, `finishIceRestart`, `recoverAfterBackground`,
+  `reconcileBackgroundResumeRecovery` and the stop in `terminate()` to it. Since C5-8 the
+  connection also exposes the owner as its read-only `linkLiveness` view
+  (`TransportLinkLivenessView` in `src/network/transport/types.ts`: the original route's phase
+  and the published deadline), which `src/network/transport-health.ts` reads (RO-17, RO-18).
+  Since C5-10 the owner also holds the close: every close of the link (its own causes, the
+  channels' close events, the bulk credit sender's control-send failure, the side route's
+  `fail(reason)`, and `close(reason)` from the provider and the application) enters
+  `LinkLiveness.close(cause)`, which keeps the link's first cause and calls the connection's
+  private `terminate()` through its close port; `terminate()` writes the one cause line and
+  disposes the PC and channels.
+  The side PC's own deadline and ICE restart stay in `ControlIsolation`
+  (`src/network/transport/control-isolation.ts`, deferring to the original through
+  `originalReady` and `originalChanged`; RO-35).
+- **Target single owner:** the link-liveness owner `src/network/transport/link-liveness.ts`
+  (the original route since C5-6, the resume probe since C5-7) holding the per-route outage
+  deadlines, the resume probe and one close with a cause; the two modules keep their SDP and
+  in-band restart executors.
+- **Allowed requesters:** transport consumers through `close(reason)`, which enters the owner's
+  close (C5-10); transport health reads the owner's `linkLiveness` view for the bulk lanes, the
+  preload pause and the heartbeat lease (RO-17, RO-18; Phase 4 C5-8).
+- **Lifecycle operations:** start and cancel grace, ICE restart, background probe, close with a
+  cause (through `terminate()`).
 - **Deadline owner:** the original PC's 15 s grace; the side route's 15 s window capped at 30 s,
-  deferred while the original is down; the probe's short close.
+  deferred while the original is down; the probe's short close (its 3 s challenge window and its
+  1 s look at a disconnected route, both in `link-liveness.ts` since C5-7).
 - **Timing-constant home:** `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 4,
-  C5-1): the original PC's grace, its background-resume threshold and restart answer wait
+  C5-1): the original PC's grace and the connection's background-resume threshold
+  (`link-liveness.ts`), the provider's background-resume threshold and the restart answer wait
   (`cloudflare-signaling.ts`), the side PC's grace without restart capability
   (`control-isolation.ts`) and the heartbeat monitor's lease cap (RO-17).
   `control-isolation.ts` keeps `RESTART_WINDOW_MS` (15 s) and `RESTART_CAP_MS` (30 s) as its own
@@ -974,6 +995,31 @@ RO-49 accepted-exception
     effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471
     expiry rows); at the browser level the C5-0 lab `e2e/lab/route-outage.lab.ts` on the
     Cloudflare transport (not in CI).
+  - The owner (C5-6): `src/network/transport/__tests__/link-liveness.test.ts` (every port call in
+    order, a state callback that re-enters the restart gate or closes the connection, the pre-open
+    grace, the non-renewing deadline across restarts, the host connection without a state
+    callback), in the critical coverage profile with `link-liveness.ts` at full coverage. Since
+    C5-7 the same suite pins the resume probe across both routes with each close's cause: a side
+    PC that reads failed or closed, an active side channel that is not open, the 1 s look's three
+    conditions, the side-route challenge and its exact pong, and a probe close inside an original
+    transition before the state callback; the owner's own cases pin every probe outcome, the timer
+    keys and the stop. The 4C review added "the connection's managed timer keys" (the grace key
+    `cloudflare-data-disconnected-grace-N`, numbered per connection, and its two probe suffixes),
+    the grace armed and published before the side route hears a disconnected (on the owner and
+    through a connection), and a second resume that starts a probe that saw no disconnected while
+    a running 1 s look keeps its first deadline.
+  - The view (C5-8): `link-liveness.test.ts` "the original route as transport health reads it"
+    (the phases through a restart that reads connecting, a side-only outage that neither blocks
+    bulk nor counts as an interruption) and "reads its phase from the original route alone";
+    `src/network/__tests__/transport-health.test.ts` "with the link-liveness owner view" and the
+    owner-view golden table `src/storage/__tests__/__fixtures__/bulk-writable-owner-view-truth-table.txt`.
+  - The close (C5-10): `link-liveness.test.ts` "one close per link, whoever reports it" (green on
+    the code before the move: the first cause is the only line, later reporters add nothing, and
+    a close re-entered while the connection disposes still emits `close` before the second
+    channel and the PC close) and "the one close input (C5-10)"; the static lock in
+    `src/core/__tests__/transport-health-guard.test.ts` "transport-health guard: the link-liveness
+    owner (C5-10)" (16 retired names since the 4C review added the connection's former first-cause
+    field `closeCause`).
 - **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
   (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
   and the connection keeps the first one and logs one info line per close
@@ -994,10 +1040,54 @@ RO-49 accepted-exception
   background-resume check (C5-7) were held until the #18 and preload-resume device items in the
   release record closed or were waived (owner decisions P4-D6 A and P4-D13 A, 2026-10-24); since
   the owner decision of 2026-10-25 (about 01:50 KST) device evidence no longer gates code, and
-  both proceed after train 4B as their own train. See
+  both proceed after train 4B as their own train (4C). C5-6 moved the original route's
+  interruption, grace, published deadline, restartability binding and restart gate into
+  `LinkLiveness` without a behaviour change: the same managed timer key
+  (`cloudflare-data-disconnected-grace-N`), the wall-clock published deadline, the non-renewing
+  grace, the effect order on every transition (cancel grace, reopen the gate, the resume probe's
+  reaction, the state callback, the side route's notification, `ice-recovered`; on disconnected
+  the probe and the callback run before the grace is armed and a close inside the callback arms
+  nothing), the host connection's grace without a state callback and the #471 expiry rules.
+  C5-7 moved the guest background-resume probe into the same owner without a behaviour change:
+  its armed challenge (ping id and whether a route read disconnected), the same two managed timer
+  keys (`cloudflare-data-disconnected-grace-N-background-resume-liveness` and
+  `-background-resume-disconnected`), the 3 s window and the 1 s look, the reads of both PCs and
+  their channels (the side PC's state and an active side channel included), every outcome and
+  close cause (`resume-stale`, `resume-disconnected`, `resume-probe-unanswered`), the exact
+  SYNC_PONG on either lane, and its place in the effect order (on connected after the grace and
+  the gate, before the state callback; on disconnected before the state callback). The provider's
+  and the peer's background-resume calls and `TransportBackgroundRecoveryStatus` are unchanged.
+  C5-8 (behaviour-risk) made transport health read the owner instead of re-deriving the original
+  route from the PC's `connectionState`: every `CloudflareDataConnection` (Standard and PRO rooms
+  alike; a PeerJS connection has none) exposes the owner as `linkLiveness`, whose
+  phase is `opening` until the link opens, `recovering` while the owner holds an interruption
+  (disconnected, or a restartable failed, until a `connected` event) and the route does not read
+  `connected` (the condition under which its grace closes), `closed` once stopped, and `live`
+  otherwise; the side route never makes it `recovering`. The heartbeat lease reads the owner's
+  published deadline (the value `iceRecoveryDeadline` already delegated). The raw
+  `iceConnectionState` rows stay in the predicates, which the owner does not observe, and no log
+  compares them with the owner (Phase 4 owner default, 2026-10-24). The intended change is the restart
+  window: a route that reads `connecting` or `new` while the owner still holds its interruption no
+  longer counts as bulk-writable and pauses a preload lane, which resumes on the owner's
+  `connected` (`ice-recovered`) rather than on an earlier selected-pair report. The owner, its
+  timers, deadlines, effect order and close causes are unchanged. A connection without an owner
+  (PeerJS) is read as before. The side route stays in control isolation (RO-35), and every close
+  still goes through the connection's `terminate()`. C5-10 (the connection part; C5-9 stays out,
+  so control isolation keeps its own deadline, `originalReady` and `originalChanged`) routed every
+  close through the owner without a behaviour change: the owner's `close(cause)` keeps the first
+  cause and passes every close, the ones the connection's disposal re-enters included, to the
+  connection's private `terminate()`, so the cause line, the next-page note, the place of the
+  `close` event during disposal and the dispose order are unchanged. It removed the connection's
+  first-cause field and its grace key field (the key text is unchanged). The transport-health
+  guard now locks the owner: the names of the machines it replaced appear only in
+  `link-liveness.ts`, production code constructs it only in the connection, `terminate()` stays
+  private and is referenced only inside the owner's close port, and the owner calls that port
+  only from `close(cause)`. The side route's outage (RO-35) is the one second machine left
+  on the resource, so the record stays `duplicated` until C5-9 or a decision to keep it. See
   [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md), the
-  [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md) and the
-  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md). Exception RO-35.
+  [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md), the
+  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md) and the
+  [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md). Exception RO-35.
 
 ### RO-16 Data-PC SDP lane
 
@@ -1007,8 +1097,8 @@ RO-49 accepted-exception
   `cloudflare-signaling.ts` share one serialized lane (`runSerializedMediaNegotiation`) and one
   per-peer `iceNegotiations` slot. A restart refuses while a media owner is unsettled; a media
   offer rolls back a restart, and a settled negotiation re-queues it.
-- **Target single owner:** unchanged; the lane already is the owner. Phase 4 only moves the
-  restart gate behind the link-liveness owner.
+- **Target single owner:** unchanged; the lane already is the owner. Phase 4 (C5-6) moved only
+  the restart gate behind the link-liveness owner.
 - **Allowed requesters:** `call()` and incoming media offers (system audio); the restart path.
 - **Lifecycle operations:** set and roll back local and remote descriptions, restart offer and
   answer.
@@ -1023,8 +1113,9 @@ RO-49 accepted-exception
   - Teardown: `cloudflare-signaling.test.ts` "retires the exact shared data connection when owned
     rollback fails".
   - Visibility: n/a.
-- **Status:** `owner-in-place`. The restart-gate move waits with the link-liveness owner (C5-6,
-  after train 4B; see RO-15). Since Phase 4 4A (C5-5) an unprovable restart rollback and the
+- **Status:** `owner-in-place`. The restart gate (`beginIceRestart`, `finishIceRestart`) is the
+  link-liveness owner's since Phase 4 C5-6 (train 4C; see RO-15); the lane, its restart executors,
+  their checks and their order are unchanged. Since Phase 4 4A (C5-5) an unprovable restart rollback and the
   media rollback retirement close with the cause `rollback-unproven`. Phase 5 starts from a fresh
   baseline because system audio shares this lane.
 
@@ -1032,9 +1123,12 @@ RO-49 accepted-exception
 
 - **Resource:** each guest's connection on the host.
 - **Current owners/flows:** the heartbeat monitor (`src/network/heartbeat-monitor.ts`) detaches
-  and closes stale peers. It classifies transport grace and honours `conn.iceRecoveryDeadline`
-  through the pure read path `src/network/transport-health.ts` (`heartbeatStaleThreshold`,
-  `honoursRecoveryLease`); the transport grace and terminate (RO-15) close independently.
+  and closes stale peers. It classifies transport grace and honours the transport's recovery
+  lease through the pure read path `src/network/transport-health.ts` (`heartbeatStaleThreshold`,
+  `honoursRecoveryLease`): on a Cloudflare connection (every `CloudflareDataConnection`, PRO
+  included) the link-liveness owner's published deadline (`linkLiveness.recoveryDeadline`, C5-8),
+  otherwise (PeerJS) `conn.iceRecoveryDeadline`; the
+  transport grace and the link-liveness owner's close (RO-15) close independently.
   Detach is fenced by connection identity (`detachHostPeerConnection` in
   `src/network/host-peer-departure.ts`).
 - **Target single owner:** the heartbeat monitor keeps the heartbeat leases and stale fencing that
@@ -1058,14 +1152,19 @@ RO-49 accepted-exception
     errors, then emits and broadcasts".
   - Visibility: missing.
   - Cross-owner: `heartbeat-monitor.test.ts` "honors only an exact bounded ICE recovery lease
-    before cleaning a failed PC".
+    before cleaning a failed PC"; with a real `CloudflareDataConnection` (C5-8) "honors the real
+    lease of a Standard-room connection through a restart until its grace closes it".
 - **Status:** `duplicated`. Transport grace imported in Phase 4 (C5-1). One transport-health read
   path in Phase 4 (C5-4): the monitor reads no raw RTC state except its stale-peer warning
   (`npm run guard:transport-health`, `scripts/check-transport-health.mts`, in CI; see
   [Realtime runtime ownership](realtime-runtime-ownership.md)). Its stale close names the cause
-  `heartbeat-stale` (C5-5). The transport's own grace and terminate (RO-15) still close the
-  connection independently until the link-liveness owner, so on the host an original route that
-  fails without a restart binding ends as `original-terminal` before the monitor's threshold.
+  `heartbeat-stale` (C5-5), which since C5-10 enters the link-liveness owner's close like every
+  other close. The transport's own grace (the link-liveness owner since C5-6) and its close
+  (RO-15) still close the connection independently of the monitor, so on the host an
+  original route that fails without a restart binding ends as `original-terminal` before the
+  monitor's threshold. Since C5-8 the read path takes the recovery lease from that owner's
+  `linkLiveness` view (the value `iceRecoveryDeadline` delegates, so the lease is unchanged); the
+  stale thresholds still read the peer connection's `connectionState`.
 
 ### RO-18 Host-to-guest bulk lanes
 
@@ -1076,7 +1175,12 @@ RO-49 accepted-exception
   excludes the peer and relies on the guest's recovery request) and the preload registry in
   `src/storage/preload.ts` (`_activePreloadUnicasts`, `_preloadPeerOwners`,
   `_suspendedPreloadLanes`; it suspends and resumes from chunk 0 on `network:peer-ice-recovered`).
-  The preload lane asks `hasPendingCurrentFileTransfer`. A peer disconnect or replacement releases
+  Both lanes read writability and the preload lanes read an interruption through
+  `transport-health.ts`, which on a Cloudflare connection (every `CloudflareDataConnection`, PRO
+  included, though PRO persistent media does not use these lanes) takes the original route from the
+  link-liveness owner's phase (Phase 4 C5-8, RO-15): a lane stays paused while the owner holds the
+  interruption, also while the restarted route reads `connecting`, and a side-only outage neither
+  blocks bulk nor pauses preload. The preload lane asks `hasPendingCurrentFileTransfer`. A peer disconnect or replacement releases
   both lanes in one call (`releaseBulkLanes` in `preload.ts`, registered by `initPreload`: the main
   lane first, then the preload lanes), and `isMainLanePreparingOrActive` in `transfer-send.ts`
   answers whether the main lane is preparing or streaming one exact (connection, queue item,
@@ -1221,14 +1325,34 @@ RO-49 accepted-exception
     request, an unscoped recovery or a replaced one as pending"; and at the wire the C5-0 lab
     `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage, observed
     at the wire (F4)" (17 s outage; not in CI).
+  - The owner's view (C5-8): `preload-lane-ownership.test.ts` "keeps an owner-view lane paused
+    while its restart reads connecting, then restarts it on connected (C5-8)", "pauses an
+    owner-view unicast whose interrupted route already reads connecting (C5-8)" and "pauses an
+    owner-view broadcast lane when $name (C5-8)", beside the raw (PeerJS) path "restarts a
+    raw-state lane at a recovery report once its PC reads connecting (the PeerJS path)";
+    `src/storage/__tests__/preload.test.ts` "keeps a lane paused while its link owner holds the
+    interruption through connecting (C5-8)"; `src/storage/__tests__/chunk-pump.test.ts` "matches
+    the owner-view golden table whatever the PC connectionState reads"; and the C5-12 host rows
+    through a real owner in `ice-recovery-bulk-lanes.test.ts`: "the restarted preload waits for
+    its owner to hear connected, then yields to a main lane that starts after the host
+    re-detects the guest as local (published while connecting: %s)", "the restarted preload
+    keeps going when the host published local only while the route read connecting", "the
+    restarted preload keeps going through the owner view when the request arrives $arrival and
+    the host re-detects $route", "the restarted preload keeps going through the owner view when
+    a second recovery announcement after local re-detects %s" and "the restarted preload yields
+    again through the owner view once the host re-publishes local after a second announcement".
 - **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); one release call and the
   tuple query added in Phase 4 (reduced C5-11); the main lane wins the tuple after recovery in
   Phase 4 when the host re-detected the guest as local before the main lane started, with no
   recovery announcement since (C5-12, P4-D10 A), and a 9.0.9 guest still `unknown` takes the main
-  header its own recovery request asked for (Codex P2 on #487). The single bulk-lane registry
-  stays a target; the lanes keep their own maps, policies and pumps. See
-  [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md) and the
-  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md).
+  header its own recovery request asked for (Codex P2 on #487). Writability and the preload pause
+  read the link-liveness owner on every Cloudflare connection (C5-8, behaviour-risk: the restart
+  window that reads `connecting` now excludes the peer from a new bulk stream and pauses a preload
+  lane until the owner's `connected`). The single bulk-lane registry stays a target; the lanes
+  keep their own maps, policies and pumps. See
+  [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md), the
+  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md) and the
+  [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md) (C5-8).
 
 ### RO-19 Guest fetch of the current track
 
@@ -1968,13 +2092,24 @@ entry needs the owner's acceptance and is not implied by this registry.
   restart capability is the shared `RTC_INTERRUPTION_GRACE_MS`; its 15 s `RESTART_WINDOW_MS` and
   30 s `RESTART_CAP_MS` stay its own literals because they also bound the restart requests and
   offers that the two ends, possibly on different builds, enforce on each other (Phase 4, C5-1).
+  Since C5-6 the original route's owner (`link-liveness.ts`) notifies it of each original
+  transition (`originalChanged`, in the same place in the order), and it still reads
+  `originalReady` from the connection. Since C5-7 that owner's resume probe reads the side PC's
+  state and an active side channel through the connection's snapshot, as the connection did; the
+  side route's own deadline and restart stay here. Since C5-8 transport health reads only the
+  original route's phase from that owner, so a side-route outage neither blocks bulk nor pauses
+  preload (`link-liveness.test.ts` "keeps bulk writable and counts no interruption through a
+  side-only outage"). Since C5-10 its `fail(reason)` closes the link through that owner's close
+  (cause `side-failed:<reason>`), which keeps the link's first cause; its deadline, restart and
+  failure reasons are unchanged.
 - **Evidence:** the side route's ICE restart is still under
   [known-accepted #18](../known-accepted.md), awaiting the owner's real-device Wi-Fi to LTE check;
   the same timer also governs active routes to peers without restart capability. The C5-0 lab
   (#478) shows the side route recovering through its restart after its PC fails, on the
   Cloudflare transport in one Chromium. Phase 4 train 4A goes out before the device check (a gate
   deviation, owner decision 2026-10-24), train 4B too (since 2026-10-25 device evidence no longer
-  gates code), and C5-9 stays out of Phase 4 (P4-D6 A).
+  gates code), and so does train 4C (C5-6, C5-7, C5-8 and the connection part of C5-10;
+  [report](phase4-4c-link-liveness-2026-10-25.md)). C5-9 stays out of Phase 4 (P4-D6 A).
 - **Behaviour risk:** known-accepted #18.
 - **Revisit when:** #18 retires.
 - **Status:** `accepted-exception`.

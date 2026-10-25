@@ -4,6 +4,7 @@
 - **Decision date:** 2026-08-20
 - **Scope:** Standard-room signaling and established RTC recovery
 - **Recovery review:** 2026-09-20
+- **Amended:** 2026-10-25, the link-liveness owner of established RTC recovery (Phase 4)
 
 ## Problem
 
@@ -120,10 +121,15 @@ continuous relay allocation survival over a physical 48-hour session is a
 separate manual verification item, not a claim established by fake-clock tests.
 
 One interruption has a non-renewing 15-second transport grace (`RTC_INTERRUPTION_GRACE_MS` in
-`src/core/constants.ts`). The host heartbeat monitor respects this exact provider-owned deadline
-only while both channels are still open, so its
-ordinary failed-ICE threshold cannot prematurely consume the recovery window. Expired grace
-or closed channels still terminate the connection. A recovered path or selected-candidate-pair
+`src/core/constants.ts`). Since Phase 4 (2026-10-25) one owner per Cloudflare logical data
+connection (Standard and PRO rooms alike), `LinkLiveness` in `src/network/transport/link-liveness.ts` (registry RO-15), holds
+that grace, its published wall-clock deadline, the one-restart gate and the guest
+background-resume probe, and every close of the connection goes through it with a cause (see
+[Realtime runtime ownership](realtime-runtime-ownership.md)). The host heartbeat monitor
+respects this exact owner-published deadline, read through `src/network/transport-health.ts`,
+only while both channels are still open, so its ordinary failed-ICE threshold cannot
+prematurely consume the recovery window. Expired grace or closed channels still close the
+connection, through that owner. A recovered path or selected-candidate-pair
 change invalidates the old local/remote classification before an asynchronous recheck, with
 generation guards against stale results. Existing per-transfer delivery decisions stay frozen;
 a new transfer must wait for evidence about the new path.

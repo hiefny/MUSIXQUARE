@@ -7,6 +7,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData, registerHandlers, resetInboundRateLimit } from '../../network/protocol.ts';
 import * as peerTransport from '../../network/peer.ts';
+import { LinkLiveness } from '../../network/transport/link-liveness.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { initPlayback } from '../../player/playback.ts';
 import { resetFileDeliveryPolicies } from '../../share/file-delivery-policy.ts';
@@ -57,22 +58,61 @@ function connection(id: string, bufferedAmount = 0) {
   return { conn, peer, channel, wire };
 }
 
-/** Starts blocked behind buffered bytes on a live ICE route. */
-function interruptibleConnection(id: string, reportsIceRecovery = true) {
+/**
+ * Starts blocked behind buffered bytes on a live ICE route. On the `raw` path
+ * (a connection without a link-liveness owner, as PeerJS gives) transport
+ * health reads the PC state itself. On the `view` path a real LinkLiveness
+ * owner, as a Standard-room Cloudflare connection exposes it, hears every
+ * route change as its connectionstatechange (Phase 4 C5-8).
+ */
+function interruptibleConnection(
+  id: string,
+  reportsIceRecovery = true,
+  path: 'raw' | 'view' = 'raw',
+) {
   const target = connection(id, 1024 * 1024);
   const pc: { connectionState: RTCPeerConnectionState; iceConnectionState: RTCIceConnectionState } =
     { connectionState: 'connected', iceConnectionState: 'connected' };
   Object.assign(target.conn, { peerConnection: pc, reportsIceRecovery });
-  const interrupt = (): void => {
-    pc.connectionState = 'disconnected';
-    pc.iceConnectionState = 'disconnected';
+  const route = pc as unknown as RTCPeerConnection;
+  const liveness: LinkLiveness | null =
+    path === 'view'
+      ? new LinkLiveness(`preload-lane-grace-${id}`, {
+          route: () => route,
+          open: () => target.conn.open,
+          snapshot: () => ({
+            original: route,
+            side: undefined,
+            channelsOpen: true,
+            sideChannelDown: false,
+          }),
+          ping: () => undefined,
+          close: () => {
+            liveness?.stop();
+            target.conn.open = false;
+          },
+          changed: () => undefined,
+          sideMayRestart: () => undefined,
+          recovered: () => undefined,
+        })
+      : null;
+  if (liveness) {
+    liveness.binding = 'negotiation_preload_lane_01';
+    Object.assign(target.conn, { linkLiveness: liveness });
+  }
+  const change = (state: RTCPeerConnectionState, ice: RTCIceConnectionState): void => {
+    pc.connectionState = state;
+    pc.iceConnectionState = ice;
+    liveness?.routeChanged(route);
   };
+  const interrupt = (): void => change('disconnected', 'disconnected');
+  /** An ICE restart in flight: the route reads connecting until it connects. */
+  const restarting = (): void => change('connecting', 'checking');
   const recover = (): void => {
     target.channel.bufferedAmount = 0;
-    pc.connectionState = 'connected';
-    pc.iceConnectionState = 'connected';
+    change('connected', 'connected');
   };
-  return { ...target, pc, interrupt, recover };
+  return { ...target, pc, interrupt, restarting, recover };
 }
 
 function installPeers(...peers: ConnectedPeer[]): void {
@@ -735,6 +775,110 @@ describe('preload lanes interrupted by ICE', () => {
     bus.emit('network:peer-ice-recovered', flaky.conn);
     await vi.advanceTimersByTimeAsync(100);
     expect(types(flaky.wire).at(-1)).toBe(MSG.PRELOAD_END);
+  });
+
+  it('restarts a raw-state lane at a recovery report once its PC reads connecting (the PeerJS path)', async () => {
+    const { flaky } = await interruptBroadcast();
+    flaky.restarting();
+    flaky.channel.bufferedAmount = 0;
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
+  });
+
+  it.each([
+    { name: 'only its owner heard the route interrupted', state: 'disconnected', ice: 'connected' },
+    { name: 'its owner holds a restartable failed', state: 'failed', ice: 'connected' },
+    { name: 'only its ICE transport failed', state: 'connected', ice: 'failed' },
+  ] as const)('pauses an owner-view broadcast lane when $name (C5-8)', async ({ state, ice }) => {
+    const healthy = connection('healthy-listener');
+    const flaky = interruptibleConnection('owner-view-listener', true, 'view');
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(healthy.peer, flaky.peer);
+    publishPreload(file);
+    setState('preload.ready', null);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    flaky.pc.connectionState = state;
+    flaky.pc.iceConnectionState = ice;
+    (flaky.conn as unknown as { linkLiveness: LinkLiveness }).linkLiveness.routeChanged(
+      flaky.pc as unknown as RTCPeerConnection,
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
+  });
+
+  it('keeps an owner-view lane paused while its restart reads connecting, then restarts it on connected (C5-8)', async () => {
+    const healthy = connection('healthy-listener');
+    const flaky = interruptibleConnection('owner-view-restart', true, 'view');
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(healthy.peer, flaky.peer);
+    publishPreload(file);
+    setState('preload.ready', null);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    flaky.interrupt();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    // A selected-pair change reports recovery while the owner still holds the
+    // interruption and the restarted route reads connecting.
+    flaky.restarting();
+    flaky.channel.bufferedAmount = 0;
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([MSG.PRELOAD_START]);
+
+    flaky.recover();
+    bus.emit('network:peer-ice-recovered', flaky.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(flaky.wire)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
+  });
+
+  it('pauses an owner-view unicast whose interrupted route already reads connecting (C5-8)', async () => {
+    const target = interruptibleConnection('owner-view-unicast', true, 'view');
+    const file = new File(['next'], 'next.mp3', { type: 'audio/mpeg' });
+    installPeers(target.peer);
+    publishPreload(file);
+    const sending = unicastPreload(target.conn, file, NEXT, 7);
+    await vi.advanceTimersByTimeAsync(100);
+    target.interrupt();
+    target.restarting();
+    await vi.advanceTimersByTimeAsync(100);
+    await sending;
+    expect(types(target.wire)).toEqual([MSG.PRELOAD_START]);
+
+    target.recover();
+    bus.emit('network:peer-ice-recovered', target.conn);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(types(target.wire)).toEqual([
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_START,
+      MSG.PRELOAD_CHUNK,
+      MSG.PRELOAD_END,
+    ]);
   });
 
   it.each([

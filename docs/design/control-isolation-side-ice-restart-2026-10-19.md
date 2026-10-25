@@ -91,12 +91,18 @@ ignored.
   after a network change cannot move them. A side PC that is not `connected` at
   the deadline uses the existing `fail()` → `terminate()` → reconnect owner. A
   side PC that is `closed`, or a side channel that closes or errors, still
-  closes immediately.
+  closes immediately. (Since Phase 4 C5-10, 2026-10-25, `fail()` reaches
+  `terminate()` only through the link-liveness owner's close,
+  `LinkLiveness.close('side-failed:<reason>')`, which keeps the link's first
+  cause; this deadline and restart stay here, registry RO-35.)
 - At most 16 restart offers per rolling 30 seconds: the offerer stops there,
   and an answerer offered more closes the connection rather than ignoring the
   offer, which would strand the offerer's attempt.
 - “Original route ready” is the original PC `connected` with its control channel
-  open; `CloudflareDataConnection` reports each original state change.
+  open; `CloudflareDataConnection` reports each original state change. (Since
+  Phase 4 C5-6, 2026-10-25, its link-liveness owner,
+  `src/network/transport/link-liveness.ts`, reports them at the same point in
+  each transition; the connection still answers `originalReady`.)
 - Before gathering, both the offerer and the answerer run the owner's due RTC
   credential renewal (the `refreshRtcConfigurationIfDue()` rule of the original
   PC's restart).

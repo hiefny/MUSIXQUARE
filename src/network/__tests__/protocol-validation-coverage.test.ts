@@ -146,9 +146,89 @@ describe('device-list-update validation', () => {
 
     expect(handler).not.toHaveBeenCalled();
   });
+
+  it('requires the platform on every row and the route on every guest row', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.DEVICE_LIST_UPDATE, handler);
+    // The host's own row never carries connectionType; every current host
+    // sends devicePlatform on both kinds of row and connectionType on guests.
+    const host = {
+      id: 'host-1',
+      label: 'HOST',
+      status: 'connected',
+      isHost: true,
+      isOp: true,
+      joinOrder: 0,
+      devicePlatform: 'windows',
+    };
+    const guest = {
+      id: 'guest-1',
+      label: 'Guest',
+      status: 'connected',
+      isHost: false,
+      isOp: false,
+      joinOrder: 1,
+      connectionType: 'local',
+      devicePlatform: 'android',
+    };
+    const { devicePlatform: _hostPlatform, ...hostWithoutPlatform } = host;
+    const { devicePlatform: _guestPlatform, ...guestWithoutPlatform } = guest;
+    const { connectionType: _guestRoute, ...guestWithoutRoute } = guest;
+
+    await handleData(
+      { type: MSG.DEVICE_LIST_UPDATE, list: [host, guest] },
+      connection('device-list-current'),
+    );
+    const invalidLists = [
+      [hostWithoutPlatform, guest],
+      [{ ...host, devicePlatform: null }, guest],
+      [host, guestWithoutPlatform],
+      [host, { ...guest, devicePlatform: null }],
+      [host, guestWithoutRoute],
+      [host, { ...guest, connectionType: null }],
+    ];
+    for (const [index, list] of invalidLists.entries()) {
+      await handleData(
+        { type: MSG.DEVICE_LIST_UPDATE, list },
+        connection(`device-list-missing-${index}`),
+      );
+    }
+
+    expect(handler).toHaveBeenCalledOnce();
+  });
 });
 
 describe('bounded control-frame validation', () => {
+  it('requires the PAUSE reason every current sender includes', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.PAUSE, handler);
+    const conn = connection('pause-reason-validation');
+    const base = {
+      type: MSG.PAUSE,
+      time: 10,
+      queueItemId: '00000000-0000-4000-8000-000000000001',
+    };
+
+    for (const reason of ['pause', 'stop', 'seek', 'transition']) {
+      await handleData({ ...base, reason }, conn);
+    }
+    await handleData(
+      { ...base, time: 0, queueItemId: null, endOfPlaylist: true, reason: 'end-of-playlist' },
+      conn,
+    );
+    expect(handler).toHaveBeenCalledTimes(5);
+
+    for (const frame of [
+      base,
+      { ...base, reason: null },
+      { ...base, reason: 'resume' },
+      { ...base, time: 0, queueItemId: null, endOfPlaylist: true },
+    ]) {
+      await handleData(frame, conn);
+    }
+    expect(handler).toHaveBeenCalledTimes(5);
+  });
+
   it('accepts legacy and scheduled demo play frames while rejecting invalid start clocks', async () => {
     const handler = vi.fn();
     registerHandler(MSG.DEMO_PLAY, handler);
@@ -375,17 +455,22 @@ describe('bounded control-frame validation', () => {
       { type: MSG.OPERATOR_GRANT, capabilities: ['media.add', 'room.configure'], silent: true },
       conn,
     );
+    await handleData({ type: MSG.OPERATOR_GRANT, capabilities: [] }, conn);
     await handleData({ type: MSG.OPERATOR_REVOKE, silent: false }, conn);
 
     await handleData({ type: MSG.SESSION_FULL, message: '' }, conn);
     await handleData({ type: MSG.KICK_DEVICE, reason: 'x'.repeat(257) }, conn);
     await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ['root.admin'] }, conn);
     await handleData({ type: MSG.OPERATOR_GRANT, capabilities: ['media.add', 'media.add'] }, conn);
+    // Every current host sends the explicit grant list, empty or not.
+    await handleData({ type: MSG.OPERATOR_GRANT }, conn);
+    await handleData({ type: MSG.OPERATOR_GRANT, silent: true }, conn);
+    await handleData({ type: MSG.OPERATOR_GRANT, capabilities: null }, conn);
     await handleData({ type: MSG.OPERATOR_REVOKE, silent: 'yes' }, conn);
 
     expect(sessionFull).toHaveBeenCalledOnce();
     expect(kick).toHaveBeenCalledOnce();
-    expect(grant).toHaveBeenCalledOnce();
+    expect(grant).toHaveBeenCalledTimes(2);
     expect(revoke).toHaveBeenCalledOnce();
   });
 });

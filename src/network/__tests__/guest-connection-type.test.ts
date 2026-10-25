@@ -169,6 +169,19 @@ describe('guest connection type authority', () => {
       expect(getState('network.isOperator')).toBe(false);
     });
 
+    it('confers no administrator capability from a grant without its capability list', async () => {
+      const { handleData } = await import('../protocol.ts');
+      const { hasRoomCapability } = await import('../../rooms/authority.ts');
+      setState('network.appRole', 'guest');
+
+      await handleData({ type: MSG.OPERATOR_GRANT }, gatedHostConn);
+
+      expect(getState('network.isOperator')).toBe(false);
+      expect(hasRoomCapability('media.add')).toBe(false);
+      expect(hasRoomCapability('playback.control')).toBe(false);
+      expect(mocks.showToast).not.toHaveBeenCalled();
+    });
+
     it('accepts every owner product capability from the host but strips physical transport roles', async () => {
       const { handleData } = await import('../protocol.ts');
       const { hasRoomCapability, isCoordinator } = await import('../../rooms/authority.ts');

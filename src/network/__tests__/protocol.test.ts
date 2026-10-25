@@ -850,11 +850,16 @@ describe('file-transfer frame validation', () => {
       expiresAt: Date.now() + 60_000,
       delivery: 'r2',
     };
+    const { delivery: _delivery, ...withoutDelivery } = valid;
 
     await handleData(valid, conn);
     await handleData({ ...valid, preload: true }, conn);
 
     for (const invalid of [
+      // Every current host marks a descriptor for R2 delivery.
+      withoutDelivery,
+      { ...valid, delivery: null },
+      { ...valid, delivery: 'direct' },
       { ...valid, storedSize: valid.size - 1 },
       { ...valid, size: 0, storedSize: 0 },
       { ...valid, size: REMOTE_SHARE_MAX_BYTES + 1, storedSize: REMOTE_SHARE_MAX_BYTES + 1 },
@@ -867,6 +872,60 @@ describe('file-transfer frame validation', () => {
       { ...valid, sessionId: 1.5 },
       { ...valid, sessionId: Number.MAX_SAFE_INTEGER + 1 },
       { ...valid, unexpected: true },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires the FILE_PREPARE size every current host sends', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.FILE_PREPARE, handler);
+    const conn = makeConnection('peer-file-prepare-size');
+    const prepare = {
+      type: MSG.FILE_PREPARE,
+      name: 'song.mp3',
+      queueItemId: QUEUE_ITEM_ID,
+      sessionId: 3,
+      size: 4,
+      mime: 'audio/mpeg',
+    };
+    const { size: _size, ...withoutSize } = prepare;
+
+    // A direct transfer carries no delivery marker; an R2 offload carries 'r2'.
+    await handleData(prepare, conn);
+    await handleData({ ...prepare, delivery: 'r2' }, conn);
+    for (const invalid of [
+      withoutSize,
+      { ...withoutSize, delivery: 'r2' },
+      { ...prepare, size: 0 },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires the R2 delivery marker on REMOTE_FILE_UNAVAILABLE', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REMOTE_FILE_UNAVAILABLE, handler);
+    const conn = makeConnection('peer-remote-file-unavailable');
+    const unavailable = {
+      type: MSG.REMOTE_FILE_UNAVAILABLE,
+      name: 'song.mp3',
+      queueItemId: QUEUE_ITEM_ID,
+      sessionId: 3,
+      delivery: 'r2',
+    };
+    const { delivery: _delivery, ...withoutDelivery } = unavailable;
+
+    await handleData(unavailable, conn);
+    await handleData({ ...unavailable, limited: true }, conn);
+    for (const invalid of [
+      withoutDelivery,
+      { ...withoutDelivery, limited: false },
+      { ...unavailable, delivery: 'direct' },
     ]) {
       await handleData(invalid, conn);
     }
@@ -1177,6 +1236,7 @@ describe('file-transfer frame validation', () => {
           name: 'x.mp3',
           sessionId,
           queueItemId: QUEUE_ITEM_ID,
+          delivery: 'r2',
         },
       ];
       for (const frame of frames) await handleData(frame, conn);

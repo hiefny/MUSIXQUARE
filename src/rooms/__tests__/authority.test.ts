@@ -175,6 +175,22 @@ describe('room authority compatibility layer', () => {
     expect(hasRoomCapability('asset.upload')).toBe(false);
   });
 
+  it('grants a standard guest operator nothing without an explicit grant list', () => {
+    const host = connection('host');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', null);
+
+    expect(hasRoomCapability('media.add')).toBe(false);
+    expect(hasRoomCapability('playback.control')).toBe(false);
+    expect(hasRoomCapability('effects.control')).toBe(false);
+    expect(hasRoomCapability('asset.upload')).toBe(false);
+
+    setState('network.standardRoomCapabilities', []);
+    expect(hasRoomCapability('playback.control')).toBe(false);
+  });
+
   it('separates a standard owner sibling product authority from physical coordination', () => {
     const host = connection('physical-host');
     setState('network.appRole', 'guest');

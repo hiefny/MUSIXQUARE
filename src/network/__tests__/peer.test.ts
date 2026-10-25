@@ -201,6 +201,40 @@ describe('broadcastDeviceList', () => {
     expect(frame.list[1]).not.toHaveProperty('isAuthenticated');
     expect(frame.list[1]).not.toHaveProperty('capabilities');
   });
+
+  it('sends a projection every row of which the guest validator accepts', async () => {
+    const { handleData, registerHandler } = await import('../protocol.ts');
+    const received = vi.fn();
+    registerHandler(MSG.DEVICE_LIST_UPDATE, received);
+    const send = vi.fn();
+    const conn = makeConnection({ open: true, send });
+    setState('network.myId', '123456');
+    setState('network.connectedPeers', [
+      {
+        id: 'guest-1',
+        slot: 1,
+        label: 'Peer 1',
+        conn,
+        isOp: true,
+        preloadedQueueItemIds: new Set(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: 1,
+        connectionType: 'unknown',
+        lastHeartbeat: Date.now(),
+        roomCapabilities: ['media.add'],
+      },
+    ]);
+
+    broadcastDeviceList();
+
+    const frame = send.mock.calls[0]?.[0] as { list: Array<Record<string, unknown>> };
+    expect(frame.list[0]).not.toHaveProperty('connectionType');
+    expect(frame.list[0]?.devicePlatform).toEqual(expect.any(String));
+    expect(frame.list[1]).toMatchObject({ connectionType: 'unknown', devicePlatform: 'other' });
+    await handleData(frame, makeConnection({ peer: '123456' }));
+    expect(received).toHaveBeenCalledOnce();
+  });
 });
 
 describe('isRemoteGuest', () => {

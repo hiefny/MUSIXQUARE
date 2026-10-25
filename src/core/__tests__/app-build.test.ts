@@ -58,6 +58,37 @@ describe('the forced-update port', () => {
     expect(port.isForcedAppUpdatePending()).toBe(true);
   });
 
+  it('marks a refusal it took over, so the UI hides its generic text even with nothing pending', async () => {
+    const port = await loadAppBuild('v785');
+    let answer = true;
+    const request = vi.fn(() => answer);
+    // A navigation holds the page (step 4b): taken over, nothing on screen yet.
+    port.setForcedAppUpdateHandler({ request, isPending: () => false });
+
+    const taken = new Error('APP_UPDATE_REQUIRED');
+    const forced = { minAppBuild: 786, admitted: false, returnCode: '000001' };
+    expect(port.requestForcedAppUpdateFor(taken, forced)).toBe(true);
+    expect(request).toHaveBeenCalledWith(forced);
+    expect(port.isForcedAppUpdatePending()).toBe(false);
+    expect(port.isHandledByForcedAppUpdate(taken)).toBe(true);
+
+    // The loop guard (or a build that meets the floor) declines: ordinary text.
+    answer = false;
+    const declined = new Error('APP_UPDATE_REQUIRED');
+    expect(port.requestForcedAppUpdateFor(declined, forced)).toBe(false);
+    expect(port.isHandledByForcedAppUpdate(declined)).toBe(false);
+    expect(port.isHandledByForcedAppUpdate(new Error('HOST_UNREACHABLE'))).toBe(false);
+    expect(port.isHandledByForcedAppUpdate(null)).toBe(false);
+  });
+
+  it('counts any failure while the forced dialog is pending as handled by it', async () => {
+    const port = await loadAppBuild('v785');
+    expect(port.isHandledByForcedAppUpdate(new Error('HOST_UNREACHABLE'))).toBe(false);
+    port.setForcedAppUpdateHandler({ request: () => true, isPending: () => true });
+    expect(port.isHandledByForcedAppUpdate(new Error('HOST_UNREACHABLE'))).toBe(true);
+    expect(port.isHandledByForcedAppUpdate('not an error')).toBe(true);
+  });
+
   it('tells each presentation subscriber once per presentation, until it unsubscribes', async () => {
     const port = await loadAppBuild('v785');
     const notify = port.setForcedAppUpdateHandler({ request: () => true, isPending: () => true });

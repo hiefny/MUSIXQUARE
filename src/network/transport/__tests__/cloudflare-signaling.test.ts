@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { isHandledByForcedAppUpdate, setForcedAppUpdateHandler } from '../../../core/app-build.ts';
 import { CHUNK_SIZE, MSG } from '../../../core/constants.ts';
 import { log } from '../../../core/log.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
@@ -8559,5 +8560,258 @@ describe('logical connection close paths decided by the provider', () => {
     ]);
     peer.destroy();
     expect(closeLines()).toHaveLength(2);
+  });
+});
+
+describe('forced update: the Standard signaling client (train 9.0.12)', () => {
+  /** The Signaling Worker's refusal below the App build floor (sent only to the refused socket). */
+  const REFUSAL = {
+    type: 'error',
+    errorType: 'app-update-required',
+    message: 'APP_UPDATE_REQUIRED',
+    minAppBuild: 786,
+  };
+  let forcedRequests: Array<{ minAppBuild: unknown; admitted: boolean; returnCode: string | null }>;
+  let forcedAnswer: boolean;
+
+  beforeEach(() => {
+    forcedRequests = [];
+    forcedAnswer = true;
+    setForcedAppUpdateHandler({
+      request: (request) => {
+        forcedRequests.push({ ...request });
+        return forcedAnswer;
+      },
+      // A refusal that meets a navigation holding the page (step 4b) is taken
+      // over with nothing pending: only the mark on its error tells the UI.
+      isPending: () => false,
+    });
+  });
+
+  afterEach(() => {
+    setForcedAppUpdateHandler({ request: () => false, isPending: () => false });
+  });
+
+  /** The transport of a production build: the cache-epoch define names build 785. */
+  async function loadBuiltTransport(): Promise<typeof import('../cloudflare-signaling.ts')> {
+    vi.resetModules();
+    vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', 'v785');
+    return import('../cloudflare-signaling.ts');
+  }
+
+  it('reports the page build in host-auth and guest-auth, including every reconnect', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const { CloudflareSignalingPeer: BuiltPeer } = await loadBuiltTransport();
+    const options = {
+      provider: 'cloudflare' as const,
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      config: { iceServers: [] },
+    };
+
+    const host = new BuiltPeer('123456', options);
+    await Promise.resolve();
+    const hostSocket = FakeWebSocket.instances[0]!;
+    hostSocket.dispatch('open');
+    expect(sentOfType(hostSocket, 'host-auth')).toEqual([
+      {
+        type: 'host-auth',
+        secret: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+        desiredRoomPassword: '',
+        pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+        appBuild: 785,
+      },
+    ]);
+    hostSocket.close();
+    host.reconnect();
+    const hostReopened = FakeWebSocket.instances[1]!;
+    hostReopened.dispatch('open');
+    expect(sentOfType(hostReopened, 'host-auth')[0]?.appBuild).toBe(785);
+    host.destroy();
+
+    const guest = new BuiltPeer(null, options);
+    const conn = guest.connect('654321');
+    const guestSocket = FakeWebSocket.instances[2]!;
+    guestSocket.dispatch('open');
+    await flushAsync();
+    expect(sentOfType(guestSocket, 'guest-auth')).toEqual([
+      {
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+        appBuild: 785,
+      },
+    ]);
+    guestSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '654321' }),
+    );
+    await flushAsync();
+    expect(conn.open).toBe(true);
+    guestSocket.close();
+    guest.reconnect();
+    const guestReopened = FakeWebSocket.instances[3]!;
+    guestReopened.dispatch('open');
+    await flushAsync();
+    expect(sentOfType(guestReopened, 'guest-auth')[0]?.appBuild).toBe(785);
+    guest.destroy();
+  });
+
+  it('sends no appBuild key without a build (a page without the define)', async () => {
+    installFakeWebSocket();
+    const host = createHostPeer();
+    await Promise.resolve();
+    FakeWebSocket.instances[0]!.dispatch('open');
+    expect(sentOfType(FakeWebSocket.instances[0]!, 'host-auth')[0]).not.toHaveProperty('appBuild');
+    host.destroy();
+
+    const guest = createGuestPeer();
+    guest.connect('654321');
+    const guestSocket = FakeWebSocket.instances[1]!;
+    guestSocket.dispatch('open');
+    await flushAsync();
+    expect(sentOfType(guestSocket, 'guest-auth')[0]).not.toHaveProperty('appBuild');
+    guest.destroy();
+  });
+
+  it('asks the forced update for a host refused while creating its room, before it reports the error', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0]!;
+    const errors: Array<{ error: unknown; requestsAtEmit: number }> = [];
+    peer.on('error', (error) => errors.push({ error, requestsAtEmit: forcedRequests.length }));
+
+    socket.dispatch('open');
+    socket.dispatch('message', JSON.stringify(REFUSAL));
+    await flushAsync();
+
+    expect(forcedRequests).toEqual([{ minAppBuild: 786, admitted: false, returnCode: null }]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      requestsAtEmit: 1,
+      error: { type: 'app-update-required', message: 'APP_UPDATE_REQUIRED', minAppBuild: 786 },
+    });
+    expect(isHandledByForcedAppUpdate(errors[0]?.error)).toBe(true);
+
+    // The Worker then closes 1008; the refusal stays the one setup result.
+    socket.dispatch('close', undefined, 'APP_UPDATE_REQUIRED', 1008, true);
+    await flushAsync();
+    expect(errors).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('names an admitted host refused at its reconnect as admitted, and leaves its error unmarked when declined', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const first = FakeWebSocket.instances[0]!;
+    first.dispatch('open');
+    first.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    const errors: unknown[] = [];
+    peer.on('error', (error) => errors.push(error));
+
+    forcedAnswer = false;
+    first.close();
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1]!;
+    reopened.dispatch('open');
+    reopened.dispatch('message', JSON.stringify(REFUSAL));
+    await flushAsync();
+
+    expect(forcedRequests).toEqual([{ minAppBuild: 786, admitted: true, returnCode: null }]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({ type: 'app-update-required', minAppBuild: 786 });
+    // The loop guard declined: the UI shows its ordinary text.
+    expect(isHandledByForcedAppUpdate(errors[0])).toBe(false);
+    peer.destroy();
+  });
+
+  it('keeps an alive guest playing and never reopens its signaling after a refusal', async () => {
+    const { peer, conn, socket } = await establishGuest();
+    const onError = vi.fn();
+    conn.on('error', onError);
+    expect(conn.open).toBe(true);
+
+    socket.dispatch('message', JSON.stringify(REFUSAL));
+    await flushAsync();
+
+    expect(forcedRequests).toEqual([{ minAppBuild: 786, admitted: true, returnCode: '123456' }]);
+    expect(onError).not.toHaveBeenCalled();
+    expect(conn.open).toBe(true);
+    expect(socket.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(privateMaps(peer).guestRooms.get('123456')?.authFailed).toBe(true);
+
+    // A permanent refusal: the outer loop's reconnect opens nothing.
+    peer.reconnect();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('reports a guest refused before admission with the code it tried, its error marked as taken over', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const socket = FakeWebSocket.instances[0]!;
+    const errors: Array<{ error: unknown; requestsAtEmit: number }> = [];
+    conn.on('error', (error) => errors.push({ error, requestsAtEmit: forcedRequests.length }));
+
+    socket.dispatch('open');
+    await flushAsync();
+    expect(sentOfType(socket, 'guest-auth')).toHaveLength(1);
+    socket.dispatch('message', JSON.stringify(REFUSAL));
+    await flushAsync();
+
+    expect(forcedRequests).toEqual([{ minAppBuild: 786, admitted: false, returnCode: '123456' }]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      requestsAtEmit: 1,
+      error: { type: 'app-update-required', minAppBuild: 786 },
+    });
+    expect(isHandledByForcedAppUpdate(errors[0]?.error)).toBe(true);
+    expect(privateMaps(peer).guestRooms.get('123456')?.authFailed).toBe(true);
+    peer.destroy();
+  });
+
+  it('passes an unreadable floor on to the machine and keeps it off the error', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const socket = FakeWebSocket.instances[0]!;
+    const onError = vi.fn();
+    conn.on('error', onError);
+    forcedAnswer = false;
+
+    socket.dispatch('open');
+    await flushAsync();
+    socket.dispatch('message', JSON.stringify({ ...REFUSAL, minAppBuild: '786' }));
+    await flushAsync();
+
+    // The machine validates the floor (it declines this one); the error carries none.
+    expect(forcedRequests).toEqual([{ minAppBuild: '786', admitted: false, returnCode: '123456' }]);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError.mock.calls[0]?.[0]).not.toHaveProperty('minAppBuild');
+    expect(isHandledByForcedAppUpdate(onError.mock.calls[0]?.[0])).toBe(false);
+    peer.destroy();
+  });
+
+  it('leaves every other guest refusal to its existing path', async () => {
+    const { peer, socket } = await establishGuest();
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'error',
+        errorType: 'guest-reconnect-conflict',
+        message: 'GUEST_RECONNECT_CONFLICT',
+      }),
+    );
+    await flushAsync();
+    expect(forcedRequests).toEqual([]);
+    expect(privateMaps(peer).guestRooms.get('123456')?.authFailed).toBe(false);
+    peer.destroy();
   });
 });

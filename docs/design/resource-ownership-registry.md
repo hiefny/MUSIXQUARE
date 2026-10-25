@@ -1577,9 +1577,12 @@ RO-51 duplicated
   - A refusal below the App build floor (RO-50) is a requester. The PRO entry
     (`src/pro-room/setup-flow.ts`) and, from Inc 6, the Standard signaling transport ask through
     the forced-update port in `src/core/app-build.ts` (`requestForcedAppUpdate`,
-    `isForcedAppUpdatePending`, `subscribeForcedAppUpdatePresentation`); only `sw-register.ts`
-    installs its handler, so no caller imports the machine. The latch (the highest floor learned,
-    the first room code named, whether a refused session was in a room, and what is on screen:
+    `isForcedAppUpdatePending`, `subscribeForcedAppUpdatePresentation`; the transport uses
+    `requestForcedAppUpdateFor`, which keeps a true answer with the refusal's error, and setup's
+    error handlers ask `isHandledByForcedAppUpdate` before any generic text); only
+    `sw-register.ts` installs its handler, so no caller imports the machine. The latch (the
+    highest floor learned, the first room code named, whether a refused session was in a room
+    (a host with an open room, a guest whose room channel opened), and what is on screen:
     nothing, the forced dialog, or its update reload) lives in `registerServiceWorker` scope.
     The handler is installed before the support checks, so a page with no machine (no
     service-worker support, an insecure context, before the window load event, a failed
@@ -1594,7 +1597,8 @@ RO-51 duplicated
     that recovers presents it again, and a tap is still needed); waits while a navigation holds
     the page (P3-8 A applied to it: presented once if the page is released in this document,
     never if the navigation commits; the answer is true while nothing is pending yet, so a
-    refused caller hides its generic text by the answer it got, not by the pending query); and
+    refused caller hides its generic text by the answer it got, not by the pending query: the
+    Standard refusal's error carries it to setup through `requestForcedAppUpdateFor`); and
     otherwise takes the screen. Taking the screen
     withdraws the machine's dialogs with Later, `openPrompt` and the activated-elsewhere offer's
     own slot `openActivatedOffer` (the logo and the P3-10 absorb still withdraw only
@@ -2584,7 +2588,11 @@ get a record only if a change adds a second machine:
   that eligibility and cancels its retry on the provider notification. This is
   not another retry machine. RTC liveness remains with RO-15, and explicit new
   admission uses the existing page-navigation owner (Phase 3 batch, 2026-10-24;
-  [contract](signaling-liveness.md#explicit-standard-room-expiry)).
+  [contract](signaling-liveness.md#explicit-standard-room-expiry)). A refusal below
+  the App build floor (`app-update-required`, forced update, train 9.0.12) is a
+  permanent guest admission refusal: the provider marks the admission `authFailed`
+  as for `guest-reconnect-denied`, live channel or not, the same outer loop reads it
+  and reopens nothing, and the forced update dialog (RO-22) takes over.
 - Transport RTC configuration (TURN): three writers, last write wins; the pre-admission retry
   passes no expiry (self-healing).
 - Seek slider drag (`src/ui/range-drag.ts` and `src/ui/seekbar.ts`): two cooperating layers,

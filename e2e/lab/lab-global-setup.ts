@@ -7,7 +7,9 @@
  * that re-exports the unchanged signaling Worker and the ServiceControl object
  * from one local script, plus a config with only the two Durable Object
  * bindings a Standard room uses. No repository Worker input is modified. State
- * is wiped at every start so each run sees fresh rooms.
+ * is wiped at every start so each run sees fresh rooms. The wrapper adds one
+ * lab-only route (LAB_APP_BUILD_FLOOR_PATH) that sets the App build floor and
+ * the live-App report on that ServiceControl, for the forced-update scenario.
  */
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { mkdirSync, openSync, rmSync, writeFileSync, closeSync } from 'node:fs';
@@ -15,6 +17,7 @@ import { createConnection } from 'node:net';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  LAB_APP_BUILD_FLOOR_PATH,
   LAB_HOST,
   LAB_INSPECTOR_PORT,
   LAB_SIGNALING_ORIGIN,
@@ -26,8 +29,48 @@ const RUN_DIR = resolve(ROOT, '.wrangler', 'lab-signaling');
 const WRANGLER_BIN = resolve(ROOT, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 const READY_TIMEOUT_MS = 90_000;
 
-const LOCAL_WORKER = `export { default, MusixquareRoom } from '../../cloudflare/signaling-worker.ts';
+// The forced-update lab route sets the App build floor through the same
+// consumer calls the App Worker's setters use; every other request goes to the
+// unchanged signaling Worker.
+const LOCAL_WORKER = `import signaling, { MusixquareRoom } from '../../cloudflare/signaling-worker.ts';
+import {
+  readAppBuildFloor,
+  reportLiveAppBuild,
+  updateAppBuildFloor,
+} from '../../cloudflare/service-maintenance.ts';
+export { MusixquareRoom };
 export { MusixquareServiceControl } from '../../cloudflare/service-control-object.ts';
+
+async function setLabAppBuildFloor(request, env) {
+  if (request.method !== 'POST') return Response.json({ error: 'METHOD' }, { status: 405 });
+  const { minAppBuild, liveAppBuild } = await request.json();
+  if (!(await reportLiveAppBuild(env, liveAppBuild))) {
+    return Response.json({ error: 'REPORT_FAILED' }, { status: 503 });
+  }
+  let revision = (await readAppBuildFloor(env)).revision;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const result = await updateAppBuildFloor(env, {
+      minAppBuild,
+      expectedRevision: revision,
+      requestId: crypto.randomUUID(),
+      reason: 'C5-0 lab forced update scenario',
+      liveAppBuild,
+    });
+    if (result.status === 'ok') return Response.json(result.floor);
+    if (result.status !== 'conflict') return Response.json(result, { status: 503 });
+    revision = result.floor.revision;
+  }
+  return Response.json({ error: 'CONFLICT' }, { status: 409 });
+}
+
+export default {
+  fetch(request, env, context) {
+    if (new URL(request.url).pathname === '${LAB_APP_BUILD_FLOOR_PATH}') {
+      return setLabAppBuildFloor(request, env);
+    }
+    return signaling.fetch(request, env, context);
+  },
+};
 `;
 
 const LOCAL_CONFIG = `name = "mxqr-lab-signaling"

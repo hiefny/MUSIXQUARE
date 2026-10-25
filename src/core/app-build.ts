@@ -79,6 +79,32 @@ export function isForcedAppUpdatePending(): boolean {
   return handler?.isPending() ?? false;
 }
 
+/** Refusal errors the forced update took over (their answer was true). */
+const takenRefusals = new WeakSet<object>();
+
+/**
+ * `requestForcedAppUpdate` for a refusal that is then reported as `error`
+ * (the Signaling transport). A true answer is kept with the error, because it
+ * can come with nothing pending yet (a navigation holds the page), and the UI
+ * that later reads the error must still hide its generic text.
+ */
+export function requestForcedAppUpdateFor(error: object, request: ForcedAppUpdateRequest): boolean {
+  const taken = requestForcedAppUpdate(request);
+  if (taken) takenRefusals.add(error);
+  return taken;
+}
+
+/**
+ * Whether a failure belongs to the forced update: its refusal was taken over,
+ * or the forced dialog is pending. The UI then shows no generic text.
+ */
+export function isHandledByForcedAppUpdate(error: unknown): boolean {
+  return (
+    (typeof error === 'object' && error !== null && takenRefusals.has(error)) ||
+    isForcedAppUpdatePending()
+  );
+}
+
 /**
  * Run `listener` each time the forced dialog is about to take the screen, so
  * the return-time dialogs below it (RO-51) step aside. Returns an unsubscribe.

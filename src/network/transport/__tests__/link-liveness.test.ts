@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MSG } from '../../../core/constants.ts';
 import { log } from '../../../core/log.ts';
 import { clearAllManagedTimers, clearManagedTimer, getManagedTimer } from '../../../core/timers.ts';
 import { CloudflareDataConnection } from '../cloudflare-signaling.ts';
@@ -16,9 +17,14 @@ import { LinkLiveness } from '../link-liveness.ts';
  */
 const GRACE_MS = 15_000;
 const RESUME_LIVENESS_TIMEOUT_MS = 3_000;
+const RESUME_DISCONNECTED_PROBE_MS = 1_000;
 
 class Channel extends EventTarget {
   binaryType: BinaryType = 'arraybuffer';
+  // A reliable ordered channel, which the isolated control side route requires.
+  ordered = true;
+  maxRetransmits: number | null = null;
+  maxPacketLifeTime: number | null = null;
   sent: Array<string | ArrayBuffer> = [];
   constructor(
     readonly label: string,
@@ -29,6 +35,9 @@ class Channel extends EventTarget {
   send(data: string | ArrayBuffer): void {
     if (this.readyState !== 'open') throw new Error('native-send-failed');
     this.sent.push(data);
+  }
+  receive(data: unknown): void {
+    this.dispatchEvent(new MessageEvent('message', { data }));
   }
   open(): void {
     this.readyState = 'open';
@@ -43,6 +52,9 @@ class Channel extends EventTarget {
 
 class PeerConnection extends EventTarget {
   connectionState: RTCPeerConnectionState = 'connected';
+  localDescription: RTCSessionDescriptionInit | null = null;
+  /** A side PC's isolated control channel, once created or received. */
+  channel: Channel | null = null;
   close(): void {
     if (this.connectionState === 'closed') return;
     this.connectionState = 'closed';
@@ -51,6 +63,25 @@ class PeerConnection extends EventTarget {
   state(value: RTCPeerConnectionState): void {
     this.connectionState = value;
     this.dispatchEvent(new Event('connectionstatechange'));
+  }
+  async createOffer(): Promise<RTCSessionDescriptionInit> {
+    return { type: 'offer', sdp: 'offer' };
+  }
+  async createAnswer(): Promise<RTCSessionDescriptionInit> {
+    return { type: 'answer', sdp: 'answer' };
+  }
+  async setLocalDescription(value: RTCSessionDescriptionInit): Promise<void> {
+    this.localDescription = value;
+  }
+  async setRemoteDescription(): Promise<void> {}
+  async addIceCandidate(): Promise<void> {}
+  createDataChannel(label: string): RTCDataChannel {
+    this.channel = new Channel(label, 'connecting');
+    return this.channel as unknown as RTCDataChannel;
+  }
+  remoteChannel(): void {
+    this.channel = new Channel('musixquare-control-isolated', 'connecting');
+    this.dispatchEvent(Object.assign(new Event('datachannel'), { channel: this.channel }));
   }
 }
 
@@ -389,6 +420,273 @@ describe('host-side connection without a state callback', () => {
     // A genuine disconnected -> connected transition settled the probe.
     await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS);
     expect(e.conn.open).toBe(true);
+  });
+});
+
+/** The SYNC_PING challenges a channel carried, by ping id. */
+function pings(channel: Channel): number[] {
+  return channel.sent
+    .filter((data): data is string => typeof data === 'string')
+    .map((data) => JSON.parse(data) as { type: string; pingId: number })
+    .filter((frame) => frame.type === MSG.SYNC_PING)
+    .map((frame) => frame.pingId);
+}
+
+function pong(pingId: number): string {
+  return JSON.stringify({
+    type: MSG.SYNC_PONG,
+    pingId,
+    hostTime: Date.now(),
+    position: 0,
+    mode: null,
+    activity: 'idle',
+    queueItemId: null,
+  });
+}
+
+/** A connection with an isolated control side PC that the test drives. */
+async function isolated(onStateChange?: (conn: CloudflareDataConnection, trace: Trace) => void) {
+  const trace: Trace = [];
+  const sidePc = new PeerConnection();
+  const release = vi.fn();
+  let conn!: CloudflareDataConnection;
+  conn = new CloudflareDataConnection(
+    `peer-${connections.length}`,
+    undefined,
+    null,
+    onStateChange ? () => onStateChange(conn, trace) : undefined,
+    undefined,
+    () => ({ pc: sidePc as unknown as RTCPeerConnection, release }),
+  );
+  connections.push(conn);
+  const pc = new PeerConnection();
+  const bulk = new Channel('musixquare-data');
+  const control = new Channel('musixquare-control');
+  conn.attach(pc as unknown as RTCPeerConnection, bulk as unknown as RTCDataChannel);
+  conn.attach(pc as unknown as RTCPeerConnection, control as unknown as RTCDataChannel);
+  await flush();
+  conn.on('close', () => trace.push('close'));
+  return { conn, pc, bulk, control, sidePc, release, trace };
+}
+
+/** Two isolated endpoints whose side route reaches the active phase; `a` is peer-0. */
+async function activeSidePair(
+  onStateChange?: (conn: CloudflareDataConnection, trace: Trace) => void,
+) {
+  const a = await isolated(onStateChange);
+  const b = await isolated();
+  for (const e of [a, b]) e.conn.startBulkFlowControl();
+  let ac = 0;
+  let bc = 0;
+  let as = 0;
+  let bs = 0;
+  const pump = async () => {
+    for (let round = 0; round < 12; round++) {
+      while (ac < a.control.sent.length) b.control.receive(a.control.sent[ac++]);
+      while (bc < b.control.sent.length) a.control.receive(b.control.sent[bc++]);
+      while (as < (a.sidePc.channel?.sent.length ?? 0))
+        b.sidePc.channel!.receive(a.sidePc.channel!.sent[as++]);
+      while (bs < (b.sidePc.channel?.sent.length ?? 0))
+        a.sidePc.channel!.receive(b.sidePc.channel!.sent[bs++]);
+      await flush();
+    }
+  };
+  await pump();
+  // The side PC is demand-driven: a bulk send that must wait creates it.
+  expect(a.conn.bulkFlowControl.hasCapacity(1)).toBe(false);
+  await pump();
+  (a.sidePc.channel ? b : a).sidePc.remoteChannel();
+  a.sidePc.channel!.open();
+  b.sidePc.channel!.open();
+  await pump();
+  expect(a.conn.controlIsolation?.phase).toBe('active');
+  expect(b.conn.controlIsolation?.phase).toBe('active');
+  return { a, b };
+}
+
+/**
+ * The guest background-resume probe (Phase 4 C5-7 moves it into the
+ * link-liveness owner) reads both PCs and their channels, including the
+ * isolated control side PC. WebKit can report a state that changed while the
+ * page was suspended before it delivers the event, so most cases mutate the
+ * state silently and let the probe read it.
+ */
+describe('background-resume probe across both routes', () => {
+  it.each(['failed', 'closed'] as const)(
+    'closes as resume-stale before any challenge when the side PC reads %s at resume',
+    async (state) => {
+      const { a } = await activeSidePair();
+      a.sidePc.connectionState = state;
+      expect(a.conn.recoverAfterBackground(60_000, false)).toBe('stale-connection-closed');
+      expect(pings(a.sidePc.channel!)).toEqual([]);
+      expect(pings(a.control)).toEqual([]);
+      expect(a.trace).toEqual(['close']);
+      expect(a.release).toHaveBeenCalledOnce();
+      expect(closeLines()).toEqual([
+        '[Transport] Logical connection closed (resume-stale) for peer-0',
+      ]);
+    },
+  );
+
+  it('closes as resume-stale when the active side channel does not read open', async () => {
+    const { a } = await activeSidePair();
+    a.sidePc.channel!.readyState = 'closing';
+    expect(a.conn.recoverAfterBackground(60_000, false)).toBe('stale-connection-closed');
+    expect(a.trace).toEqual(['close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-stale) for peer-0',
+    ]);
+  });
+
+  it('closes at once as resume-stale for a disconnected side PC when signaling is lost', async () => {
+    const { a } = await activeSidePair();
+    a.sidePc.connectionState = 'disconnected';
+    expect(a.conn.recoverAfterBackground(60_000, true)).toBe('stale-connection-closed');
+    expect(pings(a.sidePc.channel!)).toEqual([]);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-stale) for peer-0',
+    ]);
+  });
+
+  it('closes a side PC still disconnected after the 1 s probe as resume-disconnected', async () => {
+    const { a } = await activeSidePair();
+    a.sidePc.connectionState = 'disconnected';
+    expect(a.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    // The challenge still goes out on the side route.
+    expect(pings(a.sidePc.channel!)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS - 1);
+    expect(a.conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(a.trace).toEqual(['close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-disconnected) for peer-0',
+    ]);
+  });
+
+  it('closes the 1 s probe as resume-disconnected when the side recovers but the original reads disconnected', async () => {
+    const { a } = await activeSidePair();
+    a.sidePc.connectionState = 'disconnected';
+    expect(a.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    a.sidePc.connectionState = 'connected';
+    a.pc.connectionState = 'disconnected';
+    await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS);
+    expect(a.trace).toEqual(['close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-disconnected) for peer-0',
+    ]);
+  });
+
+  it('closes the 1 s probe as resume-disconnected when the side recovers but an original channel no longer reads open', async () => {
+    const { a } = await activeSidePair();
+    a.sidePc.connectionState = 'disconnected';
+    expect(a.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    a.sidePc.connectionState = 'connected';
+    a.bulk.readyState = 'closing';
+    await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS);
+    expect(a.trace).toEqual(['close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-disconnected) for peer-0',
+    ]);
+  });
+
+  it('keeps waiting after the 1 s probe once both routes read connected and open, and the exact side pong keeps the link', async () => {
+    const { a } = await activeSidePair();
+    a.sidePc.connectionState = 'disconnected';
+    expect(a.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    a.sidePc.connectionState = 'connected';
+    await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS);
+    expect(a.conn.open).toBe(true);
+    const [pingId] = pings(a.sidePc.channel!);
+    a.sidePc.channel!.receive(pong(pingId!));
+    await flush();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(a.conn.open).toBe(true);
+    expect(closeLines()).toEqual([]);
+  });
+
+  it('keeps the probe through an original disconnected→connected and closes as resume-probe-unanswered without the exact pong', async () => {
+    const { a } = await activeSidePair();
+    expect(a.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    // The challenge travels on the active side route, not the original lane.
+    const [pingId] = pings(a.sidePc.channel!);
+    expect(pings(a.control)).toEqual([]);
+    a.pc.state('disconnected');
+    a.pc.state('connected');
+    // A pong for another challenge proves nothing.
+    a.sidePc.channel!.receive(pong(pingId! + 1));
+    await flush();
+    await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS - 1);
+    expect(a.conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(a.trace).toEqual(['close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-probe-unanswered) for peer-0',
+    ]);
+  });
+
+  it('closes as resume-stale inside an original disconnected when the side PC reads failed: before the state callback, arming no grace', async () => {
+    let recording = false;
+    const { a } = await activeSidePair((conn, trace) => {
+      if (recording) trace.push(['callback', conn.open, conn.iceRecoveryDeadline]);
+    });
+    a.conn.iceRestartBinding = 'negotiation_liveness_05';
+    expect(a.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    recording = true;
+    a.sidePc.connectionState = 'failed';
+    a.pc.state('disconnected');
+    expect(a.trace).toEqual(['close', ['callback', false, 0]]);
+    expect(a.conn.iceRecoveryDeadline).toBe(0);
+    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    expect(a.trace).toEqual(['close', ['callback', false, 0]]);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-stale) for peer-0',
+    ]);
+  });
+});
+
+describe('background-resume probe on the original route', () => {
+  it('settles the probe with the exact pong on the bulk lane as well', async () => {
+    const e = await connection();
+    expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    const [pingId] = pings(e.control);
+    e.bulk.receive(pong(pingId!));
+    await flush();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(e.conn.open).toBe(true);
+    expect(closeLines()).toEqual([]);
+  });
+
+  it('restarts the 1 s probe when a second resume finds the route still disconnected', async () => {
+    const e = await connection();
+    e.pc.connectionState = 'disconnected';
+    expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    await vi.advanceTimersByTimeAsync(500);
+    expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS - 1);
+    expect(e.conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(e.trace).toEqual(['close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-disconnected) for peer-0',
+    ]);
+  });
+
+  it('keeps a link whose grace fired against a stale connected read until the probe window ends', async () => {
+    const e = await connection({ bound: true });
+    e.pc.state('disconnected');
+    // WebKit kept reporting connected through the suspension; the grace that
+    // fires on return reads that value and closes nothing.
+    e.pc.connectionState = 'connected';
+    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    expect(e.conn.open).toBe(true);
+    expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
+    await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS - 1);
+    expect(e.conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(e.trace).toEqual(['side', 'close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (resume-probe-unanswered) for peer-0',
+    ]);
   });
 });
 

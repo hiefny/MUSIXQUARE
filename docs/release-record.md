@@ -45,6 +45,48 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 구조 개선 Phase 5 5A(버전 미정, 배포 전): 시스템 오디오 수신 슬롯을 주인 하나로, 동작 그대로
+
+- [ ] 5A 범위(오너 결정 2026-10-25 약 04:00 KST, Phase 5 추천안 전부. 배포 시점은 약 01:50 KST 결정, 순서는
+      약 22:30 KST 결정): 앱 업데이트 두 번(P5-D3 A) 가운데 첫째인 중립 열차다. 기기 하나의 시스템 오디오
+      수신 자리(registry RO-04)에 지연 전용 주인 `src/network/system-audio-receive-slot.ts`를 두고(P5-D4 A),
+      일반방 직접 통화, 일반방 SFU 게스트, PRO 코디네이터가 시작, 경계 대기, 붙이기, interrupt, handoff,
+      마감 만료, adopt, 끝을 그 슬롯으로 부른다(C4-2~C4-8. C4-6은 버스 쌍 둘을 슬롯 입력으로, P5-D7 A).
+      매체 값은 `src/network/system-audio-media.ts` 한 집으로(C4-1), PRO 발행 정리는 이름 붙인 연산
+      셋으로(C4-12, registry RO-40 삭제). PRO 서비스는 Standard 수신 어댑터를 import하지 않는다(import-graph
+      RULE D). 동작, MSG 리터럴과 프레임, 계약 표지, 기기 판독 줄, `/debug sa`, 타이머 이름은 그대로이고,
+      C4-0이 오늘 동작으로 고정한 틈 14개는 5B 몫이다(P5-D5 A, C4-13은 P5-D11 B로 5B). 브랜치
+      `agent/phase5-5a`(`bd94075c`에서 시작, origin/main을 `aa62fe34`·`aab3628b`·`c344b46f`에서 합침):
+      준비 T2·T3 `8b34a24e`, T4 `c30c17a5`, T5 `470227ca`, T6 `8244531f`, 증분마다 테스트 먼저와 코드 한
+      쌍(C4-1 `da3ff369`, C4-2 `d1f22a61`, C4-3 `ab5bc996`, C4-4 `830bfb2d`, C4-5 `a7735b92`, C4-6
+      `3233ac10`, C4-7 `bde907e0`, C4-8 `e9a9e731`, C4-12 `cc2510ce`). 로컬 검증(`c344b46f`): 단위 672
+      files / 15,706, 핵심 커버리지 87 files / 3,277(슬롯 96.02/91.3/100/97.77), typecheck(전체)·lint·
+      format, 가드(resource-ownership 46 records / 439 files와 수신 슬롯 쓰기 3·3·3·1, dead-exports
+      20/20·76/76 그대로, bus-pairing 202/202, import-graph RULE D, room-authority-boundaries 직접 읽기 83),
+      빌드와 초기 전송 예산(초기 JS 478,210 B, 같은 기계의 main `2d605739` 478,186 B 대비 +24 B, 코드 없음,
+      유지 상한까지 13,358 B), SW 앱 셸 106 PASS. 최종 계약 묶음 넷(116 tests)과 판독 줄·튜닝·START 묶음
+      다섯(47 tests)은 main `2d605739`의 9.0.11 런타임에서도 PASS다. `guard:sw-cache-version`은 bump 전이라
+      설계대로 FAIL이다. 오너 확인을 기다리는 세부(게이트 아님): C4-7 뒤 청크 하나가 바뀌었다(새
+      `system-audio-receive-slot` 청크, `system-audio-host`는 `system-audio-sfu`에 합쳐짐, 청크 수 112와 앱
+      셸 106 그대로, 첫 로딩 +11 B gzip은 미리 읽기 목록의 청크 이름뿐). P5-D4 A 선택지의 '새 청크가
+      생기거나 첫 로딩이 늘면 다시 묻는다'에 글자 그대로 걸린다. 그 밖의 세부(PRO 코디네이터는 경로 하나,
+      경로마다 정한 수신 시작 규칙, 붙이기는 다시 prime하지 않음, `RECOVERY_DELAY_MS`는 나누지 않음)는
+      보고서에 있다. 남은 것: 9.0.12 강제 업데이트 열차와 그 floor 다음에 그때의 origin/main 합침과 다시 검증
+      (옛 버전 제거 1차와 같은 파일 registry, `scripts/check-room-authority-boundaries.mts`와 그 테스트,
+      `src/types/index.ts`, `vite.config.ts`, `docs/qa-domains.md`, `file-prepare-pause.test.ts`는 시험
+      합침에서 글자 충돌이 없었지만 가드 수를 다시 맞춰야 할 수 있음), 마지막 런타임 커밋의 SemVer·SW 캐시
+      bump, PR CI, Codex, exact-main CI, 릴리스 smoke, 배포(target `app`, Developer API D1 `false`). 로컬
+      결과는 exact-main-SHA 후보를 대신하지 않는다.
+      [5A 보고서](design/phase5-5a-receive-slot-2026-10-25.md).
+- [ ] 5A 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 5A 코드로 실제 기기를 아직 돌리지 않았다.
+      Phase 5 기기 절차(2-8 기록 추가, Set 5S, Set 5P)는 Phase 4 세션 2에 붙여 오너가 고르는 때에 한다(P5-D2
+      A). 5A 전 기기 기준선이 없어 전후 비교는 없고, 첫 세션 값이 '5A 뒤 값'(5B 기준선)이 된다. 혼합 버전 기기
+      행은 하지 않는다(P5-D9 C). 이 절 아래의 시스템 오디오 열린 항목(9.0.3 G6, 9.0.2 G5, 9.0.1의 PRO 구독
+      실패 지속 부분, 9.0.0 PRO 하트비트, D01, 8.11.25 공유 중지 버튼, 4A 항목의 PRO 시스템 오디오 부분)은
+      5A 뒤에는 5A 코드로 확인하게 된다. C4-13의 기기 보조 근거(flight recorder의 같은 revision 두 줄)는 준비
+      T8에서 음성이라 없다. 판정 기준은 결과 전에 고정해 메인 세션이 보관한다.
+      [실기기로 확인하지 않은 것](design/phase5-5a-receive-slot-2026-10-25.md#실기기로-확인하지-않은-것).
+
 ### 구조 개선 Phase 4 4D(9.0.11/v784) 배포 뒤 확인: 보조 경로의 끊김 기한도 연결 생존 주인으로
 
 - [ ] 4D 범위(오너 결정 2026-10-25 약 16:30 KST): 허용 위험 #18이 오너의 와이파이→LTE 실기기 확인(운영

@@ -93,6 +93,22 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 5 train 5A: one system-audio receive slot, behaviour-neutral (2026-10-25)](design/phase5-5a-receive-slot-2026-10-25.md):
+  evidence for the structure program's first Phase 5 app train (version set at integration, not
+  yet released; target `app`; it ships after the 9.0.12 forced-update train). One deferred-only
+  owner, `src/network/system-audio-receive-slot.ts` (RO-04), now holds the device's system-audio
+  reception: the start, the trust-boundary waits, the restore point, the receive deadline and its
+  expiry, every route's source and primer, the interrupts, the delivery handoff, the PRO
+  coordinator's adopt of the Standard SFU route and the end. The Standard direct call, the
+  Standard SFU guest and the PRO coordinator call it, the PRO service imports no Standard receive
+  adapter, the media values have one home (`system-audio-media.ts`) and the PRO publication
+  teardown composes three named operations (RO-40 retired). The report lists the owner's Phase 5
+  decisions, the preparation (T1 to T8, T8 negative), each increment with its commits and
+  tests-first evidence, the 14 gaps left as today's behaviour for train 5B, the neutrality
+  evidence (the final contract and evidence-line suites also green on the 9.0.11 runtime), the
+  chunk change after C4-7 awaiting the owner's confirmation, the overlap with Phase 4, the eager JS
+  delta (+24 B, no code), and the Phase 5 device steps not yet run.
+
 - [Phase 4 train 4D: the side route's outage deadline joins the link-liveness owner (2026-10-25)](design/phase4-4d-side-route-owner-2026-10-25.md):
   release evidence for the structure program's fourth Phase 4 app train (9.0.11 / v784,
   released 2026-10-25 21:30 KST in Release 40193266364, target `app`). After known-accepted #18 retired on the owner's Wi-Fi to LTE device check on 9.0.10,

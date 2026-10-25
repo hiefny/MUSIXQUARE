@@ -88,7 +88,7 @@ each record also states the step in words.
 | 6        | YouTube start, arm protocol and iframe audio                                                                                                                                                                                       |
 | 7        | AudioContext output recovery                                                                                                                                                                                                       |
 
-**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 first stayed out of Phase 4 ([Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)). After known-accepted #18 retired, owner decision 2026-10-25 (about 16:30 KST) adds a fourth app update, train 4D: C5-9 (the side route's outage deadline moves into the link-liveness owner, RO-15) and its ratchet, with a forward revert to the 9.0.10 side-route behaviour if the owner's later device check fails ([Phase 4 train 4D report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)).
+**Release batching (owner decision, 2026-10-23).** Phase 1 changes only the Workers, so it releases per step and users see no app update dialog. In Phases 2 to 7, small app increments merge to main but ship as at most one app update per phase, and never more than 7 days after the first merged increment, so users see about 6 to 8 updates instead of about 20. Phase 3 needs one extra ordinary release to prove the new update path. Holding everything until Phase 7 was rejected: one large release is hard to attribute and roll back, it blocks hotfixes, and it delays device checks. A change to both the PRO room and App Workers ships with target `all`, because the partial-release gate blocks either Worker alone while the other has undeployed source (seen on 2026-10-23 with the Phase 0d server constants). Each batch gets one report and its device checks. Phase 4 is the one exception (owner decision P4-D3 A, 2026-10-24): it ships two app updates, train 4A (behaviour-neutral restructuring) and train 4B (risky or behaviour-changing increments). Owner decision 2026-10-25 (about 01:50 KST) replaces the timing parts: every train deploys as soon as its automated gates pass (local checks, review, PR CI, Codex, exact-main CI, release smokes), with no 7-day spacing and no wait for device rounds, so 4B no longer waits 7 days after 4A or for 4A's device round. Device evidence no longer gates code; each train report states what was not device-checked. The same decision moves C5-6, C5-7 and C5-8 into their own train after 4B, so Phase 4 ships three app updates: train 4C carries C5-6, C5-7, C5-8 and the connection part of C5-10, and C5-9 first stayed out of Phase 4 ([Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md#오너-결정)). After known-accepted #18 retired, owner decision 2026-10-25 (about 16:30 KST) adds a fourth app update, train 4D: C5-9 (the side route's outage deadline moves into the link-liveness owner, RO-15) and its ratchet, with a forward revert to the 9.0.10 side-route behaviour if the owner's later device check fails ([Phase 4 train 4D report](phase4-4d-side-route-owner-2026-10-25.md#오너-결정)). Phase 5 also ships two app updates (owner decision P5-D3 A, 2026-10-25): train 5A moves the system-audio receive slot without changing behaviour (C4-1 to C4-8 and C4-12, with C4-6 and C4-7 inside it because every today-behaviour and gap test of the four receive-slot contract suites stays green), and train 5B carries the behaviour changes the owner picks, each with its failing test first ([Phase 5 train 5A report](phase5-5a-receive-slot-2026-10-25.md#오너-결정)).
 
 ## Index
 
@@ -97,7 +97,7 @@ each record also states the step in words.
 | RO-01 | AudioContext running state                               | Audio          | duplicated         | 0d, 7; fix lane G7             |
 | RO-02 | YouTube Standard shared start                            | YouTube        | duplicated         | 0d, 6                          |
 | RO-03 | YouTube arm protocol, Standard and PRO copies            | YouTube        | duplicated         | 0d, 6                          |
-| RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5         |
+| RO-04 | System-audio receive slot                                | System audio   | duplicated         | Fix lane G5, G6; 0d, 5A, 5B    |
 | RO-05 | Guest YouTube re-align retry chains                      | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-48     |
 | RO-06 | Host shared start, playlist queue and guided demo        | Output rejoin  | duplicated         | 4 (C3-I1); exception RO-49     |
 | RO-07 | PRO signaling broadcast delivery                         | Workers        | owner-in-place     | Done (0d, 1)                   |
@@ -114,7 +114,7 @@ each record also states the step in words.
 | RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
 | RO-19 | Guest fetch of the current track                         | Transfer       | owner-in-place     | Done (4, C5-3)                 |
 | RO-20 | PRO system-audio lease and publication                   | System audio   | owner-in-place     | None                           |
-| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | Owner decision                 |
+| RO-21 | PRO checkpoint re-apply after a disruption               | PRO room       | duplicated         | 5B (C4-13, P5-D11 B)           |
 | RO-22 | Waiting service worker activation                        | Page lifecycle | duplicated         | 0d, 3                          |
 | RO-23 | App-owned page navigation                                | Page lifecycle | duplicated         | 0d, 2                          |
 | RO-24 | `inert` page lock                                        | Page lifecycle | owner-in-place     | Done (2, C6-11)                |
@@ -131,7 +131,7 @@ each record also states the step in words.
 | RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
-| RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit after the 0c test      |
+| RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit in 5B (C4-13)          |
 | RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check    |
 | RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)          |
 | RO-44 | AudioContext native-call guard is syntactic              | Audio          | accepted-exception | Phase 7                        |
@@ -438,8 +438,9 @@ RO-49 accepted-exception
   PRO coordinator's retire of the Standard SFU route became the adopt in C4-7, and C4-8 removed
   the guest's compatibility aliases of the slot's names).
 - **Allowed requesters:** the route adapters (Standard P2P, Standard SFU, PRO SFU, PRO direct)
-  through the slot. `src/audio/system-capture.ts` and the Standard host only emit
-  `system-audio:*` events.
+  through the slot. `src/audio/system-capture.ts` claims the `'system-audio'` playback owner for
+  this device's own share (the sharer's claim, not a reception; the guard's CHECK 9 counts it
+  apart) and otherwise only emits `system-audio:*` events, as the Standard host does.
 - **Lifecycle operations:** begin reception, attach, set receiving, claim the playback owner, arm
   or clear the receive deadline, cleanup with meta restore.
 - **Deadline owner:** per route today, named at each start and interrupt since C4-6
@@ -580,7 +581,15 @@ RO-49 accepted-exception
   coordinator's attach, resume, interrupts and detach, C4-6 the two bus pairs (the delivery
   handoff and the receive deadline's expiry) with an explicit deadline kind, C4-7 the PRO
   coordinator's adopt (the service imports no Standard receive adapter), and C4-8 removed the
-  guest's compatibility aliases and made the slot's writer counts final. Exception RO-39.
+  guest's compatibility aliases and made the slot's writer counts final. These moves form train
+  5A and change no behaviour ([Phase 5 train 5A report](phase5-5a-receive-slot-2026-10-25.md));
+  the record stays `duplicated` after it. The PRO coordinator still owns its own deadlines
+  (`deadline: 'route'`: the re-subscribe backoff, the 2.5 s disconnect grace and the direct
+  receive deadline) and cleanups (no end port), and the gaps the contract suites pin as today's
+  behaviour ([Today's gaps](system-audio-receive-ownership.md#todays-gaps): the attach fence,
+  an end that covers every route, route closes the slot does not hear, the re-entrant restore
+  point) are behaviour changes for train 5B (owner decision P5-D5 A), each with its failing test
+  first. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 
@@ -1697,8 +1706,13 @@ RO-49 accepted-exception
   - Visibility: `runtime-server-playback.test.ts` "does not re-apply a YouTube checkpoint the
     visibility pass already re-applied"; `system-audio-service.test.ts` "holds restoration retries
     while hidden and resumes them when shown, without a cap".
-  - Missing: the post-share restore and foreground recovery together (Phase 0c).
-- **Status:** `duplicated`. Exception RO-41.
+  - Cross-owner: `src/pro-room/__tests__/runtime-system-audio-join.test.ts` "F3 baseline: a
+    share that ends while hidden, with a failed first restore, re-arms the YouTube renderer once
+    per owner when shown" runs the post-share restore and the foreground recovery together
+    (Phase 5 C4-0, #454) and pins today's double re-arm.
+- **Status:** `duplicated`. Exception RO-41. Owner decision P5-D11 B (2026-10-25) schedules the
+  deduplication (plan step C4-13) for Phase 5 train 5B, with the F3 baseline flipped as its
+  failing test.
 
 ### RO-22 Waiting service worker activation
 
@@ -2366,18 +2380,27 @@ entry needs the owner's acceptance and is not implied by this registry.
   shared chunk on cellular joins; the name builders and error-text fallbacks differ, and the
   Standard SFU branches on error text.
 - **Behaviour risk:** none (no shared state).
-- **Revisit when:** a scratch build shows the chunk impact, then in the Phase 5 train or later.
+- **Revisit when:** a scratch build shows the chunk impact, or a defect appears in one copy.
+  Phase 5 does not schedule C4-11 or a Realtime production smoke (owner decision P5-D12 A,
+  2026-10-25).
 - **Status:** `accepted-exception`.
 
 ### RO-41 Two PRO re-apply owners serialized, not deduplicated
 
-- **Parent:** RO-21. Plan step C4-13 deferred.
+- **Parent:** RO-21. Plan step C4-13 scheduled for Phase 5 train 5B (owner decision P5-D11 B,
+  2026-10-25).
 - **Exception:** foreground recovery and the post-share restore stay separate reconcile owners.
-- **Evidence:** deduplication changes behaviour and needs an owner decision; the inferred second
-  iframe pause after a share ends while hidden is not reproduced yet (Phase 0c).
-- **Behaviour risk:** a possible second pause of the YouTube iframe on return (inferred); no
-  known-accepted entry.
-- **Revisit when:** the Phase 0c test reproduces the second re-arm.
+- **Evidence:** deduplication changes behaviour, so it is not part of the behaviour-neutral train
+  5A. The unit harness reproduces the second re-arm: since Phase 5 C4-0 (#454),
+  `runtime-system-audio-join.test.ts` "F3 baseline" shows a share that ends while the page is
+  hidden, after a failed first restore, prepare the same revision twice when the page is shown.
+  It is not seen on a device yet (Phase 5 device step 5P-5). The sync flight recorder does not
+  mark it: a same-revision re-arm records no `pro-checkpoint` event (Phase 5 prep T8), so a
+  device run can report the second pause only by ear.
+- **Behaviour risk:** a possible second pause of the YouTube iframe on return (unit evidence, not
+  yet heard on a device); no known-accepted entry.
+- **Revisit when:** train 5B lands C4-13 (that change deletes this record and updates RO-21), or
+  the owner's later device run of 5P-5 changes the decision.
 - **Status:** `accepted-exception`.
 
 ### RO-42 PRO-only capture policy stays eager
@@ -2388,7 +2411,8 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Evidence:** `getDisplayMedia` and `beginProLeaseAttempt` must stay in one user-gesture turn;
   the eager saving is unmeasured.
 - **Behaviour risk:** none.
-- **Revisit when:** a scratch build shows a meaningful eager saving.
+- **Revisit when:** a scratch build shows a meaningful eager saving. Phase 5 does not schedule
+  C4-14 (owner decision P5-D13 A, 2026-10-25).
 - **Status:** `accepted-exception`.
 
 ### RO-43 Update prompt stays eager
@@ -2666,7 +2690,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
    (a computed owner or a passed-on claim counts); reads of `.input` on a receiver named
    `widener`; and raw `'systemAudio.isReceiving'` writes (a `setState()` call or an object-literal
    key such as a `batchSetState` reset) outside `src/player/ownership.ts`, the setter's home. The
-   widener match is by name, so a widener held under another name is not seen. The counts are
+   widener match is by name, so a widener held under another name is not seen, and neither is a
+   call through a renamed import of the setter or the claim
+   (`import { setSystemAudioReceiving as … }`). The counts are
    final since Phase 5 C4-8: only the receive slot writes, beside the sharer's own claim, the file
    playback route's widener input and the `leaveSession` reset; no route adapter has an entry.
 10. **System-audio media tuning home, per file** (RO-04, Phase 5 C4-1): in the system-audio route

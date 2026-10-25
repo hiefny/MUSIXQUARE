@@ -180,7 +180,8 @@ file in `src/`, exactly. The counts are final since C4-8:
 
 No route adapter has an entry, so a route that writes the slot itself is an
 unsanctioned writer, not a raised count. The widener match is by name: a
-widener held under another name is not seen, so review it by hand. The same
+widener held under another name is not seen, and neither is a call through a
+renamed import of the setter or the claim, so review both by hand. The same
 guard keeps one deadline owner per PRO SFU attempt (armed
 `beginTrustedSystemAudioReception` starts, any without the literal
 `{ deadline: 'route' }`, are exactly the host START handler in

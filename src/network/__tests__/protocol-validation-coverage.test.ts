@@ -281,8 +281,9 @@ describe('bounded control-frame validation', () => {
 
   it('requires the shared demo start and lets hostPlayAt go', async () => {
     // Survey OV-B02 stage 1: every demo host since 8.6.54 (#235) sends
-    // hostStartAt. 9.0.10 and 9.0.11 hosts still add hostPlayAt, which is
-    // accepted and ignored; a frame without hostStartAt is an older host's.
+    // hostStartAt. Hosts still add hostPlayAt for guests before the old-version
+    // removal train (9.0.12 and older); it is accepted and ignored. A frame
+    // without hostStartAt is an older host's.
     const handler = vi.fn();
     registerHandler(MSG.DEMO_PLAY, handler);
     const conn = connection('demo-start-validation');

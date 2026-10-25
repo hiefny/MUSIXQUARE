@@ -495,9 +495,10 @@ RO-49 accepted-exception
   old-version removal train dropped the 200 ms PLAY wire lead `LEGACY_FILE_SCHEDULE_AHEAD_MS`
   (survey OV-B01): PLAY carries only `hostStartAt`, and a guest starts a PLAY without it at
   receipt. DEMO_PLAY still carries `hostPlayAt`, the start plus the separate 350 ms
-  `DEMO_PLAY_SCHEDULE_AHEAD_MS`, because demo guests up to 9.0.11 require it; guests now require
-  `hostStartAt`, ignore `hostPlayAt` and gate the host timeline on clock calibration alone
-  (OV-B02 stage 1). Hosts stop sending it only after a client floor (OV-F05).
+  `DEMO_PLAY_SCHEDULE_AHEAD_MS`, because demo guests before the old-version removal train (9.0.12
+  and older) require it; guests now require `hostStartAt`, ignore `hostPlayAt` and gate the host
+  timeline on clock calibration alone (OV-B02 stage 1). Hosts stop sending it only after a client
+  floor at or above the release that carries OV-B02 stage 1 (OV-F05).
 - **Anchor tests:**
   - Supersession: `src/demo/__tests__/mode.test.ts` "does not restore stale media over a local file
     load started during exit".

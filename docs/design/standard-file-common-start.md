@@ -97,12 +97,13 @@ the common start carries timing. `hostStartAt` must be positive and finite:
 A PLAY without `hostStartAt` (a running late join, or a host before 8.6.53)
 starts at receipt, and guests before 8.6.53 start the current host's PLAY at
 receipt, about 200 ms early, until drift correction aligns them. DEMO_PLAY still
-carries `hostPlayAt` because demo guests up to 9.0.11 require it and use it to
-gate their host clock; hosts can stop sending it once a client floor is in place
-(survey OV-F05). A guest drops a DEMO_PLAY without `hostStartAt` from a demo
-host before 8.6.54. YouTube messages are unchanged. Older guests do not
-understand the pending-start PONG extension and retain their former bootstrap
-behavior.
+carries `hostPlayAt` because demo guests before the old-version removal train
+(9.0.12 and older) require it and use it to gate their host clock; hosts can
+stop sending it once the client floor is at or above the release that carries
+this change (survey OV-F05). A guest drops a DEMO_PLAY without `hostStartAt`
+from a demo host before 8.6.54. YouTube messages are unchanged. Older guests do
+not understand the pending-start PONG extension and retain their former
+bootstrap behavior.
 
 Deterministic regressions cover early/late decode, route waits, cold clocks, a
 PLAY without a common start, slow engine preparation, pause cancellation,

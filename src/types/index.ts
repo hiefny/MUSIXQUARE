@@ -395,7 +395,10 @@ export interface ProtocolMap {
     time: number;
     /** Host-clock instant at which `time` becomes the shared demo position. */
     hostStartAt: number;
-    /** hostStartAt plus 350 ms, sent for guests up to 9.0.11 and ignored on receipt. */
+    /**
+     * hostStartAt plus 350 ms, ignored on receipt. Still sent because guests
+     * before the old-version removal train (9.0.12 and older) require it.
+     */
     hostPlayAt?: number;
   };
   'request-demo-enter': NoPayload;

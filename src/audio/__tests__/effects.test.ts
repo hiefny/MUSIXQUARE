@@ -944,8 +944,9 @@ describe('atomic settings synchronization', () => {
 
 describe('room settings move only through the sequenced snapshot', () => {
   // Hosts since 8.3.7 (9b106a5b) move room volume and DSP only through
-  // SETTINGS_SYNC_SNAPSHOT. 9.0.10 and 9.0.11 hosts still follow each snapshot
-  // with these per-effect frames, carrying the values the snapshot just set.
+  // SETTINGS_SYNC_SNAPSHOT. Hosts before the old-version removal train (9.0.12
+  // and older) still follow each snapshot with these per-effect frames,
+  // carrying the values the snapshot just set.
   const perEffectFrames: Record<string, unknown>[] = [
     { type: 'volume', value: 0.3 },
     { type: 'eq-update', band: 2, value: 6 },

@@ -58,7 +58,8 @@ describe('demo shared-start timing', () => {
   it('shares the 200 ms start lead with local files but keeps the demo wire lead', () => {
     expect(DEMO_PLAY_START_LEAD_MS).toBe(200);
     expect(LOCAL_FILE_START_LEAD_MS).toBe(200);
-    // Demo guests up to 9.0.11 require hostPlayAt = hostStartAt + 350 ms.
+    // Demo guests before the old-version removal train (9.0.12 and older)
+    // require hostPlayAt = hostStartAt + 350 ms.
     expect(DEMO_PLAY_SCHEDULE_AHEAD_MS).toBe(350);
   });
 

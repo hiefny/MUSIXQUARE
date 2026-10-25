@@ -5,9 +5,11 @@ import {
 
 /**
  * A host sends DEMO_PLAY's hostPlayAt as its start plus this historical lead.
- * Demo guests up to 9.0.11 require the field and read it only to gate their
- * host clock; this build ignores it, and a client floor lets hosts stop
- * sending it (survey OV-F05). Never unify it with DEMO_PLAY_START_LEAD_MS.
+ * Demo guests before the old-version removal train (9.0.12 and older) require
+ * the field and read it only to gate their host clock; this build ignores it.
+ * Hosts may stop sending it only after a client floor at or above the release
+ * that carries OV-B02 stage 1 (survey OV-F05). Never unify it with
+ * DEMO_PLAY_START_LEAD_MS.
  */
 export const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
 /**

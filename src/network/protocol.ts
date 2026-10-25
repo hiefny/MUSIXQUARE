@@ -484,7 +484,8 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.time) &&
     (d.name === undefined || d.name === null || typeof d.name === 'string') &&
-    // Ignored on receipt. 9.0.10 and 9.0.11 hosts still add it.
+    // Ignored on receipt. Hosts before the old-version removal train (9.0.12
+    // and older) still add it.
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)) &&
     (d.hostStartAt === undefined || (isFiniteNumber(d.hostStartAt) && d.hostStartAt > 0)),
   [MSG.PAUSE]: (d) =>
@@ -1055,7 +1056,8 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isFiniteNumber(d.time) &&
     isFiniteNumber(d.hostStartAt) &&
     d.hostStartAt > 0 &&
-    // Ignored on receipt. Hosts still send it for guests up to 9.0.11.
+    // Ignored on receipt. Hosts still send it: guests before the old-version
+    // removal train (9.0.12 and older) require it (survey OV-F05).
     (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
   [MSG.DEMO_PAUSE]: (d) => isFiniteNumber(d.time),
   [MSG.DEMO_EXIT]: () => true,

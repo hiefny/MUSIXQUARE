@@ -21,7 +21,12 @@ import {
   markLocalFileR2Capable,
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
-import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
+import type {
+  ConnectedPeer,
+  DataConnection,
+  PlaylistItem,
+  RoomContext,
+} from '../../types/index.ts';
 import { showLoader } from '../../ui/toast.ts';
 
 const storageMocks = vi.hoisted(() => ({
@@ -219,6 +224,105 @@ describe('schedulePreload', () => {
     schedulePreload(0);
     await vi.runOnlyPendingTimersAsync();
     await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
+  });
+
+  it('restarts its own PRO preload when a host connection left from a Standard room clears', async () => {
+    vi.useFakeTimers();
+    initPreload();
+    const staleHost = {
+      open: true,
+      peer: 'standard-host',
+      send: vi.fn(),
+    } as unknown as DataConnection;
+    // A Standard guest's host connection can still be projected when the room
+    // context turns PRO. The participant warms the next R2 object itself.
+    setState('network.hostConn', staleHost);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    });
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    let resolveFirstPreload: (file: File | null) => void = () => {};
+    proRoomMocks.preloadFile
+      .mockImplementationOnce(
+        () =>
+          new Promise<File | null>((resolve) => {
+            resolveFirstPreload = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(new File(['next'], 'next.flac', { type: 'audio/flac' }));
+
+    schedulePreload(0);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce());
+    expect(getState('preload.isPreloading')).toBe(true);
+    const firstSessionId = Number(getState('preload.activeTarget')?.sessionId);
+    expect(firstSessionId).toBeGreaterThan(0);
+    proRoomMocks.cancelPreload.mockClear();
+
+    // The PRO projection clears the leftover connection. Its preload session
+    // belongs to the old connection scope, so it is dropped and warmed again.
+    setState('network.hostConn', null);
+    expect(proRoomMocks.cancelPreload).toHaveBeenCalledOnce();
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+
+    // The dropped owner's late result cannot replace the new session.
+    resolveFirstPreload(new File(['stale'], 'next.flac', { type: 'audio/flac' }));
+    await vi.runOnlyPendingTimersAsync();
+    const target = getState('preload.activeTarget');
+    expect(target).toMatchObject({ queueItemId: Q1 });
+    expect(Number(target?.sessionId)).toBeGreaterThan(firstSessionId);
+    expect(getState('preload.nextQueueItemId')).toBe(Q1);
+  });
+
+  it('drops the previous room preload and warms again on entering another PRO room', async () => {
+    vi.useFakeTimers();
+    initPreload();
+    setState('network.hostConn', null);
+    setState('playlist.items', [
+      makeFileTrack('current.flac', Q0),
+      { ...makeFileTrack('next.flac', Q1), file: undefined },
+    ]);
+    setState('playlist.currentQueueItemId', Q0);
+    proRoomMocks.preloadFile
+      .mockImplementationOnce(() => new Promise<File | null>(() => {}))
+      .mockResolvedValueOnce(new File(['next'], 'next.flac', { type: 'audio/flac' }));
+    const proContext: RoomContext = {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 2,
+      snapshotRevision: 4,
+      capabilities: ['playback.control'],
+    };
+
+    // Entering a PRO room schedules this participant's own R2 preload.
+    setState('room.context', proContext);
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledOnce());
+    const firstSessionId = Number(getState('preload.activeTarget')?.sessionId);
+    proRoomMocks.cancelPreload.mockClear();
+
+    // Another persistent room owns its own preload scope, even for a queue
+    // item id that looks the same.
+    setState('room.context', { ...proContext, roomId: '000002' });
+    expect(proRoomMocks.cancelPreload).toHaveBeenCalledOnce();
+    await vi.runOnlyPendingTimersAsync();
+    await vi.waitFor(() => expect(proRoomMocks.preloadFile).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(getState('preload.isPreloading')).toBe(false));
+    expect(Number(getState('preload.activeTarget')?.sessionId)).toBeGreaterThan(firstSessionId);
   });
 
   it('keeps its R2 preload when only the obsolete PRO role label changes', async () => {

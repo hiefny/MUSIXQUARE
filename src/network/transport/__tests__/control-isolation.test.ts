@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RTC_INTERRUPTION_GRACE_MS } from '../../../core/constants.ts';
 import { ControlIsolation, type IsolatedControlLease } from '../control-isolation.ts';
-import { ControlIsolation as C9ControlIsolation } from './fixtures/control-isolation-c9.ts';
 import { sideOutageOwner } from './fixtures/side-outage-owner.ts';
 import controlIsolationSource from '../control-isolation.ts?raw';
 
@@ -110,15 +109,14 @@ class Peer extends EventTarget {
   }
 }
 
-function endpoint(build: 'current' | 'c9' = 'current') {
+function endpoint() {
   const peer = new Peer();
   const original: string[] = [];
   const received: string[] = [];
   const release = vi.fn();
   const changed = vi.fn();
   const fail = vi.fn();
-  // The original route the side outage owner reads, and the owner's credential
-  // hook (current build only).
+  // The original route the side outage owner reads, and the owner's credential hook.
   const route = { originalUp: true };
   const prepareRestart = vi.fn(async () => {});
   const create = vi.fn((): IsolatedControlLease | null => ({
@@ -136,10 +134,7 @@ function endpoint(build: 'current' | 'c9' = 'current') {
   // A test LinkLiveness keeps the side PC's outage deadline (Phase 4 C5-9).
   let current: ControlIsolation | undefined;
   const owner = sideOutageOwner(() => current);
-  const flow =
-    build === 'c9'
-      ? new C9ControlIsolation(options)
-      : (current = new ControlIsolation({ ...options, outages: owner.liveness }));
+  const flow = (current = new ControlIsolation({ ...options, outages: owner.liveness }));
   owners.push(flow, { dispose: () => owner.liveness.stop() });
   return {
     flow,
@@ -179,16 +174,15 @@ async function microtasks(): Promise<void> {
   for (let index = 0; index < 16; index++) await Promise.resolve();
 }
 /**
- * `restart: false` models the C9 protocol pin: a build without the restart
- * capability never sends that advertisement and ignores the other side's.
- * `link` holds frames in order, as SCTP does while a path is unavailable.
+ * `drop` loses side-route frames on the original lane in both directions:
+ * 'advertisement' each end's restart-capable frame, 'restart' every restart
+ * frame, as with a peer that never advertised or answered a restart (the
+ * 8.11.23 build). `link` holds frames in order, as SCTP does while a path is
+ * unavailable.
  */
-function pair({
-  restart = true,
-  b: bBuild = 'current',
-}: { restart?: boolean; b?: 'current' | 'c9' } = {}) {
+function pair({ drop }: { drop?: 'advertisement' | 'restart' } = {}) {
   const a = endpoint();
-  const b = endpoint(bBuild);
+  const b = endpoint();
   a.flow.start();
   b.flow.start();
   a.flow.handleOriginal(hello(b), true);
@@ -200,7 +194,9 @@ function pair({
   let bsi = 0;
   const deliver = (to: Endpoint, data: string) => {
     const frame = JSON.parse(data) as Frame;
-    if (!restart && frame.type === TYPE && frame.kind === 'restart-capable') return;
+    const kind = frame.type === TYPE ? String(frame.kind) : '';
+    if (drop === 'advertisement' && kind === 'restart-capable') return;
+    if (drop === 'restart' && kind.startsWith('restart-')) return;
     if (!to.flow.handleOriginal(frame, true) && to.flow.acceptOriginalApplication())
       to.receive(data);
   };
@@ -536,31 +532,13 @@ describe('admitted connection control isolation', () => {
     },
   );
 
-  it('gives disconnected side ICE a nonrenewing grace and cancels it on recovery', async () => {
-    const p = pair({ restart: false });
+  it('fails exact logical owner on side PC closed, whether or not an advertisement arrived', async () => {
+    const p = pair({ drop: 'advertisement' });
     await p.activate();
-    p.a.peer.state('disconnected');
-    vi.advanceTimersByTime(10_000);
-    p.a.peer.state('disconnected');
-    vi.advanceTimersByTime(4999);
-    p.a.peer.state('connected');
-    vi.advanceTimersByTime(20_000);
-    expect(p.a.fail).not.toHaveBeenCalled();
-    p.a.peer.state('disconnected');
-    vi.advanceTimersByTime(15_000);
-    expect(p.a.fail).toHaveBeenCalledOnce();
+    p.a.peer.state('closed');
+    expect(p.a.fail).toHaveBeenCalledExactlyOnceWith('route');
+    expect(p.a.release).toHaveBeenCalledOnce();
   });
-
-  it.each(['failed', 'closed'] as const)(
-    'fails exact logical owner on side PC %s',
-    async (state) => {
-      const p = pair({ restart: false });
-      await p.activate();
-      p.a.peer.state(state);
-      expect(p.a.fail).toHaveBeenCalledOnce();
-      expect(p.a.release).toHaveBeenCalledOnce();
-    },
-  );
 
   it('bounds outgoing fence message count without dropping an accepted prefix silently', async () => {
     const p = pair();
@@ -720,10 +698,6 @@ function roles(p: ReturnType<typeof pair>) {
     ? { offerer: p.a, answerer: p.b }
     : { offerer: p.b, answerer: p.a };
 }
-function restarting(e: Endpoint): ControlIsolation {
-  if (!(e.flow instanceof ControlIsolation)) throw new Error('current build expected');
-  return e.flow;
-}
 function fromPeer(from: Endpoint, to: Endpoint, kind: string, extra: Frame = {}): Frame {
   return {
     type: TYPE,
@@ -749,7 +723,6 @@ describe('side ICE restart of an active isolated control route', () => {
   it('restarts a failed side PC in place, then delivers held controls in order', async () => {
     const p = await live();
     const { offerer, answerer } = roles(p);
-    for (const e of [p.a, p.b]) expect(restarting(e).snapshot.restartCapable).toBe(true);
     // The failed path holds side-channel frames; its SCTP association keeps their order.
     p.link.side = false;
     p.a.flow.send('{"type":"held-1"}');
@@ -814,11 +787,11 @@ describe('side ICE restart of an active isolated control route', () => {
     offerer.peer.state('disconnected');
     await microtasks();
     offerer.peer.state('connected');
-    expect(restarting(offerer).snapshot.restartInterrupted).toBe(false);
+    expect(offerer.flow.snapshot.restartInterrupted).toBe(false);
     await p.pump();
     expect(frames(offerer, 'restart-offer')).toHaveLength(1);
     expect(offerer.peer.remoteHistory.at(-1)).toBe('restart-answer-1');
-    expect(restarting(answerer).snapshot.restartInterrupted).toBe(false);
+    expect(answerer.flow.snapshot.restartInterrupted).toBe(false);
     await vi.advanceTimersByTimeAsync(60_000);
     for (const e of [p.a, p.b]) {
       expect(e.fail).not.toHaveBeenCalled();
@@ -967,7 +940,7 @@ describe('side ICE restart of an active isolated control route', () => {
     // The offerer's own PC stayed connected: its request window ends without a close.
     for (const e of [p.a, p.b]) {
       expect(e.fail).not.toHaveBeenCalled();
-      expect(restarting(e).snapshot.restartInterrupted).toBe(false);
+      expect(e.flow.snapshot.restartInterrupted).toBe(false);
     }
     offerer.flow.handleOriginal(fromPeer(answerer, offerer, 'restart-request', { epoch: 2 }), true);
     await p.pump();
@@ -975,32 +948,85 @@ describe('side ICE restart of an active isolated control route', () => {
     expect(offerer.flow.phase).toBe('active');
   });
 
+  // Old-version removal train, survey OV-B07 (TR-03 stage 1): every build with
+  // isolated control since 8.11.25 restarts its side PC, so an end restarts
+  // without waiting for the peer's advertisement. It still sends its own, in
+  // the exact shape and before its request, because ends before this train
+  // restart only after one arrives.
+  it('still advertises the restart capability, exactly, before its request and its fence', async () => {
+    const p = await live();
+    for (const [e, peer] of [
+      [p.a, p.b],
+      [p.b, p.a],
+    ] as const) {
+      expect(frames(e, 'restart-capable')).toEqual([
+        {
+          type: TYPE,
+          version: 1,
+          kind: 'restart-capable',
+          nonce: hello(e).nonce,
+          target: hello(peer).nonce,
+        },
+      ]);
+      const kinds = e.original
+        .map((data) => JSON.parse(data) as Frame)
+        .filter((frame) => frame.type === TYPE)
+        .map((frame) => frame.kind);
+      expect(kinds.indexOf('restart-capable')).toBeLessThan(kinds.indexOf('request'));
+      expect(kinds.indexOf('request')).toBeLessThan(kinds.indexOf('fence'));
+    }
+  });
+
   it.each(['failed', 'disconnected'] as const)(
-    'keeps the C9 terminal side-%s behavior against a real peer without the capability',
+    'restarts a %s side PC in place although no advertisement arrived',
     async (state) => {
-      const p = await live({ b: 'c9' });
-      for (const e of [p.a, p.b]) expect(e.flow.phase).toBe('active');
-      // The C9 build ignored the advertisement and never sent its own.
-      expect(restarting(p.a).snapshot.restartCapable).toBe(false);
-      expect(p.b.fail).not.toHaveBeenCalled();
-      p.a.flow.send('{"type":"mixed-control"}');
-      await p.pump();
-      expect(p.b.received).toEqual(['{"type":"mixed-control"}']);
+      const p = await live({ drop: 'advertisement' });
+      const { offerer, answerer } = roles(p);
       p.a.peer.state(state);
       p.b.peer.state(state);
-      if (state === 'disconnected') {
-        await vi.advanceTimersByTimeAsync(14_999);
-        for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
-        await vi.advanceTimersByTimeAsync(1);
-      }
       await p.pump();
+      expect(frames(offerer, 'restart-offer')).toEqual([expect.objectContaining({ epoch: 1 })]);
+      expect(frames(answerer, 'restart-answer')).toEqual([expect.objectContaining({ epoch: 1 })]);
+      p.a.peer.state('connected');
+      p.b.peer.state('connected');
+      await vi.advanceTimersByTimeAsync(60_000);
       for (const e of [p.a, p.b]) {
-        expect(e.fail).toHaveBeenCalledOnce();
-        expect(e.release).toHaveBeenCalledOnce();
-        expect(iceRestarts(e)).toBe(0);
+        expect(e.fail).not.toHaveBeenCalled();
+        expect(e.flow.phase).toBe('active');
+        expect(e.create).toHaveBeenCalledOnce();
+        expect(e.flow.snapshot).toMatchObject({
+          restartInterrupted: false,
+          localRestartEpoch: 1,
+          remoteRestartEpoch: 1,
+        });
       }
-      expect(frames(p.a, 'restart-offer')).toEqual([]);
-      expect(frames(p.a, 'restart-request')).toEqual([]);
+    },
+  );
+
+  // Accepted for a peer on the 8.11.23 build, which neither advertises nor
+  // answers a restart: an outage of this end's side PC ends its route at its
+  // own 15 s deadline as expired, not at once (failed) as a route failure.
+  it.each(['failed', 'disconnected'] as const)(
+    'ends the route at its own 15 s deadline when a %s side PC gets no restart answer',
+    async (state) => {
+      const p = await live({ drop: 'restart' });
+      const { offerer, answerer } = roles(p);
+      p.a.peer.state(state);
+      p.b.peer.state(state);
+      await p.pump();
+      expect(frames(offerer, 'restart-offer')).toEqual([expect.objectContaining({ epoch: 1 })]);
+      expect(frames(answerer, 'restart-request')).toEqual([expect.objectContaining({ epoch: 0 })]);
+      expect(iceRestarts(offerer)).toBe(1);
+      await vi.advanceTimersByTimeAsync(14_999);
+      for (const e of [p.a, p.b]) expect(e.fail).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      for (const e of [p.a, p.b]) {
+        expect(e.fail).toHaveBeenCalledExactlyOnceWith('expired');
+        expect(e.release).toHaveBeenCalledOnce();
+        expect(e.flow.phase).toBe('closed');
+      }
+      expect(iceRestarts(answerer)).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
     },
   );
 
@@ -1188,7 +1214,7 @@ describe('side ICE restart of an active isolated control route', () => {
     p.b.peer.channel!.open();
     await p.pump();
     expect(p.a.flow.phase).toBe('active');
-    expect(restarting(p.a).snapshot.restartInterrupted).toBe(true);
+    expect(p.a.flow.snapshot.restartInterrupted).toBe(true);
     expect(frames(roles(p).offerer, 'restart-offer')).toHaveLength(1);
     p.a.peer.state('connected');
     p.b.peer.state('connected');
@@ -1218,7 +1244,7 @@ describe('side ICE restart of an active isolated control route', () => {
     offerer.peer.state('disconnected');
     await p.pump();
     expect(frames(offerer, 'restart-offer').map((frame) => frame.epoch)).toEqual([1, 2]);
-    expect(restarting(offerer).snapshot.restartInterrupted).toBe(true);
+    expect(offerer.flow.snapshot.restartInterrupted).toBe(true);
     await vi.advanceTimersByTimeAsync(14_999);
     expect(offerer.fail).not.toHaveBeenCalled();
     offerer.peer.state('connected');

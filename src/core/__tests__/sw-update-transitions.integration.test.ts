@@ -2749,6 +2749,49 @@ describe('forced update on the real navigation owner (train 9.0.12)', () => {
     expect(tab.updates).toEqual([]);
   });
 
+  it("F8c this document's own forced Apply is reloading: a second request at that floor answers true, shows nothing and reports pending (its lineage key guards only the next document)", async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+    expect(sessionStorage.getItem(FORCED_APPLY_KEY)).toBe('785:786');
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(port.isForcedAppUpdatePending()).toBe(true);
+    // A higher floor is latched the same way, and asks nothing new.
+    expect(port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 787 }))).toBe(true);
+    page.pagehide();
+    await at(8_000);
+    expect(mocks.dialogs).toHaveLength(1);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+  });
+
+  it("F17b this document's own forced Apply recovers: the forced dialog is presented again, and a request at that floor while it is up answers true with no second dialog; a fallback then presents again", async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest());
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+
+    await at(PAINT_MS + COMMIT_DEADLINE_MS + PAINT_MS);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY} -> ok`, `doc1 forced ${MSG_APPLY}`]);
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(port.isForcedAppUpdatePending()).toBe(true);
+    expect(mocks.dialogs).toHaveLength(2);
+
+    // The re-presented dialog has no DOM: the next request presents again.
+    dialog(1).answer('fallback');
+    await at(PAINT_MS + COMMIT_DEADLINE_MS + PAINT_MS + PROMPT_MS);
+    expect(port.isForcedAppUpdatePending()).toBe(false);
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(mocks.dialogs).toHaveLength(3);
+  });
+
   it('F10 another tab holds the prompt lease: the forced dialog still shows here', async () => {
     tab = createTab(PAGE_BUILD);
     await tab.open({ app: OUTSIDE, build: PAGE_BUILD });

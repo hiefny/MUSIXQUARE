@@ -1593,7 +1593,9 @@ RO-51 duplicated
     neither claimed nor written); shows nothing while an update reload is on its way (a reload
     that recovers presents it again, and a tap is still needed); waits while a navigation holds
     the page (P3-8 A applied to it: presented once if the page is released in this document,
-    never if the navigation commits); and otherwise takes the screen. Taking the screen
+    never if the navigation commits; the answer is true while nothing is pending yet, so a
+    refused caller hides its generic text by the answer it got, not by the pending query); and
+    otherwise takes the screen. Taking the screen
     withdraws the machine's dialogs with Later, `openPrompt` and the activated-elsewhere offer's
     own slot `openActivatedOffer` (the logo and the P3-10 absorb still withdraw only
     `openPrompt`), tells the port's presentation subscribers (RO-51), and shows the update dialog
@@ -1614,7 +1616,10 @@ RO-51 duplicated
   - The loop guard is the next-document key `FORCED_UPDATE_APPLY_KEY` (`"<build>:<floor>"`,
     written on Apply before any activation or reload): a request is declined when the stored
     build equals this build and the stored floor is not lower, so a tab gets one forced Apply per
-    build and floor; the stored floor never moves down.
+    build and floor; the stored floor never moves down. It guards the documents after a forced
+    Apply, not the one that made it: once a document has put the forced dialog on screen, or has
+    a latch under an update reload, a further request there answers true (its floor still
+    latches), including during and after that document's own Apply.
   - A new document also promotes quietly, through `activateWhenQuiet`, a waiting worker of the
     generation it would absorb (P3-10 A extended from a late activation to a late install): the
     generation this tab asked for and already runs is not offered again after the 30 s cooldown.
@@ -1702,8 +1707,9 @@ RO-51 duplicated
     (F4 and F4b, an ordinary prompt or offer mid-await yields; F24, the activated offer
     withdrawn; F21, a worker installed under the dialog without one), user pause/stop (F12, a
     generation put off with Later is forced anyway; F18, a fallback), teardown (F22 and F22b, a
-    navigation holding the page; F8 and F17, an update reload in flight and its recovery) and
-    the loop guard (F5, F5b); `sw-register.test.ts` "the forced update without an update
+    navigation holding the page; F8 and F17, an update reload in flight and its recovery; F8c
+    and F17b, this document's own forced Apply in flight and recovered) and the loop guard (F5,
+    F5b); `sw-register.test.ts` "the forced update without an update
     machine (train 9.0.12)" (F9); `src/core/__tests__/app-build.test.ts` (the build and the
     port); the PRO entry rows of `src/pro-room/__tests__/setup-flow.test.ts`, and in a real
     browser (local, not in CI) `e2e/pro-entry-app-update.test.ts` (a refused PRO invite and claim

@@ -395,6 +395,10 @@ export function registerServiceWorker(): void {
   // the machine, so the latch is this scope's. The machine takes the steps
   // that depend on it over once it registers (`forcedMachine`).
   let forced: ForcedLatch | null = null;
+  // The forced dialog was put on screen in this document. From then on the
+  // loop guard is not consulted here: it concerns the documents after a forced
+  // Apply, not the one that made it.
+  let presentedHere = false;
   let loopGuardLogged = false;
   let stopWaitingForRelease: (() => void) | null = null;
 
@@ -454,7 +458,11 @@ export function registerServiceWorker(): void {
         });
         return false;
       }
-      if (isForcedApplyGuarded(floor)) {
+      // Presented here, or latched under an update reload: answered as
+      // pending (the floor still latches), even at a floor this document's
+      // own Apply recorded.
+      const answered = presentedHere || (forced !== null && forced.presentation !== 'none');
+      if (!answered && isForcedApplyGuarded(floor)) {
         if (!loopGuardLogged) {
           loopGuardLogged = true;
           log.warn('[SW] A forced update already reloaded this build at this floor; not again', {
@@ -508,6 +516,7 @@ export function registerServiceWorker(): void {
       return;
     }
     latch.presentation = 'dialog';
+    presentedHere = true;
     forcedMachine.withdrawLaterDialogs();
     announceForcedPresentation();
     forcedMachine.present(latch);

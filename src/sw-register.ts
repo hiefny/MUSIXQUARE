@@ -30,7 +30,13 @@ import {
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
 } from './sw-update-coordination.ts';
-import { SW_CONTROLLER_CONFIRMED_KEY, SW_UPDATE_KEY } from './core/navigation-contract.ts';
+import {
+  FORCED_UPDATE_APPLY_KEY,
+  SW_CONTROLLER_CONFIRMED_KEY,
+  SW_UPDATE_KEY,
+} from './core/navigation-contract.ts';
+import { APP_BUILD, setForcedAppUpdateHandler } from './core/app-build.ts';
+import { parseAppBuild } from '../cloudflare/app-build-floor-contract.ts';
 
 // Avoid a second update prompt when controller activation and reload overlap.
 const SW_COOLDOWN_MS = 30_000;
@@ -69,6 +75,40 @@ interface ReloadScheduled {
  * the scheduled reload (the only object variant).
  */
 type ActivationState = PromptPhase | ReloadScheduled;
+
+/**
+ * The forced update (train 9.0.12): what a refusal below the App build floor
+ * latched in this document. `floor` is the highest floor learned; the latch
+ * keeps the first room code named and whether any refused session was in a
+ * room. `presentation` is what is on screen: the forced dialog (open or
+ * queued), its update reload in flight, or nothing (not presented yet, a
+ * navigation holds the page, or the dialog fell back to a toast).
+ */
+interface ForcedLatch {
+  floor: number;
+  returnCode: string | null;
+  admitted: boolean;
+  presentation: 'none' | 'dialog' | 'reload';
+}
+
+/**
+ * The forced entry's steps that depend on the machine. Until the machine
+ * registers (no service-worker support, an insecure context, before the
+ * window load event, a failed registration) the early handler's: no reload of
+ * its own to wait for, no update check, no dialogs with Later to withdraw.
+ */
+interface ForcedMachine {
+  /** An update reload is on its way: `reload-scheduled` or `awaiting-local-controller`. */
+  reloadInFlight(): boolean;
+  /** The latched floor rose: check for the update, so Apply can find a waiting worker. */
+  floorRaised(): void;
+  /** Withdraw the machine's own update dialogs that offer Later. */
+  withdrawLaterDialogs(): void;
+  /** Put the forced dialog up, for the waiting worker or without one. */
+  present(latch: ForcedLatch): void;
+  /** Apply of the forced dialog without a worker. */
+  apply(latch: ForcedLatch): void;
+}
 
 /**
  * The update machine's one SKIP_WAITING sink. The callers write the
@@ -180,17 +220,50 @@ function markControllerConfirmed(): void {
 }
 
 /**
+ * The stored forced Apply of this tab ("<build>:<floor>"), or null when it is
+ * absent or malformed.
+ */
+function readForcedApply(): { build: number; floor: number } | null {
+  const parts = /^(\d+):(\d+)$/u.exec(readSessionMarker(FORCED_UPDATE_APPLY_KEY) ?? '');
+  const build = parts ? parseAppBuild(parts[1]) : null;
+  const floor = parts ? parseAppBuild(parts[2]) : null;
+  return build === null || floor === null ? null : { build, floor };
+}
+
+/**
+ * The loop guard: the last forced Apply in this tab left this same build at a
+ * floor not below this one (a misconfigured floor, a cache-fallback load), so
+ * forcing it again could loop. A newer build or a higher floor is let through
+ * once more.
+ */
+function isForcedApplyGuarded(floor: number): boolean {
+  const stored = readForcedApply();
+  return stored !== null && stored.build === APP_BUILD && stored.floor >= floor;
+}
+
+/** Record a forced Apply before it activates or reloads; the stored floor never moves down. */
+function recordForcedApply(floor: number): void {
+  const stored = readForcedApply();
+  const kept = stored?.build === APP_BUILD ? Math.max(floor, stored.floor) : floor;
+  writeSessionMarker(FORCED_UPDATE_APPLY_KEY, `${APP_BUILD}:${kept}`);
+}
+
+/**
  * Ask the navigation owner for the update reload. `onRecovered` runs at most
  * once, if this document stays (the reload never committed, or another
- * navigation held the page).
+ * navigation held the page). `confirmed`: the controller already changed, so
+ * the markers record it. Only a forced Apply without a waiting worker reloads
+ * before any controller change; it recorded its request instead. `returnCode`:
+ * the room a forced update latched, else the room this page is in.
  */
-function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
-  // Every caller reaches this seam only after controllerchange (or after
-  // proving that navigator.serviceWorker.controller already changed).
-  markControllerConfirmed();
+function reloadForServiceWorkerUpdate(
+  onRecovered: () => void,
+  options: { confirmed: boolean; returnCode: string | null },
+): void {
+  if (options.confirmed) markControllerConfirmed();
 
   const message = t('dialog.refreshing_session');
-  returnToRoomStart(updateReturnCode(), {
+  returnToRoomStart(options.returnCode ?? updateReturnCode(), {
     message,
     // setup's join error reads the room after the reload, as for a reconnect.
     reconnect: true,
@@ -299,20 +372,147 @@ function updateDialogMessageKey(): I18nKey {
 /**
  * The update dialog. Its message is re-read whenever the room lifecycle
  * changes: a join can finish while it is open, and 적용하기 then returns to
- * that room's Start screen, so the copy must already say so.
+ * that room's Start screen, so the copy must already say so. The forced
+ * variant (train 9.0.12) has no Later, and history Back keeps it open; a
+ * refusal of an entry that was never admitted gets the apply message, since
+ * no room of its closes.
  */
-function showUpdateDialog(signal?: AbortSignal): Promise<DialogResult> {
+function showUpdateDialog(signal?: AbortSignal, forced?: ForcedLatch): Promise<DialogResult> {
   return showDialog({
     title: t('dialog.sw_update_title'),
-    message: () => t(updateDialogMessageKey()),
+    message: () =>
+      t(forced && !forced.admitted ? 'dialog.sw_update_apply_msg' : updateDialogMessageKey()),
     buttonText: t('dialog.sw_update_apply'),
-    secondaryText: t('common.later'),
+    ...(forced ? { closeOnBack: false } : { secondaryText: t('common.later') }),
     refreshOn: subscribeRoomAuthorityLifecycle,
     ...(signal ? { signal } : {}),
   });
 }
 
 export function registerServiceWorker(): void {
+  // The forced update (train 9.0.12). A refusal below the App build floor
+  // asks here through the port in core/app-build.ts, also on a page without
+  // the machine, so the latch is this scope's. The machine takes the steps
+  // that depend on it over once it registers (`forcedMachine`).
+  let forced: ForcedLatch | null = null;
+  let loopGuardLogged = false;
+  let stopWaitingForRelease: (() => void) | null = null;
+
+  /** A forced Apply: the loop guard's record first, then nothing is offered again until the reload settles. */
+  const beginForcedApply = (latch: ForcedLatch): void => {
+    recordForcedApply(latch.floor);
+    latch.presentation = 'reload';
+  };
+
+  /** The forced dialog without a worker; its Apply is the machine's at the tap. */
+  const showForcedWithoutWorker = (latch: ForcedLatch): void => {
+    showUpdateDialog(undefined, latch).then(
+      (result) => {
+        if (result.action !== 'ok') {
+          // No dialog DOM (its message became a toast): the next request presents again.
+          latch.presentation = 'none';
+          return;
+        }
+        beginForcedApply(latch);
+        forcedMachine.apply(latch);
+      },
+      (error: unknown) => {
+        log.warn('[SW] Forced update dialog failed', error);
+        latch.presentation = 'none';
+      },
+    );
+  };
+
+  /** A forced update reload did not take the page away: offer the forced dialog again. */
+  const afterForcedReloadRecovered = (): void => {
+    if (forced?.presentation !== 'reload') return;
+    forced.presentation = 'none';
+    showForced();
+  };
+
+  let forcedMachine: ForcedMachine = {
+    reloadInFlight: () => false,
+    floorRaised: () => undefined,
+    withdrawLaterDialogs: () => undefined,
+    present: showForcedWithoutWorker,
+    apply: (latch) => {
+      markActivationRequested();
+      reloadForServiceWorkerUpdate(afterForcedReloadRecovered, {
+        confirmed: false,
+        returnCode: latch.returnCode,
+      });
+    },
+  };
+
+  const announceForcedPresentation = setForcedAppUpdateHandler({
+    request: (request) => {
+      const floor = parseAppBuild(request.minAppBuild);
+      if (floor === null || APP_BUILD >= floor) {
+        log.warn('[SW] A refusal named a floor this build meets', {
+          appBuild: APP_BUILD,
+          minAppBuild: request.minAppBuild,
+        });
+        return false;
+      }
+      if (isForcedApplyGuarded(floor)) {
+        if (!loopGuardLogged) {
+          loopGuardLogged = true;
+          log.warn('[SW] A forced update already reloaded this build at this floor; not again', {
+            appBuild: APP_BUILD,
+            minAppBuild: floor,
+          });
+        }
+        return false;
+      }
+      const raised = forced === null || floor > forced.floor;
+      if (forced === null) {
+        forced = {
+          floor,
+          returnCode: request.returnCode,
+          admitted: request.admitted,
+          presentation: 'none',
+        };
+      } else {
+        forced.floor = Math.max(forced.floor, floor);
+        forced.returnCode ??= request.returnCode;
+        forced.admitted ||= request.admitted;
+      }
+      if (raised) forcedMachine.floorRaised();
+      showForced();
+      return true;
+    },
+    isPending: () => forced !== null && forced.presentation !== 'none',
+  });
+
+  /**
+   * Put the forced dialog up, unless it is up, an update reload is on its way,
+   * or a navigation holds the page (P3-8 A: no dialog under the reset screen;
+   * it is presented once if that navigation releases the page here). Taking
+   * the screen withdraws the machine's dialogs with Later and, through the
+   * port's subscribers, the return-time dialogs below it (RO-51).
+   */
+  function showForced(): void {
+    const latch = forced;
+    if (!latch || latch.presentation !== 'none') return;
+    if (forcedMachine.reloadInFlight()) {
+      latch.presentation = 'reload';
+      return;
+    }
+    if (isSessionResetPending()) {
+      stopWaitingForRelease ??= onNavigationPendingChange(() => {
+        if (isSessionResetPending()) return;
+        stopWaitingForRelease?.();
+        stopWaitingForRelease = null;
+        showForced();
+      });
+      return;
+    }
+    latch.presentation = 'dialog';
+    forcedMachine.withdrawLaterDialogs();
+    announceForcedPresentation();
+    forcedMachine.present(latch);
+  }
+
   if (!('serviceWorker' in navigator)) {
     log.info('[SW] Service Worker not supported');
     return;
@@ -371,6 +571,12 @@ export function registerServiceWorker(): void {
      */
     let openPrompt: AbortController | null = null;
     /**
+     * The abort of the open or queued activated-elsewhere offer. Its own slot:
+     * the logo and an absorbed activation withdraw only `openPrompt`; the
+     * forced update withdraws both (train 9.0.12).
+     */
+    let openActivatedOffer: AbortController | null = null;
+    /**
      * Put a controller change's decision off while a navigation holds the
      * page: it runs if that navigation releases the page in this document,
      * and never if it commits (Phase 3 C6-10, owner decision P3-8 A). This tab
@@ -412,34 +618,42 @@ export function registerServiceWorker(): void {
       navigator.serviceWorker.controller?.postMessage({ type: CACHE_STATUS_PROBE });
     };
 
-    const scheduleControllerAlignedReload = () => {
+    /**
+     * The update reload. `confirmed` is false only for a forced Apply without
+     * a waiting worker, which reloads before any controller change.
+     */
+    const scheduleControllerAlignedReload = (confirmed = true) => {
       if (isReloadScheduled()) return;
       const reload = {};
       activationState = { phase: 'reload-scheduled', reload, prompt: null };
-      reloadForServiceWorkerUpdate(() => {
-        // A late recovery from an abandoned predecessor must never release a
-        // successor's reload.
-        if (typeof activationState !== 'object' || activationState.reload !== reload) return;
-        // The same document is still alive, so a failed/no-op/cancelled reset
-        // may accept one later controllerchange. A committed pagehide never
-        // resolves the reset handle and therefore remains first-wins.
-        activationState = activationState.prompt || 'passive';
-        const pendingController = pendingControllerAfterReload;
-        pendingControllerAfterReload = null;
-        if (pendingController && navigator.serviceWorker.controller === pendingController) {
-          // A second controller may arrive while the first reload is still
-          // waiting to commit. If that reload recovers/no-ops, reserve the
-          // successor alignment immediately; an old successor worker may not
-          // answer the generation protocol for another 750 ms.
-          controllerChangesWithReservedAction.add(pendingController);
-          scheduleControllerAlignedReload();
-          controllerChangeQueue = controllerChangeQueue
-            .then(() => handleControllerGeneration(pendingController))
-            .catch((error) => {
-              log.warn('[SW] Pending controller generation handling failed', error);
-            });
-        }
-      });
+      reloadForServiceWorkerUpdate(
+        () => {
+          // A late recovery from an abandoned predecessor must never release a
+          // successor's reload.
+          if (typeof activationState !== 'object' || activationState.reload !== reload) return;
+          // The same document is still alive, so a failed/no-op/cancelled reset
+          // may accept one later controllerchange. A committed pagehide never
+          // resolves the reset handle and therefore remains first-wins.
+          activationState = activationState.prompt || 'passive';
+          const pendingController = pendingControllerAfterReload;
+          pendingControllerAfterReload = null;
+          if (pendingController && navigator.serviceWorker.controller === pendingController) {
+            // A second controller may arrive while the first reload is still
+            // waiting to commit. If that reload recovers/no-ops, reserve the
+            // successor alignment immediately; an old successor worker may not
+            // answer the generation protocol for another 750 ms.
+            controllerChangesWithReservedAction.add(pendingController);
+            scheduleControllerAlignedReload();
+            controllerChangeQueue = controllerChangeQueue
+              .then(() => handleControllerGeneration(pendingController))
+              .catch((error) => {
+                log.warn('[SW] Pending controller generation handling failed', error);
+              });
+          }
+          afterForcedReloadRecovered();
+        },
+        { confirmed, returnCode: forced?.returnCode ?? null },
+      );
     };
 
     /**
@@ -449,6 +663,12 @@ export function registerServiceWorker(): void {
      * the next open loads the new version.
      */
     const offerActivatedUpdate = (promptIdentity: string): void => {
+      // A latched forced update owns the dialog; its Apply reads the changed
+      // controller. It is shown again only if nothing is on screen.
+      if (forced) {
+        showForced();
+        return;
+      }
       if (
         offeredActivatedUpdates.has(promptIdentity) ||
         dismissedPromptIdentities.has(promptIdentity)
@@ -456,12 +676,17 @@ export function registerServiceWorker(): void {
         return;
       }
       offeredActivatedUpdates.add(promptIdentity);
-      showUpdateDialog()
+      const offerAbort = new AbortController();
+      openActivatedOffer = offerAbort;
+      showUpdateDialog(offerAbort.signal)
         .then((result) => {
           if (result.action === 'ok') scheduleControllerAlignedReload();
         })
         .catch((error) => {
           log.warn('[SW] Activated update dialog failed', error);
+        })
+        .finally(() => {
+          if (openActivatedOffer === offerAbort) openActivatedOffer = null;
         });
     };
 
@@ -701,12 +926,24 @@ export function registerServiceWorker(): void {
       // Reconcile the current identity after subscribing so that change is not lost.
       if (navigator.serviceWorker.controller !== pageController) handleControllerChange();
 
+      /**
+       * Offer a waiting worker with the update dialog, or promote it quietly.
+       * `forced` (train 9.0.12) is the forced entry's dialog for this worker:
+       * it goes past the handled-worker and phase checks, the quiet
+       * promotions, Later, the startup wait and the cross-tab prompt lease,
+       * and is not published as `openPrompt` (nothing withdraws it).
+       * `approved`: the forced Apply was already given, to the dialog without
+       * a worker, before this worker installed; no dialog is shown.
+       */
       const handleWaitingWorker = async (
         worker: ServiceWorker,
-        foundAtStartup = false,
+        options: { foundAtStartup?: boolean; forced?: ForcedLatch; approved?: boolean } = {},
       ): Promise<void> => {
-        if (!navigator.serviceWorker.controller || handledWaitingWorker === worker) return;
-        if (promptPhase() !== 'passive') return;
+        const forcedLatch = options.forced;
+        if (!navigator.serviceWorker.controller) return;
+        // From its latch on, the forced update owns the offer of any worker.
+        if (!forcedLatch && (forced || handledWaitingWorker === worker)) return;
+        if (!forcedLatch && promptPhase() !== 'passive') return;
         handledWaitingWorker = worker;
         updateFoundInThisDocument = true;
         const waitingWorkerIsCurrent = () =>
@@ -727,87 +964,127 @@ export function registerServiceWorker(): void {
           if (waitingWorkerIsCurrent()) activateWaitingWorker(worker);
         };
 
-        if (!waitingWorkerIsCurrent()) {
-          continueWithReplacement();
-          return;
-        }
-
-        const lastUpdate = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
-        if (Date.now() - lastUpdate < SW_COOLDOWN_MS) {
-          log.debug('[SW] Update found during cooldown. Silently activating');
-          await activateWhenQuiet();
-          return;
-        }
-
-        const generation = await generationResolver.resolve(worker);
-        if (worker.state === 'activated' || worker.state === 'redundant') return;
-        let activeController = navigator.serviceWorker.controller;
-        let activeGeneration = activeController
-          ? await generationResolver.resolve(activeController)
-          : null;
-        if (navigator.serviceWorker.controller !== activeController) {
-          activeController = navigator.serviceWorker.controller;
-          activeGeneration = activeController
-            ? await generationResolver.resolve(activeController)
-            : null;
-        }
-        if (navigator.serviceWorker.controller !== activeController) return;
-        if (!waitingWorkerIsCurrent()) {
-          continueWithReplacement();
-          return;
-        }
-        const activeCacheVersion =
-          activeGeneration?.cacheVersion ||
-          (activeController === pageController ? pageCacheVersion : null);
-        if (generation.cacheVersion && activeCacheVersion === generation.cacheVersion) {
-          log.warn('[SW] Waiting worker reused the active cache generation; activating silently');
-          await activateWhenQuiet();
-          return;
-        }
-        if (dismissedPromptIdentities.has(generation.promptIdentity)) {
-          log.debug('[SW] Update put off with Later in this page');
-          return;
-        }
-        if (updateLedger.isDismissed(generation)) {
-          log.debug('[SW] Waiting worker prompt cooling down for this generation');
-          return;
-        }
-        // A worker already waiting when this page opened is offered once the
-        // page's own loads settle, so Apply is not held up behind them.
-        if (foundAtStartup) {
-          await waitForQuietPageLoad();
-          if (navigator.serviceWorker.controller !== activeController) return;
+        // The ordinary offer. After each of its waits the forced entry may
+        // have taken over: the offer then returns without touching the phase,
+        // the dismissed sets or the ledger's presentation-failure record.
+        let generation: Awaited<ReturnType<typeof generationResolver.resolve>> | null = null;
+        let promptAbort: AbortController | null = null;
+        if (!forcedLatch) {
           if (!waitingWorkerIsCurrent()) {
             continueWithReplacement();
             return;
           }
-          if (activationState !== 'passive') return;
-        }
-        const promptAbort = new AbortController();
-        if (!(await updateLedger.acquirePrompt(generation, () => promptAbort.abort()))) {
-          log.debug('[SW] Waiting worker prompt owned by another app client');
-          return;
-        }
-        if (!waitingWorkerIsCurrent() || promptPhase() !== 'passive') {
-          updateLedger.releasePrompt(generation);
-          continueWithReplacement();
-          return;
+
+          const lastUpdate = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
+          if (Date.now() - lastUpdate < SW_COOLDOWN_MS) {
+            log.debug('[SW] Update found during cooldown. Silently activating');
+            await activateWhenQuiet();
+            return;
+          }
+
+          const resolved = await generationResolver.resolve(worker);
+          if (forced || worker.state === 'activated' || worker.state === 'redundant') return;
+          if (absorbGeneration !== null && resolved.cacheVersion === absorbGeneration) {
+            // The generation an earlier document of this tab asked for, and
+            // this page already runs, installed late (after the cooldown):
+            // promote it quietly, and its controller change is absorbed
+            // (P3-10 A extended from a late activation to a late install,
+            // forced update train 9.0.12). No dialog, no second reload.
+            log.debug('[SW] The requested generation installed late. Activating quietly');
+            await activateWhenQuiet();
+            return;
+          }
+          let activeController = navigator.serviceWorker.controller;
+          let activeGeneration = activeController
+            ? await generationResolver.resolve(activeController)
+            : null;
+          if (navigator.serviceWorker.controller !== activeController) {
+            activeController = navigator.serviceWorker.controller;
+            activeGeneration = activeController
+              ? await generationResolver.resolve(activeController)
+              : null;
+          }
+          if (forced || navigator.serviceWorker.controller !== activeController) return;
+          if (!waitingWorkerIsCurrent()) {
+            continueWithReplacement();
+            return;
+          }
+          const activeCacheVersion =
+            activeGeneration?.cacheVersion ||
+            (activeController === pageController ? pageCacheVersion : null);
+          if (resolved.cacheVersion && activeCacheVersion === resolved.cacheVersion) {
+            log.warn('[SW] Waiting worker reused the active cache generation; activating silently');
+            await activateWhenQuiet();
+            return;
+          }
+          if (dismissedPromptIdentities.has(resolved.promptIdentity)) {
+            log.debug('[SW] Update put off with Later in this page');
+            return;
+          }
+          if (updateLedger.isDismissed(resolved)) {
+            log.debug('[SW] Waiting worker prompt cooling down for this generation');
+            return;
+          }
+          // A worker already waiting when this page opened is offered once the
+          // page's own loads settle, so Apply is not held up behind them.
+          if (options.foundAtStartup) {
+            await waitForQuietPageLoad();
+            if (forced || navigator.serviceWorker.controller !== activeController) return;
+            if (!waitingWorkerIsCurrent()) {
+              continueWithReplacement();
+              return;
+            }
+            if (activationState !== 'passive') return;
+          }
+          const abort = new AbortController();
+          if (!(await updateLedger.acquirePrompt(resolved, () => abort.abort()))) {
+            log.debug('[SW] Waiting worker prompt owned by another app client');
+            return;
+          }
+          if (forced) {
+            updateLedger.releasePrompt(resolved);
+            return;
+          }
+          if (!waitingWorkerIsCurrent() || promptPhase() !== 'passive') {
+            updateLedger.releasePrompt(resolved);
+            continueWithReplacement();
+            return;
+          }
+          generation = resolved;
+          promptAbort = abort;
         }
 
         setPromptPhase('prompting');
         controllerChangedWhilePrompting = false;
-        openPrompt = promptAbort;
+        if (promptAbort) openPrompt = promptAbort;
         let result: Awaited<ReturnType<typeof showDialog>> | undefined;
-        try {
-          result = await showUpdateDialog(promptAbort.signal);
-        } catch {
-          result = undefined;
+        if (options.approved) {
+          result = { action: 'ok' };
+        } else {
+          try {
+            result = await showUpdateDialog(promptAbort?.signal, forcedLatch);
+          } catch {
+            result = undefined;
+          }
         }
-        updateLedger.releasePrompt(generation);
+        if (generation) updateLedger.releasePrompt(generation);
+        if (forcedLatch) {
+          if (result?.action !== 'ok') {
+            // No dialog DOM (its message became a toast): nothing is on
+            // screen, and the next request presents again.
+            forcedLatch.presentation = 'none';
+            setPromptPhase('passive');
+            return;
+          }
+          if (!options.approved) beginForcedApply(forcedLatch);
+        } else if (forced) {
+          // The forced entry withdrew this prompt and owns the phase now.
+          return;
+        }
         // History Back on the prompt is the same choice as Later.
         const dismissedByUser = result?.action === 'secondary' || result?.action === 'back';
 
-        if (promptAbort.signal.aborted) {
+        if (promptAbort?.signal.aborted) {
           // Losing a best-effort legacy election is not a user dismissal and
           // must not suppress the winning tab's prompt or a newer generation.
           setPromptPhase('passive');
@@ -841,13 +1118,23 @@ export function registerServiceWorker(): void {
               return;
             }
             // Later already answered this generation; a room is not asked twice.
-            if (dismissedByUser) dismissedPromptIdentities.add(generation.promptIdentity);
+            if (dismissedByUser && generation) {
+              dismissedPromptIdentities.add(generation.promptIdentity);
+            }
             handlePassiveControllerChange();
+            return;
+          }
+
+          if (forcedLatch) {
+            // The forced worker went redundant with no successor: Apply as
+            // the forced dialog without a worker does.
+            forcedMachine.apply(forcedLatch);
             return;
           }
 
           if (replacement) {
             const replacementGeneration = await generationResolver.resolve(replacement);
+            if (forced) return;
             if (reg.waiting === replacement && replacement.state === 'installed') {
               handledWaitingWorker = replacement;
               if (dismissedByUser) {
@@ -879,10 +1166,12 @@ export function registerServiceWorker(): void {
 
         setPromptPhase('passive');
         // Later lasts for this page only: the next open asks again.
-        if (dismissedByUser) {
-          dismissedPromptIdentities.add(generation.promptIdentity);
-        } else {
-          updateLedger.rememberPresentationFailure(generation);
+        if (generation) {
+          if (dismissedByUser) {
+            dismissedPromptIdentities.add(generation.promptIdentity);
+          } else {
+            updateLedger.rememberPresentationFailure(generation);
+          }
         }
         log.debug('[SW] Update dialog dismissed. Skipping local activation');
         if (controllerChangedWhilePrompting) {
@@ -907,7 +1196,7 @@ export function registerServiceWorker(): void {
       // updatefound only reports future installations. A worker can already
       // be waiting after a prior "Later" choice or a background-tab update.
       if (reg.waiting && navigator.serviceWorker.controller) {
-        handleWaitingWorker(reg.waiting, true).catch((error) => {
+        handleWaitingWorker(reg.waiting, { foundAtStartup: true }).catch((error) => {
           log.warn('[SW] Existing waiting worker prompt failed', error);
         });
       }
@@ -929,6 +1218,73 @@ export function registerServiceWorker(): void {
         return 'promoted';
       };
 
+      // The machine takes the forced update's steps over (train 9.0.12).
+      // Its update check: when the latched floor rises, so Apply can find a
+      // waiting worker. Not while a worker installs or waits, an update reload
+      // is on its way, or another tab's newer worker already controls this
+      // page (Apply aligns with it). The hourly check lease is neither
+      // claimed nor written.
+      const checkForForcedUpdate = (): void => {
+        if (
+          isReloadScheduled() ||
+          activationState === 'awaiting-local-controller' ||
+          reg.installing ||
+          reg.waiting ||
+          navigator.serviceWorker.controller !== pageController
+        ) {
+          return;
+        }
+        reg.update().catch(() => {
+          /* ignore */
+        });
+      };
+      forcedMachine = {
+        reloadInFlight: () =>
+          isReloadScheduled() || activationState === 'awaiting-local-controller',
+        floorRaised: checkForForcedUpdate,
+        withdrawLaterDialogs: () => {
+          openPrompt?.abort();
+          openActivatedOffer?.abort();
+        },
+        present: (latch) => {
+          const worker = reg.waiting;
+          if (navigator.serviceWorker.controller && worker?.state === 'installed') {
+            handleWaitingWorker(worker, { forced: latch }).catch((error) => {
+              log.warn('[SW] Forced update prompt failed', error);
+            });
+          } else {
+            showForcedWithoutWorker(latch);
+          }
+        },
+        apply: (latch) => {
+          const worker = reg.waiting;
+          if (navigator.serviceWorker.controller && worker?.state === 'installed') {
+            // A worker installed while the dialog without one was up (often
+            // the forced update check's): the Apply branch takes it, so the
+            // next document loads from its precache.
+            handleWaitingWorker(worker, { forced: latch, approved: true }).catch((error) => {
+              log.warn('[SW] Forced update Apply failed', error);
+            });
+            return;
+          }
+          if (isReloadScheduled() || activationState === 'awaiting-local-controller') return;
+          const controller = navigator.serviceWorker.controller;
+          if (controller && controller !== pageController) {
+            // Another tab activated a newer worker, which controls this page.
+            scheduleControllerAlignedReload();
+            return;
+          }
+          // No worker yet: navigation is network-first, so the reload loads
+          // the newest App; this update and the reload's own install the
+          // worker, whose late activation the next document absorbs.
+          markActivationRequested();
+          reg.update().catch(() => {
+            /* ignore */
+          });
+          scheduleControllerAlignedReload(false);
+        },
+      };
+
       // Check for updates periodically (every 60 minutes, the check lease interval).
       setManagedTimer(
         'sw-update-check',
@@ -947,8 +1303,10 @@ export function registerServiceWorker(): void {
         UPDATE_CHECK_INTERVAL_MS,
         { interval: true },
       );
-      // Immediate update check
-      if (
+      // Immediate update check (the forced update's own, if one latched before registration)
+      if (forced) {
+        checkForForcedUpdate();
+      } else if (
         document.visibilityState !== 'hidden' &&
         navigator.onLine !== false &&
         updateLedger.claimUpdateCheck()

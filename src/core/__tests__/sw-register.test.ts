@@ -1932,4 +1932,92 @@ describe('service-worker cache-retirement client handshake', () => {
       expect(navigations(harness)).toEqual(['replace /']);
     });
   });
+  /**
+   * The forced update (RO-22, train 9.0.12) on a page with no update machine:
+   * registerServiceWorker installs the port's handler before its support
+   * checks, so a refusal still shows the forced dialog, and Apply reloads.
+   */
+  describe('the forced update without an update machine (train 9.0.12)', () => {
+    /** The forced variant of the one update dialog: Apply only, Back keeps it. */
+    function forcedUpdateDialog(message: string) {
+      return expect.objectContaining({
+        title: 'dialog.sw_update_title',
+        message: readsAs(message),
+        buttonText: 'dialog.sw_update_apply',
+        closeOnBack: false,
+        refreshOn: expect.any(Function),
+      });
+    }
+
+    function stubSinks(secure: boolean): NavigationSinks {
+      const sinks = stubNavigationSinks();
+      const sinkWindow = globalThis.window;
+      vi.stubGlobal(
+        'window',
+        new Proxy({} as Window, {
+          get(_target, property) {
+            if (property === 'isSecureContext') return secure;
+            return Reflect.get(sinkWindow, property) as unknown;
+          },
+        }),
+      );
+      return sinks;
+    }
+
+    it.each([
+      {
+        name: 'no service worker support',
+        setup: () => {
+          Reflect.deleteProperty(navigator, 'serviceWorker');
+          return { sinks: stubSinks(true), register: null };
+        },
+      },
+      {
+        name: 'an insecure context',
+        setup: () => {
+          const register = vi.fn();
+          Object.defineProperty(navigator, 'serviceWorker', {
+            configurable: true,
+            value: { controller: null, register, addEventListener: vi.fn() },
+          });
+          return { sinks: stubSinks(false), register };
+        },
+      },
+    ])(
+      'F9 $name: the early handler shows the forced dialog, and Apply reloads in place',
+      async ({ setup }) => {
+        const { sinks, register } = setup();
+        vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', 'v785');
+        let answer!: (result: { action: string }) => void;
+        moduleMocks.showDialog.mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              answer = resolve;
+            }),
+        );
+        const { registerServiceWorker } = await import('../../sw-register.ts');
+        owner = await import('../session-reset.ts');
+        loadedOwners.push(owner);
+        const port = await import('../app-build.ts');
+        registerServiceWorker();
+
+        expect(
+          port.requestForcedAppUpdate({ minAppBuild: 786, admitted: false, returnCode: null }),
+        ).toBe(true);
+        expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+        const options = moduleMocks.showDialog.mock.calls[0]![0] as Record<string, unknown>;
+        expect(options).toEqual(forcedUpdateDialog('dialog.sw_update_apply_msg'));
+        expect(options).not.toHaveProperty('secondaryText');
+        expect(options.dismissible).not.toBe(true);
+        expect(port.isForcedAppUpdatePending()).toBe(true);
+
+        answer({ action: 'ok' });
+        await vi.waitFor(() => expect(sinks.calls.map((call) => call.op)).toEqual(['reload']));
+        expect(sessionStorage.getItem('mxqr-forced-apply')).toBe('785:786');
+        expect(sessionStorage.getItem('sw-updated-at')).not.toBeNull();
+        expect(sessionStorage.getItem('sw-controller-confirmed-at')).toBeNull();
+        if (register) expect(register).not.toHaveBeenCalled();
+      },
+    );
+  });
 });

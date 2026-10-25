@@ -1,3 +1,4 @@
+// Resource owner: RO-51 (the return-from-background dialog slot).
 /**
  * The generic warning after a long absence from a room ("앱이 잠시
  * 백그라운드로 넘어갔어요").
@@ -7,6 +8,11 @@
  * device's sound. It therefore replaces the warning: once audio recovery owns
  * a return, the warning is skipped for the rest of it, and a warning that is
  * already on screen or queued is withdrawn (owner decision 2026-10-17).
+ *
+ * The forced update dialog (RO-22, train 9.0.12) is above both: one dialog per
+ * return. While it is open, queued or reloading the page, the warning is not
+ * shown, and when it takes the screen it withdraws a warning on screen or
+ * queued (registry RO-51).
  */
 
 import { t } from '../i18n/index.ts';
@@ -15,6 +21,8 @@ import { showDialog } from './dialog.ts';
 export function createLongBackgroundWarning(deps: {
   /** Whether an audio recovery dialog is open or queued. */
   hasAudioRecoveryPrompt: () => boolean;
+  /** Whether the forced update dialog is open or queued, or its reload is in flight. */
+  isForcedUpdatePending: () => boolean;
 }) {
   let yielded = false;
   let openWarning: AbortController | null = null;
@@ -29,9 +37,13 @@ export function createLongBackgroundWarning(deps: {
       yielded = true;
       openWarning?.abort();
     },
-    /** Show the warning unless this return already belongs to audio recovery. */
+    /** The forced update dialog takes the screen: withdraw the warning. */
+    yieldToForcedUpdate(): void {
+      openWarning?.abort();
+    },
+    /** Show the warning unless this return already belongs to a higher dialog. */
     async warn(): Promise<void> {
-      if (yielded || deps.hasAudioRecoveryPrompt()) return;
+      if (yielded || deps.hasAudioRecoveryPrompt() || deps.isForcedUpdatePending()) return;
       const abort = new AbortController();
       openWarning = abort;
       try {

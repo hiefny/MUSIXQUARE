@@ -1790,3 +1790,128 @@ describe('PRO join failure copy', () => {
     expect(describeProRoomJoinFailure(failure)).toBe('pro.connect_failed');
   });
 });
+
+/**
+ * Forced update (train 9.0.12): a PRO entry refused below the App build floor
+ * (426 APP_UPDATE_REQUIRED from bootstrap, sessions or presence/enter) opens
+ * the forced update dialog through the port, never the claim-failed or
+ * connection error, and keeps a one-time claim for that dialog's reload. The
+ * update machine here is the real one in a jsdom page without service-worker
+ * support, so its early handler presents (src/sw-register.ts).
+ */
+describe('PRO entry below the App build floor', () => {
+  const refusal = () => new ProRoomApiError('APP_UPDATE_REQUIRED', 426, null, null, 786);
+  const isForcedDialog = (options: unknown) =>
+    (options as { title?: unknown; closeOnBack?: unknown }).title === 'dialog.sw_update_title' &&
+    (options as { closeOnBack?: unknown }).closeOnBack === false;
+
+  beforeEach(async () => {
+    // A guest on this room's /CODE start screen, before the room is entered.
+    mocks.getState.mockImplementation((key: string) => {
+      if (key === 'setup.sessionStarted') return false;
+      if (key === 'network.appRole') return 'guest';
+      if (key === 'network.lastJoinCode') return ROOM_CODE;
+      if (key === 'room.context') return { kind: 'standard', roomId: null };
+      if (key === 'demo.active' || key === 'demo.loading') return false;
+      return 'Peer 1';
+    });
+    // Dialogs stay open unless a row answers them.
+    mocks.showDialog.mockImplementation(() => new Promise(() => undefined));
+    // A fresh update machine (and forced latch) for each row.
+    const { registerServiceWorker } = await import('../../sw-register.ts');
+    registerServiceWorker();
+  });
+
+  it('opens the forced dialog for a refused bootstrap and returns to /CODE on Apply', async () => {
+    const sinks = stubNavigationSinks();
+    mocks.bootstrap.mockRejectedValue(refusal());
+    mocks.showDialog.mockImplementationOnce(async () => ({ action: 'ok' }));
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
+
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(isForcedDialog(mocks.showDialog.mock.calls[0]?.[0])).toBe(true);
+    await vi.waitFor(() =>
+      expect(sinks.calls.map((call) => `${call.op} ${call.url}`)).toEqual([`href /${ROOM_CODE}`]),
+    );
+  });
+
+  it.each([
+    {
+      name: 'a cookie resume (presence/enter)',
+      arrange: () => {
+        mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
+        mocks.resume.mockRejectedValue(refusal());
+      },
+    },
+    {
+      name: 'an admission (sessions)',
+      arrange: () => {
+        mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'open' });
+        mocks.resume.mockRejectedValue(new ProRoomApiError('SESSION_REQUIRED', 401));
+        mocks.probeJoin.mockRejectedValue(refusal());
+      },
+    },
+  ])('opens the forced dialog for a refused $name', async ({ arrange }) => {
+    arrange();
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(isForcedDialog(mocks.showDialog.mock.calls[0]?.[0])).toBe(true);
+  });
+
+  it('shows the ordinary connection failure when the loop guard declines (one forced apply per lineage)', async () => {
+    // This page already applied a forced update for this build and floor.
+    sessionStorage.setItem('mxqr-forced-apply', '0:786');
+    mocks.bootstrap.mockRejectedValue(refusal());
+
+    const entering = enterProRoomFromSetup(ROOM_CODE);
+    await expect(entering).rejects.toMatchObject({ code: 'APP_UPDATE_REQUIRED' });
+    const error = await entering.catch((reason: unknown) => reason);
+    expect(describeProRoomJoinFailure(error)).toBe('pro.connect_failed');
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('opens the forced dialog for a refused claim link instead of the claim-failed dialog, and keeps the claim for its reload', async () => {
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: CLAIM,
+      activationClaimPresent: true,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockRejectedValue(refusal());
+    const prepare = vi.fn(() => vi.fn());
+    registerPendingClaimReloadPreparation(prepare);
+    const sinks = stubNavigationSinks();
+    mocks.showDialog.mockImplementationOnce(async () => ({ action: 'ok' }));
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
+
+    expect(mocks.showDialog).toHaveBeenCalledOnce();
+    expect(isForcedDialog(mocks.showDialog.mock.calls[0]?.[0])).toBe(true);
+    // The page is already on /CODE: Apply reloads it in place, and the claim
+    // fence restores the retained claim for that reload.
+    await vi.waitFor(() => expect(sinks.reload).toHaveBeenCalledOnce());
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(sinks.calls.map((call) => call.op)).toEqual(['reload']);
+  });
+
+  it('rethrows a refused claim link when the loop guard declines, without the claim-failed dialog', async () => {
+    sessionStorage.setItem('mxqr-forced-apply', '0:786');
+    mocks.takeClaims.mockReturnValue({
+      activationClaimToken: CLAIM,
+      activationClaimPresent: true,
+      ownerRecoveryClaimToken: null,
+      ownerRecoveryClaimPresent: false,
+      ownerTransferClaimToken: null,
+      ownerTransferClaimPresent: false,
+    });
+    mocks.bootstrap.mockRejectedValue(refusal());
+
+    await expect(enterProRoomFromSetup(ROOM_CODE)).rejects.toMatchObject({
+      code: 'APP_UPDATE_REQUIRED',
+    });
+    expect(mocks.showDialog).not.toHaveBeenCalled();
+  });
+});

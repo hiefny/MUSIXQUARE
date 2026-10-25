@@ -15,12 +15,18 @@ export class ProRoomApiError extends Error {
   readonly status: number;
   readonly retryAfterSeconds: number | null;
   readonly sessionEndReason: ProRoomSessionEndReason | null;
+  /**
+   * The App build floor of an entry refused below it (426
+   * `APP_UPDATE_REQUIRED`, forced update train 9.0.12); null otherwise.
+   */
+  readonly minAppBuild: number | null;
 
   constructor(
     code: string,
     status = 0,
     retryAfterSeconds: number | null = null,
     sessionEndReason: ProRoomSessionEndReason | null = null,
+    minAppBuild: number | null = null,
   ) {
     super(`PRO_ROOM_API_${code}`);
     this.name = 'ProRoomApiError';
@@ -28,5 +34,6 @@ export class ProRoomApiError extends Error {
     this.status = status;
     this.retryAfterSeconds = retryAfterSeconds;
     this.sessionEndReason = sessionEndReason;
+    this.minAppBuild = minAppBuild;
   }
 }

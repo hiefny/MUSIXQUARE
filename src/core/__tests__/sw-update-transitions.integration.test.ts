@@ -63,10 +63,17 @@ interface AppModel {
 
 interface OpenDialog {
   readonly doc: number;
+  readonly title: string;
   readonly message: string;
+  /** Whether it offers Later (a secondary button). */
+  readonly later: boolean;
+  /** `closeOnBack` as asked: false keeps the dialog open on history Back. */
+  readonly closeOnBack: boolean | undefined;
+  readonly dismissible: boolean | undefined;
   /** How it closed: the answer, or 'superseded' when the machine withdrew it. */
   readonly outcome: string | undefined;
-  answer(action: 'ok' | 'secondary'): void;
+  /** 'fallback' is the dialog module's answer when its DOM is missing. */
+  answer(action: 'ok' | 'secondary' | 'fallback'): void;
 }
 
 const mocks = vi.hoisted(() => {
@@ -78,7 +85,11 @@ const mocks = vi.hoisted(() => {
   };
   const dialogs: Array<{
     doc: number;
+    title: string;
     message: string;
+    later: boolean;
+    closeOnBack: boolean | undefined;
+    dismissible: boolean | undefined;
     outcome: string | undefined;
     answer(action: string): void;
   }> = [];
@@ -96,14 +107,22 @@ const mocks = vi.hoisted(() => {
     },
     /** The update dialog: open until answered, or until its signal aborts it. */
     showDialog(options: {
+      title?: string;
       message: string | (() => string);
+      secondaryText?: string;
+      closeOnBack?: boolean;
+      dismissible?: boolean;
       signal?: AbortSignal;
     }): Promise<{ action: string }> {
       return new Promise((resolve) => {
         const message = typeof options.message === 'function' ? options.message() : options.message;
         const entry = {
           doc: page.doc,
+          title: options.title ?? '',
           message,
+          later: options.secondaryText !== undefined,
+          closeOnBack: options.closeOnBack,
+          dismissible: options.dismissible,
           outcome: undefined as string | undefined,
           answer: (action: string): void => finish(action),
         };
@@ -126,8 +145,7 @@ vi.mock('../log.ts', () => ({
 vi.mock('../state.ts', () => ({ getState: (key: string) => mocks.getState(key) }));
 vi.mock('../../i18n/index.ts', () => ({ t: (key: string) => key }));
 vi.mock('../../ui/dialog.ts', () => ({
-  showDialog: (options: { message: string | (() => string); signal?: AbortSignal }) =>
-    mocks.showDialog(options),
+  showDialog: (options: Parameters<typeof mocks.showDialog>[0]) => mocks.showDialog(options),
 }));
 vi.mock('../timers.ts', () => ({ setManagedTimer: vi.fn() }));
 vi.mock('../../rooms/authority.ts', () => ({
@@ -206,6 +224,8 @@ interface PageDocument {
   pagehide(persisted?: boolean): void;
   pageshow(persisted?: boolean): void;
   visible(): void;
+  /** The page goes to the background (visibilitychange to hidden, no pagehide). */
+  hidden(): void;
   /** The window load event of a document opened with `loaded: false`. */
   load(): Promise<void>;
 }
@@ -213,6 +233,8 @@ interface PageDocument {
 interface Tab {
   readonly sinks: NavigationSinks;
   readonly skipWaiting: string[];
+  /** Each registration.update() call, by the document that made it. */
+  readonly updates: string[];
   readonly controller: FakeWorker | null;
   readonly waiting: FakeWorker | null;
   /**
@@ -256,6 +278,7 @@ function createTab(activeVersion: string): Tab {
   const registrationListeners = new Map<number, Map<string, Set<Listener>>>();
   const docSinkStart = new Map<number, number>();
   const skipWaiting: string[] = [];
+  const updates: string[] = [];
   let controller: FakeWorker | null = null;
   let waiting: FakeWorker | null = null;
   let installing: FakeWorker | null = null;
@@ -331,6 +354,7 @@ function createTab(activeVersion: string): Tab {
   const tab: Tab = {
     sinks,
     skipWaiting,
+    updates,
     get controller() {
       return controller;
     },
@@ -361,7 +385,10 @@ function createTab(activeVersion: string): Tab {
         get waiting() {
           return waiting;
         },
-        update: vi.fn(async () => undefined),
+        update: vi.fn(() => {
+          updates.push(`doc${doc}`);
+          return Promise.resolve(undefined);
+        }),
         addEventListener: registrationEvents.add,
       };
       Object.defineProperty(navigator, 'serviceWorker', {
@@ -464,6 +491,9 @@ function createTab(activeVersion: string): Tab {
         },
         visible() {
           setVisibility('visible');
+        },
+        hidden() {
+          setVisibility('hidden');
         },
         async load() {
           Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
@@ -2247,7 +2277,9 @@ describe('update machine transition table on the real navigation owner (C6-9 inc
  * new document, which already runs that generation's code (navigation is
  * network-first, browser/service-worker.ts), absorbs the late activation: no
  * reload, no dialog, no toast (P3-10 A). A document that runs older code (a
- * cache fallback) still reloads.
+ * cache fallback) still reloads. Since forced update Inc 5 (train 9.0.12) the
+ * same document also promotes a still-waiting worker of that generation
+ * quietly after the 30 s cooldown instead of asking again.
  */
 describe('a stalled Apply, then the logo reset (C6-9 input, flipped by C6-10 / P3-10 A)', () => {
   /** Apply in an idle page, a stalled activation, then the logo reset home, which commits. */
@@ -2315,26 +2347,27 @@ describe('a stalled Apply, then the logo reset (C6-9 input, flipped by C6-10 / P
     });
   });
 
-  it('after the cooldown, the new document asks about the waiting update as usual; the late activation then withdraws that dialog and needs no reload [flipped: C6-10, owner decision P3-10 A]', async () => {
+  it('after the cooldown, the new document promotes the waiting worker of the generation it runs once its loads are quiet, without asking again; the activation is absorbed with no reload [flipped: C6-10, owner decision P3-10 A] [flipped: forced update Inc 5, P3-10 A extended to a late install]', async () => {
     const stalled = await stallApplyThenLogoHome();
     await at(40_000);
     await stalled.open({ app: OUTSIDE, navigation: 'navigate', build: 'v494' });
-    // The startup prompt waits for the page's loads to go quiet (1 s).
+    // The quiet promotion waits for the page's loads to go quiet (1 s).
     await at(40_000 + 1_000 + PROMPT_MS);
-    expect(mocks.dialogs).toHaveLength(2);
+    expect(mocks.dialogs).toHaveLength(1);
+    expect(stalled.skipWaiting).toEqual(['doc1 → v494', 'doc2 → v494']);
     stalled.activate();
     await at(42_000);
-    expect(dialog(1).outcome).toBe('superseded');
     expect(stalled.requestCacheStatus()).toMatchObject({ cacheVersion: 'v494', ready: true });
-    dialog(1).answer('ok');
     await at(42_000 + PAINT_MS);
 
     // Until C6-10 the activation waited for the dialog, and its Apply then
     // reloaded the new document (navigations doc1 replace /, doc2 reload).
+    // From C6-10 until forced update Inc 5 the new document asked again (a
+    // second update dialog) and the late activation withdrew it.
     expect(observe(stalled)).toEqual({
-      skipWaiting: ['doc1 → v494'],
+      skipWaiting: ['doc1 → v494', 'doc2 → v494'],
       navigations: ['doc1 replace /'],
-      dialogs: [`doc1 ${MSG_APPLY}`, `doc2 ${MSG_APPLY}`],
+      dialogs: [`doc1 ${MSG_APPLY}`],
       markers: {
         ...NO_MARKERS,
         'sw-updated-at': 't+41100',
@@ -2383,6 +2416,816 @@ describe('a document already on the new code, with no request of its own (P3-10 
       navigations: [],
       dialogs: [`doc1 ${MSG_GUEST}`],
       markers: NO_MARKERS,
+    });
+  });
+});
+
+// ─── Forced update (train 9.0.12, Inc 5) ─────────────────────────────
+
+/**
+ * The forced update (RO-22 forced entry; RO-51 return-time precedence). A
+ * refusal below the App build floor reaches the machine through the port in
+ * src/core/app-build.ts; the page builds here are v785 and the floor 786, so
+ * the page is below it. Every row takes the hourly update-check lease first
+ * (another tab checked a moment ago), so each `reg.update()` it counts is the
+ * forced entry's own.
+ */
+describe('forced update on the real navigation owner (train 9.0.12)', () => {
+  const FORCED_APPLY_KEY = 'mxqr-forced-apply';
+  const PAGE_BUILD = 'v785';
+  const CREATING_HOST: AppModel = {
+    role: 'host',
+    sessionStarted: false,
+    roomId: null,
+    joinCode: '',
+  };
+
+  /** The forced-update port of the live document (the module graph `open` loaded). */
+  const livePort = (): Promise<typeof import('../app-build.ts')> => import('../app-build.ts');
+
+  const forcedRequest = (
+    overrides: { minAppBuild?: unknown; admitted?: boolean; returnCode?: string | null } = {},
+  ) => ({ minAppBuild: 786, admitted: false, returnCode: null, ...overrides });
+
+  /** Every dialog asked for: its document, kind, message and how it closed. */
+  function dialogLog(): string[] {
+    return mocks.dialogs.map((entry) => {
+      const kind =
+        entry.title !== 'dialog.sw_update_title' ? entry.title : entry.later ? 'later' : 'forced';
+      const closed = entry.outcome === undefined ? '' : ` -> ${entry.outcome}`;
+      return `doc${entry.doc} ${kind} ${entry.message}${closed}`;
+    });
+  }
+
+  /** The dialog on screen: dialog.ts shows one at a time, in order, skipping withdrawn ones. */
+  function onScreen(): string | null {
+    const log = dialogLog();
+    const index = mocks.dialogs.findIndex((entry) => entry.outcome === undefined);
+    return index === -1 ? null : (log[index] ?? null);
+  }
+
+  beforeEach(() => {
+    localStorage.setItem(
+      'mxqr-sw-update-check-lease-v1',
+      JSON.stringify({
+        owner: 'client:another-tab',
+        updatedAt: Date.now(),
+        expiresAt: Date.now() + 3_600_000,
+      }),
+    );
+  });
+
+  it('F1 a worker is waiting: the forced dialog has no Later, Back and Escape keep it; Apply sends one SKIP_WAITING through the sink, then the aligned reload', async () => {
+    tab = createTab(PAGE_BUILD);
+    tab.install('v786');
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    expect(port.isForcedAppUpdatePending()).toBe(false);
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(port.isForcedAppUpdatePending()).toBe(true);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    expect(dialog(0)).toMatchObject({ later: false, closeOnBack: false });
+    expect(dialog(0).dismissible).not.toBe(true);
+    // The startup offer of that worker waited for quiet loads; it yields.
+    await at(2_000);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+
+    dialog(0).answer('ok');
+    await at(2_100);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+    expect(sessionStorage.getItem(FORCED_APPLY_KEY)).toBe('785:786');
+    tab.activate();
+    await at(2_100 + PAINT_MS);
+    expect(observe(tab)).toEqual({
+      skipWaiting: ['doc1 → v786'],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_APPLY}`],
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+2100', 'sw-controller-confirmed-at': 't+2100' },
+    });
+    expect(tab.updates).toEqual([]);
+  });
+
+  it('F2 no worker is waiting: reg.update once at the latch; Apply asks for the activation, updates once more and reloads unconfirmed; the next document absorbs its generation', async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(tab.updates).toEqual(['doc1']);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    await at(1_000);
+    dialog(0).answer('ok');
+    await at(1_000 + PAINT_MS);
+    expect(tab.updates).toEqual(['doc1', 'doc1']);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+    expect(readMarkers()).toEqual({ ...NO_MARKERS, 'sw-updated-at': 't+1000' });
+    expect(sessionStorage.getItem(FORCED_APPLY_KEY)).toBe('785:786');
+
+    // The reload's own update check installed the new worker, and the reload
+    // loaded the newest code (navigation is network-first).
+    tab.install('v786');
+    page.pagehide();
+    await tab.open({ app: OUTSIDE, navigation: 'reload', build: 'v786' });
+    await at(3_000);
+    tab.activate();
+    await at(3_000 + PAINT_MS);
+    expect(observe(tab)).toEqual({
+      skipWaiting: ['doc2 → v786'],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_APPLY}`],
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+3000', 'sw-controller-confirmed-at': 't+3000' },
+    });
+  });
+
+  it('F2b the new worker installs 40 s after that reload: the document that asked for it promotes it quietly and absorbs it, with no dialog and no second reload', async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest());
+    await at(1_000);
+    dialog(0).answer('ok');
+    await at(1_000 + PAINT_MS);
+    page.pagehide();
+    await tab.open({ app: OUTSIDE, navigation: 'reload', build: 'v786' });
+
+    await at(41_100);
+    tab.install('v786');
+    await at(41_100 + 1_000 + PROMPT_MS);
+    expect(tab.skipWaiting).toEqual(['doc2 → v786']);
+    tab.activate();
+    await at(43_000);
+    expect(observe(tab)).toEqual({
+      skipWaiting: ['doc2 → v786'],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_APPLY}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+42200',
+        'sw-controller-confirmed-at': 't+42200',
+      },
+    });
+  });
+
+  it('F2c a document already on the new code with no request of its own still asks about a late install (P3-10 A scope unchanged)', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: 'v786' });
+    await at(40_000);
+    tab.install('v786');
+    await at(40_000 + PROMPT_MS);
+    expect(dialogLog()).toEqual([`doc1 later ${MSG_APPLY}`]);
+    expect(tab.skipWaiting).toEqual([]);
+  });
+
+  it('F4 the ordinary prompt is open: the forced request withdraws it and offers the same worker without Later', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    tab.install('v786');
+    await at(PROMPT_MS);
+    expect(dialogLog()).toEqual([`doc1 later ${MSG_APPLY}`]);
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(dialogLog()).toEqual([
+      `doc1 later ${MSG_APPLY} -> superseded`,
+      `doc1 forced ${MSG_APPLY}`,
+    ]);
+    expect(onScreen()).toBe(`doc1 forced ${MSG_APPLY}`);
+    await at(2 * PROMPT_MS);
+    expect(mocks.dialogs).toHaveLength(2);
+    expect(tab.updates).toEqual([]);
+    dialog(1).answer('ok');
+    await at(3 * PROMPT_MS);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+    tab.activate();
+    await at(3 * PROMPT_MS + PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+  });
+
+  it('F4b an ordinary offer still resolving the worker generation returns silently: one forced dialog, whose Apply still activates', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    // A worker that never answers the generation request: 750 ms to resolve.
+    tab.install('v786', { silent: true });
+    await at(100);
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    await at(2_000);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    dialog(0).answer('ok');
+    await at(2_100);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+  });
+
+  it('F4b an ordinary offer still electing the prompt lease releases it and returns silently', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    tab.install('v786');
+    // Without Web Locks the election settles for 50 ms after writing the lease.
+    await at(10);
+    expect(localStorage.getItem('mxqr-sw-update-prompt-lease-v1')).not.toBeNull();
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    await at(2 * PROMPT_MS);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    expect(localStorage.getItem('mxqr-sw-update-prompt-lease-v1')).toBeNull();
+    dialog(0).answer('ok');
+    await at(3 * PROMPT_MS);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+  });
+
+  it('F5 the lineage key of this build and floor: false and no dialog, so the caller shows its own error', async () => {
+    sessionStorage.setItem(FORCED_APPLY_KEY, '785:786');
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(false);
+    expect(port.isForcedAppUpdatePending()).toBe(false);
+    await at(1_000);
+    expect(mocks.dialogs).toHaveLength(0);
+    expect(tab.updates).toEqual([]);
+  });
+
+  it('F5b the same build with a stored floor not lower is guarded; a higher floor presents once and the key never moves down', async () => {
+    sessionStorage.setItem(FORCED_APPLY_KEY, '785:787');
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+
+    expect(port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 786 }))).toBe(false);
+    expect(port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 787 }))).toBe(false);
+    expect(mocks.dialogs).toHaveLength(0);
+    expect(port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 788 }))).toBe(true);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(sessionStorage.getItem(FORCED_APPLY_KEY)).toBe('785:788');
+  });
+
+  it('F5b a key of an older build does not guard this one, and an Apply keeps a higher stored floor', async () => {
+    sessionStorage.setItem(FORCED_APPLY_KEY, '784:787');
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+
+    expect(port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 786 }))).toBe(true);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    // A higher floor stored for this build while the dialog was up.
+    sessionStorage.setItem(FORCED_APPLY_KEY, '785:787');
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(sessionStorage.getItem(FORCED_APPLY_KEY)).toBe('785:787');
+  });
+
+  it.each(['785:abc', '0785:786', '785', 'x', '785:786:1', ' 785:786', '785:-1'])(
+    'F5b a malformed stored key %j counts as absent',
+    async (stored) => {
+      sessionStorage.setItem(FORCED_APPLY_KEY, stored);
+      tab = createTab(PAGE_BUILD);
+      await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+      const port = await livePort();
+      expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+      expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    },
+  );
+
+  it('F6 a floor this build meets, or a malformed one: false and nothing shown', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    for (const minAppBuild of [785, 700, 0, -1, 786.5, null, undefined, 'abc', {}]) {
+      expect(port.requestForcedAppUpdate(forcedRequest({ minAppBuild })), String(minAppBuild)).toBe(
+        false,
+      );
+    }
+    expect(port.isForcedAppUpdatePending()).toBe(false);
+    await at(1_000);
+    expect(mocks.dialogs).toHaveLength(0);
+    expect(tab.updates).toEqual([]);
+  });
+
+  it('F7 a second request while the forced dialog is open: true and no second dialog', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(port.requestForcedAppUpdate(forcedRequest({ admitted: true }))).toBe(true);
+    await at(1_000);
+    expect(mocks.dialogs).toHaveLength(1);
+  });
+
+  it('F8 an update reload already scheduled: the request latches, shows nothing and reports pending', async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await scheduleOutsideReload(tab);
+    const port = await livePort();
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(port.isForcedAppUpdatePending()).toBe(true);
+    page.pagehide();
+    await at(8_000);
+    expect(mocks.dialogs).toHaveLength(0);
+    expect(tab.updates).toEqual([]);
+  });
+
+  it('F8 an Apply waiting for its activation: the request latches and shows nothing; the activation reloads', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    tab.install('v786');
+    await at(PROMPT_MS);
+    dialog(0).answer('ok');
+    await at(1_000);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(port.isForcedAppUpdatePending()).toBe(true);
+    await at(2_000);
+    expect(mocks.dialogs).toHaveLength(1);
+    tab.activate();
+    await at(2_000 + PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+    expect(tab.updates).toEqual([]);
+  });
+
+  it('F10 another tab holds the prompt lease: the forced dialog still shows here', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    foreignPromptLease('v786');
+    tab.install('v786');
+    await at(1_000);
+    expect(mocks.dialogs).toHaveLength(0);
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    dialog(0).answer('ok');
+    await at(1_100);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+  });
+
+  it('F11 another tab activates the worker while the forced dialog is open: Apply makes the aligned reload and sends no SKIP_WAITING', async () => {
+    tab = createTab(PAGE_BUILD);
+    tab.install('v786');
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest());
+    await at(500);
+    tab.activate();
+    await at(1_000);
+    expect(tab.navigations()).toEqual([]);
+    dialog(0).answer('ok');
+    await at(1_000 + PAINT_MS);
+    expect(observe(tab)).toEqual({
+      skipWaiting: [],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_APPLY}`],
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+1000', 'sw-controller-confirmed-at': 't+1000' },
+    });
+  });
+
+  it('F12 a generation put off with Later earlier: the forced dialog offers it anyway', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    tab.install('v786');
+    await at(PROMPT_MS);
+    dialog(0).answer('secondary');
+    await at(1_000);
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(dialogLog()).toEqual([
+      `doc1 later ${MSG_APPLY} -> secondary`,
+      `doc1 forced ${MSG_APPLY}`,
+    ]);
+    dialog(1).answer('ok');
+    await at(1_100);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+  });
+
+  it("F13 a Standard host with an open room: the room host's message, and Apply reloads in place", async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: ROOM_HOST, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest({ admitted: true }));
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_HOST}`]);
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+    expect(readMarkers()).toEqual({ ...NO_MARKERS, 'sw-updated-at': 't+0' });
+  });
+
+  it('F14 a host refused while creating its room (never admitted): the apply message, not the room-closes one', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: CREATING_HOST, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest({ admitted: false }));
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+  });
+
+  it("F15 a guest refused on a code typed on the home screen: Apply returns to that room's /CODE start screen", async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest({ returnCode: ROOM_CODE }));
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(tab.navigations()).toEqual([`doc1 href /${ROOM_CODE}`]);
+    expect(readMarkers()).toEqual({
+      ...NO_MARKERS,
+      'sw-updated-at': 't+0',
+      mxqr_reconnect_target: ROOM_CODE,
+    });
+  });
+
+  it('F16 a page without a controller (after a hard reload): the dialog without a worker; Apply updates and reloads', async () => {
+    tab = createTab(PAGE_BUILD);
+    tab.dropController();
+    tab.install('v786');
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    expect(tab.updates).toEqual([]);
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(tab.updates).toEqual(['doc1']);
+    expect(tab.skipWaiting).toEqual([]);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+  });
+
+  it('F17 the update reload recovers (it never committed): the forced dialog is presented again, and a tap is still needed', async () => {
+    tab = createTab(PAGE_BUILD);
+    await scheduleOutsideReload(tab);
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest());
+    expect(mocks.dialogs).toHaveLength(0);
+
+    await at(PAINT_MS + COMMIT_DEADLINE_MS + PAINT_MS);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    expect(port.isForcedAppUpdatePending()).toBe(true);
+    await at(8_000);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+    // Another tab's worker already controls this page: Apply aligns with it.
+    dialog(0).answer('ok');
+    await at(8_000 + PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 reload', 'doc1 reload']);
+    expect(tab.skipWaiting).toEqual([]);
+  });
+
+  it('F18 the dialog module has no DOM (fallback): nothing is pending, and the next request presents again', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest());
+    dialog(0).answer('fallback');
+    await at(PROMPT_MS);
+    expect(port.isForcedAppUpdatePending()).toBe(false);
+    expect(tab.navigations()).toEqual([]);
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(dialogLog()).toEqual([
+      `doc1 forced ${MSG_APPLY} -> fallback`,
+      `doc1 forced ${MSG_APPLY}`,
+    ]);
+    // The same floor: no second update check.
+    expect(tab.updates).toEqual(['doc1']);
+    dialog(1).answer('ok');
+    await at(PROMPT_MS + PAINT_MS);
+    expect(port.isForcedAppUpdatePending()).toBe(true);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+  });
+
+  it('F19 a refusal before the window load event: the early handler shows the forced dialog; the machine keeps its latch, queues no ordinary prompt, and Apply takes the waiting worker', async () => {
+    tab = createTab(PAGE_BUILD);
+    tab.install('v786');
+    const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD, loaded: false });
+    const port = await livePort();
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    expect(tab.updates).toEqual([]);
+    await page.load();
+    await at(3_000);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    // A worker is waiting, so the takeover needs no update check.
+    expect(tab.updates).toEqual([]);
+
+    dialog(0).answer('ok');
+    await at(3_100);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+    tab.activate();
+    await at(3_100 + PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+  });
+
+  it('F20 reg.update runs once when the latched floor rises: the same floor again asks nothing, a higher floor once more', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 786 }));
+    expect(tab.updates).toEqual(['doc1']);
+    port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 786 }));
+    port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 785 }));
+    expect(tab.updates).toEqual(['doc1']);
+    port.requestForcedAppUpdate(forcedRequest({ minAppBuild: 787 }));
+    expect(tab.updates).toEqual(['doc1', 'doc1']);
+    expect(mocks.dialogs).toHaveLength(1);
+    dialog(0).answer('ok');
+    await at(PAINT_MS);
+    expect(sessionStorage.getItem(FORCED_APPLY_KEY)).toBe('785:787');
+  });
+
+  it('F21 a worker installs while the dialog without a worker is open: Apply hands it to the Apply branch (one SKIP_WAITING), then the aligned reload; one dialog was ever shown', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest());
+    expect(tab.updates).toEqual(['doc1']);
+    await at(1_000);
+    // The update check's result: a worker installs and waits.
+    tab.install('v786');
+    await at(3_000);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+
+    dialog(0).answer('ok');
+    await at(3_100);
+    expect(tab.skipWaiting).toEqual(['doc1 → v786']);
+    tab.activate();
+    await at(3_100 + PAINT_MS);
+    expect(observe(tab)).toEqual({
+      skipWaiting: ['doc1 → v786'],
+      navigations: ['doc1 reload'],
+      dialogs: [`doc1 ${MSG_APPLY}`],
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+3100', 'sw-controller-confirmed-at': 't+3100' },
+    });
+    expect(tab.updates).toEqual(['doc1']);
+  });
+
+  it('F21b the same without an install: the Apply without a worker', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest());
+    await at(3_000);
+    dialog(0).answer('ok');
+    await at(3_000 + PAINT_MS);
+    expect(tab.skipWaiting).toEqual([]);
+    expect(tab.updates).toEqual(['doc1', 'doc1']);
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+  });
+
+  it('F22 a request while the logo reset holds the page: nothing is shown and the request is answered; the navigation commits, still nothing', async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    await at(1_000);
+    page.logoReset();
+    expect(page.owner.isSessionResetPending()).toBe(true);
+
+    expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+    expect(port.isForcedAppUpdatePending()).toBe(false);
+    await at(1_000 + PAINT_MS);
+    expect(tab.navigations()).toEqual(['doc1 replace /']);
+    page.pagehide();
+    await at(8_000);
+    expect(mocks.dialogs).toHaveLength(0);
+  });
+
+  it('F22b the navigation releases the page in this document: the forced dialog once', async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+    const port = await livePort();
+    await at(1_000);
+    page.logoReset();
+    port.requestForcedAppUpdate(forcedRequest());
+    await at(1_000 + PAINT_MS);
+    expect(mocks.dialogs).toHaveLength(0);
+
+    await at(1_000 + PAINT_MS + COMMIT_DEADLINE_MS + PAINT_MS);
+    expect(page.owner.isSessionResetPending()).toBe(false);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+    expect(port.isForcedAppUpdatePending()).toBe(true);
+    await at(8_000);
+    expect(mocks.dialogs).toHaveLength(1);
+  });
+
+  it('F23 the early handler latched and the machine takes over with nothing waiting: reg.update once', async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD, loaded: false });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest());
+    expect(tab.updates).toEqual([]);
+    await page.load();
+    expect(tab.updates).toEqual(['doc1']);
+    await at(3_000);
+    expect(tab.updates).toEqual(['doc1']);
+    expect(mocks.dialogs).toHaveLength(1);
+  });
+
+  it('F24 a guest in a room was offered the update another tab applied: a forced request withdraws that offer; Apply makes one aligned reload to /CODE with no SKIP_WAITING and no update check', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+    const port = await livePort();
+    tab.replaceController('v786');
+    await at(PROMPT_MS);
+    expect(dialogLog()).toEqual([`doc1 later ${MSG_GUEST}`]);
+
+    expect(port.requestForcedAppUpdate(forcedRequest({ admitted: true }))).toBe(true);
+    expect(dialogLog()).toEqual([
+      `doc1 later ${MSG_GUEST} -> superseded`,
+      `doc1 forced ${MSG_GUEST}`,
+    ]);
+    expect(onScreen()).toBe(`doc1 forced ${MSG_GUEST}`);
+    await at(2 * PROMPT_MS);
+    dialog(1).answer('ok');
+    await at(2 * PROMPT_MS + PAINT_MS);
+    expect(observe(tab)).toEqual({
+      skipWaiting: [],
+      navigations: [`doc1 href /${ROOM_CODE}`],
+      dialogs: [`doc1 ${MSG_GUEST}`, `doc1 ${MSG_GUEST}`],
+      markers: {
+        ...NO_MARKERS,
+        'sw-updated-at': 't+200',
+        'sw-controller-confirmed-at': 't+200',
+        mxqr_reconnect_target: ROOM_CODE,
+      },
+    });
+    expect(tab.updates).toEqual([]);
+  });
+
+  it('F24b the forced dialog without a worker is open in a room when another tab activates: no second dialog; Apply makes the aligned reload', async () => {
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+    const port = await livePort();
+    port.requestForcedAppUpdate(forcedRequest({ admitted: true }));
+    expect(tab.updates).toEqual(['doc1']);
+    tab.replaceController('v786');
+    await at(1_000);
+    expect(dialogLog()).toEqual([`doc1 forced ${MSG_GUEST}`]);
+
+    dialog(0).answer('ok');
+    await at(1_000 + PAINT_MS);
+    expect(tab.navigations()).toEqual([`doc1 href /${ROOM_CODE}`]);
+    expect(tab.skipWaiting).toEqual([]);
+    expect(tab.updates).toEqual(['doc1']);
+    expect(readMarkers()['sw-controller-confirmed-at']).toBe('t+1000');
+  });
+
+  it("F24c the logo's promotion still withdraws only the prompt, not an open activated offer", async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+    tab.replaceController('v786');
+    await at(PROMPT_MS);
+    tab.install('v787');
+    await at(1_000);
+    expect(dialogLog()).toEqual([`doc1 later ${MSG_GUEST}`, `doc1 later ${MSG_GUEST}`]);
+    page.logoReset();
+    await at(1_100);
+    expect(dialogLog()).toEqual([
+      `doc1 later ${MSG_GUEST}`,
+      `doc1 later ${MSG_GUEST} -> superseded`,
+    ]);
+  });
+
+  it('F24c the P3-10 absorb still withdraws only the prompt, not an open activated offer', async () => {
+    sessionStorage.setItem('sw-updated-at', String(T0 - 1_000));
+    tab = createTab(PAGE_BUILD);
+    await tab.open({ app: ROOM_GUEST, build: 'v786' });
+    tab.replaceController('v787');
+    await at(PROMPT_MS);
+    expect(dialogLog()).toEqual([`doc1 later ${MSG_GUEST}`]);
+    tab.replaceController('v786');
+    await at(2 * PROMPT_MS);
+    expect(readMarkers()['sw-controller-confirmed-at']).toBe('t+100');
+    expect(dialogLog()).toEqual([`doc1 later ${MSG_GUEST}`]);
+  });
+
+  describe('return-time dialogs (RO-51) on the real background resume guard and warning', () => {
+    /** Wired as src/app.ts wires them (the warning, its yield, the guard). */
+    async function wireReturnDialogs(port: typeof import('../app-build.ts')) {
+      const { initBackgroundResumeGuard } = await import('../background-resume-guard.ts');
+      const { createLongBackgroundWarning } = await import('../../ui/long-background-warning.ts');
+      const warning = createLongBackgroundWarning({
+        hasAudioRecoveryPrompt: () => false,
+        isForcedUpdatePending: port.isForcedAppUpdatePending,
+      });
+      port.subscribeForcedAppUpdatePresentation(() => warning.yieldToForcedUpdate());
+      const recoveries: number[] = [];
+      let finishRecovery: (() => void) | null = null;
+      const guard = initBackgroundResumeGuard({
+        recover: () => {
+          warning.beginIncident();
+          recoveries.push(Date.now() - T0);
+          return new Promise<void>((resolve) => {
+            finishRecovery = resolve;
+          });
+        },
+        warn: () => warning.warn(),
+        shouldHandle: () => mocks.app.sessionStarted && mocks.app.role !== 'idle',
+      });
+      return { guard, recoveries, finishRecovery: () => finishRecovery?.() };
+    }
+
+    const WARNING = 'dialog.background_resume_title dialog.background_resume_message';
+
+    /** The page is hidden from `from` until `to` (fake time after the row's start). */
+    async function background(page: PageDocument, from: number, to: number): Promise<void> {
+      await at(from);
+      page.hidden();
+      await at(to);
+      page.visible();
+      await at(to + 10);
+    }
+
+    it('F25 a room return of 61 s shows the warning; a forced request withdraws it, the forced dialog is on screen and the guard is free for the next return', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+      const port = await livePort();
+      const returns = await wireReturnDialogs(port);
+
+      await background(page, 0, 61_000);
+      expect(returns.recoveries).toEqual([61_000]);
+      returns.finishRecovery();
+      await at(61_100);
+      expect(onScreen()).toBe(`doc1 ${WARNING}`);
+
+      expect(port.requestForcedAppUpdate(forcedRequest({ admitted: true }))).toBe(true);
+      expect(dialogLog()).toEqual([`doc1 ${WARNING} -> superseded`, `doc1 forced ${MSG_GUEST}`]);
+      expect(onScreen()).toBe(`doc1 forced ${MSG_GUEST}`);
+
+      // The guard's flight ended with the withdrawn warning: the next return
+      // recovers again, and its warning stays away (F26).
+      await background(page, 70_000, 131_000);
+      expect(returns.recoveries).toEqual([61_000, 131_000]);
+      returns.finishRecovery();
+      await at(131_100);
+      expect(mocks.dialogs).toHaveLength(2);
+      returns.guard.dispose();
+    });
+
+    it('F26 the forced dialog is pending: a 61 s return recovers, and its warning is never asked for', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+      const port = await livePort();
+      const returns = await wireReturnDialogs(port);
+      port.requestForcedAppUpdate(forcedRequest({ admitted: true }));
+
+      await background(page, 0, 61_000);
+      expect(returns.recoveries).toEqual([61_000]);
+      returns.finishRecovery();
+      await at(61_100);
+      expect(dialogLog()).toEqual([`doc1 forced ${MSG_GUEST}`]);
+      returns.guard.dispose();
+    });
+
+    it('F27 a forced request held by the logo reset withdraws nothing until it presents; then the warning goes', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+      const port = await livePort();
+      const returns = await wireReturnDialogs(port);
+      const presented = vi.fn();
+      port.subscribeForcedAppUpdatePresentation(presented);
+      await background(page, 0, 61_000);
+      returns.finishRecovery();
+      await at(61_100);
+      expect(onScreen()).toBe(`doc1 ${WARNING}`);
+
+      page.logoReset();
+      expect(port.requestForcedAppUpdate(forcedRequest({ admitted: true }))).toBe(true);
+      await at(61_100 + PAINT_MS);
+      expect(presented).not.toHaveBeenCalled();
+      expect(onScreen()).toBe(`doc1 ${WARNING}`);
+
+      await at(61_100 + PAINT_MS + COMMIT_DEADLINE_MS + PAINT_MS);
+      expect(presented).toHaveBeenCalledOnce();
+      expect(dialogLog()).toEqual([`doc1 ${WARNING} -> superseded`, `doc1 forced ${MSG_GUEST}`]);
+      expect(onScreen()).toBe(`doc1 forced ${MSG_GUEST}`);
+      returns.guard.dispose();
+    });
+
+    it('F27 no presentation is announced for a loop-guard refusal or while an update reload is in flight', async () => {
+      sessionStorage.setItem(FORCED_APPLY_KEY, '785:786');
+      tab = createTab(PAGE_BUILD);
+      await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+      let port = await livePort();
+      let presented = vi.fn();
+      port.subscribeForcedAppUpdatePresentation(presented);
+      expect(port.requestForcedAppUpdate(forcedRequest())).toBe(false);
+      expect(presented).not.toHaveBeenCalled();
+
+      sessionStorage.removeItem(FORCED_APPLY_KEY);
+      await scheduleOutsideReload(tab);
+      port = await livePort();
+      presented = vi.fn();
+      port.subscribeForcedAppUpdatePresentation(presented);
+      expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
+      expect(presented).not.toHaveBeenCalled();
     });
   });
 });

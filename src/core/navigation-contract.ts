@@ -63,6 +63,14 @@ export const SW_CONTROLLER_CONFIRMED_KEY = 'sw-controller-confirmed-at';
 export const UPDATE_COMPLETION_KEY = 'mxqr-swu';
 
 /**
+ * The forced update's loop guard (RO-22, train 9.0.12): "<build>:<floor>",
+ * written by a forced Apply before it activates or reloads. A next document
+ * of the same build, refused at a floor not above the stored one, does not
+ * force the update again (a misconfigured floor, a cache-fallback load).
+ */
+export const FORCED_UPDATE_APPLY_KEY = 'mxqr-forced-apply';
+
+/**
  * A Standard-room guest's last logical-connection close, "<cause> <epoch ms>",
  * kept across its disconnect reload; the next document in the tab that logs
  * info lines logs it once for `/debug console` (network/last-link-close.ts,

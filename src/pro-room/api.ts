@@ -54,6 +54,12 @@ import {
 } from '../core/request-lifetime.ts';
 import { isSafeVisibleDisplayName } from '../../cloudflare/display-name-policy.ts';
 import {
+  APP_BUILD_HEADER,
+  APP_UPDATE_REQUIRED_CODE,
+  parseAppBuild,
+} from '../../cloudflare/app-build-floor-contract.ts';
+import { APP_BUILD } from '../core/app-build.ts';
+import {
   isLoopbackBrowserHref,
   isLoopbackHostname,
   localProductionApiFallbackEnabled,
@@ -792,6 +798,9 @@ async function throwResponseError(response: Response, signal?: AbortSignal): Pro
     response.status,
     parseRetryAfter(response, payload),
     parseSessionEndReason(response.status, code, payload),
+    code === APP_UPDATE_REQUIRED_CODE && isRecord(payload)
+      ? parseAppBuild(payload.minAppBuild)
+      : null,
   );
 }
 
@@ -1361,6 +1370,10 @@ export class ProRoomApiClient {
     headers.set('X-MXQR-Pro-Entry-Policy', 'optional-v1');
     // Same opt-in for the additive `playlistSlots` snapshot field.
     headers.set('X-MXQR-Pro-Playlist-Slots', 'v1');
+    // The page build: the PRO front door refuses a new entry below the App
+    // build floor (forced update, train 9.0.12). A header, so no strict body
+    // of an older client changes; a build without an epoch sends none (0).
+    if (APP_BUILD > 0) headers.set(APP_BUILD_HEADER, String(APP_BUILD));
     let body: string | undefined;
     if (options.body !== undefined) {
       body = encodeRequestBody(options.body);

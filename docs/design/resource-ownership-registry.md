@@ -142,6 +142,7 @@ each record also states the step in words.
 | RO-48 | Guest YouTube re-align lanes stay two                    | Output rejoin  | accepted-exception | Revisit with device evidence   |
 | RO-49 | Queue and demo start anchors stay two                    | Output rejoin  | accepted-exception | Revisit on an anchor defect    |
 | RO-50 | App build floor                                          | Workers        | owner-in-place     | None                           |
+| RO-51 | Return-from-background dialog                            | Page lifecycle | duplicated         | One slot on a 4th requester    |
 
 ## Machine-readable ID list
 
@@ -207,6 +208,7 @@ RO-47 owner-in-place
 RO-48 accepted-exception
 RO-49 accepted-exception
 RO-50 owner-in-place
+RO-51 duplicated
 ```
 
 ## Resource records
@@ -1571,6 +1573,53 @@ RO-50 owner-in-place
     stalled-Apply case). A document running older code (a cache fallback) still reloads, and a
     document with no such request treats the activation as before.
 
+  Since forced update Inc 5 (train 9.0.12):
+  - A refusal below the App build floor (RO-50) is a requester. The PRO entry
+    (`src/pro-room/setup-flow.ts`) and, from Inc 6, the Standard signaling transport ask through
+    the forced-update port in `src/core/app-build.ts` (`requestForcedAppUpdate`,
+    `isForcedAppUpdatePending`, `subscribeForcedAppUpdatePresentation`); only `sw-register.ts`
+    installs its handler, so no caller imports the machine. The latch (the highest floor learned,
+    the first room code named, whether a refused session was in a room, and what is on screen:
+    nothing, the forced dialog, or its update reload) lives in `registerServiceWorker` scope.
+    The handler is installed before the support checks, so a page with no machine (no
+    service-worker support, an insecure context, before the window load event, a failed
+    registration) still shows the forced dialog without a worker and reloads on Apply; the machine
+    takes over the steps that depend on it after registration and keeps the latch (with nothing
+    waiting it then runs one update check).
+  - The forced entry: a floor this build meets, or the loop guard, answers false, and the caller
+    shows its ordinary error. Otherwise it latches and answers true; runs `reg.update()` once each
+    time the latched floor rises (not while a worker installs or waits, an update reload is on its
+    way, or another tab's newer worker already controls the page; the hourly check lease is
+    neither claimed nor written); shows nothing while an update reload is on its way (a reload
+    that recovers presents it again, and a tap is still needed); waits while a navigation holds
+    the page (P3-8 A applied to it: presented once if the page is released in this document,
+    never if the navigation commits); and otherwise takes the screen. Taking the screen
+    withdraws the machine's dialogs with Later, `openPrompt` and the activated-elsewhere offer's
+    own slot `openActivatedOffer` (the logo and the P3-10 absorb still withdraw only
+    `openPrompt`), tells the port's presentation subscribers (RO-51), and shows the update dialog
+    without Later and with `closeOnBack: false`, so Back keeps it (the 8.11.9 Back rule does not
+    apply). A refusal of an entry that was never admitted gets the apply message.
+  - With a controller and a waiting worker the forced dialog runs inside `handleWaitingWorker`
+    past the handled-worker and phase checks, the quiet promotions, Later, the startup wait and
+    the prompt lease, and its Apply takes the existing Apply and replacement branches. The forced
+    dialog without a worker hands a worker that installed while it was up to that same Apply
+    branch at the tap, makes the aligned reload when another tab's newer worker already controls
+    the page, and otherwise records the request, calls `reg.update()` and reloads before any
+    controller change (navigation is network-first, so the reload loads the newest App). Apply
+    returns to the latched room code's `/CODE` when a refusal named one, else by today's rule.
+    Every ordinary offer returns silently after each of its waits once the forced entry latched,
+    without touching the phase, the dismissed sets or the presentation-failure record. A dialog
+    fallback clears what is on screen; the next request presents again. The activated-elsewhere
+    offer opens nothing while the latch is set.
+  - The loop guard is the next-document key `FORCED_UPDATE_APPLY_KEY` (`"<build>:<floor>"`,
+    written on Apply before any activation or reload): a request is declined when the stored
+    build equals this build and the stored floor is not lower, so a tab gets one forced Apply per
+    build and floor; the stored floor never moves down.
+  - A new document also promotes quietly, through `activateWhenQuiet`, a waiting worker of the
+    generation it would absorb (P3-10 A extended from a late activation to a late install): the
+    generation this tab asked for and already runs is not offered again after the 30 s cooldown.
+    A document without its own request still asks.
+
   `guard:navigation-sinks` counts the one literal in the sink and the one in the hard reset's own
   promotion, the four calls of the sink (Apply and Apply to a replacement in `handleWaitingWorker`,
   the quiet promotions in `activateWhenQuiet`, the logo port in `claimForHardReset`), and keeps
@@ -1581,8 +1630,11 @@ RO-50 owner-in-place
   reset is a client of its port and keeps its own promotion only where there is no machine (and,
   until two clean production update cycles, after a machine timeout).
 - **Allowed requesters:** the update dialog (Apply, Later), the logo hard reset through the port,
-  other tabs through the prompt lease.
-- **Lifecycle operations:** `SKIP_WAITING`, `reg.update()`, the reload, completion markers.
+  other tabs through the prompt lease, and refusals below the App build floor through the
+  forced-update port in `src/core/app-build.ts` (the PRO entry from forced update Inc 5, the
+  Standard signaling transport from Inc 6).
+- **Lifecycle operations:** `SKIP_WAITING`, `reg.update()` (also once each time the forced
+  latch's floor rises), the reload, completion markers, the forced update's loop-guard key.
 - **Deadline owner:** the update machine (with the Chromium rule that `SKIP_WAITING` waits until
   page loads settle: the startup prompt, the quiet promotions and the logo port all follow it)
   and, for the logo reset, the navigation owner's prepare window. Since Phase 2 C6-8 the logo
@@ -1594,7 +1646,8 @@ RO-50 owner-in-place
   promotion: after it aborts nothing is promoted or awaited, and an Apply in flight is waited for
   until it aborts.
 - **Timing-constant home:** `src/core/navigation-contract.ts` (the next-document markers
-  `SW_UPDATE_KEY`, `SW_CONTROLLER_CONFIRMED_KEY` and `UPDATE_COMPLETION_KEY`; the lazy
+  `SW_UPDATE_KEY`, `SW_CONTROLLER_CONFIRMED_KEY`, `UPDATE_COMPLETION_KEY` and, since forced
+  update Inc 5, `FORCED_UPDATE_APPLY_KEY`; the lazy
   `sw-update-completion.ts` keeps a copy of the last, pinned by
   `src/core/__tests__/sw-update-completion.test.ts`), `sw-update-coordination.ts`
   (`UPDATE_CHECK_INTERVAL_MS` and the page-side message types, pinned against the worker's copies
@@ -1641,7 +1694,20 @@ RO-50 owner-in-place
   - A hard reset while an Apply is stalled: the transition test file's "a stalled Apply, then the
     logo reset" cases, recorded by C6-9 (three `SKIP_WAITING` sends and a second navigation) and
     flipped by C6-10 (one send, the late activation absorbed by a document that runs that
-    generation's code; a cache-fallback document still reloads).
+    generation's code; a cache-fallback document still reloads). Forced update Inc 5 flipped its
+    "after the cooldown" case: the new document promotes the waiting worker quietly instead of
+    asking again (the late-install rule).
+  - The forced entry (forced update Inc 5): the transition test file's "forced update on the real
+    navigation owner (train 9.0.12)" rows F1 to F27 (with F5b, F24, F24b and F24c): supersession
+    (F4 and F4b, an ordinary prompt or offer mid-await yields; F24, the activated offer
+    withdrawn; F21, a worker installed under the dialog without one), user pause/stop (F12, a
+    generation put off with Later is forced anyway; F18, a fallback), teardown (F22 and F22b, a
+    navigation holding the page; F8 and F17, an update reload in flight and its recovery) and
+    the loop guard (F5, F5b); `sw-register.test.ts` "the forced update without an update
+    machine (train 9.0.12)" (F9); `src/core/__tests__/app-build.test.ts` (the build and the
+    port); the PRO entry rows of `src/pro-room/__tests__/setup-flow.test.ts`, and in a real
+    browser (local, not in CI) `e2e/pro-entry-app-update.test.ts` (a refused PRO invite and claim
+    link: no Later, Escape and Back keep it, one Apply, then the loop guard).
 - **Status:** `duplicated` until the temporary timeout fallback goes. Phase 0d, Phase 3 (one
   activation owner, done in C6-9; the hard reset asks it, done in C6-10; the timeout fallback is
   removed in a later Phase 3 release after two clean production update cycles, which leaves the
@@ -2454,6 +2520,53 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Status:** `owner-in-place`. Added with forced update Inc 3 (train 9.0.12), when the cron
   report became a second machine on the floor beside the setters.
 
+### RO-51 Return-from-background dialog
+
+- **Resource:** the dialog slot of a return from the background: one dialog per return (owner
+  decision 2026-10-17, [Resume dialog dedup](resume-dialog-dedup-2026-10-17.md)).
+- **Current owners/flows:** a precedence, with no single slot holder. Highest first: the forced
+  update dialog (RO-22, forced update train 9.0.12), the audio recovery dialog (`src/app.ts`),
+  the long-background warning (`src/ui/long-background-warning.ts`). A higher dialog withdraws
+  the lower ones that are open or queued through their `AbortSignal` (a queued one is skipped
+  when the dialog queue reaches it) and keeps new ones from opening while it is pending. The
+  warning yields to audio recovery (`yieldToAudioRecovery`, `hasAudioRecoveryPrompt`) and to the
+  forced update (`yieldToForcedUpdate`, `isForcedUpdatePending`). `app.ts` subscribes to the
+  forced dialog's presentation (`subscribeForcedAppUpdatePresentation`): it withdraws the warning
+  and the audio recovery dialog (a pending follow-up is cleared, the active one aborted through
+  the existing supersession path), and `runAudioRecoveryRequest` returns at once while
+  `isForcedAppUpdatePending()`, follow-ups and failed-PLAY requests included. The AudioContext
+  stays as the return left it (RO-01 unchanged): the forced dialog has no Later and its Apply
+  leaves the page.
+- **Target single owner:** a return-dialog slot in `long-background-warning.ts`, if a fourth
+  requester appears.
+- **Allowed requesters:** the background resume guard's `warn`
+  (`src/core/background-resume-guard.ts`), every audio recovery request
+  (`runAudioRecoveryRequest` in `src/app.ts`), and the update machine's forced entry through the
+  port in `src/core/app-build.ts`.
+- **Lifecycle operations:** show, withdraw (abort), skip while a higher dialog is pending.
+- **Deadline owner:** none; each dialog waits for the user. The guard's thresholds stay its own.
+- **Not covered:** dialogs that need the user's answer and are not part of a return (one the user
+  opened, the host-unresponsive dialog in `src/network/host-presence.ts`) are not withdrawn; the
+  forced dialog follows the tap that closes them.
+- **Timing-constant home:** none of its own; the guard's `DEFAULT_RECOVER_THRESHOLD_MS` (1 s) and
+  `DEFAULT_WARN_THRESHOLD_MS` (60 s) in `src/core/background-resume-guard.ts`.
+- **Anchor tests:** on the real guard and warning, wired as `app.ts` wires them, in
+  `src/core/__tests__/sw-update-transitions.integration.test.ts` "return-time dialogs (RO-51)":
+  - Supersession: F25 (a forced request withdraws the warning on screen; the guard's flight ends)
+    and `src/ui/__tests__/long-background-warning.test.ts` (an open and a queued warning
+    withdrawn by `yieldToForcedUpdate`; no warning while the forced update is pending).
+  - User pause/stop: n/a (nothing recovers by itself; Apply is the user's act).
+  - Teardown: F27 (a forced request held by a navigation withdraws nothing until it presents;
+    no presentation is announced for a loop-guard refusal or a reload already in flight).
+  - Visibility: F26 (a 61 s return while the forced dialog is pending recovers and never asks for
+    the warning). The start and resume check's real returns follow with forced update Inc 7.
+  - The `app.ts` wiring (the subscription and the early return of `runAudioRecoveryRequest`) is
+    checked by reading, as 8.11.7's was: `app.ts` is the bootstrap module and is not imported in
+    tests.
+- **Status:** `duplicated` (three dialog holders, each with its own abort, coordinated by
+  precedence and one pending query). Added with forced update Inc 5 (train 9.0.12), when the
+  forced dialog became the third requester on the slot; it replaces the side-flow entry.
+
 ## Checked side flows without a record
 
 The survey also checked these and found one owner with a side flow (WEAK) or a single owner. They
@@ -2476,8 +2589,6 @@ get a record only if a change adds a second machine:
   closed.
 - Guest join attempt (`src/network/guest.ts`): an old inline cancel in `src/ui/setup-guest.ts`
   skips `invalidateGuestJoinAttempt`; a fix-lane candidate only with a failing test.
-- Return-from-background dialog: the long-background warning yields to the audio recovery prompt
-  (`app.ts`), per [Resume dialog dedup](resume-dialog-dedup-2026-10-17.md).
 - PRO Durable Object alarm (`scheduleAlarm`) and the signaling Durable Object alarms: single owners
   with side hints.
 

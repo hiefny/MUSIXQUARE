@@ -602,6 +602,19 @@ describe('joinSession reconnect racing', () => {
     expect(connect).toHaveBeenCalledWith('HOST01', expect.anything());
   });
 
+  it('sends only the device platform the host reads as connection metadata', () => {
+    vi.useFakeTimers();
+    const { peer, connect } = makeFakePeer();
+    mocks.getPeer.mockReturnValue(peer);
+
+    joinSession('HOST01');
+
+    expect(connect).toHaveBeenCalledWith(
+      'HOST01',
+      expect.objectContaining({ metadata: { devicePlatform: expect.any(String) } }),
+    );
+  });
+
   it('does not let a replaced connection’s late bootstrap or close affect the successor', async () => {
     vi.useFakeTimers();
     const { peer, conns } = makeFakePeer();

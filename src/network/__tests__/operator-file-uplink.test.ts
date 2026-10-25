@@ -346,7 +346,9 @@ describe('standard operator file uplink host receiver', () => {
     off();
   });
 
-  it('waits for trailing bulk chunks when FINISH arrives on control first', async () => {
+  it('rejects a FINISH that arrives before the last chunk as a protocol error', async () => {
+    // Senders put FINISH on the ordered bulk channel behind every chunk, so a
+    // FINISH ahead of the bytes is a broken stream, like an out-of-order chunk.
     const { conn, send } = makeConnection('admin-early-finish');
     enterHost([{ conn }]);
     const received = vi.fn((_file: File, acknowledge: (accepted: boolean) => void) => {
@@ -362,7 +364,9 @@ describe('standard operator file uplink host receiver', () => {
     );
 
     expect(received).not.toHaveBeenCalled();
-    expect(sentStatuses(send)).toEqual([]);
+    expect(sentStatuses(send)).toEqual([
+      expect.objectContaining({ status: 'rejected', code: 'protocol-error' }),
+    ]);
 
     await handleData(
       {
@@ -375,15 +379,8 @@ describe('standard operator file uplink host receiver', () => {
       conn,
     );
 
-    expect(received).toHaveBeenCalledTimes(1);
-    expect(sentStatuses(send).at(-1)).toMatchObject({ status: 'complete', loaded: 3, total: 3 });
-
-    await handleData(
-      { type: MSG.OPERATOR_FILE_UPLOAD_FINISH, requestId: REQUEST_ID, sessionId: SESSION_ID },
-      conn,
-    );
-    expect(received).toHaveBeenCalledTimes(1);
-    expect(sentStatuses(send).at(-1)).toMatchObject({ status: 'complete', loaded: 3, total: 3 });
+    expect(received).not.toHaveBeenCalled();
+    expect(sentStatuses(send)).toHaveLength(1);
     off();
   });
 

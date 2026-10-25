@@ -539,6 +539,25 @@ describe('ordered host bootstrap phases', () => {
     }
   });
 
+  it('welcomes a guest with only the fields the guest WELCOME handler reads', () => {
+    const conn = makeIncomingConn('guest-welcome-shape');
+
+    handleHostIncomingConnection(conn);
+    conn.fire('open');
+
+    const welcome = conn.send.mock.calls
+      .map(([frame]) => frame as Record<string, unknown>)
+      .find((frame) => frame.type === MSG.WELCOME);
+    // Receivers validate only a string label, so the slimmer frame stays valid.
+    expect(welcome).toEqual({
+      type: MSG.WELCOME,
+      label: expect.any(String),
+      chatFrozen: false,
+      slowmodeSeconds: 0,
+      filterEnabled: false,
+    });
+  });
+
   it('activates bulk credit only after APPLIED and before the file bootstrap event', () => {
     const conn = makeIncomingConn('guest-credit-boundary');
     const phases: string[] = [];

@@ -764,6 +764,72 @@ describe('the original route as transport health reads it', () => {
 });
 
 /**
+ * One close per logical connection, whoever reports it (Phase 4 C5-10 keeps
+ * this while every close moves behind the owner): the first cause is the only
+ * line, the owner reads closed from that close on, and a close re-entered
+ * while the connection disposes its channels still emits `close` at the same
+ * point, before the later channel and the PC are closed.
+ */
+describe('one close per link, whoever reports it', () => {
+  it('emits close once while disposing, when the first disposed channel re-enters, and logs only the first cause', async () => {
+    const e = await connection({ bound: true });
+    const atClose: unknown[] = [];
+    e.conn.on('close', () =>
+      atClose.push([
+        e.bulk.readyState,
+        e.control.readyState,
+        e.pc.connectionState,
+        e.conn.linkLiveness.phase,
+      ]),
+    );
+    e.conn.close('leave');
+    expect(atClose).toEqual([['closed', 'open', 'connected', 'closed']]);
+    expect(e.trace).toEqual(['close']);
+    expect([e.bulk.readyState, e.control.readyState, e.pc.connectionState]).toEqual([
+      'closed',
+      'closed',
+      'closed',
+    ]);
+    expect(closeLines()).toEqual(['[Transport] Logical connection closed (leave) for peer-0']);
+  });
+
+  type Link = Awaited<ReturnType<typeof connection>>;
+  const reporters: ReadonlyArray<{ name: string; cause: string; close: (e: Link) => unknown }> = [
+    { name: 'a channel', cause: 'channel-closed', close: (e) => e.control.close() },
+    { name: 'the provider', cause: 'peer-left', close: (e) => e.conn.close('peer-left') },
+    { name: 'the original route', cause: 'original-terminal', close: (e) => e.pc.state('closed') },
+    {
+      name: 'the grace',
+      cause: 'original-grace-expired',
+      close: () => vi.advanceTimersByTimeAsync(GRACE_MS),
+    },
+  ];
+
+  it.each(reporters)(
+    'closes once as $cause when $name reports first, and later reporters add nothing',
+    async ({ cause, close }) => {
+      const e = await connection({ bound: true });
+      e.pc.state('disconnected');
+      expect(e.conn.linkLiveness.recoveryDeadline).toBe(Date.now() + GRACE_MS);
+      e.trace.length = 0;
+      await close(e);
+      expect(e.conn.open).toBe(false);
+      expect(e.conn.linkLiveness.phase).toBe('closed');
+      expect(e.conn.linkLiveness.recoveryDeadline).toBe(0);
+      expect(e.conn.beginIceRestart()).toBe(false);
+      expect(e.conn.recoverAfterBackground(60_000, false)).toBe('not-applicable');
+      e.conn.close('leave');
+      e.bulk.close();
+      e.control.close();
+      e.pc.state('failed');
+      await vi.advanceTimersByTimeAsync(2 * GRACE_MS);
+      expect(e.trace).toEqual(['close']);
+      expect(closeLines()).toEqual([`[Transport] Logical connection closed (${cause}) for peer-0`]);
+    },
+  );
+});
+
+/**
  * The owner on its own: every port call in order, so a transition that
  * reorders, drops or adds an effect fails here before any connection test.
  */

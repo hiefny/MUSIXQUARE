@@ -51,7 +51,6 @@ import { isCapabilityChallengeCancelled } from '../core/capability.ts';
 import type {
   AnyProtocolMsg,
   DataConnection,
-  ProtocolMsg,
   QueueItemId,
   RemoteFileSharePayload,
   ResidentFile,
@@ -65,7 +64,6 @@ import { isPeerConnectionCurrent } from '../storage/chunk-pump.ts';
 import { completeFileRequest } from '../network/file-request-authority.ts';
 import {
   getR2FileTargets,
-  markLocalFileR2Capable,
   markLateLocalPeerForR2,
   recordGuestFileDelivery,
   releaseFileDeliveryPeer,
@@ -2202,69 +2200,6 @@ function handleRemoteFileUnavailable(data: Record<string, unknown>, conn?: DataC
   transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
 }
 
-async function handleFileR2Capability(
-  data: ProtocolMsg<typeof MSG.FILE_R2_CAPABILITY>,
-  conn?: DataConnection,
-): Promise<void> {
-  if (data.version !== 1 || data.localAudience !== true) return;
-  if (getState('network.appRole') !== 'host' || !conn?.peer) return;
-  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
-
-  const recoveredSessionIds = markLocalFileR2Capable(conn.peer);
-  if (recoveredSessionIds.length === 0) return;
-
-  const current = getState('files.current');
-  let replayedCurrentOwner: { queueItemId: QueueItemId; sessionId: number } | null = null;
-  if (
-    current?.blob instanceof File &&
-    current.queueItemId &&
-    getState('playlist.currentQueueItemId') === current.queueItemId &&
-    recoveredSessionIds.includes(current.sessionId) &&
-    shouldConnectionUseR2(conn, current.sessionId)
-  ) {
-    replayedCurrentOwner = {
-      queueItemId: current.queueItemId,
-      sessionId: current.sessionId,
-    };
-    safeSend(conn, {
-      type: MSG.FILE_PREPARE,
-      name: current.name,
-      queueItemId: current.queueItemId,
-      sessionId: current.sessionId,
-      size: current.blob.size,
-      mime: current.mime || current.blob.type || 'application/octet-stream',
-      delivery: 'r2',
-    });
-    await shareRemoteFileIfNeeded(current.blob, current.sessionId, conn, {
-      queueItemId: current.queueItemId,
-    });
-  }
-
-  // ICE can classify the ninth local peer before its capability frame arrives.
-  // That ordering recovers every already-frozen session at once, including the
-  // independently frozen next-track session. Replay its warm descriptor too;
-  // otherwise this one peer alone would miss preload until foreground play.
-  // Establish current playback first. If next arrives before a slow current
-  // upload, the guest would start the warm GET and then abort it for current,
-  // with no second one-shot hint. Re-read authority after the await so playlist
-  // changes and connection replacement cannot publish a stale next target.
-  if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn || !conn.open) return;
-  const preload = getState('preload.ready');
-  const preloadTarget = getState('preload.activeTarget');
-  if (
-    REMOTE_FILE_PRELOAD_ENABLED &&
-    preload?.blob instanceof File &&
-    preload.queueItemId === preloadTarget?.queueItemId &&
-    preload.sessionId === preloadTarget.sessionId &&
-    (replayedCurrentOwner?.queueItemId !== preload.queueItemId ||
-      replayedCurrentOwner.sessionId !== preload.sessionId) &&
-    recoveredSessionIds.includes(preload.sessionId) &&
-    shouldConnectionUseR2(conn, preload.sessionId)
-  ) {
-    await preloadRemoteFileIfNeeded(preload.blob, preload.sessionId, preload.queueItemId, conn);
-  }
-}
-
 function resetRemoteShareAuthorityBoundary(): void {
   _lastAdoptedRemoteContext = null;
   resetFileDeliveryPolicies();
@@ -2306,7 +2241,6 @@ function resetRemoteShareAuthorityBoundary(): void {
 
 export function initRemoteShare(): void {
   registerHandlers({
-    [MSG.FILE_R2_CAPABILITY]: handleFileR2Capability,
     [MSG.REMOTE_FILE_SHARE]: handleRemoteFileShare,
     [MSG.REMOTE_FILE_UNAVAILABLE]: handleRemoteFileUnavailable,
   });
@@ -2408,6 +2342,9 @@ export function initRemoteShare(): void {
     abortActiveUploadsWithoutTargets('no-r2-targets');
   });
 
+  // Current hosts route by room size alone and ignore this marker, but older
+  // hosts (9.0.12 and earlier) still answer a ninth unadvertised local guest
+  // with REMOTE_FILE_UNAVAILABLE. Keep advertising until the client floor passes them.
   bus.on('network:peer-connected', (conn: DataConnection) => {
     if (getState('network.appRole') !== 'guest') return;
     const hostConn = getState('network.hostConn');

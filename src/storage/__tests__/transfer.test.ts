@@ -9,7 +9,6 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import {
   freezeFileDeliveryMode,
-  markLocalFileR2Capable,
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
 
@@ -272,11 +271,11 @@ describe('host outgoing transfer routing', () => {
     }
   });
 
-  it('defers an unadvertised peer until ICE chooses remote R2 or local overflow', async () => {
+  it('defers an unknown peer until ICE chooses its remote R2 route', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const conn = {
       open: true,
-      peer: 'unknown-unadvertised',
+      peer: 'unknown-remote',
       send: vi.fn(),
     } as unknown as DataConnection;
     const unknownPeer = connectedPeer(conn.peer, conn, {
@@ -303,11 +302,11 @@ describe('host outgoing transfer routing', () => {
     );
   });
 
-  it('does not use capability alone to route an unknown small-room peer through R2', async () => {
+  it('keeps an unknown small-room peer pending until local ICE chooses direct', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const conn = {
       open: true,
-      peer: 'unknown-capable',
+      peer: 'unknown-local',
       send: vi.fn(),
     } as unknown as DataConnection;
     const peer = connectedPeer(conn.peer, conn, {
@@ -315,10 +314,9 @@ describe('host outgoing transfer routing', () => {
       connectionType: 'unknown',
     });
     setState('network.connectedPeers', [peer]);
-    markLocalFileR2Capable(peer.id);
     const prepare = {
       type: MSG.FILE_PREPARE,
-      name: 'capable.mp3',
+      name: 'small-room.mp3',
       queueItemId: Q0,
       sessionId: 33,
       mime: 'audio/mpeg',

@@ -22,11 +22,7 @@ import {
 } from './local-file-output-identity.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
-import {
-  cancelIncomingFileTransfer,
-  sendFileDeliveryUnavailable,
-  unicastFile,
-} from '../storage/transfer.ts';
+import { cancelIncomingFileTransfer, unicastFile } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
 import { broadcast, isRemoteGuest, safeSend, waitForGuestConnectionType } from '../network/peer.ts';
 import {
@@ -1290,18 +1286,12 @@ export function initPlayback(): void {
         log.debug(`[Playback] Sent R2 file prepare to ${peer.label || peerId} (${reason})`);
         return;
       }
-      if (delivery === 'unsupported') {
-        sendFileDeliveryUnavailable(conn, prepare, currentResident.sessionId);
-        log.warn(
-          `[Playback] File delivery unavailable for legacy overflow peer ${peer.label || peerId}`,
-        );
-        return;
-      }
       if (delivery === 'pending') {
         log.debug(`[Playback] Deferring file bootstrap until ICE resolves for ${peerId}`);
         return;
       }
-      if (!peer.isDataTarget) return;
+      // 'unsupported' answers only a resident without a valid transfer session.
+      if (delivery !== 'direct-local' || !peer.isDataTarget) return;
       log.debug(`[Playback] Sending current file to ${peer.label || peerId} (${reason})`);
       try {
         await unicastFile(conn, currentResident.blob, 0, currentResident.sessionId, {

@@ -337,6 +337,7 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
     files: [
       'src/core/constants.ts',
       'src/network/transport/cloudflare-signaling.ts',
+      'src/network/transport/link-liveness.ts',
       'src/network/transport/control-isolation.ts',
       'src/network/heartbeat-monitor.ts',
       'src/network/transport-health.ts',

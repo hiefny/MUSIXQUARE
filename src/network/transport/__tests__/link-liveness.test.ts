@@ -1,8 +1,9 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { log } from '../../../core/log.ts';
-import { clearAllManagedTimers } from '../../../core/timers.ts';
+import { clearAllManagedTimers, clearManagedTimer, getManagedTimer } from '../../../core/timers.ts';
 import { CloudflareDataConnection } from '../cloudflare-signaling.ts';
+import { LinkLiveness } from '../link-liveness.ts';
 
 /**
  * The original route's outage owner (registry RO-15, Phase 4 C5-6): the 15 s
@@ -388,5 +389,203 @@ describe('host-side connection without a state callback', () => {
     // A genuine disconnected -> connected transition settled the probe.
     await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS);
     expect(e.conn.open).toBe(true);
+  });
+});
+
+/**
+ * The owner on its own: every port call in order, so a transition that
+ * reorders, drops or adds an effect fails here before any connection test.
+ */
+describe('LinkLiveness ports', () => {
+  const KEY = 'cloudflare-data-disconnected-grace-test';
+
+  function owner(options: { open?: boolean; bound?: boolean } = {}) {
+    const trace: unknown[] = [];
+    let open = options.open ?? true;
+    let route: PeerConnection | undefined = new PeerConnection();
+    let reenter: ((liveness: LinkLiveness) => void) | null = null;
+    const liveness: LinkLiveness = new LinkLiveness(KEY, {
+      route: () => route as unknown as RTCPeerConnection | undefined,
+      open: () => open,
+      close: (cause) => {
+        trace.push(['close', cause]);
+        liveness.stop();
+        open = false;
+      },
+      probeConnected: () => trace.push(['probe-connected', liveness.recoveryDeadline]),
+      probeDisconnected: () => trace.push(['probe-disconnected', liveness.recoveryDeadline]),
+      changed: () => {
+        trace.push(['changed', liveness.recoveryDeadline]);
+        reenter?.(liveness);
+      },
+      sideMayRestart: () => trace.push('side'),
+      recovered: () => trace.push('recovered'),
+    });
+    if (options.bound ?? true) liveness.binding = 'negotiation_liveness_03';
+    return {
+      liveness,
+      trace,
+      route: () => route,
+      transition: (state: RTCPeerConnectionState) => {
+        route!.connectionState = state;
+        liveness.routeChanged(route as unknown as RTCPeerConnection);
+      },
+      setOpen: (value: boolean) => (open = value),
+      replaceRoute: (value: PeerConnection | undefined) => (route = value),
+      onChanged: (fn: ((liveness: LinkLiveness) => void) | null) => (reenter = fn),
+    };
+  }
+
+  it('runs connected as: cancel grace, reopen gate, probe, callback, side route, recovered', () => {
+    const o = owner();
+    o.transition('disconnected');
+    expect(o.liveness.beginRestart()).toBe(true);
+    o.trace.length = 0;
+    o.onChanged((liveness) => o.trace.push(['gate', liveness.beginRestart()]));
+    o.transition('connected');
+    expect(o.trace).toEqual([
+      ['probe-connected', 0],
+      ['changed', 0],
+      ['gate', true],
+      'side',
+      'recovered',
+    ]);
+  });
+
+  it('reports no recovery for a connected route that was not interrupted or is not open', () => {
+    const o = owner();
+    o.transition('connected');
+    expect(o.trace).toEqual([['probe-connected', 0], ['changed', 0], 'side']);
+    o.transition('disconnected');
+    o.setOpen(false);
+    o.trace.length = 0;
+    o.transition('connected');
+    expect(o.trace).toEqual([['probe-connected', 0], ['changed', 0], 'side']);
+  });
+
+  it('runs disconnected as: probe, callback, then the grace, then the side route', () => {
+    const o = owner();
+    const start = Date.now();
+    o.transition('disconnected');
+    expect(o.trace).toEqual([['probe-disconnected', 0], ['changed', 0], 'side']);
+    expect(o.liveness.recoveryDeadline).toBe(start + GRACE_MS);
+    expect(getManagedTimer(KEY)).not.toBeNull();
+  });
+
+  it('arms no grace and skips the side route when the callback closes on disconnected', () => {
+    const o = owner();
+    o.onChanged((liveness) => liveness.stop());
+    o.transition('disconnected');
+    expect(o.trace).toEqual([
+      ['probe-disconnected', 0],
+      ['changed', 0],
+    ]);
+    expect(o.liveness.recoveryDeadline).toBe(0);
+    expect(getManagedTimer(KEY)).toBeNull();
+  });
+
+  it('runs a restartable failed as: grace, callback, side route', () => {
+    const o = owner();
+    const start = Date.now();
+    o.transition('failed');
+    expect(o.trace).toEqual([['changed', start + GRACE_MS], 'side']);
+  });
+
+  it.each([
+    { name: 'an unbound failed', state: 'failed' as const, bound: false, open: true },
+    { name: 'a failed before open', state: 'failed' as const, bound: true, open: false },
+    { name: 'a closed', state: 'closed' as const, bound: true, open: true },
+  ])('closes $name as original-terminal with no other effect', ({ state, bound, open }) => {
+    const o = owner({ bound, open });
+    o.transition(state);
+    expect(o.trace).toEqual([['close', 'original-terminal']]);
+  });
+
+  it.each(['new', 'connecting'] as const)('does nothing on %s', (state) => {
+    const o = owner();
+    o.transition(state);
+    expect(o.trace).toEqual([]);
+  });
+
+  it('closes on grace expiry only while the same route is still not connected', async () => {
+    const expired = owner();
+    expired.transition('disconnected');
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 1);
+    expect(expired.trace.at(-1)).toBe('side');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(expired.trace.at(-1)).toEqual(['close', 'original-grace-expired']);
+  });
+
+  it('closes nothing when the grace outlives a replaced route', async () => {
+    const replaced = owner();
+    replaced.transition('disconnected');
+    replaced.replaceRoute(new PeerConnection());
+    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    expect(replaced.trace.at(-1)).toBe('side');
+  });
+
+  it('closes nothing when the route silently reads connected when the grace ends', async () => {
+    const silent = owner();
+    silent.transition('disconnected');
+    silent.route()!.connectionState = 'connected';
+    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    expect(silent.trace.at(-1)).toBe('side');
+    // The fired grace stays published until the next transition.
+    expect(silent.liveness.recoveryDeadline).toBeGreaterThan(0);
+  });
+
+  it('keeps a fired grace published until the next transition and re-arms a cleared timer', async () => {
+    const o = owner();
+    const start = Date.now();
+    expect(o.liveness.beginRestart()).toBe(true);
+    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    // The route read connected when the grace fired.
+    expect(o.trace).toEqual([]);
+    expect(o.liveness.recoveryDeadline).toBe(start + GRACE_MS);
+    o.transition('disconnected');
+    expect(o.liveness.recoveryDeadline).toBe(start + 2 * GRACE_MS);
+    // A page-wide timer clear counts as no grace: the next arm is fresh.
+    clearManagedTimer(KEY);
+    await vi.advanceTimersByTimeAsync(1_000);
+    o.transition('failed');
+    expect(o.liveness.recoveryDeadline).toBe(start + 2 * GRACE_MS + 1_000);
+  });
+
+  it('withholds the deadline until the owner is bound', () => {
+    const o = owner({ bound: false });
+    const start = Date.now();
+    o.transition('disconnected');
+    expect(o.liveness.recoveryDeadline).toBe(0);
+    o.liveness.binding = 'negotiation_liveness_04';
+    expect(o.liveness.recoveryDeadline).toBe(start + GRACE_MS);
+  });
+
+  it('admits one restart per interruption on an open, bound, running owner', () => {
+    expect(owner({ bound: false }).liveness.beginRestart()).toBe(false);
+    expect(owner({ open: false }).liveness.beginRestart()).toBe(false);
+    const stopped = owner();
+    stopped.liveness.stop();
+    expect(stopped.liveness.beginRestart()).toBe(false);
+
+    const o = owner();
+    o.replaceRoute(undefined);
+    // Without a route there is nothing to grace, but the gate still closes.
+    expect(o.liveness.beginRestart()).toBe(true);
+    expect(o.liveness.recoveryDeadline).toBe(0);
+    expect(o.liveness.beginRestart()).toBe(false);
+    o.liveness.finishRestart();
+    expect(o.liveness.beginRestart()).toBe(true);
+  });
+
+  it('cancels the grace and arms nothing once stopped', async () => {
+    const o = owner();
+    o.transition('disconnected');
+    o.liveness.stop();
+    expect(o.liveness.recoveryDeadline).toBe(0);
+    expect(getManagedTimer(KEY)).toBeNull();
+    o.transition('failed');
+    expect(getManagedTimer(KEY)).toBeNull();
+    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    expect(o.trace).not.toContainEqual(['close', 'original-grace-expired']);
   });
 });

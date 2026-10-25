@@ -7,6 +7,7 @@ import { noteLinkClose } from '../last-link-close.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
+import { LinkLiveness } from './link-liveness.ts';
 import {
   ControlIsolation,
   type IsolatedControlLease,
@@ -1007,19 +1008,43 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   private backgroundResumeRecoveryArmed = false;
   private backgroundResumeProbePingId: number | null = null;
   private backgroundResumeSawDisconnected = false;
-  /** Initial SDP exchange binds recovery to this exact established connection. */
-  iceRestartBinding: string | null = null;
+  /** The original route's grace, recovery deadline and restart gate (RO-15). */
+  private readonly liveness = new LinkLiveness(this.disconnectedGraceTimerKey, {
+    route: () => this.peerConnection,
+    open: () => this.open,
+    close: (cause) => this.terminate(cause),
+    probeConnected: () => {
+      // A genuine disconnected -> connected transition is ICE-level proof.
+      // A redundant connected event on a stale WebKit object is not.
+      if (
+        !this.backgroundResumeRecoveryArmed ||
+        (this.backgroundResumeSawDisconnected && !this.controlIsolation?.peerConnection)
+      ) {
+        this.clearBackgroundResumeRecovery();
+      }
+    },
+    probeDisconnected: () => this.reconcileBackgroundResumeRecovery(false),
+    changed: () => this.onConnectionStateChange?.(),
+    sideMayRestart: () => this.controlIsolation?.originalChanged(),
+    recovered: () => this.emit('ice-recovered'),
+  });
   readonly reportsIceRecovery = true;
-  private iceRestartAttempted = false;
-  private connectionInterrupted = false;
-  private recoveryDeadline = 0;
   private selectedPairTransport: RTCIceTransport | null = null;
   private readonly onSelectedPairChange = (): void => {
     if (this.open && !this.closed) this.emit('ice-recovered');
   };
 
+  /** Initial SDP exchange binds recovery to this exact established connection. */
+  get iceRestartBinding(): string | null {
+    return this.liveness.binding;
+  }
+
+  set iceRestartBinding(negotiationId: string | null) {
+    this.liveness.binding = negotiationId;
+  }
+
   get iceRecoveryDeadline(): number {
-    return this.iceRestartBinding ? this.recoveryDeadline : 0;
+    return this.liveness.recoveryDeadline;
   }
 
   startBulkFlowControl(): void {
@@ -1169,48 +1194,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
 
     if (!this.pcListenersAttached) {
       this.pcListenersAttached = true;
-      pc.addEventListener('connectionstatechange', () => {
-        if (pc.connectionState === 'connected') {
-          this.cancelDisconnectedGrace();
-          this.iceRestartAttempted = false;
-          const recovered = this.connectionInterrupted;
-          this.connectionInterrupted = false;
-          // A genuine disconnected -> connected transition is ICE-level proof.
-          // A redundant connected event on a stale WebKit object is not.
-          if (
-            !this.backgroundResumeRecoveryArmed ||
-            (this.backgroundResumeSawDisconnected && !this.controlIsolation?.peerConnection)
-          ) {
-            this.clearBackgroundResumeRecovery();
-          }
-          this.onConnectionStateChange?.();
-          this.controlIsolation?.originalChanged();
-          if (recovered && this.open) this.emit('ice-recovered');
-          return;
-        }
-        if (pc.connectionState === 'disconnected') {
-          this.connectionInterrupted = true;
-          // Let the peer combine this RTC transition with its signaling state
-          // before granting a fresh grace period. A long-hidden outage may
-          // already have consumed the entire grace while WebKit was suspended.
-          this.reconcileBackgroundResumeRecovery(false);
-          this.onConnectionStateChange?.();
-          if (this.closed) return;
-          this.scheduleDisconnectedGrace(pc);
-          this.controlIsolation?.originalChanged();
-          return;
-        }
-        if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
-          if (pc.connectionState === 'failed' && this.open && this.iceRestartBinding) {
-            this.connectionInterrupted = true;
-            this.scheduleDisconnectedGrace(pc);
-            this.onConnectionStateChange?.();
-            this.controlIsolation?.originalChanged();
-            return;
-          }
-          this.terminate('original-terminal');
-        }
-      });
+      pc.addEventListener('connectionstatechange', () => this.liveness.routeChanged(pc));
     }
 
     if (channel.readyState === 'open') queueMicrotask(() => this.markOpenIfReady());
@@ -1255,16 +1239,11 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   }
 
   beginIceRestart(): boolean {
-    if (this.closed || !this.open || !this.iceRestartBinding || this.iceRestartAttempted) {
-      return false;
-    }
-    this.iceRestartAttempted = true;
-    if (this.peerConnection) this.scheduleDisconnectedGrace(this.peerConnection);
-    return true;
+    return this.liveness.beginRestart();
   }
 
   finishIceRestart(): void {
-    this.iceRestartAttempted = false;
+    this.liveness.finishRestart();
   }
 
   recoverAfterBackground(
@@ -1402,7 +1381,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
       log.info(`[Transport] Logical connection closed (${cause}) for ${this.peer}`);
       noteLinkClose(cause);
     }
-    this.cancelDisconnectedGrace();
+    this.liveness.stop();
     this.clearBackgroundResumeRecovery();
     this.disposeResources();
     this.markClosed();
@@ -1433,24 +1412,6 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     } catch {
       /* noop */
     }
-  }
-
-  private scheduleDisconnectedGrace(pc: RTCPeerConnection): void {
-    if (this.closed || getManagedTimer(this.disconnectedGraceTimerKey) !== null) return;
-    this.recoveryDeadline = Date.now() + RTC_INTERRUPTION_GRACE_MS;
-    setManagedTimer(
-      this.disconnectedGraceTimerKey,
-      () => {
-        if (pc !== this.peerConnection || pc.connectionState === 'connected') return;
-        this.terminate('original-grace-expired');
-      },
-      RTC_INTERRUPTION_GRACE_MS,
-    );
-  }
-
-  private cancelDisconnectedGrace(): void {
-    this.recoveryDeadline = 0;
-    clearManagedTimer(this.disconnectedGraceTimerKey);
   }
 
   private markOpenIfReady(): void {

@@ -22,6 +22,8 @@ export default defineConfig({
       'src/player/__tests__/{busy-guard,concurrency-invariants,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
+      // The original route's outage owner (RO-15), enrolled in Phase 4 C5-6.
+      'src/network/transport/__tests__/{link-liveness,link-liveness-characterization}.test.ts',
       'src/network/__tests__/transport-health.test.ts',
       'src/youtube/__tests__/{search,search-style}.test.ts',
       'src/account/__tests__/{api,session,login-return}.test.ts',
@@ -60,6 +62,7 @@ export default defineConfig({
         'src/audio/context-recovery.ts',
         'src/storage/preload.ts',
         'src/network/transport/cloudflare-signaling.ts',
+        'src/network/transport/link-liveness.ts',
         'src/network/transport-health.ts',
         'src/youtube/oembed.ts',
         'src/account/api.ts',
@@ -146,6 +149,14 @@ export default defineConfig({
           branches: 71,
           functions: 72,
           lines: 78,
+        },
+        // The original route's outage owner (Phase 4, C5-6) is fully covered
+        // by link-liveness.test.ts on 2026-10-25.
+        'src/network/transport/link-liveness.ts': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
         },
         // The transport-health read path (Phase 4, C5-4) is fully covered by
         // transport-health.test.ts on 2026-10-24.

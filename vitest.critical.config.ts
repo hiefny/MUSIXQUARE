@@ -23,6 +23,9 @@ export default defineConfig({
       'src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts',
       // The routes' shared media home, enrolled with it in Phase 5 C4-1.
       'src/network/__tests__/system-audio-media.test.ts',
+      // The PRO publication's teardown entry points (RO-20), pinned in Phase 5
+      // C4-12 before the service names its three teardown operations.
+      'src/pro-room/__tests__/system-audio-publication-teardown.test.ts',
       'src/audio/__tests__/{context-health,context-recovery,foreground-output-health,output-health,system-capture,system-capture-stop}.test.ts',
       'src/pro-room/__tests__/{api,heartbeat-single-flight,media-transfer,playlist-state-manager,session-controller}.test.ts',
       'src/pro-room/__tests__/{playback-duration-reporting,upload-duration}.test.ts',

@@ -777,4 +777,111 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
     });
   });
+
+  describe('CHECK 9 system-audio receive slot writers (RO-04)', () => {
+    // Phase 5 prep T5: today's writers, which each 5A increment lowers as the
+    // receive slot takes the writes.
+    const TODAY = {
+      'receiving flag write': 9,
+      'system-audio owner claim': 6,
+      'widener.input use': 5,
+      'raw receiving flag write': 1,
+    };
+
+    it("pins today's direct writers on the real tree", () => {
+      expect(analyzeResourceOwnership(realInput()).receiveSlotWrites).toEqual(TODAY);
+    });
+
+    it('rejects a new route that writes the slot directly, called or passed on', () => {
+      const report = analyzeResourceOwnership(
+        withSources((sources) => {
+          sources.set(
+            'src/pro-room/rogue-receiver.ts',
+            "import { batchSetState, getState, setState } from '../core/state.ts';\n" +
+              "import * as ownership from '../player/ownership.ts';\n" +
+              "import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';\n" +
+              'export const writers = [setSystemAudioReceiving];\n' +
+              'export function attach(\n' +
+              '  source: AudioNode,\n' +
+              '  widener: { input: AudioNode },\n' +
+              "  owner: 'system-audio' | 'youtube',\n" +
+              '): void {\n' +
+              '  source.connect(widener.input);\n' +
+              '  ownership.setSystemAudioReceiving(true);\n' +
+              "  claimPlaybackOwner('system-audio');\n" +
+              '  claimPlaybackOwner(owner);\n' +
+              "  claimPlaybackOwner('youtube');\n" +
+              "  setState('systemAudio.isReceiving', true);\n" +
+              "  batchSetState({ ['systemAudio.isReceiving']: false });\n" +
+              "  void getState('systemAudio.isReceiving');\n" +
+              '  // setSystemAudioReceiving(true) and widener.input in a comment do not count.\n' +
+              '}\n',
+          );
+        }),
+      );
+      const findings = report.findings.join('\n');
+      expect(findings).toMatch(
+        /UNSANCTIONED receiving flag write \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 2/u,
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED system-audio owner claim \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 2/u,
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED widener\.input use \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 1/u,
+      );
+      expect(findings).toMatch(
+        /UNSANCTIONED raw receiving flag write \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 2/u,
+      );
+      expect(report.receiveSlotWrites).toEqual({
+        'receiving flag write': TODAY['receiving flag write'] + 2,
+        'system-audio owner claim': TODAY['system-audio owner claim'] + 2,
+        'widener.input use': TODAY['widener.input use'] + 1,
+        'raw receiving flag write': TODAY['raw receiving flag write'] + 2,
+      });
+    });
+
+    it("leaves the setter's own write in src/player/ownership.ts out of the raw count", () => {
+      const findings = findingsOf(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            'src/player/ownership.ts',
+            "  setState('systemAudio.isReceiving', isReceiving);\n",
+            "  setState('systemAudio.isReceiving', isReceiving);\n" +
+              "  setState('systemAudio.isReceiving', isReceiving);\n",
+          ),
+        ),
+      );
+      expect(findings).toBe('');
+    });
+
+    it('fails a raised count, a count that fell below its baseline and a writer that disappears', () => {
+      const findings = findingsOf(
+        withSources((sources) => {
+          replaceIn(
+            sources,
+            'src/network/system-audio-sfu.ts',
+            '  source.connect(widener.input);\n',
+            '  source.connect(widener.input);\n  source.connect(widener.input);\n',
+          );
+          replaceIn(
+            sources,
+            'src/network/system-audio-guest.ts',
+            '    setSystemAudioReceiving(false);\n    armReceiveWatchdog();\n',
+            '    armReceiveWatchdog();\n',
+          );
+          replaceIn(sources, 'src/network/peer.ts', "    'systemAudio.isReceiving': false,\n", '');
+        }),
+      );
+      expect(findings).toMatch(
+        /RATCHET REGRESSION widener\.input use \(RO-04\): src\/network\/system-audio-sfu\.ts has 2, baseline 1/u,
+      );
+      expect(findings).toMatch(
+        /STALE BASELINE receiving flag write \(RO-04\): src\/network\/system-audio-guest\.ts has 2, baseline 3 - lower the baseline to 2/u,
+      );
+      expect(findings).toMatch(
+        /STALE BASELINE raw receiving flag write \(RO-04\): src\/network\/peer\.ts has 0 - remove its entry/u,
+      );
+    });
+  });
 });

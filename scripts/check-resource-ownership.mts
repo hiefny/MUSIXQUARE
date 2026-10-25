@@ -55,6 +55,15 @@
  *     media load. They are counted per file in src/, following an ID held in
  *     a name through that name's declarations in the same file; a flow that
  *     can overlap that load uses a named holder instead.
+ *   CHECK 9 System-audio receive slot writers (RO-04), per file in src/:
+ *     setSystemAudioReceiving value uses (calls or the setter passed on);
+ *     claimPlaybackOwner value uses unless the call's first argument is a
+ *     string literal other than 'system-audio'; reads of `.input` on a
+ *     receiver named `widener` (the slot's source connects there); and raw
+ *     'systemAudio.isReceiving' writes (a setState() call or an object-literal
+ *     key such as a batchSetState reset) outside src/player/ownership.ts, the
+ *     setter's home. Phase 5 lowers these as the receive slot takes the
+ *     writes.
  *
  * Baselines. Every count and list below is exact. A file above its baseline
  * (or a new file, function or pair) fails as a regression; a file below it
@@ -70,11 +79,12 @@
  * comments and unrelated strings never count. Lifecycle-operation callers
  * are counted only for the names above (page-lock claims, SKIP_WAITING sends,
  * AudioContext resume/suspend, armed reception starts, the Worker broadcast
- * endpoint, the duration reader in cloudflare/ and the authority fence
- * writers). Deliberately not checked yet (registry RO-44, RO-45 and
- * "Resource-ownership guard"): callers of the other
- * records' lifecycle operations (YouTube player commands, claimPlaybackOwner,
- * setSystemAudioReceiving, scheduleSessionReset), receivers resolved by type,
+ * endpoint, the duration reader in cloudflare/, the authority fence writers
+ * and the system-audio receive slot writers). Deliberately not checked yet
+ * (registry RO-44, RO-45 and "Resource-ownership guard"): callers of the other
+ * records' lifecycle operations (YouTube player commands, claimPlaybackOwner
+ * with a literal owner other than 'system-audio', scheduleSessionReset),
+ * receivers resolved by type,
  * module-level lifecycle slots, timer-name manifests, shared phase unions,
  * duplicated helper names, "mirrors" copy markers, and registered timings
  * retyped as literals in requester files.
@@ -554,6 +564,77 @@ const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
   ['src/youtube/player.ts', { count: 1, reason: 'clears it when YouTube mode stops' }],
 ]);
 
+// ── CHECK 9 baselines: system-audio receive slot writers (RO-04) ─────────
+// Measured on agent/phase5-5a aa62fe34 (main 2038b51f, App 9.0.10) on
+// 2026-10-25, Phase 5 prep T5. The route adapters write the slot directly
+// today; each Phase 5 increment that moves a write into the receive slot
+// lowers its count here.
+
+const RECEIVING_FLAG_SETTER = 'setSystemAudioReceiving';
+const PLAYBACK_OWNER_CLAIM = 'claimPlaybackOwner';
+const SYSTEM_AUDIO_OWNER = 'system-audio';
+const RECEIVING_FLAG_KEY = 'systemAudio.isReceiving';
+/** The setter's home: its one setState of the key is the sanctioned write. */
+const RECEIVING_FLAG_OWNER_FILE = 'src/player/ownership.ts';
+
+/** RO-04: setSystemAudioReceiving value uses (calls or the setter passed on). */
+const RECEIVING_FLAG_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/network/system-audio-guest.ts',
+    {
+      count: 3,
+      reason:
+        'Standard P2P attach, the guest receive cleanup and the delivery-handoff reset (C4-2, C4-3)',
+    },
+  ],
+  ['src/network/system-audio-sfu.ts', { count: 1, reason: 'Standard SFU guest attach (C4-4)' }],
+  [
+    'src/pro-room/system-audio-service.ts',
+    {
+      count: 5,
+      reason:
+        'coordinator attach, subscription retry, direct-route fallback, SFU subscribed and ' +
+        'the disconnect debounce (C4-5)',
+    },
+  ],
+]);
+
+/** RO-04: claimPlaybackOwner value uses that can claim 'system-audio'. */
+const SYSTEM_AUDIO_OWNER_CLAIM_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/audio/system-capture.ts',
+    { count: 1, reason: "the sharer's own capture, not the receive slot" },
+  ],
+  [
+    'src/network/system-audio-guest.ts',
+    { count: 2, reason: 'Standard P2P attach and the trusted reception placeholder (C4-2, C4-3)' },
+  ],
+  ['src/network/system-audio-sfu.ts', { count: 1, reason: 'Standard SFU guest attach (C4-4)' }],
+  [
+    'src/pro-room/system-audio-service.ts',
+    { count: 2, reason: 'coordinator attach and SFU subscribed (C4-5)' },
+  ],
+]);
+
+/** RO-04: `.input` reads on a receiver named `widener` (the stereo widener's input). */
+const WIDENER_INPUT_USE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/audio/engine.ts',
+    { count: 2, reason: 'the file playback route, at graph build and on reconnect' },
+  ],
+  ['src/network/system-audio-guest.ts', { count: 1, reason: 'Standard P2P source (C4-3)' }],
+  ['src/network/system-audio-sfu.ts', { count: 1, reason: 'Standard SFU guest source (C4-4)' }],
+  ['src/pro-room/system-audio-service.ts', { count: 1, reason: 'PRO coordinator source (C4-5)' }],
+]);
+
+/** RO-04: raw 'systemAudio.isReceiving' writes outside the setter's home. */
+const RAW_RECEIVING_FLAG_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  [
+    'src/network/peer.ts',
+    { count: 1, reason: 'the leaveSession batchSetState reset, with the rest of the session' },
+  ],
+]);
+
 /** Every record ID this guard's manifests name, for CHECK 1. */
 const GUARD_RECORD_IDS: readonly string[] = [
   'RO-01',
@@ -842,6 +923,10 @@ interface FileFacts {
   locationNavigations: number;
   skipWaitingSends: number;
   audioContextNativeCalls: number;
+  receivingFlagWrites: number;
+  systemAudioOwnerClaims: number;
+  widenerInputUses: number;
+  rawReceivingFlagWrites: number;
   readonly broadcastEndpointSites: string[];
   readonly durationReadSites: string[];
   readonly armedReceptionStartSites: string[];
@@ -928,6 +1013,29 @@ function mayWriteAuthorityFence(text: string): boolean {
   return false;
 }
 
+/** A property name's text when it is static, including `['literal']`; null otherwise. */
+function staticPropertyName(name: ts.PropertyName): string | null {
+  if (ts.isComputedPropertyName(name)) {
+    const expression = unwrap(name.expression);
+    return ts.isStringLiteralLike(expression) ? expression.text : null;
+  }
+  return propertyNameText(name);
+}
+
+/**
+ * RO-04: whether a claimPlaybackOwner value use can claim the 'system-audio'
+ * owner. Only a direct call whose first argument is another string literal
+ * cannot; a computed owner, or the claim passed on, counts.
+ */
+function mayClaimSystemAudio(node: ts.Identifier): boolean {
+  const access =
+    ts.isPropertyAccessExpression(node.parent) && node.parent.name === node ? node.parent : node;
+  const call = access.parent;
+  if (!ts.isCallExpression(call) || call.expression !== access) return true;
+  const owner = call.arguments[0] ? unwrap(call.arguments[0]) : undefined;
+  return !owner || !ts.isStringLiteralLike(owner) || owner.text === SYSTEM_AUDIO_OWNER;
+}
+
 function collectFacts(relPath: string, text: string): FileFacts {
   const cached = factsCache.get(relPath);
   if (cached?.text === text) return cached.facts;
@@ -943,6 +1051,10 @@ function collectFacts(relPath: string, text: string): FileFacts {
     locationNavigations: 0,
     skipWaitingSends: 0,
     audioContextNativeCalls: 0,
+    receivingFlagWrites: 0,
+    systemAudioOwnerClaims: 0,
+    widenerInputUses: 0,
+    rawReceivingFlagWrites: 0,
     broadcastEndpointSites: [],
     durationReadSites: [],
     armedReceptionStartSites: [],
@@ -984,6 +1096,29 @@ function collectFacts(relPath: string, text: string): FileFacts {
       if (!disarmed) {
         facts.armedReceptionStartSites.push(`${relPath} :: ${enclosingFunctionName(node)}`);
       }
+    } else if (
+      ts.isIdentifier(node) &&
+      node.text === RECEIVING_FLAG_SETTER &&
+      isValueReference(node)
+    ) {
+      // Any value use, so passing the setter around cannot hide a writer.
+      facts.receivingFlagWrites += 1;
+    } else if (
+      ts.isIdentifier(node) &&
+      node.text === PLAYBACK_OWNER_CLAIM &&
+      isValueReference(node) &&
+      mayClaimSystemAudio(node)
+    ) {
+      facts.systemAudioOwnerClaims += 1;
+    }
+
+    if (
+      relPath !== RECEIVING_FLAG_OWNER_FILE &&
+      ts.isPropertyAssignment(node) &&
+      staticPropertyName(node.name) === RECEIVING_FLAG_KEY
+    ) {
+      // A batchSetState (or any object-literal) write of the flag.
+      facts.rawReceivingFlagWrites += 1;
     }
 
     const member = memberName(node);
@@ -996,6 +1131,9 @@ function collectFacts(relPath: string, text: string): FileFacts {
       if (member === 'ariaHidden' && isAssignmentTarget(node)) facts.ariaHiddenWrites += 1;
       if ((member === 'children' || member === 'childNodes') && receiverName(receiver) === 'body') {
         facts.bodyChildrenWalks += 1;
+      }
+      if (member === 'input' && receiverName(receiver) === 'widener' && !isAssignmentTarget(node)) {
+        facts.widenerInputUses += 1;
       }
       if (!isAssignmentTarget(node)) {
         if (FULLSCREEN_REQUEST_SINK_NAMES.has(member)) facts.fullscreenRequestSinks += 1;
@@ -1026,6 +1164,13 @@ function collectFacts(relPath: string, text: string): FileFacts {
       else if (attribute === 'aria-hidden') facts.ariaHiddenWrites += 1;
     } else if (callee === 'setElementInertForOwner') {
       facts.pageLockClaims += 1;
+    } else if (callee === 'setState') {
+      if (
+        relPath !== RECEIVING_FLAG_OWNER_FILE &&
+        firstStringArgument(node) === RECEIVING_FLAG_KEY
+      ) {
+        facts.rawReceivingFlagWrites += 1;
+      }
     } else if ((callee === 'resume' || callee === 'suspend') && node.arguments.length === 0) {
       // AudioContext.resume() and suspend() take no arguments and are always
       // called on a receiver; a bare resume() is a local function.
@@ -1593,6 +1738,7 @@ export interface ResourceOwnershipReport {
   };
   readonly audioContextNativeCalls: number;
   readonly defaultLoaderWrites: number;
+  readonly receiveSlotWrites: Readonly<Record<string, number>>;
 }
 
 function perFile(
@@ -1786,8 +1932,48 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     findings,
   );
 
+  const receiveSlotChecks: readonly ExactCheck[] = [
+    {
+      label: 'receiving flag write',
+      record: 'RO-04',
+      hint:
+        'the receiving flag belongs to the system-audio receive slot; a new route attaches ' +
+        'through it, or adds a reasoned entry with the record update',
+      measured: perFile(facts, (f) => f.receivingFlagWrites, appOnly),
+      baseline: RECEIVING_FLAG_WRITE_BASELINE,
+    },
+    {
+      label: 'system-audio owner claim',
+      record: 'RO-04',
+      hint:
+        "claimPlaybackOwner('system-audio') belongs to the receive slot and the sharer's " +
+        'capture; a computed owner or a passed-on claim counts as one',
+      measured: perFile(facts, (f) => f.systemAudioOwnerClaims, appOnly),
+      baseline: SYSTEM_AUDIO_OWNER_CLAIM_BASELINE,
+    },
+    {
+      label: 'widener.input use',
+      record: 'RO-04',
+      hint:
+        'a received source connects to the stereo widener through the receive slot; the file ' +
+        'playback route belongs to src/audio/engine.ts',
+      measured: perFile(facts, (f) => f.widenerInputUses, appOnly),
+      baseline: WIDENER_INPUT_USE_BASELINE,
+    },
+    {
+      label: 'raw receiving flag write',
+      record: 'RO-04',
+      hint: `write ${RECEIVING_FLAG_KEY} through ${RECEIVING_FLAG_SETTER} (${RECEIVING_FLAG_OWNER_FILE})`,
+      measured: perFile(facts, (f) => f.rawReceivingFlagWrites, appOnly),
+      baseline: RAW_RECEIVING_FLAG_WRITE_BASELINE,
+    },
+  ];
+  for (const check of receiveSlotChecks) compareExact(check, findings);
+
   const sinks: Record<string, number> = {};
   for (const check of pageStateChecks) sinks[check.label] = total(check.measured);
+  const receiveSlotWrites: Record<string, number> = {};
+  for (const check of receiveSlotChecks) receiveSlotWrites[check.label] = total(check.measured);
   let ariaHiddenWritesTotal = 0;
   for (const [relPath, fileFacts] of facts) {
     if (appOnly(relPath)) ariaHiddenWritesTotal += fileFacts.ariaHiddenWrites;
@@ -1814,6 +2000,7 @@ export function analyzeResourceOwnership(input: ResourceOwnershipInput): Resourc
     },
     audioContextNativeCalls: total(audioContextCalls),
     defaultLoaderWrites: total(defaultLoaderWrites),
+    receiveSlotWrites,
   };
 }
 
@@ -1854,7 +2041,8 @@ function main(argv: readonly string[]): void {
       `${argv.includes('--report') ? '' : ', list with --report'}).\n` +
       `  AudioContext native resume/suspend: ${report.audioContextNativeCalls}.\n` +
       `  Developer API authority fence writes: ${report.authorityFenceWrites}.\n` +
-      `  Header loader default holder writes: ${report.defaultLoaderWrites}.`,
+      `  Header loader default holder writes: ${report.defaultLoaderWrites}.\n` +
+      `  system-audio receive slot writes: ${summary(report.receiveSlotWrites)}.`,
   );
   if (argv.includes('--report')) {
     for (const pair of timingPairs.reportOnly) console.log(`    report-only: ${pair}`);

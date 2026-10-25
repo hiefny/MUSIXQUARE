@@ -401,7 +401,14 @@ RO-49 accepted-exception
     watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`,
     and when an armed `beginTrustedSystemAudioReception` start appears in a new function. The
     start returns early while the placeholder is active, so an armed start on the retry path
-    would re-arm the watchdog before the SFU start runs.
+    would re-arm the watchdog before the SFU start runs. Since Phase 5 prep (T5) it also counts the
+    slot's direct writers per file, exactly: `setSystemAudioReceiving` value uses (9: guest 3,
+    Standard SFU 1, service 5), `claimPlaybackOwner` uses that can claim `'system-audio'` (6:
+    guest 2, Standard SFU 1, service 2, and the sharer's own claim in `system-capture.ts`),
+    `widener.input` uses (5: the file playback route's 2 in `engine.ts`, guest, Standard SFU and
+    service 1 each) and raw `'systemAudio.isReceiving'` writes outside `src/player/ownership.ts`
+    (1: the `leaveSession` batch reset in `peer.ts`). Each Phase 5 increment that moves a write
+    into the slot lowers its count.
 - **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrived after the
   30 s watchdog stayed silent) is fixed in 9.0.2. G6 (each PRO SFU retry re-runs the reception
   start, including `stopAllMedia` and the host-started notice) is an open release-record item.
@@ -2448,12 +2455,19 @@ and unrelated strings never count, and every baseline is an exact count or list 
    declarations in the same file can leave undefined (an optional parameter, a `let` with no value,
    or any of these as its value); names match across the file, not by scope. Shows, hides and
    progress ticks all count; calls with a named holder do not.
+9. **System-audio receive slot writers, per file** (RO-04, Phase 5 prep): in `src/`,
+   `setSystemAudioReceiving` value uses (calls or the setter passed on); `claimPlaybackOwner`
+   value uses unless the call's first argument is a string literal other than `'system-audio'`
+   (a computed owner or a passed-on claim counts); reads of `.input` on a receiver named
+   `widener`; and raw `'systemAudio.isReceiving'` writes (a `setState()` call or an object-literal
+   key such as a `batchSetState` reset) outside `src/player/ownership.ts`, the setter's home. The
+   widener match is by name, so a widener held under another name is not seen.
 
 The requesters of `scheduleSessionReset` and `scheduleDocumentReload`, and each page navigation
 sink by function, are checked by `scripts/check-navigation-sinks.mts` (RO-23, Phase 2 C6-14).
 
 Not checked yet: callers of the other records' lifecycle operations (YouTube player commands,
-`claimPlaybackOwner`, `setSystemAudioReceiving`), receivers resolved by
+`claimPlaybackOwner` with a literal owner other than `'system-audio'`), receivers resolved by
 type (RO-44), module-level lifecycle slots (RO-45), timer-name manifests, shared phase unions,
 duplicated helper names, "mirrors" copy-marker comments, registered timings retyped as literals
 in requester files, and header loader

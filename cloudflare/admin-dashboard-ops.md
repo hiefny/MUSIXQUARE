@@ -232,7 +232,8 @@ floor, the revision and update time, the build this App serves, the reported
 build with its age, and the change history with each reason. Its only control
 lowers the floor, including to 0 (off); the server refuses a raise from the
 dashboard. Raises go through GitHub Actions (the release workflow or the floor
-workflow), which share the release concurrency group. The panel and its
+workflow, see the [hotfix procedure](../docs/hotfix-procedure.md#app-build-floor)),
+which share the release concurrency group. The panel and its
 `/api/admin/app-build-floor` route stay available during maintenance.
 
 The public `GET /api/app-build-floor` answers the same state uncached for

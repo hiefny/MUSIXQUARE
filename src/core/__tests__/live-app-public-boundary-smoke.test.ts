@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  verifyAppBuildFloorClientReadBoundary,
+  type AppBuildFloorClientReadBoundaryRead,
+} from '../../../scripts/live-app-public-boundary-smoke.mts';
+import {
   APP_PUBLIC_BOUNDARY_TIMEOUT_MS,
   REJECTED_TOSS_ORIGINS,
   verifyAnonymousAccountSessionBoundary,
@@ -310,6 +314,91 @@ describe('live app public boundary smoke', () => {
   ])('fails closed when the live App origin boundary is permissive %#', async (result) => {
     await expect(verifyProductionOriginBoundary({ read: async () => result })).rejects.toThrow(
       `Production App still trusts the Toss origin ${REJECTED_TOSS_ORIGINS[0]}`,
+    );
+  });
+});
+
+describe('live App build floor client read boundary', () => {
+  const RELEASE_BUILD = 785;
+  const okRead = (overrides: Partial<AppBuildFloorClientReadBoundaryRead> = {}) => ({
+    liveAppBuild: RELEASE_BUILD,
+    status: 200,
+    cacheControl: 'no-store',
+    setCookie: null,
+    body: JSON.stringify({ effectiveMinAppBuild: 785 }),
+    ...overrides,
+  });
+  const verify = (
+    read: AppBuildFloorClientReadBoundaryRead,
+    log: (line: string) => void = () => undefined,
+  ) =>
+    verifyAppBuildFloorClientReadBoundary({
+      read: async () => read,
+      releaseBuild: () => RELEASE_BUILD,
+      log,
+    });
+
+  it('accepts exactly {effectiveMinAppBuild} right after the release App deploy', async () => {
+    await expect(verify(okRead())).resolves.toEqual({
+      clientFloorRead: 'verified',
+      strict: true,
+      effectiveMinAppBuild: 785,
+    });
+    await expect(
+      verify(okRead({ body: JSON.stringify({ effectiveMinAppBuild: 0 }) })),
+    ).resolves.toMatchObject({ effectiveMinAppBuild: 0 });
+  });
+
+  it.each([
+    ['an extra key', okRead({ body: JSON.stringify({ effectiveMinAppBuild: 785, extra: 1 }) })],
+    ['a negative build', okRead({ body: JSON.stringify({ effectiveMinAppBuild: -1 }) })],
+    ['a fractional build', okRead({ body: JSON.stringify({ effectiveMinAppBuild: 784.5 }) })],
+    ['a string build', okRead({ body: JSON.stringify({ effectiveMinAppBuild: '785' }) })],
+    ['a missing build', okRead({ body: JSON.stringify({}) })],
+    ['a build above the App that answers', okRead({ body: '{"effectiveMinAppBuild":786}' })],
+    ['a cacheable answer', okRead({ cacheControl: 'public, max-age=30' })],
+    ['a session cookie', okRead({ setCookie: '__Host-mxqr_session=x; Path=/; Secure' })],
+    ['a 404', okRead({ status: 404, body: '{"error":"NOT_FOUND"}' })],
+    ['an HTML fallback', okRead({ body: '<!doctype html><title>MUSIXQUARE</title>' })],
+    ['a maintenance answer', okRead({ status: 503, body: '{"error":"SERVICE_MAINTENANCE"}' })],
+  ])('fails the release App smoke on %s', async (_label, read) => {
+    await expect(verify(read)).rejects.toThrow('App build floor client read');
+  });
+
+  it('passes an older App without the read in a manual run and logs it', async () => {
+    for (const read of [
+      okRead({ liveAppBuild: 784, status: 404, body: '{"error":"NOT_FOUND"}' }),
+      okRead({ liveAppBuild: 784, body: '<!doctype html>' }),
+    ]) {
+      const log = vi.fn();
+      await expect(verify(read, log)).resolves.toEqual({
+        clientFloorRead: 'absent-on-older-app',
+        strict: false,
+        effectiveMinAppBuild: null,
+      });
+      expect(log).toHaveBeenCalledWith(
+        expect.stringContaining('App without the client floor read'),
+      );
+    }
+  });
+
+  it('still requires the exact shape from any App that answers 200 JSON', async () => {
+    await expect(
+      verify(
+        okRead({
+          liveAppBuild: 784,
+          body: JSON.stringify({ effectiveMinAppBuild: 784, minAppBuild: 785 }),
+        }),
+      ),
+    ).rejects.toThrow('App build floor client read');
+    await expect(
+      verify(okRead({ liveAppBuild: 786, body: JSON.stringify({ effectiveMinAppBuild: 785 }) })),
+    ).resolves.toEqual({ clientFloorRead: 'verified', strict: false, effectiveMinAppBuild: 785 });
+  });
+
+  it('fails when the live App build cannot be read', async () => {
+    await expect(verify(okRead({ liveAppBuild: null }))).rejects.toThrow(
+      'live App build is unreadable',
     );
   });
 });

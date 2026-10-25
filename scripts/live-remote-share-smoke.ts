@@ -6,6 +6,13 @@ import type WebSocketClient from 'ws';
 import type { RawData } from 'ws';
 
 import {
+  LegacySignalingHostAuthError,
+  classifyHostAdmission,
+  createHostAuthBuildSelector,
+  resolveLiveSmokeAppBuild,
+  withAppBuild,
+} from './live-smoke-app-build.mts';
+import {
   RateLimitUnavailableError,
   createRateLimitUnavailableRetry,
   readRateLimitUnavailableUpgrade,
@@ -421,6 +428,7 @@ async function openRoomUploadAssertionAuthorityAttempt(
   expectedSignalingVersion: string,
   hostSecret: string,
   requireKeyringVersion: boolean,
+  hostAppBuild: number | null,
 ): Promise<{
   provider: RoomUploadAssertionProvider | null;
   close(): void;
@@ -474,14 +482,27 @@ async function openRoomUploadAssertionAuthorityAttempt(
       (message) => message.type === 'peer-open' || message.type === 'error',
     );
     socket.send(
-      JSON.stringify({
-        type: 'host-auth',
-        secret: hostSecret,
-      }),
+      JSON.stringify(withAppBuild({ type: 'host-auth', secret: hostSecret }, hostAppBuild)),
     );
     const peerOpen = await admitted;
     if (peerOpen.type === 'error') {
       socket.close(1000, 'remote-share smoke host admission failed');
+      const admission = classifyHostAdmission(peerOpen);
+      if (admission.outcome === 'legacy-refused' && hostAppBuild !== null) {
+        // The exact-version run treats a pre-floor edge as stale; any other
+        // run gets the one legacy-shape retry.
+        if (expectedSignalingVersion) {
+          throw new StaleSignalingVersionError(
+            `remote-share signaling host reached a signaling Worker without appBuild support; expected ${expectedSignalingVersion}`,
+          );
+        }
+        throw new LegacySignalingHostAuthError('remote-share signaling host');
+      }
+      if (admission.outcome === 'below-floor') {
+        throw new Error(
+          `remote-share signaling host was refused below the App build floor ${admission.minAppBuild} with build ${hostAppBuild ?? 'none'}`,
+        );
+      }
       throw new Error(
         `remote-share signaling host rejected: ${String(peerOpen.message || peerOpen.errorType)}`,
       );
@@ -590,13 +611,21 @@ async function openRoomUploadAssertionAuthority(
   close(): void;
 }> {
   const expectedSignalingVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
+  // The host reports the checked-out release build, so this smoke keeps
+  // passing after the App build floor is turned on.
+  const hostAuth = createHostAuthBuildSelector(resolveLiveSmokeAppBuild(), {
+    label: 'remote-share smoke',
+  });
   return withSignalingVersionConvergence((hostSecret) =>
-    openRoomUploadAssertionAuthorityAttempt(
-      roomId,
-      readiness,
-      expectedSignalingVersion,
-      hostSecret,
-      requireKeyringVersion,
+    hostAuth.run((hostAppBuild) =>
+      openRoomUploadAssertionAuthorityAttempt(
+        roomId,
+        readiness,
+        expectedSignalingVersion,
+        hostSecret,
+        requireKeyringVersion,
+        hostAppBuild,
+      ),
     ),
   );
 }

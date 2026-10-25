@@ -20,6 +20,11 @@ on:
         required: true
         default: false
         type: boolean
+      raise_app_build_floor:
+        description: After a committed release, raise the App build floor to the released build
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -50,6 +55,12 @@ jobs:
             echo "::error::Developer API D1 changes require target 'developer-api' or 'all'."
             exit 1
           fi
+          if [[ "${{ inputs.raise_app_build_floor }}" == "true" &&
+                "${{ inputs.target }}" != "app" &&
+                "${{ inputs.target }}" != "all" ]]; then
+            echo "::error::Raising the App build floor requires target 'app' or 'all'."
+            exit 1
+          fi
 
       - name: Checkout exact release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,6 +78,12 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 240
+    # id-token mints the GitHub OIDC token of the App build floor raise, the
+    # only step that requests one (the App Worker trusts this workflow on main).
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
     outputs:
       mutation_authorized: ${{ steps.mutation_authorization.outputs.authorized }}
       production_committed: ${{ steps.production_commit.outputs.committed }}
@@ -1442,6 +1459,17 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
+      # Opt-in and after the commit marker only: a failure here never rolls the
+      # committed release back (recovery keys on the marker); it fails the run,
+      # leaves the floor where it was, and the App Build Floor workflow reruns it.
+      # The script raises only to this release's build and only when that build
+      # is the live App, which the App smokes above just verified.
+      - name: Raise App build floor to the released build
+        id: app_build_floor_raise
+        if: success() && inputs.raise_app_build_floor && steps.production_commit.outputs.committed == 'true'
+        timeout-minutes: 10
+        run: node scripts/app-build-floor.mts raise
+
       - name: Assess R2 recovery constraints before Worker rollback
         timeout-minutes: 5
         id: r2_policy_assessment
@@ -1687,6 +1715,7 @@ jobs:
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation readiness restore: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Standard HTTPS signaling fallback smoke: \`${{ steps.standard_http_signaling_smoke.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- App build floor raise: \`${{ steps.app_build_floor_raise.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Final signaling Custom Domain candidate verification: \`${{ steps.signaling_domain_candidate_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery PRO generation fence: \`${{ steps.pro_room_generation_cutover_disable.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery Worker floor assessment: \`${{ steps.worker_floor_assessment.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"

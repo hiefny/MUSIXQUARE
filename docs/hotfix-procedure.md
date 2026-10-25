@@ -609,7 +609,59 @@ Use this when stale clients are likely to keep hitting a severe bug.
    - service-worker update dialog or cooldown behavior
    - the specific broken scenario
 
-Do not add a forced reload mechanism casually. There is no current production broadcast infrastructure for forced reloads, and forcibly reloading active audio/session clients can be worse than letting the service-worker update flow handle it.
+Do not add a forced reload mechanism casually. There is no current production broadcast infrastructure for forced reloads, and forcibly reloading active audio/session clients can be worse than letting the service-worker update flow handle it. To keep builds that are too old out of rooms, use the [App build floor](#app-build-floor), which refuses their new entries instead of reloading anyone.
+
+## App Build Floor
+
+The App build floor (forced update, train 9.0.12; record RO-50 in the
+[resource ownership registry](design/resource-ownership-registry.md)) refuses new room entries
+from App builds below a minimum: the Signaling Worker refuses a `host-auth` or `guest-auth` whose
+`appBuild` is lower (a missing one counts as 0), and the PRO front door refuses bootstrap,
+sessions and presence entry. Open sessions are never closed. The build number is the
+service-worker cache epoch (`v785` is build 785). The control object enforces the lower of the
+stored floor and the live App build that the App Worker reports every minute, and nothing once
+that report is five minutes old, so the enforced floor never stays above the App that is live.
+
+Change it only through GitHub Actions. No secret or owner credential is involved: the App
+Worker's ops route accepts only a GitHub OIDC token of this workflow or the Production Release
+on `main`.
+
+```bash
+gh workflow run app-build-floor.yml --ref main -f action=status
+gh workflow run app-build-floor.yml --ref main -f action=check
+gh workflow run app-build-floor.yml --ref main -f action=set -f min_app_build=<build> -f reason="<why>"
+gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=<build> -f reason="<why>"
+```
+
+- `set` never goes above the live App build, and `lower` to 0 turns the floor off. Each change
+  is verified end to end (the status, the PRO and Signaling refusal of build N-1, an App cron
+  report newer than the change, and the page's client read within the edge-cache lifetime plus
+  30 seconds) and ends with one summary line for section 1 of the
+  [release record](release-record.md). The admin dashboard can only lower the floor.
+- The workflow shares the Production Release concurrency group. Never dispatch it while a release
+  is running or queued: GitHub keeps one pending run per group, and a newly queued run cancels
+  the pending one. Afterwards read `gh run view <run-id> --json conclusion`; `cancelled` means the
+  run was replaced and nothing ran.
+- A release that needs a floor sets the Production Release input `raise_app_build_floor` (target
+  `app` or `all`). The raise runs only after the commit marker, and only to this release's build
+  when that build is the live App. If it fails, the release stays committed and is not rolled
+  back; rerun `set` with the standalone workflow. The first floor is set with the standalone
+  workflow once the release that introduces the mechanism is verified.
+- Before a CLI rollback of the App to a build under the stored floor, run `lower` to that build
+  first (0 for a build older than 9.0.12, which has no floor routes). Otherwise new entries of
+  that build are refused until the next App report: up to one minute, or up to five minutes for
+  a build older than 9.0.12. A Cloudflare dashboard rollback cannot be guarded; the report clamps
+  the enforced floor the same way, and `lower` or a roll forward lifts the stored value while an
+  App of 9.0.12 or later is live.
+- A local emergency `app` or `all-workers` deployment reads the public status first and stops
+  when the local build is below the stored floor, naming the `lower` command. When the status
+  cannot be read it warns and continues.
+- Never roll the Signaling Worker back below 9.0.12 while an App of 9.0.12 or later is live: an
+  older Signaling Worker refuses every `host-auth` that carries `appBuild`. Roll the App back
+  first, as automated recovery already does. A PRO Worker older than 9.0.12 ignores the
+  `X-MXQR-App-Build` header, so rolling it back only stops the PRO refusals.
+- The daily Operations Drift Audit fails when the stored floor is above the live App build that
+  the App reports, or when a floor is on without a fresh App report.
 
 ## Rollback
 
@@ -663,7 +715,8 @@ If a deployment is bad:
 Avoid `git reset --hard` plus force push on `main` unless there is no reasonable alternative.
 
 For an explicitly reviewed CLI rollback with no active forward floor, deploy the
-saved known-good version at 100%:
+saved known-good version at 100%. When the App goes below the stored App build
+floor, run its `lower` first (see [App Build Floor](#app-build-floor)):
 
 ```bash
 npm run wrangler -- versions deploy <known-good-version-id>@100% --config <worker-config> --yes --message "Rollback: <reason>"

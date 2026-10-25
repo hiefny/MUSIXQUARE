@@ -358,6 +358,7 @@ describe('CI quality and supply-chain gates', () => {
     expect(job).not.toContain('secrets.');
 
     expect(toolingCoverageConfig.test?.include).toEqual([
+      'src/core/__tests__/app-build-floor-script.test.ts',
       'src/core/__tests__/apply-translation-suggestions.test.ts',
       'src/core/__tests__/d1-migration-contract.test.ts',
       'src/core/__tests__/durable-object-migration-contract.test.ts',
@@ -380,6 +381,7 @@ describe('CI quality and supply-chain gates', () => {
       >;
     };
     const coveredScripts = [
+      'scripts/app-build-floor.mts',
       'scripts/apply-translation-suggestions.mts',
       'scripts/audit-ops-drift.mts',
       'scripts/check-d1-migration-contract.mts',
@@ -400,6 +402,12 @@ describe('CI quality and supply-chain gates', () => {
       branches: 68,
       functions: 85,
       lines: 75,
+      'scripts/app-build-floor.mts': {
+        statements: 85,
+        branches: 80,
+        functions: 76,
+        lines: 88,
+      },
       'scripts/audit-ops-drift.mts': {
         statements: 72,
         branches: 71,

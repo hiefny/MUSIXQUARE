@@ -3,6 +3,11 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
+  APP_BUILD_FLOOR_PUBLIC_STATUS_PATH,
+  APP_BUILD_FLOOR_REPORT_STALE_MS,
+  parseAppBuild,
+} from '../cloudflare/app-build-floor-contract.ts';
+import {
   assertDurableObjectMigrationContract,
   assertDurableObjectMigrationRepositoryHistory,
 } from './check-durable-object-migration-contract.mts';
@@ -18,6 +23,7 @@ export const WORKER_SECRET_INVENTORY_END_MARKER = '<!-- END OPS DRIFT WORKER SEC
 const CONTRACT_VERSION = 4;
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const GITHUB_API = 'https://api.github.com';
+const APP_BUILD_FLOOR_STATUS_URL = `https://musixquare.com${APP_BUILD_FLOOR_PUBLIC_STATUS_PATH}`;
 const LIVE_CHECK_TIMEOUT_MS = 15_000;
 const LIVE_RESPONSE_MAX_BYTES = 512 * 1024;
 
@@ -1739,6 +1745,19 @@ async function fetchJson(
   extraHeaders: Readonly<Record<string, string>> = {},
 ): Promise<unknown> {
   if (!token) throw safeOpsDriftError(`${label} credential is not configured.`);
+  return fetchBoundedJson(fetcher, url, label, {
+    Authorization: `Bearer ${token}`,
+    ...extraHeaders,
+  });
+}
+
+/** A bounded GET of a JSON document; public reads pass no credential. */
+async function fetchBoundedJson(
+  fetcher: OpsDriftFetcher,
+  url: string,
+  label: string,
+  extraHeaders: Readonly<Record<string, string>> = {},
+): Promise<unknown> {
   const signal = AbortSignal.timeout(LIVE_CHECK_TIMEOUT_MS);
   const fetchPromise = Promise.resolve().then(() =>
     fetcher(url, {
@@ -1746,7 +1765,6 @@ async function fetchJson(
       signal,
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
         ...extraHeaders,
       },
     }),
@@ -1813,6 +1831,71 @@ async function fetchWorkerDomains(
 }
 
 type OpsDriftCheckStatus = 'pass' | 'drift' | 'error' | 'manual-only';
+
+function optionalTimestamp(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * The App build floor (forced update) against the live App that reports to
+ * it. The gates already enforce min(stored, reported) and nothing once the
+ * report is stale, so neither case refuses anyone wrongly; each still needs a
+ * person: a stored floor above the reported App (lower it, or roll forward),
+ * or an enforced floor with no fresh report (the App cron is broken, or an App
+ * older than the floor is live).
+ */
+export function assessAppBuildFloorStatus(
+  payload: unknown,
+  now: Date,
+): { status: 'pass' | 'drift'; detail: string } {
+  if (!isJsonObject(payload)) throw new Error('App build floor status is not an object.');
+  const stored = parseAppBuild(payload.minAppBuild);
+  const effective = parseAppBuild(payload.effectiveMinAppBuild);
+  const reported =
+    payload.reportedLiveAppBuild === null ? null : parseAppBuild(payload.reportedLiveAppBuild);
+  const reportedAt = optionalTimestamp(payload.reportedAt);
+  const generatedAt = optionalTimestamp(payload.generatedAt);
+  if (
+    typeof payload.minAppBuild !== 'number' ||
+    typeof payload.effectiveMinAppBuild !== 'number' ||
+    stored === null ||
+    effective === null ||
+    typeof payload.revision !== 'number' ||
+    !Number.isSafeInteger(payload.revision) ||
+    payload.revision < 0 ||
+    (payload.reportedLiveAppBuild !== null && typeof payload.reportedLiveAppBuild !== 'number') ||
+    (payload.reportedLiveAppBuild !== null && reported === null) ||
+    reportedAt === undefined
+  ) {
+    throw new Error('App build floor status is malformed.');
+  }
+  if (stored === 0) {
+    return { status: 'pass', detail: 'The App build floor is off.' };
+  }
+  if (reported !== null && stored > reported) {
+    return {
+      status: 'drift',
+      detail: `Stored floor ${stored} is above the reported live App build ${reported}; lower it or roll the App forward.`,
+    };
+  }
+  const reportAgeMs = reportedAt === null ? null : (generatedAt ?? now.getTime()) - reportedAt;
+  if (
+    reported === null ||
+    reportAgeMs === null ||
+    reportAgeMs < 0 ||
+    reportAgeMs > APP_BUILD_FLOOR_REPORT_STALE_MS
+  ) {
+    return {
+      status: 'drift',
+      detail: `Stored floor ${stored} has no fresh live App report, so it is not enforced; check the App cron.`,
+    };
+  }
+  return {
+    status: 'pass',
+    detail: `Stored floor ${stored} (enforced ${effective}) is within the live App build ${reported} reported ${Math.round(reportAgeMs / 1000)} s ago.`,
+  };
+}
 
 interface OpsDriftCheck {
   id: string;
@@ -2329,6 +2412,23 @@ export async function runOpsDriftAudit({
         ),
       );
     }
+  }
+
+  try {
+    const floor = assessAppBuildFloorStatus(
+      await fetchBoundedJson(fetcher, APP_BUILD_FLOOR_STATUS_URL, 'App build floor status'),
+      now,
+    );
+    checks.push(result('app-build-floor', 'App build floor', floor.status, floor.detail));
+  } catch (error) {
+    checks.push(
+      result(
+        'app-build-floor',
+        'App build floor',
+        'error',
+        error instanceof Error ? error.message : String(error),
+      ),
+    );
   }
 
   const github = contract.github;

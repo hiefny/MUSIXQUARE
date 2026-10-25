@@ -44,6 +44,24 @@ function parseJson(source: string, label: string): unknown {
 }
 
 /**
+ * The service-worker cache epoch (the App build number) from the compiler
+ * manifest or from a built `/service-worker.js`: exactly one canonical
+ * `CACHE_VERSION` declaration with a positive integer.
+ */
+export function parseServiceWorkerCacheEpoch(serviceWorkerSource: string): number {
+  const cacheMatches = [...serviceWorkerSource.matchAll(SERVICE_WORKER_CACHE_VERSION_RE)];
+  const [cacheMatch] = cacheMatches;
+  if (cacheMatches.length !== 1 || cacheMatch?.[1] === undefined) {
+    throw new Error('Service-worker sources must declare exactly one numeric CACHE_VERSION.');
+  }
+  const serviceWorkerCacheEpoch = Number(cacheMatch[1]);
+  if (!Number.isSafeInteger(serviceWorkerCacheEpoch) || serviceWorkerCacheEpoch <= 0) {
+    throw new Error('Service-worker cache epoch must be a positive safe integer.');
+  }
+  return serviceWorkerCacheEpoch;
+}
+
+/**
  * Validate the two deliberately independent release identifiers.
  *
  * - package.json is the single source of truth for the human product version.
@@ -75,15 +93,7 @@ export function parseReleaseIdentity({
     throw new Error('package-lock.json root package version does not match package.json.');
   }
 
-  const cacheMatches = [...serviceWorkerSource.matchAll(SERVICE_WORKER_CACHE_VERSION_RE)];
-  const [cacheMatch] = cacheMatches;
-  if (cacheMatches.length !== 1 || cacheMatch?.[1] === undefined) {
-    throw new Error('Service-worker sources must declare exactly one numeric CACHE_VERSION.');
-  }
-  const serviceWorkerCacheEpoch = Number(cacheMatch[1]);
-  if (!Number.isSafeInteger(serviceWorkerCacheEpoch) || serviceWorkerCacheEpoch <= 0) {
-    throw new Error('Service-worker cache epoch must be a positive safe integer.');
-  }
+  const serviceWorkerCacheEpoch = parseServiceWorkerCacheEpoch(serviceWorkerSource);
 
   if (appWorkerSource !== undefined || adminScriptSource !== undefined) {
     const workerMatches = [

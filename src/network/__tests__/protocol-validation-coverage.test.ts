@@ -19,8 +19,14 @@ describe('protocol validation coverage', () => {
   it('classifies every declared message type', () => {
     const types = Object.values(MSG);
 
-    expect(types).toHaveLength(104);
+    expect(types).toHaveLength(103);
     expect(new Set(types).size).toBe(types.length);
+  });
+
+  it('no longer declares the coordinator-era PRO file preload hint', () => {
+    // Since d4b208cc every PRO member warms the next canonical R2 object
+    // itself, and PRO rooms have no browser data connection to carry a hint.
+    expect(Object.values(MSG)).not.toContain('pro-file-preload');
   });
 
   it('no longer declares the per-effect sync from before atomic settings sync', () => {

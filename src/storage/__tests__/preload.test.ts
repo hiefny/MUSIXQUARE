@@ -62,12 +62,6 @@ function connectedPeer(
   };
 }
 
-function messageType(message: unknown): unknown {
-  return typeof message === 'object' && message !== null && 'type' in message
-    ? message.type
-    : undefined;
-}
-
 vi.mock('../storage.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../storage.ts')>();
   storageMocks.postCommand.mockImplementation(actual.postCommand);
@@ -123,7 +117,7 @@ describe('schedulePreload', () => {
     expect(() => schedulePreload()).not.toThrow();
   });
 
-  it('keeps the V1 coordinator PRO whole-object preload path without legacy chunk frames', async () => {
+  it('warms the next PRO file from R2 on this participant without sending any frame', async () => {
     vi.useFakeTimers();
     const current = makeFileTrack('current.flac', Q0);
     const next = makeFileTrack('next.flac', Q1);
@@ -156,13 +150,9 @@ describe('schedulePreload', () => {
     expect(getState('preload.nextQueueItemId')).toBe(Q1);
     expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1 });
     expect(getState('preload.ready')).toBeNull();
-    const messages = vi.mocked(conn.send).mock.calls.map(([message]) => message);
-    expect(messages).toContainEqual(
-      expect.objectContaining({ type: MSG.PRO_FILE_PRELOAD, queueItemId: Q1 }),
-    );
-    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_START)).toBe(false);
-    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_CHUNK)).toBe(false);
-    expect(messages.some((message) => messageType(message) === MSG.PRELOAD_END)).toBe(false);
+    // Every PRO member warms the same canonical object itself. Not even a
+    // stale browser peer is told about it: no hint, no legacy chunk frames.
+    expect(conn.send).not.toHaveBeenCalled();
   });
 
   it('accepts a PRO preload hint only from the exact coordinator connection', async () => {
@@ -436,7 +426,7 @@ describe('schedulePreload', () => {
     expect(lateMember.send).not.toHaveBeenCalled();
   });
 
-  it('replays the authoritative PRO hint for both initial and promoted late peers', () => {
+  it('sends no PRO preload hint to an initial or promoted late peer', () => {
     initPreload();
     const conn = {
       open: true,
@@ -462,19 +452,11 @@ describe('schedulePreload', () => {
     });
 
     bus.emit('orchestrator:peer-joined', conn.peer);
-    expect(conn.send).toHaveBeenCalledWith({
-      type: MSG.PRO_FILE_PRELOAD,
-      queueItemId: Q1,
-      sessionId: 14,
-    });
-
-    vi.mocked(conn.send).mockClear();
     bus.emit('orchestrator:peer-data-target-ready', conn.peer);
-    expect(conn.send).toHaveBeenCalledWith({
-      type: MSG.PRO_FILE_PRELOAD,
-      queueItemId: Q1,
-      sessionId: 14,
-    });
+
+    // Late PRO participants warm the canonical object themselves.
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(getState('preload.activeTarget')).toMatchObject({ queueItemId: Q1, sessionId: 14 });
   });
 });
 

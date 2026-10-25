@@ -1387,3 +1387,77 @@ describe('LinkLiveness ports', () => {
     expect(o.trace).toEqual([['changed', 0], 'side']);
   });
 });
+
+/**
+ * Every close of the link enters the owner (Phase 4 C5-10): its close input
+ * keeps the first cause and is the only way into the connection's close port
+ * (terminate), which `npm run guard:transport-health` locks statically.
+ */
+describe('the one close input (C5-10)', () => {
+  function closer() {
+    const calls: Array<[string, boolean]> = [];
+    let open = true;
+    const pc = new PeerConnection();
+    const liveness: LinkLiveness = new LinkLiveness('cloudflare-data-disconnected-grace-close', {
+      route: () => pc as unknown as RTCPeerConnection,
+      open: () => open,
+      snapshot: () => ({
+        original: pc as unknown as RTCPeerConnection,
+        side: undefined,
+        channelsOpen: true,
+        sideChannelDown: false,
+      }),
+      ping: () => undefined,
+      close: (cause, first) => {
+        calls.push([cause, first]);
+        liveness.stop();
+        open = false;
+      },
+      changed: () => undefined,
+      sideMayRestart: () => undefined,
+      recovered: () => undefined,
+    });
+    liveness.binding = 'negotiation_liveness_05';
+    return { liveness, calls, pc };
+  }
+
+  it("marks the first cause as the link's and still passes every later close to the port", () => {
+    const o = closer();
+    o.liveness.close('peer-left');
+    expect(o.liveness.phase).toBe('closed');
+    o.liveness.close('channel-closed');
+    o.liveness.close('peer-left');
+    expect(o.calls).toEqual([
+      ['peer-left', true],
+      ['channel-closed', false],
+      ['peer-left', false],
+    ]);
+  });
+
+  it('sends the causes it decides itself through the same input', async () => {
+    const o = closer();
+    o.pc.connectionState = 'disconnected';
+    o.liveness.routeChanged(o.pc as unknown as RTCPeerConnection);
+    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    o.liveness.close('channel-closed');
+    expect(o.calls).toEqual([
+      ['original-grace-expired', true],
+      ['channel-closed', false],
+    ]);
+  });
+
+  it('receives every close of a connection, the ones re-entered while it disposes included', async () => {
+    const close = vi.spyOn(LinkLiveness.prototype, 'close');
+    const e = await connection({ bound: true });
+    e.conn.close('leave');
+    // The first channel's close event, the second's, then the PC's closed state.
+    expect(close.mock.calls).toEqual([
+      ['leave'],
+      ['channel-closed'],
+      ['channel-closed'],
+      ['original-terminal'],
+    ]);
+    expect(e.trace).toEqual(['close']);
+    expect(closeLines()).toEqual(['[Transport] Logical connection closed (leave) for peer-0']);
+  });
+});

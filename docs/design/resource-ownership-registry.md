@@ -108,7 +108,7 @@ each record also states the step in words.
 | RO-12 | YouTube iframe audio state                               | YouTube        | duplicated         | 6                              |
 | RO-13 | YouTube manual-offset transaction                        | YouTube        | owner-in-place     | None                           |
 | RO-14 | YouTube iframe instance lifecycle                        | YouTube        | owner-in-place     | None                           |
-| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (C5-1/6/7/8 done; C5-10)     |
+| RO-15 | Standard logical data connection liveness                | Transport      | duplicated         | 4 (C5-1/6/7/8/10 done); RO-35  |
 | RO-16 | Data-PC SDP lane                                         | Transport      | owner-in-place     | Done (4, C5-6)                 |
 | RO-17 | Host per-guest connection close                          | Transport      | duplicated         | 4 (C5-1 and C5-8 done)         |
 | RO-18 | Host-to-guest bulk lanes                                 | Transfer       | duplicated         | 4 (C5-3, C5-11 reduced, C5-12) |
@@ -933,7 +933,8 @@ RO-49 accepted-exception
 ### RO-15 Standard logical data connection liveness
 
 - **Resource:** one admitted `CloudflareDataConnection` (original data PC, isolated control side
-  PC, data and control channels); every machine ends it through `terminate()`.
+  PC, data and control channels); every machine ends it through the link-liveness owner's
+  `close(cause)`, whose close port is the connection's private `terminate()` (since C5-10).
 - **Current owners/flows:** `LinkLiveness` in `src/network/transport/link-liveness.ts` owns the
   original PC's outage since Phase 4 C5-6 (its interruption, disconnected grace, published
   recovery deadline, restartability binding and one-restart gate) and the guest background-resume
@@ -948,6 +949,12 @@ RO-49 accepted-exception
   connection also exposes the owner as its read-only `linkLiveness` view
   (`TransportLinkLivenessView` in `src/network/transport/types.ts`: the original route's phase
   and the published deadline), which `src/network/transport-health.ts` reads (RO-17, RO-18).
+  Since C5-10 the owner also holds the close: every close of the link (its own causes, the
+  channels' close events, the bulk credit sender's control-send failure, the side route's
+  `fail(reason)`, and `close(reason)` from the provider and the application) enters
+  `LinkLiveness.close(cause)`, which keeps the link's first cause and calls the connection's
+  private `terminate()` through its close port; `terminate()` writes the one cause line and
+  disposes the PC and channels.
   The side PC's own deadline and ICE restart stay in `ControlIsolation`
   (`src/network/transport/control-isolation.ts`, deferring to the original through
   `originalReady` and `originalChanged`; RO-35).
@@ -955,10 +962,11 @@ RO-49 accepted-exception
   (the original route since C5-6, the resume probe since C5-7) holding the per-route outage
   deadlines, the resume probe and one close with a cause; the two modules keep their SDP and
   in-band restart executors.
-- **Allowed requesters:** transport consumers through `close(reason)`; transport health reads the
-  owner's `linkLiveness` view for the bulk lanes, the preload pause and the heartbeat lease
-  (RO-17, RO-18; Phase 4 C5-8).
-- **Lifecycle operations:** start and cancel grace, ICE restart, background probe, terminate.
+- **Allowed requesters:** transport consumers through `close(reason)`, which enters the owner's
+  close (C5-10); transport health reads the owner's `linkLiveness` view for the bulk lanes, the
+  preload pause and the heartbeat lease (RO-17, RO-18; Phase 4 C5-8).
+- **Lifecycle operations:** start and cancel grace, ICE restart, background probe, close with a
+  cause (through `terminate()`).
 - **Deadline owner:** the original PC's 15 s grace; the side route's 15 s window capped at 30 s,
   deferred while the original is down; the probe's short close (its 3 s challenge window and its
   1 s look at a disconnected route, both in `link-liveness.ts` since C5-7).
@@ -1001,6 +1009,12 @@ RO-49 accepted-exception
     bulk nor counts as an interruption) and "reads its phase from the original route alone";
     `src/network/__tests__/transport-health.test.ts` "with the link-liveness owner view" and the
     owner-view golden table `src/storage/__tests__/__fixtures__/bulk-writable-owner-view-truth-table.txt`.
+  - The close (C5-10): `link-liveness.test.ts` "one close per link, whoever reports it" (green on
+    the code before the move: the first cause is the only line, later reporters add nothing, and
+    a close re-entered while the connection disposes still emits `close` before the second
+    channel and the PC close) and "the one close input (C5-10)"; the static lock in
+    `src/core/__tests__/transport-health-guard.test.ts` "transport-health guard: the link-liveness
+    owner (C5-10)".
 - **Status:** `duplicated`. Grace constant shared in Phase 4 (C5-1). Close causes in Phase 4
   (C5-5): every `terminate()` site names its cause, callers name theirs through `close(reason)`,
   and the connection keeps the first one and logs one info line per close
@@ -1052,7 +1066,18 @@ RO-49 accepted-exception
   `connected` (`ice-recovered`) rather than on an earlier selected-pair report. The owner, its
   timers, deadlines, effect order and close causes are unchanged. A connection without an owner
   (PeerJS) is read as before. The side route stays in control isolation (RO-35), and every close
-  still goes through the connection's `terminate()`. See
+  still goes through the connection's `terminate()`. C5-10 (the connection part; C5-9 stays out,
+  so control isolation keeps its own deadline, `originalReady` and `originalChanged`) routed every
+  close through the owner without a behaviour change: the owner's `close(cause)` keeps the first
+  cause and passes every close, the ones the connection's disposal re-enters included, to the
+  connection's private `terminate()`, so the cause line, the next-page note, the place of the
+  `close` event during disposal and the dispose order are unchanged. It removed the connection's
+  first-cause field and its grace key field (the key text is unchanged). The transport-health
+  guard now locks the owner: the names of the machines it replaced appear only in
+  `link-liveness.ts`, production code constructs it only in the connection, `terminate()` stays
+  private and is referenced only inside the owner's close port, and the owner calls that port
+  only from `close(cause)`. The side route's outage (RO-35) is the one second machine left
+  on the resource, so the record stays `duplicated` until C5-9 or a decision to keep it. See
   [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md), the
   [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md) and the
   [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md). Exception RO-35.
@@ -1095,7 +1120,7 @@ RO-49 accepted-exception
   lease through the pure read path `src/network/transport-health.ts` (`heartbeatStaleThreshold`,
   `honoursRecoveryLease`): on a Standard-room connection the link-liveness owner's published
   deadline (`linkLiveness.recoveryDeadline`, C5-8), otherwise `conn.iceRecoveryDeadline`; the
-  transport grace and terminate (RO-15) close independently.
+  transport grace and the link-liveness owner's close (RO-15) close independently.
   Detach is fenced by connection identity (`detachHostPeerConnection` in
   `src/network/host-peer-departure.ts`).
 - **Target single owner:** the heartbeat monitor keeps the heartbeat leases and stale fencing that
@@ -1125,8 +1150,9 @@ RO-49 accepted-exception
   path in Phase 4 (C5-4): the monitor reads no raw RTC state except its stale-peer warning
   (`npm run guard:transport-health`, `scripts/check-transport-health.mts`, in CI; see
   [Realtime runtime ownership](realtime-runtime-ownership.md)). Its stale close names the cause
-  `heartbeat-stale` (C5-5). The transport's own grace (the link-liveness owner since C5-6) and
-  terminate (RO-15) still close the connection independently of the monitor, so on the host an
+  `heartbeat-stale` (C5-5), which since C5-10 enters the link-liveness owner's close like every
+  other close. The transport's own grace (the link-liveness owner since C5-6) and its close
+  (RO-15) still close the connection independently of the monitor, so on the host an
   original route that fails without a restart binding ends as `original-terminal` before the
   monitor's threshold. Since C5-8 the read path takes the recovery lease from that owner's
   `linkLiveness` view (the value `iceRecoveryDeadline` delegates, so the lease is unchanged); the
@@ -2023,7 +2049,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   side route's own deadline and restart stay here. Since C5-8 transport health reads only the
   original route's phase from that owner, so a side-route outage neither blocks bulk nor pauses
   preload (`link-liveness.test.ts` "keeps bulk writable and counts no interruption through a
-  side-only outage").
+  side-only outage"). Since C5-10 its `fail(reason)` closes the link through that owner's close
+  (cause `side-failed:<reason>`), which keeps the link's first cause; its deadline, restart and
+  failure reasons are unchanged.
 - **Evidence:** the side route's ICE restart is still under
   [known-accepted #18](../known-accepted.md), awaiting the owner's real-device Wi-Fi to LTE check;
   the same timer also governs active routes to peers without restart capability. The C5-0 lab

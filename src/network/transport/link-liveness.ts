@@ -1,9 +1,33 @@
 // Resource owner: RO-15 (the original route's outage grace, published recovery
-// deadline and ICE-restart gate, and the guest background-resume probe, of one
-// Standard-room logical data connection).
+// deadline and ICE-restart gate, the guest background-resume probe, and the one
+// close with its cause, of one Standard-room logical data connection).
 import { MSG, RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
-import type { TransportBackgroundRecoveryStatus, TransportLinkLivenessView } from './types.ts';
+import type { SideRouteFailure } from './control-isolation.ts';
+import type {
+  TransportBackgroundRecoveryStatus,
+  TransportCloseReason,
+  TransportLinkLivenessView,
+} from './types.ts';
+
+/**
+ * Why a logical connection closed (RO-15). The owner names the causes it
+ * decides itself (the original route and the resume probe); the connection
+ * names its channels', its credit sender's and its side route's; the provider
+ * and the application name theirs through close(reason), and a close that
+ * names nothing is intentional.
+ */
+export type LinkCloseCause =
+  | 'control-send-failed'
+  | `side-failed:${SideRouteFailure}`
+  | 'channel-closed'
+  | 'original-terminal'
+  | 'original-grace-expired'
+  | 'resume-probe-unanswered'
+  | 'resume-stale'
+  | 'resume-disconnected'
+  | TransportCloseReason
+  | 'intentional';
 
 /** A disconnected route at resume gets this one short look, not a fresh grace. */
 const BACKGROUND_RESUME_DISCONNECTED_PROBE_MS = 1_000;
@@ -33,15 +57,12 @@ interface LinkLivenessPorts {
   readonly snapshot: () => LinkSnapshot;
   /** Sends the resume challenge (SYNC_PING); throws when it cannot be sent. */
   readonly ping: (pingId: number) => void;
-  /** Ends the logical connection with this cause (the connection's terminate). */
-  readonly close: (
-    cause:
-      | 'original-terminal'
-      | 'original-grace-expired'
-      | 'resume-probe-unanswered'
-      | 'resume-stale'
-      | 'resume-disconnected',
-  ) => void;
+  /**
+   * The close port: ends the logical connection with this cause (the
+   * connection's terminate, which only this port calls). `first` marks the
+   * cause the link closed with, which the connection reports once.
+   */
+  readonly close: (cause: LinkCloseCause, first: boolean) => void;
   /** The connection's state callback: the guest reconciles, then restarts ICE. */
   readonly changed: () => void;
   /** The side route defers its own restart while the original route recovers. */
@@ -72,10 +93,13 @@ function randomResumeProbePingId(): number {
  * C5-7 it also owns the guest background-resume probe, which reads both routes
  * and their channels. Since C5-8 the connection exposes it as its
  * `linkLiveness` view, from which transport health reads the original route's
- * phase and the published deadline. It is a module of its own because that
- * state has its own start, cancel, expiry and stop lifecycle with its own
- * tests and two readers (the connection and transport health); the SDP
- * executors and the side route (RO-35) stay with their owners.
+ * phase and the published deadline. Since C5-10 every close of the link
+ * enters `close(cause)`, which keeps the first cause and is the only caller of
+ * the connection's terminate (`npm run guard:transport-health`). It is a
+ * module of its own because that state has its own start, cancel, expiry and
+ * stop lifecycle with its own tests and two readers (the connection and
+ * transport health); the SDP executors and the side route (RO-35) stay with
+ * their owners.
  *
  * Rules kept from the connection:
  * - The grace is measured by its managed timer and published in wall-clock
@@ -107,6 +131,8 @@ export class LinkLiveness implements TransportLinkLivenessView {
   private restartInFlight = false;
   private deadline = 0;
   private stopped = false;
+  /** The cause the link closed with: the first close's. */
+  private cause: LinkCloseCause | null = null;
   private probe: ResumeProbe | null = null;
   private readonly probeTimerKey: string;
   private readonly probeDisconnectedTimerKey: string;
@@ -176,7 +202,7 @@ export class LinkLiveness implements TransportLinkLivenessView {
         ports.sideMayRestart();
         return;
       }
-      ports.close('original-terminal');
+      this.close('original-terminal');
     }
   }
 
@@ -217,7 +243,7 @@ export class LinkLiveness implements TransportLinkLivenessView {
     this.probe = probe;
     setManagedTimer(
       this.probeTimerKey,
-      () => ports.close('resume-probe-unanswered'),
+      () => this.close('resume-probe-unanswered'),
       BACKGROUND_RESUME_LIVENESS_TIMEOUT_MS,
     );
     const status = this.reconcileResume(signalingDisconnected);
@@ -225,7 +251,7 @@ export class LinkLiveness implements TransportLinkLivenessView {
     try {
       ports.ping(probe.pingId);
     } catch {
-      ports.close('resume-probe-unanswered');
+      this.close('resume-probe-unanswered');
       return 'stale-connection-closed';
     }
     return status;
@@ -256,14 +282,14 @@ export class LinkLiveness implements TransportLinkLivenessView {
       !channelsOpen ||
       sideChannelDown
     ) {
-      ports.close('resume-stale');
+      this.close('resume-stale');
       return 'stale-connection-closed';
     }
     if (rtcState === 'connected' && sideState !== 'disconnected') return 'monitoring';
     if (rtcState === 'disconnected' || sideState === 'disconnected') {
       probe.sawDisconnected = true;
       if (signalingDisconnected) {
-        ports.close('resume-stale');
+        this.close('resume-stale');
         return 'stale-connection-closed';
       }
       setManagedTimer(
@@ -277,7 +303,7 @@ export class LinkLiveness implements TransportLinkLivenessView {
             !now.channelsOpen ||
             now.side?.connectionState === 'disconnected'
           ) {
-            ports.close('resume-disconnected');
+            this.close('resume-disconnected');
           }
         },
         BACKGROUND_RESUME_DISCONNECTED_PROBE_MS,
@@ -292,6 +318,18 @@ export class LinkLiveness implements TransportLinkLivenessView {
     if (!probe || !payload || typeof payload !== 'object') return;
     const record = payload as Record<string, unknown>;
     if (record.type === MSG.SYNC_PONG && record.pingId === probe.pingId) this.clearProbe();
+  }
+
+  /**
+   * Ends the link with this cause: the only way into the connection's close
+   * port. The first cause is the link's. Every later close still reaches the
+   * port, a close re-entered while the connection disposes its channels
+   * included, so the connection's `close` event keeps its place.
+   */
+  close(cause: LinkCloseCause): void {
+    const first = this.cause === null;
+    if (first) this.cause = cause;
+    this.ports.close(cause, first);
   }
 
   /** The connection is closing: cancel the grace and the probe and arm nothing after it. */
@@ -318,7 +356,7 @@ export class LinkLiveness implements TransportLinkLivenessView {
       this.graceTimerKey,
       () => {
         if (pc !== this.ports.route() || pc.connectionState === 'connected') return;
-        this.ports.close('original-grace-expired');
+        this.close('original-grace-expired');
       },
       RTC_INTERRUPTION_GRACE_MS,
     );

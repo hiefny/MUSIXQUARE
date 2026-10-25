@@ -3,7 +3,8 @@
 - **Status:** Accepted
 - **Decision date:** 2026-08-18
 - **Amended:** 2026-10-24, the transport-health read rule (Phase 4, C5-4); 2026-10-25, the
-  link-liveness owner view (Phase 4, C5-8)
+  link-liveness owner view (Phase 4, C5-8) and the link-liveness owner and close authority
+  (Phase 4, C5-10)
 - **Applies to:** standard-room browser control, synchronization, and peer liveness
 
 ## Decision
@@ -65,6 +66,45 @@ which prints the peer connection's state and decides nothing. Media-PC readers
 (system audio) and the provider's own liveness readers in
 `src/network/transport/` are outside this rule.
 
+## Link-liveness owner and close authority
+
+Amended 2026-10-25 (Phase 4, C5-6 to C5-10; registry RO-15). One owner per
+Standard-room logical data connection (`CloudflareDataConnection`) decides
+whether the link may still recover and why it closed:
+
+| Module                                   | Sole responsibility                                                                                                                                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/network/transport/link-liveness.ts` | the original route's interruption, 15-second grace, published recovery deadline and one-restart gate; the guest background-resume probe over both routes; and the one close of the link with its cause (`LinkLiveness`) |
+
+Evidence sources versus close authority:
+
+- Evidence sources report; they do not end the link themselves. The original
+  PC's state changes, the resume challenge and its exact `SYNC_PONG` are the
+  owner's inputs. The data and control channels' close events, the bulk credit
+  sender's control-send failure and the isolated control side route's
+  `fail(reason)` report through the owner's close input with their cause. The
+  side route keeps its own outage deadline and restart (registry RO-35).
+  Transport health only reads the owner's view (above).
+- `LinkLiveness` is the only transport-internal close authority. Every close
+  enters `close(cause)`, which keeps the link's first cause. Its close port is
+  the connection's private `terminate()`, which writes the one info line
+  `[Transport] Logical connection closed (<cause>) for <peerId>` and disposes
+  the PCs and channels. Later closes, including the ones that disposal
+  re-enters, still reach `terminate()` and add no line.
+- External closers must name a reason. The heartbeat monitor's stale close,
+  the host's open timeout, an unprovable rollback, a departure or admission
+  expiry, an error or join failure and the guest's own leave call
+  `close(reason)` with a `TransportCloseReason`, which enters the same owner;
+  a close that names nothing reads `intentional`. The heartbeat monitor keeps
+  its leases, fencing and disconnect publication and ends a link only through
+  `close('heartbeat-stale')`.
+
+`npm run guard:transport-health` locks this: the names of the machines the
+owner replaced appear only in `link-liveness.ts`, production code constructs
+the owner only in `CloudflareDataConnection`, `terminate()` is private and
+referenced only inside the `close` port the connection hands the owner, and
+the owner calls that port only from `close(cause)`.
+
 ## Authority rules
 
 - Participant-removal handlers accept mutations only through the exact current
@@ -122,6 +162,9 @@ The repository guards this decision through:
 - the transport-health read-path guard, the bulk-writability golden truth
   table (`src/storage/__tests__/__fixtures__/bulk-writable-truth-table.txt`),
   and `transport-health.test.ts` in the critical-runtime coverage profile;
+- the link-liveness owner lock in the same guard, and `link-liveness.test.ts`
+  and `link-liveness-characterization.test.ts` in the critical-runtime
+  coverage profile;
 - focused room-control and heartbeat-monitor tests plus synchronization
   integration regressions through the `initSync()` compatibility facade;
 - broad, critical-runtime, and Worker coverage ratchets;

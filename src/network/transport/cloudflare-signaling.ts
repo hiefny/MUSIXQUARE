@@ -7,12 +7,8 @@ import { noteLinkClose } from '../last-link-close.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
-import { LinkLiveness } from './link-liveness.ts';
-import {
-  ControlIsolation,
-  type IsolatedControlLease,
-  type SideRouteFailure,
-} from './control-isolation.ts';
+import { LinkLiveness, type LinkCloseCause } from './link-liveness.ts';
+import { ControlIsolation, type IsolatedControlLease } from './control-isolation.ts';
 import {
   isStandardHttpSignalingSocket,
   StandardHttpSignalingSocket,
@@ -954,25 +950,6 @@ function isBenignDataChannelCloseError(event: Event): boolean {
 
 let cloudflareDataConnectionSequence = 0;
 
-/**
- * Why a logical connection closed (RO-15). The connection names the causes it
- * decides itself. The provider and the application name theirs through
- * close(reason); a close that names nothing is intentional. An error listener's
- * close while the provider reports the error of a close it decided keeps the
- * provider's cause, whatever the listener names.
- */
-type LinkCloseCause =
-  | 'control-send-failed'
-  | `side-failed:${SideRouteFailure}`
-  | 'channel-closed'
-  | 'original-terminal'
-  | 'original-grace-expired'
-  | 'resume-probe-unanswered'
-  | 'resume-stale'
-  | 'resume-disconnected'
-  | TransportCloseReason
-  | 'intentional';
-
 export class CloudflareDataConnection extends TinyEmitter implements TransportDataConnection {
   open = false;
   peerConnection?: RTCPeerConnection;
@@ -980,41 +957,44 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
   controlChannel?: RTCDataChannel;
   private readonly bulkCredit = new BulkFlowControl(
     (frame) => this.sendControl(JSON.stringify(frame)),
-    () => this.terminate('control-send-failed'),
+    () => this.liveness.close('control-send-failed'),
   );
   readonly controlIsolation?: ControlIsolation;
   readonly bulkFlowControl = this.createBulkFlowPort();
   private controlReceiveTail: Promise<void> = Promise.resolve();
   private closed = false;
-  private closeCause: LinkCloseCause | null = null;
   /** The provider's cause while its error listeners may close without one. */
   private errorCloseCause: TransportCloseReason | null = null;
   private intentionalClosing = false;
   private pcListenersAttached = false;
   private resourcesDisposed = false;
-  private readonly disconnectedGraceTimerKey = `cloudflare-data-disconnected-grace-${++cloudflareDataConnectionSequence}`;
   /**
-   * The original route's grace, recovery deadline and restart gate, and the
-   * guest background-resume probe over both routes (RO-15).
+   * The original route's grace, recovery deadline and restart gate, the guest
+   * background-resume probe over both routes, and every close of the link with
+   * its cause (RO-15). Its timer keys start with this connection's grace key.
    */
-  private readonly liveness = new LinkLiveness(this.disconnectedGraceTimerKey, {
-    route: () => this.peerConnection,
-    open: () => this.open,
-    snapshot: () => ({
-      original: this.peerConnection,
-      side: this.controlIsolation?.peerConnection,
-      channelsOpen:
-        this.dataChannel?.readyState === 'open' && this.controlChannel?.readyState === 'open',
-      sideChannelDown:
-        this.controlIsolation?.phase === 'active' &&
-        this.controlIsolation.channel?.readyState !== 'open',
-    }),
-    ping: (pingId) => this.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() }),
-    close: (cause) => this.terminate(cause),
-    changed: () => this.onConnectionStateChange?.(),
-    sideMayRestart: () => this.controlIsolation?.originalChanged(),
-    recovered: () => this.emit('ice-recovered'),
-  });
+  private readonly liveness = new LinkLiveness(
+    `cloudflare-data-disconnected-grace-${++cloudflareDataConnectionSequence}`,
+    {
+      route: () => this.peerConnection,
+      open: () => this.open,
+      snapshot: () => ({
+        original: this.peerConnection,
+        side: this.controlIsolation?.peerConnection,
+        channelsOpen:
+          this.dataChannel?.readyState === 'open' && this.controlChannel?.readyState === 'open',
+        sideChannelDown:
+          this.controlIsolation?.phase === 'active' &&
+          this.controlIsolation.channel?.readyState !== 'open',
+      }),
+      ping: (pingId) => this.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() }),
+      // The close port: the only caller of terminate() (guard:transport-health).
+      close: (cause, first) => this.terminate(cause, first),
+      changed: () => this.onConnectionStateChange?.(),
+      sideMayRestart: () => this.controlIsolation?.originalChanged(),
+      recovered: () => this.emit('ice-recovered'),
+    },
+  );
   /** What transport health reads of the original route (Phase 4 C5-8). */
   readonly linkLiveness: TransportLinkLivenessView = this.liveness;
   readonly reportsIceRecovery = true;
@@ -1058,7 +1038,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         sendOriginal: (data) => this.sendOriginalControl(data),
         receive: (data) => this.receiveControl(data, false),
         changed: (active) => this.bulkCredit.setControlIsolationActive(active),
-        fail: (reason) => this.terminate(`side-failed:${reason}`),
+        fail: (reason) => this.liveness.close(`side-failed:${reason}`),
         // Side ICE-restart signaling waits while the original PC recovers.
         originalReady: () =>
           this.open &&
@@ -1160,7 +1140,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
         .catch((error) => this.emit('error', error));
     });
     channel.addEventListener('close', () => {
-      this.terminate('channel-closed');
+      this.liveness.close('channel-closed');
     });
     channel.addEventListener('error', (event) => {
       // Chromium can synchronously report `OperationError: ... Close called`
@@ -1209,9 +1189,14 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     this.bulkCredit.noteSent(creditedBytes);
   }
 
+  /**
+   * A close the provider or the application asks for, with its reason. An
+   * error listener's close while the provider reports the error of a close it
+   * decided keeps the provider's cause, whatever the listener names.
+   */
   close(reason?: TransportCloseReason): void {
     if (!this.intentionalClosing) this.intentionalClosing = true;
-    this.terminate(this.errorCloseCause ?? reason ?? 'intentional');
+    this.liveness.close(this.errorCloseCause ?? reason ?? 'intentional');
   }
 
   /**
@@ -1247,11 +1232,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     return this.liveness.reconcileResume(signalingDisconnected);
   }
 
-  private terminate(cause: LinkCloseCause): void {
-    // The first cause wins and is reported once: disposing the PC and channels
-    // re-enters terminate() with their own causes.
-    if (!this.closeCause) {
-      this.closeCause = cause;
+  /**
+   * The link-liveness owner's close port, its only caller. The first cause is
+   * reported once: disposing the PC and channels re-enters the owner's close
+   * with their own causes, which still reach here.
+   */
+  private terminate(cause: LinkCloseCause, first: boolean): void {
+    if (first) {
       log.info(`[Transport] Logical connection closed (${cause}) for ${this.peer}`);
       noteLinkClose(cause);
     }

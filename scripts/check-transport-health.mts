@@ -4,7 +4,7 @@
  *
  * Static ratchet for the one transport-health read path (Phase 4, C5-4;
  * docs/design/realtime-runtime-ownership.md, registry RO-17) and for the
- * link-liveness owner it reads (Phase 4, C5-10; registry RO-15).
+ * link-liveness owner it reads (Phase 4, C5-10 and C5-9; registry RO-15).
  * src/network/transport-health.ts reads a data connection's raw RTC state (and,
  * since C5-8, its link-liveness owner's view of the original route) and
  * answers the bulk, preload and heartbeat questions through pure predicates.
@@ -27,8 +27,10 @@
  *   CHECK 3 Retired names: the identifiers of the machines the owner replaced
  *     in the connection (C5-6 the original route's grace and restart gate,
  *     C5-7 the background-resume probe, C5-10 the grace key field and the
- *     first close cause) appear in no production file but the owner's module,
- *     where some of them live on.
+ *     first close cause) and in the isolated control side route (C5-9 its
+ *     outage deadline, that deadline's wait for the original route and the
+ *     grace of a route that cannot restart) appear in no production file but
+ *     the owner's module, where some of them live on.
  *   CHECK 4 Close port: production code constructs the owner once, in
  *     cloudflare-signaling.ts, and the connection's private terminate() is
  *     referenced only inside the `close` port it hands that owner, so every
@@ -106,9 +108,13 @@ const CLOSE_METHOD = 'terminate';
 const CLOSE_INPUT = 'close';
 
 /**
- * CHECK 3: the names the connection's liveness machines had before the owner
- * took them over, with the step that retired them. Only LIVENESS_MODULE may
- * use them.
+ * CHECK 3: the names the connection's and the side route's liveness machines
+ * had before the owner took them over, with the step that retired them. Only
+ * LIVENESS_MODULE may use them. The C5-9 names are control isolation's (its
+ * side PC's outage deadline and timer, the original-route readiness it read
+ * and the transition notice it took, and its non-renewing grace timer); of
+ * them only the owner's `originalDown` flag lives on. The frozen C9 peer in
+ * the transport tests' fixtures keeps its old grace timer and is out of scope.
  */
 const RETIRED_LIVENESS_NAMES = new Map<string, string>([
   ['scheduleDisconnectedGrace', 'C5-6 original-route grace'],
@@ -127,6 +133,14 @@ const RETIRED_LIVENESS_NAMES = new Map<string, string>([
   ['BACKGROUND_RESUME_DISCONNECTED_PROBE_MS', 'C5-7 resume probe'],
   ['disconnectedGraceTimerKey', 'C5-10 grace key field'],
   ['closeCause', 'C5-10 first close cause'],
+  ['beginInterruption', 'C5-9 side outage deadline'],
+  ['armDeadline', 'C5-9 side outage deadline'],
+  ['restartExpired', 'C5-9 side outage deadline'],
+  ['endInterruption', 'C5-9 side outage deadline'],
+  ['originalReady', "C5-9 side outage's wait for the original route"],
+  ['originalChanged', "C5-9 side outage's wait for the original route"],
+  ['originalDown', "C5-9 side outage's wait for the original route"],
+  ['disconnectedTimer', 'C5-9 side grace without restart'],
 ]);
 
 // ── Input ────────────────────────────────────────────────────────────────

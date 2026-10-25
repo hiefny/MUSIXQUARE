@@ -1027,7 +1027,10 @@ RO-49 accepted-exception
     channel and the PC close) and "the one close input (C5-10)"; the static lock in
     `src/core/__tests__/transport-health-guard.test.ts` "transport-health guard: the link-liveness
     owner (C5-10)" (16 retired names since the 4C review added the connection's former first-cause
-    field `closeCause`).
+    field `closeCause`, 24 since train 4D added the side route's eight former deadline names) and
+    "transport-health guard: the side outage deadline (C5-9)" (each of the eight names fails in
+    `control-isolation.ts` and in the connection, the owner may keep them, and the frozen C9
+    fixture, a test file, stays out of scope).
   - The side route's outage (C5-9): `src/network/transport/__tests__/side-route-outage-integration.test.ts`
     (two real connections, each with its real owner and side route, written and green on the
     9.0.10 code before the move, train 4D D0: the side's own 15 s, the original down before or
@@ -1121,8 +1124,13 @@ RO-49 accepted-exception
   and on the same end; the restart line, the attempts, the windows, every frame, epoch,
   candidate, fence and READY rule and the close causes stay in control isolation, and no wire
   frame changed. Control isolation lost its outage deadline, timer and original-down flag, its
-  disconnect grace timer, `armDeadline`, `restartExpired`, `endInterruption`, `originalChanged`
-  and its `originalReady` option. See
+  disconnect grace timer, `beginInterruption`, `armDeadline`, `restartExpired`,
+  `endInterruption`, `originalChanged` and its `originalReady` option. The transport-health
+  guard's retired names now include these eight (`beginInterruption`, `armDeadline`,
+  `restartExpired`, `endInterruption`, `originalReady`, `originalChanged`, `originalDown`,
+  `disconnectedTimer`; train 4D, the control-isolation part of C5-10), so none of them can come back in a
+  production file but `link-liveness.ts`, where only the owner's `originalDown` flag lives on;
+  the frozen C9 fixture keeps its old grace timer as a test file, outside the guard. See
   [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md), the
   [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md), the
   [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md) and the

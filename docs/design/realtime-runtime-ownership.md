@@ -3,8 +3,8 @@
 - **Status:** Accepted
 - **Decision date:** 2026-08-18
 - **Amended:** 2026-10-24, the transport-health read rule (Phase 4, C5-4); 2026-10-25, the
-  link-liveness owner view (Phase 4, C5-8) and the link-liveness owner and close authority
-  (Phase 4, C5-10)
+  link-liveness owner view (Phase 4, C5-8), the link-liveness owner and close authority
+  (Phase 4, C5-10) and the side route's outage deadline in that owner (Phase 4, C5-9, train 4D)
 - **Applies to:** standard-room browser control, synchronization, and peer liveness
 
 ## Decision
@@ -115,10 +115,15 @@ Evidence sources versus close authority:
   `close('heartbeat-stale')`.
 
 `npm run guard:transport-health` locks this: the names of the machines the
-owner replaced appear only in `link-liveness.ts`, production code constructs
-the owner only in `CloudflareDataConnection`, `terminate()` is private and
-referenced only inside the `close` port the connection hands the owner, and
-the owner calls that port only from `close(cause)`.
+owner replaced appear only in `link-liveness.ts` (in the connection, the
+original route's grace and restart gate, the resume probe and the first
+cause; since C5-9, in control isolation, the side route's former outage
+deadline: `beginInterruption`, `armDeadline`, `restartExpired`,
+`endInterruption`, `originalReady`, `originalChanged`, `originalDown` and
+`disconnectedTimer`), production code constructs the owner only in
+`CloudflareDataConnection`, `terminate()` is private and referenced only
+inside the `close` port the connection hands the owner, and the owner calls
+that port only from `close(cause)`.
 
 ## Authority rules
 
@@ -177,9 +182,10 @@ The repository guards this decision through:
 - the transport-health read-path guard, the bulk-writability golden truth
   table (`src/storage/__tests__/__fixtures__/bulk-writable-truth-table.txt`),
   and `transport-health.test.ts` in the critical-runtime coverage profile;
-- the link-liveness owner lock in the same guard, and `link-liveness.test.ts`
-  and `link-liveness-characterization.test.ts` in the critical-runtime
-  coverage profile;
+- the link-liveness owner lock in the same guard, and `link-liveness.test.ts`,
+  `link-liveness-characterization.test.ts`, `link-liveness-side-outage.test.ts`
+  and `side-route-outage-integration.test.ts` in the critical-runtime coverage
+  profile;
 - focused room-control and heartbeat-monitor tests plus synchronization
   integration regressions through the `initSync()` compatibility facade;
 - broad, critical-runtime, and Worker coverage ratchets;

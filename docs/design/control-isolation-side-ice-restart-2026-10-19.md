@@ -97,7 +97,10 @@ ignored.
   cause. Since Phase 4 C5-9, train 4D, the link-liveness owner also keeps this
   deadline, with the same 15 seconds, wait, re-arm, 30-second cap and monotonic
   clock, and the same grace for a route that cannot restart; the restart, its
-  windows and its frames stay here, registry RO-15.)
+  windows and its frames stay here, registry RO-15. The transport-health guard
+  (`npm run guard:transport-health`) keeps the deadline's former names here,
+  among them `armDeadline`, `restartExpired`, `originalReady` and
+  `disconnectedTimer`, out of every production file but `link-liveness.ts`.)
 - At most 16 restart offers per rolling 30 seconds: the offerer stops there,
   and an answerer offered more closes the connection rather than ignoring the
   offer, which would strand the offerer's attempt.
@@ -105,7 +108,9 @@ ignored.
   open; `CloudflareDataConnection` reports each original state change. (Since
   Phase 4 C5-6, 2026-10-25, its link-liveness owner,
   `src/network/transport/link-liveness.ts`, reports them at the same point in
-  each transition; the connection still answers `originalReady`.)
+  each transition. Since C5-9, train 4D, that owner reads this readiness itself
+  from the connection's snapshot, which now reports the control channel, at the
+  same points as before, and the connection no longer answers `originalReady`.)
 - Before gathering, both the offerer and the answerer run the owner's due RTC
   credential renewal (the `refreshRtcConfigurationIfDue()` rule of the original
   PC's restart).

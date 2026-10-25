@@ -1085,8 +1085,9 @@ RO-49 accepted-exception
   only from `close(cause)`. The side route's outage (RO-35) is the one second machine left
   on the resource, so the record stays `duplicated` until C5-9 or a decision to keep it. See
   [Control isolation side ICE restart](control-isolation-side-ice-restart-2026-10-19.md), the
-  [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md) and the
-  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md). Exception RO-35.
+  [Phase 4 train 4A report](phase4-4a-transport-rejoin-2026-10-24.md), the
+  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md) and the
+  [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md). Exception RO-35.
 
 ### RO-16 Data-PC SDP lane
 
@@ -1341,8 +1342,9 @@ RO-49 accepted-exception
   window that reads `connecting` now excludes the peer from a new bulk stream and pauses a preload
   lane until the owner's `connected`). The single bulk-lane registry stays a target; the lanes
   keep their own maps, policies and pumps. See
-  [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md) and the
-  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md).
+  [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md), the
+  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md) and the
+  [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md) (C5-8).
 
 ### RO-19 Guest fetch of the current track
 
@@ -2098,7 +2100,8 @@ entry needs the owner's acceptance and is not implied by this registry.
   (#478) shows the side route recovering through its restart after its PC fails, on the
   Cloudflare transport in one Chromium. Phase 4 train 4A goes out before the device check (a gate
   deviation, owner decision 2026-10-24), train 4B too (since 2026-10-25 device evidence no longer
-  gates code), and C5-9 stays out of Phase 4 (P4-D6 A).
+  gates code), and so does train 4C (C5-6, C5-7, C5-8 and the connection part of C5-10;
+  [report](phase4-4c-link-liveness-2026-10-25.md)). C5-9 stays out of Phase 4 (P4-D6 A).
 - **Behaviour risk:** known-accepted #18.
 - **Revisit when:** #18 retires.
 - **Status:** `accepted-exception`.

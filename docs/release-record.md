@@ -45,6 +45,47 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 구조 개선 Phase 4 4C 배포 전: Cloudflare 데이터 연결마다 연결 생존 주인 하나
+
+- [ ] 4C 범위와 배포(대기): 4A 때 기기 근거를 기다리며 보류한 C5-6·C5-7·C5-8(P4-D6 A, P4-D13 A)은 오너
+      결정(2026-10-25 약 01:50 KST)으로 기기 근거가 코드의 게이트가 아니게 되어 4B 다음 자기 열차(4C)로
+      간다. 4C는 C5-10의 연결 부분을 함께 싣고 C5-9는 싣지 않는다(Phase 4 밖, RO-35). 브랜치
+      `agent/phase4-4c`(4B 브랜치 끝 `b1962ed5`에서 시작, origin/main `9fca1cad`를 `c23f3057`로 합침,
+      리뷰 낮음 반영 `ab4ba114`)는 아직 main에 없고 배포되지 않았다. SemVer와 SW 캐시 epoch bump 전이다
+      (9.0.9는 배포됐으므로 둘을 함께 올린다. bump 전이라 `guard:sw-cache-version`이 설계대로 실패하고,
+      가드는 v782를 합침 커밋에서 세지만 bump는 C5-6~C5-10의 런타임 변경 전체를 덮는다). 오너 결정대로
+      자동 게이트(로컬 검사, 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke)가 통과하면 따로 묻지 않고
+      target `app`, Developer API D1 `false`(예상)로 낸다. 바뀌는 것: 원래 경로의 15초 유예, 공개하는 복구
+      마감, 끊김당 ICE 재시작 하나의 문(C5-6), 게스트 백그라운드 복귀 확인(C5-7), 링크의 모든 닫힘과 첫
+      원인(C5-10)을 `LinkLiveness` 하나가 갖고(중립, 타이머 키·마감·효과 순서·원인 낱말 그대로), 전송 상태
+      읽기가 그 주인의 보기를 읽는다(C5-8, 동작 위험). C5-8 뒤로는 주인이 원래 경로의 끊김을 쥔 채 경로가
+      `connecting`·`new`로 읽히는 재시작 창에서 그 peer가 bulk-writable이 아니어서 새 본 레인·미리받기
+      스트림이 그 peer를 빼고(게스트는 disconnected 때처럼 자기 복구 요청에 기댐), 미리받기 레인은 주인의
+      `connected`(`ice-recovered`)까지 멈춘 채 있다가 청크 0부터 다시 시작한다(그 전의 선택 쌍 보고로는
+      재개하지 않음). 보조 경로만의 끊김은 전처럼 bulk를 막지 않고, 원시 `iceConnectionState` 행은 그대로이며,
+      원시와 주인 보기의 불일치 로그는 넣지 않았다(Phase 4 계획 v3 기본값 2). 모든 `CloudflareDataConnection`
+      (PRO 포함)이 주인을 갖지만 PRO 방의 영구 재생목록 미디어는 레인을 쓰지 않는다. 통신 형식, 메시지
+      종류, 영구 데이터 모양, 타이밍 값, 타이머 키, 기존 로그 문자열은 그대로이고, #18과 미리받기 재개
+      판정이 읽는 다섯 줄과 `[Transport] Logical connection closed (<cause>) for <peerId>` 줄은 바이트가
+      같다. 동결 fixture `control-isolation-c9.ts`는 바뀌지 않았다. 혼합 버전(known-accepted #13): 변화는
+      방장 기기 안의 재시작 창 판단이고, 옛 게스트는 같은 프레임과 복구 요청 경로를 쓴다. 되돌리기는 더
+      높은 SemVer의 코드 되돌리기가 기본이고, 급할 때 Cloudflare App을 9.0.9·9.0.8·9.0.7·9.0.6·9.0.5로
+      되돌려도 PRO 입장 정책 표지는 유지된다. 로컬 검증(`ab4ba114`): 테스트 먼저(중립 넷의 테스트 커밋이
+      바꾸기 전 소스에서 통과, C5-8의 새 21행이 `76ecc766` 소스에서 실패), 단위 664 files / 15,531,
+      typecheck(테스트 포함)·lint·format, 가드(dead-exports 20/20·76/76 그대로, transport-health 은퇴 이름
+      16, resource-ownership 48 records / 437 files), 핵심 커버리지 77 files / 3,025(`link-liveness.ts`·
+      `transport-health.ts` 100), 빌드 두 번과 초기 전송 예산(초기 JS 478,019 B, 같은 기계의 main 477,600 B
+      대비 +419 B, 유지 상한까지 13,549 B), critical E2E 61/61, C5-0 랩 8/8(F4는 본 레인 23,040,044 B 한
+      번, 미리받기 청크 0 B, `PRELOAD_END` 없음, 제어 채널 `PRELOAD_ABORT` 하나) PASS. 로컬 결과는 exact-main-SHA 후보를 대신하지
+      않는다. 배포 뒤 이 항목을 실제 bump·CI·Release 값으로 고친다.
+      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md).
+- [ ] 4C 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 4C 코드로 실제 기기를 아직 돌리지 않았다. 원래
+      경로의 짧은 끊김과 15초 넘는 끊김(원인 줄), 와이파이→LTE의 원래 경로 재시작, iPhone Safari 게스트의 15초
+      넘는 백그라운드 복귀(방장이 있을 때와 없을 때), 미리받기 재개 단계에서 `Resuming preload`가 방장 원래 PC의
+      connected 뒤에 나오는지와 재시작 창의 새 트랙 받기, WebKit 레인, 운영 Cloudflare 전송 경로, 브라우저의 PRO
+      방이 남았다. 4A·4B 기기 라운드도 아직 없어 전후 비교 기준이 없다. 기기 절차는 보고서에 고정했다.
+      [실기기로 확인하지 않은 것](design/phase4-4c-link-liveness-2026-10-25.md#실기기로-확인하지-않은-것).
+
 ### 구조 개선 Phase 4 4B(9.0.9/v782) 배포 뒤 확인: 오너가 고른 연결·재합류 동작 변경
 
 - [ ] 4B 범위(오너 결정 2026-10-25 약 01:35 KST, 배포 시점은 약 01:50 KST 결정): 4B는 Phase 4의 두
@@ -139,7 +180,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `system-audio-service`가 +3,684 B, `system-audio-sfu`가 +448 B 커져 PRO 방 입장의 JS 합은
       거의 같다(−255 B). C5-6·C5-7·C5-8은 아래 #18과 미리받기 재개가 근거로 닫히거나 면제될
       때까지 보류했다(P4-D6 A, P4-D13 A). 오너 결정(2026-10-25 약 01:50 KST) 뒤로는 기기 근거가
-      코드의 게이트가 아니어서 셋은 4B 다음 자기 열차로 진행한다. 배포 대상은 target `app`, Developer API D1 `false`다.
+      코드의 게이트가 아니어서 셋은 4B 다음 자기 열차로 진행한다(4C, C5-10의 연결 부분과 함께
+      준비됨, 배포 전. 위 4C 항목,
+      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)). 배포 대상은 target `app`, Developer API D1 `false`다.
       App 런타임 입력만 바뀌고, `cloudflare/`에서는 bump가 App Worker의 `ADMIN_ASSET_VERSION`
       문자열 하나만 바꾼다. 운영 배포 기록을 기준으로 부분 게이트 판정을 로컬에서 돌리면 다른
       다섯 Worker의 런타임 경로 변경과 App 운영 의존성 변화가 0이다(실제 게이트는 Production
@@ -171,7 +214,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       오너 결정(2026-10-25 약 01:50 KST)이 시점 부분을 대신해, 4B는 4A 배포 7일 뒤나 4A 기기
       라운드를 기다리지 않고 자동 게이트가 통과하면 바로 나가며 기기 근거는 코드의 게이트가
       아니다. 4B는 축소 C5-11, C5-12, 새 종료 원인 토큰, P4-D5 B, P4-D7 B, P4-D9 좁은 수정을 싣고
-      C5-6·C5-7·C5-8은 4B 다음 자기 열차로 간다. ICE 복구 뒤 같은 파일을 두 레인으로 보내는
+      C5-6·C5-7·C5-8은 4B 다음 자기 열차로 간다(4C로 준비됨, 배포 전. C5-10은 연결 부분만 싣고
+      C5-9는 Phase 4 밖이다, [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)). Phase 4의
+      앱 업데이트는 P4-D3 A의 두 번이 아니라 4C까지 세 번이 된다. ICE 복구 뒤 같은 파일을 두 레인으로 보내는
       경우(F4)는 단위 테스트와 랩 17초 끊김에서 재현했고(10초 끊김은 한 번 실행에서 미재현),
       오너는 본 레인이 이기게 했다(P4-D10 A, 2026-10-25, 4B의 C5-12).
       [4A 보고서의 오너 결정](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24),
@@ -1036,9 +1081,13 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       보조 PC가 failed에 닿은 뒤의 재시작 회복을 재현했지만 실기 근거는 아직 없다. 이 항목이
       열린 채 4A를 배포했다(위 Phase 4 게이트 편차). 오너 결정(2026-10-25 약 01:50 KST)으로 기기
       근거는 코드의 게이트가 아니어서 4B와 그 뒤 C5-6·C5-7·C5-8 열차도 이 항목이 열린 채 나간다.
+      4C(배포 전)는 원래 경로의 유예·재시작 게이트, 게스트 복귀 확인과 모든 닫힘을 한 주인
+      (`LinkLiveness`)으로 옮기지만 보조 연결의 기한·재시작과 이 두 줄은 그대로 둔다(RO-35, C5-9는
+      Phase 4 밖). 이 단계를 4C 위에서 돌리면 원래 경로의 재시작도 함께 본다(4C 보고서의 기기 절차).
       [독립 검증](design/side-ice-restart-independent-verification-2026-10-20.md),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md),
-      [4B 보고서의 오너 결정](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25)
+      [4B 보고서의 오너 결정](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25),
+      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)
 - [ ] 8.11.25 미리받기 재개: 호스트 노트북은 와이파이에 두고, 폰이 다음 곡을 미리받는 중(다음 곡
       준비 로더가 보일 때)에 와이파이를 몇 초 껐다 켜거나 LTE로 바꾼다. 8.11.23에서는 미리받기가
       취소된 뒤 다시 시작하지 않았다(오너 확인 2026-10-19). 8.11.25에서 연결이 돌아오면 미리받기가
@@ -1050,10 +1099,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       게이트 편차). 오너 결정(2026-10-25 약 01:50 KST)으로 4B와 그 뒤 C5-6·C5-7·C5-8 열차도 이
       항목이 열린 채 나간다. 4B의 C5-12 뒤로는 복구 뒤 방장이 그 게스트를 local로 다시 판정해 알린
       다음 본 레인이 같은 트랙을 가져가면 재개한 미리받기가 멈추고 방장에 `Yielding preload for` 줄이
-      하나 더 남는다(`Paused`·`Resuming` 줄은 바이트가 같고 그대로 남는다).
+      하나 더 남는다(`Paused`·`Resuming` 줄은 바이트가 같고 그대로 남는다). 4C의 C5-8(배포 전)
+      뒤로는 방장의 원래 경로가 ICE 재시작 중 `connecting`으로 읽히는 동안에도 미리받기가 멈춘 채
+      있고, `Resuming` 줄은 그 경로의 `connected`(연결 생존 주인의 `ice-recovered`) 뒤에 나온다.
+      그 전의 선택 쌍 변경 보고로는 재개하지 않는다(줄 바이트는 같다).
       [native 근거](design/preload-resume-after-ice-recovery-2026-10-20.md),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md),
-      [4B 보고서의 C5-12](design/phase4-4b-behaviour-2026-10-25.md#c5-12-ice-복구-뒤-튜플-하나에-스트림-하나-동작-p4-d10-a)
+      [4B 보고서의 C5-12](design/phase4-4b-behaviour-2026-10-25.md#c5-12-ice-복구-뒤-튜플-하나에-스트림-하나-동작-p4-d10-a),
+      [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md)
 - [ ] 8.11.25 공유 중지 버튼 정렬: 시스템 오디오 공유를 켤 수 있는 기기(PC 브라우저·데스크톱 앱)에서
       공유를 켜고, "공유 중지" 버튼의 정지 사각형과 글자가 버튼 가운데에 보이는지(오른쪽 치우침 없음),
       사각형 크기와 글자 간격이 전과 같은지 다크·라이트에서 본다. 헤드리스 Chromium 측정과 브라우저

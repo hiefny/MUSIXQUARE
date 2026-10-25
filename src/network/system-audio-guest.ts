@@ -2,7 +2,8 @@
  * MUSIXQUARE — System Audio Guest Receiver
  *
  * Receives the original Standard-room stereo track and connects it as-is. The
- * trust boundary and cleanup lifecycle are shared with SFU and PRO receivers.
+ * trust boundary and the end of reception belong to the receive slot
+ * (system-audio-receive-slot.ts), shared with the SFU and PRO receivers.
  */
 
 import { log } from '../core/log.ts';
@@ -13,18 +14,10 @@ import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
-import { stopAllMedia } from '../player/transport.ts';
-import { cancelIncomingFileTransfer } from '../storage/transfer.ts';
-import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
   claimPlaybackOwner,
-  createSystemAudioTrackMeta,
-  isSystemAudioOwner,
   isSystemAudioPlaceholderMeta,
-  releasePlaybackOwner,
-  setPlaybackIdle,
   setSystemAudioReceiving,
-  setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { readSystemAudioStartSurface } from './system-audio-start.ts';
@@ -32,7 +25,20 @@ import { claimGuestDirectSystemAudioRoute } from './system-audio-delivery.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
 import { forceStereoSdp } from './opus-stereo-sdp.ts';
-import { applySystemAudioPlayoutDelay } from './system-audio-media.ts';
+import {
+  applySystemAudioPlayoutDelay,
+  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
+} from './system-audio-media.ts';
+import {
+  awaitTrustedSystemAudioReceptionBoundary,
+  beginTrustedSystemAudioReception,
+  clearSystemAudioReceiveWatchdog,
+  endTrustedSystemAudioReception,
+  getSystemAudioReceiveSlotDebugSnapshot,
+  interruptTrustedSystemAudioReception,
+  noteIgnoredSystemAudioStart,
+  registerSystemAudioReceiveRoute,
+} from './system-audio-receive-slot.ts';
 import {
   cleanupWebRtcAudioDecoderPrimer,
   getAudioTrackStreamKey,
@@ -40,17 +46,21 @@ import {
   type WebRtcAudioDecoderPrimer,
 } from './webrtc-audio-decoder-primer.ts';
 
+// Compatibility aliases (Phase 5 C4-2, removed in C4-8): the Standard SFU, the
+// PRO coordinator and their tests still reach the receive slot and its
+// deadline through this module.
+export {
+  awaitTrustedSystemAudioReceptionBoundary,
+  beginTrustedSystemAudioReception,
+  endTrustedSystemAudioReception as cleanupGuestSystemAudio,
+  SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
+};
+
 // ─── Tuning ───────────────────────────────────────────────────────
-// The playout-delay hint lives in system-audio-media.ts with the other routes'.
-const SYSTEM_AUDIO_RECEIVE_WATCHDOG = 'sys-audio-guest-receive-watchdog';
+// The playout-delay hint and the receive deadline live in
+// system-audio-media.ts with the other routes'.
 const SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX = 'sys-audio-guest-replacement-watchdog';
 const SYSTEM_AUDIO_CHANNEL = 'STEREO';
-// A 9+ device share can require one bounded SFU publication retry before the
-// guest subscription is ready. Keep the watchdog finite, but leave enough
-// headroom for a busy venue/NAT so a healthy large-room join is not mistaken
-// for a failed receive. A PRO LAN-direct listener's coordinator uses the same
-// deadline for its own notice.
-export const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 30_000;
 
 // ─── Module State ─────────────────────────────────────────────────
 
@@ -59,10 +69,6 @@ let _sourceStereo: MediaStreamAudioSourceNode | null = null;
 let _decoderPrimer: WebRtcAudioDecoderPrimer | null = null;
 let _gotStereo = false;
 
-let _prevTrackMeta: TrackMeta | null = null;
-let _trustedReceptionGeneration = 0;
-let _pendingTrustedReceptionGeneration: number | null = null;
-let _trustedReceptionWaitSeq = 0;
 let _initialUnmuteWaitSeq = 0;
 const _replacementWatchdogs = new Map<string, MediaConnection>();
 
@@ -72,14 +78,6 @@ interface InitialUnmuteWaiter {
 }
 
 const _initialUnmuteWaiters = new Set<InitialUnmuteWaiter>();
-
-interface TrustedReceptionWaiter {
-  expectedGeneration: number;
-  timerName: string;
-  resolve: (ready: boolean) => void;
-}
-
-const _trustedReceptionWaiters = new Set<TrustedReceptionWaiter>();
 
 interface GuestChannelDebug {
   channel: string;
@@ -98,14 +96,7 @@ interface GuestChannelDebug {
 }
 
 const _debugChannels = new Map<string, GuestChannelDebug>();
-let _debugLastStartAt = 0;
-let _debugLastStartIgnoredAt = 0;
-let _debugLastStartIgnoredReason = '';
 let _debugLastStopAt = 0;
-let _debugLastCleanupAt = 0;
-let _debugWatchdogArmedAt = 0;
-let _debugWatchdogTimedOutAt = 0;
-let _debugWatchdogActive = false;
 
 function errorToDebugString(error: unknown): string {
   if (error instanceof Error) return error.message;
@@ -114,55 +105,6 @@ function errorToDebugString(error: unknown): string {
 
 function currentMediaConnection(channel: string): MediaConnection | null {
   return channel === SYSTEM_AUDIO_CHANNEL ? _mediaConnStereo : null;
-}
-
-function settleTrustedReceptionWaiters(generation: number, ready: boolean): void {
-  for (const waiter of [..._trustedReceptionWaiters]) {
-    if (waiter.expectedGeneration !== generation) continue;
-    _trustedReceptionWaiters.delete(waiter);
-    clearManagedTimer(waiter.timerName);
-    waiter.resolve(ready);
-  }
-}
-
-function cancelAllTrustedReceptionWaiters(): void {
-  for (const waiter of [..._trustedReceptionWaiters]) {
-    _trustedReceptionWaiters.delete(waiter);
-    clearManagedTimer(waiter.timerName);
-    waiter.resolve(false);
-  }
-}
-
-export function awaitTrustedSystemAudioReceptionBoundary(channel: string): Promise<boolean> {
-  if (isSystemAudioPlaceholder()) return Promise.resolve(true);
-
-  const expectedGeneration = _pendingTrustedReceptionGeneration ?? _trustedReceptionGeneration + 1;
-  const timerName = `sys-audio-guest-trust-gate-${channel}-${++_trustedReceptionWaitSeq}`;
-
-  return new Promise<boolean>((resolve) => {
-    const waiter: TrustedReceptionWaiter = {
-      expectedGeneration,
-      timerName,
-      resolve,
-    };
-    _trustedReceptionWaiters.add(waiter);
-    setManagedTimer(
-      timerName,
-      () => {
-        if (!_trustedReceptionWaiters.delete(waiter)) return;
-        resolve(false);
-      },
-      SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
-    );
-
-    // The trusted START may have committed between the first placeholder
-    // check and waiter publication.
-    if (expectedGeneration === _trustedReceptionGeneration && isSystemAudioPlaceholder()) {
-      _trustedReceptionWaiters.delete(waiter);
-      clearManagedTimer(timerName);
-      resolve(true);
-    }
-  });
 }
 
 function setCurrentMediaConnection(channel: string, mediaConn: MediaConnection | null): boolean {
@@ -219,31 +161,6 @@ function isSystemAudioPlaceholder(): boolean {
   return isSystemAudioPlaceholderMeta(currentMeta);
 }
 
-function clearReceiveWatchdog(): void {
-  clearManagedTimer(SYSTEM_AUDIO_RECEIVE_WATCHDOG);
-  _debugWatchdogActive = false;
-}
-
-function armReceiveWatchdog(): void {
-  _debugWatchdogArmedAt = Date.now();
-  _debugWatchdogActive = true;
-  setManagedTimer(
-    SYSTEM_AUDIO_RECEIVE_WATCHDOG,
-    () => {
-      if (getState('systemAudio.isReceiving')) return;
-      if (!isSystemAudioPlaceholder()) return;
-
-      _debugWatchdogActive = false;
-      _debugWatchdogTimedOutAt = Date.now();
-      log.warn('[SysAudioGuest] Timed out waiting for system audio stream');
-      bus.emit('system-audio:receive-timeout');
-      cleanupGuestSystemAudio();
-      bus.emit('ui:show-toast', t('system_audio.receive_failed'));
-    },
-    SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
-  );
-}
-
 function replacementWatchdogName(channel: string): string {
   return `${SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX}-${channel}`;
 }
@@ -265,7 +182,7 @@ function armReplacementWatchdog(channel: string, mediaConn: MediaConnection): vo
 
       log.warn(`[SysAudioGuest] Timed out waiting for replacement ${channel} stream`);
       bus.emit('system-audio:receive-timeout');
-      cleanupGuestSystemAudio();
+      endTrustedSystemAudioReception();
       bus.emit('ui:show-toast', t('system_audio.receive_failed'));
     },
     SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS,
@@ -348,6 +265,7 @@ async function waitForInitialUnmute(
 // ─── Public API ───────────────────────────────────────────────────
 
 export function getSystemAudioGuestDebugSnapshot() {
+  const slot = getSystemAudioReceiveSlotDebugSnapshot();
   const channels = [..._debugChannels.values()].map((channel) => ({
     channel: channel.channel,
     incomingAt: channel.incomingAt,
@@ -376,14 +294,14 @@ export function getSystemAudioGuestDebugSnapshot() {
     gotStereo: _gotStereo,
     sourceStereo: !!_sourceStereo,
     decoderPrimer: !!_decoderPrimer,
-    lastStartAt: _debugLastStartAt,
-    lastStartIgnoredAt: _debugLastStartIgnoredAt,
-    lastStartIgnoredReason: _debugLastStartIgnoredReason,
+    lastStartAt: slot.lastStartAt,
+    lastStartIgnoredAt: slot.lastStartIgnoredAt,
+    lastStartIgnoredReason: slot.lastStartIgnoredReason,
     lastStopAt: _debugLastStopAt,
-    lastCleanupAt: _debugLastCleanupAt,
-    watchdogArmedAt: _debugWatchdogArmedAt,
-    watchdogTimedOutAt: _debugWatchdogTimedOutAt,
-    watchdogActive: _debugWatchdogActive,
+    lastCleanupAt: slot.lastCleanupAt,
+    watchdogArmedAt: slot.watchdogArmedAt,
+    watchdogTimedOutAt: slot.watchdogTimedOutAt,
+    watchdogActive: slot.watchdogActive,
     channels,
     peerConnections: [..._debugChannels.values()]
       .filter((channel): channel is GuestChannelDebug & { pc: RTCPeerConnection } => !!channel.pc)
@@ -500,7 +418,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 
     // Update state once at least one stream is connected
     if (!getState('systemAudio.isReceiving')) {
-      clearReceiveWatchdog();
+      clearSystemAudioReceiveWatchdog();
       setSystemAudioReceiving(true);
       claimPlaybackOwner('system-audio');
       bus.emit('visualizer:start');
@@ -515,7 +433,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       if (!isCurrentMediaConnection(channel, mediaConn)) return;
       debug.graphError = errorToDebugString(error);
       log.warn(`[SysAudioGuest] ${channel} stream graph failed:`, error);
-      cleanupGuestSystemAudio();
+      endTrustedSystemAudioReception();
       bus.emit('ui:show-toast', t('system_audio.receive_failed'));
     });
   });
@@ -528,7 +446,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     clearReplacementWatchdog(channel, mediaConn);
     setCurrentMediaConnection(channel, null);
     _gotStereo = false;
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
   });
 
   mediaConn.on('error', (err: unknown) => {
@@ -554,23 +472,13 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   }
 }
 
-// ─── Cleanup ──────────────────────────────────────────────────────
+// ─── End of Reception ─────────────────────────────────────────────
 
-// Shared by the direct-call and SFU receive adapters; this module owns the
-// placeholder and previous-track metadata restoration contract.
-export function cleanupGuestSystemAudio(): void {
+// The direct call's part of every reception end, whichever route ends it.
+// The receive slot runs it after taking the restore point and before the
+// receiving flag drops (system-audio-receive-slot.ts).
+function endStandardDirectReception(): void {
   cancelInitialUnmuteWaiters();
-  _trustedReceptionGeneration += 1;
-  _pendingTrustedReceptionGeneration = null;
-  cancelAllTrustedReceptionWaiters();
-  _debugLastCleanupAt = Date.now();
-  const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
-  const wasSystemAudioOwner = isSystemAudioOwner();
-  const prevTrackMeta = _prevTrackMeta;
-  // Consume restore state before closing adapters. Synchronous close callbacks
-  // and repeated room-leave cleanup must never replay an earlier snapshot.
-  _prevTrackMeta = null;
-  clearReceiveWatchdog();
   clearAllReplacementWatchdogs();
   if (_sourceStereo) {
     try {
@@ -588,71 +496,9 @@ export function cleanupGuestSystemAudio(): void {
   _mediaConnStereo = null;
   closeMediaConnection(mediaConnection);
   _gotStereo = false;
-
-  setSystemAudioReceiving(false);
-  if (!wasSystemAudioOwner && !wasSystemAudioPlaceholder) {
-    // A newer playback owner already replaced this receive adapter. Teardown
-    // the stale graph, but never write its title or lifecycle over the winner.
-    return;
-  }
-
-  // Restore the previous title before releasing system-audio ownership.
-  setPlaybackTrackMeta(prevTrackMeta);
-  releasePlaybackOwner('system-audio', {
-    force: wasSystemAudioPlaceholder,
-  });
-  setPlaybackIdle();
 }
 
-/**
- * Enter the trusted receive placeholder without requiring a legacy host
- * frame. PRO rooms call this only after authenticating the server-owned
- * live-share lease.
- *
- * `receiveWatchdog: false` leaves the receive deadline to the caller. The PRO
- * coordinator reports a failure once per generation on both routes: the SFU
- * subscription keeps this placeholder through its backed-off retries, and the
- * LAN-direct listener keeps it past its own deadline, while the publisher
- * promotes a listener it cannot reach to the SFU. The watchdog would instead
- * show receive_failed and drop to idle while a longer retry waits, or before a
- * slow attempt's track or a late direct offer arrives.
- */
-export function beginTrustedSystemAudioReception(
-  surface: unknown = 'display',
-  options: { receiveWatchdog?: boolean } = {},
-): boolean {
-  if (isSystemAudioPlaceholder() || _pendingTrustedReceptionGeneration !== null) {
-    return false;
-  }
-  const generation = ++_trustedReceptionGeneration;
-  _pendingTrustedReceptionGeneration = generation;
-  const committed = commitTrustedSystemAudioReception(surface, options.receiveWatchdog ?? true);
-  if (_pendingTrustedReceptionGeneration === generation) {
-    _pendingTrustedReceptionGeneration = null;
-  }
-  settleTrustedReceptionWaiters(generation, committed);
-  return committed;
-}
-
-function commitTrustedSystemAudioReception(surface: unknown, receiveWatchdog: boolean): boolean {
-  if (isSystemAudioPlaceholder()) return false;
-  _debugLastStartAt = Date.now();
-  _debugLastStartIgnoredReason = '';
-  _prevTrackMeta = getState('player.currentTrackMeta') as TrackMeta | null;
-  stopAllMedia({ silent: true, cancelInFlight: true });
-  cancelIncomingFileTransfer('system-audio-start');
-  cancelRemoteShareWait('system-audio-start');
-  clearManagedTimer('preloadRecoveryWatchdog');
-  clearManagedTimer('preloadUiWatchdog');
-  claimPlaybackOwner('system-audio', {
-    pending: true,
-    currentTrackMeta: createSystemAudioTrackMeta('receiving', undefined, surface),
-  });
-  bus.emit('system-audio:host-started');
-  if (receiveWatchdog) armReceiveWatchdog();
-  else clearReceiveWatchdog();
-  return true;
-}
+registerSystemAudioReceiveRoute('standard-direct', { endReception: endStandardDirectReception });
 
 // ─── Bus Listeners ────────────────────────────────────────────────
 
@@ -660,11 +506,11 @@ export function registerSystemAudioGuestListeners(): void {
   // Drop SYSTEM_AUDIO_START/STOP frames not arriving via hostConn. The host
   // triggers these via audio/system-capture.ts and guests only trust that
   // authenticated host connection. Without this guard, a peer can:
-  //   - send raw SYSTEM_AUDIO_START → stopAllMedia() + clobber
-  //     _prevTrackMeta + spoof a "Receiving System Audio" track on the
+  //   - send raw SYSTEM_AUDIO_START → stopAllMedia() + clobber the receive
+  //     slot's restore point + spoof a "Receiving System Audio" track on the
   //     target. Single-frame DoS on whatever the user is playing.
-  //   - send raw SYSTEM_AUDIO_STOP → force cleanupGuestSystemAudio() on a
-  //     guest legitimately receiving host's system audio. Single-frame
+  //   - send raw SYSTEM_AUDIO_STOP → force endTrustedSystemAudioReception()
+  //     on a guest legitimately receiving host's system audio. Single-frame
   //     DoS on the actual reception.
   function isHostBroadcast(conn: DataConnection | undefined): boolean {
     const hostConn = getState('network.hostConn');
@@ -675,13 +521,11 @@ export function registerSystemAudioGuestListeners(): void {
     MSG.SYSTEM_AUDIO_START,
     (data: Record<string, unknown>, conn?: DataConnection) => {
       if (!isHostBroadcast(conn)) {
-        _debugLastStartIgnoredAt = Date.now();
-        _debugLastStartIgnoredReason = conn ? 'non-host-connection' : 'missing-connection';
+        noteIgnoredSystemAudioStart(conn ? 'non-host-connection' : 'missing-connection');
         return;
       }
       if (isSystemAudioPlaceholder()) {
-        _debugLastStartIgnoredAt = Date.now();
-        _debugLastStartIgnoredReason = 'duplicate-placeholder';
+        noteIgnoredSystemAudioStart('duplicate-placeholder');
         log.debug('[SysAudioGuest] Duplicate system audio start ignored');
         return;
       }
@@ -696,7 +540,7 @@ export function registerSystemAudioGuestListeners(): void {
       if (!isHostBroadcast(conn)) return;
       log.info('[SysAudioGuest] Host stopped system audio sharing');
       _debugLastStopAt = Date.now();
-      cleanupGuestSystemAudio();
+      endTrustedSystemAudioReception();
       bus.emit('system-audio:host-stopped');
     },
   );
@@ -722,7 +566,7 @@ export function registerSystemAudioGuestListeners(): void {
   });
 
   bus.on('state:systemAudio.isReceiving', (value) => {
-    if (value === true) clearReceiveWatchdog();
+    if (value === true) clearSystemAudioReceiveWatchdog();
   });
 
   bus.on('system-audio:delivery-handoff', () => {
@@ -731,11 +575,10 @@ export function registerSystemAudioGuestListeners(): void {
     // Preserve the current system-audio placeholder/previous-track restore
     // point, but make the replacement adapter earn the receiving state again.
     // This covers both SFU retry handoff and SFU -> bounded direct fallback.
-    setSystemAudioReceiving(false);
-    armReceiveWatchdog();
+    interruptTrustedSystemAudioReception();
   });
 
   bus.on('system-audio:force-stop', () => {
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
   });
 }

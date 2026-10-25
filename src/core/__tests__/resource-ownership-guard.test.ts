@@ -526,6 +526,35 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
       expect(findings).toMatch(/has no numeric SUBSCRIBER_RETRY_MAX_DELAY_MS/u);
     });
+
+    it('reads the receive deadline from its home, the system-audio media module (C4-2)', () => {
+      const media = 'src/network/system-audio-media.ts';
+      const deadline = 'export const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 30_000;';
+      expect(analyzeResourceOwnership(realInput()).deadline.watchdogMs).toBe(30_000);
+
+      const moved = findingsOf(
+        withSources((sources) =>
+          replaceIn(sources, media, deadline, 'export const SYSTEM_AUDIO_RECEIVE_MS = 30_000;'),
+        ),
+      );
+      expect(moved).toContain(
+        'DEADLINE OWNER (RO-04, G1): src/network/system-audio-media.ts has no numeric ' +
+          "SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS - move this check's anchors in the same change",
+      );
+
+      // A deadline above the retry maximum is read from the same home.
+      const longer = analyzeResourceOwnership(
+        withSources((sources) =>
+          replaceIn(
+            sources,
+            media,
+            deadline,
+            'export const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 45_000;',
+          ),
+        ),
+      );
+      expect(longer.deadline).toMatchObject({ mode: 'retry-below-watchdog', watchdogMs: 45_000 });
+    });
   });
 
   describe('CHECK 5 copied timing constants', () => {
@@ -884,9 +913,9 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
           );
           replaceIn(
             sources,
-            'src/network/system-audio-guest.ts',
-            '    setSystemAudioReceiving(false);\n    armReceiveWatchdog();\n',
-            '    armReceiveWatchdog();\n',
+            'src/network/system-audio-receive-slot.ts',
+            '  setSystemAudioReceiving(false);\n  armReceiveWatchdog();\n',
+            '  armReceiveWatchdog();\n',
           );
           replaceIn(sources, 'src/network/peer.ts', "    'systemAudio.isReceiving': false,\n", '');
         }),
@@ -895,7 +924,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /RATCHET REGRESSION widener\.input use \(RO-04\): src\/network\/system-audio-sfu\.ts has 2, baseline 1/u,
       );
       expect(findings).toMatch(
-        /STALE BASELINE receiving flag write \(RO-04\): src\/network\/system-audio-guest\.ts has 2, baseline 3 - lower the baseline to 2/u,
+        /STALE BASELINE receiving flag write \(RO-04\): src\/network\/system-audio-receive-slot\.ts has 1, baseline 2 - lower the baseline to 1/u,
       );
       expect(findings).toMatch(
         /STALE BASELINE raw receiving flag write \(RO-04\): src\/network\/peer\.ts has 0 - remove its entry/u,

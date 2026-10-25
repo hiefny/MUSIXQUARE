@@ -352,30 +352,43 @@ RO-49 accepted-exception
 - **Resource:** the device-wide receive slot: `systemAudio.isReceiving`, the `'system-audio'`
   playback owner claim and its placeholder meta, the restore meta, the source node on
   `widener.input`, the decoder primer and the receive deadline.
-- **Current owners/flows:** trusted reception and its 30 s watchdog
-  (`beginTrustedSystemAudioReception` in `src/network/system-audio-guest.ts`, which also runs
-  `stopAllMedia`); the Standard P2P attach (same file); the Standard SFU guest attach and cleanup
+- **Current owners/flows:** the receive slot `src/network/system-audio-receive-slot.ts` (Phase 5
+  C4-2) owns the trusted reception: the reception generation that fences the routes'
+  trust-boundary waits (`awaitTrustedSystemAudioReceptionBoundary`), the start
+  (`beginTrustedSystemAudioReception`, which runs `stopAllMedia`, takes the restore meta and
+  claims the `'system-audio'` placeholder), the 30 s receive watchdog, the delivery-handoff
+  interrupt and the end of reception (`endTrustedSystemAudioReception`, which restores the title
+  only while the slot still holds the placeholder or the `'system-audio'` owner). A route joins
+  every end through one port (`registerSystemAudioReceiveRoute`), which the end calls after
+  taking the restore point and clearing the watchdog and before it drops the receiving flag; the
+  Standard direct call is the only route registered so far. `src/network/system-audio-guest.ts`
+  keeps those names, the end as `cleanupGuestSystemAudio`, and `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`
+  as compatibility aliases (removed in C4-8), the host START/STOP trust gate, the bus listeners
+  and the Standard P2P attach. The other machines: the Standard SFU guest attach and cleanup
   (`src/network/system-audio-sfu.ts`); the PRO coordinator subscription
   (`ensureCoordinatorSubscription`, `attachCoordinatorTrack`, `retryCoordinatorSubscription` in
   `src/pro-room/system-audio-service.ts`); PRO LAN-direct track delivery
   (`src/network/pro-system-audio-direct.ts`, through the service). The attach sequence (trust
   boundary, `initAudio`, identity re-check, source swap, primer, `widener.input`, receiving flag,
   owner claim, visualizer) is written three times. The service calls the Standard adapters'
-  cleanups directly; bus pairs `system-audio:delivery-handoff` and `system-audio:receive-timeout`
-  connect the rest.
-- **Target single owner:** one receive-slot module (proposed
-  `src/network/system-audio-receive-slot.ts`; its location is an owner decision). Route adapters
-  register and call begin, attach, interrupt, resume, detach, adopt and end.
+  cleanups directly (the slot's end through the guest alias); bus pairs
+  `system-audio:delivery-handoff` and `system-audio:receive-timeout` connect the rest.
+- **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
+  (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
+  register and call begin, attach, interrupt, resume, detach, adopt and end; the later Phase 5
+  increments move the attaches, the route cleanups and the bus pairs into it.
 - **Allowed requesters:** the route adapters (Standard P2P, Standard SFU, PRO SFU, PRO direct)
   through the slot. `src/audio/system-capture.ts` and the Standard host only emit
   `system-audio:*` events.
 - **Lifecycle operations:** begin reception, attach, set receiving, claim the playback owner, arm
   or clear the receive deadline, cleanup with meta restore.
-- **Deadline owner:** per route today. Standard P2P: the guest 30 s watchdog. PRO SFU: the
+- **Deadline owner:** per route today. Standard P2P: the 30 s receive watchdog, the receive
+  slot's since C4-2 (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the
+  guard's findings), and the direct call's own replacement watchdog. PRO SFU: the
   subscription retry backoff (2.5 s doubling to 30 s); since 9.0.1 it begins with
   `receiveWatchdog: false` (G1). PRO LAN-direct: since 9.0.2 it also begins with
   `receiveWatchdog: false`, and the service's direct receive deadline
-  (`DIRECT_RECEIVE_DEADLINE_TIMER`, 30 s from the guest's `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`) only
+  (`DIRECT_RECEIVE_DEADLINE_TIMER`, 30 s from `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`) only
   reports the failure once and keeps the listener in reception for a late track (G5).
   Standard SFU guests also react to `system-audio:receive-timeout`.
   Target: one receive deadline per attempt in the slot.
@@ -386,33 +399,44 @@ RO-49 accepted-exception
   music constraints (`tuneSystemAudioMusicSender` for the Standard direct call and both SFU
   publishers; `tuneSystemAudioLanDirectSender`, bitrate only, for PRO LAN-direct, which also sets
   back a sender that lists no encoding) and the Cloudflare Realtime STUN entry, 15 s request
-  deadline and 1 MiB response cap both SFU transports share. No eager module may import it
-  (`vite.config.ts` `DEFERRED_ENTRY_MODULES`). The receive deadline
-  `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` stays in the guest module and `RECOVERY_DELAY_MS` and
-  `SUBSCRIBER_RETRY_MAX_DELAY_MS` in the service until the receive-slot increments move them.
+  deadline and 1 MiB response cap both SFU transports share. Since C4-2 it also holds the
+  receive deadline `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` (30 s), which the slot's watchdog and its
+  trust-boundary wait (`TRUSTED_BOUNDARY_WAIT_MS`), the direct call's replacement watchdog and,
+  through the guest alias until C4-7, the service's direct receive deadline read. No eager module
+  may import it or the slot (`vite.config.ts` `DEFERRED_ENTRY_MODULES`). `RECOVERY_DELAY_MS` and
+  `SUBSCRIBER_RETRY_MAX_DELAY_MS` stay in the service until the receive-slot increments move them.
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/system-audio-guest.test.ts` "does not let a stale async
-    stream failure tear down its replacement connection".
+    stream failure tear down its replacement connection"; for the slot's generation, "gives a wait
+    opened while a start commits that start, and refuses a start nested in it".
   - User pause/stop: `system-audio-guest.test.ts` "cancels a muted-track wait on force-stop and
     fences its late unmute from a successor".
   - Teardown: `system-audio-guest.test.ts` "restores previous meta when an active adapter-level
-    receive cleanup runs".
+    receive cleanup runs" and, for the slot's end through a registered route, "closes the direct
+    call, its source, primer and replacement watchdog on another route's cleanup".
   - Visibility: missing.
+  - The slot's trusted reception (C4-2) is pinned through the names the routes call by the
+    `system-audio-guest.test.ts` group "trusted reception: generation, waiters, restore point and
+    watchdog", written before the move and unchanged by it.
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
-    guest module with the service (G1). `system-audio-service.test.ts` mocks the guest and SFU
-    modules, so it cannot see their interplay.
+    guest module and slot with the service (G1). `system-audio-service.test.ts` mocks the guest
+    and SFU modules, so it cannot see their interplay.
   - Guard: the resource-ownership guard fails when the PRO SFU reception start arms the guest
-    watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`,
-    and when an armed `beginTrustedSystemAudioReception` start appears in a new function. The
+    watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`
+    (read from `src/network/system-audio-media.ts` since C4-2), and when an armed
+    `beginTrustedSystemAudioReception` start appears in a new function. The
     start returns early while the placeholder is active, so an armed start on the retry path
     would re-arm the watchdog before the SFU start runs. Since Phase 5 prep (T5) it also counts the
-    slot's direct writers per file, exactly: `setSystemAudioReceiving` value uses (9: guest 3,
-    Standard SFU 1, service 5), `claimPlaybackOwner` uses that can claim `'system-audio'` (6:
-    guest 2, Standard SFU 1, service 2, and the sharer's own claim in `system-capture.ts`),
-    `widener.input` uses (5: the file playback route's 2 in `engine.ts`, guest, Standard SFU and
-    service 1 each) and raw `'systemAudio.isReceiving'` writes outside `src/player/ownership.ts`
-    (1: the `leaveSession` batch reset in `peer.ts`). Each Phase 5 increment that moves a write
-    into the slot lowers its count. Since Phase 5 C4-1 it also keeps the media tuning in its home:
+    slot's direct writers per file, exactly: `setSystemAudioReceiving` value uses (9: the slot 2,
+    guest 1, Standard SFU 1, service 5), `claimPlaybackOwner` uses that can claim
+    `'system-audio'` (6: the slot 1, guest 1, Standard SFU 1, service 2, and the sharer's own claim
+    in `system-capture.ts`), `widener.input` uses (5: the file playback route's 2 in `engine.ts`,
+    guest, Standard SFU and service 1 each) and raw `'systemAudio.isReceiving'` writes outside
+    `src/player/ownership.ts` (1: the `leaveSession` batch reset in `peer.ts`). C4-2 moved two of
+    the guest's receiving flag writes (the end of reception and the delivery-handoff interrupt)
+    and its placeholder claim into the slot (guest 3 to 1 and 2 to 1; totals unchanged). Each
+    Phase 5 increment that moves a route's write into the slot lowers that route's count. Since
+    Phase 5 C4-1 it also keeps the media tuning in its home:
     in `src/network/system-audio-*.ts` and `src/network/pro-system-audio-*.ts`, only
     `system-audio-media.ts` writes `playoutDelayHint` or `maxBitrate` or names
     `stun.cloudflare.com` (3 sites), and a route adapter that re-types one of its timing
@@ -420,8 +444,8 @@ RO-49 accepted-exception
 - **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrived after the
   30 s watchdog stayed silent) is fixed in 9.0.2. G6 (each PRO SFU retry re-runs the reception
   start, including `stopAllMedia` and the host-started notice) is an open release-record item.
-  Phase 5 (slot); its first increment, C4-1, moved the media constants (planned for Phase 0d).
-  Exception RO-39.
+  Phase 5 (slot); its first increment, C4-1, moved the media constants (planned for Phase 0d),
+  and C4-2 created the slot module with the trusted reception. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 
@@ -2474,9 +2498,11 @@ and unrelated strings never count, and every baseline is an exact count or list 
    production code (RO-07) and `readProRoomFileDuration` in `cloudflare/` (RO-08; the app's
    local-file parse in `src/pro-room/upload-duration.ts` is outside that resource).
 4. **One deadline owner per PRO SFU attempt** (RO-04, principle 2): the subscriber retry maximum
-   stays below the guest receive watchdog, or the PRO SFU reception start passes
-   `receiveWatchdog: false`. Armed `beginTrustedSystemAudioReception` starts (any use without the
-   literal `{ receiveWatchdog: false }`) are an exact list per function.
+   stays below the guest receive watchdog (the receive slot's since Phase 5 C4-2; its
+   `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` is read from `src/network/system-audio-media.ts`), or the PRO
+   SFU reception start passes `receiveWatchdog: false`. Armed `beginTrustedSystemAudioReception`
+   starts (any use without the literal `{ receiveWatchdog: false }`) are an exact list per
+   function.
 5. **Copied timing constants** inside the files a record names as its timing home (principle 4):
    same-named constants, identical numeric tuples and shared timing objects form a triaged list.
    Constants that share only a value are report-only, because round values such as 1 s, 15 s and

@@ -283,7 +283,9 @@ const DURATION_READ_BASELINE: Baseline = new Map<string, Allowance>([
 // ── CHECK 4 anchors: one deadline owner per PRO SFU attempt (G1) ─────────
 
 const G1_SERVICE_FILE = 'src/pro-room/system-audio-service.ts';
-const G1_GUEST_FILE = 'src/network/system-audio-guest.ts';
+// The receive deadline's home since Phase 5 C4-2 (the guest's before); the
+// watchdog it arms is the receive slot's (src/network/system-audio-receive-slot.ts).
+const G1_WATCHDOG_FILE = 'src/network/system-audio-media.ts';
 const G1_RETRY_MAX_CONSTANT = 'SUBSCRIBER_RETRY_MAX_DELAY_MS';
 const G1_WATCHDOG_CONSTANT = 'SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS';
 const G1_SUBSCRIBE_CALL = 'subscribeProSystemAudioSfu';
@@ -336,6 +338,8 @@ const TIMING_CONTRACTS: readonly TimingContract[] = [
     files: [
       // The media home since Phase 5 C4-1 (MEDIA_TUNING_HOME, CHECK 10).
       'src/network/system-audio-media.ts',
+      // The receive slot since Phase 5 C4-2.
+      'src/network/system-audio-receive-slot.ts',
       'src/network/system-audio-guest.ts',
       'src/network/system-audio-sfu.ts',
       'src/network/pro-system-audio-sfu.ts',
@@ -558,7 +562,9 @@ const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // Measured on agent/phase5-5a aa62fe34 (main 2038b51f, App 9.0.10) on
 // 2026-10-25, Phase 5 prep T5. The route adapters write the slot directly
 // today; each Phase 5 increment that moves a write into the receive slot
-// lowers its count here.
+// lowers its count here. C4-2 moved the trusted reception's writes (the end
+// of reception, the delivery-handoff interrupt and the placeholder claim)
+// from the guest into src/network/system-audio-receive-slot.ts.
 
 const RECEIVING_FLAG_SETTER = 'setSystemAudioReceiving';
 const PLAYBACK_OWNER_CLAIM = 'claimPlaybackOwner';
@@ -569,12 +575,12 @@ const RECEIVING_FLAG_OWNER_FILE = 'src/player/ownership.ts';
 
 /** RO-04: setSystemAudioReceiving value uses (calls or the setter passed on). */
 const RECEIVING_FLAG_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
+  ['src/network/system-audio-guest.ts', { count: 1, reason: 'Standard P2P attach (C4-3)' }],
   [
-    'src/network/system-audio-guest.ts',
+    'src/network/system-audio-receive-slot.ts',
     {
-      count: 3,
-      reason:
-        'Standard P2P attach, the guest receive cleanup and the delivery-handoff reset (C4-2, C4-3)',
+      count: 2,
+      reason: 'the slot: the end of reception and the delivery-handoff interrupt (C4-2)',
     },
   ],
   ['src/network/system-audio-sfu.ts', { count: 1, reason: 'Standard SFU guest attach (C4-4)' }],
@@ -595,9 +601,10 @@ const SYSTEM_AUDIO_OWNER_CLAIM_BASELINE: Baseline = new Map<string, Allowance>([
     'src/audio/system-capture.ts',
     { count: 1, reason: "the sharer's own capture, not the receive slot" },
   ],
+  ['src/network/system-audio-guest.ts', { count: 1, reason: 'Standard P2P attach (C4-3)' }],
   [
-    'src/network/system-audio-guest.ts',
-    { count: 2, reason: 'Standard P2P attach and the trusted reception placeholder (C4-2, C4-3)' },
+    'src/network/system-audio-receive-slot.ts',
+    { count: 1, reason: 'the slot: the trusted reception placeholder (C4-2)' },
   ],
   ['src/network/system-audio-sfu.ts', { count: 1, reason: 'Standard SFU guest attach (C4-4)' }],
   [
@@ -1565,9 +1572,9 @@ function checkDeadlineOwnership(
     );
   };
   const retryMaxMs = findConstant(sources, G1_SERVICE_FILE, G1_RETRY_MAX_CONSTANT);
-  const watchdogMs = findConstant(sources, G1_GUEST_FILE, G1_WATCHDOG_CONSTANT);
+  const watchdogMs = findConstant(sources, G1_WATCHDOG_FILE, G1_WATCHDOG_CONSTANT);
   if (retryMaxMs === null) anchor(`${G1_SERVICE_FILE} has no numeric ${G1_RETRY_MAX_CONSTANT}`);
-  if (watchdogMs === null) anchor(`${G1_GUEST_FILE} has no numeric ${G1_WATCHDOG_CONSTANT}`);
+  if (watchdogMs === null) anchor(`${G1_WATCHDOG_FILE} has no numeric ${G1_WATCHDOG_CONSTANT}`);
   if (retryMaxMs === null || watchdogMs === null) {
     return { retryMaxMs, watchdogMs, sfuReceptionStarts: 0, mode: 'violated' };
   }

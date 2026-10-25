@@ -64,6 +64,7 @@ export default defineConfig({
         'src/network/system-audio-guest.ts',
         'src/network/pro-system-audio-direct.ts',
         'src/network/system-audio-media.ts',
+        'src/network/system-audio-receive-slot.ts',
         'src/pro-room/system-audio-service.ts',
         'src/audio/system-capture.ts',
         'src/pro-room/api.ts',
@@ -190,6 +191,18 @@ export default defineConfig({
           branches: 99,
           functions: 99,
           lines: 99,
+        },
+        // The receive slot (Phase 5 C4-2), measured through the suites
+        // enrolled above (the guest receiver's trusted-reception pins, the
+        // receive-slot contracts and the G1 harness) on 2026-10-25: 93.75,
+        // 86.36, 100, 96.59. What stays uncovered are the defensive re-checks
+        // the move kept (a start committing between the boundary wait's two
+        // placeholder checks, a commit that finds the placeholder up).
+        'src/network/system-audio-receive-slot.ts': {
+          statements: 92,
+          branches: 85,
+          functions: 99,
+          lines: 95,
         },
         'src/network/transport/cloudflare-signaling.ts': {
           statements: 72,

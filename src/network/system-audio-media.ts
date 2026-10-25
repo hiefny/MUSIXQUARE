@@ -2,8 +2,9 @@
  * MUSIXQUARE — System Audio Media Tuning
  *
  * The media and timing home of the system-audio routes (registry RO-04): the
- * receivers' playout-delay hint, the stereo senders' bitrate and music
- * constraints, and the Cloudflare Realtime values both SFU transports share.
+ * receive deadline, the receivers' playout-delay hint, the stereo senders'
+ * bitrate and music constraints, and the Cloudflare Realtime values both SFU
+ * transports share.
  * The route adapters import it instead of keeping their own copies; the
  * resource-ownership guard (CHECK 10) keeps the hint and bitrate writes and
  * the Realtime STUN entry in this file.
@@ -14,6 +15,14 @@
 
 // ─── Receive ──────────────────────────────────────────────────────
 //
+// A 9+ device share can require one bounded SFU publication retry before the
+// guest subscription is ready. Keep the receive deadline finite, but leave
+// enough headroom for a busy venue/NAT so a healthy large-room join is not
+// mistaken for a failed receive. The receive slot's watchdog and boundary
+// wait, the Standard direct call's replacement watchdog and the PRO LAN-direct
+// listener's notice use it (Phase 5 C4-2 moved it here from the guest).
+export const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 30_000;
+
 // playoutDelayHint target for the WebRTC audio receivers. WebRTC's NetEq
 // adapts each receiver's jitter buffer independently based on packet arrival
 // pattern, so two guests in the same room drift in and out of phase with each

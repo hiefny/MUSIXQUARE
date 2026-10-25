@@ -5,6 +5,11 @@ import { log } from '../../../core/log.ts';
 import { clearAllManagedTimers, clearManagedTimer, getManagedTimer } from '../../../core/timers.ts';
 import { CloudflareDataConnection } from '../cloudflare-signaling.ts';
 import { LinkLiveness } from '../link-liveness.ts';
+import {
+  isBulkWritable,
+  isRecoverablyInterrupted,
+  readTransportHealth,
+} from '../../transport-health.ts';
 
 /**
  * The original route's outage owner (registry RO-15, Phase 4 C5-6): the 15 s
@@ -687,6 +692,23 @@ describe('background-resume probe on the original route', () => {
     expect(closeLines()).toEqual([
       '[Transport] Logical connection closed (resume-probe-unanswered) for peer-0',
     ]);
+  });
+});
+
+/**
+ * Phase 4 C5-8: transport health reads the owner's view of the original route
+ * on a Standard-room connection (the bulk lanes, the preload pause and the
+ * heartbeat lease). The side route keeps its own outage (RO-35), so it never
+ * blocks bulk or pauses preload.
+ */
+describe('the original route as transport health reads it', () => {
+  it('keeps bulk writable and counts no interruption through a side-only outage', async () => {
+    const { a } = await activeSidePair();
+    a.sidePc.state('disconnected');
+    const health = readTransportHealth(a.conn);
+    expect(isBulkWritable(health)).toBe(true);
+    expect(isRecoverablyInterrupted(health)).toBe(false);
+    expect(a.conn.open).toBe(true);
   });
 });
 

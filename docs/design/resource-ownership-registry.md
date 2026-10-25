@@ -131,7 +131,6 @@ each record also states the step in words.
 | RO-36 | Failed-PLAY confirm closure stays on the bus             | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-37 | Defensive retry-versus-semantic branch stays in `app.ts` | Audio          | accepted-exception | Revisit in Phase 7             |
 | RO-39 | Two Cloudflare Realtime control clients                  | System audio   | accepted-exception | Revisit after a build check    |
-| RO-40 | Hand-copied PRO publication teardown blocks              | System audio   | accepted-exception | Phase 5 or later               |
 | RO-41 | Two PRO re-apply owners serialized, not deduplicated     | PRO room       | accepted-exception | Revisit after the 0c test      |
 | RO-42 | PRO-only capture policy stays eager                      | System audio   | accepted-exception | Revisit after a build check    |
 | RO-43 | Update prompt stays eager                                | Page lifecycle | accepted-exception | None (C6-15 rejected)          |
@@ -195,7 +194,6 @@ RO-34 accepted-exception
 RO-36 accepted-exception
 RO-37 accepted-exception
 RO-39 accepted-exception
-RO-40 accepted-exception
 RO-41 accepted-exception
 RO-42 accepted-exception
 RO-43 accepted-exception
@@ -1640,7 +1638,17 @@ RO-49 accepted-exception
   (`promoteLocalDirectPublicationToSfu`, `reconcileAmbiguousDirectPromotion`), the lease heartbeat
   and the release retry. `src/pro-room/system-audio-controller.ts` holds the credential;
   `src/pro-room/system-audio-bridge.ts` documents the scoped attempt handle. `expectedLeaseTransitions`
-  suppresses lease-lost during the service's own release and re-acquire.
+  suppresses lease-lost during the service's own release and re-acquire. The publication's
+  teardown is three named operations in the service, `clearLocalPublicationTimers` (the lease
+  heartbeat, release retry, publisher retry and direct promotion retry timers),
+  `retireLocalMedia` (the SFU publisher, the LAN-direct routes and the promotion state) and
+  `resetPublicationHealth` (the heartbeat-failure toast latch and the LAN-direct authority-loss
+  window). Every teardown entry point composes them in its own order: the explicit stop, the
+  controller's lease loss, a new presence incarnation, the service reset, a terminated publisher
+  recovery, a failed publish and leaving the PRO room context. A partial teardown names what it
+  keeps for a later full one (`retireLocalMedia`'s `kept` argument). Phase 5 C4-12 replaced the
+  hand-copied blocks (exception RO-40, deleted by C4-12) without changing what a site tears
+  down or keeps.
 - **Target single owner:** unchanged split.
 - **Allowed requesters:** the capture session through the bridge; the
   `pro-system-audio:lease-lost` event back to capture.
@@ -1654,9 +1662,11 @@ RO-49 accepted-exception
   - User pause/stop: `system-audio-service.test.ts` "fences a recovery acquire exactly once when
     the user stops while it is pending".
   - Teardown: `system-audio-service.test.ts` "does not revive retained direct routes or retry an
-    SFU promotion after session reset".
+    SFU promotion after session reset"; `src/pro-room/__tests__/system-audio-publication-teardown.test.ts`
+    pins each teardown entry point's remaining timers, SFU publisher stops, LAN-direct resets and
+    lease-lost reasons.
   - Visibility: missing.
-- **Status:** `owner-in-place`. Exceptions RO-39, RO-40, RO-42.
+- **Status:** `owner-in-place`. Exceptions RO-39, RO-42.
 
 ### RO-21 PRO checkpoint re-apply after a disruption
 
@@ -2357,16 +2367,6 @@ entry needs the owner's acceptance and is not implied by this registry.
   Standard SFU branches on error text.
 - **Behaviour risk:** none (no shared state).
 - **Revisit when:** a scratch build shows the chunk impact, then in the Phase 5 train or later.
-- **Status:** `accepted-exception`.
-
-### RO-40 Hand-copied PRO publication teardown blocks
-
-- **Parent:** RO-20. Plan step C4-12 deferred.
-- **Exception:** `system-audio-service.ts` keeps five hand-copied publication teardown blocks.
-- **Evidence:** grouping them is a behaviour-neutral refactor that only names today's
-  compositions; it is optional and rides a later train.
-- **Behaviour risk:** copy drift between the blocks.
-- **Revisit when:** Phase 5 or a later system-audio train.
 - **Status:** `accepted-exception`.
 
 ### RO-41 Two PRO re-apply owners serialized, not deduplicated

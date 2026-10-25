@@ -324,12 +324,13 @@ function directPublicationKey(
   return `${ownerParticipantId}:${generation}:${publicationId}`;
 }
 
-function resetProSystemAudioDirectTransport(
-  options: {
-    notifyPeers?: boolean;
-    reason?: 'stopped' | 'fallback' | 'superseded';
-  } = {},
-): void {
+/** How a reset closes the LAN-direct routes: silently, or telling peers why. */
+interface DirectTransportReset {
+  notifyPeers?: boolean;
+  reason?: 'stopped' | 'fallback' | 'superseded';
+}
+
+function resetProSystemAudioDirectTransport(options: DirectTransportReset = {}): void {
   activeLocalDirectPublicationKey = null;
   resetProSystemAudioDirectTransportInternal(options);
 }
@@ -453,6 +454,57 @@ function cancelPublisherRecovery(abort = true): void {
   if (abort) flight.abortController.abort();
 }
 
+// The local publication's teardown is three named operations (Phase 5 C4-12,
+// which retired the hand-copied blocks of registry exception RO-40). Every
+// place that tears this device's publication down composes them in its own
+// order: the explicit stop (releaseLocalProSystemAudioLeaseInternal), the
+// controller's lease loss (onLocalLeaseLost), a new presence incarnation
+// (bindProSystemAudioSession), the service reset (resetProSystemAudioService),
+// a terminated publisher recovery (terminateOwnedPublisherRecovery), a failed
+// publish (publishLocalProSystemAudio) and leaving the PRO room context. What a
+// partial teardown leaves to a full one is named at its call.
+
+/** Clears the four timers a local publication arms. */
+function clearLocalPublicationTimers(): void {
+  clearManagedTimer(LEASE_HEARTBEAT_TIMER);
+  clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
+  clearManagedTimer(PUBLISHER_RETRY_TIMER);
+  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
+}
+
+/**
+ * What a partial teardown keeps for a later full one:
+ * - 'sfu-publisher': the SFU publisher;
+ * - 'promotion': the direct-to-SFU promotion in flight, the reconciliation of
+ *   an ambiguous promotion and the failed SFU publisher's recheck;
+ * - 'promotion-recovery': the reconciliation of an ambiguous promotion and the
+ *   failed SFU publisher's recheck.
+ */
+type LocalMediaKept = 'sfu-publisher' | 'promotion' | 'promotion-recovery';
+
+/**
+ * Retires this device's publication media: the singleton SFU publisher, the
+ * LAN-direct routes (closed as `directReset` says), the promotion in flight,
+ * the ambiguous-promotion reconciliation and the failed SFU publisher's
+ * recheck, except what `kept` names. The SFU and LAN-direct transports share
+ * no state and neither calls back into the service, so their order is free.
+ */
+function retireLocalMedia(directReset: DirectTransportReset, kept?: LocalMediaKept): void {
+  if (kept !== 'sfu-publisher') stopProSystemAudioSfuPublisher();
+  resetProSystemAudioDirectTransport(directReset);
+  if (kept === 'promotion') return;
+  directPromotionFlight = null;
+  if (kept === 'promotion-recovery') return;
+  ambiguousDirectPromotionPublicationId = null;
+  failedSfuPublisherSessionId = null;
+}
+
+/** Clears the heartbeat-failure toast latch and the LAN-direct authority-loss window. */
+function resetPublicationHealth(): void {
+  leaseHeartbeatFailureNotified = false;
+  directAuthorityHeartbeatFailureStartedAt = null;
+}
+
 function terminateOwnedPublisherRecovery(
   flight: PublisherRecoveryFlight,
   track: MediaStreamTrack,
@@ -467,14 +519,14 @@ function terminateOwnedPublisherRecovery(
     state.ownerParticipantId !== latestSnapshot?.viewer?.participantId
       ? 'authoritative-revocation'
       : 'publisher-failed';
-  stopProSystemAudioSfuPublisher();
-  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
-  directPromotionFlight = null;
+  // A partial teardown: it clears no timer and keeps the promotion's
+  // reconciliation. The release that capture's stop makes on this lease loss
+  // retires both.
+  retireLocalMedia({ notifyPeers: true, reason: 'fallback' }, 'promotion-recovery');
   localPublishFlight = null;
   localTrack = null;
   localPublicationId = null;
-  leaseHeartbeatFailureNotified = false;
-  directAuthorityHeartbeatFailureStartedAt = null;
+  resetPublicationHealth();
   publisherRecoveryFlight = null;
   bus.emit('pro-system-audio:lease-lost', reason);
 }
@@ -712,8 +764,7 @@ function acceptPromotedSfuPublication(
   // pending. Only authenticated SFU authority may retire those incumbents.
   resetProSystemAudioDirectTransport({ notifyPeers: false });
   clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-  leaseHeartbeatFailureNotified = false;
-  directAuthorityHeartbeatFailureStartedAt = null;
+  resetPublicationHealth();
   notifyMutation(state);
   log.info(
     `[PRO SystemAudio] Promoted LAN-direct publication to SFU (${reason}${
@@ -1304,21 +1355,17 @@ function onControllerState(view: ProRoomSystemAudioViewState): void {
 
 function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
   cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
-  clearManagedTimer(LEASE_HEARTBEAT_TIMER);
-  clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-  clearManagedTimer(PUBLISHER_RETRY_TIMER);
-  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-  stopProSystemAudioSfuPublisher();
-  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'superseded' });
-  directPromotionFlight = null;
-  ambiguousDirectPromotionPublicationId = null;
-  failedSfuPublisherSessionId = null;
+  clearLocalPublicationTimers();
+  retireLocalMedia({ notifyPeers: true, reason: 'superseded' });
   localPublishFlight = null;
   localPublicationId = null;
+  // During the service's own release or re-acquire (an expected lease
+  // transition) only the authority-loss window closes: the capture track and
+  // the heartbeat-failure toast latch stay, and capture is not told.
   directAuthorityHeartbeatFailureStartedAt = null;
   if ((expectedLeaseTransitions.get(serviceSessionEpoch) ?? 0) > 0) return;
   localTrack = null;
-  leaseHeartbeatFailureNotified = false;
+  resetPublicationHealth();
   bus.emit('pro-system-audio:lease-lost', reason);
 }
 
@@ -1388,19 +1435,11 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     expectedLeaseTransitions.clear();
     cancelPublisherRecovery();
     localPublishFlight = null;
-    clearManagedTimer(LEASE_HEARTBEAT_TIMER);
-    clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-    clearManagedTimer(PUBLISHER_RETRY_TIMER);
-    clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-    stopProSystemAudioSfuPublisher();
-    resetProSystemAudioDirectTransport({ notifyPeers: false });
-    directPromotionFlight = null;
-    ambiguousDirectPromotionPublicationId = null;
-    failedSfuPublisherSessionId = null;
+    clearLocalPublicationTimers();
+    retireLocalMedia({ notifyPeers: false });
     localTrack = null;
     localPublicationId = null;
-    leaseHeartbeatFailureNotified = false;
-    directAuthorityHeartbeatFailureStartedAt = null;
+    resetPublicationHealth();
     cleanupCoordinatorGraph();
     subscriberFailureGeneration = null;
     if (hadLocalActivity && !controllerWillNotifyLeaseLoss) {
@@ -1426,18 +1465,11 @@ export function resetProSystemAudioService(): void {
   localLeaseAttemptOwner = null;
   expectedLeaseTransitions.clear();
   cancelPublisherRecovery();
-  clearManagedTimer(LEASE_HEARTBEAT_TIMER);
-  clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-  clearManagedTimer(PUBLISHER_RETRY_TIMER);
-  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
+  clearLocalPublicationTimers();
   cleanupCoordinatorGraph();
   subscriberRetryAttempt = 0;
   subscriberRetryKey = null;
-  stopProSystemAudioSfuPublisher();
-  resetProSystemAudioDirectTransport({ notifyPeers: false });
-  directPromotionFlight = null;
-  ambiguousDirectPromotionPublicationId = null;
-  failedSfuPublisherSessionId = null;
+  retireLocalMedia({ notifyPeers: false });
   controller?.reset();
   if (hadLocalActivity && !controllerWillNotifyLeaseLoss) {
     bus.emit('pro-system-audio:lease-lost', 'reset');
@@ -1452,8 +1484,7 @@ export function resetProSystemAudioService(): void {
   localPublicationId = null;
   localPublishFlight = null;
   boundSessionKey = null;
-  leaseHeartbeatFailureNotified = false;
-  directAuthorityHeartbeatFailureStartedAt = null;
+  resetPublicationHealth();
   subscriberFailureGeneration = null;
 }
 
@@ -1636,8 +1667,7 @@ function scheduleLeaseHeartbeat(delayMs = LEASE_HEARTBEAT_MS): void {
         .heartbeatProSystemAudioLease()
         .then((state) => {
           if (!isLocalLeaseCurrent(identity)) return;
-          leaseHeartbeatFailureNotified = false;
-          directAuthorityHeartbeatFailureStartedAt = null;
+          resetPublicationHealth();
           notifyMutation(state);
           if (isLocalLeaseCurrent(identity) && controller?.getCurrentLease()?.status === 'live') {
             scheduleLeaseHeartbeat();
@@ -1816,8 +1846,7 @@ export async function publishLocalProSystemAudio(
       clearManagedTimer(PUBLISHER_RETRY_TIMER);
     }
     clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-    leaseHeartbeatFailureNotified = false;
-    directAuthorityHeartbeatFailureStartedAt = null;
+    resetPublicationHealth();
     scheduleLeaseHeartbeat();
     return state;
   } catch (error) {
@@ -1825,8 +1854,9 @@ export async function publishLocalProSystemAudio(
     // acquired and published. Only the flight that still owns the singleton
     // SFU publisher may tear it down or release its exact lease.
     if (ownsLocalPublishFlight(flight)) {
-      resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
-      stopProSystemAudioSfuPublisher();
+      // A partial teardown: the promotion's state stays for the release below
+      // (while this lease is still current) or for its own settling.
+      retireLocalMedia({ notifyPeers: true, reason: 'fallback' }, 'promotion');
       localTrack = null;
       localPublicationId = null;
       localPublishFlight = null;
@@ -1876,17 +1906,9 @@ async function releaseLocalProSystemAudioLeaseInternal(
     cancelPublisherRecovery(false);
   }
   localPublishFlight = null;
-  clearManagedTimer(LEASE_HEARTBEAT_TIMER);
-  clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
-  clearManagedTimer(PUBLISHER_RETRY_TIMER);
-  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
-  leaseHeartbeatFailureNotified = false;
-  directAuthorityHeartbeatFailureStartedAt = null;
-  directPromotionFlight = null;
-  ambiguousDirectPromotionPublicationId = null;
-  failedSfuPublisherSessionId = null;
-  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'stopped' });
-  stopProSystemAudioSfuPublisher();
+  clearLocalPublicationTimers();
+  resetPublicationHealth();
+  retireLocalMedia({ notifyPeers: true, reason: 'stopped' });
   localTrack = null;
   localPublicationId = null;
   if (!identity) return controller?.getCurrentState() ?? null;
@@ -2046,10 +2068,8 @@ export function registerProSystemAudioServiceListeners(): void {
     const currentContext = getState('room.context');
     if (currentContext.kind !== 'pro') {
       cleanupCoordinatorGraph();
-      resetProSystemAudioDirectTransport({ notifyPeers: false });
-      directPromotionFlight = null;
-      ambiguousDirectPromotionPublicationId = null;
-      failedSfuPublisherSessionId = null;
+      // A partial teardown: no timer is cleared and the SFU publisher stays.
+      retireLocalMedia({ notifyPeers: false }, 'sfu-publisher');
       subscriberFailureGeneration = null;
       return;
     }

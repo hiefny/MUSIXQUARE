@@ -796,4 +796,29 @@ describe('system audio guest receive watchdog', () => {
     expect(getState('systemAudio.isReceiving')).toBe(true);
     expect(replacement.mediaConn.close).not.toHaveBeenCalled();
   });
+
+  // Phase 5 C4-1 moves the playout-delay hint into system-audio-media.ts. The
+  // receive-slot contract pins 0.5 on a call with one audio receiver; this
+  // pins which receivers of the direct call's connection get it.
+  it('sets the 0.5 s playout-delay hint only on the audio receivers of the direct call', async () => {
+    stubAudioSource();
+    const audio = { track: { kind: 'audio' } } as RTCRtpReceiver & { playoutDelayHint?: number };
+    const video = { track: { kind: 'video' } } as RTCRtpReceiver & { playoutDelayHint?: number };
+    const trackless = { track: null } as unknown as RTCRtpReceiver & {
+      playoutDelayHint?: number;
+    };
+    const pc = { getReceivers: vi.fn(() => [video, audio, trackless]) };
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+    const incoming = createMediaConnection('host', pc as unknown as RTCPeerConnection);
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    incoming.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(pc.getReceivers).toHaveBeenCalledTimes(1);
+    expect(audio.playoutDelayHint).toBe(0.5);
+    expect(video).not.toHaveProperty('playoutDelayHint');
+    expect(trackless).not.toHaveProperty('playoutDelayHint');
+  });
 });

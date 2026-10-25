@@ -390,4 +390,38 @@ describe('PRO SFU publisher music sender tuning (T2)', () => {
     expect(evidence()).toEqual([['info', PUBLISHED]]);
     expect(committed()).toHaveLength(1);
   });
+
+  // The two encoding-list edges C4-1 must carry into system-audio-media.ts:
+  // a missing list becomes one 256 kbps encoding, and a sender that lists no
+  // encoding is left alone (the LAN-direct publisher still sets those
+  // parameters back; src/network/__tests__/pro-system-audio-direct.test.ts).
+  it.each([
+    {
+      name: 'without an encoding list',
+      parameters: {} as Partial<RTCRtpSendParameters>,
+      set: [{ maxBitrate: 256_000 }],
+    },
+    {
+      name: 'that lists no encoding',
+      parameters: { encodings: [] } as Partial<RTCRtpSendParameters>,
+      set: null,
+    },
+  ])('tunes a sender $name as before and still publishes', async ({ parameters, set }) => {
+    PublisherPeerConnection.onSender = (sender) =>
+      sender.getParameters.mockImplementation(
+        () => structuredClone(parameters) as RTCRtpSendParameters,
+      );
+    await share();
+
+    expect(track.constraintRequests).toEqual([MUSIC_CONSTRAINTS]);
+    const sender = publisherSender();
+    if (set === null) {
+      expect(sender?.setParameters).not.toHaveBeenCalled();
+    } else {
+      expect(sender?.setParameters).toHaveBeenCalledTimes(1);
+      expect(sender?.setParameters).toHaveBeenCalledWith({ encodings: set });
+    }
+    expect(evidence()).toEqual([['info', PUBLISHED]]);
+    expect(committed()).toHaveLength(1);
+  });
 });

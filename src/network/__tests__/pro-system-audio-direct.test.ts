@@ -746,6 +746,58 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
   });
 
+  // The LAN-direct encoding-list edges C4-1 must carry into
+  // system-audio-media.ts. A missing list becomes one 256 kbps encoding, as on
+  // the music senders; unlike them (left alone there), a sender that lists no
+  // encoding still gets its unchanged parameters set back.
+  it.each([
+    {
+      name: 'without an encoding list',
+      parameters: {} as Partial<RTCRtpSendParameters>,
+      set: [{ maxBitrate: 256_000 }],
+    },
+    {
+      name: 'that lists no encoding',
+      parameters: { encodings: [] } as Partial<RTCRtpSendParameters>,
+      set: [],
+    },
+  ])(
+    'sets the parameters of a LAN-direct sender $name and keeps the route',
+    async ({ parameters, set }) => {
+      const callbacks = configureCallbacks();
+      nextLocalities.push('host-host');
+      const track = audioTrack('capture-stereo');
+
+      const attempt = direct.attemptProSystemAudioDirectPublication({
+        track,
+        generation: 7,
+        publicationId,
+        targets: [target(receiverA)],
+        timeoutMs: 250,
+      });
+      const pc = peerConnections[0]!;
+      pc.addTrack.mockImplementationOnce((added: MediaStreamTrack) => {
+        const sender = {
+          track: added,
+          getParameters: () => structuredClone(parameters) as RTCRtpSendParameters,
+          setParameters: vi.fn(async () => {}),
+        } as unknown as RTCRtpSender;
+        pc.senders.push(sender);
+        return sender;
+      });
+
+      await expect(attempt).resolves.toEqual({
+        publicationId,
+        transport: 'lan-direct',
+        protocolVersion: 2,
+      });
+      expect(pc.senders[0]?.setParameters).toHaveBeenCalledTimes(1);
+      expect(pc.senders[0]?.setParameters).toHaveBeenCalledWith({ encodings: set });
+      expect(pc.close).not.toHaveBeenCalled();
+      expect(callbacks.onLiveRouteFallback).not.toHaveBeenCalled();
+    },
+  );
+
   it('fully abandons direct publication when even one selected pair is non-local', async () => {
     configureCallbacks();
     nextLocalities.push('host-host', 'non-local');

@@ -379,10 +379,9 @@ export function joinSession(
 
   let conn: DataConnection;
   try {
-    const channelMode = getState('audio.channelMode');
     conn = peer.connect(hostId, {
       reliable: true,
-      metadata: { label: `mode-${channelMode}`, devicePlatform: getDevicePlatform() },
+      metadata: { devicePlatform: getDevicePlatform() },
       roomPassword,
     });
   } catch (e) {

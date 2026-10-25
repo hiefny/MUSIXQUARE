@@ -628,7 +628,6 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
 
   const welcomeFrame = () => ({
     type: MSG.WELCOME as typeof MSG.WELCOME,
-    lockChannel: false,
     label: deviceName,
     chatFrozen: getState('network.chatFrozen') || false,
     slowmodeSeconds: getState('network.slowmodeSeconds') || 0,

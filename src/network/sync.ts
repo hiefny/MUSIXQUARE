@@ -983,7 +983,7 @@ export function initSync(): void {
     const pingId = ++_syncPingCounter;
     registerPing(pingId);
     try {
-      hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
+      hostConn.send({ type: MSG.SYNC_PING, pingId });
     } catch {
       /* noop */
     }
@@ -1017,7 +1017,7 @@ export function initSync(): void {
       const pingId = ++_syncPingCounter;
       registerPing(pingId);
       try {
-        hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
+        hostConn.send({ type: MSG.SYNC_PING, pingId });
       } catch {
         /* noop */
       }

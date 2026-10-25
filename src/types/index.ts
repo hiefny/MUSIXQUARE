@@ -371,7 +371,6 @@ type NoPayload = Record<never, never>;
 export interface ProtocolMap {
   // ── Handshake / Session ──────────────────────────────────────────
   welcome: {
-    lockChannel: boolean;
     label: string;
     chatFrozen?: boolean;
     slowmodeSeconds?: number;
@@ -818,7 +817,8 @@ export interface ProtocolMap {
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
   // ── Shared Clock ────────────────────────────────────────────────
-  'sync-ping': { pingId: number; guestTime: number };
+  /** The host never reads guestTime; it stays optional for senders that still add it. */
+  'sync-ping': { pingId: number; guestTime?: number };
   'sync-pong': {
     pingId: number;
     hostTime: number;

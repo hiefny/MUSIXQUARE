@@ -24,9 +24,10 @@
  * (ReceiveDeadline). C4-7 gave the slot its adopt
  * (adoptSystemAudioReceiveRoute): the PRO coordinator retires the Standard SFU
  * route through it, so the PRO service reaches the Standard routes through the
- * slot only. Until C4-8 system-audio-guest.ts keeps the old names as aliases
- * for the Standard SFU, and the timer names keep their `sys-audio-guest-`
- * prefix.
+ * slot only. C4-8 removed the old names system-audio-guest.ts kept as
+ * aliases: every route imports the slot's own. The timer names keep their
+ * `sys-audio-guest-` prefix. The ownership contract is
+ * docs/design/system-audio-receive-ownership.md.
  *
  * Deferred-only: it loads with the room session (vite.config.ts
  * DEFERRED_ENTRY_MODULES).

@@ -428,14 +428,17 @@ RO-49 accepted-exception
   retry's cleanup). The adopt runs every other registered route's `retire` and changes nothing in
   the slot itself; the Standard SFU registers one (its subscription through
   `cleanupGuestSfu(false)` and its frozen share route, no reception end), and no other route has
-  one. `src/network/system-audio-guest.ts` keeps the slot's names and the end as
-  `cleanupGuestSystemAudio` as compatibility aliases for the Standard SFU (removed in C4-8) and
-  the host START/STOP trust gate.
+  one. Since C4-8 no route reaches the slot through another: `src/network/system-audio-guest.ts`
+  no longer re-exports the slot's start, trust-boundary wait and end (the last as
+  `cleanupGuestSystemAudio`), the Standard SFU imports them from the slot, and the guest keeps
+  the host START/STOP trust gate. The maintained contract is
+  [System-audio receive ownership](system-audio-receive-ownership.md).
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
   register and call begin, attach, interrupt, resume, detach, adopt and end; the later Phase 5
   increments move the attaches and the route cleanups into it (the bus pairs moved in C4-6, the
-  PRO coordinator's retire of the Standard SFU route became the adopt in C4-7).
+  PRO coordinator's retire of the Standard SFU route became the adopt in C4-7, and C4-8 removed
+  the guest's compatibility aliases of the slot's names).
 - **Allowed requesters:** the route adapters (Standard P2P, Standard SFU, PRO SFU, PRO direct)
   through the slot. `src/audio/system-capture.ts` and the Standard host only emit
   `system-audio:*` events.
@@ -467,7 +470,9 @@ RO-49 accepted-exception
   the service's direct receive deadline (`DIRECT_RECEIVE_DEADLINE_MS`, imported from here since
   C4-7, through the guest alias before) read. No eager module
   may import it or the slot (`vite.config.ts` `DEFERRED_ENTRY_MODULES`). `RECOVERY_DELAY_MS` and
-  `SUBSCRIBER_RETRY_MAX_DELAY_MS` stay in the service until the receive-slot increments move them.
+  `SUBSCRIBER_RETRY_MAX_DELAY_MS` stay in the service: they time the PRO coordinator's own
+  deadlines (`deadline: 'route'`) and the service's lease and publisher retries (RO-20), not the
+  slot's, and no receive-slot increment moved them.
 - **Anchor tests:**
   - Supersession: `src/network/__tests__/system-audio-guest.test.ts` "does not let a stale async
     stream failure tear down its replacement connection"; for the slot's generation, "gives a wait
@@ -477,7 +482,8 @@ RO-49 accepted-exception
   - Teardown: `system-audio-guest.test.ts` "restores previous meta when an active adapter-level
     receive cleanup runs" and, for the slot's end through a registered route, "closes the direct
     call, its source, primer and replacement watchdog on another route's cleanup".
-  - Visibility: missing.
+  - Visibility: `src/pro-room/__tests__/system-audio-receive-slot-pro-contract.test.ts`
+    "visibility: a hidden page keeps the retry running and attaches in the background".
   - The slot's trusted reception (C4-2) is pinned through the names the routes call by the
     `system-audio-guest.test.ts` group "trusted reception: generation, waiters, restore point and
     watchdog", written before the move and unchanged by it.
@@ -519,6 +525,14 @@ RO-49 accepted-exception
     the coordinator cleanup while this device publishes, the reset included" (the local-owner
     guard and the reset order); after it by the `system-audio-sfu.test.ts` row "is retired by the
     PRO coordinator's adopt" (the SFU's retire through the real slot adopt).
+  - The removal of the guest's compatibility aliases (C4-8) is pinned, before it, by the suites
+    that called the slot through them, which import the slot's own names since then with their
+    assertions unchanged (`system-audio-guest.test.ts`,
+    `src/player/__tests__/file-prepare-pause.test.ts`,
+    `src/storage/__tests__/recovery-owner-transition.test.ts` and
+    `src/youtube/__tests__/load-lifecycle.test.ts`; `system-audio-sfu.test.ts` moved its stubs
+    with the SFU's imports), and by the resource-ownership guard test "allows no route adapter a
+    direct write".
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the
@@ -526,7 +540,8 @@ RO-49 accepted-exception
     before C4-7) and registers a spy retire for the Standard SFU route with the real slot (it
     mocked the SFU module's cleanup before C4-7). Since C4-5 it runs the real slot attach with
     the receiving flag and owner claim stubbed, and its assertions on those writes moved to the
-    real-state PRO contract suites.
+    real-state PRO contract suites. `system-audio-sfu.test.ts` stubs the same three slot inputs
+    the Standard SFU calls (the guest aliases before C4-8) and runs the rest of the slot.
   - Guard: the resource-ownership guard fails when the PRO SFU reception start arms the guest
     watchdog while `SUBSCRIBER_RETRY_MAX_DELAY_MS` is not below `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS`
     (read from `src/network/system-audio-media.ts` since C4-2), and when an armed
@@ -546,9 +561,10 @@ RO-49 accepted-exception
     same slot attach (Standard SFU 1 to 0 on each; totals 9 to 8, 6 to 5 and 5 to 4), and C4-5
     the PRO coordinator's, whose attach, resume and interrupts reuse the slot's attach, reception
     start and interrupt (service 5 to 0, 2 to 0 and 1 to 0; totals 8 to 3, 5 to 3 and 4 to 3).
-    Each Phase 5 increment that moves a route's write into the slot lowers that route's count.
-    Since
-    Phase 5 C4-1 it also keeps the media tuning in its home:
+    C4-6 and C4-7 changed no count, and since C4-8 the counts are final: the slot is the only
+    receive writer, and no route adapter has an entry, so a route that writes the slot itself is
+    an unsanctioned writer, not a raised count (guard test "allows no route adapter a direct
+    write"). Since Phase 5 C4-1 it also keeps the media tuning in its home:
     in `src/network/system-audio-*.ts` and `src/network/pro-system-audio-*.ts`, only
     `system-audio-media.ts` writes `playoutDelayHint` or `maxBitrate` or names
     `stun.cloudflare.com` (3 sites), and a route adapter that re-types one of its timing
@@ -558,13 +574,15 @@ RO-49 accepted-exception
     and a boundary whose target module no longer exists.
 - **Status:** `duplicated`. Fix lane G5 (a PRO LAN-direct listener whose track arrived after the
   30 s watchdog stayed silent) is fixed in 9.0.2. G6 (each PRO SFU retry re-runs the reception
-  start, including `stopAllMedia` and the host-started notice) is an open release-record item.
+  start, including `stopAllMedia` and the host-started notice) is fixed in 9.0.3; its
+  release-record item stays open for the device check.
   Phase 5 (slot); its first increment, C4-1, moved the media constants (planned for Phase 0d),
   C4-2 created the slot module with the trusted reception, C4-3 moved the Standard direct
   call's attach and primer into it, C4-4 the Standard SFU guest's, C4-5 the PRO
   coordinator's attach, resume, interrupts and detach, C4-6 the two bus pairs (the delivery
-  handoff and the receive deadline's expiry) with an explicit deadline kind, and C4-7 the PRO
-  coordinator's adopt (the service imports no Standard receive adapter). Exception RO-39.
+  handoff and the receive deadline's expiry) with an explicit deadline kind, C4-7 the PRO
+  coordinator's adopt (the service imports no Standard receive adapter), and C4-8 removed the
+  guest's compatibility aliases and made the slot's writer counts final. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 
@@ -2648,7 +2666,9 @@ and unrelated strings never count, and every baseline is an exact count or list 
    (a computed owner or a passed-on claim counts); reads of `.input` on a receiver named
    `widener`; and raw `'systemAudio.isReceiving'` writes (a `setState()` call or an object-literal
    key such as a `batchSetState` reset) outside `src/player/ownership.ts`, the setter's home. The
-   widener match is by name, so a widener held under another name is not seen.
+   widener match is by name, so a widener held under another name is not seen. The counts are
+   final since Phase 5 C4-8: only the receive slot writes, beside the sharer's own claim, the file
+   playback route's widener input and the `leaveSession` reset; no route adapter has an entry.
 10. **System-audio media tuning home, per file** (RO-04, Phase 5 C4-1): in the system-audio route
     files (`src/network/system-audio-*.ts` and `src/network/pro-system-audio-*.ts`), writes of
     `playoutDelayHint` or `maxBitrate` (an assignment or an object-literal key) and string

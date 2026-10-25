@@ -27,15 +27,14 @@ import {
   resetLocalSystemAudioSfuCapabilities,
 } from '../system-audio-delivery.ts';
 
-const systemAudioGuestMocks = vi.hoisted(() => ({
-  awaitTrustedReceptionBoundary: vi.fn(async () => true),
-  beginTrustedReception: vi.fn(),
-  cleanupGuestSystemAudio: vi.fn(),
-}));
-
-// The receive slot runs for real, except its delivery-handoff input, whose
-// calls these tests count, and the route registration, whose port they read.
+// The receive slot runs for real, except the reception start, trust-boundary
+// wait and end this route calls (the guest module's compatibility aliases of
+// them until Phase 5 C4-8) and its delivery-handoff input, whose calls these
+// tests count, and the route registration, whose port they read.
 const receiveSlotMocks = vi.hoisted(() => ({
+  awaitBoundary: vi.fn(async () => true),
+  begin: vi.fn(),
+  end: vi.fn(),
   handOff: vi.fn(),
 }));
 
@@ -97,16 +96,13 @@ vi.mock('../standard-room-prerequisites.ts', () => ({
   getStandardRoomTurnCredentials: standardRoomPrerequisiteMocks.getTurnCredentials,
 }));
 
-vi.mock('../system-audio-guest.ts', () => ({
-  cleanupGuestSystemAudio: systemAudioGuestMocks.cleanupGuestSystemAudio,
-  beginTrustedSystemAudioReception: systemAudioGuestMocks.beginTrustedReception,
-  awaitTrustedSystemAudioReceptionBoundary: systemAudioGuestMocks.awaitTrustedReceptionBoundary,
-}));
-
 vi.mock('../system-audio-receive-slot.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../system-audio-receive-slot.ts')>();
   return {
     ...actual,
+    awaitTrustedSystemAudioReceptionBoundary: receiveSlotMocks.awaitBoundary,
+    beginTrustedSystemAudioReception: receiveSlotMocks.begin,
+    endTrustedSystemAudioReception: receiveSlotMocks.end,
     handOffTrustedSystemAudioReception: receiveSlotMocks.handOff,
     registerSystemAudioReceiveRoute: vi.fn(actual.registerSystemAudioReceiveRoute),
   };
@@ -312,7 +308,7 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
-  systemAudioGuestMocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
+  receiveSlotMocks.awaitBoundary.mockResolvedValue(true);
   standardRoomPrerequisiteMocks.getTurnCredentials.mockReset();
   standardRoomPrerequisiteMocks.getTurnCredentials.mockResolvedValue(null);
   pendingRealtimeCalls = [];
@@ -1345,8 +1341,8 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       hostConn,
     );
 
-    expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledTimes(1);
-    expect(systemAudioGuestMocks.beginTrustedReception).toHaveBeenCalledWith('window', {
+    expect(receiveSlotMocks.end).toHaveBeenCalledTimes(1);
+    expect(receiveSlotMocks.begin).toHaveBeenCalledWith('window', {
       deadline: 'slot',
     });
     await waitForNewSessionCalls(1);
@@ -1639,17 +1635,14 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       await resolveRealtime('tracks-close', {});
 
       // Release initAudio: the recheck must bail before recreating anything.
-      const cleanupsBeforeSettlement =
-        systemAudioGuestMocks.cleanupGuestSystemAudio.mock.calls.length;
+      const cleanupsBeforeSettlement = receiveSlotMocks.end.mock.calls.length;
       releaseInit();
       await new Promise((r) => setTimeout(r, 0));
 
       const guest = mod.getSystemAudioSfuDebugSnapshot().guest;
       expect(guest.receiving).toBe(false);
       expect(guest.sourceStereo).toBe(false);
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio.mock.calls.length).toBe(
-        cleanupsBeforeSettlement,
-      );
+      expect(receiveSlotMocks.end.mock.calls.length).toBe(cleanupsBeforeSettlement);
 
       delete (globalThis as Record<string, unknown>).MediaStream;
     },
@@ -1702,12 +1695,12 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       });
       await resolveRealtime('renegotiate', {});
       await vi.waitFor(() => expect(nativeContext.resume).toHaveBeenCalledOnce());
-      systemAudioGuestMocks.cleanupGuestSystemAudio.mockClear();
+      receiveSlotMocks.end.mockClear();
       rejectResume(new DOMException('Native audio output unavailable', 'InvalidStateError'));
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+      expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
       // No policy change or unsolicited resubscription: a fresh authenticated
       // host announcement may reuse the same SFU publication after recovery.
       bus.emit('system-audio:host-started');
@@ -1736,7 +1729,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       .mocked(registerHandler)
       .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
       ((data: unknown, conn?: unknown) => void) | undefined;
-    systemAudioGuestMocks.cleanupGuestSystemAudio.mockClear();
+    receiveSlotMocks.end.mockClear();
     try {
       handler!(
         { version: 2, sessionId: 'host-sess', track: { trackName: 'audio-stereo', mid: '0' } },
@@ -1751,7 +1744,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
         tracks: [{ mid: '0', trackName: 'audio-stereo' }],
       });
       await vi.waitFor(() => {
-        expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+        expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
         expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
       });
     } finally {
@@ -1768,9 +1761,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       });
       return { promise, resolve };
     })();
-    systemAudioGuestMocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(
-      trustedBoundary.promise,
-    );
+    receiveSlotMocks.awaitBoundary.mockReturnValueOnce(trustedBoundary.promise);
 
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
@@ -1810,9 +1801,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     await resolveRealtime('renegotiate', {});
 
     await vi.waitFor(() => {
-      expect(systemAudioGuestMocks.awaitTrustedReceptionBoundary).toHaveBeenCalledWith(
-        'sfu-stereo',
-      );
+      expect(receiveSlotMocks.awaitBoundary).toHaveBeenCalledWith('sfu-stereo');
     });
     expect(engine.initAudio).not.toHaveBeenCalled();
 
@@ -1920,7 +1909,7 @@ describe('guest SFU receive slot inputs', () => {
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.subscriptionKey).toBeNull();
     expect(pcInstances[0]?.close).toHaveBeenCalledOnce();
     // Nothing was attached, so the shared receive cleanup is left to the slot.
-    expect(systemAudioGuestMocks.cleanupGuestSystemAudio).not.toHaveBeenCalled();
+    expect(receiveSlotMocks.end).not.toHaveBeenCalled();
 
     await rejectAllRealtimeCalls();
   });
@@ -2440,7 +2429,7 @@ describe('guest SFU attach: graph, primer and reception start per subscription',
       expect(pcInstances[0].close).toHaveBeenCalledOnce();
       expect(guest.sources[0].disconnect).toHaveBeenCalledOnce();
       expect(seen.primer.cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(firstPrimer);
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).not.toHaveBeenCalled();
+      expect(receiveSlotMocks.end).not.toHaveBeenCalled();
 
       // The new subscription's first attach starts the reception again.
       expect(guest.sources[1].connect).toHaveBeenCalledExactlyOnceWith(guest.widenerInput);
@@ -2479,7 +2468,7 @@ describe('guest SFU attach: graph, primer and reception start per subscription',
       await vi.waitFor(() => expect(guest.sources).toHaveLength(1));
 
       bus.emit('system-audio:host-stopped');
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+      expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
       expect(guest.sources[0].disconnect).toHaveBeenCalledOnce();
       expect(seen.primer.cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(firstPrimer);
       expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
@@ -2492,7 +2481,7 @@ describe('guest SFU attach: graph, primer and reception start per subscription',
 
       // Nothing is attached any more: a second cleanup leaves the reception alone.
       bus.emit('system-audio:host-stopped');
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+      expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
     } finally {
       bus.emit('system-audio:stop');
       await rejectAllRealtimeCalls();
@@ -2531,7 +2520,7 @@ describe('guest SFU attach: graph, primer and reception start per subscription',
       expect(pendingRealtimeCalls.map((call) => call.action)).toEqual(['tracks-close']);
       // No reception end and no new claim: the coordinator's start or attach
       // replaces the reception.
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).not.toHaveBeenCalled();
+      expect(receiveSlotMocks.end).not.toHaveBeenCalled();
       expect(seen.receivingWrites()).toEqual([[true]]);
       expect(seen.ownerClaims()).toEqual([['system-audio']]);
       expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
@@ -2586,7 +2575,7 @@ describe('guest SFU attach: graph, primer and reception start per subscription',
       expect(guest.context.createMediaStreamSource).not.toHaveBeenCalled();
       expect(seen.receivingWrites()).toEqual([]);
       expect(seen.limitTimers()).toEqual([]);
-      expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledOnce();
+      expect(receiveSlotMocks.end).toHaveBeenCalledOnce();
       expect(guest.mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
         pcState: null,
         receiving: false,

@@ -63,8 +63,11 @@
  *     receiver named `widener` (the slot's source connects there); and raw
  *     'systemAudio.isReceiving' writes (a setState() call or an object-literal
  *     key such as a batchSetState reset) outside src/player/ownership.ts, the
- *     setter's home. Phase 5 lowers these as the receive slot takes the
- *     writes.
+ *     setter's home. Final since Phase 5 C4-8: the receive slot
+ *     (src/network/system-audio-receive-slot.ts) is the only receive writer,
+ *     beside the sharer's own claim, the file playback route's widener input
+ *     and the leaveSession reset; no route adapter has an entry, so a direct
+ *     write there is unsanctioned.
  *   CHECK 10 System-audio media tuning home (RO-04, Phase 5 C4-1), per file
  *     in the system-audio route files (src/network/system-audio-*.ts and
  *     src/network/pro-system-audio-*.ts): writes of `playoutDelayHint` or
@@ -566,9 +569,9 @@ const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 
 // ── CHECK 9 baselines: system-audio receive slot writers (RO-04) ─────────
 // Measured on agent/phase5-5a aa62fe34 (main 2038b51f, App 9.0.10) on
-// 2026-10-25, Phase 5 prep T5. The route adapters write the slot directly
-// today; each Phase 5 increment that moves a write into the receive slot
-// lowers its count here. C4-2 moved the trusted reception's writes (the end
+// 2026-10-25, Phase 5 prep T5. The route adapters wrote the slot directly
+// then; each Phase 5 increment that moved a write into the receive slot
+// lowered its count here. C4-2 moved the trusted reception's writes (the end
 // of reception, the delivery-handoff interrupt and the placeholder claim)
 // from the guest into src/network/system-audio-receive-slot.ts, C4-3 the
 // Standard direct call's attach (its receiving flag, owner claim and
@@ -577,7 +580,12 @@ const DEFAULT_LOADER_WRITE_BASELINE: Baseline = new Map<string, Allowance>([
 // and lowers each total by one, and C4-5 the PRO coordinator's attach, resume
 // and interrupts, which leaves the service none: its attach shares the slot
 // attach, its resume the attach's reception start and its three interrupts
-// the slot's interrupt, so the slot's counts stay as they were.
+// the slot's interrupt, so the slot's counts stay as they were. C4-6 and C4-7
+// changed no count. Final since C4-8 (the last receive-slot increment): the
+// slot is the only receive writer. The other entries are not receive routes
+// (the sharer's own capture, the file playback route, the leaveSession
+// reset), and no route adapter has one, so a route that writes the slot
+// itself is UNSANCTIONED; a new entry needs the RO-04 record update.
 
 const RECEIVING_FLAG_SETTER = 'setSystemAudioReceiving';
 const PLAYBACK_OWNER_CLAIM = 'claimPlaybackOwner';

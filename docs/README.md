@@ -36,6 +36,7 @@ supersede them explicitly when the product boundary changes.
 - [Realtime runtime ownership](design/realtime-runtime-ownership.md)
 - [Resource ownership registry](design/resource-ownership-registry.md)
 - [Page navigation ownership](design/page-navigation-ownership.md)
+- [System-audio receive ownership](design/system-audio-receive-ownership.md)
 - [Signaling liveness](design/signaling-liveness.md)
 - [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md)
 - [Initial bundle and lazy-loading policy](design/initial-bundle-loading-policy.md)

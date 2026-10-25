@@ -20,11 +20,6 @@ import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
 import { createSystemAudioStartFrame } from './system-audio-start.ts';
 import {
-  awaitTrustedSystemAudioReceptionBoundary,
-  beginTrustedSystemAudioReception,
-  cleanupGuestSystemAudio,
-} from './system-audio-guest.ts';
-import {
   beginSystemAudioShareDelivery,
   claimGuestDirectSystemAudioRoute,
   endSystemAudioShareDelivery,
@@ -41,7 +36,10 @@ import {
 } from './system-audio-delivery.ts';
 import {
   attachSystemAudioSource,
+  awaitTrustedSystemAudioReceptionBoundary,
+  beginTrustedSystemAudioReception,
   detachSystemAudioRoute,
+  endTrustedSystemAudioReception,
   getSystemAudioReceiveRouteSnapshot,
   handOffTrustedSystemAudioReception,
   primeSystemAudioDecoder,
@@ -851,7 +849,7 @@ function cleanupGuestSfu(updateState = true): void {
   }
 
   if (shouldCleanupGuestReceiveState) {
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
   }
 }
 
@@ -976,7 +974,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
       // both transport and pending receive state so a fresh START/READY can
       // attach it again, even when no source became audible yet.
       cleanupGuestSfu(false);
-      cleanupGuestSystemAudio();
+      endTrustedSystemAudioReception();
       bus.emit('ui:show-toast', t('system_audio.receive_failed'));
     });
   };
@@ -1162,7 +1160,7 @@ function handleSfuReady(
   if (getGuestSystemAudioShareRoute() === 'direct') {
     if (!directFailureHandoff) return;
     const surface = getState('player.currentTrackMeta')?.systemAudioSurface;
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
     resetGuestSystemAudioShareRoute();
     beginTrustedSystemAudioReception(surface, { deadline: 'slot' });
   }

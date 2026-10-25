@@ -832,20 +832,22 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
   });
 
   describe('CHECK 9 system-audio receive slot writers (RO-04)', () => {
-    // Phase 5 prep T5: today's writers, which each 5A increment lowers as the
-    // receive slot takes the writes. C4-4 lowered the first three by one: the
-    // Standard SFU attaches through the slot's attach the direct call uses.
-    // C4-5 removed the PRO coordinator's (5, 2 and 1): it attaches, resumes
-    // and interrupts through the slot's existing writes.
-    const TODAY = {
+    // Phase 5 prep T5 pinned the writers then, which each 5A increment lowered
+    // as the receive slot took the writes. C4-4 lowered the first three by
+    // one: the Standard SFU attaches through the slot's attach the direct call
+    // uses. C4-5 removed the PRO coordinator's (5, 2 and 1): it attaches,
+    // resumes and interrupts through the slot's existing writes. Final since
+    // C4-8: the slot's writes, the sharer's own claim, the file playback
+    // route's widener input and the leaveSession reset.
+    const FINAL = {
       'receiving flag write': 3,
       'system-audio owner claim': 3,
       'widener.input use': 3,
       'raw receiving flag write': 1,
     };
 
-    it("pins today's direct writers on the real tree", () => {
-      expect(analyzeResourceOwnership(realInput()).receiveSlotWrites).toEqual(TODAY);
+    it('pins the final direct writers on the real tree', () => {
+      expect(analyzeResourceOwnership(realInput()).receiveSlotWrites).toEqual(FINAL);
     });
 
     it('allows no route adapter a direct write: one there is unsanctioned, not a raised count', () => {
@@ -877,7 +879,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
       );
       const findings = report.findings.join('\n');
       for (const route of routes) {
-        for (const label of Object.keys(TODAY)) {
+        for (const label of Object.keys(FINAL)) {
           expect(findings).toContain(`UNSANCTIONED ${label} (RO-04): ${route} has 1 - `);
         }
       }
@@ -925,10 +927,10 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         /UNSANCTIONED raw receiving flag write \(RO-04\): src\/pro-room\/rogue-receiver\.ts has 2/u,
       );
       expect(report.receiveSlotWrites).toEqual({
-        'receiving flag write': TODAY['receiving flag write'] + 2,
-        'system-audio owner claim': TODAY['system-audio owner claim'] + 2,
-        'widener.input use': TODAY['widener.input use'] + 1,
-        'raw receiving flag write': TODAY['raw receiving flag write'] + 2,
+        'receiving flag write': FINAL['receiving flag write'] + 2,
+        'system-audio owner claim': FINAL['system-audio owner claim'] + 2,
+        'widener.input use': FINAL['widener.input use'] + 1,
+        'raw receiving flag write': FINAL['raw receiving flag write'] + 2,
       });
     });
 

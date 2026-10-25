@@ -702,16 +702,34 @@ describe('LinkLiveness ports', () => {
     let open = options.open ?? true;
     let route: PeerConnection | undefined = new PeerConnection();
     let reenter: ((liveness: LinkLiveness) => void) | null = null;
+    // What the resume probe reads (C5-7): the side PC and the channels.
+    const link = {
+      side: undefined as PeerConnection | undefined,
+      channelsOpen: true,
+      sideChannelDown: false,
+      pingFails: false,
+    };
     const liveness: LinkLiveness = new LinkLiveness(KEY, {
       route: () => route as unknown as RTCPeerConnection | undefined,
       open: () => open,
+      snapshot: () => {
+        trace.push(['snapshot', liveness.recoveryDeadline]);
+        return {
+          original: route as unknown as RTCPeerConnection | undefined,
+          side: link.side as unknown as RTCPeerConnection | undefined,
+          channelsOpen: link.channelsOpen,
+          sideChannelDown: link.sideChannelDown,
+        };
+      },
+      ping: (pingId) => {
+        trace.push(['ping', pingId]);
+        if (link.pingFails) throw new Error('native-send-failed');
+      },
       close: (cause) => {
         trace.push(['close', cause]);
         liveness.stop();
         open = false;
       },
-      probeConnected: () => trace.push(['probe-connected', liveness.recoveryDeadline]),
-      probeDisconnected: () => trace.push(['probe-disconnected', liveness.recoveryDeadline]),
       changed: () => {
         trace.push(['changed', liveness.recoveryDeadline]);
         reenter?.(liveness);
@@ -723,6 +741,7 @@ describe('LinkLiveness ports', () => {
     return {
       liveness,
       trace,
+      link,
       route: () => route,
       transition: (state: RTCPeerConnectionState) => {
         route!.connectionState = state;
@@ -733,39 +752,44 @@ describe('LinkLiveness ports', () => {
       onChanged: (fn: ((liveness: LinkLiveness) => void) | null) => (reenter = fn),
     };
   }
+  type Owner = ReturnType<typeof owner>;
+
+  function side(state: RTCPeerConnectionState): PeerConnection {
+    const pc = new PeerConnection();
+    pc.connectionState = state;
+    return pc;
+  }
 
   it('runs connected as: cancel grace, reopen gate, probe, callback, side route, recovered', () => {
     const o = owner();
+    // A resume probe that sees the interruption reads the link on connected.
+    expect(o.liveness.backgroundResume(60_000, false)).toBe('monitoring');
     o.transition('disconnected');
     expect(o.liveness.beginRestart()).toBe(true);
     o.trace.length = 0;
     o.onChanged((liveness) => o.trace.push(['gate', liveness.beginRestart()]));
     o.transition('connected');
-    expect(o.trace).toEqual([
-      ['probe-connected', 0],
-      ['changed', 0],
-      ['gate', true],
-      'side',
-      'recovered',
-    ]);
+    expect(o.trace).toEqual([['snapshot', 0], ['changed', 0], ['gate', true], 'side', 'recovered']);
   });
 
   it('reports no recovery for a connected route that was not interrupted or is not open', () => {
     const o = owner();
     o.transition('connected');
-    expect(o.trace).toEqual([['probe-connected', 0], ['changed', 0], 'side']);
+    expect(o.trace).toEqual([['changed', 0], 'side']);
     o.transition('disconnected');
     o.setOpen(false);
     o.trace.length = 0;
     o.transition('connected');
-    expect(o.trace).toEqual([['probe-connected', 0], ['changed', 0], 'side']);
+    expect(o.trace).toEqual([['changed', 0], 'side']);
   });
 
   it('runs disconnected as: probe, callback, then the grace, then the side route', () => {
     const o = owner();
+    expect(o.liveness.backgroundResume(60_000, false)).toBe('monitoring');
+    o.trace.length = 0;
     const start = Date.now();
     o.transition('disconnected');
-    expect(o.trace).toEqual([['probe-disconnected', 0], ['changed', 0], 'side']);
+    expect(o.trace).toEqual([['snapshot', 0], ['changed', 0], 'side']);
     expect(o.liveness.recoveryDeadline).toBe(start + GRACE_MS);
     expect(getManagedTimer(KEY)).not.toBeNull();
   });
@@ -774,10 +798,7 @@ describe('LinkLiveness ports', () => {
     const o = owner();
     o.onChanged((liveness) => liveness.stop());
     o.transition('disconnected');
-    expect(o.trace).toEqual([
-      ['probe-disconnected', 0],
-      ['changed', 0],
-    ]);
+    expect(o.trace).toEqual([['changed', 0]]);
     expect(o.liveness.recoveryDeadline).toBe(0);
     expect(getManagedTimer(KEY)).toBeNull();
   });
@@ -885,5 +906,323 @@ describe('LinkLiveness ports', () => {
     expect(getManagedTimer(KEY)).toBeNull();
     await vi.advanceTimersByTimeAsync(GRACE_MS);
     expect(o.trace).not.toContainEqual(['close', 'original-grace-expired']);
+  });
+
+  /** The guest background-resume probe the owner holds since C5-7. */
+  describe('resume probe', () => {
+    const PROBE_KEY = `${KEY}-background-resume-liveness`;
+    const PROBE_DISCONNECTED_KEY = `${KEY}-background-resume-disconnected`;
+
+    function armedTimers(): [boolean, boolean] {
+      return [
+        getManagedTimer(PROBE_KEY) !== null,
+        getManagedTimer(PROBE_DISCONNECTED_KEY) !== null,
+      ];
+    }
+
+    function pingId(trace: unknown[]): number {
+      const entry = trace.find(
+        (item): item is ['ping', number] => Array.isArray(item) && item[0] === 'ping',
+      );
+      return entry![1];
+    }
+
+    function closes(trace: unknown[]): unknown[] {
+      return trace.filter((item) => Array.isArray(item) && item[0] === 'close');
+    }
+
+    it.each([
+      { name: 'under the grace', hiddenMs: GRACE_MS - 1 },
+      { name: 'not a number', hiddenMs: Number.NaN },
+      { name: 'infinite', hiddenMs: Number.POSITIVE_INFINITY },
+    ])('is not applicable when the hidden period is $name', ({ hiddenMs }) => {
+      const o = owner();
+      expect(o.liveness.backgroundResume(hiddenMs, false)).toBe('not-applicable');
+      expect(o.trace).toEqual([]);
+      expect(armedTimers()).toEqual([false, false]);
+    });
+
+    it('is not applicable to a link that is not open or is stopped', () => {
+      const closed = owner({ open: false });
+      expect(closed.liveness.backgroundResume(60_000, false)).toBe('not-applicable');
+      const stopped = owner();
+      stopped.liveness.stop();
+      expect(stopped.liveness.backgroundResume(60_000, false)).toBe('not-applicable');
+      expect([...closed.trace, ...stopped.trace]).toEqual([]);
+      expect(armedTimers()).toEqual([false, false]);
+    });
+
+    it('arms the 3 s window, reads the link, then sends one challenge with a high safe-integer id', () => {
+      const o = owner();
+      expect(o.liveness.backgroundResume(GRACE_MS, false)).toBe('monitoring');
+      expect(o.trace).toEqual([
+        ['snapshot', 0],
+        ['ping', expect.any(Number)],
+      ]);
+      const id = pingId(o.trace);
+      expect(Number.isSafeInteger(id)).toBe(true);
+      expect(id).toBeGreaterThanOrEqual(2 ** 52);
+      expect(armedTimers()).toEqual([true, false]);
+    });
+
+    it('closes as resume-probe-unanswered exactly 3 s later without the exact pong', async () => {
+      const o = owner();
+      o.liveness.backgroundResume(60_000, false);
+      const id = pingId(o.trace);
+      for (const payload of [
+        null,
+        'sync-pong',
+        { type: MSG.SYNC_PONG, pingId: id + 1 },
+        { type: MSG.SYNC_PING, pingId: id },
+      ]) {
+        o.liveness.inbound(payload);
+      }
+      await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS - 1);
+      expect(closes(o.trace)).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(closes(o.trace)).toEqual([['close', 'resume-probe-unanswered']]);
+      expect(armedTimers()).toEqual([false, false]);
+    });
+
+    it('settles on the exact pong, clearing both timers, and ignores frames after it', async () => {
+      const o = owner();
+      o.route()!.connectionState = 'disconnected';
+      o.liveness.backgroundResume(60_000, false);
+      expect(armedTimers()).toEqual([true, true]);
+      const id = pingId(o.trace);
+      o.liveness.inbound({ type: MSG.SYNC_PONG, pingId: id });
+      expect(armedTimers()).toEqual([false, false]);
+      o.liveness.inbound({ type: MSG.SYNC_PONG, pingId: id });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(closes(o.trace)).toEqual([]);
+      expect(o.liveness.reconcileResume(true)).toBe('not-applicable');
+    });
+
+    it('accepts only the latest challenge after a second resume', async () => {
+      const o = owner();
+      o.liveness.backgroundResume(60_000, false);
+      const first = pingId(o.trace);
+      o.trace.length = 0;
+      await vi.advanceTimersByTimeAsync(2_000);
+      o.liveness.backgroundResume(60_000, false);
+      const second = pingId(o.trace);
+      expect(second).not.toBe(first);
+      o.liveness.inbound({ type: MSG.SYNC_PONG, pingId: first });
+      await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS - 1);
+      expect(closes(o.trace)).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(closes(o.trace)).toEqual([['close', 'resume-probe-unanswered']]);
+    });
+
+    it('closes as resume-probe-unanswered when the challenge cannot be sent', () => {
+      const o = owner();
+      o.link.pingFails = true;
+      expect(o.liveness.backgroundResume(60_000, false)).toBe('stale-connection-closed');
+      expect(o.trace).toEqual([
+        ['snapshot', 0],
+        ['ping', expect.any(Number)],
+        ['close', 'resume-probe-unanswered'],
+      ]);
+      expect(armedTimers()).toEqual([false, false]);
+    });
+
+    it.each([
+      { name: 'no original PC', arrange: (o: Owner) => o.replaceRoute(undefined) },
+      { name: 'a failed original', arrange: (o: Owner) => (o.route()!.connectionState = 'failed') },
+      { name: 'a closed original', arrange: (o: Owner) => (o.route()!.connectionState = 'closed') },
+      { name: 'a failed side PC', arrange: (o: Owner) => (o.link.side = side('failed')) },
+      { name: 'a closed side PC', arrange: (o: Owner) => (o.link.side = side('closed')) },
+      {
+        name: 'an original channel that is not open',
+        arrange: (o: Owner) => (o.link.channelsOpen = false),
+      },
+      {
+        name: 'an active side channel that is not open',
+        arrange: (o: Owner) => (o.link.sideChannelDown = true),
+      },
+    ])('closes at once as resume-stale for $name, before any challenge', ({ arrange }) => {
+      const o = owner();
+      arrange(o);
+      expect(o.liveness.backgroundResume(60_000, false)).toBe('stale-connection-closed');
+      expect(o.trace).toEqual([
+        ['snapshot', 0],
+        ['close', 'resume-stale'],
+      ]);
+      expect(armedTimers()).toEqual([false, false]);
+    });
+
+    it('monitors a connected original beside a connected side PC without a short look', () => {
+      const o = owner();
+      o.link.side = side('connected');
+      expect(o.liveness.backgroundResume(60_000, false)).toBe('monitoring');
+      expect(armedTimers()).toEqual([true, false]);
+    });
+
+    it('monitors a transitional original with neither a close nor a short look', () => {
+      const o = owner();
+      o.route()!.connectionState = 'connecting';
+      expect(o.liveness.backgroundResume(60_000, false)).toBe('monitoring');
+      expect(armedTimers()).toEqual([true, false]);
+    });
+
+    it.each([
+      {
+        name: 'the original',
+        arrange: (o: Owner) => (o.route()!.connectionState = 'disconnected'),
+      },
+      { name: 'the side PC', arrange: (o: Owner) => (o.link.side = side('disconnected')) },
+    ])(
+      'closes at once as resume-stale when $name reads disconnected and signaling is lost',
+      ({ arrange }) => {
+        const o = owner();
+        arrange(o);
+        expect(o.liveness.backgroundResume(60_000, true)).toBe('stale-connection-closed');
+        expect(o.trace).toEqual([
+          ['snapshot', 0],
+          ['close', 'resume-stale'],
+        ]);
+      },
+    );
+
+    it.each([
+      {
+        name: 'the original still disconnected',
+        original: 'disconnected',
+        channelsOpen: true,
+        sideState: undefined,
+        closes: true,
+      },
+      {
+        name: 'an original channel that is not open',
+        original: 'connected',
+        channelsOpen: false,
+        sideState: undefined,
+        closes: true,
+      },
+      {
+        name: 'the side PC still disconnected',
+        original: 'connected',
+        channelsOpen: true,
+        sideState: 'disconnected',
+        closes: true,
+      },
+      {
+        name: 'both routes connected and open',
+        original: 'connected',
+        channelsOpen: true,
+        sideState: 'connected',
+        closes: false,
+      },
+      {
+        name: 'an open connected original and no side PC',
+        original: 'connected',
+        channelsOpen: true,
+        sideState: undefined,
+        closes: false,
+      },
+    ] as const)(
+      'ends the 1 s look at a disconnected route with $name (closes: $closes)',
+      async ({ original, channelsOpen, sideState, closes: closing }) => {
+        const o = owner();
+        o.route()!.connectionState = 'disconnected';
+        expect(o.liveness.backgroundResume(60_000, false)).toBe('monitoring');
+        expect(armedTimers()).toEqual([true, true]);
+        o.route()!.connectionState = original;
+        o.link.channelsOpen = channelsOpen;
+        o.link.side = sideState ? side(sideState) : undefined;
+        o.trace.length = 0;
+        await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS - 1);
+        expect(o.trace).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1);
+        if (closing) {
+          expect(o.trace).toEqual([
+            ['snapshot', 0],
+            ['close', 'resume-disconnected'],
+          ]);
+          expect(armedTimers()).toEqual([false, false]);
+          return;
+        }
+        // Keeps waiting for the pong.
+        expect(o.trace).toEqual([['snapshot', 0]]);
+        await vi.advanceTimersByTimeAsync(
+          RESUME_LIVENESS_TIMEOUT_MS - RESUME_DISCONNECTED_PROBE_MS,
+        );
+        expect(closes(o.trace)).toEqual([['close', 'resume-probe-unanswered']]);
+      },
+    );
+
+    it('restarts the 1 s look when the link is read disconnected again', async () => {
+      const o = owner();
+      o.route()!.connectionState = 'disconnected';
+      o.liveness.backgroundResume(60_000, false);
+      await vi.advanceTimersByTimeAsync(500);
+      expect(o.liveness.reconcileResume(false)).toBe('monitoring');
+      await vi.advanceTimersByTimeAsync(RESUME_DISCONNECTED_PROBE_MS - 1);
+      expect(closes(o.trace)).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(closes(o.trace)).toEqual([['close', 'resume-disconnected']]);
+    });
+
+    it('is not applicable without an armed probe', () => {
+      const o = owner();
+      expect(o.liveness.reconcileResume(true)).toBe('not-applicable');
+      expect(o.trace).toEqual([]);
+    });
+
+    it('on connected: keeps a probe that saw no disconnected, without reading the link', () => {
+      const o = owner();
+      o.liveness.backgroundResume(60_000, false);
+      o.trace.length = 0;
+      o.transition('connected');
+      expect(o.trace).toEqual([['changed', 0], 'side']);
+      expect(armedTimers()).toEqual([true, false]);
+    });
+
+    it('on connected: settles a probe that saw disconnected only without a side PC', () => {
+      const alone = owner();
+      alone.liveness.backgroundResume(60_000, false);
+      alone.transition('disconnected');
+      expect(armedTimers()).toEqual([true, true]);
+      alone.transition('connected');
+      expect(armedTimers()).toEqual([false, false]);
+      alone.liveness.stop();
+
+      const withSide = owner();
+      withSide.link.side = side('connected');
+      withSide.liveness.backgroundResume(60_000, false);
+      withSide.transition('disconnected');
+      withSide.transition('connected');
+      // Only the exact pong proves both routes.
+      expect(armedTimers()).toEqual([true, true]);
+      expect(withSide.liveness.reconcileResume(false)).toBe('monitoring');
+    });
+
+    it('on disconnected: a probe that finds a terminal side PC closes before the callback and arms no grace', () => {
+      const o = owner();
+      o.link.side = side('connected');
+      o.liveness.backgroundResume(60_000, false);
+      o.link.side = side('failed');
+      o.trace.length = 0;
+      o.transition('disconnected');
+      expect(o.trace).toEqual([
+        ['snapshot', 0],
+        ['close', 'resume-stale'],
+        ['changed', 0],
+      ]);
+      expect(getManagedTimer(KEY)).toBeNull();
+      expect(armedTimers()).toEqual([false, false]);
+    });
+
+    it('stop clears the probe and both timers, and nothing re-arms it', async () => {
+      const o = owner();
+      o.route()!.connectionState = 'disconnected';
+      o.liveness.backgroundResume(60_000, false);
+      o.liveness.stop();
+      expect(armedTimers()).toEqual([false, false]);
+      expect(o.liveness.reconcileResume(false)).toBe('not-applicable');
+      expect(o.liveness.backgroundResume(60_000, false)).toBe('not-applicable');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(closes(o.trace)).toEqual([]);
+    });
   });
 });

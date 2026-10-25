@@ -22,7 +22,7 @@ export default defineConfig({
       'src/player/__tests__/{busy-guard,concurrency-invariants,local-output-rejoin,playback,playback-extended,playback-queue-identity,playback-replay-resync,playback-remote-wait,playlist,transport-position}.test.ts',
       'src/storage/__tests__/preload.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker}.test.ts',
-      // The original route's outage owner (RO-15), enrolled in Phase 4 C5-6.
+      // The link-liveness owner (RO-15): enrolled in Phase 4 C5-6, the resume probe since C5-7.
       'src/network/transport/__tests__/{link-liveness,link-liveness-characterization}.test.ts',
       'src/network/__tests__/transport-health.test.ts',
       'src/youtube/__tests__/{search,search-style}.test.ts',
@@ -150,7 +150,7 @@ export default defineConfig({
           functions: 72,
           lines: 78,
         },
-        // The original route's outage owner (Phase 4, C5-6) is fully covered
+        // The link-liveness owner (Phase 4, C5-6 and C5-7) is fully covered
         // by link-liveness.test.ts on 2026-10-25.
         'src/network/transport/link-liveness.ts': {
           statements: 99,

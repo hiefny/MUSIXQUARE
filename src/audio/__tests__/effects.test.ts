@@ -9,10 +9,9 @@ import { handleData } from '../../network/protocol.ts';
 import { CloudflareDataConnection } from '../../network/transport/cloudflare-signaling.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import {
-  setPreamp,
-  setStereoWidth,
+  setStereoWidthForTests as setStereoWidth,
   resetStereoWidth,
-  setVirtualBass,
+  setVirtualBassForTests as setVirtualBass,
   resetVirtualBass,
   applyRoomEffectsStateForTests as applyRoomEffectsState,
   canAdjustLocalRoomEffectsForTests as canAdjustLocalRoomEffects,
@@ -22,7 +21,7 @@ import {
   isDeviceLocalEffectTypeForTests as isDeviceLocalEffectType,
   publishLocalSettingsAuthorityForTests as publishLocalSettingsAuthority,
   resetSettingsSyncAuthorityForTests,
-  setReverbParam,
+  setReverbParamForTests as setReverbParam,
   setSettingsSyncEnabled,
   syncRoomEffectsUI,
 } from '../effects.ts';
@@ -74,29 +73,6 @@ const synchronizedEffects = {
   virtualSurround: { widthPercent: 120 },
   virtualTreble: { enabled: true },
 };
-
-describe('setPreamp', () => {
-  it('0 dB → gain 1.0', () => {
-    setPreamp(0);
-    expect(getState('audio.userPreampGain')).toBeCloseTo(1.0);
-  });
-
-  it('6 dB → gain ≈ 1.995', () => {
-    setPreamp(6);
-    expect(getState('audio.userPreampGain')).toBeCloseTo(1.9953, 3);
-  });
-
-  it('-6 dB → gain ≈ 0.501', () => {
-    setPreamp(-6);
-    expect(getState('audio.userPreampGain')).toBeCloseTo(0.5012, 3);
-  });
-
-  it('20 dB → clamped to 12 dB → gain ≈ 3.98', () => {
-    setPreamp(20);
-    // Values above the public range are clamped before conversion to linear gain.
-    expect(getState('audio.userPreampGain')).toBeCloseTo(3.981, 2);
-  });
-});
 
 describe('setStereoWidth', () => {
   it('100 → stereoWidth 1.0', () => {
@@ -226,43 +202,6 @@ describe('room-wide effect snapshots', () => {
       }),
     ).toBe(false);
     expect(captureRoomEffectsState()).toEqual(before);
-  });
-});
-
-describe('standard-room virtual treble synchronization', () => {
-  beforeEach(() => {
-    initEffectsHandlers();
-  });
-
-  it('applies the host EXCITER frame and synchronizes the guest UI', async () => {
-    const host = makeConnection('host');
-    const syncExciter = vi.fn();
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', host);
-    setState('audio.exciter', false);
-    bus.on('ui:sync-exciter', syncExciter);
-
-    await handleData({ type: MSG.EXCITER, value: 1 }, host);
-
-    expect(getState('audio.exciter')).toBe(true);
-    expect(syncExciter).toHaveBeenCalledWith(true);
-  });
-
-  it('suppresses the host-changed toast only for a reverb bootstrap frame', async () => {
-    vi.useFakeTimers();
-    document.body.innerHTML = '<div id="toast"><span id="toast-msg"></span></div>';
-    const toast = document.getElementById('toast');
-    const host = makeConnection('host-reverb-bootstrap');
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', host);
-
-    await handleData({ type: MSG.REVERB_TYPE, value: 'studio', _bootstrap: true }, host);
-    await vi.advanceTimersByTimeAsync(301);
-    expect(toast?.classList.contains('show')).toBe(false);
-
-    await handleData({ type: MSG.REVERB_TYPE, value: 'arena' }, host);
-    await vi.advanceTimersByTimeAsync(301);
-    expect(toast?.classList.contains('show')).toBe(true);
   });
 });
 
@@ -517,8 +456,9 @@ describe('atomic settings synchronization', () => {
     } as unknown as DataConnection;
     setState('network.appRole', 'host');
     bus.emit('effects:resync-peer', recipient);
-    expect(delivered).toContainEqual({ type: MSG.VBASS, value: 0, _bootstrap: true });
-    expect(delivered[0]).toMatchObject({ type: MSG.SETTINGS_SYNC_SNAPSHOT });
+    expect(delivered).toEqual([
+      expect.objectContaining({ type: MSG.SETTINGS_SYNC_SNAPSHOT, _bootstrap: true }),
+    ]);
 
     const send = vi.fn<(data: string) => void>();
     const newHost = new CloudflareDataConnection('host');
@@ -574,7 +514,6 @@ describe('atomic settings synchronization', () => {
     expect(nativeClose).not.toHaveBeenCalled();
     send.mockClear();
 
-    // Preserve the exact host emission order, including its legacy companions.
     // The existing live channel can still receive while its send buffer is full.
     for (const frame of delivered) await handleData(frame, newHost);
     expect.soft(captureRoomEffectsState()).toEqual(synchronizedEffects);
@@ -780,6 +719,17 @@ describe('atomic settings synchronization', () => {
   });
 
   it('discards a disconnected pending publish on explicit revoke or room change', async () => {
+    const bootstrapWithBass = (strengthPercent: number) => ({
+      type: MSG.SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      epoch: 0,
+      sequence: 1,
+      settings: {
+        masterVolume: 1,
+        effects: { ...synchronizedEffects, virtualBass: { strengthPercent } },
+      },
+      _bootstrap: true,
+    });
     const send = vi.fn();
     const host = { peer: 'host', open: false, send } as unknown as DataConnection;
     setState('room.context', { ...getState('room.context'), roomId: '123456' });
@@ -794,7 +744,7 @@ describe('atomic settings synchronization', () => {
     (host as { open: boolean }).open = true;
     bus.emit('network:peer-connected', host);
     expect(send).not.toHaveBeenCalled();
-    await handleData({ type: MSG.VBASS, value: 20, _bootstrap: true }, host);
+    await handleData(bootstrapWithBass(20), host);
     expect(getState('audio.virtualBass')).toBe(0.2);
 
     (host as { open: boolean }).open = false;
@@ -804,7 +754,7 @@ describe('atomic settings synchronization', () => {
     (host as { open: boolean }).open = true;
     bus.emit('network:peer-connected', host);
     expect(send).not.toHaveBeenCalled();
-    await handleData({ type: MSG.VBASS, value: 30, _bootstrap: true }, host);
+    await handleData(bootstrapWithBass(30), host);
     expect(getState('audio.virtualBass')).toBe(0.3);
   });
 
@@ -989,36 +939,6 @@ describe('atomic settings synchronization', () => {
     );
 
     expect(captureRoomSettingsSyncState()).toEqual(accepted.settings);
-  });
-});
-
-describe('request-eq-reset authorization', () => {
-  beforeEach(() => {
-    initEffectsHandlers();
-  });
-
-  it('rejects demo non-operators', async () => {
-    const conn = makeConnection('guest-demo');
-    setState('demo.active', true);
-    setState('audio.eqValues', [1, 2, 3, 4, 5]);
-
-    await handleData({ type: MSG.REQUEST_EQ_RESET }, conn);
-
-    expect(getState('audio.eqValues')).toEqual([1, 2, 3, 4, 5]);
-  });
-
-  it('allows a standard administrator to reset synchronized room effects', async () => {
-    const conn = makeConnection('guest-op');
-    setState('network.appRole', 'host');
-    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
-    setState('network.connectedPeers', [{ ...makeConnectedPeer(conn.peer, true), conn }]);
-    setState('audio.eqValues', [1, 2, 3, 4, 5]);
-    setState('audio.userPreampGain', 2);
-
-    await handleData({ type: MSG.REQUEST_EQ_RESET }, conn);
-
-    expect(getState('audio.eqValues')).toEqual([0, 0, 0, 0, 0]);
-    expect(getState('audio.userPreampGain')).toBe(1);
   });
 });
 

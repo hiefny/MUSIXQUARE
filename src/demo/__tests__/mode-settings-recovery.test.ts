@@ -430,12 +430,12 @@ describe('demo failure preserves effects authority', () => {
     setState('network.myId', 'host');
     setState('setup.sessionStarted', true);
     effects.setSettingsSyncEnabled(true);
-    effects.setReverbParam('mix', 10);
+    effects.setReverbParamForTests('mix', 10);
     expect(effects.publishLocalSettingsAuthorityForTests()).toBe(true);
     bus.emit('demo:enter');
     await flush();
     expect(getState('demo.loading')).toBe(true);
-    effects.setReverbParam('mix', 60);
+    effects.setReverbParamForTests('mix', 60);
     expect(effects.publishLocalSettingsAuthorityForTests()).toBe(true);
     expect(mocks.broadcast).toHaveBeenCalledWith(
       expect.objectContaining({

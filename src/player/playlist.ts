@@ -49,14 +49,6 @@ import {
   cancelPreloadTransfer,
   resetPreloadReceiveAuthority,
 } from '../storage/preload.ts';
-import {
-  setEQ,
-  setExciter,
-  setPreamp,
-  setStereoWidth,
-  setVirtualBass,
-  setReverbParam,
-} from '../audio/effects.ts';
 import { postCommand } from '../storage/storage.ts';
 import {
   cancelIncomingFileTransfer,
@@ -322,13 +314,6 @@ interface PlaylistQueueModeState {
   shuffleEnabled: boolean;
   shuffleOrder: QueueItemId[];
 }
-const DEMO_ALLOWED_SETTING_TYPES = new Set<string>([
-  'eq',
-  MSG.VBASS,
-  MSG.EXCITER,
-  MSG.STEREO_WIDTH,
-  MSG.REVERB_TYPE,
-]);
 
 function isQueueIdle(): boolean {
   return isPlaybackIdleCompat();
@@ -1969,153 +1954,27 @@ function handleRequestSetting(data: Record<string, unknown>, conn: DataConnectio
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
-  const st = data.settingType as string;
-  const effectSettingTypes = new Set([
-    'eq',
-    MSG.PREAMP,
-    MSG.STEREO_WIDTH,
-    MSG.VBASS,
-    MSG.EXCITER,
-    MSG.REVERB,
-    MSG.REVERB_TYPE,
-    MSG.REVERB_DECAY,
-    MSG.REVERB_PREDELAY,
-    MSG.REVERB_LOWCUT,
-    MSG.REVERB_HIGHCUT,
-  ]);
-  const requiredCapability =
-    st === MSG.REPEAT_MODE || st === MSG.SHUFFLE_MODE
-      ? 'queue.mutate'
-      : effectSettingTypes.has(st)
-        ? 'effects.control'
-        : 'room.configure';
-  const isOp = verifyOperator(conn, data, requiredCapability);
-  const isDemoAllowed = getState('demo.active') && DEMO_ALLOWED_SETTING_TYPES.has(st);
-  if (!isOp && !isDemoAllowed) {
+  if (!verifyOperator(conn, data, 'queue.mutate')) {
     log.warn(`[Playlist] Rejected request-setting from non-OP: ${conn?.peer}`);
     return;
   }
 
-  const val = data.value;
-  let appliedSynchronizedEffect = false;
-  switch (st) {
-    case 'repeat-mode': {
-      const mode = Number(val) || 0;
+  // The validator admits only the queue modes; room effects travel as one
+  // atomic settings snapshot (audio/effects.ts).
+  switch (data.settingType) {
+    case MSG.REPEAT_MODE: {
+      const mode = Number(data.value) || 0;
       setRepeatMode(mode);
       broadcast({ type: MSG.REPEAT_MODE, value: mode });
       break;
     }
-    case 'shuffle-mode': {
-      const enabled = !!val;
+    case MSG.SHUFFLE_MODE: {
+      const enabled = !!data.value;
       setShuffle(enabled);
       broadcast({ type: MSG.SHUFFLE_MODE, value: enabled });
       break;
     }
-    // ─── Audio Effect Settings (OP → Host apply + broadcast) ──
-    case 'eq': {
-      const band = parseInt(String(data.band), 10);
-      const v = parseFloat(String(val));
-      if (!Number.isFinite(band) || !Number.isFinite(v)) break;
-      setEQ(band, v);
-      broadcast({ type: MSG.EQ_UPDATE, band, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
-    case MSG.PREAMP: {
-      const v = parseFloat(String(val));
-      if (!Number.isFinite(v)) break;
-      setPreamp(v);
-      broadcast({ type: MSG.PREAMP, value: v });
-      break;
-    }
-    // The ui:sync-* emits below mirror the guest-side network handlers in
-    // audio/effects.ts: setters alone don't update the settings UI, so the
-    // HOST's own chips/sliders would go stale when an OP's request applies.
-    // (eq and REVERB_TYPE are excluded — their setters already emit.)
-    case MSG.STEREO_WIDTH: {
-      const v = Number(val);
-      if (!Number.isFinite(v)) break;
-      setStereoWidth(v);
-      bus.emit('ui:sync-surround', v > 100);
-      broadcast({ type: MSG.STEREO_WIDTH, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
-    case MSG.VBASS: {
-      const v = Number(val);
-      if (!Number.isFinite(v)) break;
-      setVirtualBass(v);
-      bus.emit('ui:sync-vbass', v > 0);
-      broadcast({ type: MSG.VBASS, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
-    case MSG.EXCITER: {
-      // Wire shape is 0 | 1 to share the REQUEST_SETTING number contract;
-      // setExciter takes the boolean form locally.
-      const v = Number(val);
-      if (v !== 0 && v !== 1) break;
-      setExciter(v === 1);
-      bus.emit('ui:sync-exciter', v === 1);
-      broadcast({ type: MSG.EXCITER, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
-    case MSG.REVERB: {
-      const v = Number(val);
-      if (!Number.isFinite(v)) break;
-      setReverbParam('mix', v);
-      bus.emit('ui:sync-reverb-param', 'mix', v);
-      broadcast({ type: MSG.REVERB, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
-    case MSG.REVERB_TYPE: {
-      // val is a string preset ('studio'/'arena'/'off') — apply locally on host + broadcast
-      bus.emit('audio:reverb-type-change', String(val));
-      break;
-    }
-    case MSG.REVERB_DECAY: {
-      const v = Number(val);
-      if (!Number.isFinite(v)) break;
-      setReverbParam('decay', v);
-      bus.emit('ui:sync-reverb-param', 'decay', v);
-      broadcast({ type: MSG.REVERB_DECAY, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
-    case MSG.REVERB_PREDELAY: {
-      const v = Number(val);
-      if (!Number.isFinite(v)) break;
-      setReverbParam('predelay', v);
-      bus.emit('ui:sync-reverb-param', 'predelay', v);
-      broadcast({ type: MSG.REVERB_PREDELAY, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
-    case MSG.REVERB_LOWCUT: {
-      const v = Number(val);
-      if (!Number.isFinite(v)) break;
-      setReverbParam('lowcut', v);
-      bus.emit('ui:sync-reverb-param', 'lowcut', v);
-      broadcast({ type: MSG.REVERB_LOWCUT, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
-    case MSG.REVERB_HIGHCUT: {
-      const v = Number(val);
-      if (!Number.isFinite(v)) break;
-      setReverbParam('highcut', v);
-      bus.emit('ui:sync-reverb-param', 'highcut', v);
-      broadcast({ type: MSG.REVERB_HIGHCUT, value: v });
-      appliedSynchronizedEffect = true;
-      break;
-    }
   }
-  // Rolling clients still send partial request-setting frames. After applying
-  // one, advance the modern atomic authority snapshot so later joins and
-  // modern followers cannot observe a stale full-state cache.
-  if (appliedSynchronizedEffect) bus.emit('settings-sync:publish-local');
 }
 
 // ─── Load Demo Media ──────────────────────────────────────────────

@@ -2082,7 +2082,7 @@ export function initDemoMode(
   _busScope.on('state:network.sessionCode', () => syncDemoSessionCopy());
   _busScope.on('state:network.lastJoinCode', () => syncDemoSessionCopy());
   // Guest-side: when the host drops mid-demo, exit so the overlay / body
-  // classes / audio settings / REQUEST_SETTING fanout don't stay stuck.
+  // classes / audio settings don't stay stuck.
   // Broadcast=false since there's no host to receive a DEMO_EXIT anyway.
   // Host's own demo path is unaffected — host has no hostConn so this
   // listener only fires for guests on hostConn null transition.

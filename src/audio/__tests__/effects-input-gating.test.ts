@@ -87,11 +87,11 @@ describe('effect input gating', () => {
   });
 
   it('disconnects only the reverb input once the real wet gain is silent', () => {
-    effects.setReverbParam('mix', 40);
+    effects.setReverbParamForTests('mix', 40);
     expect(openInputs()).toEqual(['reverb']);
 
     h.ctx.currentTime = 1;
-    effects.setReverbParam('mix', 0);
+    effects.setReverbParamForTests('mix', 0);
     // A frozen context leaves the ramp mid-way, so the gate keeps checking.
     vi.advanceTimersByTime(1_000);
     expect(wetGain().value).toBeGreaterThan(0.5);
@@ -115,12 +115,12 @@ describe('effect input gating', () => {
   });
 
   it('keeps an input that becomes audible again before its ramp finished', () => {
-    effects.setReverbParam('mix', 40);
+    effects.setReverbParamForTests('mix', 40);
     h.ctx.currentTime = 1;
-    effects.setReverbParam('mix', 0);
+    effects.setReverbParamForTests('mix', 0);
     h.ctx.currentTime = 1.05;
     h.ctx.trace.length = 0;
-    effects.setReverbParam('mix', 30);
+    effects.setReverbParamForTests('mix', 30);
     vi.runAllTimers();
     expect(openInputs()).toEqual(['reverb']);
     expect(h.ctx.trace.some((entry) => entry.op === 'connect' || entry.op === 'disconnect')).toBe(
@@ -131,7 +131,7 @@ describe('effect input gating', () => {
   it('reconnects virtual bass while silent and starts its ramp after an onset delay', () => {
     h.ctx.currentTime = 2;
     h.ctx.trace.length = 0;
-    effects.setVirtualBass(50);
+    effects.setVirtualBassForTests(50);
 
     expect(openInputs()).toEqual(['virtual-bass', 'virtual-bass']);
     const connected = h.ctx.trace.findIndex(
@@ -160,18 +160,18 @@ describe('effect input gating', () => {
   });
 
   it('gates the exciter on its toggle and on the woofer role', () => {
-    effects.setExciter(true);
+    effects.setExciterForTests(true);
     expect(openInputs()).toEqual(['exciter']);
     h.ctx.currentTime = 1;
     expect(exciterGain().value).toBeGreaterThan(0);
 
-    effects.setExciter(false);
+    effects.setExciterForTests(false);
     h.ctx.currentTime = 1.2;
     vi.advanceTimersByTime(150);
     expect(openInputs()).toEqual([]);
 
     setState('audio.channelMode', 2);
-    effects.setExciter(true);
+    effects.setExciterForTests(true);
     vi.runAllTimers();
     expect(openInputs()).toEqual([]);
 

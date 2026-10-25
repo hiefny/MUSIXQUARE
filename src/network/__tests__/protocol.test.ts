@@ -1512,24 +1512,16 @@ describe('handler exception containment', () => {
 });
 
 describe('REQUEST_SETTING validation', () => {
-  it('dispatches known setting types with in-range typed values', async () => {
+  it('dispatches the queue-mode setting types with in-range typed values', async () => {
     const handler = vi.fn();
     registerHandler(MSG.REQUEST_SETTING, handler);
     const conn = makeConnection('peer-request-setting-valid');
 
     const validMessages = [
       { settingType: 'repeat-mode', value: 2 },
+      { settingType: 'repeat-mode', value: 0 },
       { settingType: 'shuffle-mode', value: true },
-      { settingType: 'eq', band: 4, value: -12 },
-      { settingType: MSG.PREAMP, value: -48 },
-      { settingType: MSG.STEREO_WIDTH, value: 200 },
-      { settingType: MSG.VBASS, value: 100 },
-      { settingType: MSG.REVERB, value: 100 },
-      { settingType: MSG.REVERB_TYPE, value: 'arena' },
-      { settingType: MSG.REVERB_DECAY, value: 10 },
-      { settingType: MSG.REVERB_PREDELAY, value: 0.5 },
-      { settingType: MSG.REVERB_LOWCUT, value: 100 },
-      { settingType: MSG.REVERB_HIGHCUT, value: 100 },
+      { settingType: 'shuffle-mode', value: false },
     ];
 
     for (const message of validMessages) {
@@ -1546,15 +1538,11 @@ describe('REQUEST_SETTING validation', () => {
 
     const invalidMessages = [
       { settingType: 'stereo', value: 120 },
-      { settingType: 'eq', band: 5, value: 0 },
-      { settingType: 'eq', band: 0, value: 13 },
-      { settingType: MSG.STEREO_WIDTH, value: 201 },
-      { settingType: MSG.REVERB_TYPE, value: 'advanced' },
-      { settingType: MSG.REVERB_DECAY, value: 10.1 },
-      { settingType: MSG.REVERB_PREDELAY, value: 1 },
-      { settingType: MSG.REVERB_LOWCUT, value: -1 },
+      { value: 1 },
       { settingType: 'repeat-mode', value: 3 },
+      { settingType: 'repeat-mode', value: '1' },
       { settingType: 'shuffle-mode', value: 'true' },
+      { settingType: 'shuffle-mode', value: 1 },
     ];
 
     for (const message of invalidMessages) {

@@ -426,7 +426,7 @@ describe('bounded control-frame validation', () => {
     expect(filter).toHaveBeenCalledTimes(2);
   });
 
-  it('bounds direct playback and effect frames, including bootstrap markers', async () => {
+  it('bounds direct queue-mode frames, including bootstrap markers', async () => {
     const cases: Array<{
       type: (typeof MSG)[keyof typeof MSG];
       valid: unknown;
@@ -434,16 +434,6 @@ describe('bounded control-frame validation', () => {
     }> = [
       { type: MSG.REPEAT_MODE, valid: 2, invalid: 3 },
       { type: MSG.SHUFFLE_MODE, valid: true, invalid: 'true' },
-      { type: MSG.PREAMP, valid: -48, invalid: -49 },
-      { type: MSG.VBASS, valid: 100, invalid: 101 },
-      { type: MSG.REVERB, valid: 0, invalid: -1 },
-      { type: MSG.EXCITER, valid: 1, invalid: 2 },
-      { type: MSG.STEREO_WIDTH, valid: 200, invalid: 201 },
-      { type: MSG.REVERB_TYPE, valid: 'studio', invalid: 'hall' },
-      { type: MSG.REVERB_DECAY, valid: 10, invalid: 10.1 },
-      { type: MSG.REVERB_PREDELAY, valid: 1, invalid: 1.01 },
-      { type: MSG.REVERB_LOWCUT, valid: 100, invalid: Number.NaN },
-      { type: MSG.REVERB_HIGHCUT, valid: 0, invalid: -1 },
     ];
 
     for (const { type, valid, invalid } of cases) {
@@ -458,25 +448,6 @@ describe('bounded control-frame validation', () => {
 
       expect(handler, type).toHaveBeenCalledTimes(3);
     }
-
-    const volume = vi.fn();
-    const equalizer = vi.fn();
-    registerHandler(MSG.VOLUME, volume);
-    registerHandler(MSG.EQ_UPDATE, equalizer);
-    const conn = connection('volume-eq-validation');
-
-    await handleData({ type: MSG.VOLUME, value: 0.5 }, conn);
-    await handleData({ type: MSG.VOLUME, value: 1, _bootstrap: true }, conn);
-    await handleData({ type: MSG.VOLUME, value: 0.5, _bootstrap: false }, conn);
-    await handleData({ type: MSG.VOLUME, value: 1.01 }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 0, value: 0 }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 4, value: -12, _bootstrap: true }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 0, value: 12, _bootstrap: false }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 5, value: 0 }, conn);
-    await handleData({ type: MSG.EQ_UPDATE, band: 0, value: 12.1 }, conn);
-
-    expect(volume).toHaveBeenCalledTimes(3);
-    expect(equalizer).toHaveBeenCalledTimes(3);
   });
 
   it('bounds session, kick, and operator projections', async () => {

@@ -295,7 +295,6 @@ function requiresQueueAuthority(msgType: MsgType, msg: Record<string, unknown>):
 }
 const isBoundedNumber = (v: unknown, min: number, max: number): boolean =>
   isFiniteNumber(v) && v >= min && v <= max;
-const isReverbPreset = (v: unknown): boolean => v === 'off' || v === 'studio' || v === 'arena';
 const isRepeatMode = (v: unknown): boolean => v === 0 || v === 1 || v === 2;
 const isPlaylistSlot = (v: unknown): v is number =>
   Number.isInteger(v) && (v as number) >= 0 && (v as number) < PLAYLIST_SLOT_COUNT;
@@ -439,38 +438,13 @@ function isYouTubeZeroStartCohort(value: unknown): boolean {
   );
 }
 
+/** Queue modes only: room effects travel as one SETTINGS_SYNC_SNAPSHOT. */
 function isValidRequestSetting(data: Record<string, unknown>): boolean {
-  if (typeof data.settingType !== 'string') return false;
-
   switch (data.settingType) {
-    case 'repeat-mode':
+    case MSG.REPEAT_MODE:
       return isRepeatMode(data.value);
-    case 'shuffle-mode':
+    case MSG.SHUFFLE_MODE:
       return typeof data.value === 'boolean';
-    case 'eq':
-      return isNonNegInt(data.band) && data.band < 5 && isBoundedNumber(data.value, -12, 12);
-    case MSG.PREAMP:
-      return isBoundedNumber(data.value, -48, 12);
-    case MSG.VBASS:
-    case MSG.REVERB:
-      return isBoundedNumber(data.value, 0, 100);
-    case MSG.EXCITER:
-      // Toggle-only effect; value is 0 (off) or 1 (on). Reuse the number wire
-      // shape so the existing REQUEST_SETTING dispatcher (playlist.ts) and
-      // bootstrap path (effects.ts network:peer-connected) work without a
-      // boolean special case.
-      return data.value === 0 || data.value === 1;
-    case MSG.STEREO_WIDTH:
-      return isBoundedNumber(data.value, 0, 200);
-    case MSG.REVERB_TYPE:
-      return isReverbPreset(data.value);
-    case MSG.REVERB_DECAY:
-      return isBoundedNumber(data.value, 0.1, 10);
-    case MSG.REVERB_PREDELAY:
-      return isBoundedNumber(data.value, 0, 0.5);
-    case MSG.REVERB_LOWCUT:
-    case MSG.REVERB_HIGHCUT:
-      return isBoundedNumber(data.value, 0, 100);
     default:
       return false;
   }
@@ -526,7 +500,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.name === 'string' &&
     d.name.length > 0 &&
     (d.mime === undefined || typeof d.mime === 'string'),
-  [MSG.VOLUME]: (d) => isBoundedNumber(d.value, 0, 1) && hasValidBootstrapFlag(d),
   [MSG.DEVICE_LIST_UPDATE]: isDeviceListUpdate,
   [MSG.SESSION_FULL]: (d) =>
     isBoundedWireString(d.message, 512) &&
@@ -543,16 +516,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     (d.guestTime === undefined || isNonNegFiniteSafeNumber(d.guestTime)),
   [MSG.REPEAT_MODE]: (d) => isRepeatMode(d.value) && hasValidBootstrapFlag(d),
   [MSG.SHUFFLE_MODE]: (d) => typeof d.value === 'boolean' && hasValidBootstrapFlag(d),
-  [MSG.PREAMP]: (d) => isBoundedNumber(d.value, -48, 12) && hasValidBootstrapFlag(d),
-  [MSG.VBASS]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
-  [MSG.REVERB]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
-  [MSG.EXCITER]: (d) => (d.value === 0 || d.value === 1) && hasValidBootstrapFlag(d),
-  [MSG.STEREO_WIDTH]: (d) => isBoundedNumber(d.value, 0, 200) && hasValidBootstrapFlag(d),
-  [MSG.REVERB_TYPE]: (d) => isReverbPreset(d.value) && hasValidBootstrapFlag(d),
-  [MSG.REVERB_DECAY]: (d) => isBoundedNumber(d.value, 0.1, 10) && hasValidBootstrapFlag(d),
-  [MSG.REVERB_PREDELAY]: (d) => isBoundedNumber(d.value, 0, 1) && hasValidBootstrapFlag(d),
-  [MSG.REVERB_LOWCUT]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
-  [MSG.REVERB_HIGHCUT]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
   [MSG.CHAT_MUTE]: isChatModerationTarget,
   [MSG.CHAT_UNMUTE]: isChatModerationTarget,
   [MSG.CHAT_SLOWMODE]: (d) => isNonNegSafeInt(d.seconds) && (d.seconds as number) <= 60,
@@ -675,11 +638,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.PRELOAD_ACK]: (d) => isQueueItemId(d.queueItemId) && isPositiveSafeInt(d.sessionId),
   [MSG.PRELOAD_ABORT]: (d) => isQueueItemId(d.queueItemId) && isPositiveSafeInt(d.sessionId),
   [MSG.WELCOME]: (d) => typeof d.label === 'string',
-  [MSG.EQ_UPDATE]: (d) =>
-    isNonNegInt(d.band) &&
-    (d.band as number) < 5 &&
-    isBoundedNumber(d.value, -12, 12) &&
-    hasValidBootstrapFlag(d),
 
   // YouTube messages — validate numeric fields that flow into player APIs / state
   [MSG.YOUTUBE_PLAY]: (d) =>
@@ -1114,9 +1072,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
  * handler-owned compatibility classification.
  */
 const PROTOCOL_HANDLER_GUARDED_COMPAT_TYPES: ReadonlySet<MsgType> = new Set([
-  MSG.EQ_RESET,
   MSG.FORCE_CLOSE_DUPLICATE,
-  MSG.REQUEST_EQ_RESET,
   MSG.SYSTEM_AUDIO_STOP,
   MSG.CHAT_FREEZE,
   MSG.CHAT_UNFREEZE,

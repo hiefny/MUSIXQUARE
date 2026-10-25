@@ -3798,27 +3798,6 @@ describe('request-setting authorization', () => {
     initPlaylist();
   });
 
-  it('lets demo non-operators use only the settings exposed by demo UI', async () => {
-    const conn = makeConnection('guest-demo');
-    setState('demo.active', true);
-
-    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.VBASS, value: 60 }, conn);
-    expect(getState('audio.virtualBass')).toBeCloseTo(0.6);
-
-    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.EXCITER, value: 1 }, conn);
-    expect(getState('audio.exciter')).toBe(true);
-
-    await handleData(
-      { type: MSG.REQUEST_SETTING, settingType: MSG.STEREO_WIDTH, value: 120 },
-      conn,
-    );
-    expect(getState('audio.stereoWidth')).toBeCloseTo(1.2);
-
-    const beforeDecay = getState('audio.reverbDecay');
-    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_DECAY, value: 8 }, conn);
-    expect(getState('audio.reverbDecay')).toBe(beforeDecay);
-  });
-
   it('lets a standard media manager set repeat and shuffle without playback control', async () => {
     const conn = makeConnection('media-manager');
     setState('network.appRole', 'host');
@@ -3893,16 +3872,5 @@ describe('request-setting authorization', () => {
       mix: getState('audio.reverbMix'),
       decay: getState('audio.reverbDecay'),
     }).toEqual(before);
-  });
-
-  it('lets standard administrators control full room effects', async () => {
-    const conn = makeConnection('guest-op');
-    setState('network.appRole', 'host');
-    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
-    setState('network.connectedPeers', [{ ...makeConnectedPeer(conn.peer, true), conn }]);
-
-    await handleData({ type: MSG.REQUEST_SETTING, settingType: MSG.REVERB_DECAY, value: 8 }, conn);
-
-    expect(getState('audio.reverbDecay')).toBe(8);
   });
 });

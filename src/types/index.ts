@@ -401,7 +401,6 @@ export interface ProtocolMap {
   'request-demo-exit': NoPayload;
 
   // ── Audio Control ────────────────────────────────────────────────
-  volume: { value: number; _bootstrap?: boolean };
   /** Atomic coordinator-sequenced volume + DSP authority snapshot. */
   'settings-sync-snapshot': {
     version: 1;
@@ -414,18 +413,6 @@ export interface ProtocolMap {
   'request-settings-sync-snapshot': { version: 1 };
   /** Only an effects controller may replace the canonical snapshot. */
   'publish-settings-sync-snapshot': { version: 1; settings: RoomSettingsSyncState };
-  'eq-update': { band: number; value: number; _bootstrap?: boolean };
-  'eq-reset': NoPayload;
-  preamp: { value: number; _bootstrap?: boolean };
-  reverb: { value: number; _bootstrap?: boolean };
-  'reverb-type': { value: string; _bootstrap?: boolean };
-  'reverb-decay': { value: number; _bootstrap?: boolean };
-  'reverb-predelay': { value: number; _bootstrap?: boolean };
-  'reverb-lowcut': { value: number; _bootstrap?: boolean };
-  'reverb-highcut': { value: number; _bootstrap?: boolean };
-  'stereo-width': { value: number; _bootstrap?: boolean };
-  vbass: { value: number; _bootstrap?: boolean };
-  exciter: { value: number; _bootstrap?: boolean };
 
   // ── Playback ─────────────────────────────────────────────────────
   play: {
@@ -666,8 +653,8 @@ export interface ProtocolMap {
       | 'resolution-failed'
       | 'internal-error';
   };
-  'request-setting': { settingType: string; value?: unknown; band?: number };
-  'request-eq-reset': NoPayload;
+  'request-setting':
+    { settingType: 'repeat-mode'; value: number } | { settingType: 'shuffle-mode'; value: boolean };
   'request-current-file': {
     requestId: FileRequestId;
     queueItemId: QueueItemId;

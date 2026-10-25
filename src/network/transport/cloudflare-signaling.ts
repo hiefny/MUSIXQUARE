@@ -3,6 +3,7 @@ import { CHUNK_SIZE, MSG, RTC_INTERRUPTION_GRACE_MS } from '../../core/constants
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { withRequestDeadline } from '../../core/request-lifetime.ts';
 import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
+import { noteLinkClose } from '../last-link-close.ts';
 import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import { BulkFlowControl, creditedFileChunkBytes } from './bulk-flow-control.ts';
@@ -962,8 +963,9 @@ let cloudflareDataConnectionSequence = 0;
 /**
  * Why a logical connection closed (RO-15). The connection names the causes it
  * decides itself. The provider and the application name theirs through
- * close(reason); a close that names nothing is intentional, unless an error
- * listener makes it while the provider reports the error of a close it decided.
+ * close(reason); a close that names nothing is intentional. An error listener's
+ * close while the provider reports the error of a close it decided keeps the
+ * provider's cause, whatever the listener names.
  */
 type LinkCloseCause =
   | 'control-send-failed'
@@ -1238,13 +1240,13 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
 
   close(reason?: TransportCloseReason): void {
     if (!this.intentionalClosing) this.intentionalClosing = true;
-    this.terminate(reason ?? this.errorCloseCause ?? 'intentional');
+    this.terminate(this.errorCloseCause ?? reason ?? 'intentional');
   }
 
   /**
    * Reports a close the provider decided: the error first, then the close.
-   * An error listener may close the connection itself without a reason (the
-   * guest join flow does); that close keeps the provider's cause.
+   * An error listener may close the connection itself (the guest join flow
+   * does, naming transport-error); that close keeps the provider's cause.
    */
   closeAfterError(error: Error, cause: TransportCloseReason): void {
     this.errorCloseCause = cause;
@@ -1398,6 +1400,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     if (!this.closeCause) {
       this.closeCause = cause;
       log.info(`[Transport] Logical connection closed (${cause}) for ${this.peer}`);
+      noteLinkClose(cause);
     }
     this.cancelDisconnectedGrace();
     this.clearBackgroundResumeRecovery();
@@ -2063,7 +2066,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // The signaling close is an authority event, not a transient network
     // blip. Tear down every RTC facade immediately; the PRO runtime fetches
     // the new snapshot/epoch and constructs a fresh transport.
-    for (const conn of this.connections.values()) conn.close();
+    for (const conn of this.connections.values()) conn.close('pro-epoch-advanced');
     this.connections.clear();
     this.peerIdentityProjections.clear();
     this.peerOfferSequences.clear();
@@ -4539,7 +4542,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (stillCurrent) {
         this.clearIcePeerState(peerId, pc);
       }
-      conn.close();
+      conn.close(stillCurrent ? 'transport-error' : undefined);
       // Supersession is ordinary control flow: only the newest generation may
       // report a negotiation failure or send an answer.
       if (!stillCurrent) return;

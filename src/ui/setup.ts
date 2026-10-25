@@ -40,6 +40,7 @@ import { scheduleDocumentReload } from '../core/session-reset.ts';
 import { returnToRoomStart } from '../core/navigation.ts';
 import { RECONNECT_TARGET_KEY } from '../core/navigation-contract.ts';
 import { cancelPendingSessionSetup } from '../network/peer.ts';
+import { keepLinkCloseForNextPage, reportPreviousPageClose } from '../network/last-link-close.ts';
 import {
   syncDesktopLeftPanel,
   setupEl,
@@ -725,8 +726,13 @@ export function initSetup(): void {
               reconnect: true,
               fallback: () => startGuestFlow(),
             });
-            if (returned) log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
+            if (returned) {
+              // The return navigates after the reset paints, so this lands first.
+              keepLinkCloseForNextPage();
+              log.info(`[Setup] Hard-reset reconnect → /${lastCode}`);
+            }
           } else {
+            keepLinkCloseForNextPage();
             scheduleDocumentReload(t('dialog.leaving_session'));
           }
         })
@@ -756,6 +762,7 @@ export function initSetup(): void {
   // Kicked from session (guest removed from host device list)
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
+    keepLinkCloseForNextPage();
     scheduleDocumentReload(t('dialog.leaving_session'));
   });
 
@@ -778,6 +785,9 @@ export function initSetup(): void {
         scheduleDocumentReload(t('dialog.leaving_session'));
       });
   });
+
+  // The guest's last close before its disconnect reload, once (P4-D5 B).
+  reportPreviousPageClose();
 
   // Check for /CODE path (e.g. musixquare.com/123456)
   try {

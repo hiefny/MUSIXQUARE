@@ -11,6 +11,7 @@ import {
   CloudflareSignalingPeer,
 } from '../cloudflare-signaling.ts';
 import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
+import { keepLinkCloseForNextPage } from '../../last-link-close.ts';
 
 const originalWebSocket = globalThis.WebSocket;
 const DATA_CONNECTION_DISCONNECTED_GRACE_MS = 15_000;
@@ -8234,6 +8235,28 @@ describe('logical connection close paths', () => {
     expectClosedOnce(link);
     expect(closeLines()).toEqual(['[Transport] Logical connection closed (peer-left) for guest-1']);
   });
+
+  it("keeps the logged first cause for the guest's next page, not a cause that re-enters", async () => {
+    sessionStorage.removeItem('mxqr-prev-close');
+    const link = await openLink();
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 3, 4, 5, 678));
+    // Disposal closes both channels, whose close events re-enter terminate()
+    // as channel-closed; the later closes name other causes.
+    link.conn.close('peer-left');
+    vi.setSystemTime(Date.UTC(2026, 9, 25, 3, 4, 9));
+    link.conn.close('leave');
+    link.bulk.dispatch('close');
+    link.pc.dispatch('connectionstatechange');
+    keepLinkCloseForNextPage();
+    try {
+      expect(closeLines()).toEqual([
+        '[Transport] Logical connection closed (peer-left) for guest-1',
+      ]);
+      expect(sessionStorage.getItem('mxqr-prev-close')).toBe('peer-left 1792897445678');
+    } finally {
+      sessionStorage.removeItem('mxqr-prev-close');
+    }
+  });
 });
 
 describe('logical connection close paths decided by the provider', () => {
@@ -8315,6 +8338,46 @@ describe('logical connection close paths decided by the provider', () => {
     ]);
   });
 
+  it('keeps room admission expiry when a closing error listener names its own cause', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    const events: string[] = [];
+    conn.on('close', () => events.push('close'));
+    // Mirrors the guest join flow's pre-open error handler, which names the
+    // generic transport-error: the provider decided this close and knows why.
+    conn.on('error', (error: unknown) => {
+      const { type, message } = error as Error & { type?: string };
+      events.push(`error ${type} ${message} open=${conn.open}`);
+      conn.close('transport-error');
+    });
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'ROOM_EXPIRED', 1012, true);
+    await flushAsync();
+    expect(events).toEqual(['error peer-unavailable ROOM_EXPIRED open=false', 'close']);
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(events).toEqual(['error peer-unavailable ROOM_EXPIRED open=false', 'close']);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (admission-expired) for 123456',
+    ]);
+  });
+
+  it('names the reason of an error listener that closes on an error the provider only reports', async () => {
+    installFakeWebSocket();
+    const peer = createGuestPeer();
+    const conn = peer.connect('123456');
+    conn.on('error', () => conn.close('transport-error'));
+    // A signaling close before admission is reported, not decided: the
+    // provider emits the error and leaves the close to the listener.
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'network blip', 1006, false);
+    await flushAsync();
+    expect(conn.open).toBe(false);
+    peer.destroy();
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (transport-error) for 123456',
+    ]);
+  });
+
   it('closes the shared connection once when a media rollback cannot be proven', async () => {
     const { peer, conn, socket, pc } = await establishHostWithSignalingState();
     const onClose = vi.fn();
@@ -8358,5 +8421,143 @@ describe('logical connection close paths decided by the provider', () => {
     expect(closeLines()).toEqual([
       '[Transport] Logical connection closed (rollback-unproven) for 123456',
     ]);
+  });
+
+  /** A host peer admitted on its signaling socket, before any guest offer. */
+  async function admittedHost() {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = createHostPeer();
+    const onError = vi.fn();
+    peer.on('error', onError);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    return { peer, socket, onError };
+  }
+
+  it('names transport-error when the host cannot answer a guest offer', async () => {
+    const { peer, socket, onError } = await admittedHost();
+    vi.spyOn(FakeRTCPeerConnection.prototype, 'createAnswer').mockRejectedValueOnce(
+      new Error('answer failed'),
+    );
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-unanswered',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'guest-offer' },
+      }),
+    );
+    await flushAsync();
+
+    expect(onError).toHaveBeenCalledOnce();
+    expect(FakeRTCPeerConnection.instances[0]?.connectionState).toBe('closed');
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (transport-error) for guest-unanswered',
+    ]);
+    peer.destroy();
+    expect(closeLines()).toHaveLength(1);
+  });
+
+  it('keeps intentional for an offer that a newer offer superseded before it failed', async () => {
+    const { peer, socket, onError } = await admittedHost();
+    let failFirst!: (error: Error) => void;
+    const firstRemoteDescription = new Promise<void>((_resolve, reject) => {
+      failFirst = reject;
+    });
+    vi.spyOn(FakeRTCPeerConnection.prototype, 'setRemoteDescription')
+      .mockImplementationOnce(() => firstRemoteDescription)
+      .mockImplementation(async function (
+        this: FakeRTCPeerConnection,
+        description: RTCSessionDescriptionInit,
+      ) {
+        this.remoteDescription = description;
+      });
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-superseded',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'guest-first-offer' },
+      }),
+    );
+    await Promise.resolve();
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-superseded',
+        negotiationId: NEXT_NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'guest-second-offer' },
+      }),
+    );
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(1));
+
+    failFirst(new Error('superseded remote description failed'));
+    await flushAsync();
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (intentional) for guest-superseded',
+    ]);
+    peer.destroy();
+  });
+
+  it('names pro-epoch-advanced for every connection the PRO epoch batch close tears down', async () => {
+    installFakeWebSocket();
+    const peer = new CloudflareSignalingPeer('000001', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      proSignaling: {
+        roomCode: '000001',
+        ticket: clientProTicket('coordinator-device', {
+          role: 'coordinator',
+          jti: 'epoch-close-cause-ticket',
+        }),
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    await Promise.resolve();
+    const live = ['epoch-member-1', 'epoch-member-2'].map((id) => {
+      const connection = new CloudflareDataConnection(id);
+      connection.attach(
+        new FakePeerConnection() as unknown as RTCPeerConnection,
+        new FakeDataChannel('musixquare-data') as unknown as RTCDataChannel,
+      );
+      connection.attach(
+        connection.peerConnection!,
+        new FakeDataChannel('musixquare-control') as unknown as RTCDataChannel,
+      );
+      privateMaps(peer).connections.set(id, connection);
+      return connection;
+    });
+    await Promise.resolve();
+    const epochAdvanced = vi.fn();
+    peer.on('pro-epoch-advanced', epochAdvanced);
+
+    FakeWebSocket.instances[0].dispatch('close', undefined, 'PRO_COORDINATOR_EPOCH_ADVANCED');
+
+    expect(epochAdvanced).toHaveBeenCalledOnce();
+    expect(live.map((connection) => connection.open)).toEqual([false, false]);
+    expect(closeLines()).toEqual([
+      '[Transport] Logical connection closed (pro-epoch-advanced) for epoch-member-1',
+      '[Transport] Logical connection closed (pro-epoch-advanced) for epoch-member-2',
+    ]);
+    peer.destroy();
+    expect(closeLines()).toHaveLength(2);
   });
 });

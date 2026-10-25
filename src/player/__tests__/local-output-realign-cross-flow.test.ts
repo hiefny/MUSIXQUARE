@@ -20,9 +20,11 @@
  * uses).
  *
  * Tests named "expected today" characterize behaviour the Phase 4 owner
- * decisions (2026-10-24) kept unchanged: P4-D7 A and P4-D8 A. They pass on
- * today's code on purpose. A later decision that changes one of these
- * behaviours updates the test in the same change.
+ * decision P4-D8 A (2026-10-24) kept unchanged. They pass on today's code on
+ * purpose. A later decision that changes one of these behaviours updates the
+ * test in the same change. The P4-D7 cases began that way under P4-D7 A; the
+ * owner's 2026-10-25 decision P4-D7 B changed that behaviour, and they now
+ * state the fixed one.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -82,6 +84,7 @@ import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type { TransportBackgroundRecoveryResult } from '../../network/transport/types.ts';
 import type { DataConnection, PlaylistItem } from '../../types/index.ts';
 import {
+  getYtAutoplayIntent,
   isLocalYouTubePaused,
   markYtPlayerReady,
   resetYouTubeModuleState,
@@ -110,6 +113,8 @@ const HEARTBEAT_MS = 3_000;
 const RETURN_GIVE_UP_MS = 1_250;
 /** Sum of the bounded PRO retry delays: 250 + 750 + 1,500 + 3,000 + 5,000. */
 const PRO_RETRY_WINDOW_MS = LOCAL_OUTPUT_REALIGN_RETRY_MS.reduce((sum, delay) => sum + delay, 0);
+/** The rejoin router's retry timer key (local-output-rejoin.ts). */
+const REJOIN_RETRY_TIMER = 'local-output-rejoin-retry';
 
 /** The fake YT player plus the playlist methods the native-control authority instruments. */
 type GuestIframe = FakeYtPlayer & Pick<YouTubePlayerInstance, 'loadPlaylist' | 'cuePlaylist'>;
@@ -313,8 +318,21 @@ async function unlock(): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
-/** The listener presses pause in the iframe's own controls while visible. */
+/**
+ * The iframe goes from playing to paused without an application command. While
+ * visible, that is the participant pressing pause in the iframe's own controls.
+ */
 function pressVisibleIframePause(player: GuestIframe): void {
+  player.__state = 2;
+  setPlaybackYouTubePaused();
+}
+
+/**
+ * The same unowned transition while the page is hidden: WebKit stops a hidden
+ * iframe by itself, so it is not the participant's own pause.
+ */
+function browserStopsHiddenIframe(player: GuestIframe): void {
+  expect(document.visibilityState).toBe('hidden');
   player.__state = 2;
   setPlaybackYouTubePaused();
 }
@@ -377,11 +395,14 @@ describe('P4-D7: a PRO listener pause while a failed OS-PLAY rejoin waits to ret
     return calls;
   }
 
-  it('expected today: the next retry releases a visible iframe PAUSE and reconciles again', async () => {
+  // P4-D7 B (owner decision 2026-10-25). Under P4-D7 A these two cases were
+  // pinned as "expected today": the next retry released the visible PAUSE and
+  // asked the PRO runtime to start the listener again, for up to 10.5 s.
+  it('a visible iframe PAUSE ends the pending retry, so no later retry releases it', async () => {
     const player = installProListener();
     const pauseIntent = vi.fn();
     bus.on('youtube:set-local-paused', pauseIntent);
-    // Three misses, then the runtime has the canonical timeline again.
+    // Three misses, then the runtime would have the canonical timeline again.
     const calls = scriptReconciliation([false, false, false, true]);
 
     // An OS PLAY reaches the router (the payload youtube/player.ts and the
@@ -389,45 +410,39 @@ describe('P4-D7: a PRO listener pause while a failed OS-PLAY rejoin waits to ret
     bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
     await vi.advanceTimersByTimeAsync(2_000);
     expect(calls.map((call) => call.atMs)).toEqual([0, 250, 1_000]);
+    expect(getManagedTimer(REJOIN_RETRY_TIMER)).not.toBeNull();
 
     // During the 1,500 ms wait the listener pauses in the visible iframe.
     pressVisibleIframePause(player);
     expect(infoMessages()).toContain('[YouTube Native Control] Applied endpoint-local pause');
     expect(isLocalYouTubePaused()).toBe(true);
-    // PRO records the local pause only; no pause intent reaches the router.
+    // PRO still publishes no pause intent: its handler would drop autoplay
+    // intent and pause back the listener's next iframe PLAY.
     expect(pauseIntent).not.toHaveBeenCalled();
+    expect(getYtAutoplayIntent()).toBe(true);
+    // The pause ends the wait at once.
+    expect(getManagedTimer(REJOIN_RETRY_TIMER)).toBeNull();
 
     await vi.advanceTimersByTimeAsync(15_000);
-    // The retry at 2,500 ms released the pause and asked the PRO runtime to
-    // start this listener again under a liveness that still reports current.
-    expect(calls).toHaveLength(4);
-    expect(calls[3]).toEqual({ atMs: 2_500, localPaused: false, current: true });
-    // The successful reconciliation keeps it released: the pause is undone.
-    // (The PRO runtime is a fake here. youtube/player.ts drops a PRO commit
-    // for a local pause only after a youtube:set-local-paused event, so the
-    // real runtime would play the iframe again; that step is read, not run.)
-    expect(isLocalYouTubePaused()).toBe(false);
+    expect(calls).toHaveLength(3);
+    expect(isLocalYouTubePaused()).toBe(true);
     expect(pauseIntent).not.toHaveBeenCalled();
   });
 
-  it('expected today: the exposure lasts until the bounded schedule ends (about 10.5 s)', async () => {
+  it('a visible iframe PAUSE in a later wait ends the rest of the bounded schedule', async () => {
     const player = installProListener();
     const calls = scriptReconciliation([]);
 
     bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(calls.map((call) => call.atMs)).toEqual([0, 250, 1_000, 2_500]);
+    // The pause comes in the 3,000 ms wait before the retry at 5,500 ms.
     pressVisibleIframePause(player);
     await vi.advanceTimersByTimeAsync(20_000);
 
-    // Every remaining retry releases the pause for its reconciliation; a miss
-    // puts it back, so a listener whose runtime never answers stays paused.
+    // The schedule would have run to 10.5 s; it ends with the pause instead.
     expect(PRO_RETRY_WINDOW_MS).toBe(10_500);
-    expect(calls.map((call) => call.atMs)).toEqual([0, 250, 1_000, 2_500, 5_500, 10_500]);
-    expect(calls.slice(3).map((call) => [call.localPaused, call.current])).toEqual([
-      [false, true],
-      [false, true],
-      [false, true],
-    ]);
+    expect(calls.map((call) => call.atMs)).toEqual([0, 250, 1_000, 2_500]);
     expect(isLocalYouTubePaused()).toBe(true);
   });
 
@@ -446,21 +461,85 @@ describe('P4-D7: a PRO listener pause while a failed OS-PLAY rejoin waits to ret
     expect(calls.map((call) => call.atMs)).toEqual([0, 250, 1_000]);
   });
 
-  it('an automatic trigger retry is declined by the local pause bit the iframe PAUSE wrote', async () => {
+  it('while locked, a browser stop of the hidden iframe leaves the lock-screen PLAY retry running', async () => {
     const player = installProListener();
     const calls = scriptReconciliation([false, false, false, true]);
+    setVisibility('hidden');
 
-    // Automatic triggers align only a playing room whose output is not paused.
-    bus.emit('playback:local-output-rejoin', {
-      reason: 'audio-context-recovered',
-      mode: 'youtube',
-    });
+    // The lock-screen PLAY arrives while the page is hidden.
+    bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
     await vi.advanceTimersByTimeAsync(2_000);
-    pressVisibleIframePause(player);
-    await vi.advanceTimersByTimeAsync(15_000);
-
     expect(calls.map((call) => call.atMs)).toEqual([0, 250, 1_000]);
+
+    // The same unowned PAUSE transition is recorded as a local pause only.
+    browserStopsHiddenIframe(player);
+    expect(infoMessages()).toContain('[YouTube Native Control] Applied endpoint-local pause');
     expect(isLocalYouTubePaused()).toBe(true);
+    expect(getManagedTimer(REJOIN_RETRY_TIMER)).not.toBeNull();
+
+    // The retry at 2,500 ms still releases the pause and reconciles; the
+    // success keeps it released.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(calls).toHaveLength(4);
+    expect(calls[3]).toEqual({ atMs: 2_500, localPaused: false, current: true });
+    expect(isLocalYouTubePaused()).toBe(false);
+  });
+
+  it.each([
+    // The visible PAUSE ends the wait itself.
+    { visibility: 'visible', timerAfterPause: false },
+    // A hidden stop leaves the wait; the retry declines on the pause bit.
+    { visibility: 'hidden', timerAfterPause: true },
+  ] as const)(
+    'an automatic trigger retry does not release an iframe PAUSE ($visibility)',
+    async ({ visibility, timerAfterPause }) => {
+      const player = installProListener();
+      const calls = scriptReconciliation([false, false, false, true]);
+      setVisibility(visibility);
+
+      // Automatic triggers align only a playing room whose output is not paused.
+      bus.emit('playback:local-output-rejoin', {
+        reason: 'audio-context-recovered',
+        mode: 'youtube',
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      if (visibility === 'visible') pressVisibleIframePause(player);
+      else browserStopsHiddenIframe(player);
+      expect(getManagedTimer(REJOIN_RETRY_TIMER) !== null).toBe(timerAfterPause);
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      expect(calls.map((call) => call.atMs)).toEqual([0, 250, 1_000]);
+      expect(isLocalYouTubePaused()).toBe(true);
+    },
+  );
+});
+
+describe('P4-D7 guard: a Standard guest keeps the 9.0.1 rule', () => {
+  it('a visible iframe PAUSE publishes the pause intent and ends an OS-PLAY rejoin waiting for the host', async () => {
+    const player = installStandardGuest({ iframeState: 1, locallyPaused: false });
+    // The host is BUFFERING, so the router's rendezvous is busy until the
+    // host's next frame.
+    heartbeat({ state: 3 });
+    await vi.advanceTimersByTimeAsync(100);
+    const pauseIntent = vi.fn();
+    bus.on('youtube:set-local-paused', pauseIntent);
+
+    bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(rendezvousStartedAt).toEqual([]);
+
+    pressVisibleIframePause(player);
+    expect(infoMessages()).toContain('[YouTube Native Control] Applied endpoint-local pause');
+    expect(pauseIntent).toHaveBeenCalledExactlyOnceWith(true);
+    expect(isLocalYouTubePaused()).toBe(true);
+
+    // The host plays again. Without the pause, the router would align 10 ms
+    // after this frame.
+    heartbeat();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(rendezvousStartedAt).toEqual([]);
+    expect(isLocalYouTubePaused()).toBe(true);
+    expect(pauseIntent).toHaveBeenCalledOnce();
   });
 });
 

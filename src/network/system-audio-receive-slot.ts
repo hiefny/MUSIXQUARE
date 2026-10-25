@@ -10,13 +10,13 @@
  * receive watchdog, and the end of reception that restores the previous title
  * only while this slot still holds the placeholder or the 'system-audio'
  * owner. It also owns what a route attaches: its source on widener.input,
- * its decoder primer, and the receiving flag and owner claim the first
- * attach of a reception sets.
+ * its decoder primer, and the receiving flag and owner claim the attach that
+ * starts a reception sets.
  *
  * Phase 5 C4-2 moved the trusted reception here from system-audio-guest.ts
- * unchanged, and C4-3 the Standard direct call's attach and primer. The
- * Standard SFU and the PRO coordinator still attach their own sources; later
- * Phase 5 increments move those attaches into this slot. Until then
+ * unchanged, C4-3 the Standard direct call's attach and primer, and C4-4 the
+ * Standard SFU guest's. The PRO coordinator still attaches its own source; a
+ * later Phase 5 increment moves that attach into this slot. Until then
  * system-audio-guest.ts keeps the old names as aliases, and the timer names
  * keep their `sys-audio-guest-` prefix.
  *
@@ -187,35 +187,69 @@ export function primeSystemAudioDecoder(
   );
 }
 
+/**
+ * What a route received: a stream it connects as it is (the Standard direct
+ * call), or a bare track it connects in a stream of its own (the Standard
+ * SFU).
+ */
+type ReceivedAudio = { readonly stream: MediaStream } | { readonly track: MediaStreamTrack };
+
+/**
+ * Which attach starts the reception (sets the receiving flag, claims the
+ * 'system-audio' owner, starts the visualizer and logs the route's line):
+ * - 'first-for-slot': the first while the slot is not receiving. The Standard
+ *   direct call: a replacement call's stream only swaps the source.
+ * - 'first-for-route': the route's first since it was last detached, even
+ *   while the slot is receiving. The Standard SFU: each subscription starts
+ *   the reception again (a re-publication tears the old one down without
+ *   dropping the receiving flag), with its own two-hour limit.
+ */
+type ReceptionStart = 'first-for-slot' | 'first-for-route';
+
 interface SourceAttachRequest {
+  readonly startsReception: ReceptionStart;
+  /**
+   * The route's step once the audio graph is confirmed and before its
+   * previous source is swapped (the SFU reports a context that is not
+   * running and primes its track here).
+   */
+  readonly onGraphReady?: (context: AudioContext) => void;
   /**
    * The route's own bookkeeping once its source is on widener.input, before
-   * a first attach sets the receiving flag.
+   * an attach that starts the reception sets the receiving flag.
    */
-  readonly onConnected: () => void;
+  readonly onConnected?: () => void;
+  /**
+   * The route's own step when its attach starts the reception, before the
+   * receiving flag is set (the SFU arms its two-hour limit).
+   */
+  readonly onReceptionStart?: () => void;
   /** The route's line when its attach starts the reception. */
   readonly connectedLog: string;
 }
 
 /**
- * Connects a route's received stream to widener.input. The route awaits
+ * Connects what a route received to widener.input. The route awaits
  * initAudio and re-checks its own identity first; this runs synchronously
  * after that, so no await separates the route's check from the graph.
  * Returns false, changing nothing, while the audio graph is not built.
- * Otherwise it replaces the route's previous source and, unless the slot is
- * receiving already, clears the receive deadline, sets the receiving flag,
- * claims the 'system-audio' playback owner and starts the visualizer.
+ * Otherwise it replaces the route's previous source and, when this attach
+ * starts the reception (see ReceptionStart), clears the receive deadline if
+ * the slot was not receiving, sets the receiving flag, claims the
+ * 'system-audio' playback owner and starts the visualizer.
  */
 export function attachSystemAudioSource(
   route: ReceiveRoute,
-  stream: MediaStream,
+  received: ReceivedAudio,
   request: SourceAttachRequest,
 ): boolean {
   const ctx = getAudioContext();
   const widener = getWidener();
   if (!widener) return false;
+  request.onGraphReady?.(ctx);
 
   const media = mediaOf(route);
+  const routeWasAttached = media.source !== null;
   if (media.source) {
     try {
       media.source.disconnect();
@@ -223,13 +257,21 @@ export function attachSystemAudioSource(
       /* noop */
     }
   }
-  media.source = ctx.createMediaStreamSource(stream);
+  media.source = ctx.createMediaStreamSource(
+    'stream' in received ? received.stream : new MediaStream([received.track]),
+  );
   media.source.connect(widener.input);
-  request.onConnected();
+  request.onConnected?.();
 
   // Update state once at least one stream is connected
-  if (!getState('systemAudio.isReceiving')) {
-    clearSystemAudioReceiveWatchdog();
+  const slotWasReceiving = getState('systemAudio.isReceiving');
+  const startsReception =
+    request.startsReception === 'first-for-route' ? !routeWasAttached : !slotWasReceiving;
+  if (startsReception) {
+    // Setting the flag meets the receive deadline (its state listener in the
+    // guest clears the watchdog as well); a flag already set leaves it alone.
+    if (!slotWasReceiving) clearSystemAudioReceiveWatchdog();
+    request.onReceptionStart?.();
     setSystemAudioReceiving(true);
     claimPlaybackOwner('system-audio');
     bus.emit('visualizer:start');
@@ -253,7 +295,11 @@ export function detachSystemAudioRoute(route: ReceiveRoute): void {
   media.primer = null;
 }
 
-/** Whether the route has a source on widener.input and holds a primer (/debug). */
+/**
+ * Whether the route has a source on widener.input and holds a primer: the
+ * route's /debug keys, and for the Standard SFU whether its cleanup ends the
+ * reception.
+ */
 export function getSystemAudioReceiveRouteSnapshot(route: ReceiveRoute): {
   sourceAttached: boolean;
   decoderPrimed: boolean;

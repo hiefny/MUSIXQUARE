@@ -370,18 +370,31 @@ RO-49 accepted-exception
   attached a source or holds a primer. The Standard direct call attaches through it and keeps
   its call identity, its early prime, the unmute wait, the trust-boundary wait, the playout
   hint and its own `await initAudio()` with the call re-check (the attach is synchronous, so no
-  await separates that re-check from the graph); its end port detaches the route.
+  await separates that re-check from the graph); its end port detaches the route. Each route
+  names which attach starts the reception: the direct call's first while the slot is not
+  receiving (`'first-for-slot'`), the Standard SFU's first since its route was last detached
+  (`'first-for-route'`), so each SFU subscription starts the reception and its two-hour limit
+  again even while a re-publication keeps the receiving flag set. Since C4-4 the Standard SFU
+  guest (`src/network/system-audio-sfu.ts`) attaches through the same slot attach: it keeps its
+  Realtime subscription, the subscriber-PC identity, the trust-boundary wait, the playout hint,
+  its own `await initAudio()` with the PC re-check, the two-hour receive limit per subscription
+  (armed from the attach that starts the reception) and the frozen share route; it primes its
+  track and reports a context that is not running once the slot confirms the graph, and its
+  `cleanupGuestSfu` detaches the route and ends the reception only when its subscription
+  attached (`getSystemAudioReceiveRouteSnapshot`). The SFU does not join the end port: an end
+  leaves its transport, source and primer to that cleanup, as before.
   `src/network/system-audio-guest.ts` keeps the slot's names, the end as
   `cleanupGuestSystemAudio`, and `SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS` as compatibility aliases
-  (removed in C4-8), the host START/STOP trust gate and the bus listeners. The other machines:
-  the Standard SFU guest attach and cleanup (`src/network/system-audio-sfu.ts`); the PRO
-  coordinator subscription (`ensureCoordinatorSubscription`, `attachCoordinatorTrack`,
+  (removed in C4-8), the host START/STOP trust gate and the bus listeners; the Standard SFU
+  still reaches the start, the trust boundary and the end through them. The other machines:
+  the PRO coordinator subscription (`ensureCoordinatorSubscription`, `attachCoordinatorTrack`,
   `retryCoordinatorSubscription` in `src/pro-room/system-audio-service.ts`); PRO LAN-direct
-  track delivery (`src/network/pro-system-audio-direct.ts`, through the service). Those two
-  still write the attach sequence (trust boundary, `initAudio`, identity re-check, source swap,
-  primer, `widener.input`, receiving flag, owner claim, visualizer) themselves. The service
-  calls the Standard adapters' cleanups directly (the slot's end through the guest alias); bus
-  pairs `system-audio:delivery-handoff` and `system-audio:receive-timeout` connect the rest.
+  track delivery (`src/network/pro-system-audio-direct.ts`, through the service). The
+  coordinator still writes the attach sequence (trust boundary, `initAudio`, identity re-check,
+  source swap, primer, `widener.input`, receiving flag, owner claim, visualizer) itself. The
+  service calls the Standard adapters' cleanups directly (the slot's end through the guest
+  alias); bus pairs `system-audio:delivery-handoff` and `system-audio:receive-timeout` connect
+  the rest.
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
   register and call begin, attach, interrupt, resume, detach, adopt and end; the later Phase 5
@@ -433,6 +446,14 @@ RO-49 accepted-exception
     `src/network/__tests__/system-audio-receive-evidence-logs.test.ts` "logs the primer once per
     stream key, at the stream, never again at the attach" and "reports the P2P primer apart from
     its source, and neither once the current call closes".
+  - The Standard SFU's attach through the slot (C4-4) is pinned, before the move, by the
+    `src/network/__tests__/system-audio-sfu.test.ts` group "guest SFU attach: graph, primer and
+    reception start per subscription" (the track in a stream of its own, the primer, one
+    reception start per subscription and again on a re-publication with its own limit, the
+    cleanup ending the reception only after an attach, the context warning only once the graph
+    is confirmed) and by the evidence suite's "logs connected and a primer again for a
+    re-publication's track, once per subscription"; the two-hour limit per subscription and the
+    SFU `/debug` keys by the lifecycle contract suite.
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1). `system-audio-service.test.ts` mocks the guest
     and SFU modules, so it cannot see their interplay.
@@ -442,18 +463,18 @@ RO-49 accepted-exception
     `beginTrustedSystemAudioReception` start appears in a new function. The
     start returns early while the placeholder is active, so an armed start on the retry path
     would re-arm the watchdog before the SFU start runs. Since Phase 5 prep (T5) it also counts the
-    slot's direct writers per file, exactly: `setSystemAudioReceiving` value uses (9: the slot 3,
-    Standard SFU 1, service 5), `claimPlaybackOwner` uses that can claim `'system-audio'` (6: the
-    slot 2, Standard SFU 1, service 2, and the sharer's own claim in `system-capture.ts`),
-    `widener.input` uses (5: the file playback route's 2 in `engine.ts`, the slot, Standard SFU
-    and service 1 each) and raw `'systemAudio.isReceiving'` writes outside
-    `src/player/ownership.ts` (1: the `leaveSession` batch reset in `peer.ts`). C4-2 moved two of
-    the guest's receiving flag writes (the end of reception and the delivery-handoff interrupt)
-    and its placeholder claim into the slot (guest 3 to 1 and 2 to 1; totals unchanged), and C4-3
-    the direct call's attach, its last receiving flag write, owner claim and `widener.input`
-    source (guest 1 to 0 on each; totals unchanged). Each Phase 5 increment that moves a route's
-    write into the slot lowers that route's count; the totals fall once a second route attaches
-    through the slot's one attach. Since
+    slot's direct writers per file, exactly: `setSystemAudioReceiving` value uses (8: the slot 3,
+    service 5), `claimPlaybackOwner` uses that can claim `'system-audio'` (5: the slot 2, service
+    2, and the sharer's own claim in `system-capture.ts`), `widener.input` uses (4: the file
+    playback route's 2 in `engine.ts`, the slot and service 1 each) and raw
+    `'systemAudio.isReceiving'` writes outside `src/player/ownership.ts` (1: the `leaveSession`
+    batch reset in `peer.ts`). C4-2 moved two of the guest's receiving flag writes (the end of
+    reception and the delivery-handoff interrupt) and its placeholder claim into the slot (guest
+    3 to 1 and 2 to 1; totals unchanged), C4-3 the direct call's attach, its last receiving flag
+    write, owner claim and `widener.input` source (guest 1 to 0 on each; totals unchanged), and
+    C4-4 the Standard SFU's, which attaches through the same slot attach (Standard SFU 1 to 0 on
+    each; totals 9 to 8, 6 to 5 and 5 to 4). Each Phase 5 increment that moves a route's write
+    into the slot lowers that route's count. Since
     Phase 5 C4-1 it also keeps the media tuning in its home:
     in `src/network/system-audio-*.ts` and `src/network/pro-system-audio-*.ts`, only
     `system-audio-media.ts` writes `playoutDelayHint` or `maxBitrate` or names
@@ -463,8 +484,8 @@ RO-49 accepted-exception
   30 s watchdog stayed silent) is fixed in 9.0.2. G6 (each PRO SFU retry re-runs the reception
   start, including `stopAllMedia` and the host-started notice) is an open release-record item.
   Phase 5 (slot); its first increment, C4-1, moved the media constants (planned for Phase 0d),
-  C4-2 created the slot module with the trusted reception, and C4-3 moved the Standard direct
-  call's attach and primer into it. Exception RO-39.
+  C4-2 created the slot module with the trusted reception, C4-3 moved the Standard direct
+  call's attach and primer into it, and C4-4 the Standard SFU guest's. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 

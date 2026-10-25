@@ -827,11 +827,12 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
 
   describe('CHECK 9 system-audio receive slot writers (RO-04)', () => {
     // Phase 5 prep T5: today's writers, which each 5A increment lowers as the
-    // receive slot takes the writes.
+    // receive slot takes the writes. C4-4 lowered the first three by one: the
+    // Standard SFU attaches through the slot's attach the direct call uses.
     const TODAY = {
-      'receiving flag write': 9,
-      'system-audio owner claim': 6,
-      'widener.input use': 5,
+      'receiving flag write': 8,
+      'system-audio owner claim': 5,
+      'widener.input use': 4,
       'raw receiving flag write': 1,
     };
 
@@ -907,7 +908,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         withSources((sources) => {
           replaceIn(
             sources,
-            'src/network/system-audio-sfu.ts',
+            'src/pro-room/system-audio-service.ts',
             '  source.connect(widener.input);\n',
             '  source.connect(widener.input);\n  source.connect(widener.input);\n',
           );
@@ -921,7 +922,7 @@ describe('resource-ownership guard', { timeout: 60_000 }, () => {
         }),
       );
       expect(findings).toMatch(
-        /RATCHET REGRESSION widener\.input use \(RO-04\): src\/network\/system-audio-sfu\.ts has 2, baseline 1/u,
+        /RATCHET REGRESSION widener\.input use \(RO-04\): src\/pro-room\/system-audio-service\.ts has 2, baseline 1/u,
       );
       expect(findings).toMatch(
         /STALE BASELINE receiving flag write \(RO-04\): src\/network\/system-audio-receive-slot\.ts has 2, baseline 3 - lower the baseline to 2/u,

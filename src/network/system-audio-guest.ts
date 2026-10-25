@@ -394,14 +394,19 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     // on a reception's first attach, sets receiving and claims the owner. The
     // primer above stays as it is: a later stream may already have replaced
     // it while this one waited.
-    const attached = attachSystemAudioSource(DIRECT_ROUTE, remoteStream, {
-      onConnected: () => {
-        debug.graphAt = Date.now();
-        debug.graphError = undefined;
-        clearReplacementWatchdog(channel, mediaConn);
+    const attached = attachSystemAudioSource(
+      DIRECT_ROUTE,
+      { stream: remoteStream },
+      {
+        startsReception: 'first-for-slot',
+        onConnected: () => {
+          debug.graphAt = Date.now();
+          debug.graphError = undefined;
+          clearReplacementWatchdog(channel, mediaConn);
+        },
+        connectedLog: `[SysAudioGuest] System audio connected to graph (${channel})`,
       },
-      connectedLog: `[SysAudioGuest] System audio connected to graph (${channel})`,
-    });
+    );
     if (!attached) {
       log.error('[SysAudioGuest] Audio graph not ready');
       throw new Error('audio-graph-not-ready');

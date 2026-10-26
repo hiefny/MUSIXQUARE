@@ -807,12 +807,12 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
     return 'ignore';
   }
   if (role === 'host-pending') {
-    const hasDesiredPassword = Object.prototype.hasOwnProperty.call(message, 'desiredRoomPassword');
-    const hasPinMutationId = Object.prototype.hasOwnProperty.call(message, 'pinMutationId');
+    // The desired PIN ('' for none) and its mutation ID are required. Every
+    // App since 8.4.17 sends both, far below the App build floor.
     return hasExactObjectKeys(
       message,
-      ['type', 'secret'],
-      ['accountAssertion', 'appBuild', 'desiredRoomPassword', 'pinMutationId'],
+      ['type', 'secret', 'desiredRoomPassword', 'pinMutationId'],
+      ['accountAssertion', 'appBuild'],
     ) &&
       message.type === 'host-auth' &&
       isPeerId(message.secret) &&
@@ -820,13 +820,11 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
       (message.accountAssertion === undefined ||
         (typeof message.accountAssertion === 'string' &&
           message.accountAssertion.length <= 2048)) &&
-      hasDesiredPassword === hasPinMutationId &&
-      (!hasDesiredPassword ||
-        ((message.desiredRoomPassword === '' ||
-          (typeof message.desiredRoomPassword === 'string' &&
-            /^\d{8}$/.test(message.desiredRoomPassword))) &&
-          typeof message.pinMutationId === 'string' &&
-          STANDARD_ROOM_PIN_MUTATION_ID_RE.test(message.pinMutationId)))
+      (message.desiredRoomPassword === '' ||
+        (typeof message.desiredRoomPassword === 'string' &&
+          /^\d{8}$/.test(message.desiredRoomPassword))) &&
+      typeof message.pinMutationId === 'string' &&
+      STANDARD_ROOM_PIN_MUTATION_ID_RE.test(message.pinMutationId)
       ? 'valid'
       : 'ignore';
   }

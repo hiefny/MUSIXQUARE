@@ -16,6 +16,7 @@ import {
   createSqlJournal,
   trackedSql,
 } from '../../../core/__tests__/helpers/worker-test-bindings.ts';
+import { requireStoredEntryPin } from './pro-room-entry-pin.ts';
 import {
   SIGNALING_BROADCAST_PATH,
   signalingBroadcastViolations,
@@ -895,18 +896,23 @@ export async function activatedProRoom(
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      // The App still sends the opt-in with every PRO request; the PRO Worker
+      // no longer reads it, so this only keeps the traffic realistic.
+      'x-mxqr-pro-entry-policy': 'optional-v1',
       [ACCOUNT_ASSERTION_HEADER]: await ownerAssertion(),
     },
-    body: JSON.stringify({
-      claimToken,
-      temporaryPin: PRO_ROOM_CODE.padStart(8, '0'),
-      newPin: OWNER_PIN,
-      ownerName: 'Owner',
-    }),
+    body: JSON.stringify({ claimToken, ownerName: 'Owner' }),
   });
   expect(activation.status).toBe(200);
   context.ownerCookie = (activation.headers.get('set-cookie') ?? '').split(';')[0]!;
   context.bind(context.ownerCookie, (await activation.json()) as Record<string, any>);
+  // The room is protected by OWNER_PIN, as an activation with a PIN left it.
+  await requireStoredEntryPin(
+    (context.worker as unknown as { room: Record<string, unknown> }).room,
+    (storage.data.get('pro-room:v2:core') as { core: Record<string, unknown> }).core,
+    OWNER_PIN,
+    SECRET('pin'),
+  );
   await context.settle();
   return context;
 }

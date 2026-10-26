@@ -8,16 +8,15 @@
  * below the live App and so never below the floor: a release after the floor
  * is turned on does not refuse its own smoke and roll itself back.
  *
- * The shape rule follows the Signaling Worker under test, never the App:
- * - candidate: `MXQR_EXPECTED_SIGNALING_VERSION` names this release's
- *   Signaling Worker, which accepts `appBuild`. A host-auth carrying the
- *   build must be admitted.
- * - unknown: any other run (the remote-share smoke before signaling deploys,
- *   an App-only release, the emergency App deploy, a manual run). A Worker
- *   older than the floor refuses the unknown key with
- *   `HOST_AUTH_FIRST_FRAME_INVALID`; such a Worker enforces no floor, so the
- *   host-auth is retried once in the legacy shape. A guest-auth always carries
- *   the build: the pre-floor guest validator ignores extra keys.
+ * Every host-auth also carries the desired PIN ('' for none) and its mutation
+ * ID, which the Signaling Worker requires (old-version removal W-3; every App
+ * since 8.4.17 sends both). A host-auth the Worker cannot parse is refused
+ * with `HOST_AUTH_FIRST_FRAME_INVALID`: the smoke's own frame is wrong, or the
+ * Signaling Worker is older than 9.0.14 and refuses `appBuild` with the same
+ * reason. Either way the smoke fails at once with that reason and never waits
+ * it out as a stale edge. Rolling the Signaling Worker back below 9.0.14 while
+ * such an App is live is outside the procedure, so no smoke falls back to a
+ * frame without the build.
  */
 
 import {
@@ -34,34 +33,26 @@ const LIVE_APP_SERVICE_WORKER_URL = 'https://musixquare.com/service-worker.js';
 const LIVE_APP_SERVICE_WORKER_MAX_BYTES = 1024 * 1024;
 const LIVE_APP_REQUEST_TIMEOUT_MS = 10_000;
 
-/** Close reason (and error message) of a Signaling Worker that refused the first host frame. */
-export const LEGACY_HOST_AUTH_REFUSAL_REASON = 'HOST_AUTH_FIRST_FRAME_INVALID';
-
-export type LiveSmokeSignalingMode = 'candidate' | 'unknown';
+/** The close reason (and error message) for a first host frame the Worker cannot parse. */
+const HOST_AUTH_FIRST_FRAME_INVALID = 'HOST_AUTH_FIRST_FRAME_INVALID';
 
 export interface LiveSmokeAppBuild {
   /** The checked-out release's build: the service-worker cache epoch. */
   readonly build: number;
-  readonly signalingMode: LiveSmokeSignalingMode;
 }
 
 export interface ResolveLiveSmokeAppBuildOptions {
-  readonly env?: Readonly<Record<string, string | undefined>>;
   readonly readBuild?: () => number;
 }
 
 export function resolveLiveSmokeAppBuild({
-  env = process.env,
   readBuild = () => readReleaseIdentity().serviceWorkerCacheEpoch,
 }: ResolveLiveSmokeAppBuildOptions = {}): LiveSmokeAppBuild {
   const build = parseAppBuild(readBuild());
   if (build === null || build <= 0) {
     throw new Error('Live smokes need the positive App build of the checked-out release.');
   }
-  return {
-    build,
-    signalingMode: env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() ? 'candidate' : 'unknown',
-  };
+  return { build };
 }
 
 /** The PRO request header that reports `build`. */
@@ -69,28 +60,22 @@ export function appBuildRequestHeaders(build: number): Record<string, string> {
   return { [APP_BUILD_HEADER]: String(build) };
 }
 
-/** The auth frame with `appBuild`, or unchanged when the legacy shape is selected. */
-export function withAppBuild<Frame extends JsonObject>(
-  frame: Frame,
-  appBuild: number | null,
-): Frame {
-  return appBuild === null ? frame : { ...frame, appBuild };
+/** The auth frame with `appBuild`. */
+export function withAppBuild<Frame extends JsonObject>(frame: Frame, appBuild: number): Frame {
+  return { ...frame, appBuild };
 }
 
-/** A pre-floor Signaling Worker refused a host-auth because it carried `appBuild`. */
-export class LegacySignalingHostAuthError extends Error {
-  constructor(label: string) {
-    super(
-      `${label} reached a signaling Worker without appBuild support (${LEGACY_HOST_AUTH_REFUSAL_REASON})`,
-    );
-    this.name = 'LegacySignalingHostAuthError';
-  }
+/** The failure of a host-auth the Signaling Worker refused as an invalid first frame. */
+export function invalidHostAuthFrameError(label: string): Error {
+  return new Error(
+    `${label}: host-auth refused as an invalid first frame (${HOST_AUTH_FIRST_FRAME_INVALID})`,
+  );
 }
 
 export type HostAdmission =
   | { readonly outcome: 'admitted'; readonly frame: JsonObject }
   | { readonly outcome: 'below-floor'; readonly minAppBuild: number }
-  | { readonly outcome: 'legacy-refused' }
+  | { readonly outcome: 'invalid-frame' }
   | { readonly outcome: 'refused'; readonly detail: string };
 
 function isExactFloorRefusal(frame: JsonObject): number | null {
@@ -117,9 +102,9 @@ export function classifyHostAdmission(frame: JsonObject): HostAdmission {
   if (
     frame.type === 'error' &&
     frame.errorType === 'invalid-id' &&
-    frame.message === LEGACY_HOST_AUTH_REFUSAL_REASON
+    frame.message === HOST_AUTH_FIRST_FRAME_INVALID
   ) {
-    return { outcome: 'legacy-refused' };
+    return { outcome: 'invalid-frame' };
   }
   const errorType = typeof frame.errorType === 'string' ? frame.errorType : 'unknown';
   const message = typeof frame.message === 'string' ? frame.message : 'unknown';
@@ -127,8 +112,9 @@ export function classifyHostAdmission(frame: JsonObject): HostAdmission {
 }
 
 /**
- * The legacy-shape host (no `appBuild`, a 9.0.13 or older client) meets
- * either admission (floor off) or the exact floor refusal (floor on).
+ * The legacy-shape host (no `appBuild`, a 9.0.13 or older client, with the PIN
+ * fields every App since 8.4.17 sends) meets either admission (floor off) or
+ * the exact floor refusal (floor on).
  */
 export function requireLegacyShapeHostOutcome(
   frame: JsonObject,
@@ -137,47 +123,8 @@ export function requireLegacyShapeHostOutcome(
   const admission = classifyHostAdmission(frame);
   if (admission.outcome === 'admitted') return { admitted: admission.frame };
   if (admission.outcome === 'below-floor') return { minAppBuild: admission.minAppBuild };
-  if (admission.outcome === 'legacy-refused') {
-    throw new Error(`${label} was refused as invalid (${LEGACY_HOST_AUTH_REFUSAL_REASON})`);
-  }
+  if (admission.outcome === 'invalid-frame') throw invalidHostAuthFrameError(label);
   throw new Error(`${label} was neither admitted nor refused below the floor: ${admission.detail}`);
-}
-
-export interface HostAuthBuildSelector {
-  /** The `appBuild` for the next host-auth: the release build, or null once a legacy Worker was met. */
-  frameBuild(): number | null;
-  /** Runs `attempt`; for a Signaling Worker of unknown version, retries it once in the legacy shape. */
-  run<Result>(attempt: (frameBuild: number | null) => Promise<Result>): Promise<Result>;
-}
-
-export function createHostAuthBuildSelector(
-  appBuild: LiveSmokeAppBuild,
-  { label, log = console.warn }: { readonly label: string; readonly log?: (line: string) => void },
-): HostAuthBuildSelector {
-  let legacyShape = false;
-  const frameBuild = (): number | null => (legacyShape ? null : appBuild.build);
-  return {
-    frameBuild,
-    async run(attempt) {
-      const sent = frameBuild();
-      try {
-        return await attempt(sent);
-      } catch (error) {
-        if (
-          !(error instanceof LegacySignalingHostAuthError) ||
-          sent === null ||
-          appBuild.signalingMode !== 'unknown'
-        ) {
-          throw error;
-        }
-        legacyShape = true;
-        log(
-          `[${label}] legacy signaling Worker (no floor): retrying host-auth once without appBuild`,
-        );
-        return attempt(null);
-      }
-    },
-  };
 }
 
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;

@@ -684,8 +684,8 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   conclusion before the next dispatch. Right after the `set` succeeds, prove that Signaling admits
   the released build: from a checkout of the released main SHA, run `npm run smoke:live:signaling`
   without `MXQR_EXPECTED_SIGNALING_VERSION` (no credentials). It must end with `ok` true,
-  `appBuild.build` equal to the floor, `hostAuthShape` `appBuild`, both rooms admitting their
-  host and guest, and `legacyCompatibility.refusedBelowAppBuildFloor` equal to the floor. Like the
+  `appBuild.build` equal to the floor, both rooms admitting their host and guest, and
+  `legacyCompatibility.refusedBelowAppBuildFloor` equal to the floor. Like the
   release smoke it opens two smoke rooms in production. If a host is refused, run `lower` to 0 at
   once; retry once after a transient 502 or 503.
 - Recording: the summary line of a `set`, `lower` or release raise goes into the "최소 앱 빌드"

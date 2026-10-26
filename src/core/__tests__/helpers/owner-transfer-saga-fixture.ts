@@ -487,14 +487,20 @@ export async function transferFixture() {
   // The old owner activates the room (DO route with an App account assertion)
   // and the App records that owner's account-room edge.
   expect((await internal('/internal/admin/provision', {})).status).toBe(200);
+  const roomHeaders = {
+    'content-type': 'application/json',
+    'x-mxqr-pro-room-code': ROOM_CODE,
+    'x-mxqr-pro-room-generation': String(ROOM_GENERATION),
+    'x-mxqr-pro-ip-hash': 'saga-client-address',
+    // The App still sends the opt-in with every PRO request; the PRO Worker
+    // no longer reads it, so this only keeps the traffic realistic.
+    'x-mxqr-pro-entry-policy': 'optional-v1',
+  };
   const activation = await room().fetch(
     new Request(`https://pro.musixquare.com/v1/rooms/${ROOM_CODE}/activation`, {
       method: 'POST',
       headers: {
-        'content-type': 'application/json',
-        'x-mxqr-pro-room-code': ROOM_CODE,
-        'x-mxqr-pro-room-generation': String(ROOM_GENERATION),
-        'x-mxqr-pro-ip-hash': 'saga-client-address',
+        ...roomHeaders,
         [ACCOUNT_ASSERTION_HEADER]: (await createAccountAssertion(
           {
             accountId: OLD_OWNER,
@@ -512,13 +518,27 @@ export async function transferFixture() {
           expiresAtMs: Date.now() + 60_000,
           nonce: 'saga-activation-nonce',
         }),
-        temporaryPin: ROOM_CODE.padStart(8, '0'),
-        newPin: '12345678',
         ownerName: 'Old owner',
       }),
     }),
   );
   expect(activation.status).toBe(200);
+  const activated = (await activation.json()) as {
+    snapshot: { viewer: { participantId: string; presenceIncarnationId: string } };
+  };
+  const passwordSet = await room().fetch(
+    new Request(`https://pro.musixquare.com/v1/rooms/${ROOM_CODE}/pin`, {
+      method: 'POST',
+      headers: {
+        ...roomHeaders,
+        cookie: (activation.headers.get('set-cookie') ?? '').split(';')[0]!,
+        'x-mxqr-pro-participant-id': activated.snapshot.viewer.participantId,
+        'x-mxqr-pro-presence-incarnation': activated.snapshot.viewer.presenceIncarnationId,
+      },
+      body: JSON.stringify({ pin: '12345678' }),
+    }),
+  );
+  expect(passwordSet.status).toBe(200);
   expect(
     await recordAccountProRoomLink(appEnv, OLD_OWNER, ROOM_CODE, Date.now(), ROOM_GENERATION),
   ).toBe(true);
@@ -559,16 +579,14 @@ export async function issueClaim(test: TransferFixture, targetAccountId = TARGET
   return decodeURIComponent(new URL(issued.transferUrl).hash.replace(/^#pro-transfer=/, ''));
 }
 
-/**
- * The PIN an App from before the 2026-10-23 owner decision sends with the
- * link (and an App Worker of that time requires). The PRO room ignores it.
- */
-export const EARLIER_APP_TRANSFER_PIN = '24681357';
-
 export interface TransferRequestOptions {
   accountId?: string;
   requestId?: string;
-  /** The body's PIN; `null` (the default, as the App sends it) omits it. */
+  /**
+   * The body's PIN, as Apps before 9.0.4 sent it; `null` (the default, as the
+   * App sends it) omits it. The App facade refuses a body with one before it
+   * records an intent, and the PRO room refuses it too.
+   */
   newPin?: string | null;
   /** Send the App's opt-in headers, as every App since 8.8.0 does. */
   entryPolicy?: boolean;
@@ -578,8 +596,7 @@ export interface TransferRequestOptions {
 /**
  * The claim's target account submits it through the App facade and gets the
  * raw response: by default the target with the fixture's request id and no
- * PIN, through the current App Worker. An earlier App Worker build needs
- * `newPin` (EARLIER_APP_TRANSFER_PIN), as its App sent one.
+ * PIN, through the current App Worker.
  */
 export async function postTransfer(
   test: TransferFixture,

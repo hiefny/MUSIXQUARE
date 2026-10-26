@@ -95,8 +95,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 5 train 5A: one system-audio receive slot, behaviour-neutral (2026-10-25)](design/phase5-5a-receive-slot-2026-10-25.md):
   evidence for the structure program's first Phase 5 app train (version set at integration, not
-  yet released; target `app`; it ships after the 9.0.12 forced-update train). One deferred-only
-  owner, `src/network/system-audio-receive-slot.ts` (RO-04), now holds the device's system-audio
+  yet released; target `app`; since the 2026-10-26 integration it ships before the forced-update
+  train). One deferred-only owner, `src/network/system-audio-receive-slot.ts` (RO-04), now holds the device's system-audio
   reception: the start, the trust-boundary waits, the restore point, the receive deadline and its
   expiry, every route's source and primer, the interrupts, the delivery handoff, the PRO
   coordinator's adopt of the Standard SFU route and the end. The Standard direct call, the
@@ -106,9 +106,9 @@ runbooks. Neither belongs in a general setup document.
   decisions, the preparation (T1 to T8, T8 negative), each increment with its commits and
   tests-first evidence, the 14 gaps left as today's behaviour for train 5B, the neutrality
   evidence (the final contract and evidence-line suites also green on the 9.0.11 runtime), the
-  open P5-D4 A owner question on the chunk change after C4-7, which blocks the release until the
-  owner answers, the overlap with Phase 4, the eager JS delta (+24 B, no code), and the Phase 5
-  device steps not yet run.
+  P5-D4 A owner question on the chunk change after C4-7 and the owner's answer (2026-10-26,
+  about 09:10 KST: ship as is, so the new lazy chunk stays), the overlap with Phase 4, the eager
+  JS delta (no code), and the Phase 5 device steps not yet run.
 
 - [Phase 4 train 4D: the side route's outage deadline joins the link-liveness owner (2026-10-25)](design/phase4-4d-side-route-owner-2026-10-25.md):
   release evidence for the structure program's fourth Phase 4 app train (9.0.11 / v784,

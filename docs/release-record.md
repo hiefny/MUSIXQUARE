@@ -68,27 +68,23 @@ gh run list --workflow e2e.yml --branch main --limit 3
       다섯(47 tests)은 main `2d605739`의 9.0.11 런타임에서도 PASS다. 리뷰 반영 `f45b6a70`(마감 만료가 경로
       반응의 예외를 버스처럼 가둠, RO-04 문구): 단위 672 files / 15,707, 핵심 커버리지 87 files / 3,278(슬롯
       96.07/91.3/100/97.82), 같은 가드, 초기 JS 478,190 B, SW 앱 셸 106 PASS. `guard:sw-cache-version`은 bump
-      전이라 설계대로 FAIL이다. C4-7 뒤 청크 변화는 아래 P5-D4 A 다시 묻기 항목에 있고, 그 항목이 이 배포를
-      막는다. 오너 확인을 기다리는 그 밖의 세부(PRO 코디네이터는 경로 하나, 경로마다 정한 수신 시작 규칙,
-      붙이기는 다시 prime하지 않음, `RECOVERY_DELAY_MS`는 나누지 않음)는 보고서에 있다. 남은 것: P5-D4 A
-      다시 묻기의 오너 답, 9.0.12 강제 업데이트 열차와 그 floor 다음에 그때의 origin/main 합침과 다시 검증
-      (옛 버전 제거 1차와 같은 파일 registry, `scripts/check-room-authority-boundaries.mts`와 그 테스트,
-      `src/types/index.ts`, `vite.config.ts`, `docs/qa-domains.md`, `file-prepare-pause.test.ts`는 시험
-      합침에서 글자 충돌이 없었지만 가드 수를 다시 맞춰야 할 수 있음), 마지막 런타임 커밋의 SemVer·SW 캐시
-      bump, PR CI, Codex, exact-main CI, 릴리스 smoke, 배포(target `app`, Developer API D1 `false`). 로컬
-      결과는 exact-main-SHA 후보를 대신하지 않는다.
+      전이라 설계대로 FAIL이다. C4-7 뒤 청크 변화(새 지연 청크 `system-audio-receive-slot` gzip 약 2.9 KB,
+      첫 로딩 +4 B는 미리 읽기 목록의 청크 이름이고 코드는 없음, 시스템 오디오 늦은 청크 셋 합 +322 B)는
+      P5-D4 A 선택지의 다시 묻기 조건('새 청크가 생기거나 첫 로딩이 늘면 멈추고 수치를 들고 다시 묻는다')에
+      걸렸고, 오너가 2026-10-26 약 09:10 KST에 '이대로 배포'로 답했다. 그래서 `manualChunks` 다른 안은 쓰지
+      않고 배포를 막던 다시 묻기 항목은 지웠다([P5-D4 A 다시 묻기와 오너 답](design/phase5-5a-receive-slot-2026-10-25.md#p5-d4-a-다시-묻기와-오너-답)).
+      오너가 맡긴 판단으로 정한 그 밖의 세부(PRO 코디네이터는 경로 하나, 경로마다 정한 수신 시작 규칙,
+      붙이기는 다시 prime하지 않음, `RECOVERY_DELAY_MS`는 나누지 않음)는 보고서에 있고 오너 확인을
+      기다리지만 게이트는 아니다. 출시 순서는 2026-10-26 통합에서 바뀌어 5A가 강제 업데이트 열차보다 먼저
+      나가고 9.0.11 다음 번호를 쓴다(약 22:30 KST 결정의 '9.0.12와 그 floor가 먼저'를 바꿈). 그래서 5A는
+      floor 없이 나가고, 혼합 방은 known-accepted #13 그대로이며 5A는 프레임을 바꾸지 않는다. 강제 업데이트
+      열차와 옛 버전 제거 1차는 5A 뒤에 main을 합친다(같은 파일 registry,
+      `scripts/check-room-authority-boundaries.mts`와 그 테스트, `src/types/index.ts`, `vite.config.ts`,
+      `docs/qa-domains.md`, `file-prepare-pause.test.ts`는 시험 합침에서 글자 충돌이 없었지만 그쪽 가드 수를
+      다시 맞춰야 할 수 있음). 남은 것: 마지막 런타임 커밋의 SemVer·SW 캐시 bump, PR CI, Codex, exact-main
+      CI, 릴리스 smoke, 배포(target `app`, Developer API D1 `false`). 로컬 결과는 exact-main-SHA 후보를
+      대신하지 않는다.
       [5A 보고서](design/phase5-5a-receive-slot-2026-10-25.md).
-- [ ] 5A 배포 전 오너 답(P5-D4 A 다시 묻기, 배포를 막음): P5-D4 A 선택지 문구는 '새 청크가 생기거나 첫
-      로딩이 늘면 멈추고 수치를 들고 다시 묻는다'였고, C4-7 뒤 빌드가 둘 다에 걸린다. 레인은 멈추지 않고
-      C4-8과 C4-12를 이어 갔다. 수치(같은 기계, main `2d605739` 대 5A `c344b46f`): 새 지연 청크
-      `system-audio-receive-slot`(슬롯과 매체 집, gzip 약 2,850 B), `system-audio-host` 청크는
-      `system-audio-sfu`에 합쳐짐, 청크 수 112와 SW 앱 셸 106 그대로, 시스템 오디오 늦은 청크 셋 합 +283 B
-      gzip, 초기 JS 478,186 → 478,210 B gzip(+24 B, 그 가운데 +11 B는 미리 읽기 목록의 더 긴 청크 이름이고
-      첫 로딩에 들어온 코드는 없음, 유지 상한까지 13,358 B). 리뷰 반영 `f45b6a70` 빌드는 슬롯 청크 gzip
-      2,896 B, 늦은 청크 셋 합 +322 B, 초기 JS 478,190 B(+4 B)다. 오너가 받아들이거나 명시적으로 면제하기 전에는
-      5A를 내지 않는다. 받아들이지 않으면 C4-7의 RULE D와 import 정리는 두고 `manualChunks`로 슬롯과 매체
-      집을 기존 청크에 넣은 뒤 다시 잰다(아직 재지 않음). 답이 오면 그 결정을 근거로 적고 이 항목을 지운다.
-      [배포 전 오너 답이 필요한 것](design/phase5-5a-receive-slot-2026-10-25.md#배포-전-오너-답이-필요한-것).
 - [ ] 5A 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 5A 코드로 실제 기기를 아직 돌리지 않았다.
       Phase 5 기기 절차(2-8 기록 추가, Set 5S, Set 5P)는 Phase 4 세션 2에 붙여 오너가 고르는 때에 한다(P5-D2
       A). 5A 전 기기 기준선이 없어 전후 비교는 없고, 첫 세션 값이 '5A 뒤 값'(5B 기준선)이 된다. 혼합 버전 기기

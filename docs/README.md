@@ -93,6 +93,24 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Old-version removal train 2, release W: Worker request shapes below the App build floor (2026-10-26)](design/old-version-removal-2w-workers-2026-10-26.md):
+  evidence for the Workers-only release of the second old-version removal train (not yet released;
+  target `all`, no SemVer or service-worker cache change, so no update dialog). With the App build
+  floor at 787 since 2026-10-26 16:15 KST, Remote Share accepts only the v3 session body and treats
+  the `optional` assertion mode as invalid; the PRO Worker reports `passwordRequired` and
+  `playlistSlots` without the opt-in headers, refuses or drops the request shapes and endpoints of
+  Apps below the floor (the ownership-transfer `newPin` of 9.0.0 to 9.0.3 included), removes four
+  expired stored-state migrations and takes the presence close's playback fields as optional; the
+  Signaling Worker requires the PIN fields on `host-auth` and `room-password-set` and drops the
+  `legacy-<uuid>` PIN fences; the App Worker retires the old playlist entry route, the three-field
+  announcement body, the requestId-free PRO admission bypass and the opt-in pass-through. The release
+  smokes and the floor tool change in the same increments (the PRO canary sends the opt-in header,
+  every `host-auth` carries the PIN fields, an invalid first frame fails at once). The report lists
+  the owner policy and the floor, each increment (W-1 to W-4) with its commits, tests-first evidence
+  rerun on the parents, removed lines and who loses what, the lane checks, the unchanged eager JS and
+  the Worker bundle deltas, the skipped items and the train that takes each, the deploy conditions
+  and order, the same-value floor `set` right after the release, rollback boundaries and what was not
+  verified.
 - [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
   evidence for the train that adds the forced update (9.0.14 / v787 from bump `2077ef60`, not yet
   released; target `all`; the 9.0.12 receive-slot train and the 9.0.13 old-version removal train

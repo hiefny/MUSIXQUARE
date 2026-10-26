@@ -998,23 +998,6 @@ describe('system-audio START frame validation', () => {
 });
 
 describe('file-transfer frame validation', () => {
-  it('accepts only the explicit current local R2 capability marker', async () => {
-    const handler = vi.fn();
-    const conn = makeConnection('peer-file-r2-capability');
-    registerHandler(MSG.FILE_R2_CAPABILITY, handler);
-
-    await handleData({ type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: true }, conn);
-    for (const invalid of [
-      { type: MSG.FILE_R2_CAPABILITY, version: 2, localAudience: true },
-      { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: false },
-      { type: MSG.FILE_R2_CAPABILITY, version: 1, localAudience: 'true' },
-    ]) {
-      await handleData(invalid, conn);
-    }
-
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
   it('accepts only the exact authenticated whole-object descriptor', async () => {
     const handler = vi.fn();
     registerHandler(MSG.REMOTE_FILE_SHARE, handler);

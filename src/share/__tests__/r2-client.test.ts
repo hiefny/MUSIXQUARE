@@ -428,13 +428,8 @@ describe('R2 canonical whole-object upload', () => {
     expect(xhr.requestHeaders).not.toHaveProperty('x-mxqr-room-upload-assertion');
   });
 
-  it('fails before /session when the Remote Worker requires an unsupported assertion', async () => {
-    const fetchMock = vi.fn(async () =>
-      securityConfig({
-        roomUploadAssertionVersion: 1,
-        roomUploadAssertionMode: 'required',
-      }),
-    );
+  it('fails before /session when the transport cannot issue a room assertion', async () => {
+    const fetchMock = vi.fn(async () => securityConfig());
     vi.stubGlobal('fetch', fetchMock);
     const { uploadWholeObject } = await import('../r2-client.ts');
 
@@ -446,13 +441,19 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: vi.fn(async () => {
+          throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+        }),
       }),
     ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
   });
 
-  it('fails before /session without an assertion even while the Remote Worker advertises optional mode', async () => {
+  it('fails closed before /session when the Remote Worker advertises optional mode', async () => {
+    // Since old-version removal train 2 the Remote Worker has no optional mode
+    // (survey OV-W04), and the client takes only 'required'.
+    const requestRoomUploadAssertion = vi.fn(issueRoomUploadAssertion);
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === `${endpoint}/security-config`) {
@@ -465,27 +466,22 @@ describe('R2 canonical whole-object upload', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
     const { uploadWholeObject } = await import('../r2-client.ts');
-    const meta = {
-      roomId,
-      name: 'song.mp3',
-      mime: 'audio/mpeg',
-      size: 4,
-      sessionId: 7,
-      queueItemId,
-    };
 
-    await expect(uploadWholeObject(new Blob(['data']), meta)).rejects.toThrow(
-      'REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
-    );
     await expect(
       uploadWholeObject(new Blob(['data']), {
-        ...meta,
-        requestRoomUploadAssertion: vi.fn(async () => null),
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+        requestRoomUploadAssertion,
       }),
-    ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
-    expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContain(
-      `${endpoint}/session`,
-    );
+    ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      `${endpoint}/security-config`,
+    ]);
+    expect(requestRoomUploadAssertion).not.toHaveBeenCalled();
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
   });
 
@@ -507,6 +503,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -525,7 +522,7 @@ describe('R2 canonical whole-object upload', () => {
         securityConfigReads += 1;
         return securityConfig(
           securityConfigReads === 1
-            ? { roomUploadAssertionVersion: 1, roomUploadAssertionMode: 'optional' }
+            ? { roomUploadAssertionVersion: 1, roomUploadAssertionMode: 'required' }
             : { roomUploadAssertionVersion: 0, roomUploadAssertionMode: 'disabled' },
         );
       }
@@ -570,6 +567,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
@@ -590,6 +588,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
@@ -618,6 +617,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);

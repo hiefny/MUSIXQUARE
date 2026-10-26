@@ -647,7 +647,6 @@ const ta: Record<I18nKey, string> = {
   'toast.sync_no_media': 'ஒத்திசைக்க மீடியா இல்லை\nமுதலில் இயக்க ஏதேனும் ஒன்றைத் தேர்ந்தெடுக்கவும்',
   'toast.host_ad': 'ஹோஸ்ட் விளம்பரம் பார்ப்பதாகத் தெரிகிறது',
   'toast.yt_sync_start': 'ஒத்திசைக்கிறது...',
-  'toast.yt_sync_done': 'ஒத்திசைவு முடிந்தது',
   'toast.yt_rendezvous_start': 'ஹோஸ்டுடன் சீரமைக்கிறது...',
   'toast.yt_rendezvous_done': 'ஒத்திசைவு முடிந்தது',
   'toast.yt_rendezvous_host_paused':
@@ -711,10 +710,6 @@ const ta: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ஆடியோ எஞ்சினைத் தயாரிக்க முடியவில்லை',
   'error.session_create_fail': 'அமர்வை உருவாக்க முடியவில்லை',
   'error.network_generic': 'நெட்வொர்க் பிழை ஏற்பட்டது',
-  'error.peer_app_version_mismatch':
-    'பயன்பாட்டுப் பதிப்புகள் பொருந்தாததால் {{name}} சேர முடியாது. இரு சாதனங்களையும் புதுப்பிக்கவும்.',
-  'error.app_version_mismatch':
-    'பயன்பாட்டுப் பதிப்புகள் பொருந்தவில்லை. இரு சாதனங்களையும் புதுப்பித்து மீண்டும் முயலவும்.',
   'error.session_handshake_failed':
     'அமர்வு இணைப்பை நிறைவு செய்ய முடியவில்லை. இரு சாதனங்களையும் புதுப்பித்து மீண்டும் முயலவும்.',
   'error.host_unreachable': 'ஹோஸ்ட் அமர்விலிருந்து வெளியேறியதாகத் தெரிகிறது',
@@ -801,7 +796,6 @@ const ta: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'மறுதொடக்கம் செய்',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO அறையைச் செயல்படுத்து',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'இந்த PRO அறைக்கான கணக்கைத் தேர்வுசெய்யவும்',
   'pro.activation_account_message': 'இந்த அறையை “{{name}}” கணக்கில் பதிவுசெய்யவா?',
@@ -811,9 +805,6 @@ const ta: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'வேறொரு கணக்கு',
   'pro.activation_account_unavailable':
     'உங்கள் கணக்கைச் சரிபார்க்க முடியவில்லை. சிறிது நேரத்தில் மீண்டும் முயலவும்.',
-  'pro.activation_complete': 'பதிவை நிறைவு செய்',
-  'pro.activation_message': 'இந்த அறைக்கு புதிய 8 இலக்கக் கடவுச்சொல்லை அமைக்கவும்.',
-  'pro.activation_pin_same': 'தற்காலிகக் கடவுச்சொல்லிலிருந்து வேறுபட்ட ஒன்றைத் தேர்வுசெய்யவும்.',
   'pro.claim_retry_title': 'PRO இணைப்பை மீண்டும் முயலவா?',
   'pro.claim_retry_message':
     'இணைப்பு இடையில் துண்டிக்கப்பட்டது. இணைப்பு இந்தத் திரையில் பாதுகாப்பாக வைக்கப்பட்டுள்ளது; மீண்டும் முயலலாம்.',
@@ -861,8 +852,6 @@ const ta: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'அனைவரும் மீண்டும் சேரட்டும்',
   'pro.pin_members_reenter_detail':
     'அனைவரும் மீண்டும் சேர வேண்டும். தெரியாதவர்களை ஒரே நேரத்தில் நீக்க இந்த முறையைப் பரிந்துரைக்கிறோம்.',
-  'pro.pin_keep_unavailable':
-    'கடவுச்சொல் மாற்றப்படவில்லை. இப்போது ஆட்களை அறையில் வைத்தபடி மாற்ற முடியாது. சிறிது நேரம் கழித்து மீண்டும் முயலவும் அல்லது “அனைவரும் மீண்டும் சேரட்டும்” என்பதைத் தேர்ந்தெடுக்கவும்.',
   'pro.pin_enabled_removed_title': 'அறைக்குக் கடவுச்சொல் அமைக்கப்பட்டது',
   'pro.pin_enabled_removed_message':
     'அறை உரிமையாளர் இந்த அறைக்குக் கடவுச்சொல் அமைத்துள்ளார். மீண்டும் சேர அதை உள்ளிடவும்.',

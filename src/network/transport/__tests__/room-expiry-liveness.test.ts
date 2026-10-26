@@ -211,7 +211,7 @@ async function flushAsync(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
-/** An admitted guest whose data connection is open; `restartable` models a current host. */
+/** An admitted guest whose data connection is open; `restartable` marks the host's first answer. */
 async function guest(restartable: boolean) {
   install();
   const peer = new CloudflareSignalingPeer(null, {
@@ -293,14 +293,20 @@ describe('Standard guest restart gate', () => {
     g.peer.destroy();
   });
 
-  it('never restarts a guest whose host did not advertise ICE restart', async () => {
+  it('restarts a guest whose host answered without the ICE restart marker', async () => {
+    // Every Standard host since 8.6.39 marks its answer, and the App build
+    // floor (787) admits none older, so the marker no longer gates the restart
+    // (old-version removal train 2, survey OV-F04 stage 1).
     const g = await guest(false);
     vi.useFakeTimers();
+    const start = Date.now();
     g.pc.state('disconnected');
     await vi.advanceTimersByTimeAsync(0);
-    expect(g.offers()).toBe(1);
-    expect(g.conn.iceRecoveryDeadline).toBe(0);
-    await vi.advanceTimersByTimeAsync(GRACE_MS);
+    expect(g.offers()).toBe(2);
+    expect(g.conn.iceRecoveryDeadline).toBe(start + GRACE_MS);
+    await vi.advanceTimersByTimeAsync(GRACE_MS - 1);
+    expect(g.conn.open).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
     expect(g.closed).toHaveBeenCalledOnce();
     g.peer.destroy();
   });

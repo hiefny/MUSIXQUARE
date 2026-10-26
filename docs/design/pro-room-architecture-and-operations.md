@@ -291,8 +291,9 @@ matched provider data/code checkpoint.
   owner-chosen 8 digits, and step 2 ("현재 참여자를 어떻게 할까요?",
   "그대로 두기" by default or "모두 재입장") appears only when another device
   is in the room; alone, step 1's primary action reads 확인 and keep is sent.
-  If a PRO Worker without the choice refuses keep while the step was skipped
-  and the owner is still alone, the App retries once with the legacy body.
+  Every PRO Worker that recovery may restore (the entry-policy marker of 9.0.4
+  and later) understands the choice, so a refused keep is an ordinary failure:
+  the App shows the generic error and never resends it without the choice.
   Both room types show the PIN masked with a change button. Standard rooms
   keep the PIN in the host tab's memory only and the signaling Worker owns
   the kept set and wrong-PIN limit

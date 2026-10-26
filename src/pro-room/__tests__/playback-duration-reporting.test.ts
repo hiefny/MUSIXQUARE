@@ -381,24 +381,23 @@ describe('controller-only decoded file duration backfill', () => {
     expect(h.recover).not.toHaveBeenCalled();
   });
 
-  it('quietly suppresses an old Worker endpoint until the next room lifecycle', async () => {
+  it('keeps reporting other files after the duration route answers 404 NOT_FOUND', async () => {
     const h = fixture();
-    h.report.mockRejectedValue(new ProRoomApiError('NOT_FOUND', 404));
-    for (let revision = 1; revision <= 2; revision += 1) {
-      const event = h.event(revision);
-      h.controller.acceptPrepare(event);
-      await flush();
-      h.commitEvent(event);
-      await flush();
-    }
-    expect(h.report).toHaveBeenCalledOnce();
-    expect(h.commit).toHaveBeenCalledTimes(2);
-    expect(h.recover).not.toHaveBeenCalled();
-    h.controller.resetPlaylistRuntime();
-    const event = h.event(3);
+    // Every PRO Worker the recovery floor allows has the route, so a 404 is
+    // an ordinary failed report, not a reason to switch reporting off.
+    h.report.mockRejectedValueOnce(new ProRoomApiError('NOT_FOUND', 404));
+    const event = h.event();
     h.controller.acceptPrepare(event);
     await flush();
+    h.commitEvent(event);
+    await flush();
+    expect(h.commit).toHaveBeenCalledOnce();
+    expect(h.recover).not.toHaveBeenCalled();
+    h.snapshot.playlist[0]!.source = { ...SOURCE, assetId: 'asset_00000000000002' };
+    h.controller.acceptPrepare(h.event(2));
+    await flush();
     expect(h.report).toHaveBeenCalledTimes(2);
+    expect(h.report.mock.calls[1]?.[0]).toMatchObject({ assetId: 'asset_00000000000002' });
   });
 
   it('does not disable backfill when a removed asset returns 404', async () => {

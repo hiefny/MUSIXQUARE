@@ -7,6 +7,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData, resetInboundRateLimit } from '../../network/protocol.ts';
 import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { CloudflareDataConnection } from '../../network/transport/cloudflare-signaling.ts';
+import { admitAcknowledgingPeer } from '../../network/transport/__tests__/fixtures/acknowledging-peer.ts';
 import { loadPreloadedTrack } from '../../player/decode.ts';
 import { initPlayback } from '../../player/playback.ts';
 import { resetFileDeliveryPolicies } from '../../share/file-delivery-policy.ts';
@@ -134,14 +135,21 @@ function frames(target: Connection, type: string, sessionId?: number): Frame[] {
 async function begin(sender: Sender, file: File, target: Connection) {
   await vi.advanceTimersByTimeAsync(0);
   // This fixture starts after room admission and captures bytes before its
-  // replay receiver exists. RTC open stays silent; explicitly activate then
-  // exercise real old-peer fallback. Negotiated credit has separate coverage.
+  // replay receiver exists. RTC open stays silent; explicitly activate, then
+  // let a current peer's credit stand in for the receiver. Negotiated credit
+  // has separate coverage.
   expect(frames(target, 'mxqr-bulk-flow')).toEqual([]);
   target.transport.startBulkFlowControl();
   expect(frames(target, 'mxqr-bulk-flow').map(header)).toEqual([
     expect.objectContaining({ type: 'mxqr-bulk-flow', version: 1, kind: 'hello' }),
   ]);
-  await vi.advanceTimersByTimeAsync(1000);
+  const [hello] = frames(target, 'mxqr-bulk-flow');
+  await admitAcknowledgingPeer(
+    target.transport,
+    target.control,
+    hello!.data as string,
+    () => target.wire.pop()?.data,
+  );
   setState('network.connectedPeers', [target.peer]);
   setState('network.activeHostConnByPeerId', new Map([[target.peer.id, target.conn]]));
   setState('playlist.items', [item(CURRENT, new File(['old'], 'old.mp3')), item(NEXT, file)]);

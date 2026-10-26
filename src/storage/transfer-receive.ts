@@ -289,8 +289,10 @@ function hasMatchingDirectReceivePrefix(
     meta.sessionId === sessionId &&
     meta.name === data.name &&
     meta.size === data.size &&
+    // No sender puts a chunk total in FILE_PREPARE and its validator does not
+    // require one, so only a present total must match. mime is required.
     (data.total === undefined || meta.total === data.total) &&
-    (data.mime === undefined || meta.mime === data.mime) &&
+    meta.mime === data.mime &&
     receivedCount > 0 &&
     receivedCount < Number(meta.total) &&
     receivedCount === nextExpectedChunk &&
@@ -1219,7 +1221,7 @@ export async function handleFilePrepare(
       queueItemId,
       name: (data.name as string) || '',
       indexHint,
-      size: (data.size as number) || 0,
+      size: data.size as number,
       mime: (data.mime as string) || '',
       sessionId: (data.sessionId as number) || getState('transfer.localSessionId'),
     });
@@ -1705,7 +1707,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
           name: chunkName,
           total: data.total as number,
           sessionId: incomingSid,
-          size: (data.size as number) || 0,
+          size: data.size as number,
           mime: (data.mime as string) || '',
         });
       }
@@ -1809,7 +1811,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
         name: recoveredName,
         total: data.total as number,
         sessionId: incomingSid,
-        size: (data.size as number) || 0,
+        size: data.size as number,
         mime: (data.mime as string) || '',
       };
       setState('transfer.meta', recoveredMeta);

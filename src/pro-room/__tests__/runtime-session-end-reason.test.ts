@@ -355,19 +355,21 @@ describe('PRO runtime session-end reasons', { concurrent: false }, () => {
     expect(sessionReset.scheduleDocumentReload).not.toHaveBeenCalled();
   });
 
-  it('maps a Worker that refuses the keep choice to a sentinel and never falls back', async () => {
+  it('surfaces a refused keep choice as the server error and never falls back', async () => {
     await join('owner');
     const changePin = vi
       .spyOn(ProRoomApiClient.prototype, 'changePin')
       .mockRejectedValueOnce(new ProRoomApiError('INVALID_REQUEST', 400))
       .mockRejectedValueOnce(new ProRoomApiError('INVALID_REQUEST', 400))
       .mockResolvedValueOnce(undefined);
-    await expect(changeActiveProRoomPin('11223344', undefined, 'keep_present')).rejects.toThrow(
-      'PRO_ROOM_PIN_KEEP_UNSUPPORTED',
-    );
+    // Every PRO Worker the recovery floor allows understands the choice, so a
+    // 400 is an ordinary failure with no special meaning.
+    await expect(
+      changeActiveProRoomPin('11223344', undefined, 'keep_present'),
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400 });
     expect(changePin).toHaveBeenCalledOnce();
     expect(changePin).toHaveBeenLastCalledWith(ROOM_CODE, '11223344', undefined, 'keep_present');
-    // The legacy request keeps its own error unchanged.
+    // The request without a choice keeps its own error unchanged.
     await expect(changeActiveProRoomPin('11223344')).rejects.toMatchObject({
       code: 'INVALID_REQUEST',
       status: 400,

@@ -1051,11 +1051,12 @@ RO-51 duplicated
   `playback-finalize-host-sync`, `demo-play-host-sync`), all since Phase 4 4A (C3-I1). The
   old-version removal train dropped the 200 ms PLAY wire lead `LEGACY_FILE_SCHEDULE_AHEAD_MS`
   (survey OV-B01): PLAY carries only `hostStartAt`, and a guest starts a PLAY without it at
-  receipt. DEMO_PLAY still carries `hostPlayAt`, the start plus the separate 350 ms
-  `DEMO_PLAY_SCHEDULE_AHEAD_MS`, because demo guests before the old-version removal train (9.0.12
-  and older) require it; guests now require `hostStartAt`, ignore `hostPlayAt` and gate the host
-  timeline on clock calibration alone (OV-B02 stage 1). Hosts stop sending it only after a client
-  floor at or above the release that carries OV-B02 stage 1 (OV-F05).
+  receipt. Guests require DEMO_PLAY's `hostStartAt` and gate the host timeline on clock
+  calibration alone (OV-B02 stage 1). Old-version removal train 2 (OV-F05, App build floor 787)
+  dropped DEMO_PLAY's `hostPlayAt`, the start plus the separate 350 ms
+  `DEMO_PLAY_SCHEDULE_AHEAD_MS` that only guests of 9.0.12 and older read: DEMO_PLAY and the
+  late-join demo bootstrap carry only `hostStartAt`, and neither the DEMO_PLAY nor the PLAY
+  validator reads a `hostPlayAt` a 9.0.14 host still adds.
 - **Anchor tests:**
   - Supersession: `src/demo/__tests__/mode.test.ts` "does not restore stale media over a local file
     load started during exit".
@@ -1543,7 +1544,15 @@ RO-51 duplicated
   outage's start, and its non-renewing 15 s grace before READY (in `link-liveness.ts` since
   C5-9, on the monotonic clock); the probe's short close (its 3 s
   challenge window and its 1 s look at a disconnected route, both in `link-liveness.ts` since
-  C5-7).
+  C5-7). No deadline covers a peer's bulk-credit or control-isolation hello (accepted limit,
+  old-version removal train 2, survey OV-F01, App build floor 787): bulk on the link waits for
+  both with no fallback timer, so without the isolation hello no bulk byte leaves and without the
+  credit hello only the first 128 KiB window does. Every end at the floor sends both once its
+  admission settles (`startBulkFlowControl`), on the ordered, reliable original control channel,
+  so a hello goes missing only when that channel fails, which closes the link through its close
+  event, or from a peer below the floor, reachable only while the effective floor reads 0. The
+  wait has no timer, line or close of its own; replacing the connection ends it
+  ([report](old-version-removal-2a-app-2026-10-26.md#남긴-것과-후속)).
 - **Timing-constant home:** `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 4,
   C5-1): the original PC's grace and the connection's background-resume threshold
   (`link-liveness.ts`), the provider's background-resume threshold and the restart answer wait
@@ -1574,15 +1583,26 @@ RO-51 duplicated
     long-hidden disconnected RTC resumes".
   - Mixed versions: since the old-version removal train (survey OV-B07, TR-03 stage 1) every
     isolated-control peer is restart-capable, and the frozen C9 fixture (the 8.11.23 runtime) and
-    its rows are deleted under the owner's old-version policy of 2026-10-25.
-    `control-isolation.test.ts` "still advertises the restart capability, exactly, before its
-    request and its fence" pins the frame that ends before this train still wait for (it can stop
-    once the client floor reaches this train, OV-F03); "restarts a %s side PC in place although no
-    advertisement arrived" and "ends the route at its own 15 s deadline when a %s side PC gets no
-    restart answer" (the accepted degradation with an 8.11.23 peer) pin the change, and
-    `side-route-outage-integration.test.ts` "a peer whose restart-capable advertisement or restart
-    answer never arrives" pins it through two real connections with the device lines. A Wi-Fi to
-    LTE switch with both PCs is device-only.
+    its rows are deleted under the owner's old-version policy of 2026-10-25. Since train 2
+    (survey OV-F03, App build floor 787) no end sends the `restart-capable` frame and the kind is
+    no longer parsed: `control-isolation.test.ts` "sends no restart advertisement: its request and
+    then its fence open the negotiation" pins the sender, "consumes a 9.0.14 end's restart
+    advertisement at every phase without effect" and "restarts a %s side PC in place beside a
+    9.0.14 peer's advertisement" pin the copy a 9.0.14 end still sends, and "ends the route at its
+    own 15 s deadline when a %s side PC gets no restart answer" (the accepted degradation with an
+    8.11.23 peer) pins the unanswered restart. `side-route-outage-integration.test.ts` "the
+    restart-capable advertisement" and "a peer whose restart answer never arrives" pin both
+    through two real connections with the device lines. A Wi-Fi to LTE switch with both PCs is
+    device-only. On the original route, since train 2 (survey OV-F04 stage 1, App build
+    floor 787) every Standard connection takes its restartability binding from the initial negotiation
+    whether or not the first offer or answer carries `iceRestartVersion` (every end since 8.6.39
+    sends it, and still does until train 3; the restart offer keeps requiring it):
+    `cloudflare-signaling.test.ts` "restarts a guest whose first answer carried no
+    iceRestartVersion" and "answers an exact restart in place for a guest whose first offer
+    carried no iceRestartVersion", and `room-expiry-liveness.test.ts` "restarts a guest whose
+    host answered without the ICE restart marker". The resume challenge carries only its ping id
+    (survey OV-A12): `link-liveness-characterization.test.ts` "sends one control-lane challenge
+    and closes exactly 3 s later without its pong".
   - Characterization before the owner moves (tests only, #478):
     `src/network/transport/__tests__/link-liveness-characterization.test.ts` (grace, restart gate,
     effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471
@@ -1624,8 +1644,9 @@ RO-51 duplicated
     original is down again, a restart in flight across a recovery, the grace before READY with
     its fall back and its take-over at READY, the restart budget and the offer bound, the three
     device lines by level and end, the close causes, the monotonic clock and, since the old-version
-    removal train, a peer whose advertisement or restart answer never arrives, which replaced the
-    frozen C9 peer)
+    removal train, "the restart-capable advertisement" (since train 2 none is sent and a 9.0.14
+    end's copy changes nothing) and "a peer whose restart answer never arrives", which replaced
+    the frozen C9 peer)
     and `link-liveness-side-outage.test.ts` (the owner's side outage on its own: every call on the
     side route and line in order, the original route's readings, the side PC's close and stop),
     both in the critical coverage profile. `control-isolation.test.ts` and
@@ -1724,8 +1745,9 @@ RO-51 duplicated
   the frozen C9 fixture kept its old grace timer as a test file, outside the guard. The
   old-version removal train (survey OV-B07, TR-03 stage 1) then made every isolated-control peer
   restart-capable: control isolation no longer waits for the peer's `restart-capable` frame,
-  which it still sends before its request and fence, so a route that cannot restart is one before
-  READY only. Control isolation's 10 s negotiation bound, armed before the side PC exists, ends
+  which it still sent before its request and fence until train 2 (survey OV-F03, App build
+  floor 787) stopped sending it and stopped parsing the kind, so a route that cannot restart is one
+  before READY only. Control isolation's 10 s negotiation bound, armed before the side PC exists, ends
   such a route (decline and fall back, or `side-failed:route` once fenced) before the owner's
   15 s grace can run out, or READY takes the grace over; the owner keeps that grace and the
   take-over unchanged, and the grace's own end stays pinned on the owner alone
@@ -1837,59 +1859,39 @@ RO-51 duplicated
   lane first, then the preload lanes), and `isMainLanePreparingOrActive` in `transfer-send.ts`
   answers whether the main lane is preparing or streaming one exact (connection, queue item,
   session) tuple (Phase 4 reduced C5-11).
-  One stream per tuple after ICE recovery, when the guest is known to take the main lane (Phase 4
-  C5-12, owner decision P4-D10 A, 2026-10-25; narrowed by its review the same day): the explicit
-  main-lane recovery wins. A guest awaiting the preload takes the main `FILE_START` while its own
-  route is `local` (`shouldAcceptLocalDirectFileStart` in `transfer-receive.ts`), and from 9.0.14
-  (C5-12 Inc 1) on any route when the header names a session the host admitted to it directly on
-  that connection (`isGuestDirectFileDelivery`; the preload's own `PRELOAD_START` recorded it).
-  The host yields only to a main lane for the preload's exact tuple, so that header always names
-  the preload's own session, whatever started the main lane (the guest's stall request, a request
-  without a session, or the current-file bootstrap once the route turns local), and the host's
-  route publication travels on the control route while the header can overtake it on the
-  independently ordered bulk channel. A header for another session is still dropped unless the
-  route is `local`, and an R2 delivery is refused first. A 9.0.9 to 9.0.13 guest took the header
-  while `unknown` only for the exact (connection, queue item, session) of its own unsettled
-  `REQUEST_DATA_RECOVERY` (Codex P2 on #487), a 9.0.8 or older guest only while `local`. An older
-  guest that drops the header drops its chunks too, and the drop itself asks for nothing, so the
-  restarted preload is its only usable stream until its preload stall watchdog asks again (Known
-  limits). The host
-  learns the recovered route only by re-detecting it (`host.ts` resets the
-  peer to `unknown` after announcing the recovery) and publishing it: the device list carries it
-  to the guest, which adopts the host's type, then `orchestrator:peer-type-detected`. So a preload
-  paused by the interruption always restarts from chunk 0 on `network:peer-ice-recovered`
-  (`resumeSuspendedPreloadLane`). When the host publishes `local` for that connection and the main
-  lane is not yet preparing or streaming the exact tuple, the restart may yield
-  (`RestartedPreloadLane` in `preload.ts`); it then stops at its next check once a main-lane
-  stream for the tuple starts (`unicastPreload` with `restart`). Every later
-  `network:peer-ice-recovered` for that connection (a selected-pair change while it stays
-  connected included; `host.ts` then resets the peer to `unknown` and re-detects it, and the guest
-  resets its own route) revokes that permission until the next `local` publication
-  (`revokeRestartedPreloadYields`, second C5-12 review); a restart already kept stays kept. The
-  yield follows the deferred-abort rule: one `PRELOAD_ABORT` for the tuple, sent after recovery
-  and never followed by a host preload resend, and one info line,
-  `[Preload] Yielding preload for <peer> to its file transfer after its connection recovered`.
-  A `remote` or unpublished route, or
-  a main lane that already held the tuple when `local` was published (its header may have reached
-  the guest before the guest knew its route), keeps the restart running to its END, as in 9.0.8.
-  Until 9.0.8 both lanes always streamed the whole file for the same tuple after recovery (survey
-  F4). A late-join unicast and the room's preload broadcast do not yield. A 9.0.13 or older guest
-  adopts the published route the same way but takes the main header under its older rule (above;
-  the 9.0.8 one is that of 9.0.0). Nothing a guest sends, in its recovery request or elsewhere,
-  tells the host which rule it runs, so the host keeps one yield rule for all of them
-  (known-accepted #13; Known limits). The host rule is simplified only by C5-12 Inc 3, after an
-  App build floor has retired the older guests.
-  Known limits (C5-12 review, 2026-10-25):
-  - One stream per tuple is not absolute. Both lanes still carry the whole file when the host
-    re-detects `remote` or has not published the route yet (after the first recovery announcement
-    or a later one on the same connection), when the main header was queued before `local` was
-    published (a request that crossed the outage on an isolated control route), when the main
-    lane reaches `FILE_END` before the restart's next check (a completed owner is a fence, not a
+  One stream per tuple after ICE recovery (Phase 4 C5-12, owner decision P4-D10 A, 2026-10-25;
+  host rule simplified by C5-12 Inc 3, old-version removal train 2): the explicit main-lane
+  recovery wins. When the main lane is preparing or streaming the exact tuple,
+  `resumeSuspendedPreloadLane` does not restart a preload paused by the interruption on
+  `network:peer-ice-recovered`, and a restart already running (`unicastPreload` with `restart`)
+  stops at its next check once the main lane takes the tuple; `canContinue` asks the suspend check
+  first, so a second interruption still pauses it. The rule reads no route: the host re-detects
+  the recovered route only after announcing the recovery (`host.ts` resets the peer to `unknown`),
+  and the yield does not wait for that publication. A guest awaiting the preload takes the main
+  `FILE_START` while its own route is `local` (`shouldAcceptLocalDirectFileStart` in
+  `transfer-receive.ts`), and on any route when the header names a session the host admitted to it
+  directly on that connection (`isGuestDirectFileDelivery`; the preload's own `PRELOAD_START`
+  recorded it; C5-12 Inc 1, 9.0.14). The main lane the preload yields to always carries the
+  preload's own session, whatever started it (the guest's stall request, a request without a
+  session, or the current-file bootstrap once the route turns local), so the guest takes its
+  header even when the bulk channel overtakes the host's route publication on the control route.
+  A header for another session is still dropped unless the route is `local`, and an R2 delivery is
+  refused first. A guest below 9.0.14 took the header only on narrower conditions, so from 9.0.9
+  to 9.0.14 the host let a restart yield only after it had published `local` for that connection
+  with no recovery announcement since (`RestartedPreloadLane`); Inc 3 removed that permission
+  once the App build floor (787, RO-50) kept those guests out. The yield follows the deferred-abort
+  rule: one `PRELOAD_ABORT` for the tuple, sent after recovery and never followed by a host
+  preload resend, and one info line,
+  `[Preload] Yielding preload for <peer> to its file transfer after its connection recovered`; a
+  lane that yields at recovery logs no `Resuming` line. Until 9.0.8 both lanes always streamed the
+  whole file for the same tuple after recovery (survey F4). A late-join unicast and the room's
+  preload broadcast do not yield.
+  Known limits (C5-12 review, 2026-10-25, and C5-12 Inc 3):
+  - One stream per tuple is not absolute. Both lanes still carry the whole file when the main lane
+    reaches `FILE_END` before the restart's next check (a completed owner is a fence, not a
     stream), or when the restart reaches `PRELOAD_END` before the guest's request arrives. Each
-    matches 9.0.8; none is a regression. In those cases a 9.0.14 guest on any route, or a 9.0.9
-    to 9.0.13 guest still `unknown` that takes the header it asked for, plays the main lane while
-    the restart reaches its END, as a `local` guest did in 9.0.8 (it keeps a second resident copy
-    only when the main header came first).
+    matches 9.0.8; none is a regression. The guest then plays the main lane while the restart also
+    reaches its END (it keeps a second resident copy only when the main header came first).
   - The abort travels on a control route and the restart header on the bulk channel, so the abort
     can overtake it (the C5-0 lab's usual order). The guest then admits the restart as an
     explicit retry of the session the abort skipped and holds an orphan partial preload (an
@@ -1898,56 +1900,19 @@ RO-51 duplicated
     watchdog logs the existing WARN `[Preload] Watchdog: forcing preload loader reset after 30s`
     30 s after that header. Playback takes the main lane. "Never followed by a host preload
     resend" describes the host's wire order, not what the guest processes. A later guest-side
-    change (9.0.9+ guests only) could ignore a restart START for a session already aborted on the
-    control route.
-  - The guest reads its own route when the main header arrives, and the host cannot see it. A
-    header sent after `local` was published can still reach a guest awaiting the preload that is
-    not `local`. A 9.0.14 guest takes it on any route (above), so both paths below are closed for
-    it. A 9.0.9 to 9.0.13 guest whose route is still `unknown` takes it when it answers the
-    guest's own recovery request. A guest that drops it while the restart yields stays in
-    AWAITING_PRELOAD with no stream. If the stall watchdog it armed while awaiting the preload
-    (`preload-blob-watchdog` in `playback.ts`, 10 s without progress; the yield's `PRELOAD_ABORT`
-    skips the session, so no progress re-arms it) has not fired yet, the stall lasts until it sends
-    `REQUEST_DATA_RECOVERY`, and outlasts that request only if the guest's route is still not
-    `local` when its main `FILE_START` arrives (for a 9.0.9 to 9.0.13 guest, only if it is
-    `remote`). If the dropped header already answered that watchdog's request, nothing asks again
-    (code reading; a replay of the first path below on the 9.0.8 acceptance rule at `4a319b62` was
-    still in AWAITING_PRELOAD 60 s later, with one request and no stream). A later host
-    announcement on the same connection no longer leads there (the revoke above). Two paths lead
-    there for an older guest:
-    - the bulk channel overtakes the control route that carried the device list, and the guest's
-      own re-detection has not finished (Codex P2 on #487). Closed for a 9.0.14 guest, and for a
-      9.0.9 to 9.0.13 guest when the header answers its own `REQUEST_DATA_RECOVERY` for that
-      tuple, which is the case after the stall watchdog asked (unit row "takes the main lane it
-      asked for when the header overtakes the local route publication", which fails on the 9.0.8
-      acceptance rule). Open for a 9.0.8 or older guest (known-accepted #13): the host cannot tell
-      the guests apart without a wire change, and giving up the yield for every guest would undo
-      P4-D10 A, so the old-guest residual is accepted for the mixed-version window. No lab run
-      shows this path;
-    - the guest handles its own `ice-recovered` (its connection-state transition or its
-      selected-pair change; each side emits its own) after it applied the host's `local` device
-      list. That event clears the host-reported route and sets `unknown` (`guest.ts`) until the
-      guest's own detection finishes. If that detection returns `remote` (the asymmetry the guest
-      otherwise settles by trusting the host), the guest keeps `remote`: no host-reported route
-      is left to defer to, and the host sends no new device list for that recovery. The host
-      publishes within milliseconds of its own recovery (C5-0 lab, three F4 runs after the
-      restore: restart header at +236 to +264 ms, host re-detection from +234 to +263 ms), so a
-      guest whose state change lags the host's by a few milliseconds plus the one-way latency
-      meets this order; it ends in the stall only when the guest's own detection disagrees with
-      the host's. In those runs the guest's detection was host/host on its first try, long before
-      the main header (+1.3 to +3.5 s). Closed for a 9.0.14 guest, which takes the header while
-      `remote` too (unit row "takes the main lane for the preload it awaits when its own
-      re-detection ends remote", which fails on the 9.0.11 acceptance rule). A 9.0.9 to 9.0.13
-      guest whose own detection is still running is `unknown` and takes the header it asked for,
-      as above; one whose detection already ended `remote` still drops it, as does a 9.0.8 or
-      older guest. No lab run shows this path, and it cannot be closed on the host for those
-      guests without a guest acknowledgement.
+    change could ignore a restart START for a session already aborted on the control route.
+  - Only a guest below the App build floor (787) can drop the main header after a yield; it then
+    waits in AWAITING_PRELOAD with no stream until the next track or a user action. The floor
+    filters new entries and reconnects, so such a guest reaches a host on this rule only while the
+    effective floor reads 0 (a live-App report older than `APP_BUILD_FLOOR_REPORT_STALE_MS`, or a
+    failed read in a reader with no earlier value; RO-50). The owner's policy accepts it
+    (2026-10-25: older App versions are not a design constraint).
 - **Target single owner:** one bulk-lane registry (planned `src/storage/bulk-lanes.ts`); per-lane
   policies, pumps and wire frames unchanged.
 - **Allowed requesters:** file send, preload scheduling, the guest's recovery request.
-- **Lifecycle operations:** register, suspend, resume (and, once the host has re-detected the
-  guest as local with no recovery announcement since, yield to the main lane for the same tuple,
-  C5-12), cancel, release on disconnect or replacement (one call for both lanes).
+- **Lifecycle operations:** register, suspend, resume (or, while the main lane prepares or
+  streams the same tuple, yield to it instead of resuming or at the restart's next check, C5-12),
+  cancel, release on disconnect or replacement (one call for both lanes).
 - **Deadline owner:** each lane's backpressure timeout.
 - **Timing-constant home:** `src/storage/transfer-backpressure.ts` (Phase 4, C5-3):
   `BULK_LOCAL_BUFFER_LIMIT_BYTES` (64 KiB of local queue, every lane) and
@@ -1965,28 +1930,16 @@ RO-51 duplicated
     without flushing stale bytes into a replacement unicast or ACK".
   - Visibility: n/a (host lanes do not depend on visibility).
   - One stream per tuple after ICE recovery (C5-12):
-    `src/storage/__tests__/ice-recovery-bulk-lanes.test.ts`, host: "the restarted preload yields
-    to a main lane that starts after the host re-detects the guest as local", "the restarted
-    preload keeps going when the request arrives $arrival and the host re-detects $route", "the
-    restarted preload keeps going when a second recovery announcement after local re-detects %s"
-    and "the restarted preload yields again once the host re-publishes local after a second
-    announcement"; guest: "plays the surviving main lane with no second resident copy", "takes
-    the main lane it asked for when the header overtakes the local route publication" (path 1
-    above), "takes the main lane for the preload it awaits when its own re-detection ends remote"
-    (path 2 above), "takes a main FILE_START for the preload it awaits before its request while
-    its route is %s" and "drops a main FILE_START for another session while its route is %s"
-    (both `unknown` and `remote`; C5-12 Inc 1), "a PRELOAD_ABORT that overtakes the bulk frames
-    leaves the main lane intact" (the orphan prefix above), "plays the main lane beside the kept
-    restart when its route is $guestRoute at the main FILE_START (request $arrival, host
-    re-detects $hostRoute)" and "plays the main lane beside the kept restart when its route is
-    $guestRoute at the main FILE_START after a second recovery announcement (host re-detects
-    $reannounced)" (both `remote`; until 9.0.13 that guest played the restarted preload), "plays
-    the main lane beside the kept restart when its route is $guestRoute at the main FILE_START it
-    asked for (request $arrival, host re-detects $hostRoute)" and "plays the main lane beside the
-    kept restart when its route is unknown at the main FILE_START it asked for after a second
-    recovery announcement (host re-detects pending)" (the kept restart reaches its END; a second
-    resident copy only when the main header came first, as for a local guest in 9.0.8); and at
-    the wire the C5-0 lab
+    `src/storage/__tests__/ice-recovery-bulk-lanes.test.ts`, whose host publishes no re-detected
+    route; host: "the restarted preload yields to the main lane once the request lands after
+    recovery" and "the paused preload yields at recovery without a restart when the main lane
+    already holds the tuple"; guest: "plays the surviving main lane with no second resident copy
+    when its route is $guestRoute at the main FILE_START (request $arrival)" (`local`, `unknown`
+    and `remote`), "takes the main lane it asked for when the header overtakes the local route
+    publication", "takes a main FILE_START for the preload it awaits before its request while its
+    route is %s" and "drops a main FILE_START for another session while its route is %s" (both
+    `unknown` and `remote`; C5-12 Inc 1) and "a PRELOAD_ABORT that overtakes the bulk frames
+    leaves the main lane intact" (the orphan prefix above); and at the wire the C5-0 lab
     `e2e/lab/route-outage.lab.ts` "host traffic for a track advanced during the outage, observed
     at the wire (F4)" (17 s outage; not in CI).
   - The owner's view (C5-8): `preload-lane-ownership.test.ts` "keeps an owner-view lane paused
@@ -1998,26 +1951,22 @@ RO-51 duplicated
     interruption through connecting (C5-8)"; `src/storage/__tests__/chunk-pump.test.ts` "matches
     the owner-view golden table whatever the PC connectionState reads"; and the C5-12 host rows
     through a real owner in `ice-recovery-bulk-lanes.test.ts`: "the restarted preload waits for
-    its owner to hear connected, then yields to a main lane that starts after the host
-    re-detects the guest as local (published while connecting: %s)", "the restarted preload
-    keeps going when the host published local only while the route read connecting", "the
-    restarted preload keeps going through the owner view when the request arrives $arrival and
-    the host re-detects $route", "the restarted preload keeps going through the owner view when
-    a second recovery announcement after local re-detects %s" and "the restarted preload yields
-    again through the owner view once the host re-publishes local after a second announcement".
+    its owner to hear connected, then yields to the main lane once the request lands after
+    recovery" and "the paused preload waits for its owner to hear connected, then yields without
+    a restart when the main lane already holds the tuple".
 - **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); one release call and the
-  tuple query added in Phase 4 (reduced C5-11); the main lane wins the tuple after recovery in
-  Phase 4 when the host re-detected the guest as local before the main lane started, with no
-  recovery announcement since (C5-12, P4-D10 A), and from 9.0.14 a guest takes the main header for
-  the preload's own admitted direct session on any route (C5-12 Inc 1; a 9.0.9 to 9.0.13 guest
-  only while `unknown` for its own recovery request, Codex P2 on #487). Writability and the
-  preload pause read the link-liveness owner on every Cloudflare connection (C5-8,
+  tuple query added in Phase 4 (reduced C5-11); the main lane wins the tuple after recovery
+  (C5-12, P4-D10 A), from 9.0.14 a guest takes the main header for the preload's own admitted
+  direct session on any route (C5-12 Inc 1), and old-version removal train 2 dropped the host's
+  route permission once the App build floor kept older guests out (C5-12 Inc 3). Writability and
+  the preload pause read the link-liveness owner on every Cloudflare connection (C5-8,
   behaviour-risk: the restart window that reads `connecting` now excludes the peer from a new
   bulk stream and pauses a preload lane until the owner's `connected`). The single bulk-lane
   registry stays a target; the lanes keep their own maps, policies and pumps. See
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md), the
-  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md) and the
-  [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md) (C5-8).
+  [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md), the
+  [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md) (C5-8) and the
+  [old-version removal train 2 report](old-version-removal-2a-app-2026-10-26.md) (C5-12 Inc 3).
 
 ### RO-19 Guest fetch of the current track
 
@@ -2267,6 +2216,14 @@ RO-51 duplicated
     generation it would absorb (P3-10 A extended from a late activation to a late install): the
     generation this tab asked for and already runs is not offered again after the 30 s cooldown.
     A document without its own request still asks.
+  - The absorb's fallback within the cooldown: a document opened by a reload within 30 s of such
+    a request, with no controller-confirmed marker and no waiting worker handled by itself,
+    finishes the update with the aligned reload and no dialog when a generation it does not
+    absorb takes control (another tab applied a newer release, say). Its writers today are an
+    Apply whose page the user reloaded before the controller change and the forced Apply without
+    a waiting worker, which reloads a Standard host in place; without the fallback that host,
+    back in its room, would be asked once more with the activated-elsewhere dialog. Until
+    old-version removal train 2 (A-6, wording only) the code described it as the v267 transition.
 
   Since forced update Inc 7 (train 9.0.14, owner decision 2026-10-25 ~22:00: check the minimum
   build at start and on every return from the background):
@@ -2386,6 +2343,12 @@ RO-51 duplicated
     port); the PRO entry rows of `src/pro-room/__tests__/setup-flow.test.ts`, and in a real
     browser (local, not in CI) `e2e/pro-entry-app-update.test.ts` (a refused PRO invite and claim
     link: no Later, Escape and Back keep it, one Apply, then the loop guard).
+  - The absorb's fallback within the cooldown: `sw-register.test.ts` "finishes an update reload
+    that left before its controller change without asking again" and "does not treat a
+    controller-confirmed reload as an unfinished update reload"; the transition test file's F2d
+    (a host reloaded in place by a forced Apply without a worker gets the aligned reload, not the
+    dialog, for another generation; added by old-version removal train 2 A-6, failing when the
+    branch is disabled).
   - The start and resume floor check (forced update Inc 7): the read and the gate in
     `src/core/__tests__/sw-update-coordination.test.ts` (rows R1 to R5, G1 to G3);
     `sw-register.test.ts` "the start and resume floor check (forced update Inc 7)" (rows C1 to

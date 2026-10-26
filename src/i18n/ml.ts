@@ -643,7 +643,6 @@ const ml: Record<I18nKey, string> = {
     'സിങ്ക് ചെയ്യാൻ മീഡിയയില്ല\nആദ്യം പ്ലേ ചെയ്യാൻ എന്തെങ്കിലും തിരഞ്ഞെടുക്കുക',
   'toast.host_ad': 'ഹോസ്റ്റ് ഒരു പരസ്യം കാണുന്നതായി തോന്നുന്നു',
   'toast.yt_sync_start': 'സിങ്ക് ചെയ്യുന്നു...',
-  'toast.yt_sync_done': 'സിങ്ക് പൂർത്തിയായി',
   'toast.yt_rendezvous_start': 'ഹോസ്റ്റുമായി പൊരുത്തപ്പെടുത്തുന്നു...',
   'toast.yt_rendezvous_done': 'സിങ്ക് പൂർത്തിയായി',
   'toast.yt_rendezvous_host_paused':
@@ -707,10 +706,6 @@ const ml: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ഓഡിയോ എൻജിൻ തയ്യാറാക്കാനായില്ല',
   'error.session_create_fail': 'സെഷൻ സൃഷ്ടിക്കാനായില്ല',
   'error.network_generic': 'ഒരു നെറ്റ്‌വർക്ക് പിശക് സംഭവിച്ചു',
-  'error.peer_app_version_mismatch':
-    'ആപ്പ് പതിപ്പുകൾ പൊരുത്തപ്പെടാത്തതിനാൽ {{name}}-ന് ചേരാനാകില്ല. രണ്ട് ഡിവൈസുകളും പുതുക്കുക.',
-  'error.app_version_mismatch':
-    'ആപ്പ് പതിപ്പുകൾ പൊരുത്തപ്പെടുന്നില്ല. രണ്ട് ഡിവൈസുകളും പുതുക്കി വീണ്ടും ശ്രമിക്കുക.',
   'error.session_handshake_failed':
     'സെഷൻ ബന്ധം പൂർത്തിയാക്കാനായില്ല. രണ്ട് ഡിവൈസുകളും പുതുക്കി വീണ്ടും ശ്രമിക്കുക.',
   'error.host_unreachable': 'ഹോസ്റ്റ് സെഷനിൽ നിന്ന് പുറത്തുപോയതായി തോന്നുന്നു',
@@ -794,7 +789,6 @@ const ml: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'പുനരാരംഭിക്കുക',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'PRO റൂം സജീവമാക്കുക',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'ഈ PRO റൂമിനായി ഒരു അക്കൗണ്ട് തിരഞ്ഞെടുക്കുക',
   'pro.activation_account_message': 'ഈ റൂം “{{name}}” അക്കൗണ്ടിൽ രജിസ്റ്റർ ചെയ്യണോ?',
@@ -803,9 +797,6 @@ const ml: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'മറ്റൊരു അക്കൗണ്ട്',
   'pro.activation_account_unavailable':
     'നിങ്ങളുടെ അക്കൗണ്ട് സ്ഥിരീകരിക്കാനായില്ല. അൽപ്പസമയത്തിനകം വീണ്ടും ശ്രമിക്കുക.',
-  'pro.activation_complete': 'രജിസ്ട്രേഷൻ പൂർത്തിയാക്കുക',
-  'pro.activation_message': 'ഈ റൂമിന് പുതിയ 8 അക്ക പാസ്‌വേഡ് സജ്ജമാക്കുക.',
-  'pro.activation_pin_same': 'താൽക്കാലിക പാസ്‌വേഡിൽ നിന്ന് വ്യത്യസ്തമായത് തിരഞ്ഞെടുക്കുക.',
   'pro.claim_retry_title': 'PRO ലിങ്ക് ഉപയോഗിച്ച് വീണ്ടും ശ്രമിക്കണോ?',
   'pro.claim_retry_message':
     'ബന്ധം തടസ്സപ്പെട്ടു. ലിങ്ക് ഈ സ്ക്രീനിൽ സുരക്ഷിതമായി സൂക്ഷിച്ചിട്ടുണ്ട്; അതിനാൽ വീണ്ടും ശ്രമിക്കാം.',
@@ -853,8 +844,6 @@ const ml: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'എല്ലാവരും വീണ്ടും ചേരട്ടെ',
   'pro.pin_members_reenter_detail':
     'എല്ലാവരും വീണ്ടും ചേരേണ്ടിവരും. അപരിചിതരെ ഒറ്റയടിക്ക് നീക്കാൻ ഈ രീതി ശുപാർശ ചെയ്യുന്നു.',
-  'pro.pin_keep_unavailable':
-    'പാസ്‌വേഡ് മാറ്റിയിട്ടില്ല. ഇപ്പോൾ ആളുകളെ റൂമിൽ നിലനിർത്തിക്കൊണ്ട് മാറ്റാനാകില്ല. കുറച്ചുകഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക, അല്ലെങ്കിൽ “എല്ലാവരും വീണ്ടും ചേരട്ടെ” തിരഞ്ഞെടുക്കുക.',
   'pro.pin_enabled_removed_title': 'റൂമിന് പാസ്‌വേഡ് സജ്ജമാക്കി',
   'pro.pin_enabled_removed_message':
     'റൂം ഉടമ ഈ റൂമിന് പാസ്‌വേഡ് സജ്ജമാക്കി. വീണ്ടും ചേരാൻ അത് നൽകുക.',

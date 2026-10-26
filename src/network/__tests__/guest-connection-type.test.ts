@@ -146,6 +146,27 @@ describe('guest connection type authority', () => {
       expect(getState('network.isIntentionalDisconnect')).toBe(true);
     });
 
+    // Old-version removal train 2 (Q4, receive side): a host may later drop
+    // the fallback text, so the guest owns the copy.
+    it.each([
+      { label: 'only a translation key', frame: { i18nKey: 'network.session_full_detail' } },
+      { label: 'neither text nor key', frame: {} },
+    ])('leaves with the translated room-full notice from $label', async ({ frame }) => {
+      const { handleData } = await import('../protocol.ts');
+      const { t } = await import('../../i18n/index.ts');
+      const sessionFull = vi.fn();
+      bus.on('network:session-full', sessionFull);
+
+      await handleData({ type: MSG.SESSION_FULL, ...frame }, gatedHostConn);
+
+      expect(sessionFull).toHaveBeenCalledWith(
+        t('i18nKey' in frame ? 'network.session_full_detail' : 'network.session_full'),
+      );
+      expect(gatedHostConn.close).toHaveBeenCalledTimes(1);
+      expect(getState('network.hostConn')).toBeNull();
+      expect(getState('network.isIntentionalDisconnect')).toBe(true);
+    });
+
     it('drops a forged empty device list and leaves only on a host list that excludes us', async () => {
       const { handleData } = await import('../protocol.ts');
       const kickedFromSession = vi.fn();
@@ -366,6 +387,27 @@ describe('guest connection type authority', () => {
       open: true,
       peer: 'guest-a',
     } as DataConnection);
+    expect(mocks.showToast).not.toHaveBeenCalled();
+  });
+
+  // Old-version removal train 2 (Q4, receive side): a key alone is enough.
+  it('shows a translated operator toast that carries no fallback text', async () => {
+    const { initGuestProtocolHandlers } = await import('../guest.ts');
+    const { handleData } = await import('../protocol.ts');
+    const { t } = await import('../../i18n/index.ts');
+
+    initGuestProtocolHandlers();
+    setState('network.isOperator', true);
+
+    await handleData(
+      { type: MSG.OPERATOR_TOAST, i18nKey: 'toast.remote_decode_device_wait' },
+      conn,
+    );
+    expect(mocks.showToast).toHaveBeenCalledOnce();
+    expect(mocks.showToast).toHaveBeenCalledWith(t('toast.remote_decode_device_wait'));
+
+    mocks.showToast.mockClear();
+    await handleData({ type: MSG.OPERATOR_TOAST }, conn);
     expect(mocks.showToast).not.toHaveBeenCalled();
   });
 });

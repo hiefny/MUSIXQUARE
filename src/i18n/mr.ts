@@ -624,7 +624,6 @@ const mr: Record<I18nKey, string> = {
   'toast.sync_no_media': 'सिंक करण्यासाठी कोणतेही मीडिया नाही\nआधी प्ले करण्यासाठी काहीतरी निवडा',
   'toast.host_ad': 'होस्ट जाहिरात पाहत असल्याचे दिसते',
   'toast.yt_sync_start': 'सिंक होत आहे...',
-  'toast.yt_sync_done': 'सिंक पूर्ण',
   'toast.yt_rendezvous_start': 'होस्टशी जुळवत आहे...',
   'toast.yt_rendezvous_done': 'सिंक पूर्ण',
   'toast.yt_rendezvous_host_paused': 'होस्टने विराम दिला आहे; फक्त प्लेबॅकचे स्थान जुळवले',
@@ -687,10 +686,6 @@ const mr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ऑडिओ इंजिन तयार करता आले नाही',
   'error.session_create_fail': 'सत्र तयार करता आले नाही',
   'error.network_generic': 'नेटवर्क त्रुटी आली',
-  'error.peer_app_version_mismatch':
-    'अ‍ॅपच्या आवृत्त्या जुळत नसल्यामुळे {{name}} सामील होऊ शकत नाही. दोन्ही डिव्हाइस रीफ्रेश करा.',
-  'error.app_version_mismatch':
-    'अ‍ॅपच्या आवृत्त्या जुळत नाहीत. दोन्ही डिव्हाइस रीफ्रेश करून पुन्हा प्रयत्न करा.',
   'error.session_handshake_failed':
     'सत्राचे कनेक्शन पूर्ण करता आले नाही. दोन्ही डिव्हाइस रीफ्रेश करून पुन्हा प्रयत्न करा.',
   'error.host_unreachable': 'होस्टने सत्र सोडले असावे',
@@ -776,7 +771,6 @@ const mr: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'पुन्हा सुरू करा',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO रूम सक्रिय करा',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'या PRO रूमसाठी खाते निवडा',
   'pro.activation_account_message': 'ही रूम “{{name}}” या खात्यावर नोंदवायची?',
@@ -786,9 +780,6 @@ const mr: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'दुसरे खाते',
   'pro.activation_account_unavailable':
     'तुमचे खाते पडताळता आले नाही. थोड्या वेळाने पुन्हा प्रयत्न करा.',
-  'pro.activation_complete': 'नोंदणी पूर्ण करा',
-  'pro.activation_message': 'या रूमसाठी नवीन 8-अंकी पासवर्ड ठरवा.',
-  'pro.activation_pin_same': 'तात्पुरत्या पासवर्डपेक्षा वेगळा पासवर्ड निवडा.',
   'pro.claim_retry_title': 'PRO लिंकचा पुन्हा प्रयत्न करायचा?',
   'pro.claim_retry_message':
     'कनेक्शनमध्ये व्यत्यय आला. लिंक या स्क्रीनवर सुरक्षित ठेवली आहे, त्यामुळे पुन्हा प्रयत्न करू शकता.',
@@ -836,8 +827,6 @@ const mr: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'सर्वांनी पुन्हा सामील व्हावे',
   'pro.pin_members_reenter_detail':
     'सर्वांना पुन्हा सामील व्हावे लागेल. अनोळखी लोकांना एकाच वेळी काढण्यासाठी आम्ही ही पद्धत सुचवतो.',
-  'pro.pin_keep_unavailable':
-    'पासवर्ड बदलला नाही. सध्या लोकांना रूममध्ये ठेवून पासवर्ड बदलता येत नाही. थोड्या वेळाने पुन्हा प्रयत्न करा किंवा “सर्वांनी पुन्हा सामील व्हावे” निवडा.',
   'pro.pin_enabled_removed_title': 'रूमचा पासवर्ड सेट झाला',
   'pro.pin_enabled_removed_message':
     'रूमच्या मालकाने या रूमसाठी पासवर्ड सेट केला आहे. पुन्हा सामील होण्यासाठी तो प्रविष्ट करा.',

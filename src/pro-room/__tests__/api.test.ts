@@ -207,7 +207,7 @@ afterEach(() => {
 });
 
 describe('PRO room endpoint boundary', () => {
-  it('retries an optional duration attestation once against a rolled-back READY contract', async () => {
+  it('returns a READY validation rejection of the duration attestation without a second request', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
@@ -217,6 +217,8 @@ describe('PRO room endpoint boundary', () => {
       .mockResolvedValueOnce(
         jsonResponse({ ok: true, transitionId, status: 'committed', playbackRevision: 2 }),
       );
+    // Every PRO Worker the recovery floor allows reads the attestation, so a
+    // 400 is a real rejection, never a reason to resend READY without it.
     await expect(
       client.reportPlaybackTransitionReady({
         code: ROOM_CODE,
@@ -225,15 +227,14 @@ describe('PRO room endpoint boundary', () => {
         status: 'ready',
         durationSeconds: 180,
       }),
-    ).resolves.toBe('committed');
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400 });
     expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
       { basePlaybackRevision: 1, status: 'ready', durationSeconds: 180 },
-      { basePlaybackRevision: 1, status: 'ready' },
     ]);
   });
 
   it.each([400, 403, 409, 503])(
-    'does not retry a READY error outside the optional-field compatibility case (%s)',
+    'does not retry a READY error without a duration attestation either (%s)',
     async (status) => {
       const fetchMock = vi.fn<typeof fetch>();
       const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -736,7 +737,7 @@ describe('PRO room cookie session API', () => {
       .mockResolvedValueOnce(
         jsonResponse({ ok: true, passwordRequired: true, existingParticipants: 'keep_present' }),
       );
-    // "Make everyone re-enter" is the legacy body every Worker understands.
+    // "Make everyone re-enter" sends the PIN without a membership choice.
     await expect(client.changePin(ROOM_CODE, '87654321')).resolves.toBeUndefined();
     await expect(
       client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
@@ -761,12 +762,12 @@ describe('PRO room cookie session API', () => {
         client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
       ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     }
-    // An older Worker refuses the unknown field; the caller sees that 400.
+    // A 400 reaches the caller unchanged.
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }));
     await expect(
       client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400, sessionEndReason: null });
-    // The legacy body still rejects an echo it did not ask for.
+    // The body without a choice still rejects an echo it did not ask for.
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ ok: true, passwordRequired: true, existingParticipants: 'keep_present' }),
     );
@@ -1285,54 +1286,6 @@ describe('PRO room cookie session API', () => {
       status: 423,
     });
     expect(fetchMock).toHaveBeenCalledOnce();
-  });
-
-  it('ACKs a developer command with the current tab presence fence', async () => {
-    const commandId = 'cmd_1234567890123456789012';
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
-
-    await client.ackDeveloperCommand({ code: ROOM_CODE, commandId, resultCode: 'applied' });
-
-    const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe(
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/developer-commands/${commandId}/ack`,
-    );
-    expect(init).toMatchObject({
-      method: 'POST',
-      credentials: 'include',
-      cache: 'no-store',
-      body: JSON.stringify({ resultCode: 'applied' }),
-    });
-    const headers = new Headers(init.headers);
-    expect(headers.get('content-type')).toBe('application/json');
-    expect(headers.get('x-mxqr-pro-participant-id')).toBe(activeSnapshot().viewer!.participantId);
-    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe(
-      activeSnapshot().viewer!.presenceIncarnationId,
-    );
-  });
-
-  it('rejects malformed developer command ACK input before fetch', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-
-    await expect(
-      client.ackDeveloperCommand({
-        code: ROOM_CODE,
-        commandId: 'not-a-command',
-        resultCode: 'applied',
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_DEVELOPER_COMMAND_ID' });
-    await expect(
-      client.ackDeveloperCommand({
-        code: ROOM_CODE,
-        commandId: 'cmd_1234567890123456789012',
-        resultCode: 'not-valid' as 'applied',
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_DEVELOPER_COMMAND_RESULT' });
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('submits a BOT command for any PRO room with idempotency and the active presence fence', async () => {
@@ -1868,7 +1821,7 @@ describe('PRO room administrator API', () => {
   });
 });
 
-describe('PRO room effects API', () => {
+describe('PRO room settings-sync API', () => {
   const effects = {
     reverb: {
       mixPercent: 40,
@@ -1882,100 +1835,6 @@ describe('PRO room effects API', () => {
     virtualSurround: { widthPercent: 120 },
     virtualTreble: { enabled: true },
   };
-  const projection = {
-    schemaVersion: 2 as const,
-    view: 'effects' as const,
-    roomCode: ROOM_CODE,
-    revision: 2,
-    updatedAtMs: 1_800_000_000_000,
-    effects,
-  };
-
-  it('reads and coordinator-updates the dedicated authenticated resource', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse(projection))
-      .mockResolvedValueOnce(jsonResponse({ ...projection, revision: 3 }));
-
-    await expect(client.getEffects(ROOM_CODE)).resolves.toEqual(projection);
-    await expect(
-      client.updateEffects({ code: ROOM_CODE, coordinatorEpoch: 1, baseRevision: 2, effects }),
-    ).resolves.toEqual({ ...projection, revision: 3 });
-
-    expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/effects`,
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/effects`,
-    ]);
-    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('PUT');
-    for (const call of fetchMock.mock.calls) {
-      expect(new Headers(call[1]?.headers).get('x-mxqr-pro-effects-version')).toBe('2');
-    }
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      coordinatorEpoch: 1,
-      baseRevision: 2,
-      effects,
-    });
-  });
-
-  it('rejects malformed local state and non-canonical server projections', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-
-    expect(() =>
-      client.updateEffects({
-        code: ROOM_CODE,
-        coordinatorEpoch: 1,
-        baseRevision: 2,
-        effects: {
-          ...effects,
-          virtualBass: { strengthPercent: 101 },
-        },
-      }),
-    ).toThrow('PRO_ROOM_API_INVALID_EFFECTS');
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    expect(() =>
-      client.updateEffects({
-        code: ROOM_CODE,
-        coordinatorEpoch: 1,
-        baseRevision: -1,
-        effects,
-      }),
-    ).toThrow('PRO_ROOM_API_INVALID_REVISION');
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ ...projection, effects: { ...effects, localVolume: 0.5 } }),
-    );
-    await expect(client.getEffects(ROOM_CODE)).rejects.toMatchObject({
-      code: 'INVALID_RESPONSE',
-    });
-  });
-
-  it('surfaces a stale effects CAS as its explicit server conflict code', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ error: 'EFFECTS_REVISION_CONFLICT', effects: projection }, { status: 409 }),
-    );
-
-    await expect(
-      client.updateEffects({
-        code: ROOM_CODE,
-        coordinatorEpoch: 1,
-        baseRevision: 1,
-        effects,
-      }),
-    ).rejects.toMatchObject({
-      code: 'EFFECTS_REVISION_CONFLICT',
-      status: 409,
-    });
-  });
-
   it('reads and atomically updates the settings-sync volume plus DSP resource', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -2460,7 +2319,7 @@ describe('PRO room private media API', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('attaches upload duration and retries an old Worker validation rejection once with the same key', async () => {
+  it('attaches upload duration and returns a validation rejection without a bodyless retry', async () => {
     const asset = {
       kind: 'pro-r2',
       assetId: ASSET_ID,
@@ -2474,6 +2333,8 @@ describe('PRO room private media API', () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }))
       .mockResolvedValueOnce(jsonResponse({ asset, quota: quota() }));
+    // Every PRO Worker the recovery floor allows accepts the duration, so the
+    // completion is never resent without it.
     await expect(
       client.completeMedia({
         code: ROOM_CODE,
@@ -2481,15 +2342,14 @@ describe('PRO room private media API', () => {
         idempotencyKey: IDEMPOTENCY_KEY,
         durationSeconds: 123.45,
       }),
-    ).resolves.toEqual({ asset, quota: quota() });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400 });
+    expect(fetchMock).toHaveBeenCalledOnce();
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
       durationSeconds: 123.45,
     });
-    expect(fetchMock.mock.calls[1]?.[1]?.body).toBeUndefined();
-    for (const call of fetchMock.mock.calls) {
-      expect(new Headers(call[1]?.headers).get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
-    }
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('idempotency-key')).toBe(
+      IDEMPOTENCY_KEY,
+    );
   });
 
   it.each([
@@ -2511,24 +2371,6 @@ describe('PRO room private media API', () => {
       }),
     ).rejects.toMatchObject({ status, code: error });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not repeatedly retry a bodyless completion rejected by an old Worker', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock.mockImplementation(async () =>
-      jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }),
-    );
-    await expect(
-      client.completeMedia({
-        code: ROOM_CODE,
-        assetId: ASSET_ID,
-        idempotencyKey: IDEMPOTENCY_KEY,
-        durationSeconds: 10,
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it.each([0, -1, NaN, Infinity, 604801])(
@@ -2603,7 +2445,7 @@ describe('PRO room private media API', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('exposes an old Worker missing duration route without retry or presence recovery', async () => {
+  it('exposes a 404 from the duration route without retry or presence recovery', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);

@@ -26,6 +26,7 @@ import { retryPeerSignalingConnection } from '../../network/peer.ts';
 import { changeStandardRoomPin } from '../../network/standard-room-pin.ts';
 import { restartProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
+import { ProRoomApiError } from '../../pro-room/api.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
 import { log } from '../../core/log.ts';
 import { returnToRoomStart } from '../../core/navigation.ts';
@@ -2198,6 +2199,61 @@ describe('member-level connection and administrator UI', () => {
     );
   });
 
+  // Old-version removal train 2 (A-4): a live administrator row grants media
+  // and playback only from its listed capabilities; there is no default for a
+  // row that lists none.
+  it.each([
+    ['no capabilities', [] as string[]],
+    ['effects.control only', ['effects.control']],
+  ])(
+    'grants a live administrator row with %s no media or playback permission',
+    (_label, capabilities) => {
+      setState('network.appRole', 'host');
+      setState('network.myId', 'host-device');
+      initConnect();
+
+      bus.emit('network:device-list-update', [
+        {
+          id: 'host-device',
+          label: 'Host',
+          joinOrder: 0,
+          status: 'connected',
+          isHost: true,
+          isOp: true,
+        },
+        {
+          id: 'admin-device',
+          label: 'Admin',
+          joinOrder: 1,
+          status: 'connected',
+          isHost: false,
+          isOp: true,
+          memberId: 'admin-member',
+          memberDisplayNumber: 1,
+          isAuthenticated: true,
+          capabilities,
+        },
+      ]);
+
+      document
+        .querySelector<HTMLButtonElement>(
+          '#connect-administrator-list [data-member-id="admin-member"] .administrator-action-button.settings',
+        )
+        ?.click();
+
+      expect(
+        document.getElementById('administrator-permissions-overlay')?.classList.contains('show'),
+      ).toBe(true);
+      for (const key of ['media.add', 'playback.control', 'members.kick', 'chat.notice']) {
+        expect(
+          document
+            .querySelector(`[data-administrator-permission="${key}"]`)
+            ?.getAttribute('aria-checked'),
+        ).toBe('false');
+      }
+    },
+  );
+
   it('groups the owner account while keeping the current device physically non-host', () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'guest-phone');
@@ -3425,7 +3481,7 @@ describe('PRO optional entry password controls', () => {
     },
   );
 
-  it('sends "make everyone rejoin" as the legacy request every Worker understands', async () => {
+  it('sends "make everyone rejoin" without a membership choice', async () => {
     openOwnerSettings(true);
     mockedShowDialog.mockResolvedValueOnce({
       action: 'ok',
@@ -3440,35 +3496,6 @@ describe('PRO optional entry password controls', () => {
       expect.any(AbortSignal),
     ]);
     await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_changed')));
-  });
-
-  it('explains a Worker that cannot keep people and leaves the room protection unchanged', async () => {
-    openOwnerSettings(false);
-    mockedShowDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' })
-      .mockResolvedValueOnce({ action: 'ok' });
-    mockedChangeActiveProRoomPin.mockRejectedValueOnce(new Error('PRO_ROOM_PIN_KEEP_UNSUPPORTED'));
-    document.getElementById('room-password-toggle')?.click();
-    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledTimes(2));
-    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledTimes(1);
-    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
-      '11223344',
-      expect.any(AbortSignal),
-      'keep_present',
-    );
-    const unavailable = lastDialogOptions();
-    expect(renderedDialogText(unavailable.title)).toBe(t('pro.pin_enable_title'));
-    expect(renderedDialogText(unavailable.message)).toBe(t('pro.pin_keep_unavailable'));
-    await vi.waitFor(() =>
-      expect((document.getElementById('room-password-toggle') as HTMLButtonElement).disabled).toBe(
-        false,
-      ),
-    );
-    expect(showToast).not.toHaveBeenCalled();
-    expect(getState('network.roomPasswordRequired')).toBe(false);
-    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
-      'false',
-    );
   });
 
   it('skips who-stays when the owner is alone, with OK on the PIN page and keep sent', async () => {
@@ -3490,38 +3517,48 @@ describe('PRO optional entry password controls', () => {
     await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_enabled')));
   });
 
-  it('falls back to the plain change when a skipped step meets a Worker without the choice', async () => {
-    openOwnerSettings(false, false);
-    mockedShowDialog.mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' });
-    mockedChangeActiveProRoomPin
-      .mockRejectedValueOnce(new Error('PRO_ROOM_PIN_KEEP_UNSUPPORTED'))
-      .mockResolvedValueOnce();
+  it('shows the generic failure for a refused keep and leaves the room protection unchanged', async () => {
+    openOwnerSettings(false);
+    mockedShowDialog.mockResolvedValueOnce({
+      action: 'ok',
+      inputValue: '11223344',
+      choiceValue: 'keep_present',
+    });
+    mockedChangeActiveProRoomPin.mockRejectedValueOnce(new ProRoomApiError('INVALID_REQUEST', 400));
     document.getElementById('room-password-toggle')?.click();
-    await vi.waitFor(() => expect(mockedChangeActiveProRoomPin).toHaveBeenCalledTimes(2));
-    expect(mockedChangeActiveProRoomPin.mock.calls[1]).toEqual([
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('error.network_generic')));
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledOnce();
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
       '11223344',
       expect.any(AbortSignal),
-    ]);
-    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_enabled')));
+      'keep_present',
+    );
     expect(mockedShowDialog).toHaveBeenCalledOnce();
+    await vi.waitFor(() =>
+      expect((document.getElementById('room-password-toggle') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
   });
 
-  it('explains the missing choice instead of removing someone who arrived during a skipped step', async () => {
+  it('never resends a refused keep as the plain change when the owner is alone', async () => {
     openOwnerSettings(false, false);
-    mockedShowDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' })
-      .mockResolvedValueOnce({ action: 'ok' });
-    mockedChangeActiveProRoomPin.mockImplementationOnce(async () => {
-      bus.emit('network:device-list-update', [
-        { id: 'owner-device', label: 'Owner', status: 'connected', isHost: false, isOp: true },
-        { id: 'late-guest', label: 'Guest', status: 'connected', isHost: false, isOp: false },
-      ]);
-      throw new Error('PRO_ROOM_PIN_KEEP_UNSUPPORTED');
-    });
+    mockedShowDialog.mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' });
+    mockedChangeActiveProRoomPin.mockRejectedValueOnce(new ProRoomApiError('INVALID_REQUEST', 400));
     document.getElementById('room-password-toggle')?.click();
-    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('error.network_generic')));
     expect(mockedChangeActiveProRoomPin).toHaveBeenCalledOnce();
-    expect(renderedDialogText(lastDialogOptions().message)).toBe(t('pro.pin_keep_unavailable'));
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
+      '11223344',
+      expect.any(AbortSignal),
+      'keep_present',
+    );
+    expect(mockedShowDialog).toHaveBeenCalledOnce();
+    expect(getState('network.roomPasswordRequired')).toBe(false);
   });
 
   it('disables protection through the server without revealing or replacing the saved PIN', async () => {

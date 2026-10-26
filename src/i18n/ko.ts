@@ -615,7 +615,6 @@ const ko = {
   'toast.sync_no_media': '동기화할 미디어가 없어요\n먼저 재생할 미디어를 선택해주세요',
   'toast.host_ad': '방장이 광고를 보고 있는 것 같아요',
   'toast.yt_sync_start': '동기화 중...',
-  'toast.yt_sync_done': '동기화 완료',
   'toast.yt_rendezvous_start': '방장에 맞춰 동기화 중...',
   'toast.yt_rendezvous_done': '동기화 완료',
   'toast.yt_rendezvous_host_paused': '방장이 일시정지 상태라 위치만 맞췄어요',
@@ -674,10 +673,6 @@ const ko = {
   'error.audio_engine_prepare': '오디오 엔진을 준비하지 못했어요',
   'error.session_create_fail': '세션을 만들지 못했어요',
   'error.network_generic': '네트워크 오류가 발생했어요',
-  'error.peer_app_version_mismatch':
-    '{{name}} 님과 앱 버전이 달라 입장할 수 없어요. 두 기기를 새로고침해 주세요.',
-  'error.app_version_mismatch':
-    '앱 버전이 맞지 않아요. 두 기기를 새로고침한 뒤 다시 시도해 주세요.',
   'error.session_handshake_failed':
     '세션 연결을 완료하지 못했어요. 두 기기를 새로고침한 뒤 다시 시도해 주세요.',
   'error.host_unreachable': '방장이 세션을 종료한 것 같아요',
@@ -758,7 +753,6 @@ const ko = {
   'dialog.session_lost_btn': '다시 시작',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'PRO 방 활성화',
   'pro.activation_account_title': 'PRO 방을 등록할 계정',
   'pro.activation_account_message': '“{{name}}” 계정에 이 방을 등록할까요?',
   'pro.activation_account_login_message': '이 방을 등록할 계정으로 로그인해 주세요.',
@@ -766,9 +760,6 @@ const ko = {
   'pro.activation_account_switch': '다른 계정으로 로그인',
   'pro.activation_account_unavailable':
     '계정 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.',
-  'pro.activation_complete': '등록 완료',
-  'pro.activation_message': '이 방에서 사용할 새 8자리 암호를 설정해 주세요.',
-  'pro.activation_pin_same': '임시 암호와 다른 암호를 설정해 주세요.',
   'pro.claim_retry_title': 'PRO 링크로 다시 시도할까요?',
   'pro.claim_retry_message':
     '연결이 중단됐어요. 이 화면에서 링크를 안전하게 유지하고 있으니 다시 시도할 수 있어요.',
@@ -815,8 +806,6 @@ const ko = {
   'pro.pin_members_reenter': '모두 재입장',
   'pro.pin_members_reenter_detail':
     '모두가 다시 들어와야 해요. 모르는 사람들을 한 번에 내보내려면 이 방식을 추천해요.',
-  'pro.pin_keep_unavailable':
-    '암호를 바꾸지 못했어요. 지금은 사람들을 그대로 둔 채 바꿀 수 없어요. 잠시 후 다시 시도하거나 “모두 재입장”을 선택해 주세요.',
   'pro.pin_enabled_removed_title': '방 암호가 설정됐어요',
   'pro.pin_enabled_removed_message':
     '방 소유자가 방 암호를 설정했어요. 암호를 입력하면 다시 들어올 수 있어요.',

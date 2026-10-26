@@ -31,12 +31,9 @@ import {
   parseProRoomSystemAudioPublication,
   parseProRoomSystemAudioState,
 } from './snapshot.ts';
-import type { DeveloperCommandResultCode } from '../network/transport/types.ts';
 import {
-  parseProRoomEffectsSnapshot,
   parseProRoomSettingsSyncSnapshot,
   parseRoomEffectsState,
-  type ProRoomEffectsSnapshot,
   type ProRoomSettingsSyncSnapshot,
   type RoomEffectsState,
 } from '../core/room-effects.ts';
@@ -90,7 +87,6 @@ const MAX_UPLOAD_HEADERS = 16;
 const MAX_UPLOAD_HEADER_VALUE_LENGTH = 2048;
 const OPAQUE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
-const DEVELOPER_COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
 const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
 const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
@@ -107,16 +103,6 @@ const FORBIDDEN_UPLOAD_HEADERS = new Set([
   'origin',
   'referer',
   'content-length',
-]);
-const DEVELOPER_COMMAND_RESULT_CODES = new Set<DeveloperCommandResultCode>([
-  'applied',
-  'already_applied',
-  'busy',
-  'no_media',
-  'stale_queue',
-  'unsupported_mode',
-  'expired',
-  'execution_failed',
 ]);
 
 type ProRoomBootstrapStatus = 'activation_required' | 'pin_required' | 'open' | 'suspended';
@@ -349,13 +335,6 @@ export interface TransferProRoomPlaylistTracksInput {
   idempotencyKey: string;
 }
 
-interface UpdateProRoomEffectsInput {
-  code: string;
-  coordinatorEpoch: number;
-  baseRevision: number;
-  effects: RoomEffectsState;
-}
-
 interface UpdateProRoomSettingsSyncInput {
   code: string;
   coordinatorEpoch: number;
@@ -372,12 +351,6 @@ interface UpdateProRoomQueueModeInput {
   repeatMode: ProRoomRepeatMode;
   shuffleEnabled: boolean;
   shuffleOrder: string[];
-}
-
-interface AckProRoomDeveloperCommandInput {
-  code: string;
-  commandId: string;
-  resultCode: DeveloperCommandResultCode;
 }
 
 /**
@@ -429,7 +402,7 @@ const SESSION_END_REASONS: ReadonlySet<string> = new Set<ProRoomSessionEndReason
   'DEVICE_REMOVED',
 ]);
 
-/** The only membership choice the App sends; "everyone re-enters" keeps the legacy body. */
+/** The only membership choice the App sends; "everyone re-enters" sends no choice. */
 export type ProRoomPinMembershipChoice = 'keep_present';
 
 function parseSessionEndReason(
@@ -570,13 +543,6 @@ function validateOwnerTransferRequestId(value: string): string {
 
 function validateOpaqueId(value: string, errorCode: string): string {
   if (!OPAQUE_ID_RE.test(value)) throw new ProRoomApiError(errorCode);
-  return value;
-}
-
-function validateDeveloperCommandResultCode(value: DeveloperCommandResultCode): string {
-  if (!DEVELOPER_COMMAND_RESULT_CODES.has(value)) {
-    throw new ProRoomApiError('INVALID_DEVELOPER_COMMAND_RESULT');
-  }
   return value;
 }
 
@@ -1733,63 +1699,35 @@ export class ProRoomApiClient {
     }
     const path = roomPath(input.code);
     const transitionId = input.transitionId;
-    const report = (includeDuration: boolean) =>
-      this.#request<'waiting' | 'committed'>(
-        `${path}/playback/transitions/${encodeURIComponent(transitionId)}/ready`,
-        {
-          method: 'POST',
-          body: {
-            basePlaybackRevision: input.basePlaybackRevision,
-            status: input.status,
-            ...(!includeDuration || input.durationSeconds === undefined
-              ? {}
-              : { durationSeconds: input.durationSeconds }),
-          },
-          signal,
-          activeRoomCode: input.code,
-          maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
-          parser: (value) => {
-            if (
-              !isRecord(value) ||
-              !hasExactKeys(value, ['ok', 'transitionId', 'status', 'playbackRevision']) ||
-              value.ok !== true ||
-              value.transitionId !== transitionId ||
-              (value.status !== 'waiting' && value.status !== 'committed') ||
-              !isSafeNonNegativeInteger(value.playbackRevision)
-            ) {
-              return null;
-            }
-            return value.status;
-          },
+    return this.#request<'waiting' | 'committed'>(
+      `${path}/playback/transitions/${encodeURIComponent(transitionId)}/ready`,
+      {
+        method: 'POST',
+        body: {
+          basePlaybackRevision: input.basePlaybackRevision,
+          status: input.status,
+          ...(input.durationSeconds === undefined
+            ? {}
+            : { durationSeconds: input.durationSeconds }),
         },
-      );
-    try {
-      return await report(true);
-    } catch (error) {
-      // A cached new App can outlive a PRO Worker rollback. The former READY
-      // contract rejects the optional attestation before applying any mutation.
-      if (
-        input.durationSeconds !== undefined &&
-        error instanceof ProRoomApiError &&
-        error.status === 400 &&
-        error.code === 'INVALID_REQUEST'
-      ) {
-        return report(false);
-      }
-      throw error;
-    }
-  }
-
-  async closeSession(code: string, signal?: AbortSignal): Promise<void> {
-    const path = roomPath(code);
-    await this.#request(`${path}/sessions/current`, {
-      method: 'DELETE',
-      signal,
-      activeRoomCode: code,
-      parser: parseOk,
-      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
-    });
-    this.clearPresenceIdentity(code);
+        signal,
+        activeRoomCode: input.code,
+        maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+        parser: (value) => {
+          if (
+            !isRecord(value) ||
+            !hasExactKeys(value, ['ok', 'transitionId', 'status', 'playbackRevision']) ||
+            value.ok !== true ||
+            value.transitionId !== transitionId ||
+            (value.status !== 'waiting' && value.status !== 'committed') ||
+            !isSafeNonNegativeInteger(value.playbackRevision)
+          ) {
+            return null;
+          }
+          return value.status;
+        },
+      },
+    );
   }
 
   /**
@@ -1827,10 +1765,9 @@ export class ProRoomApiClient {
 
   /**
    * Enable, rotate, or disable the entry PIN. Without a choice the server
-   * revokes every other session, exactly as every earlier Worker does, so
-   * "make everyone re-enter" keeps working against a rolled-back Worker.
-   * `keep_present` needs a Worker that understands it: it must echo the
-   * choice, and an older Worker refuses the unknown field with 400.
+   * revokes every other session ("make everyone re-enter"). With
+   * `keep_present` the server must echo the choice; any refusal reaches the
+   * caller unchanged.
    */
   async changePin(
     code: string,
@@ -1901,41 +1838,6 @@ export class ProRoomApiClient {
       signal,
       activeRoomCode: code,
       parser: (value) => parseHeartbeatEnvelope(value, code, knownSnapshot ?? null),
-    });
-  }
-
-  getEffects(code: string, signal?: AbortSignal): Promise<ProRoomEffectsSnapshot> {
-    const path = roomPath(code);
-    return this.#request(`${path}/effects`, {
-      signal,
-      headers: { 'X-MXQR-Pro-Effects-Version': '2' },
-      activeRoomCode: code,
-      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
-      parser: (value) => parseProRoomEffectsSnapshot(value, code),
-    });
-  }
-
-  updateEffects(
-    input: UpdateProRoomEffectsInput,
-    signal?: AbortSignal,
-  ): Promise<ProRoomEffectsSnapshot> {
-    const path = roomPath(input.code);
-    if (!Number.isSafeInteger(input.coordinatorEpoch) || input.coordinatorEpoch < 1) {
-      throw new ProRoomApiError('INVALID_COORDINATOR_EPOCH');
-    }
-    if (!Number.isSafeInteger(input.baseRevision) || input.baseRevision < 0) {
-      throw new ProRoomApiError('INVALID_REVISION');
-    }
-    const effects = parseRoomEffectsState(input.effects);
-    if (!effects) throw new ProRoomApiError('INVALID_EFFECTS');
-    return this.#request(`${path}/effects`, {
-      method: 'PUT',
-      headers: { 'X-MXQR-Pro-Effects-Version': '2' },
-      body: { coordinatorEpoch: input.coordinatorEpoch, baseRevision: input.baseRevision, effects },
-      signal,
-      activeRoomCode: input.code,
-      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
-      parser: (value) => parseProRoomEffectsSnapshot(value, input.code),
     });
   }
 
@@ -2210,25 +2112,6 @@ export class ProRoomApiClient {
     });
   }
 
-  async ackDeveloperCommand(
-    input: AckProRoomDeveloperCommandInput,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    const path = roomPath(input.code);
-    if (!DEVELOPER_COMMAND_ID_RE.test(input.commandId)) {
-      throw new ProRoomApiError('INVALID_DEVELOPER_COMMAND_ID');
-    }
-    const commandId = input.commandId;
-    await this.#request(`${path}/developer-commands/${encodeURIComponent(commandId)}/ack`, {
-      method: 'POST',
-      body: { resultCode: validateDeveloperCommandResultCode(input.resultCode) },
-      signal,
-      activeRoomCode: input.code,
-      parser: parseOk,
-      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
-    });
-  }
-
   runBotCommand(
     input: ProRoomBotCommandInput,
     signal?: AbortSignal,
@@ -2430,38 +2313,21 @@ export class ProRoomApiClient {
     ) {
       throw new ProRoomApiError('INVALID_REQUEST', 400);
     }
-    const complete = (includeDuration: boolean) =>
-      this.#request(`${path}/media/${encodeURIComponent(assetId)}/complete`, {
-        method: 'POST',
-        idempotencyKey: input.idempotencyKey,
-        ...(includeDuration && input.durationSeconds !== undefined
-          ? { body: { durationSeconds: input.durationSeconds } }
-          : {}),
-        signal,
-        activeRoomCode: input.code,
-        parser: (value) => {
-          if (!isRecord(value) || !hasExactKeys(value, ['asset', 'quota'])) return null;
-          const asset = parseR2Asset(value.asset);
-          const quota = parseQuota(value.quota);
-          return asset && quota ? { asset, quota } : null;
-        },
-      });
-    try {
-      return await complete(true);
-    } catch (error) {
-      // Older Workers reject a body before claiming the idempotency key.
-      // Only that explicit validation rejection can be retried without metadata.
-      if (
-        input.durationSeconds !== undefined &&
-        error instanceof ProRoomApiError &&
-        error.status === 400 &&
-        error.code === 'INVALID_REQUEST' &&
-        !signal?.aborted
-      ) {
-        return complete(false);
-      }
-      throw error;
-    }
+    return this.#request(`${path}/media/${encodeURIComponent(assetId)}/complete`, {
+      method: 'POST',
+      idempotencyKey: input.idempotencyKey,
+      ...(input.durationSeconds === undefined
+        ? {}
+        : { body: { durationSeconds: input.durationSeconds } }),
+      signal,
+      activeRoomCode: input.code,
+      parser: (value) => {
+        if (!isRecord(value) || !hasExactKeys(value, ['asset', 'quota'])) return null;
+        const asset = parseR2Asset(value.asset);
+        const quota = parseQuota(value.quota);
+        return asset && quota ? { asset, quota } : null;
+      },
+    });
   }
 
   async reportMediaDuration(

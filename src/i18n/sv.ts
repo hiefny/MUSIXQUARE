@@ -636,7 +636,6 @@ const sv: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Det finns inga medier att synkronisera\nVälj först något att spela upp',
   'toast.host_ad': 'Värden verkar titta på en annons',
   'toast.yt_sync_start': 'Synkar…',
-  'toast.yt_sync_done': 'Synkroniseringen är klar',
   'toast.yt_rendezvous_start': 'Synkar med värden…',
   'toast.yt_rendezvous_done': 'Synkroniseringen är klar',
   'toast.yt_rendezvous_host_paused': 'Värden har pausat, bara positionen anpassades',
@@ -697,10 +696,6 @@ const sv: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Det gick inte att förbereda ljudmotorn',
   'error.session_create_fail': 'Det gick inte att skapa sessionen',
   'error.network_generic': 'Ett nätverksfel inträffade',
-  'error.peer_app_version_mismatch':
-    '{{name}} kan inte ansluta eftersom appversionerna inte stämmer överens. Uppdatera appen på båda enheterna.',
-  'error.app_version_mismatch':
-    'Appversionerna stämmer inte överens. Uppdatera appen på båda enheterna och försök igen.',
   'error.session_handshake_failed':
     'Det gick inte att slutföra sessionsanslutningen. Uppdatera appen på båda enheterna och försök igen.',
   'error.host_unreachable': 'Värden verkar ha lämnat sessionen',
@@ -787,7 +782,6 @@ const sv: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Starta om',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Aktivera PRO-rum',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Välj ett konto för PRO-rummet',
   'pro.activation_account_message': 'Vill du registrera rummet på kontot ”{{name}}”?',
@@ -797,9 +791,6 @@ const sv: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Annat konto',
   'pro.activation_account_unavailable':
     'Det gick inte att verifiera ditt konto. Försök igen om en liten stund.',
-  'pro.activation_complete': 'Slutför registreringen',
-  'pro.activation_message': 'Ange ett nytt 8-siffrigt lösenord för rummet.',
-  'pro.activation_pin_same': 'Välj ett annat lösenord än det tillfälliga.',
   'pro.claim_retry_title': 'Försöka med PRO-länken igen?',
   'pro.claim_retry_message':
     'Anslutningen avbröts. Länken finns säkert kvar på den här skärmen, så du kan försöka igen.',
@@ -847,8 +838,6 @@ const sv: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Alla går med igen',
   'pro.pin_members_reenter_detail':
     'Alla måste gå med igen. Rekommenderas om du vill ta bort alla okända personer på en gång.',
-  'pro.pin_keep_unavailable':
-    'Lösenordet ändrades inte. Det går inte att låta personer stanna i rummet just nu. Försök igen senare eller välj ”Alla går med igen”.',
   'pro.pin_enabled_removed_title': 'Rummet har fått ett lösenord',
   'pro.pin_enabled_removed_message':
     'Rumsägaren har ställt in ett lösenord för rummet. Ange det för att gå med igen.',

@@ -897,6 +897,40 @@ describe('host cached-blob recovery identity', () => {
     );
   });
 
+  // Train 1 R6 follow-up: the fail-closed answer for a connection without a
+  // connected peer. recovery checks isPeerConnectionCurrent (the exact peer in
+  // connectedPeers) after the route await, so such a request ends there and
+  // its unsupported -> REMOTE_FILE_UNAVAILABLE branch is never reached; the
+  // policy answer itself is pinned in file-delivery-policy.test.ts.
+  it.each([
+    { type: MSG.REQUEST_DATA_RECOVERY, data: { queueItemId: Q2, sessionId: 13, nextChunk: 0 } },
+    { type: MSG.REQUEST_CURRENT_FILE, data: { queueItemId: Q2, sessionId: 13 } },
+  ] as const)(
+    'serves nothing to a current connection that is not a connected peer ($type)',
+    async ({ type, data }) => {
+      setResident(Q2, 'not-a-peer.mp3', new Blob(['not-a-peer'], { type: 'audio/mpeg' }), 13);
+      remoteShareMocks.isConfigured.mockReturnValue(true);
+      const member = makeGuestConn('local');
+      const stranger = testConnection('not-a-connected-peer');
+      setState(
+        'network.activeHostConnByPeerId',
+        new Map([
+          [member.peer, member],
+          [stranger.peer, stranger],
+        ]),
+      );
+      expect(freezeFileDeliveryMode(13)).toBe('direct-local');
+
+      await invokeRecoveryHandler(type, data, stranger);
+
+      const { sendFileDeliveryUnavailable, unicastFile } = await import('../transfer.ts');
+      expect(unicastFile).not.toHaveBeenCalled();
+      expect(sendFileDeliveryUnavailable).not.toHaveBeenCalled();
+      expect(remoteShareMocks.shareRemoteFileIfNeeded).not.toHaveBeenCalled();
+      expect(stranger.send).not.toHaveBeenCalled();
+    },
+  );
+
   it('refreshes R2 for a user file whose name matches a bundled demo asset', async () => {
     const currentBlob = new Blob(['user-owned-demo-name'], { type: DEMO_TRACK.mime });
     setResident(Q2, DEMO_TRACK.fileName, currentBlob, 10);

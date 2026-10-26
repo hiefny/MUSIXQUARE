@@ -562,9 +562,8 @@ test.describe('Standard room route outage on the Cloudflare transport', () => {
       // One stream per tuple (C5-12, owner decision P4-D10 A; before it, both
       // bulk lanes carried the whole track). The guest's progress watchdog
       // released the stalled partial preload during the outage, so after
-      // recovery it asks for L on the main lane. The paused preload restarts at
-      // recovery; the host re-detects the guest as local and tells it so long
-      // before that request arrives, so the main lane, started after that,
+      // recovery it asks for L on the main lane. That request arrives after
+      // recovery, so the paused preload restarts at recovery; the main lane
       // carries the whole track once, and the restart stops once the main lane
       // takes the tuple and sends one PRELOAD_ABORT on the control channel
       // instead of reaching its END.

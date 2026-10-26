@@ -67,7 +67,10 @@ before its request and fence for endpoints before that train. Against a C9 peer
 an endpoint's restart goes unanswered and its side outage ends the connection at
 its own 15-second deadline with `side-failed:expired`, which the owner's
 old-version policy of 2026-10-25 accepts; the frozen C9 test fixture is deleted.
-Registry RO-15.)
+Registry RO-15.) (Since old-version removal train 2, survey OV-F03, App build
+floor 787, 2026-10-26, no endpoint sends `restart-capable` and the parser no
+longer knows the kind, so the copy a 9.0.14 endpoint still sends before its
+request is consumed on the original lane without effect. Registry RO-15.)
 
 ### Ownership and bounds
 

@@ -98,7 +98,7 @@ const READ_ALLOWLIST = new Map<string, ReadAllowance>([
   ],
   ['src/player/playlist.ts', { appRole: 1, isOperator: 0, reason: 'standard-fenced' }],
   ['src/rooms/authority.ts', { appRole: 4, isOperator: 1, reason: 'canonical-authority-adapter' }],
-  ['src/share/remote-share.ts', { appRole: 3, isOperator: 0, reason: 'compatibility-consumer' }],
+  ['src/share/remote-share.ts', { appRole: 2, isOperator: 0, reason: 'compatibility-consumer' }],
   ['src/storage/preload.ts', { appRole: 1, isOperator: 0, reason: 'compatibility-consumer' }],
   [
     'src/storage/transfer-receive.ts',
@@ -371,7 +371,6 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/share/remote-share.ts',
     [
-      "read:appRole @ callback-call:bus.on(\"network:peer-connected\")#1 :: if (getState('network.appRole') !== 'guest')",
       "read:appRole @ callback-call:bus.on(\"network:peer-connection-replaced\")#1 :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ callback-call:bus.on(\"network:peer-disconnected\")#1 :: if (getState('network.appRole') !== 'host')",
     ],

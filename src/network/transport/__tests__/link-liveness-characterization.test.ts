@@ -406,9 +406,9 @@ describe('background-resume probe outcomes without a side route', () => {
   it('sends one control-lane challenge and closes exactly 3 s later without its pong', async () => {
     const e = await connection();
     expect(e.conn.recoverAfterBackground(60_000, false)).toBe('monitoring');
-    expect(probes(e.control)).toEqual([
-      expect.objectContaining({ type: MSG.SYNC_PING, pingId: expect.any(Number) }),
-    ]);
+    // Exactly the ping id the host reads: no guestTime since old-version
+    // removal train 2 (survey OV-A12).
+    expect(probes(e.control)).toEqual([{ type: MSG.SYNC_PING, pingId: expect.any(Number) }]);
     expect(e.bulk.sent).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(RESUME_LIVENESS_TIMEOUT_MS - 1);
     expect(e.conn.open).toBe(true);

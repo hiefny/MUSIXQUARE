@@ -25,8 +25,7 @@ export type ProRoomCapability =
   | 'effects.control'
   | 'asset.upload'
   | 'members.manage'
-  | 'room.configure'
-  | 'coordinator.eligible';
+  | 'room.configure';
 
 const MEMBER_CAPABILITIES = [] as const satisfies readonly ProRoomCapability[];
 

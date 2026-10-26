@@ -425,8 +425,15 @@ RO-51 duplicated
   START and READY, whose START stops a successor; STOP or the end closes it), the Standard SFU
   closes its subscription as for the trust boundary's refusal (the share route stays frozen),
   and the PRO coordinator closes a refused SFU track's subscription for that publication
-  (since 5B-G2, below) and keeps a LAN-direct route open. `'graph-unavailable'` keeps
-  each route's throw and policy. The disconnect grace, a retry and a receiver fallback (and
+  (since 5B-G2, below) and keeps a LAN-direct route open. Accepted with the fence (the 5B-G1
+  plan's risk, confirmed in review): a meta-null writer can remove the placeholder while a
+  Standard guest still receives (the current-item removal in `player/playlist.ts`: removed,
+  emptied or rebased). If a replacement direct call's attach is then refused, the slot drops the
+  previous call's source but leaves `systemAudio.isReceiving` set and the guest drops the
+  replacement deadline, so the share reads as playing, silent and with no deadline, until the
+  host's STOP. The host's own removal stops its capture first (a removal plays a successor or
+  empties the queue, and a START needs queue authority), so that window is about one round trip.
+  `'graph-unavailable'` keeps each route's throw and policy. The disconnect grace, a retry and a receiver fallback (and
   since 5B-G6 the SFU subscriber's budget expiry, below) interrupt the slot with
   `deadline: 'route'` (`interruptTrustedSystemAudioReception`: the
   receiving flag drops
@@ -867,8 +874,9 @@ RO-51 duplicated
     slot's Standard inputs. A host on this build treats every LAN guest as SFU-capable (a LAN
     guest past the eight direct slots, a late LAN guest of an all-SFU share and a failed LAN
     direct call go to the SFU with `'all'`; no peer is `'unsupported'`), ignores
-    `SYSTEM_AUDIO_SFU_CAPABILITY` (the validator still drops it with no handler; guests keep
-    sending it until a later floor, OV-F06) and sends a failed-direct remote peer READY
+    `SYSTEM_AUDIO_SFU_CAPABILITY` (it passes the validator and is dropped because no handler is
+    registered; guests keep sending it until a later floor, OV-F06) and sends a failed-direct
+    remote peer READY
     `{ audience: 'remote', handoffFromDirect: true }` where it sent `'all'`. The Standard suite's
     "OV-B06 acceptance (route direct): ..." and its pair "OV-B06 acceptance (route unselected,
     guest classified $type): ..." pass before and after: the unchanged 9.0.12/9.0.13 guest code

@@ -5,7 +5,7 @@
 | Status             | Maintained contract                                                                                                                                                                                                   |
 | Applies to         | The device's one system-audio reception: the Standard direct call and SFU guest routes, and the PRO coordinator with its SFU and LAN-direct transports                                                                |
 | Owner              | `src/network/system-audio-receive-slot.ts` (registry RO-04)                                                                                                                                                           |
-| Last source review | 2026-10-26 (Phase 5 train 5B, increment 5B-G6)                                                                                                                                                                        |
+| Last source review | 2026-10-27 (Phase 5 train 5B, through 5B-OV3)                                                                                                                                                                         |
 | Executable sources | `scripts/check-resource-ownership.mts` (CHECK 4, 9 and 10, run in CI), `scripts/check-import-graph.mts` (RULE D), the four receive-slot contract suites and the tests named below                                     |
 | Related documents  | [Resource ownership registry](resource-ownership-registry.md) (RO-04, RO-20), [Realtime runtime ownership](realtime-runtime-ownership.md), [Initial bundle and lazy-loading policy](initial-bundle-loading-policy.md) |
 

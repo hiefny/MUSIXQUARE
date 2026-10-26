@@ -1127,11 +1127,93 @@ describe('room switch, share end, leave and force-stop', () => {
     expect(seen.toasts).toEqual([]);
   });
 
-  it('5B-G2: force-stop ends the PRO reception without a restore, and the coordinator source, primer and subscription with it', async () => {
-    await applyState(live(sfuPublication()));
-    await advance(PRO_TRACK_AT_MS);
+  it.each([
+    {
+      route: 'SFU',
+      publication: sfuPublication,
+      source: 'pro-sfu-audio-1',
+      /** Delivers the track; returns whether the route's transport is still open. */
+      deliver: async () => {
+        await advance(PRO_TRACK_AT_MS);
+        return () => proSfu.isSubscribed;
+      },
+      // The force-stop stops the SFU subscriber.
+      openAfterStop: false,
+      descriptors: 1,
+    },
+    {
+      route: 'LAN-direct',
+      publication: directPublication,
+      source: 'direct-audio-1',
+      deliver: async () => {
+        const route = proDirect.deliverTrack(makeAudioTrack('direct-audio-1'));
+        await advance(0);
+        return route.isCurrent;
+      },
+      // The receiver route stays open by choice (RO-04): a silent close would
+      // fail the share over to the SFU, a 'stopped' close would invite a
+      // re-offer, and the open route carries no Cloudflare traffic.
+      openAfterStop: true,
+      descriptors: 0,
+    },
+  ])(
+    '5B-G2 ($route): force-stop ends the PRO reception without a restore, and the coordinator source and primer with it (an SFU subscription closes, a LAN-direct route stays open)',
+    async ({ publication, source, deliver, openAfterStop, descriptors }) => {
+      await applyState(live(publication()));
+      const transportOpen = await deliver();
+      expect(slot()).toMatchObject({ receiving: true, sources: [source], primers: 1 });
 
+      bus.emit('system-audio:force-stop');
+      const ended = {
+        receiving: false,
+        mode: null,
+        activity: 'idle',
+        title: previousTitle,
+        placeholder: false,
+        sources: [],
+        primers: 0,
+      };
+      // Fixed in 5B-G2 (gap 4, P5-D5 A): the force-stop ends the coordinator's
+      // route too (its source and primer, and on the SFU its subscription) and
+      // marks the publication ended. Before, it reached only the receive
+      // placeholder: on both transports the source and primer stayed
+      // connected, audible under an idle UI, and the SFU subscription stayed
+      // open, until the room reset, and a heartbeat did not notice.
+      expect(slot()).toEqual(ended);
+      expect(transportOpen()).toBe(openAfterStop);
+      expect(restorePlayback).not.toHaveBeenCalled();
+      expect(seen.toasts).toEqual([]);
+      const activitiesAfterStop = seen.activities.length;
+
+      // A heartbeat reconcile of the unchanged publication subscribes,
+      // attaches and begins nothing.
+      bindProSystemAudioSession(snapshot());
+      acceptProSystemAudioHeartbeatState(live(publication()), snapshot());
+      await advance(15_000);
+      expect(slot()).toEqual(ended);
+      expect(proSfu.descriptors).toHaveLength(descriptors);
+      expect(transportOpen()).toBe(openAfterStop);
+      expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+      expect(seen.counts.hostStarted).toBe(1);
+      expect(seen.activities.slice(activitiesAfterStop)).toEqual([]);
+      expect(seen.toasts).toEqual([]);
+
+      // The room reset changes nothing more on the slot, and closes what the
+      // coordinator kept open.
+      resetProSystemAudioService();
+      expect(slot()).toEqual(ended);
+      expect(transportOpen()).toBe(false);
+      expect(restorePlayback).not.toHaveBeenCalled();
+      expect(seen.toasts).toEqual([]);
+    },
+  );
+
+  it('accepted with the open LAN-direct route (RO-04): a receiver fallback of that route after a force-stop shows connection_unstable once and changes nothing else', async () => {
+    await applyState(live(directPublication()));
+    proDirect.deliverTrack(makeAudioTrack('direct-audio-1'));
+    await advance(0);
     bus.emit('system-audio:force-stop');
+    await advance(60_000);
     const ended = {
       receiving: false,
       mode: null,
@@ -1141,34 +1223,21 @@ describe('room switch, share end, leave and force-stop', () => {
       sources: [],
       primers: 0,
     };
-    // Fixed in 5B-G2 (gap 4, P5-D5 A): the force-stop ends the coordinator's
-    // route too (its source, primer and subscription) and marks the
-    // publication ended. Before, it reached only the receive placeholder:
-    // the source, primer and subscription stayed connected under an idle UI
-    // until the room reset, and a heartbeat did not notice.
     expect(slot()).toEqual(ended);
-    expect(proSfu.isSubscribed).toBe(false);
-    expect(restorePlayback).not.toHaveBeenCalled();
-    expect(seen.toasts).toEqual([]);
     const activitiesAfterStop = seen.activities.length;
 
-    // A heartbeat reconcile of the unchanged publication subscribes nothing
-    // and begins nothing.
-    bindProSystemAudioSession(snapshot());
-    acceptProSystemAudioHeartbeatState(live(sfuPublication()), snapshot());
-    await advance(15_000);
+    // The fallback handler does not read the ended mark, so the notice of a
+    // live route failure still shows once, as before 5B-G2. The ended slot,
+    // the post-share restore and the reception start are untouched.
+    proDirect.receiverFallback();
+    await advance(60_000);
     expect(slot()).toEqual(ended);
-    expect(proSfu.descriptors).toHaveLength(1);
-    expect(proSfu.isSubscribed).toBe(false);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    expect(seen.activities.slice(activitiesAfterStop)).toEqual([]);
     expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(seen.counts.hostStarted).toBe(1);
-    expect(seen.activities.slice(activitiesAfterStop)).toEqual([]);
-
-    // The room reset changes nothing more.
-    resetProSystemAudioService();
-    expect(slot()).toEqual(ended);
+    expect(proSfu.descriptors).toHaveLength(0);
     expect(restorePlayback).not.toHaveBeenCalled();
-    expect(seen.toasts).toEqual([]);
   });
 
   it('5B-G2 guard: after a force-stop ended a publication, the next publication begins and attaches again', async () => {
@@ -1460,6 +1529,23 @@ describe('coordinator receive inputs (attach, resume, interrupt)', () => {
     expect(seen.activities.slice(activitiesBefore)).toEqual([]);
     expect(seen.counts.visualizerStarts).toBe(1);
     await advance(60_000);
+    expect(slot()).toEqual(successor);
+    expect(seen.toasts).toEqual([]);
+
+    // Accepted with 5B-G2 (RO-04): a refused resume ends no route, unlike a
+    // refused attach or the boundary's refusal, so the SFU subscription stays
+    // open with nothing attached, and a heartbeat neither subscribes nor
+    // begins again, until the publication changes; the share end closes it
+    // and leaves the successor alone.
+    expect(proSfu.isSubscribed).toBe(true);
+    acceptProSystemAudioHeartbeatState(live(sfuPublication()), snapshot());
+    await advance(15_000);
+    expect(proSfu.isSubscribed).toBe(true);
+    expect(proSfu.descriptors).toHaveLength(1);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(slot()).toEqual(successor);
+    await applyState(idle(2));
+    expect(proSfu.isSubscribed).toBe(false);
     expect(slot()).toEqual(successor);
     expect(seen.toasts).toEqual([]);
   });

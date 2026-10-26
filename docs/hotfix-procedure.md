@@ -499,7 +499,7 @@ It copies the existing Developer API pepper to the App Worker through stdin and
 never prints or stores the value in a tracked file. Worker secrets persist across
 later deployments, so this is a one-time setup unless the pepper is rotated.
 
-The App build floor relies on this order. From App 9.0.13 the App sends `appBuild` in
+The App build floor relies on this order. From App 9.0.14 the App sends `appBuild` in
 `host-auth`, which an older Signaling Worker's exact-key validator refuses, so the Signaling
 Worker that accepts it must be live first; `all` deploys it before the App, and a partial
 release that leaves an older Signaling Worker behind fails its compatibility gate. A release
@@ -620,17 +620,17 @@ Do not add a forced reload mechanism casually. There is no current production br
 
 ## App Build Floor
 
-The App build floor (forced update, App 9.0.13; record RO-50 in the
+The App build floor (forced update, App 9.0.14; record RO-50 in the
 [resource ownership registry](design/resource-ownership-registry.md), evidence in the
-[train report](design/forced-update-9-0-12-2026-10-25.md)) refuses new room entries
+[train report](design/forced-update-9-0-14-2026-10-25.md)) refuses new room entries
 from App builds below a minimum: the Signaling Worker refuses a `host-auth` or `guest-auth` whose
 `appBuild` is lower (a missing one counts as 0), and the PRO front door refuses bootstrap,
 sessions and presence entry. Open sessions are never closed. The build number is the
-service-worker cache epoch (`v786` is build 786; see
+service-worker cache epoch (`v787` is build 787; see
 [release versioning](release-versioning.md#app-build-number-and-floor)). The control object
 enforces the lower of the stored floor and the live App build that the App Worker reports every
 minute, and nothing once that report is five minutes old, so the enforced floor never stays above
-the App that is live. Refused 9.0.13+ pages, and 9.0.13+ pages that read a higher floor at start
+the App that is live. Refused 9.0.14+ pages, and 9.0.14+ pages that read a higher floor at start
 or on return to the foreground, show the update dialog without Later; older builds show their
 generic error and recover when reopened.
 
@@ -662,7 +662,7 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   when that build is the live App. If it fails, the release stays committed and is not rolled
   back; rerun `set` with the standalone workflow. Later raises need no separate owner approval
   (owner decision 2026-10-25): the release that needs one sets the input.
-- First floor (owner decision 2026-10-25): the App 9.0.13 release ships with the floor at 0 and
+- First floor (owner decision 2026-10-25): the App 9.0.14 release ships with the floor at 0 and
   `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
   (the live App build is the released one and the App report is fresh), then `check` (the OIDC
   path end to end, no change), then `set` with the released build and a reason. Read each run's
@@ -677,23 +677,23 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
   recovery checkpoint. The stored floor exceeds a checkpoint App only after a person rolled the
   App back below it by CLI or in the dashboard without `lower`. Even then the enforced floor is
   clamped to the reported live build within one minute (or turns off within five minutes for an
-  App older than 9.0.13, which never reports), and the drift audit flags the stored value.
+  App older than 9.0.14, which never reports), and the drift audit flags the stored value.
 - Before a CLI rollback of the App to a build under the stored floor, run `lower` to that build
-  first (0 for a build older than 9.0.13, which has no floor routes and never reports) and wait
+  first (0 for a build older than 9.0.14, which has no floor routes and never reports) and wait
   for that run to succeed; the CLI rollback block under [Rollback](#rollback) carries the line.
   No script enforces it. Otherwise new entries of that build are refused until the next App
-  report: up to one minute, or up to five minutes for a build older than 9.0.13. A Cloudflare
+  report: up to one minute, or up to five minutes for a build older than 9.0.14. A Cloudflare
   dashboard rollback cannot be guarded; the report clamps the enforced floor the same way, and
-  `lower` or a roll forward lifts the stored value while an App of 9.0.13 or later is live.
+  `lower` or a roll forward lifts the stored value while an App of 9.0.14 or later is live.
 - A local emergency `app` or `all-workers` deployment reads the public status first and stops
   when the local build is below the stored floor, naming the `lower` command. When the status
   cannot be read it warns and continues.
-- Never roll the Signaling Worker back below 9.0.13 while an App of 9.0.13 or later is live: an
+- Never roll the Signaling Worker back below 9.0.14 while an App of 9.0.14 or later is live: an
   older Signaling Worker refuses every `host-auth` that carries `appBuild`. Roll the App back
   first, as automated recovery already does.
 - The service-control object that holds the floor (`MusixquareServiceControl`) lives in the PRO
   Worker script; every other Worker binds it with `script_name = "musixquare-pro-room"`. Rolling
-  the PRO Worker back below 9.0.13 therefore turns the floor off for every Worker, Signaling
+  the PRO Worker back below 9.0.14 therefore turns the floor off for every Worker, Signaling
   included: the older object answers 404 on the floor paths, which every reader takes as floor 0.
   The floor workflow and the admin panel cannot read or change the floor until the PRO Worker
   rolls forward, and the stored value comes back then.
@@ -767,7 +767,7 @@ floor, run its `lower` first and wait for that run to succeed (see
 [App Build Floor](#app-build-floor)):
 
 ```bash
-# Only when the App goes below the stored App build floor (0 for an App older than 9.0.13):
+# Only when the App goes below the stored App build floor (0 for an App older than 9.0.14):
 gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=<target-app-build> -f reason="Rollback: <reason>"
 gh run watch <lower-run-id> --exit-status
 

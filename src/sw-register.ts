@@ -81,7 +81,7 @@ interface ReloadScheduled {
 type ActivationState = PromptPhase | ReloadScheduled;
 
 /**
- * The forced update (train 9.0.12): what a refusal below the App build floor
+ * The forced update (train 9.0.14): what a refusal below the App build floor
  * latched in this document. `floor` is the highest floor learned; the latch
  * keeps the first room code named and whether any refused session was in a
  * room. `presentation` is what is on screen: the forced dialog (open or
@@ -377,7 +377,7 @@ function updateDialogMessageKey(): I18nKey {
  * The update dialog. Its message is re-read whenever the room lifecycle
  * changes: a join can finish while it is open, and 적용하기 then returns to
  * that room's Start screen, so the copy must already say so. The forced
- * variant (train 9.0.12) has no Later, and history Back keeps it open; a
+ * variant (train 9.0.14) has no Later, and history Back keeps it open; a
  * refusal of an entry that was never admitted gets the apply message, since
  * no room of its closes.
  */
@@ -394,7 +394,7 @@ function showUpdateDialog(signal?: AbortSignal, forced?: ForcedLatch): Promise<D
 }
 
 export function registerServiceWorker(): void {
-  // The forced update (train 9.0.12). A refusal below the App build floor
+  // The forced update (train 9.0.14). A refusal below the App build floor
   // asks here through the port in core/app-build.ts, also on a page without
   // the machine, so the latch is this scope's. The machine takes the steps
   // that depend on it over once it registers (`forcedMachine`).
@@ -645,7 +645,7 @@ export function registerServiceWorker(): void {
     /**
      * The abort of the open or queued activated-elsewhere offer. Its own slot:
      * the logo and an absorbed activation withdraw only `openPrompt`; the
-     * forced update withdraws both (train 9.0.12).
+     * forced update withdraws both (train 9.0.14).
      */
     let openActivatedOffer: AbortController | null = null;
     /**
@@ -1000,7 +1000,7 @@ export function registerServiceWorker(): void {
 
       /**
        * Offer a waiting worker with the update dialog, or promote it quietly.
-       * `forced` (train 9.0.12) is the forced entry's dialog for this worker:
+       * `forced` (train 9.0.14) is the forced entry's dialog for this worker:
        * it goes past the handled-worker and phase checks, the quiet
        * promotions, Later, the startup wait and the cross-tab prompt lease,
        * and is not published as `openPrompt` (nothing withdraws it).
@@ -1061,7 +1061,7 @@ export function registerServiceWorker(): void {
             // this page already runs, installed late (after the cooldown):
             // promote it quietly, and its controller change is absorbed
             // (P3-10 A extended from a late activation to a late install,
-            // forced update train 9.0.12). No dialog, no second reload.
+            // forced update train 9.0.14). No dialog, no second reload.
             log.debug('[SW] The requested generation installed late. Activating quietly');
             await activateWhenQuiet();
             return;
@@ -1290,7 +1290,7 @@ export function registerServiceWorker(): void {
         return 'promoted';
       };
 
-      // The machine takes the forced update's steps over (train 9.0.12).
+      // The machine takes the forced update's steps over (train 9.0.14).
       // Its update check: when the latched floor rises, so Apply can find a
       // waiting worker. Not while a worker installs or waits, an update reload
       // is on its way, or another tab's newer worker already controls this

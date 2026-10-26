@@ -275,15 +275,15 @@ wrong PINs per tracked network, never produces a lockout.
 
 **Superseded (owner decisions of 2026-10-25, 16:40 and 18:30 KST).** Older App versions are no
 longer a design constraint, and version-based admission now exists: the App build floor. From App
-9.0.13 the App reports its build (the service-worker cache epoch) when it enters a Standard room
+9.0.14 the App reports its build (the service-worker cache epoch) when it enters a Standard room
 and on PRO requests, and the Signaling and PRO Workers refuse new entries and reconnects below a
-runtime minimum, while open sessions continue; refused 9.0.13+ pages, and 9.0.13+ pages that read
+runtime minimum, while open sessions continue; refused 9.0.14+ pages, and 9.0.14+ pages that read
 a higher floor at start or on return to the foreground, show the update dialog without Later
-([train report](design/forced-update-9-0-12-2026-10-25.md),
+([train report](design/forced-update-9-0-14-2026-10-25.md),
 [hotfix procedure](hotfix-procedure.md#app-build-floor)). The text below stays true in production
 until that release ships and its first floor (its own build) is on; the release record PR that
 records the first floor moves this item to Retired Risks. Releases before that, including the
-9.0.12 receive-slot train, still rely on this item.
+9.0.12 receive-slot train and the 9.0.13 old-version removal train, still rely on this item.
 
 Accepted by the owner on 2026-10-12 for the App 8.10.2 synchronization release.
 Maintenance plus a reload/reopen notice is an operational cutover, not a proof

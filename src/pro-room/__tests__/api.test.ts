@@ -2827,7 +2827,7 @@ describe('PRO room playlists', () => {
 });
 
 /**
- * Forced update (train 9.0.12): every PRO request reports the page build in
+ * Forced update (train 9.0.14): every PRO request reports the page build in
  * X-MXQR-App-Build, and an entry refused below the App build floor (426
  * APP_UPDATE_REQUIRED) carries that floor on the error.
  */

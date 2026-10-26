@@ -105,7 +105,7 @@ deployment credentials belong in protected GitHub environments or the
 operator's ephemeral process environment. Use the owning workflow and runbook;
 do not aggregate them into `.env.local` or document their values.
 
-### App build floor (from App 9.0.13)
+### App build floor (from App 9.0.14)
 
 The minimum App build that the Signaling and PRO Workers admit is runtime state
 in the service-control object, not a build input, a Wrangler `[vars]` entry or a

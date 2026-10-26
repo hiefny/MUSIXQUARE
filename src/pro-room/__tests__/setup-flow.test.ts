@@ -1792,7 +1792,7 @@ describe('PRO join failure copy', () => {
 });
 
 /**
- * Forced update (train 9.0.12): a PRO entry refused below the App build floor
+ * Forced update (train 9.0.14): a PRO entry refused below the App build floor
  * (426 APP_UPDATE_REQUIRED from bootstrap, sessions or presence/enter) opens
  * the forced update dialog through the port, never the claim-failed or
  * connection error, and keeps a one-time claim for that dialog's reload. The

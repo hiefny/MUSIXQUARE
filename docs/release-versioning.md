@@ -40,8 +40,8 @@ checks its history and monotonicity.
 
 ## App build number and floor
 
-From App 9.0.13 the App reports a build number: the integer of the service-worker
-cache epoch (`v786` is build 786). It is not a second version. The browser reads
+From App 9.0.14 the App reports a build number: the integer of the service-worker
+cache epoch (`v787` is build 787). It is not a second version. The browser reads
 it from the compile-time define `__MXQR_BUILD_CACHE_VERSION__` that Vite derives
 from `SERVICE_WORKER_CACHE_VERSION` (`APP_BUILD` in `src/core/app-build.ts`);
 the App Worker reads its own deployed `/service-worker.js`; the release smokes

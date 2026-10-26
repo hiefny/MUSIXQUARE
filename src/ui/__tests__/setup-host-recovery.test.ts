@@ -251,7 +251,7 @@ describe('host setup recovery', () => {
     expect(goBack).toHaveBeenCalledOnce();
   });
 
-  describe('a refusal below the App build floor (forced update, train 9.0.12)', () => {
+  describe('a refusal below the App build floor (forced update, train 9.0.14)', () => {
     afterEach(() => {
       setForcedAppUpdateHandler({ request: () => false, isPending: () => false });
     });

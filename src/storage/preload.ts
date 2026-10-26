@@ -405,9 +405,9 @@ function abortSuspendedPreloadLane(lane: SuspendedPreloadLane): void {
  *
  * A guest awaiting this preload takes the main FILE_START while its own route
  * is 'local' (transfer-receive.ts shouldAcceptLocalDirectFileStart), and from
- * 9.0.12 on any route when the header names the preload's own admitted direct
+ * 9.0.14 on any route when the header names the preload's own admitted direct
  * session, which the main lane this lane yields to always carries. A 9.0.9 to
- * 9.0.11 guest also takes it while 'unknown' only for the exact tuple its own
+ * 9.0.13 guest also takes it while 'unknown' only for the exact tuple its own
  * recovery request asked for, a 9.0.8 or older guest only while 'local'; an
  * older guest drops that header and its chunks otherwise, nothing asks again,
  * and nothing on the wire tells the host which guest it serves (RO-18). The host

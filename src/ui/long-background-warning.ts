@@ -9,7 +9,7 @@
  * a return, the warning is skipped for the rest of it, and a warning that is
  * already on screen or queued is withdrawn (owner decision 2026-10-17).
  *
- * The forced update dialog (RO-22, train 9.0.12) is above both: one dialog per
+ * The forced update dialog (RO-22, train 9.0.14) is above both: one dialog per
  * return. While it is open, queued or reloading the page, the warning is not
  * shown, and when it takes the screen it withdraws a warning on screen or
  * queued (registry RO-51).

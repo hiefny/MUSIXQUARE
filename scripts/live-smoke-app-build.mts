@@ -1,5 +1,5 @@
 /**
- * The App build the live smokes report (forced update, train 9.0.12).
+ * The App build the live smokes report (forced update, train 9.0.14).
  *
  * The Signaling Worker refuses a `host-auth` or `guest-auth` whose `appBuild`
  * is below the App build floor, and the PRO front door refuses an entry whose
@@ -127,7 +127,7 @@ export function classifyHostAdmission(frame: JsonObject): HostAdmission {
 }
 
 /**
- * The legacy-shape host (no `appBuild`, a 9.0.12 or older client) meets
+ * The legacy-shape host (no `appBuild`, a 9.0.13 or older client) meets
  * either admission (floor off) or the exact floor refusal (floor on).
  */
 export function requireLegacyShapeHostOutcome(

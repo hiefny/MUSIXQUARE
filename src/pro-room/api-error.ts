@@ -17,7 +17,7 @@ export class ProRoomApiError extends Error {
   readonly sessionEndReason: ProRoomSessionEndReason | null;
   /**
    * The App build floor of an entry refused below it (426
-   * `APP_UPDATE_REQUIRED`, forced update train 9.0.12); null otherwise.
+   * `APP_UPDATE_REQUIRED`, forced update train 9.0.14); null otherwise.
    */
   readonly minAppBuild: number | null;
 

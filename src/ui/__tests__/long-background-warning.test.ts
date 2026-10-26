@@ -135,7 +135,7 @@ describe('long-background warning', () => {
     expect(open[0]!.signal.aborted).toBe(false);
   });
 
-  // RO-51: the forced update dialog (RO-22, train 9.0.12) is the highest
+  // RO-51: the forced update dialog (RO-22, train 9.0.14) is the highest
   // return-time dialog. While it is open, queued or reloading the page, the
   // warning never opens, and when it takes the screen it withdraws a warning
   // that is open or queued.

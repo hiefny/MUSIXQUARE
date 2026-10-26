@@ -714,7 +714,7 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
   });
 });
 
-describe('forced update: refusals below the App build floor (train 9.0.12)', () => {
+describe('forced update: refusals below the App build floor (train 9.0.14)', () => {
   let pending: boolean;
   let answer: boolean;
 

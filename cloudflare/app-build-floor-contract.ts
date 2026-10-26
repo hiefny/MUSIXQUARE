@@ -1,8 +1,8 @@
 /**
- * App build floor wire contract (forced update, train 9.0.12).
+ * App build floor wire contract (forced update, train 9.0.14).
  *
- * The build number is the integer of the service-worker cache epoch (`v785`
- * is build 785). A client reports it when it enters a room; the Signaling and
+ * The build number is the integer of the service-worker cache epoch (`v787`
+ * is build 787). A client reports it when it enters a room; the Signaling and
  * PRO Workers refuse a new entry whose build is below the effective floor that
  * the global service-control object holds. Established sessions are never
  * re-checked.

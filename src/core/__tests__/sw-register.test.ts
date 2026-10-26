@@ -2011,11 +2011,11 @@ describe('service-worker cache-retirement client handshake', () => {
     });
   });
   /**
-   * The forced update (RO-22, train 9.0.12) on a page with no update machine:
+   * The forced update (RO-22, train 9.0.14) on a page with no update machine:
    * registerServiceWorker installs the port's handler before its support
    * checks, so a refusal still shows the forced dialog, and Apply reloads.
    */
-  describe('the forced update without an update machine (train 9.0.12)', () => {
+  describe('the forced update without an update machine (train 9.0.14)', () => {
     it.each([
       {
         name: 'no service worker support',

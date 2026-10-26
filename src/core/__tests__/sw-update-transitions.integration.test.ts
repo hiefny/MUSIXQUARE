@@ -2287,7 +2287,7 @@ describe('update machine transition table on the real navigation owner (C6-9 inc
  * new document, which already runs that generation's code (navigation is
  * network-first, browser/service-worker.ts), absorbs the late activation: no
  * reload, no dialog, no toast (P3-10 A). A document that runs older code (a
- * cache fallback) still reloads. Since forced update Inc 5 (train 9.0.12) the
+ * cache fallback) still reloads. Since forced update Inc 5 (train 9.0.14) the
  * same document also promotes a still-waiting worker of that generation
  * quietly after the 30 s cooldown instead of asking again.
  */
@@ -2430,7 +2430,7 @@ describe('a document already on the new code, with no request of its own (P3-10 
   });
 });
 
-// ─── Forced update (train 9.0.12, Inc 5) ─────────────────────────────
+// ─── Forced update (train 9.0.14, Inc 5) ─────────────────────────────
 
 /**
  * The forced update (RO-22 forced entry; RO-51 return-time precedence). A
@@ -2440,7 +2440,7 @@ describe('a document already on the new code, with no request of its own (P3-10 
  * (another tab checked a moment ago), so each `reg.update()` it counts is the
  * forced entry's own.
  */
-describe('forced update on the real navigation owner (train 9.0.12)', () => {
+describe('forced update on the real navigation owner (train 9.0.14)', () => {
   const FORCED_APPLY_KEY = 'mxqr-forced-apply';
   const PAGE_BUILD = 'v785';
   const CREATING_HOST: AppModel = {

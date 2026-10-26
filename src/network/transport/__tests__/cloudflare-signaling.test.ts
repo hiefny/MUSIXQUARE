@@ -8563,7 +8563,7 @@ describe('logical connection close paths decided by the provider', () => {
   });
 });
 
-describe('forced update: the Standard signaling client (train 9.0.12)', () => {
+describe('forced update: the Standard signaling client (train 9.0.14)', () => {
   /** The Signaling Worker's refusal below the App build floor (sent only to the refused socket). */
   const REFUSAL = {
     type: 'error',

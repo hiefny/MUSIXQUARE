@@ -1371,7 +1371,7 @@ export class ProRoomApiClient {
     // Same opt-in for the additive `playlistSlots` snapshot field.
     headers.set('X-MXQR-Pro-Playlist-Slots', 'v1');
     // The page build: the PRO front door refuses a new entry below the App
-    // build floor (forced update, train 9.0.12). A header, so no strict body
+    // build floor (forced update, train 9.0.14). A header, so no strict body
     // of an older client changes; a build without an epoch sends none (0).
     if (APP_BUILD > 0) headers.set(APP_BUILD_HEADER, String(APP_BUILD));
     let body: string | undefined;

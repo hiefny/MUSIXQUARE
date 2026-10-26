@@ -1473,7 +1473,7 @@ RO-51 duplicated
   One stream per tuple after ICE recovery, when the guest is known to take the main lane (Phase 4
   C5-12, owner decision P4-D10 A, 2026-10-25; narrowed by its review the same day): the explicit
   main-lane recovery wins. A guest awaiting the preload takes the main `FILE_START` while its own
-  route is `local` (`shouldAcceptLocalDirectFileStart` in `transfer-receive.ts`), and from 9.0.13
+  route is `local` (`shouldAcceptLocalDirectFileStart` in `transfer-receive.ts`), and from 9.0.14
   (C5-12 Inc 1) on any route when the header names a session the host admitted to it directly on
   that connection (`isGuestDirectFileDelivery`; the preload's own `PRELOAD_START` recorded it).
   The host yields only to a main lane for the preload's exact tuple, so that header always names
@@ -1481,7 +1481,7 @@ RO-51 duplicated
   without a session, or the current-file bootstrap once the route turns local), and the host's
   route publication travels on the control route while the header can overtake it on the
   independently ordered bulk channel. A header for another session is still dropped unless the
-  route is `local`, and an R2 delivery is refused first. A 9.0.9 to 9.0.12 guest took the header
+  route is `local`, and an R2 delivery is refused first. A 9.0.9 to 9.0.13 guest took the header
   while `unknown` only for the exact (connection, queue item, session) of its own unsettled
   `REQUEST_DATA_RECOVERY` (Codex P2 on #487), a 9.0.8 or older guest only while `local`. An older
   guest that drops the header drops its chunks too, and the drop itself asks for nothing, so the
@@ -1506,7 +1506,7 @@ RO-51 duplicated
   a main lane that already held the tuple when `local` was published (its header may have reached
   the guest before the guest knew its route), keeps the restart running to its END, as in 9.0.8.
   Until 9.0.8 both lanes always streamed the whole file for the same tuple after recovery (survey
-  F4). A late-join unicast and the room's preload broadcast do not yield. A 9.0.12 or older guest
+  F4). A late-join unicast and the room's preload broadcast do not yield. A 9.0.13 or older guest
   adopts the published route the same way but takes the main header under its older rule (above;
   the 9.0.8 one is that of 9.0.0). Nothing a guest sends, in its recovery request or elsewhere,
   tells the host which rule it runs, so the host keeps one yield rule for all of them
@@ -1519,8 +1519,8 @@ RO-51 duplicated
     published (a request that crossed the outage on an isolated control route), when the main
     lane reaches `FILE_END` before the restart's next check (a completed owner is a fence, not a
     stream), or when the restart reaches `PRELOAD_END` before the guest's request arrives. Each
-    matches 9.0.8; none is a regression. In those cases a 9.0.13 guest on any route, or a 9.0.9
-    to 9.0.12 guest still `unknown` that takes the header it asked for, plays the main lane while
+    matches 9.0.8; none is a regression. In those cases a 9.0.14 guest on any route, or a 9.0.9
+    to 9.0.13 guest still `unknown` that takes the header it asked for, plays the main lane while
     the restart reaches its END, as a `local` guest did in 9.0.8 (it keeps a second resident copy
     only when the main header came first).
   - The abort travels on a control route and the restart header on the bulk channel, so the abort
@@ -1535,22 +1535,22 @@ RO-51 duplicated
     control route.
   - The guest reads its own route when the main header arrives, and the host cannot see it. A
     header sent after `local` was published can still reach a guest awaiting the preload that is
-    not `local`. A 9.0.13 guest takes it on any route (above), so both paths below are closed for
-    it. A 9.0.9 to 9.0.12 guest whose route is still `unknown` takes it when it answers the
+    not `local`. A 9.0.14 guest takes it on any route (above), so both paths below are closed for
+    it. A 9.0.9 to 9.0.13 guest whose route is still `unknown` takes it when it answers the
     guest's own recovery request. A guest that drops it while the restart yields stays in
     AWAITING_PRELOAD with no stream. If the stall watchdog it armed while awaiting the preload
     (`preload-blob-watchdog` in `playback.ts`, 10 s without progress; the yield's `PRELOAD_ABORT`
     skips the session, so no progress re-arms it) has not fired yet, the stall lasts until it sends
     `REQUEST_DATA_RECOVERY`, and outlasts that request only if the guest's route is still not
-    `local` when its main `FILE_START` arrives (for a 9.0.9 to 9.0.12 guest, only if it is
+    `local` when its main `FILE_START` arrives (for a 9.0.9 to 9.0.13 guest, only if it is
     `remote`). If the dropped header already answered that watchdog's request, nothing asks again
     (code reading; a replay of the first path below on the 9.0.8 acceptance rule at `4a319b62` was
     still in AWAITING_PRELOAD 60 s later, with one request and no stream). A later host
     announcement on the same connection no longer leads there (the revoke above). Two paths lead
     there for an older guest:
     - the bulk channel overtakes the control route that carried the device list, and the guest's
-      own re-detection has not finished (Codex P2 on #487). Closed for a 9.0.13 guest, and for a
-      9.0.9 to 9.0.12 guest when the header answers its own `REQUEST_DATA_RECOVERY` for that
+      own re-detection has not finished (Codex P2 on #487). Closed for a 9.0.14 guest, and for a
+      9.0.9 to 9.0.13 guest when the header answers its own `REQUEST_DATA_RECOVERY` for that
       tuple, which is the case after the stall watchdog asked (unit row "takes the main lane it
       asked for when the header overtakes the local route publication", which fails on the 9.0.8
       acceptance rule). Open for a 9.0.8 or older guest (known-accepted #13): the host cannot tell
@@ -1568,9 +1568,9 @@ RO-51 duplicated
       guest whose state change lags the host's by a few milliseconds plus the one-way latency
       meets this order; it ends in the stall only when the guest's own detection disagrees with
       the host's. In those runs the guest's detection was host/host on its first try, long before
-      the main header (+1.3 to +3.5 s). Closed for a 9.0.13 guest, which takes the header while
+      the main header (+1.3 to +3.5 s). Closed for a 9.0.14 guest, which takes the header while
       `remote` too (unit row "takes the main lane for the preload it awaits when its own
-      re-detection ends remote", which fails on the 9.0.11 acceptance rule). A 9.0.9 to 9.0.12
+      re-detection ends remote", which fails on the 9.0.11 acceptance rule). A 9.0.9 to 9.0.13
       guest whose own detection is still running is `unknown` and takes the header it asked for,
       as above; one whose detection already ended `remote` still drops it, as does a 9.0.8 or
       older guest. No lab run shows this path, and it cannot be closed on the host for those
@@ -1613,7 +1613,7 @@ RO-51 duplicated
     restart when its route is $guestRoute at the main FILE_START (request $arrival, host
     re-detects $hostRoute)" and "plays the main lane beside the kept restart when its route is
     $guestRoute at the main FILE_START after a second recovery announcement (host re-detects
-    $reannounced)" (both `remote`; until 9.0.12 that guest played the restarted preload), "plays
+    $reannounced)" (both `remote`; until 9.0.13 that guest played the restarted preload), "plays
     the main lane beside the kept restart when its route is $guestRoute at the main FILE_START it
     asked for (request $arrival, host re-detects $hostRoute)" and "plays the main lane beside the
     kept restart when its route is unknown at the main FILE_START it asked for after a second
@@ -1641,8 +1641,8 @@ RO-51 duplicated
 - **Status:** `duplicated`. Lane constants shared in Phase 4 (C5-3); one release call and the
   tuple query added in Phase 4 (reduced C5-11); the main lane wins the tuple after recovery in
   Phase 4 when the host re-detected the guest as local before the main lane started, with no
-  recovery announcement since (C5-12, P4-D10 A), and from 9.0.13 a guest takes the main header for
-  the preload's own admitted direct session on any route (C5-12 Inc 1; a 9.0.9 to 9.0.12 guest
+  recovery announcement since (C5-12, P4-D10 A), and from 9.0.14 a guest takes the main header for
+  the preload's own admitted direct session on any route (C5-12 Inc 1; a 9.0.9 to 9.0.13 guest
   only while `unknown` for its own recovery request, Codex P2 on #487). Writability and the
   preload pause read the link-liveness owner on every Cloudflare connection (C5-8,
   behaviour-risk: the restart window that reads `connecting` now excludes the peer from a new
@@ -1667,7 +1667,7 @@ RO-51 duplicated
 - **Allowed requesters:** the five waits above, through the request slot.
 - **Lifecycle operations:** begin, send, match the wait response, complete, reset. RO-18 reads
   nothing from the slot: the 9.0.9 pending-recovery query (`isPendingRecoveryRequestFor`, Codex
-  P2 on #487) was removed with C5-12 Inc 1 (9.0.13), whose guest rule reads the admitted direct
+  P2 on #487) was removed with C5-12 Inc 1 (9.0.14), whose guest rule reads the admitted direct
   delivery instead.
 - **Deadline owner:** each wait; `playback.lifecycle` gates them.
 - **Timing-constant home:** `src/core/constants.ts` (Phase 4, C5-3).
@@ -1826,7 +1826,7 @@ RO-51 duplicated
     stalled-Apply case). A document running older code (a cache fallback) still reloads, and a
     document with no such request treats the activation as before.
 
-  Since forced update Inc 5 (train 9.0.13):
+  Since forced update Inc 5 (train 9.0.14):
   - A refusal below the App build floor (RO-50) is a requester. The PRO entry
     (`src/pro-room/setup-flow.ts`) and, from Inc 6, the Standard signaling transport ask through
     the forced-update port in `src/core/app-build.ts` (`requestForcedAppUpdate`,
@@ -1882,7 +1882,7 @@ RO-51 duplicated
     generation this tab asked for and already runs is not offered again after the 30 s cooldown.
     A document without its own request still asks.
 
-  Since forced update Inc 7 (train 9.0.13, owner decision 2026-10-25 ~22:00: check the minimum
+  Since forced update Inc 7 (train 9.0.14, owner decision 2026-10-25 ~22:00: check the minimum
   build at start and on every return from the background):
   - The start and resume floor check is a second requester inside the machine
     (`sw-register.ts`, armed in `registerServiceWorker` scope before the support checks, so a
@@ -1989,14 +1989,14 @@ RO-51 duplicated
     "after the cooldown" case: the new document promotes the waiting worker quietly instead of
     asking again (the late-install rule).
   - The forced entry (forced update Inc 5): the transition test file's "forced update on the real
-    navigation owner (train 9.0.12)" rows F1 to F27 (with F5b, F24, F24b and F24c): supersession
+    navigation owner (train 9.0.14)" rows F1 to F27 (with F5b, F24, F24b and F24c): supersession
     (F4 and F4b, an ordinary prompt or offer mid-await yields; F24, the activated offer
     withdrawn; F21, a worker installed under the dialog without one), user pause/stop (F12, a
     generation put off with Later is forced anyway; F18, a fallback), teardown (F22 and F22b, a
     navigation holding the page; F8 and F17, an update reload in flight and its recovery; F8c
     and F17b, this document's own forced Apply in flight and recovered) and the loop guard (F5,
     F5b); `sw-register.test.ts` "the forced update without an update
-    machine (train 9.0.12)" (F9); `src/core/__tests__/app-build.test.ts` (the build and the
+    machine (train 9.0.14)" (F9); `src/core/__tests__/app-build.test.ts` (the build and the
     port); the PRO entry rows of `src/pro-room/__tests__/setup-flow.test.ts`, and in a real
     browser (local, not in CI) `e2e/pro-entry-app-update.test.ts` (a refused PRO invite and claim
     link: no Later, Escape and Back keep it, one Apply, then the loop guard).
@@ -2778,7 +2778,7 @@ entry needs the owner's acceptance and is not implied by this registry.
   with its revision, request journal and history, the live-App report `{appBuild, reportedAt}`,
   and the effective floor the entry gates enforce (`effectiveAppBuildFloor` in
   `cloudflare/app-build-floor-contract.ts`: the lower of the stored floor and a report at most
-  `APP_BUILD_FLOOR_REPORT_STALE_MS` old, otherwise 0). Forced update, train 9.0.13.
+  `APP_BUILD_FLOOR_REPORT_STALE_MS` old, otherwise 0). Forced update, train 9.0.14.
 - **Current owners/flows:** the object is the single owner. One mutation queue serializes both
   writers; it checks the expected revision, replays by request id, refuses a raise that names no
   live App build or exceeds it, and writes a raise's live build as a fresh report. Two machines
@@ -2813,7 +2813,7 @@ entry needs the owner's acceptance and is not implied by this registry.
   conflict, repair an unreadable stored record, report the live build, read the effective floor.
 - **Deadline owner:** none of its own. Each object call is bounded by
   `SERVICE_CONTROL_READ_TIMEOUT_MS`. A report older than `APP_BUILD_FLOOR_REPORT_STALE_MS` turns
-  enforcement off, so a broken cron or an App older than 9.0.13 never leaves the floor on.
+  enforcement off, so a broken cron or an App older than 9.0.14 never leaves the floor on.
 - **Timing-constant home:** `cloudflare/app-build-floor-contract.ts`:
   `APP_BUILD_FLOOR_REPORT_STALE_MS` (5 min) and `APP_BUILD_FLOOR_EDGE_CACHE_TTL_S` (30 s). The
   isolate cache uses `SERVICE_CONTROL_CACHE_TTL_MS` in `cloudflare/service-maintenance.ts`. The
@@ -2835,7 +2835,7 @@ entry needs the owner's acceptance and is not implied by this registry.
   - Setters: `src/core/__tests__/app-build-floor-ops.test.ts` (the abuse limit before any token
     parse or key fetch, each pinned claim, `set` above the live build refused, `lower` refusing a
     raise) and the admin rows of `app-build-floor-app-worker.test.ts`.
-- **Status:** `owner-in-place`. Added with forced update Inc 3 (train 9.0.13), when the cron
+- **Status:** `owner-in-place`. Added with forced update Inc 3 (train 9.0.14), when the cron
   report became a second machine on the floor beside the setters.
 
 ### RO-51 Return-from-background dialog
@@ -2843,7 +2843,7 @@ entry needs the owner's acceptance and is not implied by this registry.
 - **Resource:** the dialog slot of a return from the background: one dialog per return (owner
   decision 2026-10-17, [Resume dialog dedup](resume-dialog-dedup-2026-10-17.md)).
 - **Current owners/flows:** a precedence, with no single slot holder. Highest first: the forced
-  update dialog (RO-22, forced update train 9.0.13), the audio recovery dialog (`src/app.ts`),
+  update dialog (RO-22, forced update train 9.0.14), the audio recovery dialog (`src/app.ts`),
   the long-background warning (`src/ui/long-background-warning.ts`). A higher dialog withdraws
   the lower ones that are open or queued through their `AbortSignal` (a queued one is skipped
   when the dialog queue reaches it) and keeps new ones from opening while it is pending. The
@@ -2885,7 +2885,7 @@ entry needs the owner's acceptance and is not implied by this registry.
     checked by reading, as 8.11.7's was: `app.ts` is the bootstrap module and is not imported in
     tests.
 - **Status:** `duplicated` (three dialog holders, each with its own abort, coordinated by
-  precedence and one pending query). Added with forced update Inc 5 (train 9.0.13), when the
+  precedence and one pending query). Added with forced update Inc 5 (train 9.0.14), when the
   forced dialog became the third requester on the slot; it replaces the side-flow entry.
 
 ## Checked side flows without a record
@@ -2900,7 +2900,7 @@ get a record only if a change adds a second machine:
   not another retry machine. RTC liveness remains with RO-15, and explicit new
   admission uses the existing page-navigation owner (Phase 3 batch, 2026-10-24;
   [contract](signaling-liveness.md#explicit-standard-room-expiry)). A refusal below
-  the App build floor (`app-update-required`, forced update, train 9.0.13) is a
+  the App build floor (`app-update-required`, forced update, train 9.0.14) is a
   permanent guest admission refusal: the provider marks the admission `authFailed`
   as for `guest-reconnect-denied`, live channel or not, the same outer loop reads it
   and reopens nothing, and the forced update dialog (RO-22) takes over.

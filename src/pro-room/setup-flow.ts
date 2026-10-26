@@ -223,7 +223,7 @@ async function showUnavailable(title: string, message: string): Promise<void> {
   await showDialog({ title, message, buttonText: t('common.ok') });
 }
 
-/** An entry refused below the App build floor (forced update, train 9.0.12). */
+/** An entry refused below the App build floor (forced update, train 9.0.14). */
 function isAppUpdateRequired(error: unknown): error is ProRoomApiError {
   return error instanceof ProRoomApiError && error.code === APP_UPDATE_REQUIRED_CODE;
 }
@@ -859,7 +859,7 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
       }
     }
   } catch (error) {
-    // Below the App build floor (forced update, train 9.0.12): the forced
+    // Below the App build floor (forced update, train 9.0.14): the forced
     // update dialog answers it. A page holding a claim is already on /CODE and
     // reloads in place, the claim fence carrying the claim across; any other
     // returns to this room's start screen. When the machine declines (the loop

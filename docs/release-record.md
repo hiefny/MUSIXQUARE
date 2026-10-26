@@ -45,7 +45,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### 강제 업데이트 열차(9.0.13/v786 예정, 배포 전): 최소 앱 빌드와 C5-12 Inc 1
+### 강제 업데이트 열차(9.0.14/v787, 배포 전): 최소 앱 빌드와 C5-12 Inc 1
 
 - [ ] 범위(오너 정책 2026-10-25 약 16:40 KST, 결정 약 18:30 KST의 Q1~Q4, 약 22:00 KST 시작·복귀 확인 추가, 설계
       Q-A는 A): 클라이언트가 빌드 번호(SW 캐시 epoch 정수)를 Standard `host-auth`·`guest-auth`(재접속 포함)의 선택 키
@@ -54,7 +54,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       `app-update-required` 오류 프레임과 close 1008, PRO는 426). 유효 최소 빌드는 service-control 객체의 저장값과 App
       Worker가 매분 보고하는 live App 빌드 중 낮은 값이고 보고가 5분 넘으면 0이다(registry RO-50). 맺어진 세션은
       닫지 않는다. 거절되거나 시작·전경 복귀 때 읽은 최소 빌드(`GET /api/app-build-floor/effective`, 엣지 캐시 30초)보다
-      낮은 9.0.13+ 페이지는 같은 업데이트 대화상자를 '나중에' 없이 연다(RO-22. Back으로 닫히지 않음, 방·데모는
+      낮은 9.0.14+ 페이지는 같은 업데이트 대화상자를 '나중에' 없이 연다(RO-22. Back으로 닫히지 않음, 방·데모는
       `/CODE`로, worker가 없으면 `registration.update()` 뒤 재로드, sessionStorage `mxqr-forced-apply`로 재로드 루프
       막음). 복귀 때 창은 강제 창 > 오디오 복구 창 > 오래 백그라운드 경고 하나다(새 기록 RO-51). 설정은 GitHub
       Actions OIDC(`app-build-floor.yml`, Production Release 입력 `raise_app_build_floor`)로만 하고 관리자 대시보드는
@@ -66,29 +66,29 @@ gh run list --workflow e2e.yml --branch main --limit 3
       680 files / 16,097, Worker 67 files / 3,149, typecheck·`check:workers`·lint·format, 가드 전부(resource-ownership
       48 records / 442 files, navigation-sinks의 `SKIP_WAITING` 보내기 2·sink 호출 4), 빌드와 빌드 뒤 가드, 초기 JS
       480,468 B(바탕 `244aca48` 478,186 B 대비 +2,282 B, 유지 상한까지 11,100 B), 후보 Playwright 19/19, C5-0 랩
-      `forced-update.lab.ts` 2/2, PRO 426 Playwright 2/2 PASS. 5A가 9.0.12 / v785를 먼저 썼으므로(2026-10-26 10:34 KST 배포) 이 열차는 bump
-      단계에서 9.0.13 / v786(예정)으로 SemVer와 SW 캐시 epoch를 함께 올린다. 합친 뒤 `guard:sw-cache-version`의
-      PASS는 v785를 합침 커밋에서 세기 때문이라 bump를 대신하지 않는다. 남은 것: bump, 리뷰, PR CI, Codex,
+      `forced-update.lab.ts` 2/2, PRO 426 Playwright 2/2 PASS. 5A가 9.0.12 / v785를(2026-10-26 10:34 KST 배포), 구버전 제거 열차 1이 9.0.13 / v786을(#496
+      머지) 먼저 썼으므로 이 열차는 bump 단계에서 9.0.14 / v787로 SemVer와 SW 캐시 epoch를 함께 올린다. 합친 뒤
+      `guard:sw-cache-version`의 PASS는 epoch를 합침 커밋에서 세기 때문이라 bump를 대신하지 않는다. 남은 것: bump, 리뷰, PR CI, Codex,
       exact-main CI, 릴리스 smoke, 배포(target `all`: 여섯 Worker의 런타임 경로가 바뀌어 부분 릴리스는 거절되고, `all`은
       `appBuild`를 받는 Signaling을 App보다 먼저 배포), 아래 첫 최소 빌드. 로컬 결과는 exact-main-SHA 후보를 대신하지
       않는다. 설계 질문 Q-B(60분 업데이트 확인 tick에서도 최소 빌드를 읽을지)는 열려 있고 기본 No로 구현했으며, 구현
       세부(보고서의 '구현과 리뷰 중 정한 세부')는 오너 확인을 기다린다(게이트 아님).
-      [보고서](design/forced-update-9-0-12-2026-10-25.md).
+      [보고서](design/forced-update-9-0-14-2026-10-25.md).
 - [ ] 첫 최소 빌드(오너 결정 Q2, 게이트 아님): 이 열차는 최소 빌드 0, `raise_app_build_floor` false로 배포한다. 배포의
       smoke와 공개 자산을 확인한 직후 `app-build-floor.yml`을 `status`(live App이 이 빌드이고 보고가 새것), `check`(OIDC
-      끝까지, 변경 없음), `set`(이 열차 빌드, 예정 786) 순으로 dispatch하고 각 실행의 결론을 읽는다. 자격 증명은 필요
+      끝까지, 변경 없음), `set`(이 열차 빌드 787) 순으로 dispatch하고 각 실행의 결론을 읽는다. 자격 증명은 필요
       없다. 그 요약 줄을 §1의 '최소 앱 빌드' 행에 적고, 같은 기록 PR에서 known-accepted #13을 은퇴 표로 옮긴다. 이
-      열차의 복구 경계(App을 최소 빌드 아래로 되돌리기 전 `lower`, 9.0.13 이상 App이 live인 동안 Signaling을 9.0.13
-      아래로 되돌리지 않음, PRO Worker를 9.0.13 아래로 되돌리면 모든 Worker의 최소 빌드가 꺼짐)는 최소 빌드와 상관없이
-      9.0.13 배포부터 적용되므로(App이 `host-auth`에 `appBuild`를 싣는다) 첫 최소 빌드가 아니라 배포 기록(§1을 덮어쓰는
-      PR)에서 §4에 더한다. 첫 최소 빌드부터 9.0.12 이하(5A 포함)는 새 입장과 재접속에서 거절되고 다시 열면 회복한다.
+      열차의 복구 경계(App을 최소 빌드 아래로 되돌리기 전 `lower`, 9.0.14 이상 App이 live인 동안 Signaling을 9.0.14
+      아래로 되돌리지 않음, PRO Worker를 9.0.14 아래로 되돌리면 모든 Worker의 최소 빌드가 꺼짐)는 최소 빌드와 상관없이
+      9.0.14 배포부터 적용되므로(App이 `host-auth`에 `appBuild`를 싣는다) 첫 최소 빌드가 아니라 배포 기록(§1을 덮어쓰는
+      PR)에서 §4에 더한다. 첫 최소 빌드부터 9.0.13 이하(5A와 구버전 제거 열차 1 포함)는 새 입장과 재접속에서 거절되고 다시 열면 회복한다.
       이 열차의 시작·복귀 확인이 운영에서 처음 창을 띄우는 것은 그 다음 올리기에서다. 뒤의 올리기는 필요한 릴리스가
       따로 묻지 않고 입력으로 한다. [운영](hotfix-procedure.md#app-build-floor).
-- [ ] 배포 뒤 실기기 확인(게이트 아님): 옛 탭의 거절과 회복, 9.0.13 기기의 평소 입장, 맺어진 세션 유지(첫 최소 빌드
+- [ ] 배포 뒤 실기기 확인(게이트 아님): 옛 탭의 거절과 회복, 9.0.14 기기의 평소 입장, 맺어진 세션 유지(첫 최소 빌드
       직후), 그리고 다음 올리기 때 홈 화면 앱·Android·Windows의 복귀 강제 창(나중에 없음, Back으로 닫히지 않음, 방에서
       `/CODE`, 방장은 제자리, 오프라인 복귀는 창 없음, 1분 안 여러 번 오가도 창 하나, 60초 넘은 방 복귀는 강제 창 하나).
-      실제 9.0.10~9.0.12 탭의 거절 화면, GitHub OIDC 끝까지, 운영 cron 보고, 엣지 캐시, 실제 PWA 복귀는 아직 확인하지
-      않았다. [오너 기기 확인](design/forced-update-9-0-12-2026-10-25.md#오너-기기-확인-게이트-아님).
+      실제 9.0.10~9.0.13 탭의 거절 화면, GitHub OIDC 끝까지, 운영 cron 보고, 엣지 캐시, 실제 PWA 복귀는 아직 확인하지
+      않았다. [오너 기기 확인](design/forced-update-9-0-14-2026-10-25.md#오너-기기-확인-게이트-아님).
 
 ### 구버전 호환 코드 제거 열차 1(9.0.13/v786, 배포 전): 이미 있는 바닥 아래만 섬기던 호환 코드
 
@@ -1786,7 +1786,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 로컬 emergency deploy와 CLI rollback도 해당한다.
 
 1. §1 전체(표의 모든 행)와 머리말 표의 `Last source review`를 새 값으로
-   덮어쓴다. 이전 값은 남기지 않는다. 강제 업데이트 열차(9.0.13 예정) 배포부터
+   덮어쓴다. 이전 값은 남기지 않는다. 강제 업데이트 열차(9.0.14) 배포부터
    §1 표에 '최소 앱 빌드' 행을 두고 floor 스크립트의 요약 줄(저장·유효 값,
    revision, live·보고 App 빌드, 페이지 읽기)을 적는다. 배포 사이에 workflow로
    바꾼 최소 빌드는 그 행만 고치는 작은 기록 PR로 적고 이력 행은 더하지 않는다

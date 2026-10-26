@@ -868,7 +868,7 @@ interface RoomSmokeResult {
 }
 
 /**
- * A 9.0.12 or older host sends no appBuild: admitted while the floor is off,
+ * A 9.0.13 or older host sends no appBuild: admitted while the floor is off,
  * refused with the exact frame once it is on.
  */
 type LegacyCompatibilitySmokeResult =

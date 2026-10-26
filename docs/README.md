@@ -93,9 +93,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [Forced update train: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-12-2026-10-25.md):
-  evidence for the train that adds the forced update (planned 9.0.13 / v786, not yet released or
-  versioned; target `all`; the 9.0.12 receive-slot train took the number first). The App reports its
+- [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
+  evidence for the train that adds the forced update (9.0.14 / v787, not yet released or versioned;
+  target `all`; the 9.0.12 receive-slot train and the 9.0.13 old-version removal train took the
+  earlier numbers). The App reports its
   build (the service-worker cache epoch) in Standard `host-auth` and `guest-auth`, reconnects
   included, and in a header on every PRO request; the Signaling and PRO Workers refuse new entries
   below the effective App build floor (the stored floor in the service-control object, bounded by
@@ -106,7 +107,7 @@ runbooks. Neither belongs in a general setup document.
   the admin dashboard can only lower it). C5-12 Inc 1 lets a guest awaiting a preload take the
   main header of its admitted direct session on any route. The report lists the owner's policy
   and four decisions with the ~22:00 start/resume addition, each increment with its commits and
-  tests-first evidence, every caller of the gated entry points, what 9.0.12 and older clients
+  tests-first evidence, every caller of the gated entry points, what 9.0.13 and older clients
   show, the operations for raising, lowering and rolling back (the first floor is this train's
   own build), the eager JS delta (+2,282 B), the local verification after merging 5A, and the
   owner's device steps. Known-accepted #13 is superseded by it.

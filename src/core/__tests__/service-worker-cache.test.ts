@@ -2474,33 +2474,29 @@ describe('service worker cache policy', () => {
     expect(cacheDelete).not.toHaveBeenCalledWith(`musixquare-runtime-${RETIRED_CACHE_VERSION}`);
   });
 
-  it('scrubs sensitive query entries from a retained runtime cache on activation', async () => {
+  it('leaves the entries of a retained runtime cache alone on activation', async () => {
     const oldTab = { id: 'old-tab', postMessage: vi.fn() };
     windowClients = [oldTab];
     const sensitive = new Request(
       'https://musixquare.com/?code=one-time-code&state=oauth-correlation',
-    );
-    const accountClient = new Request(
-      'https://musixquare.com/account-complete.html?accountClient=tab-12345678',
     );
     const ordinary = new Request('https://musixquare.com/session?view=setup');
     cacheKeys.mockResolvedValue([
       `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
       `musixquare-runtime-${ACTIVE_CACHE_VERSION}`,
     ]);
-    cacheEntryKeys.mockResolvedValue([sensitive, accountClient, ordinary]);
+    cacheEntryKeys.mockResolvedValue([sensitive, ordinary]);
 
     await dispatchExtendable(activateListener);
 
-    expect(cacheOpen).toHaveBeenCalledOnce();
-    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${RETIRED_CACHE_VERSION}`);
-    expect(cacheEntryDelete).toHaveBeenCalledTimes(2);
-    expect(cacheEntryDelete.mock.calls.map(([request]) => request.url)).toEqual([
-      sensitive.url,
-      accountClient.url,
-    ]);
-    // The old tab still needs its retired hashed assets, so only sensitive
-    // entries are removed until it approves the active generation.
+    // Activation no longer opens a retained runtime cache to scrub sensitive
+    // navigations (old-version removal train 2, OV-A18): only runtime caches
+    // of v390 and older could hold one, and no worker since then stores one
+    // ("returns but never caches a navigation with sensitive query state").
+    expect(cacheOpen).not.toHaveBeenCalled();
+    expect(cacheEntryDelete).not.toHaveBeenCalled();
+    // The old tab still needs its retired generation until it approves the
+    // active one.
     expect(cacheDelete).not.toHaveBeenCalled();
   });
 

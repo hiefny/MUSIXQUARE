@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { JSDOM } from 'jsdom';
@@ -108,7 +108,7 @@ afterEach(() => {
 });
 
 describe('localized PWA install metadata', () => {
-  it('ships one structurally identical manifest for every supported app locale', () => {
+  it('ships one structurally identical manifest for every supported app locale and no root fallback', () => {
     const expectedCodes = LANGUAGE_OPTIONS.map(({ code }) => code).sort();
     const actualCodes = readdirSync(MANIFEST_DIRECTORY)
       .filter((file) => file.endsWith('.webmanifest'))
@@ -116,10 +116,11 @@ describe('localized PWA install metadata', () => {
       .sort();
     expect(actualCodes).toEqual(expectedCodes);
 
-    const fallback = readManifest(resolve('public/manifest.webmanifest'));
+    // The root English manifest that HTML up to 8.3.66 linked is gone
+    // (old-version removal train 2, OV-A18): the bootstrap names a localized one.
+    expect(existsSync(resolve('public/manifest.webmanifest'))).toBe(false);
     const english = readManifest(resolve(MANIFEST_DIRECTORY, 'en.webmanifest'));
-    expect(fallback).toEqual(english);
-    expect(fallback.lang).toBe('en');
+    expect(english.lang).toBe('en');
 
     const descriptions = new Set<string>();
     for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
@@ -233,8 +234,8 @@ describe('localized PWA install metadata', () => {
     expect(navigatorDeniedLink?.getAttribute('href')).toBe('/manifests/ko.webmanifest');
   });
 
-  it('precaches every localized manifest plus the legacy English fallback', () => {
-    expect(SERVICE_WORKER_SOURCE).toContain('./manifest.webmanifest');
+  it('precaches every localized manifest and no root fallback', () => {
+    expect(SERVICE_WORKER_SOURCE).not.toContain('./manifest.webmanifest');
     for (const { code } of LANGUAGE_OPTIONS) {
       expect(SERVICE_WORKER_SOURCE, code).toContain(`./manifests/${code}.webmanifest`);
     }

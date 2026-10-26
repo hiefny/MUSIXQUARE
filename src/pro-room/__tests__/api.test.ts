@@ -737,7 +737,7 @@ describe('PRO room cookie session API', () => {
       .mockResolvedValueOnce(
         jsonResponse({ ok: true, passwordRequired: true, existingParticipants: 'keep_present' }),
       );
-    // "Make everyone re-enter" is the legacy body every Worker understands.
+    // "Make everyone re-enter" sends the PIN without a membership choice.
     await expect(client.changePin(ROOM_CODE, '87654321')).resolves.toBeUndefined();
     await expect(
       client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
@@ -1288,54 +1288,6 @@ describe('PRO room cookie session API', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('ACKs a developer command with the current tab presence fence', async () => {
-    const commandId = 'cmd_1234567890123456789012';
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock.mockResolvedValueOnce(jsonResponse({ ok: true }));
-
-    await client.ackDeveloperCommand({ code: ROOM_CODE, commandId, resultCode: 'applied' });
-
-    const { url, init } = requestParts(fetchMock);
-    expect(url.pathname).toBe(
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/developer-commands/${commandId}/ack`,
-    );
-    expect(init).toMatchObject({
-      method: 'POST',
-      credentials: 'include',
-      cache: 'no-store',
-      body: JSON.stringify({ resultCode: 'applied' }),
-    });
-    const headers = new Headers(init.headers);
-    expect(headers.get('content-type')).toBe('application/json');
-    expect(headers.get('x-mxqr-pro-participant-id')).toBe(activeSnapshot().viewer!.participantId);
-    expect(headers.get('x-mxqr-pro-presence-incarnation')).toBe(
-      activeSnapshot().viewer!.presenceIncarnationId,
-    );
-  });
-
-  it('rejects malformed developer command ACK input before fetch', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-
-    await expect(
-      client.ackDeveloperCommand({
-        code: ROOM_CODE,
-        commandId: 'not-a-command',
-        resultCode: 'applied',
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_DEVELOPER_COMMAND_ID' });
-    await expect(
-      client.ackDeveloperCommand({
-        code: ROOM_CODE,
-        commandId: 'cmd_1234567890123456789012',
-        resultCode: 'not-valid' as 'applied',
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_DEVELOPER_COMMAND_RESULT' });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it('submits a BOT command for any PRO room with idempotency and the active presence fence', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -1869,7 +1821,7 @@ describe('PRO room administrator API', () => {
   });
 });
 
-describe('PRO room effects API', () => {
+describe('PRO room settings-sync API', () => {
   const effects = {
     reverb: {
       mixPercent: 40,
@@ -1883,100 +1835,6 @@ describe('PRO room effects API', () => {
     virtualSurround: { widthPercent: 120 },
     virtualTreble: { enabled: true },
   };
-  const projection = {
-    schemaVersion: 2 as const,
-    view: 'effects' as const,
-    roomCode: ROOM_CODE,
-    revision: 2,
-    updatedAtMs: 1_800_000_000_000,
-    effects,
-  };
-
-  it('reads and coordinator-updates the dedicated authenticated resource', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse(projection))
-      .mockResolvedValueOnce(jsonResponse({ ...projection, revision: 3 }));
-
-    await expect(client.getEffects(ROOM_CODE)).resolves.toEqual(projection);
-    await expect(
-      client.updateEffects({ code: ROOM_CODE, coordinatorEpoch: 1, baseRevision: 2, effects }),
-    ).resolves.toEqual({ ...projection, revision: 3 });
-
-    expect(fetchMock.mock.calls.map((call) => new URL(String(call[0])).pathname)).toEqual([
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/effects`,
-      `${PRO_ROOM_PRODUCTION_PATH}/v1/rooms/000001/effects`,
-    ]);
-    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe('PUT');
-    for (const call of fetchMock.mock.calls) {
-      expect(new Headers(call[1]?.headers).get('x-mxqr-pro-effects-version')).toBe('2');
-    }
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body))).toEqual({
-      coordinatorEpoch: 1,
-      baseRevision: 2,
-      effects,
-    });
-  });
-
-  it('rejects malformed local state and non-canonical server projections', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-
-    expect(() =>
-      client.updateEffects({
-        code: ROOM_CODE,
-        coordinatorEpoch: 1,
-        baseRevision: 2,
-        effects: {
-          ...effects,
-          virtualBass: { strengthPercent: 101 },
-        },
-      }),
-    ).toThrow('PRO_ROOM_API_INVALID_EFFECTS');
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    expect(() =>
-      client.updateEffects({
-        code: ROOM_CODE,
-        coordinatorEpoch: 1,
-        baseRevision: -1,
-        effects,
-      }),
-    ).toThrow('PRO_ROOM_API_INVALID_REVISION');
-    expect(fetchMock).not.toHaveBeenCalled();
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ ...projection, effects: { ...effects, localVolume: 0.5 } }),
-    );
-    await expect(client.getEffects(ROOM_CODE)).rejects.toMatchObject({
-      code: 'INVALID_RESPONSE',
-    });
-  });
-
-  it('surfaces a stale effects CAS as its explicit server conflict code', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ error: 'EFFECTS_REVISION_CONFLICT', effects: projection }, { status: 409 }),
-    );
-
-    await expect(
-      client.updateEffects({
-        code: ROOM_CODE,
-        coordinatorEpoch: 1,
-        baseRevision: 1,
-        effects,
-      }),
-    ).rejects.toMatchObject({
-      code: 'EFFECTS_REVISION_CONFLICT',
-      status: 409,
-    });
-  });
-
   it('reads and atomically updates the settings-sync volume plus DSP resource', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });

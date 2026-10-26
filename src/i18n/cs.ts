@@ -787,7 +787,6 @@ const cs: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Restartovat',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Aktivovat místnost PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Vyberte účet pro tuto místnost PRO',
   'pro.activation_account_message': 'Zaregistrovat tuto místnost k účtu „{{name}}“?',
@@ -796,9 +795,6 @@ const cs: Record<I18nKey, string> = {
   'pro.activation_account_continue': 'Pokračovat',
   'pro.activation_account_switch': 'Jiný účet',
   'pro.activation_account_unavailable': 'Účet se nepodařilo ověřit. Zkuste to za chvíli znovu.',
-  'pro.activation_complete': 'Dokončit registraci',
-  'pro.activation_message': 'Nastavte pro tuto místnost nové osmimístné heslo.',
-  'pro.activation_pin_same': 'Zvolte jiné heslo než dočasné.',
   'pro.claim_retry_title': 'Zkusit odkaz PRO znovu?',
   'pro.claim_retry_message':
     'Připojení bylo přerušeno. Odkaz zůstává bezpečně uložen na této obrazovce, takže to můžete zkusit znovu.',
@@ -846,8 +842,6 @@ const cs: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Všichni se připojí znovu',
   'pro.pin_members_reenter_detail':
     'Všichni se budou muset připojit znovu. Doporučujeme, pokud chcete najednou odebrat lidi, které neznáte.',
-  'pro.pin_keep_unavailable':
-    'Heslo nebylo změněno. Ponechat lidi v místnosti teď nelze. Zkuste to později znovu nebo zvolte „Všichni se připojí znovu“.',
   'pro.pin_enabled_removed_title': 'Místnost má teď heslo',
   'pro.pin_enabled_removed_message':
     'Vlastník místnosti nastavil pro tuto místnost heslo. Zadejte ho a připojte se znovu.',

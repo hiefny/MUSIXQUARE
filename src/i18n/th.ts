@@ -758,7 +758,6 @@ const th: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'เริ่มใหม่',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'เปิดใช้งานห้อง PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'เลือกบัญชีสำหรับห้อง PRO นี้',
   'pro.activation_account_message': 'ลงทะเบียนห้องนี้กับบัญชี “{{name}}” ไหม?',
@@ -766,9 +765,6 @@ const th: Record<I18nKey, string> = {
   'pro.activation_account_continue': 'ไปต่อ',
   'pro.activation_account_switch': 'บัญชีอื่น',
   'pro.activation_account_unavailable': 'ตรวจสอบข้อมูลบัญชีไม่ได้ ลองอีกครั้งในอีกสักครู่',
-  'pro.activation_complete': 'เสร็จสิ้นการลงทะเบียน',
-  'pro.activation_message': 'ตั้งรหัสผ่านตัวเลขใหม่ 8 หลักสำหรับห้องนี้',
-  'pro.activation_pin_same': 'เลือกรหัสผ่านที่ต่างจากรหัสผ่านชั่วคราว',
   'pro.claim_retry_title': 'ลองใช้ลิงก์ PRO อีกครั้งไหม?',
   'pro.claim_retry_message':
     'การเชื่อมต่อขาดช่วง ลิงก์ยังถูกเก็บไว้อย่างปลอดภัยบนหน้าจอนี้ จึงลองอีกครั้งได้',
@@ -815,8 +811,6 @@ const th: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'ทุกคนเข้าร่วมใหม่',
   'pro.pin_members_reenter_detail':
     'ทุกคนต้องเข้าร่วมใหม่ แนะนำวิธีนี้หากต้องการนำคนที่ไม่รู้จักออกทั้งหมดในครั้งเดียว',
-  'pro.pin_keep_unavailable':
-    'ยังไม่ได้เปลี่ยนรหัสผ่าน ตอนนี้ไม่สามารถเปลี่ยนโดยให้ทุกคนอยู่ในห้องต่อได้ ลองอีกครั้งในภายหลัง หรือเลือก “ทุกคนเข้าร่วมใหม่”',
   'pro.pin_enabled_removed_title': 'ห้องนี้ตั้งรหัสผ่านแล้ว',
   'pro.pin_enabled_removed_message':
     'เจ้าของห้องตั้งรหัสผ่านให้ห้องนี้แล้ว ใส่รหัสผ่านเพื่อเข้าร่วมอีกครั้ง',

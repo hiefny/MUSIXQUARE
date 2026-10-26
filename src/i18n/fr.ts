@@ -722,7 +722,6 @@ const fr: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Redémarrer',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Activer le salon PRO',
   'pro.activation_account_title': 'Choisir un compte pour ce salon PRO',
   'pro.activation_account_message': 'Enregistrer ce salon sur le compte « {{name}} » ?',
   'pro.activation_account_login_message':
@@ -731,9 +730,6 @@ const fr: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Autre compte',
   'pro.activation_account_unavailable':
     'Impossible de vérifier votre compte. Réessayez dans un instant.',
-  'pro.activation_complete': 'Terminer l’enregistrement',
-  'pro.activation_message': 'Définissez un nouveau mot de passe à 8 chiffres pour ce salon.',
-  'pro.activation_pin_same': 'Choisissez un mot de passe différent du mot de passe temporaire.',
   'pro.claim_retry_title': 'Réessayer avec le lien PRO ?',
   'pro.claim_retry_message':
     'La connexion a été interrompue. Le lien reste stocké en toute sécurité sur cet écran, vous pouvez donc réessayer.',
@@ -781,8 +777,6 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Tout le monde revient',
   'pro.pin_members_reenter_detail':
     'Tout le monde devra rejoindre de nouveau le salon. Recommandé pour retirer d’un coup les personnes que vous ne connaissez pas.',
-  'pro.pin_keep_unavailable':
-    'Le mot de passe n’a pas été modifié. Impossible pour l’instant de laisser les personnes dans le salon. Réessayez plus tard ou choisissez « Tout le monde revient ».',
   'pro.pin_enabled_removed_title': 'Mot de passe du salon défini',
   'pro.pin_enabled_removed_message':
     'Le propriétaire du salon a défini un mot de passe. Saisissez-le pour rejoindre de nouveau le salon.',

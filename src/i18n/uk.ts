@@ -783,7 +783,6 @@ const uk: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Перезапустити',
 
   // ─── Кімнати PRO ─────────────────────────────────────────────────
-  'pro.activation_title': 'Активувати кімнату PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Виберіть обліковий запис для цієї кімнати PRO',
   'pro.activation_account_message': 'Зареєструвати цю кімнату на обліковий запис «{{name}}»?',
@@ -793,9 +792,6 @@ const uk: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Інший акаунт',
   'pro.activation_account_unavailable':
     'Не вдалося перевірити обліковий запис. Спробуйте ще раз трохи згодом.',
-  'pro.activation_complete': 'Завершити реєстрацію',
-  'pro.activation_message': 'Задайте новий 8-значний пароль для цієї кімнати.',
-  'pro.activation_pin_same': 'Виберіть пароль, що відрізняється від тимчасового.',
   'pro.claim_retry_title': 'Спробувати посилання PRO ще раз?',
   'pro.claim_retry_message':
     'З’єднання перервано. Посилання безпечно збережено на цьому екрані, тому спробу можна повторити.',
@@ -844,8 +840,6 @@ const uk: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Усі приєднуються знову',
   'pro.pin_members_reenter_detail':
     'Усім доведеться приєднатися знову. Рекомендуємо, якщо потрібно одразу вилучити незнайомих людей.',
-  'pro.pin_keep_unavailable':
-    'Пароль не змінено. Зараз не можна залишити людей у кімнаті. Спробуйте пізніше або виберіть «Усі приєднуються знову».',
   'pro.pin_enabled_removed_title': 'Для кімнати задано пароль',
   'pro.pin_enabled_removed_message':
     'Власник кімнати задав пароль для цієї кімнати. Введіть його, щоб приєднатися знову.',

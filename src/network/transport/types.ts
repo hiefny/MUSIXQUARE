@@ -2,16 +2,6 @@ import { parseRoomEffectsPatch, type RoomEffectsPatch } from '../../core/room-ef
 
 export type TransportProvider = 'peerjs' | 'cloudflare';
 
-export type DeveloperCommandResultCode =
-  | 'applied'
-  | 'already_applied'
-  | 'busy'
-  | 'no_media'
-  | 'stale_queue'
-  | 'unsupported_mode'
-  | 'expired'
-  | 'execution_failed';
-
 type DeveloperCommand =
   | { readonly type: 'play' }
   | { readonly type: 'pause' }

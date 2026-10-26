@@ -795,7 +795,6 @@ const pl: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Restartuj',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Aktywuj pokój PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Wybierz konto dla tego pokoju PRO',
   'pro.activation_account_message': 'Zarejestrować ten pokój na koncie „{{name}}”?',
@@ -805,9 +804,6 @@ const pl: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Inne konto',
   'pro.activation_account_unavailable':
     'Nie udało się zweryfikować konta. Spróbuj ponownie za chwilę.',
-  'pro.activation_complete': 'Zakończ rejestrację',
-  'pro.activation_message': 'Ustaw nowe 8-cyfrowe hasło dla tego pokoju.',
-  'pro.activation_pin_same': 'Wybierz hasło inne niż hasło tymczasowe.',
   'pro.claim_retry_title': 'Spróbować ponownie użyć linku PRO?',
   'pro.claim_retry_message':
     'Połączenie zostało przerwane. Link jest bezpiecznie przechowywany tylko na tym ekranie, więc możesz spróbować ponownie.',
@@ -855,8 +851,6 @@ const pl: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Wszyscy dołączają ponownie',
   'pro.pin_members_reenter_detail':
     'Wszyscy muszą dołączyć ponownie. Zalecane, jeśli chcesz od razu usunąć nieznane osoby.',
-  'pro.pin_keep_unavailable':
-    'Hasło nie zostało zmienione. Obecnie nie można zostawić osób w pokoju. Spróbuj ponownie później albo wybierz „Wszyscy dołączają ponownie”.',
   'pro.pin_enabled_removed_title': 'Pokój ma teraz hasło',
   'pro.pin_enabled_removed_message':
     'Właściciel pokoju ustawił hasło do tego pokoju. Wpisz je, aby dołączyć ponownie.',

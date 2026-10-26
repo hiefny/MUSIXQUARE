@@ -759,7 +759,6 @@ const ar: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'إعادة التشغيل',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'تفعيل غرفة PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'اختر حسابًا لتسجيل غرفة PRO هذه',
   'pro.activation_account_message': 'هل تريد تسجيل هذه الغرفة في الحساب «{{name}}»؟',
@@ -767,9 +766,6 @@ const ar: Record<I18nKey, string> = {
   'pro.activation_account_continue': 'متابعة',
   'pro.activation_account_switch': 'حساب آخر',
   'pro.activation_account_unavailable': 'تعذّر التحقق من حسابك. يرجى المحاولة مجددًا بعد قليل.',
-  'pro.activation_complete': 'إكمال تسجيل الغرفة',
-  'pro.activation_message': 'عيّن كلمة مرور جديدة من 8 أرقام لهذه الغرفة.',
-  'pro.activation_pin_same': 'اختر كلمة مرور مختلفة عن المؤقتة.',
   'pro.claim_retry_title': 'هل تريد تجربة رابط PRO مجددًا؟',
   'pro.claim_retry_message':
     'انقطع الاتصال. ظل الرابط محفوظًا بأمان على هذه الشاشة، لذا يمكنك إعادة المحاولة.',
@@ -817,8 +813,6 @@ const ar: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'انضمام الجميع مجددًا',
   'pro.pin_members_reenter_detail':
     'سيتعين على الجميع الانضمام مجددًا. يُنصح بهذا الخيار لإزالة الأشخاص الذين لا تعرفهم دفعة واحدة.',
-  'pro.pin_keep_unavailable':
-    'لم يتم تغيير كلمة المرور. لا يمكن حاليًا إبقاء الأشخاص في الغرفة. حاول مجددًا لاحقًا أو اختر «انضمام الجميع مجددًا».',
   'pro.pin_enabled_removed_title': 'أصبحت للغرفة كلمة مرور',
   'pro.pin_enabled_removed_message':
     'عيّن مالك الغرفة كلمة مرور لهذه الغرفة. أدخلها للانضمام مجددًا.',

@@ -28,8 +28,6 @@ import type {
 } from '../network/transport/types.ts';
 import type { ProRoomAdministrator } from '../pro-room/contracts.ts';
 
-export type { DeveloperCommandResultCode } from '../network/transport/types.ts';
-
 /** App data channel connection. PeerJS is only one possible provider. */
 export type DataConnection = TransportDataConnection;
 

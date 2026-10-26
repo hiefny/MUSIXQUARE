@@ -789,7 +789,6 @@ const ru: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Перезапустить',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Активировать PRO-комнату',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Выберите аккаунт для этой PRO-комнаты',
   'pro.activation_account_message': 'Зарегистрировать эту комнату на аккаунт «{{name}}»?',
@@ -799,9 +798,6 @@ const ru: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Другой аккаунт',
   'pro.activation_account_unavailable':
     'Не удалось проверить аккаунт. Повторите попытку чуть позже.',
-  'pro.activation_complete': 'Завершить регистрацию',
-  'pro.activation_message': 'Задайте новый 8-значный цифровой пароль для этой комнаты.',
-  'pro.activation_pin_same': 'Выберите пароль, отличный от временного.',
   'pro.claim_retry_title': 'Повторить попытку по PRO-ссылке?',
   'pro.claim_retry_message':
     'Соединение прервалось. Ссылка безопасно хранится только на этом экране, поэтому можно повторить попытку.',
@@ -849,8 +845,6 @@ const ru: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Все входят заново',
   'pro.pin_members_reenter_detail':
     'Всем нужно будет войти снова. Рекомендуется, если нужно сразу удалить незнакомых людей.',
-  'pro.pin_keep_unavailable':
-    'Пароль не изменён. Сейчас нельзя оставить людей в комнате. Попробуйте позже или выберите «Все входят заново».',
   'pro.pin_enabled_removed_title': 'Для комнаты задан пароль',
   'pro.pin_enabled_removed_message':
     'Владелец комнаты задал пароль для этой комнаты. Введите его, чтобы войти снова.',

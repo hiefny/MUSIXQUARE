@@ -5,12 +5,7 @@ function projectClientCapabilities(snapshot: ProRoomSnapshot): RoomCapability[] 
   const viewer = snapshot.viewer;
   if (!viewer) return [];
 
-  const capabilities = new Set<RoomCapability>(
-    viewer.capabilities.filter(
-      (capability): capability is Exclude<typeof capability, 'coordinator.eligible'> =>
-        capability !== 'coordinator.eligible',
-    ),
-  );
+  const capabilities = new Set<RoomCapability>(viewer.capabilities);
 
   const administrator = snapshot.administrators.find(
     (candidate) => candidate.memberId === viewer.memberId,

@@ -776,7 +776,6 @@ const hi: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'रीस्टार्ट करें',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO रूम सक्रिय करें',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'इस PRO रूम के लिए अकाउंट चुनें',
   'pro.activation_account_message': 'इस रूम को “{{name}}” अकाउंट में रजिस्टर करना है?',
@@ -786,9 +785,6 @@ const hi: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'दूसरा अकाउंट',
   'pro.activation_account_unavailable':
     'आपके अकाउंट की जानकारी जाँची नहीं जा सकी। कृपया थोड़ी देर बाद फिर कोशिश करें।',
-  'pro.activation_complete': 'रजिस्ट्रेशन पूरा करें',
-  'pro.activation_message': 'इस रूम के लिए 8 अंकों का नया पासवर्ड सेट करें।',
-  'pro.activation_pin_same': 'ऐसा पासवर्ड चुनें जो अस्थायी पासवर्ड से अलग हो।',
   'pro.claim_retry_title': 'PRO लिंक से फिर कोशिश करें?',
   'pro.claim_retry_message':
     'कनेक्शन बीच में टूट गया था। लिंक इस स्क्रीन पर सुरक्षित रखा गया है, इसलिए आप फिर कोशिश कर सकते हैं।',
@@ -836,8 +832,6 @@ const hi: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'सभी फिर से शामिल हों',
   'pro.pin_members_reenter_detail':
     'सभी को फिर से शामिल होना होगा। अनजान लोगों को एक साथ हटाने के लिए हम यह तरीका सुझाते हैं।',
-  'pro.pin_keep_unavailable':
-    'पासवर्ड नहीं बदला गया। अभी लोगों को रूम में रखते हुए पासवर्ड नहीं बदला जा सकता। थोड़ी देर बाद फिर कोशिश करें या “सभी फिर से शामिल हों” चुनें।',
   'pro.pin_enabled_removed_title': 'रूम का पासवर्ड सेट किया गया',
   'pro.pin_enabled_removed_message':
     'रूम के मालिक ने इस रूम का पासवर्ड सेट किया है। फिर से शामिल होने के लिए इसे दर्ज करें।',

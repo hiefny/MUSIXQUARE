@@ -797,7 +797,6 @@ const nl: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Herstarten',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'PRO-kamer activeren',
   'pro.activation_account_title': 'Kies een account voor deze PRO-kamer',
   'pro.activation_account_message': 'Deze kamer registreren op het account “{{name}}”?',
   'pro.activation_account_login_message':
@@ -806,9 +805,6 @@ const nl: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Ander account',
   'pro.activation_account_unavailable':
     'We konden je account niet verifiëren. Probeer het zo opnieuw.',
-  'pro.activation_complete': 'Registratie voltooien',
-  'pro.activation_message': 'Stel een nieuw wachtwoord van 8 cijfers in voor deze kamer.',
-  'pro.activation_pin_same': 'Kies een ander wachtwoord dan het tijdelijke.',
   'pro.claim_retry_title': 'PRO-link opnieuw proberen?',
   'pro.claim_retry_message':
     'De verbinding werd onderbroken. De link wordt veilig op dit scherm bewaard, zodat je het opnieuw kunt proberen.',
@@ -856,8 +852,6 @@ const nl: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Iedereen neemt opnieuw deel',
   'pro.pin_members_reenter_detail':
     'Iedereen moet opnieuw deelnemen. Aanbevolen om onbekenden in één keer te verwijderen.',
-  'pro.pin_keep_unavailable':
-    'Het wachtwoord is niet gewijzigd. Mensen in de kamer laten blijven kan nu niet. Probeer het later opnieuw of kies “Iedereen neemt opnieuw deel”.',
   'pro.pin_enabled_removed_title': 'De kamer heeft nu een wachtwoord',
   'pro.pin_enabled_removed_message':
     'De kamereigenaar heeft een wachtwoord voor deze kamer ingesteld. Voer het in om opnieuw deel te nemen.',

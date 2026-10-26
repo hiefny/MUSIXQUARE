@@ -754,7 +754,6 @@ const he: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'הפעלה מחדש',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'הפעלת חדר PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'בחירת חשבון לחדר ה-PRO',
   'pro.activation_account_message': 'לרשום את החדר הזה בחשבון „{{name}}”?',
@@ -762,9 +761,6 @@ const he: Record<I18nKey, string> = {
   'pro.activation_account_continue': 'המשך',
   'pro.activation_account_switch': 'חשבון אחר',
   'pro.activation_account_unavailable': 'לא הצלחנו לאמת את פרטי החשבון. כדאי לנסות שוב בעוד רגע.',
-  'pro.activation_complete': 'השלמת הרישום',
-  'pro.activation_message': 'יש להגדיר לחדר סיסמה חדשה בת 8 ספרות.',
-  'pro.activation_pin_same': 'יש לבחור סיסמה שונה מהסיסמה הזמנית.',
   'pro.claim_retry_title': 'לנסות שוב את קישור ה-PRO?',
   'pro.claim_retry_message': 'החיבור נקטע. הקישור נשמר בבטחה במסך הזה, ולכן אפשר לנסות שוב.',
   'pro.claim_unavailable_title': 'אי אפשר עוד להשתמש בקישור הזה',
@@ -809,8 +805,6 @@ const he: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'כולם מצטרפים מחדש',
   'pro.pin_members_reenter_detail':
     'כולם יצטרכו להצטרף מחדש. מומלץ כדי להסיר בבת אחת אנשים לא מוכרים.',
-  'pro.pin_keep_unavailable':
-    'הסיסמה לא שונתה. כרגע אי אפשר לשנות אותה ולהשאיר את כולם בחדר. אפשר לנסות שוב מאוחר יותר או לבחור „כולם מצטרפים מחדש”.',
   'pro.pin_enabled_removed_title': 'הוגדרה סיסמה לחדר',
   'pro.pin_enabled_removed_message':
     'בעל החדר הגדיר סיסמה לחדר הזה. אפשר להזין אותה כדי להצטרף מחדש.',

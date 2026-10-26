@@ -783,7 +783,6 @@ const nb: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Start på nytt',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Aktiver PRO-rom',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Velg en konto for dette PRO-rommet',
   'pro.activation_account_message': 'Vil du registrere dette rommet på kontoen «{{name}}»?',
@@ -791,9 +790,6 @@ const nb: Record<I18nKey, string> = {
   'pro.activation_account_continue': 'Fortsett',
   'pro.activation_account_switch': 'Annen konto',
   'pro.activation_account_unavailable': 'Kunne ikke bekrefte kontoen din. Prøv igjen om litt.',
-  'pro.activation_complete': 'Fullfør registreringen',
-  'pro.activation_message': 'Angi et nytt 8-sifret passord for dette rommet.',
-  'pro.activation_pin_same': 'Velg et annet passord enn det midlertidige.',
   'pro.claim_retry_title': 'Vil du prøve PRO-lenken på nytt?',
   'pro.claim_retry_message':
     'Tilkoblingen ble avbrutt. Lenken oppbevares trygt på denne skjermen, slik at du kan prøve igjen.',
@@ -841,8 +837,6 @@ const nb: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Alle blir med på nytt',
   'pro.pin_members_reenter_detail':
     'Alle må bli med på nytt. Anbefales hvis du vil fjerne folk du ikke kjenner, på én gang.',
-  'pro.pin_keep_unavailable':
-    'Passordet ble ikke endret. Det går ikke an å la folk bli i rommet akkurat nå. Prøv igjen senere, eller velg «Alle blir med på nytt».',
   'pro.pin_enabled_removed_title': 'Rommet har fått passord',
   'pro.pin_enabled_removed_message':
     'Rommets eier har angitt et passord for rommet. Skriv det inn for å bli med igjen.',

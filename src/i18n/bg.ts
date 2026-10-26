@@ -790,7 +790,6 @@ const bg: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Рестартиране',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Активиране на PRO стая',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Избери профил за тази PRO стая',
   'pro.activation_account_message': 'Да регистрираме ли тази стая към профила „{{name}}“?',
@@ -800,9 +799,6 @@ const bg: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Друг профил',
   'pro.activation_account_unavailable':
     'Не успяхме да потвърдим профила ти. Опитай отново след малко.',
-  'pro.activation_complete': 'Завършване на регистрацията',
-  'pro.activation_message': 'Задай нова 8-цифрена парола за тази стая.',
-  'pro.activation_pin_same': 'Избери парола, различна от временната.',
   'pro.claim_retry_title': 'Да опитаме ли отново с PRO връзката?',
   'pro.claim_retry_message':
     'Свързването бе прекъснато. Връзката се пази сигурно на този екран, така че можеш да опиташ отново.',
@@ -850,8 +846,6 @@ const bg: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Всички влизат отново',
   'pro.pin_members_reenter_detail':
     'Всички трябва да влязат отново. Препоръчително е, ако искаш да премахнеш непознатите наведнъж.',
-  'pro.pin_keep_unavailable':
-    'Паролата не е променена. В момента опцията „Всички остават“ не е достъпна. Опитай отново по-късно или избери „Всички влизат отново“.',
   'pro.pin_enabled_removed_title': 'Стаята вече има парола',
   'pro.pin_enabled_removed_message':
     'Собственикът на стаята зададе парола за тази стая. Въведи я, за да влезеш отново.',

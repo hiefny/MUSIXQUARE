@@ -452,7 +452,6 @@ async function promptPin(options: {
   title: string;
   message: string;
   autocomplete: string;
-  temporaryPin?: string;
   signal?: AbortSignal;
   buttonText?: string;
 }): Promise<string | null> {
@@ -467,14 +466,8 @@ async function promptPin(options: {
       autocomplete: options.autocomplete,
       splitEvery: 4,
       separator: '-',
-      validator: (value) => {
-        const pin = normalizeProRoomPin(value);
-        if (!pin) return t('connect.room_password_invalid');
-        if (options.temporaryPin && pin === options.temporaryPin) {
-          return t('pro.activation_pin_same');
-        }
-        return null;
-      },
+      validator: (value) =>
+        normalizeProRoomPin(value) ? null : t('connect.room_password_invalid'),
     },
     buttonText: options.buttonText ?? t('common.ok'),
     secondaryText: t('common.cancel'),

@@ -344,9 +344,6 @@ describe('PRO room setup flow', () => {
         inputField: expect.objectContaining({ autocomplete: 'current-password' }),
       }),
     );
-    expect(mocks.showDialog).not.toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'pro.activation_title' }),
-    );
     expect(mocks.activate).not.toHaveBeenCalled();
     expect(mocks.join).toHaveBeenCalledWith(
       {
@@ -674,9 +671,6 @@ describe('PRO room setup flow', () => {
       .mockResolvedValueOnce({});
     mocks.showDialog.mockImplementation(
       async (options: { title?: string; onPrimaryActivation?: () => void }) => {
-        if (options.title === 'pro.activation_title') {
-          return { action: 'ok', inputValue: '87654321' };
-        }
         if (options.title === 'pro.claim_login_title') {
           options.onPrimaryActivation?.();
           return { action: 'ok' };
@@ -737,9 +731,6 @@ describe('PRO room setup flow', () => {
       .mockResolvedValueOnce('b'.repeat(43));
     mocks.showDialog.mockImplementation(
       async (options: { title?: string; onPrimaryActivation?: () => void }) => {
-        if (options.title === 'pro.activation_title') {
-          return { action: 'ok', inputValue: '87654321' };
-        }
         if (options.title === 'pro.claim_login_title') {
           options.onPrimaryActivation?.();
           return { action: 'ok' };
@@ -752,10 +743,8 @@ describe('PRO room setup flow', () => {
 
     expect(mocks.loginPopup).not.toHaveBeenCalled();
     expect(mocks.confirmActivationAccount).toHaveBeenCalledTimes(2);
-    const pinDialogs = mocks.showDialog.mock.calls
-      .map(([options]) => options)
-      .filter((options) => options.title === 'pro.activation_title');
-    expect(pinDialogs).toHaveLength(0);
+    // Activation never asks for a PIN.
+    expect(mocks.showDialog.mock.calls.some(([options]) => 'inputField' in options)).toBe(false);
     expect(mocks.activate.mock.calls.map(([input]) => input.expectedAccountScope)).toEqual([
       ACCOUNT_SCOPE,
       'b'.repeat(43),

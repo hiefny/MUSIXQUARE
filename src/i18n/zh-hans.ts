@@ -656,16 +656,12 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.session_lost_btn': '重新开始',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': '激活 PRO 房间',
   'pro.activation_account_title': '选择此 PRO 房间的注册账号',
   'pro.activation_account_message': '要将此房间注册到“{{name}}”账号吗？',
   'pro.activation_account_login_message': '请登录要用于注册此房间的账号。',
   'pro.activation_account_continue': '继续',
   'pro.activation_account_switch': '其他账号',
   'pro.activation_account_unavailable': '无法确认账号信息，请稍后重试。',
-  'pro.activation_complete': '完成注册',
-  'pro.activation_message': '请为此房间设置新的 8 位数字密码。',
-  'pro.activation_pin_same': '请选择与临时密码不同的密码。',
   'pro.claim_retry_title': '要使用 PRO 链接重试吗？',
   'pro.claim_retry_message': '连接已中断。此链接会安全地保留在当前页面，你可以重试。',
   'pro.claim_unavailable_title': '此链接已无法使用',
@@ -708,8 +704,6 @@ const zhHans: Record<I18nKey, string> = {
   'pro.pin_members_reenter': '全部重新加入',
   'pro.pin_members_reenter_detail':
     '所有人都需要重新加入。如需一次移除所有陌生人，推荐使用此方式。',
-  'pro.pin_keep_unavailable':
-    '密码未修改。目前无法在保留现有成员的情况下修改密码。请稍后重试，或选择“全部重新加入”。',
   'pro.pin_enabled_removed_title': '房间已设置密码',
   'pro.pin_enabled_removed_message': '房主为此房间设置了密码。输入密码即可重新加入。',
   'pro.pin_changed_removed_title': '房间密码已更改',

@@ -791,7 +791,6 @@ const hu: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Újraindítás',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'PRO-szoba aktiválása',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Válassz fiókot ehhez a PRO-szobához',
   'pro.activation_account_message': 'Regisztrálod ezt a szobát a következő fiókhoz: „{{name}}”?',
@@ -801,9 +800,6 @@ const hu: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Másik fiók',
   'pro.activation_account_unavailable':
     'Nem sikerült ellenőrizni a fiókodat. Próbáld újra hamarosan.',
-  'pro.activation_complete': 'Regisztráció befejezése',
-  'pro.activation_message': 'Állíts be új, nyolcjegyű jelszót ehhez a szobához.',
-  'pro.activation_pin_same': 'Válassz az ideiglenestől eltérő jelszót.',
   'pro.claim_retry_title': 'Újrapróbálod a PRO-hivatkozást?',
   'pro.claim_retry_message':
     'A kapcsolat megszakadt. A hivatkozást biztonságosan megőrzi ez a képernyő, így újra próbálkozhatsz.',
@@ -851,8 +847,6 @@ const hu: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Mindenki újra csatlakozik',
   'pro.pin_members_reenter_detail':
     'Mindenkinek újra kell csatlakoznia. Ezt ajánljuk, ha egyszerre szeretnéd eltávolítani az ismeretleneket.',
-  'pro.pin_keep_unavailable':
-    'A jelszó nem változott. A résztvevőket most nem lehet a szobában tartani. Próbáld újra később, vagy válaszd a „Mindenki újra csatlakozik” lehetőséget.',
   'pro.pin_enabled_removed_title': 'A szobának jelszava lett',
   'pro.pin_enabled_removed_message':
     'A szobatulajdonos jelszót állított be ehhez a szobához. Add meg, és újra csatlakozhatsz.',

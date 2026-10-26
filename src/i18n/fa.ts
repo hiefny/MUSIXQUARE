@@ -768,7 +768,6 @@ const fa: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'شروع دوباره',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'فعال‌سازی اتاق PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'انتخاب حساب برای این اتاق PRO',
   'pro.activation_account_message': 'این اتاق در حساب «{{name}}» ثبت شود؟',
@@ -776,9 +775,6 @@ const fa: Record<I18nKey, string> = {
   'pro.activation_account_continue': 'ادامه',
   'pro.activation_account_switch': 'حساب دیگر',
   'pro.activation_account_unavailable': 'اطلاعات حساب شما بررسی نشد. کمی بعد دوباره تلاش کنید.',
-  'pro.activation_complete': 'تکمیل ثبت',
-  'pro.activation_message': 'یک گذرواژهٔ 8 رقمی جدید برای این اتاق تنظیم کنید.',
-  'pro.activation_pin_same': 'گذرواژه‌ای متفاوت از گذرواژهٔ موقت انتخاب کنید.',
   'pro.claim_retry_title': 'پیوند PRO دوباره امتحان شود؟',
   'pro.claim_retry_message':
     'اتصال قطع شد. پیوند با امنیت در این صفحه نگه‌داری شده و می‌توانید دوباره تلاش کنید.',
@@ -826,8 +822,6 @@ const fa: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'همه دوباره بپیوندند',
   'pro.pin_members_reenter_detail':
     'همه باید دوباره بپیوندند. برای بیرون کردن یکجای افراد ناشناس، این روش را توصیه می‌کنیم.',
-  'pro.pin_keep_unavailable':
-    'گذرواژه تغییر نکرد. در حال حاضر نمی‌توان افراد را در اتاق نگه داشت. بعداً دوباره تلاش کنید یا «همه دوباره بپیوندند» را انتخاب کنید.',
   'pro.pin_enabled_removed_title': 'برای اتاق گذرواژه تنظیم شد',
   'pro.pin_enabled_removed_message':
     'مالک اتاق برای این اتاق گذرواژه تنظیم کرد. برای پیوستن دوباره، آن را وارد کنید.',

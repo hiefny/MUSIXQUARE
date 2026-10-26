@@ -698,7 +698,6 @@ const vi: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Khởi động lại',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Kích hoạt phòng PRO',
   'pro.activation_account_title': 'Chọn tài khoản cho phòng PRO này',
   'pro.activation_account_message': 'Đăng ký phòng này vào tài khoản “{{name}}”?',
   'pro.activation_account_login_message':
@@ -707,9 +706,6 @@ const vi: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Tài khoản khác',
   'pro.activation_account_unavailable':
     'Không thể xác minh tài khoản của bạn. Vui lòng thử lại sau giây lát.',
-  'pro.activation_complete': 'Hoàn tất đăng ký',
-  'pro.activation_message': 'Đặt mật khẩu mới gồm 8 chữ số cho phòng này.',
-  'pro.activation_pin_same': 'Chọn mật khẩu khác với mật khẩu tạm thời.',
   'pro.claim_retry_title': 'Thử lại bằng liên kết PRO?',
   'pro.claim_retry_message':
     'Kết nối đã bị gián đoạn. Liên kết vẫn được giữ an toàn trên màn hình này nên bạn có thể thử lại.',
@@ -757,8 +753,6 @@ const vi: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Mọi người vào lại',
   'pro.pin_members_reenter_detail':
     'Mọi người đều phải vào lại. Nên chọn cách này để mời tất cả người lạ ra khỏi phòng cùng lúc.',
-  'pro.pin_keep_unavailable':
-    'Mật khẩu chưa được đổi. Hiện không thể giữ mọi người ở lại phòng. Hãy thử lại sau hoặc chọn “Mọi người vào lại”.',
   'pro.pin_enabled_removed_title': 'Phòng đã được đặt mật khẩu',
   'pro.pin_enabled_removed_message':
     'Chủ phòng đã đặt mật khẩu cho phòng này. Nhập mật khẩu để vào lại phòng.',

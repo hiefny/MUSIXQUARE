@@ -784,7 +784,6 @@ const te: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'రీస్టార్ట్',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO గదిని యాక్టివేట్ చేయి',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'ఈ PRO గది కోసం ఖాతాను ఎంచుకోండి',
   'pro.activation_account_message': 'ఈ గదిని “{{name}}” ఖాతాకు నమోదు చేయాలా?',
@@ -793,9 +792,6 @@ const te: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'మరో ఖాతా',
   'pro.activation_account_unavailable':
     'మీ ఖాతాను ధృవీకరించలేకపోయాం. కాసేపట్లో మళ్లీ ప్రయత్నించండి.',
-  'pro.activation_complete': 'నమోదు పూర్తి చేయి',
-  'pro.activation_message': 'ఈ గదికి కొత్త 8 అంకెల పాస్‌వర్డ్‌ను సెట్ చేయండి.',
-  'pro.activation_pin_same': 'తాత్కాలిక పాస్‌వర్డ్‌కు భిన్నమైనదాన్ని ఎంచుకోండి.',
   'pro.claim_retry_title': 'PRO లింక్‌ను మళ్లీ ప్రయత్నించాలా?',
   'pro.claim_retry_message':
     'కనెక్షన్ మధ్యలో ఆగింది. లింక్ ఈ స్క్రీన్‌లో సురక్షితంగా ఉంది, కాబట్టి మళ్లీ ప్రయత్నించవచ్చు.',
@@ -843,8 +839,6 @@ const te: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'అందరూ మళ్లీ చేరాలి',
   'pro.pin_members_reenter_detail':
     'అందరూ మళ్లీ చేరాల్సి ఉంటుంది. తెలియని వ్యక్తులను ఒకేసారి తొలగించడానికి ఈ పద్ధతిని సిఫార్సు చేస్తున్నాం.',
-  'pro.pin_keep_unavailable':
-    'పాస్‌వర్డ్ మారలేదు. ఇప్పుడు వ్యక్తులను గదిలోనే ఉంచి మార్చడం కుదరదు. కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి లేదా “అందరూ మళ్లీ చేరాలి” ఎంచుకోండి.',
   'pro.pin_enabled_removed_title': 'గదికి పాస్‌వర్డ్ సెట్ చేయబడింది',
   'pro.pin_enabled_removed_message':
     'గది యజమాని ఈ గదికి పాస్‌వర్డ్ సెట్ చేశారు. మళ్లీ చేరడానికి దాన్ని నమోదు చేయండి.',

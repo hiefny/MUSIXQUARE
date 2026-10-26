@@ -129,8 +129,7 @@ function isCapability(value: unknown): value is ProRoomCapability {
     value === 'effects.control' ||
     value === 'asset.upload' ||
     value === 'members.manage' ||
-    value === 'room.configure' ||
-    value === 'coordinator.eligible'
+    value === 'room.configure'
   );
 }
 
@@ -139,7 +138,6 @@ const CAPABILITY_ORDER: readonly ProRoomCapability[] = [
   'playback.control',
   'effects.control',
   'asset.upload',
-  'coordinator.eligible',
   'members.manage',
   'room.configure',
 ];
@@ -667,7 +665,8 @@ function parseViewerSnapshot(value: unknown): ProRoomViewerSnapshot | null {
   const capabilities = parseCapabilities(value.capabilities);
   if (!capabilities) return null;
   if (value.role !== 'owner' && capabilities.includes('room.configure')) return null;
-  if (value.coordinatorEligible && !capabilities.includes('coordinator.eligible')) return null;
+  // No PRO capability makes a browser a playback coordinator any more.
+  if (value.coordinatorEligible) return null;
 
   return {
     memberId: value.memberId,

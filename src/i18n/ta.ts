@@ -801,7 +801,6 @@ const ta: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'மறுதொடக்கம் செய்',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO அறையைச் செயல்படுத்து',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'இந்த PRO அறைக்கான கணக்கைத் தேர்வுசெய்யவும்',
   'pro.activation_account_message': 'இந்த அறையை “{{name}}” கணக்கில் பதிவுசெய்யவா?',
@@ -811,9 +810,6 @@ const ta: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'வேறொரு கணக்கு',
   'pro.activation_account_unavailable':
     'உங்கள் கணக்கைச் சரிபார்க்க முடியவில்லை. சிறிது நேரத்தில் மீண்டும் முயலவும்.',
-  'pro.activation_complete': 'பதிவை நிறைவு செய்',
-  'pro.activation_message': 'இந்த அறைக்கு புதிய 8 இலக்கக் கடவுச்சொல்லை அமைக்கவும்.',
-  'pro.activation_pin_same': 'தற்காலிகக் கடவுச்சொல்லிலிருந்து வேறுபட்ட ஒன்றைத் தேர்வுசெய்யவும்.',
   'pro.claim_retry_title': 'PRO இணைப்பை மீண்டும் முயலவா?',
   'pro.claim_retry_message':
     'இணைப்பு இடையில் துண்டிக்கப்பட்டது. இணைப்பு இந்தத் திரையில் பாதுகாப்பாக வைக்கப்பட்டுள்ளது; மீண்டும் முயலலாம்.',
@@ -861,8 +857,6 @@ const ta: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'அனைவரும் மீண்டும் சேரட்டும்',
   'pro.pin_members_reenter_detail':
     'அனைவரும் மீண்டும் சேர வேண்டும். தெரியாதவர்களை ஒரே நேரத்தில் நீக்க இந்த முறையைப் பரிந்துரைக்கிறோம்.',
-  'pro.pin_keep_unavailable':
-    'கடவுச்சொல் மாற்றப்படவில்லை. இப்போது ஆட்களை அறையில் வைத்தபடி மாற்ற முடியாது. சிறிது நேரம் கழித்து மீண்டும் முயலவும் அல்லது “அனைவரும் மீண்டும் சேரட்டும்” என்பதைத் தேர்ந்தெடுக்கவும்.',
   'pro.pin_enabled_removed_title': 'அறைக்குக் கடவுச்சொல் அமைக்கப்பட்டது',
   'pro.pin_enabled_removed_message':
     'அறை உரிமையாளர் இந்த அறைக்குக் கடவுச்சொல் அமைத்துள்ளார். மீண்டும் சேர அதை உள்ளிடவும்.',

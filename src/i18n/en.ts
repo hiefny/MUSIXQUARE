@@ -772,7 +772,6 @@ const en: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Restart',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Activate PRO room',
   'pro.activation_account_title': 'Choose an account for this PRO room',
   'pro.activation_account_message': 'Register this room to the “{{name}}” account?',
   'pro.activation_account_login_message':
@@ -781,9 +780,6 @@ const en: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Another account',
   'pro.activation_account_unavailable':
     'We couldn’t verify your account. Please try again shortly.',
-  'pro.activation_complete': 'Complete registration',
-  'pro.activation_message': 'Set a new 8-digit password for this room.',
-  'pro.activation_pin_same': 'Choose a password different from the temporary one.',
   'pro.claim_retry_title': 'Try the PRO link again?',
   'pro.claim_retry_message':
     'The connection was interrupted. The link is kept safely on this screen, so you can retry.',
@@ -831,8 +827,6 @@ const en: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Everyone rejoins',
   'pro.pin_members_reenter_detail':
     "Everyone has to join again. Recommended for removing people you don't know all at once.",
-  'pro.pin_keep_unavailable':
-    "The password wasn't changed. Keeping people in the room isn't available right now. Try again later, or choose “Everyone rejoins”.",
   'pro.pin_enabled_removed_title': 'Room password set',
   'pro.pin_enabled_removed_message':
     'The room owner set a password for this room. Enter it to rejoin.',

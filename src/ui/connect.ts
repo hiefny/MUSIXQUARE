@@ -842,19 +842,10 @@ async function _askRoomPin(
   };
 }
 
-// The runtime's sentinel for a Worker that cannot keep people in the room.
-// connect.ts compares the message instead of importing the PRO API module.
-const PRO_ROOM_PIN_KEEP_UNSUPPORTED = 'PRO_ROOM_PIN_KEEP_UNSUPPORTED';
-
-function isProRoomPinKeepUnsupported(error: unknown): boolean {
-  return error instanceof Error && error.message === PRO_ROOM_PIN_KEEP_UNSUPPORTED;
-}
-
 async function changeProRoomPin(disable = false): Promise<void> {
   if (_roomPinChangeInFlight || _guardRoomPasswordCtrl()) return;
   // Captured before the dialog: a public room gains a PIN, a protected one changes it.
   const enabling = !disable && !getState('network.roomPasswordRequired');
-  const titleKey = enabling ? 'pro.pin_enable_title' : 'pro.pin_change_title';
   const initialRoom = getRoomContext();
   const initialDeviceId = getState('network.myId');
   const abort = new AbortController();
@@ -878,10 +869,8 @@ async function changeProRoomPin(disable = false): Promise<void> {
   try {
     let pin: string | null = null;
     let keepPresent = false;
-    let choiceShown = false;
     if (!disable) {
-      choiceShown = _hasOtherConnectedDevices();
-      const choice = await _askRoomPin(enabling, choiceShown, abort.signal);
+      const choice = await _askRoomPin(enabling, _hasOtherConnectedDevices(), abort.signal);
       if (!choice) return;
       pin = choice.pin;
       keepPresent = choice.membership === 'keep_present';
@@ -890,25 +879,9 @@ async function changeProRoomPin(disable = false): Promise<void> {
     // Lazy-load the PRO runtime without pulling it into the standard-room graph.
     const { changeActiveProRoomPin } = await import('../pro-room/runtime.ts');
     if (!isCurrent()) return;
-    // "Everyone rejoins" keeps the legacy request, which every Worker
-    // understands; only keeping people sends the choice.
+    // Only keeping people sends the choice; "Everyone rejoins" sends none.
     if (keepPresent) {
-      try {
-        await changeActiveProRoomPin(pin, abort.signal, 'keep_present');
-      } catch (error) {
-        // With nobody else in the room there is no one to keep or remove, so
-        // a Worker without the choice (e.g. after a rollback) takes the plain
-        // change instead of pointing at a row the owner never saw.
-        if (
-          choiceShown ||
-          !isProRoomPinKeepUnsupported(error) ||
-          _hasOtherConnectedDevices() ||
-          !isCurrent()
-        ) {
-          throw error;
-        }
-        await changeActiveProRoomPin(pin, abort.signal);
-      }
+      await changeActiveProRoomPin(pin, abort.signal, 'keep_present');
     } else {
       await changeActiveProRoomPin(pin, abort.signal);
     }
@@ -926,16 +899,6 @@ async function changeProRoomPin(disable = false): Promise<void> {
   } catch (error) {
     if (!isCurrent()) return;
     log.warn('[Connect] PRO room password change failed', error);
-    if (isProRoomPinKeepUnsupported(error)) {
-      // Nothing changed on the server, so the toggle and PIN stay as they were.
-      await showDialog({
-        title: () => t(titleKey),
-        message: () => t('pro.pin_keep_unavailable'),
-        buttonText: () => t('common.ok'),
-        signal: abort.signal,
-      });
-      return;
-    }
     showToast(t('error.network_generic'));
   } finally {
     offRoom();

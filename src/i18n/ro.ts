@@ -798,7 +798,6 @@ const ro: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Repornește',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Activează camera PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Alege un cont pentru această cameră PRO',
   'pro.activation_account_message': 'Înregistrezi această cameră în contul „{{name}}”?',
@@ -808,9 +807,6 @@ const ro: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Alt cont',
   'pro.activation_account_unavailable':
     'Contul nu a putut fi verificat. Încearcă din nou în curând.',
-  'pro.activation_complete': 'Finalizează înregistrarea',
-  'pro.activation_message': 'Setează o parolă nouă din 8 cifre pentru această cameră.',
-  'pro.activation_pin_same': 'Alege o parolă diferită de cea temporară.',
   'pro.claim_retry_title': 'Încerci din nou linkul PRO?',
   'pro.claim_retry_message':
     'Conexiunea a fost întreruptă. Linkul este păstrat în siguranță pe acest ecran, așa că poți reîncerca.',
@@ -858,8 +854,6 @@ const ro: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Toți intră din nou',
   'pro.pin_members_reenter_detail':
     'Toți vor trebui să intre din nou. Recomandat ca să elimini dintr-odată persoanele pe care nu le cunoști.',
-  'pro.pin_keep_unavailable':
-    'Parola nu a fost schimbată. Momentan nu poți păstra persoanele în cameră. Încearcă mai târziu sau alege „Toți intră din nou”.',
   'pro.pin_enabled_removed_title': 'Camera are acum parolă',
   'pro.pin_enabled_removed_message':
     'Proprietarul camerei a setat o parolă pentru această cameră. Introdu-o ca să intri din nou.',

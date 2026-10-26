@@ -778,7 +778,6 @@ const pa: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'ਮੁੜ ਸ਼ੁਰੂ ਕਰੋ',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO ਰੂਮ ਚਾਲੂ ਕਰੋ',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'ਇਸ PRO ਰੂਮ ਲਈ ਖਾਤਾ ਚੁਣੋ',
   'pro.activation_account_message': 'ਇਹ ਰੂਮ “{{name}}” ਖਾਤੇ ਨਾਲ ਰਜਿਸਟਰ ਕਰਨਾ ਹੈ?',
@@ -787,9 +786,6 @@ const pa: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'ਹੋਰ ਖਾਤਾ',
   'pro.activation_account_unavailable':
     'ਖਾਤੇ ਦੀ ਜਾਣਕਾਰੀ ਜਾਂਚੀ ਨਹੀਂ ਜਾ ਸਕੀ। ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
-  'pro.activation_complete': 'ਰਜਿਸਟ੍ਰੇਸ਼ਨ ਪੂਰੀ ਕਰੋ',
-  'pro.activation_message': 'ਇਸ ਰੂਮ ਲਈ ਨਵਾਂ 8-ਅੰਕਾਂ ਵਾਲਾ ਪਾਸਵਰਡ ਸੈੱਟ ਕਰੋ।',
-  'pro.activation_pin_same': 'ਆਰਜ਼ੀ ਪਾਸਵਰਡ ਤੋਂ ਵੱਖਰਾ ਪਾਸਵਰਡ ਚੁਣੋ।',
   'pro.claim_retry_title': 'PRO ਲਿੰਕ ਨੂੰ ਦੁਬਾਰਾ ਅਜ਼ਮਾਉਣਾ ਹੈ?',
   'pro.claim_retry_message':
     'ਕਨੈਕਸ਼ਨ ਵਿੱਚ ਰੁਕਾਵਟ ਆਈ। ਲਿੰਕ ਇਸ ਸਕ੍ਰੀਨ ਉੱਤੇ ਸੁਰੱਖਿਅਤ ਰੱਖਿਆ ਗਿਆ ਹੈ, ਇਸ ਲਈ ਤੁਸੀਂ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰ ਸਕਦੇ ਹੋ।',
@@ -837,8 +833,6 @@ const pa: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'ਸਾਰੇ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ',
   'pro.pin_members_reenter_detail':
     'ਸਾਰਿਆਂ ਨੂੰ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣਾ ਪਵੇਗਾ। ਅਣਜਾਣ ਲੋਕਾਂ ਨੂੰ ਇੱਕੋ ਵਾਰ ਹਟਾਉਣ ਲਈ ਅਸੀਂ ਇਸ ਤਰੀਕੇ ਦੀ ਸਿਫ਼ਾਰਸ਼ ਕਰਦੇ ਹਾਂ।',
-  'pro.pin_keep_unavailable':
-    'ਪਾਸਵਰਡ ਨਹੀਂ ਬਦਲਿਆ ਗਿਆ। ਇਸ ਵੇਲੇ ਲੋਕਾਂ ਨੂੰ ਰੂਮ ਵਿੱਚ ਰੱਖ ਕੇ ਪਾਸਵਰਡ ਨਹੀਂ ਬਦਲਿਆ ਜਾ ਸਕਦਾ। ਕੁਝ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ ਜਾਂ “ਸਾਰੇ ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ” ਚੁਣੋ।',
   'pro.pin_enabled_removed_title': 'ਰੂਮ ਲਈ ਪਾਸਵਰਡ ਸੈੱਟ ਕੀਤਾ ਗਿਆ',
   'pro.pin_enabled_removed_message':
     'ਰੂਮ ਦੇ ਮਾਲਕ ਨੇ ਇਸ ਰੂਮ ਲਈ ਪਾਸਵਰਡ ਸੈੱਟ ਕੀਤਾ ਹੈ। ਦੁਬਾਰਾ ਸ਼ਾਮਲ ਹੋਣ ਲਈ ਇਸਨੂੰ ਦਾਖਲ ਕਰੋ।',

@@ -772,7 +772,6 @@ const ur: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'دوبارہ شروع',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO کمرہ فعال کریں',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'اس PRO کمرے کے لیے اکاؤنٹ منتخب کریں',
   'pro.activation_account_message': 'یہ کمرہ ”{{name}}“ اکاؤنٹ میں رجسٹر کریں؟',
@@ -782,9 +781,6 @@ const ur: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'دوسرا اکاؤنٹ',
   'pro.activation_account_unavailable':
     'آپ کے اکاؤنٹ کی تصدیق نہیں ہو سکی۔ کچھ دیر بعد دوبارہ کوشش کریں۔',
-  'pro.activation_complete': 'رجسٹریشن مکمل کریں',
-  'pro.activation_message': 'اس کمرے کے لیے 8 ہندسوں کا نیا پاس ورڈ مقرر کریں۔',
-  'pro.activation_pin_same': 'عارضی پاس ورڈ سے مختلف پاس ورڈ منتخب کریں۔',
   'pro.claim_retry_title': 'PRO لنک دوبارہ آزمائیں؟',
   'pro.claim_retry_message':
     'کنکشن منقطع ہو گیا تھا۔ لنک اس اسکرین پر محفوظ ہے، اس لیے آپ دوبارہ کوشش کر سکتے ہیں۔',
@@ -832,8 +828,6 @@ const ur: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'سب دوبارہ شامل ہوں',
   'pro.pin_members_reenter_detail':
     'سب کو دوبارہ شامل ہونا ہوگا۔ ناواقف لوگوں کو ایک ساتھ نکالنے کے لیے ہم یہ طریقہ تجویز کرتے ہیں۔',
-  'pro.pin_keep_unavailable':
-    'پاس ورڈ تبدیل نہیں ہوا۔ ابھی لوگوں کو کمرے میں رکھتے ہوئے پاس ورڈ نہیں بدلا جا سکتا۔ کچھ دیر بعد دوبارہ کوشش کریں یا ”سب دوبارہ شامل ہوں“ منتخب کریں۔',
   'pro.pin_enabled_removed_title': 'کمرے کا پاس ورڈ مقرر کر دیا گیا',
   'pro.pin_enabled_removed_message':
     'کمرے کے مالک نے اس کمرے کا پاس ورڈ مقرر کیا ہے۔ دوبارہ شامل ہونے کے لیے اسے درج کریں۔',

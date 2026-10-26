@@ -805,7 +805,6 @@ const el: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Επανεκκίνηση',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Ενεργοποίηση δωματίου PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Επιλέξτε λογαριασμό για αυτό το δωμάτιο PRO',
   'pro.activation_account_message': 'Να καταχωριστεί αυτό το δωμάτιο στον λογαριασμό «{{name}}»;',
@@ -815,9 +814,6 @@ const el: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Άλλος λογαριασμός',
   'pro.activation_account_unavailable':
     'Δεν ήταν δυνατή η επαλήθευση του λογαριασμού σας. Δοκιμάστε ξανά σε λίγο.',
-  'pro.activation_complete': 'Ολοκλήρωση καταχώρισης',
-  'pro.activation_message': 'Ορίστε νέο οκταψήφιο κωδικό πρόσβασης για αυτό το δωμάτιο.',
-  'pro.activation_pin_same': 'Επιλέξτε διαφορετικό κωδικό από τον προσωρινό.',
   'pro.claim_retry_title': 'Νέα δοκιμή του συνδέσμου PRO;',
   'pro.claim_retry_message':
     'Η σύνδεση διακόπηκε. Ο σύνδεσμος παραμένει ασφαλής σε αυτή την οθόνη, ώστε να δοκιμάσετε ξανά.',
@@ -865,8 +861,6 @@ const el: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Όλοι συνδέονται ξανά',
   'pro.pin_members_reenter_detail':
     'Όλοι θα πρέπει να συνδεθούν ξανά. Συνιστάται για να αφαιρέσετε με μία κίνηση άτομα που δεν γνωρίζετε.',
-  'pro.pin_keep_unavailable':
-    'Ο κωδικός πρόσβασης δεν άλλαξε. Η επιλογή «Να μείνουν όλοι» δεν είναι διαθέσιμη αυτή τη στιγμή. Δοκιμάστε ξανά αργότερα ή επιλέξτε «Όλοι συνδέονται ξανά».',
   'pro.pin_enabled_removed_title': 'Ορίστηκε κωδικός πρόσβασης δωματίου',
   'pro.pin_enabled_removed_message':
     'Ο κάτοχος του δωματίου όρισε κωδικό πρόσβασης για αυτό το δωμάτιο. Εισαγάγετέ τον για να συνδεθείτε ξανά.',

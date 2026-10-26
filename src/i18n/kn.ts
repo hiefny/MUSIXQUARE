@@ -788,7 +788,6 @@ const kn: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'ಮರುಪ್ರಾರಂಭಿಸಿ',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO ರೂಮ್ ಸಕ್ರಿಯಗೊಳಿಸಿ',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'ಈ PRO ರೂಮ್‌ಗಾಗಿ ಖಾತೆಯನ್ನು ಆರಿಸಿ',
   'pro.activation_account_message': 'ಈ ರೂಮ್ ಅನ್ನು “{{name}}” ಖಾತೆಗೆ ನೋಂದಾಯಿಸಬೇಕೆ?',
@@ -798,9 +797,6 @@ const kn: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'ಮತ್ತೊಂದು ಖಾತೆ',
   'pro.activation_account_unavailable':
     'ನಿಮ್ಮ ಖಾತೆಯನ್ನು ಪರಿಶೀಲಿಸಲಾಗಲಿಲ್ಲ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
-  'pro.activation_complete': 'ನೋಂದಣಿ ಪೂರ್ಣಗೊಳಿಸಿ',
-  'pro.activation_message': 'ಈ ರೂಮ್‌ಗೆ ಹೊಸ 8-ಅಂಕಿಯ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಿ.',
-  'pro.activation_pin_same': 'ತಾತ್ಕಾಲಿಕ ಪಾಸ್‌ವರ್ಡ್‌ಗಿಂತ ಭಿನ್ನವಾದುದನ್ನು ಆರಿಸಿ.',
   'pro.claim_retry_title': 'PRO ಲಿಂಕ್ ಅನ್ನು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಬೇಕೆ?',
   'pro.claim_retry_message':
     'ಸಂಪರ್ಕಕ್ಕೆ ಅಡ್ಡಿಯಾಯಿತು. ಲಿಂಕ್ ಅನ್ನು ಈ ಪರದೆಯಲ್ಲಿ ಸುರಕ್ಷಿತವಾಗಿ ಉಳಿಸಲಾಗಿದೆ, ಆದ್ದರಿಂದ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಬಹುದು.',
@@ -848,8 +844,6 @@ const kn: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'ಎಲ್ಲರೂ ಮತ್ತೆ ಸೇರಲಿ',
   'pro.pin_members_reenter_detail':
     'ಎಲ್ಲರೂ ಮತ್ತೆ ಸೇರಬೇಕಾಗುತ್ತದೆ. ಅಪರಿಚಿತರನ್ನು ಒಮ್ಮೆಗೇ ತೆಗೆದುಹಾಕಲು ಈ ವಿಧಾನವನ್ನು ಶಿಫಾರಸು ಮಾಡುತ್ತೇವೆ.',
-  'pro.pin_keep_unavailable':
-    'ಪಾಸ್‌ವರ್ಡ್ ಬದಲಾಗಿಲ್ಲ. ಈಗ ಜನರನ್ನು ರೂಮ್‌ನಲ್ಲೇ ಉಳಿಸಿಕೊಂಡು ಬದಲಾಯಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ. ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ ಅಥವಾ “ಎಲ್ಲರೂ ಮತ್ತೆ ಸೇರಲಿ” ಆಯ್ಕೆಮಾಡಿ.',
   'pro.pin_enabled_removed_title': 'ರೂಮ್‌ಗೆ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಲಾಗಿದೆ',
   'pro.pin_enabled_removed_message':
     'ರೂಮ್ ಮಾಲೀಕರು ಈ ರೂಮ್‌ಗೆ ಪಾಸ್‌ವರ್ಡ್ ಹೊಂದಿಸಿದ್ದಾರೆ. ಮತ್ತೆ ಸೇರಲು ಅದನ್ನು ನಮೂದಿಸಿ.',

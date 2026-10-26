@@ -31,7 +31,6 @@ interface ProRoomSessionApi {
   ): Promise<ProRoomHeartbeat>;
   leavePresence(code: string, signal?: AbortSignal): Promise<ProRoomSnapshot>;
   createSignalingTicket(code: string, signal?: AbortSignal): Promise<ProRoomSignalingAccess>;
-  closeSession(code: string, signal?: AbortSignal): Promise<void>;
   closeSessionFenced(input: CloseProRoomSessionFencedInput, signal?: AbortSignal): Promise<void>;
   clearPresenceIdentity?(code: string, expected?: ProRoomPresenceIdentity): void;
 }

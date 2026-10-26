@@ -3426,7 +3426,7 @@ describe('PRO optional entry password controls', () => {
     },
   );
 
-  it('sends "make everyone rejoin" as the legacy request every Worker understands', async () => {
+  it('sends "make everyone rejoin" without a membership choice', async () => {
     openOwnerSettings(true);
     mockedShowDialog.mockResolvedValueOnce({
       action: 'ok',
@@ -3441,35 +3441,6 @@ describe('PRO optional entry password controls', () => {
       expect.any(AbortSignal),
     ]);
     await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_changed')));
-  });
-
-  it('explains a Worker that cannot keep people and leaves the room protection unchanged', async () => {
-    openOwnerSettings(false);
-    mockedShowDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' })
-      .mockResolvedValueOnce({ action: 'ok' });
-    mockedChangeActiveProRoomPin.mockRejectedValueOnce(new Error('PRO_ROOM_PIN_KEEP_UNSUPPORTED'));
-    document.getElementById('room-password-toggle')?.click();
-    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledTimes(2));
-    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledTimes(1);
-    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
-      '11223344',
-      expect.any(AbortSignal),
-      'keep_present',
-    );
-    const unavailable = lastDialogOptions();
-    expect(renderedDialogText(unavailable.title)).toBe(t('pro.pin_enable_title'));
-    expect(renderedDialogText(unavailable.message)).toBe(t('pro.pin_keep_unavailable'));
-    await vi.waitFor(() =>
-      expect((document.getElementById('room-password-toggle') as HTMLButtonElement).disabled).toBe(
-        false,
-      ),
-    );
-    expect(showToast).not.toHaveBeenCalled();
-    expect(getState('network.roomPasswordRequired')).toBe(false);
-    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
-      'false',
-    );
   });
 
   it('skips who-stays when the owner is alone, with OK on the PIN page and keep sent', async () => {
@@ -3489,40 +3460,6 @@ describe('PRO optional entry password controls', () => {
     expect(renderedDialogText(options.buttonText)).toBe(t('common.ok'));
     expect(renderedDialogText(options.secondaryText)).toBe(t('common.cancel'));
     await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_enabled')));
-  });
-
-  it('falls back to the plain change when a skipped step meets a Worker without the choice', async () => {
-    openOwnerSettings(false, false);
-    mockedShowDialog.mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' });
-    mockedChangeActiveProRoomPin
-      .mockRejectedValueOnce(new Error('PRO_ROOM_PIN_KEEP_UNSUPPORTED'))
-      .mockResolvedValueOnce();
-    document.getElementById('room-password-toggle')?.click();
-    await vi.waitFor(() => expect(mockedChangeActiveProRoomPin).toHaveBeenCalledTimes(2));
-    expect(mockedChangeActiveProRoomPin.mock.calls[1]).toEqual([
-      '11223344',
-      expect.any(AbortSignal),
-    ]);
-    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('pro.pin_enabled')));
-    expect(mockedShowDialog).toHaveBeenCalledOnce();
-  });
-
-  it('explains the missing choice instead of removing someone who arrived during a skipped step', async () => {
-    openOwnerSettings(false, false);
-    mockedShowDialog
-      .mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' })
-      .mockResolvedValueOnce({ action: 'ok' });
-    mockedChangeActiveProRoomPin.mockImplementationOnce(async () => {
-      bus.emit('network:device-list-update', [
-        { id: 'owner-device', label: 'Owner', status: 'connected', isHost: false, isOp: true },
-        { id: 'late-guest', label: 'Guest', status: 'connected', isHost: false, isOp: false },
-      ]);
-      throw new Error('PRO_ROOM_PIN_KEEP_UNSUPPORTED');
-    });
-    document.getElementById('room-password-toggle')?.click();
-    await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledTimes(2));
-    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledOnce();
-    expect(renderedDialogText(lastDialogOptions().message)).toBe(t('pro.pin_keep_unavailable'));
   });
 
   it('shows the generic failure for a refused keep and leaves the room protection unchanged', async () => {

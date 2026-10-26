@@ -770,7 +770,6 @@ const tr: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Yeniden Başlat',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'PRO odasını etkinleştir',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Bu PRO odası için bir hesap seç',
   'pro.activation_account_message': 'Bu oda “{{name}}” hesabına kaydedilsin mi?',
@@ -778,9 +777,6 @@ const tr: Record<I18nKey, string> = {
   'pro.activation_account_continue': 'Devam et',
   'pro.activation_account_switch': 'Başka hesap',
   'pro.activation_account_unavailable': 'Hesabın doğrulanamadı. Biraz sonra tekrar dene.',
-  'pro.activation_complete': 'Kaydı tamamla',
-  'pro.activation_message': 'Bu oda için 8 haneli yeni bir sayısal parola belirle.',
-  'pro.activation_pin_same': 'Geçici paroladan farklı bir parola seç.',
   'pro.claim_retry_title': 'PRO bağlantısıyla tekrar denensin mi?',
   'pro.claim_retry_message':
     'Ağ bağlantısı kesildi. PRO bağlantısı bu ekranda güvenle tutuluyor; tekrar deneyebilirsin.',
@@ -828,8 +824,6 @@ const tr: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Herkes yeniden katılsın',
   'pro.pin_members_reenter_detail':
     'Herkesin yeniden katılması gerekir. Tanımadığın kişileri tek seferde çıkarmak için önerilir.',
-  'pro.pin_keep_unavailable':
-    'Parola değiştirilmedi. Şu anda kişileri odada tutmak mümkün değil. Daha sonra tekrar dene veya “Herkes yeniden katılsın” seçeneğini seç.',
   'pro.pin_enabled_removed_title': 'Odaya parola belirlendi',
   'pro.pin_enabled_removed_message':
     'Oda sahibi bu oda için bir parola belirledi. Yeniden katılmak için parolayı gir.',

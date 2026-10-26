@@ -787,7 +787,6 @@ const sv: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Starta om',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Aktivera PRO-rum',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Välj ett konto för PRO-rummet',
   'pro.activation_account_message': 'Vill du registrera rummet på kontot ”{{name}}”?',
@@ -797,9 +796,6 @@ const sv: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Annat konto',
   'pro.activation_account_unavailable':
     'Det gick inte att verifiera ditt konto. Försök igen om en liten stund.',
-  'pro.activation_complete': 'Slutför registreringen',
-  'pro.activation_message': 'Ange ett nytt 8-siffrigt lösenord för rummet.',
-  'pro.activation_pin_same': 'Välj ett annat lösenord än det tillfälliga.',
   'pro.claim_retry_title': 'Försöka med PRO-länken igen?',
   'pro.claim_retry_message':
     'Anslutningen avbröts. Länken finns säkert kvar på den här skärmen, så du kan försöka igen.',
@@ -847,8 +843,6 @@ const sv: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Alla går med igen',
   'pro.pin_members_reenter_detail':
     'Alla måste gå med igen. Rekommenderas om du vill ta bort alla okända personer på en gång.',
-  'pro.pin_keep_unavailable':
-    'Lösenordet ändrades inte. Det går inte att låta personer stanna i rummet just nu. Försök igen senare eller välj ”Alla går med igen”.',
   'pro.pin_enabled_removed_title': 'Rummet har fått ett lösenord',
   'pro.pin_enabled_removed_message':
     'Rumsägaren har ställt in ett lösenord för rummet. Ange det för att gå med igen.',

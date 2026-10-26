@@ -221,10 +221,11 @@ export function registerSystemAudioReceiveRoute(route: ReceiveRoute, port: Recei
  * placeholder and restore point, the receiving flag, the owner claim and the
  * receive deadline stay as they are. A retiring route drops only its own
  * source and primer, so the adopting route's source is never touched (its
- * attach swaps it, its detach drops it). The PRO coordinator adopts wherever
- * it takes the slot over (the room turning PRO, every live reconcile, a
- * retry's cleanup) and so retires the Standard SFU route, the only route with
- * a retire, without an idle flash.
+ * attach swaps it, its detach drops it). The PRO coordinator adopts where it
+ * takes the slot over (the room turning PRO, a retry's cleanup) and so
+ * retires the Standard SFU route, the only route with a retire, without an
+ * idle flash. A PRO room starts no Standard SFU subscription, so since 5B-OV1
+ * a live reconcile no longer adopts.
  */
 export function adoptSystemAudioReceiveRoute(route: ReceiveRoute): void {
   for (const [registered, port] of routes) {

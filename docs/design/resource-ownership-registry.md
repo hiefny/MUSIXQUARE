@@ -487,11 +487,13 @@ RO-49 accepted-exception
   before it forgets the local owner; it reads the
   receive deadline from its home (`DIRECT_RECEIVE_DEADLINE_MS`); and it retires the Standard SFU
   route through the slot's adopt (`adoptSystemAudioReceiveRoute('pro-coordinator')`, where it
-  called the SFU adapter's cleanup: the room turning PRO, the top of every live reconcile and a
-  retry's cleanup). The adopt runs every other registered route's `retire` and changes nothing in
-  the slot itself; the Standard SFU registers one (its subscription through
-  `cleanupGuestSfu(false)` and its frozen share route, no reception end), and no other route has
-  one. Since C4-8 no route reaches the slot through another: `src/network/system-audio-guest.ts`
+  called the SFU adapter's cleanup: the room turning PRO and a retry's cleanup; 5B-OV1 removed
+  the one at the top of every live reconcile, a coordinator-era remnant with nothing to retire:
+  a PRO room starts no Standard SFU subscription, since `network.hostConn` stays null there and
+  the Standard SFU adapter refuses a READY). The adopt runs every other registered route's
+  `retire` and changes nothing in the slot itself; the Standard SFU registers one (its
+  subscription through `cleanupGuestSfu(false)` and its frozen share route, no reception end),
+  and no other route has one. Since C4-8 no route reaches the slot through another: `src/network/system-audio-guest.ts`
   no longer re-exports the slot's start, trust-boundary wait and end (the last as
   `cleanupGuestSystemAudio`), the Standard SFU imports them from the slot, and the guest keeps
   the host START/STOP trust gate. Since 5B-G4 (owner decision P5-D5 A, gap 6) the slot tells its
@@ -706,10 +708,12 @@ RO-49 accepted-exception
     subscription and thaws its share route with no activity change, notice or force-stop, and
     leaves the placeholder and the Standard start's slot deadline as they were), its S11 rows
     and the `system-audio-service.test.ts` rows "retires the Standard SFU guest route at the top
-    of every live reconcile, whoever publishes, and never on idle" and "skips the receive end in
-    the coordinator cleanup while this device publishes, the reset included" (the local-owner
-    guard and the reset order; since 5B-G4 "ends the reception in the coordinator cleanup while
-    this device publishes only when the slot still holds one ..."); after it by the
+    of every live reconcile, whoever publishes, and never on idle" (since 5B-OV1 "retires the
+    Standard SFU guest route on no live reconcile, whoever publishes, and never on idle") and
+    "skips the receive end in the coordinator cleanup while this device publishes, the reset
+    included" (the local-owner guard and the reset order; since 5B-G4 "ends the reception in the
+    coordinator cleanup while this device publishes only when the slot still holds one ...");
+    after it by the
     `system-audio-sfu.test.ts` row "is retired by the PRO coordinator's adopt" (the SFU's retire
     through the real slot adopt).
   - The removal of the guest's compatibility aliases (C4-8) is pinned, before it, by the suites
@@ -841,6 +845,19 @@ RO-49 accepted-exception
     "5B-G6: a publisher's 'stopped' close ends the reception with the previous title and no
     notice; after a successor replaced the pending placeholder it leaves the successor alone"
     (through the fake transport's `publisherStopped`).
+  - The removal of the coordinator's adopt at the top of every live reconcile (5B-OV1, neutral;
+    old-version survey, OV-A03 note) is pinned, before and after, by the PRO suite's "5B-OV1
+    guard: a Standard READY delivered in a PRO room starts no Standard subscription" (the frame
+    reaches the Standard SFU adapter, which refuses it with no host connection; it fails once a
+    host connection is set), its two S7 rows (the room turning PRO still retires an attached or
+    a still-connecting Standard subscription) and the transport rows "expected today ($route):
+    heartbeats and a room-context re-emission while receiving reuse the live route ...". The
+    service unit row "retires the Standard SFU guest route on no live reconcile, whoever
+    publishes, and never on idle" fails on the parent, where four live reconciles adopted. The
+    two remaining adopt sites are pinned by the S7 rows (the room turning PRO, on the real bus;
+    the service unit suite clears the bus after each test, so its listeners hear only its first
+    test) and the service unit row "retires a failed playing SFU subscription inside the
+    placeholder until the retry track attaches" (a retry's cleanup).
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the

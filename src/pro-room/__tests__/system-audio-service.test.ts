@@ -1953,31 +1953,25 @@ describe('PRO system-audio service orchestration', () => {
   });
 
   // The coordinator retires the Standard SFU guest route (its subscription and
-  // frozen share route) wherever it takes the slot over: the top of every live
-  // reconcile, before its own cleanup, start or subscription, and a retry's
-  // cleanup (above). Since C4-7 it does so through the receive slot's adopt,
-  // which calls the retire the route registered (the spy, see beforeAll).
-  it('retires the Standard SFU guest route at the top of every live reconcile, whoever publishes, and never on idle', async () => {
+  // frozen share route) where it takes the slot over: the room turning PRO
+  // (pinned by the PRO contract suite's S7 rows on the real bus; this suite
+  // clears the bus after each test) and a retry's cleanup (the row above).
+  // Since C4-7 it does so through the receive slot's adopt, which calls the
+  // retire the route registered (the spy, see beforeAll). A PRO room starts
+  // no Standard subscription (network.hostConn stays null), so since 5B-OV1 a
+  // live reconcile no longer adopts; before it, the top of every live
+  // reconcile did.
+  it('retires the Standard SFU guest route on no live reconcile, whoever publishes, and never on idle', async () => {
     mocks.cleanupLegacySubscriber.mockClear();
     await observeState(live());
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(1);
-    expect(mocks.cleanupLegacySubscriber.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.beginReception.mock.invocationCallOrder[0],
-    );
-    expect(mocks.cleanupLegacySubscriber.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.subscribe.mock.invocationCallOrder[0],
-    );
-
-    // An identical reconcile (the same presence bound again) retires it again.
+    expect(mocks.beginReception).toHaveBeenCalledTimes(1);
+    // An identical reconcile (the same presence bound again), other
+    // publishers and idle retire nothing either.
     bindProSystemAudioSession(snapshot());
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(2);
-
     await observeState(directLive(REMOTE_ID, 2));
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(3);
     await observeState(localLive(3));
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(4);
     await observeState(idle(4));
-    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(4);
+    expect(mocks.cleanupLegacySubscriber).not.toHaveBeenCalled();
   });
 
   // The playback owner 'system-audio' is shared by a local share and a

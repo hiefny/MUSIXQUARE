@@ -909,7 +909,6 @@ async function ensureCoordinatorSubscription(
 ): Promise<void> {
   if (!isActiveProRoom() || !identity || !coordinatorPublicationMatches(identity)) return;
   const key = coordinatorPublicationKey(identity);
-  adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
   if (
     isProRoomSystemAudioDirectPublication(state.publication) &&
     currentDirectTargets().length > MAX_DIRECT_TARGETS
@@ -2204,6 +2203,10 @@ export function registerProSystemAudioServiceListeners(): void {
       subscriberFailureGeneration = null;
       return;
     }
+    // The room turning PRO retires a Standard SFU subscription the Standard
+    // room left behind. A PRO room starts none (network.hostConn stays null,
+    // so the Standard adapter refuses a READY), so a live reconcile has
+    // nothing to retire (5B-OV1); a retry's cleanup still adopts.
     adoptSystemAudioReceiveRoute(COORDINATOR_ROUTE);
     const state = controller?.getCurrentState();
     if (state) reconcileCoordinatorState(state);

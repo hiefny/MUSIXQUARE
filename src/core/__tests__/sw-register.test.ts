@@ -20,6 +20,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
 import type { HardResetClaim, HardResetClaimRequest } from '../../sw-register.ts';
 import { HARD_RESET_CLAIM_EVENT } from './__helpers__/hard-reset-port.ts';
+import { createFloorReadStub, type FloorReadStub } from './__helpers__/app-build-floor-read.ts';
+import {
+  APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS,
+  APP_BUILD_FLOOR_READ_TIMEOUT_MS,
+} from '../../sw-update-coordination.ts';
 
 const moduleMocks = vi.hoisted(() => ({
   getState: vi.fn((_key?: string): unknown => undefined),
@@ -181,6 +186,22 @@ function stubSecureNavigationSinks(): NavigationSinks {
     new Proxy({} as Window, {
       get(_target, property) {
         if (property === 'isSecureContext') return true;
+        return Reflect.get(sinkWindow, property) as unknown;
+      },
+    }),
+  );
+  return sinks;
+}
+
+/** The recorded location sinks, on a window that reports a secure context or not. */
+function stubSinks(secure: boolean): NavigationSinks {
+  const sinks = stubNavigationSinks();
+  const sinkWindow = globalThis.window;
+  vi.stubGlobal(
+    'window',
+    new Proxy({} as Window, {
+      get(_target, property) {
+        if (property === 'isSecureContext') return secure;
         return Reflect.get(sinkWindow, property) as unknown;
       },
     }),
@@ -397,6 +418,59 @@ function waitMs(ms: number): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+/** The forced variant of the one update dialog: Apply only, Back keeps it. */
+function forcedUpdateDialog(message: string) {
+  return expect.objectContaining({
+    title: 'dialog.sw_update_title',
+    message: readsAs(message),
+    buttonText: 'dialog.sw_update_apply',
+    closeOnBack: false,
+    refreshOn: expect.any(Function),
+  });
+}
+
+/**
+ * The App build floor read of the start and resume check (forced update
+ * Inc 7). Every case installs it as `fetch`: a page with a build reads the
+ * floor at load and on each return, and by default the answer is 0 (no
+ * floor). Any other URL still meets the unit network guard.
+ */
+let floorReads: FloorReadStub;
+
+interface AddedListener {
+  readonly target: EventTarget;
+  readonly type: string;
+  readonly listener: EventListenerOrEventListenerObject | null;
+  readonly options?: boolean | AddEventListenerOptions;
+}
+
+/**
+ * The listeners each case's documents add on the window and the document
+ * (the floor check's return triggers among them), removed after the case as
+ * an unloaded document's are, so no case's listeners act in the next one.
+ */
+const addedListeners: AddedListener[] = [];
+const listenerSpies: Array<{ mockRestore(): void }> = [];
+
+function trackAddedListeners(): void {
+  for (const target of [document, actualWindow] as EventTarget[]) {
+    const add = target.addEventListener.bind(target);
+    listenerSpies.push(
+      vi.spyOn(target, 'addEventListener').mockImplementation((type, listener, options) => {
+        addedListeners.push({ target, type, listener, options });
+        add(type, listener, options);
+      }),
+    );
+  }
+}
+
+function removeAddedListeners(): void {
+  for (const spy of listenerSpies.splice(0)) spy.mockRestore();
+  for (const { target, type, listener, options } of addedListeners.splice(0)) {
+    target.removeEventListener(type, listener, options);
+  }
+}
+
 describe('service-worker cache-retirement client handshake', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -411,6 +485,9 @@ describe('service-worker cache-retirement client handshake', () => {
     moduleMocks.roomStartReturns.length = 0;
     setAppState({});
     moduleMocks.showDialog.mockResolvedValue({ action: 'secondary' });
+    floorReads = createFloorReadStub();
+    vi.stubGlobal('fetch', floorReads.fetch);
+    trackAddedListeners();
   });
 
   afterEach(() => {
@@ -427,6 +504,7 @@ describe('service-worker cache-retirement client handshake', () => {
         if (!loaded.isSessionResetPending()) break;
       }
     }
+    removeAddedListeners();
     vi.unstubAllGlobals();
   });
 
@@ -1938,32 +2016,6 @@ describe('service-worker cache-retirement client handshake', () => {
    * checks, so a refusal still shows the forced dialog, and Apply reloads.
    */
   describe('the forced update without an update machine (train 9.0.12)', () => {
-    /** The forced variant of the one update dialog: Apply only, Back keeps it. */
-    function forcedUpdateDialog(message: string) {
-      return expect.objectContaining({
-        title: 'dialog.sw_update_title',
-        message: readsAs(message),
-        buttonText: 'dialog.sw_update_apply',
-        closeOnBack: false,
-        refreshOn: expect.any(Function),
-      });
-    }
-
-    function stubSinks(secure: boolean): NavigationSinks {
-      const sinks = stubNavigationSinks();
-      const sinkWindow = globalThis.window;
-      vi.stubGlobal(
-        'window',
-        new Proxy({} as Window, {
-          get(_target, property) {
-            if (property === 'isSecureContext') return secure;
-            return Reflect.get(sinkWindow, property) as unknown;
-          },
-        }),
-      );
-      return sinks;
-    }
-
     it.each([
       {
         name: 'no service worker support',
@@ -2019,5 +2071,546 @@ describe('service-worker cache-retirement client handshake', () => {
         if (register) expect(register).not.toHaveBeenCalled();
       },
     );
+  });
+
+  /**
+   * The start and resume floor check (forced update Inc 7, owner decision
+   * 2026-10-25 ~22:00): a page with a build reads the effective App build
+   * floor at the window load moment and on every return to the foreground
+   * (visibilitychange to visible, pageshow with persisted, online), and below
+   * the floor enters the forced update at once (at start, once the page's
+   * own loads are quiet). Its read gate allows two starts per minute window,
+   * and a read that got an answer or hit its deadline ends the window. The
+   * page runs build 785 (__MXQR_BUILD_CACHE_VERSION__ 'v785'); another tab
+   * holds the hourly check lease, so every reg.update() counted here is the
+   * forced update's.
+   */
+  describe('the start and resume floor check (forced update Inc 7)', () => {
+    const PAGE_BUILD = 'v785';
+    /** A synthetic room code. */
+    const ROOM_CODE = '000001';
+    const FLOOR_T0 = Date.parse('2026-10-26T00:00:00.000Z');
+
+    interface HeldDialog {
+      readonly options: Record<string, unknown>;
+      outcome: string | undefined;
+      answer(action: string): void;
+    }
+
+    /** Every dialog stays open until answered, or until its signal withdraws it ('superseded'). */
+    function holdDialogs(): HeldDialog[] {
+      const held: HeldDialog[] = [];
+      moduleMocks.showDialog.mockImplementation(
+        (options: Record<string, unknown>) =>
+          new Promise((resolve) => {
+            const entry: HeldDialog = {
+              options,
+              outcome: undefined,
+              answer(action) {
+                if (entry.outcome !== undefined) return;
+                entry.outcome = action;
+                resolve({ action });
+              },
+            };
+            held.push(entry);
+            const signal = options.signal as AbortSignal | undefined;
+            if (signal?.aborted) entry.answer('superseded');
+            signal?.addEventListener('abort', () => entry.answer('superseded'), { once: true });
+          }),
+      );
+      return held;
+    }
+
+    /** Each dialog asked for: 'later' or 'forced', and how it closed. */
+    function dialogKinds(held: readonly HeldDialog[]): string[] {
+      return held.map(
+        (entry) =>
+          `${entry.options.secondaryText === undefined ? 'forced' : 'later'}` +
+          (entry.outcome === undefined ? '' : ` -> ${entry.outcome}`),
+      );
+    }
+
+    function setVisibility(state: DocumentVisibilityState, dispatch = true): void {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: state });
+      if (dispatch) document.dispatchEvent(new Event('visibilitychange'));
+    }
+
+    function setOnline(online: boolean): void {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: online });
+    }
+
+    /** A return from the background: hidden, then visible again. */
+    function bounce(): void {
+      setVisibility('hidden');
+      setVisibility('visible');
+    }
+
+    function pageshow(persisted: boolean): void {
+      actualWindow.dispatchEvent(new PageTransitionEvent('pageshow', { persisted }));
+    }
+
+    /** Let a read that already has its answer settle. */
+    async function settleReads(): Promise<void> {
+      await flushAsyncControllerChange();
+      await flushAsyncControllerChange();
+    }
+
+    /** The clock moves to the end of the current read window. */
+    function pastWindow(): void {
+      vi.setSystemTime(Date.now() + APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS);
+    }
+
+    async function livePort(): Promise<typeof import('../app-build.ts')> {
+      return import('../app-build.ts');
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'], now: FLOOR_T0 });
+      vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', PAGE_BUILD);
+      setVisibility('visible', false);
+      setOnline(true);
+      localStorage.setItem(
+        'mxqr-sw-update-check-lease-v1',
+        JSON.stringify({
+          owner: 'client:another-tab',
+          updatedAt: Date.now(),
+          expiresAt: Date.now() + 3_600_000,
+        }),
+      );
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      Reflect.deleteProperty(document, 'visibilityState');
+      Reflect.deleteProperty(navigator, 'onLine');
+    });
+
+    it('C18 the default: a loaded, visible document with a build reads the floor exactly once at load, gets 0 and shows nothing', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      expect(floorReads.reads()).toBe(1);
+      expect(floorReads.requests[0]).toMatchObject({
+        cache: 'no-store',
+        credentials: 'omit',
+        headers: { Accept: 'application/json' },
+      });
+      await waitMs(STARTUP_PROMPT_QUIET_MS + 500);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+      expect(harness.update).not.toHaveBeenCalled();
+      expect(floorReads.reads()).toBe(1);
+    });
+
+    it('C1 at load, visible and online: exactly one read; a floor above this build shows the forced dialog once the loads are quiet, and asks for the update once', async () => {
+      holdDialogs();
+      floorReads.answer(786);
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      expect(floorReads.reads()).toBe(1);
+      await waitMs(STARTUP_PROMPT_QUIET_MS - 400);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+
+      await vi.waitFor(
+        () => expect(moduleMocks.showDialog).toHaveBeenCalledOnce(),
+        STARTUP_PROMPT_WAIT,
+      );
+      const options = moduleMocks.showDialog.mock.calls[0]![0] as Record<string, unknown>;
+      expect(options).toEqual(forcedUpdateDialog('dialog.sw_update_apply_msg'));
+      expect(options).not.toHaveProperty('secondaryText');
+      expect(harness.update).toHaveBeenCalledOnce();
+      expect(floorReads.reads()).toBe(1);
+      expect((await livePort()).isForcedAppUpdatePending()).toBe(true);
+    });
+
+    it('C2 hidden at load: no read; the first visible return reads once', async () => {
+      setVisibility('hidden', false);
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      expect(floorReads.reads()).toBe(0);
+
+      setVisibility('visible');
+      expect(floorReads.reads()).toBe(1);
+      await settleReads();
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+    });
+
+    it('C3 ten returns inside the window read nothing more; one return after it reads once', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+      expect(floorReads.reads()).toBe(1);
+
+      for (let flip = 0; flip < 10; flip += 1) {
+        bounce();
+        await settleReads();
+      }
+      expect(floorReads.reads()).toBe(1);
+
+      pastWindow();
+      bounce();
+      await settleReads();
+      expect(floorReads.reads()).toBe(2);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+    });
+
+    it('C4 pageshow with persisted on the same return as visibilitychange reads once; a pageshow without persisted reads nothing, and one with persisted alone reads', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+      expect(floorReads.reads()).toBe(1);
+
+      pastWindow();
+      setVisibility('hidden');
+      setVisibility('visible');
+      pageshow(true);
+      await settleReads();
+      expect(floorReads.reads()).toBe(2);
+
+      pastWindow();
+      pageshow(false);
+      await settleReads();
+      expect(floorReads.reads()).toBe(2);
+      pageshow(true);
+      await settleReads();
+      expect(floorReads.reads()).toBe(3);
+    });
+
+    it('C5 offline at a return: no read and the gate is untouched; coming back online reads once', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+      expect(floorReads.reads()).toBe(1);
+
+      pastWindow();
+      setOnline(false);
+      // Three offline returns: had they claimed the gate, its two starts would be gone.
+      for (let flip = 0; flip < 3; flip += 1) {
+        bounce();
+        await settleReads();
+      }
+      expect(floorReads.reads()).toBe(1);
+
+      setOnline(true);
+      actualWindow.dispatchEvent(new Event('online'));
+      await settleReads();
+      expect(floorReads.reads()).toBe(2);
+    });
+
+    it.each([
+      { name: 'a 500', answer: { status: 500, body: '{}' }, spent: true },
+      { name: 'a malformed body', answer: { status: 200, body: 'not json' }, spent: true },
+      { name: 'no answer (the read deadline)', answer: 'no-answer' as const, spent: true },
+      { name: 'a network error', answer: 'network-error' as const, spent: false },
+    ])(
+      'C6 $name: no dialog, no toast and no read without a trigger; a return within the minute reads again only when the read was released',
+      async ({ answer, spent }) => {
+        vi.useFakeTimers({
+          now: FLOOR_T0,
+          toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+        });
+        floorReads.answer(answer);
+        const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+        await registerWithHarness(harness);
+        expect(floorReads.reads()).toBe(1);
+        await vi.advanceTimersByTimeAsync(APP_BUILD_FLOOR_READ_TIMEOUT_MS);
+
+        bounce();
+        await vi.advanceTimersByTimeAsync(APP_BUILD_FLOOR_READ_TIMEOUT_MS);
+        expect(floorReads.reads()).toBe(spent ? 1 : 2);
+        // Two starts per window: a second released read leaves none.
+        bounce();
+        await vi.advanceTimersByTimeAsync(APP_BUILD_FLOOR_READ_TIMEOUT_MS);
+        expect(floorReads.reads()).toBe(spent ? 1 : 2);
+
+        await vi.advanceTimersByTimeAsync(10 * 60_000);
+        expect(floorReads.reads()).toBe(spent ? 1 : 2);
+        expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+        expect(harness.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([785, 0])('C7 a floor of %i: no dialog and no update check', async (floor) => {
+      floorReads.answer(floor);
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await waitMs(STARTUP_PROMPT_QUIET_MS + 500);
+      pastWindow();
+      bounce();
+      await settleReads();
+      expect(floorReads.reads()).toBe(2);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+      expect(harness.update).not.toHaveBeenCalled();
+    });
+
+    it('C8 a return reads 786 while the ordinary prompt with Later is open: it is withdrawn and the same worker is offered without Later', async () => {
+      const held = holdDialogs();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+      const update = harness.installUpdate('v786');
+      update.emitInstalled();
+      await vi.waitFor(() => expect(dialogKinds(held)).toEqual(['later']));
+
+      pastWindow();
+      floorReads.answer(786);
+      bounce();
+      await vi.waitFor(() => expect(dialogKinds(held)).toEqual(['later -> superseded', 'forced']));
+      expect(held[1]!.options).toEqual(forcedUpdateDialog('dialog.sw_update_apply_msg'));
+
+      held[1]!.answer('ok');
+      await vi.waitFor(() =>
+        expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+      );
+      expect(sessionStorage.getItem('mxqr-forced-apply')).toBe('785:786');
+    });
+
+    it('C9 the forced dialog already open: a return reads nothing', async () => {
+      holdDialogs();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+      const port = await livePort();
+      expect(
+        port.requestForcedAppUpdate({ minAppBuild: 786, admitted: false, returnCode: null }),
+      ).toBe(true);
+
+      pastWindow();
+      bounce();
+      pageshow(true);
+      actualWindow.dispatchEvent(new Event('online'));
+      await settleReads();
+      expect(floorReads.reads()).toBe(1);
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    });
+
+    it('C9 an Apply waiting for its activation (an update on its way): a return reads nothing', async () => {
+      const held = holdDialogs();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+      const update = harness.installUpdate('v786');
+      update.emitInstalled();
+      await vi.waitFor(() => expect(held).toHaveLength(1));
+      held[0]!.answer('ok');
+      await vi.waitFor(() =>
+        expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+      );
+
+      pastWindow();
+      bounce();
+      await settleReads();
+      expect(floorReads.reads()).toBe(1);
+    });
+
+    it('C9 the machine has scheduled its update reload: a return reads nothing', async () => {
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+      harness.setController({ postMessage: vi.fn() });
+      harness.emit('controllerchange');
+      await vi.waitFor(() => expect(owner.isSessionResetPending()).toBe(true));
+
+      pastWindow();
+      bounce();
+      await settleReads();
+      expect(floorReads.reads()).toBe(1);
+    });
+
+    it('C10 the lineage key of this build at that floor: a read of 786 shows nothing and asks for no update', async () => {
+      sessionStorage.setItem('mxqr-forced-apply', '785:786');
+      floorReads.answer(786);
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await waitMs(STARTUP_PROMPT_QUIET_MS + 500);
+      pastWindow();
+      bounce();
+      await settleReads();
+      expect(floorReads.reads()).toBe(2);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+      expect(harness.update).not.toHaveBeenCalled();
+    });
+
+    it("C10 a refusal's higher floor stored (785:787): the clamped read of 786 shows nothing; a read of 788 shows the forced dialog once", async () => {
+      holdDialogs();
+      sessionStorage.setItem('mxqr-forced-apply', '785:787');
+      floorReads.answer(786);
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await waitMs(STARTUP_PROMPT_QUIET_MS + 500);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+
+      pastWindow();
+      floorReads.answer(788);
+      bounce();
+      await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+      expect(harness.update).toHaveBeenCalledOnce();
+      pastWindow();
+      bounce();
+      await settleReads();
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    });
+
+    it('C11 no build (no define, as in every other unit test): no read on any trigger', async () => {
+      vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', undefined);
+      floorReads.answer(786);
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      pastWindow();
+      bounce();
+      pageshow(true);
+      actualWindow.dispatchEvent(new Event('online'));
+      await waitMs(STARTUP_PROMPT_QUIET_MS + 500);
+      expect(floorReads.reads()).toBe(0);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      {
+        name: 'no service worker support',
+        setup: () => {
+          Reflect.deleteProperty(navigator, 'serviceWorker');
+          return stubSinks(true);
+        },
+      },
+      {
+        name: 'an insecure context',
+        setup: () => {
+          Object.defineProperty(navigator, 'serviceWorker', {
+            configurable: true,
+            value: { controller: null, register: vi.fn(), addEventListener: vi.fn() },
+          });
+          return stubSinks(false);
+        },
+      },
+    ])(
+      'C12 $name: the check still reads at load, and the early handler shows the forced dialog without a worker; Apply reloads',
+      async ({ setup }) => {
+        const sinks = setup();
+        Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
+        floorReads.answer(786);
+        const held = holdDialogs();
+        const { registerServiceWorker } = await import('../../sw-register.ts');
+        owner = await import('../session-reset.ts');
+        loadedOwners.push(owner);
+        registerServiceWorker();
+        expect(floorReads.reads()).toBe(1);
+
+        await vi.waitFor(() => expect(dialogKinds(held)).toEqual(['forced']), STARTUP_PROMPT_WAIT);
+        expect(held[0]!.options).toEqual(forcedUpdateDialog('dialog.sw_update_apply_msg'));
+        held[0]!.answer('ok');
+        await vi.waitFor(() => expect(sinks.calls.map((call) => call.op)).toEqual(['reload']));
+        expect(sessionStorage.getItem('mxqr-forced-apply')).toBe('785:786');
+      },
+    );
+
+    it.each([
+      {
+        name: 'a Standard host in an open room: the host message, and Apply reloads in place',
+        state: { role: 'host', sessionStarted: true, roomId: ROOM_CODE, joinCode: ROOM_CODE },
+        message: 'dialog.sw_update_room_host_msg',
+        navigation: 'reload',
+      },
+      {
+        name: "a guest in a room: the room message, and Apply returns to the room's /CODE",
+        state: { role: 'guest', sessionStarted: true, roomId: ROOM_CODE, joinCode: ROOM_CODE },
+        message: 'dialog.sw_update_room_guest_msg',
+        navigation: `href /${ROOM_CODE}`,
+      },
+    ])('C13 $name', async ({ state, message, navigation }) => {
+      setAppState(state);
+      const held = holdDialogs();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+
+      pastWindow();
+      floorReads.answer(786);
+      bounce();
+      await vi.waitFor(() => expect(dialogKinds(held)).toEqual(['forced']));
+      expect(held[0]!.options).toEqual(forcedUpdateDialog(message));
+      held[0]!.answer('ok');
+      await vi.waitFor(() => expect(navigations(harness)).toEqual([navigation]));
+    });
+
+    it('C14 a refusal arrives while the start check waits for quiet loads: one dialog', async () => {
+      holdDialogs();
+      floorReads.answer(786);
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      await settleReads();
+      expect(floorReads.reads()).toBe(1);
+      const port = await livePort();
+      expect(
+        port.requestForcedAppUpdate({ minAppBuild: 786, admitted: false, returnCode: null }),
+      ).toBe(true);
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+      await waitMs(STARTUP_PROMPT_QUIET_MS + 500);
+      expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+      expect(harness.update).toHaveBeenCalledOnce();
+    });
+
+    it('C15 the page goes hidden with a read in flight: the read is abandoned with no dialog and the gate released; the next return reads once', async () => {
+      floorReads.hold();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      expect(floorReads.reads()).toBe(1);
+
+      setVisibility('hidden');
+      expect(floorReads.requests[0]!.signal?.aborted).toBe(true);
+      await settleReads();
+      floorReads.release(786);
+      await settleReads();
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+
+      floorReads.answer(0);
+      setVisibility('visible');
+      await settleReads();
+      expect(floorReads.reads()).toBe(2);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+    });
+
+    it('C16 a hide abandons a second read in the same minute: the third return in that minute reads nothing', async () => {
+      floorReads.hold();
+      const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+      await registerWithHarness(harness);
+      setVisibility('hidden');
+      await settleReads();
+      setVisibility('visible');
+      expect(floorReads.reads()).toBe(2);
+      setVisibility('hidden');
+      await settleReads();
+      setVisibility('visible');
+      await settleReads();
+      expect(floorReads.reads()).toBe(2);
+
+      pastWindow();
+      floorReads.release(0);
+      bounce();
+      await settleReads();
+      expect(floorReads.reads()).toBe(3);
+      expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+    });
+
+    it('C17 the activated-elsewhere offer is open in a room: a return reading 786 withdraws it; the forced dialog is the only open one, and Apply makes the aligned reload', async () => {
+      setAppState({ role: 'guest', sessionStarted: true, roomId: ROOM_CODE, joinCode: ROOM_CODE });
+      const held = holdDialogs();
+      const controller: FakeWorker = { postMessage: vi.fn() };
+      const harness = installServiceWorkerHarness(controller);
+      await registerWithHarness(harness);
+      await settleReads();
+      harness.setController({ postMessage: vi.fn() });
+      harness.emit('controllerchange');
+      await vi.waitFor(() => expect(dialogKinds(held)).toEqual(['later']));
+
+      pastWindow();
+      floorReads.answer(786);
+      bounce();
+      await vi.waitFor(() => expect(dialogKinds(held)).toEqual(['later -> superseded', 'forced']));
+      expect(held[1]!.options).toEqual(forcedUpdateDialog('dialog.sw_update_room_guest_msg'));
+
+      held[1]!.answer('ok');
+      await vi.waitFor(() => expect(navigations(harness)).toEqual([`href /${ROOM_CODE}`]));
+      expect(harness.update).not.toHaveBeenCalled();
+      expect(harness.waitingWorker).toBeNull();
+    });
   });
 });

@@ -23,6 +23,8 @@ export default defineConfig({
       // Forced update operations: the floor script and the smokes' build helper
       // run on the shared App build floor wire contract.
       'src/core/__tests__/{app-build-floor-script,live-smoke-app-build}.test.ts',
+      // The page's start and resume floor read on the same wire contract.
+      'src/core/__tests__/sw-update-coordination.test.ts',
       // C7-0 owner-boundary characterization (resource ownership RO-07..RO-09).
       'src/core/__tests__/owner-transfer-saga-convergence-sqlite.test.ts',
       // An earlier App Worker build and the current one on one saga row (RO-09).

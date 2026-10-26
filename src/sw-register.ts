@@ -23,12 +23,16 @@ import {
   subscribeRoomAuthorityLifecycle,
 } from './rooms/authority.ts';
 import {
+  APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS,
+  APP_BUILD_FLOOR_READ_TIMEOUT_MS,
   CACHE_CLIENT_STATUS,
   CACHE_STATUS_PROBE,
   CACHE_STATUS_REQUEST,
   UPDATE_CHECK_INTERVAL_MS,
+  createAppBuildFloorCheckGate,
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
+  readEffectiveAppBuildFloor,
 } from './sw-update-coordination.ts';
 import {
   FORCED_UPDATE_APPLY_KEY,
@@ -448,7 +452,7 @@ export function registerServiceWorker(): void {
     },
   };
 
-  const announceForcedPresentation = setForcedAppUpdateHandler({
+  const forcedHandler: Parameters<typeof setForcedAppUpdateHandler>[0] = {
     request: (request) => {
       const floor = parseAppBuild(request.minAppBuild);
       if (floor === null || APP_BUILD >= floor) {
@@ -490,7 +494,8 @@ export function registerServiceWorker(): void {
       return true;
     },
     isPending: () => forced !== null && forced.presentation !== 'none',
-  });
+  };
+  const announceForcedPresentation = setForcedAppUpdateHandler(forcedHandler);
 
   /**
    * Put the forced dialog up, unless it is up, an update reload is on its way,
@@ -521,6 +526,64 @@ export function registerServiceWorker(): void {
     announceForcedPresentation();
     forcedMachine.present(latch);
   }
+
+  /** The window load moment: the machine registers then, and the floor check reads. */
+  const atLoadMoment = (run: () => void): void => {
+    if (document.readyState === 'complete') run();
+    else window.addEventListener('load', run, { once: true });
+  };
+
+  // The start and resume floor check (forced update, owner decision
+  // 2026-10-25 ~22:00): at the load moment and at each return to the
+  // foreground, read the effective App build floor, and below it ask the
+  // forced entry above, which decides everything else (loop guard, latch,
+  // update check, navigation wait, dialog). Armed before the support checks,
+  // so a page with no machine checks too. Its only state is the read gate and
+  // the read in flight: no timer, no retry; a failed read waits for a trigger.
+  const floorGate = createAppBuildFloorCheckGate(APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS);
+  let floorRead: AbortController | null = null;
+  const checkAppBuildFloor = (atStart: boolean): void => {
+    if (
+      APP_BUILD === 0 ||
+      document.visibilityState === 'hidden' ||
+      navigator.onLine === false ||
+      (forced !== null && forced.presentation !== 'none') ||
+      forcedMachine.reloadInFlight() ||
+      // The document that follows checks at its own start.
+      isSessionResetPending() ||
+      !floorGate.claim(Date.now())
+    ) {
+      return;
+    }
+    const read = new AbortController();
+    floorRead = read;
+    readEffectiveAppBuildFloor(read.signal, APP_BUILD_FLOOR_READ_TIMEOUT_MS)
+      .then(async ({ floor, spent }) => {
+        if (floorRead === read) floorRead = null;
+        floorGate.settle(spent);
+        if (floor === null || floor <= APP_BUILD) return;
+        // At start, once the page's own loads are quiet, so Apply is prompt (P3-9 A).
+        if (atStart) await waitForQuietPageLoad();
+        forcedHandler.request({ minAppBuild: floor, admitted: true, returnCode: null });
+      })
+      .catch((error: unknown) => {
+        log.warn('[SW] App build floor check failed', error);
+      });
+  };
+  atLoadMoment(() => checkAppBuildFloor(true));
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkAppBuildFloor(false);
+    } else if (document.visibilityState === 'hidden') {
+      // A hidden page's read can be suspended with it: abandon it, so it
+      // cannot make the next return skip its read.
+      floorRead?.abort();
+    }
+  });
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) checkAppBuildFloor(false);
+  });
+  window.addEventListener('online', () => checkAppBuildFloor(false));
 
   if (!('serviceWorker' in navigator)) {
     log.info('[SW] Service Worker not supported');
@@ -1335,6 +1398,5 @@ export function registerServiceWorker(): void {
     });
   };
 
-  if (document.readyState === 'complete') startRegistration();
-  else window.addEventListener('load', startRegistration, { once: true });
+  atLoadMoment(startRegistration);
 }

@@ -8,6 +8,9 @@ export default defineConfig({
   testIgnore: [
     'webkit-mobile-smoke.test.ts',
     'production-candidate-smoke.test.ts',
+    // The forced update's start and resume check runs once, on the production
+    // candidate (playwright.candidate.config.ts).
+    'forced-update-resume.test.ts',
     '**/production-live/**/*.test.ts',
   ],
   timeout: 60_000,

@@ -51,6 +51,7 @@ import {
 } from '../navigation-contract.ts';
 import { CACHE_CLIENT_STATUS, CACHE_STATUS_REQUEST } from '../../sw-update-coordination.ts';
 import { stubNavigationSinks, type NavigationSinks } from './__helpers__/navigation-sinks.ts';
+import { createFloorReadStub, type FloorReadStub } from './__helpers__/app-build-floor-read.ts';
 
 // ─── App state, dialogs and module mocks ─────────────────────────────
 
@@ -235,6 +236,12 @@ interface Tab {
   readonly skipWaiting: string[];
   /** Each registration.update() call, by the document that made it. */
   readonly updates: string[];
+  /**
+   * The App build floor read of every document of this tab (the forced
+   * update's start and resume check, Inc 7): `open` installs it as `fetch`,
+   * and it answers 0 (no floor) unless a row says otherwise.
+   */
+  readonly floor: FloorReadStub;
   readonly controller: FakeWorker | null;
   readonly waiting: FakeWorker | null;
   /**
@@ -279,6 +286,7 @@ function createTab(activeVersion: string): Tab {
   const docSinkStart = new Map<number, number>();
   const skipWaiting: string[] = [];
   const updates: string[] = [];
+  const floor = createFloorReadStub();
   let controller: FakeWorker | null = null;
   let waiting: FakeWorker | null = null;
   let installing: FakeWorker | null = null;
@@ -355,6 +363,7 @@ function createTab(activeVersion: string): Tab {
     sinks,
     skipWaiting,
     updates,
+    floor,
     get controller() {
       return controller;
     },
@@ -365,6 +374,7 @@ function createTab(activeVersion: string): Tab {
       closeLiveDocument?.();
       vi.resetModules();
       vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', build);
+      vi.stubGlobal('fetch', floor.fetch);
       resourceEntries.length = 0;
       liveDoc += 1;
       const doc = liveDoc;
@@ -3269,6 +3279,196 @@ describe('forced update on the real navigation owner (train 9.0.12)', () => {
       port.subscribeForcedAppUpdatePresentation(presented);
       expect(port.requestForcedAppUpdate(forcedRequest())).toBe(true);
       expect(presented).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The same return with the start and resume floor check (forced update
+     * Inc 7): its visible listener and the guard's listen to the same
+     * visibilitychange, and either the read or the recovery can finish first.
+     */
+    it('I5 a 61 s room return: recovery resolves before the floor read, so the warning is on screen; the read lands 786: the warning is withdrawn and the forced dialog is the one on screen', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+      const port = await livePort();
+      const returns = await wireReturnDialogs(port);
+      expect(tab.floor.reads()).toBe(1);
+      tab.floor.hold();
+
+      await background(page, 0, 61_000);
+      expect(returns.recoveries).toEqual([61_000]);
+      expect(tab.floor.reads()).toBe(2);
+      returns.finishRecovery();
+      await at(61_100);
+      expect(onScreen()).toBe(`doc1 ${WARNING}`);
+
+      tab.floor.release(786);
+      await at(61_200);
+      expect(dialogLog()).toEqual([`doc1 ${WARNING} -> superseded`, `doc1 forced ${MSG_GUEST}`]);
+      expect(onScreen()).toBe(`doc1 forced ${MSG_GUEST}`);
+      expect(port.isForcedAppUpdatePending()).toBe(true);
+      returns.guard.dispose();
+    });
+
+    it('I6 the floor read lands before recovery resolves: the forced dialog is on screen, and the warning is never asked for', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+      const port = await livePort();
+      const returns = await wireReturnDialogs(port);
+      tab.floor.hold();
+
+      await background(page, 0, 61_000);
+      tab.floor.release(786);
+      await at(61_100);
+      expect(dialogLog()).toEqual([`doc1 forced ${MSG_GUEST}`]);
+      returns.finishRecovery();
+      await at(61_200);
+      expect(dialogLog()).toEqual([`doc1 forced ${MSG_GUEST}`]);
+      expect(onScreen()).toBe(`doc1 forced ${MSG_GUEST}`);
+      returns.guard.dispose();
+    });
+
+    it('I7 a second return while the forced dialog is open: no floor read and no warning', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+      const port = await livePort();
+      const returns = await wireReturnDialogs(port);
+      tab.floor.answer(786);
+      await background(page, 0, 61_000);
+      returns.finishRecovery();
+      await at(61_100);
+      expect(dialogLog()).toEqual([`doc1 forced ${MSG_GUEST}`]);
+      expect(tab.floor.reads()).toBe(2);
+
+      await background(page, 70_000, 131_000);
+      expect(returns.recoveries).toEqual([61_000, 131_000]);
+      returns.finishRecovery();
+      await at(131_100);
+      expect(tab.floor.reads()).toBe(2);
+      expect(dialogLog()).toEqual([`doc1 forced ${MSG_GUEST}`]);
+      returns.guard.dispose();
+    });
+  });
+
+  /**
+   * The start and resume floor check (forced update Inc 7) against the real
+   * navigation owner: a read is answered while something else already holds
+   * or is leaving the page. The tab's floor read answers 0 by default; a row
+   * holds the reads and answers 786 (above this build) when it says so.
+   */
+  describe('the start and resume floor check against the navigation owner (Inc 7)', () => {
+    /** A return from the background that starts a floor read once the load's window has passed. */
+    async function returnAfterWindow(page: PageDocument): Promise<void> {
+      await at(61_000);
+      page.hidden();
+      page.visible();
+    }
+
+    it('C18 the harness default: a loaded, visible document with a build reads the floor once at load, gets 0 and shows nothing', async () => {
+      tab = createTab(PAGE_BUILD);
+      await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+      expect(tab.floor.reads()).toBe(1);
+      await at(8_000);
+      expect(observe(tab)).toEqual({
+        skipWaiting: [],
+        navigations: [],
+        dialogs: [],
+        markers: NO_MARKERS,
+      });
+      expect(tab.updates).toEqual([]);
+    });
+
+    it('I1 a back-forward cache return in a room, visible first: the visible return starts one read before RO-23 asks for its bounded reload, and pageshow reads nothing more; the read lands 786 under that reload: no dialog, one navigation, nothing after it commits', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+      expect(tab.floor.reads()).toBe(1);
+      await at(61_000);
+      tab.floor.hold();
+
+      page.pagehide(true);
+      page.visible();
+      expect(tab.floor.reads()).toBe(2);
+      expect(page.owner.isSessionResetPending()).toBe(false);
+      page.pageshow(true);
+      expect(page.owner.isSessionResetPending()).toBe(true);
+      expect(tab.floor.reads()).toBe(2);
+
+      tab.floor.release(786);
+      await at(61_000 + PAINT_MS);
+      expect(mocks.dialogs).toHaveLength(0);
+      expect(tab.navigations()).toEqual(['doc1 reload']);
+      page.pagehide();
+      await at(70_000);
+      expect(mocks.dialogs).toHaveLength(0);
+      expect(tab.navigations()).toEqual(['doc1 reload']);
+      expect(tab.floor.reads()).toBe(2);
+    });
+
+    it("I2 a read lands inside the logo reset's prepare window that then commits: nothing", async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+      tab.floor.hold();
+      await returnAfterWindow(page);
+      expect(tab.floor.reads()).toBe(2);
+      page.logoReset();
+      tab.floor.release(786);
+      await at(61_000 + PAINT_MS);
+      expect(mocks.dialogs).toHaveLength(0);
+      expect(tab.navigations()).toEqual(['doc1 replace /']);
+      page.pagehide();
+      await at(70_000);
+      expect(mocks.dialogs).toHaveLength(0);
+    });
+
+    it('I2 the same, and the navigation releases the page in this document: the forced dialog once', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+      const port = await livePort();
+      tab.floor.hold();
+      await returnAfterWindow(page);
+      page.logoReset();
+      tab.floor.release(786);
+      await at(61_000 + PAINT_MS);
+      expect(mocks.dialogs).toHaveLength(0);
+
+      await at(61_000 + PAINT_MS + COMMIT_DEADLINE_MS + PAINT_MS);
+      expect(page.owner.isSessionResetPending()).toBe(false);
+      expect(dialogLog()).toEqual([`doc1 forced ${MSG_APPLY}`]);
+      expect(port.isForcedAppUpdatePending()).toBe(true);
+      await at(70_000);
+      expect(mocks.dialogs).toHaveLength(1);
+    });
+
+    it("I3 a read lands after the machine's update reload was scheduled: nothing, and no update check", async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: OUTSIDE, build: PAGE_BUILD });
+      tab.floor.hold();
+      await returnAfterWindow(page);
+      expect(tab.floor.reads()).toBe(2);
+      tab.replaceController('v786');
+      tab.floor.release(786);
+      await at(61_000 + PAINT_MS);
+      expect(tab.navigations()).toEqual(['doc1 reload']);
+      page.pagehide();
+      await at(70_000);
+      expect(mocks.dialogs).toHaveLength(0);
+      expect(tab.updates).toEqual([]);
+    });
+
+    it('I4 a read lands while another reset that leaves the room is pending (as the PRO runtime terminal reset does): dropped when it commits', async () => {
+      tab = createTab(PAGE_BUILD);
+      const page = await tab.open({ app: ROOM_GUEST, build: PAGE_BUILD });
+      tab.floor.hold();
+      await returnAfterWindow(page);
+      expect(tab.floor.reads()).toBe(2);
+      page.leave();
+      tab.floor.release(786);
+      await at(61_000 + PAINT_MS);
+      expect(mocks.dialogs).toHaveLength(0);
+      expect(tab.navigations()).toHaveLength(1);
+      page.pagehide();
+      await at(70_000);
+      expect(mocks.dialogs).toHaveLength(0);
+      expect(tab.navigations()).toHaveLength(1);
     });
   });
 });

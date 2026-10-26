@@ -1629,6 +1629,29 @@ RO-51 duplicated
     generation this tab asked for and already runs is not offered again after the 30 s cooldown.
     A document without its own request still asks.
 
+  Since forced update Inc 7 (train 9.0.12, owner decision 2026-10-25 ~22:00: check the minimum
+  build at start and on every return from the background):
+  - The start and resume floor check is a second requester inside the machine
+    (`sw-register.ts`, armed in `registerServiceWorker` scope before the support checks, so a
+    page with no machine checks too). It reads `APP_BUILD_FLOOR_CLIENT_PATH` (the App Worker's
+    effective floor, RO-50) at the window load moment the machine already registers at (one
+    `atLoadMoment` for both) and on `visibilitychange` to visible, `pageshow` with `persisted`
+    and `online`; nothing else triggers it (no timer: the hourly `sw-update-check` is not a
+    trigger, owner question Q-B default No). It skips a page with no build (`APP_BUILD` 0), a
+    hidden or offline page, a latch already on screen or under an update reload, an update
+    reload on its way (`reload-scheduled`, `awaiting-local-controller`) and a page a navigation
+    holds (the next document checks at its start). Its gate
+    (`createAppBuildFloorCheckGate` in `sw-update-coordination.ts`) allows at most two read
+    starts and one in flight per `APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS` window; a read a server
+    answered (any status or body) or that hit its deadline is spent and ends the window, one the
+    page abandoned (the `visibilitychange` to hidden aborts the read in flight) or that got no
+    response is released and lets the next trigger read once more in that window. Below the
+    floor it calls the forced entry with `{ admitted: true, returnCode: null }` (today's message
+    and return rules wherever the page is) at once on a return and, at start, after the startup
+    prompt's quiet wait (P3-9 A); the entry owns the loop guard, the latch, `reg.update()`, the
+    navigation wait and the dialog. It holds no dialog, prompt, phase, reload or timer state; a
+    failed or offline read shows nothing and is never retried by itself.
+
   `guard:navigation-sinks` counts the one literal in the sink and the one in the hard reset's own
   promotion, the four calls of the sink (Apply and Apply to a replacement in `handleWaitingWorker`,
   the quiet promotions in `activateWhenQuiet`, the logo port in `claimForHardReset`), and keeps
@@ -1641,9 +1664,11 @@ RO-51 duplicated
 - **Allowed requesters:** the update dialog (Apply, Later), the logo hard reset through the port,
   other tabs through the prompt lease, and refusals below the App build floor through the
   forced-update port in `src/core/app-build.ts` (the PRO entry from forced update Inc 5, the
-  Standard signaling transport from Inc 6).
+  Standard signaling transport from Inc 6), and the machine's own start and resume floor check
+  (Inc 7).
 - **Lifecycle operations:** `SKIP_WAITING`, `reg.update()` (also once each time the forced
-  latch's floor rises), the reload, completion markers, the forced update's loop-guard key.
+  latch's floor rises), the reload, completion markers, the forced update's loop-guard key, and
+  the start and resume check's floor read (started through its gate, aborted on hide).
 - **Deadline owner:** the update machine (with the Chromium rule that `SKIP_WAITING` waits until
   page loads settle: the startup prompt, the quiet promotions and the logo port all follow it)
   and, for the logo reset, the navigation owner's prepare window. Since Phase 2 C6-8 the logo
@@ -1653,14 +1678,18 @@ RO-51 duplicated
   either way; the 2 s commit timeout starts only at that navigation (owner decision 2,
   2026-10-23). Since C6-10 the prepare signal reaches the port's wait and the hard reset's own
   promotion: after it aborts nothing is promoted or awaited, and an Apply in flight is waited for
-  until it aborts.
+  until it aborts. The start and resume floor read has one deadline,
+  `APP_BUILD_FLOOR_READ_TIMEOUT_MS`, and no retry: a failed read waits for the next trigger (in
+  the next window when it was spent).
 - **Timing-constant home:** `src/core/navigation-contract.ts` (the next-document markers
   `SW_UPDATE_KEY`, `SW_CONTROLLER_CONFIRMED_KEY`, `UPDATE_COMPLETION_KEY` and, since forced
   update Inc 5, `FORCED_UPDATE_APPLY_KEY`; the lazy
   `sw-update-completion.ts` keeps a copy of the last, pinned by
   `src/core/__tests__/sw-update-completion.test.ts`), `sw-update-coordination.ts`
   (`UPDATE_CHECK_INTERVAL_MS` and the page-side message types, pinned against the worker's copies
-  by `src/core/__tests__/sw-message-contract.test.ts`), `sw-hard-reset.ts`
+  by `src/core/__tests__/sw-message-contract.test.ts`; since forced update Inc 7 also the start
+  and resume check's `APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS` and
+  `APP_BUILD_FLOOR_READ_TIMEOUT_MS`, which `sw-register.ts` passes to the gate and the read), `sw-hard-reset.ts`
   (`ACTIVATION_TIMEOUT_MS`, lazy) and `sw-register.ts` (prompt and quiet-load timings, and
   `HARD_RESET_CLAIM_EVENT`; the lazy `sw-hard-reset.ts` keeps a copy, and `sw-register.test.ts`
   and `sw-hard-reset.test.ts` pin both to `src/core/__tests__/__helpers__/hard-reset-port.ts`).
@@ -1718,6 +1747,24 @@ RO-51 duplicated
     port); the PRO entry rows of `src/pro-room/__tests__/setup-flow.test.ts`, and in a real
     browser (local, not in CI) `e2e/pro-entry-app-update.test.ts` (a refused PRO invite and claim
     link: no Later, Escape and Back keep it, one Apply, then the loop guard).
+  - The start and resume floor check (forced update Inc 7): the read and the gate in
+    `src/core/__tests__/sw-update-coordination.test.ts` (rows R1 to R5, G1 to G3);
+    `sw-register.test.ts` "the start and resume floor check (forced update Inc 7)" (rows C1 to
+    C18); the transition test file's "the start and resume floor check against the navigation
+    owner (Inc 7)" and the RO-51 rows I5 to I7. Supersession: C8 and C17 (an ordinary prompt or
+    the activated-elsewhere offer withdrawn), C9 and I3 (a forced dialog already open, an update
+    reload on its way: a return reads nothing, a read that lands after it does nothing), C14 (a
+    refusal during the start wait: one dialog). User pause/stop: C10 (the loop guard keeps a
+    read silent). Teardown: I1 (a back-forward cache return in a room, visible first: one read
+    starts before RO-23's bounded reload and its result waits under it), I2 and I4 (a read that
+    lands while a navigation holds the page waits for it: nothing if it commits, the forced
+    dialog once if it releases the page). Visibility: C2, C3, C4, C15 and C16 (hidden pages do
+    not read, a return reads once per window, a hide abandons the read in flight). C18 pins the
+    test default: a loaded, visible document with a build reads once at load and gets 0 (both
+    harnesses install that answer, because the unit network guard rejects any other fetch). In
+    the production candidate browser suite (CI), `e2e/forced-update-resume.test.ts`: a return
+    reads once per window and shows the forced dialog below the floor (Escape and Back keep it),
+    and a forced Apply on a controlled page reloads once into a guarded document.
 - **Status:** `duplicated` until the temporary timeout fallback goes. Phase 0d, Phase 3 (one
   activation owner, done in C6-9; the hard reset asks it, done in C6-10; the timeout fallback is
   removed in a later Phase 3 release after two clean production update cycles, which leaves the
@@ -2493,7 +2540,9 @@ entry needs the owner's acceptance and is not implied by this registry.
   page's client read (`APP_BUILD_FLOOR_CLIENT_PATH`). The client read publishes 0 unless the floor
   was read live, keeps a live value in the colo's edge cache, and clamps the answer to the build
   its own assets serve on every request. The edge cache is a reader's cache with one lifetime,
-  not a writer. A setter's or reporter's answer refreshes its own isolate's cached view.
+  not a writer. A setter's or reporter's answer refreshes its own isolate's cached view. Since
+  forced update Inc 7 the client read's one product caller is the page's start and resume check
+  (RO-22), at most two reads per page per minute.
 - **Target single owner:** reached. A new writer goes through `updateAppBuildFloor` or
   `reportLiveAppBuild`; nothing else posts to the object's floor paths.
 - **Allowed requesters:** writes from `handleAppBuildFloorOps` and `handleAdminAppBuildFloor`
@@ -2569,7 +2618,10 @@ entry needs the owner's acceptance and is not implied by this registry.
   - Teardown: F27 (a forced request held by a navigation withdraws nothing until it presents;
     no presentation is announced for a loop-guard refusal or a reload already in flight).
   - Visibility: F26 (a 61 s return while the forced dialog is pending recovers and never asks for
-    the warning). The start and resume check's real returns follow with forced update Inc 7.
+    the warning), and since forced update Inc 7 the start and resume check's real returns, both
+    orders: I5 (recovery first, the warning on screen, then the read lands below the floor: the
+    warning is withdrawn), I6 (the read first: the warning is never asked for) and I7 (a second
+    return while the forced dialog is open: no read and no warning).
   - The `app.ts` wiring (the subscription and the early return of `runAudioRecoveryRequest`) is
     checked by reading, as 8.11.7's was: `app.ts` is the bootstrap module and is not imported in
     tests.

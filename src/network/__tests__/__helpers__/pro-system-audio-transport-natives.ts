@@ -317,7 +317,10 @@ export function sendLanMediaOffer(
   });
 }
 
-export function sendLanClose(route: LanPublisherRoute, reason: 'stopped' | 'fallback'): void {
+export function sendLanClose(
+  route: LanPublisherRoute,
+  reason: 'stopped' | 'fallback' | 'superseded',
+): void {
   proRelay.deliver(route.roomCode, route.ownerParticipantId, {
     ...lanSignal(route, 'close'),
     reason,

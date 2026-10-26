@@ -1985,6 +1985,54 @@ describe('PRO system-audio service orchestration', () => {
     },
   );
 
+  // A sharer's SFU publisher recovery releases its lease and acquires it again
+  // while local capture keeps sharing. The release's idle view is not the
+  // local owner's, so the coordinator cleanup runs the slot's end over the
+  // capture's 'system-audio' claim whatever the slot holds, and capture is not
+  // told (an expected lease transition). The service's part passes before and
+  // after 5B-G4; since 5B-G4 the slot's end leaves that claim alone, which the
+  // PRO contract row "5B-G4: a sharer whose view passes through idle while its
+  // capture still runs ..." pins with the real slot (added after the 5B-G4
+  // review).
+  it("publisher recovery reaches the slot end through the release's idle view while this device's capture keeps sharing", async () => {
+    vi.useFakeTimers();
+    const reasons: string[] = [];
+    bus.on('pro-system-audio:lease-lost', (reason) => reasons.push(reason));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease
+      .mockResolvedValueOnce({ systemAudio: preparing(), leaseId: LEASE_ID })
+      .mockResolvedValueOnce({ systemAudio: preparing(2), leaseId: 'N'.repeat(43) });
+    api.commitSystemAudioPublication
+      .mockResolvedValueOnce(localLive())
+      .mockResolvedValueOnce(localLive(2));
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1));
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio({} as MediaStreamTrack);
+    expect(getProSystemAudioViewState()).toMatchObject({ phase: 'live', isLocalOwner: true });
+    // The capture's claim; the slot holds no reception.
+    mocks.playbackMode = 'system-audio';
+    mocks.cleanupReception.mockClear();
+
+    mocks.sfuListener?.({ type: 'publisher-state', state: 'failed' });
+    await vi.advanceTimersByTimeAsync(2_500);
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(2));
+
+    expect(mocks.cleanupReception).toHaveBeenCalled();
+    expect(mocks.cleanupReception.mock.invocationCallOrder[0]).toBeGreaterThan(
+      api.releaseSystemAudioLease.mock.invocationCallOrder[0],
+    );
+    expect(mocks.cleanupReception.mock.invocationCallOrder[0]).toBeLessThan(
+      api.acquireSystemAudioLease.mock.invocationCallOrder[1],
+    );
+    expect(reasons).toEqual([]);
+    expect(getProSystemAudioViewState()).toMatchObject({
+      phase: 'live',
+      generation: 2,
+      isLocalOwner: true,
+    });
+  });
+
   it('retires an SFU receive attempt when native audio resume times out and retries its track', async () => {
     const graph = installAudioGraphHarness();
     // A PRO member may enter before its first audio graph has been created.

@@ -507,10 +507,17 @@ RO-49 accepted-exception
   holding its restore point, the placeholder current, or the receiving flag set), lets the PRO
   coordinator end the slot over this device's own publication only while the slot still holds a
   reception: its cleanup's guard keeps `playback.mode === 'system-audio'` and now reads
-  `!latestView.isLocalOwner || hasTrustedSystemAudioReception()`, so a listener's cleanup is
-  unchanged. That is the S11 case, a sharing claim made while this device still received:
+  `!latestView.isLocalOwner || hasTrustedSystemAudioReception()`, so the guard is unchanged for
+  a listener's view. That is the S11 case, a sharing claim made while this device still received:
   before, the local-owner guard skipped the whole end and left the receiving flag set with no
-  source and the restore point held for a later end to replay over the sharing meta. The guard
+  source and the restore point held for a later end to replay over the sharing meta. The end's
+  rule itself applies to every caller, a listener's view included: a sharer's SFU publisher
+  recovery releases the lease and acquires it again while capture keeps sharing, the release's
+  idle view is not the local owner's, so the cleanup runs the end over the capture's claim, and
+  capture is not told during that expected lease transition nor claims again after the
+  re-commit. Before 5B-G4 that end released the claim and left playback idle with no title for
+  the rest of the share; since 5B-G4 the sharer keeps its sharing title (pinned after the 5B-G4
+  review, anchor tests below). The guard
   stays rather than going: every reconcile of the own publication (each 15 s heartbeat) runs
   that cleanup, and an unguarded end would bump the generation, cancel every waiter, run the
   route ports and stamp the `/debug sa` cleanup time on every heartbeat of a sharer. A stale held
@@ -723,7 +730,14 @@ RO-49 accepted-exception
     reconciles end nothing in the slot ..." (the `/debug` cleanup time stays; fails without the
     service guard), the S11 row "a listener that becomes the publisher keeps its sharing claim
     ..." and the guest unit "5B-G4 guard: still restores a receiving 'system-audio' owner whose
-    meta a meta-null writer cleared" (fails if the rule narrows to the placeholder only).
+    meta a meta-null writer cleared" (fails if the rule narrows to the placeholder only). Added
+    after the 5B-G4 review, for a path the change already covered: the PRO "5B-G4: a sharer whose
+    view passes through idle while its capture still runs (publisher recovery's release and
+    re-acquire) keeps its sharing claim" (fails on the parent of 5B-G4: playback idle with no
+    title after the release's idle view) and the service suite's "publisher recovery reaches the
+    slot end through the release's idle view while this device's capture keeps sharing" (passes
+    before and after: the real recovery runs the end between the release and the re-acquire,
+    and capture is not told).
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the

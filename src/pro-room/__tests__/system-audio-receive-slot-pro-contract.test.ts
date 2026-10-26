@@ -230,6 +230,18 @@ function localLive(generation: number): ProRoomSystemAudioState {
   );
 }
 
+/** The local participant holds the lease before it commits a publication. */
+function localPreparing(generation: number): ProRoomSystemAudioState {
+  return {
+    generation,
+    status: 'preparing',
+    ownerParticipantId: LOCAL_ID,
+    claimExpiresAt: LIVE_EXPIRES_AT,
+    liveExpiresAt: null,
+    publication: null,
+  };
+}
+
 /** The playback claim local capture makes when its share starts. */
 function claimSharing(): void {
   claimPlaybackOwner('system-audio', { currentTrackMeta: createSystemAudioTrackMeta('sharing') });
@@ -1351,7 +1363,52 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     expect(seen.toasts).toEqual([]);
   });
 
-  it('S11, fixed in 5B-G4:a sharing claim made while still receiving ends the reception under the claim; receiving drops and no restore point is left to replay', async () => {
+  // Fixed in 5B-G4 with gap 6, pinned after its review. A sharer's SFU
+  // publisher recovery (service.ts recoverLocalPublisher, after the sharer's
+  // connection_unstable notice) releases the lease and acquires it again while
+  // local capture keeps sharing: the release's idle view is not the local
+  // owner's, so the coordinator cleanup runs the slot's end over the capture's
+  // claim. The capture module is not told (an expected lease transition) and
+  // claims nothing again after the re-commit. Before 5B-G4 that end released
+  // the claim and set playback idle with no title for the rest of the share;
+  // since then the end leaves the sharer's claim alone. This harness models
+  // only the authoritative states the recovery passes through (idle, the
+  // re-acquired preparing lease, the re-committed publication); the service
+  // suite's "publisher recovery reaches the slot end through the release's
+  // idle view ..." pins that the real recovery runs that end.
+  it("5B-G4: a sharer whose view passes through idle while its capture still runs (publisher recovery's release and re-acquire) keeps its sharing claim", async () => {
+    claimSharing();
+    await applyState(localLive(1));
+    const sharing = {
+      receiving: false,
+      mode: 'system-audio',
+      activity: 'playing',
+      title: 'System Audio Sharing',
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    };
+    expect(slot()).toEqual(sharing);
+
+    // The release (idle), the re-acquire (preparing) and the re-commit (live).
+    await applyState(idle(2));
+    expect(slot()).toEqual(sharing);
+    expect(getState('player.currentTrackMeta')?.systemAudioMode).toBe('sharing');
+    await applyState(localPreparing(3));
+    expect(slot()).toEqual(sharing);
+    await applyState(localLive(3));
+    expect(slot()).toEqual(sharing);
+    await advance(60_000);
+    expect(slot()).toEqual(sharing);
+
+    expect(seen.activities).toEqual([]);
+    expect(media.stopAllMedia).not.toHaveBeenCalled();
+    expect(seen.counts.hostStarted).toBe(0);
+    expect(restorePlayback).not.toHaveBeenCalled();
+    expect(seen.toasts).toEqual([]);
+  });
+
+  it('S11, fixed in 5B-G4: a sharing claim made while still receiving ends the reception under the claim; receiving drops and no restore point is left to replay', async () => {
     await applyState(live(sfuPublication()));
     await advance(PRO_TRACK_AT_MS);
 

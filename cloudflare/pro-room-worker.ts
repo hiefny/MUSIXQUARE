@@ -4682,25 +4682,35 @@ export class MusixquareProRoom {
         : null;
 
     const pending = this.activeRoom.pendingOwnershipTransfer;
+    // A PRO Worker before 9.0.4 also stored the PIN the new owner chose.
+    // Nothing clears a pending record when its claim expires: it stays until
+    // a new PREPARE replaces it or a commit finishes it, and it carries the
+    // previous owner's edge into the next transfer. So such a record stays
+    // valid, and its PIN is dropped unread (stored-state compatibility only;
+    // no request can write it).
     const validPending =
       pending &&
       typeof pending === 'object' &&
       !Array.isArray(pending) &&
-      hasExactKeys(pending, [
-        'transferId',
-        'requestId',
-        'targetAccountId',
-        'targetDisplayName',
-        'previousOwnerAccountId',
-        'preservedOwnerMemberId',
-        'claimNonceHash',
-        'claimGeneration',
-        'ownerAuthorityEpoch',
-        'preparedAtMs',
-        'expiresAtMs',
-        'devicePlatform',
-        'commitProofHash',
-      ]) &&
+      hasExactKeys(
+        pending,
+        [
+          'transferId',
+          'requestId',
+          'targetAccountId',
+          'targetDisplayName',
+          'previousOwnerAccountId',
+          'preservedOwnerMemberId',
+          'claimNonceHash',
+          'claimGeneration',
+          'ownerAuthorityEpoch',
+          'preparedAtMs',
+          'expiresAtMs',
+          'devicePlatform',
+          'commitProofHash',
+        ],
+        ['pin'],
+      ) &&
       OWNER_TRANSFER_ID_RE.test(pending.transferId || '') &&
       OWNER_TRANSFER_REQUEST_ID_RE.test(pending.requestId || '') &&
       ACCOUNT_ID_RE.test(pending.targetAccountId || '') &&
@@ -4718,6 +4728,7 @@ export class MusixquareProRoom {
       pending.expiresAtMs > pending.preparedAtMs &&
       ['ios', 'android', 'windows', 'macos', 'linux', 'other'].includes(pending.devicePlatform) &&
       /^[A-Za-z0-9_-]{43}$/.test(pending.commitProofHash || '');
+    if (validPending) delete (pending as { pin?: unknown }).pin;
     this.activeRoom.pendingOwnershipTransfer = validPending ? pending : null;
 
     const completed = this.activeRoom.completedOwnershipTransfer;

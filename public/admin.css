@@ -2148,7 +2148,8 @@ p {
 
 .service-status-actions button,
 [data-service-status-preview],
-[data-service-history-refresh] {
+[data-service-history-refresh],
+[data-app-build-floor-refresh] {
   min-height: 40px;
   border-radius: var(--radius-pill);
   padding: 8px 16px;
@@ -2160,7 +2161,8 @@ p {
 
 .service-status-actions button:hover,
 [data-service-status-preview]:hover,
-[data-service-history-refresh]:hover {
+[data-service-history-refresh]:hover,
+[data-app-build-floor-refresh]:hover {
   filter: brightness(1.1);
 }
 
@@ -2180,7 +2182,8 @@ p {
 }
 
 .service-status-actions button:disabled,
-[data-service-history-refresh]:disabled {
+[data-service-history-refresh]:disabled,
+[data-app-build-floor-refresh]:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -2188,6 +2191,7 @@ p {
 .service-status-actions button:focus-visible,
 [data-service-status-preview]:focus-visible,
 [data-service-history-refresh]:focus-visible,
+[data-app-build-floor-refresh]:focus-visible,
 .service-status-details summary:focus-visible {
   outline: 2px solid rgba(var(--primary-rgb), 0.72);
   outline-offset: 2px;
@@ -2273,6 +2277,81 @@ p {
   color: var(--text-muted);
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+.app-build-floor-panel {
+  display: grid;
+  min-width: 0;
+  gap: 16px;
+}
+
+.app-build-floor-panel .panel-head {
+  margin-bottom: 0;
+}
+
+[data-app-build-floor-state] {
+  color: var(--text-main);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.app-build-floor-panel[data-state='on'] [data-app-build-floor-state] {
+  color: var(--warn);
+}
+
+[data-app-build-floor-summary] {
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.app-build-floor-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 20px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.app-build-floor-facts:empty {
+  display: none;
+}
+
+.app-build-floor-facts dt {
+  color: var(--text-muted);
+}
+
+.app-build-floor-facts dd {
+  margin: 0;
+  color: var(--text-main);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-build-floor-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.app-build-floor-form .pro-room-field {
+  width: min(220px, 100%);
+}
+
+[data-app-build-floor-error] {
+  color: var(--fail);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+[data-app-build-floor-history-status] {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+[data-app-build-floor-history-status][data-state='error'] {
+  color: var(--fail);
 }
 
 .announcement-management {

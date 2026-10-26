@@ -30,6 +30,7 @@ import {
   initialHostSocketError,
   readAlternateSignalingSurface,
   readSignalingOriginBoundary,
+  requireAdmittedSignalingHost,
   signalingSocketUrl,
   settleUnexpectedInitialHostResponse,
   verifyAlternateSignalingSurface,
@@ -823,5 +824,86 @@ describe('live signaling smoke deployment readiness', () => {
       expect(attempts).toBe(2);
       expect(log).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe('live signaling smoke App build', () => {
+  const INVALID_FIRST_FRAME = {
+    type: 'error',
+    errorType: 'invalid-id',
+    message: 'HOST_AUTH_FIRST_FRAME_INVALID',
+  };
+  const invalidFrameLine = (label: string) =>
+    `${label}: host-auth refused as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID)`;
+  const FLOOR_REFUSAL = {
+    type: 'error',
+    // The exact refusal frame the Signaling Worker sends below the floor.
+    errorType: 'app-update-required',
+    message: 'APP_UPDATE_REQUIRED',
+    minAppBuild: 786,
+  };
+
+  it('admits the candidate build and keeps the exact version check', () => {
+    const open = { type: 'peer-open', workerVersionId: EXPECTED_VERSION };
+    expect(requireAdmittedSignalingHost(open, 'host', 785, EXPECTED_VERSION, true)).toBe(open);
+    expect(() =>
+      requireAdmittedSignalingHost(
+        { type: 'peer-open', workerVersionId: STALE_VERSION },
+        'host',
+        785,
+        EXPECTED_VERSION,
+        true,
+      ),
+    ).toThrow(StaleSignalingVersionError);
+  });
+
+  // The Signaling Worker requires the PIN fields on host-auth (old-version
+  // removal W-3) and refuses any frame without them with this same reason. It
+  // means the smoke's frame is wrong, so it is never a stale edge to wait out.
+  it('fails an invalid first frame of the first candidate host at once, never as a stale edge', async () => {
+    const refusal = (): unknown =>
+      requireAdmittedSignalingHost(INVALID_FIRST_FRAME, 'host', 785, EXPECTED_VERSION, true);
+    expect(refusal).toThrow(invalidFrameLine('host'));
+    expect(refusal).not.toThrow(StaleSignalingVersionError);
+
+    let attempts = 0;
+    await expect(
+      withSignalingReadinessRetry(
+        async () => {
+          attempts += 1;
+          refusal();
+          return 'admitted';
+        },
+        { retryDelaysMs: [0, 0, 0], wait: async () => {}, onRetry: () => {} },
+      ),
+    ).rejects.toThrow(invalidFrameLine('host'));
+    expect(attempts).toBe(1);
+  });
+
+  it('fails an invalid first frame of a later host and of an unknown Worker version at once', () => {
+    const later = (): unknown =>
+      requireAdmittedSignalingHost(
+        INVALID_FIRST_FRAME,
+        'reconnected host',
+        785,
+        EXPECTED_VERSION,
+        false,
+      );
+    expect(later).toThrow(invalidFrameLine('reconnected host'));
+    expect(later).not.toThrow(StaleSignalingVersionError);
+
+    const unknownVersion = (): unknown =>
+      requireAdmittedSignalingHost(INVALID_FIRST_FRAME, 'host', 785, '', true);
+    expect(unknownVersion).toThrow(invalidFrameLine('host'));
+    expect(unknownVersion).not.toThrow(StaleSignalingVersionError);
+  });
+
+  it('never retries a floor refusal of the candidate build', () => {
+    for (const expectedVersion of [EXPECTED_VERSION, '']) {
+      const refusal = (): unknown =>
+        requireAdmittedSignalingHost(FLOOR_REFUSAL, 'host', 785, expectedVersion, true);
+      expect(refusal).toThrow('host was refused below the App build floor 786 with build 785');
+      expect(refusal).not.toThrow(StaleSignalingVersionError);
+    }
   });
 });

@@ -2825,3 +2825,84 @@ describe('PRO room playlists', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Forced update (train 9.0.14): every PRO request reports the page build in
+ * X-MXQR-App-Build, and an entry refused below the App build floor (426
+ * APP_UPDATE_REQUIRED) carries that floor on the error.
+ */
+describe('the App build on PRO requests (forced update)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  });
+
+  async function loadApi(build?: string): Promise<typeof import('../api.ts')> {
+    vi.resetModules();
+    if (build !== undefined) vi.stubGlobal('__MXQR_BUILD_CACHE_VERSION__', build);
+    return import('../api.ts');
+  }
+
+  it('sends the build of a production page on every request', async () => {
+    const api = await loadApi('v785');
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => jsonResponse({ error: 'ROOM_NOT_FOUND' }, { status: 404 }));
+    const client = new api.ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' });
+    await expect(
+      client.transferOwner({
+        code: ROOM_CODE,
+        claimToken: CLAIM_TOKEN,
+        requestId: IDEMPOTENCY_KEY,
+      }),
+    ).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get('X-MXQR-App-Build')).toBe('785');
+    }
+  });
+
+  it('sends no build header from a build without a cache epoch', async () => {
+    const api = await loadApi();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ error: 'ROOM_NOT_FOUND' }, { status: 404 }));
+    const client = new api.ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({ code: 'ROOM_NOT_FOUND' });
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has('X-MXQR-App-Build')).toBe(false);
+  });
+
+  it('carries the floor of a refusal, and no floor on any other error', async () => {
+    const api = await loadApi('v785');
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({ error: 'APP_UPDATE_REQUIRED', minAppBuild: 786 }, { status: 426 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ error: 'APP_UPDATE_REQUIRED', minAppBuild: '786x' }, { status: 426 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ error: 'ROOM_FULL', minAppBuild: 786 }, { status: 409 }),
+      );
+    const client = new api.ProRoomApiClient({ fetch: fetchMock });
+
+    await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({
+      code: 'APP_UPDATE_REQUIRED',
+      status: 426,
+      minAppBuild: 786,
+    });
+    await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({
+      code: 'APP_UPDATE_REQUIRED',
+      minAppBuild: null,
+    });
+    await expect(client.getBootstrap(ROOM_CODE)).rejects.toMatchObject({
+      code: 'ROOM_FULL',
+      minAppBuild: null,
+    });
+  });
+});

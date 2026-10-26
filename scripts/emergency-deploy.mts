@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 import {
@@ -43,6 +44,7 @@ type Checkpoint = (releaseTarget: string, message: string, directory: string) =>
 type CodeOnlyCheck = (headSha: string, directory: string) => unknown;
 type WorkerDirectoryOperation = (worker: string, directory: string) => unknown;
 type FinalVerification = (directory: string) => unknown;
+type AppBuildFloorGuard = (target: string) => unknown;
 
 export interface EmergencyDeploymentOptions {
   target: string;
@@ -55,6 +57,7 @@ export interface EmergencyDeploymentOptions {
   selectedPreflight?: WorkerDirectoryOperation;
   recordDeployment?: WorkerDirectoryOperation;
   finalVerification?: FinalVerification;
+  appBuildFloorGuard?: AppBuildFloorGuard;
 }
 
 export interface EmergencyDeploymentResult {
@@ -181,6 +184,28 @@ export function emergencyWorkerForDeploymentCommand(
   return EMERGENCY_WORKERS.find((worker) => WORKER_CONFIGS[worker] === config) ?? null;
 }
 
+// Targets that deploy the App Worker, and with it the build that new room
+// entries report against the App build floor.
+const APP_BUILD_FLOOR_GUARDED_TARGETS = new Set(['app', 'all-workers']);
+
+/**
+ * The App build floor guard runs the floor script in its own Node process, so
+ * this orchestrator stays synchronous: it refuses a local build below the
+ * stored floor (lower the floor first) and only warns when the public status
+ * cannot be read, because an emergency must not depend on a broken App.
+ */
+export function emergencyAppBuildFloorGuardCommand(): { executable: string; args: string[] } {
+  return {
+    executable: process.execPath,
+    args: ['scripts/app-build-floor.mts', 'emergency-guard'],
+  };
+}
+
+function runAppBuildFloorGuard(): void {
+  const { executable, args } = emergencyAppBuildFloorGuardCommand();
+  execFileSync(executable, args, { stdio: 'inherit' });
+}
+
 export function runEmergencyDeployment({
   target,
   authorize = authorizeEmergencyDeploy,
@@ -192,6 +217,7 @@ export function runEmergencyDeployment({
   selectedPreflight = preflight,
   recordDeployment = recordCurrentDeployment,
   finalVerification = verifyCurrentRelease,
+  appBuildFloorGuard = runAppBuildFloorGuard,
 }: EmergencyDeploymentOptions): EmergencyDeploymentResult {
   const rawAuthorization: unknown = authorize(target);
   if (
@@ -215,6 +241,7 @@ export function runEmergencyDeployment({
   checkpoint(checkpointTarget, message, directory);
   codeOnlyCheck(authorization.commitSha, directory);
   const commands = emergencyDeploymentPlan(target, authorization.commitSha);
+  if (APP_BUILD_FLOOR_GUARDED_TARGETS.has(target)) appBuildFloorGuard(target);
   process.stdout.write(`Emergency deployment provenance: ${message}\n`);
   for (const command of commands) {
     const worker = emergencyWorkerForDeploymentCommand(command);

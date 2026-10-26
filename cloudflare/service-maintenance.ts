@@ -1,3 +1,5 @@
+import { parseAppBuild } from './app-build-floor-contract.ts';
+
 export const SERVICE_CONTROL_OBJECT_NAME = 'musixquare-global-service-control-v1';
 export const ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME = 'musixquare-global-admin-announcement-v1';
 export const SERVICE_CONTROL_STATUS_PATH = '/internal/service-maintenance/v1/status';
@@ -19,6 +21,23 @@ export const ABUSE_RATE_PAIR_CONSUME_PATH = '/internal/abuse-rate/v3/consume-pai
 export const ABUSE_RATE_RESPONSE_PROTOCOL_HEADER = 'X-Musixquare-Abuse-Rate-Response';
 export const ABUSE_RATE_RESPONSE_RESULT_HEADER = 'X-Musixquare-Abuse-Rate-Result';
 export const ABUSE_RATE_RESPONSE_PROTOCOL = 'headers-v1';
+// App build floor (forced update). Its own paths keep the maintenance
+// revision, fences and history untouched; a Durable Object older than the
+// floor answers 404 here, which every consumer reads as floor 0.
+export const APP_BUILD_FLOOR_STATUS_PATH = '/internal/app-build-floor/v1/status';
+export const APP_BUILD_FLOOR_HISTORY_PATH = '/internal/app-build-floor/v1/history';
+export const APP_BUILD_FLOOR_STATE_PATH = '/internal/app-build-floor/v1/state';
+export const APP_BUILD_FLOOR_LIVE_REPORT_PATH = '/internal/app-build-floor/v1/live-report';
+export const APP_BUILD_FLOOR_STATUS_HEADERS = Object.freeze({
+  version: 'X-Musixquare-App-Build-Floor-Version',
+  minAppBuild: 'X-Musixquare-App-Build-Floor-Min-App-Build',
+  effectiveMinAppBuild: 'X-Musixquare-App-Build-Floor-Effective-Min-App-Build',
+  revision: 'X-Musixquare-App-Build-Floor-Revision',
+  updatedAt: 'X-Musixquare-App-Build-Floor-Updated-At',
+  liveAppBuild: 'X-Musixquare-App-Build-Floor-Live-App-Build',
+  liveReportedAt: 'X-Musixquare-App-Build-Floor-Live-Reported-At',
+  state: 'X-Musixquare-App-Build-Floor-State',
+});
 
 const SERVICE_CONTROL_CACHE_TTL_MS = 1_000;
 const ADMIN_ANNOUNCEMENT_CACHE_TTL_MS = 30_000;
@@ -196,6 +215,50 @@ export interface CachedServiceMaintenanceRead {
   refreshNeeded: boolean;
 }
 
+/**
+ * One isolate's view of the App build floor. `live` is this read's answer;
+ * `stale` keeps the last live answer after a failed read (floor 0 when this
+ * isolate never read one); `unsupported` is an object without the floor
+ * routes and `unbound` an environment without the binding, both floor 0.
+ */
+export interface AppBuildFloorRead {
+  effectiveMinAppBuild: number;
+  minAppBuild: number;
+  revision: number;
+  updatedAt: number | null;
+  liveAppBuild: number | null;
+  liveReportedAt: number | null;
+  state: 'valid' | 'invalid' | null;
+  source: 'live' | 'stale' | 'unsupported' | 'unbound';
+}
+
+export interface AppBuildFloorUpdateInput {
+  minAppBuild: number;
+  expectedRevision: number;
+  requestId: string;
+  reason: string;
+  /** Required for a raise, which the object refuses above it; omit to lower. */
+  liveAppBuild?: number | null;
+}
+
+export type AppBuildFloorUpdateResult =
+  | { status: 'ok'; floor: AppBuildFloorRead; changed: boolean; replayed: boolean }
+  | { status: 'conflict'; floor: AppBuildFloorRead; error: string }
+  | { status: 'rejected'; error: string }
+  | { status: 'unavailable' };
+
+export interface AppBuildFloorHistoryEntry {
+  minAppBuild: number;
+  revision: number;
+  updatedAt: number;
+  reason: string | null;
+  note: string | null;
+}
+
+export type AppBuildFloorHistoryResult =
+  | { status: 'ok'; history: AppBuildFloorHistoryEntry[]; truncated: boolean }
+  | { status: 'unavailable' };
+
 interface ServiceMaintenanceResponseOptions {
   format?: 'auto' | 'html' | 'json';
 }
@@ -271,8 +334,21 @@ interface PreparedAdminAnnouncementMutation {
   migrating?: boolean | undefined;
 }
 
+interface AppBuildFloorCache {
+  value: AppBuildFloorRead | null;
+  expiresAt: number;
+  refresh: Promise<AppBuildFloorRead> | null;
+  readSequence: number;
+  settledReadSequence: number;
+  canonical: AppBuildFloorRead | null;
+}
+
+type AppBuildFloorOutcome =
+  { kind: 'live'; value: AppBuildFloorRead } | { kind: 'unsupported' } | { kind: 'unavailable' };
+
 let serviceStatusCacheByBinding = new WeakMap<ServiceControlBinding, ServiceStatusCache>();
 let adminAnnouncementCacheByBinding = new WeakMap<ServiceControlBinding, AdminAnnouncementCache>();
+let appBuildFloorCacheByBinding = new WeakMap<ServiceControlBinding, AppBuildFloorCache>();
 
 function isUnknownRecord(value: unknown): value is UnknownRecord {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -682,6 +758,9 @@ async function fetchServiceControlResponse(
     readStatusHeaders?: boolean;
     returnWhenStatusHeadersAbsent?: boolean;
     readAbuseRateHeaders?: boolean;
+    // The caller parses the response headers; like the maintenance status
+    // read, the body is never opened or cancelled.
+    headersOnly?: boolean;
   } = {},
 ): Promise<ServiceControlOutcome> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -697,7 +776,7 @@ async function fetchServiceControlResponse(
       async (response): Promise<ServiceControlOutcome> => {
         if (!isServiceControlHttpResponse(response)) return { kind: 'unavailable' };
         if (timedOut) {
-          if (!options.readStatusHeaders && !options.readAbuseRateHeaders) {
+          if (!options.readStatusHeaders && !options.readAbuseRateHeaders && !options.headersOnly) {
             cancelServiceControlBody(response.body);
           } else if (options.readAbuseRateHeaders) {
             const lateHeaderResult = abuseRateResultFromHeaders(response);
@@ -707,6 +786,7 @@ async function fetchServiceControlResponse(
           }
           return { kind: 'unavailable' };
         }
+        if (options.headersOnly) return { kind: 'response', response, payload: null };
         if (options.readStatusHeaders) {
           const headerResult = serviceControlStatusFromHeaders(response);
           if (headerResult.kind === 'invalid') return { kind: 'unavailable' };
@@ -1002,6 +1082,346 @@ export async function consumeAbuseRateLimitPair(
       primary,
       secondary: secondaryResult,
     };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+function offAppBuildFloor(source: AppBuildFloorRead['source']): AppBuildFloorRead {
+  return {
+    effectiveMinAppBuild: 0,
+    minAppBuild: 0,
+    revision: 0,
+    updatedAt: null,
+    liveAppBuild: null,
+    liveReportedAt: null,
+    state: null,
+    source,
+  };
+}
+
+function appBuildFloorFromHeaders(
+  response: ServiceControlHttpResponse,
+): { kind: 'absent' } | { kind: 'invalid' } | { kind: 'floor'; value: AppBuildFloorRead } {
+  try {
+    const header = (name: keyof typeof APP_BUILD_FLOOR_STATUS_HEADERS): unknown =>
+      response.headers.get(APP_BUILD_FLOOR_STATUS_HEADERS[name]);
+    const version = header('version');
+    if (version === null) return { kind: 'absent' };
+    const minAppBuild = parseAppBuild(header('minAppBuild'));
+    const effectiveMinAppBuild = parseAppBuild(header('effectiveMinAppBuild'));
+    const revisionText = header('revision');
+    const revision =
+      typeof revisionText === 'string' && /^\d+$/.test(revisionText) ? Number(revisionText) : NaN;
+    const updatedAt = parseServiceControlNullableTimestamp(header('updatedAt'));
+    const liveAppBuildText = header('liveAppBuild');
+    const liveAppBuild =
+      liveAppBuildText === 'null' ? null : (parseAppBuild(liveAppBuildText) ?? undefined);
+    const liveReportedAt = parseServiceControlNullableTimestamp(header('liveReportedAt'));
+    const state = header('state');
+    if (
+      version !== '1' ||
+      minAppBuild === null ||
+      effectiveMinAppBuild === null ||
+      !Number.isSafeInteger(revision) ||
+      updatedAt === undefined ||
+      liveAppBuild === undefined ||
+      liveReportedAt === undefined ||
+      (state !== 'valid' && state !== 'invalid') ||
+      (liveAppBuild === null) !== (liveReportedAt === null) ||
+      // The object computes the effective floor: 0, or the lower of the
+      // stored floor and the live report it still considers fresh.
+      (effectiveMinAppBuild !== 0 &&
+        (liveAppBuild === null || effectiveMinAppBuild !== Math.min(minAppBuild, liveAppBuild))) ||
+      (state === 'invalid' || revision === 0
+        ? minAppBuild !== 0 || updatedAt !== null
+        : updatedAt === null)
+    ) {
+      return { kind: 'invalid' };
+    }
+    return {
+      kind: 'floor',
+      value: {
+        effectiveMinAppBuild,
+        minAppBuild,
+        revision,
+        updatedAt,
+        liveAppBuild,
+        liveReportedAt,
+        state,
+        source: 'live',
+      },
+    };
+  } catch {
+    return { kind: 'invalid' };
+  }
+}
+
+async function fetchAppBuildFloor(binding: ServiceControlBinding): Promise<AppBuildFloorOutcome> {
+  try {
+    const stub = serviceControlStub(binding);
+    if (!isServiceControlStub(stub)) return { kind: 'unavailable' };
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      new Request(`${SERVICE_CONTROL_ORIGIN}${APP_BUILD_FLOOR_STATUS_PATH}`, { method: 'HEAD' }),
+      { headersOnly: true },
+    );
+    if (outcome.kind !== 'response') return { kind: 'unavailable' };
+    const parsed = appBuildFloorFromHeaders(outcome.response);
+    if (parsed.kind === 'absent') {
+      return [404, 405].includes(outcome.response.status)
+        ? { kind: 'unsupported' }
+        : { kind: 'unavailable' };
+    }
+    if (parsed.kind === 'invalid' || !outcome.response.ok) return { kind: 'unavailable' };
+    return { kind: 'live', value: parsed.value };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+function settleAppBuildFloorRead(
+  cache: AppBuildFloorCache,
+  outcome: AppBuildFloorOutcome,
+): AppBuildFloorRead {
+  if (outcome.kind === 'unsupported') {
+    // An object without the floor routes (a PRO Worker rollback) has no
+    // floor; a later failed read must not revive the one seen before it.
+    cache.canonical = null;
+    return offAppBuildFloor('unsupported');
+  }
+  if (outcome.kind === 'unavailable') {
+    return cache.canonical ? { ...cache.canonical, source: 'stale' } : offAppBuildFloor('stale');
+  }
+  // Reads can finish out of order. A lower revision never replaces a higher
+  // one; an equal revision does, because the effective floor follows the live
+  // report without a revision change.
+  if (cache.canonical && outcome.value.revision < cache.canonical.revision) return cache.canonical;
+  cache.canonical = outcome.value;
+  return outcome.value;
+}
+
+function appBuildFloorCache(binding: ServiceControlBinding): AppBuildFloorCache {
+  let cache = appBuildFloorCacheByBinding.get(binding);
+  if (!cache) {
+    cache = {
+      value: null,
+      expiresAt: 0,
+      refresh: null,
+      readSequence: 0,
+      settledReadSequence: 0,
+      canonical: null,
+    };
+    appBuildFloorCacheByBinding.set(binding, cache);
+  }
+  return cache;
+}
+
+/**
+ * A setter's or reporter's answer is this isolate's newest view of the floor:
+ * the next read within the TTL uses it, and a read that started earlier and
+ * finishes later cannot replace it.
+ */
+function rememberAppBuildFloorAnswer(
+  binding: ServiceControlBinding,
+  value: AppBuildFloorRead,
+): void {
+  const cache = appBuildFloorCache(binding);
+  const result = settleAppBuildFloorRead(cache, { kind: 'live', value });
+  cache.readSequence += 1;
+  cache.settledReadSequence = cache.readSequence;
+  cache.value = result;
+  cache.expiresAt = Date.now() + SERVICE_CONTROL_CACHE_TTL_MS;
+}
+
+/**
+ * Reads the effective App build floor that the Signaling and PRO entry gates
+ * enforce. It fails open: the floor is a compatibility gate, not a security
+ * boundary, and a total control outage already closes the service through the
+ * maintenance read that every gated path awaits first.
+ */
+export async function readAppBuildFloor(
+  env: ServiceMaintenanceEnvironment,
+  options: Pick<ServiceMaintenanceReadOptions, 'context'> = {},
+): Promise<AppBuildFloorRead> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return offAppBuildFloor('unbound');
+  const owned = appBuildFloorCache(binding);
+  if (owned.value && owned.expiresAt > Date.now()) return owned.value;
+  if (owned.refresh) return owned.refresh;
+  const readSequence = ++owned.readSequence;
+  const refresh = fetchAppBuildFloor(binding)
+    .then((outcome) => {
+      const result = settleAppBuildFloorRead(owned, outcome);
+      // An older unowned read that finishes late leaves the newer settled
+      // value and its expiry in the cache.
+      if (readSequence > owned.settledReadSequence) {
+        owned.settledReadSequence = readSequence;
+        owned.value = result;
+        owned.expiresAt = Date.now() + SERVICE_CONTROL_CACHE_TTL_MS;
+      }
+      return result;
+    })
+    .finally(() => {
+      if (owned.refresh === refresh) owned.refresh = null;
+    });
+  // As for the maintenance read, only execution-context-owned I/O is shared
+  // across requests, so a cancelled request cannot strand a later caller.
+  if (options.context) {
+    options.context.waitUntil(refresh);
+    owned.refresh = refresh;
+  }
+  return refresh;
+}
+
+function appBuildFloorPostRequest(path: string, body: Record<string, unknown>): Request {
+  return new Request(`${SERVICE_CONTROL_ORIGIN}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * Writes the stored floor (App Worker setters only). The object refuses a raise
+ * that names no live App build or exceeds it, so a caller that omits
+ * `liveAppBuild` can only lower the floor. No maintenance-style fence: a floor
+ * change never closes the service.
+ */
+export async function updateAppBuildFloor(
+  env: ServiceMaintenanceEnvironment,
+  input: AppBuildFloorUpdateInput,
+): Promise<AppBuildFloorUpdateResult> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return { status: 'unavailable' };
+  try {
+    const stub = serviceControlStub(binding);
+    if (!isServiceControlStub(stub)) return { status: 'unavailable' };
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      appBuildFloorPostRequest(APP_BUILD_FLOOR_STATE_PATH, {
+        minAppBuild: input.minAppBuild,
+        expectedRevision: input.expectedRevision,
+        requestId: input.requestId,
+        reason: input.reason,
+        ...(input.liveAppBuild === undefined || input.liveAppBuild === null
+          ? {}
+          : { liveAppBuild: input.liveAppBuild }),
+      }),
+    );
+    if (outcome.kind !== 'response') return { status: 'unavailable' };
+    const { response, payload } = outcome;
+    const error = recordProperty(payload, 'error');
+    const parsed = appBuildFloorFromHeaders(response);
+    if (parsed.kind === 'floor' && (response.ok || response.status === 409)) {
+      rememberAppBuildFloorAnswer(binding, parsed.value);
+      if (response.ok) {
+        return {
+          status: 'ok',
+          floor: parsed.value,
+          changed: recordProperty(payload, 'changed') === true,
+          replayed: recordProperty(payload, 'replayed') === true,
+        };
+      }
+      return {
+        status: 'conflict',
+        floor: parsed.value,
+        error: typeof error === 'string' ? error : 'APP_BUILD_FLOOR_CONFLICT',
+      };
+    }
+    if (parsed.kind === 'absent' && [400, 413, 415].includes(response.status)) {
+      return { status: 'rejected', error: typeof error === 'string' ? error : 'INVALID_REQUEST' };
+    }
+    return { status: 'unavailable' };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+/**
+ * The App Worker's minute heartbeat: the build its own assets serve. It never
+ * changes the stored floor, its revision or its history; it only bounds what
+ * the gates enforce. Returns whether the object took it.
+ */
+export async function reportLiveAppBuild(
+  env: ServiceMaintenanceEnvironment,
+  appBuild: number,
+): Promise<boolean> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return false;
+  try {
+    const stub = serviceControlStub(binding);
+    if (!isServiceControlStub(stub)) return false;
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      appBuildFloorPostRequest(APP_BUILD_FLOOR_LIVE_REPORT_PATH, { appBuild }),
+    );
+    if (outcome.kind !== 'response' || !outcome.response.ok) return false;
+    const parsed = appBuildFloorFromHeaders(outcome.response);
+    if (parsed.kind !== 'floor') return false;
+    rememberAppBuildFloorAnswer(binding, parsed.value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function appBuildFloorHistoryEntry(value: unknown): AppBuildFloorHistoryEntry | null {
+  if (!isUnknownRecord(value)) return null;
+  const minAppBuild =
+    typeof value.minAppBuild === 'number' ? parseAppBuild(value.minAppBuild) : null;
+  const { revision, updatedAt, reason, note } = value;
+  if (
+    minAppBuild === null ||
+    !isSafeInteger(revision) ||
+    revision < 1 ||
+    !isSafeInteger(updatedAt) ||
+    updatedAt <= 0 ||
+    !Number.isFinite(new Date(updatedAt).getTime()) ||
+    (reason !== null && typeof reason !== 'string') ||
+    (note !== null && typeof note !== 'string')
+  ) {
+    return null;
+  }
+  return { minAppBuild, revision, updatedAt, reason, note };
+}
+
+/** The floor's change history, newest first, for the admin view. */
+export async function readAppBuildFloorHistory(
+  env: ServiceMaintenanceEnvironment,
+): Promise<AppBuildFloorHistoryResult> {
+  const binding = serviceControlBinding(env);
+  if (!binding) return { status: 'unavailable' };
+  try {
+    const stub = serviceControlStub(binding);
+    if (!isServiceControlStub(stub)) return { status: 'unavailable' };
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      new Request(`${SERVICE_CONTROL_ORIGIN}${APP_BUILD_FLOOR_HISTORY_PATH}`),
+    );
+    if (outcome.kind !== 'response' || !outcome.response.ok) return { status: 'unavailable' };
+    const payload = outcome.payload;
+    if (
+      !isUnknownRecord(payload) ||
+      !Array.isArray(payload.history) ||
+      payload.history.length > SERVICE_CONTROL_HISTORY_LIMIT ||
+      typeof payload.truncated !== 'boolean'
+    ) {
+      return { status: 'unavailable' };
+    }
+    const history: AppBuildFloorHistoryEntry[] = [];
+    for (const value of payload.history) {
+      const entry = appBuildFloorHistoryEntry(value);
+      const previous = history.at(-1);
+      if (!entry || (previous && entry.revision >= previous.revision)) {
+        return { status: 'unavailable' };
+      }
+      history.push(entry);
+    }
+    if (payload.truncated !== (history.length !== (history[0]?.revision ?? 0))) {
+      return { status: 'unavailable' };
+    }
+    return { status: 'ok', history, truncated: payload.truncated };
   } catch {
     return { status: 'unavailable' };
   }
@@ -1913,4 +2333,5 @@ export async function gateServiceMaintenance(
 export function clearServiceMaintenanceCacheForTests() {
   serviceStatusCacheByBinding = new WeakMap<ServiceControlBinding, ServiceStatusCache>();
   adminAnnouncementCacheByBinding = new WeakMap<ServiceControlBinding, AdminAnnouncementCache>();
+  appBuildFloorCacheByBinding = new WeakMap<ServiceControlBinding, AppBuildFloorCache>();
 }

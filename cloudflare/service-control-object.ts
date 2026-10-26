@@ -1,6 +1,9 @@
+// Resource owner: RO-50 (the App build floor: stored floor, journal and live-App
+// report; see docs/design/resource-ownership-registry.md).
 import { readBodyBytesLimited } from './pro-room-body.ts';
 import { parseAnnouncementExpiry } from './announcement-expiry.ts';
 import { hasExactKeys } from './pro-room-validation.ts';
+import { effectiveAppBuildFloor, parseAppBuild } from './app-build-floor-contract.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
@@ -12,6 +15,11 @@ import {
   ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
+  APP_BUILD_FLOOR_HISTORY_PATH,
+  APP_BUILD_FLOOR_LIVE_REPORT_PATH,
+  APP_BUILD_FLOOR_STATE_PATH,
+  APP_BUILD_FLOOR_STATUS_HEADERS,
+  APP_BUILD_FLOOR_STATUS_PATH,
   SERVICE_CONTROL_HISTORY_LIMIT,
   SERVICE_CONTROL_HISTORY_PATH,
   SERVICE_CONTROL_STATE_PATH,
@@ -54,6 +62,14 @@ const ADMIN_ANNOUNCEMENT_REQUESTS_KEY = 'admin-announcement-requests';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_CONTROL_MAX_BYTES = 256 * 1024;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
+// App build floor records live only on the main global object, beside the
+// maintenance records but with their own revision, change journal and history.
+const APP_BUILD_FLOOR_STATE_KEY = 'app-build-floor-state';
+const APP_BUILD_FLOOR_REQUESTS_KEY = 'app-build-floor-requests';
+const APP_BUILD_FLOOR_LIVE_REPORT_KEY = 'app-build-floor-live-report';
+const APP_BUILD_FLOOR_REQUEST_MAX_BYTES = 4096;
+const APP_BUILD_FLOOR_REASON_RE = /^[^\u0000-\u001f\u007f]{1,200}$/u;
+const APP_BUILD_FLOOR_REPAIR_NOTE = 'repaired-invalid-state';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -74,6 +90,33 @@ interface ServiceControlRequestRecord {
   requestId: string;
   enabled: boolean;
   state: StoredServiceControlState;
+}
+
+interface StoredAppBuildFloorState {
+  minAppBuild: number;
+  revision: number;
+  updatedAt: number | null;
+}
+
+/** One change of the stored floor; no-ops and replays are not journaled. */
+interface AppBuildFloorChangeRecord {
+  requestId: string;
+  reason: string;
+  note: typeof APP_BUILD_FLOOR_REPAIR_NOTE | null;
+  state: StoredAppBuildFloorState;
+}
+
+interface AppBuildFloorLiveReport {
+  appBuild: number;
+  reportedAt: number;
+}
+
+interface AppBuildFloorMutationBody {
+  minAppBuild: number;
+  expectedRevision: number;
+  requestId: string;
+  liveAppBuild: number | null;
+  reason: string;
 }
 
 type AdminAnnouncementAction = 'published' | 'disabled' | 'cleared';
@@ -348,6 +391,131 @@ function serviceControlHistoryResponse(
   // The journal retains requests rather than events; repeated no-op requests
   // can evict older changes. Report incomplete history instead of filling gaps.
   return serviceControlJson({ history, truncated: history.length !== current.revision });
+}
+
+function jsonAppBuild(value: unknown): number | null {
+  return typeof value === 'number' ? parseAppBuild(value) : null;
+}
+
+function initialAppBuildFloorState(): StoredAppBuildFloorState {
+  return { minAppBuild: 0, revision: 0, updatedAt: null };
+}
+
+function canonicalAppBuildFloorState(value: unknown): StoredAppBuildFloorState | null {
+  if (!hasExactKeys(value, ['minAppBuild', 'revision', 'updatedAt'])) return null;
+  const minAppBuild = jsonAppBuild(value.minAppBuild);
+  const { revision, updatedAt } = value;
+  if (
+    minAppBuild === null ||
+    !isSafeInteger(revision) ||
+    revision < 0 ||
+    (updatedAt !== null && (!isSafeInteger(updatedAt) || updatedAt <= 0)) ||
+    (revision === 0 ? minAppBuild !== 0 || updatedAt !== null : updatedAt === null)
+  ) {
+    return null;
+  }
+  return { minAppBuild, revision, updatedAt: updatedAt === null ? null : Number(updatedAt) };
+}
+
+function normalizeAppBuildFloorChanges(value: unknown): AppBuildFloorChangeRecord[] {
+  if (!Array.isArray(value)) return [];
+  const changes: AppBuildFloorChangeRecord[] = [];
+  for (const entry of value) {
+    if (!hasExactKeys(entry, ['requestId', 'reason', 'note', 'state'])) continue;
+    const state = canonicalAppBuildFloorState(entry.state);
+    if (
+      typeof entry.requestId !== 'string' ||
+      !SERVICE_CONTROL_REQUEST_ID_RE.test(entry.requestId) ||
+      typeof entry.reason !== 'string' ||
+      !APP_BUILD_FLOOR_REASON_RE.test(entry.reason) ||
+      (entry.note !== null && entry.note !== APP_BUILD_FLOOR_REPAIR_NOTE) ||
+      !state ||
+      state.revision === 0
+    ) {
+      continue;
+    }
+    changes.push({ requestId: entry.requestId, reason: entry.reason, note: entry.note, state });
+    if (changes.length === SERVICE_CONTROL_REQUEST_HISTORY_LIMIT) break;
+  }
+  return changes;
+}
+
+function normalizeAppBuildFloorLiveReport(value: unknown): AppBuildFloorLiveReport | null {
+  if (!hasExactKeys(value, ['appBuild', 'reportedAt'])) return null;
+  const appBuild = jsonAppBuild(value.appBuild);
+  if (appBuild === null || !isSafeInteger(value.reportedAt) || value.reportedAt <= 0) return null;
+  return { appBuild, reportedAt: value.reportedAt };
+}
+
+function parseAppBuildFloorMutationBody(value: unknown): AppBuildFloorMutationBody | null {
+  if (
+    !hasExactKeys(
+      value,
+      ['minAppBuild', 'expectedRevision', 'requestId', 'reason'],
+      ['liveAppBuild'],
+    )
+  ) {
+    return null;
+  }
+  const minAppBuild = jsonAppBuild(value.minAppBuild);
+  const liveAppBuild = value.liveAppBuild === undefined ? null : jsonAppBuild(value.liveAppBuild);
+  if (
+    minAppBuild === null ||
+    (value.liveAppBuild !== undefined && liveAppBuild === null) ||
+    !isSafeInteger(value.expectedRevision) ||
+    value.expectedRevision < 0 ||
+    typeof value.requestId !== 'string' ||
+    !SERVICE_CONTROL_REQUEST_ID_RE.test(value.requestId) ||
+    typeof value.reason !== 'string' ||
+    !APP_BUILD_FLOOR_REASON_RE.test(value.reason)
+  ) {
+    return null;
+  }
+  return {
+    minAppBuild,
+    expectedRevision: value.expectedRevision,
+    requestId: value.requestId,
+    liveAppBuild,
+    reason: value.reason,
+  };
+}
+
+function appBuildFloorHistoryResponse(
+  current: StoredAppBuildFloorState | null,
+  currentRevision: number,
+  changes: AppBuildFloorChangeRecord[],
+): Response {
+  const rows = new Map<number, Record<string, unknown>>();
+  // The journal keeps each change with its reason. The current durable state
+  // still names the latest change after the journal lost it (reason unknown).
+  const sources = [
+    ...changes,
+    ...(current && current.revision > 0
+      ? [{ state: current, reason: null, note: null } as const]
+      : []),
+  ];
+  for (const { state, reason, note } of sources) {
+    const previous = rows.get(state.revision);
+    if (
+      state.revision > currentRevision ||
+      (previous &&
+        (previous.minAppBuild !== state.minAppBuild || previous.updatedAt !== state.updatedAt))
+    ) {
+      return serviceControlJson({ error: 'APP_BUILD_FLOOR_HISTORY_INVALID' }, 503);
+    }
+    if (previous) continue;
+    rows.set(state.revision, {
+      minAppBuild: state.minAppBuild,
+      revision: state.revision,
+      updatedAt: state.updatedAt,
+      reason,
+      note,
+    });
+  }
+  const history = [...rows.values()]
+    .sort((left, right) => Number(right.revision) - Number(left.revision))
+    .slice(0, SERVICE_CONTROL_HISTORY_LIMIT);
+  return serviceControlJson({ history, truncated: history.length !== currentRevision });
 }
 
 function abuseRateResponse(request: Request, body: unknown, status: number = 200): Response {
@@ -888,6 +1056,10 @@ export class MusixquareServiceControl {
   private abuseRatePairState: AbuseRatePairState | null;
   private abuseRatePairStateInvalid: boolean;
   private abuseRateAlarmAt: number | null;
+  private appBuildFloorState: StoredAppBuildFloorState;
+  private appBuildFloorStateInvalid: boolean;
+  private appBuildFloorChanges: AppBuildFloorChangeRecord[];
+  private appBuildFloorLiveReport: AppBuildFloorLiveReport | null;
   private mutationTail: Promise<void>;
   private readonly ready: Promise<void>;
 
@@ -911,6 +1083,10 @@ export class MusixquareServiceControl {
     this.abuseRatePairState = null;
     this.abuseRatePairStateInvalid = false;
     this.abuseRateAlarmAt = null;
+    this.appBuildFloorState = initialAppBuildFloorState();
+    this.appBuildFloorStateInvalid = false;
+    this.appBuildFloorChanges = [];
+    this.appBuildFloorLiveReport = null;
     this.mutationTail = Promise.resolve();
     const load = async () => {
       if (this.announcementOnly) {
@@ -959,12 +1135,18 @@ export class MusixquareServiceControl {
         storedAnnouncementState,
         storedAnnouncementRequests,
         storedAbuseRateState,
+        storedAppBuildFloorState,
+        storedAppBuildFloorChanges,
+        storedAppBuildFloorLiveReport,
       ] = await Promise.all([
         storageGet(this.storage, SERVICE_CONTROL_STATE_KEY),
         storageGet(this.storage, SERVICE_CONTROL_REQUESTS_KEY),
         storageGet(this.storage, ADMIN_ANNOUNCEMENT_STATE_KEY),
         storageGet(this.storage, ADMIN_ANNOUNCEMENT_REQUESTS_KEY),
         storageGet(this.storage, ABUSE_RATE_STATE_KEY),
+        storageGet(this.storage, APP_BUILD_FLOOR_STATE_KEY),
+        storageGet(this.storage, APP_BUILD_FLOOR_REQUESTS_KEY),
+        storageGet(this.storage, APP_BUILD_FLOOR_LIVE_REPORT_KEY),
       ]);
       const normalizedStoredState = canonicalServiceControlState(storedState);
       if (storedState !== undefined && storedState !== null && !normalizedStoredState) {
@@ -991,6 +1173,26 @@ export class MusixquareServiceControl {
         this.abuseRateStateInvalid = true;
       }
       this.abuseRateState = normalizedAbuseRateState;
+      // An unreadable floor never throws and never touches maintenance: it
+      // reads as floor 0 at the journal's latest revision, so every gate fails
+      // open, and a write that names that revision repairs it.
+      this.appBuildFloorChanges = normalizeAppBuildFloorChanges(storedAppBuildFloorChanges);
+      const floorState = canonicalAppBuildFloorState(storedAppBuildFloorState);
+      this.appBuildFloorStateInvalid =
+        storedAppBuildFloorState !== undefined && storedAppBuildFloorState !== null && !floorState;
+      this.appBuildFloorState = this.appBuildFloorStateInvalid
+        ? {
+            minAppBuild: 0,
+            revision: Math.max(
+              0,
+              ...this.appBuildFloorChanges.map((entry) => entry.state.revision),
+            ),
+            updatedAt: null,
+          }
+        : floorState || initialAppBuildFloorState();
+      this.appBuildFloorLiveReport = normalizeAppBuildFloorLiveReport(
+        storedAppBuildFloorLiveReport,
+      );
     };
     this.ready =
       typeof state.blockConcurrencyWhile === 'function'
@@ -1028,6 +1230,135 @@ export class MusixquareServiceControl {
       response.headers.set(name, value);
     }
     return response;
+  }
+
+  private appBuildFloorResponse(status: number = 200, extra: Record<string, unknown> = {}) {
+    const state = this.appBuildFloorState;
+    const report = this.appBuildFloorLiveReport;
+    const floor = {
+      minAppBuild: state.minAppBuild,
+      effectiveMinAppBuild: effectiveAppBuildFloor(
+        {
+          minAppBuild: state.minAppBuild,
+          liveAppBuild: report?.appBuild ?? null,
+          liveReportedAt: report?.reportedAt ?? null,
+        },
+        Date.now(),
+      ),
+      revision: state.revision,
+      updatedAt: state.updatedAt,
+      liveAppBuild: report?.appBuild ?? null,
+      liveReportedAt: report?.reportedAt ?? null,
+      state: this.appBuildFloorStateInvalid ? 'invalid' : 'valid',
+    };
+    const response = serviceControlJson({ ...extra, appBuildFloor: floor }, status);
+    for (const [key, name] of Object.entries(APP_BUILD_FLOOR_STATUS_HEADERS)) {
+      const value = key === 'version' ? 1 : floor[key as keyof typeof floor];
+      response.headers.set(name, String(value));
+    }
+    return response;
+  }
+
+  private async readAppBuildFloorBody(
+    request: Request,
+  ): Promise<{ value: unknown } | { response: Response }> {
+    const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
+    if (!/^application\/json(?:\s*;|$)/.test(contentType)) {
+      return { response: serviceControlJson({ error: 'JSON_REQUIRED' }, 415) };
+    }
+    const contentLength = Number(request.headers.get('Content-Length'));
+    if (Number.isFinite(contentLength) && contentLength > APP_BUILD_FLOOR_REQUEST_MAX_BYTES) {
+      return { response: serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413) };
+    }
+    const parsed = await readPrivateJsonBody(request, APP_BUILD_FLOOR_REQUEST_MAX_BYTES);
+    return 'error' in parsed
+      ? { response: serviceControlJson({ error: parsed.error }, parsed.status) }
+      : parsed;
+  }
+
+  private async handleAppBuildFloorMutation(request: Request): Promise<Response> {
+    const read = await this.readAppBuildFloorBody(request);
+    if ('response' in read) return read.response;
+    const body = parseAppBuildFloorMutationBody(read.value);
+    if (!body) return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
+
+    return this.withMutation(async () => {
+      const current = this.appBuildFloorState;
+      const replay = this.appBuildFloorChanges.find((entry) => entry.requestId === body.requestId);
+      if (replay) {
+        if (replay.state.minAppBuild !== body.minAppBuild) {
+          return this.appBuildFloorResponse(409, { error: 'APP_BUILD_FLOOR_REQUEST_ID_REUSED' });
+        }
+        if (replay.state.revision !== current.revision) {
+          return this.appBuildFloorResponse(409, { error: 'APP_BUILD_FLOOR_REQUEST_SUPERSEDED' });
+        }
+        return this.appBuildFloorResponse(200, { ok: true, changed: false, replayed: true });
+      }
+      if (body.expectedRevision !== current.revision) {
+        return this.appBuildFloorResponse(409, { error: 'APP_BUILD_FLOOR_REVISION_CONFLICT' });
+      }
+      // A raise must name the App build that is live, and never exceeds it,
+      // so an update can always satisfy the floor. A lower has no ceiling.
+      const raise = body.minAppBuild > current.minAppBuild;
+      if (raise && body.liveAppBuild === null) {
+        return this.appBuildFloorResponse(409, { error: 'APP_BUILD_FLOOR_LIVE_BUILD_REQUIRED' });
+      }
+      if (raise && body.liveAppBuild !== null && body.minAppBuild > body.liveAppBuild) {
+        return this.appBuildFloorResponse(409, { error: 'APP_BUILD_FLOOR_ABOVE_LIVE' });
+      }
+      const repair = this.appBuildFloorStateInvalid;
+      if (!repair && body.minAppBuild === current.minAppBuild) {
+        return this.appBuildFloorResponse(200, { ok: true, changed: false, replayed: false });
+      }
+      const now = Date.now();
+      const next = {
+        minAppBuild: body.minAppBuild,
+        revision: current.revision + 1,
+        updatedAt: now,
+      };
+      const change: AppBuildFloorChangeRecord = {
+        requestId: body.requestId,
+        reason: body.reason,
+        note: repair ? APP_BUILD_FLOOR_REPAIR_NOTE : null,
+        state: next,
+      };
+      const changes = [change, ...this.appBuildFloorChanges].slice(
+        0,
+        SERVICE_CONTROL_REQUEST_HISTORY_LIMIT,
+      );
+      // The raise also reports the live build it was checked against, so the
+      // new floor takes effect at once instead of at the next App report.
+      const report =
+        raise && body.liveAppBuild !== null
+          ? { appBuild: body.liveAppBuild, reportedAt: now }
+          : null;
+      await storagePut(this.storage, {
+        [APP_BUILD_FLOOR_STATE_KEY]: next,
+        [APP_BUILD_FLOOR_REQUESTS_KEY]: changes,
+        ...(report ? { [APP_BUILD_FLOOR_LIVE_REPORT_KEY]: report } : {}),
+      });
+      this.appBuildFloorState = next;
+      this.appBuildFloorStateInvalid = false;
+      this.appBuildFloorChanges = changes;
+      if (report) this.appBuildFloorLiveReport = report;
+      return this.appBuildFloorResponse(200, { ok: true, changed: true, replayed: false });
+    });
+  }
+
+  private async handleAppBuildFloorLiveReport(request: Request): Promise<Response> {
+    const read = await this.readAppBuildFloorBody(request);
+    if ('response' in read) return read.response;
+    const appBuild = hasExactKeys(read.value, ['appBuild'])
+      ? jsonAppBuild(read.value.appBuild)
+      : null;
+    if (appBuild === null) return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
+    // A heartbeat, not a decision: no revision, no journal, no history.
+    return this.withMutation(async () => {
+      const report = { appBuild, reportedAt: Date.now() };
+      await storagePut(this.storage, APP_BUILD_FLOOR_LIVE_REPORT_KEY, report);
+      this.appBuildFloorLiveReport = report;
+      return this.appBuildFloorResponse(200, { ok: true });
+    });
   }
 
   private async handleAbuseRateConsume(request: Request, idempotent: boolean): Promise<Response> {
@@ -1373,6 +1704,28 @@ export class MusixquareServiceControl {
     }
     if (request.method === 'GET' && url.pathname === SERVICE_CONTROL_HISTORY_PATH) {
       return serviceControlHistoryResponse(this.serviceStatus, this.requests);
+    }
+    if (
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      url.pathname === APP_BUILD_FLOOR_STATUS_PATH
+    ) {
+      const response = this.appBuildFloorResponse();
+      return request.method === 'HEAD'
+        ? new Response(null, { status: response.status, headers: response.headers })
+        : response;
+    }
+    if (request.method === 'GET' && url.pathname === APP_BUILD_FLOOR_HISTORY_PATH) {
+      return appBuildFloorHistoryResponse(
+        this.appBuildFloorStateInvalid ? null : this.appBuildFloorState,
+        this.appBuildFloorState.revision,
+        this.appBuildFloorChanges,
+      );
+    }
+    if (request.method === 'POST' && url.pathname === APP_BUILD_FLOOR_STATE_PATH) {
+      return this.handleAppBuildFloorMutation(request);
+    }
+    if (request.method === 'POST' && url.pathname === APP_BUILD_FLOOR_LIVE_REPORT_PATH) {
+      return this.handleAppBuildFloorLiveReport(request);
     }
     if (
       (request.method === 'GET' || request.method === 'HEAD') &&

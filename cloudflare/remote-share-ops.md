@@ -64,14 +64,16 @@ the peer as host, it cannot mint the fresh proof needed for later retries.
 
 - `disabled`: local/test-only behavior. The assertion is not checked, and the
   production security guard rejects this mode.
-- `optional`: retained only for isolated compatibility tests. A missing header
-  is accepted and counted as legacy, but the production security guard rejects
-  this mode.
-- `required`: the production invariant. Missing, expired, altered, legacy
-  six-field, and cached v2/v3 requests without a valid assertion fail with 403
-  before R2, quota, or rate allocation work.
+- `required`: the production invariant. Missing, expired, and altered
+  assertions fail with 403 before R2, quota, or rate allocation work.
 
-Both `optional` and `required` fail closed with 503 if
+Any other value, including the retired `optional`, fails `/security-config`
+and every well-formed `/session` closed with 503
+`ROOM_UPLOAD_ASSERTION_MODE_INVALID`. In every mode `/session` accepts only the
+v3 body; the cached six-field body and the v2 body fail with 400 before any
+assertion, R2, quota, or rate work.
+
+`required` fails closed with 503 if
 `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` is missing, is a plain value shorter
 than 32 characters, or is a malformed prefixed keyring. Every keyring secret has
 the same 32-character minimum. This secret value is shared only by signaling and
@@ -86,15 +88,14 @@ observed version 1, a disconnect, missing marker, or older replacement
 signaling deployment fails closed instead of returning to a missing-header
 request.
 
-The Remote Share D1 binding writes only these three aggregate minute-bucket
+The Remote Share D1 binding writes only these two aggregate minute-bucket
 counters through `ctx.waitUntil`; it never stores the room, peer, actor,
 request, token, body digest, object, capability, or IP:
 
 - `remote_share_upload_assertion_verified`
-- `remote_share_upload_assertion_legacy`
 - `remote_share_upload_assertion_rejected`
 
-Verified and legacy events are written only after a new session reservation is
+Verified events are written only after a new session reservation is
 successfully issued; an exact v3 replay does not count again. Rejected-event
 writes are independently capped at 10 per IP-derived limiter key per normal
 rate window, while rejection itself remains fail closed even when telemetry is
@@ -271,14 +272,12 @@ allocation work, so they cannot reach storage outside this WAF path match.
   `all`, so the first production rollout cannot publish only one side.
 - Worker contract v3 adds an actor-secret-derived `actorId` plus `rs3_`
   `requestId`, and binds both into the atomic room-quota replay receipt for
-  `POST /session`. Cached seven-field v2 (`rs_`) and legacy six-field bodies
-  remain accepted during rollout, but their public metadata-derived identities
-  are never replay-authoritative and each call gets a fresh reservation. New
-  clients require the v3 readiness marker and enabled durable replay. Exact v3
-  replay bypasses a newly exhausted allocation rate window, survives capability
-  token/IP rotation, returns the same object/cleanup authority, and may mint a
-  fresh conditional PUT URL and completion token only until the immutable
-  initial PUT deadline.
+  `POST /session`. It is the only accepted session body: the cached seven-field
+  v2 (`rs_`) and six-field bodies fail with 400. New clients require the v3
+  readiness marker and enabled durable replay. Exact v3 replay bypasses a newly
+  exhausted allocation rate window, survives capability token/IP rotation,
+  returns the same object/cleanup authority, and may mint a fresh conditional
+  PUT URL and completion token only until the immutable initial PUT deadline.
 - The GET-only operations drift audit compares the complete live remote-share
   lifecycle API result with `r2-lifecycle.remote-share.json`, not merely the
   human-readable Wrangler listing. It also rejects any enabled PRO-media delete
@@ -321,17 +320,21 @@ The production contract is now:
 2. The same independent assertion secret must exist on signaling and Remote
    Share. The release preflight checks both secret-name inventories, and the
    strict post-signaling smoke proves the values match without exposing them.
-3. Missing or invalid assertions fail with 403 before allocation. Production
-   must not be rolled back to `optional`; repair forward or place the upload
-   path in maintenance while correcting an authority failure.
-4. `remote_share_upload_assertion_legacy` is a regression sentinel and must
-   remain zero. Verified and bounded rejected counters remain diagnostic
-   signals, not a scheduled transition gate or a reason for weekly review.
+3. Missing or invalid assertions fail with 403 before allocation. The Worker
+   has no `optional` mode any more (an unknown mode fails closed with 503);
+   repair forward or place the upload path in maintenance while correcting an
+   authority failure.
+4. The Worker no longer writes `remote_share_upload_assertion_legacy`, because
+   no assertion-free reservation path remains. Verified and bounded rejected
+   counters remain diagnostic signals, not a scheduled transition gate or a
+   reason for weekly review.
 
 Cached six-field/v2/v3 bundles cannot understand the new authority contract and
-receive a generic failed upload. Recovery is the already-shipped
-service-worker update prompt or a hard refresh. Do not weaken required mode to
-manufacture an update message that the cached script cannot consume.
+receive a generic failed upload (since the old-version removal of 2026-10 the
+six-field and v2 bodies fail with 400 in every mode). Those bundles are also
+below the App build floor, so signaling refuses their room entry and
+reconnection before any upload. Do not weaken required mode to manufacture an
+update message that the cached script cannot consume.
 
 The existing plain `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` value remains a
 fully supported single-key configuration and continues to mint an unkeyed v1
@@ -384,13 +387,14 @@ Before step 5, rollback means restoring the old plain value on signaling first
 and then on Remote Share. After previous-key removal, repair forward with the
 new current key; do not reintroduce a retired key without a new incident review.
 
-The six-field/v2 parsers and optional-mode runtime branch remain non-production
-compatibility scaffolding; required mode prevents them from authorizing a live
-reservation. Removing that scaffolding is a separate full-contract v4 cleanup:
-bump `remote-share-contract-version.txt` and `workerContractVersion`, update the
-client, live smoke, and release dependency mapping, and deploy the full
-Worker/signaling/app set together. It is not tied to a traffic-observation
-calendar.
+The old-version removal of 2026-10 deleted the six-field/v2 parsers, the
+optional-mode runtime branch and its legacy counter without a contract bump.
+The App has sent the v3 body since 2026-08, every current client also sends the
+assertion, and the client accepts only `workerContractVersion` 3, so a v4 bump
+would only break current clients. `remote-share-contract-version.txt` and
+`workerContractVersion` therefore stay unchanged. Rolling Remote Share back to
+an earlier v3 build reopens only the retired parsers, and required mode still
+refuses every request without a valid assertion.
 
 ## Maintenance PUT drain and emergency write freeze
 

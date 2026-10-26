@@ -67,23 +67,6 @@ async function installYouTubeFixtures(page: Page): Promise<void> {
     });
   });
 
-  await page.route(/\/api\/youtube-playlist-entry(?:\?|$)/, async (route) => {
-    const playlistId = new URL(route.request().url()).searchParams.get('playlistId');
-    if (playlistId !== YT_PLAYLIST_ID) {
-      await route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        playlistId,
-        videoId: YT_PLAYLIST_VIDEO_IDS[0],
-        title: 'MUSIXQUARE E2E Playlist',
-      }),
-    });
-  });
-
   await page.route(/https:\/\/www\.youtube\.com\/oembed(?:\?|$)/, async (route) => {
     const sourceUrl = new URL(route.request().url()).searchParams.get('url') || '';
     await route.fulfill({

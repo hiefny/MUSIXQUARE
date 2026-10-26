@@ -9,6 +9,7 @@ import {
   main,
   StandardHttpBridgeSmokeClient,
 } from '../../../scripts/live-standard-http-signaling-smoke.mts';
+import { readReleaseIdentity } from '../../../scripts/release-identity.mts';
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -19,6 +20,14 @@ function jsonResponse(value: unknown, status = 200): Response {
 
 // For tests of the final failure line: the run's one retry is already used.
 const SPENT_RATE_LIMIT_RETRY: RateLimitUnavailableRetry = { claim: async () => false };
+
+// The host-auth every App sends: the PIN fields are required (old-version removal W-3).
+const NEVER_IN_URL_HOST_AUTH = {
+  type: 'host-auth',
+  secret: 'never-in-url',
+  desiredRoomPassword: '',
+  pinMutationId: 'http-client-mutation-000000001',
+};
 
 describe('live Standard HTTPS signaling smoke', () => {
   afterEach(() => {
@@ -50,7 +59,7 @@ describe('live Standard HTTPS signaling smoke', () => {
       role: 'host',
       peerId: 'http-host-abcdef12',
     });
-    await client.send({ type: 'host-auth', secret: 'never-in-url' });
+    await client.send(NEVER_IN_URL_HOST_AUTH);
     await expect(client.poll(250)).resolves.toEqual([{ type: 'peer-open', roomId: '123456' }]);
     await client.close();
 
@@ -67,7 +76,7 @@ describe('live Standard HTTPS signaling smoke', () => {
     expect(sendBody).toEqual({
       v: 1,
       cseq: 1,
-      frame: JSON.stringify({ type: 'host-auth', secret: 'never-in-url' }),
+      frame: JSON.stringify(NEVER_IN_URL_HOST_AUTH),
     });
     const pollBody = JSON.parse(String(requests[2]?.init.body)) as Record<string, unknown>;
     expect(pollBody).toEqual({ v: 1, requestEpoch: 1, ack: 0, waitMs: 250 });
@@ -408,8 +417,17 @@ describe('live Standard HTTPS signaling smoke', () => {
       const { retry, log } = trackedRetry();
       const client = await open('host', retry);
 
-      await client.send({ type: 'host-auth', secret: 'private-secret' });
-      await client.send({ type: 'room-password-set', password: '' });
+      await client.send({
+        type: 'host-auth',
+        secret: 'private-secret',
+        desiredRoomPassword: '',
+        pinMutationId: 'http-retry-mutation-0000000001',
+      });
+      await client.send({
+        type: 'room-password-set',
+        password: '',
+        pinMutationId: 'http-retry-mutation-0000000001',
+      });
 
       const sequences = sentBodies(fetchMock)
         .slice(1)
@@ -727,5 +745,200 @@ describe('live Standard HTTPS signaling smoke', () => {
       ok: true,
       bridgeOpenMs: { host: expect.any(Number), guest: expect.any(Number) },
     });
+  });
+});
+
+describe('live Standard HTTPS signaling smoke App build', () => {
+  const RELEASE_BUILD = readReleaseIdentity().serviceWorkerCacheEpoch;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  interface BridgeSession {
+    role: 'host' | 'guest';
+    roomId: string;
+    peerId: string;
+    nextServerSequence: number;
+    events: Array<{ sseq: number; data: string }>;
+    terminal: { code: number; reason: string } | null;
+  }
+
+  /** A bridge whose room admits the host, or refuses its host-auth as an invalid first frame. */
+  function fakeBridge({
+    refuseHostAuth = false,
+    workerVersionId,
+  }: {
+    refuseHostAuth?: boolean;
+    workerVersionId?: string;
+  }) {
+    const sessions = new Map<string, BridgeSession>();
+    const frames: Array<{ role: string; frame: Record<string, unknown> }> = [];
+    let serial = 0;
+    const version = workerVersionId ? { workerVersionId } : {};
+    const enqueue = (state: BridgeSession, frame: Record<string, unknown>) => {
+      state.nextServerSequence += 1;
+      state.events.push({ sseq: state.nextServerSequence, data: JSON.stringify(frame) });
+    };
+    const sessionFrom = (init?: RequestInit): BridgeSession => {
+      const token = (new Headers(init?.headers).get('Authorization') ?? '').replace(
+        /^Bearer /u,
+        '',
+      );
+      const state = sessions.get(token);
+      if (!state) throw new Error('Unknown bridge smoke session');
+      return state;
+    };
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/security-config')) {
+        return jsonResponse({
+          capabilityRequired: true,
+          turnstileRequired: false,
+          proofOfWorkRequired: true,
+        });
+      }
+      if (url.endsWith('/api/capability-challenge')) {
+        return jsonResponse({ challenge: 'bridge-smoke.signature', difficulty: 8 });
+      }
+      if (url.endsWith('/api/capability-token')) {
+        return jsonResponse({ token: `proof.${'a'.repeat(43)}` });
+      }
+      if (url.endsWith('/open')) {
+        const body = JSON.parse(String(init?.body)) as {
+          role: 'host' | 'guest';
+          roomId: string;
+          peerId: string;
+        };
+        const token = `session-${++serial}`;
+        sessions.set(token, { ...body, nextServerSequence: 0, events: [], terminal: null });
+        return jsonResponse({ sessionToken: token });
+      }
+      if (url.endsWith('/send')) {
+        const state = sessionFrom(init);
+        const body = JSON.parse(String(init?.body)) as { cseq: number; frame: string };
+        const frame = JSON.parse(body.frame) as Record<string, unknown>;
+        frames.push({ role: state.role, frame });
+        if (frame.type === 'host-auth' && refuseHostAuth) {
+          enqueue(state, {
+            type: 'error',
+            errorType: 'invalid-id',
+            message: 'HOST_AUTH_FIRST_FRAME_INVALID',
+          });
+          state.terminal = { code: 1008, reason: 'HOST_AUTH_FIRST_FRAME_INVALID' };
+        } else if (frame.type === 'host-auth') {
+          enqueue(state, {
+            type: 'peer-open',
+            peerId: state.peerId,
+            roomId: state.roomId,
+            roomPasswordApplied: true,
+            ...version,
+          });
+        } else if (frame.type === 'room-password-set') {
+          enqueue(state, {
+            type: 'room-password-result',
+            mutationId: frame.pinMutationId,
+            applied: true,
+          });
+        } else if (frame.type === 'guest-auth') {
+          enqueue(state, {
+            type: 'peer-open',
+            peerId: state.peerId,
+            roomId: state.roomId,
+            ...version,
+          });
+        } else if (frame.type === 'signal-offer') {
+          const host = [...sessions.values()].find(
+            (candidate) => candidate.role === 'host' && candidate.terminal === null,
+          );
+          if (!host) throw new Error('Missing host smoke session');
+          enqueue(host, { ...frame, from: state.peerId });
+        } else if (frame.type === 'signal-answer') {
+          const guest = [...sessions.values()].find((candidate) => candidate.role === 'guest');
+          if (!guest) throw new Error('Missing guest smoke session');
+          enqueue(guest, { ...frame, from: state.peerId });
+        }
+        return jsonResponse({ v: 1, ack: body.cseq });
+      }
+      if (url.endsWith('/poll')) {
+        const state = sessionFrom(init);
+        const events = state.events.splice(0);
+        return jsonResponse({
+          v: 1,
+          events,
+          ...(state.terminal ? { terminal: state.terminal } : {}),
+        });
+      }
+      if (url.endsWith('/close')) return jsonResponse({ ok: true });
+      throw new Error(`Unexpected production smoke URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return { frames, sessions };
+  }
+
+  it('sends the release build on the host and guest admission frames', async () => {
+    const bridge = fakeBridge({});
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await main();
+
+    const auth = bridge.frames.filter(
+      ({ frame }) => frame.type === 'host-auth' || frame.type === 'guest-auth',
+    );
+    expect(auth.map(({ role, frame }) => [role, frame.type, frame.appBuild])).toEqual([
+      ['host', 'host-auth', RELEASE_BUILD],
+      ['guest', 'guest-auth', RELEASE_BUILD],
+    ]);
+    // The Signaling Worker requires both PIN fields on host-auth.
+    expect(auth[0]?.frame).toMatchObject({
+      desiredRoomPassword: '',
+      pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
+    });
+  });
+
+  // A Worker that cannot parse the host-auth answers HOST_AUTH_FIRST_FRAME_INVALID.
+  // The smoke's frame is then wrong: it fails at once with that reason and never
+  // retries in another shape, whatever the Worker version.
+  it.each([
+    ['unknown', undefined],
+    ['candidate', 'version-1'],
+  ])(
+    'fails at once on an invalid first frame for a %s Worker version',
+    async (_mode, workerVersionId) => {
+      if (workerVersionId) vi.stubEnv('MXQR_EXPECTED_SIGNALING_VERSION', workerVersionId);
+      const bridge = fakeBridge({ refuseHostAuth: true, workerVersionId });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      await expect(main()).rejects.toThrow(
+        'HTTP signaling host: host-auth refused as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID)',
+      );
+      expect(bridge.frames.filter(({ frame }) => frame.type === 'host-auth')).toHaveLength(1);
+      expect([...bridge.sessions.values()].map((session) => session.role)).toEqual(['host']);
+      expect(warn.mock.calls.map(([line]) => String(line)).join('\n')).not.toContain(
+        'legacy signaling Worker',
+      );
+    },
+  );
+
+  it('still fails a session that closes before the awaited frame', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ sessionToken: 'bridge.session.token' }))
+        .mockResolvedValueOnce(
+          jsonResponse({ v: 1, events: [], terminal: { code: 1011, reason: 'CLOSED' } }),
+        ),
+    );
+    const client = await StandardHttpBridgeSmokeClient.open('capability.token', {
+      roomId: '123456',
+      role: 'host',
+      peerId: 'http-host-abcdef12',
+    });
+    await expect(
+      client.waitFor((message) => message.type === 'peer-open', 'host peer-open'),
+    ).rejects.toThrow('HTTP signaling bridge closed before smoke completion');
   });
 });

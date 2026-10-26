@@ -5,6 +5,15 @@ import type { IncomingMessage } from 'node:http';
 import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 
+import { APP_UPDATE_REQUIRED_CODE } from '../cloudflare/app-build-floor-contract.ts';
+import {
+  classifyHostAdmission,
+  invalidHostAuthFrameError,
+  requireLegacyShapeHostOutcome,
+  resolveLiveSmokeAppBuild,
+  withAppBuild,
+  type LiveSmokeAppBuild,
+} from './live-smoke-app-build.mts';
 import {
   RateLimitUnavailableError,
   createRateLimitUnavailableRetry,
@@ -293,6 +302,39 @@ export function assertPeerOpenVersion(
   throw new Error(
     `${label} signaling version mismatch: expected ${expectedVersion}, received ${actualVersion || '<missing>'}`,
   );
+}
+
+/**
+ * The admission frame of a host that sent the release build `sentAppBuild`.
+ * Admission keeps the exact-version check, whose stale edge the first host
+ * retries. Every refusal fails at once with its reason: an invalid first frame
+ * means the smoke's host-auth is wrong (or the Signaling Worker is older than
+ * 9.0.14, outside the procedure), and a floor refusal means the floor is above
+ * the release build. Neither is a stale edge.
+ */
+export function requireAdmittedSignalingHost(
+  frame: JsonObject,
+  label: string,
+  sentAppBuild: number,
+  expectedVersion: string,
+  retryIfStale: boolean,
+): JsonObject {
+  const admission = classifyHostAdmission(frame);
+  if (admission.outcome === 'admitted') {
+    assertPeerOpenVersion(frame, expectedVersion, `${label} peer-open`, retryIfStale);
+    return frame;
+  }
+  if (admission.outcome === 'below-floor') {
+    throw new Error(
+      `${label} was refused below the App build floor ${admission.minAppBuild} with build ${sentAppBuild}`,
+    );
+  }
+  if (admission.outcome === 'invalid-frame') throw invalidHostAuthFrameError(label);
+  throw new Error(`${label} was rejected: ${admission.detail}`);
+}
+
+function isHostAdmissionFrame(message: JsonObject): boolean {
+  return message.type === 'peer-open' || message.type === 'error';
 }
 
 export function signalingSocketUrl(
@@ -803,12 +845,14 @@ interface RoomSmokeResult {
   answer: true;
 }
 
-interface LegacyCompatibilitySmokeResult {
-  roomId: string;
-  preConfigurationGuestRejected: true;
-  postConfigurationWrongPasswordRejected: true;
-  postConfigurationGuestAdmitted: true;
-}
+/**
+ * A 9.0.13 or older host sends no appBuild (but the PIN fields, like every App
+ * since 8.4.17): admitted while the floor is off, refused with the exact frame
+ * once it is on.
+ */
+type LegacyCompatibilitySmokeResult =
+  | { roomId: string; admittedWithoutAppBuild: true }
+  | { roomId: string; refusedBelowAppBuildFloor: number };
 
 interface SignalingRoomRoutes {
   readonly hostOrigin: string;
@@ -826,86 +870,49 @@ async function runLegacyCompatibilityAttempt(
 ): Promise<LegacyCompatibilitySmokeResult> {
   const roomId = String(randomInt(100_000, 1_000_000));
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
-  const password = '13572468';
+  const pinMutationId = randomBytes(24).toString('base64url');
   const host = createSocketInbox(
     signalingSocketUrl(roomId, 'host', `legacy-host-${suffix}`),
     'legacy compatibility host',
     { expectedInitialHostVersion: expectedVersion },
   );
-  const guests = new Set<SocketInbox>();
-  const createGuest = (peerId: string, label: string): SocketInbox => {
-    const inbox = createSocketInbox(signalingSocketUrl(roomId, 'guest', peerId), label);
-    guests.add(inbox);
-    return inbox;
-  };
 
   try {
     await host.opened;
-    host.socket.send(JSON.stringify({ type: 'host-auth', secret: `legacy-${randomUUID()}` }));
-    const hostOpen = await waitForType(host, 'peer-open');
+    host.socket.send(
+      JSON.stringify({
+        type: 'host-auth',
+        secret: `legacy-${randomUUID()}`,
+        desiredRoomPassword: '',
+        pinMutationId,
+      }),
+    );
+    const legacyHost = requireLegacyShapeHostOutcome(
+      await host.waitFor(isHostAdmissionFrame, 'legacy host admission'),
+      'legacy compatibility host',
+    );
+    if ('minAppBuild' in legacyHost) {
+      const closed = await withTimeout(host.closed, 'legacy host refusal close');
+      if (closed.code !== 1008 || closed.reason !== APP_UPDATE_REQUIRED_CODE) {
+        throw new Error(
+          `legacy host refusal closed ${closed.code}/${closed.reason || 'without reason'}`,
+        );
+      }
+      return { roomId, refusedBelowAppBuildFloor: legacyHost.minAppBuild };
+    }
+    // Floor off: the build-less host is admitted like any other. Only the
+    // admission is proven; the rooms above cover the PIN and relay paths.
+    const hostOpen = legacyHost.admitted;
     assertPeerOpenVersion(hostOpen, expectedVersion, 'legacy host peer-open', true);
     if (hostOpen.roomId !== roomId) throw new Error('legacy host room mismatch');
-    if (hostOpen.roomPasswordApplied !== undefined) {
-      throw new Error('legacy host unexpectedly received a modern PIN acknowledgement');
+    if (
+      hostOpen.roomPasswordApplied !== true ||
+      hostOpen.roomPasswordMutationId !== pinMutationId
+    ) {
+      throw new Error('legacy host PIN was not durably acknowledged before peer-open');
     }
-
-    const fencedGuest = createGuest(`legacy-fenced-${suffix}`, 'legacy pre-config guest');
-    await fencedGuest.opened;
-    fencedGuest.socket.send(
-      JSON.stringify({
-        type: 'guest-auth',
-        password: '',
-        reconnectSecret: randomBytes(32).toString('base64url'),
-      }),
-    );
-    await expectGuestRejection(
-      fencedGuest,
-      'service-unavailable',
-      'ROOM_PASSWORD_MUTATION_PENDING',
-      1013,
-    );
-
-    host.socket.send(JSON.stringify({ type: 'room-password-set', password }));
-    // Legacy clients have no result frame. Opening the next socket after this
-    // short settle exercises the exact signaling-first/app-later rollout path.
-    await delay(150);
-    const wrongPasswordGuest = createGuest(
-      `legacy-wrong-password-${suffix}`,
-      'legacy wrong-password guest',
-    );
-    await wrongPasswordGuest.opened;
-    wrongPasswordGuest.socket.send(
-      JSON.stringify({
-        type: 'guest-auth',
-        password: '00000000',
-        reconnectSecret: randomBytes(32).toString('base64url'),
-      }),
-    );
-    await expectGuestRejection(
-      wrongPasswordGuest,
-      'room-password-invalid',
-      'ROOM_PASSWORD_INVALID',
-      1011,
-    );
-    const admittedGuest = createGuest(`legacy-admitted-${suffix}`, 'legacy configured guest');
-    await admittedGuest.opened;
-    admittedGuest.socket.send(
-      JSON.stringify({
-        type: 'guest-auth',
-        password,
-        reconnectSecret: randomBytes(32).toString('base64url'),
-      }),
-    );
-    const guestOpen = await waitForType(admittedGuest, 'peer-open');
-    assertPeerOpenVersion(guestOpen, expectedVersion, 'legacy configured guest peer-open');
-    return {
-      roomId,
-      preConfigurationGuestRejected: true,
-      postConfigurationWrongPasswordRejected: true,
-      postConfigurationGuestAdmitted: true,
-    };
+    return { roomId, admittedWithoutAppBuild: true };
   } finally {
-    for (const inbox of guests) await closeSocket(inbox.socket);
     await closeSocket(host.socket);
   }
 }
@@ -914,7 +921,8 @@ async function runRoomAttempt(
   password: string,
   expectedVersion: string,
   routes: SignalingRoomRoutes,
-  readiness: RoomReadinessOptions = {},
+  readiness: RoomReadinessOptions,
+  appBuild: LiveSmokeAppBuild,
 ): Promise<RoomSmokeResult> {
   if (password && !/^\d{8}$/.test(password)) {
     throw new Error('protected-room smoke password must be exactly eight digits');
@@ -955,15 +963,25 @@ async function runRoomAttempt(
     // The RAM-only host proof and desired PIN are one admission transaction:
     // peer-open is emitted only after both ownership and the verifier commit.
     host.socket.send(
-      JSON.stringify({
-        type: 'host-auth',
-        secret: hostSecret,
-        desiredRoomPassword: password,
-        pinMutationId,
-      }),
+      JSON.stringify(
+        withAppBuild(
+          {
+            type: 'host-auth',
+            secret: hostSecret,
+            desiredRoomPassword: password,
+            pinMutationId,
+          },
+          appBuild.build,
+        ),
+      ),
     );
-    const hostOpen = await waitForType(host, 'peer-open');
-    assertPeerOpenVersion(hostOpen, expectedVersion, 'host peer-open', true);
+    const hostOpen = requireAdmittedSignalingHost(
+      await host.waitFor(isHostAdmissionFrame, 'host admission'),
+      'host',
+      appBuild.build,
+      expectedVersion,
+      true,
+    );
     if (hostOpen.roomId !== roomId) throw new Error('host room mismatch');
     if (
       hostOpen.roomPasswordApplied !== true ||
@@ -981,11 +999,16 @@ async function runRoomAttempt(
       const invalidPasswordGuest = createGuest(`invalid-${suffix}`, 'invalid-password guest');
       await invalidPasswordGuest.opened;
       invalidPasswordGuest.socket.send(
-        JSON.stringify({
-          type: 'guest-auth',
-          password: '00000000',
-          reconnectSecret: wrongReconnectSecret,
-        }),
+        JSON.stringify(
+          withAppBuild(
+            {
+              type: 'guest-auth',
+              password: '00000000',
+              reconnectSecret: wrongReconnectSecret,
+            },
+            appBuild.build,
+          ),
+        ),
       );
       await expectGuestRejection(
         invalidPasswordGuest,
@@ -1000,7 +1023,11 @@ async function runRoomAttempt(
     // The production client authenticates every guest with this first frame.
     // Passwordless rooms use an empty password while still binding the identity
     // to the reconnect secret.
-    originalGuest.socket.send(JSON.stringify({ type: 'guest-auth', password, reconnectSecret }));
+    originalGuest.socket.send(
+      JSON.stringify(
+        withAppBuild({ type: 'guest-auth', password, reconnectSecret }, appBuild.build),
+      ),
+    );
     const guestOpen = await waitForType(originalGuest, 'peer-open');
     assertPeerOpenVersion(
       guestOpen,
@@ -1014,17 +1041,20 @@ async function runRoomAttempt(
 
     const missingSecretGuest = createGuest(guestPeerId, 'missing-reconnect-secret guest');
     await missingSecretGuest.opened;
-    missingSecretGuest.socket.send(JSON.stringify({ type: 'guest-auth', password }));
+    missingSecretGuest.socket.send(
+      JSON.stringify(withAppBuild({ type: 'guest-auth', password }, appBuild.build)),
+    );
     await expectGuestRejection(missingSecretGuest, 'invalid-id', 'GUEST_AUTH_FIRST_FRAME_INVALID');
 
     const wrongSecretGuest = createGuest(guestPeerId, 'wrong-reconnect-secret guest');
     await wrongSecretGuest.opened;
     wrongSecretGuest.socket.send(
-      JSON.stringify({
-        type: 'guest-auth',
-        password,
-        reconnectSecret: wrongReconnectSecret,
-      }),
+      JSON.stringify(
+        withAppBuild(
+          { type: 'guest-auth', password, reconnectSecret: wrongReconnectSecret },
+          appBuild.build,
+        ),
+      ),
     );
     await expectGuestRejection(
       wrongSecretGuest,
@@ -1036,11 +1066,12 @@ async function runRoomAttempt(
       const wrongPasswordReplacement = createGuest(guestPeerId, 'wrong-password replacement');
       await wrongPasswordReplacement.opened;
       wrongPasswordReplacement.socket.send(
-        JSON.stringify({
-          type: 'guest-auth',
-          password: '00000000',
-          reconnectSecret,
-        }),
+        JSON.stringify(
+          withAppBuild(
+            { type: 'guest-auth', password: '00000000', reconnectSecret },
+            appBuild.build,
+          ),
+        ),
       );
       await expectGuestRejection(
         wrongPasswordReplacement,
@@ -1079,11 +1110,12 @@ async function runRoomAttempt(
     );
     await disconnectedWrongSecretGuest.opened;
     disconnectedWrongSecretGuest.socket.send(
-      JSON.stringify({
-        type: 'guest-auth',
-        password,
-        reconnectSecret: wrongReconnectSecret,
-      }),
+      JSON.stringify(
+        withAppBuild(
+          { type: 'guest-auth', password, reconnectSecret: wrongReconnectSecret },
+          appBuild.build,
+        ),
+      ),
     );
     await expectGuestRejection(
       disconnectedWrongSecretGuest,
@@ -1093,7 +1125,11 @@ async function runRoomAttempt(
 
     reconnectedGuest = createGuest(guestPeerId, 'legitimate reconnect guest');
     await reconnectedGuest.opened;
-    reconnectedGuest.socket.send(JSON.stringify({ type: 'guest-auth', password, reconnectSecret }));
+    reconnectedGuest.socket.send(
+      JSON.stringify(
+        withAppBuild({ type: 'guest-auth', password, reconnectSecret }, appBuild.build),
+      ),
+    );
     const reconnectOpen = await waitForType(reconnectedGuest, 'peer-open');
     assertPeerOpenVersion(reconnectOpen, expectedVersion, 'reconnected guest peer-open');
     if (reconnectOpen.roomId !== roomId || reconnectOpen.peerId !== guestPeerId) {
@@ -1108,15 +1144,25 @@ async function runRoomAttempt(
     // Reconnect reasserts the same desired mutation. The query remains limited
     // to routing IDs and the Worker again commits before publishing peer-open.
     reconnectedHost.socket.send(
-      JSON.stringify({
-        type: 'host-auth',
-        secret: hostSecret,
-        desiredRoomPassword: password,
-        pinMutationId,
-      }),
+      JSON.stringify(
+        withAppBuild(
+          {
+            type: 'host-auth',
+            secret: hostSecret,
+            desiredRoomPassword: password,
+            pinMutationId,
+          },
+          appBuild.build,
+        ),
+      ),
     );
-    const reconnectedHostOpen = await waitForType(reconnectedHost, 'peer-open');
-    assertPeerOpenVersion(reconnectedHostOpen, expectedVersion, 'reconnected host peer-open');
+    const reconnectedHostOpen = requireAdmittedSignalingHost(
+      await reconnectedHost.waitFor(isHostAdmissionFrame, 'reconnected host admission'),
+      'reconnected host',
+      appBuild.build,
+      expectedVersion,
+      false,
+    );
     if (reconnectedHostOpen.roomId !== roomId) throw new Error('reconnected host room mismatch');
     if (
       reconnectedHostOpen.roomPasswordApplied !== true ||
@@ -1208,10 +1254,11 @@ async function runRoom(
   password: string,
   expectedVersion: string,
   routes: SignalingRoomRoutes,
-  readiness: RoomReadinessOptions = {},
+  readiness: RoomReadinessOptions,
+  appBuild: LiveSmokeAppBuild,
 ): Promise<RoomSmokeResult> {
   return withSignalingReadinessRetry(
-    () => runRoomAttempt(password, expectedVersion, routes, readiness),
+    () => runRoomAttempt(password, expectedVersion, routes, readiness, appBuild),
     { retryDelaysMs: readiness.retryDelaysMs ?? STALE_VERSION_RETRY_DELAYS_MS },
   );
 }
@@ -1224,6 +1271,9 @@ async function runLegacyCompatibility(
 
 export async function main(): Promise<void> {
   const expectedVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
+  // Every host and guest reports the checked-out release build, so this smoke
+  // keeps passing after the App build floor is turned on.
+  const appBuild = resolveLiveSmokeAppBuild();
   const rooms: RoomSmokeResult[] = [];
   // The first room claims through the cold alias and joins through primary.
   // A successful bidirectional relay proves DNS/TLS/WebSocket readiness and
@@ -1234,6 +1284,7 @@ export async function main(): Promise<void> {
       expectedVersion,
       SIGNALING_SMOKE_ROOM_ROUTES.unprotected,
       SIGNALING_SMOKE_ROOM_READINESS.unprotected,
+      appBuild,
     ),
   );
   // Both aliases have now admitted the exact expected deployment, so this
@@ -1249,6 +1300,7 @@ export async function main(): Promise<void> {
       expectedVersion,
       SIGNALING_SMOKE_ROOM_ROUTES.protected,
       SIGNALING_SMOKE_ROOM_READINESS.protected,
+      appBuild,
     ),
   );
   const legacyCompatibility = await runLegacyCompatibility(expectedVersion);
@@ -1256,6 +1308,7 @@ export async function main(): Promise<void> {
     JSON.stringify({
       ok: true,
       expectedVersion: expectedVersion || null,
+      appBuild: { build: appBuild.build },
       signalingOrigins: {
         primary: PRIMARY_SIGNALING_ORIGIN,
         alternate: ALTERNATE_SIGNALING_ORIGIN,

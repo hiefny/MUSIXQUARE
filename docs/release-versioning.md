@@ -38,6 +38,39 @@ such as `v226` means "the 226th app-shell cache boundary," not
 requires existing clients to migrate. `guard:sw-cache-version` independently
 checks its history and monotonicity.
 
+## App build number and floor
+
+From App 9.0.14 the App reports a build number: the integer of the service-worker
+cache epoch (`v787` is build 787). It is not a second version. The browser reads
+it from the compile-time define `__MXQR_BUILD_CACHE_VERSION__` that Vite derives
+from `SERVICE_WORKER_CACHE_VERSION` (`APP_BUILD` in `src/core/app-build.ts`);
+the App Worker reads its own deployed `/service-worker.js`; the release smokes
+use the checked-out release identity (`scripts/live-smoke-app-build.mts`). No
+copy of the number is typed anywhere else, and a build without the define
+(unit tests) reports nothing, which counts as build 0.
+
+The App build floor is runtime state, not a version identifier: the minimum
+build that the Signaling and PRO Workers admit, held by the service-control
+object (record RO-50 in the
+[resource ownership registry](design/resource-ownership-registry.md)). Raising
+it changes no version, artifact or cache epoch, and it never goes above the App
+build that is live. Because epochs only grow on `main`
+(`guard:sw-cache-version`), every later release's build is at or above the
+floor. Consequences for a release:
+
+- A release that must keep older builds out of rooms advances the cache epoch
+  (it always does when PWA runtime inputs change) and raises the floor to its
+  own build after it is committed (`raise_app_build_floor`). A release that
+  keeps the build, such as a Worker-only release, cannot raise the floor beyond
+  the live build.
+- The floor is read at entry. It is not part of the wire contract, so it never
+  becomes a frame or schema version. Rolling a Worker back leaves the stored
+  value in place; after a PRO Worker rollback to a version without the floor
+  routes, every reader sees floor 0 until the PRO Worker rolls forward.
+- The operational steps (set, lower, the first floor, rollbacks) are in the
+  [hotfix procedure](hotfix-procedure.md#app-build-floor), and the current value
+  is in section 1 of the [release record](release-record.md).
+
 ## API, protocol, and storage schemas
 
 OpenAPI `info.version`, URL majors such as `/v1`, frame versions, D1 schema
@@ -76,7 +109,10 @@ npm run version:status
 
 The manifest also records the Git SHA, build tools, validation profile, and
 content hashes. Cloudflare deployment records add each deployed Worker version
-ID, completing the operational release identity.
+ID, completing the operational release identity. The `serviceWorkerCacheEpoch`
+is also the App build number that the App build floor compares; the floor itself
+is not in the manifest, because it is runtime state that can change between
+releases.
 
 The Standard HTTPS signaling smoke records each failed bridge open, send, poll,
 or close with the client role, HTTP status, recognized machine error code,

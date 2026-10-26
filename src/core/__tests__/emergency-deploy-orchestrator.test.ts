@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  emergencyAppBuildFloorGuardCommand,
   emergencyCompatibilityTarget,
   emergencyDeploymentMessage,
   emergencyDeploymentPlan,
@@ -88,6 +89,7 @@ describe('emergency deployment orchestrator', () => {
     const checkpoint = vi.fn();
     const codeOnlyCheck = vi.fn();
     const selectedPreflight = vi.fn();
+    const appBuildFloorGuard = vi.fn();
     const runner = vi.fn((command: string[]) => {
       if (command.includes('build:checked')) throw new Error('validation failed');
     });
@@ -103,8 +105,11 @@ describe('emergency deployment orchestrator', () => {
         selectedPreflight,
         recordDeployment: vi.fn(),
         finalVerification: vi.fn(),
+        appBuildFloorGuard,
       }),
     ).toThrow('validation failed');
+    expect(appBuildFloorGuard).toHaveBeenCalledOnce();
+    expect(appBuildFloorGuard).toHaveBeenCalledWith('app');
     expect(authorize).toHaveBeenCalledTimes(1);
     expect(compatibilityCheck).toHaveBeenCalledWith(
       'app',
@@ -182,6 +187,7 @@ describe('emergency deployment orchestrator', () => {
       selectedPreflight: (worker: string) => events.push(`preflight:${worker}`),
       recordDeployment: (worker: string) => events.push(`record:${worker}`),
       finalVerification: () => events.push('final-verification'),
+      appBuildFloorGuard: () => events.push('app-build-floor'),
     });
 
     const deployIndex = events.findIndex((entry) => entry.includes('wrangler.app.toml'));
@@ -189,6 +195,7 @@ describe('emergency deployment orchestrator', () => {
       'compatibility',
       'checkpoint',
       'code-only',
+      'app-build-floor',
       'run:run --silent smoke:live:signaling',
       'run:run --silent build:checked',
       'compatibility-recheck',
@@ -210,6 +217,7 @@ describe('emergency deployment orchestrator', () => {
     const selectedPreflight = vi.fn();
     const recordDeployment = vi.fn();
     const finalVerification = vi.fn();
+    const appBuildFloorGuard = vi.fn();
     runEmergencyDeployment({
       target: 'all-workers',
       authorize: () => ({ target: 'all-workers', commitSha: COMMIT }),
@@ -219,7 +227,9 @@ describe('emergency deployment orchestrator', () => {
       selectedPreflight,
       recordDeployment,
       finalVerification,
+      appBuildFloorGuard,
     });
+    expect(appBuildFloorGuard).toHaveBeenCalledWith('all-workers');
 
     const workers = [
       'pro-room',
@@ -255,5 +265,57 @@ describe('emergency deployment orchestrator', () => {
       prefixArgs: ['C:\\Node\\node_modules\\npm\\bin\\npm-cli.js'],
     });
     expect(emergencyNpmInvocation('linux')).toEqual({ executable: 'npm', prefixArgs: [] });
+  });
+});
+
+describe('emergency deployment App build floor guard', () => {
+  it('stops an App deployment before any command when the floor guard refuses', () => {
+    for (const target of ['app', 'all-workers'] as const) {
+      const runner = vi.fn();
+      expect(() =>
+        runEmergencyDeployment({
+          target,
+          authorize: () => ({ target, commitSha: COMMIT }),
+          runner,
+          compatibilityCheck: vi.fn(),
+          checkpoint: vi.fn(),
+          codeOnlyCheck: vi.fn(),
+          selectedPreflight: vi.fn(),
+          recordDeployment: vi.fn(),
+          finalVerification: vi.fn(),
+          appBuildFloorGuard: () => {
+            throw new Error('local App build 784 is below the stored App build floor 785');
+          },
+        }),
+      ).toThrow('below the stored App build floor');
+      expect(runner).not.toHaveBeenCalled();
+    }
+  });
+
+  it('leaves the floor out of Worker-only emergency deployments', () => {
+    for (const target of ['remote-share', 'pro-room', 'signaling', 'developer-api-stack']) {
+      const appBuildFloorGuard = vi.fn();
+      runEmergencyDeployment({
+        target,
+        authorize: () => ({ target, commitSha: COMMIT }),
+        runner: vi.fn(),
+        compatibilityCheck: vi.fn(),
+        compatibilityRecheck: vi.fn(),
+        checkpoint: vi.fn(),
+        codeOnlyCheck: vi.fn(),
+        selectedPreflight: vi.fn(),
+        recordDeployment: vi.fn(),
+        finalVerification: vi.fn(),
+        appBuildFloorGuard,
+      });
+      expect(appBuildFloorGuard, target).not.toHaveBeenCalled();
+    }
+  });
+
+  it('runs the floor script guard with the current Node and no shell', () => {
+    expect(emergencyAppBuildFloorGuardCommand()).toEqual({
+      executable: process.execPath,
+      args: ['scripts/app-build-floor.mts', 'emergency-guard'],
+    });
   });
 });

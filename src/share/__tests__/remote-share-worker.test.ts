@@ -452,7 +452,14 @@ function directUploadQuotaEnv(extra: Record<string, unknown> = {}): Record<strin
   return workerEnv;
 }
 
+let sessionRequestNonce = 0;
+
+// Every current client sends the v3 body: the six metadata fields plus a
+// private actor and request nonce. A fixture without explicit nonces gets a
+// fresh pair, so unrelated calls stay independent reservations.
 function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
+  sessionRequestNonce += 1;
+  const nonce = String(sessionRequestNonce).padStart(43, '0');
   return JSON.stringify({
     roomId: '123456',
     sessionId: 7,
@@ -460,6 +467,8 @@ function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
     name: 'song.wav',
     mime: 'audio/wav',
     size: 20,
+    requestId: `rs3_${nonce}`,
+    actorId: `rsa_${nonce}`,
     ...overrides,
   });
 }
@@ -1415,7 +1424,16 @@ describe('remote-share Worker capability gate', () => {
   it('fails readiness closed for invalid assertion rollout configuration', async () => {
     const missingSecret = await workerModule.default.fetch(
       request('/security-config'),
-      directUploadEnv({ ROOM_UPLOAD_ASSERTION_MODE: 'optional' }),
+      directUploadEnv({ ROOM_UPLOAD_ASSERTION_MODE: 'required' }),
+    );
+    // The optional mode is retired: even with a valid secret it is an invalid
+    // configuration, never an assertion-free upload path.
+    const retiredOptionalMode = await workerModule.default.fetch(
+      request('/security-config'),
+      directUploadEnv({
+        ROOM_UPLOAD_ASSERTION_MODE: 'optional',
+        MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+      }),
     );
     const weakSecret = await workerModule.default.fetch(
       request('/security-config'),
@@ -1450,6 +1468,10 @@ describe('remote-share Worker capability gate', () => {
     await expect(missingSecret.json()).resolves.toEqual({
       error: 'ROOM_UPLOAD_ASSERTION_NOT_CONFIGURED',
     });
+    expect(retiredOptionalMode.status).toBe(503);
+    await expect(retiredOptionalMode.json()).resolves.toEqual({
+      error: 'ROOM_UPLOAD_ASSERTION_MODE_INVALID',
+    });
     expect(weakSecret.status).toBe(503);
     await expect(weakSecret.json()).resolves.toEqual({
       error: 'ROOM_UPLOAD_ASSERTION_SECRET_INVALID',
@@ -1466,6 +1488,41 @@ describe('remote-share Worker capability gate', () => {
     await expect(duplicateSecretKeyring.json()).resolves.toEqual({
       error: 'ROOM_UPLOAD_ASSERTION_SECRET_INVALID',
     });
+  });
+
+  it('fails an assertion-free session closed under the retired optional mode', async () => {
+    const capability = await createCapabilityToken();
+    const bucket = createQuotaBucket();
+    const metrics = createMetricRecorder();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '64',
+      ROOM_UPLOAD_ASSERTION_MODE: 'optional',
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+      MUSIXQUARE_ADMIN_DB: metrics.db,
+    });
+
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': capability,
+        },
+        body: sessionRequestBody(),
+      }),
+      workerEnv,
+      metrics.context,
+    );
+    await metrics.settle();
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: 'ROOM_UPLOAD_ASSERTION_MODE_INVALID',
+    });
+    expect(bucket.put).not.toHaveBeenCalled();
+    expect(metrics.events).toEqual([]);
   });
 
   it('accepts an in-flight unkeyed assertion through the configured previous rotation slot', async () => {
@@ -1517,7 +1574,7 @@ describe('remote-share Worker capability gate', () => {
     const assertion = await createTestUploadAssertion(body);
     const metrics = createMetricRecorder();
     const workerEnv = directUploadEnv({
-      ROOM_UPLOAD_ASSERTION_MODE: 'optional',
+      ROOM_UPLOAD_ASSERTION_MODE: 'required',
       MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
       MUSIXQUARE_ADMIN_DB: metrics.db,
     });
@@ -1536,7 +1593,7 @@ describe('remote-share Worker capability gate', () => {
       workerEnv,
       metrics.context,
     );
-    const legacy = await workerModule.default.fetch(
+    const missing = await workerModule.default.fetch(
       request('/session', {
         method: 'POST',
         headers,
@@ -1558,11 +1615,12 @@ describe('remote-share Worker capability gate', () => {
     await metrics.settle();
 
     expect(verified.status).toBe(200);
-    expect(legacy.status).toBe(200);
+    expect(missing.status).toBe(403);
+    await expect(missing.json()).resolves.toEqual({ error: 'ROOM_UPLOAD_ASSERTION_REQUIRED' });
     expect(rejected.status).toBe(403);
     await expect(rejected.json()).resolves.toEqual({ error: 'ROOM_UPLOAD_ASSERTION_INVALID' });
     expect(metrics.events.sort()).toEqual([
-      'remote_share_upload_assertion_legacy',
+      'remote_share_upload_assertion_rejected',
       'remote_share_upload_assertion_rejected',
       'remote_share_upload_assertion_verified',
     ]);
@@ -1610,11 +1668,11 @@ describe('remote-share Worker capability gate', () => {
     expect(bucket.put).not.toHaveBeenCalled();
   });
 
-  it('rejects a present empty assertion instead of treating it as optional legacy traffic', async () => {
+  it('rejects a present empty assertion as invalid rather than missing', async () => {
     const capability = await createCapabilityToken();
     const metrics = createMetricRecorder();
     const workerEnv = directUploadEnv({
-      ROOM_UPLOAD_ASSERTION_MODE: 'optional',
+      ROOM_UPLOAD_ASSERTION_MODE: 'required',
       MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
       MUSIXQUARE_ADMIN_DB: metrics.db,
     });
@@ -2395,8 +2453,17 @@ describe('remote-share Worker capability gate', () => {
     const cancel = vi.fn();
     let reserveCalls = 0;
     const quotaFetch = vi.fn(async (quotaRequest: Request) => {
-      if (new URL(quotaRequest.url).pathname === '/release') {
+      const operation = new URL(quotaRequest.url).pathname;
+      if (operation === '/release') {
         return Response.json({ released: false });
+      }
+      // The v3 proof claim and replay lookup answer promptly; only the
+      // reservation itself stalls after the placeholder exists.
+      if (operation === '/proof-claim') {
+        return Response.json({ claimed: true, replayed: false });
+      }
+      if (operation === '/lookup') {
+        return Response.json({ found: false }, { status: 404 });
       }
       reserveCalls += 1;
       let pulls = 0;
@@ -2869,67 +2936,45 @@ describe('remote-share Worker capability gate', () => {
     expect(control.rateFetchCount()).toBe(5);
   });
 
-  it('accepts cached v2 request IDs without making them replay-authoritative', async () => {
-    const token = await createCapabilityToken(['remote-share'], { jti: 'cached-v2-browser' });
-    const workerEnv = directUploadQuotaEnv({
-      REMOTE_SHARE_BUCKET: createQuotaBucket(),
-      ROOM_STORAGE_QUOTA_BYTES: '64',
-    });
-    const body = sessionRequestBody({ requestId: `rs_${'V'.repeat(43)}` });
-    const createSession = () =>
-      workerModule.default.fetch(
-        request('/session', {
-          method: 'POST',
-          headers: {
-            'cf-connecting-ip': CLIENT_IP,
-            'content-type': 'application/json',
-            'x-mxqr-capability': token,
-          },
-          body,
-        }),
-        workerEnv,
-      );
+  it('rejects the cached six-field and v2 bodies before allocation in every assertion mode', async () => {
+    const token = await createCapabilityToken(['remote-share'], { jti: 'cached-browser' });
+    const bucket = createQuotaBucket();
+    // Only the v3 body carries the private actor and request nonce. A body
+    // without them, or with the deterministic v2 `rs_` request ID, is invalid.
+    const sixFieldBody = sessionRequestBody({ requestId: undefined, actorId: undefined });
+    const v2Body = sessionRequestBody({ requestId: `rs_${'V'.repeat(43)}`, actorId: undefined });
+    const statuses: number[] = [];
+    const errors: unknown[] = [];
+    for (const mode of ['disabled', 'required']) {
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: '64',
+        ROOM_UPLOAD_ASSERTION_MODE: mode,
+        MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+      });
+      for (const body of [sixFieldBody, v2Body]) {
+        const response = await workerModule.default.fetch(
+          request('/session', {
+            method: 'POST',
+            headers: {
+              'cf-connecting-ip': CLIENT_IP,
+              'content-type': 'application/json',
+              'x-mxqr-capability': token,
+            },
+            body,
+          }),
+          workerEnv,
+        );
+        statuses.push(response.status);
+        errors.push(await response.json());
+      }
+    }
 
-    const firstResponse = await createSession();
-    const secondResponse = await createSession();
-    const first = (await firstResponse.json()) as SessionResponse;
-    const second = (await secondResponse.json()) as SessionResponse;
-
-    expect([firstResponse.status, secondResponse.status]).toEqual([200, 200]);
-    expect(second.objectId).not.toBe(first.objectId);
-    expect(second.cleanupToken).not.toBe(first.cleanupToken);
-    expect(second.completeToken).not.toBe(first.completeToken);
-  });
-
-  it('accepts six-field cached clients without making public metadata replay-authoritative', async () => {
-    const token = await createCapabilityToken(['remote-share'], { jti: 'legacy-browser' });
-    const workerEnv = directUploadQuotaEnv({
-      REMOTE_SHARE_BUCKET: createQuotaBucket(),
-      ROOM_STORAGE_QUOTA_BYTES: '64',
-    });
-    const createSession = () =>
-      workerModule.default.fetch(
-        request('/session', {
-          method: 'POST',
-          headers: {
-            'cf-connecting-ip': CLIENT_IP,
-            'content-type': 'application/json',
-            'x-mxqr-capability': token,
-          },
-          body: sessionRequestBody(),
-        }),
-        workerEnv,
-      );
-
-    const firstResponse = await createSession();
-    const secondResponse = await createSession();
-    const first = (await firstResponse.json()) as SessionResponse;
-    const second = (await secondResponse.json()) as SessionResponse;
-
-    expect([firstResponse.status, secondResponse.status]).toEqual([200, 200]);
-    expect(second.objectId).not.toBe(first.objectId);
-    expect(second.cleanupToken).not.toBe(first.cleanupToken);
-    expect(second.completeToken).not.toBe(first.completeToken);
+    expect(statuses).toEqual([400, 400, 400, 400]);
+    expect(errors).toEqual(
+      Array.from({ length: 4 }, () => ({ error: 'invalid upload session request' })),
+    );
+    expect(bucket.put).not.toHaveBeenCalled();
   });
 
   it('fences a late direct PUT with the exact zero-byte placeholder ETag', async () => {

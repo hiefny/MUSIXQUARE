@@ -18,9 +18,9 @@
  * - RATE_LIMIT_WINDOW_SECONDS: default 3600
  * - IP_UPLOADS_PER_WINDOW: default 60
  * - ROOM_UPLOADS_PER_WINDOW: default 120
- * - ROOM_UPLOAD_ASSERTION_MODE: disabled (local/default), optional, or required
+ * - ROOM_UPLOAD_ASSERTION_MODE: disabled (local/default) or required
  * - MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: signaling-shared HMAC secret,
- *     required when ROOM_UPLOAD_ASSERTION_MODE is optional or required. A
+ *     required when ROOM_UPLOAD_ASSERTION_MODE is required. A
  *     plain value preserves single-key behavior; the documented prefixed JSON
  *     form enables current/previous rotation slots.
  * - ROOM_STORAGE_QUOTA_BYTES: default 0. Production uses 1 GiB and requires
@@ -205,7 +205,6 @@ const DOWNLOAD_AUTHORIZATION_VERSION = 1;
 const ROOM_UPLOAD_ASSERTION_HEADER = 'x-mxqr-room-upload-assertion';
 const ROOM_UPLOAD_ASSERTION_METRICS: ReadonlySet<unknown> = new Set([
   'remote_share_upload_assertion_verified',
-  'remote_share_upload_assertion_legacy',
   'remote_share_upload_assertion_rejected',
 ]);
 const ROOM_UPLOAD_ASSERTION_REJECT_METRICS_PER_WINDOW = 10;
@@ -271,13 +270,11 @@ const COMPLETE_TOKEN_KEYS = Object.freeze([
 // The complete 0xxxxx namespace belongs to persistent PRO rooms and must never
 // share this temporary whole-object bucket or its per-room quota keys.
 const STANDARD_ROOM_CODE_RE = /^[1-9]\d{5}$/;
-// `rs_` is the cached v2 client shape. v3 uses an actor-secret-derived nonce
-// with a distinguishable prefix so a mixed-version rollout can be audited.
-// Neither v3 value is stored directly: the Worker folds the pair together
-// under its signing secret before any durable replay lookup. The capability
-// still gates access, but rotating that short-lived token must not break an
-// outcome-unknown retry by the same private v3 browser actor.
-const V2_CLIENT_SESSION_REQUEST_ID_RE = /^rs_[A-Za-z0-9_-]{43}$/;
+// The v3 session body carries an actor-secret-derived request nonce and the
+// private actor ID. Neither value is stored directly: the Worker folds the
+// pair together under its signing secret before any durable replay lookup.
+// The capability still gates access, but rotating that short-lived token must
+// not break an outcome-unknown retry by the same private browser actor.
 const V3_CLIENT_SESSION_REQUEST_ID_RE = /^rs3_[A-Za-z0-9_-]{43}$/;
 const V3_CLIENT_SESSION_ACTOR_ID_RE = /^rsa_[A-Za-z0-9_-]{43}$/;
 const SESSION_RECEIPT_KEY_RE = /^rs_[A-Za-z0-9_-]{43}$/;
@@ -556,15 +553,13 @@ function getSigningSecret(env: RemoteShareEnvPort): string | null {
   return secret.length >= 32 ? secret : null;
 }
 
-type RoomUploadAssertionMode = 'disabled' | 'optional' | 'required';
+type RoomUploadAssertionMode = 'disabled' | 'required';
 
 function roomUploadAssertionMode(env: RemoteShareEnvPort): RoomUploadAssertionMode | null {
   const configured = String(env.ROOM_UPLOAD_ASSERTION_MODE || 'disabled')
     .trim()
     .toLowerCase();
-  return configured === 'disabled' || configured === 'optional' || configured === 'required'
-    ? configured
-    : null;
+  return configured === 'disabled' || configured === 'required' ? configured : null;
 }
 
 function configuredRoomUploadAssertionSecret(env: RemoteShareEnvPort): string {
@@ -598,9 +593,7 @@ function roomUploadAssertionConfigurationError(
 }
 
 type RoomUploadAssertionMetric =
-  | 'remote_share_upload_assertion_verified'
-  | 'remote_share_upload_assertion_legacy'
-  | 'remote_share_upload_assertion_rejected';
+  'remote_share_upload_assertion_verified' | 'remote_share_upload_assertion_rejected';
 
 async function recordRoomUploadAssertionMetric(
   env: RemoteShareEnvPort,
@@ -812,9 +805,8 @@ async function rateLimitIpKey(secret: string, request: Request): Promise<string>
 async function uploadSessionRequestKey(
   secret: string,
   authorityScope: string,
-  clientRequestId: string | null,
-): Promise<string | null> {
-  if (!clientRequestId) return null;
+  clientRequestId: string,
+): Promise<string> {
   return `rs_${await hmacSha256(
     secret,
     `upload-session-request:v3\u0000${authorityScope}\u0000${clientRequestId}`,
@@ -923,15 +915,12 @@ interface SessionProofState extends JsonRecord {
 async function uploadSessionOperationId(
   secret: string,
   authorityScope: string,
-  clientRequestId: string | null,
+  clientRequestId: string,
   metadata: UploadSessionMetadata,
 ): Promise<string> {
   const canonical = JSON.stringify([
     authorityScope,
-    // A six-field cached client has no replay nonce. Give every request a
-    // fresh operation identity so public metadata can never recover another
-    // caller's upload, completion, or cleanup authority.
-    clientRequestId || `legacy:${crypto.randomUUID()}`,
+    clientRequestId,
     metadata.roomId,
     metadata.sessionId,
     metadata.queueItemId,
@@ -956,78 +945,52 @@ async function verifyCapabilityToken(
   token: string,
   request: Request,
   env: RemoteShareEnvPort,
-): Promise<string> {
+): Promise<boolean> {
   const secret = getCapabilitySecret(env);
-  if (!secret || !token) return '';
+  if (!secret || !token) return false;
   const parts = token.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return '';
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
 
   const expectedSignature = await hmacSha256(secret, parts[0]);
-  if (!constantTimeEqual(expectedSignature, parts[1])) return '';
+  if (!constantTimeEqual(expectedSignature, parts[1])) return false;
 
   let payload: unknown;
   try {
     payload = JSON.parse(base64UrlToString(parts[0]));
   } catch {
-    return '';
+    return false;
   }
 
   const now = Math.floor(Date.now() / 1000);
-  if (!isRecord(payload) || payload.v !== 1) return '';
-  if (!Array.isArray(payload.scopes) || !payload.scopes.includes(CAPABILITY_SCOPE)) return '';
-  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return '';
-  if (typeof payload.exp !== 'number' || payload.exp <= now) return '';
+  if (!isRecord(payload) || payload.v !== 1) return false;
+  if (!Array.isArray(payload.scopes) || !payload.scopes.includes(CAPABILITY_SCOPE)) return false;
+  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return false;
+  if (typeof payload.exp !== 'number' || payload.exp <= now) return false;
 
   const expectedIp = await capabilityIpHash(secret, request);
-  if (!constantTimeEqual(String(payload.ip || ''), expectedIp)) return '';
-  // The capability is already a bearer authority. Persist only a keyed,
-  // domain-separated pseudonym so a different token (including one minted for
-  // the same NAT/IP) can never retrieve this token's upload authorities.
-  return hmacSha256(secret, `remote-share-session-actor:v1\u0000${token}`);
+  return constantTimeEqual(String(payload.ip || ''), expectedIp);
 }
 
-interface CapabilityAuthorization {
-  response: Response | null;
-  authorityScope: string;
-}
-
+// The capability only gates access. Replay authority belongs to the private
+// v3 browser actor, so a session takes no identity from the token itself.
 async function authorizeSessionCapability(
   request: Request,
   env: RemoteShareEnvPort,
-  signingSecret: string,
-): Promise<CapabilityAuthorization> {
+): Promise<Response | null> {
   if (hasInvalidCapabilitySecret(env)) {
-    return {
-      response: json(request, env, { error: 'CAPABILITY_SECRET_INVALID' }, 503),
-      authorityScope: '',
-    };
+    return json(request, env, { error: 'CAPABILITY_SECRET_INVALID' }, 503);
   }
   if (!isCapabilityRequired(env)) {
     // Parity with app-worker.guardSensitiveRequest: a missing capability
     // secret is a production-config error, not a license to bypass. Run-mode
     // override is the only escape so operators don't silently ship an
     // unguarded /session endpoint.
-    if (allowUnguardedRemoteShare(env)) {
-      return {
-        response: null,
-        authorityScope: await hmacSha256(
-          signingSecret,
-          `remote-share-unguarded-session-actor:v1\u0000${getClientIp(request)}`,
-        ),
-      };
-    }
-    return {
-      response: json(request, env, { error: 'CAPABILITY_NOT_CONFIGURED' }, 503),
-      authorityScope: '',
-    };
+    if (allowUnguardedRemoteShare(env)) return null;
+    return json(request, env, { error: 'CAPABILITY_NOT_CONFIGURED' }, 503);
   }
-  const authorityScope = await verifyCapabilityToken(readCapabilityToken(request), request, env);
-  return authorityScope
-    ? { response: null, authorityScope }
-    : {
-        response: json(request, env, { error: 'CAPABILITY_REQUIRED' }, 401),
-        authorityScope: '',
-      };
+  return (await verifyCapabilityToken(readCapabilityToken(request), request, env))
+    ? null
+    : json(request, env, { error: 'CAPABILITY_REQUIRED' }, 401);
 }
 
 function workerVersionFields(env: RemoteShareEnvPort): { workerVersionId?: string } {
@@ -1950,8 +1913,8 @@ async function authorizeRoomUploadAssertion(
     sessionId: number;
     queueItemId: string;
     size: number;
-    actorId: string | null;
-    requestId: string | null;
+    actorId: string;
+    requestId: string;
   },
 ): Promise<{ error: Response | null; metric: RoomUploadAssertionMetric | null }> {
   const configurationError = roomUploadAssertionConfigurationError(request, env);
@@ -1960,9 +1923,6 @@ async function authorizeRoomUploadAssertion(
   if (mode === 'disabled') return { error: null, metric: null };
 
   if (!request.headers.has(ROOM_UPLOAD_ASSERTION_HEADER)) {
-    if (mode === 'optional') {
-      return { error: null, metric: 'remote_share_upload_assertion_legacy' };
-    }
     await deferRejectedRoomUploadAssertionMetric(request, env, context, rateSecret);
     return {
       error: json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_REQUIRED' }, 403),
@@ -1980,18 +1940,19 @@ async function authorizeRoomUploadAssertion(
   }
 
   const bodySha256 = await sha256Base64Url(bodyBytes);
-  const verified =
-    expected.actorId && expected.requestId
-      ? await verifyRemoteShareUploadAssertion(assertion, getRoomUploadAssertionSecret(env), {
-          roomId: expected.roomId,
-          sessionId: expected.sessionId,
-          queueItemId: expected.queueItemId,
-          size: expected.size,
-          actorId: expected.actorId,
-          requestId: expected.requestId,
-          bodySha256,
-        })
-      : null;
+  const verified = await verifyRemoteShareUploadAssertion(
+    assertion,
+    getRoomUploadAssertionSecret(env),
+    {
+      roomId: expected.roomId,
+      sessionId: expected.sessionId,
+      queueItemId: expected.queueItemId,
+      size: expected.size,
+      actorId: expected.actorId,
+      requestId: expected.requestId,
+      bodySha256,
+    },
+  );
   if (!verified) {
     await deferRejectedRoomUploadAssertionMetric(request, env, context, rateSecret);
     return {
@@ -2010,34 +1971,38 @@ async function handleSession(
   const secret = getSigningSecret(env);
   if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
 
-  const capability = await authorizeSessionCapability(request, env, secret);
-  if (capability.response) return capability.response;
-  const authorityScope = capability.authorityScope;
+  const capabilityError = await authorizeSessionCapability(request, env);
+  if (capabilityError) return capabilityError;
 
   const parsedBody = await readJsonBodyLimited(request, SESSION_JSON_BODY_MAX_BYTES);
   if (parsedBody.error) return jsonBodyError(request, env, parsedBody);
   const body = parsedBody.value;
 
-  const legacyKeys = ['roomId', 'sessionId', 'queueItemId', 'name', 'mime', 'size'];
-  const legacyBody = hasExactOwnKeys(body, legacyKeys);
-  const v2Body =
-    hasExactOwnKeys(body, [...legacyKeys, 'requestId']) &&
-    V2_CLIENT_SESSION_REQUEST_ID_RE.test(String(isRecord(body) ? body.requestId || '' : ''));
+  // Every current client sends the v3 body. The cached six-field body and the
+  // v2 body (a deterministic `rs_` request ID without an actor) are invalid.
   const v3Body =
-    hasExactOwnKeys(body, [...legacyKeys, 'requestId', 'actorId']) &&
+    hasExactOwnKeys(body, [
+      'roomId',
+      'sessionId',
+      'queueItemId',
+      'name',
+      'mime',
+      'size',
+      'requestId',
+      'actorId',
+    ]) &&
     V3_CLIENT_SESSION_REQUEST_ID_RE.test(String(isRecord(body) ? body.requestId || '' : '')) &&
     V3_CLIENT_SESSION_ACTOR_ID_RE.test(String(isRecord(body) ? body.actorId || '' : ''));
-  if (!legacyBody && !v2Body && !v3Body) {
+  if (!v3Body || !isRecord(body)) {
     return json(request, env, { error: 'invalid upload session request' }, 400);
   }
 
-  if (!isRecord(body)) return json(request, env, { error: 'invalid upload session request' }, 400);
   const roomId = standardRoomId(body.roomId);
   const sessionId = Number(body.sessionId);
   const queueItemId = safeQueueItemId(body.queueItemId);
   const storedSize = Number(body.size);
-  const clientRequestId = body.requestId === undefined ? null : String(body.requestId || '');
-  const clientActorId = v3Body ? String(body.actorId) : null;
+  const clientRequestId = String(body.requestId);
+  const clientActorId = String(body.actorId);
   if (
     !roomId ||
     !Number.isSafeInteger(sessionId) ||
@@ -2045,8 +2010,7 @@ async function handleSession(
     !queueItemId ||
     !Number.isSafeInteger(storedSize) ||
     storedSize <= 0 ||
-    storedSize > REMOTE_SHARE_MAX_BYTES ||
-    (clientRequestId !== null && !v2Body && !v3Body)
+    storedSize > REMOTE_SHARE_MAX_BYTES
   ) {
     return json(request, env, { error: 'invalid upload session request' }, 400);
   }
@@ -2065,29 +2029,26 @@ async function handleSession(
       queueItemId,
       size: storedSize,
       actorId: clientActorId,
-      requestId: v3Body ? clientRequestId : null,
+      requestId: clientRequestId,
     },
   );
   if (assertionAuthorization.error) return assertionAuthorization.error;
   const assertionMetric = assertionAuthorization.metric;
-  // Only the actor-secret-derived v3 nonce is replay-authoritative. Cached v2
-  // request IDs are deterministic from public queue metadata; treating them as
-  // durable lookup keys would keep the cross-peer authority leak alive during
-  // the mixed-version rollout. v2 and six-field clients remain accepted, but
-  // every call receives an independent reservation.
-  const replayClientRequestId = v3Body ? clientRequestId : null;
-  const replayAuthorityScope = v3Body
-    ? await hmacSha256(secret, `remote-share-client-actor:v3\u0000${clientActorId}`)
-    : authorityScope;
+  // The actor-secret-derived v3 nonce is replay-authoritative: an exact retry
+  // by the same private browser actor recovers its durable receipt.
+  const replayAuthorityScope = await hmacSha256(
+    secret,
+    `remote-share-client-actor:v3\u0000${clientActorId}`,
+  );
   const receiptRequestId = await uploadSessionRequestKey(
     secret,
     replayAuthorityScope,
-    replayClientRequestId,
+    clientRequestId,
   );
   const operationId = await uploadSessionOperationId(
     secret,
     replayAuthorityScope,
-    replayClientRequestId,
+    clientRequestId,
     {
       roomId,
       sessionId,
@@ -2128,18 +2089,17 @@ async function handleSession(
   // The private v3 receipt is stable across an exact retry and across altered
   // metadata for the same proof. Consume the atomic limiter before touching
   // either proof or room Durable Objects so denied requests cannot create an
-  // unbounded set of proof objects. Legacy requests retain their fresh
-  // canonical operation identity.
+  // unbounded set of proof objects.
   const rateLimitError = await consumeUploadSessionRateLimits(
     request,
     env,
     secret,
     roomId,
-    receiptRequestId || operationId,
+    receiptRequestId,
   );
   if (rateLimitError) return rateLimitError;
 
-  if (quotaEnabled && receiptRequestId) {
+  if (quotaEnabled) {
     try {
       const proof = await claimUploadSessionProof(env, receiptRequestId, operationId, expiresAt);
       if (proof.conflict) {

@@ -2,12 +2,21 @@
 
 import { pathToFileURL } from 'node:url';
 import { JSDOM } from 'jsdom';
+import {
+  APP_BUILD_FLOOR_CLIENT_PATH,
+  parseAppBuild,
+} from '../cloudflare/app-build-floor-contract.ts';
 import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
+import { readServiceWorkerAppBuild } from './live-smoke-app-build.mts';
+import { readReleaseIdentity } from './release-identity.mts';
 
 const AUTH_SESSION_URL = 'https://musixquare.com/api/auth/session';
 const SECURITY_CONFIG_URL = 'https://musixquare.com/api/security-config';
 const PAID_BOUNDARY_URL = 'https://musixquare.com/api/get-turn-config';
 const UNKNOWN_HTML_ROUTE_URL = 'https://musixquare.com/__mxqr_live_smoke__/missing-html-route';
+const APP_BUILD_FLOOR_CLIENT_READ_URL = `https://musixquare.com${APP_BUILD_FLOOR_CLIENT_PATH}`;
+const APP_BUILD_FLOOR_CLIENT_READ_MAX_BYTES = 4 * 1024;
+const APP_BUILD_FLOOR_CLIENT_READ_RETRY_DELAY_MS = 2_000;
 // The Apps-in-Toss build is retired. Its two former app-scoped origins and an
 // unrelated mini-app origin must all be refused.
 export const REJECTED_TOSS_ORIGINS = Object.freeze([
@@ -80,6 +89,22 @@ export interface UnknownHtmlRouteBoundaryRead {
 
 export interface UnknownHtmlRouteBoundaryResult {
   unknownHtmlRoutesRejected: true;
+}
+
+export interface AppBuildFloorClientReadBoundaryRead {
+  /** The build the live App serves (its service worker), null when unreadable. */
+  liveAppBuild: number | null;
+  status: number;
+  cacheControl: string;
+  setCookie: string | null;
+  body: string;
+}
+
+export interface AppBuildFloorClientReadBoundaryResult {
+  clientFloorRead: 'verified' | 'absent-on-older-app';
+  /** True when the live App is this checkout's release: right after its App deploy. */
+  strict: boolean;
+  effectiveMinAppBuild: number | null;
 }
 
 const LOCALIZED_SEO_EXPECTATIONS = [
@@ -293,6 +318,126 @@ async function readUnknownHtmlRouteBoundary(): Promise<UnknownHtmlRouteBoundaryR
   );
 }
 
+async function readAppBuildFloorClientReadBoundary(): Promise<AppBuildFloorClientReadBoundaryRead> {
+  const liveAppBuild = await readServiceWorkerAppBuild();
+  let response: Response;
+  let body: string;
+  try {
+    response = await fetch(APP_BUILD_FLOOR_CLIENT_READ_URL, {
+      cache: 'no-store',
+      credentials: 'omit',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(APP_PUBLIC_BOUNDARY_TIMEOUT_MS),
+    });
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    body =
+      bytes.byteLength > APP_BUILD_FLOOR_CLIENT_READ_MAX_BYTES
+        ? ''
+        : new TextDecoder().decode(bytes);
+  } catch {
+    throw new Error('App build floor client read request failed');
+  }
+  return {
+    liveAppBuild,
+    status: response.status,
+    cacheControl: response.headers.get('Cache-Control') || '',
+    setCookie: response.headers.get('Set-Cookie'),
+    body,
+  };
+}
+
+async function readClientFloorOnceMore(
+  read: () => Promise<AppBuildFloorClientReadBoundaryRead>,
+  wait: (milliseconds: number) => Promise<unknown>,
+  log: (line: string) => void,
+): Promise<AppBuildFloorClientReadBoundaryRead> {
+  let failure: string;
+  try {
+    const first = await read();
+    if (first.liveAppBuild !== null && first.status < 500) return first;
+    failure = first.liveAppBuild === null ? 'an unreadable live App build' : `HTTP ${first.status}`;
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error);
+  }
+  log(`[app-public-boundary] App build floor client read got ${failure}; reading once more`);
+  await wait(APP_BUILD_FLOOR_CLIENT_READ_RETRY_DELAY_MS);
+  return read();
+}
+
+function parseJsonBody(body: string): { value: unknown } | null {
+  try {
+    return { value: JSON.parse(body) as unknown };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The page's start and resume floor read (`APP_BUILD_FLOOR_CLIENT_PATH`).
+ * Strict when the live App is this checkout's release, which is always so
+ * right after the release's App deploy: then anything but exactly
+ * `{"effectiveMinAppBuild":N}` with `no-store` fails the release before its
+ * commit marker, because a broken read silently disables the check. Against
+ * an older App (a manual run after a rollback) a 404 or non-JSON answer is the
+ * App without the read and passes; a JSON 200 must still have the exact shape.
+ * A failed request, a 5xx or an unreadable live App build is read once more
+ * after a short wait, so one brief edge error does not roll the release back.
+ */
+export async function verifyAppBuildFloorClientReadBoundary({
+  read = readAppBuildFloorClientReadBoundary,
+  releaseBuild = () => readReleaseIdentity().serviceWorkerCacheEpoch,
+  log = console.log,
+  wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+}: {
+  read?: () => Promise<AppBuildFloorClientReadBoundaryRead>;
+  releaseBuild?: () => number;
+  log?: (line: string) => void;
+  wait?: (milliseconds: number) => Promise<unknown>;
+} = {}): Promise<AppBuildFloorClientReadBoundaryResult> {
+  const result = await readClientFloorOnceMore(read, wait, log);
+  if (result.liveAppBuild === null) {
+    throw new Error(
+      'App build floor client read cannot be judged: the live App build is unreadable',
+    );
+  }
+  const strict = result.liveAppBuild === releaseBuild();
+  const parsed = result.status === 200 ? parseJsonBody(result.body) : null;
+  if (!strict && (result.status === 404 || (result.status === 200 && parsed === null))) {
+    log(
+      `[app-public-boundary] App without the client floor read (live App build ${result.liveAppBuild})`,
+    );
+    return { clientFloorRead: 'absent-on-older-app', strict, effectiveMinAppBuild: null };
+  }
+  const payload = parsed?.value;
+  const keys = isRecord(payload) ? Object.keys(payload) : [];
+  const effectiveMinAppBuild =
+    isRecord(payload) && typeof payload.effectiveMinAppBuild === 'number'
+      ? parseAppBuild(payload.effectiveMinAppBuild)
+      : null;
+  if (
+    result.status !== 200 ||
+    keys.length !== 1 ||
+    keys[0] !== 'effectiveMinAppBuild' ||
+    effectiveMinAppBuild === null
+  ) {
+    throw new Error(
+      `App build floor client read returned an invalid answer (HTTP ${result.status})`,
+    );
+  }
+  if (effectiveMinAppBuild > result.liveAppBuild) {
+    throw new Error(
+      `App build floor client read asks for build ${effectiveMinAppBuild} above the live App build ${result.liveAppBuild}`,
+    );
+  }
+  if (!result.cacheControl.toLowerCase().includes('no-store')) {
+    throw new Error('App build floor client read is not no-store');
+  }
+  if (MUSIXQUARE_COOKIE_RE.test(String(result.setCookie || ''))) {
+    throw new Error('App build floor client read unexpectedly issued a MUSIXQUARE cookie');
+  }
+  return { clientFloorRead: 'verified', strict, effectiveMinAppBuild };
+}
+
 export async function verifyAnonymousAccountSessionBoundary({
   read = readAnonymousSession,
 }: {
@@ -439,12 +584,14 @@ export async function main(): Promise<void> {
     originBoundary,
     localizedSeoBoundary,
     unknownHtmlRouteBoundary,
+    appBuildFloorClientRead,
   ] = await Promise.all([
     verifyAnonymousAccountSessionBoundary(),
     verifyProductionCapabilityBoundary(),
     verifyProductionOriginBoundary(),
     verifyLocalizedSeoBoundary(),
     verifyUnknownHtmlRouteBoundary(),
+    verifyAppBuildFloorClientReadBoundary(),
   ]);
   console.log(
     JSON.stringify({
@@ -454,6 +601,7 @@ export async function main(): Promise<void> {
       originBoundary,
       localizedSeoBoundary,
       unknownHtmlRouteBoundary,
+      appBuildFloorClientRead,
     }),
   );
 }

@@ -2,15 +2,28 @@
 
 import { pathToFileURL } from 'node:url';
 
+import { appBuildRequestHeaders, resolveLiveSmokeAppBuild } from './live-smoke-app-build.mts';
+
 const PRO_ROOM_HEALTH_URL = 'https://musixquare.com/api/pro-room/health';
 const PRO_ROOM_BOUNDARY_BASE_URL = 'https://musixquare.com/api/pro-room/v1/rooms';
-const PRO_ROOM_ACTIVATION_CANARY = Object.freeze({
+// The App's entry-policy opt-in. The PRO Worker since 2026-10-26 reports the
+// entry policy without it, and an earlier one only with it, so with it both
+// give the same answer and a rollback across that release keeps this smoke
+// green.
+const PRO_ROOM_ENTRY_POLICY_HEADER = Object.freeze({ 'X-MXQR-Pro-Entry-Policy': 'optional-v1' });
+const PRO_ROOM_ACTIVATION_CANARY: BoundaryCanary = Object.freeze({
   roomCode: '000000',
-  expectedStatus: 'activation_required',
+  expected: 'activation_required',
+  accepts: (payload: JsonObject) => payload.status === 'activation_required',
 });
-const PRO_ROOM_PIN_CANARY = Object.freeze({
+// Room 000001's own entry password decides which pair it reports; the smoke
+// changes no room setting.
+const PRO_ROOM_PIN_CANARY: BoundaryCanary = Object.freeze({
   roomCode: '000001',
-  expectedStatus: 'pin_required',
+  expected: 'pin_required with passwordRequired true, or open with passwordRequired false',
+  accepts: (payload: JsonObject) =>
+    (payload.status === 'pin_required' && payload.passwordRequired === true) ||
+    (payload.status === 'open' && payload.passwordRequired === false),
 });
 // A newly promoted Worker can become visible through the App Worker service
 // binding later than Cloudflare's control plane reports the 100% deployment.
@@ -54,7 +67,9 @@ interface BoundaryReadResult {
 
 interface BoundaryCanary {
   roomCode: string;
-  expectedStatus: string;
+  /** What `accepts` requires, for the failure message. */
+  expected: string;
+  accepts: (payload: JsonObject) => boolean;
 }
 
 interface BoundaryReadOptions {
@@ -133,9 +148,16 @@ async function readHealth(): Promise<ProRoomHealth> {
 }
 
 async function readJsonBoundary(path: string): Promise<BoundaryReadResult> {
+  // The bootstrap is an entry the PRO front door gates on the App build floor.
+  // Report the checked-out release build, which is never below it, so this
+  // smoke keeps passing after the floor is turned on.
   const response = await fetchWithTimeout(`${PRO_ROOM_BOUNDARY_BASE_URL}${path}`, {
     cache: 'no-store',
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      ...appBuildRequestHeaders(resolveLiveSmokeAppBuild().build),
+      ...PRO_ROOM_ENTRY_POLICY_HEADER,
+    },
   });
   const text = await response.text();
   if (isRetryableBoundaryStatus(response.status)) {
@@ -226,10 +248,11 @@ async function verifyBootstrapCanary(
   const bootstrap = await read(`/${canary.roomCode}/bootstrap`);
   if (
     bootstrap?.status !== 200 ||
-    bootstrap.payload?.roomCode !== canary.roomCode ||
-    bootstrap.payload?.status !== canary.expectedStatus
+    !isJsonObject(bootstrap.payload) ||
+    bootstrap.payload.roomCode !== canary.roomCode ||
+    !canary.accepts(bootstrap.payload)
   ) {
-    throw new Error(`PRO room ${canary.roomCode} bootstrap must return ${canary.expectedStatus}`);
+    throw new Error(`PRO room ${canary.roomCode} bootstrap must return ${canary.expected}`);
   }
   return bootstrap;
 }
@@ -244,6 +267,7 @@ export async function verifyProRoomPublicBoundary({
   roomStatus: unknown;
   pinRoomCode: string;
   pinRoomStatus: unknown;
+  pinRoomPasswordRequired: unknown;
   anonymousSnapshotRejected: true;
 }> {
   const readWithRetry = (path: string): Promise<BoundaryReadResult> =>
@@ -267,6 +291,7 @@ export async function verifyProRoomPublicBoundary({
     roomStatus: activationBootstrap.payload.status,
     pinRoomCode: PRO_ROOM_PIN_CANARY.roomCode,
     pinRoomStatus: pinBootstrap.payload.status,
+    pinRoomPasswordRequired: pinBootstrap.payload.passwordRequired,
     anonymousSnapshotRejected: true,
   };
 }

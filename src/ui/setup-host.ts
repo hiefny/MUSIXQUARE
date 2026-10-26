@@ -13,6 +13,7 @@ import { getState, setState } from '../core/state.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { scheduleDocumentReload } from '../core/session-reset.ts';
 import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
+import { isHandledByForcedAppUpdate } from '../core/app-build.ts';
 import { clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { createHostSessionWithShortCode, broadcastDeviceList } from '../network/peer.ts';
 import {
@@ -190,7 +191,13 @@ async function proceedToHostCode(mode: number): Promise<void> {
     log.error('[Setup] Host session init failed', e);
     finishHostInviteLoading();
     const reloadRequired = isLazyFeatureLoadError(e);
-    setupSetHostError(t(reloadRequired ? 'dialog.sw_update_msg' : 'error.session_create_fail'));
+    // The forced update dialog owns a refusal below the App build floor: no
+    // error text under it (Retry stays, for when the dialog cannot show).
+    setupSetHostError(
+      isHandledByForcedAppUpdate(e)
+        ? null
+        : t(reloadRequired ? 'dialog.sw_update_msg' : 'error.session_create_fail'),
+    );
     setupRenderActions(
       [
         {

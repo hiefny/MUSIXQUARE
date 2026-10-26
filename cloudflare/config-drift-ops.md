@@ -59,6 +59,16 @@ In addition to the six service-filtered custom-domain reads, one unfiltered
 account inventory read covers the contracted `musixquare.com` hostname tree.
 It catches a project hostname attached to an uncontracted Worker without
 retaining the unexpected hostname or service name in the report.
+It also reads the App build floor's public status (`/api/app-build-floor`, with
+no credential) and reports drift when the stored floor is above the live App
+build the App reports, or when a floor is on but the App's minute report is
+older than `APP_BUILD_FLOOR_REPORT_STALE_MS` (five minutes). The entry gates
+already fail open in both cases; a person lowers the floor or repairs the App
+cron ([hotfix procedure](../docs/hotfix-procedure.md#app-build-floor)). When the
+status answers 404 and the live service worker's build is below the checked-out
+build (between merging the forced update train and releasing it, or after the
+App was rolled back below it), the check is manual-only rather than an error:
+that App has no floor routes and never reports, so no floor is enforced.
 D1/KV/rate-limit identifiers and plain-text values are compared in memory but
 reduced to a generic match/mismatch marker before the report is built. Secret
 values, opaque deployment/resource/domain/route IDs, certificate IDs, and

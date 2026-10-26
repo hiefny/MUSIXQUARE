@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { readReleaseIdentity } from '../../../scripts/release-identity.mts';
 import {
   PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS,
   PRO_ROOM_READINESS_RETRY_DELAYS_MS,
@@ -17,7 +18,7 @@ describe('live PRO room smoke readiness', () => {
       })
       .mockResolvedValueOnce({
         status: 200,
-        payload: { roomCode: '000001', status: 'pin_required' },
+        payload: { roomCode: '000001', status: 'pin_required', passwordRequired: true },
       })
       .mockResolvedValueOnce({
         status: 401,
@@ -29,6 +30,7 @@ describe('live PRO room smoke readiness', () => {
       roomStatus: 'activation_required',
       pinRoomCode: '000001',
       pinRoomStatus: 'pin_required',
+      pinRoomPasswordRequired: true,
       anonymousSnapshotRejected: true,
     });
     expect(read).toHaveBeenNthCalledWith(1, '/000000/bootstrap');
@@ -36,29 +38,62 @@ describe('live PRO room smoke readiness', () => {
     expect(read).toHaveBeenNthCalledWith(3, '/000000/snapshot');
   });
 
-  it.each([
-    ['000000', 'pin_required', 'activation_required'],
-    ['000001', 'activation_required', 'pin_required'],
-  ])(
-    'fails when room %s reports %s instead of %s',
-    async (roomCode, actualStatus, expectedStatus) => {
-      const read = vi.fn();
-      if (roomCode === '000001') {
-        read.mockResolvedValueOnce({
-          status: 200,
-          payload: { roomCode: '000000', status: 'activation_required' },
-        });
-      }
-      read.mockResolvedValueOnce({
-        status: 200,
-        payload: { roomCode, status: actualStatus },
-      });
+  it('fails when room 000000 reports another status than activation_required', async () => {
+    const read = vi.fn().mockResolvedValueOnce({
+      status: 200,
+      payload: { roomCode: '000000', status: 'pin_required', passwordRequired: true },
+    });
 
-      await expect(verifyProRoomPublicBoundary({ read })).rejects.toThrow(
-        `PRO room ${roomCode} bootstrap must return ${expectedStatus}`,
-      );
-    },
-  );
+    await expect(verifyProRoomPublicBoundary({ read })).rejects.toThrow(
+      'PRO room 000000 bootstrap must return activation_required',
+    );
+  });
+
+  // Room 000001's own entry password decides the pair; the smoke changes no
+  // room setting. With the opt-in header the PRO Worker before and after the
+  // 2026-10-26 old-version removal give the same answer.
+  it('accepts room 000001 without an entry password when the pair is consistent', async () => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000000', status: 'activation_required', passwordRequired: true },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000001', status: 'open', passwordRequired: false },
+      })
+      .mockResolvedValueOnce({ status: 401, payload: { error: 'SESSION_REQUIRED' } });
+
+    await expect(verifyProRoomPublicBoundary({ read })).resolves.toEqual({
+      roomCode: '000000',
+      roomStatus: 'activation_required',
+      pinRoomCode: '000001',
+      pinRoomStatus: 'open',
+      pinRoomPasswordRequired: false,
+      anonymousSnapshotRejected: true,
+    });
+  });
+
+  it.each([
+    { roomCode: '000001', status: 'pin_required' },
+    { roomCode: '000001', status: 'pin_required', passwordRequired: false },
+    { roomCode: '000001', status: 'open', passwordRequired: true },
+    { roomCode: '000001', status: 'open' },
+    { roomCode: '000001', status: 'activation_required', passwordRequired: true },
+  ])('fails when room 000001 reports the inconsistent entry policy %o', async (payload) => {
+    const read = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        payload: { roomCode: '000000', status: 'activation_required' },
+      })
+      .mockResolvedValueOnce({ status: 200, payload });
+
+    await expect(verifyProRoomPublicBoundary({ read })).rejects.toThrow(
+      'PRO room 000001 bootstrap must return pin_required with passwordRequired true, or open with passwordRequired false',
+    );
+  });
 
   it('fails when either bootstrap response belongs to a different room', async () => {
     const read = vi
@@ -69,11 +104,11 @@ describe('live PRO room smoke readiness', () => {
       })
       .mockResolvedValueOnce({
         status: 200,
-        payload: { roomCode: '000002', status: 'pin_required' },
+        payload: { roomCode: '000002', status: 'pin_required', passwordRequired: true },
       });
 
     await expect(verifyProRoomPublicBoundary({ read })).rejects.toThrow(
-      'PRO room 000001 bootstrap must return pin_required',
+      'PRO room 000001 bootstrap must return pin_required with passwordRequired true, or open with passwordRequired false',
     );
   });
 
@@ -86,7 +121,7 @@ describe('live PRO room smoke readiness', () => {
       })
       .mockResolvedValueOnce({
         status: 200,
-        payload: { roomCode: '000001', status: 'pin_required' },
+        payload: { roomCode: '000001', status: 'pin_required', passwordRequired: true },
       })
       .mockResolvedValueOnce({
         status: 200,
@@ -109,7 +144,7 @@ describe('live PRO room smoke readiness', () => {
       .mockResolvedValueOnce({ status: 429, payload: { error: 'RATE_LIMITED' } })
       .mockResolvedValueOnce({
         status: 200,
-        payload: { roomCode: '000001', status: 'pin_required' },
+        payload: { roomCode: '000001', status: 'pin_required', passwordRequired: true },
       })
       .mockResolvedValueOnce({ status: 401, payload: { error: 'SESSION_REQUIRED' } });
     const wait = vi.fn(async () => undefined);
@@ -151,7 +186,7 @@ describe('live PRO room smoke readiness', () => {
       })
       .mockResolvedValueOnce({
         status: 200,
-        payload: { roomCode: '000001', status: 'pin_required' },
+        payload: { roomCode: '000001', status: 'pin_required', passwordRequired: true },
       })
       .mockResolvedValueOnce({ status: 401, payload: { error: 'SESSION_REQUIRED' } });
 
@@ -319,5 +354,42 @@ describe('live PRO room smoke readiness', () => {
       PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS * PRO_ROOM_READINESS_RETRY_DELAYS_MS.length;
     expect(retryBudget).toBe(150_000);
     expect(retryBudget + worstCaseRequestBudget).toBeLessThan(5 * 60_000);
+  });
+});
+
+describe('live PRO room smoke App build', () => {
+  it('sends the release build on every public boundary request', async () => {
+    const releaseBuild = readReleaseIdentity().serviceWorkerCacheEpoch;
+    const requests: Array<{ url: string; headers: Headers }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, headers: new Headers(init?.headers) });
+        const payload = url.endsWith('/000000/bootstrap')
+          ? { roomCode: '000000', status: 'activation_required' }
+          : url.endsWith('/000001/bootstrap')
+            ? { roomCode: '000001', status: 'pin_required', passwordRequired: true }
+            : { error: 'SESSION_REQUIRED' };
+        return new Response(JSON.stringify(payload), {
+          status: url.endsWith('/snapshot') ? 401 : 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    try {
+      await expect(verifyProRoomPublicBoundary()).resolves.toMatchObject({
+        anonymousSnapshotRejected: true,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(requests).toHaveLength(3);
+    for (const request of requests) {
+      // The wire header names are pinned here as the PRO Worker reads them.
+      expect(request.headers.get('X-MXQR-App-Build'), request.url).toBe(String(releaseBuild));
+      expect(request.headers.get('X-MXQR-Pro-Entry-Policy'), request.url).toBe('optional-v1');
+    }
   });
 });

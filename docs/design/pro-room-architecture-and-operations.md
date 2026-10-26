@@ -25,9 +25,9 @@ subscription.
 
 The registry seeds one launch canary:
 
-| Code     | Purpose                | Derived bootstrap value |
-| -------- | ---------------------- | ----------------------- |
-| `000000` | Built-in launch canary | `00000000`              |
+| Code     | Purpose                |
+| -------- | ---------------------- |
+| `000000` | Built-in launch canary |
 
 Its natural invite URL is `https://musixquare.com/000000`. A six-digit
 `roomCode` is a reusable public
@@ -195,8 +195,9 @@ matched provider data/code checkpoint.
 ### Authorization model
 
 - Public bootstrap returns `activation_required`, `pin_required`, `open`, or
-  `suspended`. `open` is negotiated with `X-MXQR-Pro-Entry-Policy: optional-v1`;
-  cached clients without that header retain the legacy `pin_required` shape.
+  `suspended`, always with the room's `passwordRequired`. Since 2026-10-26 the
+  PRO Worker no longer reads `X-MXQR-Pro-Entry-Policy: optional-v1`; the App
+  still sends it and the CORS allow list keeps it.
   Bootstrap never issues or returns an activation claim.
 - An owner activation claim is issued either from the Access-protected admin
   screen, from the generation-`0` emergency offline CLI, or as an account-bound
@@ -220,9 +221,10 @@ matched provider data/code checkpoint.
   activates the new owner. From the Phase 2 app batch (owner decision
   2026-10-23) the link asks for no PIN, and the commit leaves the room without
   an entry password, the same state as the owner's "turn off" setting; the new
-  owner can require one later in room settings. An App from before that
-  decision still sends an eight-digit `newPin`, which is accepted and ignored,
-  so the link no longer reveals whether a PIN is the previous owner's
+  owner can require one later in room settings. Since 2026-10-26 the PRO room
+  refuses (400) the eight-digit `newPin` that Apps before 9.0.4 sent, before
+  it changes anything, so the link never reveals whether a PIN is the previous
+  owner's
   ([report](phase2-navigation-ui-shells-2026-10-23.md#pro-소유권-이전-시-입장-암호-끄기)).
 - First activation refreshes the account session before registering the room. An
   anonymous user signs in through the isolated popup; an authenticated user
@@ -245,11 +247,11 @@ matched provider data/code checkpoint.
   Cached older clients without the scope must load the updated UI. Logout or
   account replacement also invalidates an open confirmation dialog locally.
   Existing claim account bindings and recovery/transfer rules still apply.
-- Activation requires the claim and a verified, confirmed account. The updated
-  client opts into `optional-v1` and omits both PIN fields. Legacy clients can
-  still submit the historical derived bootstrap value and a new eight-digit
-  PIN, producing a password-protected room. The derived value is not an
-  independent second factor. The activation URL is the sensitive owner
+- Activation requires the claim and a verified, confirmed account. Its body is
+  the claim and an optional owner name, and the room starts without an entry
+  password. Since 2026-10-26 the temporary-PIN body of Apps before 8.8.0 (the
+  historical derived bootstrap value and a new eight-digit PIN) is refused
+  (400). The activation URL is the sensitive owner
   bearer until it expires or is superseded. The first synchronous same-origin
   bootstrap scrubs the fragment before any
   third-party analytics can run. It retains the value only in a non-enumerable,
@@ -268,9 +270,9 @@ matched provider data/code checkpoint.
   flags on existing rooms default to `true`; a missing PIN never makes a room
   public. Owner-only `POST /pin` accepts `{pin: null}` to disable entry protection
   and `{pin: "12345678"}` to enable or change it. Disabling preserves current
-  members and playback. Enabling or rotating with the legacy `{pin}` body
+  members and playback. Enabling or rotating with the `{pin}` body alone
   revokes every other session and advances the room incarnation ("Everyone
-  rejoins"). Optional-v1 clients may add `existingParticipants`:
+  rejoins"). The body may add `existingParticipants`:
   `revoke_all` is the same revocation, and `keep_present` ("Keep everyone",
   the App's default) keeps every session bound to a live presence entry and
   revokes all others: dormant devices of kept accounts, dormant controllers
@@ -278,8 +280,8 @@ matched provider data/code checkpoint.
   left. Keep leaves the authentication epoch, presence, coordinator fence,
   playback, and any pending transition unchanged, so no socket closes; it
   still purges session-create receipts and clears the admission throttle after
-  its commit. With the field the response echoes it; without it the response
-  keeps its exact legacy shape. Kept people stay signed in on that device
+  its commit. Every response carries `passwordRequired`, and one with the
+  field also echoes it. Kept people stay signed in on that device
   until they leave, are removed, or their 30-day session expires.
   Protected-room owners can enter using their verified owner
   account without knowing the PIN; a signed-in ordinary member or delegated
@@ -335,14 +337,19 @@ matched provider data/code checkpoint.
   never while a live session holds the hash. It is not one-shot. The App
   explains a removal once per tab and goes home instead of reloading the room
   URL, and explains a PIN change before its PIN prompt.
-- Opt-in clients receive flat `snapshot.passwordRequired`; legacy snapshots
-  keep their exact field set. The ownership-transfer answer follows the same
-  rule: the App facade passes the browser's opt-in headers to the internal
-  commit. A legacy client may still ask for a PIN in a
-  public room; its structurally valid eight-digit entry is ignored only when
-  that room is explicitly public, and grants no additional authority. Updated
-  clients omit the PIN in public admissions and retain the stable `requestId`
-  receipt and same-origin session actor contract.
+- Every snapshot answer, the ownership-transfer answer included, carries flat
+  `snapshot.passwordRequired` and `playlistSlots`; since 2026-10-26 the PRO
+  Worker no longer reads the browser's opt-in headers for them, and the App
+  facade no longer passes them to the internal ownership-transfer commit. The
+  facade also refuses (400) a transfer body with the `newPin` of Apps 9.0.0 to
+  9.0.3 before it records an intent. An admission body may
+  carry a PIN in a public room; its structurally valid eight-digit entry is
+  ignored only when that room is explicitly public, and grants no additional
+  authority. The App omits the PIN in public admissions. Every admission body
+  carries the stable `requestId` for the exactly-once receipt and the
+  same-origin session actor contract; the one-field `{pin}` body of earlier
+  Apps, which had no receipt, is refused (400) since 2026-10-26, and the App
+  facade gives it the same response deadline as every other admission.
 - The owner credential manages PIN/recovery security and owner-visible room
   configuration. Access-protected operators manage suspension and permanent
   deletion. A separate member session controls live-room actions. Linking the
@@ -574,8 +581,9 @@ ten minutes each. Non-owner admissions fail closed at 240 entries; the last 16
 slots are reserved for proven owner admissions. Unauthenticated join traffic
 therefore cannot saturate the participant ledger that protects playback,
 queue, and media mutations, and cannot take the owner's receipt slots.
-Receipts written to the shared ledger by an earlier Worker are still read until
-they expire; they are not migrated. Enabling or rotating a PIN purges every
+The shared-ledger receipts that a Worker before 8.9.0 (deployed 2026-10-11)
+wrote had all expired by 2026-10-12; since 2026-10-26 they are no longer read,
+and the ordinary prune releases any still stored. Enabling or rotating a PIN purges every
 session-create receipt. After "Everyone rejoins" each one names a revoked
 session except the owner's, whose retry converges through deterministic
 recovery; after "Keep everyone" a kept session's retry converges the same way,
@@ -597,9 +605,10 @@ gets `PRESENCE_IDENTITY_MISMATCH` 409 without a state change. Prune, which runs
 before every close, releases a receipt after 24 hours or once its session no
 longer exists. The ledger therefore holds at most one receipt per stored
 session (128) and always has room; if it were somehow full, the close would
-commit without a receipt rather than fail. Receipts that an earlier Worker
-wrote to the participant ledger are released when the room loads, not
-migrated; losing one only turns its retry into the same state-free 409.
+commit without a receipt rather than fail. The receipts that a Worker before
+8.9.0 wrote to the participant ledger lived 24 hours and had all expired by
+2026-10-12; the ordinary prune releases any still stored. Losing one only
+turns its retry into the same state-free 409.
 
 These reservations count places and receipts, not bytes. Every ledger, and
 every session and presence record, shares the 1.2 MiB core budget with media
@@ -716,8 +725,9 @@ calibration converges); it does not restart the room-wide transition.
 
 On a confirmed non-bfcache `pagehide`, the browser sends one small credentialed
 `text/plain` keepalive mutation that removes that exact participant incarnation
-from presence. The browser's playback observation is accepted only as legacy
-request shape and never replaces the server's canonical anchor. The request
+from presence. The body's playback observation (`baseRevision`,
+`currentQueueItemId`, `playback`) is optional since 2026-10-26; when present it
+is still checked, and it never replaces the server's canonical anchor. The request
 deliberately keeps the room-scoped cookie
 session alive so reopening the fixed link can resume without an avoidable PIN
 prompt. An explicit in-product leave remains a different action: it releases
@@ -976,11 +986,10 @@ dependency that is absent:
    build last.
 
 The browser synchronizes master volume and all five effect groups through
-`/settings-sync`, whose writes require `effects.control`. The retained
-effects-only `/effects` endpoint requires `X-MXQR-Pro-Effects-Version: 2` and
-keeps its owner-only write restriction. Public Developer API effects reads use
-`X-MXQR-Effects-Version: 2` instead. Both effects-only read contracts return
-schema version 2, including `virtualTreble`. Effects live in the canonical v2
+`/settings-sync`, whose writes require `effects.control`. The effects-only
+`/effects` endpoint of earlier Apps is gone since 2026-10-26 (404). Public
+Developer API effects reads use `X-MXQR-Effects-Version: 2` and return schema
+version 2, including `virtualTreble`. Effects live in the canonical v2
 room core; there is no version 1 effects projection or sidecar rollback path.
 Keep the App/static and PRO Worker on a matched version that implements these
 contracts.
@@ -1211,6 +1220,24 @@ preserve all three and repair forward. Only an exact checkpoint proving that no
 cutover component became live may roll back below the marker. The earlier
 direct-descriptor, unmetered-direct, and same-ID promotion floors remain
 subsumed by v3.
+
+The PRO Worker of 2026-10-26 stopped serving the request shapes of Apps below
+the 787 build floor. Restoring the PRO Worker it replaced needs no new floor
+while every App sends the entry-policy and playlist-slots opt-in headers and
+the presence close's `baseRevision`, `currentQueueItemId` and `playback`, as
+9.0.14 and later do: that build answers them the same way, its load
+normalization re-adds `developerControlVersion` to participants and developer
+commands, the stored `coordinatorParticipantId` is the null it always wrote,
+and playback receipts keep their `kind` marker, so it does not shorten them.
+The boundary moves when the App stops sending the three close fields: below
+the 2026-10-26 Worker that close is refused (400) and the participant stays
+listed until presence expires, so that release records the new boundary here.
+The App Worker of the same release no longer passes the opt-in headers to the
+internal ownership-transfer commit. Under the replaced PRO Worker that commit
+answers without `passwordRequired` and `playlistSlots`; the App parser takes
+both as optional, the room's entry password stays off as committed, and the
+new owner's settings may show it as on until a later snapshot revision carries
+the field. Restore the App Worker with the PRO Worker, or repair forward.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.

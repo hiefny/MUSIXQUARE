@@ -4,6 +4,12 @@ import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 import {
+  classifyHostAdmission,
+  invalidHostAuthFrameError,
+  resolveLiveSmokeAppBuild,
+  withAppBuild,
+} from './live-smoke-app-build.mts';
+import {
   createRateLimitUnavailableRetry,
   isRateLimitUnavailableResponse,
   type RateLimitUnavailableRetry,
@@ -289,6 +295,7 @@ export class StandardHttpBridgeSmokeClient {
   private clientSequence = 0;
   private serverAck = 0;
   private requestEpoch = 0;
+  private closedByServer = false;
   private readonly queued: JsonObject[] = [];
   private readonly sessionToken: string;
   private readonly role: BridgeRole;
@@ -374,6 +381,8 @@ export class StandardHttpBridgeSmokeClient {
   }
 
   async poll(waitMs = 1_000): Promise<JsonObject[]> {
+    if (this.closedByServer)
+      throw new Error('HTTP signaling bridge closed before smoke completion');
     this.requestEpoch += 1;
     const polled = await exchangeBridgeRetryingRateLimit(
       'poll',
@@ -396,9 +405,9 @@ export class StandardHttpBridgeSmokeClient {
     if (polled.payload.v !== 1 || !Array.isArray(polled.payload.events)) {
       throw new Error('HTTP signaling bridge poll response was malformed');
     }
-    if (polled.payload.terminal !== undefined) {
-      throw new Error('HTTP signaling bridge closed before smoke completion');
-    }
+    // The room's last frames (a refusal, for example) arrive with the terminal;
+    // deliver them first, then fail every later wait.
+    if (polled.payload.terminal !== undefined) this.closedByServer = true;
     const messages: JsonObject[] = [];
     for (const rawEvent of polled.payload.events) {
       if (
@@ -445,6 +454,9 @@ export class StandardHttpBridgeSmokeClient {
         if (matched) return matched;
       }
       this.queued.push(...messages);
+      if (this.closedByServer) {
+        throw new Error('HTTP signaling bridge closed before smoke completion');
+      }
     }
     throw new Error(`HTTP signaling bridge timed out waiting for ${description}`);
   }
@@ -465,8 +477,29 @@ export class StandardHttpBridgeSmokeClient {
   }
 }
 
+/**
+ * The host's admission frame. Every refusal fails at once: an invalid first
+ * frame (the smoke's host-auth is wrong, or the Signaling Worker is older than
+ * 9.0.14) and a floor refusal of the release build name their machine code;
+ * any other refusal stays unnamed, like every line this smoke prints.
+ */
+function requireAdmittedHttpHost(frame: JsonObject, hostBuild: number): JsonObject {
+  const admission = classifyHostAdmission(frame);
+  if (admission.outcome === 'admitted') return admission.frame;
+  if (admission.outcome === 'invalid-frame') throw invalidHostAuthFrameError('HTTP signaling host');
+  if (admission.outcome === 'below-floor') {
+    throw new Error(
+      `HTTP signaling host was refused below the App build floor ${admission.minAppBuild} with build ${hostBuild}`,
+    );
+  }
+  throw new Error('HTTP signaling host admission was rejected');
+}
+
 export async function main(): Promise<void> {
   const expectedVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
+  // Both peers report the checked-out release build, so this smoke keeps
+  // passing after the App build floor is turned on.
+  const appBuild = resolveLiveSmokeAppBuild();
   const capability = await mintStandardSignalingCapability();
   const roomId = String(randomInt(100_000, 1_000_000));
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
@@ -481,18 +514,30 @@ export async function main(): Promise<void> {
     role: 'host',
     peerId: hostPeerId,
   });
+  let hostOpen: JsonObject;
+  try {
+    await host.send(
+      withAppBuild(
+        {
+          type: 'host-auth',
+          secret: hostSecret,
+          desiredRoomPassword: '',
+          pinMutationId,
+        },
+        appBuild.build,
+      ),
+    );
+    const admission = await host.waitFor(
+      (message) => message.type === 'peer-open' || message.type === 'error',
+      'host admission',
+    );
+    hostOpen = requireAdmittedHttpHost(admission, appBuild.build);
+  } catch (error) {
+    await host.close();
+    throw error;
+  }
   let guest: StandardHttpBridgeSmokeClient | null = null;
   try {
-    await host.send({
-      type: 'host-auth',
-      secret: hostSecret,
-      desiredRoomPassword: '',
-      pinMutationId,
-    });
-    const hostOpen = await host.waitFor(
-      (message) => message.type === 'peer-open',
-      'host peer-open',
-    );
     if (expectedVersion && hostOpen.workerVersionId !== expectedVersion) {
       throw new Error('HTTP signaling host reached an unexpected Worker version');
     }
@@ -520,7 +565,9 @@ export async function main(): Promise<void> {
       role: 'guest',
       peerId: guestPeerId,
     });
-    await guest.send({ type: 'guest-auth', password: '', reconnectSecret });
+    await guest.send(
+      withAppBuild({ type: 'guest-auth', password: '', reconnectSecret }, appBuild.build),
+    );
     const guestOpen = await guest.waitFor(
       (message) => message.type === 'peer-open',
       'guest peer-open',
@@ -564,6 +611,7 @@ export async function main(): Promise<void> {
       JSON.stringify({
         ok: true,
         expectedVersion: expectedVersion || null,
+        appBuild: { build: appBuild.build },
         admission: { host: true, guest: true },
         relay: { offer: true, answer: true },
         // The App bounds each open at 5 s; record how close a passing run came.

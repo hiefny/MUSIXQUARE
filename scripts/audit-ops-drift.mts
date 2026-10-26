@@ -3,9 +3,16 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
+  APP_BUILD_FLOOR_PUBLIC_STATUS_PATH,
+  APP_BUILD_FLOOR_REPORT_STALE_MS,
+  parseAppBuild,
+} from '../cloudflare/app-build-floor-contract.ts';
+import {
   assertDurableObjectMigrationContract,
   assertDurableObjectMigrationRepositoryHistory,
 } from './check-durable-object-migration-contract.mts';
+import { readServiceWorkerAppBuild } from './live-smoke-app-build.mts';
+import { readReleaseIdentity } from './release-identity.mts';
 
 export const OPS_DRIFT_CONTRACT_PATH = 'cloudflare/ops-drift.contract.json';
 export const OPS_DRIFT_RUNBOOK_PATH = 'cloudflare/config-drift-ops.md';
@@ -18,6 +25,7 @@ export const WORKER_SECRET_INVENTORY_END_MARKER = '<!-- END OPS DRIFT WORKER SEC
 const CONTRACT_VERSION = 4;
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const GITHUB_API = 'https://api.github.com';
+const APP_BUILD_FLOOR_STATUS_URL = `https://musixquare.com${APP_BUILD_FLOOR_PUBLIC_STATUS_PATH}`;
 const LIVE_CHECK_TIMEOUT_MS = 15_000;
 const LIVE_RESPONSE_MAX_BYTES = 512 * 1024;
 
@@ -1607,6 +1615,16 @@ function cancelResponseBody(response: Response, reason: string): void {
 
 class SafeOpsDriftError extends Error {}
 
+/** A live read that answered a non-success HTTP status. */
+class OpsDriftHttpStatusError extends SafeOpsDriftError {
+  readonly httpStatus: number;
+
+  constructor(message: string, httpStatus: number) {
+    super(message);
+    this.httpStatus = httpStatus;
+  }
+}
+
 function safeOpsDriftError(message: string, options?: ErrorOptions): SafeOpsDriftError {
   return new SafeOpsDriftError(message, options);
 }
@@ -1739,6 +1757,19 @@ async function fetchJson(
   extraHeaders: Readonly<Record<string, string>> = {},
 ): Promise<unknown> {
   if (!token) throw safeOpsDriftError(`${label} credential is not configured.`);
+  return fetchBoundedJson(fetcher, url, label, {
+    Authorization: `Bearer ${token}`,
+    ...extraHeaders,
+  });
+}
+
+/** A bounded GET of a JSON document; public reads pass no credential. */
+async function fetchBoundedJson(
+  fetcher: OpsDriftFetcher,
+  url: string,
+  label: string,
+  extraHeaders: Readonly<Record<string, string>> = {},
+): Promise<unknown> {
   const signal = AbortSignal.timeout(LIVE_CHECK_TIMEOUT_MS);
   const fetchPromise = Promise.resolve().then(() =>
     fetcher(url, {
@@ -1746,7 +1777,6 @@ async function fetchJson(
       signal,
       headers: {
         Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
         ...extraHeaders,
       },
     }),
@@ -1760,7 +1790,10 @@ async function fetchJson(
   }
   if (!response.ok) {
     cancelResponseBody(response, `${label} returned a non-success status.`);
-    throw safeOpsDriftError(`${label} returned HTTP ${response.status}.`);
+    throw new OpsDriftHttpStatusError(
+      `${label} returned HTTP ${response.status}.`,
+      response.status,
+    );
   }
   try {
     return await readJsonResponse(response, signal, label);
@@ -1814,6 +1847,95 @@ async function fetchWorkerDomains(
 
 type OpsDriftCheckStatus = 'pass' | 'drift' | 'error' | 'manual-only';
 
+function optionalTimestamp(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+/**
+ * The App build floor (forced update) against the live App that reports to
+ * it. The gates already enforce min(stored, reported) and nothing once the
+ * report is stale, so neither case refuses anyone wrongly; each still needs a
+ * person: a stored floor above the reported App (lower it, or roll forward),
+ * or an enforced floor with no fresh report (the App cron is broken, or an App
+ * older than the floor is live).
+ */
+export function assessAppBuildFloorStatus(
+  payload: unknown,
+  now: Date,
+): { status: 'pass' | 'drift'; detail: string } {
+  if (!isJsonObject(payload)) throw new Error('App build floor status is not an object.');
+  const stored = parseAppBuild(payload.minAppBuild);
+  const effective = parseAppBuild(payload.effectiveMinAppBuild);
+  const reported =
+    payload.reportedLiveAppBuild === null ? null : parseAppBuild(payload.reportedLiveAppBuild);
+  const reportedAt = optionalTimestamp(payload.reportedAt);
+  const generatedAt = optionalTimestamp(payload.generatedAt);
+  if (
+    typeof payload.minAppBuild !== 'number' ||
+    typeof payload.effectiveMinAppBuild !== 'number' ||
+    stored === null ||
+    effective === null ||
+    typeof payload.revision !== 'number' ||
+    !Number.isSafeInteger(payload.revision) ||
+    payload.revision < 0 ||
+    (payload.reportedLiveAppBuild !== null && typeof payload.reportedLiveAppBuild !== 'number') ||
+    (payload.reportedLiveAppBuild !== null && reported === null) ||
+    reportedAt === undefined
+  ) {
+    throw new Error('App build floor status is malformed.');
+  }
+  if (stored === 0) {
+    return { status: 'pass', detail: 'The App build floor is off.' };
+  }
+  if (reported !== null && stored > reported) {
+    return {
+      status: 'drift',
+      detail: `Stored floor ${stored} is above the reported live App build ${reported}; lower it or roll the App forward.`,
+    };
+  }
+  const reportAgeMs = reportedAt === null ? null : (generatedAt ?? now.getTime()) - reportedAt;
+  if (
+    reported === null ||
+    reportAgeMs === null ||
+    reportAgeMs < 0 ||
+    reportAgeMs > APP_BUILD_FLOOR_REPORT_STALE_MS
+  ) {
+    return {
+      status: 'drift',
+      detail: `Stored floor ${stored} has no fresh live App report, so it is not enforced; check the App cron.`,
+    };
+  }
+  return {
+    status: 'pass',
+    detail: `Stored floor ${stored} (enforced ${effective}) is within the live App build ${reported} reported ${Math.round(reportAgeMs / 1000)} s ago.`,
+  };
+}
+
+/**
+ * A 404 from the floor status is an App that predates the floor routes only
+ * when the live service worker's build is below this checkout's build: the
+ * window between merging a floor train and releasing it, or an App rolled
+ * back below it. Such an App never reports, so the gates enforce no floor and
+ * a person only needs to know. Any other 404 stays an error.
+ */
+async function appBuildFloorRouteAbsentDetail(
+  error: unknown,
+  fetcher: OpsDriftFetcher,
+  checkoutAppBuild: () => number,
+): Promise<string | null> {
+  if (!(error instanceof OpsDriftHttpStatusError) || error.httpStatus !== 404) return null;
+  let checkout: number;
+  try {
+    checkout = checkoutAppBuild();
+  } catch {
+    return null;
+  }
+  const live = await readServiceWorkerAppBuild(async (input, init) => fetcher(input, init ?? {}));
+  if (live === null || live >= checkout) return null;
+  return `The live App build ${live} predates this checkout's build ${checkout} and has no App build floor routes (HTTP 404), so no floor is enforced; expected between merging the floor train and releasing it, or after rolling the App back below it.`;
+}
+
 interface OpsDriftCheck {
   id: string;
   label: string;
@@ -1834,6 +1956,8 @@ interface RunOpsDriftAuditOptions {
   fetcher?: OpsDriftFetcher;
   env?: NodeJS.ProcessEnv;
   now?: Date;
+  /** This checkout's App build (service-worker cache epoch), read only when needed. */
+  checkoutAppBuild?: number;
 }
 
 function result(
@@ -1851,6 +1975,7 @@ export async function runOpsDriftAudit({
   fetcher = globalThis.fetch,
   env = process.env,
   now = new Date(),
+  checkoutAppBuild,
 }: RunOpsDriftAuditOptions = {}): Promise<OpsDriftReport> {
   assertOpsDriftContract({ root, contract: contractValue });
   if (!isOpsDriftContract(contractValue)) {
@@ -2329,6 +2454,30 @@ export async function runOpsDriftAudit({
         ),
       );
     }
+  }
+
+  try {
+    const floor = assessAppBuildFloorStatus(
+      await fetchBoundedJson(fetcher, APP_BUILD_FLOOR_STATUS_URL, 'App build floor status'),
+      now,
+    );
+    checks.push(result('app-build-floor', 'App build floor', floor.status, floor.detail));
+  } catch (error) {
+    const routeAbsent = await appBuildFloorRouteAbsentDetail(
+      error,
+      fetcher,
+      () => checkoutAppBuild ?? readReleaseIdentity(root).serviceWorkerCacheEpoch,
+    );
+    checks.push(
+      routeAbsent === null
+        ? result(
+            'app-build-floor',
+            'App build floor',
+            'error',
+            error instanceof Error ? error.message : String(error),
+          )
+        : result('app-build-floor', 'App build floor', 'manual-only', routeAbsent),
+    );
   }
 
   const github = contract.github;

@@ -144,6 +144,9 @@ interface AdminFetchOptions extends Omit<RequestInit, 'headers' | 'method' | 'si
 }
 
 interface AdminApiPayload {
+  readonly appBuildFloor?: unknown;
+  readonly floorHistory?: unknown;
+  readonly floorHistoryTruncated?: unknown;
   readonly suggestions?: readonly AdminTranslationSuggestion[];
   readonly nextCursor?: string | null;
   readonly kind?: string;
@@ -343,7 +346,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '9.0.13';
+const ADMIN_SCRIPT_VERSION = '9.0.14';
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
   console.error('[admin] Unexpected asynchronous action failure.', error);
@@ -464,6 +467,24 @@ const serviceHistoryListEl = document.querySelector<HTMLElement>('[data-service-
 const serviceHistoryRefreshBtn = document.querySelector<HTMLButtonElement>(
   '[data-service-history-refresh]',
 );
+const appBuildFloorPanel = document.querySelector<HTMLElement>('[data-app-build-floor-panel]');
+const appBuildFloorStateEl = document.querySelector<HTMLElement>('[data-app-build-floor-state]');
+const appBuildFloorFactsEl = document.querySelector<HTMLElement>('[data-app-build-floor-facts]');
+const appBuildFloorForm = document.querySelector<HTMLFormElement>('[data-app-build-floor-form]');
+const appBuildFloorInput = document.querySelector<HTMLInputElement>('[data-app-build-floor-input]');
+const appBuildFloorLowerBtn = document.querySelector<HTMLButtonElement>(
+  '[data-app-build-floor-lower]',
+);
+const appBuildFloorRefreshBtn = document.querySelector<HTMLButtonElement>(
+  '[data-app-build-floor-refresh]',
+);
+const appBuildFloorErrorEl = document.querySelector<HTMLElement>('[data-app-build-floor-error]');
+const appBuildFloorHistoryStatusEl = document.querySelector<HTMLElement>(
+  '[data-app-build-floor-history-status]',
+);
+const appBuildFloorHistoryListEl = document.querySelector<HTMLElement>(
+  '[data-app-build-floor-history-list]',
+);
 const updatedAtEl = document.querySelector<HTMLElement>('[data-updated-at]');
 const refreshBtn = document.querySelector<HTMLButtonElement>('[data-refresh]');
 const logoutBtn = document.querySelector<HTMLButtonElement>('[data-logout]');
@@ -489,6 +510,10 @@ let serviceStatusConfirmationRevision: number | null = null;
 let serviceStatusRestoreConfirmationFocus = false;
 let serviceStatusRequestId: string | null = null;
 let serviceStatusSettleTimer: number | null = null;
+let currentAppBuildFloor: AppBuildFloorAdminState | null = null;
+let appBuildFloorBusy = false;
+// Kept across an unknown outcome so a retry of the same lower replays it.
+let pendingAppBuildFloorLower: AppBuildFloorLowerRequest | null = null;
 let announcementExpiryTimer: number | null = null;
 let adminSessionEpoch = 0;
 let adminLogoutInFlight: Promise<AdminApiPayload | void> | null = null;
@@ -1990,6 +2015,270 @@ async function loadServiceStatusHistory(): Promise<void> {
   }
 }
 
+// ── App build floor (forced update) ──────────────────────────────────────────
+// Read-only facts plus a lower-only switch. Raises go through the GitHub
+// release workflow; the server refuses a raise from this dashboard anyway.
+
+interface AppBuildFloorAdminState {
+  readonly minAppBuild: number;
+  readonly effectiveMinAppBuild: number;
+  readonly revision: number;
+  readonly updatedAt: number | null;
+  readonly liveAppBuild: number | null;
+  readonly reportedLiveAppBuild: number | null;
+  readonly reportedAt: number | null;
+  readonly state: 'valid' | 'invalid';
+  readonly generatedAt: number;
+}
+
+interface AppBuildFloorLowerRequest {
+  readonly minAppBuild: number;
+  readonly expectedRevision: number;
+  readonly requestId: string;
+}
+
+interface AppBuildFloorHistoryRow {
+  readonly minAppBuild: number;
+  readonly revision: number;
+  readonly updatedAt: string;
+  readonly reason: string | null;
+}
+
+function isWholeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isNullableWholeNumber(value: unknown): value is number | null {
+  return value === null || isWholeNumber(value);
+}
+
+function normalizeAppBuildFloor(value: unknown): AppBuildFloorAdminState {
+  const floor = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>;
+  const {
+    minAppBuild,
+    effectiveMinAppBuild,
+    revision,
+    updatedAt,
+    liveAppBuild,
+    reportedLiveAppBuild,
+    reportedAt,
+    state,
+    generatedAt,
+  } = floor;
+  if (
+    !isWholeNumber(minAppBuild) ||
+    !isWholeNumber(effectiveMinAppBuild) ||
+    !isWholeNumber(revision) ||
+    !isNullableWholeNumber(updatedAt) ||
+    !isNullableWholeNumber(liveAppBuild) ||
+    !isNullableWholeNumber(reportedLiveAppBuild) ||
+    !isNullableWholeNumber(reportedAt) ||
+    (state !== 'valid' && state !== 'invalid') ||
+    !isWholeNumber(generatedAt)
+  ) {
+    throw adminRequestError('ADMIN_RESPONSE_INVALID', 'Invalid App build floor response.');
+  }
+  return {
+    minAppBuild,
+    effectiveMinAppBuild,
+    revision,
+    updatedAt,
+    liveAppBuild,
+    reportedLiveAppBuild,
+    reportedAt,
+    state,
+    generatedAt,
+  };
+}
+
+function isAppBuildFloorHistoryRow(value: unknown): value is AppBuildFloorHistoryRow {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Partial<AppBuildFloorHistoryRow>;
+  return (
+    isWholeNumber(row.minAppBuild) &&
+    isWholeNumber(row.revision) &&
+    row.revision > 0 &&
+    typeof row.updatedAt === 'string' &&
+    Number.isFinite(Date.parse(row.updatedAt)) &&
+    (row.reason === null || typeof row.reason === 'string')
+  );
+}
+
+function appBuildFloorLabel(minAppBuild: number): string {
+  return minAppBuild > 0 ? `Minimum build ${minAppBuild}` : 'Off';
+}
+
+function appBuildFloorReportAge(floor: AppBuildFloorAdminState): string {
+  if (floor.reportedAt === null) return '';
+  // Server times on both sides, so the browser clock does not matter.
+  const seconds = Math.max(0, Math.round((floor.generatedAt - floor.reportedAt) / 1_000));
+  return seconds < 120 ? `${seconds} s ago` : `${Math.round(seconds / 60)} min ago`;
+}
+
+function setAppBuildFloorError(message: string): void {
+  if (!appBuildFloorErrorEl) return;
+  appBuildFloorErrorEl.textContent = message;
+  appBuildFloorErrorEl.hidden = !message;
+}
+
+function requestedAppBuildFloor(): number | null {
+  const raw = appBuildFloorInput?.value.trim() ?? '';
+  if (!/^(?:0|[1-9]\d{0,9})$/u.test(raw)) return null;
+  return Number(raw);
+}
+
+function updateAppBuildFloorLowerAvailability(): void {
+  if (!appBuildFloorLowerBtn) return;
+  const target = requestedAppBuildFloor();
+  appBuildFloorLowerBtn.disabled =
+    appBuildFloorBusy ||
+    !currentAppBuildFloor ||
+    target === null ||
+    target >= currentAppBuildFloor.minAppBuild;
+}
+
+function renderAppBuildFloor(floor: AppBuildFloorAdminState): void {
+  currentAppBuildFloor = floor;
+  if (appBuildFloorPanel) appBuildFloorPanel.dataset.state = floor.minAppBuild > 0 ? 'on' : 'off';
+  if (appBuildFloorStateEl)
+    appBuildFloorStateEl.textContent = appBuildFloorLabel(floor.minAppBuild);
+  if (appBuildFloorFactsEl) {
+    const age = appBuildFloorReportAge(floor);
+    const facts: (readonly [string, string])[] = [
+      ['Stored floor', String(floor.minAppBuild)],
+      ['Enforced floor', String(floor.effectiveMinAppBuild)],
+      ['Revision', String(floor.revision)],
+      ['Updated', floor.updatedAt === null ? 'Never' : formatAdminDateTime(floor.updatedAt)],
+      ['This App build', floor.liveAppBuild === null ? 'Unreadable' : String(floor.liveAppBuild)],
+      [
+        'Reported App build',
+        floor.reportedLiveAppBuild === null
+          ? 'No report'
+          : `${floor.reportedLiveAppBuild}${age ? ` (${age})` : ''}`,
+      ],
+    ];
+    if (floor.state === 'invalid') facts.push(['Stored record', 'Unreadable, enforced as off']);
+    appBuildFloorFactsEl.replaceChildren(
+      ...facts.flatMap(([label, value]) => {
+        const term = document.createElement('dt');
+        term.textContent = label;
+        const detail = document.createElement('dd');
+        detail.textContent = value;
+        return [term, detail];
+      }),
+    );
+  }
+  updateAppBuildFloorLowerAvailability();
+}
+
+function renderAppBuildFloorHistory(history: unknown, truncated: unknown): void {
+  if (!appBuildFloorHistoryListEl) return;
+  if (!Array.isArray(history) || !history.every(isAppBuildFloorHistoryRow)) {
+    appBuildFloorHistoryListEl.replaceChildren();
+    if (appBuildFloorHistoryStatusEl) {
+      appBuildFloorHistoryStatusEl.dataset.state = 'error';
+      appBuildFloorHistoryStatusEl.textContent = 'History is temporarily unavailable.';
+    }
+    return;
+  }
+  const rows = history.map((entry) => {
+    const item = document.createElement('li');
+    item.className = 'service-history-item';
+    const badge = document.createElement('span');
+    badge.className = 'service-history-badge';
+    badge.dataset.enabled = String(entry.minAppBuild > 0);
+    badge.setAttribute('aria-hidden', 'true');
+    const event = document.createElement('strong');
+    event.className = 'service-history-event';
+    event.textContent = `${appBuildFloorLabel(entry.minAppBuild)}${entry.reason ? `: ${entry.reason}` : ''}`;
+    const time = document.createElement('time');
+    time.className = 'service-history-time';
+    time.dateTime = entry.updatedAt;
+    time.textContent = formatAdminDateTime(entry.updatedAt);
+    item.append(badge, event, time);
+    return item;
+  });
+  appBuildFloorHistoryListEl.replaceChildren(...rows);
+  if (appBuildFloorHistoryStatusEl) {
+    appBuildFloorHistoryStatusEl.dataset.state = rows.length ? 'ready' : 'empty';
+    appBuildFloorHistoryStatusEl.textContent = rows.length
+      ? `${truncated === true ? 'Latest ' : ''}${rows.length} recorded ${rows.length === 1 ? 'change' : 'changes'}`
+      : 'No floor changes recorded.';
+  }
+}
+
+async function loadAppBuildFloor(): Promise<void> {
+  if (!appBuildFloorPanel) return;
+  const load = beginLatestAdminLoad('app-build-floor');
+  if (appBuildFloorRefreshBtn) appBuildFloorRefreshBtn.disabled = true;
+  try {
+    const payload = await fetchJson('/api/admin/app-build-floor', {
+      signal: load.controller.signal,
+    });
+    throwIfAdminLoadStale(load);
+    renderAppBuildFloor(normalizeAppBuildFloor(payload.appBuildFloor));
+    renderAppBuildFloorHistory(payload.floorHistory, payload.floorHistoryTruncated);
+    setAppBuildFloorError('');
+  } catch (error) {
+    if (isLatestAdminLoad(load)) {
+      if (!currentAppBuildFloor) appBuildFloorPanel.dataset.state = 'unknown';
+      setAppBuildFloorError(adminErrorMessage(error, 'App build floor refresh failed.'));
+    }
+  } finally {
+    if (isLatestAdminLoad(load) && appBuildFloorRefreshBtn)
+      appBuildFloorRefreshBtn.disabled = false;
+    finishLatestAdminLoad(load);
+  }
+}
+
+async function lowerAppBuildFloor(): Promise<void> {
+  const current = currentAppBuildFloor;
+  const target = requestedAppBuildFloor();
+  if (!current || appBuildFloorBusy || target === null || target >= current.minAppBuild) return;
+  const sessionEpoch = adminSessionEpoch;
+  const request =
+    pendingAppBuildFloorLower?.minAppBuild === target &&
+    pendingAppBuildFloorLower.expectedRevision === current.revision
+      ? pendingAppBuildFloorLower
+      : {
+          minAppBuild: target,
+          expectedRevision: current.revision,
+          requestId: createAdminRequestId(),
+        };
+  pendingAppBuildFloorLower = request;
+  appBuildFloorBusy = true;
+  updateAppBuildFloorLowerAvailability();
+  setAppBuildFloorError('');
+  adminLatestLoads.get('app-build-floor')?.abort();
+  try {
+    const payload = await fetchJson('/api/admin/app-build-floor', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+    pendingAppBuildFloorLower = null;
+    renderAppBuildFloor(normalizeAppBuildFloor(payload.appBuildFloor));
+    if (appBuildFloorInput) appBuildFloorInput.value = '';
+  } catch (error) {
+    if (sessionEpoch !== adminSessionEpoch) return;
+    const answered = isAdminRequestFailure(error) ? error.payload?.appBuildFloor : undefined;
+    if (answered !== undefined) {
+      // A definitive refusal: the next attempt is a new request.
+      pendingAppBuildFloorLower = null;
+      try {
+        renderAppBuildFloor(normalizeAppBuildFloor(answered));
+      } catch {
+        // A malformed refusal must not replace the last verified floor.
+      }
+    }
+    setAppBuildFloorError(adminErrorMessage(error, 'The floor was not lowered.'));
+    return;
+  } finally {
+    appBuildFloorBusy = false;
+    updateAppBuildFloorLowerAvailability();
+  }
+  loadAppBuildFloor().catch(() => {});
+}
+
 function abortNonStatusDashboardLoads(): void {
   for (const key of ['metrics', 'pro-rooms', 'articles', 'announcement', 'translations']) {
     adminLatestLoads.get(key)?.abort();
@@ -2202,6 +2491,18 @@ function adminErrorMessage(error: unknown, fallback: string): string {
   }
   if (message === 'SERVICE_STATUS_AUDIT_UNAVAILABLE') {
     return 'The change was withheld because the service-status audit is unavailable.';
+  }
+  if (
+    message === 'APP_BUILD_FLOOR_REVISION_CONFLICT' ||
+    message === 'APP_BUILD_FLOOR_REQUEST_SUPERSEDED'
+  ) {
+    return 'The floor changed in another session. The latest floor has been loaded.';
+  }
+  if (message === 'APP_BUILD_FLOOR_LOWER_ONLY') {
+    return 'This dashboard can only lower the floor. Raise it with the release workflow.';
+  }
+  if (message === 'APP_BUILD_FLOOR_UNAVAILABLE') {
+    return 'The App build floor is temporarily unavailable.';
   }
   if (message === 'SERVICE_CONTROL_HISTORY_UNAVAILABLE') {
     return 'History is temporarily unavailable. Try again.';
@@ -6288,6 +6589,7 @@ async function refreshAllDashboardData({
   const refreshEpoch = adminSessionEpoch;
   if (document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')?.hidden === false) {
     loadServiceStatusHistory().catch(() => {});
+    loadAppBuildFloor().catch(() => {});
   }
   // Refresh data without replaying the tab selected before the requests began.
   if (serviceStatusTrigger) {
@@ -6448,6 +6750,7 @@ adminTabs.forEach((button) => {
     if (tab === 'maintenance') {
       loadServiceStatusHistory().catch(() => {});
       loadServiceStatus({ updateTimestamp: false }).catch(() => {});
+      loadAppBuildFloor().catch(() => {});
     }
     if (tab === 'pro-rooms' && !proRoomsLoaded) {
       loadProRooms().catch((error) => {
@@ -6509,6 +6812,15 @@ for (const button of serviceStatusCancelBtns) {
 
 serviceHistoryRefreshBtn?.addEventListener('click', () => {
   loadServiceStatusHistory().catch(() => {});
+});
+
+appBuildFloorRefreshBtn?.addEventListener('click', () => {
+  loadAppBuildFloor().catch(() => {});
+});
+appBuildFloorInput?.addEventListener('input', updateAppBuildFloorLowerAvailability);
+appBuildFloorForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  lowerAppBuildFloor().catch(() => {});
 });
 
 serviceStatusPreviewBtn?.addEventListener('click', () => {

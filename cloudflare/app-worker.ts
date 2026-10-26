@@ -44,15 +44,34 @@ import {
   consumeAbuseRateLimit,
   consumeAbuseRateLimitPair,
   readAdminAnnouncementControl,
+  readAppBuildFloor,
+  readAppBuildFloorHistory,
   readCachedServiceMaintenance,
   readServiceMaintenance,
   readServiceMaintenanceHistory,
+  reportLiveAppBuild,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
   ServiceMaintenanceState,
   updateAdminAnnouncementControl,
+  updateAppBuildFloor,
   updateServiceMaintenance,
+  type AppBuildFloorRead,
+  type AppBuildFloorUpdateResult,
 } from './service-maintenance.ts';
+import {
+  APP_BUILD_FLOOR_CLIENT_PATH,
+  APP_BUILD_FLOOR_EDGE_CACHE_TTL_S,
+  APP_BUILD_FLOOR_OPS_AUDIENCE,
+  APP_BUILD_FLOOR_OPS_PATH,
+  APP_BUILD_FLOOR_PUBLIC_STATUS_PATH,
+  parseAppBuild,
+} from './app-build-floor-contract.ts';
+import {
+  GITHUB_ACTIONS_OIDC_TOKEN_MAX_BYTES,
+  verifyGitHubActionsOidcToken,
+  type GitHubActionsOidcPolicy,
+} from './github-actions-oidc.ts';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.ts';
 import {
   LANGUAGE_OPTIONS,
@@ -355,7 +374,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '9.0.13';
+const ADMIN_ASSET_VERSION = '9.0.14';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -522,16 +541,45 @@ const ADMIN_METRIC_EVENTS = [
     label: 'New sessions with verified host assertions',
   },
   {
-    key: 'remote_share_upload_assertion_legacy',
-    label: 'Assertion-free Remote Share sessions (must remain zero)',
-  },
-  {
     key: 'remote_share_upload_assertion_rejected',
     label: 'Bounded rejected assertion signals',
   },
   { key: 'ws_message_oversized', label: 'Oversized signaling messages' },
   { key: 'ws_message_rate_limited', label: 'Rate-limited signaling messages' },
+  // The Signaling Worker refused a host or guest entry below the App build floor.
+  { key: 'app_update_required', label: 'App update required refusals' },
 ];
+// App build floor (forced update; resource record RO-50). The client read is
+// edge-cached under this synthetic key; the setters and the cron report write
+// the global service-control object, which owns the floor.
+const APP_BUILD_FLOOR_ADMIN_PATH = '/api/admin/app-build-floor';
+const APP_BUILD_FLOOR_EDGE_CACHE_KEY_PATH = '/.well-known/mxqr-cache/app-build-floor/v1';
+const APP_SERVICE_WORKER_ASSET_PATH = '/service-worker.js';
+const APP_SERVICE_WORKER_ASSET_MAX_BYTES = 1024 * 1024;
+// The build writes exactly one canonical line (scripts/service-worker-asset.ts).
+const APP_SERVICE_WORKER_CACHE_VERSION_RE = /\bconst\s+CACHE_VERSION\s*=\s*['"]v(\d+)['"]\s*;/g;
+const APP_BUILD_FLOOR_ADMIN_REASON = 'Lowered from the admin dashboard';
+// A release raise and a standalone run make a few calls each; this only bounds
+// forged-token traffic before any token parse or key fetch.
+const APP_BUILD_FLOOR_OPS_RATE_LIMIT = 20;
+const APP_BUILD_FLOOR_OPS_RATE_WINDOW_SECONDS = 600;
+const APP_BUILD_FLOOR_OPS_POLICY: GitHubActionsOidcPolicy = Object.freeze({
+  audience: APP_BUILD_FLOOR_OPS_AUDIENCE,
+  repository: 'hiefny/MUSIXQUARE',
+  repositoryId: '1141408724',
+  repositoryOwnerId: '257024056',
+  ref: 'refs/heads/main',
+  environment: 'production',
+  eventName: 'workflow_dispatch',
+  runnerEnvironment: 'github-hosted',
+  // The release deploy job and the floor job run their own steps, so their
+  // tokens name these in workflow_ref; a token minted inside a reusable
+  // workflow is refused.
+  workflowRefs: Object.freeze([
+    'hiefny/MUSIXQUARE/.github/workflows/release.yml@refs/heads/main',
+    'hiefny/MUSIXQUARE/.github/workflows/app-build-floor.yml@refs/heads/main',
+  ]),
+});
 
 let soroBackgroundRefreshPromise: Promise<void> | null = null;
 let soroBackgroundRefreshStartedAt = 0;
@@ -1108,14 +1156,6 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       upstreamInit.body = new Uint8Array(bufferedMutationBody).buffer;
     }
   }
-  const legacySessionCreate = (() => {
-    if (!sessionCreatePath || !sessionCreateBody) return false;
-    return (
-      Object.keys(sessionCreateBody).length === 1 &&
-      typeof sessionCreateBody.pin === 'string' &&
-      /^\d{8}$/.test(sessionCreateBody.pin)
-    );
-  })();
   const diagnosticOperation = upstreamPath.endsWith('/sessions')
     ? 'sessions'
     : upstreamPath.endsWith('/heartbeat')
@@ -1140,22 +1180,6 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       },
     );
   };
-  if (legacySessionCreate) {
-    // Cached pre-v1 clients cannot safely synthesize an exactly-once key: an
-    // IP/PIN/User-Agent surrogate would merge independent devices behind one
-    // NAT. Preserve their former platform/request lifetime until the cached
-    // client rollout drains, while every requestId-bearing admission below is
-    // protected by the short App deadline and the PRO durable receipt.
-    try {
-      const response = await proRoomPublicApi.fetch(
-        new Request(upstreamUrl, { ...upstreamInit, signal: request.signal }),
-      );
-      return withFacadeProRoomCookies(response, roomCode);
-    } catch {
-      reportUpstreamFailure('fetch');
-      return json({ error: 'PRO_ROOM_API_UNAVAILABLE' }, 502, { 'Cache-Control': 'no-store' });
-    }
-  }
   let upstream;
   try {
     upstream = await fetchServiceBindingResponse(
@@ -4438,28 +4462,6 @@ async function appendSystemAdminProRoomAudit(
   await statement.bind(actorId, action, result, roomCode, roomGeneration, createdAt).run();
 }
 
-/** The App's opt-ins for additive PRO snapshot fields, by exact value. */
-type ProRoomSnapshotOptInHeaders = {
-  'X-MXQR-Pro-Entry-Policy'?: 'optional-v1';
-  'X-MXQR-Pro-Playlist-Slots'?: 'v1';
-};
-
-/**
- * The browser's snapshot opt-ins, for an internal room call whose snapshot is
- * returned to that browser (the ownership-transfer commit). Only the exact
- * values the App sends pass; any other value is dropped.
- */
-function proRoomSnapshotOptInHeaders(headers: Headers): ProRoomSnapshotOptInHeaders {
-  return {
-    ...(headers.get('X-MXQR-Pro-Entry-Policy') === 'optional-v1'
-      ? { 'X-MXQR-Pro-Entry-Policy': 'optional-v1' as const }
-      : {}),
-    ...(headers.get('X-MXQR-Pro-Playlist-Slots') === 'v1'
-      ? { 'X-MXQR-Pro-Playlist-Slots': 'v1' as const }
-      : {}),
-  };
-}
-
 async function callProRoomAdminObject(
   env: AppEnv,
   roomCode: string,
@@ -4467,7 +4469,6 @@ async function callProRoomAdminObject(
   pathname: string,
   method: string = 'POST',
   body: JsonObject | undefined = undefined,
-  optInHeaders: ProRoomSnapshotOptInHeaders = {},
 ): Promise<{ response: Response | null; payload: unknown }> {
   const namespace = getProRoomAdminNamespace(env);
   if (!namespace || !isProRoomGeneration(roomGeneration)) {
@@ -4482,7 +4483,6 @@ async function callProRoomAdminObject(
       new Request(`https://pro-room.internal${pathname}`, {
         method,
         headers: {
-          ...optInHeaders,
           'x-mxqr-pro-room-code': roomCode,
           'x-mxqr-pro-room-generation': proRoomGenerationHeaderValue(roomGeneration),
           ...(wireBody === undefined ? {} : { 'content-type': 'application/json' }),
@@ -6165,10 +6165,10 @@ export function isFenceDigestForTests(value: unknown) {
 }
 
 /**
- * The transfer link's body: `{claimToken, requestId}`. An App from before the
- * 2026-10-23 owner decision (a transfer turns the entry password off) also
- * sends `newPin`; its shape is checked as before, and the PRO room never uses
- * its value.
+ * The transfer link's body: exactly `{claimToken, requestId}`. The `newPin`
+ * that Apps 9.0.0 to 9.0.3 also sent (before the 2026-10-23 owner decision
+ * that a transfer turns the entry password off) is refused here, before an
+ * intent is recorded; those Apps are below the 787 build floor.
  */
 function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength === 0) return null;
@@ -6178,16 +6178,14 @@ function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
   } catch {
     return null;
   }
-  const hasNewPin = isJsonObject(body) && Object.hasOwn(body, 'newPin');
   if (
     !isJsonObject(body) ||
-    Object.keys(body).length !== (hasNewPin ? 3 : 2) ||
+    Object.keys(body).length !== 2 ||
     !Object.hasOwn(body, 'claimToken') ||
     !Object.hasOwn(body, 'requestId') ||
     typeof body.claimToken !== 'string' ||
     body.claimToken.length < 32 ||
     body.claimToken.length > 4096 ||
-    (hasNewPin && (typeof body.newPin !== 'string' || !/^\d{8}$/.test(body.newPin))) ||
     typeof body.requestId !== 'string' ||
     !/^[A-Za-z0-9_-]{16,64}$/.test(body.requestId)
   ) {
@@ -8526,9 +8524,10 @@ async function handleProRoomOwnershipTransferSaga({
   } catch {
     return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
   }
-  // The commit's snapshot is this link's answer. With the browser's opt-ins
-  // it reports `passwordRequired` (false since the 2026-10-23 owner decision)
-  // like activation's, so the new owner's settings show the real state.
+  // The commit's snapshot is this link's answer. The PRO room adds
+  // `passwordRequired` (false since the 2026-10-23 owner decision) and
+  // `playlistSlots` to it as to activation's, so the new owner's settings show
+  // the real state; the browser's opt-in headers stay at this facade.
   const committed = await callProRoomAdminObject(
     env,
     roomCode,
@@ -8542,7 +8541,6 @@ async function handleProRoomOwnershipTransferSaga({
       requestId,
       revocationReceipt,
     },
-    proRoomSnapshotOptInHeaders(headers),
   );
   if (!committed.response?.ok) {
     try {
@@ -11513,7 +11511,13 @@ function isServiceMaintenanceAdminBypass(request: Request, url: URL) {
     pathname === '/api/admin/session' ||
     pathname === '/api/admin/service-status' ||
     pathname === '/api/admin/service-status/history' ||
-    pathname === ADMIN_MAINTENANCE_PREVIEW_PATH
+    pathname === ADMIN_MAINTENANCE_PREVIEW_PATH ||
+    // The App build floor stays readable and lowerable during maintenance.
+    // The client read is not here: under maintenance it gets the JSON
+    // maintenance answer, which the page treats as a failed read.
+    pathname === APP_BUILD_FLOOR_PUBLIC_STATUS_PATH ||
+    pathname === APP_BUILD_FLOOR_ADMIN_PATH ||
+    pathname === APP_BUILD_FLOOR_OPS_PATH
   ) {
     return true;
   }
@@ -11859,36 +11863,27 @@ async function handleAdminAnnouncement(
   if (!isJsonObject(parsedBody.value)) return json({ error: 'INVALID_REQUEST' }, 400);
   const body = parsedBody.value;
   const keys = Object.keys(body);
-  // Tabs opened before this deployment still submit the legacy three-field
-  // body. Give them a race-safe CAS transition while the versioned admin
-  // shell rolls forward; newly loaded tabs supply their own replay key.
-  const legacyRequest =
-    keys.length === 3 &&
-    keys.includes('message') &&
-    keys.includes('enabled') &&
-    keys.includes('expiresAt');
-  const fencedRequest =
-    keys.length === 5 &&
-    keys.includes('message') &&
-    keys.includes('enabled') &&
-    keys.includes('expiresAt') &&
-    keys.includes('expectedRevision') &&
-    keys.includes('requestId');
+  // Every admin page since 8.3.20 sends its revision fence and replay key. The
+  // three-field body of older tabs (message, enabled, expiresAt) is refused.
   if (
-    (!legacyRequest && !fencedRequest) ||
+    keys.length !== 5 ||
+    !keys.includes('message') ||
+    !keys.includes('enabled') ||
+    !keys.includes('expiresAt') ||
+    !keys.includes('expectedRevision') ||
+    !keys.includes('requestId') ||
     typeof body.message !== 'string' ||
     typeof body.enabled !== 'boolean' ||
-    (fencedRequest &&
-      (typeof body.expectedRevision !== 'number' ||
-        !Number.isSafeInteger(body.expectedRevision) ||
-        body.expectedRevision < 0 ||
-        typeof body.requestId !== 'string' ||
-        !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)))
+    typeof body.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(body.expectedRevision) ||
+    body.expectedRevision < 0 ||
+    typeof body.requestId !== 'string' ||
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)
   ) {
     return json({ error: 'INVALID_REQUEST' }, 400);
   }
-  // Truncation can expose whitespace inside the original message. Match the
-  // DO's canonical value before comparing legacy retries with stored state.
+  // Truncation can expose whitespace inside the original message; send the
+  // DO's canonical value so that an exact retry replays.
   const message = String(body?.message || '')
     .trim()
     .slice(0, 280)
@@ -11906,41 +11901,12 @@ async function handleAdminAnnouncement(
   if (!current.state) {
     return json({ error: 'ADMIN_ANNOUNCEMENT_CONTROL_UNAVAILABLE' }, 503);
   }
-  if (
-    legacyRequest &&
-    current.state.announcement.message === message &&
-    current.state.announcement.enabled === enabled &&
-    current.state.announcement.expiresAt === canonicalExpiresAt
-  ) {
-    // A pre-deployment tab has no replay key. Treat an exact canonical retry
-    // as a read-back so a lost success response cannot create another ID or
-    // duplicate history entry.
-    return json({ ok: true, ...adminAnnouncementPayload(current.state) });
-  }
-  if (
-    legacyRequest &&
-    enabled &&
-    canonicalExpiresAt &&
-    new Date(canonicalExpiresAt).getTime() <= Date.now()
-  ) {
-    return json({ error: 'EXPIRES_AT_IN_PAST' }, 400);
-  }
-  const requestId = fencedRequest
-    ? typeof body.requestId === 'string'
-      ? body.requestId
-      : ''
-    : `legacy-${Date.now().toString(36)}-${
-        crypto.randomUUID() || Math.random().toString(36).slice(2, 18) || 'fallback'
-      }`;
   const updated = await updateAdminAnnouncementControl(env, {
     message,
     enabled,
     expiresAt: canonicalExpiresAt,
-    expectedRevision:
-      fencedRequest && typeof body.expectedRevision === 'number'
-        ? body.expectedRevision
-        : current.state.revision,
-    requestId,
+    expectedRevision: body.expectedRevision,
+    requestId: body.requestId,
     baseHistory: current.status === 'legacy' ? legacyAnnouncementBaseHistory(current.state) : [],
   });
   const state = normalizeAnnouncementControlState(updated.payload);
@@ -11993,6 +11959,387 @@ async function handlePublicAnnouncement(
     200,
     { 'Cache-Control': 'public, max-age=30' },
   );
+}
+
+// ── App build floor (forced update; resource record RO-50) ──────────────────
+// The global service-control object owns the stored floor, its journal and the
+// live-App report. This Worker is its only writer: the minute cron reports the
+// build its own assets serve, the admin view lowers, and GitHub Actions sets
+// through the ops route. The gates (Signaling, PRO) and the client read below
+// only read it.
+
+const servedAppBuildByAssets = new WeakMap<object, number>();
+const servedAppBuildReads = new WeakMap<object, Promise<number | null>>();
+
+async function fetchServedAppBuild(assets: AppAssetFetcher): Promise<number | null> {
+  try {
+    const response = await assets.fetch(
+      new Request(`https://musixquare.com${APP_SERVICE_WORKER_ASSET_PATH}`, { method: 'GET' }),
+    );
+    if (!response.ok) {
+      cancelResponseBody(response, 'APP_BUILD_UNREADABLE');
+      return null;
+    }
+    const bytes = await readResponseBodyLimited(
+      response,
+      APP_SERVICE_WORKER_ASSET_MAX_BYTES,
+      new AbortController().signal,
+    );
+    const matches = [
+      ...new TextDecoder().decode(bytes).matchAll(APP_SERVICE_WORKER_CACHE_VERSION_RE),
+    ];
+    const build = matches.length === 1 ? parseAppBuild(matches[0]?.[1]) : null;
+    return build !== null && build > 0 ? build : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The App build this Worker version serves: the cache epoch of its own deployed
+ * service worker, so no copy of the epoch lives here. An isolate runs one
+ * Worker version, whose assets never change, so the first successful read is
+ * kept per assets binding; an unreadable asset is read again next time.
+ */
+async function readServedAppBuild(env: AppEnv): Promise<number | null> {
+  const assets = env.ASSETS;
+  if (!assets || typeof assets.fetch !== 'function') return null;
+  const known = servedAppBuildByAssets.get(assets);
+  if (known !== undefined) return known;
+  let pending = servedAppBuildReads.get(assets);
+  if (!pending) {
+    pending = fetchServedAppBuild(assets)
+      .then((build) => {
+        if (build !== null) servedAppBuildByAssets.set(assets, build);
+        return build;
+      })
+      .finally(() => servedAppBuildReads.delete(assets));
+    servedAppBuildReads.set(assets, pending);
+  }
+  return pending;
+}
+
+/** The minute cron's live-App report. It never writes the stored floor. */
+async function reportServedAppBuild(env: AppEnv): Promise<void> {
+  const build = await readServedAppBuild(env);
+  if (build === null) return;
+  if (!(await reportLiveAppBuild(env, build))) {
+    console.warn('[App build floor] live App build report failed');
+  }
+}
+
+function appBuildFloorStatusPayload(floor: AppBuildFloorRead, liveAppBuild: number | null) {
+  return {
+    minAppBuild: floor.minAppBuild,
+    effectiveMinAppBuild: floor.effectiveMinAppBuild,
+    revision: floor.revision,
+    updatedAt: floor.updatedAt,
+    liveAppBuild,
+    reportedLiveAppBuild: floor.liveAppBuild,
+    reportedAt: floor.liveReportedAt,
+    state: floor.state,
+    generatedAt: Date.now(),
+  };
+}
+
+function withoutBodyForHead(request: Request, response: Response) {
+  return request.method === 'HEAD'
+    ? new Response(null, { status: response.status, headers: response.headers })
+    : response;
+}
+
+/** Public, uncached status for the floor script, the drift audit and the emergency guard. */
+async function handleAppBuildFloorStatus(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
+  if (methodError) return methodError;
+  const [floor, liveAppBuild] = await Promise.all([
+    readAppBuildFloor(env, { context }),
+    readServedAppBuild(env),
+  ]);
+  if (floor.source !== 'live') return json({ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503);
+  return withoutBodyForHead(request, json(appBuildFloorStatusPayload(floor, liveAppBuild)));
+}
+
+async function readEdgeCachedAppBuildFloor(cache: AppDefaultCache, key: Request) {
+  try {
+    const cached = await cache.match(key);
+    if (!cached) return null;
+    const payload: unknown = await cached.json();
+    const value = isJsonObject(payload) ? payload.effectiveMinAppBuild : undefined;
+    return typeof value === 'number' ? parseAppBuild(value) : null;
+  } catch {
+    // A corrupt or unreadable entry falls through to the control object.
+    return null;
+  }
+}
+
+/**
+ * The page's floor read at start and on every return to the foreground. Every
+ * page gets the same answer, so it is edge-cached; only a floor read live is
+ * cached, so a recovered control object is seen at the next request. The
+ * clamp runs after the cache, on every request: an App never tells a page to
+ * update past the build it serves itself, also right after a rollback.
+ */
+async function handleAppBuildFloorClientRead(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
+  const methodError = adminApiMethodAllowed(request, ['GET']);
+  if (methodError) return methodError;
+  const cache = getAppDefaultCache();
+  const cacheKey = new Request(new URL(APP_BUILD_FLOOR_EDGE_CACHE_KEY_PATH, request.url), {
+    method: 'GET',
+  });
+  let floor = cache ? await readEdgeCachedAppBuildFloor(cache, cacheKey) : null;
+  if (floor === null) {
+    const read = await readAppBuildFloor(env, { context });
+    floor = read.source === 'live' ? read.effectiveMinAppBuild : 0;
+    if (cache && read.source === 'live') {
+      const cacheWrite = cache
+        .put(
+          cacheKey,
+          new Response(JSON.stringify({ effectiveMinAppBuild: floor }), {
+            headers: {
+              'Content-Type': 'application/json; charset=utf-8',
+              'Cache-Control': `public, max-age=${APP_BUILD_FLOOR_EDGE_CACHE_TTL_S}`,
+            },
+          }),
+        )
+        .catch(() => undefined);
+      if (typeof context?.waitUntil === 'function') context.waitUntil(cacheWrite);
+      else await cacheWrite;
+    }
+  }
+  const servedBuild = await readServedAppBuild(env);
+  return json(
+    { effectiveMinAppBuild: servedBuild === null ? 0 : Math.min(floor, servedBuild) },
+    200,
+    {
+      'Cache-Control': 'no-store',
+    },
+  );
+}
+
+async function appBuildFloorUpdateResponse(
+  env: AppEnv,
+  result: AppBuildFloorUpdateResult,
+  extra: Record<string, unknown> = {},
+) {
+  if (result.status === 'unavailable') {
+    return json({ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503);
+  }
+  if (result.status === 'rejected') return json({ error: 'INVALID_REQUEST' }, 400);
+  const appBuildFloor = appBuildFloorStatusPayload(result.floor, await readServedAppBuild(env));
+  if (result.status === 'conflict') {
+    // Without a live build the object refuses every raise; for the admin view
+    // and the ops `lower` action that is their lower-only rule.
+    const error =
+      result.error === 'APP_BUILD_FLOOR_LIVE_BUILD_REQUIRED'
+        ? 'APP_BUILD_FLOOR_LOWER_ONLY'
+        : result.error;
+    return json({ error, appBuildFloor }, 409);
+  }
+  return json({
+    ok: true,
+    ...extra,
+    changed: result.changed,
+    replayed: result.replayed,
+    appBuildFloor,
+  });
+}
+
+/**
+ * Admin view and emergency switch. POST is lower-only: it never names the live
+ * build, so the control object refuses any raise. Raises go only through
+ * GitHub Actions, which shares the release concurrency group.
+ */
+async function handleAdminAppBuildFloor(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD', 'POST']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+
+  if (request.method !== 'POST') {
+    const [floor, liveAppBuild, history] = await Promise.all([
+      readAppBuildFloor(env, { context }),
+      readServedAppBuild(env),
+      readAppBuildFloorHistory(env),
+    ]);
+    if (floor.source !== 'live') return json({ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503);
+    return withoutBodyForHead(
+      request,
+      json({
+        generatedAt: new Date().toISOString(),
+        appBuildFloor: appBuildFloorStatusPayload(floor, liveAppBuild),
+        floorHistory:
+          history.status === 'ok'
+            ? history.history.map((entry) => ({
+                ...entry,
+                updatedAt: new Date(entry.updatedAt).toISOString(),
+              }))
+            : null,
+        floorHistoryTruncated: history.status === 'ok' ? history.truncated : null,
+      }),
+    );
+  }
+
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const body = parsedBody.value;
+  const minAppBuild =
+    isJsonObject(body) && typeof body.minAppBuild === 'number'
+      ? parseAppBuild(body.minAppBuild)
+      : null;
+  if (
+    !isJsonObject(body) ||
+    !hasExactObjectKeys(body, ['minAppBuild', 'expectedRevision', 'requestId']) ||
+    minAppBuild === null ||
+    typeof body.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(body.expectedRevision) ||
+    body.expectedRevision < 0 ||
+    typeof body.requestId !== 'string' ||
+    !ADMIN_DEVELOPER_API_REQUEST_ID_RE.test(body.requestId)
+  ) {
+    return json({ error: 'INVALID_REQUEST' }, 400);
+  }
+  const result = await updateAppBuildFloor(env, {
+    minAppBuild,
+    expectedRevision: body.expectedRevision,
+    requestId: body.requestId,
+    reason: APP_BUILD_FLOOR_ADMIN_REASON,
+  });
+  return appBuildFloorUpdateResponse(env, result);
+}
+
+type AppBuildFloorOpsCommand =
+  | { action: 'check' }
+  | {
+      action: 'set' | 'lower';
+      minAppBuild: number;
+      expectedRevision: number;
+      requestId: string;
+      reason: string;
+    };
+
+function parseAppBuildFloorOpsCommand(value: unknown): AppBuildFloorOpsCommand | null {
+  if (!isJsonObject(value)) return null;
+  if (value.action === 'check') {
+    const optional = ['requestId', 'reason'];
+    return Object.keys(value).every(
+      (key) => key === 'action' || (optional.includes(key) && typeof value[key] === 'string'),
+    )
+      ? { action: 'check' }
+      : null;
+  }
+  const minAppBuild =
+    typeof value.minAppBuild === 'number' ? parseAppBuild(value.minAppBuild) : null;
+  if (
+    (value.action !== 'set' && value.action !== 'lower') ||
+    !hasExactObjectKeys(value, [
+      'action',
+      'minAppBuild',
+      'expectedRevision',
+      'requestId',
+      'reason',
+    ]) ||
+    minAppBuild === null ||
+    typeof value.expectedRevision !== 'number' ||
+    !Number.isSafeInteger(value.expectedRevision) ||
+    value.expectedRevision < 0 ||
+    // The control object owns the request-id and reason formats.
+    typeof value.requestId !== 'string' ||
+    typeof value.reason !== 'string'
+  ) {
+    return null;
+  }
+  return {
+    action: value.action,
+    minAppBuild,
+    expectedRevision: value.expectedRevision,
+    requestId: value.requestId,
+    reason: value.reason,
+  };
+}
+
+/**
+ * GitHub Actions floor setter. Order of work: the abuse limit, then the bearer
+ * token (at most 8 KiB) and its GitHub OIDC verification, then the body.
+ * `check` authenticates and reads; `set` passes the build this Worker serves,
+ * so the control object refuses a raise above it; `lower` passes none, so it
+ * can only lower and works while the live build is unreadable.
+ */
+async function handleAppBuildFloorOps(
+  request: Request,
+  env: AppEnv,
+  context?: AppExecutionContext,
+) {
+  if (request.method !== 'POST') {
+    return json({ error: 'METHOD_NOT_ALLOWED' }, 405, { Allow: 'POST' });
+  }
+  const rate = await checkPaidRateLimit(
+    request,
+    env,
+    'ops-app-build-floor',
+    APP_BUILD_FLOOR_OPS_RATE_LIMIT,
+    APP_BUILD_FLOOR_OPS_RATE_WINDOW_SECONDS,
+  );
+  if (rate.status !== 'ok') return rateLimitUnavailableResponse();
+  if (!rate.allowed) return rateLimitResponse({}, rate.retryAfterSeconds);
+
+  const bearer = /^Bearer ([^\s]+)$/u.exec(request.headers.get('Authorization') || '');
+  const token = bearer?.[1] ?? '';
+  if (!token || token.length > GITHUB_ACTIONS_OIDC_TOKEN_MAX_BYTES) {
+    return json({ error: 'OIDC_TOKEN_INVALID' }, 401);
+  }
+  const verified = await verifyGitHubActionsOidcToken(token, APP_BUILD_FLOOR_OPS_POLICY);
+  if (!verified.ok) return json({ error: verified.error }, verified.status);
+
+  const contentType = String(request.headers.get('Content-Type') || '').toLowerCase();
+  if (!/^application\/json(?:\s*;|$)/.test(contentType)) {
+    return json({ error: 'JSON_REQUIRED' }, 415);
+  }
+  const parsedBody = await readJsonBodyLimited(request, ADMIN_JSON_BODY_MAX_BYTES);
+  if (parsedBody.error) return jsonBodyError(parsedBody);
+  const command = parseAppBuildFloorOpsCommand(parsedBody.value);
+  if (!command) return json({ error: 'INVALID_REQUEST' }, 400);
+  const workflow = verified.workflowRef;
+
+  if (command.action === 'check') {
+    const [floor, liveAppBuild] = await Promise.all([
+      readAppBuildFloor(env, { context }),
+      readServedAppBuild(env),
+    ]);
+    if (floor.source !== 'live') return json({ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503);
+    return json({
+      ok: true,
+      action: 'check',
+      workflow,
+      appBuildFloor: appBuildFloorStatusPayload(floor, liveAppBuild),
+    });
+  }
+  let liveAppBuild: number | null = null;
+  if (command.action === 'set') {
+    liveAppBuild = await readServedAppBuild(env);
+    if (liveAppBuild === null) {
+      return json({ error: 'APP_BUILD_FLOOR_LIVE_BUILD_UNAVAILABLE' }, 503);
+    }
+  }
+  const result = await updateAppBuildFloor(env, {
+    minAppBuild: command.minAppBuild,
+    expectedRevision: command.expectedRevision,
+    requestId: command.requestId,
+    reason: command.reason,
+    liveAppBuild,
+  });
+  return appBuildFloorUpdateResponse(env, result, { action: command.action, workflow });
 }
 
 function isLifetimeRoomCount(value: unknown) {
@@ -12196,6 +12543,27 @@ function renderAdminPage(request: Request, env: AppEnv) {
           </div>
           <p role="status" data-service-history-status></p>
           <ol class="service-history-list" data-service-history-list></ol>
+        </section>
+        <section class="panel app-build-floor-panel" aria-labelledby="app-build-floor-title" data-state="unknown" data-app-build-floor-panel>
+          <div class="panel-head">
+            <h2 id="app-build-floor-title">App build floor</h2>
+            <button type="button" data-app-build-floor-refresh>Refresh</button>
+          </div>
+          <p class="app-build-floor-state" data-app-build-floor-state>Checking the floor</p>
+          <p class="app-build-floor-summary" data-app-build-floor-summary>New room entries from App builds below the enforced floor are refused and asked to update; open sessions continue. The enforced floor never exceeds the App build that is live. The release workflow raises it; here you can only lower it.</p>
+          <dl class="app-build-floor-facts" data-app-build-floor-facts></dl>
+          <form class="app-build-floor-form" data-app-build-floor-form>
+            <label class="pro-room-field">
+              <span>Lower to build</span>
+              <input type="number" inputmode="numeric" min="0" step="1" autocomplete="off" data-app-build-floor-input>
+            </label>
+            <div class="service-status-actions">
+              <button type="submit" data-app-build-floor-lower disabled>Lower</button>
+            </div>
+          </form>
+          <p role="alert" data-app-build-floor-error hidden></p>
+          <p role="status" data-app-build-floor-history-status></p>
+          <ol class="service-history-list" data-app-build-floor-history-list></ol>
         </section>
       </section>
       <section class="admin-view is-active" data-admin-view="operations">
@@ -12772,27 +13140,6 @@ function normalizeResults(items: unknown): YouTubeSearchResult[] {
   return results;
 }
 
-function normalizePlaylistEntry(items: unknown, playlistId: string | undefined) {
-  if (!Array.isArray(items)) return null;
-  for (const item of items) {
-    if (!isJsonObject(item)) continue;
-    const contentDetails = isJsonObject(item.contentDetails) ? item.contentDetails : null;
-    const snippet = isJsonObject(item.snippet) ? item.snippet : null;
-    const resourceId = isJsonObject(snippet?.resourceId) ? snippet.resourceId : null;
-    const status = isJsonObject(item.status) ? item.status : null;
-    const videoId = contentDetails?.videoId || resourceId?.videoId;
-    if (typeof videoId !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(videoId)) continue;
-
-    const privacyStatus = status?.privacyStatus;
-    if (privacyStatus === 'private') continue;
-
-    const title = normalizeExternalText(snippet?.title).slice(0, 300);
-    if (!title || title === 'Deleted video' || title === 'Private video') continue;
-    return { playlistId, videoId, title };
-  }
-  return null;
-}
-
 function normalizePlaylistManifestItem(item: unknown) {
   if (!isJsonObject(item)) return null;
   const contentDetails = isJsonObject(item.contentDetails) ? item.contentDetails : null;
@@ -12923,79 +13270,6 @@ async function handleYoutubeSearch(request: Request, env: AppEnv) {
       502,
       headers,
     );
-  }
-}
-
-async function handleYoutubePlaylistEntry(request: Request, env: AppEnv) {
-  const trust = trustedCors(request, 'GET, OPTIONS', env);
-  const { headers } = trust;
-  if (request.method === 'OPTIONS')
-    return withSecurityHeaders(new Response(null, { status: 204, headers }));
-  if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
-  const guard = await guardSensitiveRequest(
-    request,
-    env,
-    trust,
-    'youtube-search',
-    'yt-playlist-entry',
-    20,
-  );
-  if (guard) return guard;
-
-  const apiKey = env.YOUTUBE_API_KEY || env.YOUTUBE_DATA_API_KEY || '';
-  if (!apiKey) return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_UNAVAILABLE' }, 503, headers);
-
-  const url = new URL(request.url);
-  const keys = [...url.searchParams.keys()];
-  const playlistIds = url.searchParams.getAll('playlistId');
-  const playlistIdCandidate = playlistIds[0];
-  if (
-    keys.length !== 1 ||
-    keys[0] !== 'playlistId' ||
-    playlistIds.length !== 1 ||
-    typeof playlistIdCandidate !== 'string' ||
-    !YOUTUBE_PLAYLIST_ID_RE.test(playlistIdCandidate)
-  ) {
-    return json({ error: 'INVALID_YOUTUBE_PLAYLIST_ID' }, 400, headers);
-  }
-  const playlistId = playlistIdCandidate;
-
-  const params = new URLSearchParams({
-    part: 'snippet,contentDetails,status',
-    playlistId,
-    // One quota unit resolves up to 50 rows. Scan the first page so a private
-    // or deleted leading item does not make an otherwise usable list fail.
-    maxResults: '50',
-    fields:
-      'items(contentDetails/videoId,snippet/resourceId/videoId,snippet/title,status/privacyStatus)',
-  });
-
-  try {
-    const { response, payload } = await fetchJsonWithTimeout(
-      `${YOUTUBE_PLAYLIST_ITEMS_API}?${params.toString()}`,
-      { headers: { 'x-goog-api-key': apiKey } },
-    );
-    if (!response.ok) {
-      const upstreamError = normalizeUpstreamError(payload);
-      return json(
-        {
-          error: 'YOUTUBE_PLAYLIST_RESOLUTION_FAILED',
-          upstreamStatus: response.status,
-          reason: upstreamError.reason,
-        },
-        getClientStatusForUpstreamError(response.status, upstreamError.reason),
-        headers,
-      );
-    }
-
-    const items = isJsonObject(payload) ? payload.items : undefined;
-    const entry = normalizePlaylistEntry(items, playlistId);
-    if (!entry) {
-      return json({ error: 'YOUTUBE_PLAYLIST_HAS_NO_PLAYABLE_ENTRY' }, 404, headers);
-    }
-    return json(entry, 200, headers);
-  } catch {
-    return json({ error: 'YOUTUBE_PLAYLIST_RESOLUTION_PROXY_FAILED' }, 502, headers);
   }
 }
 
@@ -16282,10 +16556,15 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
 export default {
   async scheduled(event: { cron?: unknown }, env: unknown, ctx: AppExecutionContext) {
     if (!isAppEnv(env)) throw new TypeError('App Worker environment unavailable');
+    const cron = typeof event?.cron === 'string' ? event.cron : null;
+    // The live-App report runs before the maintenance return: the effective
+    // App build floor must follow whatever App is live, maintenance or not.
+    if ((cron === null || cron === '* * * * *') && env.ASSETS && env.MUSIXQUARE_SERVICE_CONTROL) {
+      ctx.waitUntil(reportServedAppBuild(env));
+    }
     const serviceStatus = await readServiceMaintenance(env, { context: ctx });
     if (serviceStatus.enabled) return;
 
-    const cron = typeof event?.cron === 'string' ? event.cron : null;
     if (cron === null || cron === '0 */6 * * *') {
       ctx.waitUntil(loadSoroFeeds(env, { mirrorImages: true }));
       ctx.waitUntil(cleanupExpiredAdminMetrics(env));
@@ -16578,8 +16857,6 @@ export default {
         return handleCapabilityToken(request, env);
       case '/api/youtube-search':
         return handleYoutubeSearch(request, env);
-      case '/api/youtube-playlist-entry':
-        return handleYoutubePlaylistEntry(request, env);
       case '/api/youtube-playlist-manifest':
         return handleYoutubePlaylistManifest(request, env);
       case '/api/get-turn-config':
@@ -16588,6 +16865,14 @@ export default {
         return handleRealtime(request, env);
       case '/api/announcement/current':
         return handlePublicAnnouncement(request, env, ctx);
+      case APP_BUILD_FLOOR_CLIENT_PATH:
+        return handleAppBuildFloorClientRead(request, env, ctx);
+      case APP_BUILD_FLOOR_PUBLIC_STATUS_PATH:
+        return handleAppBuildFloorStatus(request, env, ctx);
+      case APP_BUILD_FLOOR_ADMIN_PATH:
+        return handleAdminAppBuildFloor(request, env, ctx);
+      case APP_BUILD_FLOOR_OPS_PATH:
+        return handleAppBuildFloorOps(request, env, ctx);
       case '/api/admin/login':
         return handleAdminLogin(request, env);
       case '/api/admin/logout':

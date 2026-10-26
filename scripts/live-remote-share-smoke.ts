@@ -6,6 +6,12 @@ import type WebSocketClient from 'ws';
 import type { RawData } from 'ws';
 
 import {
+  classifyHostAdmission,
+  invalidHostAuthFrameError,
+  resolveLiveSmokeAppBuild,
+  withAppBuild,
+} from './live-smoke-app-build.mts';
+import {
   RateLimitUnavailableError,
   createRateLimitUnavailableRetry,
   readRateLimitUnavailableUpgrade,
@@ -168,11 +174,7 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
     const roomUploadAssertionKeyringVersion =
       config.roomUploadAssertionKeyringVersion === 1 ? 1 : 0;
     const roomUploadAssertionMode =
-      config.roomUploadAssertionMode === 'required'
-        ? 'required'
-        : config.roomUploadAssertionMode === 'optional'
-          ? 'optional'
-          : null;
+      config.roomUploadAssertionMode === 'required' ? 'required' : null;
     const roomUploadAssertionRequired = config.roomUploadAssertionRequired === true;
     const actualWorkerVersion =
       typeof config.workerVersionId === 'string' ? config.workerVersionId.trim() : '';
@@ -421,6 +423,7 @@ async function openRoomUploadAssertionAuthorityAttempt(
   expectedSignalingVersion: string,
   hostSecret: string,
   requireKeyringVersion: boolean,
+  hostAppBuild: number,
 ): Promise<{
   provider: RoomUploadAssertionProvider | null;
   close(): void;
@@ -473,15 +476,36 @@ async function openRoomUploadAssertionAuthorityAttempt(
       'remote-share signaling host admission',
       (message) => message.type === 'peer-open' || message.type === 'error',
     );
+    // A passwordless room: the Signaling Worker requires the desired PIN ('' for
+    // none) and its mutation ID on every host-auth.
     socket.send(
-      JSON.stringify({
-        type: 'host-auth',
-        secret: hostSecret,
-      }),
+      JSON.stringify(
+        withAppBuild(
+          {
+            type: 'host-auth',
+            secret: hostSecret,
+            desiredRoomPassword: '',
+            pinMutationId: randomBytes(24).toString('base64url'),
+          },
+          hostAppBuild,
+        ),
+      ),
     );
     const peerOpen = await admitted;
     if (peerOpen.type === 'error') {
       socket.close(1000, 'remote-share smoke host admission failed');
+      const admission = classifyHostAdmission(peerOpen);
+      // An invalid first frame means this smoke's host-auth is wrong (or the
+      // Signaling Worker is older than 9.0.14, outside the procedure): it is
+      // never a stale edge to wait out.
+      if (admission.outcome === 'invalid-frame') {
+        throw invalidHostAuthFrameError('remote-share signaling host');
+      }
+      if (admission.outcome === 'below-floor') {
+        throw new Error(
+          `remote-share signaling host was refused below the App build floor ${admission.minAppBuild} with build ${hostAppBuild}`,
+        );
+      }
       throw new Error(
         `remote-share signaling host rejected: ${String(peerOpen.message || peerOpen.errorType)}`,
       );
@@ -590,6 +614,9 @@ async function openRoomUploadAssertionAuthority(
   close(): void;
 }> {
   const expectedSignalingVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
+  // The host reports the checked-out release build, so this smoke keeps
+  // passing after the App build floor is turned on.
+  const { build } = resolveLiveSmokeAppBuild();
   return withSignalingVersionConvergence((hostSecret) =>
     openRoomUploadAssertionAuthorityAttempt(
       roomId,
@@ -597,6 +624,7 @@ async function openRoomUploadAssertionAuthority(
       expectedSignalingVersion,
       hostSecret,
       requireKeyringVersion,
+      build,
     ),
   );
 }

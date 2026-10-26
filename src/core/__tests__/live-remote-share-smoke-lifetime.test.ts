@@ -58,9 +58,30 @@ delete fixtureGlobal.__mxqrSmokeSocket;
 delete fixtureGlobal.__mxqrOpenSmokeAuthority;
 delete fixtureGlobal.__mxqrSmokeConvergence;
 
-function open() {
-  return openAuthority('123456', { roomUploadAssertionVersion: 1 }, 'version', 'secret', true);
+function open(expectedVersion = 'version', hostAppBuild = 785) {
+  return openAuthority(
+    '123456',
+    { roomUploadAssertionVersion: 1 },
+    expectedVersion,
+    'secret',
+    true,
+    hostAppBuild,
+  );
 }
+
+function sentFrames(): Array<Record<string, unknown>> {
+  return SmokeSocket.current.send.mock.calls.map(
+    ([frame]) => JSON.parse(String(frame)) as Record<string, unknown>,
+  );
+}
+
+const INVALID_FIRST_FRAME = JSON.stringify({
+  type: 'error',
+  errorType: 'invalid-id',
+  message: 'HOST_AUTH_FIRST_FRAME_INVALID',
+});
+const INVALID_FIRST_FRAME_LINE =
+  'remote-share signaling host: host-auth refused as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID)';
 
 afterEach(() => vi.useRealTimers());
 
@@ -188,5 +209,86 @@ describe('live remote-share smoke rate-limited signaling upgrade', () => {
     ).rejects.toBe(second);
     expect(attempts).toBe(2);
     expect(log).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('live remote-share smoke App build', () => {
+  it('sends the release build and the PIN fields on the host admission frame', async () => {
+    vi.useFakeTimers();
+    const outcome = open('version', 785);
+    SmokeSocket.current.emit('open');
+    await vi.advanceTimersByTimeAsync(0);
+    // The Signaling Worker requires the desired PIN ('' for none) and its
+    // mutation ID on every host-auth (old-version removal W-3).
+    expect(sentFrames()).toEqual([
+      {
+        type: 'host-auth',
+        secret: 'secret',
+        desiredRoomPassword: '',
+        pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
+        appBuild: 785,
+      },
+    ]);
+    SmokeSocket.current.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'peer-open',
+          workerVersionId: 'version',
+          remoteShareUploadAssertionVersion: 1,
+          remoteShareUploadAssertionKeyringVersion: 1,
+        }),
+      ),
+    );
+    (await outcome).close();
+  });
+
+  it('fails an invalid first frame at once when the Worker version is unknown', async () => {
+    vi.useFakeTimers();
+    const outcome = open('', 785).catch((error: unknown) => error);
+    SmokeSocket.current.emit('open');
+    await vi.advanceTimersByTimeAsync(0);
+    SmokeSocket.current.emit('message', Buffer.from(INVALID_FIRST_FRAME));
+    expect(((await outcome) as Error).message).toBe(INVALID_FIRST_FRAME_LINE);
+    expect(SmokeSocket.current.terminate).toHaveBeenCalledOnce();
+  });
+
+  it('never waits out an invalid first frame of the candidate signaling Worker as a stale edge', async () => {
+    vi.useFakeTimers();
+    let attempts = 0;
+    const result = withConvergence(
+      async () => {
+        attempts += 1;
+        if (attempts > 1) return 'authority';
+        const outcome = open('version', 785);
+        SmokeSocket.current.emit('open');
+        await vi.advanceTimersByTimeAsync(0);
+        SmokeSocket.current.emit('message', Buffer.from(INVALID_FIRST_FRAME));
+        return outcome;
+      },
+      { now: () => 0, sleep: async () => {}, timeoutMs: 10_000, retryIntervalMs: 0 },
+    );
+    await expect(result).rejects.toThrow(INVALID_FIRST_FRAME_LINE);
+    expect(attempts).toBe(1);
+  });
+
+  it('never retries a floor refusal of the release build', async () => {
+    vi.useFakeTimers();
+    const outcome = open('', 785).catch((error: unknown) => error);
+    SmokeSocket.current.emit('open');
+    await vi.advanceTimersByTimeAsync(0);
+    SmokeSocket.current.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'error',
+          errorType: 'app-update-required',
+          message: 'APP_UPDATE_REQUIRED',
+          minAppBuild: 786,
+        }),
+      ),
+    );
+    const error = await outcome;
+    expect((error as Error).message).toContain('below the App build floor 786');
   });
 });

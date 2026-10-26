@@ -1,4 +1,14 @@
 import { acquireServiceWorkerPromptLock } from './sw-prompt-lock.ts';
+import { log } from './core/log.ts';
+import {
+  cancelResponseBody,
+  readBoundedJsonResponse,
+  withRequestDeadline,
+} from './core/request-lifetime.ts';
+import {
+  APP_BUILD_FLOOR_CLIENT_PATH,
+  parseAppBuild,
+} from '../cloudflare/app-build-floor-contract.ts';
 
 const UPDATE_DISMISSAL_KEY = 'mxqr-sw-update-dismissal-v1';
 const UPDATE_PROMPT_LEASE_KEY = 'mxqr-sw-update-prompt-lease-v1';
@@ -8,6 +18,16 @@ const UPDATE_PROMPT_LEASE_MS = 5 * 60 * 1000;
 /** How often one app client checks for an update, across tabs (the check lease). */
 export const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const WORKER_GENERATION_TIMEOUT_MS = 750;
+/**
+ * The start and resume floor check's read window (forced update, RO-22): per
+ * page, at most two read starts and one spent read in each window.
+ */
+export const APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS = 60_000;
+/** The one deadline of each floor read of the start and resume check. */
+export const APP_BUILD_FLOOR_READ_TIMEOUT_MS = 5_000;
+const APP_BUILD_FLOOR_CHECK_MAX_STARTS = 2;
+const APP_BUILD_FLOOR_READ_MAX_BYTES = 256;
+const APP_BUILD_FLOOR_READ_DEADLINE = 'APP_BUILD_FLOOR_READ_DEADLINE';
 
 // Page-side service-worker message types. browser/service-worker.ts and
 // browser/classic-runtime/bootstrap.ts cannot import from src/, so
@@ -295,4 +315,110 @@ export function createServiceWorkerUpdateLedger(): ServiceWorkerUpdateLedger {
     },
   };
   return ledger;
+}
+
+interface AppBuildFloorCheckGate {
+  /** Whether a read may start now; a true claim counts a start and marks a read in flight. */
+  claim(nowMs: number): boolean;
+  /** The read ended: a spent read closes the window, a released one leaves its start used. */
+  settle(spent: boolean): void;
+}
+
+/**
+ * The start and resume floor check's rate limit (forced update, RO-22). A
+ * window of `windowMs` opens at the first claim after the previous one ends
+ * (or after the clock stepped back). In it, a claim is refused while a read
+ * is in flight, after a spent read (a server answered, or the read's deadline
+ * passed), and after two starts, so a resume storm costs at most two requests
+ * a window, and one when the Worker answers.
+ */
+export function createAppBuildFloorCheckGate(windowMs: number): AppBuildFloorCheckGate {
+  let windowStart = Number.NaN;
+  let starts = 0;
+  let spent = false;
+  let inFlight = false;
+  return {
+    claim(nowMs) {
+      if (inFlight) return false;
+      // NaN (no window yet) fails both comparisons.
+      if (!(nowMs >= windowStart && nowMs - windowStart < windowMs)) {
+        windowStart = nowMs;
+        starts = 0;
+        spent = false;
+      }
+      if (spent || starts >= APP_BUILD_FLOOR_CHECK_MAX_STARTS) return false;
+      starts += 1;
+      inFlight = true;
+      return true;
+    },
+    settle(wasSpent) {
+      inFlight = false;
+      spent ||= wasSpent;
+    },
+  };
+}
+
+interface AppBuildFloorRead {
+  /** The effective floor the App Worker answered, or null when there is none to act on. */
+  readonly floor: number | null;
+  /** A server answered or the deadline passed (the window is used up), as opposed to abandoned or unanswered. */
+  readonly spent: boolean;
+}
+
+/**
+ * Read the effective App build floor from the App Worker
+ * (APP_BUILD_FLOOR_CLIENT_PATH) for the start and resume check. Never throws:
+ * every failure is a null floor and nothing is retried here. The catch
+ * branches in the registry's order: abort (the read's own deadline, spent),
+ * cancel (the page abandoned it on hide, released), known (an answer that is
+ * not a floor, spent), unknown (no response at all, released).
+ */
+export async function readEffectiveAppBuildFloor(
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<AppBuildFloorRead> {
+  let answered = false;
+  try {
+    const floor = await withRequestDeadline(
+      async (requestSignal) => {
+        const response = await fetch(APP_BUILD_FLOOR_CLIENT_PATH, {
+          cache: 'no-store',
+          credentials: 'omit',
+          headers: { Accept: 'application/json' },
+          signal: requestSignal,
+        });
+        answered = true;
+        if (!response.ok) {
+          await cancelResponseBody(response);
+          log.debug('[SW] App build floor read answered', response.status);
+          return null;
+        }
+        const body = await readBoundedJsonResponse(
+          response,
+          APP_BUILD_FLOOR_READ_MAX_BYTES,
+          requestSignal,
+        );
+        // A JSON number only: header text is the PRO request form, not this body's.
+        const value = isRecord(body) ? body.effectiveMinAppBuild : null;
+        return typeof value === 'number' ? parseAppBuild(value) : null;
+      },
+      { signal, timeoutMs, timeoutReason: APP_BUILD_FLOOR_READ_DEADLINE },
+    );
+    return { floor, spent: true };
+  } catch (error) {
+    if (error instanceof Error && error.message === APP_BUILD_FLOOR_READ_DEADLINE) {
+      log.debug('[SW] App build floor read timed out');
+      return { floor: null, spent: true };
+    }
+    if (signal.aborted) {
+      log.debug('[SW] App build floor read abandoned');
+      return { floor: null, spent: false };
+    }
+    if (answered) {
+      log.debug('[SW] App build floor read gave no floor', error);
+      return { floor: null, spent: true };
+    }
+    log.debug('[SW] App build floor read got no response', error);
+    return { floor: null, spent: false };
+  }
 }

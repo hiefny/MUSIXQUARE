@@ -144,10 +144,30 @@ function workerVersionBindingsFixture(source: string): Array<Record<string, unkn
   return bindings;
 }
 
+/** A public App build floor status with a fresh live App report. */
+function healthyAppBuildFloorStatus(overrides: Record<string, unknown> = {}) {
+  const generatedAt = Date.parse('2026-10-26T00:00:00.000Z');
+  return {
+    minAppBuild: 785,
+    effectiveMinAppBuild: 785,
+    revision: 2,
+    updatedAt: generatedAt - 3_600_000,
+    liveAppBuild: 785,
+    reportedLiveAppBuild: 785,
+    reportedAt: generatedAt - 30_000,
+    state: 'valid',
+    generatedAt,
+    ...overrides,
+  };
+}
+
 async function matchingLiveResponse(
   contract: ReturnType<typeof loadOpsDriftContract>,
   url: string,
 ): Promise<Response> {
+  if (url === 'https://musixquare.com/api/app-build-floor') {
+    return jsonResponse(healthyAppBuildFloorStatus());
+  }
   const workerSecrets = contract.workerSecrets.find((entry: { worker: string }) =>
     url.includes(`/workers/scripts/${encodeURIComponent(entry.worker)}/secrets`),
   );
@@ -632,9 +652,9 @@ describe('operations drift audit', () => {
       report.checks.filter((check) => check.status === 'drift' || check.status === 'error'),
     ).toEqual([]);
     expect(report.status).toBe('automated-checks-passed');
-    expect(report.checks.filter((check) => check.status === 'pass')).toHaveLength(32);
+    expect(report.checks.filter((check) => check.status === 'pass')).toHaveLength(33);
     expect(report.checks.filter((check) => check.status === 'manual-only')).toHaveLength(4);
-    expect(fetcher).toHaveBeenCalledTimes(38);
+    expect(fetcher).toHaveBeenCalledTimes(39);
     expect(fetcher).toHaveBeenCalledWith(
       expect.stringContaining('/rules/branches/main?per_page=100'),
       expect.any(Object),
@@ -1500,5 +1520,130 @@ service = "fixture-upstream"
       status: 'error',
       detail: expect.stringContaining('did not return valid UTF-8 JSON'),
     });
+  });
+});
+
+describe('operations drift audit App build floor', () => {
+  const STATUS_URL = 'https://musixquare.com/api/app-build-floor';
+  // The live report's freshness window (APP_BUILD_FLOOR_REPORT_STALE_MS, 5 minutes).
+  const REPORT_STALE_MS = 300_000;
+
+  function auditWithFloor(status: unknown, httpStatus = 200) {
+    const contract = loadOpsDriftContract();
+    const fetcher = vi.fn(async (url: string, _init?: RequestInit) =>
+      url === STATUS_URL ? jsonResponse(status, httpStatus) : matchingLiveResponse(contract, url),
+    );
+    return { fetcher, report: runOpsDriftAudit({ contract, fetcher, env: AUDIT_ENV }) };
+  }
+
+  async function floorCheck(status: unknown, httpStatus = 200) {
+    const { fetcher, report } = auditWithFloor(status, httpStatus);
+    const check = (await report).checks.find(({ id }) => id === 'app-build-floor');
+    return { fetcher, check };
+  }
+
+  it('reads the public status without any credential', async () => {
+    const { fetcher, check } = await floorCheck(healthyAppBuildFloorStatus());
+    expect(check).toMatchObject({ label: 'App build floor', status: 'pass' });
+    const call = fetcher.mock.calls.find(([url]) => url === STATUS_URL);
+    expect(call).toBeDefined();
+    const headers = new Headers(call?.[1]?.headers);
+    expect(headers.get('Authorization')).toBeNull();
+  });
+
+  it('flags a stored floor above the live App build that the App reports', async () => {
+    const { check } = await floorCheck(
+      healthyAppBuildFloorStatus({ minAppBuild: 786, effectiveMinAppBuild: 785 }),
+    );
+    expect(check?.status).toBe('drift');
+    expect(check?.detail).toContain('above the reported live App build 785');
+  });
+
+  it('flags an enforced floor whose live App report went stale', async () => {
+    const generatedAt = Date.parse('2026-10-26T00:00:00.000Z');
+    for (const reportedAt of [generatedAt - REPORT_STALE_MS - 1, null]) {
+      const { check } = await floorCheck(
+        healthyAppBuildFloorStatus({
+          effectiveMinAppBuild: 0,
+          generatedAt,
+          reportedAt,
+          ...(reportedAt === null ? { reportedLiveAppBuild: null } : {}),
+        }),
+      );
+      expect(check?.status).toBe('drift');
+      expect(check?.detail).toContain('no fresh live App report');
+    }
+  });
+
+  it('passes a floor that is off, however old the report is', async () => {
+    const { check } = await floorCheck(
+      healthyAppBuildFloorStatus({
+        minAppBuild: 0,
+        effectiveMinAppBuild: 0,
+        reportedAt: null,
+        reportedLiveAppBuild: null,
+      }),
+    );
+    expect(check?.status).toBe('pass');
+    expect(check?.detail).toContain('off');
+  });
+
+  describe('a live App without the floor routes', () => {
+    const CHECKOUT_BUILD = 786;
+
+    function auditWithMissingRoute(liveServiceWorker: Response | null) {
+      const contract = loadOpsDriftContract();
+      const fetcher = vi.fn(async (url: string, _init?: RequestInit) => {
+        if (url === STATUS_URL) return jsonResponse({ error: 'NOT_FOUND' }, 404);
+        if (url === 'https://musixquare.com/service-worker.js') {
+          if (liveServiceWorker === null) throw new TypeError('fetch failed');
+          return liveServiceWorker;
+        }
+        return matchingLiveResponse(contract, url);
+      });
+      return runOpsDriftAudit({
+        contract,
+        fetcher,
+        env: AUDIT_ENV,
+        checkoutAppBuild: CHECKOUT_BUILD,
+      });
+    }
+
+    const serviceWorker = (build: number) =>
+      new Response(`self.x=1;\nconst CACHE_VERSION = 'v${build}';\n`, { status: 200 });
+
+    it('is manual-only when the live App predates this checkout (merge before release, or a rollback)', async () => {
+      const report = await auditWithMissingRoute(serviceWorker(CHECKOUT_BUILD - 1));
+      const check = report.checks.find(({ id }) => id === 'app-build-floor');
+      expect(check).toMatchObject({ status: 'manual-only' });
+      expect(check?.detail).toContain(`live App build ${CHECKOUT_BUILD - 1}`);
+      expect(check?.detail).toContain('no floor is enforced');
+      expect(report.status).toBe('automated-checks-passed');
+    });
+
+    it('stays an error when the live App is this checkout or newer, or its build is unreadable', async () => {
+      for (const live of [
+        serviceWorker(CHECKOUT_BUILD),
+        serviceWorker(CHECKOUT_BUILD + 1),
+        new Response('', { status: 404 }),
+        null,
+      ]) {
+        const report = await auditWithMissingRoute(live);
+        const check = report.checks.find(({ id }) => id === 'app-build-floor');
+        expect(check).toMatchObject({ status: 'error' });
+        expect(check?.detail).toContain('HTTP 404');
+      }
+    });
+  });
+
+  it('reports an unreadable or malformed status as an error', async () => {
+    for (const [status, httpStatus] of [
+      [{ error: 'APP_BUILD_FLOOR_UNAVAILABLE' }, 503],
+      [{ ...healthyAppBuildFloorStatus(), minAppBuild: -1 }, 200],
+      [{ ...healthyAppBuildFloorStatus(), revision: '2' }, 200],
+    ] as const) {
+      const { check } = await floorCheck(status, httpStatus);
+      expect(check?.status).toBe('error');
+    }
   });
 });

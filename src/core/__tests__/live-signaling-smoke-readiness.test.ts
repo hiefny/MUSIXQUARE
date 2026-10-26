@@ -8,6 +8,7 @@ import {
   RateLimitUnavailableError,
   createRateLimitUnavailableRetry,
 } from '../../../scripts/live-smoke-rate-limit-retry.mts';
+import { LegacySignalingHostAuthError } from '../../../scripts/live-smoke-app-build.mts';
 import {
   ALTERNATE_SIGNALING_ORIGIN,
   ALTERNATE_SIGNALING_HTTP_ORIGIN,
@@ -30,6 +31,7 @@ import {
   initialHostSocketError,
   readAlternateSignalingSurface,
   readSignalingOriginBoundary,
+  requireAdmittedSignalingHost,
   signalingSocketUrl,
   settleUnexpectedInitialHostResponse,
   verifyAlternateSignalingSurface,
@@ -823,5 +825,94 @@ describe('live signaling smoke deployment readiness', () => {
       expect(attempts).toBe(2);
       expect(log).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe('live signaling smoke App build', () => {
+  const CANDIDATE = { build: 785, signalingMode: 'candidate' } as const;
+  const UNKNOWN = { build: 785, signalingMode: 'unknown' } as const;
+  const LEGACY_REFUSAL = {
+    type: 'error',
+    errorType: 'invalid-id',
+    message: 'HOST_AUTH_FIRST_FRAME_INVALID',
+  };
+  const FLOOR_REFUSAL = {
+    type: 'error',
+    // The exact refusal frame the Signaling Worker sends below the floor.
+    errorType: 'app-update-required',
+    message: 'APP_UPDATE_REQUIRED',
+    minAppBuild: 786,
+  };
+
+  it('admits the candidate build and keeps the exact version check', () => {
+    const open = { type: 'peer-open', workerVersionId: EXPECTED_VERSION };
+    expect(requireAdmittedSignalingHost(open, 'host', 785, CANDIDATE, EXPECTED_VERSION, true)).toBe(
+      open,
+    );
+    expect(() =>
+      requireAdmittedSignalingHost(
+        { type: 'peer-open', workerVersionId: STALE_VERSION },
+        'host',
+        785,
+        CANDIDATE,
+        EXPECTED_VERSION,
+        true,
+      ),
+    ).toThrow(StaleSignalingVersionError);
+  });
+
+  it('treats a pre-floor refusal of the first candidate host as a stale edge', async () => {
+    const refusal = (): unknown =>
+      requireAdmittedSignalingHost(LEGACY_REFUSAL, 'host', 785, CANDIDATE, EXPECTED_VERSION, true);
+    expect(refusal).toThrow(StaleSignalingVersionError);
+    expect(refusal).toThrow('without appBuild support');
+
+    let attempts = 0;
+    await expect(
+      withSignalingReadinessRetry(
+        async () => {
+          attempts += 1;
+          if (attempts === 1) refusal();
+          return 'admitted';
+        },
+        { retryDelaysMs: [0], wait: async () => {}, onRetry: () => {} },
+      ),
+    ).resolves.toBe('admitted');
+    expect(attempts).toBe(2);
+  });
+
+  it('fails a pre-floor refusal of a later candidate host outright', () => {
+    const refusal = (): unknown =>
+      requireAdmittedSignalingHost(
+        LEGACY_REFUSAL,
+        'reconnected host',
+        785,
+        CANDIDATE,
+        EXPECTED_VERSION,
+        false,
+      );
+    expect(refusal).toThrow('reconnected host reached a signaling Worker without appBuild support');
+    expect(refusal).not.toThrow(StaleSignalingVersionError);
+  });
+
+  it('hands a pre-floor refusal to the one legacy retry when the Worker version is unknown', () => {
+    expect(() =>
+      requireAdmittedSignalingHost(LEGACY_REFUSAL, 'host', 785, UNKNOWN, '', true),
+    ).toThrow(LegacySignalingHostAuthError);
+    // A legacy-shape frame refused as invalid is a real protocol failure.
+    const legacyShape = (): unknown =>
+      requireAdmittedSignalingHost(LEGACY_REFUSAL, 'host', null, UNKNOWN, '', true);
+    expect(legacyShape).toThrow('HOST_AUTH_FIRST_FRAME_INVALID');
+    expect(legacyShape).not.toThrow(LegacySignalingHostAuthError);
+  });
+
+  it('never retries a floor refusal of the candidate build', () => {
+    for (const appBuild of [CANDIDATE, UNKNOWN]) {
+      const refusal = (): unknown =>
+        requireAdmittedSignalingHost(FLOOR_REFUSAL, 'host', 785, appBuild, EXPECTED_VERSION, true);
+      expect(refusal).toThrow('host was refused below the App build floor 786 with build 785');
+      expect(refusal).not.toThrow(StaleSignalingVersionError);
+      expect(refusal).not.toThrow(LegacySignalingHostAuthError);
+    }
   });
 });

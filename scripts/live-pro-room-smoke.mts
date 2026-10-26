@@ -2,6 +2,8 @@
 
 import { pathToFileURL } from 'node:url';
 
+import { appBuildRequestHeaders, resolveLiveSmokeAppBuild } from './live-smoke-app-build.mts';
+
 const PRO_ROOM_HEALTH_URL = 'https://musixquare.com/api/pro-room/health';
 const PRO_ROOM_BOUNDARY_BASE_URL = 'https://musixquare.com/api/pro-room/v1/rooms';
 const PRO_ROOM_ACTIVATION_CANARY = Object.freeze({
@@ -133,9 +135,15 @@ async function readHealth(): Promise<ProRoomHealth> {
 }
 
 async function readJsonBoundary(path: string): Promise<BoundaryReadResult> {
+  // The bootstrap is an entry the PRO front door gates on the App build floor.
+  // Report the checked-out release build, which is never below it, so this
+  // smoke keeps passing after the floor is turned on.
   const response = await fetchWithTimeout(`${PRO_ROOM_BOUNDARY_BASE_URL}${path}`, {
     cache: 'no-store',
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      ...appBuildRequestHeaders(resolveLiveSmokeAppBuild().build),
+    },
   });
   const text = await response.text();
   if (isRetryableBoundaryStatus(response.status)) {

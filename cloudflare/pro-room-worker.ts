@@ -100,7 +100,16 @@ import {
   checkDeveloperMutationCredential,
   developerMutationScopes,
 } from './developer-api-credential.ts';
-import { readServiceMaintenance, serviceMaintenanceResponse } from './service-maintenance.ts';
+import {
+  readAppBuildFloor,
+  readServiceMaintenance,
+  serviceMaintenanceResponse,
+} from './service-maintenance.ts';
+import {
+  APP_BUILD_HEADER,
+  APP_UPDATE_REQUIRED_CODE,
+  parseAppBuild,
+} from './app-build-floor-contract.ts';
 import { reportProRoomFrontDiagnostic } from './pro-room-diagnostics.ts';
 import {
   PRO_ROOM_FILE_DURATION_READER,
@@ -1721,7 +1730,7 @@ function corsHeaders(origin: string): HeaderRecord {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots,x-mxqr-app-build',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -4327,6 +4336,23 @@ export default {
       request.method === 'POST' && url.pathname === `/v1/rooms/${match[1]}/owner-transfer/prepare`;
     const bootstrapPath =
       request.method === 'GET' && url.pathname === `/v1/rooms/${match[1]}/bootstrap`;
+    // App build floor: only the three entry paths are checked, so a live
+    // presence survives a floor change. Claim links run after a gated
+    // bootstrap in the same flow; every other path is in-session.
+    if (
+      bootstrapPath ||
+      (request.method === 'POST' &&
+        (url.pathname === `/v1/rooms/${match[1]}/sessions` ||
+          url.pathname === `/v1/rooms/${match[1]}/presence/enter`))
+    ) {
+      const floor = (await readAppBuildFloor(env, { context })).effectiveMinAppBuild;
+      if (floor > 0 && (parseAppBuild(request.headers.get(APP_BUILD_HEADER)) ?? 0) < floor) {
+        return withPublicHeaders(
+          jsonResponse({ error: APP_UPDATE_REQUIRED_CODE, minAppBuild: floor }, 426),
+          origin,
+        );
+      }
+    }
     const roomGeneration = await frontProvisionedRoomGeneration(
       match[1],
       env,

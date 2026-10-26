@@ -13990,7 +13990,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     );
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get('access-control-allow-headers')).toBe(
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots,x-mxqr-app-build',
     );
 
     for (const previewOrigin of ['http://localhost:4173', 'http://127.0.0.1:4173']) {

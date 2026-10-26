@@ -5,6 +5,8 @@ import {
   isLazyFeatureLoadError,
 } from '../core/lazy-feature-failure.ts';
 import { capturePendingClaimReloadGuard } from '../core/document-reload.ts';
+import { requestForcedAppUpdate } from '../core/app-build.ts';
+import { APP_UPDATE_REQUIRED_CODE } from '../../cloudflare/app-build-floor-contract.ts';
 import { navigateHome } from '../core/navigation.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -221,6 +223,11 @@ async function showUnavailable(title: string, message: string): Promise<void> {
   await showDialog({ title, message, buttonText: t('common.ok') });
 }
 
+/** An entry refused below the App build floor (forced update, train 9.0.14). */
+function isAppUpdateRequired(error: unknown): error is ProRoomApiError {
+  return error instanceof ProRoomApiError && error.code === APP_UPDATE_REQUIRED_CODE;
+}
+
 function isTerminalClaimFailure(error: unknown): boolean {
   return (
     error instanceof ProRoomApiError &&
@@ -376,8 +383,10 @@ async function runClaimProtectedOperation<T>(
       }
       // The document-scoped ESM flight cannot be retried reliably. Its catch
       // already queued the single reload-required dialog; do not compete with
-      // it using the claim retry surface.
-      if (isLazyFeatureLoadError(error)) throw error;
+      // it using the claim retry surface. A refusal below the App build floor
+      // is answered by the forced update dialog, not a claim dialog: the
+      // claim is kept for its reload.
+      if (isLazyFeatureLoadError(error) || isAppUpdateRequired(error)) throw error;
 
       // Expired, used, invalid, and already-consumed claims must never be
       // replayed. Keep their server details collapsed to one safe message.
@@ -850,7 +859,19 @@ export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupE
       }
     }
   } catch (error) {
-    if (isLazyFeatureLoadError(error)) {
+    // Below the App build floor (forced update, train 9.0.14): the forced
+    // update dialog answers it. A page holding a claim is already on /CODE and
+    // reloads in place, the claim fence carrying the claim across; any other
+    // returns to this room's start screen. When the machine declines (the loop
+    // guard), the ordinary connection failure shows.
+    const forcedUpdate =
+      isAppUpdateRequired(error) &&
+      requestForcedAppUpdate({
+        minAppBuild: error.minAppBuild,
+        admitted: false,
+        returnCode: claimReloadGuard ? null : code,
+      });
+    if (isLazyFeatureLoadError(error) || forcedUpdate) {
       if (claimReloadGuard) {
         retainClaimForReload = true;
         claimReloadGuard.restoreAfterLazyFeatureFailure();

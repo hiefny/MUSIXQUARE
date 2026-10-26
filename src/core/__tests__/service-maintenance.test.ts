@@ -10,6 +10,10 @@ import {
   ABUSE_RATE_RESPONSE_PROTOCOL,
   ABUSE_RATE_RESPONSE_PROTOCOL_HEADER,
   ABUSE_RATE_RESPONSE_RESULT_HEADER,
+  APP_BUILD_FLOOR_STATE_PATH,
+  APP_BUILD_FLOOR_STATUS_HEADERS,
+  APP_BUILD_FLOOR_STATUS_PATH,
+  SERVICE_CONTROL_OBJECT_NAME,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
   SERVICE_CONTROL_HISTORY_PATH,
   SERVICE_CONTROL_STATE_PATH,
@@ -26,11 +30,15 @@ import {
   inactiveServiceMaintenanceState,
   normalizeServiceMaintenanceState,
   readAdminAnnouncementControl,
+  readAppBuildFloor,
+  readAppBuildFloorHistory,
   readCachedServiceMaintenance,
   readServiceMaintenance,
   readServiceMaintenanceHistory,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
+  reportLiveAppBuild,
+  updateAppBuildFloor,
   updateServiceMaintenance,
   updateAdminAnnouncementControl,
   type ServiceMaintenanceState,
@@ -2515,5 +2523,489 @@ describe('shared service-maintenance control', () => {
     expect(response.status).toBe(503);
     expect(response.headers.get('Content-Language')).toBe('ja');
     expect(await response.text()).toBe('');
+  });
+});
+
+describe('shared App build floor read', () => {
+  const FLOOR_NOW = 1_800_000_000_000;
+
+  function floorHeaders(overrides: Record<string, string | null> = {}): Headers {
+    const values: Record<string, string | null> = {
+      version: '1',
+      minAppBuild: '785',
+      effectiveMinAppBuild: '785',
+      revision: '2',
+      updatedAt: String(FLOOR_NOW - 5_000),
+      liveAppBuild: '786',
+      liveReportedAt: String(FLOOR_NOW - 1_000),
+      state: 'valid',
+      ...overrides,
+    };
+    const headers = new Headers();
+    for (const [key, name] of Object.entries(APP_BUILD_FLOOR_STATUS_HEADERS)) {
+      const value = values[key];
+      if (value !== null && value !== undefined) headers.set(name, value);
+    }
+    return headers;
+  }
+
+  function floorEnv(handler: (request: Request) => unknown): {
+    env: Record<string, unknown>;
+    fetch: ReturnType<typeof vi.fn>;
+    objectNames: string[];
+  } {
+    const fetch = vi.fn(handler);
+    const objectNames: string[] = [];
+    return {
+      env: {
+        MUSIXQUARE_SERVICE_CONTROL: {
+          getByName: vi.fn((name: string) => {
+            objectNames.push(name);
+            return { fetch };
+          }),
+        },
+      },
+      fetch,
+      objectNames,
+    };
+  }
+
+  const liveFloor = {
+    effectiveMinAppBuild: 785,
+    minAppBuild: 785,
+    revision: 2,
+    updatedAt: FLOOR_NOW - 5_000,
+    liveAppBuild: 786,
+    liveReportedAt: FLOOR_NOW - 1_000,
+    state: 'valid',
+    source: 'live',
+  };
+
+  const offFloor = {
+    effectiveMinAppBuild: 0,
+    minAppBuild: 0,
+    revision: 0,
+    updatedAt: null,
+    liveAppBuild: null,
+    liveReportedAt: null,
+    state: null,
+  };
+
+  it('answers floor 0 without a binding', async () => {
+    await expect(readAppBuildFloor({})).resolves.toEqual({ ...offFloor, source: 'unbound' });
+    await expect(readAppBuildFloor({ MUSIXQUARE_SERVICE_CONTROL: null })).resolves.toEqual({
+      ...offFloor,
+      source: 'unbound',
+    });
+  });
+
+  it('reads versioned floor headers from the global object without opening the body', async () => {
+    const getReader = vi.fn(() => {
+      throw new Error('floor body must remain untouched');
+    });
+    const cancel = vi.fn(() => {
+      throw new Error('floor body must not be cancelled');
+    });
+    const control = floorEnv(() =>
+      Promise.resolve({
+        body: { getReader, cancel },
+        headers: floorHeaders(),
+        ok: true,
+        status: 200,
+      }),
+    );
+
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual(liveFloor);
+    expect(control.objectNames).toEqual(['musixquare-global-service-control-v1']);
+    const request = control.fetch.mock.calls[0]?.[0] as Request;
+    expect(request.method).toBe('HEAD');
+    expect(new URL(request.url).pathname).toBe(APP_BUILD_FLOOR_STATUS_PATH);
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('reads an off, report-clamped, unreported or invalid stored floor as the object states it', async () => {
+    const cases: Array<[Record<string, string | null>, Record<string, unknown>]> = [
+      [
+        {
+          minAppBuild: '0',
+          effectiveMinAppBuild: '0',
+          revision: '0',
+          updatedAt: 'null',
+          liveAppBuild: 'null',
+          liveReportedAt: 'null',
+        },
+        { ...offFloor, state: 'valid', source: 'live' },
+      ],
+      [
+        { effectiveMinAppBuild: '784', liveAppBuild: '784' },
+        { ...liveFloor, effectiveMinAppBuild: 784, liveAppBuild: 784 },
+      ],
+      [
+        { effectiveMinAppBuild: '0', liveAppBuild: 'null', liveReportedAt: 'null' },
+        { ...liveFloor, effectiveMinAppBuild: 0, liveAppBuild: null, liveReportedAt: null },
+      ],
+      [{ effectiveMinAppBuild: '0' }, { ...liveFloor, effectiveMinAppBuild: 0 }],
+      [
+        { minAppBuild: '0', effectiveMinAppBuild: '0', updatedAt: 'null', state: 'invalid' },
+        {
+          ...liveFloor,
+          minAppBuild: 0,
+          effectiveMinAppBuild: 0,
+          updatedAt: null,
+          state: 'invalid',
+        },
+      ],
+    ];
+    for (const [overrides, expected] of cases) {
+      clearServiceMaintenanceCacheForTests();
+      const control = floorEnv(() => new Response(null, { headers: floorHeaders(overrides) }));
+      await expect(readAppBuildFloor(control.env), JSON.stringify(overrides)).resolves.toEqual(
+        expected,
+      );
+    }
+  });
+
+  it('reads an object without the floor route as unsupported floor 0', async () => {
+    for (const status of [404, 405]) {
+      clearServiceMaintenanceCacheForTests();
+      const control = floorEnv(() => Response.json({ error: 'NOT_FOUND' }, { status }));
+      await expect(readAppBuildFloor(control.env)).resolves.toEqual({
+        ...offFloor,
+        source: 'unsupported',
+      });
+    }
+  });
+
+  it('forgets an earlier floor once the object stops supporting it, so a failure stays off', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FLOOR_NOW);
+    const outcomes: Array<() => Response> = [
+      () => new Response(null, { headers: floorHeaders() }),
+      () => Response.json({ error: 'NOT_FOUND' }, { status: 404 }),
+      () => new Response(null, { status: 503 }),
+      () => new Response(null, { headers: floorHeaders({ revision: '1' }) }),
+    ];
+    const control = floorEnv(() => outcomes.shift()?.());
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual(liveFloor);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual({
+      ...offFloor,
+      source: 'unsupported',
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual({ ...offFloor, source: 'stale' });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual({ ...liveFloor, revision: 1 });
+  });
+
+  it('rejects malformed or contradictory floor headers as a failed read', async () => {
+    const malformed: Array<Record<string, string | null>> = [
+      { version: '2' },
+      { minAppBuild: null },
+      { revision: null },
+      { liveAppBuild: '786.0' },
+      { minAppBuild: '0785' },
+      { minAppBuild: '2147483648' },
+      { effectiveMinAppBuild: '786' },
+      { effectiveMinAppBuild: '700' },
+      { revision: '-1' },
+      { revision: 'two' },
+      { updatedAt: '0' },
+      { updatedAt: 'null' },
+      { revision: '0' },
+      { liveAppBuild: 'null' },
+      { liveReportedAt: 'null' },
+      { liveReportedAt: 'soon' },
+      { state: 'unknown' },
+      { state: 'invalid' },
+      { minAppBuild: '0', effectiveMinAppBuild: '0', state: 'invalid' },
+    ];
+    for (const overrides of malformed) {
+      clearServiceMaintenanceCacheForTests();
+      const control = floorEnv(() => new Response(null, { headers: floorHeaders(overrides) }));
+      await expect(readAppBuildFloor(control.env), JSON.stringify(overrides)).resolves.toEqual({
+        ...offFloor,
+        source: 'stale',
+      });
+    }
+  });
+
+  it('keeps the last canonical floor as stale when a later read fails, and 0 before any', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FLOOR_NOW);
+    const outcomes: Array<() => unknown> = [
+      () => new Response(null, { status: 503 }),
+      () => new Response(null, { headers: floorHeaders() }),
+      () => new Response(null, { status: 500, headers: floorHeaders() }),
+      () => new Response(null, { status: 200 }),
+      () => {
+        throw new Error('binding failed');
+      },
+      () => Promise.reject(new Error('binding rejected')),
+      () => ({ not: 'a response' }),
+    ];
+    const control = floorEnv(() => outcomes.shift()?.());
+
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual({ ...offFloor, source: 'stale' });
+    for (let index = 0; index < 6; index += 1) {
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(readAppBuildFloor(control.env)).resolves.toEqual(
+        index === 0 ? liveFloor : { ...liveFloor, source: 'stale' },
+      );
+    }
+    expect(control.fetch).toHaveBeenCalledTimes(7);
+  });
+
+  it('fails open as stale when the binding or its response headers throw', async () => {
+    const throwingHeaders = {
+      get(name: string) {
+        if (name === APP_BUILD_FLOOR_STATUS_HEADERS.version) return '1';
+        throw new Error('header read failed');
+      },
+    };
+    const bindings: unknown[] = [
+      {
+        getByName: () => ({
+          fetch: () =>
+            Promise.resolve({ body: null, headers: throwingHeaders, ok: true, status: 200 }),
+        }),
+      },
+      { getByName: () => ({ notFetch: true }) },
+      {
+        getByName: () => {
+          throw new Error('namespace failed');
+        },
+      },
+    ];
+    for (const binding of bindings) {
+      clearServiceMaintenanceCacheForTests();
+      await expect(readAppBuildFloor({ MUSIXQUARE_SERVICE_CONTROL: binding })).resolves.toEqual({
+        ...offFloor,
+        source: 'stale',
+      });
+    }
+  });
+
+  it('bounds a stalled floor read to the service-control read timeout', async () => {
+    vi.useFakeTimers();
+    const control = floorEnv(() => new Promise<Response>(() => {}));
+    const read = readAppBuildFloor(control.env);
+    await vi.advanceTimersByTimeAsync(SERVICE_CONTROL_READ_TIMEOUT_MS);
+    await expect(read).resolves.toEqual({ ...offFloor, source: 'stale' });
+  });
+
+  it('never lets a lower revision replace a higher one, while an equal revision replaces', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FLOOR_NOW);
+    const responses = [
+      floorHeaders({ revision: '3' }),
+      floorHeaders({ revision: '2', minAppBuild: '700', effectiveMinAppBuild: '700' }),
+      floorHeaders({ revision: '3', effectiveMinAppBuild: '0' }),
+      floorHeaders({ revision: '3' }),
+    ];
+    const control = floorEnv(() => new Response(null, { headers: responses.shift() }));
+
+    const higher = { ...liveFloor, revision: 3 };
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual(higher);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual(higher);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual({
+      ...higher,
+      effectiveMinAppBuild: 0,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual(higher);
+  });
+
+  it('reuses a read for the service-control TTL and shares only context-owned I/O', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FLOOR_NOW);
+    const control = floorEnv(() => new Response(null, { headers: floorHeaders() }));
+    const context = { waitUntil: vi.fn() };
+
+    const [left, right] = await Promise.all([
+      readAppBuildFloor(control.env, { context }),
+      readAppBuildFloor(control.env, { context }),
+    ]);
+    expect(left).toEqual(liveFloor);
+    expect(right).toEqual(liveFloor);
+    expect(control.fetch).toHaveBeenCalledOnce();
+    expect(context.waitUntil).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(999);
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual(liveFloor);
+    expect(control.fetch).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.all([readAppBuildFloor(control.env), readAppBuildFloor(control.env)]);
+    expect(control.fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps a newer settled read when an older unowned read finishes later', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FLOOR_NOW);
+    let releaseFirst!: (response: Response) => void;
+    const responses: Array<() => Promise<Response>> = [
+      () =>
+        new Promise<Response>((resolve) => {
+          releaseFirst = resolve;
+        }),
+      () => Promise.resolve(new Response(null, { headers: floorHeaders({ revision: '3' }) })),
+    ];
+    const control = floorEnv(() => responses.shift()?.());
+
+    const older = readAppBuildFloor(control.env);
+    const newer = await readAppBuildFloor(control.env);
+    expect(newer).toEqual({ ...liveFloor, revision: 3 });
+    releaseFirst(new Response(null, { status: 503 }));
+    await expect(older).resolves.toEqual({ ...liveFloor, revision: 3, source: 'stale' });
+    await expect(readAppBuildFloor(control.env)).resolves.toEqual({ ...liveFloor, revision: 3 });
+    expect(control.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the floor a real service-control object holds', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FLOOR_NOW);
+    const control = createAtomicRateControlBinding();
+    const env = { MUSIXQUARE_SERVICE_CONTROL: control.binding };
+    await expect(readAppBuildFloor(env)).resolves.toEqual({
+      ...offFloor,
+      state: 'valid',
+      source: 'live',
+    });
+
+    const object = control.binding.get(control.binding.idFromName(SERVICE_CONTROL_OBJECT_NAME));
+    const raised = await object.fetch(
+      new Request(`https://service-control.internal${APP_BUILD_FLOOR_STATE_PATH}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          minAppBuild: 785,
+          expectedRevision: 0,
+          requestId: 'consumer-floor-raise',
+          liveAppBuild: 785,
+          reason: 'consumer contract',
+        }),
+      }),
+    );
+    expect(raised.status).toBe(200);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(readAppBuildFloor(env)).resolves.toEqual({
+      effectiveMinAppBuild: 785,
+      minAppBuild: 785,
+      revision: 1,
+      updatedAt: FLOOR_NOW,
+      liveAppBuild: 785,
+      liveReportedAt: FLOOR_NOW,
+      state: 'valid',
+      source: 'live',
+    });
+    await expect(readServiceMaintenance(env)).resolves.toMatchObject({ enabled: false });
+  });
+});
+
+describe('shared App build floor writes', () => {
+  function writeEnv(handler: (request: Request) => unknown) {
+    const fetch = vi.fn(handler);
+    return {
+      env: { MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) } },
+      fetch,
+    };
+  }
+
+  const lower = {
+    minAppBuild: 0,
+    expectedRevision: 1,
+    requestId: 'consumer-floor-lower',
+    reason: 'consumer contract',
+  };
+
+  it('answers unavailable without a binding, from an object without the floor routes or with a broken answer', async () => {
+    await expect(updateAppBuildFloor({}, lower)).resolves.toEqual({ status: 'unavailable' });
+    await expect(reportLiveAppBuild({}, 785)).resolves.toBe(false);
+    await expect(readAppBuildFloorHistory({})).resolves.toEqual({ status: 'unavailable' });
+    for (const answer of [
+      () => Response.json({ error: 'NOT_FOUND' }, { status: 404 }),
+      () => new Response(null, { status: 503 }),
+      () => Response.json({ ok: true }),
+      () => {
+        throw new Error('binding failed');
+      },
+      () => 'not a response',
+    ]) {
+      const { env } = writeEnv(answer);
+      await expect(updateAppBuildFloor(env, lower)).resolves.toEqual({ status: 'unavailable' });
+      await expect(reportLiveAppBuild(env, 785)).resolves.toBe(false);
+      await expect(readAppBuildFloorHistory(env)).resolves.toEqual({ status: 'unavailable' });
+    }
+  });
+
+  it("maps the object's validation refusals and sends the live build only when named", async () => {
+    const { env, fetch } = writeEnv(() =>
+      Response.json({ error: 'INVALID_REQUEST' }, { status: 400 }),
+    );
+    await expect(updateAppBuildFloor(env, lower)).resolves.toEqual({
+      status: 'rejected',
+      error: 'INVALID_REQUEST',
+    });
+    await updateAppBuildFloor(env, { ...lower, liveAppBuild: null });
+    await updateAppBuildFloor(env, { ...lower, minAppBuild: 785, liveAppBuild: 785 });
+    const bodies = await Promise.all(
+      fetch.mock.calls.map(async ([request]) => {
+        expect(new URL(request.url).pathname).toBe(APP_BUILD_FLOOR_STATE_PATH);
+        expect(request.method).toBe('POST');
+        return JSON.parse(await request.text()) as Record<string, unknown>;
+      }),
+    );
+    expect(bodies[0]).toEqual(lower);
+    expect(bodies[1]).toEqual(lower);
+    expect(bodies[2]).toEqual({ ...lower, minAppBuild: 785, liveAppBuild: 785 });
+
+    const tooLarge = writeEnv(() => new Response(null, { status: 413 }));
+    await expect(updateAppBuildFloor(tooLarge.env, lower)).resolves.toEqual({
+      status: 'rejected',
+      error: 'INVALID_REQUEST',
+    });
+  });
+
+  it('refuses a malformed or inconsistent history', async () => {
+    const row = (revision: number, overrides: Record<string, unknown> = {}) => ({
+      minAppBuild: 785,
+      revision,
+      updatedAt: 1_800_000_000_000 + revision,
+      reason: 'consumer contract',
+      note: null,
+      ...overrides,
+    });
+    const answer = (payload: unknown) => writeEnv(() => Response.json(payload)).env;
+    await expect(
+      readAppBuildFloorHistory(answer({ history: [row(2), row(1)], truncated: false })),
+    ).resolves.toEqual({ status: 'ok', history: [row(2), row(1)], truncated: false });
+    await expect(
+      readAppBuildFloorHistory(answer({ history: [row(3)], truncated: true })),
+    ).resolves.toEqual({ status: 'ok', history: [row(3)], truncated: true });
+    for (const payload of [
+      { history: [row(2), row(1)], truncated: true },
+      { history: [row(1), row(2)], truncated: false },
+      { history: [row(1), row(1)], truncated: false },
+      { history: [row(1, { minAppBuild: '785' })], truncated: false },
+      { history: [row(1, { minAppBuild: -1 })], truncated: false },
+      { history: [row(1, { revision: 0 })], truncated: false },
+      { history: [row(1, { updatedAt: null })], truncated: false },
+      { history: [row(1, { reason: 7 })], truncated: false },
+      { history: [row(1, { note: false })], truncated: false },
+      { history: [null], truncated: false },
+      { history: 'none', truncated: false },
+      { history: [], truncated: 'no' },
+      { history: Array.from({ length: 65 }, (_entry, index) => row(65 - index)), truncated: false },
+      [],
+    ]) {
+      await expect(
+        readAppBuildFloorHistory(answer(payload)),
+        JSON.stringify(payload),
+      ).resolves.toEqual({ status: 'unavailable' });
+    }
   });
 });

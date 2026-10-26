@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/core/__tests__/network-guard.setup.ts'],
     include: [
+      'src/core/__tests__/app-build-floor-script.test.ts',
       'src/core/__tests__/apply-translation-suggestions.test.ts',
       'src/core/__tests__/d1-migration-contract.test.ts',
       'src/core/__tests__/durable-object-migration-contract.test.ts',
@@ -33,6 +34,7 @@ export default defineConfig({
       reporter: ['text', 'text-summary', 'lcov'],
       reportsDirectory: 'coverage/release-tooling',
       include: [
+        'scripts/app-build-floor.mts',
         'scripts/apply-translation-suggestions.mts',
         'scripts/audit-ops-drift.mts',
         'scripts/check-d1-migration-contract.mts',
@@ -56,6 +58,15 @@ export default defineConfig({
         branches: 68,
         functions: 85,
         lines: 75,
+        // Forced update Inc 4 baseline (2026-10-26): statements 86.77,
+        // branches 81.88, functions 77.77, lines 89.93. The uncovered functions are
+        // the production wiring (live fetch, ws socket, clock, step summary).
+        'scripts/app-build-floor.mts': {
+          statements: 85,
+          branches: 80,
+          functions: 76,
+          lines: 88,
+        },
         'scripts/audit-ops-drift.mts': {
           statements: 72,
           branches: 71,

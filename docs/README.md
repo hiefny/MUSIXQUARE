@@ -93,6 +93,24 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
+  evidence for the train that adds the forced update (9.0.14 / v787 from bump `2077ef60`, not yet
+  released; target `all`; the 9.0.12 receive-slot train and the 9.0.13 old-version removal train
+  took the earlier numbers). The App reports its build (the service-worker cache epoch) in
+  Standard `host-auth` and `guest-auth`, reconnects included, and in a header on every PRO request; the Signaling and PRO Workers refuse new entries
+  below the effective App build floor (the stored floor in the service-control object, bounded by
+  the live App build that the App Worker reports every minute; 0 = off), and open sessions
+  continue. A refused page, or one that reads a higher floor at start or on return to the
+  foreground, shows the same update dialog without Later (RO-22), and the return-time dialogs
+  yield to it (new record RO-51). The floor is set only through GitHub Actions OIDC (no secret;
+  the admin dashboard can only lower it). C5-12 Inc 1 lets a guest awaiting a preload take the
+  main header of its admitted direct session on any route. The report lists the owner's policy
+  and four decisions with the ~22:00 start/resume addition, each increment with its commits and
+  tests-first evidence, every caller of the gated entry points, what 9.0.13 and older clients
+  show, the operations for raising, lowering and rolling back (the first floor is this train's
+  own build, 787), the eager JS delta (+2,286 B against main `4d7650c0`), the final local
+  verification at the bump after merging the removal train, and the owner's device steps.
+  Known-accepted #13 is superseded by it.
 - [Old-version removal train 1: compatibility code below the existing client floors (2026-10-25)](design/old-version-removal-1-2026-10-25.md):
   release evidence for the first train under the owner's policy of 2026-10-25 that older app versions
   are no longer a design constraint (9.0.13 / v786, released 2026-10-26 12:41 KST in Release

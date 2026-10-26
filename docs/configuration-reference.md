@@ -105,6 +105,33 @@ deployment credentials belong in protected GitHub environments or the
 operator's ephemeral process environment. Use the owning workflow and runbook;
 do not aggregate them into `.env.local` or document their values.
 
+### App build floor (from App 9.0.14)
+
+The minimum App build that the Signaling and PRO Workers admit is runtime state
+in the service-control object, not a build input, a Wrangler `[vars]` entry or a
+secret. It defaults to 0 (off), which is also what local Workers, the C5-0 lab
+and `vite` development use. It changes only through these workflow inputs; the
+procedure is in the [hotfix procedure](hotfix-procedure.md#app-build-floor).
+
+| Input                                                           | Contract                                                                                                                                                                                                                                                                    |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `App Build Floor` workflow: `action`, `min_app_build`, `reason` | `status`, `check`, `set` or `lower` on `main` in the production environment. `min_app_build` is a cache-epoch build (`lower` to 0 turns the floor off); `reason` is kept in the floor history. The inputs reach `scripts/app-build-floor.mts` only through the environment. |
+| `Production Release` input `raise_app_build_floor`              | Boolean, default false, target `app` or `all` only. After the commit marker it raises the floor to the released build when that build is the live App.                                                                                                                      |
+| `MXQR_APP_BUILD_FLOOR_REASON`                                   | Set by the workflow from its `reason` input and read by the floor script. Not an operator setting.                                                                                                                                                                          |
+
+The setter authenticates with the GitHub OIDC token that the job's
+`id-token: write` permission lets the runner request
+(`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, provided by
+GitHub and never printed). The App Worker identifies the calling workflow by the
+token's `workflow_ref` (`app-build-floor.yml` or `release.yml` on `main`); both
+jobs run their own steps, and a token whose `job_workflow_ref` names another
+workflow (a job that runs a reusable workflow) is refused. No repository
+secret, Worker secret or binding was added, so
+`cloudflare/ops-drift.contract.json` is unchanged. The App's build number is not
+configurable: it comes from `SERVICE_WORKER_CACHE_VERSION` at build time
+([release versioning](release-versioning.md#app-build-number-and-floor)),
+and the `X-MXQR-App-Build` request header that carries it is public.
+
 ## Safe `.env.example` policy
 
 The committed example contains only a safe local Vite default and commented

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cancelReadableBody, readBodyBytesLimited } from '../../../cloudflare/pro-room-body.ts';
 import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.ts';
+import { APP_BUILD_FLOOR_REPORT_STALE_MS } from '../../../cloudflare/app-build-floor-contract.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
@@ -12,6 +13,11 @@ import {
   ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
+  APP_BUILD_FLOOR_HISTORY_PATH,
+  APP_BUILD_FLOOR_LIVE_REPORT_PATH,
+  APP_BUILD_FLOOR_STATE_PATH,
+  APP_BUILD_FLOOR_STATUS_HEADERS,
+  APP_BUILD_FLOOR_STATUS_PATH,
   SERVICE_CONTROL_HISTORY_PATH,
   SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_ENABLED_HEADER,
@@ -456,6 +462,9 @@ describe('MusixquareServiceControl', () => {
       'admin-announcement-state',
       'admin-announcement-requests',
       'abuse-rate-state-v1',
+      'app-build-floor-state',
+      'app-build-floor-requests',
+      'app-build-floor-live-report',
     ]);
   });
 
@@ -781,6 +790,9 @@ describe('MusixquareServiceControl', () => {
       'admin-announcement-state',
       'admin-announcement-requests',
       'abuse-rate-state-v1',
+      'app-build-floor-state',
+      'app-build-floor-requests',
+      'app-build-floor-live-report',
     ]);
   });
 
@@ -1510,5 +1522,646 @@ describe('MusixquareServiceControl', () => {
     await expect(payload(announcement)).resolves.toEqual({
       error: 'ADMIN_ANNOUNCEMENT_STATE_INVALID',
     });
+  });
+});
+
+describe('MusixquareServiceControl app build floor', () => {
+  const NOW = Date.parse('2026-10-25T13:00:00.000Z');
+
+  function floorRequest(path: string, init: RequestInit = {}): Request {
+    return new Request(`https://service-control.internal${path}`, init);
+  }
+
+  function floorMutation(
+    minAppBuild: number,
+    expectedRevision: number,
+    requestId: string,
+    extra: Record<string, unknown> = {},
+  ): Request {
+    return floorRequest(APP_BUILD_FLOOR_STATE_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        minAppBuild,
+        expectedRevision,
+        requestId,
+        reason: `test ${requestId}`,
+        ...extra,
+      }),
+    });
+  }
+
+  function rawFloorMutation(body: unknown, contentType = 'application/json'): Request {
+    return floorRequest(APP_BUILD_FLOOR_STATE_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body: JSON.stringify(body),
+    });
+  }
+
+  function liveReport(body: unknown): Request {
+    return floorRequest(APP_BUILD_FLOOR_LIVE_REPORT_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function floorStatus(control: MusixquareServiceControl): Promise<Record<string, unknown>> {
+    const response = await control.fetch(floorRequest(APP_BUILD_FLOOR_STATUS_PATH));
+    expect(response.status).toBe(200);
+    return (await payload(response)).appBuildFloor as Record<string, unknown>;
+  }
+
+  async function floorHistory(control: MusixquareServiceControl): Promise<Record<string, unknown>> {
+    const response = await control.fetch(floorRequest(APP_BUILD_FLOOR_HISTORY_PATH));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    return payload(response);
+  }
+
+  function headerValues(response: Response): Record<string, string | null> {
+    return Object.fromEntries(
+      Object.entries(APP_BUILD_FLOOR_STATUS_HEADERS).map(([key, name]) => [
+        key,
+        response.headers.get(name),
+      ]),
+    );
+  }
+
+  it('starts with the floor off and answers versioned HEAD headers and the same GET JSON', async () => {
+    const { control, storage } = setup();
+    const head = await control.fetch(floorRequest(APP_BUILD_FLOOR_STATUS_PATH, { method: 'HEAD' }));
+    expect(head.status).toBe(200);
+    expect(head.body).toBeNull();
+    expect(headerValues(head)).toEqual({
+      version: '1',
+      minAppBuild: '0',
+      effectiveMinAppBuild: '0',
+      revision: '0',
+      updatedAt: 'null',
+      liveAppBuild: 'null',
+      liveReportedAt: 'null',
+      state: 'valid',
+    });
+
+    const get = await control.fetch(floorRequest(APP_BUILD_FLOOR_STATUS_PATH));
+    expect(get.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(headerValues(get)).toEqual(headerValues(head));
+    expect(await payload(get)).toEqual({
+      appBuildFloor: {
+        minAppBuild: 0,
+        effectiveMinAppBuild: 0,
+        revision: 0,
+        updatedAt: null,
+        liveAppBuild: null,
+        liveReportedAt: null,
+        state: 'valid',
+      },
+    });
+    expect([...storage.data.keys()]).toEqual([]);
+  });
+
+  it('refuses a raise without a live App build or above it, and lowers without one', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const { control, storage } = setup();
+
+    const missingLive = await control.fetch(floorMutation(785, 0, 'raise-without-live'));
+    expect(missingLive.status).toBe(409);
+    expect(await payload(missingLive)).toMatchObject({
+      error: 'APP_BUILD_FLOOR_LIVE_BUILD_REQUIRED',
+      appBuildFloor: { minAppBuild: 0, revision: 0 },
+    });
+    const aboveLive = await control.fetch(
+      floorMutation(785, 0, 'raise-above-live', { liveAppBuild: 784 }),
+    );
+    expect(aboveLive.status).toBe(409);
+    expect(await payload(aboveLive)).toMatchObject({
+      error: 'APP_BUILD_FLOOR_ABOVE_LIVE',
+      appBuildFloor: { minAppBuild: 0, revision: 0 },
+    });
+    expect([...storage.data.keys()]).toEqual([]);
+
+    const raised = await control.fetch(
+      floorMutation(785, 0, 'raise-to-live', { liveAppBuild: 785 }),
+    );
+    expect(raised.status).toBe(200);
+    expect(headerValues(raised)).toMatchObject({
+      minAppBuild: '785',
+      effectiveMinAppBuild: '785',
+      revision: '1',
+      liveAppBuild: '785',
+      liveReportedAt: String(NOW),
+    });
+    expect(await payload(raised)).toEqual({
+      ok: true,
+      changed: true,
+      replayed: false,
+      appBuildFloor: {
+        minAppBuild: 785,
+        effectiveMinAppBuild: 785,
+        revision: 1,
+        updatedAt: NOW,
+        liveAppBuild: 785,
+        liveReportedAt: NOW,
+        state: 'valid',
+      },
+    });
+
+    vi.advanceTimersByTime(1_000);
+    const lowered = await control.fetch(floorMutation(700, 1, 'lower-without-live'));
+    expect(lowered.status).toBe(200);
+    expect(await payload(lowered)).toMatchObject({
+      changed: true,
+      appBuildFloor: {
+        minAppBuild: 700,
+        effectiveMinAppBuild: 700,
+        revision: 2,
+        updatedAt: NOW + 1_000,
+        liveAppBuild: 785,
+        liveReportedAt: NOW,
+      },
+    });
+    const off = await control.fetch(floorMutation(0, 2, 'lower-to-off', { liveAppBuild: 1 }));
+    expect(await payload(off)).toMatchObject({
+      changed: true,
+      appBuildFloor: { minAppBuild: 0, effectiveMinAppBuild: 0, revision: 3, liveAppBuild: 785 },
+    });
+
+    const restored = setup(storage).control;
+    expect(await floorStatus(restored)).toEqual({
+      minAppBuild: 0,
+      effectiveMinAppBuild: 0,
+      revision: 3,
+      updatedAt: NOW + 1_000,
+      liveAppBuild: 785,
+      liveReportedAt: NOW,
+      state: 'valid',
+    });
+  });
+
+  it('bounds the effective floor by a fresh report that never changes the stored floor or history', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const { control, storage } = setup();
+    await control.fetch(floorMutation(785, 0, 'raise-for-report', { liveAppBuild: 785 }));
+    const before = {
+      state: structuredClone(storage.data.get('app-build-floor-state')),
+      requests: structuredClone(storage.data.get('app-build-floor-requests')),
+      history: await floorHistory(control),
+    };
+
+    vi.advanceTimersByTime(60_000);
+    const rolledBack = await control.fetch(liveReport({ appBuild: 784 }));
+    expect(rolledBack.status).toBe(200);
+    expect(await payload(rolledBack)).toEqual({
+      ok: true,
+      appBuildFloor: {
+        minAppBuild: 785,
+        effectiveMinAppBuild: 784,
+        revision: 1,
+        updatedAt: NOW,
+        liveAppBuild: 784,
+        liveReportedAt: NOW + 60_000,
+        state: 'valid',
+      },
+    });
+    expect(storage.data.get('app-build-floor-live-report')).toEqual({
+      appBuild: 784,
+      reportedAt: NOW + 60_000,
+    });
+
+    vi.advanceTimersByTime(APP_BUILD_FLOOR_REPORT_STALE_MS);
+    expect(await floorStatus(control)).toMatchObject({ effectiveMinAppBuild: 784 });
+    vi.advanceTimersByTime(1);
+    expect(await floorStatus(control)).toMatchObject({
+      minAppBuild: 785,
+      effectiveMinAppBuild: 0,
+      liveAppBuild: 784,
+    });
+
+    await control.fetch(liveReport({ appBuild: 790 }));
+    expect(await floorStatus(control)).toMatchObject({ effectiveMinAppBuild: 785 });
+    expect(storage.data.get('app-build-floor-state')).toEqual(before.state);
+    expect(storage.data.get('app-build-floor-requests')).toEqual(before.requests);
+    expect(await floorHistory(control)).toEqual(before.history);
+    expect(await floorStatus(setup(storage).control)).toMatchObject({
+      minAppBuild: 785,
+      effectiveMinAppBuild: 785,
+      revision: 1,
+      liveAppBuild: 790,
+    });
+  });
+
+  it('replays, refuses reuse, supersedes, conflicts and keeps a no-op revision', async () => {
+    const { control } = setup();
+    const raised = await control.fetch(
+      floorMutation(785, 0, 'floor-request-a', { liveAppBuild: 785 }),
+    );
+    expect(raised.status).toBe(200);
+
+    for (const expectedRevision of [0, 1]) {
+      const replay = await control.fetch(
+        floorMutation(785, expectedRevision, 'floor-request-a', { liveAppBuild: 785 }),
+      );
+      expect(replay.status).toBe(200);
+      expect(await payload(replay)).toMatchObject({
+        ok: true,
+        changed: false,
+        replayed: true,
+        appBuildFloor: { minAppBuild: 785, revision: 1 },
+      });
+    }
+    const reused = await control.fetch(floorMutation(700, 1, 'floor-request-a'));
+    expect(reused.status).toBe(409);
+    expect(await payload(reused)).toMatchObject({
+      error: 'APP_BUILD_FLOOR_REQUEST_ID_REUSED',
+      appBuildFloor: { minAppBuild: 785, revision: 1 },
+    });
+
+    expect((await control.fetch(floorMutation(700, 1, 'floor-request-b'))).status).toBe(200);
+    const superseded = await control.fetch(
+      floorMutation(785, 0, 'floor-request-a', { liveAppBuild: 785 }),
+    );
+    expect(superseded.status).toBe(409);
+    expect(await payload(superseded)).toMatchObject({
+      error: 'APP_BUILD_FLOOR_REQUEST_SUPERSEDED',
+      appBuildFloor: { minAppBuild: 700, revision: 2 },
+    });
+    const stale = await control.fetch(floorMutation(600, 1, 'floor-request-c'));
+    expect(stale.status).toBe(409);
+    expect(await payload(stale)).toMatchObject({
+      error: 'APP_BUILD_FLOOR_REVISION_CONFLICT',
+      appBuildFloor: { minAppBuild: 700, revision: 2 },
+    });
+
+    const historyBefore = await floorHistory(control);
+    const noop = await control.fetch(floorMutation(700, 2, 'floor-request-d'));
+    expect(noop.status).toBe(200);
+    expect(await payload(noop)).toMatchObject({
+      ok: true,
+      changed: false,
+      replayed: false,
+      appBuildFloor: { minAppBuild: 700, revision: 2 },
+    });
+    expect(await floorHistory(control)).toEqual(historyBefore);
+
+    const concurrent = await Promise.all([
+      control.fetch(floorMutation(650, 2, 'floor-request-e')),
+      control.fetch(floorMutation(640, 2, 'floor-request-f')),
+    ]);
+    expect(concurrent.map((response) => response.status).sort()).toEqual([200, 409]);
+  });
+
+  it('rejects malformed floor mutations and reports before any write', async () => {
+    const { control, storage } = setup();
+    const valid = {
+      minAppBuild: 785,
+      expectedRevision: 0,
+      requestId: 'malformed-floor-request',
+      liveAppBuild: 785,
+      reason: 'raise after release',
+    };
+    const malformed: unknown[] = [
+      null,
+      [],
+      { ...valid, extra: true },
+      { ...valid, minAppBuild: '785' },
+      { ...valid, minAppBuild: -1 },
+      { ...valid, minAppBuild: 785.5 },
+      { ...valid, minAppBuild: 2_147_483_648 },
+      { ...valid, liveAppBuild: '785' },
+      { ...valid, liveAppBuild: null },
+      { ...valid, expectedRevision: -1 },
+      { ...valid, expectedRevision: '0' },
+      { ...valid, requestId: 'short' },
+      { ...valid, reason: '' },
+      { ...valid, reason: 'line\nbreak' },
+      { ...valid, reason: 'r'.repeat(201) },
+      { ...valid, reason: 7 },
+      Object.fromEntries(Object.entries(valid).filter(([key]) => key !== 'reason')),
+      Object.fromEntries(Object.entries(valid).filter(([key]) => key !== 'requestId')),
+    ];
+    for (const body of malformed) {
+      const response = await control.fetch(rawFloorMutation(body));
+      expect(response.status, JSON.stringify(body)).toBe(400);
+      expect(await payload(response)).toEqual({ error: 'INVALID_REQUEST' });
+    }
+    for (const body of [{}, { appBuild: '785' }, { appBuild: -1 }, { appBuild: 785, extra: 1 }]) {
+      const response = await control.fetch(liveReport(body));
+      expect(response.status, JSON.stringify(body)).toBe(400);
+      expect(await payload(response)).toEqual({ error: 'INVALID_REQUEST' });
+    }
+    expect((await control.fetch(rawFloorMutation(valid, 'text/plain'))).status).toBe(415);
+    const oversized = floorRequest(APP_BUILD_FLOOR_STATE_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': '4097' },
+      body: JSON.stringify(valid),
+    });
+    expect((await control.fetch(oversized)).status).toBe(413);
+    const notJson = floorRequest(APP_BUILD_FLOOR_LIVE_REPORT_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"appBuild":',
+    });
+    expect((await control.fetch(notJson)).status).toBe(400);
+    for (const [method, path] of [
+      ['GET', APP_BUILD_FLOOR_STATE_PATH],
+      ['GET', APP_BUILD_FLOOR_LIVE_REPORT_PATH],
+      ['POST', APP_BUILD_FLOOR_STATUS_PATH],
+      ['POST', APP_BUILD_FLOOR_HISTORY_PATH],
+      ['PUT', APP_BUILD_FLOOR_STATE_PATH],
+    ] as const) {
+      expect((await control.fetch(floorRequest(path, { method }))).status).toBe(404);
+    }
+    expect((await control.fetch(floorRequest(`${APP_BUILD_FLOOR_STATUS_PATH}?x=1`))).status).toBe(
+      404,
+    );
+    expect([...storage.data.keys()]).toEqual([]);
+  });
+
+  it('keeps the floor on the main object only', async () => {
+    for (const name of [
+      ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+      'musixquare-abuse-rate-v1:test',
+      'musixquare-abuse-rate-pair-v1:test',
+    ]) {
+      const { control, storage } = setup(new ServiceControlStorage(), name);
+      const responses = await Promise.all([
+        control.fetch(floorRequest(APP_BUILD_FLOOR_STATUS_PATH)),
+        control.fetch(floorRequest(APP_BUILD_FLOOR_HISTORY_PATH)),
+        control.fetch(floorMutation(1, 0, 'isolated-floor-request', { liveAppBuild: 1 })),
+        control.fetch(liveReport({ appBuild: 1 })),
+      ]);
+      expect(responses.map((response) => response.status)).toEqual([404, 404, 404, 404]);
+      expect(storage.getKeys.some((key) => key.startsWith('app-build-floor'))).toBe(false);
+      expect([...storage.data.keys()]).toEqual([]);
+    }
+  });
+
+  it('lists changes newest first with their reasons and reports truncation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const { control, storage } = setup();
+    expect(await floorHistory(control)).toEqual({ history: [], truncated: false });
+
+    await control.fetch(floorMutation(785, 0, 'history-raise', { liveAppBuild: 785 }));
+    vi.advanceTimersByTime(1_000);
+    await control.fetch(floorMutation(785, 1, 'history-noop'));
+    await control.fetch(floorMutation(0, 1, 'history-lower'));
+    expect(await floorHistory(control)).toEqual({
+      history: [
+        {
+          minAppBuild: 0,
+          revision: 2,
+          updatedAt: NOW + 1_000,
+          reason: 'test history-lower',
+          note: null,
+        },
+        {
+          minAppBuild: 785,
+          revision: 1,
+          updatedAt: NOW,
+          reason: 'test history-raise',
+          note: null,
+        },
+      ],
+      truncated: false,
+    });
+
+    for (let revision = 2; revision < 68; revision += 1) {
+      await control.fetch(
+        floorMutation(revision % 2 === 0 ? 785 : 0, revision, `history-change-${revision}`, {
+          liveAppBuild: 785,
+        }),
+      );
+    }
+    const truncated = await floorHistory(control);
+    expect(truncated.truncated).toBe(true);
+    const rows = truncated.history as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(64);
+    expect(rows[0]).toMatchObject({ revision: 68, reason: 'test history-change-67' });
+    expect(rows.at(-1)).toMatchObject({ revision: 5 });
+
+    storage.data.delete('app-build-floor-requests');
+    expect(await floorHistory(setup(storage).control)).toEqual({
+      history: [{ minAppBuild: 0, revision: 68, updatedAt: NOW + 1_000, reason: null, note: null }],
+      truncated: true,
+    });
+
+    const state = storage.data.get('app-build-floor-state') as Record<string, unknown>;
+    storage.data.set('app-build-floor-requests', [
+      {
+        requestId: 'history-conflicting-row',
+        reason: 'conflict',
+        note: null,
+        state: { ...state, minAppBuild: 785 },
+      },
+    ]);
+    const conflicting = await setup(storage).control.fetch(
+      floorRequest(APP_BUILD_FLOOR_HISTORY_PATH),
+    );
+    expect(conflicting.status).toBe(503);
+    expect(await payload(conflicting)).toEqual({ error: 'APP_BUILD_FLOOR_HISTORY_INVALID' });
+  });
+
+  it('answers an invalid stored floor as off without touching maintenance and repairs it', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const storage = new ServiceControlStorage();
+    storage.data.set('app-build-floor-state', { minAppBuild: 'corrupt', revision: 9 });
+    storage.data.set('app-build-floor-requests', [
+      { requestId: 'corrupt-journal-row', reason: '', note: null, state: {} },
+      {
+        requestId: 'valid-journal-row',
+        reason: 'earlier raise',
+        note: null,
+        state: { minAppBuild: 785, revision: 4, updatedAt: NOW - 10_000 },
+      },
+    ]);
+    storage.data.set('app-build-floor-live-report', { appBuild: 785, reportedAt: NOW });
+    const { control } = setup(storage);
+
+    const maintenance = await control.fetch(
+      new Request(`https://service-control.internal${SERVICE_CONTROL_STATUS_PATH}`),
+    );
+    expect(maintenance.status).toBe(200);
+    expect(await payload(maintenance)).toMatchObject({
+      serviceStatus: { enabled: false, revision: 0 },
+    });
+    const head = await control.fetch(floorRequest(APP_BUILD_FLOOR_STATUS_PATH, { method: 'HEAD' }));
+    expect(headerValues(head)).toEqual({
+      version: '1',
+      minAppBuild: '0',
+      effectiveMinAppBuild: '0',
+      revision: '4',
+      updatedAt: 'null',
+      liveAppBuild: '785',
+      liveReportedAt: String(NOW),
+      state: 'invalid',
+    });
+    expect(await floorHistory(control)).toEqual({
+      history: [
+        {
+          minAppBuild: 785,
+          revision: 4,
+          updatedAt: NOW - 10_000,
+          reason: 'earlier raise',
+          note: null,
+        },
+      ],
+      truncated: true,
+    });
+
+    const stale = await control.fetch(floorMutation(0, 3, 'repair-stale-revision'));
+    expect(stale.status).toBe(409);
+    expect(await payload(stale)).toMatchObject({
+      error: 'APP_BUILD_FLOOR_REVISION_CONFLICT',
+      appBuildFloor: { revision: 4, state: 'invalid' },
+    });
+    const raiseWithoutLive = await control.fetch(floorMutation(785, 4, 'repair-raise-no-live'));
+    expect(raiseWithoutLive.status).toBe(409);
+    expect(await payload(raiseWithoutLive)).toMatchObject({
+      error: 'APP_BUILD_FLOOR_LIVE_BUILD_REQUIRED',
+    });
+
+    const repaired = await control.fetch(floorMutation(0, 4, 'repair-invalid-floor'));
+    expect(repaired.status).toBe(200);
+    expect(await payload(repaired)).toMatchObject({
+      ok: true,
+      changed: true,
+      appBuildFloor: {
+        minAppBuild: 0,
+        effectiveMinAppBuild: 0,
+        revision: 5,
+        updatedAt: NOW,
+        state: 'valid',
+      },
+    });
+    expect(storage.data.get('app-build-floor-state')).toEqual({
+      minAppBuild: 0,
+      revision: 5,
+      updatedAt: NOW,
+    });
+    const history = (await floorHistory(control)).history as Array<Record<string, unknown>>;
+    expect(history[0]).toEqual({
+      minAppBuild: 0,
+      revision: 5,
+      updatedAt: NOW,
+      reason: 'test repair-invalid-floor',
+      note: 'repaired-invalid-state',
+    });
+  });
+
+  it('reads an invalid stored state with an unusable journal as revision zero', async () => {
+    const storage = new ServiceControlStorage();
+    storage.data.set('app-build-floor-state', 'not-a-state');
+    storage.data.set('app-build-floor-requests', { not: 'a journal' });
+    const { control } = setup(storage);
+    expect(await floorStatus(control)).toMatchObject({
+      minAppBuild: 0,
+      effectiveMinAppBuild: 0,
+      revision: 0,
+      state: 'invalid',
+    });
+    expect((await control.fetch(floorMutation(0, 0, 'repair-from-zero'))).status).toBe(200);
+    expect(await floorStatus(control)).toMatchObject({ revision: 1, state: 'valid' });
+  });
+
+  it('skips malformed journal rows and loads at most the newest retained changes', async () => {
+    const storage = new ServiceControlStorage();
+    const row = (revision: number, extra: Record<string, unknown> = {}) => ({
+      requestId: `journal-row-${String(revision).padStart(3, '0')}`,
+      reason: `change ${revision}`,
+      note: null,
+      state: { minAppBuild: revision, revision, updatedAt: NOW + revision },
+      ...extra,
+    });
+    storage.data.set('app-build-floor-state', {
+      minAppBuild: 70,
+      revision: 70,
+      updatedAt: NOW + 70,
+    });
+    storage.data.set('app-build-floor-requests', [
+      { requestId: 'journal-row-missing-note', reason: 'x', state: row(70).state },
+      row(70, { note: 'unknown-note' }),
+      row(70, { requestId: 'short' }),
+      row(70, { state: { minAppBuild: 0, revision: 0, updatedAt: null } }),
+      ...Array.from({ length: 66 }, (_, index) => row(70 - index)),
+    ]);
+    const { control } = setup(storage);
+    const history = await floorHistory(control);
+    const rows = history.history as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(64);
+    expect(rows[0]).toEqual({
+      minAppBuild: 70,
+      revision: 70,
+      updatedAt: NOW + 70,
+      reason: 'change 70',
+      note: null,
+    });
+    expect(rows.at(-1)).toMatchObject({ revision: 7, reason: 'change 7' });
+    // The 65th retained row is beyond the journal limit, so its id no longer replays.
+    const beyond = await control.fetch(floorMutation(6, 70, 'journal-row-006'));
+    expect(await payload(beyond)).toMatchObject({ changed: true, replayed: false });
+  });
+
+  it('accepts an explicit initial record and refuses a body without a content type', async () => {
+    const storage = new ServiceControlStorage();
+    storage.data.set('app-build-floor-state', { minAppBuild: 0, revision: 0, updatedAt: null });
+    const { control } = setup(storage);
+    expect(await floorStatus(control)).toMatchObject({ revision: 0, state: 'valid' });
+    const untyped = floorRequest(APP_BUILD_FLOOR_STATE_PATH, {
+      method: 'POST',
+      body: new Uint8Array(new TextEncoder().encode('{}')),
+    });
+    const response = await control.fetch(untyped);
+    expect(response.status).toBe(415);
+    expect(await payload(response)).toEqual({ error: 'JSON_REQUIRED' });
+  });
+
+  it('treats an invalid stored report as absent until the next report replaces it', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const storage = new ServiceControlStorage();
+    storage.data.set('app-build-floor-state', {
+      minAppBuild: 785,
+      revision: 1,
+      updatedAt: NOW - 1_000,
+    });
+    storage.data.set('app-build-floor-live-report', { appBuild: 785, reportedAt: 'now' });
+    const { control } = setup(storage);
+    expect(await floorStatus(control)).toMatchObject({
+      minAppBuild: 785,
+      effectiveMinAppBuild: 0,
+      liveAppBuild: null,
+      liveReportedAt: null,
+      state: 'valid',
+    });
+    await control.fetch(liveReport({ appBuild: 785 }));
+    expect(await floorStatus(control)).toMatchObject({
+      effectiveMinAppBuild: 785,
+      liveAppBuild: 785,
+      liveReportedAt: NOW,
+    });
+  });
+
+  it('rejects stored floor records that break their revision invariants', async () => {
+    for (const stored of [
+      { minAppBuild: 785, revision: 0, updatedAt: null },
+      { minAppBuild: 0, revision: 0, updatedAt: NOW },
+      { minAppBuild: 785, revision: 2, updatedAt: null },
+      { minAppBuild: 785, revision: 2, updatedAt: NOW, extra: true },
+      { minAppBuild: 785, revision: -1, updatedAt: NOW },
+    ]) {
+      const storage = new ServiceControlStorage();
+      storage.data.set('app-build-floor-state', stored);
+      expect(await floorStatus(setup(storage).control), JSON.stringify(stored)).toMatchObject({
+        minAppBuild: 0,
+        effectiveMinAppBuild: 0,
+        state: 'invalid',
+      });
+    }
   });
 });

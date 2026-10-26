@@ -160,6 +160,10 @@ import { initContrastPreference } from './core/contrast.ts';
 
 // ── Service Worker ──
 import { NAVIGATION_SOURCE_EVENT, registerServiceWorker } from './sw-register.ts';
+import {
+  isForcedAppUpdatePending,
+  subscribeForcedAppUpdatePresentation,
+} from './core/app-build.ts';
 import { showToast } from './ui/toast.ts';
 
 declare global {
@@ -274,6 +278,7 @@ let activeAudioRecoveryGestureActivated = false;
 let pendingAudioRecoveryRequest: AudioRecoveryRequest | null = null;
 const longBackgroundWarning = createLongBackgroundWarning({
   hasAudioRecoveryPrompt: () => audioRecoveryPrompt !== null,
+  isForcedUpdatePending: isForcedAppUpdatePending,
 });
 
 function captureAudioRecoveryIdentity(
@@ -399,6 +404,9 @@ function requestAudioOutputRecovery(
 }
 
 function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean> {
+  // The forced update dialog owns the screen (RO-51): its Apply leaves the
+  // page, so no recovery dialog opens behind it, follow-ups included.
+  if (isForcedAppUpdatePending()) return Promise.resolve(false);
   const { reason, source, identity } = request;
   if (!audioRecoveryIdentityStillCurrent(identity)) return Promise.resolve(false);
   if (audioRecoveryPrompt) {
@@ -830,6 +838,13 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
 }
 
 function initAudioOutputRecovery(): void {
+  // The forced update dialog takes a return's one dialog slot (RO-51): it
+  // withdraws the warning and the audio recovery dialog, open or queued.
+  subscribeForcedAppUpdatePresentation(() => {
+    longBackgroundWarning.yieldToForcedUpdate();
+    pendingAudioRecoveryRequest = null;
+    activeAudioRecoveryAbortController?.abort();
+  });
   const abortSupersededRecovery = (): void => {
     if (
       activeAudioRecoveryIdentity &&

@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/core/__tests__/network-guard.setup.ts'],
     include: [
-      'src/core/__tests__/{about-lifetime-room-count-worker,account-assertion,account-auth,account-auth-request-lifetime,account-auth-sqlite,account-nickname-policy,app-maintenance-admin,app-worker-cors,auxiliary-service-maintenance,designsystem-preview-indexing,display-name-policy,event-campaign-route,pro-bot-worker,service-maintenance,standard-room-account-assertion,standard-room-pin-membership}.test.ts',
+      'src/core/__tests__/{about-lifetime-room-count-worker,account-assertion,account-auth,account-auth-request-lifetime,account-auth-sqlite,account-nickname-policy,app-build-floor-app-worker,app-build-floor-contract,app-build-floor-ops,app-maintenance-admin,app-worker-cors,auxiliary-service-maintenance,designsystem-preview-indexing,display-name-policy,event-campaign-route,pro-bot-worker,service-maintenance,standard-room-account-assertion,standard-room-pin-membership}.test.ts',
       'src/core/__tests__/account-cookie-ordering.test.ts',
       'src/core/__tests__/screensaver-security.test.ts',
       'src/core/__tests__/announcement-expiry.test.ts',
@@ -20,6 +20,11 @@ export default defineConfig({
       'src/core/__tests__/worker-shared-read-lifetime.test.ts',
       'src/core/__tests__/standard-room-burst.test.ts',
       'src/core/__tests__/pro-room-burst.test.ts',
+      // Forced update operations: the floor script and the smokes' build helper
+      // run on the shared App build floor wire contract.
+      'src/core/__tests__/{app-build-floor-script,live-smoke-app-build}.test.ts',
+      // The page's start and resume floor read on the same wire contract.
+      'src/core/__tests__/sw-update-coordination.test.ts',
       // C7-0 owner-boundary characterization (resource ownership RO-07..RO-09).
       'src/core/__tests__/owner-transfer-saga-convergence-sqlite.test.ts',
       // An earlier App Worker build and the current one on one saga row (RO-09).
@@ -38,7 +43,7 @@ export default defineConfig({
       'src/core/__tests__/translation-community-route.test.ts',
       'src/developer-api/__tests__/{developer-api-credential,developer-api-facade-worker,developer-api-worker}.test.ts',
       'src/network/transport/__tests__/{cloudflare-signaling,cloudflare-signaling-worker,signaling-liveness}.test.ts',
-      'src/pro-room/__tests__/{pro-room-claims,pro-room-generation,pro-room-grants,pro-room-permissions,pro-room-playlists,pro-room-queue-mode,pro-room-worker,service-control,youtube-occurrence-manifest}.test.ts',
+      'src/pro-room/__tests__/{pro-room-app-build-floor,pro-room-claims,pro-room-generation,pro-room-grants,pro-room-permissions,pro-room-playlists,pro-room-queue-mode,pro-room-worker,service-control,youtube-occurrence-manifest}.test.ts',
       'src/pro-room/__tests__/pro-youtube-duration.test.ts',
       'src/pro-room/__tests__/pro-room-diagnostics.test.ts',
       'src/pro-room/__tests__/pro-room-do-diagnostics.test.ts',

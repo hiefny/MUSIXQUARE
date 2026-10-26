@@ -1,0 +1,85 @@
+name: App Build Floor
+
+# Reads, checks, raises or lowers the App build floor (forced update; resource
+# record RO-50) through the App Worker's ops route. The route accepts only a
+# GitHub OIDC token of this workflow or the Production Release on main, so no
+# repository secret or owner credential is used.
+#
+# - status: read-only status and the page's client read.
+# - check: authenticates through OIDC and reads; changes nothing.
+# - set: raises the floor (never above the live App build) or re-verifies it.
+# - lower: lowers it; 0 turns it off.
+#
+# It shares the Production Release concurrency group, so it never runs inside
+# a release. GitHub keeps one pending run per group and a newly queued run
+# cancels the pending one: never dispatch this while a release is running or
+# queued, and read the run's conclusion afterwards (`cancelled` means nothing
+# ran). Every change is verified end to end and printed as one summary line
+# for release-record section 1.
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: status, check, set or lower
+        required: true
+        default: status
+        type: choice
+        options:
+          - status
+          - check
+          - set
+          - lower
+      min_app_build:
+        description: Build for set or lower (the service-worker cache epoch; lower to 0 turns the floor off)
+        required: false
+        default: ''
+        type: string
+      reason:
+        description: Why the floor changes (kept in the floor history)
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musixquare-production-release
+  cancel-in-progress: false
+
+jobs:
+  floor:
+    name: App build floor ${{ inputs.action }}
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://musixquare.com
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Run the App build floor action
+        env:
+          FLOOR_ACTION: ${{ inputs.action }}
+          FLOOR_MIN_APP_BUILD: ${{ inputs.min_app_build }}
+          MXQR_APP_BUILD_FLOOR_REASON: ${{ inputs.reason }}
+        run: |
+          node scripts/app-build-floor.mts "$FLOOR_ACTION" "$FLOOR_MIN_APP_BUILD"

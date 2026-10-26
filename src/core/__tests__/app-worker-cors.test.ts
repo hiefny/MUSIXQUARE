@@ -2734,6 +2734,11 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     const control = createAtomicRateControlBinding();
     const openedFromIp = '203.0.113.210';
     const resumedFromIp = '203.0.113.211';
+    const bridgedAuthFrame = JSON.stringify({
+      type: 'guest-auth',
+      reconnectSecret: 'ram-only',
+      appBuild: 785,
+    });
     const internalRequests: Array<{ objectName: string; request: Request; body: unknown }> = [];
     const signalingRooms = {
       idFromName: vi.fn((name: string) => name),
@@ -2801,11 +2806,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
           'CF-Connecting-IP': resumedFromIp,
           Authorization: `Bearer ${openPayload.sessionToken}`,
         },
-        body: JSON.stringify({
-          v: 1,
-          cseq: 1,
-          frame: JSON.stringify({ type: 'guest-auth', reconnectSecret: 'ram-only' }),
-        }),
+        body: JSON.stringify({ v: 1, cseq: 1, frame: bridgedAuthFrame }),
       }),
       env,
     );
@@ -2822,6 +2823,8 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       request: {
         v: 1,
         cseq: 1,
+        // The frame (with the client's build) reaches the bridge byte-identical.
+        frame: bridgedAuthFrame,
       },
     });
 
@@ -4984,6 +4987,7 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 2, event: 'guest_pending_capacity', count: 6 },
         { bucket_minute: nowMinute - 2, event: 'guest_identity_capacity', count: 7 },
         { bucket_minute: nowMinute - 1, event: 'ws_message_oversized', count: 3 },
+        { bucket_minute: nowMinute - 1, event: 'app_update_required', count: 2 },
         { bucket_minute: nowMinute, event: 'ws_message_rate_limited', count: 4 },
       ]),
     };
@@ -5044,6 +5048,12 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(payload.summary?.last24?.guest_identity_capacity).toBe(7);
     expect(payload.summary?.last24?.ws_message_oversized).toBe(3);
     expect(payload.summary?.last24?.ws_message_rate_limited).toBe(4);
+    // Signaling refusals below the App build floor (forced update).
+    expect(payload.summary?.last24?.app_update_required).toBe(2);
+    expect(payload.events).toContainEqual({
+      key: 'app_update_required',
+      label: 'App update required refusals',
+    });
     expect(payload.summary?.daily).toHaveLength(7);
     expect(payload.summary?.daily30).toHaveLength(30);
     expect(payload.summary?.daily30?.[0]?.events.guest_joined).toBe(4);

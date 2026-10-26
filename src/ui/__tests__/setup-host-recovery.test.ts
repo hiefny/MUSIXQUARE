@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   actions: [] as Array<Record<string, unknown>>,
@@ -93,6 +93,7 @@ vi.mock('../setup-shared.ts', () => ({
 }));
 
 import { setHostGoBack, startHostFlow } from '../setup-host.ts';
+import { requestForcedAppUpdateFor, setForcedAppUpdateHandler } from '../../core/app-build.ts';
 import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
 
 beforeEach(() => {
@@ -248,6 +249,55 @@ describe('host setup recovery', () => {
     const back = mocks.actions[0]?.onClick as (() => void) | undefined;
     back?.();
     expect(goBack).toHaveBeenCalledOnce();
+  });
+
+  describe('a refusal below the App build floor (forced update, train 9.0.14)', () => {
+    afterEach(() => {
+      setForcedAppUpdateHandler({ request: () => false, isPending: () => false });
+    });
+
+    function refusal(answer: boolean): Error {
+      setForcedAppUpdateHandler({ request: () => answer, isPending: () => false });
+      const error = Object.assign(new Error('APP_UPDATE_REQUIRED'), {
+        type: 'app-update-required',
+      });
+      requestForcedAppUpdateFor(error, { minAppBuild: 786, admitted: false, returnCode: null });
+      return error;
+    }
+
+    it('shows no creation error text when the forced update took it over, and keeps Retry', async () => {
+      mocks.createSession.mockRejectedValueOnce(refusal(true));
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+      });
+      expect(mocks.setupSetHostError).toHaveBeenLastCalledWith(null);
+      expect(mocks.setupSetHostError).not.toHaveBeenCalledWith('error.session_create_fail');
+    });
+
+    it('hides the text by the pending query alone', async () => {
+      setForcedAppUpdateHandler({ request: () => true, isPending: () => true });
+      mocks.createSession.mockRejectedValueOnce(new Error('APP_UPDATE_REQUIRED'));
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.actions[1]).toMatchObject({ id: 'btn-setup-confirm', text: 'common.retry' });
+      });
+      expect(mocks.setupSetHostError).not.toHaveBeenCalledWith('error.session_create_fail');
+    });
+
+    it('shows the ordinary creation error when the port declined (the loop guard)', async () => {
+      mocks.createSession.mockRejectedValueOnce(refusal(false));
+
+      startHostFlow();
+
+      await vi.waitFor(() => {
+        expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('error.session_create_fail');
+      });
+    });
   });
 
   it('replaces a fake retry with Refresh after a terminal room-feature failure', async () => {

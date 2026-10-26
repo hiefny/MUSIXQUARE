@@ -9,6 +9,7 @@ export default defineConfig({
     'production-candidate-smoke.test.ts',
     'locale-recovery.test.ts',
     'translation-retry.test.ts',
+    'forced-update-resume.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

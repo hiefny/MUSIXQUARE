@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { readReleaseIdentity } from '../../../scripts/release-identity.mts';
 import {
   PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS,
   PRO_ROOM_READINESS_RETRY_DELAYS_MS,
@@ -319,5 +320,41 @@ describe('live PRO room smoke readiness', () => {
       PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS * PRO_ROOM_READINESS_RETRY_DELAYS_MS.length;
     expect(retryBudget).toBe(150_000);
     expect(retryBudget + worstCaseRequestBudget).toBeLessThan(5 * 60_000);
+  });
+});
+
+describe('live PRO room smoke App build', () => {
+  it('sends the release build on every public boundary request', async () => {
+    const releaseBuild = readReleaseIdentity().serviceWorkerCacheEpoch;
+    const requests: Array<{ url: string; headers: Headers }> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, headers: new Headers(init?.headers) });
+        const payload = url.endsWith('/000000/bootstrap')
+          ? { roomCode: '000000', status: 'activation_required' }
+          : url.endsWith('/000001/bootstrap')
+            ? { roomCode: '000001', status: 'pin_required' }
+            : { error: 'SESSION_REQUIRED' };
+        return new Response(JSON.stringify(payload), {
+          status: url.endsWith('/snapshot') ? 401 : 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    try {
+      await expect(verifyProRoomPublicBoundary()).resolves.toMatchObject({
+        anonymousSnapshotRejected: true,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(requests).toHaveLength(3);
+    for (const request of requests) {
+      // The wire header name is pinned here as the PRO front door reads it.
+      expect(request.headers.get('X-MXQR-App-Build'), request.url).toBe(String(releaseBuild));
+    }
   });
 });

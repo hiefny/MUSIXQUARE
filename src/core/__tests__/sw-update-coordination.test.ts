@@ -2,9 +2,17 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS,
+  APP_BUILD_FLOOR_READ_TIMEOUT_MS,
+  createAppBuildFloorCheckGate,
   createServiceWorkerGenerationResolver,
   createServiceWorkerUpdateLedger,
+  readEffectiveAppBuildFloor,
 } from '../../sw-update-coordination.ts';
+import {
+  APP_BUILD_FLOOR_CLIENT_PATH,
+  APP_BUILD_MAX,
+} from '../../../cloudflare/app-build-floor-contract.ts';
 
 function generation(cacheVersion: string | null, promptIdentity = cacheVersion || 'unknown:sw') {
   return { cacheVersion, promptIdentity };
@@ -199,5 +207,234 @@ describe('service-worker update coordination', () => {
       cacheVersion: null,
       promptIdentity: 'unknown:https://musixquare.com/service-worker.js',
     });
+  });
+});
+
+/**
+ * The App build floor read and its gate (forced update Inc 7, the start and
+ * resume check, RO-22): the page reads the effective floor from the App
+ * Worker when it starts and when it returns to the foreground. A read that a
+ * server answered, or that hit its deadline, is spent; one the page abandoned
+ * or that got no response is released.
+ */
+describe('the App build floor read (forced update, start and resume check)', () => {
+  /** A read with its own page abort, as the check makes it. */
+  function startRead(): {
+    abort: AbortController;
+    result: ReturnType<typeof readEffectiveAppBuildFloor>;
+  } {
+    const abort = new AbortController();
+    return {
+      abort,
+      result: readEffectiveAppBuildFloor(abort.signal, APP_BUILD_FLOOR_READ_TIMEOUT_MS),
+    };
+  }
+
+  function stubFetch(answer: () => Promise<Response>): ReturnType<typeof vi.fn> {
+    const fetch = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      const signal = init?.signal;
+      return new Promise<Response>((resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        answer().then(resolve, reject);
+      });
+    });
+    vi.stubGlobal('fetch', fetch);
+    return fetch;
+  }
+
+  const json = (body: string, status = 200, contentType = 'application/json') =>
+    new Response(body, { status, headers: { 'Content-Type': contentType } });
+
+  it('R1 returns the floor of a well-formed answer, and 0 for no floor', async () => {
+    stubFetch(async () => json('{"effectiveMinAppBuild":786}'));
+    await expect(startRead().result).resolves.toEqual({ floor: 786, spent: true });
+    stubFetch(async () => json('{"effectiveMinAppBuild":0}'));
+    await expect(startRead().result).resolves.toEqual({ floor: 0, spent: true });
+  });
+
+  it.each([
+    ['a missing key', '{}'],
+    ['another key', '{"minAppBuild":786}'],
+    ['a negative floor', '{"effectiveMinAppBuild":-1}'],
+    ['a float', '{"effectiveMinAppBuild":785.5}'],
+    ['a string', '{"effectiveMinAppBuild":"786"}'],
+    ['a floor above APP_BUILD_MAX', `{"effectiveMinAppBuild":${APP_BUILD_MAX + 1}}`],
+    ['null', '{"effectiveMinAppBuild":null}'],
+    ['a bare number', '786'],
+    ['a JSON null', 'null'],
+    ['an array', '[786]'],
+    ['an empty body', ''],
+  ])('R1 a 200 with %s gives no floor, and the read is spent', async (_name, body) => {
+    stubFetch(async () => json(body));
+    await expect(startRead().result).resolves.toEqual({ floor: null, spent: true });
+  });
+
+  it('R1 an HTML 200 (a static or SPA fallback) gives no floor, and the read is spent', async () => {
+    stubFetch(async () => json('<!doctype html><html><body>App</body></html>', 200, 'text/html'));
+    await expect(startRead().result).resolves.toEqual({ floor: null, spent: true });
+  });
+
+  it('R1 a body over 256 bytes gives no floor, also without a Content-Length', async () => {
+    const padded = JSON.stringify({ effectiveMinAppBuild: 786, pad: 'x'.repeat(256) });
+    stubFetch(async () => json(padded));
+    await expect(startRead().result).resolves.toEqual({ floor: null, spent: true });
+
+    const encoder = new TextEncoder();
+    stubFetch(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(padded.slice(0, 200)));
+              controller.enqueue(encoder.encode(padded.slice(200)));
+              controller.close();
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    await expect(startRead().result).resolves.toEqual({ floor: null, spent: true });
+  });
+
+  it.each([404, 500, 503])(
+    'R2 a %i gives no floor, its body is cancelled, and the read is spent',
+    async (status) => {
+      const cancel = vi.fn();
+      stubFetch(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              pull() {
+                /* never sends a byte */
+              },
+              cancel,
+            }),
+            { status },
+          ),
+      );
+      await expect(startRead().result).resolves.toEqual({ floor: null, spent: true });
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+    },
+  );
+
+  it('R3 a fetch rejection with no response (offline, connection lost) gives no floor and releases the read', async () => {
+    stubFetch(() => Promise.reject(new TypeError('Failed to fetch')));
+    await expect(startRead().result).resolves.toEqual({ floor: null, spent: false });
+  });
+
+  it('R4 no answer: no floor at exactly the read deadline, and the read is spent; the request asks past every cache, without credentials', async () => {
+    vi.useFakeTimers();
+    const fetch = stubFetch(() => new Promise<Response>(() => undefined));
+    const { result } = startRead();
+    let settled: unknown = 'pending';
+    result.then(
+      (value) => {
+        settled = value;
+      },
+      (error: unknown) => {
+        settled = error;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(APP_BUILD_FLOOR_READ_TIMEOUT_MS - 1);
+    expect(settled).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(settled).toEqual({ floor: null, spent: true });
+
+    expect(fetch).toHaveBeenCalledOnce();
+    const [input, init] = fetch.mock.calls[0] as [RequestInfo | URL, RequestInit];
+    expect(String(input)).toBe(APP_BUILD_FLOOR_CLIENT_PATH);
+    expect(init).toMatchObject({
+      cache: 'no-store',
+      credentials: 'omit',
+      headers: { Accept: 'application/json' },
+    });
+    expect(init.method ?? 'GET').toBe('GET');
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("R5 the page's own abort (it went hidden) releases the read, before or during the body", async () => {
+    stubFetch(() => new Promise<Response>(() => undefined));
+    const waiting = startRead();
+    waiting.abort.abort();
+    await expect(waiting.result).resolves.toEqual({ floor: null, spent: false });
+
+    const aborted = new AbortController();
+    aborted.abort();
+    await expect(
+      readEffectiveAppBuildFloor(aborted.signal, APP_BUILD_FLOOR_READ_TIMEOUT_MS),
+    ).resolves.toEqual({ floor: null, spent: false });
+
+    stubFetch(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull() {
+              /* the body never finishes */
+            },
+          }),
+          { status: 200 },
+        ),
+    );
+    const reading = startRead();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    reading.abort.abort();
+    await expect(reading.result).resolves.toEqual({ floor: null, spent: false });
+  });
+
+  it('R5 an answer of any status or body and the deadline are spent; an abandoned read and no response are released', async () => {
+    const spentBy = async (answer: () => Promise<Response>) => {
+      stubFetch(answer);
+      return (await startRead().result).spent;
+    };
+    expect(await spentBy(async () => json('{"effectiveMinAppBuild":786}'))).toBe(true);
+    expect(await spentBy(async () => json('not json'))).toBe(true);
+    expect(await spentBy(async () => json('{}', 503))).toBe(true);
+    expect(await spentBy(() => Promise.reject(new TypeError('network')))).toBe(false);
+  });
+
+  it("G1 the gate's first claim is true; a spent read closes the window, which reopens at its end", () => {
+    const gate = createAppBuildFloorCheckGate(APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS);
+    const start = 1_000_000;
+    expect(gate.claim(start)).toBe(true);
+    gate.settle(true);
+    expect(gate.claim(start + 1)).toBe(false);
+    expect(gate.claim(start + APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS - 1)).toBe(false);
+    expect(gate.claim(start + APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS)).toBe(true);
+  });
+
+  it('G2 a claim while a read is in flight is false, even after the window; settling frees it', () => {
+    const gate = createAppBuildFloorCheckGate(APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS);
+    const start = 2_000_000;
+    expect(gate.claim(start)).toBe(true);
+    expect(gate.claim(start + 1)).toBe(false);
+    expect(gate.claim(start + 10 * APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS)).toBe(false);
+    gate.settle(true);
+    expect(gate.claim(start + 10 * APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS)).toBe(true);
+  });
+
+  it('G3 a released read lets one more start into the same window: two starts per window', () => {
+    const gate = createAppBuildFloorCheckGate(APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS);
+    const start = 3_000_000;
+    expect(gate.claim(start)).toBe(true);
+    gate.settle(false);
+    expect(gate.claim(start + 1_000)).toBe(true);
+    gate.settle(false);
+    expect(gate.claim(start + 2_000)).toBe(false);
+    expect(gate.claim(start + APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS - 1)).toBe(false);
+    // The window opened at the first claim; the next one starts at its end.
+    expect(gate.claim(start + APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS)).toBe(true);
+    gate.settle(false);
+    expect(gate.claim(start + APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS + 1)).toBe(true);
+    gate.settle(true);
+    expect(gate.claim(start + APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS + 2)).toBe(false);
+  });
+
+  it('G3 a clock that steps back opens a new window instead of closing the gate until it catches up', () => {
+    const gate = createAppBuildFloorCheckGate(APP_BUILD_FLOOR_CHECK_MIN_INTERVAL_MS);
+    const start = 4_000_000;
+    expect(gate.claim(start)).toBe(true);
+    gate.settle(true);
+    expect(gate.claim(start - 3_600_000)).toBe(true);
   });
 });

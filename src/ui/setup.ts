@@ -12,6 +12,7 @@
 
 import { log } from '../core/log.ts';
 import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
+import { isHandledByForcedAppUpdate } from '../core/app-build.ts';
 import { synchronizeCurrentLocalizedAppHead, t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
@@ -686,10 +687,14 @@ export function initSetup(): void {
     else if (peerType === 'invalid-id') userMsg = t('error.session_id_unavailable');
     else if (peerType === 'invalid-key') userMsg = t('error.signal_server_fail');
 
+    // A refusal below the App build floor that the forced update took over,
+    // or any failure while its dialog is up: no join-field text and no toast.
+    const forcedUpdate = isHandledByForcedAppUpdate(error);
     const isConnecting = getState('network.isConnecting');
     if (isConnecting) {
       // Still trying to join — emit failure for UI reset
-      bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
+      if (forcedUpdate) bus.emit('setup:guest-join-cancelled');
+      else bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
     } else if (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') {
       // This is terminal connection loss, after recoverable PRO interruptions
       // have returned above. Silence every source before showing the dialog,
@@ -742,8 +747,9 @@ export function initSetup(): void {
       // UI so the user is not left in a non-interactive state.
       const appRole = getState('network.appRole');
       if (appRole === 'guest' && !getState('setup.sessionStarted')) {
-        bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
-      } else {
+        if (forcedUpdate) bus.emit('setup:guest-join-cancelled');
+        else bus.emit('setup:guest-join-failure', { error: err, userMessage: userMsg });
+      } else if (!forcedUpdate) {
         showToast(userMsg);
       }
     }

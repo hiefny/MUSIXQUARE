@@ -1,4 +1,9 @@
 import { log } from '../../core/log.ts';
+import { APP_BUILD, requestForcedAppUpdateFor } from '../../core/app-build.ts';
+import {
+  APP_UPDATE_REQUIRED_ERROR_TYPE,
+  parseAppBuild,
+} from '../../../cloudflare/app-build-floor-contract.ts';
 import { CHUNK_SIZE, MSG, RTC_INTERRUPTION_GRACE_MS } from '../../core/constants.ts';
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { withRequestDeadline } from '../../core/request-lifetime.ts';
@@ -69,7 +74,14 @@ type SignalingMessage =
       errorType?: string;
       existingParticipants?: StandardRoomPinMembershipRequest['mode'];
     }
-  | { type: 'error'; errorType?: string; message?: string; retryAfterSeconds?: number }
+  | {
+      type: 'error';
+      errorType?: string;
+      message?: string;
+      retryAfterSeconds?: number;
+      /** The floor of an `app-update-required` refusal (forced update). */
+      minAppBuild?: unknown;
+    }
   | {
       type: 'remote-share-upload-assertion';
       correlationId: string;
@@ -801,16 +813,21 @@ function createTransportError(type: string, message: string): Error & { type: st
   return err;
 }
 
-/** A Worker `error` frame as a transport error, keeping a bounded retry hint. */
+/**
+ * A Worker `error` frame as a transport error, keeping a bounded retry hint
+ * and the floor of a refusal below the App build floor.
+ */
 function createSignalingFrameError(message: {
   errorType?: string;
   message?: string;
   retryAfterSeconds?: number;
-}): Error & { type: string; retryAfterSeconds?: number } {
-  const error: Error & { type: string; retryAfterSeconds?: number } = createTransportError(
-    message.errorType ?? 'server-error',
-    message.message ?? 'SIGNALING_ERROR',
-  );
+  minAppBuild?: unknown;
+}): Error & { type: string; retryAfterSeconds?: number; minAppBuild?: number } {
+  const error: Error & { type: string; retryAfterSeconds?: number; minAppBuild?: number } =
+    createTransportError(message.errorType ?? 'server-error', message.message ?? 'SIGNALING_ERROR');
+  if (typeof message.minAppBuild === 'number' && parseAppBuild(message.minAppBuild) !== null) {
+    error.minAppBuild = message.minAppBuild;
+  }
   const retryAfterSeconds = message.retryAfterSeconds;
   if (
     typeof retryAfterSeconds === 'number' &&
@@ -1837,6 +1854,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         secret: this.hostSecret,
         desiredRoomPassword: this.roomPassword || '',
         pinMutationId: this.roomPasswordMutationId,
+        // The Worker refuses a build below the App build floor (forced update).
+        ...(APP_BUILD > 0 ? { appBuild: APP_BUILD } : {}),
       }),
     );
     this.noteSignalingSocketAuthSent(socket);
@@ -1875,6 +1894,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         ...(currentAssertions?.accountAssertion
           ? { accountAssertion: currentAssertions.accountAssertion }
           : {}),
+        ...(APP_BUILD > 0 ? { appBuild: APP_BUILD } : {}),
       }),
     );
     this.noteSignalingSocketAuthSent(socket);
@@ -3879,13 +3899,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           this.retireSignalingSocket(sourceSocket);
         }
       }
-      this.emit(
-        'error',
-        createTransportError(
-          message.errorType ?? 'server-error',
-          message.message ?? 'SIGNALING_ERROR',
-        ),
-      );
+      const error = createSignalingFrameError(message);
+      if (message.errorType === APP_UPDATE_REQUIRED_ERROR_TYPE) {
+        // Below the App build floor: the forced update answers before the
+        // error is reported, so setup reads its answer. A host reloads in place.
+        requestForcedAppUpdateFor(error, {
+          minAppBuild: message.minAppBuild,
+          admitted: this.hostSignalingOpenedOnce,
+          returnCode: null,
+        });
+      }
+      this.emit('error', error);
       return;
     }
     if (message.type === 'signal-offer') {
@@ -4075,6 +4099,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'error') {
       this.noteSignalingSocketSemanticFailure(socket);
       const error = createSignalingFrameError(message);
+      if (message.errorType === APP_UPDATE_REQUIRED_ERROR_TYPE) {
+        // Below the App build floor: a permanent refusal of this admission,
+        // live channel or not, so nothing reopens its socket. The forced
+        // update answers before anything is reported; Apply returns to the
+        // room this guest tried.
+        const refusedRecord = this.guestRooms.get(roomId);
+        if (refusedRecord?.conn === conn) refusedRecord.authFailed = true;
+        requestForcedAppUpdateFor(error, {
+          minAppBuild: message.minAppBuild,
+          admitted: conn.open,
+          returnCode: roomId,
+        });
+      }
       if (this.isDataConnectionAlive(conn)) {
         // These rejection frames concern the signaling socket, not necessarily
         // the established data channel. Emitting a connection error would tear

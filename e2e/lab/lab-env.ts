@@ -23,6 +23,13 @@ export const LAB_APP_ORIGIN = `http://${LAB_HOST}:${LAB_APP_PORT}`;
 export const LAB_SIGNALING_ORIGIN = `http://${LAB_HOST}:${LAB_SIGNALING_PORT}`;
 export const LAB_SIGNALING_URL = `ws://${LAB_HOST}:${LAB_SIGNALING_PORT}/api/rooms`;
 
+/**
+ * Lab-only route of the generated signaling wrapper (forced update): POST
+ * `{minAppBuild, liveAppBuild}` sets the local ServiceControl's App build floor
+ * and live-App report, which production sets only through the App Worker.
+ */
+export const LAB_APP_BUILD_FLOOR_PATH = '/__lab/app-build-floor';
+
 // The lab reads the E2E-only state hooks, so it always serves a fresh E2E build
 // of the working tree rather than whatever dist/ an earlier command left.
 export const LAB_PREVIEW_COMMAND =

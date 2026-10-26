@@ -9,6 +9,7 @@ import {
   main,
   StandardHttpBridgeSmokeClient,
 } from '../../../scripts/live-standard-http-signaling-smoke.mts';
+import { readReleaseIdentity } from '../../../scripts/release-identity.mts';
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -727,5 +728,203 @@ describe('live Standard HTTPS signaling smoke', () => {
       ok: true,
       bridgeOpenMs: { host: expect.any(Number), guest: expect.any(Number) },
     });
+  });
+});
+
+describe('live Standard HTTPS signaling smoke App build', () => {
+  const RELEASE_BUILD = readReleaseIdentity().serviceWorkerCacheEpoch;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  interface BridgeSession {
+    role: 'host' | 'guest';
+    roomId: string;
+    peerId: string;
+    nextServerSequence: number;
+    events: Array<{ sseq: number; data: string }>;
+    terminal: { code: number; reason: string } | null;
+  }
+
+  /** A bridge whose room either accepts appBuild or is a pre-floor Worker. */
+  function fakeBridge({
+    preFloorWorker = false,
+    workerVersionId,
+  }: {
+    preFloorWorker?: boolean;
+    workerVersionId?: string;
+  }) {
+    const sessions = new Map<string, BridgeSession>();
+    const frames: Array<{ role: string; frame: Record<string, unknown> }> = [];
+    let serial = 0;
+    const version = workerVersionId ? { workerVersionId } : {};
+    const enqueue = (state: BridgeSession, frame: Record<string, unknown>) => {
+      state.nextServerSequence += 1;
+      state.events.push({ sseq: state.nextServerSequence, data: JSON.stringify(frame) });
+    };
+    const sessionFrom = (init?: RequestInit): BridgeSession => {
+      const token = (new Headers(init?.headers).get('Authorization') ?? '').replace(
+        /^Bearer /u,
+        '',
+      );
+      const state = sessions.get(token);
+      if (!state) throw new Error('Unknown bridge smoke session');
+      return state;
+    };
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/security-config')) {
+        return jsonResponse({
+          capabilityRequired: true,
+          turnstileRequired: false,
+          proofOfWorkRequired: true,
+        });
+      }
+      if (url.endsWith('/api/capability-challenge')) {
+        return jsonResponse({ challenge: 'bridge-smoke.signature', difficulty: 8 });
+      }
+      if (url.endsWith('/api/capability-token')) {
+        return jsonResponse({ token: `proof.${'a'.repeat(43)}` });
+      }
+      if (url.endsWith('/open')) {
+        const body = JSON.parse(String(init?.body)) as {
+          role: 'host' | 'guest';
+          roomId: string;
+          peerId: string;
+        };
+        const token = `session-${++serial}`;
+        sessions.set(token, { ...body, nextServerSequence: 0, events: [], terminal: null });
+        return jsonResponse({ sessionToken: token });
+      }
+      if (url.endsWith('/send')) {
+        const state = sessionFrom(init);
+        const body = JSON.parse(String(init?.body)) as { cseq: number; frame: string };
+        const frame = JSON.parse(body.frame) as Record<string, unknown>;
+        frames.push({ role: state.role, frame });
+        if (frame.type === 'host-auth' && preFloorWorker && 'appBuild' in frame) {
+          enqueue(state, {
+            type: 'error',
+            errorType: 'invalid-id',
+            message: 'HOST_AUTH_FIRST_FRAME_INVALID',
+          });
+          state.terminal = { code: 1008, reason: 'HOST_AUTH_FIRST_FRAME_INVALID' };
+        } else if (frame.type === 'host-auth') {
+          enqueue(state, {
+            type: 'peer-open',
+            peerId: state.peerId,
+            roomId: state.roomId,
+            roomPasswordApplied: true,
+            ...version,
+          });
+        } else if (frame.type === 'room-password-set') {
+          enqueue(state, {
+            type: 'room-password-result',
+            mutationId: frame.pinMutationId,
+            applied: true,
+          });
+        } else if (frame.type === 'guest-auth') {
+          enqueue(state, {
+            type: 'peer-open',
+            peerId: state.peerId,
+            roomId: state.roomId,
+            ...version,
+          });
+        } else if (frame.type === 'signal-offer') {
+          const host = [...sessions.values()].find(
+            (candidate) => candidate.role === 'host' && candidate.terminal === null,
+          );
+          if (!host) throw new Error('Missing host smoke session');
+          enqueue(host, { ...frame, from: state.peerId });
+        } else if (frame.type === 'signal-answer') {
+          const guest = [...sessions.values()].find((candidate) => candidate.role === 'guest');
+          if (!guest) throw new Error('Missing guest smoke session');
+          enqueue(guest, { ...frame, from: state.peerId });
+        }
+        return jsonResponse({ v: 1, ack: body.cseq });
+      }
+      if (url.endsWith('/poll')) {
+        const state = sessionFrom(init);
+        const events = state.events.splice(0);
+        return jsonResponse({
+          v: 1,
+          events,
+          ...(state.terminal ? { terminal: state.terminal } : {}),
+        });
+      }
+      if (url.endsWith('/close')) return jsonResponse({ ok: true });
+      throw new Error(`Unexpected production smoke URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    return { frames, sessions };
+  }
+
+  it('sends the release build on the host and guest admission frames', async () => {
+    const bridge = fakeBridge({});
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await main();
+
+    const auth = bridge.frames.filter(
+      ({ frame }) => frame.type === 'host-auth' || frame.type === 'guest-auth',
+    );
+    expect(auth.map(({ role, frame }) => [role, frame.type, frame.appBuild])).toEqual([
+      ['host', 'host-auth', RELEASE_BUILD],
+      ['guest', 'guest-auth', RELEASE_BUILD],
+    ]);
+  });
+
+  it('retries the host once in the legacy shape on a pre-floor Worker of unknown version', async () => {
+    const bridge = fakeBridge({ preFloorWorker: true });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await main();
+
+    const hostAuth = bridge.frames.filter(({ frame }) => frame.type === 'host-auth');
+    expect(hostAuth.map(({ frame }) => frame.appBuild)).toEqual([RELEASE_BUILD, undefined]);
+    expect([...bridge.sessions.values()].filter((session) => session.role === 'host')).toHaveLength(
+      2,
+    );
+    // The guest frame always carries the build: a pre-floor guest validator
+    // ignores the extra key.
+    expect(bridge.frames.find(({ frame }) => frame.type === 'guest-auth')?.frame.appBuild).toBe(
+      RELEASE_BUILD,
+    );
+    expect(warn.mock.calls.map(([line]) => String(line)).join('\n')).toContain(
+      'legacy signaling Worker (no floor)',
+    );
+    expect(JSON.parse(String(output.mock.calls[0]?.[0]))).toMatchObject({ ok: true });
+  });
+
+  it('fails when the candidate signaling Worker refuses the build as an unknown key', async () => {
+    vi.stubEnv('MXQR_EXPECTED_SIGNALING_VERSION', 'version-1');
+    const bridge = fakeBridge({ preFloorWorker: true, workerVersionId: 'version-1' });
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(main()).rejects.toThrow('without appBuild support');
+    expect(bridge.frames.filter(({ frame }) => frame.type === 'host-auth')).toHaveLength(1);
+  });
+
+  it('still fails a session that closes before the awaited frame', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ sessionToken: 'bridge.session.token' }))
+        .mockResolvedValueOnce(
+          jsonResponse({ v: 1, events: [], terminal: { code: 1011, reason: 'CLOSED' } }),
+        ),
+    );
+    const client = await StandardHttpBridgeSmokeClient.open('capability.token', {
+      roomId: '123456',
+      role: 'host',
+      peerId: 'http-host-abcdef12',
+    });
+    await expect(
+      client.waitFor((message) => message.type === 'peer-open', 'host peer-open'),
+    ).rejects.toThrow('HTTP signaling bridge closed before smoke completion');
   });
 });

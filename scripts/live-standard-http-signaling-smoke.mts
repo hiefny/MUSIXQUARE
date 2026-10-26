@@ -4,6 +4,14 @@ import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 
 import {
+  LegacySignalingHostAuthError,
+  classifyHostAdmission,
+  createHostAuthBuildSelector,
+  resolveLiveSmokeAppBuild,
+  withAppBuild,
+  type LiveSmokeAppBuild,
+} from './live-smoke-app-build.mts';
+import {
   createRateLimitUnavailableRetry,
   isRateLimitUnavailableResponse,
   type RateLimitUnavailableRetry,
@@ -289,6 +297,7 @@ export class StandardHttpBridgeSmokeClient {
   private clientSequence = 0;
   private serverAck = 0;
   private requestEpoch = 0;
+  private closedByServer = false;
   private readonly queued: JsonObject[] = [];
   private readonly sessionToken: string;
   private readonly role: BridgeRole;
@@ -374,6 +383,8 @@ export class StandardHttpBridgeSmokeClient {
   }
 
   async poll(waitMs = 1_000): Promise<JsonObject[]> {
+    if (this.closedByServer)
+      throw new Error('HTTP signaling bridge closed before smoke completion');
     this.requestEpoch += 1;
     const polled = await exchangeBridgeRetryingRateLimit(
       'poll',
@@ -396,9 +407,9 @@ export class StandardHttpBridgeSmokeClient {
     if (polled.payload.v !== 1 || !Array.isArray(polled.payload.events)) {
       throw new Error('HTTP signaling bridge poll response was malformed');
     }
-    if (polled.payload.terminal !== undefined) {
-      throw new Error('HTTP signaling bridge closed before smoke completion');
-    }
+    // The room's last frames (a refusal, for example) arrive with the terminal;
+    // deliver them first, then fail every later wait.
+    if (polled.payload.terminal !== undefined) this.closedByServer = true;
     const messages: JsonObject[] = [];
     for (const rawEvent of polled.payload.events) {
       if (
@@ -445,6 +456,9 @@ export class StandardHttpBridgeSmokeClient {
         if (matched) return matched;
       }
       this.queued.push(...messages);
+      if (this.closedByServer) {
+        throw new Error('HTTP signaling bridge closed before smoke completion');
+      }
     }
     throw new Error(`HTTP signaling bridge timed out waiting for ${description}`);
   }
@@ -465,8 +479,38 @@ export class StandardHttpBridgeSmokeClient {
   }
 }
 
+/**
+ * The host's admission frame. A pre-floor Worker's refusal of `appBuild` gets
+ * the one legacy-shape retry when the Worker version is unknown and fails the
+ * candidate run; a floor refusal of the release build always fails.
+ */
+function requireAdmittedHttpHost(
+  frame: JsonObject,
+  hostBuild: number | null,
+  appBuild: LiveSmokeAppBuild,
+): JsonObject {
+  const admission = classifyHostAdmission(frame);
+  if (admission.outcome === 'admitted') return admission.frame;
+  if (admission.outcome === 'legacy-refused' && hostBuild !== null) {
+    if (appBuild.signalingMode === 'unknown') {
+      throw new LegacySignalingHostAuthError('HTTP signaling host');
+    }
+    throw new Error('HTTP signaling host reached a signaling Worker without appBuild support');
+  }
+  if (admission.outcome === 'below-floor') {
+    throw new Error(
+      `HTTP signaling host was refused below the App build floor ${admission.minAppBuild} with build ${hostBuild ?? 'none'}`,
+    );
+  }
+  throw new Error('HTTP signaling host admission was rejected');
+}
+
 export async function main(): Promise<void> {
   const expectedVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
+  // Both peers report the checked-out release build, so this smoke keeps
+  // passing after the App build floor is turned on.
+  const appBuild = resolveLiveSmokeAppBuild();
+  const hostAuth = createHostAuthBuildSelector(appBuild, { label: 'HTTP signaling smoke' });
   const capability = await mintStandardSignalingCapability();
   const roomId = String(randomInt(100_000, 1_000_000));
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
@@ -476,23 +520,36 @@ export async function main(): Promise<void> {
   const reconnectSecret = randomBytes(32).toString('base64url');
   const pinMutationId = randomBytes(24).toString('base64url');
   const negotiationId = `http-smoke-${suffix}`;
-  const host = await StandardHttpBridgeSmokeClient.open(capability, {
-    roomId,
-    role: 'host',
-    peerId: hostPeerId,
+  const { host, hostOpen } = await hostAuth.run(async (hostBuild) => {
+    const client = await StandardHttpBridgeSmokeClient.open(capability, {
+      roomId,
+      role: 'host',
+      peerId: hostPeerId,
+    });
+    try {
+      await client.send(
+        withAppBuild(
+          {
+            type: 'host-auth',
+            secret: hostSecret,
+            desiredRoomPassword: '',
+            pinMutationId,
+          },
+          hostBuild,
+        ),
+      );
+      const admission = await client.waitFor(
+        (message) => message.type === 'peer-open' || message.type === 'error',
+        'host admission',
+      );
+      return { host: client, hostOpen: requireAdmittedHttpHost(admission, hostBuild, appBuild) };
+    } catch (error) {
+      await client.close();
+      throw error;
+    }
   });
   let guest: StandardHttpBridgeSmokeClient | null = null;
   try {
-    await host.send({
-      type: 'host-auth',
-      secret: hostSecret,
-      desiredRoomPassword: '',
-      pinMutationId,
-    });
-    const hostOpen = await host.waitFor(
-      (message) => message.type === 'peer-open',
-      'host peer-open',
-    );
     if (expectedVersion && hostOpen.workerVersionId !== expectedVersion) {
       throw new Error('HTTP signaling host reached an unexpected Worker version');
     }
@@ -520,7 +577,9 @@ export async function main(): Promise<void> {
       role: 'guest',
       peerId: guestPeerId,
     });
-    await guest.send({ type: 'guest-auth', password: '', reconnectSecret });
+    await guest.send(
+      withAppBuild({ type: 'guest-auth', password: '', reconnectSecret }, appBuild.build),
+    );
     const guestOpen = await guest.waitFor(
       (message) => message.type === 'peer-open',
       'guest peer-open',
@@ -564,6 +623,11 @@ export async function main(): Promise<void> {
       JSON.stringify({
         ok: true,
         expectedVersion: expectedVersion || null,
+        appBuild: {
+          build: appBuild.build,
+          signalingMode: appBuild.signalingMode,
+          hostAuthShape: hostAuth.frameBuild() === null ? 'legacy' : 'appBuild',
+        },
         admission: { host: true, guest: true },
         relay: { offer: true, answer: true },
         // The App bounds each open at 5 s; record how close a passing run came.

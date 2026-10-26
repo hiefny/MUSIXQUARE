@@ -107,6 +107,7 @@ vi.mock('../setup-shared.ts', () => ({
   setPendingAutoJoinCode: vi.fn(),
 }));
 
+import { requestForcedAppUpdateFor, setForcedAppUpdateHandler } from '../../core/app-build.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { cancelPendingSessionSetup } from '../../network/peer.ts';
@@ -710,5 +711,101 @@ describe('Standard-room PIN removal and wrong-PIN limit', () => {
     // wording ("too many join attempts") is not reused.
     expect(t).not.toHaveBeenCalledWith('pro.join_rate_limited', expect.anything());
     expect(t).not.toHaveBeenCalledWith('pro.join_rate_limited_later');
+  });
+});
+
+describe('forced update: refusals below the App build floor (train 9.0.14)', () => {
+  let pending: boolean;
+  let answer: boolean;
+
+  beforeEach(() => {
+    pending = false;
+    answer = true;
+    setForcedAppUpdateHandler({
+      request: () => {
+        if (answer) pending = true;
+        return answer;
+      },
+      isPending: () => pending,
+    });
+  });
+
+  afterEach(() => {
+    setForcedAppUpdateHandler({ request: () => false, isPending: () => false });
+  });
+
+  /** The transport's error for the Worker's refusal frame. */
+  function refusal(): Error {
+    return Object.assign(new Error('APP_UPDATE_REQUIRED'), {
+      type: 'app-update-required',
+      minAppBuild: 786,
+    });
+  }
+
+  /** The transport asks the port before it reports the refusal. */
+  function refuse(returnCode: string | null): Error {
+    const error = refusal();
+    requestForcedAppUpdateFor(error, { minAppBuild: 786, admitted: false, returnCode });
+    return error;
+  }
+
+  it('resets a refused join with no join-field text and no toast while the forced dialog is up', () => {
+    const cancelled = vi.fn();
+    bus.on('setup:guest-join-cancelled', cancelled);
+
+    bus.emit('network:error', refuse('123456'));
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(null);
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(showToast).not.toHaveBeenCalled();
+    expect(showDialog).not.toHaveBeenCalled();
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('hides the join-field text by the pending query alone', () => {
+    pending = true;
+
+    bus.emit('network:error', refusal());
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(null);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('shows no join-field text or toast for a refusal during a logo reset (nothing pending yet)', () => {
+    // Step 4b: a navigation holds the page, so the port answers true and
+    // presents nothing; only the mark on the refusal's error tells setup.
+    setForcedAppUpdateHandler({ request: () => true, isPending: () => false });
+
+    bus.emit('network:error', refuse('123456'));
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(null);
+    expect(showToast).not.toHaveBeenCalled();
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('keeps the ordinary join-field text when the port declined (the loop guard)', () => {
+    answer = false;
+
+    bus.emit('network:error', refuse('123456'));
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledExactlyOnceWith(
+      'error.network_generic',
+    );
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('shows no toast for a host refused at its reconnect in a room, and the ordinary one when declined', () => {
+    setState('network.appRole', 'host');
+    setState('network.isConnecting', false);
+    setState('setup.sessionStarted', true);
+
+    bus.emit('network:error', refuse(null));
+    expect(showToast).not.toHaveBeenCalled();
+    expect(showDialog).not.toHaveBeenCalled();
+
+    pending = false;
+    answer = false;
+    bus.emit('network:error', refuse(null));
+    expect(showToast).toHaveBeenCalledExactlyOnceWith('error.network_generic');
   });
 });

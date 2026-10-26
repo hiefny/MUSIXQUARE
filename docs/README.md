@@ -105,10 +105,13 @@ runbooks. Neither belongs in a general setup document.
   the Standard host probes its signaling socket, sends the PIN membership choice and requests
   Remote Share upload assertions without reading the Worker's peer-open markers, every Standard
   connection binds its ICE restart without the first-SDP mark, the resume challenge drops
-  `guestTime`, and the Remote Share client takes only the required assertion mode. The report
-  lists each increment with its commits, tests-first evidence, who loses what, the registry and
-  record changes (RO-18, RO-15, known-accepted #12, the PIN recovery note), the local checks,
-  the eager JS delta and the C5-0 lab results.
+  `guestTime`, and the Remote Share client takes only the required assertion mode. Increment A-4
+  (OV-F05, OV-F06, Q4 receive side): DEMO_PLAY carries only `hostStartAt`, guests no longer send
+  `FILE_R2_CAPABILITY` (declared message kinds 103 to 102), SESSION_FULL and OPERATOR_TOAST are
+  accepted without their fallback text, and train 1's leftover receive allowances are cleaned
+  up. The report lists each increment with its commits, tests-first evidence, who loses what,
+  the registry and record changes (RO-18, RO-15, RO-06, known-accepted #12, the PIN recovery
+  note), the guard baselines, the local checks, the eager JS delta and the C5-0 lab results.
 - [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
   evidence for the train that adds the forced update (9.0.14 / v787 from bump `2077ef60`, not yet
   released; target `all`; the 9.0.12 receive-slot train and the 9.0.13 old-version removal train

@@ -2199,6 +2199,61 @@ describe('member-level connection and administrator UI', () => {
     );
   });
 
+  // Old-version removal train 2 (A-4): a live administrator row grants media
+  // and playback only from its listed capabilities; there is no default for a
+  // row that lists none.
+  it.each([
+    ['no capabilities', [] as string[]],
+    ['effects.control only', ['effects.control']],
+  ])(
+    'grants a live administrator row with %s no media or playback permission',
+    (_label, capabilities) => {
+      setState('network.appRole', 'host');
+      setState('network.myId', 'host-device');
+      initConnect();
+
+      bus.emit('network:device-list-update', [
+        {
+          id: 'host-device',
+          label: 'Host',
+          joinOrder: 0,
+          status: 'connected',
+          isHost: true,
+          isOp: true,
+        },
+        {
+          id: 'admin-device',
+          label: 'Admin',
+          joinOrder: 1,
+          status: 'connected',
+          isHost: false,
+          isOp: true,
+          memberId: 'admin-member',
+          memberDisplayNumber: 1,
+          isAuthenticated: true,
+          capabilities,
+        },
+      ]);
+
+      document
+        .querySelector<HTMLButtonElement>(
+          '#connect-administrator-list [data-member-id="admin-member"] .administrator-action-button.settings',
+        )
+        ?.click();
+
+      expect(
+        document.getElementById('administrator-permissions-overlay')?.classList.contains('show'),
+      ).toBe(true);
+      for (const key of ['media.add', 'playback.control', 'members.kick', 'chat.notice']) {
+        expect(
+          document
+            .querySelector(`[data-administrator-permission="${key}"]`)
+            ?.getAttribute('aria-checked'),
+        ).toBe('false');
+      }
+    },
+  );
+
   it('groups the owner account while keeping the current device physically non-host', () => {
     setState('network.appRole', 'guest');
     setState('network.myId', 'guest-phone');

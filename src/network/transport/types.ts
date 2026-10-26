@@ -468,7 +468,9 @@ export interface StandardRoomPinMembershipRequest {
 /**
  * Outcome of one Standard-room PIN mutation. `applied` arrives only with the
  * Worker acknowledgement of that exact mutation; `membership` names what the
- * Worker committed ('legacy' = the PIN alone, e.g. an older Worker). A newer
+ * Worker committed ('legacy' = the PIN alone: turning the PIN off, which
+ * carries no choice, or an acknowledgement that does not echo the choice sent
+ * on its socket; a PeerJS host resolves it the same way). A newer
  * call, or destroying the transport, settles an older one as `superseded`.
  */
 export type StandardRoomPinCommit =

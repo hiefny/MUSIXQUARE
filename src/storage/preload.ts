@@ -435,8 +435,8 @@ function resumeSuspendedPreloadLane(conn: DataConnection): void {
       continue;
     }
     log.info(`[Preload] Resuming preload for ${conn.peer} after its connection recovered`);
-    // Restart from chunk 0. A current receiver releases a partial session it
-    // still holds; a legacy receiver retains the previous retry behavior.
+    // Restart from chunk 0. The receiver releases a partial session it still
+    // holds.
     void unicastPreload(conn, resident.blob, lane.queueItemId, lane.sessionId, true).catch(
       (error: unknown) => log.warn('[Preload] Resume after connection recovery failed', error),
     );

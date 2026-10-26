@@ -93,10 +93,11 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
-- [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2-2026-10-26.md):
+- [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
   evidence for the App release of the second removal train (not yet released, no version bump
-  yet; its Worker release W keeps its own report). It removes App code that only served clients
-  below the App build floor 787 (9.0.14). So far it records increment A-1, C5-12 Inc 3: after ICE
+  yet; target `app` after its Worker release W, which ships first and keeps its own report). It
+  removes App code that only served clients below the App build floor 787 (9.0.14), on in
+  production since 2026-10-26 16:15 KST. Increment A-1, C5-12 Inc 3: after ICE
   recovery a preload yields to the main lane for the same tuple without waiting for the host's
   route re-detection, and the route-permission machine (`RestartedPreloadLane`) is gone.
   Increment A-2 (OV-F01, OV-F03): bulk credit and control isolation wait for the peer's hello
@@ -117,11 +118,15 @@ runbooks. Neither belongs in a general setup document.
   scrubs runtime caches of v390 and older, the root English manifest and its app-shell entry are
   gone, three orphan locale keys go, the dev proxy drops the retired playlist-entry route, and
   the update reload fallback and the cooldown bound keep their behaviour under current wording.
-  The report lists each increment with its commits, tests-first evidence, who loses what, the
+  The report lists the owner's policy and the floors each increment relies on (where the 787
+  floor cannot filter, such as an established P2P session or the fail-open window), each
+  increment with its commits, tests-first evidence, removed lines and who loses what, the
   registry and record changes (RO-18, RO-15, RO-06, RO-22, known-accepted #12 and #15, the PIN
-  and PRO recovery notes), the guard baselines, the local checks, the eager JS delta, the C5-0
-  lab results, the local PRO Playwright run, and A-6's production candidate browser suite and
-  forced-update lab.
+  and PRO recovery notes), the guard baselines, the per-increment local checks, the train-end
+  lane checks (C5-0 lab, critical E2E, critical coverage), the mixed-version table, what it
+  skips and which train takes each item (release W, Phase 5 5B, train 3), the eager JS budget
+  (−1,102 B against main `dd9c9d4d`), the deploy order and versions with release W and 5B, the
+  rollback boundaries, and what is not verified.
 - [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
   evidence for the train that adds the forced update (9.0.14 / v787 from bump `2077ef60`, not yet
   released; target `all`; the 9.0.12 receive-slot train and the 9.0.13 old-version removal train

@@ -45,6 +45,44 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 구버전 호환 코드 제거 열차 2 릴리스 A(배포 전): 바닥 787 아래만 섬기던 앱 쪽 호환 코드
+
+- [ ] 범위와 상태(오너 정책 2026-10-25 약 16:40 KST, 바닥 결정 약 18:30 KST, 작은 통신 필드 2026-10-26 약 00:10 KST,
+      5B와 병렬 약 14:10 KST): 최소 앱 빌드 787(2026-10-26 16:15 KST부터 켜짐) 뒤에야 지울 수 있는 앱 쪽 호환 코드.
+      브랜치 `agent/old-version-removal-2a`(origin/main `dd9c9d4d`에서 시작, `9e02d2df`(#499)는 아직 합치지 않음)의 앱 증분
+      여섯마다 테스트 먼저, 코드, 기록 커밋이 있고 마지막 런타임 커밋은 `789848bc`, 버전은 아직 9.0.14 / v787이다.
+      A-1 C5-12 Inc 3(`23690c92`, 복구 뒤 미리받기가 방장의 경로 재판정 없이 같은 짝의 본 레인에 물러나고 경로 허락 기계를
+      지움, 기기 근거 세 줄은 바이트가 같음), A-2(`e1d4a25a`, bulk 수신확인과 제어 격리가 상대 hello를 기다리고 1초 대체를
+      지움, `restart-capable` 광고를 보내지 않음), A-3(`59cdda6d`, 신호 클라이언트가 Worker peer-open 표지와 첫 SDP 재시작
+      표지를 읽지 않음, 재개 확인 ping의 `guestTime` 삭제, 원격 공유 확인서는 'required'만), A-4(`18fd2d85`, DEMO_PLAY
+      `hostPlayAt`과 `FILE_R2_CAPABILITY` 보내기 중단으로 일반방 메시지 종류 103 → 102, SESSION_FULL `message`와
+      OPERATOR_TOAST `text`를 선택으로 받음, 열차 1이 남긴 받기 허용 정리), A-5(`ac04a57c`, PRO 클라이언트의 9.0.4 표지 아래
+      PRO Worker용 재시도·대체와 부르는 곳 없는 PRO API, 문구 키 다섯 삭제), A-6(`789848bc`, SW 활성화의 옛 runtime 캐시
+      청소와 루트 영문 매니페스트, 고아 문구 키 셋, 개발 프록시의 playlist-entry 경로 삭제, 업데이트 재로드 대체 갈래와 쿨다운
+      상한은 말만). 잃는 것: 운영의 787 이상 클라이언트는 없다. 787 아래 상대는 유효 바닥이 0인 창에서만 미리받기 뒤 '파일
+      요청 중' 멈춤, 8.11.22 이하와의 bulk 멈춤, 8.11.25~9.0.12와의 보조 경로 끊김 때 닫힘, 9.0.12 이하 데모 게스트의 데모
+      시작 실패, 9.0.12 이하 방장의 아홉째 로컬 게스트 REMOTE_FILE_UNAVAILABLE을 겪는다(오너 정책이 수용). 로컬 검증: 테스트
+      먼저(여섯 테스트 커밋이 부모 코드에서 의도한 행만 FAIL), 증분마다 typecheck(테스트 포함)·`check:workers`·lint·format·
+      가드 묶음(room-authority 직접 읽기 82 → 81로 내림, resource-ownership 48 records / 442 files 기준치 그대로, bus-pairing
+      202/202), 단위 680 files / 16,043(부모 16,062), Worker 67 files / 3,178, `build:checked`(bump 전이라
+      `guard:sw-cache-version`만 설계대로 FAIL, 나머지 PASS), 초기 JS 465,772 B(main `dd9c9d4d` 466,874 B 대비 −1,102 B,
+      유지 상한까지 25,796 B), 열차 끝 레인 검사(`d184518c`, 런타임 `789848bc`): 테스트 먼저 여섯 커밋 다시 확인(값 같음),
+      critical E2E 61/61, 핵심 커버리지 87 files / 3,402, 가드 묶음, C5-0 랩 `--repeat-each=2` 19/20(보조 경로 행의 한
+      반복이 회복 뒤 보조 채널 첫 데이터를 기다리다 일시정지 3초 창을 넘김, 앱 오류·유실 없음, 열차 1과 같은 랩 시간 여유
+      문제로 판독, 그 행만 다시 이 갈래 4/4와 main `dd9c9d4d` 4/4). 남은 것: 릴리스 W 배포·기록과 W 직후 같은 값 `set` 통과, 배포 직전 `status`로 바닥
+      787 이상 확인(요약 줄을 보고서에), 먼저 나간 열차와 origin/main 합침 뒤 다시 검사(room-authority 총합을 다시 재고,
+      5B가 먼저면 registry 기록 수를 다시 적음), bump(올리기 직전 fetch한 origin/main의 다음 패치와 epoch, W → A 순서면
+      9.0.15 / v788, 5B가 먼저면 9.0.16 / v789), bump 뒤 최종 검사, 열차 끝 세 렌즈 리뷰, PR CI, Codex, exact-main CI,
+      Release(target `app`, Developer API D1 false, `raise_app_build_floor` false), 기록 PR. 기록 PR은 §1을 덮어쓰며
+      '의존성·호환'에서 4B C5-12의 혼합 버전 남은 위험 문장(9.0.4~9.0.8 게스트, 이제 바닥 아래)을 빼고
+      `release-history.md`에 한 행을 더한다. 열차 3(보내는 쪽)의 바닥은 max(릴리스 A 빌드, 5B 빌드)다. 로컬 결과는
+      exact-main-SHA 후보를 대신하지 않는다. [보고서](design/old-version-removal-2a-app-2026-10-26.md).
+- [ ] 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 약 01:50 KST 결정): 와이파이에서 LTE로 바꾸는 중 미리받기(A-1,
+      `?mxqrLog=info`, 본 레인이 이미 그 짝을 잡은 경우 방장 줄은 `Resuming` 없이 `Paused`와 `Yielding`만), 강제 업데이트
+      창의 적용 뒤 방장의 제자리 재로드가 창 없이 끝나는지(A-6), 9.0.14 기기와의 혼합 방 두 방향(로컬 파일 재생과 미리받기,
+      데모 시작, 방 가득 참, 관리자 알림, 보조 경로 재시작).
+      [확인하지 않은 것](design/old-version-removal-2a-app-2026-10-26.md#확인하지-않은-것).
+
 ### 강제 업데이트 열차(9.0.14/v787, 배포 전): 최소 앱 빌드와 C5-12 Inc 1
 
 - [ ] 범위(오너 정책 2026-10-25 약 16:40 KST, 결정 약 18:30 KST의 Q1~Q4, 약 22:00 KST 시작·복귀 확인 추가, 설계
@@ -1369,7 +1407,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md),
       [4B 보고서의 C5-12](design/phase4-4b-behaviour-2026-10-25.md#c5-12-ice-복구-뒤-튜플-하나에-스트림-하나-동작-p4-d10-a),
       [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md),
-      [구버전 제거 열차 2 보고서의 A-1](design/old-version-removal-2-2026-10-26.md#a-1-c5-12-inc-3-ov-f02)
+      [구버전 제거 열차 2 보고서의 A-1](design/old-version-removal-2a-app-2026-10-26.md#a-1-c5-12-inc-3-ov-f02)
 - [ ] 8.11.25 공유 중지 버튼 정렬: 시스템 오디오 공유를 켤 수 있는 기기(PC 브라우저·데스크톱 앱)에서
       공유를 켜고, "공유 중지" 버튼의 정지 사각형과 글자가 버튼 가운데에 보이는지(오른쪽 치우침 없음),
       사각형 크기와 글자 간격이 전과 같은지 다크·라이트에서 본다. 헤드리스 Chromium 측정과 브라우저
@@ -1722,7 +1760,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   않고 다른 실패처럼 다음 준비 때 다시 보낸다. 그 전 App은 400이면 한 번 길이 없이
   재시도했고 404면 그 클라이언트 수명 동안 보고를 껐다.
   [상세](design/pro-file-duration-registration-2026-10-12.md),
-  [보고서](design/old-version-removal-2-2026-10-26.md)
+  [보고서](design/old-version-removal-2a-app-2026-10-26.md)
 
 - **PRO 자율 재생(8.9.5):** App과 PRO를 함께 배포(`all`)한다. 새
   `PRO_YOUTUBE_METADATA` 서비스 바인딩은 기존 App의 YouTube 키와 기존 공유
@@ -1734,7 +1772,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   롤백해도 기존 파일 근거는 유지되지만 새 YouTube 길이 조회는 복구 전까지 미확정이
   된다.
   [상세](design/pro-autonomous-playback-2026-10-12.md),
-  [보고서](design/old-version-removal-2-2026-10-26.md)
+  [보고서](design/old-version-removal-2a-app-2026-10-26.md)
 
 - **PRO 선택형 입장 암호:** `passwordRequired: false` / `pin: null`이 저장될 수
   있는 배포 이후에는 이 계약을 모르는 구 PRO/App 조합으로 자동 복구하지 않는다.
@@ -1783,7 +1821,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   `existingParticipants`가 든 `POST /pin`을 400 `INVALID_REQUEST`로 거절한다.
   구버전 호환 제거 열차 2 릴리스 A부터 App은 그 거절을 다른 실패처럼 일반 오류로
   보이고("그대로 두기를 지금 쓸 수 없음" 안내는 없앴다), 모두를 내보내는 쪽으로
-  대신 시도하지 않는 것은 그대로다([보고서](design/old-version-removal-2-2026-10-26.md)).
+  대신 시도하지 않는 것은 그대로다([보고서](design/old-version-removal-2a-app-2026-10-26.md)).
   "모두 재입장"(8.9.0은 "모두 다시 입장하게 하기")은 참여자 선택 없는 `{pin}`
   요청이다. core의
   `sessionRevocationNotices`(최대 256개, 약 36 KiB)는 이전 Worker가 그대로
@@ -1804,7 +1842,7 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   제한도 꺼지는데 방장이 고른 약한 암호는 계속 허용된다. 구버전 호환 제거 열차 2
   릴리스 A부터 App은 기능 플래그를 읽지 않고 참여자 선택을 늘 싣지만, 9.0.14 아래
   Worker에는 방장으로 들어가지 못해 그 프레임을 버리는 Worker와 만나지 않는다
-  ([보고서](design/old-version-removal-2-2026-10-26.md)). 그래서 forward fix를
+  ([보고서](design/old-version-removal-2a-app-2026-10-26.md)). 그래서 forward fix를
   우선하고, 되돌려야 하면 App도 함께 되돌린다(8.9.x의 무작위 암호로 돌아간다).
   되돌린 동안 같은 방에서 암호를 X→Y→X로 바꾸면, 다시 앞으로 배포했을 때 X 때의
   유지 목록이 되살아난다(그 기기도 자기 재연결 비밀이 있어야 한다). App만 되돌리면

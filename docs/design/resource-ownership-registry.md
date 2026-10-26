@@ -1218,8 +1218,8 @@ RO-51 duplicated
     8.11.23 peer) pins the unanswered restart. `side-route-outage-integration.test.ts` "the
     restart-capable advertisement" and "a peer whose restart answer never arrives" pin both
     through two real connections with the device lines. A Wi-Fi to LTE switch with both PCs is
-    device-only. On the original route, since train 2 (survey OV-F04 stage 1, App build floor
-    787) every Standard connection takes its restartability binding from the initial negotiation
+    device-only. On the original route, since train 2 (survey OV-F04 stage 1, App build
+    floor 787) every Standard connection takes its restartability binding from the initial negotiation
     whether or not the first offer or answer carries `iceRestartVersion` (every end since 8.6.39
     sends it, and still does until train 3; the restart offer keeps requiring it):
     `cloudflare-signaling.test.ts` "restarts a guest whose first answer carried no
@@ -1369,8 +1369,8 @@ RO-51 duplicated
   the frozen C9 fixture kept its old grace timer as a test file, outside the guard. The
   old-version removal train (survey OV-B07, TR-03 stage 1) then made every isolated-control peer
   restart-capable: control isolation no longer waits for the peer's `restart-capable` frame,
-  which it still sent before its request and fence until train 2 (survey OV-F03, App build floor
-  787) stopped sending it and stopped parsing the kind, so a route that cannot restart is one
+  which it still sent before its request and fence until train 2 (survey OV-F03, App build
+  floor 787) stopped sending it and stopped parsing the kind, so a route that cannot restart is one
   before READY only. Control isolation's 10 s negotiation bound, armed before the side PC exists, ends
   such a route (decline and fall back, or `side-failed:route` once fenced) before the owner's
   15 s grace can run out, or READY takes the grace over; the owner keeps that grace and the
@@ -1590,7 +1590,7 @@ RO-51 duplicated
   [Preload resume after ICE recovery](preload-resume-after-ice-recovery-2026-10-20.md), the
   [Phase 4 train 4B report](phase4-4b-behaviour-2026-10-25.md), the
   [Phase 4 train 4C report](phase4-4c-link-liveness-2026-10-25.md) (C5-8) and the
-  [old-version removal train 2 report](old-version-removal-2-2026-10-26.md) (C5-12 Inc 3).
+  [old-version removal train 2 report](old-version-removal-2a-app-2026-10-26.md) (C5-12 Inc 3).
 
 ### RO-19 Guest fetch of the current track
 

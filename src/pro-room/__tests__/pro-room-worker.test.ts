@@ -22850,13 +22850,18 @@ describe('PRO owner transfer and the room entry password', () => {
     });
   });
 
-  // Only a PRO Worker before 9.0.4 (deployed 2026-10-24) wrote a pending
-  // record with the PIN its new owner chose, and a pending record lives no
-  // longer than its claim (at most 15 minutes). One that still loads is
-  // dropped like any other malformed record, without an exception.
+  // Only a PRO Worker before 9.0.4 (deployed 2026-10-24 01:56 KST) wrote a
+  // pending record with the PIN its new owner chose. Nothing clears a pending
+  // record when its claim expires: it stays, with the room suspended and no
+  // owner account, until a new PREPARE replaces it or a commit finishes it,
+  // and it keeps the previous owner's edge for the next transfer. So such a
+  // record still loads, and its PIN is dropped unread.
   it.each(['well-formed', 'malformed'])(
-    'drops a stored pending record that carries an earlier PIN (%s)',
+    'keeps an expired stored pending record that carries an earlier PIN, without the PIN (%s)',
     async (shape) => {
+      vi.useFakeTimers();
+      // Before 9.0.4 reached production.
+      vi.setSystemTime(Date.parse('2026-10-23T12:00:00.000Z'));
       const context = await activatedRoom();
       const earlierPinRecord = structuredClone(roomState(context.worker).pin);
       expect(earlierPinRecord).toMatchObject({
@@ -22869,6 +22874,11 @@ describe('PRO owner transfer and the room entry password', () => {
         requestId: 'owner_transfer_password_0005',
       });
       expect(preparedResponse.status).toBe(200);
+      const prepared = await responseJson(preparedResponse);
+      expect(prepared.previousOwnerAccountId).toBe(ACTIVATION_OWNER_ACCOUNT_ID);
+
+      // The transfer never committed, and its claim expired days ago.
+      vi.setSystemTime(Date.parse('2026-10-27T03:00:00.000Z'));
       const restarted = restartWithStoredPending(context, (pending) => {
         pending.pin = shape === 'well-formed' ? earlierPinRecord : null;
       });
@@ -22878,8 +22888,33 @@ describe('PRO owner transfer and the room entry password', () => {
         }),
       );
       expect(status.status).toBe(200);
-      expect((await responseJson(status)).ownerTransferReconciliation).toBeNull();
-      expect(roomState(restarted).pendingOwnershipTransfer).toBeNull();
+      // The operator and the App Worker's saga cron still see the stuck transfer.
+      expect((await responseJson(status)).ownerTransferReconciliation).toMatchObject({
+        phase: 'pending',
+        transferId: prepared.transferId,
+        previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+        expiresAtMs: prepared.expiresAtMs,
+      });
+      expect(roomState(restarted)).toMatchObject({
+        status: 'suspended',
+        suspensionReason: 'ownership_transfer_pending',
+        ownerAccountId: null,
+        pendingOwnershipTransfer: { transferId: prepared.transferId },
+      });
+      expect(roomState(restarted).pendingOwnershipTransfer).not.toHaveProperty('pin');
+
+      // The next transfer of the room carries the previous owner's edge, so
+      // the App Worker can retire that owner's account-room link.
+      const nextClaimToken = await issueTransferClaim(restarted);
+      const nextResponse = await prepareTransfer(restarted, {
+        claimToken: nextClaimToken,
+        requestId: 'owner_transfer_password_0007',
+      });
+      expect(nextResponse.status).toBe(200);
+      await expect(nextResponse.json()).resolves.toMatchObject({
+        previousOwnerAccountId: ACTIVATION_OWNER_ACCOUNT_ID,
+        replayed: false,
+      });
     },
   );
 });

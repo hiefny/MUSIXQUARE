@@ -882,6 +882,11 @@ const ro: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Dacă vei continua aici, conexiunea anterioară va fi închisă.',
   'pro.active_tab_replaced': 'Această cameră PRO este deja deschisă în altă filă',
   'pro.use_this_tab': 'Continuă aici',
+  'pro.upload.retry_unavailable':
+    'Această încărcare nu mai poate fi finalizată. Selectează din nou fișierul.',
+  'pro.upload.failed_retryable': 'Încărcarea nu a putut fi finalizată. Încearcă din nou.',
+  'pro.upload.empty_file': 'Nu se poate încărca un fișier gol.',
+  'pro.upload.confirming': 'Se confirmă încărcarea {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Se încarcă pistele {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Unele piste nu au putut fi încărcate',
   'pro.upload.batch_failed_message': 'Piste neîncărcate: {{failed}} din {{total}} solicitate.',

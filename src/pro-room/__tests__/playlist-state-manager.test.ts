@@ -17,6 +17,7 @@ import {
   ProRoomPlaylistStateManager,
   type ProRoomPlaylistMediaTransferForTests as ProRoomPlaylistMediaTransfer,
   type ProRoomPlaylistStateApiForTests as ProRoomPlaylistStateApi,
+  type ProRoomLocalFileRetryState,
 } from '../playlist-state-manager.ts';
 
 const ROOM_CODE = '000000';
@@ -1241,6 +1242,127 @@ describe('PRO room playlist state manager', () => {
     expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])(
+    'retains an uploaded asset across an ambiguous append and reconciles its exact identity (committed=%s)',
+    async (committed) => {
+      const initial = activeSnapshot();
+      let server = initial;
+      const responseLost = new Error('append response lost');
+      let appendAttempts = 0;
+      const api = {
+        getSnapshot: vi
+          .fn()
+          .mockRejectedValueOnce(new Error('snapshot unavailable'))
+          .mockImplementation(async () => server),
+        updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
+          appendAttempts += 1;
+          if (committed || appendAttempts > 1) {
+            server = activeSnapshot({
+              ...server,
+              revision: server.revision + 1,
+              playlistRevision: server.playlistRevision + 1,
+              playlist: applyCompactPlaylist(server, input),
+              currentQueueItemId: input.currentQueueItemId,
+              playback: input.playback,
+            });
+          }
+          if (appendAttempts === 1) throw responseLost;
+          return server;
+        }),
+      } satisfies ProRoomPlaylistStateApi;
+      const file = new File(['aaaa'], 'one.flac', { type: 'audio/flac' });
+      const ready = { asset: asset('asset_00000000001'), quota: initial.quota };
+      const retryState: ProRoomLocalFileRetryState = { media: {} };
+      const media = mediaTransfer({
+        upload: vi.fn(async (input) => {
+          expect(input.retryState).toBe(retryState.media);
+          retryState.media.completion ??= {
+            file,
+            sha256: undefined,
+            input: {
+              code: ROOM_CODE,
+              assetId: ready.asset.assetId,
+              idempotencyKey: 'complete-key-0001',
+            },
+            expectedSource: ready.asset,
+            result: ready,
+          };
+          return ready;
+        }),
+      });
+      const manager = new ProRoomPlaylistStateManager({
+        code: ROOM_CODE,
+        api,
+        mediaTransfer: media,
+        sink: vi.fn(),
+        ...factories(),
+      });
+      await manager.acceptSnapshot(initial);
+      const input = { queueItemId: A, file, retryState };
+      await expect(manager.addLocalFile(input)).rejects.toBe(responseLost);
+      expect(media.deleteAsset).not.toHaveBeenCalled();
+
+      // Another administrator may rename an already committed row while the
+      // uploader is waiting to retry its lost append response.
+      if (committed) {
+        server = activeSnapshot({
+          ...server,
+          playlist: server.playlist.map((item) => ({ ...item, name: 'Renamed track' })),
+        });
+      }
+
+      const result = await manager.addLocalFile(input, { refreshBeforeUpload: true });
+      expect(result.snapshot.playlist).toHaveLength(1);
+      expect(result.snapshot.playlist[0]).toMatchObject({ queueItemId: A, source: ready.asset });
+      expect(media.upload).toHaveBeenCalledTimes(committed ? 1 : 2);
+      expect(api.updateCompactSnapshot).toHaveBeenCalledTimes(committed ? 1 : 2);
+      expect(media.deleteAsset).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects a different canonical asset with the same queue id/name during a retained upload retry', async () => {
+    const file = new File(['aaaa'], 'one.flac', { type: 'audio/flac' });
+    const initial = activeSnapshot();
+    const retryState: ProRoomLocalFileRetryState = {
+      media: {
+        completion: {
+          file,
+          sha256: undefined,
+          input: {
+            code: ROOM_CODE,
+            assetId: 'asset_00000000001',
+            idempotencyKey: 'complete-key-0001',
+          },
+          expectedSource: asset('asset_00000000001'),
+        },
+      },
+    };
+    const api = {
+      getSnapshot: vi.fn(async () =>
+        activeSnapshot({
+          revision: 2,
+          playlistRevision: 1,
+          playlist: [r2(A, 'asset_00000000002', 'one.flac')],
+        }),
+      ),
+      updateCompactSnapshot: vi.fn(),
+    } satisfies ProRoomPlaylistStateApi;
+    const media = mediaTransfer();
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+    await expect(
+      manager.addLocalFile({ queueItemId: A, file, retryState }, { refreshBeforeUpload: true }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION' });
+    expect(media.upload).not.toHaveBeenCalled();
+    expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
+  });
+
   it('removes multiple rows in one CAS, clears the current checkpoint, and frees unreferenced assets', async () => {
     const assetOne = 'asset_00000000001';
     const assetTwo = 'asset_00000000002';
@@ -2036,6 +2158,45 @@ describe('PRO room playlist slots', () => {
   function uploadedFile() {
     return { asset: asset('asset_00000000001'), quota: activeSnapshot().quota };
   }
+
+  it('keeps a retained upload retry bound to its original playlist and manager lifetime', async () => {
+    const initial = slotted(0, [youtube(A)], [1, 0, 0]);
+    const { api, lists, switchTo } = uploadServer(initial);
+    const failure = new Error('completion response lost');
+    const media = mediaTransfer({
+      upload: vi
+        .fn()
+        .mockImplementationOnce(async () => {
+          switchTo(1);
+          throw failure;
+        })
+        .mockResolvedValue(uploadedFile()),
+    });
+    const options = { code: ROOM_CODE, api, mediaTransfer: media, sink: vi.fn(), ...factories() };
+    const manager = new ProRoomPlaylistStateManager(options);
+    await manager.acceptSnapshot(initial);
+    const input = {
+      queueItemId: B,
+      file: new File(['aaaa'], 'one.flac'),
+      retryState: { media: {} },
+    };
+    await expect(manager.addLocalFile(input)).rejects.toBe(failure);
+    await expect(manager.addLocalFile(input, { refreshBeforeUpload: true })).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SWITCHED',
+    });
+    expect(media.upload).toHaveBeenCalledOnce();
+    expect(lists).toEqual([[youtube(A)], [], []]);
+
+    const original = switchTo(0);
+    const freshManager = new ProRoomPlaylistStateManager(options);
+    await freshManager.acceptSnapshot(original);
+    await expect(freshManager.addLocalFile(input)).rejects.toMatchObject({
+      code: 'PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH',
+    });
+    await manager.addLocalFile(input, { refreshBeforeUpload: true });
+    expect(media.upload).toHaveBeenCalledTimes(2);
+    expect(lists.map((list) => list.map((item) => item.queueItemId))).toEqual([[A, B], [], []]);
+  });
 
   it('does not add a finished upload to a playlist another administrator switched to', async () => {
     const initial = slotted(0, [youtube(A)], [1, 0, 0]);

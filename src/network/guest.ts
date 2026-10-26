@@ -35,6 +35,7 @@ import {
   getRoomContext,
   hasRoomCapability,
   markStandardRoomAuthorityConfirmed,
+  acceptStandardRoomHostIdentityProjection,
 } from '../rooms/authority.ts';
 import {
   markProRoomTransportRecovered,
@@ -863,6 +864,7 @@ function handleDeviceListUpdateMsg(data: Record<string, unknown>, conn?: DataCon
     if (typeof amIStillConnected.joinOrder === 'number') {
       setState('network.myJoinOrder', amIStillConnected.joinOrder);
     }
+    acceptStandardRoomHostIdentityProjection(hostConn, amIStillConnected);
     // Trust host's connectionType over local ICE detection (host sees both sides)
     const hostConnType = asConnectionType(amIStillConnected.connectionType);
     if (hostConnType) applyHostReportedConnectionType(hostConnType);

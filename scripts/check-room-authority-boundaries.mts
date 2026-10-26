@@ -423,9 +423,11 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/ui/player-controls.ts',
     [
-      'event:appRole @ function:initPlayerControls :: _busScope.on("state:network.appRole", () => { updateRoleBadge(); syncMediaSourceButtonAuthority(); syncQueueModeButtonAuthority(); syncPlayButtonAuthority(); syncMainSyncButtonState(); })',
+      // Existing role listeners also repaint the centralized pending/denied
+      // volume label; no new legacy authority decision or subscription.
+      'event:appRole @ function:initPlayerControls :: _busScope.on("state:network.appRole", () => { updateRoleBadge(); syncVolumeAuthorityUI(); syncMediaSourceButtonAuthority(); syncQueueModeButtonAuthority(); syncPlayButtonAuthority(); syncMainSyncButtonState(); })',
       'event:appRole @ function:initPlayerControls :: _busScope.on("state:network.appRole", closeManualSyncIfInvalid)',
-      'event:isOperator @ function:initPlayerControls :: _busScope.on("state:network.isOperator", (isOperator) => { if (!isOperator && isProRoomTrackChangeIntentPending()) { clearProRoomTrackChangeIntent(); } syncMediaSourceButtonAuthority(); syncQueueModeButtonAuthority(); syncPlayButtonAuthority(); })',
+      'event:isOperator @ function:initPlayerControls :: _busScope.on("state:network.isOperator", (isOperator) => { if (!isOperator && isProRoomTrackChangeIntentPending()) { clearProRoomTrackChangeIntent(); } syncMediaSourceButtonAuthority(); syncQueueModeButtonAuthority(); syncPlayButtonAuthority(); syncVolumeAuthorityUI(); })',
       "read:appRole @ function:getConnectedDeviceCount :: variable appRole = getState('network.appRole') => consumers [appRole -> if (!hostConn && (appRole === 'host' || sessionStarted || peerConnected > 0))]",
       "read:appRole @ function:handleLogoReturnToMain :: variable appRole = getState('network.appRole') => consumers [appRole -> variable hasSession = !!(hostConn || appRole === 'host')]",
       "read:appRole @ function:syncPlayButtonAuthority :: variable roomAuthorityApplies = context.kind === 'pro' || getState('network.appRole') !== 'idle' => consumers [roomAuthorityApplies -> variable hasAuthority = !roomAuthorityApplies || hasRoomCapability('playback.control')]",

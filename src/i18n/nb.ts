@@ -864,6 +864,11 @@ const nb: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Hvis du fortsetter her, avsluttes den tidligere tilkoblingen.',
   'pro.active_tab_replaced': 'Dette PRO-rommet er allerede åpent i en annen fane',
   'pro.use_this_tab': 'Fortsett her',
+  'pro.upload.retry_unavailable':
+    'Denne opplastingen kan ikke lenger fullføres. Velg filen på nytt.',
+  'pro.upload.failed_retryable': 'Opplastingen kunne ikke fullføres. Prøv igjen.',
+  'pro.upload.empty_file': 'En tom fil kan ikke lastes opp.',
+  'pro.upload.confirming': 'Bekrefter opplasting {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Laster opp spor {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Enkelte spor kunne ikke lastes opp',
   'pro.upload.batch_failed_message':

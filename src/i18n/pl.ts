@@ -878,6 +878,11 @@ const pl: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Kontynuowanie tutaj zakończy poprzednie połączenie.',
   'pro.active_tab_replaced': 'Ten pokój PRO jest już otwarty w innej karcie',
   'pro.use_this_tab': 'Kontynuuj tu',
+  'pro.upload.retry_unavailable':
+    'Nie można już dokończyć tego przesyłania. Wybierz plik ponownie.',
+  'pro.upload.failed_retryable': 'Nie udało się dokończyć przesyłania. Spróbuj ponownie.',
+  'pro.upload.empty_file': 'Nie można przesłać pustego pliku.',
+  'pro.upload.confirming': 'Potwierdzanie przesyłania {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Przesyłanie utworów {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nie udało się przesłać części utworów',
   'pro.upload.batch_failed_message':

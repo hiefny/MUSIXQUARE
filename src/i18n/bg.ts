@@ -874,6 +874,11 @@ const bg: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Ако продължиш тук, предишната връзка ще бъде прекъсната.',
   'pro.active_tab_replaced': 'Тази PRO стая вече е отворена в друг раздел',
   'pro.use_this_tab': 'Продължи тук',
+  'pro.upload.retry_unavailable':
+    'Това качване вече не може да бъде завършено. Изберете файла отново.',
+  'pro.upload.failed_retryable': 'Качването не можа да бъде завършено. Опитайте отново.',
+  'pro.upload.empty_file': 'Празен файл не може да бъде качен.',
+  'pro.upload.confirming': 'Потвърждаване на качването {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Качване на песни: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Някои песни не бяха качени',
   'pro.upload.batch_failed_message': 'Неуспешно качени песни от заявените {{total}}: {{failed}}.',

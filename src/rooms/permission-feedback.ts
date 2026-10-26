@@ -22,9 +22,8 @@ const CAPABILITY_REQUIRED_TOAST = {
 } as const satisfies Record<RoomCapability, I18nKey>;
 
 /**
- * Feedback while this device's answer is still unknown (a standard-room guest
- * whose host has not projected its role on the current link yet). Capabilities
- * that can never be pending have no entry.
+ * Feedback while the host projection or PRO account reconciliation is still
+ * pending. Capabilities that can never be pending have no entry.
  */
 const CAPABILITY_CHECKING_TOAST = {
   'media.add': 'toast.media_management_checking',
@@ -35,21 +34,20 @@ const CAPABILITY_CHECKING_TOAST = {
   'chat.notice': 'toast.chat_notice_checking',
   'effects.control': 'toast.admin_permission_checking',
   'room.configure': 'toast.room_owner_checking',
-  'system-audio.publish': null,
+  'system-audio.publish': 'toast.room_owner_checking',
   'coordinator.eligible': null,
 } as const satisfies Record<RoomCapability, I18nKey | null>;
 
 /**
- * The definitive denial. Persistent labels (titles, aria text) use this: they
- * are not re-rendered when the pending answer arrives.
+ * The definitive denial for a capability whose answer is already known.
  */
 export function roomCapabilityRequiredMessage(capability: RoomCapability): string {
   return t(CAPABILITY_REQUIRED_TOAST[capability]);
 }
 
 /**
- * One-shot feedback for a denied action: "checking" while the answer is still
- * pending, otherwise the definitive denial.
+ * Feedback for a blocked action or its affordance: "checking" while the answer
+ * is still pending, otherwise the definitive denial.
  */
 export function roomCapabilityFeedbackMessage(capability: RoomCapability): string {
   const checkingKey = CAPABILITY_CHECKING_TOAST[capability];

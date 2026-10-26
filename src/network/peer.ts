@@ -34,7 +34,11 @@ import {
 } from './system-audio-delivery.ts';
 import { requestStandardRoomAccountAssertion } from '../account/room-identity.ts';
 import { clearCurrentAccountLoginReturn } from '../account/login-return.ts';
-import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import {
+  acceptStandardRoomAccountAuthorityIdentity,
+  getRoomContext,
+  isActiveStandardRoomCoordinator,
+} from '../rooms/authority.ts';
 import {
   getStandardRoomTurnCredentials,
   prepareStandardRoomNetworkRouteRetry,
@@ -871,7 +875,7 @@ function setupPeerEvents(peer: PeerInstance): void {
     }
   });
 
-  peer.on('room-identity', (identity) => {
+  peer.on('room-identity', (identity, clearReason) => {
     if (getPeer() !== peer || getRoomContext().kind === 'pro') return;
     batchSetState({
       'network.myMemberId': identity?.memberId ?? null,
@@ -883,6 +887,7 @@ function setupPeerEvents(peer: PeerInstance): void {
           ? { 'network.myDeviceLabel': 'HOST' }
           : {}),
     });
+    acceptStandardRoomAccountAuthorityIdentity(identity?.memberId ?? null, clearReason);
     if (getState('network.appRole') === 'host') broadcastDeviceList();
   });
 

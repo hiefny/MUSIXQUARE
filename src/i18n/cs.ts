@@ -869,6 +869,10 @@ const cs: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Pokračováním zde ukončíte předchozí připojení.',
   'pro.active_tab_replaced': 'Tato místnost PRO už je otevřená na jiné kartě',
   'pro.use_this_tab': 'Pokračovat zde',
+  'pro.upload.retry_unavailable': 'Toto nahrávání již nelze dokončit. Vyberte soubor znovu.',
+  'pro.upload.failed_retryable': 'Nahrávání se nepodařilo dokončit. Zkuste to znovu.',
+  'pro.upload.empty_file': 'Prázdný soubor nelze nahrát.',
+  'pro.upload.confirming': 'Potvrzování nahrání {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Nahrávání skladeb {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Některé skladby se nepodařilo nahrát',
   'pro.upload.batch_failed_message':

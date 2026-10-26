@@ -685,6 +685,14 @@ valid delayed mutation response that advanced its CAS base may return an
 already accepted newer snapshot without projecting the older state. Equal
 revision conflicts remain errors, and ambiguous upload recovery still checks
 the exact queue-item and asset identity before treating the append as committed.
+The upload queue owns a RAM-only continuation for each file. Once PUT succeeds,
+an explicit retry reuses its asset and exact completion idempotency key/body;
+after completion it retries only canonical insertion. Cancellation, dismissal,
+room replacement and authority retirement discard that continuation. Ambiguous
+completion or insertion never triggers immediate asset deletion; the existing
+server orphan collector remains the cleanup authority. Empty and oversized
+files retain their failure reason, do not enter the network path, and are
+excluded from retry without preventing other selected files from proceeding.
 
 While at least one authoritative presence remains, natural completion no longer
 depends on an awake playback controller. The room alarm uses identity-fenced
@@ -790,9 +798,17 @@ path.
   generations.
 - The server chooses every object key. The client receives only short-lived
   presigned PUT/GET URLs for the private bucket. Upload URLs target disposable
-  staging keys; completion verifies the staging object, streams it to a fresh
-  immutable final key, and retains cleanup state until the reusable staging URL
-  has expired.
+  staging keys. Browser completion uses a server-authenticated R2 CopyObject
+  request to a separate final key, conditional on the staging ETag durably
+  pinned in `completionSourceEtag` before copying, instead of streaming the full
+  file through the Worker. Final HEAD validation
+  remains mandatory. The upload URL never authorizes writes to the ready key,
+  even after deletion. The existing tombstone owner also retains `finalObjectKey`
+  to collect a late copy after deletion; final metadata records the pinned
+  source ETag. Existing staging expiry and final-object recovery remain in force.
+  Copy and completion-facade deadlines come from `pro-room-media-timing.ts`.
+  Developer API completion retains its existing
+  stream-copy path.
 - Upload completion becomes `ready` only after R2 HEAD matches the reserved
   byte count, media type, room, generation, asset ID, version, and optional
   client-supplied SHA-256 metadata. The current R2 promotion path does not

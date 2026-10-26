@@ -812,6 +812,12 @@ const de: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Wenn du hier fortfährst, wird die vorherige Verbindung getrennt.',
   'pro.active_tab_replaced': 'Dieser PRO-Raum ist bereits in einem anderen Tab geöffnet',
   'pro.use_this_tab': 'Hier weiter',
+  'pro.upload.retry_unavailable':
+    'Dieser Upload kann nicht mehr abgeschlossen werden. Wähle die Datei erneut aus.',
+  'pro.upload.failed_retryable':
+    'Der Upload konnte nicht abgeschlossen werden. Bitte versuche es erneut.',
+  'pro.upload.empty_file': 'Eine leere Datei kann nicht hochgeladen werden.',
+  'pro.upload.confirming': 'Upload wird bestätigt {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Titel werden hochgeladen: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Einige Titel konnten nicht hochgeladen werden',
   'pro.upload.batch_failed_message':

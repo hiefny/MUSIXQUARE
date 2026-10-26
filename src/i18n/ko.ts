@@ -837,6 +837,10 @@ const ko = {
   'pro.active_tab_message': '여기서 계속하면 기존 연결이 종료돼요.',
   'pro.active_tab_replaced': '이 PRO 방이 다른 탭에서 열려 있어요',
   'pro.use_this_tab': '여기서 계속',
+  'pro.upload.retry_unavailable': '이 업로드를 이어서 완료할 수 없어요. 파일을 다시 선택해 주세요.',
+  'pro.upload.failed_retryable': '업로드를 완료하지 못했어요. 다시 시도해 주세요.',
+  'pro.upload.empty_file': '빈 파일은 업로드할 수 없어요.',
+  'pro.upload.confirming': '업로드 확인 중 {{current}}/{{total}}',
   'pro.upload.batch_progress': '트랙 업로드 중 {{current}}/{{total}}',
   'pro.upload.batch_failed_title': '일부 트랙을 업로드하지 못했어요',
   'pro.upload.batch_failed_message':

@@ -874,6 +874,10 @@ const ru: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Если продолжить здесь, предыдущее подключение будет завершено.',
   'pro.active_tab_replaced': 'Эта PRO-комната уже открыта в другой вкладке',
   'pro.use_this_tab': 'Продолжить тут',
+  'pro.upload.retry_unavailable': 'Эту загрузку больше нельзя завершить. Выберите файл заново.',
+  'pro.upload.failed_retryable': 'Не удалось завершить загрузку. Попробуйте ещё раз.',
+  'pro.upload.empty_file': 'Нельзя загрузить пустой файл.',
+  'pro.upload.confirming': 'Подтверждение загрузки {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Загрузка треков {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Некоторые треки не удалось загрузить',
   'pro.upload.batch_failed_message':

@@ -8,7 +8,7 @@ import { t, type I18nKey } from '../../i18n/index.ts';
 import ko from '../../i18n/ko.ts';
 import type { DataConnection, RoomCapability } from '../../types/index.ts';
 import { showToast } from '../../ui/toast.ts';
-import { markStandardRoomAuthorityConfirmed } from '../authority.ts';
+import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../authority.ts';
 import {
   roomCapabilityFeedbackMessage,
   roomCapabilityRequiredMessage,
@@ -106,13 +106,35 @@ describe('room permission feedback while the answer is pending', () => {
     },
   );
 
-  it('keeps persistent labels on the definitive denial', () => {
+  it('can explicitly request definitive wording independently of pending feedback', () => {
     joinStandardRoomAsGuest();
 
     expect(roomCapabilityRequiredMessage('playback.control')).toBe(
       t('toast.playback_control_required'),
     );
   });
+
+  it.each([...CHECKING_CASES, ['system-audio.publish', 'toast.room_owner_checking'] as const])(
+    'uses checking feedback for %s during PRO account reconciliation',
+    (capability, key) => {
+      const context = {
+        kind: 'pro' as const,
+        roomId: '000001',
+        role: 'member' as const,
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: [],
+      };
+      setRoomContext(context, 'pending');
+      expect(roomCapabilityFeedbackMessage(capability)).toBe(t(key));
+
+      setRoomContext(context);
+      expect(roomCapabilityFeedbackMessage(capability)).toBe(
+        roomCapabilityRequiredMessage(capability),
+      );
+    },
+  );
 
   it('never asks a guest to wait for a physical host role', () => {
     joinStandardRoomAsGuest();

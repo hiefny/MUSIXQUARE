@@ -53,6 +53,18 @@ export interface UploadProRoomMediaInput {
   sha256?: string;
   onProgress?: ProRoomMediaProgress;
   signal?: AbortSignal;
+  retryState?: ProRoomMediaUploadRetryState;
+}
+
+/** Owned by one queued file until that task is committed, dismissed or retired. */
+export interface ProRoomMediaUploadRetryState {
+  completion?: {
+    readonly file: File;
+    readonly sha256: string | undefined;
+    readonly input: CompleteProRoomMediaInput;
+    readonly expectedSource: ProRoomR2Source;
+    result?: ProRoomMediaUploadResult;
+  };
 }
 
 interface DownloadProRoomMediaInput {
@@ -451,6 +463,20 @@ export class ProRoomMediaTransfer {
       throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID');
     }
 
+    const retryState = input.retryState ?? {};
+    if (retryState.completion) {
+      const checkpoint = retryState.completion;
+      if (
+        checkpoint.file !== input.file ||
+        checkpoint.input.code !== input.code ||
+        checkpoint.sha256 !== input.sha256
+      ) {
+        throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH');
+      }
+      report(1);
+      return this.#completeUpload(checkpoint, input.signal);
+    }
+
     const mime = effectiveMime(input.file.name, input.file.type);
     const reservation = await this.#api.createMediaReservation(
       {
@@ -517,12 +543,10 @@ export class ProRoomMediaTransfer {
       metadataScope.cleanup();
     }
 
-    throwIfAborted(input.signal);
-    // Do not delete after an ambiguous completion failure: the idempotent
-    // server operation may already have committed, and cleanup could destroy a
-    // playlist asset whose success response was merely lost.
-    const completed = await this.#api.completeMedia(
-      {
+    const checkpoint: NonNullable<ProRoomMediaUploadRetryState['completion']> = {
+      file: input.file,
+      sha256: input.sha256,
+      input: {
         code: input.code,
         assetId: reservation.assetId,
         idempotencyKey: this.#createIdempotencyKey(),
@@ -533,22 +557,37 @@ export class ProRoomMediaTransfer {
           ? { durationSeconds }
           : {}),
       },
-      input.signal,
-    );
-    const expectedSource: ProRoomR2Source = {
-      kind: 'pro-r2',
-      assetId: reservation.assetId,
-      version: reservation.version,
-      byteLength: input.file.size,
-      mime,
-      ...(input.sha256 === undefined ? {} : { sha256: input.sha256 }),
+      expectedSource: {
+        kind: 'pro-r2',
+        assetId: reservation.assetId,
+        version: reservation.version,
+        byteLength: input.file.size,
+        mime,
+        ...(input.sha256 === undefined ? {} : { sha256: input.sha256 }),
+      },
     };
-    if (!sameAsset(completed.asset, expectedSource)) {
+    retryState.completion = checkpoint;
+    report(1);
+    return this.#completeUpload(checkpoint, input.signal);
+  }
+
+  async #completeUpload(
+    checkpoint: NonNullable<ProRoomMediaUploadRetryState['completion']>,
+    signal?: AbortSignal,
+  ): Promise<ProRoomMediaUploadResult> {
+    throwIfAborted(signal);
+    if (checkpoint.result) return checkpoint.result;
+    // Keep this exact body/key after an ambiguous response. Retrying a new PUT
+    // would duplicate bytes, while deleting could destroy a committed asset.
+    const completed = await this.#api.completeMedia(checkpoint.input, signal);
+    throwIfAborted(signal);
+    if (!sameAsset(completed.asset, checkpoint.expectedSource)) {
       throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_COMPLETE_MISMATCH');
     }
-
-    if (input.file.size <= this.#cache.maxTotalBytes) this.#cache.put(completed.asset, input.file);
-    report(1);
+    checkpoint.result = completed;
+    if (checkpoint.file.size <= this.#cache.maxTotalBytes) {
+      this.#cache.put(completed.asset, checkpoint.file);
+    }
     return completed;
   }
 

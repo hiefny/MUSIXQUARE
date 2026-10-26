@@ -887,6 +887,11 @@ const ta: Record<I18nKey, string> = {
   'pro.active_tab_message': 'இங்கே தொடர்ந்தால் முந்தைய இணைப்பு துண்டிக்கப்படும்.',
   'pro.active_tab_replaced': 'இந்த PRO அறை ஏற்கனவே வேறொரு தாவலில் திறந்துள்ளது',
   'pro.use_this_tab': 'இங்கே தொடர்',
+  'pro.upload.retry_unavailable':
+    'இந்தப் பதிவேற்றத்தை இனி முடிக்க முடியாது. கோப்பை மீண்டும் தேர்ந்தெடுக்கவும்.',
+  'pro.upload.failed_retryable': 'பதிவேற்றத்தை முடிக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.',
+  'pro.upload.empty_file': 'காலியான கோப்பைப் பதிவேற்ற முடியாது.',
+  'pro.upload.confirming': 'பதிவேற்றம் உறுதிப்படுத்தப்படுகிறது {{current}}/{{total}}',
   'pro.upload.batch_progress': 'டிராக்குகள் பதிவேற்றப்படுகின்றன {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'சில டிராக்குகளைப் பதிவேற்ற முடியவில்லை',
   'pro.upload.batch_failed_message':

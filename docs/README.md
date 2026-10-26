@@ -93,6 +93,10 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [PRO upload completion and authority feedback (2026-10-27)](design/pro-upload-reliability-2026-10-27.md):
+  production diagnosis, R2-internal copy without streaming a full file through the Worker,
+  completion retry continuity, explicit file-limit feedback, and pending authority
+  labels. PR-only preparation; no merge or deployment authorization.
 - [Old-version removal train 2, release W: Worker request shapes below the App build floor (2026-10-26)](design/old-version-removal-2w-workers-2026-10-26.md):
   release evidence for the Workers-only release of the second old-version removal train (released
   2026-10-27 03:34 KST in Release 40378059253 from main `a3893f04`, target `all`, no SemVer or

@@ -880,6 +880,11 @@ const nl: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Als je hier doorgaat, wordt de eerdere verbinding verbroken.',
   'pro.active_tab_replaced': 'Deze PRO-kamer is al geopend in een ander tabblad',
   'pro.use_this_tab': 'Hier doorgaan',
+  'pro.upload.retry_unavailable':
+    'Deze upload kan niet meer worden voltooid. Selecteer het bestand opnieuw.',
+  'pro.upload.failed_retryable': 'De upload kon niet worden voltooid. Probeer het opnieuw.',
+  'pro.upload.empty_file': 'Een leeg bestand kan niet worden geüpload.',
+  'pro.upload.confirming': 'Upload bevestigen {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Tracks uploaden {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sommige tracks konden niet worden geüpload',
   'pro.upload.batch_failed_message':

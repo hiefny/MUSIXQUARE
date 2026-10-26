@@ -5736,8 +5736,8 @@ Safety is declared first because important layer precedence is reversed; its acc
      landscape phone in some locales. */
   #dialog-overlay .dialog,
   #signaling-recovery-overlay .dialog {
-    max-height: calc(var(--app-height, 100vh) - 48px);
-    max-height: calc(100dvh - 48px);
+    /* The padded overlay can be shorter than the viewport above mobile nav. */
+    max-height: 100%;
     overflow-y: auto;
   }
 

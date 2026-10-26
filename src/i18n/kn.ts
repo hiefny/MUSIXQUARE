@@ -873,6 +873,11 @@ const kn: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ಇಲ್ಲಿ ಮುಂದುವರಿದರೆ ಹಿಂದಿನ ಸಂಪರ್ಕ ಕಡಿತಗೊಳ್ಳುತ್ತದೆ.',
   'pro.active_tab_replaced': 'ಈ PRO ರೂಮ್ ಈಗಾಗಲೇ ಮತ್ತೊಂದು ಟ್ಯಾಬ್‌ನಲ್ಲಿ ತೆರೆದಿದೆ',
   'pro.use_this_tab': 'ಇಲ್ಲಿ ಮುಂದುವರಿಸಿ',
+  'pro.upload.retry_unavailable':
+    'ಈ ಅಪ್‌ಲೋಡ್ ಅನ್ನು ಇನ್ನು ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಿಲ್ಲ. ಫೈಲ್ ಅನ್ನು ಮತ್ತೆ ಆಯ್ಕೆಮಾಡಿ.',
+  'pro.upload.failed_retryable': 'ಅಪ್‌ಲೋಡ್ ಪೂರ್ಣಗೊಳಿಸಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  'pro.upload.empty_file': 'ಖಾಲಿ ಫೈಲ್ ಅನ್ನು ಅಪ್‌ಲೋಡ್ ಮಾಡಲು ಸಾಧ್ಯವಿಲ್ಲ.',
+  'pro.upload.confirming': 'ಅಪ್‌ಲೋಡ್ ದೃಢೀಕರಿಸಲಾಗುತ್ತಿದೆ {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ಟ್ರ್ಯಾಕ್‌ಗಳು ಅಪ್‌ಲೋಡ್ ಆಗುತ್ತಿವೆ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ಕೆಲವು ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಪ್‌ಲೋಡ್ ಮಾಡಲಾಗಲಿಲ್ಲ',
   'pro.upload.batch_failed_message':

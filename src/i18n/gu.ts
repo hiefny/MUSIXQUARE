@@ -846,6 +846,10 @@ const gu: Record<I18nKey, string> = {
   'pro.active_tab_message': 'અહીં આગળ વધવાથી અગાઉનું જોડાણ બંધ થઈ જશે.',
   'pro.active_tab_replaced': 'આ PRO રૂમ પહેલેથી બીજા ટૅબમાં ખુલ્લો છે',
   'pro.use_this_tab': 'અહીં આગળ વધો',
+  'pro.upload.retry_unavailable': 'આ અપલોડ હવે પૂર્ણ થઈ શકશે નહીં. ફાઇલ ફરીથી પસંદ કરો.',
+  'pro.upload.failed_retryable': 'અપલોડ પૂર્ણ થઈ શક્યું નહીં. ફરી પ્રયાસ કરો.',
+  'pro.upload.empty_file': 'ખાલી ફાઇલ અપલોડ કરી શકાતી નથી.',
+  'pro.upload.confirming': 'અપલોડની પુષ્ટિ થઈ રહી છે {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ટ્રૅક અપલોડ થઈ રહ્યા છે {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'કેટલાક ટ્રૅક અપલોડ થઈ શક્યા નથી',
   'pro.upload.batch_failed_message':

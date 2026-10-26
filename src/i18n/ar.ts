@@ -839,6 +839,10 @@ const ar: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ستؤدي المتابعة هنا إلى قطع الاتصال السابق.',
   'pro.active_tab_replaced': 'غرفة PRO هذه مفتوحة بالفعل في تبويب آخر',
   'pro.use_this_tab': 'المتابعة هنا',
+  'pro.upload.retry_unavailable': 'لم يعد بالإمكان إكمال هذا الرفع. يرجى اختيار الملف مرة أخرى.',
+  'pro.upload.failed_retryable': 'تعذّر إكمال الرفع. يرجى المحاولة مرة أخرى.',
+  'pro.upload.empty_file': 'لا يمكن رفع ملف فارغ.',
+  'pro.upload.confirming': 'جارٍ تأكيد الرفع {{current}}/{{total}}',
   'pro.upload.batch_progress': 'جارٍ رفع المقاطع {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'تعذّر رفع بعض المقاطع',
   'pro.upload.batch_failed_message':

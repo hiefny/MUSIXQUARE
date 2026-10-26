@@ -889,6 +889,11 @@ const el: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Αν συνεχίσετε εδώ, η προηγούμενη σύνδεση θα τερματιστεί.',
   'pro.active_tab_replaced': 'Αυτό το δωμάτιο PRO είναι ήδη ανοιχτό σε άλλη καρτέλα',
   'pro.use_this_tab': 'Συνέχεια εδώ',
+  'pro.upload.retry_unavailable':
+    'Αυτή η μεταφόρτωση δεν μπορεί πλέον να ολοκληρωθεί. Επιλέξτε ξανά το αρχείο.',
+  'pro.upload.failed_retryable': 'Δεν ήταν δυνατή η ολοκλήρωση της μεταφόρτωσης. Δοκιμάστε ξανά.',
+  'pro.upload.empty_file': 'Δεν είναι δυνατή η μεταφόρτωση κενού αρχείου.',
+  'pro.upload.confirming': 'Επιβεβαίωση μεταφόρτωσης {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Αποστολή κομματιών {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Δεν ήταν δυνατή η αποστολή ορισμένων κομματιών',
   'pro.upload.batch_failed_message':

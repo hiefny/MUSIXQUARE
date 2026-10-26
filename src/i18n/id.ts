@@ -792,6 +792,11 @@ const id: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Melanjutkan di sini akan memutus koneksi sebelumnya.',
   'pro.active_tab_replaced': 'Ruang PRO ini sudah terbuka di tab lain',
   'pro.use_this_tab': 'Lanjut di sini',
+  'pro.upload.retry_unavailable':
+    'Unggahan ini tidak dapat diselesaikan lagi. Pilih kembali file tersebut.',
+  'pro.upload.failed_retryable': 'Unggahan tidak dapat diselesaikan. Coba lagi.',
+  'pro.upload.empty_file': 'File kosong tidak dapat diunggah.',
+  'pro.upload.confirming': 'Mengonfirmasi unggahan {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Mengunggah media {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Beberapa media tidak dapat diunggah',
   'pro.upload.batch_failed_message':

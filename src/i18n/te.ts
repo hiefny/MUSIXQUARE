@@ -868,6 +868,10 @@ const te: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ఇక్కడ కొనసాగితే మునుపటి కనెక్షన్ నిలిపివేయబడుతుంది.',
   'pro.active_tab_replaced': 'ఈ PRO గది ఇప్పటికే మరో ట్యాబ్‌లో తెరిచి ఉంది',
   'pro.use_this_tab': 'ఇక్కడ కొనసాగించండి',
+  'pro.upload.retry_unavailable': 'ఈ అప్‌లోడ్‌ను ఇక పూర్తి చేయలేము. ఫైల్‌ను మళ్లీ ఎంచుకోండి.',
+  'pro.upload.failed_retryable': 'అప్‌లోడ్‌ను పూర్తి చేయలేకపోయాం. దయచేసి మళ్లీ ప్రయత్నించండి.',
+  'pro.upload.empty_file': 'ఖాళీ ఫైల్‌ను అప్‌లోడ్ చేయలేరు.',
+  'pro.upload.confirming': 'అప్‌లోడ్ నిర్ధారించబడుతోంది {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ట్రాక్‌లు అప్‌లోడ్ అవుతున్నాయి {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'కొన్ని ట్రాక్‌లను అప్‌లోడ్ చేయలేకపోయాం',
   'pro.upload.batch_failed_message':

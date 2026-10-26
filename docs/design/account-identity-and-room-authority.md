@@ -218,6 +218,17 @@ admission secret and is not bypassed by login.
 
 ### 6. Capabilities and product baselines
 
+Blocked-action feedback distinguishes pending proof from confirmed denial.
+PRO account attachment, detachment and presence recovery project pending with
+no usable capabilities until the existing reconciliation owner settles; a
+definitive lease revocation remains denied. Standard account assertion work
+also stays pending until its verified signaling identity matches a fresh host
+roster for this connection, sent after the ordered grant/revoke projection.
+An earlier roster cannot settle a later check. Confirmed anonymous identity and
+explicit revocation do not inherit an indefinite checking message. This feedback
+uses the existing identity owners and adds neither a retry timer nor a grant.
+Blocked-action toasts and persistent button descriptions read the same status.
+
 Capabilities are checked by the canonical authority for every browser/BOT
 action. Hiding a button is not authorization. A Developer API credential is a
 separate server-to-server principal: within its explicitly issued scopes it is

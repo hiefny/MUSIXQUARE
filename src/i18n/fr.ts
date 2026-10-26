@@ -807,6 +807,11 @@ const fr: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Continuer ici mettra fin à la connexion précédente.',
   'pro.active_tab_replaced': 'Ce salon PRO est déjà ouvert dans un autre onglet',
   'pro.use_this_tab': 'Continuer ici',
+  'pro.upload.retry_unavailable':
+    'Cet import ne peut plus être terminé. Sélectionnez à nouveau le fichier.',
+  'pro.upload.failed_retryable': 'L’importation n’a pas pu être terminée. Réessayez.',
+  'pro.upload.empty_file': 'Impossible d’importer un fichier vide.',
+  'pro.upload.confirming': 'Confirmation de l’importation {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Envoi des pistes {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Certaines pistes n’ont pas pu être envoyées',
   'pro.upload.batch_failed_message':

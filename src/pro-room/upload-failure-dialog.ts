@@ -7,6 +7,7 @@ interface ProRoomUploadFailureDialogOptions {
   batchId: string;
   show(): Promise<{ action: string }>;
   isCurrent(): boolean;
+  canRetry?: boolean;
   reportPresentationFailure(error: unknown): void;
 }
 
@@ -31,9 +32,12 @@ export async function resolveProRoomUploadFailureDialog(
     return;
   }
 
-  if (action === 'ok') {
-    if (options.isCurrent()) options.queue.retryFailedBatch(options.batchId);
-    else options.queue.dismissFailedBatch(options.batchId);
+  if (action === 'ok' && options.canRetry !== false) {
+    if (options.isCurrent()) {
+      if (!options.queue.retryFailedBatch(options.batchId)) {
+        options.queue.dismissFailedBatch(options.batchId);
+      }
+    } else options.queue.dismissFailedBatch(options.batchId);
     return;
   }
   options.queue.dismissFailedBatch(options.batchId);

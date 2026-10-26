@@ -77,6 +77,8 @@ const OPERATIONS = [
   'system_audio',
   'account_lease',
   'snapshot',
+  'media_reserve',
+  'media_complete',
   'alarm',
   'other',
 ] as const;

@@ -884,6 +884,11 @@ const it: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Continuando qui, la connessione precedente verrà interrotta.',
   'pro.active_tab_replaced': 'Questa stanza PRO è già aperta in un’altra scheda',
   'pro.use_this_tab': 'Continua qui',
+  'pro.upload.retry_unavailable':
+    'Questo caricamento non può più essere completato. Seleziona di nuovo il file.',
+  'pro.upload.failed_retryable': 'Impossibile completare il caricamento. Riprova.',
+  'pro.upload.empty_file': 'Non è possibile caricare un file vuoto.',
+  'pro.upload.confirming': 'Conferma del caricamento {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Caricamento tracce {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Impossibile caricare alcune tracce',
   'pro.upload.batch_failed_message':

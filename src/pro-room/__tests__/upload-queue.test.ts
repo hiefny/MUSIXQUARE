@@ -3,6 +3,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ProRoomUploadQueue } from '../upload-queue.ts';
+import { PRO_ROOM_MAX_ASSET_BYTES } from '../contracts.ts';
 import {
   getProRoomUploadRows,
   setActiveProRoomUploadQueue,
@@ -31,6 +32,110 @@ afterEach(() => {
 });
 
 describe('ProRoomUploadQueue', () => {
+  it('continues allowed files after permanent size failures and retries only the recoverable remainder', async () => {
+    const oversized = new File(['a'], 'oversized.flac');
+    Object.defineProperty(oversized, 'size', { value: PRO_ROOM_MAX_ASSET_BYTES + 1 });
+    const empty = new File([], 'empty.flac');
+    const allowed = new File(['data'], 'allowed.flac');
+    const onBatchSettled = vi.fn();
+    let sequence = 0;
+    let continuation: unknown;
+    const run = vi.fn(async (input) => {
+      if (!continuation) {
+        continuation = input.retryState;
+        throw new Error('temporary complete failure');
+      }
+      expect(input.retryState).toBe(continuation);
+    });
+    const queue = new ProRoomUploadQueue({
+      createId: () => `file-${++sequence}`,
+      run,
+      onBatchSettled,
+    });
+    queue.enqueueFiles([oversized, empty, allowed]);
+    await queue.whenIdle();
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0]![0].file).toBe(allowed);
+    expect(onBatchSettled).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        failedCount: 3,
+        retryableCount: 1,
+        failures: [
+          expect.objectContaining({
+            name: oversized.name,
+            code: 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID',
+            retryable: false,
+          }),
+          expect.objectContaining({
+            name: empty.name,
+            code: 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID',
+            retryable: false,
+          }),
+          expect.objectContaining({ name: allowed.name, retryable: true }),
+        ],
+      }),
+    );
+    expect(queue.retryFailedBatch('batch-1')).toBe(true);
+    expect(queue.rows.every((row) => row.name === allowed.name)).toBe(true);
+    await queue.whenIdle();
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(queue.rows).toEqual([]);
+  });
+
+  it('releases a wholly permanent failed batch and never retries it', async () => {
+    const run = vi.fn();
+    const queue = new ProRoomUploadQueue({ createId: () => A, run });
+    queue.enqueueFiles([new File([], 'empty.flac')]);
+    await queue.whenIdle();
+    expect(queue.retryFailedBatch('batch-1')).toBe(false);
+    expect(queue.rows).toEqual([]);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it.each(['ASSET_NOT_FOUND', 'ASSET_NOT_READY', 'UPLOAD_MISMATCH', 'UPLOAD_INCOMPLETE'])(
+    'does not retry an upload checkpoint that the server reports as %s',
+    async (code) => {
+      const run = vi.fn(async () => {
+        throw Object.assign(new Error(code), { code });
+      });
+      const onBatchSettled = vi.fn();
+      const queue = new ProRoomUploadQueue({ createId: () => A, run, onBatchSettled });
+      queue.enqueueFiles([new File(['data'], 'lost.flac')]);
+      await queue.whenIdle();
+      expect(onBatchSettled).toHaveBeenCalledWith(
+        expect.objectContaining({
+          retryableCount: 0,
+          failures: [expect.objectContaining({ code, retryable: false })],
+        }),
+      );
+      expect(queue.retryFailedBatch('batch-1')).toBe(false);
+      expect(run).toHaveBeenCalledOnce();
+      expect(queue.rows).toEqual([]);
+    },
+  );
+
+  it('cannot carry a failed continuation into a fresh authority lifetime', async () => {
+    const continuations: unknown[] = [];
+    const run = vi.fn(async (input) => {
+      continuations.push(input.retryState);
+      throw new Error('response lost');
+    });
+    const lifetime = new AbortController();
+    const queue = new ProRoomUploadQueue({ createId: () => A, run, signal: lifetime.signal });
+    const file = new File(['data'], 'one.flac');
+    queue.enqueueFiles([file]);
+    await queue.whenIdle();
+    lifetime.abort();
+    expect(queue.retryFailedBatch('batch-1')).toBe(false);
+    expect(queue.rows).toEqual([]);
+    const fresh = new ProRoomUploadQueue({ createId: () => A, run });
+    fresh.enqueueFiles([file]);
+    await fresh.whenIdle();
+    expect(continuations).toHaveLength(2);
+    expect(continuations[0]).not.toBe(continuations[1]);
+    fresh.reset();
+  });
+
   it('projects every selected file immediately and advances each one sequentially', async () => {
     const first = deferred();
     const second = deferred();
@@ -101,6 +206,8 @@ describe('ProRoomUploadQueue', () => {
       failedCount: 0,
       cancelledCount: 0,
       failedIds: [],
+      failures: [],
+      retryableCount: 0,
     });
   });
 
@@ -161,6 +268,8 @@ describe('ProRoomUploadQueue', () => {
       failedCount: 1,
       cancelledCount: 0,
       failedIds: [A],
+      failures: [expect.objectContaining({ id: A, code: null, retryable: true })],
+      retryableCount: 1,
     });
 
     expect(queue.retryFailedBatch('batch-1')).toBe(true);
@@ -205,6 +314,8 @@ describe('ProRoomUploadQueue', () => {
       failedCount: 0,
       cancelledCount: 0,
       failedIds: [],
+      failures: [],
+      retryableCount: 0,
     });
     expect(queue.rows).toEqual([]);
   });
@@ -296,6 +407,8 @@ describe('ProRoomUploadQueue', () => {
       failedCount: 0,
       cancelledCount: 0,
       failedIds: [],
+      failures: [],
+      retryableCount: 0,
     });
     expect([...attempts.values()]).toEqual(Array.from({ length: 100 }, () => 2));
     expect(queue.rows).toEqual([]);
@@ -364,6 +477,8 @@ describe('ProRoomUploadQueue', () => {
       failedCount: 0,
       cancelledCount: 1,
       failedIds: [],
+      failures: [],
+      retryableCount: 0,
     });
   });
 

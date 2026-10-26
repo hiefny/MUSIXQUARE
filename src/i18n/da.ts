@@ -866,6 +866,10 @@ const da: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Hvis du fortsætter her, afbrydes den tidligere forbindelse.',
   'pro.active_tab_replaced': 'Dette PRO-rum er allerede åbent i en anden fane',
   'pro.use_this_tab': 'Fortsæt her',
+  'pro.upload.retry_unavailable': 'Denne upload kan ikke længere fuldføres. Vælg filen igen.',
+  'pro.upload.failed_retryable': 'Uploaden kunne ikke fuldføres. Prøv igen.',
+  'pro.upload.empty_file': 'En tom fil kan ikke uploades.',
+  'pro.upload.confirming': 'Bekræfter upload {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Uploader numre {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Nogle numre kunne ikke uploades',
   'pro.upload.batch_failed_message':

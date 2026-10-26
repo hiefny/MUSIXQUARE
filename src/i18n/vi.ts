@@ -780,6 +780,10 @@ const vi: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Tiếp tục tại đây sẽ ngắt kết nối trước đó.',
   'pro.active_tab_replaced': 'Phòng PRO này đã được mở trong thẻ khác',
   'pro.use_this_tab': 'Tiếp tục ở đây',
+  'pro.upload.retry_unavailable': 'Không thể hoàn tất lần tải lên này nữa. Vui lòng chọn lại tệp.',
+  'pro.upload.failed_retryable': 'Không thể hoàn tất tải lên. Vui lòng thử lại.',
+  'pro.upload.empty_file': 'Không thể tải lên tệp trống.',
+  'pro.upload.confirming': 'Đang xác nhận tải lên {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Đang tải các bản nhạc lên {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Không thể tải lên một số bản nhạc',
   'pro.upload.batch_failed_message':

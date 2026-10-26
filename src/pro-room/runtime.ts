@@ -94,12 +94,13 @@ import {
   showProRoomPinRemovalNotice,
   showProRoomRemovalNotice,
 } from './session-end-notice.ts';
-import type {
-  ProRoomAdministrator,
-  ProRoomPermissionSet,
-  ProRoomPresenceParticipant,
-  ProRoomR2Source,
-  ProRoomSnapshot,
+import {
+  PRO_ROOM_MAX_ASSET_BYTES,
+  type ProRoomAdministrator,
+  type ProRoomPermissionSet,
+  type ProRoomPresenceParticipant,
+  type ProRoomR2Source,
+  type ProRoomSnapshot,
 } from './contracts.ts';
 import { queueModeMatchesPlaylist, type ProRoomQueueModeSnapshot } from './queue-mode.ts';
 import { applyProRoomSnapshotMonotonically } from './revision.ts';
@@ -295,7 +296,7 @@ let terminalRecoveryDialogAbort: AbortController | null = null;
 let presenceRecoveryAbort: AbortController | null = null;
 let controlChannelRecoveryAttempt = 0;
 let controlChannelRecoveryGeneration: number | null = null;
-let accountAuthorityFailClosed = false;
+let accountAuthorityStatus: 'confirmed' | 'pending' | 'denied' = 'confirmed';
 let accountLeaseRenewalOwner: symbol | null = null;
 let accountIdentityLeaseExpiresAtMs: number | null = null;
 let accountIdentityLeaseRetryAttempt = 0;
@@ -556,7 +557,7 @@ function recoverAccountMediaHooksFromCanonicalSnapshot(snapshot: ProRoomSnapshot
   // still-latched fail-closed filter. Restore its legitimate anonymous (and
   // potentially one-shot delegated) capabilities only after the same exact
   // transaction has renewed successfully.
-  accountAuthorityFailClosed = false;
+  accountAuthorityStatus = 'confirmed';
   const context = controller.context;
   if (active && context) applyAuthority(context);
 }
@@ -1237,7 +1238,7 @@ function installMediaHooks(
   const createUploadQueue = (signal: AbortSignal): ProRoomUploadQueue => {
     const queue = new ProRoomUploadQueue({
       signal,
-      run: async ({ id, file }, context) => {
+      run: async ({ id, file, retryState }, context) => {
         if (signal.aborted || !isPlaylistLeaseCurrent(lease)) return;
         const progressText = t('pro.upload.batch_progress', {
           current: context.current,
@@ -1251,12 +1252,27 @@ function installMediaHooks(
           showLoader(true, progressText, loaderId);
         }
         reportTransferProgress(loaderId, (context.current - 1) / context.total);
+        let confirming = false;
         await manager.addLocalFile(
           {
             queueItemId: id,
             file,
+            retryState,
             onProgress: (fraction) => {
+              if (context.signal.aborted || !isPlaylistLeaseCurrent(lease) || uploadQueue !== queue)
+                return;
               context.onProgress(fraction);
+              if (fraction >= 1 && !confirming) {
+                confirming = true;
+                showLoader(
+                  true,
+                  t('pro.upload.confirming', {
+                    current: context.current,
+                    total: context.total,
+                  }),
+                  loaderId,
+                );
+              }
               reportTransferProgress(
                 loaderId,
                 (context.current - 1 + Math.max(0, Math.min(1, fraction))) / context.total,
@@ -1285,21 +1301,66 @@ function installMediaHooks(
           queue.dismissFailedBatch(result.batchId);
           return;
         }
+        const canRetry = result.retryableCount > 0;
+        const failureReasons = result.failures.map((failure) => {
+          let reason = t(
+            failure.retryable ? 'pro.upload.failed_retryable' : 'pro.upload.retry_unavailable',
+          );
+          if (failure.code === 'PRO_ROOM_MEDIA_UPLOAD_SIZE_INVALID') {
+            reason =
+              failure.size > PRO_ROOM_MAX_ASSET_BYTES
+                ? t('pro.file_too_large')
+                : t('pro.upload.empty_file');
+          } else if (failure.code === 'ROOM_QUOTA_EXCEEDED') {
+            reason = t('pro.quota_exceeded');
+          } else if (
+            failure.code === 'ASSET_NOT_FOUND' ||
+            failure.code === 'ASSET_NOT_READY' ||
+            failure.code === 'UPLOAD_MISMATCH' ||
+            failure.code === 'UPLOAD_INCOMPLETE'
+          ) {
+            reason = t('pro.upload.retry_unavailable');
+          } else if (
+            failure.code === 'PERMISSION_REQUIRED' ||
+            failure.code === 'CAPABILITY_REQUIRED' ||
+            failure.code === 'ADMINISTRATOR_REQUIRED' ||
+            failure.code === 'RESERVATION_OWNER_REQUIRED'
+          ) {
+            reason = t('toast.media_management_required');
+          } else if (
+            failure.code === 'PRO_ROOM_PLAYLIST_SWITCHED' ||
+            failure.code === 'PRO_ROOM_PLAYLIST_STATE_CAPACITY_EXCEEDED'
+          ) {
+            reason = t('playlist.mutation_retry');
+          } else if (
+            failure.code === 'PRO_ROOM_PLAYLIST_CAPACITY_EXCEEDED' ||
+            failure.code === 'REQUEST_TOO_LARGE'
+          ) {
+            reason = t('playlist.queue_full');
+          }
+          return `${failure.name}: ${reason}`;
+        });
         observeProRoomRuntimeTask(
           resolveProRoomUploadFailureDialog({
             queue,
             batchId: result.batchId,
+            canRetry,
             show: () =>
               showDialog({
                 title: t('pro.upload.batch_failed_title'),
-                message: t('pro.upload.batch_failed_message', {
-                  total: result.requestedCount,
-                  failed: result.failedCount,
-                }),
-                buttonText: t('common.retry'),
-                secondaryText: t('common.close'),
-                defaultFocus: 'secondary',
+                message: [
+                  t('pro.upload.batch_failed_message', {
+                    total: result.requestedCount,
+                    failed: result.failedCount,
+                  }),
+                  ...failureReasons,
+                ].join('\n'),
+                buttonText: t(canRetry ? 'common.retry' : 'common.close'),
+                ...(canRetry
+                  ? { secondaryText: t('common.close'), defaultFocus: 'secondary' as const }
+                  : {}),
                 dismissible: true,
+                contentLayout: 'reading',
               }),
             isCurrent: () =>
               !signal.aborted && uploadQueue === queue && isPlaylistLeaseCurrent(lease),
@@ -2560,7 +2621,7 @@ export function requestActiveProRoomPlaybackReconciliation(
   return playbackController.requestReconciliation(options);
 }
 
-function applyAuthority(context: RoomContext): void {
+function applyAuthority(context: RoomContext, authorityStatus = accountAuthorityStatus): void {
   const pending = pendingFileDownload;
   if (pending && !shouldRetainPendingProDownload(pending.roomCode, context)) {
     pending.controller.abort();
@@ -2570,16 +2631,16 @@ function applyAuthority(context: RoomContext): void {
     preload.controller.abort();
   }
   const acceptedContext =
-    accountAuthorityFailClosed && context.kind === 'pro'
+    authorityStatus !== 'confirmed' && context.kind === 'pro'
       ? {
           ...context,
-          // No account-bound authority may survive a definitive local logout
-          // while detachment is in flight. Ordinary PRO members have no
-          // implicit control baseline, so fail closed to an empty projection.
+          // Unresolved or revoked account identity cannot retain local control.
+          // Ordinary PRO members have no implicit control baseline, so fail
+          // closed until the exact account projection is accepted.
           capabilities: [],
         }
       : context;
-  setRoomContext(acceptedContext);
+  setRoomContext(acceptedContext, authorityStatus === 'pending' ? 'pending' : 'confirmed');
   batchSetState({
     'network.sessionCode': acceptedContext.roomId ?? '',
     'network.lastJoinCode': acceptedContext.roomId ?? '',
@@ -2600,7 +2661,7 @@ function stopLifecycle(): void {
   playbackController.stopLifecycle();
   accountReconciler.stop();
   accountIdentityGeneration += 1;
-  accountAuthorityFailClosed = false;
+  accountAuthorityStatus = 'confirmed';
   accountMediaHookRenewal = null;
   accountMediaHookRecovery = null;
   accountLeaseRenewalOwner = null;
@@ -2675,7 +2736,7 @@ async function acceptAccountReconciliationSnapshot(
   // The App cookie may already name a successor account while the room still
   // projects its predecessor. Keep all account-derived authority closed from
   // the first synchronous edge until one exact final server identity settles.
-  accountAuthorityFailClosed = true;
+  accountAuthorityStatus = 'pending';
   const initialContext = controller.context;
   if (active && initialContext) applyAuthority(initialContext);
   const renewal = invalidateProRoomMediaHookSession();
@@ -2714,7 +2775,7 @@ async function acceptAccountReconciliationSnapshot(
     // `snapshot:null` proves detachment but says the old presence no longer
     // exists. Keep every account-bound capability revoked while the normal
     // non-takeover enter path establishes a new anonymous incarnation.
-    accountAuthorityFailClosed = true;
+    accountAuthorityStatus = 'pending';
     const previousContext = controller.context;
     if (active && previousContext) applyAuthority(previousContext);
     const recovered = await controller.reenterAfterDetachedPresence(signal);
@@ -2742,7 +2803,7 @@ async function acceptAccountReconciliationSnapshot(
         // expose accountId, so atomically shed the old room identity before
         // proving the new one. Persistent grants for both accounts stay server
         // owned; this physical session carries neither across the switch.
-        accountAuthorityFailClosed = true;
+        accountAuthorityStatus = 'pending';
         const context = controller.context;
         if (active && context) applyAuthority(context);
         let anonymousDetachCommitted = false;
@@ -2796,7 +2857,7 @@ async function acceptAccountReconciliationSnapshot(
       (operation === 'detach' && snapshot.viewer?.isAuthenticated === true)
     ) {
       finalCommitRejected = true;
-      accountAuthorityFailClosed = true;
+      accountAuthorityStatus = 'pending';
       const context = controller.context;
       if (active && context) applyAuthority(context);
       throw new ProRoomApiError('INVALID_RESPONSE');
@@ -2829,7 +2890,7 @@ async function acceptAccountReconciliationSnapshot(
       controller.isSessionLeaseCurrent(lease, committedIdentity.roomCode) &&
       isAccountMediaHookCommitIdentityCurrent(committedIdentity)
     ) {
-      accountAuthorityFailClosed = false;
+      accountAuthorityStatus = 'confirmed';
       const context = controller.context;
       if (active && context) applyAuthority(context);
       renewAccountMediaHooksIfCurrent(
@@ -2882,17 +2943,17 @@ const accountReconciler = new ProRoomAccountReconciler({
   attach: (signal) => acceptAccountReconciliationSnapshot('attach', signal),
   detach: (signal) => acceptAccountReconciliationSnapshot('detach', signal),
   failClosed: () => {
-    accountAuthorityFailClosed = true;
+    accountAuthorityStatus = 'pending';
     const context = controller.context;
     if (active && context) applyAuthority(context);
   },
   acceptAuthenticated: () => {
-    accountAuthorityFailClosed = false;
+    accountAuthorityStatus = 'confirmed';
     const context = controller.context;
     if (active && context) applyAuthority(context);
   },
   acceptAnonymous: () => {
-    accountAuthorityFailClosed = false;
+    accountAuthorityStatus = 'confirmed';
     const context = controller.context;
     if (active && context) applyAuthority(context);
   },
@@ -2946,7 +3007,7 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
     const recoveryAbort = new AbortController();
     presenceRecoveryAbort = recoveryAbort;
     const context = controller.context;
-    if (context) applyAuthority({ ...context, capabilities: [] });
+    if (context) applyAuthority(context, 'pending');
     resetProSystemAudioService();
     resetPlaylistRuntime();
     try {
@@ -3303,7 +3364,7 @@ async function renewAccountIdentityLease(): Promise<void> {
       return;
     }
     if (failure === 'reattach') {
-      accountAuthorityFailClosed = true;
+      accountAuthorityStatus = 'pending';
       accountIdentityLeaseExpiresAtMs = null;
       accountIdentityLeaseRetryAttempt = 0;
       const context = controller.context;
@@ -3316,7 +3377,7 @@ async function renewAccountIdentityLease(): Promise<void> {
       // or is no longer provable. Stop trusting account-only local controls now;
       // the Worker lease independently removes server authority within its
       // bounded window even if this tab never receives a cross-tab event.
-      accountAuthorityFailClosed = true;
+      accountAuthorityStatus = 'denied';
       accountIdentityLeaseExpiresAtMs = null;
       accountIdentityLeaseRetryAttempt = 0;
       nextRenewalDelayMs = null;

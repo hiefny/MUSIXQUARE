@@ -15,6 +15,7 @@ import { createProRoomIdempotencyKey } from './idempotency.ts';
 import type {
   ProRoomMediaProgress,
   ProRoomMediaUploadResult,
+  ProRoomMediaUploadRetryState,
   UploadProRoomMediaInput,
 } from './media-transfer.ts';
 import { ProRoomPlaylistProjection } from './playlist-projection.ts';
@@ -142,6 +143,18 @@ interface AddProRoomLocalFileInput {
   artist?: string;
   thumbnail?: string;
   onProgress?: ProRoomMediaProgress;
+  retryState?: ProRoomLocalFileRetryState;
+}
+
+/** A continuation of one queue task, never shared across room/authority lifetimes. */
+export interface ProRoomLocalFileRetryState {
+  readonly media: ProRoomMediaUploadRetryState;
+  target?: {
+    readonly owner: object;
+    readonly slot: number;
+    readonly queueItemId: QueueItemId;
+    readonly file: File;
+  };
 }
 
 interface ProRoomPlaylistMutationOptions {
@@ -890,17 +903,40 @@ export class ProRoomPlaylistStateManager {
     }
     // The file belongs to the playlist that is active when its upload starts,
     // not to whichever one another administrator made active by its end.
-    const targetSlot = activePlaylistSlot(accepted);
     const queueItemId =
       input.queueItemId === undefined
         ? this.#nextQueueItemId()
         : this.#validateQueueItemId(input.queueItemId);
+    const retryState = input.retryState;
+    if (
+      retryState?.target &&
+      (retryState.target.owner !== this ||
+        retryState.target.file !== input.file ||
+        retryState.target.queueItemId !== queueItemId)
+    ) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_MEDIA_UPLOAD_RETRY_MISMATCH');
+    }
+    const targetSlot = retryState?.target?.slot ?? activePlaylistSlot(accepted);
+    if (retryState && !retryState.target) {
+      retryState.target = { owner: this, slot: targetSlot, queueItemId, file: input.file };
+    }
     const existing = accepted.playlist.find((item) => item.queueItemId === queueItemId);
     if (existing) {
-      if (existing.name === input.file.name && existing.source.kind === 'pro-r2') {
+      const expected = retryState?.media.completion?.expectedSource;
+      if (
+        existing.source.kind === 'pro-r2' &&
+        (retryState
+          ? expected &&
+            existing.source.assetId === expected.assetId &&
+            existing.source.version === expected.version
+          : existing.name === input.file.name)
+      ) {
         return { snapshot: cloneSnapshot(accepted), queueItemId };
       }
       throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_QUEUE_ITEM_COLLISION');
+    }
+    if (activePlaylistSlot(accepted) !== targetSlot) {
+      throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_SWITCHED');
     }
     this.#assertCapacity(accepted, 1);
     const upload = await this.#mediaTransfer.upload({
@@ -909,6 +945,7 @@ export class ProRoomPlaylistStateManager {
       ...(input.sha256 === undefined ? {} : { sha256: input.sha256 }),
       ...(input.onProgress === undefined ? {} : { onProgress: input.onProgress }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(retryState === undefined ? {} : { retryState: retryState.media }),
     });
     try {
       assertNotAborted(options.signal);
@@ -940,7 +977,10 @@ export class ProRoomPlaylistStateManager {
           ) {
             return { snapshot: cloneSnapshot(reconciled), queueItemId };
           }
-          await this.#bestEffortDelete(upload.asset.assetId, 'uploaded-orphan');
+          // A retained queue task will retry this same asset after refreshing
+          // canonical state. Dismissal/retirement releases the continuation;
+          // unreferenced remote assets remain under server-side GC ownership.
+          if (!retryState) await this.#bestEffortDelete(upload.asset.assetId, 'uploaded-orphan');
         } catch {
           // An unreadable authority is still ambiguous. Retaining an
           // unreferenced object for server-side cleanup is safer than deleting

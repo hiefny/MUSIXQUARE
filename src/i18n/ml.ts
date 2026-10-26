@@ -878,6 +878,11 @@ const ml: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ഇവിടെ തുടർന്നാൽ മുമ്പത്തെ കണക്ഷൻ വിച്ഛേദിക്കപ്പെടും.',
   'pro.active_tab_replaced': 'ഈ PRO റൂം മറ്റൊരു ടാബിൽ ഇതിനകം തുറന്നിരിക്കുന്നു',
   'pro.use_this_tab': 'ഇവിടെ തുടരുക',
+  'pro.upload.retry_unavailable':
+    'ഈ അപ്‌ലോഡ് ഇനി പൂർത്തിയാക്കാനാവില്ല. ഫയൽ വീണ്ടും തിരഞ്ഞെടുക്കുക.',
+  'pro.upload.failed_retryable': 'അപ്‌ലോഡ് പൂർത്തിയാക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.',
+  'pro.upload.empty_file': 'ശൂന്യമായ ഫയൽ അപ്‌ലോഡ് ചെയ്യാനാകില്ല.',
+  'pro.upload.confirming': 'അപ്‌ലോഡ് സ്ഥിരീകരിക്കുന്നു {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ട്രാക്കുകൾ അപ്‌ലോഡ് ചെയ്യുന്നു {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ചില ട്രാക്കുകൾ അപ്‌ലോഡ് ചെയ്യാനായില്ല',
   'pro.upload.batch_failed_message':

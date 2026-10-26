@@ -807,6 +807,11 @@ const ptBr: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Continuar aqui encerrará a conexão anterior.',
   'pro.active_tab_replaced': 'Esta sala PRO já está aberta em outra aba',
   'pro.use_this_tab': 'Continuar aqui',
+  'pro.upload.retry_unavailable':
+    'Este upload não pode mais ser concluído. Selecione o arquivo novamente.',
+  'pro.upload.failed_retryable': 'Não foi possível concluir o upload. Tente novamente.',
+  'pro.upload.empty_file': 'Não é possível enviar um arquivo vazio.',
+  'pro.upload.confirming': 'Confirmando envio {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Enviando faixas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Não foi possível enviar algumas faixas',
   'pro.upload.batch_failed_message':

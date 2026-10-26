@@ -886,6 +886,10 @@ const fil: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Kapag nagpatuloy ka rito, mapuputol ang naunang koneksyon.',
   'pro.active_tab_replaced': 'Bukas na sa ibang tab ang PRO room na ito',
   'pro.use_this_tab': 'Ituloy rito',
+  'pro.upload.retry_unavailable': 'Hindi na makukumpleto ang upload na ito. Piliin muli ang file.',
+  'pro.upload.failed_retryable': 'Hindi makumpleto ang upload. Subukan muli.',
+  'pro.upload.empty_file': 'Hindi maaaring mag-upload ng walang laman na file.',
+  'pro.upload.confirming': 'Kinukumpirma ang upload {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Ina-upload ang mga track {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Hindi na-upload ang ilang track',
   'pro.upload.batch_failed_message':

@@ -343,6 +343,52 @@ describe('guest connection type authority', () => {
       ]);
       expect(mocks.showToast).not.toHaveBeenCalled();
     });
+
+    it('resolves delayed account feedback only from the current host roster after its role frame', async () => {
+      const { handleData } = await import('../protocol.ts');
+      const authority = await import('../../rooms/authority.ts');
+      setState('network.appRole', 'guest');
+      setState('network.myId', 'guest-1');
+      setState('network.lastJoinCode', '123456');
+      const check = authority.beginStandardRoomAccountAuthorityCheck({
+        roomCode: '123456',
+        peerId: 'guest-1',
+        role: 'guest',
+      });
+      await handleData({ type: MSG.OPERATOR_REVOKE, silent: true }, gatedHostConn);
+      expect(authority.roomCapabilityStatus('asset.upload')).toBe('pending');
+      authority.settleStandardRoomAccountAuthorityCheck(check, false);
+      const memberId = `member_${'a'.repeat(22)}`;
+      authority.acceptStandardRoomAccountAuthorityIdentity(memberId);
+      const frame = {
+        type: MSG.DEVICE_LIST_UPDATE,
+        list: [
+          {
+            id: 'host-1',
+            label: 'Host',
+            isHost: true,
+            isOp: true,
+            status: 'connected',
+            devicePlatform: 'other',
+          },
+          {
+            id: 'guest-1',
+            label: 'Peer',
+            isHost: false,
+            isOp: false,
+            status: 'connected',
+            connectionType: 'remote',
+            isAuthenticated: true,
+            memberId,
+            devicePlatform: 'other',
+          },
+        ],
+      };
+      await handleData(frame, evilConn);
+      expect(authority.roomCapabilityStatus('asset.upload')).toBe('pending');
+      await handleData(frame, gatedHostConn);
+      expect(authority.roomCapabilityStatus('asset.upload')).toBe('denied');
+    });
   });
 
   it('shows operator-only toasts only when they come from the host', async () => {

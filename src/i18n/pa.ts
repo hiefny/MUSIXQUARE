@@ -862,6 +862,10 @@ const pa: Record<I18nKey, string> = {
   'pro.active_tab_message': 'ਇੱਥੇ ਅੱਗੇ ਵਧਣ ਨਾਲ ਪਿਛਲਾ ਕਨੈਕਸ਼ਨ ਟੁੱਟ ਜਾਵੇਗਾ।',
   'pro.active_tab_replaced': 'ਇਹ PRO ਰੂਮ ਪਹਿਲਾਂ ਹੀ ਕਿਸੇ ਹੋਰ ਟੈਬ ਵਿੱਚ ਖੁੱਲ੍ਹਾ ਹੈ',
   'pro.use_this_tab': 'ਇੱਥੇ ਅੱਗੇ ਵਧੋ',
+  'pro.upload.retry_unavailable': 'ਇਹ ਅੱਪਲੋਡ ਹੁਣ ਪੂਰਾ ਨਹੀਂ ਕੀਤਾ ਜਾ ਸਕਦਾ। ਫਾਈਲ ਦੁਬਾਰਾ ਚੁਣੋ।',
+  'pro.upload.failed_retryable': 'ਅੱਪਲੋਡ ਪੂਰਾ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+  'pro.upload.empty_file': 'ਖਾਲੀ ਫ਼ਾਈਲ ਅੱਪਲੋਡ ਨਹੀਂ ਕੀਤੀ ਜਾ ਸਕਦੀ।',
+  'pro.upload.confirming': 'ਅੱਪਲੋਡ ਦੀ ਪੁਸ਼ਟੀ ਹੋ ਰਹੀ ਹੈ {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ਟਰੈਕ ਅੱਪਲੋਡ ਹੋ ਰਹੇ ਹਨ {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'ਕੁਝ ਟਰੈਕ ਅੱਪਲੋਡ ਨਹੀਂ ਹੋ ਸਕੇ',
   'pro.upload.batch_failed_message':

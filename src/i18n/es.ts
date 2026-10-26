@@ -812,6 +812,11 @@ const es: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Si continúas aquí, se cerrará la conexión anterior.',
   'pro.active_tab_replaced': 'Esta sala PRO ya está abierta en otra pestaña',
   'pro.use_this_tab': 'Continuar aquí',
+  'pro.upload.retry_unavailable':
+    'Esta subida ya no se puede completar. Vuelve a seleccionar el archivo.',
+  'pro.upload.failed_retryable': 'No se pudo completar la subida. Inténtalo de nuevo.',
+  'pro.upload.empty_file': 'No se puede subir un archivo vacío.',
+  'pro.upload.confirming': 'Confirmando subida {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Subiendo pistas {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'No se pudieron subir algunas pistas',
   'pro.upload.batch_failed_message':

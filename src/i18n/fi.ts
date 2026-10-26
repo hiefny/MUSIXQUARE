@@ -868,6 +868,11 @@ const fi: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Jos jatkat tässä, aiempi yhteys katkaistaan.',
   'pro.active_tab_replaced': 'Tämä PRO-huone on jo avoinna toisessa välilehdessä',
   'pro.use_this_tab': 'Jatka tässä',
+  'pro.upload.retry_unavailable':
+    'Tätä latausta ei voi enää viimeistellä. Valitse tiedosto uudelleen.',
+  'pro.upload.failed_retryable': 'Latausta ei voitu viimeistellä. Yritä uudelleen.',
+  'pro.upload.empty_file': 'Tyhjää tiedostoa ei voi ladata.',
+  'pro.upload.confirming': 'Vahvistetaan latausta {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Lähetetään kappaleita {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Joitakin kappaleita ei voitu lähettää',
   'pro.upload.batch_failed_message':

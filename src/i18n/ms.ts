@@ -881,6 +881,11 @@ const ms: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Jika anda meneruskan di sini, sambungan sebelumnya akan diputuskan.',
   'pro.active_tab_replaced': 'Bilik PRO ini sudah dibuka dalam tab lain',
   'pro.use_this_tab': 'Terus di sini',
+  'pro.upload.retry_unavailable':
+    'Muat naik ini tidak lagi dapat diselesaikan. Pilih fail sekali lagi.',
+  'pro.upload.failed_retryable': 'Muat naik tidak dapat diselesaikan. Sila cuba lagi.',
+  'pro.upload.empty_file': 'Fail kosong tidak boleh dimuat naik.',
+  'pro.upload.confirming': 'Mengesahkan muat naik {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Memuat naik trek {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Sesetengah trek tidak dapat dimuat naik',
   'pro.upload.batch_failed_message':

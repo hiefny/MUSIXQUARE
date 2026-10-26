@@ -5,6 +5,7 @@ import { applyAccountSession, setAccountAnonymous } from '../../account/state.ts
 import { bus } from '../../core/events.ts';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
+import { hasRoomCapability, roomCapabilityStatus } from '../../rooms/authority.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import * as navigation from '../../core/navigation.ts';
 import * as sessionReset from '../../core/session-reset.ts';
@@ -300,6 +301,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     expect(enter).toHaveBeenCalledOnce();
     expect(enter.mock.calls[0]?.[1]).not.toHaveProperty('takeover');
     expect(getState('room.context').capabilities).toEqual([]);
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
     entered.resolve(recovered);
     await vi.advanceTimersByTimeAsync(0);
     expect(getState('room.context').kind).toBe('pro');
@@ -437,7 +439,9 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     // projects its predecessor. Keep account-derived authority closed until
     // the exact signed attach has completed its channel/playlist acceptance.
     expect(getState('room.context').capabilities).toEqual([]);
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
     await vi.waitFor(() => expect(getState('room.context').capabilities).toContain('queue.mutate'));
+    expect(roomCapabilityStatus('asset.upload')).toBe('granted');
 
     await advanceTo(59_999);
     expect(renew).not.toHaveBeenCalled();
@@ -453,6 +457,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
 
     await vi.waitFor(() => expect(renew).toHaveBeenCalledTimes(2));
     await vi.waitFor(() => expect(getState('room.context').capabilities).toEqual([]));
+    expect(roomCapabilityStatus('asset.upload')).toBe('denied');
   });
 
   it('does not let unchanged account-session focus publications starve renewal', async () => {
@@ -1042,12 +1047,16 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     // The conflict's anonymous detach is only an intermediate fence. It must
     // not reopen account-bound media while the final B attachment is pending.
     expect(captureProRoomMediaHookSession()).toBeNull();
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+    expect(hasRoomCapability('asset.upload')).toBe(false);
 
     finishAttach.resolve(switched);
     await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledTimes(2));
     // SessionController has published B's signed snapshot, but its awaited
     // signaling replacement can still be superseded by another account event.
     expect(captureProRoomMediaHookSession()).toBeNull();
+    expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+    expect(hasRoomCapability('asset.upload')).toBe(false);
 
     finishFinalReconfigure.resolve();
     await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
@@ -1055,6 +1064,7 @@ describe('PRO runtime account identity lease', { concurrent: false }, () => {
     expect(sessionB).not.toBe(sessionA);
     expect(isProRoomMediaHookSessionCurrent(sessionB)).toBe(true);
     expect(getState('network.myDeviceLabel')).toBe('Jisu');
+    expect(roomCapabilityStatus('asset.upload')).toBe('granted');
   });
 
   it('keeps logout fail-closed when a newer authenticated heartbeat supersedes its detach commit', async () => {

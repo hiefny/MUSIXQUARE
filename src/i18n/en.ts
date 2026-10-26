@@ -854,6 +854,10 @@ const en: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Continuing here will disconnect the previous connection.',
   'pro.active_tab_replaced': 'This PRO room is already open in another tab',
   'pro.use_this_tab': 'Continue here',
+  'pro.upload.retry_unavailable': 'This upload can no longer be completed. Select the file again.',
+  'pro.upload.failed_retryable': 'The upload could not be completed. Please try again.',
+  'pro.upload.empty_file': 'An empty file cannot be uploaded.',
+  'pro.upload.confirming': 'Confirming upload {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Uploading tracks {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Some tracks couldn’t be uploaded',
   'pro.upload.batch_failed_message':

@@ -861,6 +861,10 @@ const mr: Record<I18nKey, string> = {
   'pro.active_tab_message': 'इथे पुढे गेल्यास आधीचे कनेक्शन तुटेल.',
   'pro.active_tab_replaced': 'ही PRO रूम आधीपासून दुसऱ्या टॅबमध्ये उघडी आहे',
   'pro.use_this_tab': 'इथे पुढे जा',
+  'pro.upload.retry_unavailable': 'हे अपलोड आता पूर्ण करता येणार नाही. फाइल पुन्हा निवडा.',
+  'pro.upload.failed_retryable': 'अपलोड पूर्ण होऊ शकले नाही. कृपया पुन्हा प्रयत्न करा.',
+  'pro.upload.empty_file': 'रिकामी फाइल अपलोड करता येत नाही.',
+  'pro.upload.confirming': 'अपलोडची पुष्टी होत आहे {{current}}/{{total}}',
   'pro.upload.batch_progress': 'ट्रॅक अपलोड होत आहेत {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'काही ट्रॅक अपलोड करता आले नाहीत',
   'pro.upload.batch_failed_message':

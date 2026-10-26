@@ -867,6 +867,11 @@ const uk: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Якщо продовжити тут, попереднє з’єднання буде завершено.',
   'pro.active_tab_replaced': 'Цю кімнату PRO вже відкрито в іншій вкладці',
   'pro.use_this_tab': 'Продовжити тут',
+  'pro.upload.retry_unavailable':
+    'Це завантаження більше неможливо завершити. Виберіть файл знову.',
+  'pro.upload.failed_retryable': 'Не вдалося завершити завантаження. Спробуйте ще раз.',
+  'pro.upload.empty_file': 'Неможливо завантажити порожній файл.',
+  'pro.upload.confirming': 'Підтвердження завантаження {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Надсилання треків: {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Деякі треки не вдалося надіслати',
   'pro.upload.batch_failed_message':

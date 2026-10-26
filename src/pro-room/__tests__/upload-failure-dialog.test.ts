@@ -9,6 +9,20 @@ function createQueue() {
 }
 
 describe('PRO upload failure dialog ownership', () => {
+  it('treats the single close button as dismissal when no failed file is retryable', async () => {
+    const queue = createQueue();
+    await resolveProRoomUploadFailureDialog({
+      queue,
+      batchId: 'batch-1',
+      canRetry: false,
+      show: async () => ({ action: 'ok' }),
+      isCurrent: () => true,
+      reportPresentationFailure: vi.fn(),
+    });
+    expect(queue.retryFailedBatch).not.toHaveBeenCalled();
+    expect(queue.dismissFailedBatch).toHaveBeenCalledWith('batch-1');
+  });
+
   it.each(['fallback', 'superseded', 'close'])(
     'releases the hidden failed batch when the dialog resolves programmatically as %s',
     async (action) => {

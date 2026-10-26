@@ -64,6 +64,7 @@ import {
   type ProRoomDiagnosticEvent,
 } from './pro-room-diagnostics.ts';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.ts';
+import { PRO_ROOM_MEDIA_COPY_TIMEOUT_MS } from './pro-room-media-timing.ts';
 import {
   PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS as ACTIVATION_CLAIM_MAX_LIFETIME_MS,
   PRO_ROOM_OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS as OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS,
@@ -601,6 +602,8 @@ interface RoomAsset extends StagingCleanupFields {
   assetId: string;
   objectKey: string;
   stagingObjectKey?: string;
+  // Durable source identity: ambiguous copies must never adopt different bytes.
+  completionSourceEtag?: string;
   version: number;
   byteLength: number;
   mime: string;
@@ -767,6 +770,8 @@ interface DeveloperMediaUpload extends DeveloperNamedMetadata {
 
 interface StagingTombstone extends StagingCleanupFields {
   objectKey: string;
+  // A bounded CopyObject request can still finish remotely after cancellation.
+  finalObjectKey?: string;
   emptySinceMs?: number | null;
   cleanupAfterMs: number;
 }
@@ -4015,6 +4020,73 @@ async function createR2PresignedUrl({
   return `https://${host}${canonicalUri}?${query}&X-Amz-Signature=${signature}`;
 }
 
+function isCopySourceEtag(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,256}$/.test(value);
+}
+
+// CopyObject may report an error inside a 200 response. Accept only its small,
+// complete success document, then verify the resulting object through R2 HEAD.
+function copyObjectResultEtag(bytes: Uint8Array): string | null {
+  let xml;
+  try {
+    xml = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
+  } catch {
+    return null;
+  }
+  const root = xml.match(
+    /^\s*(?:<\?xml\s+version="1\.0"(?:\s+encoding="UTF-8")?\s*\?>\s*)?<CopyObjectResult(?:\s+xmlns="http:\/\/s3\.amazonaws\.com\/doc\/2006-03-01\/")?\s*>([\s\S]*?)<\/CopyObjectResult>\s*$/,
+  );
+  if (!root) return null;
+  const content = root[1]!;
+  const etag = content.match(/<ETag>(?:&quot;|")([A-Za-z0-9_-]{1,256})(?:&quot;|")<\/ETag>/);
+  const modified = content.match(/<LastModified>([^<>]+)<\/LastModified>/);
+  if (
+    !etag ||
+    !modified ||
+    !Number.isFinite(Date.parse(modified[1]!)) ||
+    content.replace(etag[0], '').replace(modified[0], '').trim() !== ''
+  )
+    return null;
+  return etag[1]!;
+}
+
+async function copyReservedMediaObject(
+  env: ProRoomEnvPort,
+  asset: RoomAsset,
+  metadata: Record<string, string>,
+) {
+  const config = r2S3Config(env);
+  if (!config || !asset.stagingObjectKey || !isCopySourceEtag(asset.completionSourceEtag)) {
+    throw new Error('MEDIA_STORAGE_UNAVAILABLE');
+  }
+  const headers: HeaderRecord = {
+    'content-type': asset.mime,
+    'x-amz-copy-source': `/${awsEncode(config.bucketName)}/${encodeObjectPath(asset.stagingObjectKey)}`,
+    'x-amz-copy-source-if-match': `"${asset.completionSourceEtag}"`,
+    'x-amz-metadata-directive': 'REPLACE',
+    ...Object.fromEntries(
+      Object.entries(metadata).map(([key, value]) => [`x-amz-meta-${key}`, value]),
+    ),
+  };
+  const url = await createR2PresignedUrl({
+    env,
+    method: 'PUT',
+    objectKey: asset.objectKey,
+    headers,
+    expiresInSeconds: Math.ceil(PRO_ROOM_MEDIA_COPY_TIMEOUT_MS / 1000),
+    now: new Date(),
+  });
+  if (!url) throw new Error('MEDIA_STORAGE_UNAVAILABLE');
+  const { response, bytes } = await fetchWithDeadline(
+    (request) => fetch(request),
+    new Request(url, { method: 'PUT', headers }),
+    PRO_ROOM_MEDIA_COPY_TIMEOUT_MS,
+  );
+  const etag = response.status === 200 ? copyObjectResultEtag(bytes) : null;
+  if (!etag) throw new Error('MEDIA_STORAGE_UNAVAILABLE');
+  return etag;
+}
+
 class RoomStateCapacityError extends Error {
   constructor(
     readonly diagnosticReason: 'core' | 'session_receipt' | 'presence_close_receipt' = 'core',
@@ -7031,6 +7103,7 @@ export class MusixquareProRoom {
     );
     this.activeRoom.stagingTombstones[asset.assetId] = {
       objectKey: asset.stagingObjectKey,
+      ...(asset.completionSourceEtag ? { finalObjectKey: asset.objectKey } : {}),
       cleanupAfterMs,
     };
   }
@@ -7169,16 +7242,20 @@ export class MusixquareProRoom {
 
   async advanceStagingObjectCleanup(
     record: StagingTombstone | RoomAsset,
-    objectKey: string,
+    objectKey: string | string[],
     nowMs: number,
     cleanupField: 'cleanupAfterMs' | 'stagingCleanupAfterMs' = 'cleanupAfterMs',
     emptyField: 'emptySinceMs' | 'stagingEmptySinceMs' = 'emptySinceMs',
   ) {
     const bucket = this.env.PRO_MEDIA_BUCKET;
     if (!bucket) throw new Error('PRO_ROOM_MEDIA_BUCKET_NOT_CONFIGURED');
-    const object = await bucket.head(objectKey);
-    if (object) {
-      await bucket.delete(objectKey);
+    let foundObject = false;
+    for (const key of new Set(Array.isArray(objectKey) ? objectKey : [objectKey])) {
+      if (!(await bucket.head(key))) continue;
+      foundObject = true;
+      await bucket.delete(key);
+    }
+    if (foundObject) {
       // A late completion resets the continuous-empty proof even when this
       // cleanup successfully removed it.
       if (emptyField === 'emptySinceMs') record.emptySinceMs = nowMs;
@@ -7520,10 +7597,9 @@ export class MusixquareProRoom {
           new RegExp(`^${prefix}/media/([A-Za-z0-9_-]{16,128})/duration$`),
         )?.[1];
         const deletedAssetId = deleteMediaMatch?.[1];
-        // Completion may leave a verified immutable final object in R2 before
-        // the room-state commit. Its retry path now treats that object as the
-        // recovery source, so rewinding the in-memory reservation on a storage
-        // commit failure is both safe and required. Deletion is different: its
+        // Completion checkpoints its source pin before copying, then handles
+        // final commit rollback internally so this outer checkpoint cannot
+        // rewind past that durable identity. Deletion is different: its
         // helper restores the already-durable pending marker after a post-R2
         // commit failure, and the outer checkpoint must not rewind past that
         // intent into the pre-deletion state.
@@ -17255,6 +17331,9 @@ export class MusixquareProRoom {
     if (typeof stagingObjectKey !== 'string' || !isSafeInteger(uploadExpiresAtMs)) {
       return errorResponse('ROOM_STATE_INVALID', 503);
     }
+    if (asset.completionSourceEtag !== undefined && !isCopySourceEtag(asset.completionSourceEtag)) {
+      return errorResponse('ROOM_STATE_INVALID', 503);
+    }
     const finalMetadata = {
       'mxqr-room': this.activeRoom.roomCode,
       'mxqr-generation': String(assetRoomGeneration),
@@ -17275,6 +17354,10 @@ export class MusixquareProRoom {
       );
     };
 
+    const finalObjectMatchesReservation = (object: R2ObjectPort | null) =>
+      objectMatchesReservation(object) &&
+      (asset.completionSourceEtag === undefined ||
+        object?.customMetadata?.['mxqr-copy-source-etag'] === asset.completionSourceEtag);
     let stagingObject;
     let finalObject;
     try {
@@ -17289,10 +17372,10 @@ export class MusixquareProRoom {
     // A prior completion may have created and verified the immutable final
     // object, then lost the Durable Object commit or response. Treat that exact
     // object as the recovery source instead of requiring staging to survive.
-    if (!objectMatchesReservation(finalObject) && !stagingObject) {
+    if (!finalObjectMatchesReservation(finalObject) && !stagingObject) {
       return errorResponse('UPLOAD_INCOMPLETE', 409);
     }
-    if (!objectMatchesReservation(finalObject) && !objectMatchesReservation(stagingObject)) {
+    if (!finalObjectMatchesReservation(finalObject) && !objectMatchesReservation(stagingObject)) {
       try {
         await this.env.PRO_MEDIA_BUCKET.delete(stagingObjectKey);
       } catch {
@@ -17308,51 +17391,81 @@ export class MusixquareProRoom {
       return errorResponse('UPLOAD_MISMATCH', 409);
     }
 
-    if (!objectMatchesReservation(finalObject)) {
-      try {
-        const staged = await this.env.PRO_MEDIA_BUCKET.get(stagingObjectKey);
-        if (!staged?.body) return errorResponse('UPLOAD_INCOMPLETE', 409);
-        await this.env.PRO_MEDIA_BUCKET.put(asset.objectKey, staged.body, {
-          httpMetadata: { contentType: asset.mime },
-          customMetadata: finalMetadata,
-        });
-        finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
-      } catch {
-        // Keep both keys. R2 PUT is atomic and a retry can verify/recover an
-        // already-created final object even when the post-PUT HEAD failed.
+    if (!finalObjectMatchesReservation(finalObject)) {
+      if (!isCopySourceEtag(stagingObject?.etag)) {
         return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
       }
-      if (!objectMatchesReservation(finalObject)) {
-        await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey).catch(() => {});
+      if (
+        asset.completionSourceEtag !== undefined &&
+        asset.completionSourceEtag !== stagingObject.etag
+      ) {
+        return errorResponse('UPLOAD_MISMATCH', 409);
+      }
+      if (asset.completionSourceEtag === undefined) {
+        // Persist before any external copy. A cancelled request may still
+        // complete remotely; every retry must copy the same source identity.
+        asset.completionSourceEtag = stagingObject.etag;
+        await this.persist();
+      }
+      try {
+        const copiedEtag = await copyReservedMediaObject(this.env, asset, {
+          ...finalMetadata,
+          'mxqr-copy-source-etag': asset.completionSourceEtag,
+        });
+        finalObject = await this.env.PRO_MEDIA_BUCKET.head(asset.objectKey);
+        if (finalObject?.etag !== copiedEtag) {
+          return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+        }
+      } catch {
+        // Keep both keys and the durable pin. A retry verifies/reuses an exact
+        // final object even if the copy response or post-copy HEAD was lost.
+        return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+      }
+      if (!finalObjectMatchesReservation(finalObject)) {
         return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
       }
     }
-    const completedAtMs = Date.now();
-    asset.status = 'ready';
-    delete asset.expiresAtMs;
-    asset.completedAtMs = completedAtMs;
-    // The optional client length (read by an App's bundled copy of the same,
-    // possibly older reader) stays part of the idempotency fingerprint but is
-    // never timing evidence: the server reads the stored object itself.
-    this.enqueueAssetDurationProbe(asset);
-    asset.stagingCleanupAfterMs = Math.max(uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
-    this.activeRoom.quota.reservedBytes -= asset.byteLength;
-    this.activeRoom.quota.usedBytes += asset.byteLength;
-    // Completion and playlist insertion are separate idempotent operations.
-    // Start a conservative orphan deadline now; a later accepted snapshot that
-    // references this asset clears the marker.
-    this.reconcileAssetGarbageCollection(completedAtMs);
-    this.activeRoom.revision += 1;
-    const responseBody = { asset: publicAsset(asset), quota: { ...this.activeRoom.quota } };
-    this.storeIdempotency(scope, key, fingerprint, responseBody);
-    await this.persist();
+    let committed;
+    try {
+      // This checkpoint includes the already-durable source pin. Do not let a
+      // final commit failure rewind the outer route to its pre-copy checkpoint.
+      committed = await this.withStateCapacityRollback(
+        async () => {
+          const completedAtMs = Date.now();
+          asset.status = 'ready';
+          delete asset.expiresAtMs;
+          asset.completedAtMs = completedAtMs;
+          // The optional client length (read by an App's bundled copy of the same,
+          // possibly older reader) stays part of the idempotency fingerprint but is
+          // never timing evidence: the server reads the stored object itself.
+          this.enqueueAssetDurationProbe(asset);
+          asset.stagingCleanupAfterMs = Math.max(uploadExpiresAtMs + 5_000, completedAtMs + 60_000);
+          this.activeRoom.quota.reservedBytes -= asset.byteLength;
+          this.activeRoom.quota.usedBytes += asset.byteLength;
+          // Completion and playlist insertion are separate idempotent operations.
+          // Start a conservative orphan deadline now; a later accepted snapshot that
+          // references this asset clears the marker.
+          this.reconcileAssetGarbageCollection(completedAtMs);
+          this.activeRoom.revision += 1;
+          const responseBody = { asset: publicAsset(asset), quota: { ...this.activeRoom.quota } };
+          this.storeIdempotency(scope, key, fingerprint, responseBody);
+          await this.persist();
+          return jsonResponse(responseBody);
+        },
+        { rollbackStorageFailure: true },
+      );
+    } catch (error) {
+      if (!(error instanceof RoomStateStorageCommitError)) throw error;
+      return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
+    }
+    if (!committed.ok) return committed;
     // Commit metadata and idempotency before deleting the only client-uploaded
     // copy. If cleanup is interrupted, alarm GC retries via
     // stagingCleanupAfterMs; if persistence failed, the next completion can
     // recover from the verified final object above.
     const cleanup = this.env.PRO_MEDIA_BUCKET.delete(stagingObjectKey).catch(() => {});
     if (typeof this.state.waitUntil === 'function') this.state.waitUntil(cleanup);
-    return jsonResponse(responseBody);
+    return committed;
   }
 
   async handleMediaDuration(request: Request, assetId: string) {
@@ -17648,7 +17761,9 @@ export class MusixquareProRoom {
       try {
         const quietWindowComplete = await this.advanceStagingObjectCleanup(
           tombstone,
-          tombstone.objectKey,
+          tombstone.finalObjectKey
+            ? [tombstone.objectKey, tombstone.finalObjectKey]
+            : tombstone.objectKey,
           nowMs,
         );
         if (quietWindowComplete) delete this.activeRoom.stagingTombstones[assetId];

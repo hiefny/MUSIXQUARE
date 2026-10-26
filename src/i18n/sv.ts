@@ -870,6 +870,11 @@ const sv: Record<I18nKey, string> = {
   'pro.active_tab_message': 'Om du fortsätter här avslutas den tidigare anslutningen.',
   'pro.active_tab_replaced': 'PRO-rummet är redan öppet i en annan flik',
   'pro.use_this_tab': 'Fortsätt här',
+  'pro.upload.retry_unavailable':
+    'Den här uppladdningen kan inte längre slutföras. Välj filen igen.',
+  'pro.upload.failed_retryable': 'Uppladdningen kunde inte slutföras. Försök igen.',
+  'pro.upload.empty_file': 'En tom fil kan inte laddas upp.',
+  'pro.upload.confirming': 'Bekräftar uppladdning {{current}}/{{total}}',
   'pro.upload.batch_progress': 'Laddar upp spår {{current}}/{{total}}',
   'pro.upload.batch_failed_title': 'Vissa spår kunde inte laddas upp',
   'pro.upload.batch_failed_message':

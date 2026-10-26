@@ -96,8 +96,9 @@ runbooks. Neither belongs in a general setup document.
 - [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
   evidence for the structure program's second Phase 5 app train (not yet released; it ships after
   the forced-update train 9.0.14 / v787 with its client floor 787, release W and the removal
-  train's App release A 9.0.15 / v788, in one line; target `app`, expected 9.0.16 / v789 at the
-  bump; the branch has merged main up to release A `5dd7cc1f`). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
+  train's App release A 9.0.15 / v788, released 2026-10-27 06:20 KST, in one line; target `app`,
+  expected 9.0.16 / v789 at the bump; the branch has merged main up to release A's record
+  `1ff7fdf2`). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
   slot (RO-04) in six labelled groups, each with its failing test first: the attach fence (gaps 2
   and 3), the PRO coordinator's force-stop and successor teardown (4, 5), the Standard SFU
   re-publication handoff (1), the sharer's own claim (6), the nested end's restore point (7) and
@@ -111,7 +112,7 @@ runbooks. Neither belongs in a general setup document.
   compatibility lines for the release record (one changed sent frame, the failed-direct READY
   audience) with who loses what for each old-version item, the QA rounds (per increment, a
   train-end replay of the system-audio suites at every code commit, the final checks, the lane
-  checks again after each of the two main merges), the eager JS delta, a `guard:sw-cache-version`
+  checks again after each of the two main merges, the guard counts after the release A record merge), the eager JS delta, a `guard:sw-cache-version`
   false pass on a merge commit (no tooling change) and what was not verified on devices.
 - [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
   release evidence for the App release of the second removal train (9.0.15 / v788 from bump

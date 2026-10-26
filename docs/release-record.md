@@ -58,8 +58,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       버전 항목(5B-OV1 OV-A04와 코디네이터 잔재, 5B-OV2 OV-B05와 OV-B06, 5B-OV3 OV-A08의 시스템 오디오 부분)과 죽은 채널
       인자(SA-9)를 지웠다. 틈 8, 9, 13, 14와 SA-2는 그대로이고 SA-8은 범위 밖이다. 수신 패리티는 바꾸지 않고 RO-04에
       표로 적었다. 브랜치 `agent/phase5-5b`(`4d7650c0`에서 시작, origin/main `cb159851`을 `2fc81c70`으로, 그 뒤 main에
-      머지된 릴리스 A `5dd7cc1f`를 `0d59df41`로 합침. 글자 충돌은 `docs/README.md`와 이 절뿐이고, room-authority 경계
-      테스트의 기준치는 두 갈래가 따로 내린 읽기를 합쳐 80으로 내림): 증분마다 테스트 먼저와 코드 한 쌍(5B-G1 `1f8c7a66` →
+      머지된 릴리스 A `5dd7cc1f`를 `0d59df41`로, 릴리스 A 배포 뒤 그 기록 `1ff7fdf2`(#504, 문서만)를 `08509f84`로 합침.
+      글자 충돌은 `docs/README.md`와 이 절뿐이고, room-authority 경계 테스트의 기준치는 두 갈래가 따로 내린 읽기를
+      합쳐 80으로 내림. 기록 합침 뒤 가드 기준값은 그대로): 증분마다 테스트 먼저와 코드 한 쌍(5B-G1 `1f8c7a66` →
       `e74e10da`, 5B-G2 `09a5743f` → `bf80584d`와 리뷰 `b0234155`, 5B-G3 `0e451e80` → `a2894382`, 5B-G4 `c29dc8ec` →
       `8a2c7164`와 리뷰 `98c4b040`, 5B-G5 `fefac7a7` → `b4b724b9`, 5B-G6 `9336aeb2` → `95b04ea3`와 리뷰 `99b335b6`,
       5B-C4-13 `29e5fb72` → `c852c465`, 5B-OV1 `3fd45d5b` → `7293697f`, 5B-OV2 `43b21ea1` → `04f07124`, 5B-OV3 `1ab5f0b8` →
@@ -71,11 +72,13 @@ gh run list --workflow e2e.yml --branch main --limit 3
       room-authority-boundaries 직접 읽기 80, transport-health), `build:checked` 전체, SW 앱 셸 96 자산, critical E2E
       61/61, `e2e/system-audio-controls.test.ts` 5/5(G1과 G3 커밋에서도 5/5), 초기 JS 465,651 B(main `5dd7cc1f` 465,767 B
       대비 -116 B) PASS. 첫 합침 `2fc81c70`에서도 같은 묶음이 PASS였다(보고서 QA 라운드 5). `guard:sw-cache-version`은
-      합침 커밋을 bump로 읽어 PASS로 나오지만 bump는 여전히 필요하다(보고서 QA 라운드 5의 관찰). 남은 것: 릴리스 A의
-      배포와 기록 PR 뒤 main 다시 합치기, bump(9.0.15 다음 patch와 SW 캐시 epoch, 예상 9.0.16 / v789), PR CI, Codex,
+      합침 커밋을 bump로 읽어 PASS로 나오지만 bump는 여전히 필요하다(보고서 QA 라운드 5의 관찰). 릴리스 A의 배포
+      (2026-10-27 06:20 KST)와 기록 PR #504 뒤 main을 다시 합쳤다(QA 라운드 7). 남은 것: bump(9.0.15 다음 patch와 SW
+      캐시 epoch, 예상 9.0.16 / v789), PR CI, Codex,
       exact-main CI, 릴리스 smoke, 배포(예상 target `app`, Developer API D1 `false`). 로컬 결과는 exact-main-SHA 후보를
       대신하지 않는다. [5B 보고서](design/phase5-5b-receive-slot-behaviour-2026-10-26.md),
-      [QA 라운드 6](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#6-릴리스-a-합침-뒤-다시-돌리기-0d59df41-2026-10-27).
+      [QA 라운드 6](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#6-릴리스-a-합침-뒤-다시-돌리기-0d59df41-2026-10-27),
+      [QA 라운드 7](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#7-릴리스-a-기록-합침-08509f84-2026-10-27).
 - [ ] 5B 호환(AGENTS.md: 호환이 바뀜): 시스템 오디오 계약 표지 `single-stereo-v3+heartbeat-state-v1`, D1, 비밀,
       바인딩은 그대로다. 보내는 프레임 변화는 OV-B06 하나다. 이 빌드의 방장은 직접 경로가 실패한 원격 피어에 READY
       `{ audience: 'remote', handoffFromDirect: true }`를 보낸다(전에는 `'all'`). 9.0.12~9.0.15 게스트가 'direct'와
@@ -85,7 +88,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       짧은 surface는 계속 'display'로 읽음). OV-A04: PRO 시스템 오디오 컨트롤러의 인증 없는 피어 fan-out 수신 경로를
       지웠다(8.3.72부터 운영 호출자 없음). G1~G6, C4-13, SA-9, 코디네이터 잔재는 프레임을 바꾸지 않는다(G6은 로컬 전송
       콜백 하나). 이 빌드가 보내는 모든 프레임은 9.0.12~9.0.15 정확한 키 수신기가 받는다. 최소 빌드 787 아래는 새 입장과
-      재접속에서 거절되므로 운영의 혼합은 9.0.14, 릴리스 A(9.0.15)와 5B 사이다. 옛 버전 항목이 floor 아래
+      재접속에서 거절되므로 운영의 혼합은 9.0.14, 운영 중인 릴리스 A(9.0.15)와 5B 사이다. 옛 버전 항목이 floor 아래
       클라이언트에서 가져가는 것(8.4.37 이하 LAN 게스트의 직접 실패 뒤 STOP 대신 30초 뒤 `receive_failed`, 8.4.38~8.4.39
       원격 게스트의 늦은 직접 통화 울타리, 8.4.29 전 방장이 floor 전에 연 방의 START 거절)은 보고서의
       [호환과 혼합 버전](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#호환과-혼합-버전)에 있다.

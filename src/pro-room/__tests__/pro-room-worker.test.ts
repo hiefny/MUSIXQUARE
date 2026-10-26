@@ -23032,7 +23032,7 @@ describe('persistent PRO room private media accounting', () => {
     expect(fetch).toHaveBeenCalledOnce();
     // Registration may read a bounded duration header from final storage;
     // promotion itself must never fetch the whole staged body.
-    expect(get.mock.calls.every((call) => call.length === 2)).toBe(true);
+    for (const call of get.mock.calls) expect(call).toHaveLength(2);
     expect(get).not.toHaveBeenCalledWith(context.asset.stagingObjectKey);
     expect(put).not.toHaveBeenCalled();
     expect(context.asset.objectKey).not.toBe(context.asset.stagingObjectKey);

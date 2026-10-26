@@ -15,7 +15,7 @@ import { nodeSqlite } from './helpers/worker-test-bindings.ts';
  * The owner-transfer link and the room's entry password, end to end: the
  * real App facade, the PRO front door and room Durable Object, and node:sqlite
  * D1 (helpers/owner-transfer-saga-fixture.ts). The fixture's old owner
- * activated the room with the PIN 12345678.
+ * protected the room with the PIN 12345678.
  *
  * Owner decision 2026-10-23 (docs/design/phase2-navigation-ui-shells-2026-10-23.md, "PRO 소유권 이전 시 입장 암호 끄기"):
  * a committed transfer turns the entry password off and the link asks for no
@@ -76,39 +76,49 @@ describe('owner-transfer link and the room entry password', () => {
     });
   });
 
-  run("accepts and ignores the PIN an earlier App sends, even the old owner's", async () => {
-    const test = await transferFixture();
-    const claim = await issueClaim(test);
+  run(
+    "refuses the PIN that Apps before 9.0.4 sent, even the old owner's, and transfers without it",
+    async () => {
+      const test = await transferFixture();
+      const claim = await issueClaim(test);
 
-    // The body grammar of earlier Apps is unchanged: a malformed PIN is refused
-    // before any saga row exists.
-    const malformed = await postTransfer(test, claim, { newPin: '1234', entryPolicy: true });
-    expect(malformed.status).toBe(400);
-    await expect(malformed.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
-    expect(test.saga()).toBeUndefined();
+      // A malformed PIN, and since 2026-10-26 a well-formed one too: the PRO
+      // room refuses the body before it changes anything, so the link still
+      // works without the PIN and never reveals whether a PIN is the old owner's.
+      for (const newPin of ['1234', '12345678']) {
+        const refused = await postTransfer(test, claim, { newPin, entryPolicy: true });
+        expect(refused.status).toBe(400);
+        await expect(refused.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+      }
+      expect(await test.canonical()).toMatchObject({ status: 'active', owner: 'old' });
 
-    // No OWNER_TRANSFER_PIN_REUSE: the link no longer reveals the old owner's PIN.
-    const transferred = await postTransfer(test, claim, { newPin: '12345678', entryPolicy: true });
-    expect(transferred.status).toBe(200);
-    expect((await snapshotOf(transferred)).passwordRequired).toBe(false);
-    expect(test.saga()).toBe('complete');
-    expect(await bootstrap(test)).toEqual({
-      roomCode: ROOM_CODE,
-      status: 'open',
-      passwordRequired: false,
-    });
-  });
+      const transferred = await postTransfer(test, claim, { entryPolicy: true });
+      expect(transferred.status).toBe(200);
+      expect((await snapshotOf(transferred)).passwordRequired).toBe(false);
+      expect(test.saga()).toBe('complete');
+      expect(await bootstrap(test)).toEqual({
+        roomCode: ROOM_CODE,
+        status: 'open',
+        passwordRequired: false,
+      });
+    },
+  );
 
-  run('keeps the exact v1 snapshot for a request without the opt-in headers', async () => {
-    const test = await transferFixture();
-    const claim = await issueClaim(test);
+  run(
+    'answers with the entry policy and playlist summaries without the opt-in headers',
+    async () => {
+      const test = await transferFixture();
+      const claim = await issueClaim(test);
 
-    const transferred = await postTransfer(test, claim);
-    expect(transferred.status).toBe(200);
-    const snapshot = await snapshotOf(transferred);
-    expect(snapshot.viewer).toMatchObject({ role: 'owner' });
-    expect(snapshot).not.toHaveProperty('passwordRequired');
-    expect(snapshot).not.toHaveProperty('playlistSlots');
-    expect(await bootstrap(test)).toMatchObject({ status: 'open', passwordRequired: false });
-  });
+      const transferred = await postTransfer(test, claim);
+      expect(transferred.status).toBe(200);
+      const snapshot = await snapshotOf(transferred);
+      expect(snapshot.viewer).toMatchObject({ role: 'owner' });
+      // The PRO room no longer reads the opt-in headers.
+      expect(snapshot.passwordRequired).toBe(false);
+      expect(snapshot.playlistSlots).toBeDefined();
+      expect(parseProRoomSnapshot(snapshot)).not.toBeNull();
+      expect(await bootstrap(test)).toMatchObject({ status: 'open', passwordRequired: false });
+    },
+  );
 });

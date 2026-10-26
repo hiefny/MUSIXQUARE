@@ -61,6 +61,10 @@ interface WorldOptions {
   proTransientUntil?: number;
   proTransientStatus?: number;
   proRetryAfterS?: number;
+  /** Room 000001 has no entry password (the PRO Worker answers `open`). */
+  proRoomOpen?: boolean;
+  /** An admitted bootstrap answers this body instead of the entry policy. */
+  proAdmittedBody?: Record<string, unknown>;
 }
 
 /**
@@ -86,6 +90,8 @@ class FloorWorld {
   proTransientUntil: number;
   proTransientStatus: number;
   proRetryAfterS: number | null;
+  proRoomOpen: boolean;
+  proAdmittedBody: Record<string, unknown> | null;
   serviceWorkerBuilds: Array<number | null>;
   clientValue: number;
   requests: Array<{ method: string; url: string; headers: Headers; body: unknown; time: number }> =
@@ -110,6 +116,8 @@ class FloorWorld {
     this.proTransientUntil = options.proTransientUntil ?? -Infinity;
     this.proTransientStatus = options.proTransientStatus ?? 429;
     this.proRetryAfterS = options.proRetryAfterS ?? null;
+    this.proRoomOpen = options.proRoomOpen ?? false;
+    this.proAdmittedBody = options.proAdmittedBody ?? null;
     this.serviceWorkerBuilds = options.serviceWorkerBuilds ?? [];
     this.clientValue = this.clientAnswer();
   }
@@ -207,7 +215,14 @@ class FloorWorld {
       if (floor > 0 && build < floor) {
         return json({ error: 'APP_UPDATE_REQUIRED', minAppBuild: floor }, 426);
       }
-      return json({ roomCode: '000001', status: 'pin_required' });
+      // The PRO Worker reports the room's entry policy with the status.
+      return json(
+        this.proAdmittedBody ?? {
+          roomCode: '000001',
+          status: this.proRoomOpen ? 'open' : 'pin_required',
+          passwordRequired: !this.proRoomOpen,
+        },
+      );
     }
     throw new Error(`Unexpected request ${method} ${url.toString()}`);
   };
@@ -521,6 +536,39 @@ describe('App build floor script', () => {
         world.deps(),
       ),
     ).rejects.toThrow('PRO');
+  });
+
+  it('proves the PRO gate on an open canary room and sends the entry-policy opt-in', async () => {
+    const world = new FloorWorld({ proRoomOpen: true });
+    const result = await runAppBuildFloorCommand(
+      { action: 'set', minAppBuild: 785, reason: 'Turn it on' },
+      world.deps(),
+    );
+    expect(result?.status.minAppBuild).toBe(785);
+    const bootstraps = world.requests.filter((request) => request.url.endsWith('/bootstrap'));
+    expect(bootstraps.length).toBeGreaterThan(0);
+    // With the opt-in, the PRO Worker before and after the 2026-10-26
+    // old-version removal give the same answer.
+    for (const request of bootstraps) {
+      expect(request.headers.get('X-MXQR-Pro-Entry-Policy')).toBe('optional-v1');
+    }
+  });
+
+  it.each([
+    { roomCode: '000001', status: 'pin_required' },
+    { roomCode: '000001', status: 'pin_required', passwordRequired: false },
+    { roomCode: '000001', status: 'open', passwordRequired: true },
+    { roomCode: '000001', status: 'open' },
+    { roomCode: '000002', status: 'pin_required', passwordRequired: true },
+  ])('fails when the admitted PRO canary answers %o', async (proAdmittedBody) => {
+    const world = new FloorWorld({ proAdmittedBody });
+    await expect(
+      runAppBuildFloorCommand(
+        { action: 'set', minAppBuild: 785, reason: 'Turn it on' },
+        world.deps(),
+      ),
+    ).rejects.toThrow('PRO front door did not refuse build 784 and admit build 785');
+    expect(world.stored).toBe(785);
   });
 
   it('waits out a rate-limited PRO front door for its Retry-After beyond the propagation budget', async () => {

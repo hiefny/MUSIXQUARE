@@ -487,14 +487,19 @@ export async function transferFixture() {
   // The old owner activates the room (DO route with an App account assertion)
   // and the App records that owner's account-room edge.
   expect((await internal('/internal/admin/provision', {})).status).toBe(200);
+  const roomHeaders = {
+    'content-type': 'application/json',
+    'x-mxqr-pro-room-code': ROOM_CODE,
+    'x-mxqr-pro-room-generation': String(ROOM_GENERATION),
+    'x-mxqr-pro-ip-hash': 'saga-client-address',
+    // Only a PRO Worker before 2026-10-26 reads the opt-in.
+    'x-mxqr-pro-entry-policy': 'optional-v1',
+  };
   const activation = await room().fetch(
     new Request(`https://pro.musixquare.com/v1/rooms/${ROOM_CODE}/activation`, {
       method: 'POST',
       headers: {
-        'content-type': 'application/json',
-        'x-mxqr-pro-room-code': ROOM_CODE,
-        'x-mxqr-pro-room-generation': String(ROOM_GENERATION),
-        'x-mxqr-pro-ip-hash': 'saga-client-address',
+        ...roomHeaders,
         [ACCOUNT_ASSERTION_HEADER]: (await createAccountAssertion(
           {
             accountId: OLD_OWNER,
@@ -512,13 +517,27 @@ export async function transferFixture() {
           expiresAtMs: Date.now() + 60_000,
           nonce: 'saga-activation-nonce',
         }),
-        temporaryPin: ROOM_CODE.padStart(8, '0'),
-        newPin: '12345678',
         ownerName: 'Old owner',
       }),
     }),
   );
   expect(activation.status).toBe(200);
+  const activated = (await activation.json()) as {
+    snapshot: { viewer: { participantId: string; presenceIncarnationId: string } };
+  };
+  const passwordSet = await room().fetch(
+    new Request(`https://pro.musixquare.com/v1/rooms/${ROOM_CODE}/pin`, {
+      method: 'POST',
+      headers: {
+        ...roomHeaders,
+        cookie: (activation.headers.get('set-cookie') ?? '').split(';')[0]!,
+        'x-mxqr-pro-participant-id': activated.snapshot.viewer.participantId,
+        'x-mxqr-pro-presence-incarnation': activated.snapshot.viewer.presenceIncarnationId,
+      },
+      body: JSON.stringify({ pin: '12345678' }),
+    }),
+  );
+  expect(passwordSet.status).toBe(200);
   expect(
     await recordAccountProRoomLink(appEnv, OLD_OWNER, ROOM_CODE, Date.now(), ROOM_GENERATION),
   ).toBe(true);

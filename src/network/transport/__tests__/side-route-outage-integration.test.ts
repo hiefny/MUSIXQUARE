@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { log } from '../../../core/log.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
 import { CloudflareDataConnection } from '../cloudflare-signaling.ts';
-import { ControlIsolation as C9ControlIsolation } from './fixtures/control-isolation-c9.ts';
 
 /**
  * The side (isolated control) route's outage deadline together with the
@@ -22,7 +21,9 @@ import { ControlIsolation as C9ControlIsolation } from './fixtures/control-isola
  *   clock;
  * - the three device evidence lines, their level and the end that logs them;
  * - the close causes (side-failed:<reason>, original-grace-expired);
- * - a peer on the frozen C9 build, which cannot restart its side PC.
+ * - since the old-version removal train (survey OV-B07), a route restarts
+ *   without the peer's restart-capable advertisement, and an outage that gets
+ *   no restart answer (an 8.11.23 peer) ends at its own 15 s deadline.
  * Two connections exchange their control lanes in order. A lane that is down
  * holds its frames until it is up again, as SCTP does while a path is
  * unavailable. One end's close is not carried to the other end here, so each
@@ -128,7 +129,6 @@ interface Endpoint {
 }
 
 const connections: CloudflareDataConnection[] = [];
-const legacyPeers: C9ControlIsolation[] = [];
 let lines: Line[] = [];
 
 async function flush(): Promise<void> {
@@ -159,13 +159,17 @@ async function endpoint(): Promise<Endpoint> {
   return { peer, conn, pc, control, side, release };
 }
 
-/** Moves what `from` sent since the last move to `to`, in order. */
-function lane() {
+/** Moves what `from` sent since the last move to `to`, in order, less what `drop` loses. */
+function lane(drop: (frame: Record<string, unknown>) => boolean = () => false) {
   const read = new Map<Channel, number>();
   return (from: Channel | null | undefined, to: Channel | null | undefined): void => {
     if (!from || !to) return;
     let index = read.get(from) ?? 0;
-    for (; index < from.sent.length; index++) to.receive(from.sent[index]);
+    for (; index < from.sent.length; index++) {
+      const data = from.sent[index];
+      if (typeof data === 'string' && drop(JSON.parse(data) as Record<string, unknown>)) continue;
+      to.receive(data);
+    }
     read.set(from, index);
   };
 }
@@ -174,23 +178,28 @@ function lane() {
  * Two current-build ends. Bulk demand starts the side negotiation; the end
  * with the smaller nonce offers the side PC and every ICE-restart offer.
  * `activate: false` stops after the descriptions, before either side channel
- * opens (before the fences and READY).
+ * opens (before the fences and READY). `drop` loses the frames it matches on
+ * the original lane, in both directions.
  */
-async function pair({ activate = true } = {}) {
+async function pair({
+  activate = true,
+  drop,
+}: { activate?: boolean; drop?: (frame: Record<string, unknown>) => boolean } = {}) {
   const a = await endpoint();
   const b = await endpoint();
   const lanes = { original: true, side: true };
+  const moveOriginal = lane(drop);
   const move = lane();
   const other = (e: Endpoint) => (e === a ? b : a);
   /** Delivers only what `from` sent on the original lane. */
   const deliverFrom = (from: Endpoint): void => {
-    if (lanes.original) move(from.control, other(from).control);
+    if (lanes.original) moveOriginal(from.control, other(from).control);
   };
   const pump = async (): Promise<void> => {
     for (let round = 0; round < 12; round++) {
       if (lanes.original) {
-        move(a.control, b.control);
-        move(b.control, a.control);
+        moveOriginal(a.control, b.control);
+        moveOriginal(b.control, a.control);
       }
       if (lanes.side) {
         move(a.side.channel, b.side.channel);
@@ -220,60 +229,6 @@ async function pair({ activate = true } = {}) {
     expect(b.conn.controlIsolation?.phase).toBe('active');
   }
   return { a, b, offerer, answerer, lanes, pump, deliverFrom, original };
-}
-
-/**
- * A current-build end and a peer on the frozen C9 build, whose side route has
- * no restart capability: it never advertises one and ignores restart frames.
- */
-async function legacyPair() {
-  const a = await endpoint();
-  const side = new PeerConnection();
-  const sent: string[] = [];
-  const fail = vi.fn<() => void>();
-  const release = vi.fn<() => void>();
-  const flow = new C9ControlIsolation({
-    createPeerConnection: () => ({ pc: side as unknown as RTCPeerConnection, release }),
-    sendOriginal: (data) => {
-      sent.push(data);
-    },
-    receive: () => {},
-    changed: () => {},
-    fail,
-  });
-  legacyPeers.push(flow);
-  const lanes = { original: true };
-  const move = lane();
-  let toLegacy = 0;
-  let fromLegacy = 0;
-  const pump = async (): Promise<void> => {
-    for (let round = 0; round < 12; round++) {
-      if (lanes.original) {
-        for (; toLegacy < a.control.sent.length; toLegacy++) {
-          const data = a.control.sent[toLegacy];
-          const frame: unknown = typeof data === 'string' ? JSON.parse(data) : null;
-          // As its connection does: side-route frames first, then the fence check.
-          if (!flow.handleOriginal(frame, true)) flow.acceptOriginalApplication();
-        }
-        for (; fromLegacy < sent.length; fromLegacy++) a.control.receive(sent[fromLegacy]);
-      }
-      move(a.side.channel, side.channel);
-      move(side.channel, a.side.channel);
-      await flush();
-    }
-  };
-  a.conn.startBulkFlowControl();
-  flow.start();
-  await pump();
-  expect(a.conn.bulkFlowControl.hasCapacity(1)).toBe(false);
-  await pump();
-  (a.side.channel ? side : a.side).remoteChannel();
-  a.side.channel!.open();
-  side.channel!.open();
-  await pump();
-  expect(a.conn.controlIsolation?.phase).toBe('active');
-  expect(flow.phase).toBe('active');
-  return { a, legacy: { flow, side, fail, release }, lanes, pump };
 }
 
 /** Advances fake time to `ms` after the moment this timeline was made. */
@@ -333,7 +288,6 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const conn of connections.splice(0)) conn.close();
-  for (const flow of legacyPeers.splice(0)) flow.dispose();
   clearAllManagedTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
@@ -955,60 +909,81 @@ describe('side-route device evidence lines', () => {
   });
 });
 
-describe('a peer on the frozen C9 build (mixed version)', () => {
-  it('closes an active route 15 s after its side PC disconnected, with side-failed:route, no restart and none of the evidence lines', async () => {
-    const m = await legacyPair();
+/**
+ * Old-version removal train, survey OV-B07 (TR-03 stage 1). Every build with
+ * isolated control since 8.11.25 restarts its side PC, so a route restarts
+ * without the peer's restart-capable advertisement (it still sends its own for
+ * ends before this train). A peer that neither advertises nor answers a
+ * restart, as on the 8.11.23 build, is the accepted degradation: this end's
+ * side outage ends its link at its own 15 s deadline as expired, instead of
+ * at once (failed) or after a 15 s grace (disconnected) as a route failure.
+ */
+describe('a peer whose restart-capable advertisement or restart answer never arrives', () => {
+  const restartFrame = (frame: Record<string, unknown>): boolean =>
+    frame.type === TYPE && String(frame.kind).startsWith('restart-');
+
+  it('restarts without the advertisement; both sides recover, log the restart and recovered lines, and keep their links', async () => {
+    const p = await pair({
+      drop: (frame) => frame.type === TYPE && frame.kind === 'restart-capable',
+    });
+    for (const e of [p.a, p.b]) expect(frames(e, 'restart-capable')).toHaveLength(1);
+    expect(logged(() => p.offerer.side.state('failed'))).toEqual([['info', restarting(1)]]);
+    p.answerer.side.state('failed');
+    await p.pump();
+    expect(frames(p.offerer, 'restart-offer')).toHaveLength(1);
+    expect(frames(p.answerer, 'restart-answer')).toHaveLength(1);
+    expect(logged(() => p.offerer.side.state('connected'))).toEqual([['info', RECOVERED]]);
+    expect(logged(() => p.answerer.side.state('connected'))).toEqual([['info', RECOVERED]]);
+    await p.pump();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(transcript()).toEqual([
+      ['info', restarting(1)],
+      ['info', RECOVERED],
+      ['info', RECOVERED],
+    ]);
+    for (const e of [p.a, p.b]) {
+      expect(e.conn.open).toBe(true);
+      expect(e.conn.controlIsolation?.phase).toBe('active');
+    }
+  });
+
+  it.each(['failed', 'disconnected'] as const)(
+    'an offerer whose restart gets no answer ends its link at its own 15 s deadline after a %s side PC, with side-failed:expired after the warning',
+    async (state) => {
+      const p = await pair({ drop: restartFrame });
+      const at = timeline();
+      expect(logged(() => p.offerer.side.state(state))).toEqual([['info', restarting(1)]]);
+      await p.pump();
+      expect(frames(p.offerer, 'restart-offer')).toHaveLength(1);
+      await at(GRACE_MS - 1);
+      expect(p.offerer.conn.open).toBe(true);
+      await at(GRACE_MS);
+      expect(transcript()).toEqual([
+        ['info', restarting(1)],
+        ['warn', DID_NOT_RECOVER],
+        closed('side-failed:expired', p.offerer),
+      ]);
+      expectClosed(p.offerer);
+      expect(p.answerer.conn.open).toBe(true);
+    },
+  );
+
+  it('an answerer whose restart request gets no answer ends its link at its own 15 s deadline, with side-failed:expired after the warning', async () => {
+    const p = await pair({ drop: restartFrame });
     const at = timeline();
-    m.a.side.state('disconnected');
-    m.legacy.side.state('disconnected');
-    await m.pump();
+    expect(logged(() => p.answerer.side.state('failed'))).toEqual([]);
+    await p.pump();
+    expect(frames(p.answerer, 'restart-request')).toHaveLength(1);
+    expect(frames(p.offerer, 'restart-offer')).toEqual([]);
     await at(GRACE_MS - 1);
-    expect(m.a.conn.open).toBe(true);
-    expect(m.legacy.fail).not.toHaveBeenCalled();
+    expect(p.answerer.conn.open).toBe(true);
     await at(GRACE_MS);
-    expect(transcript()).toEqual([closed('side-failed:route', m.a)]);
-    expectClosed(m.a);
-    expect(m.legacy.fail).toHaveBeenCalledOnce();
-    for (const kind of ['restart-request', 'restart-offer', 'restart-answer', 'restart-candidate'])
-      expect(frames(m.a, kind)).toEqual([]);
-  });
-
-  it('does not defer that grace while the original route is down', async () => {
-    const m = await legacyPair();
-    const at = timeline();
-    m.a.side.state('disconnected');
-    await at(1_000);
-    m.lanes.original = false;
-    m.a.pc.state('disconnected');
-    expect(m.a.conn.linkLiveness.phase).toBe('recovering');
-    await at(GRACE_MS - 1);
-    expect(m.a.conn.open).toBe(true);
-    await at(GRACE_MS);
-    expect(transcript()).toEqual([closed('side-failed:route', m.a)]);
-  });
-
-  it('closes at once when the side PC fails', async () => {
-    const m = await legacyPair();
-    expect(logged(() => m.a.side.state('failed'))).toEqual([closed('side-failed:route', m.a)]);
-    expectClosed(m.a);
-  });
-
-  it('keeps the link when the side PC reconnects within 15 s, logging nothing, and gives the next disconnect a fresh 15 s even inside the first one', async () => {
-    const m = await legacyPair();
-    const at = timeline();
-    m.a.side.state('disconnected');
-    await at(10_000);
-    m.a.side.state('connected');
-    await at(12_000);
-    m.a.side.state('disconnected');
-    // The first disconnect's 15 s ended here; the reconnect cleared it.
-    await at(GRACE_MS);
-    expect(m.a.conn.open).toBe(true);
-    await at(12_000 + GRACE_MS - 1);
-    expect(m.a.conn.open).toBe(true);
-    expect(transcript()).toEqual([]);
-    await at(12_000 + GRACE_MS);
-    expect(transcript()).toEqual([closed('side-failed:route', m.a)]);
+    expect(transcript()).toEqual([
+      ['warn', DID_NOT_RECOVER],
+      closed('side-failed:expired', p.answerer),
+    ]);
+    expectClosed(p.answerer);
+    expect(p.offerer.conn.open).toBe(true);
   });
 });
 

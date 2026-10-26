@@ -67,17 +67,11 @@ import {
   selectQueueItemById,
 } from '../player/queue-model.ts';
 import {
-  finalizeProRoomDirectFile,
-  isProRoomPersistentPlaylistFile,
-  resolveProRoomPlaylistFile,
-} from '../pro-room/media-hooks.ts';
-import {
   isGuestDirectFileDelivery,
   isGuestR2FileDelivery,
   recordGuestFileDelivery,
 } from '../share/file-delivery-policy.ts';
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
-import { pause } from '../player/transport.ts';
 import { recordMainReceiveProgress } from './preload-watchdog.ts';
 import { captureGuestFilePause, restoreGuestFilePause } from '../player/guest-file-pause.ts';
 
@@ -91,19 +85,6 @@ let rejectedMainSessionId = 0;
 let _filePrepareGeneration = 0;
 let lastTransferProgressSessionId = 0;
 let lastTransferProgressPercent = -1;
-
-/**
- * A page that was already open before this release can still send the retired
- * delayed-start hint. Do not reproduce that delay locally; only silence the
- * resident source until the old host eventually sends its authoritative PLAY.
- * Unknown FILE_PREPARE fields are intentionally accepted for rolling updates.
- */
-function holdResidentForRetiredDelayedStart(data: Record<string, unknown>): void {
-  const delayHint = data.autoPlayDelayMs;
-  if (typeof delayHint === 'number' && Number.isSafeInteger(delayHint) && delayHint > 0) {
-    pause(0, { holdVisualizer: false, showToast: false });
-  }
-}
 
 function resetDecodeFailureCountForNewOccurrence(queueItemId: QueueItemId): void {
   if (getState('player.decodeFailureQueueItemId') !== queueItemId) {
@@ -308,7 +289,7 @@ function hasMatchingDirectReceivePrefix(
     meta?.queueItemId === queueItemId &&
     meta.sessionId === sessionId &&
     meta.name === data.name &&
-    (data.size === undefined || meta.size === data.size) &&
+    meta.size === data.size &&
     (data.total === undefined || meta.total === data.total) &&
     (data.mime === undefined || meta.mime === data.mime) &&
     receivedCount > 0 &&
@@ -472,7 +453,6 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
   if (isRemoteGuest() && !isGuestDirectFileDelivery(queueItemId, sessionId)) return true;
 
   if (data && !queueItemId) return true;
-  if (queueItemId && isProRoomPersistentPlaylistFile(queueItemId)) return true;
   if (queueItemId && isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     return true;
   }
@@ -751,7 +731,7 @@ function retainLoadedSameFileForPrepare(data: Record<string, unknown>): boolean 
   const loadedSessionId = Number(resident?.sessionId);
   const metadataConsistent =
     (!requestedName || requestedName === resident?.name) &&
-    (data.size === undefined || Number(data.size) === resident?.blob.size);
+    Number(data.size) === resident?.blob.size;
 
   if (
     !resident ||
@@ -775,7 +755,6 @@ function retainLoadedSameFileForPrepare(data: Record<string, unknown>): boolean 
   showLoader(false);
   // FILE_PREPARE establishes transport ownership only. PLAY is the sole
   // authority that may start or restart the resident buffer.
-  holdResidentForRetiredDelayedStart(data);
   return true;
 }
 
@@ -810,91 +789,11 @@ function projectFilePrepareBeforeRouteCheck(
     indexHint,
     name,
     sessionId,
-    size: (data.size as number) || 0,
+    size: data.size as number,
     mime: (data.mime as string) || '',
   });
   setPlaybackTrackMeta(getQueueItemById(queueItemId)!);
   restorePendingFileIntent(pendingFileIntent, data, 'route-pending file prepare');
-}
-
-async function receiveProRoomFileDirectly(
-  data: Record<string, unknown>,
-  conn: DataConnection | undefined,
-  ownerSnapshot: FilePrepareOwnerSnapshot,
-  filePromise: Promise<File | null>,
-): Promise<void> {
-  const queueItemId = incomingQueueItemId(data);
-  const sessionId = Number(data.sessionId);
-  const item = queueItemId ? getQueueItemById(queueItemId) : null;
-  if (!queueItemId || !item || !Number.isSafeInteger(sessionId) || sessionId <= 0) return;
-
-  completeAcceptedFileRequest(data, conn);
-  cancelRemoteShareWait('pro-room-direct-r2');
-  clearManagedTimer('preloadRecoveryWatchdog');
-  clearManagedTimer('preloadUiWatchdog');
-  clearManagedTimer('prepareWatchdog');
-  clearManagedTimer('chunkWatchdog');
-  clearManagedTimer('fileWaitTimeout');
-
-  const pendingFileIntent = capturePendingFileIntent(data);
-  bus.emit('player:stop-all-media');
-
-  if (sessionId > getState('transfer.localSessionId')) {
-    setState('transfer.localSessionId', sessionId);
-  }
-  setState('transfer.receivedCount', 0);
-  setState('transfer.lastReceivedCountSnapshot', 0);
-  fileReorderBuffer.clear();
-  nextExpectedChunk = 0;
-  setPlaybackTransferState(TRANSFER_STATE.IDLE);
-
-  const indexHint = findQueueItemIndex(queueItemId);
-  const name = (data.name as string) || item.name;
-  const size = Number(data.size);
-  const safeSize = Number.isSafeInteger(size) && size > 0 ? size : 0;
-  setPendingRecoveryTarget({ queueItemId, indexHint, name });
-  transition({ type: 'FILE_PREPARE', variant: 'fresh', queueItemId, name });
-  bus.emit('storage:clear-previous-track', 'pro-room-direct-r2');
-  selectQueueItemById(queueItemId);
-  setState('transfer.meta', {
-    ...getState('transfer.meta'),
-    queueItemId,
-    indexHint,
-    name,
-    size: safeSize,
-    mime: (data.mime as string) || '',
-    sessionId,
-    total: safeSize > 0 ? Math.max(1, Math.ceil(safeSize / CHUNK_SIZE)) : 1,
-  });
-  setPlaybackTrackMeta(item);
-  restorePendingFileIntent(pendingFileIntent, data, 'PRO direct R2 prepare');
-
-  try {
-    const file = await filePromise;
-    if (!isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, sessionId, conn)) return;
-    const meta = getState('transfer.meta');
-    if (
-      !file ||
-      getState('playlist.currentQueueItemId') !== queueItemId ||
-      meta?.queueItemId !== queueItemId ||
-      meta.sessionId !== sessionId
-    ) {
-      if (!file) transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
-      return;
-    }
-    if (safeSize > 0 && file.size !== safeSize) {
-      log.warn('[PRO] Direct R2 File size did not match FILE_PREPARE');
-      transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
-      return;
-    }
-
-    transition({ type: 'FILE_END', queueItemId });
-    await finalizeProRoomDirectFile(file, queueItemId, sessionId);
-  } catch (error) {
-    if (!isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, sessionId, conn)) return;
-    log.warn('[PRO] Direct R2 receive failed', error);
-    transition({ type: 'REMOTE_FILE_UNAVAILABLE' });
-  }
 }
 
 export async function handleFilePrepare(
@@ -963,14 +862,6 @@ export async function handleFilePrepare(
   if (retainLoadedSameFileForPrepare(data)) {
     completeAcceptedFileRequest(data, conn);
     return;
-  }
-
-  if (isProRoomPersistentPlaylistFile(queueItemId)) {
-    const directFile = resolveProRoomPlaylistFile(queueItemId);
-    if (directFile) {
-      await receiveProRoomFileDirectly(data, conn, ownerSnapshot, directFile);
-      return;
-    }
   }
 
   // A host may intentionally offload a physically local guest once direct
@@ -1147,8 +1038,7 @@ export async function handleFilePrepare(
     incomingSameFileSessionId > 0 &&
     incomingSameFileSessionId === loadedSameFileSessionId;
   const loadedMetadataConsistent =
-    data.name === currentResident?.name &&
-    (data.size === undefined || Number(data.size) === currentResident?.blob.size);
+    data.name === currentResident?.name && Number(data.size) === currentResident?.blob.size;
   if (
     currentResident &&
     currentResident.queueItemId === queueItemId &&
@@ -1173,7 +1063,6 @@ export async function handleFilePrepare(
       name: data.name as string,
     });
     showLoader(false);
-    holdResidentForRetiredDelayedStart(data);
     return;
   }
 
@@ -1430,15 +1319,6 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   }
   if (!isRemoteGuest()) recordGuestFileDelivery(queueItemId, incomingSid, 'direct-local');
   const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data, conn);
-
-  // Persistent PRO occurrences are participant-owned R2 downloads. Even a
-  // same-session FILE_START from a stale coordinator must not be interpreted
-  // as legacy recovery and reopen the RAM chunk pipeline.
-  if (isProRoomPersistentPlaylistFile(queueItemId)) {
-    clearManagedTimer('prepareWatchdog');
-    clearManagedTimer('chunkWatchdog');
-    return;
-  }
 
   // A remote-loaded guest has not adopted transfer.localSessionId yet. Preserve
   // its playing buffer only when FILE_START names the exact descriptor session
@@ -2123,12 +2003,9 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
           return;
         }
 
-        // PRO persistent media is location agnostic: every device retries the
-        // control request and downloads from the room bucket with its own
-        // authenticated presign. Only ordinary remote guests depend on a
-        // remote-share descriptor and may enter its unavailable UI.
-        const isProDirect = isProRoomPersistentPlaylistFile(requestOwner.queueItemId);
-        if (isRemoteGuest() && !isProDirect) {
+        // Remote guests depend on a remote-share descriptor and may enter its
+        // unavailable UI.
+        if (isRemoteGuest()) {
           log.info('[file-wait timeout] Remote guest: remote share unavailable');
           showRemoteUnavailableUI({
             queueItemId: requestOwner.queueItemId,

@@ -10,14 +10,15 @@ const LABEL = 'musixquare-control-isolated'; // brand-capitalization: allow-tech
 const NONCE = /^[a-f0-9]{32}$/u;
 const DISCOVERY_MS = 1_000;
 const NEGOTIATION_MS = 10_000;
-// A restart-capable side route survives an ICE interruption by restarting ICE
-// on the same PC: DTLS/SCTP and its ordered channel remain, so queued and
-// in-flight controls keep their order. How long an outage may last is its
-// outage owner's (SideOutageOwner, since Phase 4 C5-9). These two windows
-// bound peer restart requests (15 s) and restart offers (30 s), which the two
-// ends, possibly on different builds, enforce on each other: they stay
-// literals rather than follow RTC_INTERRUPTION_GRACE_MS. Monotonic time keeps
-// a wall-clock correction from moving them.
+// An active side route survives an ICE interruption by restarting ICE on the
+// same PC: DTLS/SCTP and its ordered channel remain, so queued and in-flight
+// controls keep their order. How long an outage may last is its outage
+// owner's (SideOutageOwner, since Phase 4 C5-9). These two windows bound peer
+// restart requests (15 s) and restart offers (30 s). The two ends enforce them
+// on each other, and consecutive builds meet in a room while the update dialog
+// lets a tab wait, so they are a wire contract: they stay literals rather than
+// follow RTC_INTERRUPTION_GRACE_MS (survey TR-15, kept again by the old-version
+// removal train). Monotonic time keeps a wall-clock correction from moving them.
 const RESTART_WINDOW_MS = 15_000;
 const RESTART_CAP_MS = 30_000;
 // Per local interruption, and separately per window of peer requests.
@@ -42,8 +43,11 @@ type Kind =
   | 'candidate'
   | 'fence'
   | 'ready'
-  // Additive restart frames. A build without them parses unknown kinds as
-  // invalid and ignores them, so it keeps its terminal side-failure behavior.
+  // Restart frames, since 8.11.25. Every end restarts since the old-version
+  // removal train (survey OV-B07) but still sends 'restart-capable' before its
+  // request and fence, because ends before that train restart only after one
+  // arrives. Sending it can stop once the client floor reaches that train
+  // (survey OV-F03).
   | 'restart-capable'
   | 'restart-request'
   | 'restart-offer'
@@ -265,7 +269,6 @@ export class ControlIsolation {
   private readonly listeners = new Set<() => void>();
   // ICE restart of the side PC. Only the original side-PC offerer offers; the
   // answerer may ask it to. Generations ("epochs") increase by one.
-  private remoteRestartCapable = false;
   private restartEpoch = 0;
   private remoteEpochSeen = 0;
   private remoteEpoch = 0;
@@ -304,7 +307,6 @@ export class ControlIsolation {
       outgoingBytes: this.outgoingBytes,
       incomingMessages: this.incoming.length,
       incomingBytes: this.incomingBytes,
-      restartCapable: this.remoteRestartCapable,
       localRestartEpoch: this.localEpoch,
       remoteRestartEpoch: this.remoteEpoch,
       restartInterrupted: this.interruption !== null,
@@ -411,8 +413,7 @@ export class ControlIsolation {
           if (pc && this.current(pc)) await pc.addIceCandidate(frame.candidate!);
         });
     } else if (frame.kind === 'restart-capable') {
-      // Ordered before the sender's fence: it cannot change an active route.
-      if (!this.remoteFence && this.state !== 'fallback') this.remoteRestartCapable = true;
+      // Every peer restarts: the advertisement changes nothing here.
     } else if (frame.kind.startsWith('restart-') && this.restartReady()) this.restartFrame(frame);
     return true;
   }
@@ -656,7 +657,7 @@ export class ControlIsolation {
     this.notify();
   }
 
-  /** A restart-capable route takes over a disconnect grace armed before READY. */
+  /** At READY the restart path takes over a disconnect grace armed before it. */
   private takeOverDisconnectGrace(): boolean {
     if (this.restartReady() && this.options.outages.sideGraceRunning && this.lease)
       this.sideStateChanged(this.lease.pc.connectionState, true);
@@ -669,10 +670,7 @@ export class ControlIsolation {
    * the restart path rather than being dropped or closing the connection.
    */
   private restartReady(): boolean {
-    return (
-      this.remoteRestartCapable &&
-      (this.state === 'active' || (this.state === 'fencing' && this.sentReady))
-    );
+    return this.state === 'active' || (this.state === 'fencing' && this.sentReady);
   }
 
   private get offerer(): boolean {

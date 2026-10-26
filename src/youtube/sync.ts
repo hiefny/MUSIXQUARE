@@ -822,13 +822,13 @@ export function suppressDriftUntil(ms: number): void {
 function updateHostSnapshot(
   hostTime: number,
   hostState: number,
-  hostClock?: number,
+  hostClock: number,
   hostVideoId?: string,
   hostSubIndex?: number,
 ): void {
   const player = getYouTubePlayer();
   _rt.lastHostSnapshot = {
-    hostClockAt: hostClock ?? getHostNow(),
+    hostClockAt: hostClock,
     hostPosition: hostTime,
     hostState,
     _videoId: hostVideoId || player?.getVideoData?.()?.video_id || '',
@@ -1182,18 +1182,11 @@ const SMALL_DRIFT_BUSY_TIMERS = [
 function projectPlayingHeartbeatTime(
   hostTime: number,
   hostState: number,
-  hostClock: number | undefined,
+  hostClock: number,
 ): number {
-  if (
-    hostState !== 1 ||
-    hostClock === undefined ||
-    !Number.isFinite(hostClock) ||
-    !isClockCalibrated()
-  ) {
-    return hostTime;
-  }
+  // An uncalibrated clock keeps the raw position.
+  if (hostState !== 1 || !isClockCalibrated()) return hostTime;
   const elapsedMs = getHostNow() - hostClock;
-  // Legacy frames and an unavailable clock retain their raw-position fallback.
   // A timestamp just ahead of our estimate must never project playback backward.
   return Number.isFinite(elapsedMs) ? hostTime + Math.max(0, elapsedMs) / 1000 : hostTime;
 }
@@ -1203,7 +1196,7 @@ function sampleSmallHeartbeatDrift(
   player: YouTubePlayerInstance,
   hostTime: number,
   hostState: number,
-  hostClock: number | undefined,
+  hostClock: number,
   duration: number,
   action: GuestStateAction,
   snapshot: HostPositionSnapshot | null,
@@ -1216,8 +1209,6 @@ function sampleSmallHeartbeatDrift(
     !isCurrentStateAction(action) ||
     _rt.lastHostSnapshot !== snapshot ||
     hostState !== 1 ||
-    hostClock === undefined ||
-    !Number.isFinite(hostClock) ||
     !isClockCalibrated() ||
     getState('room.context').kind === 'pro' ||
     _rt.hostAdPauseActive ||
@@ -1423,7 +1414,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostTime = Number(data.time) || 0;
   const hostState = Number(data.state);
   const hostSubIndex = data.subIndex as number | undefined;
-  const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
+  const hostClock = data.hostClock as number;
   updateHostSnapshot(hostTime, hostState, hostClock, (data.videoId as string) || '', hostSubIndex);
   const heartbeatSnapshot = _rt.lastHostSnapshot;
 
@@ -2353,24 +2344,18 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   // rendezvous. Snapshot is pure data — no side effects pre-guard, and
   // every action-scheduling branch below still runs under the guard.
   //
-  // Pass data.hostClock through so hostClockAt is anchored in host-clock
-  // ms. Without it, updateHostSnapshot falls back to getHostNow(), which
-  // on a freshly-joined guest returns raw Date.now() (offset=0 until the
-  // first pong lands). After calibration, age = getHostNow() - stale
-  // hostClockAt = offset itself, which is easily > 10s — and the guest
-  // sees "No host playback data" until the next heartbeat replaces the
-  // bad snapshot.
+  // The frame's hostClock anchors hostClockAt in host-clock ms. A guest-side
+  // getHostNow() stamp would be raw Date.now() on a freshly joined guest
+  // (offset 0 until the first pong lands); after calibration its age would
+  // read as the offset itself, easily > 10s, and the guest would see "No host
+  // playback data" until the next heartbeat replaced the snapshot.
   const time = Number(data.time) || 0;
-  const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
+  const hostClock = data.hostClock as number;
   const hostPlayAt = Number(data.hostPlayAt) || 0;
-  // Timestamped bootstrap frames describe the host's position *when sent*,
-  // while hostPlayAt is a future guest admission deadline. Untimestamped
-  // legacy frames retain their established target-at-deadline interpretation.
-  const hasFrameClock = hostClock !== undefined && Number.isFinite(hostClock);
+  // A frame describes the host's position *when sent*, while hostPlayAt is a
+  // future guest admission deadline.
   const deadlineTargetTime =
-    state === 1 && hostPlayAt > 0 && hasFrameClock
-      ? time + Math.max(0, hostPlayAt - hostClock!) / 1000
-      : time;
+    state === 1 && hostPlayAt > 0 ? time + Math.max(0, hostPlayAt - hostClock) / 1000 : time;
   updateHostSnapshot(
     time,
     state,
@@ -2559,20 +2544,11 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
 
     // SharedClock: schedule YouTube action at host-specified time
     const duration = player.getDuration?.() || 0;
-    const playingTarget = resolveGuestPlayingTarget(deadlineTargetTime, duration);
-    const manualTargetTime =
-      state === 1 ? playingTarget.localTime : applyYouTubeManualOffset(time, duration);
 
     if (hostPlayAt > 0 && isClockCalibrated()) {
-      const signedWaitMs = hostPlayAt - getHostNow();
-      const waitMs = Math.max(0, signedWaitMs);
+      const waitMs = Math.max(0, hostPlayAt - getHostNow());
 
-      if (
-        state === 1 &&
-        (guestAudibleLeadMs() !== 0 || hasFrameClock) &&
-        waitMs > 0 &&
-        waitMs < AUTO_SYNC_MAX_WAIT_MS
-      ) {
+      if (state === 1 && waitMs > 0 && waitMs < AUTO_SYNC_MAX_WAIT_MS) {
         // Use available future time before spending any media position. In
         // particular, zero-position Android starts must retain their first note.
         const plan = resolveGuestScheduledTarget(deadlineTargetTime, duration, waitMs);
@@ -2596,63 +2572,12 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         return;
       }
 
-      if (waitMs > SHORT_WAIT_THRESHOLD_MS && waitMs < AUTO_SYNC_MAX_WAIT_MS && state === 1) {
-        // ── Auto-sync path: significant wait (>SHORT_WAIT_THRESHOLD_MS) + play command ──
-        // 1. Pause immediately for clean sync
-        if (player.pauseVideo) player.pauseVideo();
-        if (!isCurrentStateAction(action)) return;
-
-        // 2. Seek to target position (while paused = in-buffer, no rebuffer)
-        if (player.seekTo) player.seekTo(manualTargetTime, true);
-        if (!isCurrentStateAction(action)) return;
-
-        // 3. Update seekbar immediately
-        if (manualTargetTime >= 0 && duration >= 0) {
-          bus.emit(
-            'ui:time-update',
-            fmtTime(manualTargetTime),
-            fmtTime(duration),
-            manualTargetTime,
-            duration,
-          );
-        }
-
-        // 4. Suppress drift correction during wait
-        _rt.autoSyncUntil =
-          performance.now() +
-          waitMs +
-          playingTarget.localStartDelayMs +
-          POST_SCHEDULED_ACTION_COOLDOWN_MS;
-
-        // 5. Show sync loading state on guest
-        bus.emit('youtube:sync-loading', true, CLOCK_ACTION_LOADING_OWNER);
-        showToast(t('toast.yt_sync_start'));
-
-        // 6. Play at scheduled time
-        setStateActionTimer(
-          'yt-clock-action',
-          action,
-          (p) => {
-            if (p?.playVideo) {
-              setYtAutoplayIntent(true); // authorize this play past pause-back guard
-              p.playVideo();
-            }
-            if (!isCurrentStateAction(action)) return;
-            bus.emit('youtube:sync-loading', false, CLOCK_ACTION_LOADING_OWNER);
-            showToast(t('toast.yt_sync_done'));
-          },
-          waitMs + playingTarget.localStartDelayMs,
-        );
-
-        log.debug(`[YouTube State] Auto-sync: pause+seek, play in ${waitMs}ms`);
-      } else if (waitMs > 0 && waitMs <= SHORT_WAIT_THRESHOLD_MS) {
-        // Short wait (≤SHORT_WAIT_THRESHOLD_MS) — schedule with brief pause-seek-play
-        // Clamp to [0, duration] to avoid seeking past the end, which
-        // triggers a premature ENDED event and track-advance on the guest.
-        const rawCompensated =
-          (hasFrameClock ? deadlineTargetTime : time + waitMs / 1000) +
-          getYouTubeManualOffsetSec() +
-          (state === 1 ? guestAudibleLeadMs() / 1000 : 0);
+      if (waitMs > 0 && waitMs <= SHORT_WAIT_THRESHOLD_MS) {
+        // Short wait (≤SHORT_WAIT_THRESHOLD_MS) for a non-playing state (a
+        // playing one was scheduled above) — apply it at the deadline. Clamp
+        // to [0, duration] to avoid seeking past the end, which triggers a
+        // premature ENDED event and track-advance on the guest.
+        const rawCompensated = time + getYouTubeManualOffsetSec();
         const compensatedTime =
           duration > 0 ? Math.max(0, Math.min(rawCompensated, duration)) : rawCompensated;
         if (compensatedTime >= 0 && duration >= 0) {
@@ -2669,30 +2594,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
           'yt-clock-action',
           action,
           (p) => {
-            if (state === 1 && p.playVideo) {
-              const holdMs = Math.max(0, -rawCompensated * 1000);
-              // Pause-seek-play: same pattern as executeImmediate to avoid
-              // seekTo+playVideo race on the YouTube iframe.
-              if (p.seekTo) {
-                p.pauseVideo?.();
-                if (!isCurrentStateAction(action)) return;
-                p.seekTo(compensatedTime, true);
-                setStateActionTimer(
-                  'yt-seek-play',
-                  action,
-                  (p2) => {
-                    if (p2?.playVideo) {
-                      setYtAutoplayIntent(true);
-                      p2.playVideo();
-                    }
-                  },
-                  Math.max(SEEK_PLAY_GAP_MS, holdMs),
-                );
-              } else {
-                setYtAutoplayIntent(true);
-                p.playVideo();
-              }
-            } else if (state === 2 && p.pauseVideo) {
+            if (state === 2 && p.pauseVideo) {
               p.pauseVideo();
               if (!isCurrentStateAction(action)) return;
               if (p.seekTo) p.seekTo(compensatedTime, true);
@@ -2701,16 +2603,12 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
           waitMs,
         );
       } else {
-        // No wait or out of range — execute immediately
+        // No wait or out of range — execute immediately at the host's present
+        // position.
         executeImmediate(
           player,
           state,
-          time +
-            (state === 1
-              ? (hasFrameClock
-                  ? Math.max(0, getHostNow() - hostClock!)
-                  : Math.max(0, -signedWaitMs)) / 1000
-              : 0),
+          time + (state === 1 ? Math.max(0, getHostNow() - hostClock) / 1000 : 0),
           duration,
           action,
         );

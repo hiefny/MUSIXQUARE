@@ -98,7 +98,7 @@ const READ_ALLOWLIST = new Map<string, ReadAllowance>([
   ],
   ['src/player/playlist.ts', { appRole: 1, isOperator: 0, reason: 'standard-fenced' }],
   ['src/rooms/authority.ts', { appRole: 4, isOperator: 1, reason: 'canonical-authority-adapter' }],
-  ['src/share/remote-share.ts', { appRole: 4, isOperator: 0, reason: 'compatibility-consumer' }],
+  ['src/share/remote-share.ts', { appRole: 3, isOperator: 0, reason: 'compatibility-consumer' }],
   ['src/storage/preload.ts', { appRole: 1, isOperator: 0, reason: 'compatibility-consumer' }],
   [
     'src/storage/transfer-receive.ts',
@@ -140,7 +140,7 @@ const EVENT_ALLOWLIST = new Map<string, EventAllowance>([
 const WRITE_ALLOWLIST = new Map<string, WriteAllowance>([
   [
     'src/network/guest.ts',
-    { appRoleDirect: 0, isOperatorDirect: 6, appRoleObject: 0, isOperatorObject: 0 },
+    { appRoleDirect: 0, isOperatorDirect: 3, appRoleObject: 0, isOperatorObject: 0 },
   ],
   [
     'src/network/peer.ts',
@@ -235,11 +235,8 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
       "read:isOperator @ function:handleOperatorToast :: if (!hostConn || conn !== hostConn || !getState('network.isOperator'))",
       "read:isOperator @ function:handleWelcome :: if (getState('network.isOperator'))",
       "write-direct:isOperator @ function:handleOperatorGrant :: setState('network.isOperator', true)",
-      "write-direct:isOperator @ function:handleOperatorGrant :: setState('network.isOperator', true)",
       "write-direct:isOperator @ function:handleOperatorRevoke :: setState('network.isOperator', false)",
-      "write-direct:isOperator @ function:handleOperatorRevoke :: setState('network.isOperator', true)",
       "write-direct:isOperator @ function:handleWelcome :: setState('network.isOperator', false)",
-      "write-direct:isOperator @ function:handleWelcome :: setState('network.isOperator', true)",
     ],
   ],
   [
@@ -378,7 +375,6 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
       "read:appRole @ callback-call:bus.on(\"network:peer-connected\")#1 :: if (getState('network.appRole') !== 'guest')",
       "read:appRole @ callback-call:bus.on(\"network:peer-connection-replaced\")#1 :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ callback-call:bus.on(\"network:peer-disconnected\")#1 :: if (getState('network.appRole') !== 'host')",
-      "read:appRole @ function:handleFileR2Capability :: if (getState('network.appRole') !== 'host' || !conn?.peer)",
     ],
   ],
   [

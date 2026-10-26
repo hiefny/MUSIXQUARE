@@ -6,13 +6,6 @@ import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
  */
 export const LOCAL_FILE_START_LEAD_MS = 200;
 /**
- * Older PLAY receivers interpret hostPlayAt as command time plus this lead.
- * A wire contract with already-shipped receivers: never unify it with
- * LOCAL_FILE_START_LEAD_MS or with the demo's 350 ms DEMO_PLAY_SCHEDULE_AHEAD_MS,
- * even where the values match.
- */
-export const LEGACY_FILE_SCHEDULE_AHEAD_MS = 200;
-/**
  * A calibrated host deadline further than this from the host clock is not
  * trusted as the guest's timeline. Each guest projection keeps its own
  * predicate: the local-file check below is two-sided, the demo projection
@@ -41,16 +34,18 @@ export function captureGuestFilePlayTiming(
 ): FilePlayTimeline {
   const receivedAt = Date.now();
   const receivedMonotonicAt = performance.now();
-  const hasSharedStart = typeof data.hostStartAt === 'number' && data.hostStartAt > 0;
-  const hostAnchor = hasSharedStart ? data.hostStartAt : data.hostPlayAt;
-  const hasAnchor = typeof hostAnchor === 'number' && Number.isFinite(hostAnchor) && hostAnchor > 0;
+  // A PLAY without hostStartAt (a running late join) starts at receipt. Any
+  // hostPlayAt is ignored: only hosts before 8.6.53 sent it alone.
+  const hostStartAt = data.hostStartAt;
+  const hasSharedStart =
+    typeof hostStartAt === 'number' && Number.isFinite(hostStartAt) && hostStartAt > 0;
   const calibrated = isClockCalibrated();
 
-  if (hasAnchor && calibrated) {
-    const remainingMs = hostAnchor - getHostNow();
+  if (hasSharedStart && calibrated) {
+    const remainingMs = hostStartAt - getHostNow();
     if (Math.abs(remainingMs) < HOST_TIMELINE_TRUST_WINDOW_MS) {
       return {
-        time: time + (hasSharedStart ? 0 : LEGACY_FILE_SCHEDULE_AHEAD_MS / 1_000),
+        time,
         setAt: receivedAt + remainingMs,
         monotonicSetAt: receivedMonotonicAt + remainingMs,
         needsClockSync: false,
@@ -65,7 +60,7 @@ export function captureGuestFilePlayTiming(
     time,
     setAt: receivedAt + (hasSharedStart ? LOCAL_FILE_START_LEAD_MS : 0),
     monotonicSetAt: receivedMonotonicAt + (hasSharedStart ? LOCAL_FILE_START_LEAD_MS : 0),
-    needsClockSync: hasAnchor && !calibrated,
+    needsClockSync: hasSharedStart && !calibrated,
   };
 }
 

@@ -626,6 +626,7 @@ it.each([false, true])(
       expect.soft(getTrackPosition()).toBe(18);
       // Non-operators remain silent. Grant standard OP as a real room would and
       // invoke the same exported function wired to the player controls button.
+      setState('network.standardRoomCapabilities', ['playback.control']);
       setState('network.isOperator', true);
       togglePlay();
       await pump();

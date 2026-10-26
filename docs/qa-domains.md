@@ -452,7 +452,7 @@ P0/P1/P2는 **QA 실행 순서**다. 발견된 결함의 심각도나 배포 승
 
 ### QA036. 로컬 직접 전송과 원격 전달의 선택 — P1
 
-**판정:** ICE 분류 지연·변경에도 session의 전달 방식을 유지하고 R2 대기·실패·local promotion 시 다른 방식의 늦은 프레임을 차단한다. 파일 session별 audience·capability·descriptor를 고정하고, 동일 object 재결합·foreground promotion·실패 곡 재선택도 최신 큐와 출력 소유권에만 적용한다.
+**판정:** ICE 분류 지연·변경에도 session의 전달 방식을 유지하고 R2 대기·실패·local promotion 시 다른 방식의 늦은 프레임을 차단한다. 파일 session별 audience·descriptor를 고정하고, 동일 object 재결합·foreground promotion·실패 곡 재선택도 최신 큐와 출력 소유권에만 적용한다.
 
 **방법:** 자동 / 브라우저 / 실기 / 로컬서비스
 

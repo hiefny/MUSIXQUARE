@@ -15,10 +15,10 @@ import {
   acceptCanonicalRoomSettings,
   initEffectsHandlers,
   resetSettingsSyncAuthorityForTests,
-  setExciter,
-  setStereoWidth,
+  setExciterForTests as setExciter,
+  setStereoWidthForTests as setStereoWidth,
   setSettingsSyncEnabled,
-  setVirtualBass,
+  setVirtualBassForTests as setVirtualBass,
 } from '../../audio/effects.ts';
 import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { MSG } from '../../core/constants.ts';

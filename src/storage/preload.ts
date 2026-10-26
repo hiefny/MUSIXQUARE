@@ -13,7 +13,6 @@ import { batchSetState, getState, setState } from '../core/state.ts';
 import {
   MSG,
   CHUNK_SIZE,
-  MAX_EARLY_PRELOAD_CHUNKS,
   DELAY,
   TRANSFER_STATE,
   PLAYBACK_STATE,
@@ -34,7 +33,6 @@ import {
   sendFileRequest,
 } from '../network/file-request-authority.ts';
 import {
-  broadcast,
   safeSend,
   sendToHost,
   canSendFileTo,
@@ -47,7 +45,7 @@ import {
   isBulkTransferWritablePeer,
   isPeerConnectionCurrent,
 } from './chunk-pump.ts';
-import type { ConnectedPeer, DataConnection, ProtocolMsg, QueueItemId } from '../types/index.ts';
+import type { ConnectedPeer, DataConnection, QueueItemId } from '../types/index.ts';
 import { showLoader, showToast, updateLoader } from '../ui/toast.ts';
 import {
   cancelRemoteFilePreload,
@@ -120,15 +118,11 @@ function showPreloadProgress(pct: number, awaited: boolean): void {
 }
 
 // ─── Reorder Buffer ──────────────────────────────────────────────────
-// sessionId → Map(chunkIndex → Uint8Array)
+// sessionId → Map(chunkIndex → Uint8Array), only for an admitted session.
 const preloadReorderBuffer = new Map<number, Map<number, Uint8Array>>();
-/** Queue identity bound to each buffered transfer session, including early chunks. */
-const preloadQueueItemBySid = new Map<number, string>();
 let latestPreloadSessionId = 0;
 let lastPreloadUiSessionId = 0;
 let lastPreloadUiPercent = -1;
-const MAX_EARLY_PRELOAD_SESSIONS = 4;
-const MAX_EARLY_PRELOAD_BYTES = 4 * 1024 * 1024;
 let _activePlayPreloadedQueueItemId: string | undefined;
 let _preloadScope: SessionScope | null = null;
 /** Per-transfer unicast preload abort controls (key: owning scope).
@@ -704,13 +698,6 @@ interface ProRoomPreloadOwner {
   promise: Promise<void>;
 }
 
-interface PendingProRoomPreloadHint {
-  readonly roomId: string;
-  readonly queueItemId: QueueItemId;
-  readonly sessionId: number;
-  readonly hostConn: DataConnection;
-}
-
 /**
  * PRO media never enters the legacy chunk pump. Each participant warms the
  * canonical private-R2 object itself, while this owner publishes the same
@@ -719,10 +706,6 @@ interface PendingProRoomPreloadHint {
  * second GET.
  */
 let _proRoomPreloadOwner: ProRoomPreloadOwner | null = null;
-// A legacy signaling path can deliver a one-shot warm hint before the
-// participant has projected that queue occurrence. Retain only the newest exact
-// authority tuple and replay it once the playlist/runtime hooks are ready.
-let _pendingProRoomPreloadHint: PendingProRoomPreloadHint | null = null;
 
 /**
  * Clean up reorder buffers and session state for stale (non-current) sessions.
@@ -734,7 +717,6 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
   for (const sid of preloadReorderBuffer.keys()) {
     if (sid !== keepSessionId) {
       preloadReorderBuffer.delete(sid);
-      preloadQueueItemBySid.delete(sid);
     }
   }
   // Clean up finalized/skipped session entries (immutable update)
@@ -760,8 +742,6 @@ function cleanupStalePreloadSessions(keepSessionId: number): void {
     for (const sid of toRemove) {
       updated.delete(sid);
       preloadReorderBuffer.delete(sid);
-      preloadQueueItemBySid.delete(sid);
-      preloadQueueItemBySid.delete(sid);
       clearManagedTimer(`preload-admission-watchdog-${sid}`);
       postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId: sid });
     }
@@ -779,8 +759,6 @@ function abandonStalledPreloadSession(sessionId: number, reason: string): void {
   updated.set(sessionId, { ...session, skipped: true });
   setState('preload.sessionState', updated);
   preloadReorderBuffer.delete(sessionId);
-  preloadQueueItemBySid.delete(sessionId);
-  clearManagedTimer(`preload-drain-${sessionId}`);
   clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
   postCommand({ command: 'STORAGE_RESET_SESSION', isPreload: true, sessionId });
 }
@@ -868,7 +846,6 @@ export function resetPreloadReceiveAuthority(): void {
   showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
   _awaitedPreloadIdentity = null;
   _activePlayPreloadedQueueItemId = undefined;
-  _pendingProRoomPreloadHint = null;
   latestPreloadSessionId = 0;
   lastPreloadUiSessionId = 0;
   lastPreloadUiPercent = -1;
@@ -878,11 +855,9 @@ export function resetPreloadReceiveAuthority(): void {
     ...getState('preload.sessionState').keys(),
   ]);
   for (const sessionId of sessionIds) {
-    clearManagedTimer(`preload-drain-${sessionId}`);
     clearManagedTimer(`preload-admission-watchdog-${sessionId}`);
   }
   preloadReorderBuffer.clear();
-  preloadQueueItemBySid.clear();
 
   cancelInFlightBackgroundTransfer();
   _preloadScope?.dispose();
@@ -1063,71 +1038,6 @@ function beginProRoomFilePreload(
   return owner.promise;
 }
 
-function handleProRoomFilePreload(
-  data: ProtocolMsg<typeof MSG.PRO_FILE_PRELOAD>,
-  conn?: DataConnection,
-): void {
-  const context = getState('room.context');
-  if (!PRO_ROOM_FILE_PRELOAD_ENABLED || context.kind !== 'pro' || !context.roomId) return;
-  const hostConn = getState('network.hostConn');
-  if (!hostConn || conn !== hostConn) return;
-
-  const currentMeta = getState('preload.activeTarget');
-  const currentSessionId = Number(currentMeta?.sessionId) || 0;
-  if (
-    currentSessionId > data.sessionId ||
-    (currentSessionId === data.sessionId && currentMeta?.queueItemId !== data.queueItemId)
-  ) {
-    return;
-  }
-
-  const operation = beginProRoomFilePreload(data.queueItemId, data.sessionId);
-  if (operation) {
-    _pendingProRoomPreloadHint = null;
-    operation.catch((error) => {
-      log.warn('[Preload] PRO room preload operation failed', error);
-    });
-    return;
-  }
-
-  const pending = _pendingProRoomPreloadHint;
-  const sameAuthority = pending?.roomId === context.roomId && pending.hostConn === hostConn;
-  if (sameAuthority) {
-    if (pending.sessionId > data.sessionId) return;
-    // A legacy host session identifies exactly one queue occurrence. Keep the
-    // first authenticated tuple if a conflicting duplicate somehow arrives.
-    if (pending.sessionId === data.sessionId && pending.queueItemId !== data.queueItemId) return;
-  }
-  _pendingProRoomPreloadHint = {
-    roomId: context.roomId,
-    queueItemId: data.queueItemId,
-    sessionId: data.sessionId,
-    hostConn,
-  };
-}
-
-function replayPendingProRoomPreloadHint(): void {
-  const pending = _pendingProRoomPreloadHint;
-  if (!pending) return;
-  const context = getState('room.context');
-  const hostConn = getState('network.hostConn');
-  if (
-    context.kind !== 'pro' ||
-    context.roomId !== pending.roomId ||
-    hostConn !== pending.hostConn
-  ) {
-    _pendingProRoomPreloadHint = null;
-    return;
-  }
-
-  const operation = beginProRoomFilePreload(pending.queueItemId, pending.sessionId);
-  if (!operation) return;
-  _pendingProRoomPreloadHint = null;
-  operation.catch((error) => {
-    log.warn('[Preload] Replayed PRO room preload operation failed', error);
-  });
-}
-
 /**
  * Preload the next track for a standard host or independently for a PRO participant.
  *
@@ -1282,7 +1192,6 @@ async function preloadNextTrack(): Promise<void> {
       clearPreloadCacheState();
       return;
     }
-    broadcast({ type: MSG.PRO_FILE_PRELOAD, queueItemId, sessionId });
     await operation;
     return;
   }
@@ -1930,11 +1839,6 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     }
   }
   recordGuestFileDelivery(incomingQueueItemId, sid, 'direct-local');
-  const earlyQueueItemId = preloadQueueItemBySid.get(sid);
-  if (earlyQueueItemId && earlyQueueItemId !== incomingQueueItemId) {
-    preloadReorderBuffer.delete(sid);
-  }
-  preloadQueueItemBySid.set(sid, incomingQueueItemId);
 
   clearManagedTimer('prepareWatchdog');
 
@@ -1961,12 +1865,7 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
       finalized: false,
     });
     setState('preload.sessionState', skipSessionState);
-    try {
-      preloadReorderBuffer.delete(sid);
-      preloadQueueItemBySid.delete(sid);
-    } catch (e) {
-      log.debug('[Preload] reorder buffer cleanup:', e);
-    }
+    preloadReorderBuffer.delete(sid);
     return;
   }
 
@@ -2070,20 +1969,6 @@ function handlePreloadStart(data: Record<string, unknown>, conn?: DataConnection
     sessionId: validateSessionId(sid),
     size: CHUNK_SIZE,
   });
-
-  // Drain chunks that arrived before PRELOAD_START after the start state has
-  // been published for this event turn.
-  setManagedTimer(
-    'preload-drain-' + sid,
-    () => {
-      try {
-        drainPreloadReorderBuffer(sid);
-      } catch (e) {
-        log.debug('[Preload] drain reorder buffer:', e);
-      }
-    },
-    0,
-  );
 
   armPreloadAdmissionWatchdog(sid, PRELOAD_RECEIVE_DEADLINE_MS.admission, () =>
     abandonStalledPreloadSession(sid, 'admission watchdog'),
@@ -2220,91 +2105,35 @@ function handlePreloadChunk(data: Record<string, unknown>, conn?: DataConnection
   // got superseded by a track advance) to finish naturally and be promoted
   // to the current track without forcing a 0% recovery restart.
 
-  const sessionState = getState('preload.sessionState');
-  const session = sessionState.get(sid);
-  if (session && session.queueItemId !== queueItemId) return;
-  const bufferedQueueItemId = preloadQueueItemBySid.get(sid);
-  if (bufferedQueueItemId && bufferedQueueItemId !== queueItemId) return;
-  preloadQueueItemBySid.set(sid, queueItemId);
+  // Only an admitted session takes bytes. PRELOAD_START travels on the
+  // ordered bulk lane ahead of its chunks (8.11.23, #410), so a chunk without
+  // its session belongs to a START that was skipped or ignored (including one
+  // for a queue item this guest does not know yet, or one dropped before the
+  // queue-authority baseline), to an evicted session, or to an older host
+  // whose control-lane START it overtook.
+  const session = getState('preload.sessionState').get(sid);
+  if (!session || session.queueItemId !== queueItemId) return;
 
   // If session state is marked skipped/finalized, ignore
-  if (session?.skipped || session?.finalized) return;
+  if (session.skipped || session.finalized) return;
 
   // Overlapping bootstrap/broadcast lanes may repeat an already-stored
   // prefix. It cannot advance the drain pointer and must not accumulate a
   // second encoded copy in the reorder buffer until transfer completion.
-  if (session && (data.chunkIndex as number) < session.nextExpectedChunk) return;
+  if ((data.chunkIndex as number) < session.nextExpectedChunk) return;
 
   // Bounds check: drop chunks beyond the advertised total.
-  if (session && session.total > 0 && (data.chunkIndex as number) >= session.total) {
+  if (session.total > 0 && (data.chunkIndex as number) >= session.total) {
     log.warn(`[Preload] Out-of-bounds chunk index ${data.chunkIndex} (total: ${session.total})`);
     return;
   }
 
   // Buffer the chunk in the reorder map
-  if (!preloadReorderBuffer.has(sid)) {
-    if (!session) {
-      const earlySessionIds = [...preloadReorderBuffer.keys()].filter(
-        (bufferSid) => !sessionState.has(bufferSid),
-      );
-      if (earlySessionIds.length >= MAX_EARLY_PRELOAD_SESSIONS) {
-        const evictedSid = earlySessionIds[0]!;
-        preloadReorderBuffer.delete(evictedSid);
-        preloadQueueItemBySid.delete(evictedSid);
-        log.warn(`[Preload] Early buffer evicted stale session ${evictedSid}`);
-      }
-    }
-    preloadReorderBuffer.set(sid, new Map());
-  }
+  if (!preloadReorderBuffer.has(sid)) preloadReorderBuffer.set(sid, new Map());
   const sessionBuffer = preloadReorderBuffer.get(sid)!;
 
   // Clone data before storing to avoid detached ArrayBuffer issues
   sessionBuffer.set(data.chunkIndex as number, new Uint8Array(data.chunk as Uint8Array));
-
-  // If PRELOAD_START hasn't been processed yet (unordered delivery),
-  // keep buffering until sessionState exists so we have a reliable filename/total.
-  if (!session) {
-    const earlyFootprint = (): { chunks: number; bytes: number } => {
-      let chunks = 0;
-      let bytes = 0;
-      for (const [bufferSid, buffer] of preloadReorderBuffer) {
-        if (sessionState.has(bufferSid)) continue;
-        chunks += buffer.size;
-        for (const chunk of buffer.values()) bytes += chunk.byteLength;
-      }
-      return { chunks, bytes };
-    };
-    if (sessionBuffer.size > MAX_EARLY_PRELOAD_CHUNKS) {
-      // Drop highest-index chunk — the drain loop starts from chunk 0, so
-      // evicting low indices (especially 0) permanently stalls the drain.
-      const highestKey = Math.max(...sessionBuffer.keys());
-      sessionBuffer.delete(highestKey);
-      log.warn(`[Preload] Early chunk buffer overflow (SID: ${sid}). Dropped chunk ${highestKey}.`);
-    }
-    let footprint = earlyFootprint();
-    while (
-      footprint.chunks > MAX_EARLY_PRELOAD_CHUNKS ||
-      footprint.bytes > MAX_EARLY_PRELOAD_BYTES
-    ) {
-      const oldestStaleSid = [...preloadReorderBuffer.keys()].find(
-        (bufferSid) => bufferSid !== sid && !sessionState.has(bufferSid),
-      );
-      if (oldestStaleSid !== undefined) {
-        preloadReorderBuffer.delete(oldestStaleSid);
-        preloadQueueItemBySid.delete(oldestStaleSid);
-        footprint = earlyFootprint();
-        continue;
-      }
-      // Preserve low indexes so START can still drain a contiguous prefix.
-      const highestKey = sessionBuffer.size > 0 ? Math.max(...sessionBuffer.keys()) : -1;
-      if (highestKey < 0) break;
-      sessionBuffer.delete(highestKey);
-      footprint = earlyFootprint();
-      log.warn(`[Preload] Global early-buffer cap dropped SID ${sid} chunk ${highestKey}`);
-    }
-    if (sessionBuffer.size === 0) preloadReorderBuffer.delete(sid);
-    return;
-  }
 
   // Drain the reorder buffer sequentially
   drainPreloadReorderBuffer(sid);
@@ -2404,7 +2233,6 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
   // Drop any reorder buffer entries for this sid — they would otherwise
   // wait forever for chunks that aren't coming. Idempotent.
   preloadReorderBuffer.delete(sid);
-  preloadQueueItemBySid.delete(sid);
 
   if (!session || session.finalized || session.skipped) {
     log.debug(
@@ -2694,7 +2522,6 @@ export function initPreload(): void {
   let observedProRoomId = initialRoomContext.kind === 'pro' ? initialRoomContext.roomId : null;
   registerInboundRateLimitExemptionGuard(MSG.PRELOAD_CHUNK, isActiveHostPreloadChunkForRateLimit);
   registerHandlers({
-    [MSG.PRO_FILE_PRELOAD]: handleProRoomFilePreload,
     [MSG.PRELOAD_START]: handlePreloadStart,
     [MSG.PRELOAD_CHUNK]: handlePreloadChunk,
     [MSG.PRELOAD_END]: handlePreloadEnd,
@@ -2880,43 +2707,6 @@ export function initPreload(): void {
     }
   });
 
-  // A PRO_FILE_PRELOAD frame can beat the persistent playlist projection on
-  // a fresh/returning member. Projection publishes playlist.items only after
-  // the PRO media hooks exist, making this the safe replay boundary.
-  bus.on('state:playlist.items', replayPendingProRoomPreloadHint);
-
-  // A late PRO participant misses the original broadcast hint. Re-send the
-  // exact active preload owner once its data connection becomes eligible;
-  // duplicate hints are idempotent on the member.
-  const sendProRoomPreloadHintToPeer = (peerId: string): void => {
-    if (!PRO_ROOM_FILE_PRELOAD_ENABLED || getState('room.context').kind !== 'pro') {
-      return;
-    }
-    // Coordinator-free PRO rooms never create browser data targets. Keep this
-    // legacy listener inert if an unrelated orchestrator event leaks through.
-    if (!getState('network.connectedPeers').some((candidate) => candidate.id === peerId)) return;
-    const target = getState('preload.activeTarget');
-    const queueItemId = getState('preload.nextQueueItemId');
-    const sessionId = Number(target?.sessionId);
-    if (
-      !queueItemId ||
-      target?.queueItemId !== queueItemId ||
-      !Number.isSafeInteger(sessionId) ||
-      sessionId <= 0
-    ) {
-      schedulePreload(0);
-      return;
-    }
-    const peer = getState('network.connectedPeers').find((candidate) => candidate.id === peerId);
-    if (!peer?.conn?.open) return;
-    safeSend(peer.conn, { type: MSG.PRO_FILE_PRELOAD, queueItemId, sessionId });
-  };
-  // Initial peers emit peer-joined; a connection promoted to a data target
-  // later emits peer-data-target-ready. Listen to both and keep the hint
-  // idempotent so local, remote, and reclassified participants all catch up.
-  bus.on('orchestrator:peer-joined', sendProRoomPreloadHintToPeer);
-  bus.on('orchestrator:peer-data-target-ready', sendProRoomPreloadHintToPeer);
-
   bus.on('state:network.hostConn', (nextConnection: unknown) => {
     const next = (nextConnection as DataConnection | null) ?? null;
     const previous = observedProHostConn;
@@ -2937,10 +2727,7 @@ export function initPreload(): void {
     const nextProRoomId = context.kind === 'pro' ? context.roomId : null;
     const enteredProRoom = !!nextProRoomId && nextProRoomId !== observedProRoomId;
     observedProRoomId = nextProRoomId;
-    if (context.kind !== 'pro') {
-      _pendingProRoomPreloadHint = null;
-      return;
-    }
+    if (context.kind !== 'pro') return;
     // Reset room-scoped preload ownership when entering another persistent room.
     if (enteredProRoom) {
       cancelProRoomPlaylistFilePreload();
@@ -2949,7 +2736,6 @@ export function initPreload(): void {
       if (!getState('network.hostConn')) schedulePreload(0);
       return;
     }
-    replayPendingProRoomPreloadHint();
     // Every PRO endpoint independently fetches the next immutable R2 object.
     if (!getState('network.hostConn')) schedulePreload(0);
   });

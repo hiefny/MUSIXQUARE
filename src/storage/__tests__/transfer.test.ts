@@ -9,7 +9,6 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import {
   freezeFileDeliveryMode,
-  markLocalFileR2Capable,
   resetFileDeliveryPolicies,
 } from '../../share/file-delivery-policy.ts';
 
@@ -241,50 +240,42 @@ describe('host outgoing transfer routing', () => {
     }
   });
 
-  it('marks capable mixed-room peers for R2 and rejects unadvertised overflow explicitly', async () => {
+  it('marks every guest of a ten-local room for R2 and sends no unavailable frame', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const peers = Array.from({ length: 10 }, (_, index) => {
-      const id = `mixed-peer-${index + 1}`;
+      const id = `large-room-peer-${index + 1}`;
       const conn = { open: true, peer: id, send: vi.fn() } as unknown as DataConnection;
       return connectedPeer(id, conn, { joinOrder: index + 1 });
     });
-    const capable = peers[9]!;
-    markLocalFileR2Capable(capable.id);
     setState('network.connectedPeers', peers);
 
     sendFilePrepareByDelivery(
       {
         type: MSG.FILE_PREPARE,
-        name: 'mixed.mp3',
+        name: 'large-room.mp3',
         queueItemId: Q0,
         sessionId: 30,
         mime: 'audio/mpeg',
+        size: 4,
       },
       30,
     );
 
-    for (const peer of peers.slice(0, 8)) {
-      expect(peer.conn.send).toHaveBeenCalledWith(
-        expect.objectContaining({ type: MSG.FILE_PREPARE }),
+    for (const peer of peers) {
+      expect(peer.conn.send).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ type: MSG.FILE_PREPARE, delivery: 'r2' }),
       );
-      expect(peer.conn.send).not.toHaveBeenCalledWith(expect.objectContaining({ delivery: 'r2' }));
+      expect(peer.conn.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE }),
+      );
     }
-    expect(peers[8]!.conn.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE, delivery: 'r2' }),
-    );
-    expect(peers[8]!.conn.send).not.toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.FILE_PREPARE }),
-    );
-    expect(capable.conn.send).toHaveBeenCalledWith(
-      expect.objectContaining({ type: MSG.FILE_PREPARE, delivery: 'r2' }),
-    );
   });
 
-  it('defers an unadvertised peer until ICE chooses remote R2 or local overflow', async () => {
+  it('defers an unknown peer until ICE chooses its remote R2 route', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const conn = {
       open: true,
-      peer: 'unknown-unadvertised',
+      peer: 'unknown-remote',
       send: vi.fn(),
     } as unknown as DataConnection;
     const unknownPeer = connectedPeer(conn.peer, conn, {
@@ -298,6 +289,7 @@ describe('host outgoing transfer routing', () => {
       queueItemId: Q0,
       sessionId: 32,
       mime: 'audio/mpeg',
+      size: 4,
     } as const;
 
     sendFilePrepareByDelivery(prepare, 32);
@@ -310,11 +302,11 @@ describe('host outgoing transfer routing', () => {
     );
   });
 
-  it('does not use capability alone to route an unknown small-room peer through R2', async () => {
+  it('keeps an unknown small-room peer pending until local ICE chooses direct', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const conn = {
       open: true,
-      peer: 'unknown-capable',
+      peer: 'unknown-local',
       send: vi.fn(),
     } as unknown as DataConnection;
     const peer = connectedPeer(conn.peer, conn, {
@@ -322,13 +314,13 @@ describe('host outgoing transfer routing', () => {
       connectionType: 'unknown',
     });
     setState('network.connectedPeers', [peer]);
-    markLocalFileR2Capable(peer.id);
     const prepare = {
       type: MSG.FILE_PREPARE,
-      name: 'capable.mp3',
+      name: 'small-room.mp3',
       queueItemId: Q0,
       sessionId: 33,
       mime: 'audio/mpeg',
+      size: 4,
     } as const;
 
     sendFilePrepareByDelivery(prepare, 33);
@@ -360,6 +352,7 @@ describe('host outgoing transfer routing', () => {
       queueItemId: Q0,
       sessionId: 34,
       mime: 'audio/mpeg',
+      size: 4,
     } as const;
 
     sendFilePrepareByDelivery(prepare, 34, { announcePending: true });
@@ -971,6 +964,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 101,
         mime: first.type,
+        size: first.size,
       });
 
       const suspension = beginPendingBroadcastSuspension();
@@ -981,6 +975,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q1,
         sessionId: 102,
         mime: latest.type,
+        size: latest.size,
       });
 
       // A native display picker can remain open far beyond the normal
@@ -1041,6 +1036,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 103,
         mime: file.type,
+        size: file.size,
       });
 
       const suspension = beginPendingBroadcastSuspension();
@@ -1079,6 +1075,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 104,
         mime: first.type,
+        size: first.size,
       });
       const staleSuspension = beginPendingBroadcastSuspension();
 
@@ -1089,6 +1086,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q1,
         sessionId: 105,
         mime: latest.type,
+        size: latest.size,
       });
       const currentSuspension = beginPendingBroadcastSuspension();
 
@@ -1149,6 +1147,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 1,
         mime: 'audio/mpeg',
+        size: 4,
       });
       cancelOutgoingFileTransfers();
       await vi.advanceTimersByTimeAsync(301);
@@ -1197,6 +1196,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 51,
         mime: file.type,
+        size: file.size,
       } as const;
       // playback.ts sends this peer-specific bootstrap PREPARE immediately.
       conn.send(prepare);
@@ -1256,6 +1256,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 78,
         mime: oldFile.type,
+        size: oldFile.size,
       });
       const oldRoomSuspension = beginPendingBroadcastSuspension();
 
@@ -1275,6 +1276,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q1,
         sessionId: 79,
         mime: newFile.type,
+        size: newFile.size,
       });
 
       // The abandoned picker may settle either way after the new room starts.
@@ -1290,6 +1292,7 @@ describe('debounced broadcast cancellation', () => {
           name: newFile.name,
           queueItemId: Q1,
           sessionId: 79,
+          size: newFile.size,
         }),
       );
       expect(send).toHaveBeenCalledWith(
@@ -1328,6 +1331,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q0,
         sessionId: 1,
         mime: 'audio/mpeg',
+        size: 4,
       });
       publishHostFile(fileB, Q1, 2);
       broadcastFileDebounced(fileB, Q1, 2, {
@@ -1336,6 +1340,7 @@ describe('debounced broadcast cancellation', () => {
         queueItemId: Q1,
         sessionId: 2,
         mime: 'audio/mpeg',
+        size: 4,
       });
       await vi.advanceTimersByTimeAsync(301);
       // Allow the fire-and-forget transfer to finish after the debounce fires.

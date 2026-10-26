@@ -316,10 +316,8 @@ export function sendFilePrepareByDelivery(
       if (options.announcePending && !options.r2Only) safeSend(conn, prepareMsg);
       continue;
     }
-    if (delivery === 'unsupported') {
-      sendFileDeliveryUnavailable(conn, prepareMsg, sessionId);
-      continue;
-    }
+    // A valid frozen session routes every connected peer; fail closed otherwise.
+    if (delivery === 'unsupported') continue;
     const useR2 = delivery === 'r2';
     if (options.r2Only && !useR2) continue;
     if (options.suppressOwnedDirect && !useR2 && queueItemId) {
@@ -332,9 +330,8 @@ export function sendFilePrepareByDelivery(
 }
 
 /**
- * An unadvertised LAN peer beyond the eight direct slots cannot understand local R2
- * delivery. Fail explicitly instead of sending FILE_PREPARE and leaving it
- * waiting forever for chunks which must never be fanned out directly.
+ * Tell a recovery requester that the host has no file route for it, instead of
+ * leaving it waiting forever for bytes that will never come.
  */
 export function sendFileDeliveryUnavailable(
   conn: DataConnection,

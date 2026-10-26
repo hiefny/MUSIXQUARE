@@ -473,6 +473,27 @@ describe('manual sync nudge routing', () => {
   );
 });
 
+describe('guest SYNC_PING', () => {
+  it('sends only the ping id the host reads, on the worker tick and on demand', () => {
+    initSync();
+    setState('network.appRole', 'guest');
+    const hostConn = mockDataConnection('host');
+    setState('network.hostConn', hostConn);
+
+    bus.emit('worker:timer-tick', 'sync');
+    bus.emit('sync:request-immediate-ping');
+
+    const pings = hostConn.send.mock.calls
+      .map(([frame]) => frame as Record<string, unknown>)
+      .filter((frame) => frame.type === MSG.SYNC_PING);
+    // The host validator keeps guestTime optional, so the slimmer ping stays valid.
+    expect(pings).toEqual([
+      { type: MSG.SYNC_PING, pingId: expect.any(Number) },
+      { type: MSG.SYNC_PING, pingId: expect.any(Number) },
+    ]);
+  });
+});
+
 describe('SYNC_PING playback snapshot', () => {
   it('records transport liveness without replacing the global peer list', async () => {
     initSync();

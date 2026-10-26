@@ -116,6 +116,21 @@ const mockHostConn = dataConnection('mock-host-peer');
 vi.mock('../../network/shared-clock.ts', () => ({
   getHostNow: vi.fn(() => Date.now() + sharedClockFacade.offsetMs),
   isClockCalibrated: vi.fn(() => true),
+  // Timestamped heartbeats reach the optional small-drift sampler. Its own
+  // suites cover admission; here the evidence stays stale so it never acts.
+  getClockCorrectionQuality: vi.fn(() => ({
+    eligible: false,
+    reason: 'replies-stale',
+    epoch: 0,
+    offsetMs: sharedClockFacade.offsetMs,
+    rttMs: null,
+    uncertaintyMs: null,
+    precisionMs: 5,
+    selectedAgeMs: null,
+    selectedMonotonicAgeMs: null,
+    newestSampleAgeMs: null,
+    newestMonotonicAgeMs: null,
+  })),
   getClockOffset: vi.fn(() => sharedClockFacade.offsetMs),
   getClockBestRtt: vi.fn(() => 0),
   setIsHostClock: vi.fn(),
@@ -256,8 +271,17 @@ beforeEach(async () => {
   for (const type of [MSG.YOUTUBE_SYNC, MSG.YOUTUBE_STATE]) {
     const rawHandler = capturedHandlers[type];
     if (rawHandler) {
+      // Every current host stamps getHostNow() when it sends. A frame
+      // delivered at once carries the host clock of its delivery instant.
       capturedHandlers[type] = (data, conn) =>
-        rawHandler({ queueItemId: QUEUE_ITEM_ID, ...data }, conn);
+        rawHandler(
+          {
+            queueItemId: QUEUE_ITEM_ID,
+            hostClock: Date.now() + sharedClockFacade.offsetMs,
+            ...data,
+          },
+          conn,
+        );
     }
   }
   // Clear module-level state leaked from prior tests (_autoSyncUntil,
@@ -2243,12 +2267,14 @@ describe('YouTube Sync — Regression Integration', () => {
       // The sync.ts hostConn guard requires conn === network.hostConn.
       setState('network.hostConn', mockHostConn as never);
 
-      // First host command: pause+seek to 5, play at +1000ms
+      // First host command: the host is at 5 now and plays on at +1000ms, so
+      // the guest pause+seeks to 6 and plays at the deadline.
       handler(
         {
           state: 1,
           time: 5,
           hostPlayAt: Date.now() + 1000,
+          hostClock: Date.now(),
           subIndex: 0,
           videoId: 'FAKE_VIDEO',
         },
@@ -2256,12 +2282,13 @@ describe('YouTube Sync — Regression Integration', () => {
       );
       vi.advanceTimersByTime(400);
 
-      // Second host command 400ms in: should cancel the first and re-schedule to 8
+      // Second host command 400ms in: should cancel the first and re-schedule to 9
       handler(
         {
           state: 1,
           time: 8,
           hostPlayAt: Date.now() + 1000,
+          hostClock: Date.now(),
           subIndex: 0,
           videoId: 'FAKE_VIDEO',
         },
@@ -2273,10 +2300,10 @@ describe('YouTube Sync — Regression Integration', () => {
       const playCalls = player.__log.filter((c) => c.op === 'playVideo');
       expect(playCalls.length).toBe(1);
 
-      // Last seekTo must be to 8, not 5
+      // Last seekTo must be to 9, not 6
       const seeks = player.__log.filter((c) => c.op === 'seekTo');
       expect(seeks.length).toBeGreaterThanOrEqual(2);
-      expect(seeks[seeks.length - 1].args).toEqual([8, true]);
+      expect(seeks[seeks.length - 1].args).toEqual([9, true]);
     });
 
     it('releases a superseded clock-action loading owner before an immediate command', () => {
@@ -4208,7 +4235,9 @@ describe('YouTube Sync — Regression Integration', () => {
         vi.advanceTimersByTime(wait + 150);
         expect(getState('youtube.currentSubIndex')).toBe(1);
         expect(player.__log.filter((call) => call.op === 'loadVideoById')).toHaveLength(0);
-        expect(player.getCurrentTime()).toBeCloseTo(wait === 200 ? 0.2 : 0, 5);
+        // The host was at 0 when it sent the frame, so the deadline target is
+        // the countdown itself.
+        expect(player.getCurrentTime()).toBeCloseTo(wait / 1000, 5);
         expect(player.getPlayerState()).toBe(1);
       },
     );
@@ -4249,16 +4278,17 @@ describe('YouTube Sync — Regression Integration', () => {
           state: 1,
           time: 0,
           hostPlayAt: Date.now() + 1000,
+          hostClock: Date.now(),
           subIndex: 2,
           videoId: 'NEW_VIDEO',
         },
         mockHostConn,
       );
 
-      // Cue immediately without autoplay during the countdown;
-      // the tracked sub-index follows the host's payload.
+      // Cue the deadline target immediately without autoplay during the
+      // countdown; the tracked sub-index follows the host's payload.
       expect(player.__log.filter((c) => c.op === 'cueVideoById')).toHaveLength(1);
-      expect(player.__log.find((c) => c.op === 'cueVideoById')?.args).toEqual(['NEW_VIDEO', 0]);
+      expect(player.__log.find((c) => c.op === 'cueVideoById')?.args).toEqual(['NEW_VIDEO', 1]);
       expect(getState('youtube.currentSubIndex')).toBe(2);
 
       // Play waits for the host-clock instant, not the load completion.
@@ -4269,10 +4299,10 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
-  // 14. handleYouTubeState scheduling boundary values. The three branches
-  // (auto-sync wait / short wait / immediate) are selected by waitMs against
-  // SHORT_WAIT_THRESHOLD_MS (300, inclusive on the short side) and
-  // AUTO_SYNC_MAX_WAIT_MS (3000, exclusive on the auto-sync side).
+  // 14. handleYouTubeState scheduling boundary values. The branches
+  // (scheduled play / short wait for a non-playing state / immediate) are
+  // selected by waitMs against SHORT_WAIT_THRESHOLD_MS (300, inclusive on the
+  // short side) and AUTO_SYNC_MAX_WAIT_MS (3000, exclusive on the scheduled side).
   describe('Standard audible output targets', () => {
     it('broadcasts canonical PLAYING while a negative host nudge waits at media zero', async () => {
       vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
@@ -4475,8 +4505,12 @@ describe('YouTube Sync — Regression Integration', () => {
       const player = installPlayer({ __state: 2 });
       setState('network.hostConn', mockHostConn);
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
-      handler({ state: 1, time: 50, hostPlayAt: Date.now() + 1000 }, mockHostConn);
-      expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([50, true]);
+      handler(
+        { state: 1, time: 50, hostPlayAt: Date.now() + 1000, hostClock: Date.now() },
+        mockHostConn,
+      );
+      // The host reaches 51 at the deadline; the lead is spent from the wait.
+      expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([51, true]);
       vi.advanceTimersByTime(749);
       expect(player.__log.filter((entry) => entry.op === 'playVideo')).toHaveLength(0);
       vi.advanceTimersByTime(1);
@@ -4488,10 +4522,11 @@ describe('YouTube Sync — Regression Integration', () => {
       ]);
     });
 
+    // The host is at 0 when it sends, so the deadline target equals the delay.
     it.each([
-      { android: true, delay: 700, wait: 450, target: 0 },
-      { android: true, delay: 100, wait: 0, target: 0.15 },
-      { android: false, delay: 700, wait: 700, target: 0 },
+      { android: true, delay: 700, wait: 450, target: 0.7 },
+      { android: true, delay: 100, wait: 0, target: 0.25 },
+      { android: false, delay: 700, wait: 700, target: 0.7 },
     ])(
       'spends available lead before position for android=$android / $delay',
       ({ android, delay, wait, target }) => {
@@ -4500,7 +4535,7 @@ describe('YouTube Sync — Regression Integration', () => {
         setState('network.hostConn', mockHostConn);
         const beganAt = Date.now();
         capturedHandlers[MSG.YOUTUBE_STATE](
-          { state: 1, time: 0, hostPlayAt: beganAt + delay },
+          { state: 1, time: 0, hostPlayAt: beganAt + delay, hostClock: beganAt },
           mockHostConn,
         );
         expect(player.__log.find((entry) => entry.op === 'seekTo')?.args).toEqual([target, true]);
@@ -4509,10 +4544,7 @@ describe('YouTube Sync — Regression Integration', () => {
         const fixed = android ? 0.25 : 0;
         // Compare audible position on the canonical timeline after both
         // releases. A short deadline uses only its unavailable 150ms as position.
-        expect(player.getCurrentTime() - fixed).toBeCloseTo(
-          (Date.now() - beganAt - delay) / 1000,
-          5,
-        );
+        expect(player.getCurrentTime() - fixed).toBeCloseTo((Date.now() - beganAt) / 1000, 5);
       },
     );
 
@@ -4572,30 +4604,50 @@ describe('YouTube Sync — Regression Integration', () => {
   });
 
   describe('handleYouTubeState — scheduling boundary values', () => {
-    it('waitMs exactly at the short-wait threshold (300ms) seeks to the wait-compensated position', async () => {
+    it('waitMs exactly at the short-wait threshold (300ms) defers a pause to the deadline', async () => {
       const player = installPlayer({ __state: 1, __currentTime: 10, __duration: 300 });
       const handler = capturedHandlers[MSG.YOUTUBE_STATE];
       setState('network.hostConn', mockHostConn as never);
 
-      // waitMs = 300 → `> SHORT_WAIT_THRESHOLD_MS` is false → short-wait path.
+      // waitMs = 300 → `<= SHORT_WAIT_THRESHOLD_MS` → short-wait path.
       handler(
-        { state: 1, time: 10, hostPlayAt: Date.now() + 300, subIndex: 0, videoId: 'FAKE_VIDEO' },
+        { state: 2, time: 10, hostPlayAt: Date.now() + 300, subIndex: 0, videoId: 'FAKE_VIDEO' },
         mockHostConn,
       );
 
       // Short-wait defers ALL player ops to the scheduled instant.
       expect(player.__log).toHaveLength(0);
 
-      // At +300ms: pause-seek with the target compensated by the wait
-      // (time + waitMs/1000) so the guest lands where the host IS, not was.
+      // At +300ms: pause, then seek to the paused position unshifted.
       vi.advanceTimersByTime(300);
-      expect(player.__log.find((c) => c.op === 'pauseVideo')).toBeDefined();
-      const seek = player.__log.find((c) => c.op === 'seekTo');
-      expect(seek?.args?.[0]).toBeCloseTo(10.3, 5);
+      expect(player.__log.map((c) => c.op)).toEqual(['pauseVideo', 'seekTo']);
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([10, true]);
+      vi.advanceTimersByTime(1_000);
       expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(0);
+    });
 
-      // playVideo fires SEEK_PLAY_GAP_MS (150ms) after the seek commits.
-      vi.advanceTimersByTime(150);
+    it('a playing state inside the short-wait threshold plays from where the host will be', async () => {
+      const player = installPlayer({ __state: 2, __currentTime: 0, __duration: 300 });
+      const handler = capturedHandlers[MSG.YOUTUBE_STATE];
+      setState('network.hostConn', mockHostConn as never);
+
+      handler(
+        {
+          state: 1,
+          time: 10,
+          hostPlayAt: Date.now() + 300,
+          hostClock: Date.now(),
+          subIndex: 0,
+          videoId: 'FAKE_VIDEO',
+        },
+        mockHostConn,
+      );
+
+      // The guest lands where the host will be at the deadline and plays then.
+      expect(player.__log.find((c) => c.op === 'seekTo')?.args).toEqual([10.3, true]);
+      vi.advanceTimersByTime(299);
+      expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(0);
+      vi.advanceTimersByTime(1);
       expect(player.__log.filter((c) => c.op === 'playVideo')).toHaveLength(1);
     });
 

@@ -204,8 +204,8 @@ per Open Question #5 decision below.
 
 | Event                                      | Next                    | Action                                                                    |
 | ------------------------------------------ | ----------------------- | ------------------------------------------------------------------------- |
-| `PLAY(time, hostPlayAt)`                   | PLAYING                 | schedule via SharedClock (WebAudio hardware-timed or setTimeout fallback) |
-| `PLAY(time)` with no hostPlayAt (legacy)   | PLAYING                 | play() immediately                                                        |
+| `PLAY(time, hostStartAt)`                  | PLAYING                 | schedule via SharedClock (WebAudio hardware-timed or setTimeout fallback) |
+| `PLAY(time)` with no hostStartAt           | PLAYING                 | play() immediately (a running late join)                                  |
 | consuming pendingPlayTime (internal)       | PLAYING                 | same as PLAY handler above                                                |
 | consuming pausedAt (internal)              | PAUSED                  | set pausedAt; publish paused file mode/activity                           |
 | `PAUSE(time)`                              | PAUSED                  | set pausedAt                                                              |
@@ -260,7 +260,7 @@ Host drives the next track; we transition when it arrives.
 | AWAITING_PRELOAD | preload stall (10s, resets on accepted progress)                        | preload stall                                                                |
 | DECODING         | none; native `decodeAudioData` is awaited                               | native work is not cancellable; ownership checks discard a superseded result |
 | READY            | —                                                                       | —                                                                            |
-| PLAYING          | SharedClock scheduled play timer (if hostPlayAt > 0)                    | cancelled on PAUSE                                                           |
+| PLAYING          | SharedClock scheduled play timer (if hostStartAt is still ahead)        | cancelled on PAUSE                                                           |
 | PAUSED           | —                                                                       | —                                                                            |
 | FAILED           | decode-fail-advance (host-only, 600ms)                                  | clears on next FILE_PREPARE                                                  |
 

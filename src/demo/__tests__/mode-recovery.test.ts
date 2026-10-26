@@ -1406,7 +1406,10 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     // Host advances to track 1 while the guest is still loading track 0; both
     // messages must survive the demo.loading guard.
     await handleData({ type: MSG.DEMO_ENTER, index: 1, ...flags }, hostConn);
-    await handleData({ type: MSG.DEMO_PLAY, index: 1, time: 0, hostPlayAt: 0 }, hostConn);
+    await handleData(
+      { type: MSG.DEMO_PLAY, index: 1, time: 0, hostStartAt: 10_000, hostPlayAt: 10_350 },
+      hostConn,
+    );
 
     // Track 0 load finishes → the queued index must re-dispatch a load of 1.
     FakeXHR.pending[0].resolveOk();
@@ -1515,7 +1518,10 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
       const failingIndex = alreadyActive ? 1 : 0;
       const nextIndex = failingIndex + 1;
       await enter(nextIndex);
-      await handleData({ type: MSG.DEMO_PLAY, index: nextIndex, time: 0, hostPlayAt: 0 }, hostConn);
+      await handleData(
+        { type: MSG.DEMO_PLAY, index: nextIndex, time: 0, hostStartAt: 10_000, hostPlayAt: 10_350 },
+        hostConn,
+      );
       FakeXHR.pending.find((xhr) => xhr.url === DEMO_TRACKS[failingIndex].url)!.failNetwork();
       await flush(50);
       expect(getState('demo.active')).toBe(true);
@@ -1589,7 +1595,10 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
       hostConn,
     );
     await flush();
-    await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 }, hostConn);
+    await handleData(
+      { type: MSG.DEMO_PLAY, index: 0, time: 0, hostStartAt: 10_000, hostPlayAt: 10_350 },
+      hostConn,
+    );
     await handleData({ type: MSG.DEMO_PAUSE, time: 70 }, hostConn);
     FakeXHR.pending[0].resolveOk();
     await flush(50);
@@ -1617,7 +1626,10 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
         },
         hostConn,
       );
-      await handleData({ type: MSG.DEMO_PLAY, index: 0, time: 0, hostPlayAt: 0 }, hostConn);
+      await handleData(
+        { type: MSG.DEMO_PLAY, index: 0, time: 0, hostStartAt: 10_000, hostPlayAt: 10_350 },
+        hostConn,
+      );
       await flush();
       FakeXHR.pending[0].failNetwork();
       await flush(50);

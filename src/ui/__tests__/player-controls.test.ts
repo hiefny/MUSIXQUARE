@@ -1137,11 +1137,14 @@ describe('PRO room media-source capabilities', () => {
     initPlayerControls();
     expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('true');
 
+    // OPERATOR_GRANT stores its explicit capability list before the role flag.
+    setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);
     setState('network.isOperator', true);
     expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe(
       'false',
     );
 
+    setState('network.standardRoomCapabilities', null);
     setState('network.isOperator', false);
     expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('true');
   });
@@ -2198,6 +2201,7 @@ describe('initPlayerControls playback mode rendering', () => {
       if (pending) {
         setState('network.appRole', 'guest');
         setState('network.hostConn', makeConnection('host-1'));
+        setState('network.standardRoomCapabilities', ['playback.control']);
         setState('network.isOperator', true);
       }
       initPlayerControls();

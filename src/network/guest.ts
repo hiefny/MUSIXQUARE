@@ -379,10 +379,9 @@ export function joinSession(
 
   let conn: DataConnection;
   try {
-    const channelMode = getState('audio.channelMode');
     conn = peer.connect(hostId, {
       reliable: true,
-      metadata: { label: `mode-${channelMode}`, devicePlatform: getDevicePlatform() },
+      metadata: { devicePlatform: getDevicePlatform() },
       roomPassword,
     });
   } catch (e) {
@@ -394,21 +393,18 @@ export function joinSession(
 
   // Track the observed event; an adapter may expose conn.open before its open
   // callback has completed.
-  const requiresJoinBootstrap = getRoomContext().kind === 'standard';
-  let bootstrapId: string | null = null;
-  if (requiresJoinBootstrap) {
+  let bootstrapId: string;
+  try {
+    bootstrapId = createJoinBootstrapId();
+  } catch (error) {
     try {
-      bootstrapId = createJoinBootstrapId();
-    } catch (error) {
-      try {
-        conn.close('join-bootstrap-failed');
-      } catch {
-        /* noop */
-      }
-      setState('network.isConnecting', false);
-      reportGuestConnectionFailure(error);
-      return;
+      conn.close('join-bootstrap-failed');
+    } catch {
+      /* noop */
     }
+    setState('network.isConnecting', false);
+    reportGuestConnectionFailure(error);
+    return;
   }
   const bootstrapTimerName = `join-bootstrap-timeout-${joinEpoch}`;
   let dataChannelOpened = false;
@@ -422,8 +418,9 @@ export function joinSession(
   const completeConnection = (): void => {
     if (
       connectionEstablished ||
-      (requiresJoinBootstrap &&
-        (bootstrapFrameIndex !== 3 || !hasQueueAuthority(conn) || bootstrapFailed)) ||
+      bootstrapFrameIndex !== 3 ||
+      !hasQueueAuthority(conn) ||
+      bootstrapFailed ||
       !isCurrentGuestJoin(joinEpoch) ||
       getState('network.hostConn') !== conn ||
       !conn.open
@@ -449,7 +446,6 @@ export function joinSession(
 
   const failJoinBootstrap = (error: Error): void => {
     if (
-      !requiresJoinBootstrap ||
       bootstrapFailed ||
       connectionEstablished ||
       !isCurrentGuestJoin(joinEpoch) ||
@@ -488,7 +484,7 @@ export function joinSession(
   const processInboundData = (data: unknown): void => {
     if (!isCurrentGuestJoin(joinEpoch) || getState('network.hostConn') !== conn) return;
 
-    if (requiresJoinBootstrap && !connectionEstablished) {
+    if (!connectionEstablished) {
       const type =
         data && typeof data === 'object' && !Array.isArray(data)
           ? (data as Record<string, unknown>).type
@@ -526,7 +522,7 @@ export function joinSession(
 
       bootstrapFrameIndex += 1;
       if (bootstrapFrameIndex !== 3) return;
-      if (!hasQueueAuthority(conn) || bootstrapId === null) {
+      if (!hasQueueAuthority(conn)) {
         failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
         return;
       }
@@ -730,28 +726,20 @@ export function joinSession(
       return;
     }
 
-    if (requiresJoinBootstrap) {
-      if (bootstrapId === null) {
-        failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
-        return;
-      }
-      setManagedTimer(
-        bootstrapTimerName,
-        () => failJoinBootstrap(new Error('HOST_CONNECTION_ERROR')),
-        JOIN_BOOTSTRAP_TIMEOUT_MS,
-      );
-      if (
-        !safeSend(conn, {
-          type: MSG.JOIN_BOOTSTRAP_HELLO,
-          version: 1,
-          bootstrapId,
-        })
-      ) {
-        failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
-        return;
-      }
-    } else {
-      completeConnection();
+    setManagedTimer(
+      bootstrapTimerName,
+      () => failJoinBootstrap(new Error('HOST_CONNECTION_ERROR')),
+      JOIN_BOOTSTRAP_TIMEOUT_MS,
+    );
+    if (
+      !safeSend(conn, {
+        type: MSG.JOIN_BOOTSTRAP_HELLO,
+        version: 1,
+        bootstrapId,
+      })
+    ) {
+      failJoinBootstrap(new Error('HOST_CONNECTION_ERROR'));
+      return;
     }
 
     // Detect local vs remote connection. The detectConnectionType function
@@ -804,11 +792,8 @@ function handleWelcome(data: Record<string, unknown>, conn?: DataConnection): vo
   if (data.label) {
     setState('network.myDeviceLabel', String(data.label));
   }
-  // Standard WELCOME starts a guest with isOp=false; a PRO compatibility
-  // endpoint's authority came from the authenticated room snapshot and must not be
-  // downgraded by this legacy compatibility frame.
-  if (getRoomContext().kind === 'pro') setState('network.isOperator', true);
-  else if (getState('network.isOperator')) setState('network.isOperator', false);
+  // Standard WELCOME starts a guest with isOp=false.
+  if (getState('network.isOperator')) setState('network.isOperator', false);
   // Sync chat moderation state from host (always set, even when false/0)
   setState('network.chatFrozen', !!data.chatFrozen);
   setState(
@@ -912,8 +897,8 @@ const STANDARD_GRANT_CAPABILITIES = new Set<RoomCapability>([
   'room.configure',
 ]);
 
-function normalizeStandardGrantCapabilities(value: unknown): RoomCapability[] | null {
-  if (!Array.isArray(value)) return null;
+function normalizeStandardGrantCapabilities(value: unknown): RoomCapability[] {
+  if (!Array.isArray(value)) return [];
   return [
     ...new Set(
       value.filter(
@@ -936,21 +921,10 @@ function handleOperatorGrant(data: Record<string, unknown>, conn?: DataConnectio
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
-  // PRO controller authority comes from the authenticated room snapshot, not
-  // legacy operator frames. Ratchet the compatibility flag back to true if a
-  // stale frame/state ever reaches this path, without showing a misleading
-  // grant/revoke toast.
-  if (getRoomContext().kind === 'pro') {
-    setState('network.isOperator', true);
-    bus.emit('ui:play-btn-state', true);
-    bus.emit('network:role-badge-update');
-    return;
-  }
-
   markStandardRoomAuthorityConfirmed(hostConn);
   const wasOperator = getState('network.isOperator');
   const capabilities = normalizeStandardGrantCapabilities(data.capabilities);
-  const isOwnerProjection = capabilities?.includes('room.configure') === true;
+  const isOwnerProjection = capabilities.includes('room.configure');
   setState('network.standardRoomCapabilities', capabilities);
   setState('network.isOperator', true);
   // `silent` was added compatibly: older hosts omit it, so transition
@@ -973,13 +947,6 @@ function handleOperatorRevoke(data: Record<string, unknown>, conn?: DataConnecti
   // same trust-boundary rule as handleOperatorGrant.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
-
-  if (getRoomContext().kind === 'pro') {
-    setState('network.isOperator', true);
-    bus.emit('ui:play-btn-state', true);
-    bus.emit('network:role-badge-update');
-    return;
-  }
 
   // A revoke is also this guest's confirmed answer: a plain participant.
   markStandardRoomAuthorityConfirmed(hostConn);

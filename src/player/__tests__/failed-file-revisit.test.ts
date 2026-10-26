@@ -401,7 +401,10 @@ it('sender-composed: emitted host PREPARE and PLAY for A must retire the guest B
   const { conn, source } = await failAThenPlayB();
   // playTrack selects A before its transition PAUSE; B rejects that PAUSE.
   // The ensuing PREPARE/PLAY must therefore retire B themselves.
-  await handleData({ type: MSG.PAUSE, queueItemId: QUEUE_ITEM_ID, time: 0 }, conn);
+  await handleData(
+    { type: MSG.PAUSE, queueItemId: QUEUE_ITEM_ID, time: 0, reason: 'transition' },
+    conn,
+  );
   expect(getPlayerNode()).toBe(source);
   await handleData(prepare, conn);
   await handleData(playMessage, conn);
@@ -615,23 +618,20 @@ it('repeating an already retired A leaves the healthy speculative R2 successor a
   const { conn } = await failAThenPlayB();
   initRemoteShare();
   await handleData(fileHeader(), conn);
-  setState('network.connectionType', 'unknown');
-  let classify!: (value: 'local' | 'remote') => void;
-  mocks.classify.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        classify = resolve;
+  let finishDownload!: (file: Blob) => void;
+  mocks.downloadRemoteFile.mockImplementationOnce(
+    async () =>
+      new Promise<Blob>((resolve) => {
+        finishDownload = resolve;
       }),
   );
-  const { delivery: _delivery, ...nextPreload } = remoteDescriptor(C, 4, true);
-  mocks.downloadRemoteFile.mockResolvedValueOnce(
-    new File(['0123456789'], 'large.mp3', { type: 'audio/mpeg' }),
-  );
-  const descriptorTask = handleData(nextPreload, conn);
-  expect(mocks.classify).toHaveBeenCalledOnce();
+  // A repeats while the successor's speculative download is still in flight.
+  const descriptorTask = handleData(remoteDescriptor(C, 4, true), conn);
+  await advance();
+  expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
   await handleData(fileHeader(), conn);
   await handleData({ type: MSG.PLAY, queueItemId: QUEUE_ITEM_ID, time: 20 }, conn);
-  classify('remote');
+  finishDownload(new File(['0123456789'], 'large.mp3', { type: 'audio/mpeg' }));
   await advance();
   await descriptorTask;
   expect(mocks.downloadRemoteFile).toHaveBeenCalledOnce();
@@ -641,6 +641,7 @@ it('repeating an already retired A leaves the healthy speculative R2 successor a
   });
   expect(getState('playlist.currentQueueItemId')).toBe(QUEUE_ITEM_ID);
   expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
+  expect(getState('preload.ready')).toMatchObject({ queueItemId: C, sessionId: 4 });
 });
 
 it('failed PLAY_PRELOADED does not activate an already-ready Blob or schedule recovery', async () => {

@@ -9,8 +9,7 @@
  *   compiled exactly as the build compiles it (scripts/classic-runtime-assets.ts).
  * - { "kind": "session", "globalName": "...", "sources"?: { "<repo path>": "<text>" } }:
  *   an IIFE of the real src/account/session.ts and state.ts. `sources`
- *   replaces whole files of the module graph, for a drift self-test or a
- *   frozen older copy (a mixed-version tab).
+ *   replaces whole files of the module graph, for a drift self-test.
  */
 import { relative } from 'node:path';
 import { build, type Plugin } from 'esbuild';

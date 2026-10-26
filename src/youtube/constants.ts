@@ -78,12 +78,11 @@ export const IMMEDIATE_ACTION_COOLDOWN_MS = 3000;
  *  into playing from position 0 before YOUTUBE_STATE arrives. */
 export const LOAD_DRIFT_SUPPRESS_MS = 5000;
 
-/** Threshold (ms) separating "short wait" from "auto-sync wait" branches
- *  in handleYouTubeState. Below it we use compensated-time seek+play;
- *  above it we pause the guest and use the full rendezvous sequence. */
+/** Longest wait (ms) for which handleYouTubeState holds a non-playing
+ *  state until hostPlayAt; a longer one executes immediately. */
 export const SHORT_WAIT_THRESHOLD_MS = 300;
 
-/** Upper cap for handleYouTubeState's auto-sync branch. Above this, the
+/** Upper cap for handleYouTubeState's scheduled play. Above this, the
  *  rendezvous has already expired and we fall through to executeImmediate. */
 export const AUTO_SYNC_MAX_WAIT_MS = 3000;
 

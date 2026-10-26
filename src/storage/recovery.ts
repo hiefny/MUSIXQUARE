@@ -29,7 +29,7 @@ import {
   resetFileRequestAuthority,
   sendFileRequest,
 } from '../network/file-request-authority.ts';
-import { isRemoteGuest, safeSend } from '../network/peer.ts';
+import { isRemoteGuest } from '../network/peer.ts';
 import { canSendFileTo } from '../network/peer-state.ts';
 import { isRemoteShareConfigured } from '../share/r2-client.ts';
 import { shareRemoteFileIfNeeded } from '../share/remote-share.ts';
@@ -217,33 +217,6 @@ export function sendRecoveryRequest(forceChunk: number | null = null): void {
 
 // ─── Host: Handle File Requests ─────────────────────────────────────
 
-function routeProRoomFileRequest(
-  data: Record<string, unknown>,
-  conn: DataConnection,
-  queueItemId: string,
-): boolean {
-  if (!isProRoomPersistentPlaylistFile(queueItemId)) return false;
-  const resident = getState('files.current');
-  if (
-    resident?.queueItemId !== queueItemId ||
-    getState('playlist.currentQueueItemId') !== queueItemId
-  ) {
-    sendFileWait(conn, data, 'PRO room file is not ready yet');
-    return true;
-  }
-
-  const sessionId = ensureValidSessionId(resident.sessionId);
-  safeSend(conn, {
-    type: MSG.FILE_PREPARE,
-    name: resident.name,
-    mime: resident.mime || resident.blob.type || 'application/octet-stream',
-    size: resident.blob.size,
-    queueItemId,
-    sessionId,
-  });
-  return true;
-}
-
 async function handleRequestCurrentFile(
   data: Record<string, unknown>,
   conn: DataConnection,
@@ -262,7 +235,6 @@ async function handleRequestCurrentFile(
   const reqName = data.name ? String(data.name) : '';
   const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
   if (!queueItemId) return;
-  if (routeProRoomFileRequest(data, conn, queueItemId)) return;
   const reqSessionId = normalizeSessionId(data.sessionId);
 
   // Find matching blob
@@ -339,10 +311,9 @@ async function handleRequestDataRecovery(
     if (Number.isFinite(n) && n > 0) startChunk = Math.floor(n);
   }
 
-  const reqName = data.fileName || data.name ? String(data.fileName || data.name) : '';
+  const reqName = data.fileName ? String(data.fileName) : '';
   const queueItemId = typeof data.queueItemId === 'string' ? data.queueItemId : '';
   if (!queueItemId) return;
-  if (routeProRoomFileRequest(data, conn, queueItemId)) return;
   const reqSessionId = normalizeSessionId(data.sessionId);
 
   const match = findMatchingBlob(queueItemId, reqSessionId);

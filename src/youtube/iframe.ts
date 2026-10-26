@@ -2423,9 +2423,8 @@ function createYouTubePlayer(
         // emit a few audible frames before the rendezvous barrier is armed.
         // Cue first when autoplay is disabled; the zero-start authority flow
         // performs the hard-muted load/warm cycle once every participant has
-        // received the same transition intent. Older clients still recover
-        // through the existing state/sync messages if the room falls back to
-        // the legacy path.
+        // received the same transition intent. A room that cannot use it
+        // recovers through the state/sync messages of the rendezvous path.
         if (
           sameVideoRestart?.sessionId === getCurrentSessionId() &&
           sameVideoRestart.videoId === videoId

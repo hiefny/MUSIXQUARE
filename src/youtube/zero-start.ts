@@ -320,7 +320,6 @@ type HostBarrier = {
 };
 
 type CapabilityRecord = {
-  version: 1 | 2;
   platform: YouTubeZeroStartPlatform;
   ready: boolean;
 };
@@ -443,16 +442,12 @@ class YouTubeZeroStartController {
   handleCapability(senderPeerId: string, message: YouTubeZeroStartCapabilityMessage): boolean {
     if (this.#deps.getRole() !== 'host') return false;
     if (!this.#deps.getLiveGuestPeerIds().includes(senderPeerId)) return false;
-    const ready = message.version === 2 ? message.ready : false;
-    this.#capabilities.set(senderPeerId, {
-      version: message.version,
-      platform: message.platform,
-      ready,
-    });
+    const { platform, ready } = message;
+    this.#capabilities.set(senderPeerId, { platform, ready });
     this.#debug('capability', {
       senderPeerId,
       version: message.version,
-      platform: message.platform,
+      platform,
       ready,
     });
     return true;
@@ -463,15 +458,14 @@ class YouTubeZeroStartController {
     if (!this.#deps.isPlayerReady() || !this.#deps.isAudioUnlocked()) return false;
     const liveGuests = this.#uniqueLiveGuestIds();
     if (liveGuests.length === 0 || liveGuests.length > 99) return false;
-    return liveGuests.every((peerId) => {
-      const capability = this.#capabilities.get(peerId);
-      // v2 proves that the guest understands the runtime-readiness contract
-      // and can hold an early PREPARE while its cold iframe/clock settles.
-      // `ready` remains useful for diagnostics and stale-state downgrades, but
-      // the bounded guest wait lets the very first transition succeed instead
-      // of forcing one legacy warm-up cycle first.
-      return capability?.version === 2;
-    });
+    // A guest's advertisement on its current connection proves that it
+    // understands the runtime-readiness contract and can hold an early PREPARE
+    // while its cold iframe/clock settles. Until a newly connected guest has
+    // advertised, the whole room keeps the rendezvous path. `ready` remains
+    // useful for diagnostics and stale-state downgrades, but the bounded guest
+    // wait lets the very first transition succeed instead of forcing one
+    // warm-up cycle first.
+    return liveGuests.every((peerId) => this.#capabilities.has(peerId));
   }
 
   beginHostTransition(input: YouTubeZeroStartBeginInput): boolean {

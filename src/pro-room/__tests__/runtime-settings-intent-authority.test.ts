@@ -1,6 +1,10 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { setEQ, setReverbParam, setSettingsSyncEnabled } from '../../audio/effects.ts';
+import {
+  setEQForTests as setEQ,
+  setReverbParamForTests as setReverbParam,
+  setSettingsSyncEnabled,
+} from '../../audio/effects.ts';
 import {
   createDefaultRoomEffectsState,
   type ProRoomSettingsSyncSnapshot,

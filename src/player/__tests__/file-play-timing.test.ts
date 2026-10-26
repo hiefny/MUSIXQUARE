@@ -49,13 +49,33 @@ describe('local-file shared start timeline', () => {
     });
   });
 
-  it('preserves older hosts command-time semantics through late decode', () => {
+  // Survey OV-B01: hosts before 8.6.53 (#234) sent only hostPlayAt, their
+  // command time plus a 200 ms lead. A PLAY without hostStartAt now starts at
+  // receipt, as an untimed late-join PLAY does, whatever hostPlayAt it carries.
+  it('starts a PLAY without hostStartAt at receipt and ignores its hostPlayAt', () => {
     calibrateHostOffset(50_000);
     vi.setSystemTime(1_050);
     const timeline = captureGuestFilePlayTiming({ hostPlayAt: 51_200 }, 12);
     vi.setSystemTime(1_700);
 
-    expect(resolveFilePlayTiming(timeline.time, timeline.setAt).offset).toBeCloseTo(12.7);
+    expect(timeline).toEqual({
+      time: 12,
+      setAt: 1_050,
+      monotonicSetAt: 10_000,
+      needsClockSync: false,
+    });
+    expect(resolveFilePlayTiming(timeline.time, timeline.setAt).offset).toBeCloseTo(12.65);
+  });
+
+  it('asks no clock sync for a hostPlayAt alone on an uncalibrated guest', () => {
+    const timeline = captureGuestFilePlayTiming({ hostPlayAt: 5_000_000 }, 12);
+
+    expect(timeline).toEqual({
+      time: 12,
+      setAt: 1_000,
+      monotonicSetAt: 10_000,
+      needsClockSync: false,
+    });
   });
 
   it('does not turn a cold clock difference into a wait or a seek', () => {
@@ -83,20 +103,18 @@ describe('local-file shared start timeline', () => {
     },
   );
 
-  it.each([
-    { remainingMs: 1_999, time: 12.2, setAt: 2_999 },
-    { remainingMs: -1_999, time: 12.2, setAt: -999 },
-    { remainingMs: 2_000, time: 12, setAt: 1_000 },
-    { remainingMs: -2_000, time: 12, setAt: 1_000 },
-  ])(
-    'applies the same two-sided window to an older host PLAY ($remainingMs ms)',
-    ({ remainingMs, time, setAt }) => {
+  it.each([1_999, -1_999, 2_000, -2_000])(
+    'gives a hostPlayAt alone no host timeline at any distance (%i ms)',
+    (remainingMs) => {
       calibrateHostOffset(50_000);
       const timeline = captureGuestFilePlayTiming({ hostPlayAt: 51_000 + remainingMs }, 12);
 
-      expect(timeline.time).toBeCloseTo(time, 9);
-      expect(timeline.setAt).toBe(setAt);
-      expect(timeline.needsClockSync).toBe(false);
+      expect(timeline).toEqual({
+        time: 12,
+        setAt: 1_000,
+        monotonicSetAt: 10_000,
+        needsClockSync: false,
+      });
     },
   );
 

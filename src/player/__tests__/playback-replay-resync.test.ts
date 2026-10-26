@@ -145,7 +145,7 @@ describe('same-track zero replay resync', () => {
   });
 });
 
-describe('hostPlayAt local-file scheduling', () => {
+describe('shared-start local-file scheduling', () => {
   function arrangePlayableGuest(): DataConnection {
     registerPing(1);
     processSyncPong(1, Date.now());
@@ -245,7 +245,9 @@ describe('hostPlayAt local-file scheduling', () => {
     monotonicNow.mockRestore();
   });
 
-  it('compensates by the full host scheduling window, not just remaining wait', async () => {
+  // Survey OV-B01: hosts before 8.6.53 (#234) sent only hostPlayAt (their
+  // command time plus 200 ms). Such a PLAY now starts at receipt.
+  it('starts a PLAY without hostStartAt at receipt, ignoring its hostPlayAt', async () => {
     const hostConn = arrangePlayableGuest();
     vi.setSystemTime(1050);
     const monotonicNow = vi.spyOn(performance, 'now').mockReturnValue(5_000);
@@ -261,10 +263,13 @@ describe('hostPlayAt local-file scheduling', () => {
       hostConn,
     );
 
-    expect(transportMocks.play).toHaveBeenCalledTimes(1);
-    expect(transportMocks.play.mock.calls[0][0]).toBeCloseTo(10.2, 3);
-    expect(transportMocks.play.mock.calls[0][1]).toBeCloseTo(0.15, 3);
-    expect(transportMocks.play.mock.calls[0][2]).toBe(5_150);
+    expect(transportMocks.play).toHaveBeenCalledExactlyOnceWith(
+      10,
+      0,
+      5_000,
+      expect.any(Function),
+      expect.objectContaining({ timing: 'catch-up' }),
+    );
     monotonicNow.mockRestore();
   });
 
@@ -280,13 +285,13 @@ describe('hostPlayAt local-file scheduling', () => {
         time: 10,
         queueItemId: QUEUE_ITEM_ID,
         name: 'song.mp3',
-        hostPlayAt: 1200,
+        hostStartAt: 1200,
       },
       hostConn,
     );
 
     expect(transportMocks.play).toHaveBeenCalledWith(
-      expect.closeTo(10.2, 3),
+      10,
       expect.closeTo(0.15, 3),
       8_150,
       expect.any(Function),
@@ -295,7 +300,7 @@ describe('hostPlayAt local-file scheduling', () => {
     monotonicNow.mockRestore();
   });
 
-  it('compensates late hostPlayAt messages by the overdue time too', async () => {
+  it('compensates a late shared start by the overdue time', async () => {
     const hostConn = arrangePlayableGuest();
     vi.setSystemTime(1250);
 
@@ -305,13 +310,13 @@ describe('hostPlayAt local-file scheduling', () => {
         time: 10,
         queueItemId: QUEUE_ITEM_ID,
         name: 'song.mp3',
-        hostPlayAt: 1200,
+        hostStartAt: 1200,
       },
       hostConn,
     );
 
     expect(transportMocks.play).toHaveBeenCalledTimes(1);
-    expect(transportMocks.play.mock.calls[0][0]).toBeCloseTo(10.25, 3);
+    expect(transportMocks.play.mock.calls[0][0]).toBeCloseTo(10.05, 3);
     expect(transportMocks.play.mock.calls[0][1]).toBe(0);
   });
 
@@ -333,7 +338,7 @@ describe('hostPlayAt local-file scheduling', () => {
           time: 10,
           queueItemId: QUEUE_ITEM_ID,
           name: 'song.mp3',
-          hostPlayAt: 1200,
+          hostStartAt: 1200,
         },
         hostConn,
       );

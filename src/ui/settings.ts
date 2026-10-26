@@ -623,7 +623,7 @@ function emitVirtualEffectChange(effect: VirtualEffect, on: boolean): void {
   } else if (effect === 'bass') {
     bus.emit('audio:update-effect', 'vbass', 'mix', on ? 60 : 0, false);
   } else {
-    // Wire shape is 0|1 so it survives the REQUEST_SETTING number validator.
+    // Toggle-only: 0 (off) or 1 (on).
     bus.emit('audio:update-effect', 'exciter', 'mix', on ? 1 : 0, false);
   }
 }

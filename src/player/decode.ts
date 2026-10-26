@@ -39,7 +39,7 @@ import type {
   TrackMeta,
 } from '../types/index.ts';
 import { schedulePreload } from '../storage/preload.ts';
-import { broadcast, safeSend } from '../network/peer.ts';
+import { safeSend } from '../network/peer.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
 import { registerHandlers } from '../network/protocol.ts';
 import { sendRecoveryRequest } from '../storage/recovery.ts';
@@ -70,7 +70,6 @@ import { GUEST_START_SYNC_PING_DELAY_MS, resolveFilePlayTiming } from './file-pl
 
 import { getAudioContext, ensureRunning } from '../audio/context.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
-import { isProRoomPersistentPlaylistFile } from '../pro-room/media-hooks.ts';
 import { transition } from './lifecycle.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
 import {
@@ -439,29 +438,13 @@ export async function loadAndBroadcastFile(
     // guests retain any receive/decode work they already own for this session.
     const connectedPeers = getState('network.connectedPeers') || [];
     if (connectedPeers.length > 0) {
-      if (isProRoomPersistentPlaylistFile(queueItemId)) {
-        // Persistent PRO participants fetch the immutable asset from the room
-        // bucket with their own authenticated presign. This compatibility path
-        // sends only timing/identity control and never relays these bytes.
-        broadcast(
-          prepareMsg ?? {
-            type: MSG.FILE_PREPARE,
-            name: file.name,
-            mime: file.type || 'application/octet-stream',
-            size: file.size,
-            queueItemId,
-            sessionId,
-          },
-        );
-      } else {
-        showToast(t('transfer.file_sending'));
-        broadcastFileDebounced(file, queueItemId, sessionId, prepareMsg);
-        // Queue files are user media regardless of filename. Bundled demo audio
-        // has its own DEMO_* protocol and never enters this queue pipeline.
-        shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId }).catch((error) => {
-          log.warn('[Load] Remote Share publication failed outside its transfer boundary', error);
-        });
-      }
+      showToast(t('transfer.file_sending'));
+      broadcastFileDebounced(file, queueItemId, sessionId, prepareMsg);
+      // Queue files are user media regardless of filename. Bundled demo audio
+      // has its own DEMO_* protocol and never enters this queue pipeline.
+      shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId }).catch((error) => {
+        log.warn('[Load] Remote Share publication failed outside its transfer boundary', error);
+      });
     }
 
     if (!hostConn) {

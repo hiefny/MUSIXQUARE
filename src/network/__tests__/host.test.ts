@@ -539,6 +539,25 @@ describe('ordered host bootstrap phases', () => {
     }
   });
 
+  it('welcomes a guest with only the fields the guest WELCOME handler reads', () => {
+    const conn = makeIncomingConn('guest-welcome-shape');
+
+    handleHostIncomingConnection(conn);
+    conn.fire('open');
+
+    const welcome = conn.send.mock.calls
+      .map(([frame]) => frame as Record<string, unknown>)
+      .find((frame) => frame.type === MSG.WELCOME);
+    // Receivers validate only a string label, so the slimmer frame stays valid.
+    expect(welcome).toEqual({
+      type: MSG.WELCOME,
+      label: expect.any(String),
+      chatFrozen: false,
+      slowmodeSeconds: 0,
+      filterEnabled: false,
+    });
+  });
+
   it('activates bulk credit only after APPLIED and before the file bootstrap event', () => {
     const conn = makeIncomingConn('guest-credit-boundary');
     const phases: string[] = [];
@@ -819,12 +838,17 @@ describe('ordered host bootstrap phases', () => {
     expect(getState('network.activeHostConnByPeerId').has(conn.peer)).toBe(false);
   });
 
-  it('keeps the PRO transport-open completion boundary without the standard handshake', () => {
+  it('refuses a data connection that reaches a PRO room before it gets a slot or authority', () => {
+    // PRO rooms have no browser data connections since d4b208cc: the room
+    // server owns authority and every participant fetches media itself. A
+    // connection could reach a PRO endpoint only through a Peer that outlived
+    // its Standard room, and it must not be admitted as an operator without
+    // the Standard join bootstrap.
     setState('room.context', {
       kind: 'pro',
       roomId: '000001',
-      role: 'coordinator',
-      coordinatorId: 'host-1',
+      role: 'member',
+      coordinatorId: null,
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['members.manage'],
@@ -832,25 +856,35 @@ describe('ordered host bootstrap phases', () => {
     const conn = makeIncomingConn('pro-controller');
     const bootstrapped = vi.fn();
     const connected = vi.fn();
+    const data = vi.fn();
     const stopBootstrap = bus.on('network:peer-bootstrap', bootstrapped);
     const stopConnected = bus.on('network:peer-connected', connected);
+    const stopData = bus.on('network:data', data);
 
     try {
       handleHostIncomingConnection(conn);
       conn.fire('open');
+      conn.fire('data', { type: MSG.SYNC_PING, pingId: 1 });
+      vi.advanceTimersByTime(JOIN_BOOTSTRAP_TIMEOUT_MS);
     } finally {
       stopBootstrap();
       stopConnected();
+      stopData();
     }
 
+    expect(conn.close).toHaveBeenCalledExactlyOnceWith();
+    expect(mocks.info).toHaveBeenCalledWith(
+      '[Host] Refused a data connection in a PRO room:',
+      conn.peer,
+    );
+    expect(conn.send).not.toHaveBeenCalled();
     expect(bootstrapped).not.toHaveBeenCalled();
-    expect(connected).toHaveBeenCalledOnce();
-    expect(connected).toHaveBeenCalledWith(conn);
-    expect(getState('network.connectedPeers')[0]).toMatchObject({
-      id: conn.peer,
-      conn,
-      status: 'connected',
-    });
+    expect(connected).not.toHaveBeenCalled();
+    expect(data).not.toHaveBeenCalled();
+    expect(getState('network.connectedPeers')).toEqual([]);
+    expect(getState('network.activeHostConnByPeerId').has(conn.peer)).toBe(false);
+    expect(getState('network.peerSlotByPeerId').has(conn.peer)).toBe(false);
+    expect(getState('network.peerLabels')).not.toHaveProperty(conn.peer);
   });
 });
 
@@ -1731,26 +1765,5 @@ describe('host close causes', () => {
 
     expect(conn.close).toHaveBeenCalledExactlyOnceWith('join-bootstrap-failed');
     expect(getState('network.connectedPeers')).toHaveLength(0);
-  });
-
-  it('names join-bootstrap-failed when a PRO WELCOME cannot be sent', () => {
-    setState('room.context', {
-      kind: 'pro',
-      roomId: '000001',
-      role: 'coordinator',
-      coordinatorId: 'host-1',
-      epoch: 1,
-      snapshotRevision: 1,
-      capabilities: ['members.manage'],
-    });
-    const conn = makeIncomingConn('pro-welcome-failed');
-    conn.send.mockImplementation(() => {
-      throw new Error('send failed');
-    });
-    handleHostIncomingConnection(conn);
-
-    conn.fire('open');
-
-    expect(conn.close).toHaveBeenCalledExactlyOnceWith('join-bootstrap-failed');
   });
 });

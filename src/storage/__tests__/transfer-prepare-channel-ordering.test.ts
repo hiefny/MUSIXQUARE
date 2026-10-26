@@ -157,8 +157,26 @@ function weaves(control: number, bulk: number, prefix = ''): string[] {
     ...(bulk ? weaves(control, bulk - 1, prefix + 'B') : []),
   ];
 }
+// Survey OV-B04: a guest drops preload chunks that overtake their START, so a
+// legacy weave stays in the matrix only while PRELOAD_START (the third legacy
+// control frame) arrives before the first preload chunk (the fourth legacy
+// bulk frame): 20 of the 84 legacy weaves. Those 20 still cover all 10 orders
+// of the main lane's own frames (FILE_PREPARE and FILE_START against its two
+// chunks and FILE_END); the dropped weaves are those where any control header
+// trails the first preload chunk.
+function preloadStartLeads(order: string): boolean {
+  let control = 0;
+  let bulk = 0;
+  for (const lane of order) {
+    if (lane === 'C' && ++control === 3) return true;
+    if (lane === 'B' && ++bulk === 4) return false;
+  }
+  return false;
+}
 const orders = [
-  ...weaves(3, 6).map((order) => ({ layout: 'legacy', order })),
+  ...weaves(3, 6)
+    .filter(preloadStartLeads)
+    .map((order) => ({ layout: 'legacy', order })),
   ...weaves(1, 8).map((order) => ({ layout: 'current', order })),
 ];
 it.each(orders)(
@@ -229,7 +247,8 @@ it.each(orders)(
     expect(JSON.parse(sender.bulk.sent[0] as string).type).toBe(MSG.FILE_START);
     expect(JSON.parse(sender.bulk.sent[4] as string).type).toBe(MSG.PRELOAD_START);
     // Current senders serialize START with its bytes. Reconstruct old senders'
-    // control headers explicitly so every historical cross-lane weave remains.
+    // control headers explicitly for the legacy weaves the matrix keeps
+    // (preloadStartLeads).
     const wire =
       layout === 'legacy'
         ? {
@@ -477,11 +496,8 @@ it('does not revive an already stopped receive merely because its stored prefix 
   expect(finalizeGuestFile).not.toHaveBeenCalled();
 });
 
-it('accepts omitted optional PREPARE metadata and preserves pending PLAY through the real stop', async () => {
-  const { file, sender, legacyBulk, receiver, deliver, prepare, start } = await captureMain(
-    3,
-    true,
-  );
+it('preserves pending PLAY through the real stop when the matching PREPARE repeats mid-receive', async () => {
+  const { file, legacyBulk, receiver, deliver, prepare, start } = await captureMain(3, true);
   await deliver(legacyBulk[0]!, 'bulk');
   expect(getState('playback.pendingPlayTime')).toBe(12.5);
   const pendingSetAt = getState('playback.pendingPlayTimeSetAt');
@@ -492,12 +508,9 @@ it('accepts omitted optional PREPARE metadata and preserves pending PLAY through
   bus.on('ui:seek-reset', seekReset);
   bus.on('player:stop-all-media', () => stoppedStates.push(getState('transfer.state')));
 
-  // Older senders can omit these advisory fields. Queue id, session and name
-  // still identify the exact live receive; absent metadata is not a mismatch.
-  const legacyPrepare = JSON.parse(prepare as string);
-  delete legacyPrepare.size;
-  delete legacyPrepare.total;
-  await deliver(encodeLegacyControl(sender, legacyPrepare), 'control');
+  // The debounced repeat of the same PREPARE (queue id, session, name, size and
+  // mime all match) identifies the exact live receive.
+  await deliver(prepare, 'control');
   expect(seekReset).toHaveBeenCalledOnce();
   expect(stoppedStates).toEqual(['IDLE']);
   expect(getState('transfer.state')).toBe('RECEIVING');

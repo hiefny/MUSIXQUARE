@@ -373,7 +373,6 @@ describe('transport-health guard: the link-liveness owner (C5-10)', { timeout: 6
 });
 
 const SIDE_ROUTE = 'src/network/transport/control-isolation.ts';
-const C9_FIXTURE = 'src/network/transport/__tests__/fixtures/control-isolation-c9.ts';
 
 describe('transport-health guard: the side outage deadline (C5-9)', { timeout: 60_000 }, () => {
   it('rejects the side route taking its outage deadline back, in a member, a call or a key', () => {
@@ -450,11 +449,9 @@ describe('transport-health guard: the side outage deadline (C5-9)', { timeout: 6
     expect(report.retiredNamesInOwner).toBe(17);
   });
 
-  it('leaves the frozen C9 peer, a test fixture that keeps its old grace timer, out of scope', () => {
-    expect(readFileSync(C9_FIXTURE, 'utf8')).toContain('private disconnectedTimer');
+  it('reads production files only, leaving test files and their fixtures out of scope', () => {
     const paths = [...realInput().sources.keys()];
     expect(paths).toContain(SIDE_ROUTE);
-    expect(paths).not.toContain(C9_FIXTURE);
     expect(paths.filter((relPath) => relPath.includes('__tests__'))).toEqual([]);
   });
 });

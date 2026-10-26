@@ -80,7 +80,7 @@ interface SideRoute {
 /** One outage of the side PC (monotonic times). */
 interface SideOutage {
   readonly route: SideRoute;
-  /** false: the grace of a route that cannot restart (before READY, or a peer without restart). */
+  /** false: the grace of a route that cannot restart yet (before READY). */
   readonly restartable: boolean;
   readonly start: number;
   deadline: number;
@@ -186,10 +186,11 @@ function randomResumeProbePingId(): number {
  *   outage quietly; otherwise it ends the link (`side-failed:expired`) after
  *   the did-not-recover warning. The recovered line is the end that saw the
  *   outage; the restart line stays control isolation's.
- * - A side route that cannot restart (before READY, or a peer without restart)
- *   gets one non-renewing 15 s grace while its PC reads disconnected, which
- *   only `connected` clears and which never waits for the original route; at
- *   its end the route fails its setup (decline and fall back, or end the link).
+ * - A side route that cannot restart yet (before READY; every peer restarts
+ *   since the old-version removal train) gets one non-renewing 15 s grace
+ *   while its PC reads disconnected, which only `connected` clears and which
+ *   never waits for the original route; at its end the route fails its setup
+ *   (decline and fall back, or end the link).
  *   READY turns a running grace into a restart outage that starts then.
  * - The side deadline runs on the monotonic clock, in a timer of its own
  *   that the side PC's close and stop clear.

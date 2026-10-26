@@ -48,7 +48,7 @@ export type LoadSourceValue = (typeof LOAD_SOURCE)[keyof typeof LOAD_SOURCE];
 
 // ─── File Transfer ─────────────────────────────────────────────────
 export const CHUNK_SIZE = 64 * 1024; // 64 KiB per chunk
-/** Bounded preload bytes that may overtake START on the independent bulk lane. */
+/** Inbound burst for host preload chunks of a session this guest has not admitted. */
 export const MAX_EARLY_PRELOAD_CHUNKS = 64;
 
 /**
@@ -153,8 +153,6 @@ export const BOT_RATE_LIMIT_MAX_RETRY_SECONDS = 60 * 60;
 export const MSG = {
   CHAT: 'chat',
   DEVICE_LIST_UPDATE: 'device-list-update',
-  EQ_RESET: 'eq-reset',
-  EQ_UPDATE: 'eq-update',
   FILE_CHUNK: 'file-chunk',
   FILE_END: 'file-end',
   FILE_PREPARE: 'file-prepare',
@@ -183,12 +181,7 @@ export const MSG = {
   PLAY: 'play',
   PLAYLIST_UPDATE: 'playlist-update',
   PLAYLIST_SLOTS: 'playlist-slots',
-  PRO_FILE_PRELOAD: 'pro-file-preload',
-  PRO_ROOM_INVALIDATED: 'pro-room-invalidated',
-  PRO_SYSTEM_AUDIO_HINT: 'pro-system-audio-hint',
-  PRO_SYSTEM_AUDIO_STATE: 'pro-system-audio-state',
   PLAY_PRELOADED: 'play-preloaded',
-  PREAMP: 'preamp',
   PRELOAD_ABORT: 'preload-abort',
   PRELOAD_ACK: 'preload-ack',
   PRELOAD_CHUNK: 'preload-chunk',
@@ -199,7 +192,6 @@ export const MSG = {
   REQUEST_DATA_RECOVERY: 'request-data-recovery',
   REQUEST_DEMO_ENTER: 'request-demo-enter',
   REQUEST_DEMO_EXIT: 'request-demo-exit',
-  REQUEST_EQ_RESET: 'request-eq-reset',
   REQUEST_KICK_DEVICE: 'request-kick-device',
   REQUEST_KICK_PHYSICAL_DEVICE: 'request-kick-physical-device',
   REQUEST_NEXT_TRACK: 'request-next-track',
@@ -222,21 +214,11 @@ export const MSG = {
   REQUEST_YOUTUBE_TOGGLE: 'request-youtube-toggle',
   REQUEST_YOUTUBE_PLAYLIST_INFO: 'request-youtube-playlist-info',
   REQUEST_YOUTUBE_SUB_SEEK: 'request-youtube-sub-seek',
-  REVERB: 'reverb',
-  REVERB_DECAY: 'reverb-decay',
-  REVERB_HIGHCUT: 'reverb-highcut',
-  REVERB_LOWCUT: 'reverb-lowcut',
-  REVERB_PREDELAY: 'reverb-predelay',
-  REVERB_TYPE: 'reverb-type',
   SHUFFLE_MODE: 'shuffle-mode',
-  STEREO_WIDTH: 'stereo-width',
   SETTINGS_SYNC_SNAPSHOT: 'settings-sync-snapshot',
   PUBLISH_SETTINGS_SYNC_SNAPSHOT: 'publish-settings-sync-snapshot',
   OPERATOR_GRANT: 'operator-grant',
   OPERATOR_REVOKE: 'operator-revoke',
-  VBASS: 'vbass',
-  EXCITER: 'exciter',
-  VOLUME: 'volume',
   WELCOME: 'welcome',
   SESSION_FULL: 'session-full',
   YOUTUBE_PLAY: 'youtube-play',

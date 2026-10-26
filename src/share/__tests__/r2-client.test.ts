@@ -100,6 +100,8 @@ function canonicalUploadHeaders(
   };
 }
 
+const issueRoomUploadAssertion = async (): Promise<string> => `${'a'.repeat(80)}.${'b'.repeat(43)}`;
+
 function securityConfig(overrides: Record<string, unknown> = {}): Response {
   return Response.json({
     capabilityRequired: false,
@@ -109,7 +111,7 @@ function securityConfig(overrides: Record<string, unknown> = {}): Response {
     wholeObjectVersion: 1,
     downloadAuthorizationVersion: 1,
     roomUploadAssertionVersion: 1,
-    roomUploadAssertionMode: 'optional',
+    roomUploadAssertionMode: 'required',
     ...overrides,
   });
 }
@@ -321,6 +323,7 @@ describe('R2 canonical whole-object upload', () => {
       size: 4,
       sessionId: 7,
       queueItemId,
+      requestRoomUploadAssertion: issueRoomUploadAssertion,
     });
     await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
     const xhr = FakeXmlHttpRequest.instances[0]!;
@@ -446,6 +449,43 @@ describe('R2 canonical whole-object upload', () => {
       }),
     ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it('fails before /session without an assertion even while the Remote Worker advertises optional mode', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${endpoint}/security-config`) {
+        return securityConfig({
+          roomUploadAssertionVersion: 1,
+          roomUploadAssertionMode: 'optional',
+        });
+      }
+      return Response.json({ error: 'unexpected' }, { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { uploadWholeObject } = await import('../r2-client.ts');
+    const meta = {
+      roomId,
+      name: 'song.mp3',
+      mime: 'audio/mpeg',
+      size: 4,
+      sessionId: 7,
+      queueItemId,
+    };
+
+    await expect(uploadWholeObject(new Blob(['data']), meta)).rejects.toThrow(
+      'REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
+    );
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        ...meta,
+        requestRoomUploadAssertion: vi.fn(async () => null),
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).not.toContain(
+      `${endpoint}/session`,
+    );
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
   });
 
@@ -613,6 +653,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
@@ -663,6 +704,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
@@ -710,6 +752,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);
@@ -752,6 +795,7 @@ describe('R2 canonical whole-object upload', () => {
       size: 4,
       sessionId: 7,
       queueItemId,
+      requestRoomUploadAssertion: issueRoomUploadAssertion,
     });
     await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
     const xhr = FakeXmlHttpRequest.instances[0]!;
@@ -799,6 +843,7 @@ describe('R2 canonical whole-object upload', () => {
         size: 4,
         sessionId: 7,
         queueItemId,
+        requestRoomUploadAssertion: issueRoomUploadAssertion,
       }),
     ).rejects.toThrow('REMOTE_SHARE_BAD_SESSION_RESPONSE');
     expect(FakeXmlHttpRequest.instances).toHaveLength(0);

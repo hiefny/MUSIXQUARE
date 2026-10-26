@@ -368,6 +368,150 @@ describe('YOUTUBE_PLAYLIST_INFO validation', () => {
   });
 });
 
+describe('YouTube playback frame validation', () => {
+  const HOST_CLOCK = 1_793_000_000_000.5;
+
+  it('accepts a string or null YOUTUBE_PLAY playlistId and rejects a list', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.YOUTUBE_PLAY, handler);
+    const conn = makeConnection('host-youtube-play');
+    // The shapes every current host sends: a video with its playlist context,
+    // a single video, and an unresolved playlist entry.
+    const play = {
+      type: MSG.YOUTUBE_PLAY,
+      videoId: YOUTUBE_VIDEO_ID,
+      playlistId: 'PL1234567890',
+      name: 'Track',
+      queueItemId: QUEUE_ITEM_ID,
+      autoplay: false,
+      subIndex: 0,
+    };
+
+    await handleData(play, conn);
+    await handleData({ ...play, playlistId: null }, conn);
+    await handleData({ ...play, videoId: null }, conn);
+    for (const invalid of [
+      { ...play, playlistId: ['PL1234567890'] },
+      { ...play, videoId: null, playlistId: [YOUTUBE_VIDEO_ID] },
+      { ...play, playlistId: [] },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+
+  it('accepts the YOUTUBE_SYNC and YOUTUBE_STATE frames every current host sends', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.YOUTUBE_SYNC, handler);
+    registerHandler(MSG.YOUTUBE_STATE, handler);
+    const conn = makeConnection('host-youtube-sync-valid');
+    const frames = [
+      // Heartbeat without a selected sub-video or a readable video id.
+      {
+        type: MSG.YOUTUBE_SYNC,
+        queueItemId: QUEUE_ITEM_ID,
+        time: 12.5,
+        state: 1,
+        subIndex: -1,
+        videoId: '',
+        hostClock: HOST_CLOCK,
+        isManual: false,
+        title: 'Track',
+      },
+      // Paused late-join bootstrap.
+      {
+        type: MSG.YOUTUBE_SYNC,
+        queueItemId: QUEUE_ITEM_ID,
+        time: 3,
+        state: 2,
+        subIndex: 0,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostClock: HOST_CLOCK,
+      },
+      // Pause and seek broadcasts.
+      {
+        type: MSG.YOUTUBE_STATE,
+        queueItemId: QUEUE_ITEM_ID,
+        state: 2,
+        time: 3,
+        subIndex: -1,
+        videoId: '',
+        hostClock: HOST_CLOCK,
+      },
+      // Stage 1 of a transport action.
+      {
+        type: MSG.YOUTUBE_STATE,
+        queueItemId: QUEUE_ITEM_ID,
+        state: 1,
+        time: 0,
+        subIndex: 0,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostPlayAt: 0,
+        hostClock: HOST_CLOCK,
+        title: '',
+      },
+      // Playing late-join bootstrap with a future admission deadline.
+      {
+        type: MSG.YOUTUBE_STATE,
+        queueItemId: QUEUE_ITEM_ID,
+        state: 1,
+        time: 41.75,
+        subIndex: 2,
+        videoId: YOUTUBE_VIDEO_ID,
+        hostPlayAt: HOST_CLOCK + 1_500,
+        hostClock: HOST_CLOCK,
+      },
+    ];
+
+    for (const frame of frames) await handleData(frame, conn);
+
+    expect(handler).toHaveBeenCalledTimes(frames.length);
+  });
+
+  it('rejects YOUTUBE_SYNC and YOUTUBE_STATE frames without a finite host clock', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.YOUTUBE_SYNC, handler);
+    registerHandler(MSG.YOUTUBE_STATE, handler);
+    const conn = makeConnection('host-youtube-sync-invalid');
+    const sync = {
+      type: MSG.YOUTUBE_SYNC,
+      queueItemId: QUEUE_ITEM_ID,
+      time: 12.5,
+      state: 1,
+      subIndex: -1,
+      videoId: '',
+      hostClock: HOST_CLOCK,
+    };
+    const state = {
+      type: MSG.YOUTUBE_STATE,
+      queueItemId: QUEUE_ITEM_ID,
+      state: 1,
+      time: 41.75,
+      subIndex: 0,
+      videoId: YOUTUBE_VIDEO_ID,
+      hostPlayAt: HOST_CLOCK + 1_500,
+      hostClock: HOST_CLOCK,
+    };
+    const { hostClock: _syncClock, ...syncWithoutClock } = sync;
+    const { hostClock: _stateClock, ...stateWithoutClock } = state;
+
+    for (const invalid of [
+      syncWithoutClock,
+      stateWithoutClock,
+      { ...sync, hostClock: null },
+      { ...state, hostClock: null },
+      { ...sync, hostClock: Number.NaN },
+      { ...state, hostClock: Number.POSITIVE_INFINITY },
+      { ...sync, hostClock: String(HOST_CLOCK) },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
 describe('YouTube zero-start protocol validation', () => {
   const identity = {
     version: 1 as const,
@@ -380,11 +524,6 @@ describe('YouTube zero-start protocol validation', () => {
     const handler = vi.fn();
     const conn = makeConnection('zero-start-valid');
     const frames = [
-      {
-        type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
-        version: 1,
-        platform: 'android',
-      },
       {
         type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
         version: 2,
@@ -488,6 +627,8 @@ describe('YouTube zero-start protocol validation', () => {
       cohort: ['host-peer', 'guest-peer'],
     };
     const malformedFrames = [
+      // Every current guest advertises the runtime-aware v2 shape.
+      { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 1, platform: 'android' },
       { type: MSG.YOUTUBE_ZERO_START_CAPABILITY, version: 2, platform: 'android' },
       {
         type: MSG.YOUTUBE_ZERO_START_CAPABILITY,
@@ -785,149 +926,7 @@ describe('system-audio SFU frame validation', () => {
   });
 });
 
-describe('PRO system-audio control-frame validation', () => {
-  const publication = {
-    publicationId: 'publication_00001',
-    sessionId: 'realtime_session_01',
-    track: { trackName: 'audio-stereo', mid: '0' },
-  };
-  const live = {
-    type: MSG.PRO_SYSTEM_AUDIO_STATE,
-    version: 2,
-    generation: 7,
-    status: 'live',
-    ownerParticipantId: 'participant_00001',
-    ownerDisplayName: 'Peer 1',
-    claimExpiresAt: null,
-    liveExpiresAt: 1_900_000_000_000,
-    publication,
-  };
-
-  it('accepts only the exact versioned lifecycle shape', async () => {
-    const handler = vi.fn();
-    const conn = makeConnection('peer-pro-system-audio-state');
-    registerHandler(MSG.PRO_SYSTEM_AUDIO_STATE, handler);
-
-    await handleData(live, conn);
-    await handleData(
-      {
-        ...live,
-        generation: 8,
-        status: 'preparing',
-        claimExpiresAt: 1_800_000_045_000,
-        liveExpiresAt: null,
-        publication: null,
-      },
-      conn,
-    );
-    await handleData(
-      {
-        ...live,
-        generation: 9,
-        status: 'idle',
-        ownerParticipantId: null,
-        ownerDisplayName: null,
-        claimExpiresAt: null,
-        liveExpiresAt: null,
-        publication: null,
-      },
-      conn,
-    );
-
-    expect(handler).toHaveBeenCalledTimes(3);
-  });
-
-  it('rejects private, unknown, ambiguous, and cross-layer-incompatible fields', async () => {
-    const handler = vi.fn();
-    const conn = makeConnection('peer-pro-system-audio-invalid');
-    registerHandler(MSG.PRO_SYSTEM_AUDIO_STATE, handler);
-
-    const invalidFrames = [
-      { ...live, version: 0 },
-      { ...live, version: 1 },
-      { ...live, leaseId: 'must-not-cross-peer-wire' },
-      { ...live, ownerPresenceIncarnationId: 'must-not-cross-peer-wire' },
-      { ...live, ownerParticipantId: 'short' },
-      { ...live, ownerDisplayName: ' Peer 1 ' },
-      { ...live, claimExpiresAt: 1_800_000_000_000 },
-      { ...live, publication: { ...publication, sessionOwnerToken: 'private-token' } },
-      {
-        ...live,
-        publication: {
-          ...publication,
-          track: { ...publication.track, transceiver: 'private-object' },
-        },
-      },
-      {
-        ...live,
-        publication: {
-          ...publication,
-          track: { ...publication.track, trackName: ' audio-stereo ' },
-        },
-      },
-      {
-        ...live,
-        publication: {
-          ...publication,
-          track: { ...publication.track, mid: ' 0 ' },
-        },
-      },
-      {
-        ...live,
-        publication: {
-          ...publication,
-          track: { ...publication.track, channel: 'L' },
-        },
-      },
-    ];
-    for (const frame of invalidFrames) await handleData(frame, conn);
-
-    expect(handler).not.toHaveBeenCalled();
-  });
-
-  it('keeps refresh hints minimal and rejects credential smuggling', async () => {
-    const handler = vi.fn();
-    const conn = makeConnection('peer-pro-system-audio-hint');
-    registerHandler(MSG.PRO_SYSTEM_AUDIO_HINT, handler);
-
-    await handleData({ type: MSG.PRO_SYSTEM_AUDIO_HINT, generation: 0 }, conn);
-    await handleData(
-      { type: MSG.PRO_SYSTEM_AUDIO_HINT, generation: 1, leaseId: 'must-not-cross-peer-wire' },
-      conn,
-    );
-    await handleData({ type: MSG.PRO_SYSTEM_AUDIO_HINT, generation: -1 }, conn);
-
-    expect(handler).toHaveBeenCalledOnce();
-  });
-});
-
 describe('file-transfer frame validation', () => {
-  it('accepts only exact PRO file preload ownership hints', async () => {
-    const handler = vi.fn();
-    const conn = makeConnection('peer-pro-preload');
-    registerHandler(MSG.PRO_FILE_PRELOAD, handler);
-
-    await handleData(
-      { type: MSG.PRO_FILE_PRELOAD, queueItemId: QUEUE_ITEM_ID, sessionId: 1 },
-      conn,
-    );
-
-    for (const invalid of [
-      { type: MSG.PRO_FILE_PRELOAD, queueItemId: QUEUE_ITEM_ID, sessionId: 0 },
-      { type: MSG.PRO_FILE_PRELOAD, queueItemId: 'not-a-queue-id', sessionId: 1 },
-      {
-        type: MSG.PRO_FILE_PRELOAD,
-        queueItemId: QUEUE_ITEM_ID,
-        sessionId: 1,
-        unexpected: true,
-      },
-    ]) {
-      await handleData(invalid, conn);
-    }
-
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
   it('accepts only the explicit current local R2 capability marker', async () => {
     const handler = vi.fn();
     const conn = makeConnection('peer-file-r2-capability');
@@ -966,11 +965,16 @@ describe('file-transfer frame validation', () => {
       expiresAt: Date.now() + 60_000,
       delivery: 'r2',
     };
+    const { delivery: _delivery, ...withoutDelivery } = valid;
 
     await handleData(valid, conn);
     await handleData({ ...valid, preload: true }, conn);
 
     for (const invalid of [
+      // Every current host marks a descriptor for R2 delivery.
+      withoutDelivery,
+      { ...valid, delivery: null },
+      { ...valid, delivery: 'direct' },
       { ...valid, storedSize: valid.size - 1 },
       { ...valid, size: 0, storedSize: 0 },
       { ...valid, size: REMOTE_SHARE_MAX_BYTES + 1, storedSize: REMOTE_SHARE_MAX_BYTES + 1 },
@@ -983,6 +987,60 @@ describe('file-transfer frame validation', () => {
       { ...valid, sessionId: 1.5 },
       { ...valid, sessionId: Number.MAX_SAFE_INTEGER + 1 },
       { ...valid, unexpected: true },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires the FILE_PREPARE size every current host sends', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.FILE_PREPARE, handler);
+    const conn = makeConnection('peer-file-prepare-size');
+    const prepare = {
+      type: MSG.FILE_PREPARE,
+      name: 'song.mp3',
+      queueItemId: QUEUE_ITEM_ID,
+      sessionId: 3,
+      size: 4,
+      mime: 'audio/mpeg',
+    };
+    const { size: _size, ...withoutSize } = prepare;
+
+    // A direct transfer carries no delivery marker; an R2 offload carries 'r2'.
+    await handleData(prepare, conn);
+    await handleData({ ...prepare, delivery: 'r2' }, conn);
+    for (const invalid of [
+      withoutSize,
+      { ...withoutSize, delivery: 'r2' },
+      { ...prepare, size: 0 },
+    ]) {
+      await handleData(invalid, conn);
+    }
+
+    expect(handler).toHaveBeenCalledTimes(2);
+  });
+
+  it('requires the R2 delivery marker on REMOTE_FILE_UNAVAILABLE', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REMOTE_FILE_UNAVAILABLE, handler);
+    const conn = makeConnection('peer-remote-file-unavailable');
+    const unavailable = {
+      type: MSG.REMOTE_FILE_UNAVAILABLE,
+      name: 'song.mp3',
+      queueItemId: QUEUE_ITEM_ID,
+      sessionId: 3,
+      delivery: 'r2',
+    };
+    const { delivery: _delivery, ...withoutDelivery } = unavailable;
+
+    await handleData(unavailable, conn);
+    await handleData({ ...unavailable, limited: true }, conn);
+    for (const invalid of [
+      withoutDelivery,
+      { ...withoutDelivery, limited: false },
+      { ...unavailable, delivery: 'direct' },
     ]) {
       await handleData(invalid, conn);
     }
@@ -1293,6 +1351,7 @@ describe('file-transfer frame validation', () => {
           name: 'x.mp3',
           sessionId,
           queueItemId: QUEUE_ITEM_ID,
+          delivery: 'r2',
         },
       ];
       for (const frame of frames) await handleData(frame, conn);
@@ -1427,24 +1486,16 @@ describe('handler exception containment', () => {
 });
 
 describe('REQUEST_SETTING validation', () => {
-  it('dispatches known setting types with in-range typed values', async () => {
+  it('dispatches the queue-mode setting types with in-range typed values', async () => {
     const handler = vi.fn();
     registerHandler(MSG.REQUEST_SETTING, handler);
     const conn = makeConnection('peer-request-setting-valid');
 
     const validMessages = [
       { settingType: 'repeat-mode', value: 2 },
+      { settingType: 'repeat-mode', value: 0 },
       { settingType: 'shuffle-mode', value: true },
-      { settingType: 'eq', band: 4, value: -12 },
-      { settingType: MSG.PREAMP, value: -48 },
-      { settingType: MSG.STEREO_WIDTH, value: 200 },
-      { settingType: MSG.VBASS, value: 100 },
-      { settingType: MSG.REVERB, value: 100 },
-      { settingType: MSG.REVERB_TYPE, value: 'arena' },
-      { settingType: MSG.REVERB_DECAY, value: 10 },
-      { settingType: MSG.REVERB_PREDELAY, value: 0.5 },
-      { settingType: MSG.REVERB_LOWCUT, value: 100 },
-      { settingType: MSG.REVERB_HIGHCUT, value: 100 },
+      { settingType: 'shuffle-mode', value: false },
     ];
 
     for (const message of validMessages) {
@@ -1461,18 +1512,40 @@ describe('REQUEST_SETTING validation', () => {
 
     const invalidMessages = [
       { settingType: 'stereo', value: 120 },
-      { settingType: 'eq', band: 5, value: 0 },
-      { settingType: 'eq', band: 0, value: 13 },
-      { settingType: MSG.STEREO_WIDTH, value: 201 },
-      { settingType: MSG.REVERB_TYPE, value: 'advanced' },
-      { settingType: MSG.REVERB_DECAY, value: 10.1 },
-      { settingType: MSG.REVERB_PREDELAY, value: 1 },
-      { settingType: MSG.REVERB_LOWCUT, value: -1 },
+      { value: 1 },
       { settingType: 'repeat-mode', value: 3 },
+      { settingType: 'repeat-mode', value: '1' },
       { settingType: 'shuffle-mode', value: 'true' },
+      { settingType: 'shuffle-mode', value: 1 },
     ];
 
     for (const message of invalidMessages) {
+      await handleData({ type: MSG.REQUEST_SETTING, ...message }, conn);
+    }
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('drops the per-effect setting types from before atomic settings sync', async () => {
+    const handler = vi.fn();
+    registerHandler(MSG.REQUEST_SETTING, handler);
+    const conn = makeConnection('peer-request-setting-per-effect');
+
+    const perEffectMessages = [
+      { settingType: 'eq', band: 4, value: -12 },
+      { settingType: 'preamp', value: -48 },
+      { settingType: 'stereo-width', value: 200 },
+      { settingType: 'vbass', value: 100 },
+      { settingType: 'exciter', value: 1 },
+      { settingType: 'reverb', value: 100 },
+      { settingType: 'reverb-type', value: 'arena' },
+      { settingType: 'reverb-decay', value: 10 },
+      { settingType: 'reverb-predelay', value: 0.5 },
+      { settingType: 'reverb-lowcut', value: 100 },
+      { settingType: 'reverb-highcut', value: 100 },
+    ];
+
+    for (const message of perEffectMessages) {
       await handleData({ type: MSG.REQUEST_SETTING, ...message }, conn);
     }
 

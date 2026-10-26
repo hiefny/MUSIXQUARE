@@ -1,8 +1,7 @@
 /**
  * Frozen durable signaling-outbox records of main 51ab2be3 (the PRO Worker
  * deployed as ae5ac945), for mixed-version tests across the Phase 1 outbox
- * and duration owners (plan steps C7-4 and C7-6, registry RO-07). Like the
- * frozen C9 runtime in src/network/transport/__tests__/fixtures, these are
+ * and duration owners (plan steps C7-4 and C7-6, registry RO-07). They are
  * spelled out key by key in that version's order and never derived from the
  * Worker under test.
  *

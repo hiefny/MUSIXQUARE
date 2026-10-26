@@ -55,7 +55,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       일반방 입장 bootstrap 8.3.16, PRO 하트비트 9.0.0)이 대상 송신자를 막고 있어 강제 업데이트 없이 지운다. 브랜치
       `agent/old-version-removal-1`(origin/main `244aca48`에서 시작, `2d605739`를 `9a05077b`로 합침), 증분 여덟(R1~R8)마다
       테스트 먼저와 코드 커밋, 마지막 런타임 커밋 `e37c7992`. 아직 bump·PR·배포 전이고 버전은 bump 단계에서 정한다
-      (통합 순서 변경으로 5A와 이 열차는 준비되는 대로 나가며, 5A 갈래는 `9.0.12` / `v785`로 bump했다). 바뀌는 것:
+      (통합 순서 변경으로 5A와 이 열차는 준비되는 대로 나가며, 5A는 `9.0.12` / `v785`로 2026-10-26 main에 머지됐다, #494 `78e9ee98`). 바뀌는 것:
       일반방 P2P 메시지 종류 121 → 103(코디네이터 시대 PRO 메시지 넷, 원자적 설정 동기화 전의 효과별 메시지 14),
       지금 모든 송신자가 넣는 필드(PAUSE `reason`, FILE_PREPARE `size`, DEVICE_LIST 행, OPERATOR_GRANT 목록,
       REMOTE_FILE_* `delivery: 'r2'`, 유튜브 `hostClock`, zero-start v2)를 필수로, PRO 방이 브라우저 데이터 연결을 거절
@@ -63,19 +63,23 @@ gh run list --workflow e2e.yml --branch main --limit 3
       REMOTE_FILE_UNAVAILABLE을 받던 경쟁 제거), 보조 경로 재시작이 상대 광고를 기다리지 않음(광고는 계속 보냄).
       통신: 9.0.10·9.0.11이 보내는 프레임은 모두 받고, 이 빌드가 보내는 프레임은 그 빌드들이 모두 받는다(5A의
       9.0.12는 이 열차가 건드린 프레임의 송신 코드를 바꾸지 않는다). 예외 하나는 그 방장들이 설정 스냅샷 뒤에 붙이는 효과별 프레임 14개를 이 게스트가 모르는 종류로 버리는
-      것이고, 같은 값의 스냅샷이 먼저 적용되므로 동작은 같다. 수용한 옛 탭의 나빠짐(오너 정책): 8.3.16~8.6.52의
+      것이고, 같은 값의 스냅샷이 먼저 적용되므로 값은 같다. 잃는 것은 오래됐거나 같은 순서 번호로 충돌해 거부된
+      스냅샷 뒤의 재적용뿐이고, 방장 페이지가 바뀌면 게스트도 새 세션이라 설정 기억이 새로 시작하므로 지금은 닿는 길이
+      없다(보고서 R4). 수용한 옛 탭의 나빠짐(오너 정책): 8.3.16~8.6.52의
       PLAY 시각(약 200 ms 일찍 시작 뒤 드리프트 보정), 8.3.16~8.6.53 데모 방장의 데모를 새 게스트가 따라가지 못함,
       8.4.58 이하 방장의 같은 파일 약 3초 먼저, 8.11.23 전 방장의 START를 앞지른 미리받기 청크 버림(느린 트랙 전환),
       8.3.30 전 탭의 id 없는 펄스 무시, 8.11.23 상대와의 보조 경로 끊김이 최대 15초 늦게 `side-failed:expired`로 닫힘.
       배포 때 §1 '의존성·호환'의 '재시작이 없는 빌드와의 동작은 동결 C9 fixture가 고정한다' 문장을 이 열차의 새 행으로
-      바꾸고 위 나빠짐을 싣는다. 로컬 검증(`e37c7992`): 테스트 먼저(테스트 커밋 여덟이 부모 코드에서 의도한 행만 FAIL),
+      바꾸고 위 나빠짐을 싣는다. 로컬 검증(`e37c7992`, 열차 끝 리뷰 반영 테스트 한 행 `fe77b416` 뒤 단위·가드 다시 PASS): 테스트 먼저(테스트 커밋 여덟이 부모 코드에서 의도한 행만 FAIL),
       `npm run typecheck`·`typecheck:tests`·`check:workers`·lint·format, 단위 666 files / 15,524, Worker 60 files /
       2,914, 핵심 커버리지 79 files / 3,072, 가드(dead-exports 20/20·76/76 그대로, bus-pairing 204/204, import-graph,
       room-authority-boundaries 직접 읽기 84 → 83·쓰기 16 → 13으로 내림, resource-ownership 47 records / 437 files
       그대로), `build:checked`(bump 전이라 `guard:sw-cache-version`만 설계대로 FAIL, 나머지 PASS), critical E2E 61/61,
       C5-0 랩 `--repeat-each=2` 16/16, 초기 JS 464,581 B(main 478,186 B 대비 −13,605 B, 유지 상한까지 26,987 B).
       남은 것: bump 단계에서 코드 주석과 registry RO-06의 '9.0.12 and older'가 이 열차 바로 앞 빌드와 맞는지 확인,
-      5A와 합칠 때 `browser/classic-runtime/admin.ts` 한 곳의 충돌과 가드 다시 돌리기, PR CI·Codex·exact-main CI.
+      main(5A `78e9ee98` 포함)과 합칠 때 `browser/classic-runtime/admin.ts`, `docs/README.md`, `docs/release-record.md`
+      세 곳의 충돌(문서 둘은 두 열차의 항목을 모두 남김), 텍스트 충돌 없이 FAIL하는 room-authority 직접 읽기 기준치를
+      83에서 82로 내리기(두 갈래가 서로 다른 읽기를 하나씩 지움), 가드·단위·빌드 다시 돌리기, PR CI·Codex·exact-main CI.
       건너뛴 항목(강제 업데이트·5A 파일, 바닥이 필요한 OV-F, Worker OV-W)과 맡을 열차, 리뷰 낮음 후속은 보고서에 있다.
       로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
       [구버전 제거 열차 1 보고서](design/old-version-removal-1-2026-10-25.md).

@@ -101,7 +101,10 @@ carries `hostPlayAt` because demo guests before the old-version removal train
 (9.0.12 and older) require it and use it to gate their host clock; hosts can
 stop sending it once the client floor is at or above the release that carries
 this change (survey OV-F05). A guest drops a DEMO_PLAY without `hostStartAt`
-from a demo host before 8.6.54. YouTube messages are unchanged. Older guests do
+from a demo host before 8.6.54. YouTube start timing is unchanged; the same
+train's YouTube validator changes (a required `hostClock`, no array
+`playlistId`, zero-start capability v2 only) are in its
+[report](old-version-removal-1-2026-10-25.md), R3. Older guests do
 not understand the pending-start PONG extension and retain their former
 bootstrap behavior.
 

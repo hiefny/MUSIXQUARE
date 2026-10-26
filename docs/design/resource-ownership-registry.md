@@ -858,6 +858,25 @@ RO-49 accepted-exception
     the service unit suite clears the bus after each test, so its listeners hear only its first
     test) and the service unit row "retires a failed playing SFU subscription inside the
     placeholder until the retry track attaches" (a retry's cleanup).
+  - The removal of the host side of the Standard SFU capability negotiation and of the READY
+    `'all'` fence (5B-OV2, old-version; survey OV-B05, OV-B06) changes only the sender of the
+    slot's Standard inputs. A host on this build treats every LAN guest as SFU-capable (a LAN
+    guest past the eight direct slots, a late LAN guest of an all-SFU share and a failed LAN
+    direct call go to the SFU with `'all'`; no peer is `'unsupported'`), ignores
+    `SYSTEM_AUDIO_SFU_CAPABILITY` (the validator still drops it with no handler; guests keep
+    sending it until a later floor, OV-F06) and sends a failed-direct remote peer READY
+    `{ audience: 'remote', handoffFromDirect: true }` where it sent `'all'`. The Standard suite's
+    "OV-B06 acceptance (route direct): ..." and its pair "OV-B06 acceptance (route unselected,
+    guest classified $type): ..." pass before and after: the unchanged 9.0.12/9.0.13 guest code
+    takes that READY from the `'direct'` route (end, reset, a start with the same surface) and,
+    after the host's STOP and START, from `'unselected'` (the marker passes the LAN check even
+    for a guest classified local), freezes `'sfu-remote'` with `guestRejectLateDirectRoute`,
+    subscribes and refuses a late direct call. The host-side rows that failed before it are in
+    `system-audio-delivery.test.ts`, `system-audio-host.test.ts` (a ninth LAN guest starts on
+    the SFU with no STOP; a failed LAN direct call gets STOP, START and the SFU handoff),
+    `system-audio-sfu.test.ts` (the READY audience, the late LAN retry from the peer event alone,
+    no capability handler) and `system-audio-start.test.ts` (the SFU module's late-LAN START
+    sender went with the capability handler; five START senders remain).
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the

@@ -409,6 +409,12 @@ The repository guards this contract through:
   call with no close or error for 60 s with no SFU handoff" (5B-G1): with the
   Standard suite's S9 row (the refused call stays open until STOP) it shows that
   a refused direct attach causes no host handoff;
+- the Standard suite's "OV-B06 acceptance" rows (5B-OV2, pass before and
+  after): the READY `{ audience: 'remote', handoffFromDirect: true }` that a
+  host sends a failed-direct remote peer since 5B-OV2 (`'all'` before) is taken
+  from the `'direct'` route and, after the host's STOP and START, from
+  `'unselected'`; the guest freezes `'sfu-remote'`, subscribes and refuses a
+  late direct call;
 - `src/network/__tests__/pro-system-audio-direct.test.ts` "reports only a
   publisher's 'stopped' close of the current receiver route …" (5B-G6): the
   transport's `onLiveRouteStopped` fires once for the current route, never for

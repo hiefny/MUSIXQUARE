@@ -94,7 +94,7 @@ const READ_ALLOWLIST = new Map<string, ReadAllowance>([
   ],
   [
     'src/network/system-audio-sfu.ts',
-    { appRole: 11, isOperator: 0, reason: 'compatibility-consumer' },
+    { appRole: 10, isOperator: 0, reason: 'compatibility-consumer' },
   ],
   ['src/player/playlist.ts', { appRole: 1, isOperator: 0, reason: 'standard-fenced' }],
   ['src/rooms/authority.ts', { appRole: 4, isOperator: 1, reason: 'canonical-authority-adapter' }],
@@ -331,7 +331,6 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
       "read:appRole @ callback-call:bus.on(\"system-audio:incoming-call\")#1 :: if (getState('network.appRole') !== 'guest')",
       "read:appRole @ callback-call:bus.on(\"system-audio:streams-ready\")#1 :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ function:beginBoundedHostRetry :: if (hostRetryCount >= HOST_SFU_MAX_RETRIES || !isSystemAudioActive() || getState('network.appRole') !== 'host' || !hasLocalSfuHostPeers())",
-      "read:appRole @ function:handleSfuCapability :: if (getState('network.appRole') !== 'host' || !conn?.peer)",
       "read:appRole @ function:isGuestSfuReceiver :: return getState('network.appRole') === 'guest'",
       "read:appRole @ function:publishToEligiblePeer :: if (getState('network.appRole') !== 'host')",
       "read:appRole @ function:runBoundedHostRetry :: if (!isSystemAudioActive() || getState('network.appRole') !== 'host')",

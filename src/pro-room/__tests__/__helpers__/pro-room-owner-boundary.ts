@@ -896,7 +896,8 @@ export async function activatedProRoom(
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      // Only a PRO Worker before 2026-10-26 reads the opt-in.
+      // The App still sends the opt-in with every PRO request; the PRO Worker
+      // no longer reads it, so this only keeps the traffic realistic.
       'x-mxqr-pro-entry-policy': 'optional-v1',
       [ACCOUNT_ASSERTION_HEADER]: await ownerAssertion(),
     },

@@ -492,7 +492,8 @@ export async function transferFixture() {
     'x-mxqr-pro-room-code': ROOM_CODE,
     'x-mxqr-pro-room-generation': String(ROOM_GENERATION),
     'x-mxqr-pro-ip-hash': 'saga-client-address',
-    // Only a PRO Worker before 2026-10-26 reads the opt-in.
+    // The App still sends the opt-in with every PRO request; the PRO Worker
+    // no longer reads it, so this only keeps the traffic realistic.
     'x-mxqr-pro-entry-policy': 'optional-v1',
   };
   const activation = await room().fetch(

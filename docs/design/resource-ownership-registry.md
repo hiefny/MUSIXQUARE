@@ -950,9 +950,12 @@ RO-51 duplicated
     and "request and cron on one row" (one success row for an overlap, a replayed request and a
     cron retry; two transfers of one incarnation keep one row each).
   - Mixed versions: `owner-transfer-saga-mixed-version-sqlite.test.ts` (an App Worker built from
-    an earlier commit and the current one on one row: the earlier cron against the current
-    request or cron. The earlier builds' requests carry the `newPin` that the PRO room refuses
-    since 2026-10-26, so they no longer reach a commit).
+    an earlier commit and the current one on one row. The Phase 0d and Phase 1 builds run only
+    their cron against the current request or cron: their requests carry the `newPin` that the
+    PRO room refuses since 2026-10-26, so they no longer reach a commit. The 9.0.14 build
+    `dd9c9d4d`, which shares rows with the current one while release W of old-version removal
+    train 2 deploys or recovers, runs request against cron in both directions, with one success
+    row for an overlap).
 - **Status:** `owner-in-place`. Phase 0d named the state lists once (C7-2). Phase 1 C7-8 named the
   entitlement identity and the deleted-target terminator once with no behaviour change
   ([report](app-worker-saga-fence-2026-10-23.md)), and C7-9 replaced the request's and the

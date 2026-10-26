@@ -4383,8 +4383,8 @@ async function activatedRoom(roomCode = ROOM_CODE, publicAdmission = false) {
     expiresAtMs: Date.now() + 60_000,
     nonce: 'fixed-activation-nonce',
   });
-  // Activation starts every room open (the App's body). The opt-in header
-  // only matters to a PRO Worker from before 2026-10-26.
+  // Activation starts every room open (the App's body). The App still sends
+  // the opt-in header; the PRO Worker no longer reads it.
   const activationRequest = optionalEntryPolicy(
     jsonRequestForRoom(roomCode, '/activation', 'POST', { claimToken, ownerName: 'Owner' }),
   );

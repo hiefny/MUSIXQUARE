@@ -95,7 +95,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [Old-version removal train 1: compatibility code below the existing client floors (2026-10-25)](design/old-version-removal-1-2026-10-25.md):
   evidence for the first train under the owner's policy of 2026-10-25 that older app versions are no
-  longer a design constraint (not yet released; the version is set at its bump). It ships only the
+  longer a design constraint (9.0.13 / v786, not yet released; target `app`; it ships right after
+  Phase 5 5A, which it merged after 5A's release). It ships only the
   items of the old-version compatibility survey that need no client floor and do not touch the
   parallel forced-update and Phase 5 5A trains' files. The existing floors (signaling 8.0.8, the
   Standard join bootstrap 8.3.16, the PRO heartbeat 9.0.0) already keep those clients' senders out.
@@ -106,7 +107,9 @@ runbooks. Neither belongs in a general setup document.
   removed lines and who loses what (survey OV ids), the one accepted wire exception (the per-effect
   follower frames of 9.0.10 and 9.0.11 hosts), the accepted older-tab degradations, the skipped items
   and the train that takes each, review lows left as follow-ups, survey corrections, lane checks
-  (C5-0 lab included), the eager JS delta (-13,605 B) and what was not verified.
+  (C5-0 lab included, with one timing failure read from the lab evidence and a clean rerun), the
+  merge with the released 5A, the final bump round, the eager JS delta (-13,610 B against the
+  9.0.12 main, nine eager chunks folded into the entry) and what was not verified.
 
 - [Phase 5 train 5A: one system-audio receive slot, behaviour-neutral (2026-10-25)](design/phase5-5a-receive-slot-2026-10-25.md):
   release evidence for the structure program's first Phase 5 app train (9.0.12 / v785,

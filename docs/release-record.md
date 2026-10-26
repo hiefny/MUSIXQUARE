@@ -45,7 +45,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### 구버전 호환 코드 제거 열차 1(배포 전, 버전 미정): 이미 있는 바닥 아래만 섬기던 호환 코드
+### 구버전 호환 코드 제거 열차 1(9.0.13/v786, 배포 전): 이미 있는 바닥 아래만 섬기던 호환 코드
 
 - [ ] 범위와 상태(오너 정책 2026-10-25 약 16:40 KST, 병렬 결정 약 22:30 KST, 통합 순서 변경 2026-10-26 약 05:10
       KST): 옛 앱 버전은 더 이상 설계 제약이 아니다. 이 열차는 옛 버전 호환 조사(2026-10-25)의 항목 가운데
@@ -54,8 +54,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
       다시 보고 남김). 이미 있는 바닥 셋(신호 8.0.8,
       일반방 입장 bootstrap 8.3.16, PRO 하트비트 9.0.0)이 대상 송신자를 막고 있어 강제 업데이트 없이 지운다. 브랜치
       `agent/old-version-removal-1`(origin/main `244aca48`에서 시작, `2d605739`를 `9a05077b`로, 5A와 그 기록 `dea1432a`를 `0ea38375`로 합침), 증분 여덟(R1~R8)마다
-      테스트 먼저와 코드 커밋, 마지막 런타임 커밋 `e37c7992`. 아직 bump·PR·배포 전이고 버전은 bump 단계에서 정한다
-      (통합 순서 변경으로 5A와 이 열차는 준비되는 대로 나가며, 5A가 `9.0.12` / `v785`로 2026-10-26 10:34 KST 먼저 배포됐고 이 열차가 다음이다). 바뀌는 것:
+      테스트 먼저와 코드 커밋, 이 열차 자신의 마지막 런타임 커밋 `e37c7992`. 마지막 런타임 커밋 bump `3acfefc8`에서
+      `9.0.13` / `v786`로 올렸고 아직 PR·배포 전이다(통합 순서 변경으로 5A와 이 열차는 준비되는 대로 나가며, 5A가 `9.0.12` / `v785`로 2026-10-26 10:34 KST 먼저 배포됐고 이 열차가 다음이다). 바뀌는 것:
       일반방 P2P 메시지 종류 121 → 103(코디네이터 시대 PRO 메시지 넷, 원자적 설정 동기화 전의 효과별 메시지 14),
       지금 모든 송신자가 넣는 필드(PAUSE `reason`, FILE_PREPARE `size`, DEVICE_LIST 행, OPERATOR_GRANT 목록,
       REMOTE_FILE_* `delivery: 'r2'`, 유튜브 `hostClock`, zero-start v2)를 필수로, PRO 방이 브라우저 데이터 연결을 거절
@@ -80,8 +80,15 @@ gh run list --workflow e2e.yml --branch main --limit 3
       항목을 모두 남김)을 풀고, 텍스트 충돌 없이 FAIL하는 room-authority 직접 읽기 기준치를 83에서 82로 내렸다(두
       갈래가 서로 다른 읽기를 하나씩 지움). 합친 트리에서 typecheck(테스트 포함)·`check:workers`·lint·format, 단위
       672 files / 15,637, 가드(직접 읽기 82, dead-exports 20/20·76/76, bus-pairing 202/202, resource-ownership 46
-      records / 439 files) PASS. 남은 것: bump 단계에서 코드 주석과 registry RO-06의 '9.0.12 and older'가 이 열차
-      바로 앞 빌드와 맞는지 확인, bump 뒤 최종 로컬 검사, PR CI·Codex·exact-main CI.
+      records / 439 files) PASS. bump 뒤 최종 로컬(`3acfefc8`): release-identity(9.0.13, v786)·sw-cache-version, 단위
+      672 files / 15,637, Worker 60 files / 2,914, 핵심 커버리지 87 files / 3,276, typecheck(테스트 포함)·`check:workers`·
+      lint·format·`build:checked` 전체, 가드(직접 읽기 82, dead-exports 20/20·76/76, bus-pairing 202/202,
+      resource-ownership 46 records / 439 files), critical E2E 61/61, C5-0 랩 `--repeat-each=2` 첫 실행 15/16(보조 PC
+      회복 뒤 보조 채널 데이터가 약 3초 늦어 랩 행의 일시정지 3초 창을 넘김, 앱 오류 없음, main 9.0.12에서도 같은 지연,
+      보고서 라운드 7) 뒤 다시 돌려 16/16, 초기 JS 464,588 B(운영 9.0.12 main `dea1432a` 478,198 B 대비 −13,610 B, 유지
+      상한까지 26,980 B). 코드 주석과 registry RO-06의 '9.0.12 and older'는 이 열차가 5A 바로 다음 9.0.13이라 맞다.
+      배포 범위는 target `app`, Developer API D1 `false`(운영 `78e9ee98` 대비 다른 Worker의 런타임 경로 변경 0).
+      남은 것: PR CI·Codex·exact-main CI, 릴리스 smoke.
       건너뛴 항목(강제 업데이트·5A 파일, 바닥이 필요한 OV-F, Worker OV-W)과 맡을 열차, 리뷰 낮음 후속은 보고서에 있다.
       로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
       [구버전 제거 열차 1 보고서](design/old-version-removal-1-2026-10-25.md).

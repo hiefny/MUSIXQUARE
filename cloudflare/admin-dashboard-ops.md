@@ -16,7 +16,7 @@ App 8.10.0 added `guest_auth_rate_limited`, which the Operations view shows as
 "Password lockouts" in its Signals panel. App 9.0.5 adds the three
 `guest_host_unavailable_*` state details and `standard_room_expired`; the
 Operations view does not show these four, and its Signals panel keeps the "Host
-missing" total. App 9.0.12 adds `app_update_required`, which the Operations
+missing" total. App 9.0.13 adds `app_update_required`, which the Operations
 view does not show either. Read them from the `summary` object of the
 `/api/admin/metrics` JSON (`last24`, `previous24`, `last7`, `hourly`, `daily`,
 `daily30`) or from `mxqr_metric_buckets` rows in D1.
@@ -219,7 +219,7 @@ available for audit.
 
 ## App Build Floor
 
-App 9.0.12 adds an App build floor (forced update; resource record RO-50 in
+App 9.0.13 adds an App build floor (forced update; resource record RO-50 in
 `docs/design/resource-ownership-registry.md`). The global service-control
 object holds the stored floor with its revision and history, plus a live-App
 report that the App Worker's minute cron writes from its own

@@ -45,6 +45,47 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
+### 강제 업데이트 열차(9.0.13/v786 예정, 배포 전): 최소 앱 빌드와 C5-12 Inc 1
+
+- [ ] 범위(오너 정책 2026-10-25 약 16:40 KST, 결정 약 18:30 KST의 Q1~Q4, 약 22:00 KST 시작·복귀 확인 추가, 설계
+      Q-A는 A): 클라이언트가 빌드 번호(SW 캐시 epoch 정수)를 Standard `host-auth`·`guest-auth`(재접속 포함)의 선택 키
+      `appBuild`와 모든 PRO 요청의 헤더 `X-MXQR-App-Build`에 싣고, Signaling Worker(첫 인증 프레임, 입장 전)와 PRO
+      앞문(bootstrap, sessions, presence/enter)이 유효 최소 빌드보다 낮은 새 입장을 거절한다(signaling은 그 소켓에만
+      `app-update-required` 오류 프레임과 close 1008, PRO는 426). 유효 최소 빌드는 service-control 객체의 저장값과 App
+      Worker가 매분 보고하는 live App 빌드 중 낮은 값이고 보고가 5분 넘으면 0이다(registry RO-50). 맺어진 세션은
+      닫지 않는다. 거절되거나 시작·전경 복귀 때 읽은 최소 빌드(`GET /api/app-build-floor/effective`, 엣지 캐시 30초)보다
+      낮은 9.0.13+ 페이지는 같은 업데이트 대화상자를 '나중에' 없이 연다(RO-22. Back으로 닫히지 않음, 방·데모는
+      `/CODE`로, worker가 없으면 `registration.update()` 뒤 재로드, sessionStorage `mxqr-forced-apply`로 재로드 루프
+      막음). 복귀 때 창은 강제 창 > 오디오 복구 창 > 오래 백그라운드 경고 하나다(새 기록 RO-51). 설정은 GitHub
+      Actions OIDC(`app-build-floor.yml`, Production Release 입력 `raise_app_build_floor`)로만 하고 관리자 대시보드는
+      내리기만 한다. 새 비밀·바인딩·D1 스키마는 없다. C5-12 Inc 1: 미리받기를 기다리는 이 열차 게스트는 방장이 직접
+      허락한 자기 세션의 본 레인 머리를 어느 경로에서든 받는다(RO-18 경로 2와 '요청 전' 틈이 새 게스트에게서 닫힘,
+      옛 게스트와 방장은 그대로). 브랜치 `agent/forced-update`(`244aca48` 위): Inc 1 `beb3369c`, Inc 2 `93aa4f5f`,
+      Inc 3 `20b446c3`, Inc 4 `45754035`, Inc 5 `2229356e`(리뷰 `fa55e2a0`·`2c0a55ed`), Inc 6 `ebf4c0ff`, Inc 7
+      `c8b2cf38`, C5-12 Inc 1 `7ee16397` → `21e20806`, 5A 합침 `ac114b37`(글자 충돌 없음). 합친 뒤 로컬 검증: 단위
+      680 files / 16,097, Worker 67 files / 3,149, typecheck·`check:workers`·lint·format, 가드 전부(resource-ownership
+      48 records / 442 files, navigation-sinks의 `SKIP_WAITING` 보내기 2·sink 호출 4), 빌드와 빌드 뒤 가드, 초기 JS
+      480,468 B(바탕 `244aca48` 478,186 B 대비 +2,282 B, 유지 상한까지 11,100 B), 후보 Playwright 19/19, C5-0 랩
+      `forced-update.lab.ts` 2/2, PRO 426 Playwright 2/2 PASS. 5A가 9.0.12 / v785를 먼저 썼으므로 이 열차는 bump
+      단계에서 9.0.13 / v786(예정)으로 SemVer와 SW 캐시 epoch를 함께 올린다. 합친 뒤 `guard:sw-cache-version`의
+      PASS는 v785를 합침 커밋에서 세기 때문이라 bump를 대신하지 않는다. 남은 것: bump, 리뷰, PR CI, Codex,
+      exact-main CI, 릴리스 smoke, 배포(target `all`: 여섯 Worker의 런타임 경로가 바뀌어 부분 릴리스는 거절되고, `all`은
+      `appBuild`를 받는 Signaling을 App보다 먼저 배포), 아래 첫 최소 빌드. 로컬 결과는 exact-main-SHA 후보를 대신하지
+      않는다. [보고서](design/forced-update-9-0-12-2026-10-25.md).
+- [ ] 첫 최소 빌드(오너 결정 Q2, 게이트 아님): 이 열차는 최소 빌드 0, `raise_app_build_floor` false로 배포한다. 배포의
+      smoke와 공개 자산을 확인한 직후 `app-build-floor.yml`을 `status`(live App이 이 빌드이고 보고가 새것), `check`(OIDC
+      끝까지, 변경 없음), `set`(이 열차 빌드, 예정 786) 순으로 dispatch하고 각 실행의 결론을 읽는다. 자격 증명은 필요
+      없다. 그 요약 줄을 §1의 '최소 앱 빌드' 행에 적고, 같은 기록 PR에서 known-accepted #13을 은퇴 표로 옮기고, §4에 이
+      열차의 복구 경계(App을 최소 빌드 아래로 되돌리기 전 `lower`, 9.0.13 이상 App이 live인 동안 Signaling을 9.0.13
+      아래로 되돌리지 않음)를 더한다. 그때부터 9.0.12 이하(5A 포함)는 새 입장과 재접속에서 거절되고 다시 열면 회복한다.
+      이 열차의 시작·복귀 확인이 운영에서 처음 창을 띄우는 것은 그 다음 올리기에서다. 뒤의 올리기는 필요한 릴리스가
+      따로 묻지 않고 입력으로 한다. [운영](hotfix-procedure.md#app-build-floor).
+- [ ] 배포 뒤 실기기 확인(게이트 아님): 옛 탭의 거절과 회복, 9.0.13 기기의 평소 입장, 맺어진 세션 유지(첫 최소 빌드
+      직후), 그리고 다음 올리기 때 홈 화면 앱·Android·Windows의 복귀 강제 창(나중에 없음, Back으로 닫히지 않음, 방에서
+      `/CODE`, 방장은 제자리, 오프라인 복귀는 창 없음, 1분 안 여러 번 오가도 창 하나, 60초 넘은 방 복귀는 강제 창 하나).
+      실제 9.0.10~9.0.12 탭의 거절 화면, GitHub OIDC 끝까지, 운영 cron 보고, 엣지 캐시, 실제 PWA 복귀는 아직 확인하지
+      않았다. [오너 기기 확인](design/forced-update-9-0-12-2026-10-25.md#오너-기기-확인-게이트-아님).
+
 ### 구조 개선 Phase 5 5A(9.0.12/v785, 배포 전): 시스템 오디오 수신 슬롯을 주인 하나로, 동작 그대로
 
 - [ ] 5A 범위(오너 결정 2026-10-25 약 04:00 KST, Phase 5 추천안 전부. 배포 시점은 약 01:50 KST 결정, 순서는
@@ -1684,7 +1725,11 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 로컬 emergency deploy와 CLI rollback도 해당한다.
 
 1. §1 전체(표의 모든 행)와 머리말 표의 `Last source review`를 새 값으로
-   덮어쓴다. 이전 값은 남기지 않는다.
+   덮어쓴다. 이전 값은 남기지 않는다. 강제 업데이트 열차(9.0.13 예정) 배포부터
+   §1 표에 '최소 앱 빌드' 행을 두고 floor 스크립트의 요약 줄(저장·유효 값,
+   revision, live·보고 App 빌드, 페이지 읽기)을 적는다. 배포 사이에 workflow로
+   바꾼 최소 빌드는 그 행만 고치는 작은 기록 PR로 적고 이력 행은 더하지 않는다
+   ([운영](hotfix-procedure.md#app-build-floor)).
 2. [release-history.md](release-history.md) 표 맨 아래에 한 줄을 추가한다.
 3. 릴리스 상세 근거는 `docs/design/<주제>-<날짜>.md`에 쓰고 §1과 이력 행에서
    링크한다.

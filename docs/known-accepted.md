@@ -273,6 +273,18 @@ wrong PINs per tracked network, never produces a lockout.
 
 ### 13. Maintenance Cutover Without Client-Version Admission
 
+**Superseded (owner decisions of 2026-10-25, 16:40 and 18:30 KST).** Older App versions are no
+longer a design constraint, and version-based admission now exists: the App build floor. From App
+9.0.13 the App reports its build (the service-worker cache epoch) when it enters a Standard room
+and on PRO requests, and the Signaling and PRO Workers refuse new entries and reconnects below a
+runtime minimum, while open sessions continue; refused 9.0.13+ pages, and 9.0.13+ pages that read
+a higher floor at start or on return to the foreground, show the update dialog without Later
+([train report](design/forced-update-9-0-12-2026-10-25.md),
+[hotfix procedure](hotfix-procedure.md#app-build-floor)). The text below stays true in production
+until that release ships and its first floor (its own build) is on; the release record PR that
+records the first floor moves this item to Retired Risks. Releases before that, including the
+9.0.12 receive-slot train, still rely on this item.
+
 Accepted by the owner on 2026-10-12 for the App 8.10.2 synchronization release.
 Maintenance plus a reload/reopen notice is an operational cutover, not a proof
 that all running documents have refreshed. Old settings/sleeping tabs can
@@ -303,8 +315,9 @@ notice-then-press-again policy stays. See
 ### 15. Legacy-Client Transition Limits After The 8.9.0 And 8.10.0 Releases
 
 Accepted on 2026-10-14. These limits exist only while clients that predate the release are
-still running and disappear as they refresh. No version-based admission or forced reload is
-added (see #13).
+still running and disappear as they refresh. No forced reload is added; the version-based
+admission that #13 declined arrives with the App build floor (see #13), which refuses these old
+builds' new entries once a floor is on.
 
 - 8.9.0 kick reasons: an App older than 8.9.0 does not read the kick reason. It shows the
   generic "refreshing the session" notice, and in a public room one Start press rejoins.

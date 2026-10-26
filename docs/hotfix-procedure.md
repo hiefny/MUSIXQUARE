@@ -499,6 +499,13 @@ It copies the existing Developer API pepper to the App Worker through stdin and
 never prints or stores the value in a tracked file. Worker secrets persist across
 later deployments, so this is a one-time setup unless the pepper is rotated.
 
+The App build floor relies on this order. From App 9.0.13 the App sends `appBuild` in
+`host-auth`, which an older Signaling Worker's exact-key validator refuses, so the Signaling
+Worker that accepts it must be live first; `all` deploys it before the App, and a partial
+release that leaves an older Signaling Worker behind fails its compatibility gate. A release
+raise of the floor runs only after the App smokes and the commit marker
+([App Build Floor](#app-build-floor)).
+
 That Worker-first order applies only to backward-compatible protocol changes.
 For an intentional hard cut such as the `queueItemId` remote-share migration,
 follow the coordinated deployment contract in
@@ -613,18 +620,24 @@ Do not add a forced reload mechanism casually. There is no current production br
 
 ## App Build Floor
 
-The App build floor (forced update, train 9.0.12; record RO-50 in the
-[resource ownership registry](design/resource-ownership-registry.md)) refuses new room entries
+The App build floor (forced update, App 9.0.13; record RO-50 in the
+[resource ownership registry](design/resource-ownership-registry.md), evidence in the
+[train report](design/forced-update-9-0-12-2026-10-25.md)) refuses new room entries
 from App builds below a minimum: the Signaling Worker refuses a `host-auth` or `guest-auth` whose
 `appBuild` is lower (a missing one counts as 0), and the PRO front door refuses bootstrap,
 sessions and presence entry. Open sessions are never closed. The build number is the
-service-worker cache epoch (`v785` is build 785). The control object enforces the lower of the
-stored floor and the live App build that the App Worker reports every minute, and nothing once
-that report is five minutes old, so the enforced floor never stays above the App that is live.
+service-worker cache epoch (`v786` is build 786; see
+[release versioning](release-versioning.md#app-build-number-and-floor)). The control object
+enforces the lower of the stored floor and the live App build that the App Worker reports every
+minute, and nothing once that report is five minutes old, so the enforced floor never stays above
+the App that is live. Refused 9.0.13+ pages, and 9.0.13+ pages that read a higher floor at start
+or on return to the foreground, show the update dialog without Later; older builds show their
+generic error and recover when reopened.
 
 Change it only through GitHub Actions. No secret or owner credential is involved: the App
 Worker's ops route accepts only a GitHub OIDC token of this workflow or the Production Release
-on `main`.
+on `main`. Whoever may dispatch workflows on this repository (in the GitHub UI or with `gh`) can
+read, set and lower it; nobody enters a password or token.
 
 ```bash
 gh workflow run app-build-floor.yml --ref main -f action=status
@@ -645,21 +658,39 @@ gh workflow run app-build-floor.yml --ref main -f action=lower -f min_app_build=
 - A release that needs a floor sets the Production Release input `raise_app_build_floor` (target
   `app` or `all`). The raise runs only after the commit marker, and only to this release's build
   when that build is the live App. If it fails, the release stays committed and is not rolled
-  back; rerun `set` with the standalone workflow. The first floor is set with the standalone
-  workflow once the release that introduces the mechanism is verified.
+  back; rerun `set` with the standalone workflow. Later raises need no separate owner approval
+  (owner decision 2026-10-25): the release that needs one sets the input.
+- First floor (owner decision 2026-10-25): the App 9.0.13 release ships with the floor at 0 and
+  `raise_app_build_floor` false. Once its smokes and public assets are verified, run `status`
+  (the live App build is the released one and the App report is fresh), then `check` (the OIDC
+  path end to end, no change), then `set` with the released build and a reason. Read each run's
+  conclusion before the next dispatch.
+- Recording: the summary line of a `set`, `lower` or release raise goes into the "최소 앱 빌드"
+  (minimum App build) row of section 1 of the release record. A release copies it while
+  overwriting section 1; a standalone change between releases updates only that row in a small
+  record pull request and adds no release-history row (it is not a deployment).
+- Automated failed-release recovery needs no floor step. Raises happen only after a commit marker
+  or through the standalone workflow, both in the release concurrency group, and the dashboard
+  only lowers, so the stored floor is never above the App build of a recovery checkpoint. Any
+  other gap is clamped by the App report.
 - Before a CLI rollback of the App to a build under the stored floor, run `lower` to that build
-  first (0 for a build older than 9.0.12, which has no floor routes). Otherwise new entries of
-  that build are refused until the next App report: up to one minute, or up to five minutes for
-  a build older than 9.0.12. A Cloudflare dashboard rollback cannot be guarded; the report clamps
-  the enforced floor the same way, and `lower` or a roll forward lifts the stored value while an
-  App of 9.0.12 or later is live.
+  first (0 for a build older than 9.0.13, which has no floor routes and never reports). Otherwise
+  new entries of that build are refused until the next App report: up to one minute, or up to
+  five minutes for a build older than 9.0.13. A Cloudflare dashboard rollback cannot be guarded;
+  the report clamps the enforced floor the same way, and `lower` or a roll forward lifts the
+  stored value while an App of 9.0.13 or later is live.
 - A local emergency `app` or `all-workers` deployment reads the public status first and stops
   when the local build is below the stored floor, naming the `lower` command. When the status
   cannot be read it warns and continues.
-- Never roll the Signaling Worker back below 9.0.12 while an App of 9.0.12 or later is live: an
+- Never roll the Signaling Worker back below 9.0.13 while an App of 9.0.13 or later is live: an
   older Signaling Worker refuses every `host-auth` that carries `appBuild`. Roll the App back
-  first, as automated recovery already does. A PRO Worker older than 9.0.12 ignores the
+  first, as automated recovery already does. A PRO Worker older than 9.0.13 ignores the
   `X-MXQR-App-Build` header, so rolling it back only stops the PRO refusals.
+- A raise does not close open sessions, but every Signaling Worker deployment restarts its Durable
+  Objects and reconnects every Standard socket, so the next release that deploys signaling after
+  a raise turns below-floor rooms into refused reconnects at once (P2P keeps playing, the host can
+  no longer admit anyone). The release that raises is not affected, because signaling deploys
+  before the raise.
 - The daily Operations Drift Audit fails when the stored floor is above the live App build that
   the App reports, or when a floor is on without a fresh App report.
 
@@ -671,7 +702,9 @@ If a deployment is bad:
    Do not use an old version when a D1, Durable Object, service-control, or R2
    forward floor is active. Cloudflare Worker rollback has no atomic ownership
    precondition, so coordinate a manual change and recheck that no newer deploy
-   appeared before applying it.
+   appeared before applying it. The App build floor is not such a forward floor:
+   an App below it may be restored after its `lower` (see
+   [App Build Floor](#app-build-floor)).
 2. In git, prepare a revert without committing it immediately:
 
    ```bash
@@ -748,5 +781,6 @@ Treat these separately from app hotfixes unless the app has a confirmed code-lev
   an open item under 실기기 확인 in [release-record.md](release-record.md) §2.
 - Overwrite [release-record.md](release-record.md) §1 and its review line, and
   append one row to [release-history.md](release-history.md). This also applies
-  to a local emergency deployment or a CLI rollback.
+  to a local emergency deployment or a CLI rollback. Include the App build floor
+  summary line (a release raise, or `status` after a rollback) in §1.
 - If the fix changes a cross-domain contract, update the relevant file under `docs/`.

@@ -93,6 +93,24 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Forced update train: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-12-2026-10-25.md):
+  evidence for the train that adds the forced update (planned 9.0.13 / v786, not yet released or
+  versioned; target `all`; the 9.0.12 receive-slot train took the number first). The App reports its
+  build (the service-worker cache epoch) in Standard `host-auth` and `guest-auth`, reconnects
+  included, and in a header on every PRO request; the Signaling and PRO Workers refuse new entries
+  below the effective App build floor (the stored floor in the service-control object, bounded by
+  the live App build that the App Worker reports every minute; 0 = off), and open sessions
+  continue. A refused page, or one that reads a higher floor at start or on return to the
+  foreground, shows the same update dialog without Later (RO-22), and the return-time dialogs
+  yield to it (new record RO-51). The floor is set only through GitHub Actions OIDC (no secret;
+  the admin dashboard can only lower it). C5-12 Inc 1 lets a guest awaiting a preload take the
+  main header of its admitted direct session on any route. The report lists the owner's policy
+  and four decisions with the ~22:00 start/resume addition, each increment with its commits and
+  tests-first evidence, every caller of the gated entry points, what 9.0.12 and older clients
+  show, the operations for raising, lowering and rolling back (the first floor is this train's
+  own build), the eager JS delta (+2,282 B), the local verification after merging 5A, and the
+  owner's device steps. Known-accepted #13 is superseded by it.
+
 - [Phase 5 train 5A: one system-audio receive slot, behaviour-neutral (2026-10-25)](design/phase5-5a-receive-slot-2026-10-25.md):
   evidence for the structure program's first Phase 5 app train (9.0.12 / v785, not yet released;
   target `app`; since the 2026-10-26 integration it ships before the forced-update train). One

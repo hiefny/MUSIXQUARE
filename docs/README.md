@@ -92,6 +92,21 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Old-version removal train 1: compatibility code below the existing client floors (2026-10-25)](design/old-version-removal-1-2026-10-25.md):
+  evidence for the first train under the owner's policy of 2026-10-25 that older app versions are no
+  longer a design constraint (not yet released; the version is set at its bump). It ships only the
+  items of the old-version compatibility survey that need no client floor and do not touch the
+  parallel forced-update and Phase 5 5A trains' files. The existing floors (signaling 8.0.8, the
+  Standard join bootstrap 8.3.16, the PRO heartbeat 9.0.0) already keep those clients' senders out.
+  Standard P2P message types drop from 121 to 103, fields every current sender includes become
+  required, a PRO room refuses browser data connections, local file guests are routed by room size
+  alone, and side-route restarts no longer wait for the peer's advertisement. The report lists the
+  owner policy and decisions, each increment (R1 to R8) with its commits, tests-first evidence,
+  removed lines and who loses what (survey OV ids), the one accepted wire exception (the per-effect
+  follower frames of 9.0.10 and 9.0.11 hosts), the accepted older-tab degradations, the skipped items
+  and the train that takes each, review lows left as follow-ups, survey corrections, lane checks
+  (C5-0 lab included), the eager JS delta (-13,605 B) and what was not verified.
+
 - [Phase 4 train 4D: the side route's outage deadline joins the link-liveness owner (2026-10-25)](design/phase4-4d-side-route-owner-2026-10-25.md):
   release evidence for the structure program's fourth Phase 4 app train (9.0.11 / v784,
   released 2026-10-25 21:30 KST in Release 40193266364, target `app`). After known-accepted #18 retired on the owner's Wi-Fi to LTE device check on 9.0.10,

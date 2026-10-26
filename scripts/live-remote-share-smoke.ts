@@ -495,7 +495,8 @@ async function openRoomUploadAssertionAuthorityAttempt(
     if (peerOpen.type === 'error') {
       socket.close(1000, 'remote-share smoke host admission failed');
       const admission = classifyHostAdmission(peerOpen);
-      // An invalid first frame means this smoke's host-auth is wrong: it is
+      // An invalid first frame means this smoke's host-auth is wrong (or the
+      // Signaling Worker is older than 9.0.14, outside the procedure): it is
       // never a stale edge to wait out.
       if (admission.outcome === 'invalid-frame') {
         throw invalidHostAuthFrameError('remote-share signaling host');

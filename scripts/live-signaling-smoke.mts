@@ -308,8 +308,9 @@ export function assertPeerOpenVersion(
  * The admission frame of a host that sent the release build `sentAppBuild`.
  * Admission keeps the exact-version check, whose stale edge the first host
  * retries. Every refusal fails at once with its reason: an invalid first frame
- * means the smoke's host-auth is wrong, and a floor refusal means the floor is
- * above the release build. Neither is a stale edge.
+ * means the smoke's host-auth is wrong (or the Signaling Worker is older than
+ * 9.0.14, outside the procedure), and a floor refusal means the floor is above
+ * the release build. Neither is a stale edge.
  */
 export function requireAdmittedSignalingHost(
   frame: JsonObject,

@@ -549,7 +549,8 @@ async function verifyProGate(deps: AppBuildFloorDependencies, floor: number): Pr
  * holds the floor from before the change), another refusal, or a probe that
  * could not connect is repeated within the same small attempt budget; an
  * invalid first frame (the probe's host-auth no longer matches the shape the
- * Worker requires) and a wrong close fail at once.
+ * Worker requires, or a Signaling Worker older than 9.0.14 refuses appBuild)
+ * and a wrong close fail at once.
  */
 async function verifySignalingGate(deps: AppBuildFloorDependencies, floor: number): Promise<void> {
   if (floor <= 0) return;
@@ -566,7 +567,7 @@ async function verifySignalingGate(deps: AppBuildFloorDependencies, floor: numbe
     }
     if (probe.outcome === 'invalid-frame') {
       throw new Error(
-        'The Signaling Worker refused the probe host-auth as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID); the probe must send the host-auth shape the Worker requires.',
+        'The Signaling Worker refused the probe host-auth as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID): either the probe does not send the host-auth shape the Worker requires, or the Signaling Worker is older than 9.0.14 and refuses appBuild (a rollback outside the procedure).',
       );
     }
     if (probe.outcome === 'below-floor' && probe.minAppBuild === floor) {

@@ -6464,10 +6464,10 @@ export class MusixquareRoom {
         peerId,
         secret,
         auth: 'ok',
-        // The host-auth payload is a pre-admission snapshot. Keep every host,
-        // including a modern client, fenced until it confirms its latest local
-        // PIN after peer-open. This closes the cross-socket race where the user
-        // changes the PIN while the durable host-auth commit is still in flight.
+        // The host-auth payload is a pre-admission snapshot. Keep the host
+        // fenced until it confirms its latest local PIN after peer-open. This
+        // closes the cross-socket race where the user changes the PIN while
+        // the durable host-auth commit is still in flight.
         pinConfigurationPending: true,
         ...standardRoomIdentityAttachmentFields(identity),
       };

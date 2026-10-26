@@ -479,9 +479,9 @@ export class StandardHttpBridgeSmokeClient {
 
 /**
  * The host's admission frame. Every refusal fails at once: an invalid first
- * frame (the smoke's host-auth is wrong) and a floor refusal of the release
- * build name their machine code; any other refusal stays unnamed, like every
- * line this smoke prints.
+ * frame (the smoke's host-auth is wrong, or the Signaling Worker is older than
+ * 9.0.14) and a floor refusal of the release build name their machine code;
+ * any other refusal stays unnamed, like every line this smoke prints.
  */
 function requireAdmittedHttpHost(frame: JsonObject, hostBuild: number): JsonObject {
   const admission = classifyHostAdmission(frame);

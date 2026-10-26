@@ -11,10 +11,12 @@
  * Every host-auth also carries the desired PIN ('' for none) and its mutation
  * ID, which the Signaling Worker requires (old-version removal W-3; every App
  * since 8.4.17 sends both). A host-auth the Worker cannot parse is refused
- * with `HOST_AUTH_FIRST_FRAME_INVALID`: the smoke's own frame is wrong, so it
- * fails at once with that reason and is never waited out as a stale edge.
- * Rolling the Signaling Worker back below 9.0.14 while such an App is live is
- * outside the procedure, so no smoke falls back to a frame without the build.
+ * with `HOST_AUTH_FIRST_FRAME_INVALID`: the smoke's own frame is wrong, or the
+ * Signaling Worker is older than 9.0.14 and refuses `appBuild` with the same
+ * reason. Either way the smoke fails at once with that reason and never waits
+ * it out as a stale edge. Rolling the Signaling Worker back below 9.0.14 while
+ * such an App is live is outside the procedure, so no smoke falls back to a
+ * frame without the build.
  */
 
 import {

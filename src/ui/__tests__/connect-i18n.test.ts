@@ -26,6 +26,7 @@ import { retryPeerSignalingConnection } from '../../network/peer.ts';
 import { changeStandardRoomPin } from '../../network/standard-room-pin.ts';
 import { restartProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
+import { ProRoomApiError } from '../../pro-room/api.ts';
 import type { ProRoomAdministrator } from '../../pro-room/contracts.ts';
 import { log } from '../../core/log.ts';
 import { returnToRoomStart } from '../../core/navigation.ts';
@@ -3522,6 +3523,50 @@ describe('PRO optional entry password controls', () => {
     await vi.waitFor(() => expect(mockedShowDialog).toHaveBeenCalledTimes(2));
     expect(mockedChangeActiveProRoomPin).toHaveBeenCalledOnce();
     expect(renderedDialogText(lastDialogOptions().message)).toBe(t('pro.pin_keep_unavailable'));
+  });
+
+  it('shows the generic failure for a refused keep and leaves the room protection unchanged', async () => {
+    openOwnerSettings(false);
+    mockedShowDialog.mockResolvedValueOnce({
+      action: 'ok',
+      inputValue: '11223344',
+      choiceValue: 'keep_present',
+    });
+    mockedChangeActiveProRoomPin.mockRejectedValueOnce(new ProRoomApiError('INVALID_REQUEST', 400));
+    document.getElementById('room-password-toggle')?.click();
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('error.network_generic')));
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledOnce();
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
+      '11223344',
+      expect.any(AbortSignal),
+      'keep_present',
+    );
+    expect(mockedShowDialog).toHaveBeenCalledOnce();
+    await vi.waitFor(() =>
+      expect((document.getElementById('room-password-toggle') as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    expect(getState('network.roomPasswordRequired')).toBe(false);
+    expect(document.getElementById('room-password-toggle')?.getAttribute('aria-pressed')).toBe(
+      'false',
+    );
+  });
+
+  it('never resends a refused keep as the plain change when the owner is alone', async () => {
+    openOwnerSettings(false, false);
+    mockedShowDialog.mockResolvedValueOnce({ action: 'ok', inputValue: '11223344' });
+    mockedChangeActiveProRoomPin.mockRejectedValueOnce(new ProRoomApiError('INVALID_REQUEST', 400));
+    document.getElementById('room-password-toggle')?.click();
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith(t('error.network_generic')));
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledOnce();
+    expect(mockedChangeActiveProRoomPin).toHaveBeenCalledWith(
+      '11223344',
+      expect.any(AbortSignal),
+      'keep_present',
+    );
+    expect(mockedShowDialog).toHaveBeenCalledOnce();
+    expect(getState('network.roomPasswordRequired')).toBe(false);
   });
 
   it('disables protection through the server without revealing or replacing the saved PIN', async () => {

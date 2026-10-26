@@ -207,7 +207,7 @@ afterEach(() => {
 });
 
 describe('PRO room endpoint boundary', () => {
-  it('retries an optional duration attestation once against a rolled-back READY contract', async () => {
+  it('returns a READY validation rejection of the duration attestation without a second request', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);
@@ -217,6 +217,8 @@ describe('PRO room endpoint boundary', () => {
       .mockResolvedValueOnce(
         jsonResponse({ ok: true, transitionId, status: 'committed', playbackRevision: 2 }),
       );
+    // Every PRO Worker the recovery floor allows reads the attestation, so a
+    // 400 is a real rejection, never a reason to resend READY without it.
     await expect(
       client.reportPlaybackTransitionReady({
         code: ROOM_CODE,
@@ -225,15 +227,14 @@ describe('PRO room endpoint boundary', () => {
         status: 'ready',
         durationSeconds: 180,
       }),
-    ).resolves.toBe('committed');
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400 });
     expect(fetchMock.mock.calls.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([
       { basePlaybackRevision: 1, status: 'ready', durationSeconds: 180 },
-      { basePlaybackRevision: 1, status: 'ready' },
     ]);
   });
 
   it.each([400, 403, 409, 503])(
-    'does not retry a READY error outside the optional-field compatibility case (%s)',
+    'does not retry a READY error without a duration attestation either (%s)',
     async (status) => {
       const fetchMock = vi.fn<typeof fetch>();
       const client = new ProRoomApiClient({ fetch: fetchMock });
@@ -761,12 +762,12 @@ describe('PRO room cookie session API', () => {
         client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
       ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     }
-    // An older Worker refuses the unknown field; the caller sees that 400.
+    // A 400 reaches the caller unchanged.
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }));
     await expect(
       client.changePin(ROOM_CODE, '11223344', undefined, 'keep_present'),
     ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400, sessionEndReason: null });
-    // The legacy body still rejects an echo it did not ask for.
+    // The body without a choice still rejects an echo it did not ask for.
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ ok: true, passwordRequired: true, existingParticipants: 'keep_present' }),
     );
@@ -2460,7 +2461,7 @@ describe('PRO room private media API', () => {
     ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('attaches upload duration and retries an old Worker validation rejection once with the same key', async () => {
+  it('attaches upload duration and returns a validation rejection without a bodyless retry', async () => {
     const asset = {
       kind: 'pro-r2',
       assetId: ASSET_ID,
@@ -2474,6 +2475,8 @@ describe('PRO room private media API', () => {
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }))
       .mockResolvedValueOnce(jsonResponse({ asset, quota: quota() }));
+    // Every PRO Worker the recovery floor allows accepts the duration, so the
+    // completion is never resent without it.
     await expect(
       client.completeMedia({
         code: ROOM_CODE,
@@ -2481,15 +2484,14 @@ describe('PRO room private media API', () => {
         idempotencyKey: IDEMPOTENCY_KEY,
         durationSeconds: 123.45,
       }),
-    ).resolves.toEqual({ asset, quota: quota() });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    ).rejects.toMatchObject({ code: 'INVALID_REQUEST', status: 400 });
+    expect(fetchMock).toHaveBeenCalledOnce();
     expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
       durationSeconds: 123.45,
     });
-    expect(fetchMock.mock.calls[1]?.[1]?.body).toBeUndefined();
-    for (const call of fetchMock.mock.calls) {
-      expect(new Headers(call[1]?.headers).get('idempotency-key')).toBe(IDEMPOTENCY_KEY);
-    }
+    expect(new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('idempotency-key')).toBe(
+      IDEMPOTENCY_KEY,
+    );
   });
 
   it.each([
@@ -2511,24 +2513,6 @@ describe('PRO room private media API', () => {
       }),
     ).rejects.toMatchObject({ status, code: error });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not repeatedly retry a bodyless completion rejected by an old Worker', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
-    const client = new ProRoomApiClient({ fetch: fetchMock });
-    await establishPresence(client, fetchMock);
-    fetchMock.mockImplementation(async () =>
-      jsonResponse({ error: 'INVALID_REQUEST' }, { status: 400 }),
-    );
-    await expect(
-      client.completeMedia({
-        code: ROOM_CODE,
-        assetId: ASSET_ID,
-        idempotencyKey: IDEMPOTENCY_KEY,
-        durationSeconds: 10,
-      }),
-    ).rejects.toMatchObject({ code: 'INVALID_REQUEST' });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it.each([0, -1, NaN, Infinity, 604801])(
@@ -2603,7 +2587,7 @@ describe('PRO room private media API', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('exposes an old Worker missing duration route without retry or presence recovery', async () => {
+  it('exposes a 404 from the duration route without retry or presence recovery', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });
     await establishPresence(client, fetchMock);

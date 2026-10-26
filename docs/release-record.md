@@ -91,7 +91,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       업데이트 확인 tick에서도 최소 빌드를 읽을지)는 열려 있고 기본 No로 구현했으며, 구현 세부(보고서의 '구현과 리뷰
       중 정한 세부')는 오너 확인을 기다린다(게이트 아님). [보고서](design/forced-update-9-0-14-2026-10-25.md).
 - [ ] 오너 확인(게이트 아님, 첫 최소 빌드 뒤): 최소 빌드 787이 켜진 운영에서 9.0.14 기기가 방장으로 Standard 방을
-      만들고 게스트가 들어오는지(Signaling의 787 입장) 본다. `set` 40284593490의 확인은 Signaling에서 786 거절만 보고
+      만들고 게스트가 들어오는지(Signaling의 787 입장) 본다. 방장 쪽은 오너가 2026-10-26 약 16:33 KST에 확인했다(9.0.14로
+      일반방을 만들고 정상으로 들어감, [오너 기기 확인 A](design/forced-update-9-0-14-2026-10-25.md#오너-기기-확인-게이트-아님)의
+      결과). 게스트 입장과 아래 옛 탭 거절은 아직이다. `set` 40284593490의 확인은 Signaling에서 786 거절만 보고
       787 입장은 보지 않으며(PRO는 786 거절과 787 입장을 모두 봄), 릴리스 smoke의 787 입장은 최소 빌드가 0일 때였다.
       runbook의 `set` 직후 Signaling smoke(`npm run smoke:live:signaling`, 빌드 787 방장·게스트 입장, 빌드 없는 방장은
       787에서 거절) 결과는 이 기록에 없다. 지금 근거는 코드(`cloudflare/signaling-worker.ts`: `appBuild`가 유효 최소
@@ -929,8 +931,9 @@ Signaling의 786 `host-auth` 거절, 그 변경보다 새 매분 보고, 페이�
 786과 헤더 없음에 426 `{"error":"APP_UPDATE_REQUIRED","minAppBuild":787}`, 787에 200 `pin_required`.
 [Drift Audit 40285137773](https://github.com/hiefny/MUSIXQUARE/actions/runs/40285137773)의 App build floor 행 PASS.
 그래서 버전 입장 제한이 운영에서 켜졌고 #13은 은퇴했다([은퇴 기록](known-accepted.md#retired-risks)). 이력 행은
-더하지 않았다(배포 기록과 같은 PR). runbook의 `set` 직후 Signaling 787 입장 smoke 결과는 이 기록에 없어, Standard
-방의 787 입장과 실제 옛 탭의 거절은 위 강제 업데이트 항목의 오너 확인으로 남는다.
+더하지 않았다(배포 기록과 같은 PR). runbook의 `set` 직후 Signaling 787 입장 smoke 결과는 이 기록에 없다. 대신 오너가
+16:33 KST에 9.0.14로 일반방을 만들고 정상으로 들어갔다(787 방장 입장). 게스트 입장과 실제 옛 탭의 거절은 위 강제 업데이트
+항목의 오너 확인으로 남는다.
 [보고서 QA 라운드 7](design/forced-update-9-0-14-2026-10-25.md#7-pr-ci-exact-main-ci-배포와-첫-최소-빌드-2026-10-26),
 [운영](hotfix-procedure.md#app-build-floor).
 

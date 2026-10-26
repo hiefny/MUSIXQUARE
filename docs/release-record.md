@@ -65,26 +65,37 @@ gh run list --workflow e2e.yml --branch main --limit 3
       20/20·76/76 그대로, bus-pairing 202/202, import-graph RULE D, room-authority-boundaries 직접 읽기 83),
       빌드와 초기 전송 예산(초기 JS 478,210 B, 같은 기계의 main `2d605739` 478,186 B 대비 +24 B, 코드 없음,
       유지 상한까지 13,358 B), SW 앱 셸 106 PASS. 최종 계약 묶음 넷(116 tests)과 판독 줄·튜닝·START 묶음
-      다섯(47 tests)은 main `2d605739`의 9.0.11 런타임에서도 PASS다. `guard:sw-cache-version`은 bump 전이라
-      설계대로 FAIL이다. 오너 확인을 기다리는 세부(게이트 아님): C4-7 뒤 청크 하나가 바뀌었다(새
-      `system-audio-receive-slot` 청크, `system-audio-host`는 `system-audio-sfu`에 합쳐짐, 청크 수 112와 앱
-      셸 106 그대로, 첫 로딩 +11 B gzip은 미리 읽기 목록의 청크 이름뿐). P5-D4 A 선택지의 '새 청크가
-      생기거나 첫 로딩이 늘면 다시 묻는다'에 글자 그대로 걸린다. 그 밖의 세부(PRO 코디네이터는 경로 하나,
-      경로마다 정한 수신 시작 규칙, 붙이기는 다시 prime하지 않음, `RECOVERY_DELAY_MS`는 나누지 않음)는
-      보고서에 있다. 남은 것: 9.0.12 강제 업데이트 열차와 그 floor 다음에 그때의 origin/main 합침과 다시 검증
+      다섯(47 tests)은 main `2d605739`의 9.0.11 런타임에서도 PASS다. 리뷰 반영 `f45b6a70`(마감 만료가 경로
+      반응의 예외를 버스처럼 가둠, RO-04 문구): 단위 672 files / 15,707, 핵심 커버리지 87 files / 3,278(슬롯
+      96.07/91.3/100/97.82), 같은 가드, 초기 JS 478,190 B, SW 앱 셸 106 PASS. `guard:sw-cache-version`은 bump
+      전이라 설계대로 FAIL이다. C4-7 뒤 청크 변화는 아래 P5-D4 A 다시 묻기 항목에 있고, 그 항목이 이 배포를
+      막는다. 오너 확인을 기다리는 그 밖의 세부(PRO 코디네이터는 경로 하나, 경로마다 정한 수신 시작 규칙,
+      붙이기는 다시 prime하지 않음, `RECOVERY_DELAY_MS`는 나누지 않음)는 보고서에 있다. 남은 것: P5-D4 A
+      다시 묻기의 오너 답, 9.0.12 강제 업데이트 열차와 그 floor 다음에 그때의 origin/main 합침과 다시 검증
       (옛 버전 제거 1차와 같은 파일 registry, `scripts/check-room-authority-boundaries.mts`와 그 테스트,
       `src/types/index.ts`, `vite.config.ts`, `docs/qa-domains.md`, `file-prepare-pause.test.ts`는 시험
       합침에서 글자 충돌이 없었지만 가드 수를 다시 맞춰야 할 수 있음), 마지막 런타임 커밋의 SemVer·SW 캐시
       bump, PR CI, Codex, exact-main CI, 릴리스 smoke, 배포(target `app`, Developer API D1 `false`). 로컬
       결과는 exact-main-SHA 후보를 대신하지 않는다.
       [5A 보고서](design/phase5-5a-receive-slot-2026-10-25.md).
+- [ ] 5A 배포 전 오너 답(P5-D4 A 다시 묻기, 배포를 막음): P5-D4 A 선택지 문구는 '새 청크가 생기거나 첫
+      로딩이 늘면 멈추고 수치를 들고 다시 묻는다'였고, C4-7 뒤 빌드가 둘 다에 걸린다. 레인은 멈추지 않고
+      C4-8과 C4-12를 이어 갔다. 수치(같은 기계, main `2d605739` 대 5A `c344b46f`): 새 지연 청크
+      `system-audio-receive-slot`(슬롯과 매체 집, gzip 약 2,850 B), `system-audio-host` 청크는
+      `system-audio-sfu`에 합쳐짐, 청크 수 112와 SW 앱 셸 106 그대로, 시스템 오디오 늦은 청크 셋 합 +283 B
+      gzip, 초기 JS 478,186 → 478,210 B gzip(+24 B, 그 가운데 +11 B는 미리 읽기 목록의 더 긴 청크 이름이고
+      첫 로딩에 들어온 코드는 없음, 유지 상한까지 13,358 B). 리뷰 반영 `f45b6a70` 빌드는 슬롯 청크 gzip
+      2,896 B, 늦은 청크 셋 합 +322 B, 초기 JS 478,190 B(+4 B)다. 오너가 받아들이거나 명시적으로 면제하기 전에는
+      5A를 내지 않는다. 받아들이지 않으면 C4-7의 RULE D와 import 정리는 두고 `manualChunks`로 슬롯과 매체
+      집을 기존 청크에 넣은 뒤 다시 잰다(아직 재지 않음). 답이 오면 그 결정을 근거로 적고 이 항목을 지운다.
+      [배포 전 오너 답이 필요한 것](design/phase5-5a-receive-slot-2026-10-25.md#배포-전-오너-답이-필요한-것).
 - [ ] 5A 배포 뒤 실기기 확인(게이트 아님, 2026-10-25 결정): 5A 코드로 실제 기기를 아직 돌리지 않았다.
       Phase 5 기기 절차(2-8 기록 추가, Set 5S, Set 5P)는 Phase 4 세션 2에 붙여 오너가 고르는 때에 한다(P5-D2
       A). 5A 전 기기 기준선이 없어 전후 비교는 없고, 첫 세션 값이 '5A 뒤 값'(5B 기준선)이 된다. 혼합 버전 기기
       행은 하지 않는다(P5-D9 C). 이 절 아래의 시스템 오디오 열린 항목(9.0.3 G6, 9.0.2 G5, 9.0.1의 PRO 구독
       실패 지속 부분, 9.0.0 PRO 하트비트, D01, 8.11.25 공유 중지 버튼, 4A 항목의 PRO 시스템 오디오 부분)은
       5A 뒤에는 5A 코드로 확인하게 된다. C4-13의 기기 보조 근거(flight recorder의 같은 revision 두 줄)는 준비
-      T8에서 음성이라 없다. 판정 기준은 결과 전에 고정해 메인 세션이 보관한다.
+      T8에서 음성이라 없다. 판정 기준은 결과 전에 고정해 따로 보관한다.
       [실기기로 확인하지 않은 것](design/phase5-5a-receive-slot-2026-10-25.md#실기기로-확인하지-않은-것).
 
 ### 구조 개선 Phase 4 4D(9.0.11/v784) 배포 뒤 확인: 보조 경로의 끊김 기한도 연결 생존 주인으로
@@ -1392,13 +1403,15 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
       C5-10의 연결 부분을 싣고 C5-9는 처음엔 Phase 4 밖이었다(RO-35). #18이 은퇴한 뒤 오너 결정(2026-10-25
       약 16:30 KST)으로 C5-9와 C5-10의 제어 격리 부분이 네 번째 앱 열차 4D로 가서(9.0.11 / v784, 2026-10-25
       21:30 KST 배포) Phase 4는 4D까지 앱 업데이트 네 번이 됐다(기기 확인이 실패하면 9.0.10의 보조 경로 동작으로
-      forward revert, RO-35는 4D에서 지움).
+      forward revert, RO-35는 4D에서 지움). 오너 결정(2026-10-25, P5-D3 A): Phase 5도 앱 업데이트 두 번이다.
+      5A(수신 슬롯 이동, 동작 그대로)와 5B(오너가 고르는 동작 변경, 각자 실패 테스트 먼저)다.
       [결정 근거](design/resource-ownership-registry.md#consolidation-phases),
       [게이트에 막힌 실행](design/server-constant-homes-2026-10-23.md#호환성),
       [4A 보고서](design/phase4-4a-transport-rejoin-2026-10-24.md#오너-결정-2026-10-24),
       [4B 보고서](design/phase4-4b-behaviour-2026-10-25.md#오너-결정-2026-10-25),
       [4C 보고서](design/phase4-4c-link-liveness-2026-10-25.md#오너-결정),
-      [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정).
+      [4D 보고서](design/phase4-4d-side-route-owner-2026-10-25.md#오너-결정),
+      [5A 보고서](design/phase5-5a-receive-slot-2026-10-25.md#오너-결정).
 - [ ] 8.11.32 배포 뒤 실기 확인(2026-10-21 03:41 KST 배포됨): iPhone에서 재생목록 길게 누르기가 글자를 선택하지
       않는지, 데스크톱 길게 클릭·끌기 가장자리 자동 스크롤, 백그라운드 복귀마다 Sync(일반방 YouTube 방장이 돌아올 때마다
       게스트가 최대 3초에 한 번 다시 맞춘다), 권한 확인 중 안내, 화면 보호기 두 번 탭 종료·저음 밝기를 실제 기기로 본다.

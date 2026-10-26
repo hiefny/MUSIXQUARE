@@ -106,8 +106,9 @@ runbooks. Neither belongs in a general setup document.
   decisions, the preparation (T1 to T8, T8 negative), each increment with its commits and
   tests-first evidence, the 14 gaps left as today's behaviour for train 5B, the neutrality
   evidence (the final contract and evidence-line suites also green on the 9.0.11 runtime), the
-  chunk change after C4-7 awaiting the owner's confirmation, the overlap with Phase 4, the eager JS
-  delta (+24 B, no code), and the Phase 5 device steps not yet run.
+  open P5-D4 A owner question on the chunk change after C4-7, which blocks the release until the
+  owner answers, the overlap with Phase 4, the eager JS delta (+24 B, no code), and the Phase 5
+  device steps not yet run.
 
 - [Phase 4 train 4D: the side route's outage deadline joins the link-liveness owner (2026-10-25)](design/phase4-4d-side-route-owner-2026-10-25.md):
   release evidence for the structure program's fourth Phase 4 app train (9.0.11 / v784,

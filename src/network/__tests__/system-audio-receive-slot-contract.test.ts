@@ -799,7 +799,8 @@ describe('Standard SFU guest receive', () => {
     await ready('rt_host_session_b');
     // A re-publication tears the old subscription down without a handoff:
     // receiving stays true while no source is connected until the new track
-    // (unbounded if that subscription fails; see the re-publication gap test).
+    // (if that subscription fails first, it hands the reception off to the
+    // slot deadline since 5B-G3; see the re-publication rows below).
     expect(slot()).toMatchObject({ receiving: true, sources: [] });
     await advance(SFU_TRACK_AT_MS);
     expect(slot().sources).toEqual(['sfu-remote-audio-2']);
@@ -827,38 +828,156 @@ describe('Standard SFU guest receive', () => {
     expect(realtime.count('new-session')).toBe(sessionsBefore);
   });
 
-  it('re-publication gap: a failed re-subscription while receiving leaves a silent playing state with no deadline', async () => {
+  it('re-publication, fixed in 5B-G3: a failed re-subscription while receiving hands the reception off to the slot deadline, which ends it with receive_failed', async () => {
     await start();
     await ready('rt_host_session_a');
     await advance(1_000);
     expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-1'] });
 
     realtime.injectFault('new-session', 'fail');
+    const republishedAt = Date.now();
     await ready('rt_host_session_b');
-    await advance(5 * 60 * 1_000);
-    // Known gap (observed on d84f53f5, not device-verified; fix-lane
-    // candidate, or an explicit C4-4 decision): the re-publication tears the
-    // old subscription down with cleanupGuestSfu(false), which clears the
-    // adapter's receiving flag, so the failed re-subscription's cleanup skips
-    // the shared receive cleanup. With no pending READY there is no handoff,
-    // the slot deadline was cleared by the first attach and the two-hour
-    // limit by the teardown: the guest stays 'playing' with no source and no
-    // notice until the host's next READY or STOP. C4-4 rewrites exactly this
-    // predicate (slot.isAttachedBy('standard-sfu')), so any change here must
-    // be labelled.
-    expect(slot()).toMatchObject({
-      receiving: true,
+    // The re-publication tears the old subscription down with
+    // cleanupGuestSfu(false), so the receiving flag stays set while the new
+    // subscription has attached nothing. Its new-session fails 100 ms later
+    // with no pending READY.
+    await advance(100);
+    // Fixed in 5B-G3 (gap 1, P5-D5 A): a failed subscription that attached
+    // nothing while the slot is receiving continued a reception the
+    // re-publication left playing, so it hands that reception off like a
+    // failed subscription with a pending READY: placeholder and restore point
+    // kept, receiving false, the slot deadline armed from the failure. Before,
+    // the guest stayed 'playing' with no source, no deadline and no notice
+    // until the host's next READY or STOP.
+    expect(receiveDeadline()).toEqual({ armed: true, armedAt: republishedAt + 100 });
+    expect(slot()).toEqual({
+      receiving: false,
       mode: 'system-audio',
-      activity: 'playing',
+      activity: 'pending',
+      title: 'Receiving System Audio',
       placeholder: true,
       sources: [],
       primers: 0,
     });
+    expect(FakeRTCPeerConnection.instances.map((pc) => pc.closed)).toEqual([true, true]);
+    expect(seen.toasts).toEqual([]);
+
+    await advance(29_999);
+    expect(seen.toasts).toEqual([]);
+    expect(slot().placeholder).toBe(true);
+    await advance(1);
+    expect(seen.toasts).toEqual(['system_audio.receive_failed']);
+    expect(seen.counts.receiveTimeouts).toBe(1);
+    expect(slot()).toEqual({
+      receiving: false,
+      mode: null,
+      activity: 'idle',
+      title: previousTitle,
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    });
+    expect(FakeRTCPeerConnection.instances.map((pc) => pc.closed)).toEqual([true, true]);
+    expect(realtime.count('new-session')).toBe(2);
+    await advance(60_000);
+    expect(seen.toasts).toEqual(['system_audio.receive_failed']);
+    expect(seen.counts.receiveTimeouts).toBe(1);
+  });
+
+  it.each([
+    { when: 'before the subscriber offer exposes its track', failAt: 100, suspend: false },
+    {
+      when: 'while its exposed track waits in initAudio',
+      failAt: SFU_TRACK_AT_MS + 50,
+      suspend: true,
+    },
+  ])(
+    '5B-G3: an ICE failure of the re-subscription $when hands the reception off the same way',
+    async ({ failAt, suspend }) => {
+      await start();
+      await ready('rt_host_session_a');
+      await advance(1_000);
+      expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-1'] });
+      expect(seen.counts.visualizerStarts).toBe(1);
+
+      if (suspend) webAudio.suspend();
+      const republishedAt = Date.now();
+      await ready('rt_host_session_b');
+      await advance(failAt);
+      expect(FakeRTCPeerConnection.instances).toHaveLength(2);
+      expect(slot()).toMatchObject({ receiving: true, activity: 'playing', sources: [] });
+
+      // The subscriber PC's connectionstatechange 'failed' handler: the new
+      // subscription attached nothing while the slot is receiving.
+      FakeRTCPeerConnection.instances[1].setConnectionState('failed');
+      expect(receiveDeadline()).toEqual({ armed: true, armedAt: republishedAt + failAt });
+      expect(slot()).toEqual({
+        receiving: false,
+        mode: 'system-audio',
+        activity: 'pending',
+        title: 'Receiving System Audio',
+        placeholder: true,
+        sources: [],
+        primers: 0,
+      });
+      expect(FakeRTCPeerConnection.instances.map((pc) => pc.closed)).toEqual([true, true]);
+
+      // The aborted subscribe and an attach that waited in initAudio stay out.
+      if (suspend) webAudio.finishResume();
+      await advance(1_000);
+      expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
+      expect(seen.counts.visualizerStarts).toBe(1);
+      expect(webAudio.maxConnected).toBe(1);
+      expect(seen.toasts).toEqual([]);
+
+      await advance(30_000 - 1_000 - 1);
+      expect(seen.toasts).toEqual([]);
+      await advance(1);
+      expect(seen.toasts).toEqual(['system_audio.receive_failed']);
+      expect(seen.counts.receiveTimeouts).toBe(1);
+      expect(slot()).toEqual({
+        receiving: false,
+        mode: null,
+        activity: 'idle',
+        title: previousTitle,
+        placeholder: false,
+        sources: [],
+        primers: 0,
+      });
+      expect(realtime.count('new-session')).toBe(2);
+    },
+  );
+
+  it('5B-G3 guard: a READY inside the deadline a failed re-subscription leaves subscribes and attaches with no notice', async () => {
+    await start();
+    await ready('rt_host_session_a');
+    await advance(1_000);
+    realtime.injectFault('new-session', 'fail');
+    await ready('rt_host_session_b');
+    await advance(100);
+
+    // The host's unchanged READY again (a peer re-evaluation or a host retry)
+    // 29 s after the failure: it subscribes again, and its first attach
+    // starts the reception and clears the slot deadline.
+    await advance(29_000);
+    await ready('rt_host_session_b');
+    await advance(SFU_TRACK_AT_MS);
+    expect(slot()).toEqual({
+      receiving: true,
+      mode: 'system-audio',
+      activity: 'playing',
+      title: 'Receiving System Audio',
+      placeholder: true,
+      sources: ['sfu-remote-audio-3'],
+      primers: 1,
+    });
+    expect(receiveDeadline().armed).toBe(false);
+    await advance(60_000);
     expect(seen.toasts).toEqual([]);
     expect(seen.counts.receiveTimeouts).toBe(0);
-    expect(FakeRTCPeerConnection.instances.map((pc) => pc.closed)).toEqual([true, true]);
+    expect(slot().sources).toEqual(['sfu-remote-audio-3']);
+    expect(webAudio.maxConnected).toBe(1);
 
-    // The restore point is still held: STOP ends it normally.
     await stop();
     expect(slot()).toMatchObject({ receiving: false, activity: 'idle', title: previousTitle });
     expect(seen.toasts).toEqual([]);

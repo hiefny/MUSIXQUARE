@@ -156,7 +156,6 @@ export const MSG = {
   FILE_CHUNK: 'file-chunk',
   FILE_END: 'file-end',
   FILE_PREPARE: 'file-prepare',
-  FILE_R2_CAPABILITY: 'file-r2-capability',
   REMOTE_FILE_UNAVAILABLE: 'remote-file-unavailable',
   REMOTE_FILE_SHARE: 'remote-file-share',
   FILE_RESUME: 'file-resume',

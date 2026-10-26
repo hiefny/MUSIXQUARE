@@ -689,11 +689,12 @@ RO-51 duplicated
   `playback-finalize-host-sync`, `demo-play-host-sync`), all since Phase 4 4A (C3-I1). The
   old-version removal train dropped the 200 ms PLAY wire lead `LEGACY_FILE_SCHEDULE_AHEAD_MS`
   (survey OV-B01): PLAY carries only `hostStartAt`, and a guest starts a PLAY without it at
-  receipt. DEMO_PLAY still carries `hostPlayAt`, the start plus the separate 350 ms
-  `DEMO_PLAY_SCHEDULE_AHEAD_MS`, because demo guests before the old-version removal train (9.0.12
-  and older) require it; guests now require `hostStartAt`, ignore `hostPlayAt` and gate the host
-  timeline on clock calibration alone (OV-B02 stage 1). Hosts stop sending it only after a client
-  floor at or above the release that carries OV-B02 stage 1 (OV-F05).
+  receipt. Guests require DEMO_PLAY's `hostStartAt` and gate the host timeline on clock
+  calibration alone (OV-B02 stage 1). Old-version removal train 2 (OV-F05, App build floor 787)
+  dropped DEMO_PLAY's `hostPlayAt`, the start plus the separate 350 ms
+  `DEMO_PLAY_SCHEDULE_AHEAD_MS` that only guests of 9.0.12 and older read: DEMO_PLAY and the
+  late-join demo bootstrap carry only `hostStartAt`, and neither the DEMO_PLAY nor the PLAY
+  validator reads a `hostPlayAt` a 9.0.14 host still adds.
 - **Anchor tests:**
   - Supersession: `src/demo/__tests__/mode.test.ts` "does not restore stale media over a local file
     load started during exit".

@@ -484,9 +484,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isQueueItemId(d.queueItemId) &&
     isFiniteNumber(d.time) &&
     (d.name === undefined || d.name === null || typeof d.name === 'string') &&
-    // Ignored on receipt. Hosts before the old-version removal train (9.0.12
-    // and older) still add it.
-    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)) &&
     (d.hostStartAt === undefined || (isFiniteNumber(d.hostStartAt) && d.hostStartAt > 0)),
   [MSG.PAUSE]: (d) =>
     (d.queueItemId === null || isQueueItemId(d.queueItemId)) &&
@@ -503,8 +500,10 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     d.name.length > 0 &&
     (d.mime === undefined || typeof d.mime === 'string'),
   [MSG.DEVICE_LIST_UPDATE]: isDeviceListUpdate,
+  // Guests translate i18nKey first and fall back to their own room-full copy,
+  // so the host's fallback text is optional (old-version removal train 2).
   [MSG.SESSION_FULL]: (d) =>
-    isBoundedWireString(d.message, 512) &&
+    (d.message === undefined || isBoundedWireString(d.message, 512)) &&
     (d.i18nKey === undefined || isBoundedWireString(d.i18nKey, 127)),
   [MSG.KICK_DEVICE]: (d) => d.reason === undefined || isBoundedWireString(d.reason, 256),
   [MSG.OPERATOR_GRANT]: (d) =>
@@ -911,7 +910,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.mime === 'string' &&
     isPositiveSafeInt(d.size) &&
     (d.delivery === undefined || d.delivery === 'r2'),
-  [MSG.FILE_R2_CAPABILITY]: (d) => d.version === 1 && d.localAudience === true,
   [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>
     typeof d.name === 'string' &&
     d.name.length > 0 &&
@@ -1015,9 +1013,11 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isBotChatResult(d.result),
   [MSG.HOST_COMMAND_REJECTED]: (d) =>
     d.reason === 'host-hidden' && isBoundedWireString(d.command, 64),
+  // Guests translate i18nKey first and show text only as its fallback, so a
+  // notice needs one of the two (old-version removal train 2).
   [MSG.OPERATOR_TOAST]: (d) =>
-    typeof d.text === 'string' &&
-    d.text.length <= 300 &&
+    (d.text !== undefined || d.i18nKey !== undefined) &&
+    (d.text === undefined || (typeof d.text === 'string' && d.text.length <= 300)) &&
     (d.i18nKey === undefined || (typeof d.i18nKey === 'string' && d.i18nKey.length < 128)) &&
     (d.i18nParams === undefined || (typeof d.i18nParams === 'object' && d.i18nParams !== null)),
   [MSG.REQUEST_CHAT_COMMAND]: (d) =>
@@ -1055,10 +1055,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isNonNegInt(d.index) &&
     isFiniteNumber(d.time) &&
     isFiniteNumber(d.hostStartAt) &&
-    d.hostStartAt > 0 &&
-    // Ignored on receipt. Hosts still send it: guests before the old-version
-    // removal train (9.0.12 and older) require it (survey OV-F05).
-    (d.hostPlayAt === undefined || isFiniteNumber(d.hostPlayAt)),
+    d.hostStartAt > 0,
   [MSG.DEMO_PAUSE]: (d) => isFiniteNumber(d.time),
   [MSG.DEMO_EXIT]: () => true,
   [MSG.REQUEST_DEMO_ENTER]: () => true,

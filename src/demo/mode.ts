@@ -63,11 +63,7 @@ import { isProRoomCode } from '../pro-room/room-code.ts';
 import type { DataConnection } from '../types/index.ts';
 import type { PlaybackModeActivity } from '../player/ownership.ts';
 import { shouldRestoreDemoSnapshotMedia } from './restore-policy.ts';
-import {
-  DEMO_PLAY_SCHEDULE_AHEAD_MS,
-  DEMO_PLAY_START_LEAD_MS,
-  projectDemoPlay,
-} from './playback-timing.ts';
+import { DEMO_PLAY_START_LEAD_MS, projectDemoPlay } from './playback-timing.ts';
 import { getPendingDemoHostStartAt, setDemoHostStartAt } from './host-start-anchor.ts';
 import { GUEST_START_SYNC_PING_DELAY_MS } from '../player/file-play-timing.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
@@ -538,7 +534,6 @@ function createDemoPlayMessage(index = _demoTrackIndex, time = 0, hostStartAt = 
     index,
     time,
     hostStartAt,
-    hostPlayAt: hostStartAt + DEMO_PLAY_SCHEDULE_AHEAD_MS,
   } as const;
 }
 
@@ -1846,7 +1841,8 @@ function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnect
     room: captureDemoRoomIdentity(),
     index,
     time: Math.max(0, Number(data.time) || 0),
-    // The validator requires a finite positive hostStartAt; hostPlayAt is ignored.
+    // The validator requires a finite positive hostStartAt. A 9.0.14 host's
+    // hostPlayAt is not read.
     hostStartAt: Number(data.hostStartAt),
     receivedAt: Date.now(),
   };

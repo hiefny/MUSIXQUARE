@@ -1199,18 +1199,17 @@ function _administratorsForMembers(members: readonly ConnectedRoomMember[]): Adm
     if (member.isHost || !member.isAdministrator) continue;
     const memberId = memberAuthorityKey(member);
     if (knownAdministratorIds.has(memberId)) continue;
+    // Every current host projects each administrator row with at least
+    // effects.control, so an empty set is not a real administrator state.
     const capabilities = new Set(member.capabilities);
-    const hasExplicitCapabilities = capabilities.size > 0;
     views.push({
       memberId,
       memberDisplayNumber: member.memberDisplayNumber,
       displayName: member.label || t('common.peer'),
       isOwner: false,
       permissions: {
-        'media.add': hasExplicitCapabilities
-          ? capabilities.has('media.add') || capabilities.has('asset.upload')
-          : true,
-        'playback.control': hasExplicitCapabilities ? capabilities.has('playback.control') : true,
+        'media.add': capabilities.has('media.add') || capabilities.has('asset.upload'),
+        'playback.control': capabilities.has('playback.control'),
         'members.kick': capabilities.has('members.manage'),
         'chat.notice': capabilities.has('chat.notice'),
       },

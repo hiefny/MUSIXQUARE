@@ -2342,20 +2342,6 @@ export function initRemoteShare(): void {
     abortActiveUploadsWithoutTargets('no-r2-targets');
   });
 
-  // Current hosts route by room size alone and ignore this marker, but older
-  // hosts (9.0.12 and earlier) still answer a ninth unadvertised local guest
-  // with REMOTE_FILE_UNAVAILABLE. Keep advertising until the client floor passes them.
-  bus.on('network:peer-connected', (conn: DataConnection) => {
-    if (getState('network.appRole') !== 'guest') return;
-    const hostConn = getState('network.hostConn');
-    if (!hostConn || conn !== hostConn) return;
-    safeSend(hostConn, {
-      type: MSG.FILE_R2_CAPABILITY,
-      version: 1,
-      localAudience: true,
-    });
-  });
-
   bus.on('network:peer-disconnected', (peerId: string) => {
     if (getState('network.appRole') !== 'host') return;
     releaseFileDeliveryPeer(peerId);

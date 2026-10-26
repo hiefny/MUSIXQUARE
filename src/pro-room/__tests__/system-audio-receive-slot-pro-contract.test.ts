@@ -50,6 +50,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
+import { log } from '../../core/log.ts';
 import { batchSetState, getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
@@ -447,7 +448,7 @@ describe('PRO SFU reception', () => {
     expect(slot()).toMatchObject({ mode: null, activity: 'idle', title: previousTitle });
   });
 
-  it('G6, since 9.0.3: a force-stop during a retry backoff stays ended, but the retry still subscribes and its track is dropped at the boundary', async () => {
+  it('G6 and 5B-G2: a force-stop during a retry backoff stays ended, and the pending retry never subscribes', async () => {
     proSfu.outcomes.push('fail');
     await applyState(live(sfuPublication()));
     await advance(PRO_TRACK_AT_MS);
@@ -464,12 +465,16 @@ describe('PRO SFU reception', () => {
     });
 
     await advance(2_500 + PRO_TRACK_AT_MS);
-    expect(proSfu.descriptors).toHaveLength(2);
-    // Since 9.0.3 (G6) the retry keeps its publication key, so it no longer
-    // begins reception again over the force-stop (before G6 it re-entered the
-    // placeholder and played). Its track waits at the trusted boundary for a
-    // reception start that never comes and is dropped there, silently.
+    // Fixed in 5B-G2 (gap 4, P5-D5 A): the force-stop ends the coordinator's
+    // route as well, its pending retry included, and marks the publication
+    // ended. Before, the retry still subscribed (since 9.0.3, G6, inside its
+    // kept publication key, so it began no reception) and its track waited at
+    // the trusted boundary with the subscription held open until the
+    // publication changed or the room reset.
+    expect(proSfu.descriptors).toHaveLength(1);
+    expect(proSfu.isSubscribed).toBe(false);
     await advance(60_000);
+    expect(proSfu.descriptors).toHaveLength(1);
     expect(webAudio.sources).toHaveLength(0);
     expect(slot()).toMatchObject({
       receiving: false,
@@ -482,15 +487,43 @@ describe('PRO SFU reception', () => {
     expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(seen.counts.hostStarted).toBe(1);
     expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
-    // Known gap (observed on d84f53f5, not device-verified): the force-stop
-    // reaches only the guest placeholder, so the retry still opens a
-    // subscription and holds it with nothing attached until the publication
-    // changes or the room resets. Planned: a slot end() that covers every
-    // route (a behaviour decision for 5B; the neutral C4-5 and C4-7 kept the
-    // route-scoped ends).
-    expect(proSfu.isSubscribed).toBe(true);
     resetProSystemAudioService();
     expect(proSfu.isSubscribed).toBe(false);
+  });
+
+  it("5B-G2: a force-stop while a retry's subscribe is in flight ends that attempt quietly, with no warn, no second notice and no further attempt", async () => {
+    proSfu.outcomes.push('fail');
+    await applyState(live(sfuPublication()));
+    await advance(PRO_TRACK_AT_MS);
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    // The retry subscribes 2.5 s after the failure and is still in flight.
+    await advance(2_500 + PRO_TRACK_AT_MS / 2);
+    expect(proSfu.descriptors).toHaveLength(2);
+    expect(proSfu.isSubscribed).toBe(false);
+    // The receive observer spies the log already; this returns that spy.
+    const warn = vi.spyOn(log, 'warn');
+    const warnsBefore = warn.mock.calls.length;
+
+    bus.emit('system-audio:force-stop');
+    await advance(60_000);
+    // The force-stop stopped the retry's attempt, which rejects into the
+    // retry's catch. The publication is ended, so that rejection is no
+    // failure: no warn line. Before 5B-G2 the attempt completed and held its
+    // subscription open with the track waiting at the trusted boundary.
+    expect(warn.mock.calls.slice(warnsBefore)).toEqual([]);
+    expect(proSfu.isSubscribed).toBe(false);
+    expect(proSfu.descriptors).toHaveLength(2);
+    expect(webAudio.sources).toHaveLength(0);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      mode: null,
+      activity: 'idle',
+      title: previousTitle,
+      sources: [],
+      primers: 0,
+    });
+    expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
   });
 
   it('a suspended context fails a PRO SFU attach into a backed-off retry that keeps the placeholder', async () => {
@@ -562,34 +595,50 @@ describe('PRO SFU reception', () => {
     expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
   });
 
-  it('trusted boundary: a track whose placeholder a successor replaced waits at the boundary and never attaches', async () => {
+  it('trusted boundary, 5B-G2: a track whose placeholder a successor replaced waits at the boundary, never attaches, and its refusal closes the subscription for that publication', async () => {
     await applyState(live(sfuPublication()));
     await advance(500);
     claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
 
+    // The track arrived at PRO_TRACK_AT_MS and waits at the trusted boundary.
     await advance(PRO_TRACK_AT_MS);
-    expect(slot()).toMatchObject({
+    const successor = {
       receiving: false,
       mode: 'file',
       activity: 'playing',
       title: 'successor',
+      placeholder: false,
       sources: [],
       primers: 0,
-    });
+    };
+    expect(slot()).toEqual(successor);
+    expect(proSfu.isSubscribed).toBe(true);
+
+    // The boundary refuses 30 s after the track (no start commits for it).
+    await advance(30_000 - 500 - 1);
+    expect(proSfu.isSubscribed).toBe(true);
+    await advance(1);
+    // Fixed in 5B-G2 (gap 5, P5-D5 A): the refused track of the live
+    // publication closes its subscription and marks the publication ended,
+    // with no retry and no notice. Before, the refusal was silent and the
+    // subscription stayed open with nothing attached until the publication
+    // changed.
+    expect(proSfu.isSubscribed).toBe(false);
+    expect(slot()).toEqual(successor);
+
+    // A heartbeat of the unchanged publication subscribes nothing again.
+    bindProSystemAudioSession(snapshot());
+    acceptProSystemAudioHeartbeatState(live(sfuPublication()), snapshot());
     await advance(60_000);
+    expect(proSfu.descriptors).toHaveLength(1);
+    expect(proSfu.isSubscribed).toBe(false);
     expect(webAudio.sources).toHaveLength(0);
-    expect(slot()).toMatchObject({ receiving: false, mode: 'file', title: 'successor' });
+    expect(slot()).toEqual(successor);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
     expect(seen.toasts).toEqual([]);
     expect(seen.counts.receiveTimeouts).toBe(0);
-    // Known gap (observed on d84f53f5, not device-verified): the boundary's
-    // refusal is silent and is not a subscription failure, so no retry runs
-    // and the live subscription stays open with nothing attached until the
-    // publication changes. Planned: slot.attach('pro-sfu') reports a stale
-    // ticket and the adapter decides what to retire (C4-5, needs a decision).
-    expect(proSfu.isSubscribed).toBe(true);
-    expect(proSfu.descriptors).toHaveLength(1);
 
-    // The share end leaves the successor alone and closes the subscription.
+    // The share end leaves the successor alone.
     await applyState(idle(2));
     expect(proSfu.isSubscribed).toBe(false);
     expect(slot()).toMatchObject({ mode: 'file', activity: 'playing', title: 'successor' });
@@ -861,9 +910,10 @@ describe('successor during initAudio (attach fence, PRO routes; fixed in 5B-G1)'
         webAudio.suspend();
         await advance(PRO_TRACK_AT_MS + 100);
       },
-      // The coordinator returns quietly on a refused attach in 5B-G1; the SFU
-      // subscription stays open with nothing attached (5B-G2 closes it).
-      subscribed: true,
+      // Since 5B-G2 the refused SFU track closes its subscription and marks
+      // the publication ended (in 5B-G1 it stayed open with nothing
+      // attached), so the one subscription is never made again.
+      subscriptions: 1,
     },
     {
       route: 'LAN-direct',
@@ -873,11 +923,12 @@ describe('successor during initAudio (attach fence, PRO routes; fixed in 5B-G1)'
         proDirect.deliverTrack(makeAudioTrack('direct-audio-1'));
         await advance(100);
       },
-      subscribed: false,
+      // The LAN-direct route stays open (RO-04); no SFU subscription exists.
+      subscriptions: 0,
     },
   ])(
     'S9 ($route), fixed in 5B-G1: a successor that claims playback while the attach waits in initAudio keeps playing',
-    async ({ deliver, subscribed }) => {
+    async ({ deliver, subscriptions }) => {
       await deliver();
       expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
       claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
@@ -900,9 +951,12 @@ describe('successor during initAudio (attach fence, PRO routes; fixed in 5B-G1)'
       };
       expect(slot()).toEqual(successor);
       expect(seen.counts.visualizerStarts).toBe(0);
-      expect(proSfu.isSubscribed).toBe(subscribed);
+      expect(proSfu.isSubscribed).toBe(false);
+      bindProSystemAudioSession(snapshot());
       await advance(60_000);
       expect(slot()).toEqual(successor);
+      expect(proSfu.isSubscribed).toBe(false);
+      expect(proSfu.descriptors).toHaveLength(subscriptions);
       // No notice: a refused attach is no transport failure (a throw would
       // fail the LAN route into a receiver fallback with connection_unstable).
       expect(seen.toasts).toEqual([]);
@@ -1073,36 +1127,48 @@ describe('room switch, share end, leave and force-stop', () => {
     expect(seen.toasts).toEqual([]);
   });
 
-  it('force-stop ends the PRO placeholder without a restore, but the coordinator source stays until the room resets', async () => {
+  it('5B-G2: force-stop ends the PRO reception without a restore, and the coordinator source, primer and subscription with it', async () => {
     await applyState(live(sfuPublication()));
     await advance(PRO_TRACK_AT_MS);
 
     bus.emit('system-audio:force-stop');
-    expect(slot()).toMatchObject({
+    const ended = {
       receiving: false,
       mode: null,
       activity: 'idle',
       title: previousTitle,
       placeholder: false,
-    });
+      sources: [],
+      primers: 0,
+    };
+    // Fixed in 5B-G2 (gap 4, P5-D5 A): the force-stop ends the coordinator's
+    // route too (its source, primer and subscription) and marks the
+    // publication ended. Before, it reached only the receive placeholder:
+    // the source, primer and subscription stayed connected under an idle UI
+    // until the room reset, and a heartbeat did not notice.
+    expect(slot()).toEqual(ended);
+    expect(proSfu.isSubscribed).toBe(false);
     expect(restorePlayback).not.toHaveBeenCalled();
     expect(seen.toasts).toEqual([]);
-    // Observed gap (C4-0, not device-verified): force-stop reaches only the
-    // guest placeholder. The coordinator's source, primer and subscription
-    // stay connected under an idle UI, and a heartbeat reconcile of the
-    // unchanged publication does not notice. On a leave (peer.ts
-    // leaveSession requests the PRO leave and emits force-stop) the service
-    // reset follows and closes it. Planned: a slot end() that covers every
-    // route (a behaviour decision for 5B; the neutral C4-5 and C4-7 kept the
-    // route-scoped ends).
-    expect(slot()).toMatchObject({ sources: ['pro-sfu-audio-1'], primers: 1 });
-    bindProSystemAudioSession(snapshot());
-    await advance(15_000);
-    expect(slot()).toMatchObject({ activity: 'idle', sources: ['pro-sfu-audio-1'] });
+    const activitiesAfterStop = seen.activities.length;
 
+    // A heartbeat reconcile of the unchanged publication subscribes nothing
+    // and begins nothing.
+    bindProSystemAudioSession(snapshot());
+    acceptProSystemAudioHeartbeatState(live(sfuPublication()), snapshot());
+    await advance(15_000);
+    expect(slot()).toEqual(ended);
+    expect(proSfu.descriptors).toHaveLength(1);
+    expect(proSfu.isSubscribed).toBe(false);
+    expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
+    expect(seen.counts.hostStarted).toBe(1);
+    expect(seen.activities.slice(activitiesAfterStop)).toEqual([]);
+
+    // The room reset changes nothing more.
     resetProSystemAudioService();
-    expect(slot()).toMatchObject({ sources: [], primers: 0 });
+    expect(slot()).toEqual(ended);
     expect(restorePlayback).not.toHaveBeenCalled();
+    expect(seen.toasts).toEqual([]);
   });
 });
 
@@ -1209,8 +1275,12 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     expect(seen.counts.hostStarted).toBe(1);
 
     // The nested cleanup does not break the begin: the track still attaches.
+    // Since 5B-G2 the coordinator's force-stop reaction skips a force-stop
+    // nested in its own start, so the new subscription stays open.
     await advance(PRO_TRACK_AT_MS);
     expect(slot()).toMatchObject({ receiving: true, sources: ['pro-sfu-audio-1'] });
+    expect(proSfu.isSubscribed).toBe(true);
+    expect(proSfu.descriptors).toHaveLength(1);
 
     // Observed (d84f53f5, not device-verified): the restore point is empty.
     // The coordinator end restored the receive slot's empty restore meta over

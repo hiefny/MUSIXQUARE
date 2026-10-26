@@ -936,6 +936,10 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
         await advance(PRO_TRACK_AT_MS + 100);
       },
       connections: sfuConnections,
+      // Since 5B-G2 a force-stop closes the coordinator's SFU subscription.
+      closedByForceStop: true,
+      tracksClosedByForceStop: 1,
+      realtimeSessions: 1,
     },
     {
       route: 'LAN-direct',
@@ -947,6 +951,10 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
         await advance(100);
       },
       connections: lanConnections,
+      // The LAN-direct receiver route stays open after a force-stop (RO-04).
+      closedByForceStop: false,
+      tracksClosedByForceStop: 0,
+      realtimeSessions: 0,
     },
   ];
 
@@ -968,7 +976,13 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
 
   it.each(waitingRoutes)(
     'S8b ($route), fixed in 5B-G1: a force-stop while the attach waits in initAudio leaves the track unconnected under the restored title',
-    async ({ waitInInitAudio, connections }) => {
+    async ({
+      waitInInitAudio,
+      connections,
+      closedByForceStop,
+      tracksClosedByForceStop,
+      realtimeSessions,
+    }) => {
       await waitInInitAudio();
       bus.emit('system-audio:force-stop');
       expect(slot()).toEqual(idleWithPreviousTitle());
@@ -979,15 +993,85 @@ describe('S8b: a slot end while the attach waits in initAudio (real PRO transpor
       // title, so the slot's attach fence refuses the track. Before, the
       // coordinator attach re-checked only the route, the publication and the
       // owner after `await initAudio()`, and the audio played with no
-      // placeholder under the restored title. The coordinator returns
-      // quietly on the refusal: the connection stays open (5B-G2 closes the
-      // SFU one; the LAN route stays open by choice).
-      expect(connections()[0].closed).toBe(false);
+      // placeholder under the restored title. Since 5B-G2 (gap 4) the
+      // force-stop also closes the coordinator's SFU subscription (one
+      // tracks-close, and its track's attach is no longer current); the LAN
+      // route stays open by choice (RO-04).
+      expect(connections()[0].closed).toBe(closedByForceStop);
+      expect(realtime.count('tracks-close')).toBe(tracksClosedByForceStop);
       expect(webAudio.sources).toHaveLength(0);
       expect(slot()).toEqual(idleWithPreviousTitle());
       await advance(60_000);
       expect(slot()).toEqual(idleWithPreviousTitle());
+      expect(realtime.count('new-session')).toBe(realtimeSessions);
       expect(seen.toasts).toEqual([]);
+    },
+  );
+
+  it.each([
+    {
+      cause: 'a force-stop',
+      stop: () => bus.emit('system-audio:force-stop'),
+      after: () => idleWithPreviousTitle(),
+    },
+    {
+      cause: 'a successor owner',
+      stop: () => {
+        claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
+        webAudio.finishResume();
+      },
+      after: () => ({
+        receiving: false,
+        mode: 'file',
+        activity: 'playing',
+        title: 'successor',
+        placeholder: false,
+        sources: [],
+        primers: 0,
+      }),
+    },
+  ])(
+    '5B-G2 (SFU): $cause between the exposed track and the completed subscription closes the subscription once, with no notice and no new session',
+    async ({ stop, after }) => {
+      webAudio.suspend();
+      await applyState(live(sfuPublication()));
+      // The subscriber offer exposed the track; its attach waits in initAudio
+      // and renegotiate is still in flight.
+      await advance(PRO_TRACK_AT_MS + 50);
+      expect(slot()).toMatchObject({ receiving: false, activity: 'pending', sources: [] });
+      expect(realtime.requests.map((request) => request.action)).toEqual([
+        undefined,
+        'new-session',
+        'tracks-new',
+        'renegotiate',
+      ]);
+
+      // The force-stop ends the coordinator's route; the successor makes the
+      // slot's attach fence refuse the track, and the refused SFU track ends
+      // the route. Either stop aborts the in-flight subscribe, whose
+      // rejection is no subscription failure for an ended publication: no
+      // connection_unstable and no backed-off retry (critique 2, finding 2).
+      stop();
+      await advance(0);
+      webAudio.finishResume();
+      await advance(PRO_SUBSCRIBED_AT_MS);
+      expect(sfuConnections()).toHaveLength(1);
+      expect(sfuConnections()[0].closed).toBe(true);
+      expect(realtime.count('tracks-close')).toBe(1);
+      expect(webAudio.sources).toHaveLength(0);
+      expect(slot()).toEqual(after());
+      expect(seen.toasts).toEqual([]);
+
+      // No further Realtime session for this publication, a heartbeat included.
+      bindProSystemAudioSession(snapshot());
+      await advance(60_000);
+      expect(realtime.count('new-session')).toBe(1);
+      expect(realtime.count('tracks-close')).toBe(1);
+      expect(sfuConnections()).toHaveLength(1);
+      expect(webAudio.sources).toHaveLength(0);
+      expect(slot()).toEqual(after());
+      expect(seen.toasts).toEqual([]);
+      expect(media.stopAllMedia).toHaveBeenCalledTimes(1);
     },
   );
 });

@@ -62,16 +62,21 @@ gh run list --workflow e2e.yml --branch main --limit 3
       허락한 자기 세션의 본 레인 머리를 어느 경로에서든 받는다(RO-18 경로 2와 '요청 전' 틈이 새 게스트에게서 닫힘,
       옛 게스트와 방장은 그대로). 브랜치 `agent/forced-update`(`244aca48` 위): Inc 1 `beb3369c`, Inc 2 `93aa4f5f`,
       Inc 3 `20b446c3`, Inc 4 `45754035`, Inc 5 `2229356e`(리뷰 `fa55e2a0`·`2c0a55ed`), Inc 6 `ebf4c0ff`, Inc 7
-      `c8b2cf38`, C5-12 Inc 1 `7ee16397` → `21e20806`, 5A 합침 `ac114b37`(글자 충돌 없음)과 5A 기록 #495 합침 `f66195cd`(문서만). 합친 뒤 로컬 검증: 단위
-      680 files / 16,097, Worker 67 files / 3,149, typecheck·`check:workers`·lint·format, 가드 전부(resource-ownership
-      48 records / 442 files, navigation-sinks의 `SKIP_WAITING` 보내기 2·sink 호출 4), 빌드와 빌드 뒤 가드, 초기 JS
-      480,468 B(바탕 `244aca48` 478,186 B 대비 +2,282 B, 유지 상한까지 11,100 B), 후보 Playwright 19/19, C5-0 랩
-      `forced-update.lab.ts` 2/2, PRO 426 Playwright 2/2 PASS. 5A가 9.0.12 / v785를(2026-10-26 10:34 KST 배포), 구버전 제거 열차 1이 9.0.13 / v786을(#496
-      머지) 먼저 썼으므로 이 열차는 bump 단계에서 9.0.14 / v787로 SemVer와 SW 캐시 epoch를 함께 올린다. 합친 뒤
-      `guard:sw-cache-version`의 PASS는 epoch를 합침 커밋에서 세기 때문이라 bump를 대신하지 않는다. 남은 것: bump, 리뷰, PR CI, Codex,
-      exact-main CI, 릴리스 smoke, 배포(target `all`: 여섯 Worker의 런타임 경로가 바뀌어 부분 릴리스는 거절되고, `all`은
-      `appBuild`를 받는 Signaling을 App보다 먼저 배포), 아래 첫 최소 빌드. 로컬 결과는 exact-main-SHA 후보를 대신하지
-      않는다. 설계 질문 Q-B(60분 업데이트 확인 tick에서도 최소 빌드를 읽을지)는 열려 있고 기본 No로 구현했으며, 구현
+      `c8b2cf38`, C5-12 Inc 1 `7ee16397` → `21e20806`, 5A 합침 `ac114b37`(글자 충돌 없음)과 5A 기록 #495 합침
+      `f66195cd`(문서만), 리뷰 반영 `efd2ed11`(floor 도구), 구버전 제거 열차 1 합침 `63027a68`(문서 둘의 글자 충돌, 두
+      열차 항목을 모두 둠), 이름 커밋 `3c301881`(보고서 이름과 주석·문서의 번호, 런타임 동작 없음), 마지막 런타임
+      커밋인 bump `2077ef60`. 5A가 9.0.12 / v785를(2026-10-26 10:34 KST 배포), 구버전 제거 열차 1이 9.0.13 / v786을(#496,
+      Release 40265098681로 배포) 먼저 썼으므로 bump `2077ef60`에서 `9.0.14` / `v787`로 SemVer와 SW 캐시 epoch를 함께
+      올렸다(올리기 직전 fetch한 origin/main은 `4d7650c0`). bump 뒤 최종 로컬(`2077ef60`): release-identity(9.0.14,
+      v787)·sw-cache-version, 단위 680 files / 16,038, Worker 67 files / 3,152, critical coverage 87 files / 3,405,
+      typecheck(테스트 포함)·`check:workers`·lint·format, `build:checked` 전체, 가드 묶음(resource-ownership 48 records /
+      442 files, navigation-sinks의 `SKIP_WAITING` 보내기 2·sink 호출 4, 직접 읽기 82), critical E2E 61/61, PRO 426
+      Playwright 2/2, 후보 Playwright 19/19(시작·복귀 확인 2행 포함), C5-0 랩 전체 `--repeat-each=2` 20/20
+      (`forced-update.lab.ts` 4/4) PASS. 초기 JS 466,874 B(main `4d7650c0` 464,588 B 대비 +2,286 B, 유지 상한까지
+      24,694 B). 남은 것: 리뷰, PR CI, Codex, exact-main CI, 릴리스 smoke, 배포(target `all`, Developer API D1 false,
+      `raise_app_build_floor` false: 운영 `4d7650c0`과 견주어 여섯 Worker의 런타임 경로가 모두 바뀌어 부분 릴리스는
+      거절되고, `all`은 `appBuild`를 받는 Signaling을 App보다 먼저 배포), 아래 첫 최소 빌드. 로컬 결과는
+      exact-main-SHA 후보를 대신하지 않는다. 설계 질문 Q-B(60분 업데이트 확인 tick에서도 최소 빌드를 읽을지)는 열려 있고 기본 No로 구현했으며, 구현
       세부(보고서의 '구현과 리뷰 중 정한 세부')는 오너 확인을 기다린다(게이트 아님).
       [보고서](design/forced-update-9-0-14-2026-10-25.md).
 - [ ] 첫 최소 빌드(오너 결정 Q2, 게이트 아님): 이 열차는 최소 빌드 0, `raise_app_build_floor` false로 배포한다. 배포의

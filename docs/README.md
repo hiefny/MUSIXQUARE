@@ -132,8 +132,10 @@ runbooks. Neither belongs in a general setup document.
   main `a3893f04`), the deploy order and versions with release W and 5B, the rollback
   boundaries, and what is not verified.
 - [Old-version removal train 2, release W: Worker request shapes below the App build floor (2026-10-26)](design/old-version-removal-2w-workers-2026-10-26.md):
-  evidence for the Workers-only release of the second old-version removal train (not yet released;
-  target `all`, no SemVer or service-worker cache change, so no update dialog). With the App build
+  release evidence for the Workers-only release of the second old-version removal train (released
+  2026-10-27 03:34 KST in Release 40378059253 from main `a3893f04`, target `all`, no SemVer or
+  service-worker cache change, so production stays 9.0.14 / v787 with no update dialog; the
+  same-value floor `set` 40379025557 then ran the fixed floor proofs in production). With the App build
   floor at 787 since 2026-10-26 16:15 KST, Remote Share accepts only the v3 session body and treats
   the `optional` assertion mode as invalid; the PRO Worker reports `passwordRequired` and
   `playlistSlots` without the opt-in headers, refuses or drops the request shapes and endpoints of
@@ -147,8 +149,11 @@ runbooks. Neither belongs in a general setup document.
   the owner policy and the floor, each increment (W-1 to W-4) with its commits, tests-first evidence
   rerun on the parents, removed lines and who loses what, the lane checks, the unchanged eager JS and
   the Worker bundle deltas, the skipped items and the train that takes each, the deploy conditions
-  and order, the same-value floor `set` right after the release, rollback boundaries and what was not
-  verified.
+  and order, the same-value floor `set` right after the release, rollback boundaries, the PR CI,
+  Codex, exact-main CI, release and W-verify round (the PR CI that started only after a close and
+  reopen, the six Worker versions, the release signaling smoke as the first production proof that
+  Signaling admits build-787 hosts and guests with the floor on, public checks, the Drift Audit) and
+  what was not verified.
 - [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
   release evidence for the train that adds the forced update (9.0.14 / v787 from bump `2077ef60`,
   released 2026-10-26 16:10 KST in Release 40283632968, target `all`; the first App build floor,

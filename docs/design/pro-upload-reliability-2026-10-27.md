@@ -1,12 +1,12 @@
 # PRO upload completion and authority feedback — 2026-10-27
 
-| Field                 | Value                                                                                           |
-| --------------------- | ----------------------------------------------------------------------------------------------- |
-| Status                | PR preparation; not merged or deployed                                                          |
-| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`           |
-| Proposed identity     | 9.0.16 / v790; App build floor unchanged                                                        |
-| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback |
-| Release authorization | Owner requested a reviewable PR only; merge and deployment remain withheld                      |
+| Field                 | Value                                                                                                  |
+| --------------------- | ------------------------------------------------------------------------------------------------------ |
+| Status                | [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503) open for owner review; not merged or deployed |
+| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`                  |
+| Proposed identity     | 9.0.16 / v790; App build floor unchanged                                                               |
+| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback        |
+| Release authorization | Owner requested a reviewable PR only; merge and deployment remain withheld                             |
 
 ## Runtime increments
 
@@ -90,11 +90,66 @@ of pending authority.
   attempt appended a playlist row. Screenshots and sanitized logs are private;
   the public report contains no room, account, file-name or credential data.
 
-### 2. Branch regression checks
+### 2. Development and integration checks
 
-Pending final committed runtime SHA and integrated results. Focused tests are
-recorded below after the final implementation is frozen; earlier local runs
-are not an exact-main release candidate.
+Environment: Windows, Node 24.20.0, npm 12.0.2, Vitest 5.0.3, local Chromium.
+The integration round began at `c50a0d9c8` after incorporating main `5dd7cc1f6`.
+Its full run had 675/680 files and 16,099/16,112 assertions pass. Failures exposed
+stale tool/fixture expectations and one unused export: runtime path mapping,
+the critical-browser script list, dialog sizing, cache bootstrap parity, and
+duration-test R2 metadata/copy stubs. These were corrected before the final
+runtime commit. Some corrections overlapped that diagnostic run, so it is not
+an immutable candidate result.
+
+The integrated build's critical Chromium suite passed 65/65 cases, including
+four new upload cases, playback, background recovery, and host/guest flows.
+The file-reason dialog was also inspected on desktop and a short mobile
+viewport; long lists scroll internally and the Close action remains reachable.
+This local browser run preceded the last Standard authority feedback fixes;
+the final-SHA CI browser gate below covers the resulting runtime.
+
+Independent review then found two Standard feedback regressions: a pending
+account assertion must not mask an existing host grant, and a trusted explicit
+host revoke must end the pending state. Both were fixed with regression cases.
+The final focused authority run passed 131/131 assertions in five files.
+
+### 3. Frozen runtime verification
+
+Tested code: `f2f25d902c1f36b0d8df7a45f3871f9e7c563104`
+(9.0.16 / v790). Environment: the pinned local toolchain above, plus GitHub CI.
+Later report-only commits do not change this runtime evidence.
+
+- **Full local unit run:** 678/680 files and 16,110/16,112 assertions passed.
+  Two release-tooling tests exceeded their existing 30-second and 15-second
+  wall-clock limits while other local checks were running. Both passed in an
+  isolated, single-worker rerun at the same SHA (2 passed; 142 unrelated cases
+  skipped because the full run had already covered them). No timeout was
+  increased and no product assertion failed. Thus every one of the 16,112
+  assertions passed across the full run and those two isolated reruns; the
+  first full invocation itself was not green.
+- **Types and static checks:** typecheck, lint, formatting, App Worker syntax,
+  Developer API boundary, D1 contract, operations drift contract and resource
+  ownership checks passed. The ownership registry retains 48 records; the
+  room-authority guard remains at 81 reads / 22 subscriptions / 13 writes after
+  integration, with only the existing feedback repaint fingerprints updated.
+- **Production build:** `npm run build:checked` passed, including source,
+  release identity and service-worker cache guards. Eager JavaScript is
+  455.7 KiB gzip; minimum budget headroom is 5%; 96 app-shell assets were built.
+  This is a local artifact, not a deployment.
+- **Worker bundles:** all six Worker dry-run bundles passed on the integrated
+  tree; no Worker runtime changed between that check and the frozen SHA.
+- **GitHub CI:** [run 40407895179](https://github.com/hiefny/MUSIXQUARE/actions/runs/40407895179)
+  tests the frozen SHA. Both unit shards, critical browser gate, production
+  release candidate, static checks, lint/format, types/source guards, Worker
+  runtime coverage, release-tooling coverage, critical runtime coverage and
+  broad unit coverage all passed: 11/11 checks. Subsequent report-only commits
+  may start another CI run; the PR check state is authoritative for that head.
+- **Automated review:** the [Codex review summary](https://github.com/hiefny/MUSIXQUARE/pull/503#issuecomment-6428202976)
+  records completed code review at this SHA with no findings. This is not a
+  claim that a separate security review ran.
+
+Local logs and screenshots remain in ignored private notes. Neither local
+results nor PR CI replace the exact-main-SHA candidate required after merge.
 
 ## Release and recovery
 

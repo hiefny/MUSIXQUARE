@@ -57,6 +57,9 @@ gh run list --workflow e2e.yml --branch main --limit 3
       기존 asset에 선택적 원본 ETag 핀, tombstone에 final 키를 추가하며 기존 정리 소유권을 유지한다.
       복사 결과가 불명확한 동안 옛 PRO Worker로 롤백하면 새 핀·정리 필드를 무시하므로 forward fix를 우선한다.
       Developer API는 기존 스트림 복사를 유지한다.
+      [PR #503](https://github.com/hiefny/MUSIXQUARE/pull/503)의 최종 런타임 `f2f25d902`에서 빌드·타입·가드가
+      통과했고, 단위 16,112개는 전체 실행과 도구 테스트 시간 초과 두 건의 단독 재실행에 걸쳐 모두 통과했다.
+      같은 SHA의 PR CI 단위 두 shard·critical browser도 통과했다(최종 집계와 한계는 아래 보고서).
       실제 수정본의 운영 대용량 성공·CopyObject 지연 확인은 미실시이며 로컬 결과는 exact-main 후보가 아니다.
       [변경·QA·복구 보고서](design/pro-upload-reliability-2026-10-27.md).
 

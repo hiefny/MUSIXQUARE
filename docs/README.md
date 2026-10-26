@@ -98,9 +98,12 @@ runbooks. Neither belongs in a general setup document.
   yet; its Worker release W keeps its own report). It removes App code that only served clients
   below the App build floor 787 (9.0.14). So far it records increment A-1, C5-12 Inc 3: after ICE
   recovery a preload yields to the main lane for the same tuple without waiting for the host's
-  route re-detection, and the route-permission machine (`RestartedPreloadLane`) is gone. The
-  report lists each increment with its commits, tests-first evidence, who loses what, the
-  registry changes (RO-18), the local checks, the eager JS delta and the C5-0 lab results.
+  route re-detection, and the route-permission machine (`RestartedPreloadLane`) is gone.
+  Increment A-2 (OV-F01, OV-F03): bulk credit and control isolation wait for the peer's hello
+  (the 1 s fallback for 8.11.22 and older peers is gone), and no end sends the side route's
+  `restart-capable` advertisement any more. The report lists each increment with its commits,
+  tests-first evidence, who loses what, the registry changes (RO-18, RO-15), the local checks,
+  the eager JS delta and the C5-0 lab results.
 - [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
   evidence for the train that adds the forced update (9.0.14 / v787 from bump `2077ef60`, not yet
   released; target `all`; the 9.0.12 receive-slot train and the 9.0.13 old-version removal train

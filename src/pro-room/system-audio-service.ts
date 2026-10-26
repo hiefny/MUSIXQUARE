@@ -2295,13 +2295,21 @@ export function registerProSystemAudioServiceListeners(): void {
       return;
     }
     if (event.type === 'subscriber-state' && event.state === 'stopped') {
-      // The subscriber stopped itself at its descriptor's live budget (after a
-      // direct-to-SFU promotion, the promotion's budget can pass while the
-      // share stays live). Since 5B-G6 (gap 12) the slot hears it: drop the
-      // source and interrupt under the coordinator's own deadlines, with no
-      // notice, keeping the placeholder and the publication key; the next
-      // heartbeat's refused subscribe or the idle state follows. The
-      // coordinator's own stops carry an unexpired descriptor or another
+      // The subscriber stopped itself at its descriptor's live budget: the
+      // share's two-hour limit, promoted or not. The server ends the share at
+      // that instant and the publisher's capture stops then, but this timer
+      // needs no network hop, so a listener usually gets here first at the
+      // normal end of every PRO SFU share that reaches its limit (and earlier
+      // still when its clock runs ahead, or longer before a late idle state).
+      // Since 5B-G6 (gap 12) the slot hears it: drop the source and interrupt
+      // under the coordinator's own deadlines, with no notice, keeping the
+      // placeholder and the publication key, so listeners show the pending
+      // state until the idle state ends the reception (or the next
+      // heartbeat's refused subscribe shows its notice). An interrupt, not an
+      // end: this device's clock read the budget, no stop signal came, and
+      // the view still holds the share live; an end would need the 5B-G2
+      // ended mark so a late heartbeat would not notify over an idle slot.
+      // The coordinator's own stops carry an unexpired descriptor or another
       // publication, or come after its cleanup cleared the key or its 5B-G2
       // route end marked the publication ended; a retry's cleanup of an
       // expired subscription detaches and interrupts the same way itself.

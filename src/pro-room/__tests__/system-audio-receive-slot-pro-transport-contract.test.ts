@@ -7,12 +7,13 @@
  * with calibrated fakes; this one runs network/pro-system-audio-sfu.ts and
  * network/pro-system-audio-direct.ts for real, so the rows below pin what only
  * the transports decide: when a subscriber exposes its track, the playout hint
- * per route, the subscriber's own live-budget expiry (the PRO two-hour budget
- * and its re-publication case), real ICE state handling, the LAN locality
- * proof, the transport's 5 s track-ready deadline next to the coordinator's
- * 30 s one, route supersession by generation, the signals a listener sends its
- * publisher, the route closures the slot hears (a publisher's 'stopped' close
- * and the subscriber's budget expiry, since 5B-G6), S8b on both routes, LAN-direct begin re-entrancy, iOS initAudio
+ * per route, the subscriber's own live-budget expiry (the PRO two-hour budget,
+ * at a plain share's end and in its re-publication case), real ICE state
+ * handling, the LAN locality proof, the transport's 5 s track-ready deadline
+ * next to the coordinator's 30 s one, route supersession by generation, the
+ * signals a listener sends its publisher, the route closures the slot hears
+ * (a publisher's 'stopped' close and the subscriber's budget expiry, since
+ * 5B-G6), S8b on both routes, LAN-direct begin re-entrancy, iOS initAudio
  * rejection, the transports' own attach fences for a same-publication route
  * retirement (the SFU subscriber epoch and the LAN receiver route, C4-9 and
  * P5-D8), adopt idempotence (also while an attach waits), the retire paths and
@@ -460,6 +461,50 @@ describe('PRO SFU reception through the real subscriber', () => {
     expect(seen.toasts).toEqual(['system_audio.connection_unstable']);
   });
 
+  it("5B-G6: a plain share's two-hour end (no promotion) reaches the subscriber's own budget expiry first, which interrupts the reception with no notice; the server's idle state then ends it with the previous title and one restore", async () => {
+    const committedAt = Date.now();
+    const budget = committedAt + LIVE_TTL_MS;
+    await applyState(live(sfuPublication(), 1, REMOTE_ID, budget));
+    await advance(PRO_SUBSCRIBED_AT_MS);
+    expect(slot()).toMatchObject({
+      receiving: true,
+      activity: 'playing',
+      sources: ['sfu-audio-1'],
+    });
+
+    await advance(budget - 1 - Date.now());
+    expect(sfuConnections()[0].closed).toBe(false);
+    expect(slot()).toMatchObject({ receiving: true, activity: 'playing' });
+    await advance(1);
+    // Every SFU descriptor carries the share's live budget, the instant the
+    // server ends the share (its alarm) and the publisher's capture stops.
+    // The subscriber's own timer needs no network hop, so a listener usually
+    // reaches it before the idle state arrives. Since 5B-G6 (gap 12) that
+    // expiry interrupts the reception: pending (the play button's spinner,
+    // Media Session 'paused') with no notice until the idle state. Before,
+    // the slot stayed 'playing' in silence for the same window.
+    expect(sfuConnections()[0].closed).toBe(true);
+    expect(realtime.count('tracks-close')).toBe(1);
+    expect(slot()).toMatchObject({
+      receiving: false,
+      mode: 'system-audio',
+      activity: 'pending',
+      placeholder: true,
+      sources: [],
+      primers: 0,
+    });
+    expect(seen.toasts).toEqual([]);
+    expect(restorePlayback).not.toHaveBeenCalled();
+
+    // The server's idle state (its alarm or the publisher's release, one
+    // broadcast and one refresh later) ends the reception.
+    await applyState(idle(2));
+    expect(slot()).toEqual(idleWithPreviousTitle());
+    expect(restorePlayback).toHaveBeenCalledTimes(1);
+    expect(realtime.count('new-session')).toBe(1);
+    expect(seen.toasts).toEqual([]);
+  });
+
   it('two-hour budget re-publication case, gap 12 fixed in 5B-G6: after a direct-to-SFU promotion the subscriber expires at the promotion budget and interrupts the reception at once with no notice; the next heartbeat still shows one notice and a no-network retry loop', async () => {
     const committedAt = Date.now();
     await applyState(live(directPublication(), 1, REMOTE_ID, committedAt + LIVE_TTL_MS));
@@ -496,11 +541,13 @@ describe('PRO SFU reception through the real subscriber', () => {
     expect(seen.toasts).toEqual([]);
     expect(realtime.count('new-session')).toBe(1);
 
-    // A presence heartbeat reconciles the unchanged, now expired publication.
-    // The subscribe is refused before any request, which the coordinator
-    // treats as a failed attempt: one notice, the placeholder kept, and a
-    // backed-off retry that fails the same way without network until the
-    // share ends (unchanged by 5B-G6).
+    // The server ends a promoted share at the same budget, so its idle state
+    // normally follows (as in the plain two-hour end above). Here it is late
+    // (a lost invalidation): a presence heartbeat reconciles the unchanged,
+    // now expired publication. The subscribe is refused before any request,
+    // which the coordinator treats as a failed attempt: one notice, the
+    // placeholder kept, and a backed-off retry that fails the same way
+    // without network until the share ends (unchanged by 5B-G6).
     bindProSystemAudioSession(snapshot());
     await advance(0);
     expect(slot()).toMatchObject({
@@ -876,7 +923,9 @@ describe('PRO LAN-direct reception through the real transport', () => {
     expect(seen.toasts).toEqual([]);
   });
 
-  it("5B-G6: a publisher close 'stopped' before any track ends the pending reception at once and clears the direct receive deadline: no notice at 30 s", async () => {
+  // The coordinator also clears its direct receive deadline here; this suite
+  // reads no timer names, so system-audio-service.test.ts pins the clear.
+  it("5B-G6: a publisher close 'stopped' before any track ends the pending reception at once: no notice at 30 s", async () => {
     await applyState(live(directPublication()));
     sendLanProbeOffer(lanRoute());
     await advance(0);

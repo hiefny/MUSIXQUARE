@@ -1676,6 +1676,48 @@ describe('PRO system-audio service orchestration', () => {
     expect(graph.sources[0]?.connect).toHaveBeenCalledWith(graph.widenerInput);
   });
 
+  it("clears the direct receive deadline on the live publisher's 'stopped' close and ends the reception only while the slot holds one (5B-G6)", async () => {
+    const DIRECT_DEADLINE = 'pro-system-audio-direct-receive-deadline';
+    api.getSystemAudioState.mockResolvedValueOnce(directLive());
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.beginReception).toHaveBeenCalledTimes(1));
+    expect(getManagedTimer(DIRECT_DEADLINE)).not.toBeNull();
+    mocks.cleanupReception.mockClear();
+
+    // Another publication's or another owner's stop changes nothing.
+    mocks.directCallbacks?.onLiveRouteStopped({
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00002',
+    });
+    mocks.directCallbacks?.onLiveRouteStopped({
+      participantId: 'participant_remote2',
+      generation: 1,
+      publicationId: 'publication_00001',
+    });
+    expect(getManagedTimer(DIRECT_DEADLINE)).not.toBeNull();
+    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+
+    // The live publication's stop clears the deadline (the stop is no failure
+    // to report) and asks the slot before it ends: no reception, no end.
+    mocks.hasReception.mockReturnValue(false);
+    mocks.directCallbacks?.onLiveRouteStopped({
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+    });
+    expect(getManagedTimer(DIRECT_DEADLINE)).toBeNull();
+    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+
+    mocks.hasReception.mockReturnValue(true);
+    mocks.directCallbacks?.onLiveRouteStopped({
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+    });
+    expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
+  });
+
   it('does not attach a stale direct track after the trusted boundary resolves', async () => {
     const graph = installAudioGraphHarness();
     const trustedBoundary = deferred<boolean>();

@@ -559,18 +559,29 @@ RO-49 accepted-exception
   state, a new visible state on the most common stop path; the end shows what the idle state
   shows, only earlier. `'superseded'` and a non-live `'fallback'` close the route only, as before.
   The PRO SFU subscriber's own budget expiry (its `'stopped'` event with an expired descriptor of
-  the live remote publication, reachable only after a direct-to-SFU promotion whose two-hour
-  budget passes) clears the disconnect grace, detaches the route and interrupts with
-  `deadline: 'route'`, with no notice, keeping the placeholder and the key; the next heartbeat's
-  refused subscribe (one `connection_unstable` and the no-network backoff,
+  the live remote publication) clears the disconnect grace, detaches the route and interrupts with
+  `deadline: 'route'`, with no notice, keeping the placeholder and the key; the idle state then
+  ends the reception, or, when it is late, the next heartbeat's refused subscribe (one
+  `connection_unstable` and the no-network backoff,
   `system-audio-subscriber-watchdog.test.ts` "PRO SFU subscription that rejects synchronously",
-  unchanged) or the idle state follows. An interrupt rather than an end there: an end would need
-  the 5B-G2 ended mark for an unchanged expired live state and would change that pinned retry
-  path. The coordinator's own subscriber stops carry an unexpired descriptor or another
-  publication, or come after its cleanup cleared the key or its route end marked the publication
-  ended, so the handler ignores them; a retry's cleanup of an expired subscription detaches and
-  interrupts the same way itself. The maintained contract is
-  [System-audio receive ownership](system-audio-receive-ownership.md).
+  unchanged) comes first. Every PRO SFU descriptor carries the share's live budget
+  (`liveExpiresAt`: two hours, or a promotion's fresh budget), the instant the server's alarm ends
+  the share and the publisher's capture stops; the listener's timer needs no network hop, so it
+  usually fires first at the normal end of every PRO SFU share that reaches its two-hour limit,
+  promoted or not (also earlier when the listener's clock runs ahead, and long before a late idle
+  state). Each SFU listener therefore shows the pending state (the play button's loading spinner,
+  the play icon off, the Media Session reporting paused) from its budget until the idle state,
+  usually about a second, where before 5B-G6 it showed the share playing in silence. An interrupt
+  rather than an end there: the stop is the listener's own clock reading the budget, not a
+  publisher or server signal, so the view still holds the share live; and an end would need the
+  5B-G2 ended mark for an unchanged expired live state, so that a late heartbeat would not show
+  `connection_unstable` over an idle slot, which would change that pinned retry path. P5-D5 A
+  left end or interrupt to the plan, so an end with the ended mark stays a later option with no
+  frame change; the device sheet has no two-hour share. The coordinator's own subscriber stops
+  carry an unexpired descriptor or another publication, or come after its cleanup cleared the key
+  or its route end marked the publication ended, so the handler ignores them; a retry's cleanup
+  of an expired subscription detaches and interrupts the same way itself. The maintained contract
+  is [System-audio receive ownership](system-audio-receive-ownership.md).
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
   register and call begin, attach, interrupt, resume, detach, adopt and end; the later Phase 5
@@ -614,7 +625,8 @@ RO-49 accepted-exception
 - **Route parity (owner decision P5-D10 A, recorded in 5B-G1):** Phase 5 changes no parity
   between the routes; the differences below are kept on purpose. 5B-G2 and 5B-G6 completed the
   last two rows in their own changes. Since 5B-G6 the PRO SFU subscriber's own budget expiry
-  interrupts the reception with no notice (gap 12).
+  interrupts the reception with no notice (gap 12), usually just before the server's idle state at
+  every PRO SFU share's two-hour end, so PRO SFU listeners show the pending state briefly there.
 
   | Aspect                                              | Standard direct                       | Standard SFU                            | PRO SFU                                                                                | PRO LAN-direct                                              |
   | --------------------------------------------------- | ------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
@@ -807,14 +819,25 @@ RO-49 accepted-exception
     'stopped' closes the LAN route without telling the slot ...": idle with the previous title at
     the close, no notice or close back in 60 s, two heartbeats begin nothing, the share end asks
     for the post-share restore once), "5B-G6: a publisher close 'stopped' before any track ends
-    the pending reception at once and clears the direct receive deadline ..." (no notice at 30 s)
-    and the first half of "two-hour budget re-publication case, gap 12 fixed in 5B-G6 ..." (at
-    the promotion budget: one `tracks-close`, receiving off, pending, no source or primer, no
-    notice; the heartbeat half unchanged). Guards that pass before and after: the transport rows
-    "5B-G6 guard: a publisher close 'superseded' closes the LAN route without telling the slot
-    ..." (fails if the transport reports every close) and "5B-G6 guard: the subscriber stop the
-    coordinator's own cleanups run emits 'stopped' with the live, unexpired descriptor, which
-    changes nothing in the slot" (fails without the expiry condition). New with the callback:
+    the pending reception at once ..." (no notice at 30 s; until the 5B-G6 review its title also
+    claimed the direct receive deadline's clear, which it cannot see) and the first half of
+    "two-hour budget re-publication case, gap 12 fixed in 5B-G6 ..." (at the promotion budget: one
+    `tracks-close`, receiving off, pending, no source or primer, no notice; the heartbeat half
+    unchanged). Added in the 5B-G6 review, both failing without the change: the transport row
+    "5B-G6: a plain share's two-hour end (no promotion) reaches the subscriber's own budget expiry
+    first ..." (at the share's budget: one `tracks-close`, the `'system-audio'` mode kept with
+    activity pending, no source, primer or notice; the idle state then gives the previous title
+    and one restore; on the parent the slot stayed playing until the idle state) and the service
+    unit row "clears the direct receive deadline on the live publisher's 'stopped' close and ends
+    the reception only while the slot holds one (5B-G6)" (another publication or owner changes
+    nothing; fails without the deadline clear or with an unguarded end). Not pinned, harmless:
+    the SFU stop handler's ended-mark check (after a 5B-G2 route end the subscriber is already
+    stopped and a second interrupt is a no-op). Guards that pass before and after: the
+    transport rows "5B-G6 guard: a publisher close 'superseded' closes the LAN route without
+    telling the slot ..." (fails if the transport reports every close) and "5B-G6 guard: the
+    subscriber stop the coordinator's own cleanups run emits 'stopped' with the live, unexpired
+    descriptor, which changes nothing in the slot" (fails without the expiry condition). New
+    with the callback:
     `src/network/__tests__/pro-system-audio-direct.test.ts` "reports only a publisher's 'stopped'
     close of the current receiver route, once and with no close back (5B-G6)" and the PRO suite's
     "5B-G6: a publisher's 'stopped' close ends the reception with the previous title and no

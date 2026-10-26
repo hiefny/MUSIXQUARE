@@ -187,19 +187,38 @@ reached nobody before:
   off, which shows the play button's loading spinner and reports the Media
   Session as paused on every listener until the idle state. `'superseded'`
   and a non-live `'fallback'` close the route only, as before.
-- The PRO SFU subscriber's own budget expiry (gap 12). After a direct-to-SFU
-  promotion the subscriber stops itself at the promotion's two-hour budget
-  while the share can stay live. Its `'stopped'` event carries the expired
-  descriptor of the live remote publication; the coordinator then clears the
-  disconnect grace, detaches its route and interrupts with
-  `deadline: 'route'`, with no notice, keeping the placeholder and the key.
-  The next heartbeat's refused subscribe (one `connection_unstable` and the
-  no-network backoff, unchanged) or the idle state follows. The
-  coordinator's own subscriber stops carry an unexpired descriptor or
-  another publication, or come after its cleanup cleared the key or its
-  route end marked the publication ended, so they change nothing; a retry's
-  cleanup of an expired subscription detaches and interrupts the same way
-  itself. Unreachable on devices (a two-hour share after a promotion).
+- The PRO SFU subscriber's own budget expiry (gap 12). Every PRO SFU
+  descriptor carries the share's live budget (`liveExpiresAt`, two hours,
+  or the promotion's fresh budget after a direct-to-SFU promotion), and the
+  subscriber stops itself there. The server ends the share at the same
+  instant (its alarm) and the publisher's capture stops then, but the
+  listener's timer needs no network hop, so it usually comes first: this is
+  the normal end of every PRO SFU share that reaches its two-hour limit,
+  promoted or not. It also comes earlier when the listener's clock runs
+  ahead of the server's, and long before a late idle state (a lost
+  invalidation, up to a 15 s heartbeat); when the idle state comes first,
+  the coordinator's cleanup stops the subscriber and nothing below runs.
+  Its `'stopped'` event carries the expired descriptor of the live remote
+  publication; the coordinator then clears the disconnect grace, detaches
+  its route and interrupts with `deadline: 'route'`, with no notice,
+  keeping the placeholder and the key. The idle state then ends the
+  reception with the post-share restore; when it is late, the next
+  heartbeat's refused subscribe (one `connection_unstable` and the
+  no-network backoff, unchanged) comes first. So at a two-hour end each
+  SFU listener shows the pending state (the play button's loading spinner,
+  the play icon off, the Media Session reporting paused) from its budget
+  until the idle state, usually about a second; before 5B-G6 it showed the
+  share playing in silence for that window. An interrupt, not an end: the
+  stop is the listener's own clock reading the budget, not a publisher or
+  server signal, so the view still holds the share live, and an end would
+  need the 5B-G2 ended mark for an unchanged expired live state so that a
+  late heartbeat would not show `connection_unstable` over an idle slot,
+  which would change that pinned retry path. The coordinator's own
+  subscriber stops carry an unexpired descriptor or another publication, or
+  come after its cleanup cleared the key or its route end marked the
+  publication ended, so they change nothing; a retry's cleanup of an
+  expired subscription detaches and interrupts the same way itself. The
+  device sheet has no two-hour share, so this is unit evidence only.
 
 The `'system-audio'` owner is also the sharer's own claim
 (`src/audio/system-capture.ts`, with sharing meta). Since 5B-G4 (gap 6) the
@@ -363,8 +382,8 @@ and transport is
 | 8   | Notices differ per route: a Standard SFU live failure, a Standard direct call that closes while receiving and losing the host connection while receiving over the SFU all go idle with no notice; the Standard slot deadline shows `receive_failed`; PRO shows `connection_unstable`.                                                                                                                                                                                                                                                                                                                       | Standard "a live subscriber connection failure …"; lifecycle "expected today: the transport closing the direct call …" and "expected today: losing the host connection …"                                                                                                                                                                                                                                                                                                                                              |
 | 9   | A PRO direct-to-SFU promotion runs the start again (pending, idle, pending, with `stopAllMedia` twice); the audible gap is not measured.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | PRO "S7: a direct-to-SFU promotion moves the source without overlap and keeps the restore point"                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 10  | Outside the slot (RO-21): a share that ends while the page is hidden, after a failed first restore, prepares the same revision twice when the page is shown.                                                                                                                                                                                                                                                                                                                                                                                                                                                | `src/pro-room/__tests__/runtime-system-audio-join.test.ts` "F3 baseline: …"                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| 11  | Fixed in 5B-G6: a LAN publisher's 'stopped' close closed the route without telling the slot, so receiving and the source stayed until the server's idle state arrived. The transport now reports it and the coordinator ends the reception at once with the previous title (no notice; the publication key and the post-share restore on the idle state stay). 'superseded' still closes the route only.                                                                                                                                                                                                    | Transport "gap 11, fixed in 5B-G6: …", "5B-G6: a publisher close 'stopped' before any track …" and "5B-G6 guard: a publisher close 'superseded' …"; PRO "5B-G6: a publisher's 'stopped' close ends the reception …"; `pro-system-audio-direct.test.ts` "reports only a publisher's 'stopped' close of the current receiver route …"                                                                                                                                                                                    |
-| 12  | Fixed in 5B-G6: after a direct-to-SFU promotion the PRO SFU subscription ends at the promotion's two-hour budget, and the coordinator did not handle that 'stopped' event: "playing" on a closed transport until the next heartbeat. The expiry now detaches the source and interrupts the reception with no notice; the next heartbeat still shows one `connection_unstable` and backed-off retries that fail without a request until the share ends.                                                                                                                                                      | Transport "two-hour budget re-publication case, gap 12 fixed in 5B-G6: …" and "5B-G6 guard: the subscriber stop the coordinator's own cleanups run …"                                                                                                                                                                                                                                                                                                                                                                  |
+| 11  | Fixed in 5B-G6: a LAN publisher's 'stopped' close closed the route without telling the slot, so receiving and the source stayed until the server's idle state arrived. The transport now reports it and the coordinator ends the reception at once with the previous title (no notice; the publication key and the post-share restore on the idle state stay). 'superseded' still closes the route only.                                                                                                                                                                                                    | Transport "gap 11, fixed in 5B-G6: …", "5B-G6: a publisher close 'stopped' before any track …" and "5B-G6 guard: a publisher close 'superseded' …"; PRO "5B-G6: a publisher's 'stopped' close ends the reception …"; `pro-system-audio-direct.test.ts` "reports only a publisher's 'stopped' close of the current receiver route …"; `system-audio-service.test.ts` "clears the direct receive deadline on the live publisher's 'stopped' close …"                                                                     |
+| 12  | Fixed in 5B-G6: a PRO SFU subscription ends itself at the share's live budget (its two-hour limit, promoted or not), usually just before the server's idle state, and the coordinator did not handle that 'stopped' event: "playing" in silence on a closed transport until the idle state. The expiry now detaches the source and interrupts with no notice: pending (spinner, Media Session paused) until the idle state, usually about a second. If the idle state is late, the next heartbeat still shows one `connection_unstable` and no-network retries until the share ends.                        | Transport "5B-G6: a plain share's two-hour end (no promotion) …", "two-hour budget re-publication case, gap 12 fixed in 5B-G6: …" and "5B-G6 guard: the subscriber stop the coordinator's own cleanups run …"                                                                                                                                                                                                                                                                                                          |
 | 13  | A first Standard SFU subscription that fails with no pending READY is silent; the placeholder waits for the slot deadline and its `receive_failed`, and an unchanged READY subscribes again.                                                                                                                                                                                                                                                                                                                                                                                                                | Lifecycle "expected today: a failed first SFU subscription …" and "expected today: an unchanged READY after a failed subscription …"                                                                                                                                                                                                                                                                                                                                                                                   |
 | 14  | A Standard direct call error while pending closes the call and ends the placeholder without `receive_failed`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Lifecycle "expected today: a call error closes the call, …"                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
@@ -380,7 +399,12 @@ The repository guards this contract through:
 - `src/pro-room/__tests__/system-audio-service.test.ts`, which hand-mocks state
   and stubs the slot's start, trust boundary and end (since 5B-G1 the stubbed
   start commits the placeholder the attach fence reads, and the stubbed end
-  retires it) and, since 5B-G4, the reception query;
+  retires it) and, since 5B-G4, the reception query; since 5B-G6 its row
+  "clears the direct receive deadline on the live publisher's 'stopped' close
+  and ends the reception only while the slot holds one (5B-G6)" pins the two
+  parts of the gap 11 handler the transport suite cannot see (it reads no
+  timer names, and the deadline callback returns by itself once the
+  placeholder is gone);
 - `src/network/__tests__/system-audio-host.test.ts` "keeps an opened direct
   call with no close or error for 60 s with no SFU handoff" (5B-G1): with the
   Standard suite's S9 row (the refused call stays open until STOP) it shows that

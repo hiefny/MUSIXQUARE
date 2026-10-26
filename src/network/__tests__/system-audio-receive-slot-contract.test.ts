@@ -788,6 +788,80 @@ describe('Standard SFU guest receive', () => {
     expect(slot().title).toBe(previousTitle);
   });
 
+  // 5B-OV2 (old-version survey OV-B06): a host on this build sends a failed-
+  // direct remote peer READY { audience: 'remote', handoffFromDirect: true },
+  // where hosts up to 9.0.13 sent 'all' (the S4 row above). These rows pass
+  // before and after: the guest side is unchanged, so a 9.0.12/9.0.13 guest
+  // accepts the frame on both routes the host can leave it on, freezes
+  // 'sfu-remote' with guestRejectLateDirectRoute set, and refuses a late direct
+  // call exactly as the 'sfu-all' freeze did.
+  it('OV-B06 acceptance (route direct): a remote READY with the handoff marker ends the direct reception, re-begins with the same surface, subscribes and refuses a late direct call', async () => {
+    await start('window');
+    const call = directCall();
+    call.stream(streamOf('p2p-a'));
+    await advance(0);
+    expect(getGuestSystemAudioShareRoute()).toBe('direct');
+
+    await ready('rt_host_session_1', { handoffFromDirect: true });
+    expect(call.closeCount()).toBe(1);
+    expect(seen.counts.hostStarted).toBe(2);
+    expect(getState('player.currentTrackMeta')?.systemAudioSurface).toBe('window');
+    expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
+
+    await advance(1_000);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-1'] });
+
+    const late = directCall();
+    expect(late.closeCount()).toBe(1);
+    expect(late.mediaConn.answer).not.toHaveBeenCalled();
+    expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
+    expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-1'] });
+    expect(FakeRTCPeerConnection.instances[0].closed).toBe(false);
+    expect(webAudio.maxConnected).toBe(1);
+    expect(seen.toasts).toEqual([]);
+
+    await stop();
+    expect(slot().title).toBe(previousTitle);
+  });
+
+  it.each(['remote', 'local'] as const)(
+    'OV-B06 acceptance (route unselected, guest classified %s): the host sequence STOP, START, then a remote READY with the handoff marker subscribes and refuses a late direct call',
+    async (connectionType) => {
+      setState('network.connectionType', connectionType);
+      await start('window');
+      const call = directCall();
+      call.stream(streamOf('p2p-a'));
+      await advance(0);
+      expect(getGuestSystemAudioShareRoute()).toBe('direct');
+
+      // The host's handoff of a failed direct call (system-audio-host.ts
+      // handoffFailedDirectCall): STOP and START reset the guest's route to
+      // 'unselected', and the marker passes the READY's LAN check there.
+      await stop();
+      expect(call.closeCount()).toBe(1);
+      await start('window');
+      expect(getGuestSystemAudioShareRoute()).toBe('unselected');
+      await ready('rt_host_session_1', { handoffFromDirect: true });
+      expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
+      expect(getState('player.currentTrackMeta')?.systemAudioSurface).toBe('window');
+
+      await advance(1_000);
+      expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-1'] });
+
+      const late = directCall();
+      expect(late.closeCount()).toBe(1);
+      expect(late.mediaConn.answer).not.toHaveBeenCalled();
+      expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
+      expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-1'] });
+      expect(FakeRTCPeerConnection.instances[0].closed).toBe(false);
+      expect(webAudio.maxConnected).toBe(1);
+      expect(seen.toasts).toEqual([]);
+
+      await stop();
+      expect(slot().title).toBe(previousTitle);
+    },
+  );
+
   it('the two-hour remote receive limit runs per subscription and re-arms when the host re-publishes', async () => {
     await start();
     await ready('rt_host_session_a');

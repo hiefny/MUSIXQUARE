@@ -15,11 +15,15 @@
  *   playback-extended.test.ts "sends system audio bootstrap without file
  *   playback payloads".
  * - network/system-audio-host.ts (a late peer, the direct-route failure
- *   handoff and the remote fallback after an SFU outage) and
- *   network/system-audio-sfu.ts (a late LAN peer whose SFU capability
- *   arrives): below, driven through the real host and Standard SFU modules,
- *   the real delivery policy, protocol router, peer-state, state, bus and
- *   managed timers.
+ *   handoff and the remote fallback after an SFU outage): below, driven
+ *   through the real host and Standard SFU modules, the real delivery policy,
+ *   protocol router, peer-state, state, bus and managed timers.
+ *
+ * Phase 5 5B-OV2 removed a sixth sender, network/system-audio-sfu.ts (a late
+ * LAN peer whose SFU capability marker arrived after the peer event): the host
+ * no longer reads that marker (old-version survey OV-B05), so a late LAN peer
+ * gets the host's late-peer START once and goes to the SFU at once (the row
+ * "Standard SFU, late ninth LAN listener" below).
  *
  * Replaced, as in system-audio-standard-publish-evidence.test.ts, all native
  * seams: RTCPeerConnection and the Cloudflare Realtime API
@@ -36,8 +40,6 @@ import { resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection, MediaConnection } from '../../types/index.ts';
 import { setPeer } from '../peer-state.ts';
-import { handleData } from '../protocol.ts';
-import { resetLocalSystemAudioSfuCapabilities } from '../system-audio-delivery.ts';
 import { registerSystemAudioHostListeners } from '../system-audio-host.ts';
 import { registerSystemAudioSfuListeners } from '../system-audio-sfu.ts';
 import { createSystemAudioStartFrame, readSystemAudioStartSurface } from '../system-audio-start.ts';
@@ -197,7 +199,6 @@ describe('every Standard START sender sends the shared normalized frame', () => 
   afterEach(() => {
     bus.emit('system-audio:stop');
     setPeer(null);
-    resetLocalSystemAudioSfuCapabilities();
     clearAllManagedTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -243,7 +244,8 @@ describe('every Standard START sender sends the shared normalized frame', () => 
       calls.get(listener.id)?.close();
       await advance(PUBLISH_SETTLE_MS);
 
-      // The rolling-release STOP and START, then the READY.
+      // The STOP and START that re-enter the guest's placeholder (SA-2,
+      // kept), then the READY.
       expect(conns[0]?.send.mock.calls.map(([frame]) => frame)).toEqual([
         { type: MSG.SYSTEM_AUDIO_STOP },
         { type: MSG.SYSTEM_AUDIO_START, surface: sent },
@@ -281,29 +283,31 @@ describe('every Standard START sender sends the shared normalized frame', () => 
   );
 
   it.each(SURFACES)(
-    'Standard SFU, late LAN capability: $stored is sent as $sent',
+    'Standard SFU, late ninth LAN listener: $stored is sent as $sent, once, by the host (5B-OV2)',
     async ({ stored, sent }) => {
       shareWithSurface(stored);
-      // Eight legacy LAN listeners hold every direct slot.
+      // Eight LAN listeners hold every direct slot.
       const listeners = Array.from({ length: 8 }, (_, index) => guest(index + 1, 'local'));
       setState('network.connectedPeers', listeners);
       installTransport();
       bus.emit('system-audio:streams-ready');
       await advance(0);
 
-      // A ninth LAN listener that can take the SFU announces it.
+      // A ninth LAN listener joins: the host's late-peer START, then the SFU.
       const late = guest(9, 'local');
       setState('network.connectedPeers', [...listeners, late]);
-      setState('network.activeHostConnByPeerId', new Map([[late.id, late.conn as DataConnection]]));
-      await handleData(
-        { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 2, localAudience: true },
-        late.conn as DataConnection,
-      );
+      bus.emit('orchestrator:peer-joined', late.id);
       await advance(PUBLISH_SETTLE_MS);
 
       expect(startFrames()).toEqual([
         { to: late.id, frame: { type: MSG.SYSTEM_AUDIO_START, surface: sent } },
       ]);
+      const lateFrames = conns.at(-1)!.send.mock.calls.map(([frame]) => frame as { type?: string });
+      expect(lateFrames.map((frame) => frame.type)).toEqual([
+        MSG.SYSTEM_AUDIO_START,
+        MSG.SYSTEM_AUDIO_SFU_READY,
+      ]);
+      expect(lateFrames[1]).toMatchObject({ audience: 'all' });
     },
   );
 });

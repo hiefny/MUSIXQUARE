@@ -25,9 +25,9 @@ subscription.
 
 The registry seeds one launch canary:
 
-| Code     | Purpose                | Derived bootstrap value |
-| -------- | ---------------------- | ----------------------- |
-| `000000` | Built-in launch canary | `00000000`              |
+| Code     | Purpose                |
+| -------- | ---------------------- |
+| `000000` | Built-in launch canary |
 
 Its natural invite URL is `https://musixquare.com/000000`. A six-digit
 `roomCode` is a reusable public
@@ -1214,6 +1214,18 @@ preserve all three and repair forward. Only an exact checkpoint proving that no
 cutover component became live may roll back below the marker. The earlier
 direct-descriptor, unmetered-direct, and same-ID promotion floors remain
 subsumed by v3.
+
+The PRO Worker of 2026-10-26 stopped serving the request shapes of Apps below
+the 787 build floor. Restoring the PRO Worker it replaced needs no new floor
+while every App sends the entry-policy and playlist-slots opt-in headers and
+the presence close's `baseRevision`, `currentQueueItemId` and `playback`, as
+9.0.14 and later do: that build answers them the same way, its load
+normalization re-adds `developerControlVersion` to participants and developer
+commands, the stored `coordinatorParticipantId` is the null it always wrote,
+and playback receipts keep their `kind` marker, so it does not shorten them.
+The boundary moves when the App stops sending the three close fields: below
+the 2026-10-26 Worker that close is refused (400) and the participant stays
+listed until presence expires, so that release records the new boundary here.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.

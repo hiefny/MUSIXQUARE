@@ -760,11 +760,11 @@ RO-51 duplicated
   - a no-retry lane for `pro-room-invalidated` and `system-audio-invalidated` events: one
     `broadcastServerEvent` call and no record. `scheduleServerEvent` sends it through `waitUntil`
     for `scheduleDeveloperInvalidationHint`, `handleInternalDeveloperQueueModeUpdate` and
-    `reconcileSystemAudio`; twelve call sites await `broadcastServerEvent` directly after persist,
-    in `handleInternalDeveloperCommandCreate`, `handleUpdateEffects`, `handleUpdateSettingsSync`,
-    `handleUpdateQueueMode`, `handleAcquireSystemAudio`, `handleCommitSystemAudio`,
-    `handleReleaseSystemAudio`, `commitParticipantSnapshot` (from
-    `handleCompactSnapshotMutation`), `handlePlaylistSwitch` and `handlePlaylistTransfer`.
+    `reconcileSystemAudio`; eleven call sites await `broadcastServerEvent` directly after persist,
+    in `handleInternalDeveloperCommandCreate`, `handleUpdateSettingsSync`, `handleUpdateQueueMode`,
+    `handleAcquireSystemAudio`, `handleCommitSystemAudio`, `handleReleaseSystemAudio`,
+    `commitParticipantSnapshot` (from `handleCompactSnapshotMutation`), `handlePlaylistSwitch` and
+    `handlePlaylistTransfer`.
 
 - **Target single owner:** reached by C7-4 (the section above). The no-retry lane stays best
   effort: its senders use the same request builder, keep their current execution mode and get no

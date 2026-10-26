@@ -584,9 +584,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
 - [ ] PRO 소유권 이전 시 입장 암호 끄기(같은 묶음): 오너 결정(2026-10-23)대로 이전이 커밋되면 방
       설정의 "암호 끄기"와 같은 상태로 입장 암호가 꺼지고, 이전 링크는 암호를 묻지 않는다.
       `OWNER_TRANSFER_PIN_REUSE`(이전 소유자 PIN 확인 수단, 소비되지 않은 링크에 "새 링크 요청"
-      안내)와 재생 PIN 비교를 없앴다. 결정 전 앱의 `newPin`과 PIN이 든 옛 대기 레코드는 받고 무시한다.
-      9.0.4와 함께 target `all`(PRO room 먼저)로 배포됐고, PRO 입장 정책 계약 표지
-      `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`이 운영에 올라가 이제 자동
+      안내)와 재생 PIN 비교를 없앴다. 결정 전 앱(9.0.4 전)의 `newPin`과 PIN이 든 옛 대기 레코드는
+      받고 무시했다. 구버전 호환 코드 제거 열차 2의 Worker 릴리스부터 PRO는 그 `newPin`을 400으로
+      거절하고 PIN이 든 대기 레코드는 무효로 버린다(그런 앱은 최소 앱 빌드 787 아래이고, 대기 레코드는
+      길어야 15분 산다). 이 변경은 9.0.4와 함께 target `all`(PRO room 먼저)로 배포됐고, PRO 입장
+      정책 계약 표지 `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`이 운영에 올라가 이제 자동
       복구가 PRO·App을 표지 아래로 되돌리지 않고 앞으로 고친다(§4). 남은 것은 테스트 방에서 이전
       링크가 암호를 묻지 않는지, 새 소유자 설정에 암호 꺼짐이 보이고 켤 수 있는지, 이전 때 있던
       참여자가 코드만으로 들어오는지 확인하는 것이다. 오너 결정(2026-10-24): 운영자가 직접 하는 드문

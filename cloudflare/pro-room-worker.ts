@@ -16523,6 +16523,9 @@ export class MusixquareProRoom {
       fingerprint,
       body: structuredClone(body),
       status,
+      // No reader here since 2026-10-26. Kept so that a PRO Worker from before
+      // then, after a rollback, does not take these 10-minute receipts for
+      // unmarked 24-hour ones and expire them at once.
       ...(playbackAuthority ? { kind: 'playback-authority' } : {}),
       expiresAtMs: playbackAuthority
         ? Math.min(expiresAtMs, Date.now() + PLAYBACK_IDEMPOTENCY_TTL_MS)

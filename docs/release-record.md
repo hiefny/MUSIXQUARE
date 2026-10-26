@@ -1714,22 +1714,27 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
 
 - **PRO 파일 길이 저장(8.9.6):** App·PRO 함께 `all`로 배포한다. 새 비밀·바인딩·D1
   마이그레이션·복구 floor는 없다. 기존 파일의 private asset metadata를 점진적으로
-  보완하고 업로드나 재생목록을 초기화하지 않는다. 이전 PRO에 대한 업로드 완료의
-  선택적 길이 필드는 400 `INVALID_REQUEST`에서만 한 번 제외해 재시도한다.
-  추가 길이 보고는 실패해도 재생을 막지 않으며, 구 서버의 404 `NOT_FOUND`는 해당
-  클라이언트 수명 동안 생략한다. 8.9.5로 복구하면 새 필드는 사용하지 않고 기존
-  큐 캐시·서버 조회·READY 경로로 돌아간다.
-  [상세](design/pro-file-duration-registration-2026-10-12.md)
+  보완하고 업로드나 재생목록을 초기화하지 않는다. 추가 길이 보고는 실패해도 재생을
+  막지 않는다. 9.0.4의 PRO 입장 정책 표지 뒤로는 PRO를 이 변경 이전(8.9.5 이하)으로
+  되돌리지 않는다(아래 'PRO 소유권 이전 입장 암호 끄기'). 그래서 구버전 호환 제거
+  열차 2 릴리스 A부터 App은 업로드 완료가 400 `INVALID_REQUEST`를 받아도 길이
+  필드를 빼고 다시 보내지 않으며, 길이 보고 경로의 404 `NOT_FOUND`도 보고를 끄지
+  않고 다른 실패처럼 다음 준비 때 다시 보낸다. 그 전 App은 400이면 한 번 길이 없이
+  재시도했고 404면 그 클라이언트 수명 동안 보고를 껐다.
+  [상세](design/pro-file-duration-registration-2026-10-12.md),
+  [보고서](design/old-version-removal-2-2026-10-26.md)
 
 - **PRO 자율 재생(8.9.5):** App과 PRO를 함께 배포(`all`)한다. 새
   `PRO_YOUTUBE_METADATA` 서비스 바인딩은 기존 App의 YouTube 키와 기존 공유
   assertion secret을 쓰며, 새 비밀·D1 마이그레이션·호환 floor는 없다. PRO를 먼저
   배포했을 때 이전 App의 내부 경로 404는 미확정으로 처리하고 재시도한다.
-  PRO 롤백 시 파일 READY의 선택적 길이 필드는 400 `INVALID_REQUEST`에만 한 번
-  제외하고 재시도한다. 구 Worker는 새 길이 캐시를 사용하지 않으므로 자율 곡 전환은
-  다시 권한 기기의 종료 보고에 의존한다. App만 롤백해도 기존 파일 근거는 유지되지만
-  새 YouTube 길이 조회는 복구 전까지 미확정이 된다.
-  [상세](design/pro-autonomous-playback-2026-10-12.md)
+  9.0.4의 PRO 입장 정책 표지 뒤로는 PRO를 이 변경 이전으로 되돌리지 않는다. 그래서
+  구버전 호환 제거 열차 2 릴리스 A부터 App은 파일 READY가 400 `INVALID_REQUEST`를
+  받아도 길이 필드를 빼고 다시 보내지 않는다(그 전 App은 한 번 재시도했다). App만
+  롤백해도 기존 파일 근거는 유지되지만 새 YouTube 길이 조회는 복구 전까지 미확정이
+  된다.
+  [상세](design/pro-autonomous-playback-2026-10-12.md),
+  [보고서](design/old-version-removal-2-2026-10-26.md)
 
 - **PRO 선택형 입장 암호:** `passwordRequired: false` / `pin: null`이 저장될 수
   있는 배포 이후에는 이 계약을 모르는 구 PRO/App 조합으로 자동 복구하지 않는다.
@@ -1773,11 +1778,14 @@ PRO 방장 공지의 중도 참여 복원은 별도 정책이며 이번 서비�
   상태 변화 없는 409를 받고, App은 이를 무시한다. 계약 marker는 없고 rollback
   floor도 바뀌지 않는다.
   [상세](design/pro-room-admission-protection-2026-10-11.md)
-- **PRO 암호 참여자 선택·퇴장 사유(배포되면 적용):** 이 변경 이전 PRO Worker로
-  되돌리면 `existingParticipants`가 든 `POST /pin`은 400 `INVALID_REQUEST`로
-  거절된다. App은 이를 "그대로 두기를 지금 쓸 수 없음"으로 보여 주고 모두를
-  내보내는 쪽으로 대신 시도하지 않는다. "모두 재입장"(8.9.0은 "모두 다시 입장하게
-  하기")은 예전 `{pin}` 요청이라 그대로 동작한다. core의
+- **PRO 암호 참여자 선택·퇴장 사유(배포되면 적용):** 9.0.4의 PRO 입장 정책 표지
+  뒤로는 PRO를 이 변경 이전(8.9.0 전) Worker로 되돌리지 않는다. 그런 Worker는
+  `existingParticipants`가 든 `POST /pin`을 400 `INVALID_REQUEST`로 거절한다.
+  구버전 호환 제거 열차 2 릴리스 A부터 App은 그 거절을 다른 실패처럼 일반 오류로
+  보이고("그대로 두기를 지금 쓸 수 없음" 안내는 없앴다), 모두를 내보내는 쪽으로
+  대신 시도하지 않는 것은 그대로다([보고서](design/old-version-removal-2-2026-10-26.md)).
+  "모두 재입장"(8.9.0은 "모두 다시 입장하게 하기")은 참여자 선택 없는 `{pin}`
+  요청이다. core의
   `sessionRevocationNotices`(최대 256개, 약 36 KiB)는 이전 Worker가 그대로
   보존하지만 읽거나 정리하지 않으며, 그동안
   퇴장 사유는 붙지 않는다(코드는 계속 `SESSION_REQUIRED`). 다시 앞으로 배포하면

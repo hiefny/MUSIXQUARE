@@ -41,7 +41,7 @@ const CAPABILITY_CHECKING_TOAST = {
 /**
  * The definitive denial for a capability whose answer is already known.
  */
-export function roomCapabilityRequiredMessage(capability: RoomCapability): string {
+function roomCapabilityRequiredMessage(capability: RoomCapability): string {
   return t(CAPABILITY_REQUIRED_TOAST[capability]);
 }
 

@@ -5,7 +5,8 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
 import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
-import { roomCapabilityRequiredMessage } from '../../rooms/permission-feedback.ts';
+import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../../rooms/authority.ts';
+import { roomCapabilityFeedbackMessage } from '../../rooms/permission-feedback.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { initPlayerControls } from '../player-controls.ts';
 
@@ -66,27 +67,38 @@ describe('presentation copy follows the selected language without another state 
     }
   });
 
-  it.each(['standard', 'pro'] as const)(
-    'updates denied transport tooltips while the %s guest authority is unchanged',
-    (kind) => {
+  it.each([
+    ['standard', 'pending'],
+    ['standard', 'confirmed'],
+    ['pro', 'pending'],
+    ['pro', 'confirmed'],
+  ] as const)(
+    'updates transport tooltips while the %s guest authority stays %s',
+    (kind, status) => {
       setState('network.appRole', 'guest');
-      setState('network.hostConn', {
+      const hostConnection = {
         peer: 'host',
         open: true,
         send: vi.fn(),
         close: vi.fn(),
         on: vi.fn(),
-      } as unknown as DataConnection);
+      } as unknown as DataConnection;
+      setState('network.hostConn', hostConnection);
       if (kind === 'pro') {
-        setState('room.context', {
-          kind: 'pro',
-          roomId: '000001',
-          role: 'member',
-          coordinatorId: 'coordinator-1',
-          epoch: 1,
-          snapshotRevision: 1,
-          capabilities: [],
-        });
+        setRoomContext(
+          {
+            kind: 'pro',
+            roomId: '000001',
+            role: 'member',
+            coordinatorId: 'coordinator-1',
+            epoch: 1,
+            snapshotRevision: 1,
+            capabilities: [],
+          },
+          status,
+        );
+      } else if (status === 'confirmed') {
+        markStandardRoomAuthorityConfirmed(hostConnection);
       }
       const room = getState('room.context');
       const connection = getState('network.hostConn');
@@ -94,8 +106,13 @@ describe('presentation copy follows the selected language without another state 
       const buttons = ['play-btn', 'btn-prev', 'btn-next'].map((id) =>
         document.getElementById(id)!,
       );
+      const feedbackKey =
+        status === 'pending'
+          ? 'toast.playback_control_checking'
+          : 'toast.playback_control_required';
       for (const button of buttons) {
-        expect(button.title).toBe(roomCapabilityRequiredMessage('playback.control'));
+        expect(roomCapabilityFeedbackMessage('playback.control')).toBe(t(feedbackKey));
+        expect(button.title).toBe(roomCapabilityFeedbackMessage('playback.control'));
         expect(button.getAttribute('aria-disabled')).toBe('true');
       }
 
@@ -103,7 +120,8 @@ describe('presentation copy follows the selected language without another state 
         setLanguageMode(language);
         expect(getResolvedLanguage()).toBe(language);
         for (const button of buttons) {
-          expect(button.title).toBe(roomCapabilityRequiredMessage('playback.control'));
+          expect(roomCapabilityFeedbackMessage('playback.control')).toBe(t(feedbackKey));
+          expect(button.title).toBe(roomCapabilityFeedbackMessage('playback.control'));
           expect(button.getAttribute('aria-disabled')).toBe('true');
         }
         expect(getState('room.context')).toBe(room);

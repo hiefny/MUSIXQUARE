@@ -112,12 +112,13 @@ describe('standard account authority feedback', () => {
     },
   );
 
-  it('keeps existing grants blocked until the matching identity and host projection settle', () => {
+  it('honors the current host grant immediately while account feedback is pending', () => {
     const conn = join();
     setState('network.isOperator', true);
     setState('network.standardRoomCapabilities', ['asset.upload']);
     const check = beginStandardRoomAccountAuthorityCheck(input);
-    expect(hasRoomCapability('asset.upload')).toBe(false);
+    expect(hasRoomCapability('asset.upload')).toBe(true);
+    expect(roomCapabilityStatus('asset.upload')).toBe('granted');
     settleStandardRoomAccountAuthorityCheck(check, false);
     acceptStandardRoomAccountAuthorityIdentity('member-current');
     roster(conn, 'member-current');

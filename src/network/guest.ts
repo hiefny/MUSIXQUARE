@@ -36,6 +36,7 @@ import {
   hasRoomCapability,
   markStandardRoomAuthorityConfirmed,
   acceptStandardRoomHostIdentityProjection,
+  resetStandardRoomAccountAuthorityCheck,
 } from '../rooms/authority.ts';
 import {
   markProRoomTransportRecovered,
@@ -952,6 +953,9 @@ function handleOperatorRevoke(data: Record<string, unknown>, conn?: DataConnecti
 
   // A revoke is also this guest's confirmed answer: a plain participant.
   markStandardRoomAuthorityConfirmed(hostConn);
+  // A deliberate host revocation is definitive even if optional account
+  // proof is still pending. Silent bootstrap/identity projections keep waiting.
+  if (data.silent !== true) resetStandardRoomAccountAuthorityCheck();
   const wasOperator = getState('network.isOperator');
   const wasOwnerProjection =
     getState('network.standardRoomCapabilities')?.includes('room.configure') === true;

@@ -410,6 +410,29 @@ describe('guest connection type authority', () => {
       await handleData(frame, gatedHostConn);
       expect(authority.roomCapabilityStatus('asset.upload')).toBe('denied');
     });
+
+    it('keeps a silent bootstrap pending but honors a deliberate host revocation', async () => {
+      const { handleData } = await import('../protocol.ts');
+      const authority = await import('../../rooms/authority.ts');
+      setState('network.appRole', 'guest');
+      setState('network.myId', 'guest-1');
+      setState('network.lastJoinCode', '123456');
+      const check = authority.beginStandardRoomAccountAuthorityCheck({
+        roomCode: '123456',
+        peerId: 'guest-1',
+        role: 'guest',
+      });
+      await handleData({ type: MSG.OPERATOR_REVOKE, silent: true }, gatedHostConn);
+      expect(authority.roomCapabilityStatus('asset.upload')).toBe('pending');
+      await handleData({ type: MSG.OPERATOR_REVOKE }, evilConn);
+      expect(authority.roomCapabilityStatus('asset.upload')).toBe('pending');
+
+      await handleData({ type: MSG.OPERATOR_REVOKE }, gatedHostConn);
+      expect(authority.roomCapabilityStatus('asset.upload')).toBe('denied');
+      // The older account request cannot re-open checking after this decision.
+      authority.settleStandardRoomAccountAuthorityCheck(check, false);
+      expect(authority.roomCapabilityStatus('asset.upload')).toBe('denied');
+    });
   });
 
   it('shows operator-only toasts only when they come from the host', async () => {

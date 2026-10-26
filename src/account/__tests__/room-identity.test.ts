@@ -6,6 +6,7 @@ import type { DataConnection, PeerInstance } from '../../types/index.ts';
 import {
   acceptStandardRoomAccountAuthorityIdentity,
   acceptStandardRoomHostIdentityProjection,
+  hasRoomCapability,
   markStandardRoomAuthorityConfirmed,
   roomCapabilityStatus,
 } from '../../rooms/authority.ts';
@@ -16,7 +17,11 @@ import {
   initAccountRoomIdentity,
   requestStandardRoomAccountAssertion,
 } from '../room-identity.ts';
-import { __resetAccountStateForTests, applyAccountSession } from '../state.ts';
+import {
+  __resetAccountStateForTests,
+  applyAccountSession,
+  setAccountUnavailable,
+} from '../state.ts';
 
 function authenticate(nickname = 'Minsu'): void {
   applyAccountSession({
@@ -42,6 +47,30 @@ afterEach(() => {
 });
 
 describe('account identity room projection', () => {
+  it.each(['loading', 'unavailable'])(
+    'honors a manual anonymous host grant while the account service is %s',
+    async (status) => {
+      if (status === 'unavailable') setAccountUnavailable();
+      const input = { roomCode: '123456', peerId: 'guest-manual', role: 'guest' as const };
+      const conn = { open: true, peer: 'host' } as DataConnection;
+      setState('network.appRole', 'guest');
+      setState('network.myId', input.peerId);
+      setState('network.lastJoinCode', input.roomCode);
+      setState('network.hostConn', conn);
+      await expect(requestStandardRoomAccountAssertion(input)).resolves.toBeUndefined();
+      expect(roomCapabilityStatus('asset.upload')).toBe('pending');
+      expect(hasRoomCapability('asset.upload')).toBe(false);
+
+      // The live host can grant an anonymous participant independently of App auth.
+      markStandardRoomAuthorityConfirmed(conn);
+      setState('network.isOperator', true);
+      setState('network.standardRoomCapabilities', ['asset.upload']);
+      expect(hasRoomCapability('asset.upload')).toBe(true);
+      expect(roomCapabilityStatus('asset.upload')).toBe('granted');
+      expect(hasRoomCapability('room.configure')).toBe(false);
+    },
+  );
+
   it('keeps an early anonymous host answer pending while account loading and proof settle', async () => {
     const input = { roomCode: '123456', peerId: 'guest-loading', role: 'guest' as const };
     const conn = { open: true, peer: 'host' } as DataConnection;

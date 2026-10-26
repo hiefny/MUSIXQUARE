@@ -252,7 +252,6 @@ export { getAuthorityConnection as getAuthorityConnectionForTests };
 export function hasRoomCapability(capability: RoomCapability): boolean {
   const context = getRoomContext();
   if (context.kind === 'pro') return context.capabilities.includes(capability);
-  if (currentStandardAccountAuthorityCheck()) return false;
 
   if (getState('network.appRole') === 'host' && !getState('network.hostConn')) {
     return STANDARD_HOST_CAPABILITIES.has(capability);

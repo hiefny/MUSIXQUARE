@@ -227,6 +227,9 @@ roster for this connection, sent after the ordered grant/revoke projection.
 An earlier roster cannot settle a later check. Confirmed anonymous identity and
 explicit revocation do not inherit an indefinite checking message. This feedback
 uses the existing identity owners and adds neither a retry timer nor a grant.
+Standard guests continue to honor the host's current grants, including an
+explicit anonymous grant while the optional account service is unavailable;
+the pending check changes feedback only for a capability not currently granted.
 Blocked-action toasts and persistent button descriptions read the same status.
 
 Capabilities are checked by the canonical authority for every browser/BOT

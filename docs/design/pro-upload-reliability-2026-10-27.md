@@ -1,12 +1,12 @@
 # PRO upload completion and authority feedback — 2026-10-27
 
-| Field | Value |
-| --- | --- |
-| Status | PR preparation; not merged or deployed |
-| Base | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba` |
-| Proposed identity | 9.0.16 / v789; App build floor unchanged |
-| Scope | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback |
-| Release authorization | Owner requested a reviewable PR only; merge and deployment remain withheld |
+| Field                 | Value                                                                                           |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| Status                | PR preparation; not merged or deployed                                                          |
+| Base                  | Initial `cb1598516`; integrated main `5dd7cc1f6` (#502, 9.0.15 / v788) in `4a99f44ba`           |
+| Proposed identity     | 9.0.16 / v790; App build floor unchanged                                                        |
+| Scope                 | Browser PRO uploads, completion deadlines, bounded diagnostics, Standard/PRO authority feedback |
+| Release authorization | Owner requested a reviewable PR only; merge and deployment remain withheld                      |
 
 ## Runtime increments
 
@@ -127,4 +127,3 @@ this PR does not claim to eliminate every heartbeat timeout. In particular,
 post-merge production validation must use the final released SHA. Existing
 playback behavior is covered by regression tests, not by a new multi-device
 audio or mobile soak run.
-

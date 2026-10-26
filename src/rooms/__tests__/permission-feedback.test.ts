@@ -11,7 +11,6 @@ import { showToast } from '../../ui/toast.ts';
 import { markStandardRoomAuthorityConfirmed, setRoomContext } from '../authority.ts';
 import {
   roomCapabilityFeedbackMessage,
-  roomCapabilityRequiredMessage,
   showRoomCapabilityRequired,
 } from '../permission-feedback.ts';
 
@@ -58,7 +57,7 @@ beforeEach(() => {
 
 describe('room permission feedback', () => {
   it.each(CASES)('maps %s to its exact user-facing requirement', (capability, key) => {
-    expect(roomCapabilityRequiredMessage(capability)).toBe(t(key));
+    expect(roomCapabilityFeedbackMessage(capability)).toBe(t(key));
   });
 
   it('shows the mapped requirement instead of a legacy role-only message', () => {
@@ -69,11 +68,11 @@ describe('room permission feedback', () => {
   });
 
   it('distinguishes synchronized audio authority from owner-only room configuration', () => {
-    expect(roomCapabilityRequiredMessage('effects.control')).toBe(
+    expect(roomCapabilityFeedbackMessage('effects.control')).toBe(
       t('toast.settings_sync_admin_required'),
     );
-    expect(roomCapabilityRequiredMessage('room.configure')).toBe(t('toast.room_owner_required'));
-    expect(roomCapabilityRequiredMessage('coordinator.eligible')).toBe(
+    expect(roomCapabilityFeedbackMessage('room.configure')).toBe(t('toast.room_owner_required'));
+    expect(roomCapabilityFeedbackMessage('coordinator.eligible')).toBe(
       t('toast.room_owner_required'),
     );
 
@@ -106,10 +105,14 @@ describe('room permission feedback while the answer is pending', () => {
     },
   );
 
-  it('can explicitly request definitive wording independently of pending feedback', () => {
-    joinStandardRoomAsGuest();
+  it('replaces checking feedback with definitive wording when the role is confirmed', () => {
+    const connection = joinStandardRoomAsGuest();
+    expect(roomCapabilityFeedbackMessage('playback.control')).toBe(
+      t('toast.playback_control_checking'),
+    );
 
-    expect(roomCapabilityRequiredMessage('playback.control')).toBe(
+    markStandardRoomAuthorityConfirmed(connection);
+    expect(roomCapabilityFeedbackMessage('playback.control')).toBe(
       t('toast.playback_control_required'),
     );
   });
@@ -131,7 +134,7 @@ describe('room permission feedback while the answer is pending', () => {
 
       setRoomContext(context);
       expect(roomCapabilityFeedbackMessage(capability)).toBe(
-        roomCapabilityRequiredMessage(capability),
+        t(CASES.find(([candidate]) => candidate === capability)![1]),
       );
     },
   );

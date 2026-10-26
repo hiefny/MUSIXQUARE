@@ -101,8 +101,13 @@ runbooks. Neither belongs in a general setup document.
   route re-detection, and the route-permission machine (`RestartedPreloadLane`) is gone.
   Increment A-2 (OV-F01, OV-F03): bulk credit and control isolation wait for the peer's hello
   (the 1 s fallback for 8.11.22 and older peers is gone), and no end sends the side route's
-  `restart-capable` advertisement any more. The report lists each increment with its commits,
-  tests-first evidence, who loses what, the registry changes (RO-18, RO-15), the local checks,
+  `restart-capable` advertisement any more. Increment A-3 (OV-A19, OV-F04 stage 1, OV-A12):
+  the Standard host probes its signaling socket, sends the PIN membership choice and requests
+  Remote Share upload assertions without reading the Worker's peer-open markers, every Standard
+  connection binds its ICE restart without the first-SDP mark, the resume challenge drops
+  `guestTime`, and the Remote Share client takes only the required assertion mode. The report
+  lists each increment with its commits, tests-first evidence, who loses what, the registry and
+  record changes (RO-18, RO-15, known-accepted #12, the PIN recovery note), the local checks,
   the eager JS delta and the C5-0 lab results.
 - [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
   evidence for the train that adds the forced update (9.0.14 / v787 from bump `2077ef60`, not yet

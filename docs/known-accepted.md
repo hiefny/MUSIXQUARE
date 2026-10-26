@@ -249,15 +249,17 @@ What remains accepted:
   During the 8.10.0 transition, cached 8.9.x hosts still generate random PINs;
   if they refreshed the PIN, their present guests re-send the old PIN on the
   deploy reconnect and those failures count against the shared bucket too.
-- **Older Worker.** If signaling is rolled back, the App sends the PIN alone:
-  present guests are kept as before 8.10.0 (and lose ICE-restart recovery after
-  a later signaling reconnect), "모두 재입장" is only the host's kick, which a
-  modified client can ignore, and the wrong-PIN limit is off.
-- **Older App copy.** Guests on a cached App older than 8.10.0 removed by
-  "모두 재입장" show the generic "강제퇴장" kick dialog and reload instead of the
-  PIN notice, and show the generic join error for `room-password-changed` and
-  `room-password-rate-limited`. Both errors stay permanent auth errors there,
-  so there is no reconnect storm.
+- **Older Worker.** Signaling is not rolled back below 9.0.14 while an App of
+  9.0.14 or later is live, since an older Worker refuses every host that sends
+  its build. A Worker older than 8.10.0 is reachable only in an emergency
+  recovery that also rolls the App back below 9.0.14 and lowers the App build
+  floor. That App sends the PIN alone: present guests are kept as before 8.10.0
+  (and lose ICE-restart recovery after a later signaling reconnect), "모두 재입장"
+  is only the host's kick, which a modified client can ignore, and the wrong-PIN
+  limit is off. Since old-version removal train 2 (2026-10-26) the App always
+  sends the membership choice without reading the Worker's marker
+  ([ops](../cloudflare/standard-room-pin-ops.md#rollback),
+  [report](design/old-version-removal-2-2026-10-26.md)).
 
 Reopen this item if Standard rooms become discoverable or listed, if kick
 evasion is observed in production, or before relying on a Standard-room PIN for

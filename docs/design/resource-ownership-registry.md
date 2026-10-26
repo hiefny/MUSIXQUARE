@@ -63,7 +63,7 @@ load epoch, play lock and `pendingPlayTime` policy. Records link to them instead
   occur for that resource.
 - **Status:** `duplicated` (two or more independent machines still hold state or lifecycle
   operations on the resource; a phase consolidates it, or an owner decision has to come first, as
-  for RO-21), `owner-in-place` (one owner exists; the record tells new work which owner to
+  for RO-26's fullscreen request chains), `owner-in-place` (one owner exists; the record tells new work which owner to
   extend) or `accepted-exception` (a deliberate duplicate, drop or deferral, with its evidence and
   what would reopen it). Exception records name a parent record and inherit its other fields. A
   primary record can itself be `accepted-exception` by design (RO-11): it keeps the full record
@@ -412,9 +412,11 @@ RO-49 accepted-exception
   replacement deadline each log their line and call `expireTrustedSystemAudioReception`: every
   registered route's `onDeadline` runs first, then the end of reception, then
   `receive_failed`, the order the `system-audio:receive-timeout` emit, the end and the toast
-  had. The Standard SFU registers only an `onDeadline` (from `registerSystemAudioSfuListeners`,
-  where its bus listener was): as a guest it drops its subscription (`cleanupGuestSfu()`); the
-  fan-out still reaches no other route. Both bus events are gone from the event map. The timer
+  had. A reaction that throws is logged at error level and the expiry goes on, as the bus
+  contained a throwing listener. The Standard SFU registers an `onDeadline` (from
+  `registerSystemAudioSfuListeners`, where its bus listener was; since C4-7 the same port also
+  carries its `retire`, below) and no `endReception`: as a guest it drops its subscription
+  (`cleanupGuestSfu()`); the fan-out still reaches no other route. Both bus events are gone from the event map. The timer
   names (`sys-audio-guest-*`) are unchanged. Since C4-7 the PRO coordinator imports neither
   Standard adapter (`system-audio-guest.ts`, `system-audio-sfu.ts`): it starts, waits on and
   ends a reception through the slot, its end still behind the `!latestView.isLocalOwner` guard
@@ -437,12 +439,15 @@ RO-49 accepted-exception
   increments move the attaches and the route cleanups into it (the bus pairs moved in C4-6, the
   PRO coordinator's retire of the Standard SFU route became the adopt in C4-7, and C4-8 removed
   the guest's compatibility aliases of the slot's names).
-- **Allowed requesters:** the route adapters (Standard P2P, Standard SFU, PRO SFU, PRO direct)
-  through the slot. `src/audio/system-capture.ts` claims the `'system-audio'` playback owner for
+- **Allowed requesters:** the route adapters through the slot: the Standard direct call
+  (`system-audio-guest.ts`), the Standard SFU guest (`system-audio-sfu.ts`) and the PRO
+  coordinator (`src/pro-room/system-audio-service.ts`), which the PRO SFU and LAN-direct
+  transports feed; those transports never call the slot. `src/audio/system-capture.ts` claims the `'system-audio'` playback owner for
   this device's own share (the sharer's claim, not a reception; the guard's CHECK 9 counts it
   apart) and otherwise only emits `system-audio:*` events, as the Standard host does.
 - **Lifecycle operations:** begin reception, attach, set receiving, claim the playback owner, arm
-  or clear the receive deadline, cleanup with meta restore.
+  or clear the receive deadline, interrupt, resume, detach, adopt, expire, cleanup with meta
+  restore.
 - **Deadline owner:** per route today, named at each start and interrupt since C4-6
   (`ReceiveDeadline`). Standard P2P: the 30 s receive watchdog, the receive slot's since C4-2
   (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the guard's

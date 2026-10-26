@@ -1067,6 +1067,33 @@ describe('system audio guest receive watchdog', () => {
       );
     });
 
+    // The bus contained a throwing receive-timeout listener before C4-6; the
+    // slot's deadline fan-out keeps that containment for a route's reaction.
+    it("contains a route's throwing deadline reaction and still ends the reception and shows the notice", async () => {
+      setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const failure = new Error('deadline reaction failed');
+      sfuDeadlineReaction = () => {
+        throw failure;
+      };
+      const toast = vi.fn();
+      bus.on('ui:show-toast', toast);
+
+      expect(() => timerMocks.timers.get(watchdogName)?.()).not.toThrow();
+
+      expect(log.error).toHaveBeenCalledWith(
+        '[SysAudioGuest] Receive deadline reaction of standard-sfu failed:',
+        failure,
+      );
+      expect(getState('player.currentTrackMeta')).toEqual({
+        type: 'file',
+        name: 'previous-track',
+      });
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(getState('playback.activity')).toBe('idle');
+      expect(toast).toHaveBeenCalledExactlyOnceWith('system_audio.receive_failed');
+    });
+
     it("runs the same reactions when the direct call's replacement deadline expires the reception", async () => {
       stubAudioSource();
       setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });

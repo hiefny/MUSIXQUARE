@@ -481,9 +481,17 @@ function armReceiveWatchdog(): void {
  * route's deadline reaction runs first, then the reception ends, then
  * receive_failed. The slot's 30 s deadline and the Standard direct call's
  * replacement deadline expire the reception here, each after its own line.
+ * A reaction that throws is logged and the expiry goes on, as the bus did for
+ * the system-audio:receive-timeout listeners these reactions replace.
  */
 export function expireTrustedSystemAudioReception(): void {
-  for (const port of routes.values()) port.onDeadline?.();
+  for (const [route, port] of routes) {
+    try {
+      port.onDeadline?.();
+    } catch (error) {
+      log.error(`[SysAudioGuest] Receive deadline reaction of ${route} failed:`, error);
+    }
+  }
   endTrustedSystemAudioReception();
   bus.emit('ui:show-toast', t('system_audio.receive_failed'));
 }

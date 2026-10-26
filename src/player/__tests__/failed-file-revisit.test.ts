@@ -401,7 +401,10 @@ it('sender-composed: emitted host PREPARE and PLAY for A must retire the guest B
   const { conn, source } = await failAThenPlayB();
   // playTrack selects A before its transition PAUSE; B rejects that PAUSE.
   // The ensuing PREPARE/PLAY must therefore retire B themselves.
-  await handleData({ type: MSG.PAUSE, queueItemId: QUEUE_ITEM_ID, time: 0 }, conn);
+  await handleData(
+    { type: MSG.PAUSE, queueItemId: QUEUE_ITEM_ID, time: 0, reason: 'transition' },
+    conn,
+  );
   expect(getPlayerNode()).toBe(source);
   await handleData(prepare, conn);
   await handleData(playMessage, conn);

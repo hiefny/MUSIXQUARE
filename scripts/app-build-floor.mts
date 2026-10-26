@@ -49,6 +49,9 @@ import { readReleaseIdentity } from './release-identity.mts';
 const APP_ORIGIN = 'https://musixquare.com';
 const SIGNALING_ROOMS_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
 const PRO_PIN_CANARY_BOOTSTRAP = '/api/pro-room/v1/rooms/000001/bootstrap';
+// The App's entry-policy opt-in: with it, the PRO Worker before and after the
+// 2026-10-26 old-version removal give the same bootstrap answer.
+const PRO_ENTRY_POLICY_HEADERS = Object.freeze({ 'X-MXQR-Pro-Entry-Policy': 'optional-v1' });
 const REQUEST_TIMEOUT_MS = 10_000;
 const RESPONSE_MAX_BYTES = 64 * 1024;
 const OIDC_TOKEN_MAX_BYTES = 8 * 1024;
@@ -454,7 +457,10 @@ async function proBootstrap(
 ): Promise<ProAnswer> {
   try {
     return await readJson(deps, `${APP_ORIGIN}${PRO_PIN_CANARY_BOOTSTRAP}`, {
-      headers: appBuild === null ? {} : appBuildRequestHeaders(appBuild),
+      headers: {
+        ...(appBuild === null ? {} : appBuildRequestHeaders(appBuild)),
+        ...PRO_ENTRY_POLICY_HEADERS,
+      },
     });
   } catch {
     return null;
@@ -478,12 +484,17 @@ function isProRefusal(answer: { status: number; body: unknown } | null, floor: n
   );
 }
 
+/**
+ * Room 000001 admitted: its status and `passwordRequired` agree, whichever
+ * entry password the room has (the floor proof changes no room setting).
+ */
 function isProAdmission(answer: { status: number; body: unknown } | null): boolean {
   return (
     answer?.status === 200 &&
     isJsonObject(answer.body) &&
     answer.body.roomCode === '000001' &&
-    answer.body.status === 'pin_required'
+    ((answer.body.status === 'pin_required' && answer.body.passwordRequired === true) ||
+      (answer.body.status === 'open' && answer.body.passwordRequired === false))
   );
 }
 

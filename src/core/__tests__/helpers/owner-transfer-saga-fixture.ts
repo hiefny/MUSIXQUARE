@@ -578,16 +578,13 @@ export async function issueClaim(test: TransferFixture, targetAccountId = TARGET
   return decodeURIComponent(new URL(issued.transferUrl).hash.replace(/^#pro-transfer=/, ''));
 }
 
-/**
- * The PIN an App from before the 2026-10-23 owner decision sends with the
- * link (and an App Worker of that time requires). The PRO room ignores it.
- */
-export const EARLIER_APP_TRANSFER_PIN = '24681357';
-
 export interface TransferRequestOptions {
   accountId?: string;
   requestId?: string;
-  /** The body's PIN; `null` (the default, as the App sends it) omits it. */
+  /**
+   * The body's PIN, as Apps before 9.0.4 sent it; `null` (the default, as the
+   * App sends it) omits it. The PRO room refuses a body with one.
+   */
   newPin?: string | null;
   /** Send the App's opt-in headers, as every App since 8.8.0 does. */
   entryPolicy?: boolean;
@@ -597,8 +594,7 @@ export interface TransferRequestOptions {
 /**
  * The claim's target account submits it through the App facade and gets the
  * raw response: by default the target with the fixture's request id and no
- * PIN, through the current App Worker. An earlier App Worker build needs
- * `newPin` (EARLIER_APP_TRANSFER_PIN), as its App sent one.
+ * PIN, through the current App Worker.
  */
 export async function postTransfer(
   test: TransferFixture,

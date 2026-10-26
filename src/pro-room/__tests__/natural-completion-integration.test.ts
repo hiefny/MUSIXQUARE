@@ -200,7 +200,6 @@ async function fixture(playlist: QueueItem[] = [fileItem(FIRST), youtubeItem(SEC
       memberId,
       displayName: role,
       role,
-      developerControlVersion: 0,
       devicePlatform: 'other',
       joinedAtMs: NOW,
       lastSeenAtMs: NOW,

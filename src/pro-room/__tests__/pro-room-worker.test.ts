@@ -1324,70 +1324,6 @@ describe('PRO room server-authoritative playback', () => {
     expect(context.worker.naturalPlaybackEndAtMs()).toBeNull();
   });
 
-  it('reclaims legacy playback receipts immediately without shortening other browser mutations', async () => {
-    const context = await activatedRoom();
-    expect(
-      (await replacePlaylist(context, duplicateVideoPlaylist, 'playback-ledger-recovery')).status,
-    ).toBe(200);
-    const internal = context.worker as unknown as { room: Record<string, any> };
-    const participantId = context.activationEnvelope.snapshot.viewer.participantId as string;
-    const playbackScope = `participant:${participantId}:playback-authority`;
-    const nowMs = Date.now();
-
-    internal.room.idempotency = {};
-    for (let index = 0; index < 254; index += 1) {
-      internal.room.idempotency[`${playbackScope}:legacy-old-${String(index).padStart(3, '0')}`] = {
-        fingerprint: 'f'.repeat(43),
-        body: { status: 'committed' },
-        status: 200,
-        // Written an hour ago with the former 24-hour playback TTL.
-        expiresAtMs: nowMs + 23 * 60 * 60 * 1000 + index,
-      };
-    }
-    const freshLegacyKey = `${playbackScope}:legacy-fresh`;
-    internal.room.idempotency[freshLegacyKey] = {
-      fingerprint: 'f'.repeat(43),
-      body: { status: 'committed' },
-      status: 200,
-      expiresAtMs: nowMs + 24 * 60 * 60 * 1000,
-    };
-    const ordinaryMutationKey = `participant:${participantId}:playlist:legacy-ordinary`;
-    internal.room.idempotency[ordinaryMutationKey] = {
-      fingerprint: 'f'.repeat(43),
-      body: { snapshot: true },
-      status: 200,
-      // The same age remains valid for an ordinary 24-hour browser mutation.
-      expiresAtMs: nowMs + 23 * 60 * 60 * 1000,
-    };
-    expect(Object.keys(internal.room.idempotency)).toHaveLength(256);
-
-    const response = await context.worker.fetch(
-      jsonRequest(
-        '/playback/commands',
-        'POST',
-        {
-          type: 'select',
-          baseRevision: internal.room.playback.revision,
-          queueItemId: firstQueueItemId,
-          state: 'playing',
-          positionSeconds: 0,
-        },
-        context.ownerCookie,
-        'playback-ledger-recovered-command',
-      ),
-    );
-
-    expect(response.status).toBe(202);
-    expect(internal.room.idempotency[ordinaryMutationKey]).toBeDefined();
-    expect(internal.room.idempotency[freshLegacyKey]).toBeDefined();
-    const newReceipt =
-      internal.room.idempotency[`${playbackScope}:playback-ledger-recovered-command`];
-    expect(newReceipt).toMatchObject({ kind: 'playback-authority', status: 202 });
-    expect(newReceipt.expiresAtMs).toBeGreaterThan(nowMs + 9 * 60 * 1000);
-    expect(newReceipt.expiresAtMs).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000);
-    expect(Object.keys(internal.room.idempotency)).toHaveLength(3);
-  });
-
   it('never elects a browser coordinator and signs every signaling ticket as a named member', async () => {
     const context = await activatedRoom();
     expect(context.activationEnvelope.snapshot.presence.coordinatorParticipantId).toBeNull();
@@ -6706,55 +6642,6 @@ describe('PRO room private Developer API projections', () => {
     expect(Object.keys(internal.room.developerMutationIdempotency)).toHaveLength(256);
   });
 
-  it('durably migrates legacy Developer receipts and BOT counters before serving API work', async () => {
-    const { worker, state, bucket } = await activatedRoom();
-    const internal = worker as unknown as {
-      room: Record<string, any>;
-      persist(): Promise<void>;
-    };
-    const keyId = 'M'.repeat(16);
-    const idempotencyKey = 'developer-ledger-migration-0001';
-    const mutation = {
-      type: 'add_youtube',
-      videoId: 'dQw4w9WgXcQ',
-      name: 'Migrated exactly once',
-    };
-    expect(
-      (await mutateInternalDeveloperQueue(worker, keyId, idempotencyKey, mutation)).status,
-    ).toBe(201);
-    const storageKey = `developer:${keyId}:queue:add_youtube:${idempotencyKey}`;
-    internal.room.idempotency[storageKey] = internal.room.developerMutationIdempotency[storageKey];
-    delete internal.room.developerMutationIdempotency[storageKey];
-    const botKey = `bot-room-hour-v1:${ROOM_CODE}`;
-    internal.room.rateLimits[botKey] = {
-      count: 7,
-      resetAtMs: Date.now() + 60 * 60 * 1000,
-    };
-    delete internal.room.botRateLimits[botKey];
-    await internal.persist();
-
-    const restarted = new MusixquareProRoom(state as never, environment(bucket) as never);
-    expect((await internalDeveloperRead(restarted, 'room')).status).toBe(200);
-    const restartedInternal = restarted as unknown as { room: Record<string, any> };
-    expect(restartedInternal.room.idempotency[storageKey]).toBeUndefined();
-    expect(restartedInternal.room.developerMutationIdempotency[storageKey]).toMatchObject({
-      kind: 'developer-queue',
-      status: 201,
-    });
-    expect(restartedInternal.room.rateLimits[botKey]).toBeUndefined();
-    expect(restartedInternal.room.botRateLimits[botKey]).toMatchObject({ count: 7 });
-
-    const persisted = state.storage.data.get('pro-room:v2:core') as Record<string, any>;
-    expect(persisted.core.idempotency[storageKey]).toBeUndefined();
-    expect(persisted.core.developerMutationIdempotency[storageKey]).toBeDefined();
-    expect(persisted.core.rateLimits[botKey]).toBeUndefined();
-    expect(persisted.core.botRateLimits[botKey]).toMatchObject({ count: 7 });
-
-    const replay = await mutateInternalDeveloperQueue(restarted, keyId, idempotencyKey, mutation);
-    expect(replay.status).toBe(201);
-    expect(restartedInternal.room.playlist).toHaveLength(1);
-  });
-
   it('atomically appends one ordered YouTube batch with one revision and caller ownership', async () => {
     const { worker } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };
@@ -10418,110 +10305,6 @@ describe('PRO admission capacity and throttle', () => {
     expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
   }, 60_000);
 
-  it('releases presence-close receipts that an earlier Worker left in the shared ledger', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
-    const joined = await context.worker.fetch(admission({ key: 'legacy-close-nat' }));
-    expect(joined.status).toBe(200);
-    const cookie = cookieFrom(joined);
-    const closeBody = closeBodyFor(await responseJson(joined));
-    const closeKey = 'legacy-close-key-00000001';
-    expect(
-      (await context.worker.fetch(unloadCloseRequest(closeBody, cookie, closeKey))).status,
-    ).toBe(200);
-    // Model the core an earlier Worker wrote: close receipts in the shared
-    // participant ledger fill it, and the dedicated ledger does not exist.
-    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
-    const [receiptKey, receipt] = Object.entries(stored.core.presenceCloseIdempotency)[0]!;
-    stored.core.idempotency[receiptKey] = receipt;
-    delete stored.core.presenceCloseIdempotency;
-    for (let index = 0; Object.keys(stored.core.idempotency).length < 256; index += 1) {
-      const id = String(index).padStart(24, '0');
-      const sessionHash = `S${id}`.padEnd(43, 'S');
-      stored.core.idempotency[
-        `participant:participant_${id}:incarnation:presence_${id}:session:${sessionHash}:presence-close:legacy-close-${id}`
-      ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
-    }
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const restartedContext = { ...context, worker: restarted };
-
-    // Owner queue and playback control work at once after the restart.
-    const queueItemId = '77777777-7777-4777-8777-777777777777';
-    const queued = await replacePlaylist(
-      restartedContext,
-      [youtubeItem(queueItemId, 'Legacy close survivor')],
-      'legacy-close-released',
-    );
-    expect(queued.status).toBe(200);
-    expect((await ownerSelect(restarted, context.ownerCookie, queueItemId)).status).toBe(202);
-    await restarted.playbackDurationLookup?.promise;
-    expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
-    expect(presenceCloseKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
-    expect(storedCanonicalRoom(context.state).presenceCloseIdempotency).toEqual({});
-
-    // Losing a legacy receipt is harmless: its close already removed the
-    // presence incarnation, so the retry is refused without changing state.
-    const before = structuredClone(restarted.room);
-    const put = vi.spyOn(context.state.storage, 'put');
-    const retried = await restarted.fetch(unloadCloseRequest(closeBody, cookie, closeKey));
-    expect(retried.status).toBe(409);
-    expect(await responseJson(retried)).toEqual({ error: 'PRESENCE_IDENTITY_MISMATCH' });
-    expect(coreWrites(put)).toEqual([]);
-    put.mockRestore();
-    expect(restarted.room).toEqual(before);
-  });
-
-  it('rolls forward over a Worker rollback that kept but ignored the close ledger', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
-    const { worker } = context;
-    const closeOnce = async (key: string) => {
-      const joined = await worker.fetch(admission({ key }));
-      expect(joined.status).toBe(200);
-      const cookie = cookieFrom(joined);
-      const envelope = await responseJson(joined);
-      const body = closeBodyFor(envelope);
-      const closeKey = `${key}-close-0000001`;
-      expect((await worker.fetch(unloadCloseRequest(body, cookie, closeKey))).status).toBe(200);
-      return { cookie, body, closeKey };
-    };
-    const kept = await closeOnce('rollback-kept');
-    const left = await closeOnce('rollback-left');
-    const entered = await enterPresence(worker, left.cookie);
-    expect(entered.status).toBe(200);
-    bindCookiePresence(left.cookie, await responseJson(entered));
-    expect(
-      (await worker.fetch(request('/sessions/current', { method: 'DELETE' }, left.cookie))).status,
-    ).toBe(200);
-    // The stored core still holds the departed session's receipt; the next
-    // prune would release it. An older Worker loads the core as `{...core}`,
-    // so it keeps this field untouched, and writes its own close receipts to
-    // the shared ledger instead.
-    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
-    expect(Object.keys(stored.core.presenceCloseIdempotency)).toHaveLength(2);
-    const keptKey = Object.keys(stored.core.presenceCloseIdempotency).find((key) =>
-      key.endsWith(`:${kept.closeKey}`),
-    )!;
-    const sessionHash = /:session:([^:]+):presence-close:/.exec(keptKey)![1];
-    stored.core.idempotency[
-      `participant:${kept.body.expectedParticipantId}:incarnation:presence_${'O'.repeat(24)}:session:${sessionHash}:presence-close:older-worker-close-01`
-    ] = presenceCloseReceipt(Date.now() + 24 * 60 * 60 * 1000);
-
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const replay = await restarted.fetch(unloadCloseRequest(kept.body, kept.cookie, kept.closeKey));
-    expect(replay.status).toBe(200);
-    expect(await responseJson(replay)).toEqual({ ok: true });
-    expect(presenceCloseKeys(restarted.room!.idempotency)).toEqual([]);
-    expect(Object.keys(restarted.room!.presenceCloseIdempotency)).toEqual([keptKey]);
-    const persisted = storedCanonicalRoom(context.state);
-    expect(presenceCloseKeys(persisted.idempotency)).toEqual([]);
-    expect(Object.keys(persisted.presenceCloseIdempotency)).toEqual([keptKey]);
-  });
-
   it('never refuses a close or owner control when the close ledger is somehow full', async () => {
     const context = await activatedRoom(ROOM_CODE, true);
     const { worker } = context;
@@ -10668,96 +10451,6 @@ describe('PRO admission capacity and throttle', () => {
     expect((await worker.fetch(admission({ key: 'rotation-nat', pin: '87654321' }))).status).toBe(
       200,
     );
-  });
-
-  it('replays a session-create receipt that an earlier Worker left in the shared ledger', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
-    const requestId = nextRequestId();
-    const first = await context.worker.fetch(admission({ requestId }));
-    expect(first.status).toBe(200);
-    const firstCookie = cookieFrom(first);
-    const sessionCount = Object.keys(context.worker.room!.sessions).length;
-    // Model the core written by the previous Worker: the receipt sits in the
-    // shared browser ledger and the dedicated ledger does not exist yet.
-    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
-    const [storageKey, receipt] = Object.entries(stored.core.sessionCreateIdempotency)[0]!;
-    stored.core.idempotency[storageKey] = receipt;
-    delete stored.core.sessionCreateIdempotency;
-
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const replay = await restarted.fetch(admission({ requestId }));
-    expect(replay.status).toBe(200);
-    expect(cookieFrom(replay)).toBe(firstCookie);
-    expect(Object.keys(restarted.room!.sessions)).toHaveLength(sessionCount);
-    // The short-lived legacy receipt is read in place rather than migrated.
-    expect(restarted.room!.sessionCreateIdempotency).toEqual({});
-    expect(restarted.room!.idempotency[storageKey]).toMatchObject({ kind: 'session-create' });
-    expect(storedCanonicalRoom(context.state).sessionCreateIdempotency).toEqual({});
-    const conflict = await restarted.fetch(admission({ requestId, pin: '12345678' }));
-    expect(conflict.status).toBe(409);
-    expect(await responseJson(conflict)).toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
-  });
-
-  it('releases legacy shared-ledger session-create receipts when the owner enables a PIN', async () => {
-    const context = await activatedRoom(ROOM_CODE, true);
-    // Model a flood that an earlier Worker recorded in the shared browser
-    // ledger: its session-create receipts fill every remaining shared slot.
-    const stored = context.state.storage.data.get(CORE_KEY) as { core: Record<string, any> };
-    const expiresAtMs = Date.now() + ADMISSION_WINDOW_MS;
-    for (let index = 0; Object.keys(stored.core.idempotency).length < 256; index += 1) {
-      const actorHash = `L${String(index).padStart(4, '0')}`.padEnd(43, 'L');
-      stored.core.idempotency[`session-create:${actorHash}:legacy-flood-${index}`] =
-        sessionCreateReceipt(index, expiresAtMs);
-    }
-    delete stored.core.sessionCreateIdempotency;
-    const restarted = new MusixquareProRoom(
-      context.state as never,
-      environment(context.bucket) as never,
-    );
-    const restartedContext = { ...context, worker: restarted };
-    const queueItemId = '44444444-4444-4444-8444-444444444444';
-    const playlist = [
-      {
-        queueItemId,
-        name: 'Legacy flood survivor',
-        source: { kind: 'youtube', videoId: 'dQw4w9WgXcQ' },
-      },
-    ];
-    const frozen = await replacePlaylist(restartedContext, playlist, 'legacy-flood-frozen');
-    expect(frozen.status).toBe(409);
-    expect(await responseJson(frozen)).toEqual({ error: 'ROOM_STATE_CAPACITY_EXCEEDED' });
-
-    const enabled = await restarted.fetch(
-      optionalEntryPolicy(jsonRequest('/pin', 'POST', { pin: '87654321' }, context.ownerCookie)),
-    );
-    expect(enabled.status).toBe(200);
-    const sharedSessionCreateKeys = (ledger: Record<string, unknown>) =>
-      Object.keys(ledger).filter((key) => key.startsWith('session-create:'));
-    expect(sharedSessionCreateKeys(restarted.room!.idempotency)).toEqual([]);
-    expect(sharedSessionCreateKeys(storedCanonicalRoom(context.state).idempotency)).toEqual([]);
-
-    // Owner queue and playback control work again at once.
-    const queued = await replacePlaylist(restartedContext, playlist, 'legacy-flood-released');
-    expect(queued.status).toBe(200);
-    const played = await restarted.fetch(
-      jsonRequest(
-        '/playback/commands',
-        'POST',
-        {
-          type: 'select',
-          baseRevision: restarted.room!.playback.revision,
-          queueItemId,
-          state: 'playing',
-          positionSeconds: 0,
-        },
-        context.ownerCookie,
-        'legacy-flood-playback-command',
-      ),
-    );
-    expect(played.status).toBe(202);
   });
 
   it('keeps saturated session-create, presence-close, and removal-notice ledgers inside the room core budget', async () => {
@@ -11745,13 +11438,9 @@ describe('PRO PIN membership choice and removal reasons', () => {
     expect((await admit(worker, { pin: NEW_PIN })).status).toBe(200);
   });
 
-  it.each([
-    { publicAdmission: true, legacySharedLedger: false },
-    { publicAdmission: true, legacySharedLedger: true },
-    { publicAdmission: false, legacySharedLedger: false },
-  ])(
-    'purges receipts on keep so only a kept retry recovers ($publicAdmission public, $legacySharedLedger legacy)',
-    async ({ publicAdmission, legacySharedLedger }) => {
+  it.each([{ publicAdmission: true }, { publicAdmission: false }])(
+    'purges receipts on keep so only a kept retry recovers ($publicAdmission public)',
+    async ({ publicAdmission }) => {
       const context = await activatedRoom(ROOM_CODE, publicAdmission);
       const { worker, ownerCookie } = context;
       const pin = publicAdmission ? undefined : '12345678';
@@ -11760,19 +11449,8 @@ describe('PRO PIN membership choice and removal reasons', () => {
       const kept = await join(worker, { pin, requestId: keptRequestId });
       const revoked = await join(worker, { pin, requestId: revokedRequestId });
       await leavePresence(worker, revoked.cookie);
-      const room = worker.room!;
-      if (legacySharedLedger) {
-        // Receipts an earlier Worker wrote to the shared participant ledger.
-        for (const [key, receipt] of Object.entries(room.sessionCreateIdempotency)) {
-          room.idempotency[key] = receipt;
-        }
-        room.sessionCreateIdempotency = {};
-      }
       expect((await setPin(worker, ownerCookie, NEW_PIN, 'keep_present')).status).toBe(200);
       expect(worker.room!.sessionCreateIdempotency).toEqual({});
-      expect(
-        Object.keys(worker.room!.idempotency).filter((key) => key.startsWith('session-create:')),
-      ).toEqual([]);
 
       const keptRetry = await admit(worker, { pin, requestId: keptRequestId });
       expect(keptRetry.status).toBe(200);

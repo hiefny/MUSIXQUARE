@@ -6,7 +6,6 @@ import {
   verifyAccountAssertion,
 } from './account-assertion.ts';
 import {
-  effectsContractVersion,
   initialEffectsState,
   mergeRoomEffectsPatch,
   normalizeStoredEffects,
@@ -423,7 +422,6 @@ interface PresenceParticipant {
   displayName: string;
   role: ProRoomRole;
   accountId?: string;
-  developerControlVersion: number;
   devicePlatform: string;
   joinedAtMs: number;
   lastSeenAtMs: number;
@@ -432,7 +430,13 @@ interface PresenceParticipant {
 interface PresenceState {
   coordinatorEpoch: number;
   revision: number;
-  coordinatorParticipantId: string | null;
+  /**
+   * Always null: a PRO room has no browser coordinator, and the public
+   * snapshot reports the constant. The key stays in stored state so that a
+   * PRO Worker this one replaced, after a rollback, still reads null and does
+   * not fence every room it loads (see normalizeLoadedPlaybackAuthority).
+   */
+  coordinatorParticipantId: null;
   participants: Record<string, PresenceParticipant>;
 }
 
@@ -532,13 +536,6 @@ interface OwnershipTransferPending {
   targetDisplayName: string;
   previousOwnerAccountId: string | null;
   preservedOwnerMemberId: string;
-  /**
-   * Only in a record a PRO Worker wrote before the 2026-10-23 owner decision,
-   * which asked the new owner for a PIN. It is kept as stored (so a rollback
-   * still reads the record) and never read: every commit turns the entry
-   * password off.
-   */
-  pin?: PinRecord;
   claimNonceHash: string;
   claimGeneration: number;
   ownerAuthorityEpoch: number;
@@ -669,7 +666,6 @@ interface DeveloperCommandRecord {
   expiresAtMs: number;
   retainUntilMs: number;
   coordinatorEpoch: number;
-  developerControlVersion: number;
   command: DeveloperControlCommand;
   expected: {
     queueItemId: string | null;
@@ -677,7 +673,6 @@ interface DeveloperCommandRecord {
     playbackRevision: number;
   };
   resultCode?: string;
-  acknowledgedAtMs?: number;
   completedAtMs?: number;
   dispatchCapacityReserve?: boolean;
   terminalCapacityReserve?: boolean;
@@ -1320,15 +1315,13 @@ const PRO_ROOM_ADMISSION_KEY_HEADER = 'x-mxqr-pro-admission-key';
 // fence for controls while preserving the 24-hour contract for playlist,
 // media, account, and other destructive browser mutations.
 const PLAYBACK_IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
-const PLAYBACK_IDEMPOTENCY_SCOPE_SEGMENT = ':playback-authority:';
 // Apart from its admission receipt, which has its own throttled ledger,
 // presence close is the only browser receipt an ordinary member writes, and
 // resuming presence is never throttled. Its receipts therefore live in their
 // own ledger rather than the participant ledger that protects owner playback,
 // queue, and media control. Each session keeps only its latest close, and a
 // receipt is released once its session is gone, so the ledger holds at most
-// one receipt per stored session. Receipts written to the shared ledger by an
-// earlier Worker are released on load (see normalizeLoadedSecurityLedgers).
+// one receipt per stored session.
 const PRESENCE_CLOSE_IDEMPOTENCY_SCOPE_SUFFIX = ':presence-close';
 const PRESENCE_CLOSE_IDEMPOTENCY_MAX_ITEMS = SESSION_MAX_ITEMS;
 const PRESENCE_CLOSE_RECEIPT_SESSION_RE =
@@ -1410,30 +1403,14 @@ const PLAYBACK_UNKNOWN_DURATION_POSITION_TOLERANCE_SECONDS = 10;
 const PLAYBACK_UNKNOWN_DURATION_MIN_PLAYING_MS = 750;
 const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
 const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
-// v1 covers direct playback controls and queue invalidations. v2 adds
-// set_effects; v3 adds aggregate-aware next; v4 adds a bounded first-track
-// title to queue-addition hints. Older frames remain valid so a rolling deploy
-// does not strand an already-open tab.
-const DEVELOPER_CONTROL_VERSION = 1;
-const DEVELOPER_EFFECTS_CONTROL_VERSION = 2;
-const DEVELOPER_NEXT_CONTROL_VERSION = 3;
-const DEVELOPER_QUEUE_TITLE_CONTROL_VERSION = 4;
-const DEVELOPER_CONTROL_MAX_VERSION = DEVELOPER_QUEUE_TITLE_CONTROL_VERSION;
+// The wire version of the `pro-queue-addition` hint. Its bounded first-track
+// title is an optional field of version 1.
+const QUEUE_ADDITION_HINT_VERSION = 1;
 const DEVELOPER_COMMAND_TTL_MS = 30 * 1000;
 const DEVELOPER_COMMAND_MAX_ATTEMPTS = 3;
 const INTERNAL_SERVICE_RESPONSE_TIMEOUT_MS = 2_000;
 const INTERNAL_SERVICE_RESPONSE_MAX_BYTES = 16 * 1024;
 const DEVELOPER_COMMAND_RETENTION_MS = 10 * 60 * 1000;
-const DEVELOPER_COMMAND_RESULT_CODES = new Set([
-  'applied',
-  'already_applied',
-  'busy',
-  'no_media',
-  'stale_queue',
-  'unsupported_mode',
-  'expired',
-  'execution_failed',
-]);
 
 const ACCOUNT_MEMBER_MAX_ITEMS = 100;
 const ANONYMOUS_ADMIN_MAX_ITEMS = 100;
@@ -1730,7 +1707,7 @@ function corsHeaders(origin: string): HeaderRecord {
     'access-control-allow-credentials': 'true',
     'access-control-allow-methods': 'GET,POST,PUT,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-effects-version,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots,x-mxqr-app-build',
+      'content-type,idempotency-key,authorization,x-mxqr-pro-participant-id,x-mxqr-pro-presence-incarnation,x-mxqr-pro-presence-recovery,x-mxqr-pro-entry-policy,x-mxqr-pro-playlist-slots,x-mxqr-app-build',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -2467,7 +2444,9 @@ function publicSnapshot(room: ProRoomState, session: RoomSession | null = null) 
     presence: {
       coordinatorEpoch: room.presence.coordinatorEpoch,
       revision: room.presence.revision,
-      coordinatorParticipantId: room.presence.coordinatorParticipantId,
+      // The strict 9.0.x snapshot parser requires the key. A PRO room has no
+      // browser coordinator, so it is always null.
+      coordinatorParticipantId: null,
       participants,
     },
     quota: { ...room.quota },
@@ -2663,12 +2642,6 @@ function parseDeveloperCommand(value: unknown): DeveloperControlCommand | null {
     return effects ? { type: 'set_effects', effects } : null;
   }
   return null;
-}
-
-function requiredDeveloperControlVersion(command: DeveloperControlCommand | null | undefined) {
-  if (command?.type === 'next') return DEVELOPER_NEXT_CONTROL_VERSION;
-  if (command?.type === 'set_effects') return DEVELOPER_EFFECTS_CONTROL_VERSION;
-  return DEVELOPER_CONTROL_VERSION;
 }
 
 function randomQueueItemId() {
@@ -4709,32 +4682,25 @@ export class MusixquareProRoom {
         : null;
 
     const pending = this.activeRoom.pendingOwnershipTransfer;
-    // A record written before the 2026-10-23 owner decision also carries the
-    // PIN its new owner chose. It stays valid, and the commit ignores the PIN.
-    const legacyPin = pending && Object.hasOwn(pending, 'pin') ? pending.pin : undefined;
     const validPending =
       pending &&
       typeof pending === 'object' &&
       !Array.isArray(pending) &&
-      hasExactKeys(
-        pending,
-        [
-          'transferId',
-          'requestId',
-          'targetAccountId',
-          'targetDisplayName',
-          'previousOwnerAccountId',
-          'preservedOwnerMemberId',
-          'claimNonceHash',
-          'claimGeneration',
-          'ownerAuthorityEpoch',
-          'preparedAtMs',
-          'expiresAtMs',
-          'devicePlatform',
-          'commitProofHash',
-        ],
-        ['pin'],
-      ) &&
+      hasExactKeys(pending, [
+        'transferId',
+        'requestId',
+        'targetAccountId',
+        'targetDisplayName',
+        'previousOwnerAccountId',
+        'preservedOwnerMemberId',
+        'claimNonceHash',
+        'claimGeneration',
+        'ownerAuthorityEpoch',
+        'preparedAtMs',
+        'expiresAtMs',
+        'devicePlatform',
+        'commitProofHash',
+      ]) &&
       OWNER_TRANSFER_ID_RE.test(pending.transferId || '') &&
       OWNER_TRANSFER_REQUEST_ID_RE.test(pending.requestId || '') &&
       ACCOUNT_ID_RE.test(pending.targetAccountId || '') &&
@@ -4743,17 +4709,6 @@ export class MusixquareProRoom {
         ACCOUNT_ID_RE.test(pending.previousOwnerAccountId || '')) &&
       OPAQUE_ID_RE.test(pending.preservedOwnerMemberId || '') &&
       this.activeRoom.ownerMemberId === pending.preservedOwnerMemberId &&
-      (legacyPin === undefined ||
-        (legacyPin &&
-          typeof legacyPin === 'object' &&
-          !Array.isArray(legacyPin) &&
-          typeof legacyPin.salt === 'string' &&
-          /^[A-Za-z0-9_-]{16,128}$/.test(legacyPin.salt) &&
-          Number.isSafeInteger(legacyPin.iterations) &&
-          legacyPin.iterations >= 1 &&
-          legacyPin.iterations <= PBKDF2_MAX_ITERATIONS &&
-          typeof legacyPin.hash === 'string' &&
-          /^[A-Za-z0-9_-]{43}$/.test(legacyPin.hash))) &&
       /^[A-Za-z0-9_-]{43}$/.test(pending.claimNonceHash || '') &&
       isSafeNonNegativeInteger(pending.claimGeneration) &&
       isSafeNonNegativeInteger(pending.ownerAuthorityEpoch) &&
@@ -5170,24 +5125,6 @@ export class MusixquareProRoom {
       this.activeRoom.developerCommandIdempotency = {};
       this.developerCommandMigrationPending = true;
     }
-    for (const participant of Object.values(this.activeRoom.presence?.participants || {})) {
-      if (
-        !Number.isSafeInteger(participant.developerControlVersion) ||
-        participant.developerControlVersion < 0 ||
-        participant.developerControlVersion > DEVELOPER_CONTROL_MAX_VERSION
-      ) {
-        participant.developerControlVersion = 0;
-        this.developerCommandMigrationPending = true;
-      }
-    }
-    for (const record of Object.values(this.activeRoom.developerCommands)) {
-      const command = parseDeveloperCommand(record?.command);
-      const requiredVersion = requiredDeveloperControlVersion(command);
-      if (record?.developerControlVersion !== requiredVersion) {
-        record.developerControlVersion = requiredVersion;
-        this.developerCommandMigrationPending = true;
-      }
-    }
   }
 
   normalizeLoadedSecurityLedgers() {
@@ -5212,9 +5149,6 @@ export class MusixquareProRoom {
       this.activeRoom.botRateLimits = {};
       this.developerCommandMigrationPending = true;
     }
-    // Session-create receipts live for only ten minutes, so the shared map is
-    // not migrated: new receipts go to their own ledger and replay reads the
-    // shared map for that scope until the earlier receipts expire.
     if (
       !this.activeRoom.sessionCreateIdempotency ||
       typeof this.activeRoom.sessionCreateIdempotency !== 'object' ||
@@ -5239,78 +5173,17 @@ export class MusixquareProRoom {
       this.activeRoom.sessionRevocationNotices = {};
       this.developerCommandMigrationPending = true;
     }
-    // Earlier Workers kept presence-close receipts in the shared participant
-    // ledger, where enough of them froze owner playback, queue, and media
-    // control. Release them instead of migrating them. A receipt exists only
-    // for a close that removed its presence incarnation, and every new
-    // incarnation gets a fresh id, so a retry that finds no receipt is refused
-    // by the incarnation check (409) without changing any state.
-    for (const storageKey of Object.keys(this.activeRoom.idempotency || {})) {
-      if (!PRESENCE_CLOSE_RECEIPT_SESSION_RE.test(storageKey)) continue;
-      delete this.activeRoom.idempotency[storageKey];
-      this.developerCommandMigrationPending = true;
-    }
-
-    // Move legacy Developer API receipts out of the participant/browser
-    // ledger without dropping any live record. If a mixed rolling-deploy
-    // state already filled the new ledger, leave the remaining legacy
-    // receipts in place; replay reads both ledgers until their TTL expires.
-    for (const [storageKey, record] of Object.entries(this.activeRoom.idempotency || {})) {
-      if (!storageKey.startsWith('developer:')) continue;
-      if (this.activeRoom.developerMutationIdempotency[storageKey] !== undefined) {
-        if (
-          JSON.stringify(this.activeRoom.developerMutationIdempotency[storageKey]) ===
-          JSON.stringify(record)
-        ) {
-          delete this.activeRoom.idempotency[storageKey];
-          this.developerCommandMigrationPending = true;
-        }
-        continue;
-      }
-      if (
-        Object.keys(this.activeRoom.developerMutationIdempotency).length >=
-        DEVELOPER_MUTATION_IDEMPOTENCY_MAX_ITEMS
-      ) {
-        continue;
-      }
-      this.activeRoom.developerMutationIdempotency[storageKey] = record;
-      delete this.activeRoom.idempotency[storageKey];
-      this.developerCommandMigrationPending = true;
-    }
-
-    // BOT context limits are authenticated automation policy, while the
-    // remaining map protects activation, owner recovery, and PIN admission.
-    // Keeping their capacity independent prevents unrelated IP churn from
-    // erasing or crowding out the room-wide BOT counter.
-    for (const [key, record] of Object.entries(this.activeRoom.rateLimits || {})) {
-      if (
-        !key.startsWith('bot-minute:') &&
-        !key.startsWith('bot-room-hour-v1:') &&
-        !key.startsWith('bot-day:')
-      ) {
-        continue;
-      }
-      if (this.activeRoom.botRateLimits[key] !== undefined) {
-        if (JSON.stringify(this.activeRoom.botRateLimits[key]) === JSON.stringify(record)) {
-          delete this.activeRoom.rateLimits[key];
-          this.developerCommandMigrationPending = true;
-        }
-        continue;
-      }
-      if (Object.keys(this.activeRoom.botRateLimits).length >= BOT_RATE_LIMIT_MAX_ITEMS) continue;
-      this.activeRoom.botRateLimits[key] = record;
-      delete this.activeRoom.rateLimits[key];
-      this.developerCommandMigrationPending = true;
-    }
   }
 
   normalizeLoadedPlaybackAuthority() {
     if (!this.room?.presence || !this.activeRoom.playback) return;
     let changed = false;
-    // A PRO room has no browser coordinator. Keep the historical field as a
-    // room-incarnation fence during this protocol cutover, but it must never
-    // identify or grant authority to a participant.
-    if (this.activeRoom.presence.coordinatorParticipantId !== null) {
+    // A PRO room has no browser coordinator. A room stored before the server
+    // took room authority (2026-07-20) may still name one: clear it and
+    // advance the room-incarnation fence once, so it never identifies or
+    // grants authority to a participant.
+    const storedCoordinator: unknown = this.activeRoom.presence.coordinatorParticipantId;
+    if (storedCoordinator !== null) {
       this.activeRoom.presence.coordinatorParticipantId = null;
       if (this.activeRoom.presence.coordinatorEpoch < Number.MAX_SAFE_INTEGER) {
         this.activeRoom.presence.coordinatorEpoch += 1;
@@ -7033,8 +6906,8 @@ export class MusixquareProRoom {
     for (const record of Object.values(this.activeRoom.developerCommandIdempotency || {})) {
       candidates.push(record.expiresAtMs);
     }
-    for (const [storageKey, record] of Object.entries(this.activeRoom.idempotency || {})) {
-      candidates.push(this.idempotencyExpiresAt(storageKey, record));
+    for (const record of Object.values(this.activeRoom.idempotency || {})) {
+      candidates.push(this.idempotencyExpiresAt(record));
     }
     for (const record of Object.values(this.activeRoom.developerMutationIdempotency || {})) {
       candidates.push(record.expiresAtMs);
@@ -7459,10 +7332,9 @@ export class MusixquareProRoom {
         });
       }
       if (request.method === 'POST' && url.pathname === '/internal/admin/owner-transfer/commit') {
-        // The commit's snapshot becomes the transfer link's answer. The App
-        // facade passes the browser's opt-in headers through, so the snapshot
-        // gets the same additive fields (`passwordRequired`, `playlistSlots`)
-        // as activation's; without them it keeps the exact v1 shape.
+        // The commit's snapshot becomes the transfer link's answer, with the
+        // same additive fields (`passwordRequired`, `playlistSlots`) as
+        // activation's.
         return this.withMutation(() =>
           this.withEntryPolicyResponse(request, () =>
             this.withStateCapacityRollback(() => this.handleInternalOwnerTransferCommit(request), {
@@ -7604,7 +7476,7 @@ export class MusixquareProRoom {
         if (accountDeletionResponse && accountDeletionResponse.status !== 423) {
           return accountDeletionResponse;
         }
-        return this.handleBootstrap(request);
+        return this.handleBootstrap();
       });
     }
     return this.withMutation(() =>
@@ -7616,7 +7488,6 @@ export class MusixquareProRoom {
           if (url.pathname === `${prefix}/snapshot`) return this.handleGetSnapshot(request);
           if (url.pathname === `${prefix}/administrators`)
             return this.handleGetAdministrators(request);
-          if (url.pathname === `${prefix}/effects`) return this.handleGetEffects(request);
           if (url.pathname === `${prefix}/settings-sync`)
             return this.handleGetSettingsSync(request);
           if (url.pathname === `${prefix}/queue-mode`) return this.handleGetQueueMode(request);
@@ -7672,8 +7543,6 @@ export class MusixquareProRoom {
               url.pathname === `${prefix}/sessions/current/account`
             )
               return this.handleDetachCurrentAccount(request);
-            if (request.method === 'DELETE' && url.pathname === `${prefix}/sessions/current`)
-              return this.handleCloseSession(request);
             if (request.method === 'POST' && url.pathname === `${prefix}/sessions/current/close`)
               return this.handleCloseSessionFenced(request);
             if (request.method === 'POST' && url.pathname === `${prefix}/pin`)
@@ -7705,15 +7574,6 @@ export class MusixquareProRoom {
             if (request.method === 'POST' && playbackTransitionId) {
               return this.handlePlaybackTransitionReady(request, playbackTransitionId);
             }
-            const developerCommandAck = url.pathname.match(
-              new RegExp(`^${prefix}/developer-commands/(cmd_[A-Za-z0-9_-]{22})/ack$`),
-            );
-            const developerCommandId = developerCommandAck?.[1];
-            if (request.method === 'POST' && developerCommandId) {
-              return this.handleDeveloperCommandAck(request, developerCommandId);
-            }
-            if (request.method === 'PUT' && url.pathname === `${prefix}/effects`)
-              return this.handleUpdateEffects(request);
             if (request.method === 'PUT' && url.pathname === `${prefix}/settings-sync`)
               return this.handleUpdateSettingsSync(request);
             if (request.method === 'PUT' && url.pathname === `${prefix}/queue-mode`)
@@ -7746,16 +7606,6 @@ export class MusixquareProRoom {
         );
       }),
     );
-  }
-
-  supportsOptionalEntryPassword(request: Request) {
-    return request.headers.get('x-mxqr-pro-entry-policy') === 'optional-v1';
-  }
-
-  // Deployed strict clients reject unknown snapshot keys, so playlist
-  // summaries are only added for a client that asks for them.
-  supportsPlaylistSlots(request: Request) {
-    return request.headers.get('x-mxqr-pro-playlist-slots') === 'v1';
   }
 
   private recordDiagnostic(event: ProRoomDiagnosticEvent, detail: ProRoomDiagnosticDetail = {}) {
@@ -7795,7 +7645,7 @@ export class MusixquareProRoom {
           ? 'presence_enter'
           : suffix === '/presence/close' || suffix === '/presence/current' || suffix === '/presence'
             ? 'presence_close'
-            : suffix === '/sessions/current' || suffix === '/sessions/current/close'
+            : suffix === '/sessions/current/close'
               ? 'session_close'
               : suffix === '/presence/heartbeat'
                 ? 'heartbeat'
@@ -7907,48 +7757,45 @@ export class MusixquareProRoom {
     return response;
   }
 
+  /**
+   * Adds the room's entry policy (`passwordRequired`) and playlist summaries
+   * (`playlistSlots`) to every successful snapshot response. Both are
+   * optional snapshot fields of the 9.0.x parser, which every App at or above
+   * the 787 build floor uses. This runs inside the room mutation lock, so
+   * admission policy and snapshot are atomic. The browser's opt-in headers
+   * (`X-MXQR-Pro-Entry-Policy`, `X-MXQR-Pro-Playlist-Slots`) are no longer
+   * read; the CORS allow list keeps them because the App still sends them.
+   */
   async withEntryPolicyResponse(request: Request, task: () => Promise<Response>) {
     const response = await this.withAdmissionDiagnostics(request, task);
-    const entryPolicy = this.supportsOptionalEntryPassword(request);
-    const playlistSlots = this.supportsPlaylistSlots(request);
-    if (
-      (!entryPolicy && !playlistSlots) ||
-      !response.ok ||
-      !response.headers.get('content-type')?.startsWith('application/json')
-    )
+    if (!response.ok || !response.headers.get('content-type')?.startsWith('application/json'))
       return response;
-    // Keep the exact v1 snapshot shape for cached clients. This runs inside
-    // the room mutation lock, so admission policy and snapshot are atomic.
     const body: unknown = await response.clone().json();
     if (!isRecord(body) || !isRecord(body.snapshot)) return response;
-    if (entryPolicy) body.snapshot.passwordRequired = this.activeRoom.passwordRequired;
-    if (playlistSlots) {
-      body.snapshot.playlistSlots = summarizePlaylistSlots(
-        this.activeRoom.playlist,
-        this.activeRoom.playlistSlots,
-      );
-    }
+    body.snapshot.passwordRequired = this.activeRoom.passwordRequired;
+    body.snapshot.playlistSlots = summarizePlaylistSlots(
+      this.activeRoom.playlist,
+      this.activeRoom.playlistSlots,
+    );
     return new Response(JSON.stringify(body), {
       status: response.status,
       headers: response.headers,
     });
   }
 
-  handleBootstrap(request: Request) {
+  handleBootstrap() {
     const status =
       this.activeRoom.status === 'unactivated'
         ? 'activation_required'
         : this.activeRoom.status === 'suspended'
           ? 'suspended'
-          : !this.activeRoom.passwordRequired && this.supportsOptionalEntryPassword(request)
-            ? 'open'
-            : 'pin_required';
+          : this.activeRoom.passwordRequired
+            ? 'pin_required'
+            : 'open';
     return jsonResponse({
       roomCode: this.activeRoom.roomCode,
       status,
-      ...(this.supportsOptionalEntryPassword(request)
-        ? { passwordRequired: this.activeRoom.passwordRequired }
-        : {}),
+      passwordRequired: this.activeRoom.passwordRequired,
     });
   }
 
@@ -8626,7 +8473,6 @@ export class MusixquareProRoom {
     );
     if (replay) return replay;
 
-    const requiredControlVersion = requiredDeveloperControlVersion(command);
     let playItemYoutubeVideoId: string | undefined;
     // A play_item naming another playlist first switches to it, which stops
     // playback, and then plays the item there. Both commit together.
@@ -8687,7 +8533,6 @@ export class MusixquareProRoom {
       expiresAtMs: nowMs + DEVELOPER_COMMAND_TTL_MS,
       retainUntilMs: nowMs + DEVELOPER_COMMAND_RETENTION_MS,
       coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
-      developerControlVersion: requiredControlVersion,
       expected: {
         queueItemId: this.activeRoom.currentQueueItemId,
         playlistRevision: this.activeRoom.playlistRevision,
@@ -9827,7 +9672,6 @@ export class MusixquareProRoom {
     status: string,
     resultCode: string,
     nowMs: number,
-    acknowledged = false,
   ) {
     delete record.dispatchCapacityReserve;
     delete record.terminalCapacityReserve;
@@ -9836,7 +9680,6 @@ export class MusixquareProRoom {
     record.resultCode = resultCode;
     record.completedAtMs = nowMs;
     record.retainUntilMs = nowMs + DEVELOPER_COMMAND_RETENTION_MS;
-    if (acknowledged) record.acknowledgedAtMs = nowMs;
     this.syncDeveloperCommandIdempotency(record);
   }
 
@@ -9858,7 +9701,7 @@ export class MusixquareProRoom {
       addition.count <= 1000
         ? {
             type: 'pro-queue-addition',
-            version: DEVELOPER_CONTROL_VERSION,
+            version: QUEUE_ADDITION_HINT_VERSION,
             roomCode: this.activeRoom.roomCode,
             coordinatorEpoch: this.activeRoom.presence.coordinatorEpoch,
             playlistRevision: this.activeRoom.playlistRevision,
@@ -9896,26 +9739,6 @@ export class MusixquareProRoom {
       }
     }
     return changed;
-  }
-
-  async handleDeveloperCommandAck(request: Request, commandId: string) {
-    const auth = await this.requireSession(request, { activePresence: true });
-    if (auth.response) return auth.response;
-    const parsed = await this.parseBody(request, 1024);
-    if (parsed.response) return parsed.response;
-    if (
-      !DEVELOPER_COMMAND_ID_RE.test(commandId) ||
-      !hasExactKeys(parsed.value, ['resultCode']) ||
-      typeof parsed.value.resultCode !== 'string' ||
-      !DEVELOPER_COMMAND_RESULT_CODES.has(parsed.value.resultCode)
-    ) {
-      return errorResponse('INVALID_REQUEST', 400);
-    }
-    if (!this.activeRoom.developerCommands[commandId])
-      return errorResponse('COMMAND_NOT_FOUND', 404);
-    // Browser ACKs belonged to the removed coordinator relay. Commands are
-    // now applied by this Durable Object and observed through status polling.
-    return errorResponse('COMMAND_ACK_NOT_REQUIRED', 410);
   }
 
   async handleInternalActivationClaim(request: Request) {
@@ -11334,7 +11157,6 @@ export class MusixquareProRoom {
       this.freezePlayback(nowMs);
       this.activeRoom.sessions = {};
       this.activeRoom.presence.participants = {};
-      this.activeRoom.presence.coordinatorParticipantId = null;
       this.activeRoom.presence.revision += 1;
       this.activeRoom.accountMembers = {};
       this.activeRoom.anonymousAdministrators = {};
@@ -12037,79 +11859,6 @@ export class MusixquareProRoom {
     return sessionPermissionSet(this.activeRoom, session)[permission] === true;
   }
 
-  async handleGetEffects(request: Request) {
-    const auth = await this.requireSession(request, { activePresence: true });
-    if (auth.response) return auth.response;
-    if (request.body && (request.headers.get('content-length') || '') !== '0') {
-      return errorResponse('INVALID_REQUEST', 400);
-    }
-    const contractVersion = effectsContractVersion(request);
-    return contractVersion === null
-      ? errorResponse('INVALID_REQUEST', 400)
-      : jsonResponse(publicEffects(this.activeRoom));
-  }
-
-  async handleUpdateEffects(request: Request) {
-    const auth = await this.requireSession(request, {
-      activePresence: true,
-      capability: 'playback.control',
-    });
-    if (auth.response) return auth.response;
-    if (auth.session.role !== 'owner') {
-      return errorResponse('OWNER_REQUIRED', 403);
-    }
-    const parsed = await this.parseBody(request);
-    if (parsed.response) return parsed.response;
-    if (!hasExactKeys(parsed.value, ['coordinatorEpoch', 'baseRevision', 'effects'])) {
-      return errorResponse('INVALID_REQUEST', 400);
-    }
-    const contractVersion = effectsContractVersion(request);
-    const effects = contractVersion === 2 ? parseRoomEffects(parsed.value.effects) : null;
-    if (
-      !isSafeNonNegativeInteger(parsed.value.coordinatorEpoch) ||
-      !isSafeNonNegativeInteger(parsed.value.baseRevision) ||
-      !effects
-    ) {
-      return errorResponse('INVALID_REQUEST', 400);
-    }
-    if (this.activeRoom.presence.coordinatorEpoch !== parsed.value.coordinatorEpoch) {
-      return errorResponse('ROOM_EPOCH_MISMATCH', 409);
-    }
-    if (parsed.value.baseRevision !== this.activeRoom.effects.revision) {
-      return jsonResponse(
-        {
-          error: 'EFFECTS_REVISION_CONFLICT',
-          effects: publicEffects(this.activeRoom),
-        },
-        409,
-      );
-    }
-    if (JSON.stringify(effects) === JSON.stringify(this.activeRoom.effects.effects)) {
-      return jsonResponse(publicEffects(this.activeRoom));
-    }
-    if (
-      this.activeRoom.effects.revision >= Number.MAX_SAFE_INTEGER ||
-      this.activeRoom.revision >= Number.MAX_SAFE_INTEGER
-    ) {
-      return errorResponse('REVISION_EXHAUSTED', 409);
-    }
-    this.activeRoom.effects = {
-      revision: this.activeRoom.effects.revision + 1,
-      updatedAtMs: Date.now(),
-      masterVolume: this.activeRoom.effects.masterVolume ?? 1,
-      effects,
-    };
-    // room.revision is the heartbeat's aggregate change detector. Keep it in
-    // the same persisted mutation as the dedicated effects revision so a peer
-    // that misses the invalidation event cannot receive a false notModified.
-    this.activeRoom.revision += 1;
-    await this.persist();
-    await this.broadcastServerEvent(
-      this.invalidationEvent({ effectsRevision: this.activeRoom.effects.revision }),
-    );
-    return jsonResponse(publicEffects(this.activeRoom));
-  }
-
   async handleGetSettingsSync(request: Request) {
     const auth = await this.requireSession(request, { activePresence: true });
     if (auth.response) return auth.response;
@@ -12174,6 +11923,9 @@ export class MusixquareProRoom {
       masterVolume: parsed.value.masterVolume,
       effects,
     };
+    // room.revision is the heartbeat's aggregate change detector. Keep it in
+    // the same persisted mutation as the dedicated effects revision so a peer
+    // that misses the invalidation event cannot receive a false notModified.
     this.activeRoom.revision += 1;
     await this.persist();
     await this.broadcastServerEvent(
@@ -12262,7 +12014,7 @@ export class MusixquareProRoom {
       updatedAtMs: Date.now(),
       ...queueMode,
     };
-    // See handleUpdateEffects(): queue-mode invalidation is best-effort, while
+    // See handleUpdateSettingsSync(): queue-mode invalidation is best-effort, while
     // the aggregate room revision is the durable heartbeat recovery fence.
     this.activeRoom.revision += 1;
     await this.persist();
@@ -12590,11 +12342,9 @@ export class MusixquareProRoom {
       role: session.role,
       joinedAtMs: nowMs,
       lastSeenAtMs: nowMs,
-      developerControlVersion: 0,
     };
     this.activeRoom.runtime = 'awake';
     this.activeRoom.presence.revision += 1;
-    this.activeRoom.presence.coordinatorParticipantId = null;
     if (wasSleeping) {
       this.bumpRoomEpoch(nowMs);
       if (this.activeRoom.playback.state === 'playing' && this.activeRoom.playback.queueItemId) {
@@ -12670,7 +12420,6 @@ export class MusixquareProRoom {
     const presenceIncarnationId = `presence_${randomToken(18)}`;
     session.presenceIncarnationId = presenceIncarnationId;
     existing.presenceIncarnationId = presenceIncarnationId;
-    existing.developerControlVersion = 0;
     // joinedAtMs is also the public incarnation surrogate used by direct
     // system-audio routes. A takeover inside the same clock millisecond must
     // still advance it so the publisher cannot retain the superseded tab's PC.
@@ -13043,7 +12792,7 @@ export class MusixquareProRoom {
         this.activeRoom.pendingPresenceBroadcast = next;
       }
       // The retry marker and its alarm must survive isolate eviction. It is an
-      // internal delivery concern, so avoid rewriting the legacy shadow.
+      // internal delivery concern, so keep an already-earlier alarm.
       await this.persist({ retainEarlierAlarm: true });
     });
   }
@@ -14247,7 +13996,6 @@ export class MusixquareProRoom {
     this.discardTransientMemberAuthority();
     this.activeRoom.sessions = {};
     this.activeRoom.presence.participants = {};
-    this.activeRoom.presence.coordinatorParticipantId = null;
     this.activeRoom.presence.revision += 1;
     this.activeRoom.authEpoch += 1;
     this.activeRoom.ownerAuthorityEpoch += 1;
@@ -14281,7 +14029,6 @@ export class MusixquareProRoom {
     this.discardTransientMemberAuthority();
     this.activeRoom.sessions = {};
     this.activeRoom.presence.participants = {};
-    this.activeRoom.presence.coordinatorParticipantId = null;
     this.activeRoom.runtime = 'sleeping';
     this.reconcileSystemAudio(Date.now());
     this.activeRoom.status = 'active';
@@ -14326,10 +14073,8 @@ export class MusixquareProRoom {
         this.freezePlayback(nowMs);
       }
       this.activeRoom.runtime = 'sleeping';
-      this.activeRoom.presence.coordinatorParticipantId = null;
       this.bumpRoomEpoch(nowMs);
     } else {
-      this.activeRoom.presence.coordinatorParticipantId = null;
       const pending = this.activeRoom.pendingPlaybackTransition;
       if (pending?.cohort.includes(departedIncarnationId)) {
         pending.cohort = pending.cohort.filter((value) => value !== departedIncarnationId);
@@ -14471,12 +14216,11 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     // Owner decision 2026-10-23: a transfer ends with the entry password off,
-    // so the link asks for no PIN. An App from before the decision still sends
-    // `newPin`; its shape is checked as before and its value is never used.
+    // so the link asks for no PIN. The `newPin` that Apps before 9.0.4 sent is
+    // refused.
     if (
-      !hasExactKeys(parsed.value, ['claimToken', 'requestId'], ['newPin']) ||
+      !hasExactKeys(parsed.value, ['claimToken', 'requestId']) ||
       typeof parsed.value.claimToken !== 'string' ||
-      (Object.hasOwn(parsed.value, 'newPin') && !matchesPattern(parsed.value.newPin, PIN_RE)) ||
       !matchesPattern(parsed.value.requestId, OWNER_TRANSFER_REQUEST_ID_RE)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
@@ -14534,8 +14278,7 @@ export class MusixquareProRoom {
     // reconciliation and return the already-committed deterministic cookies
     // after response loss near the claim deadline. No different request,
     // account, epoch, session, or nonce can enter this branch. A replay is
-    // the same request id from the same claim and account; any PIN it carries
-    // is ignored, like the first request's.
+    // the same request id from the same claim and account.
     if (completed && matchingRecord === completed) {
       if (completed.replayUntilMs <= nowMs) {
         return errorResponse('OWNER_TRANSFER_CLAIM_EXPIRED', 410);
@@ -14652,7 +14395,6 @@ export class MusixquareProRoom {
     this.freezePlayback(nowMs);
     this.activeRoom.sessions = {};
     this.activeRoom.presence.participants = {};
-    this.activeRoom.presence.coordinatorParticipantId = null;
     this.activeRoom.presence.revision += 1;
     this.activeRoom.accountMembers = {};
     this.activeRoom.anonymousAdministrators = {};
@@ -14977,7 +14719,6 @@ export class MusixquareProRoom {
     this.activeRoom.anonymousAdministrators = {};
     this.activeRoom.sessions = { [sessionTokenHash]: session };
     this.activeRoom.presence.participants = {};
-    this.activeRoom.presence.coordinatorParticipantId = null;
     this.activeRoom.ownerCredentialHash = ownerCredentialHash;
     this.activeRoom.status = 'active';
     this.activeRoom.suspensionReason = null;
@@ -15024,34 +14765,17 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request);
     if (parsed.response) return parsed.response;
     const body = parsed.value;
-    const legacyActivation = hasExactKeys(
-      body,
-      ['claimToken', 'temporaryPin', 'newPin'],
-      ['ownerName'],
-    );
-    const openActivation =
-      this.supportsOptionalEntryPassword(request) &&
-      hasExactKeys(body, ['claimToken'], ['ownerName']);
-    if (!legacyActivation && !openActivation) {
+    // A room starts without an entry password; the owner can require one later
+    // with `POST /pin`. The temporary-PIN body of Apps before 8.8.0 is refused.
+    if (!hasExactKeys(body, ['claimToken'], ['ownerName'])) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const claimToken = body.claimToken;
-    const temporaryPin = body.temporaryPin;
-    const newPin = body.newPin;
     const ownerName =
       body.ownerName === undefined
         ? 'Owner'
         : boundedString(body.ownerName, MAX_DISPLAY_NAME_LENGTH);
-    if (
-      typeof claimToken !== 'string' ||
-      !ownerName ||
-      !isSafeVisibleDisplayName(ownerName) ||
-      (legacyActivation &&
-        (typeof temporaryPin !== 'string' ||
-          typeof newPin !== 'string' ||
-          !PIN_RE.test(newPin) ||
-          newPin === temporaryPin))
-    ) {
+    if (typeof claimToken !== 'string' || !ownerName || !isSafeVisibleDisplayName(ownerName)) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const activationSecret = String(this.env.PRO_ROOM_ACTIVATION_SECRET || '');
@@ -15064,23 +14788,16 @@ export class MusixquareProRoom {
       return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     }
     const nowMs = Date.now();
-    const [claimValid] = await Promise.all([
-      verifyActivationClaim(claimToken, this.activeRoom.roomCode, activationSecret, nowMs),
-      // Always perform a digest for the temporary PIN branch so invalid claim
-      // and invalid temporary PIN share one externally uniform failure path.
-      sha256Bytes(typeof temporaryPin === 'string' ? temporaryPin : ''),
-    ]);
-    const expectedTemporaryPin = this.activeRoom.roomCode.padStart(8, '0');
-    const temporaryPinValid =
-      openActivation ||
-      (typeof temporaryPin === 'string' &&
-        PIN_RE.test(temporaryPin) &&
-        constantTimeEqual(temporaryPin, expectedTemporaryPin));
+    const claimValid = await verifyActivationClaim(
+      claimToken,
+      this.activeRoom.roomCode,
+      activationSecret,
+      nowMs,
+    );
     if (
       !claimValid ||
       claimValid.generation !== this.activeRoom.activationClaimGeneration ||
-      claimValid.roomGeneration !== this.activeRoom.roomGeneration ||
-      !temporaryPinValid
+      claimValid.roomGeneration !== this.activeRoom.roomGeneration
     ) {
       return errorResponse('ACTIVATION_INVALID', 401);
     }
@@ -15094,7 +14811,6 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('OWNER_ACCOUNT_LINK_CONFLICT', 409);
     }
-    const pin = typeof newPin === 'string' ? await createPinRecord(newPin, pepper) : null;
     if (
       !(await reserveProRoomActivationEntitlement(this.env, {
         accountId: asserted.account.accountId,
@@ -15112,8 +14828,7 @@ export class MusixquareProRoom {
     // incarnation stamped with epoch 1 must never describe this room's cookies.
     this.activeRoom.sessionRevocationNotices = {};
     this.activeRoom.ownerAuthorityEpoch = 1;
-    this.activeRoom.pin = pin;
-    this.activeRoom.passwordRequired = !openActivation;
+    this.turnEntryPasswordOff();
     const ownerCredential = await this.createOwnerCredential();
     this.activeRoom.ownerMemberId = this.activeRoom.ownerMemberId || `owner_${randomToken(18)}`;
     const accountMember = this.resolveAccountMember(asserted.account, 'owner', nowMs);
@@ -15298,17 +15013,16 @@ export class MusixquareProRoom {
     if (parsed.response) return parsed.response;
     const body = parsed.value;
     if (!isRecord(body)) return errorResponse('INVALID_REQUEST', 400);
-    const optionalPassword = this.supportsOptionalEntryPassword(request);
-    const legacyBody = hasExactKeys(body, ['pin']) || (optionalPassword && hasExactKeys(body, []));
-    const idempotentBody =
-      hasExactKeys(body, ['pin', 'requestId']) ||
-      (optionalPassword && hasExactKeys(body, ['requestId']));
+    // Every App since 2026-08 sends an opaque `requestId`, and a PIN only when
+    // one was entered. The one-field `{pin}` body of earlier Apps, which had
+    // no exactly-once replay, is refused.
+    if (!hasExactKeys(body, ['requestId'], ['pin'])) return errorResponse('INVALID_REQUEST', 400);
     const pin = typeof body.pin === 'string' ? body.pin : null;
-    const requestId = idempotentBody && typeof body.requestId === 'string' ? body.requestId : null;
+    const requestId = body.requestId;
     if (
-      (!legacyBody && !idempotentBody) ||
       (body.pin !== undefined && (pin === null || !PIN_RE.test(pin))) ||
-      (idempotentBody && (requestId === null || !IDEMPOTENCY_KEY_RE.test(requestId)))
+      typeof requestId !== 'string' ||
+      !IDEMPOTENCY_KEY_RE.test(requestId)
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
@@ -15324,199 +15038,193 @@ export class MusixquareProRoom {
     const verifiedOwnerAccount = Boolean(
       asserted.account && this.activeRoom.ownerAccountId === asserted.account.accountId,
     );
-    let scope = null;
-    let fingerprint = null;
-    let credentialContext = null;
-    let idempotencyRecords = null;
-    if (requestId !== null) {
-      const actorHint = request.headers.get(PRO_ROOM_SESSION_ACTOR_HEADER) || '';
-      // The App facade derives this stable, authority-free actor from the
-      // room-scoped 192-bit client requestId before optional account lookup.
-      // A newly issued session cookie or recovered account assertion must
-      // never change idempotency scope after an outcome-unknown response.
-      const actorIdentity = PRO_ROOM_SESSION_ACTOR_RE.test(actorHint)
-        ? `facade:${actorHint}`
-        : `network:${request.headers.get('x-mxqr-pro-ip-hash') || 'internal-test'}`;
-      const actorHash = await sha256Base64Url(actorIdentity);
-      scope = `session-create:${actorHash}`;
-      fingerprint = await hmacBase64Url(
-        sessionSecret,
-        `session-create-fingerprint:v1\u0000${scope}\u0000${JSON.stringify({
-          pin,
-          requestId,
-        })}`,
+    const actorHint = request.headers.get(PRO_ROOM_SESSION_ACTOR_HEADER) || '';
+    // The App facade derives this stable, authority-free actor from the
+    // room-scoped 192-bit client requestId before optional account lookup.
+    // A newly issued session cookie or recovered account assertion must
+    // never change idempotency scope after an outcome-unknown response.
+    const actorIdentity = PRO_ROOM_SESSION_ACTOR_RE.test(actorHint)
+      ? `facade:${actorHint}`
+      : `network:${request.headers.get('x-mxqr-pro-ip-hash') || 'internal-test'}`;
+    const actorHash = await sha256Base64Url(actorIdentity);
+    const scope = `session-create:${actorHash}`;
+    const fingerprint = await hmacBase64Url(
+      sessionSecret,
+      `session-create-fingerprint:v1\u0000${scope}\u0000${JSON.stringify({
+        pin,
+        requestId,
+      })}`,
+    );
+    const credentialContext = [
+      'session-create:v1',
+      this.activeRoom.roomCode,
+      String(this.activeRoom.roomGeneration),
+      scope,
+      requestId,
+      fingerprint,
+    ].join('\u0000');
+    const deterministicToken = await createDeterministicOpaqueCredential(
+      sessionSecret,
+      credentialContext,
+    );
+    const deterministicTokenHash = await sha256Base64Url(deterministicToken);
+    const existingReceipt = this.idempotencyRecord(scope, requestId);
+    if (existingReceipt) {
+      if (!constantTimeEqual(existingReceipt.fingerprint || '', fingerprint)) {
+        return errorResponse('IDEMPOTENCY_CONFLICT', 409);
+      }
+      const receiptTokenHash = existingReceipt.tokenHash;
+      const receiptParticipantId = existingReceipt.participantId;
+      if (
+        existingReceipt.kind !== 'session-create' ||
+        existingReceipt.status !== 200 ||
+        typeof receiptTokenHash !== 'string' ||
+        !SHA256_RE.test(receiptTokenHash) ||
+        typeof receiptParticipantId !== 'string' ||
+        !OPAQUE_ID_RE.test(receiptParticipantId)
+      ) {
+        return errorResponse('ROOM_STATE_INVALID', 503);
+      }
+      const replaySession = this.activeRoom.sessions[receiptTokenHash];
+      if (
+        (replaySession?.accountId && replaySession.accountId !== asserted.account?.accountId) ||
+        (replaySession?.role === 'owner' && !replaySession.accountId && !ownerCredential)
+      ) {
+        // A pending request ID survives response loss, logout and account
+        // switches. It is not a replacement for the account proof that
+        // admitted an owner or linked member. A syntactic PIN may have been
+        // ignored by public admission or the verified-owner bypass too.
+        // Legacy unlinked owners also retain their credential requirement;
+        // an outcome-unknown request ID must never replace ownership proof.
+        return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
+      }
+      if (
+        !constantTimeEqual(deterministicTokenHash, receiptTokenHash) ||
+        !replaySession ||
+        replaySession.participantId !== receiptParticipantId ||
+        replaySession.expiresAtMs <= nowMs ||
+        replaySession.authEpoch !== this.activeRoom.authEpoch ||
+        replaySession.roomGeneration !== this.activeRoom.roomGeneration
+      ) {
+        // The receipt remains an exactly-once fence until its short TTL ends.
+        // Never turn an explicitly closed or capacity-evicted session into a
+        // second admission under the same logical request.
+        return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
+      }
+      const replayPresence = this.activeRoom.presence.participants[replaySession.participantId];
+      if (!replayPresence || !this.isPresenceCurrent(replayPresence, Date.now())) {
+        if (
+          this.joinPresence(
+            replaySession,
+            deterministicTokenHash,
+            nowMs,
+            devicePlatformFromRequest(request),
+          ) === null
+        ) {
+          return errorResponse('ROOM_FULL', 409);
+        }
+      }
+      // A prior storage failure can leave a receipt/session visible in this
+      // isolate even though the durable transaction did not commit (for
+      // example, a compatibility storage implementation without the outer
+      // rollback seam). Converge durability before returning any replayed
+      // credential, even when its presence was already resident in memory.
+      await this.persist();
+      const remainingTtlSeconds = Math.max(
+        1,
+        Math.ceil((replaySession.expiresAtMs - nowMs) / 1000),
       );
-      credentialContext = [
-        'session-create:v1',
-        this.activeRoom.roomCode,
-        String(this.activeRoom.roomGeneration),
+      return jsonResponse(
+        {
+          snapshot: publicSnapshot(this.activeRoom, replaySession),
+          session: { expiresAtMs: replaySession.expiresAtMs },
+        },
+        200,
+        {
+          'set-cookie': sessionCookie(
+            this.activeRoom.roomCode,
+            deterministicToken,
+            remainingTtlSeconds,
+          ),
+          ...(replaySession.accountId ? { 'x-mxqr-account-linked': '1' } : {}),
+        },
+      );
+    }
+
+    // The compact receipt intentionally expires before the session. An
+    // outcome-unknown retry can therefore arrive after its receipt was
+    // pruned while the deterministic credential is still authoritative.
+    // Reuse that exact live session and recreate the receipt; overwriting
+    // the same tokenHash with a new participant would orphan the prior
+    // presence and turn one logical admission into two identities.
+    const recoveredSession = this.activeRoom.sessions[deterministicTokenHash];
+    if (recoveredSession) {
+      if (
+        (recoveredSession.accountId &&
+          recoveredSession.accountId !== asserted.account?.accountId) ||
+        (recoveredSession.role === 'owner' && !recoveredSession.accountId && !ownerCredential)
+      ) {
+        return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
+      }
+      if (
+        !OPAQUE_ID_RE.test(recoveredSession.participantId || '') ||
+        recoveredSession.expiresAtMs <= nowMs ||
+        recoveredSession.authEpoch !== this.activeRoom.authEpoch ||
+        recoveredSession.roomGeneration !== this.activeRoom.roomGeneration
+      ) {
+        return errorResponse('ROOM_STATE_INVALID', 503);
+      }
+      const recoveredPresence =
+        this.activeRoom.presence.participants[recoveredSession.participantId];
+      if (!recoveredPresence || !this.isPresenceCurrent(recoveredPresence, Date.now())) {
+        if (
+          this.joinPresence(
+            recoveredSession,
+            deterministicTokenHash,
+            nowMs,
+            devicePlatformFromRequest(request),
+          ) === null
+        ) {
+          return errorResponse('ROOM_FULL', 409);
+        }
+      }
+      const recoveredRecords = this.reserveIdempotencySlot(
         scope,
         requestId,
-        fingerprint,
-      ].join('\u0000');
-      const deterministicToken = await createDeterministicOpaqueCredential(
-        sessionSecret,
-        credentialContext,
+        nowMs,
+        this.sessionCreateReceiptCapacity(recoveredSession.role),
       );
-      const deterministicTokenHash = await sha256Base64Url(deterministicToken);
-      const existingReceipt = this.idempotencyRecord(scope, requestId);
-      if (existingReceipt) {
-        if (!constantTimeEqual(existingReceipt.fingerprint || '', fingerprint)) {
-          return errorResponse('IDEMPOTENCY_CONFLICT', 409);
-        }
-        const receiptTokenHash = existingReceipt.tokenHash;
-        const receiptParticipantId = existingReceipt.participantId;
-        if (
-          existingReceipt.kind !== 'session-create' ||
-          existingReceipt.status !== 200 ||
-          typeof receiptTokenHash !== 'string' ||
-          !SHA256_RE.test(receiptTokenHash) ||
-          typeof receiptParticipantId !== 'string' ||
-          !OPAQUE_ID_RE.test(receiptParticipantId)
-        ) {
-          return errorResponse('ROOM_STATE_INVALID', 503);
-        }
-        const replaySession = this.activeRoom.sessions[receiptTokenHash];
-        if (
-          (replaySession?.accountId && replaySession.accountId !== asserted.account?.accountId) ||
-          (replaySession?.role === 'owner' && !replaySession.accountId && !ownerCredential)
-        ) {
-          // A pending request ID survives response loss, logout and account
-          // switches. It is not a replacement for the account proof that
-          // admitted an owner or linked member. A syntactic PIN may have been
-          // ignored by public admission or the verified-owner bypass too.
-          // Legacy unlinked owners also retain their credential requirement;
-          // an outcome-unknown request ID must never replace ownership proof.
-          return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
-        }
-        if (
-          !constantTimeEqual(deterministicTokenHash, receiptTokenHash) ||
-          !replaySession ||
-          replaySession.participantId !== receiptParticipantId ||
-          replaySession.expiresAtMs <= nowMs ||
-          replaySession.authEpoch !== this.activeRoom.authEpoch ||
-          replaySession.roomGeneration !== this.activeRoom.roomGeneration
-        ) {
-          // The receipt remains an exactly-once fence until its short TTL ends.
-          // Never turn an explicitly closed or capacity-evicted session into a
-          // second admission under the same logical request.
-          return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
-        }
-        const replayPresence = this.activeRoom.presence.participants[replaySession.participantId];
-        if (!replayPresence || !this.isPresenceCurrent(replayPresence, Date.now())) {
-          if (
-            this.joinPresence(
-              replaySession,
-              deterministicTokenHash,
-              nowMs,
-              devicePlatformFromRequest(request),
-            ) === null
-          ) {
-            return errorResponse('ROOM_FULL', 409);
-          }
-        }
-        // A prior storage failure can leave a receipt/session visible in this
-        // isolate even though the durable transaction did not commit (for
-        // example, a compatibility storage implementation without the outer
-        // rollback seam). Converge durability before returning any replayed
-        // credential, even when its presence was already resident in memory.
-        await this.persist();
-        const remainingTtlSeconds = Math.max(
-          1,
-          Math.ceil((replaySession.expiresAtMs - nowMs) / 1000),
-        );
-        return jsonResponse(
-          {
-            snapshot: publicSnapshot(this.activeRoom, replaySession),
-            session: { expiresAtMs: replaySession.expiresAtMs },
-          },
-          200,
-          {
-            'set-cookie': sessionCookie(
-              this.activeRoom.roomCode,
-              deterministicToken,
-              remainingTtlSeconds,
-            ),
-            ...(replaySession.accountId ? { 'x-mxqr-account-linked': '1' } : {}),
-          },
-        );
-      }
-
-      // The compact receipt intentionally expires before the session. An
-      // outcome-unknown retry can therefore arrive after its receipt was
-      // pruned while the deterministic credential is still authoritative.
-      // Reuse that exact live session and recreate the receipt; overwriting
-      // the same tokenHash with a new participant would orphan the prior
-      // presence and turn one logical admission into two identities.
-      const recoveredSession = this.activeRoom.sessions[deterministicTokenHash];
-      if (recoveredSession) {
-        if (
-          (recoveredSession.accountId &&
-            recoveredSession.accountId !== asserted.account?.accountId) ||
-          (recoveredSession.role === 'owner' && !recoveredSession.accountId && !ownerCredential)
-        ) {
-          return errorResponse('SESSION_REPLAY_UNAVAILABLE', 409);
-        }
-        if (
-          !OPAQUE_ID_RE.test(recoveredSession.participantId || '') ||
-          recoveredSession.expiresAtMs <= nowMs ||
-          recoveredSession.authEpoch !== this.activeRoom.authEpoch ||
-          recoveredSession.roomGeneration !== this.activeRoom.roomGeneration
-        ) {
-          return errorResponse('ROOM_STATE_INVALID', 503);
-        }
-        const recoveredPresence =
-          this.activeRoom.presence.participants[recoveredSession.participantId];
-        if (!recoveredPresence || !this.isPresenceCurrent(recoveredPresence, Date.now())) {
-          if (
-            this.joinPresence(
-              recoveredSession,
-              deterministicTokenHash,
-              nowMs,
-              devicePlatformFromRequest(request),
-            ) === null
-          ) {
-            return errorResponse('ROOM_FULL', 409);
-          }
-        }
-        const recoveredRecords = this.reserveIdempotencySlot(
-          scope,
-          requestId,
-          nowMs,
-          this.sessionCreateReceiptCapacity(recoveredSession.role),
-        );
-        recoveredRecords[`${scope}:${requestId}`] = {
-          kind: 'session-create',
-          fingerprint,
-          status: 200,
-          tokenHash: deterministicTokenHash,
-          participantId: recoveredSession.participantId,
-          expiresAtMs: Math.min(
-            recoveredSession.expiresAtMs,
-            nowMs + SESSION_CREATE_IDEMPOTENCY_TTL_MS,
+      recoveredRecords[`${scope}:${requestId}`] = {
+        kind: 'session-create',
+        fingerprint,
+        status: 200,
+        tokenHash: deterministicTokenHash,
+        participantId: recoveredSession.participantId,
+        expiresAtMs: Math.min(
+          recoveredSession.expiresAtMs,
+          nowMs + SESSION_CREATE_IDEMPOTENCY_TTL_MS,
+        ),
+      };
+      await this.persist();
+      const remainingTtlSeconds = Math.max(
+        1,
+        Math.ceil((recoveredSession.expiresAtMs - nowMs) / 1000),
+      );
+      return jsonResponse(
+        {
+          snapshot: publicSnapshot(this.activeRoom, recoveredSession),
+          session: { expiresAtMs: recoveredSession.expiresAtMs },
+        },
+        200,
+        {
+          'set-cookie': sessionCookie(
+            this.activeRoom.roomCode,
+            deterministicToken,
+            remainingTtlSeconds,
           ),
-        };
-        await this.persist();
-        const remainingTtlSeconds = Math.max(
-          1,
-          Math.ceil((recoveredSession.expiresAtMs - nowMs) / 1000),
-        );
-        return jsonResponse(
-          {
-            snapshot: publicSnapshot(this.activeRoom, recoveredSession),
-            session: { expiresAtMs: recoveredSession.expiresAtMs },
-          },
-          200,
-          {
-            'set-cookie': sessionCookie(
-              this.activeRoom.roomCode,
-              deterministicToken,
-              remainingTtlSeconds,
-            ),
-            ...(recoveredSession.accountId ? { 'x-mxqr-account-linked': '1' } : {}),
-          },
-        );
-      }
+          ...(recoveredSession.accountId ? { 'x-mxqr-account-linked': '1' } : {}),
+        },
+      );
     }
     const role: ProRoomRole =
       (ownerCredential && this.activeRoom.ownerAccountId === null) || verifiedOwnerAccount
@@ -15530,10 +15238,6 @@ export class MusixquareProRoom {
       const admissionLimited = this.readSessionAdmissionLimit(request, nowMs);
       if (admissionLimited) return admissionLimited;
     }
-    // The one-field legacy body remains accepted during the cached-client
-    // rollout. It cannot be safely collapsed by IP/PIN/User-Agent without
-    // merging distinct devices behind the same NAT, so only v1 clients that
-    // supply an opaque requestId receive exactly-once replay semantics.
     if (this.activeRoom.passwordRequired && !verifiedOwnerAccount) {
       if (pin === null) return errorResponse('PIN_REQUIRED', 401);
       const rateError = this.readRateLimit(request, 'pin-failure', 10);
@@ -15548,17 +15252,15 @@ export class MusixquareProRoom {
     // number, or session record is touched, so a full room refuses without
     // side effects (including session-capacity eviction).
     if (!this.presenceAdmissionAvailable(role)) return errorResponse('ROOM_FULL', 409);
-    if (requestId !== null && scope) {
-      // Capacity is reserved before account/session state is touched, so a
-      // full receipt ledger fails closed without a partially admitted identity.
-      // Proven owners may use the reserved tail of the session-create ledger.
-      idempotencyRecords = this.reserveIdempotencySlot(
-        scope,
-        requestId,
-        nowMs,
-        this.sessionCreateReceiptCapacity(role),
-      );
-    }
+    // Capacity is reserved before account/session state is touched, so a full
+    // receipt ledger fails closed without a partially admitted identity.
+    // Proven owners may use the reserved tail of the session-create ledger.
+    const idempotencyRecords = this.reserveIdempotencySlot(
+      scope,
+      requestId,
+      nowMs,
+      this.sessionCreateReceiptCapacity(role),
+    );
     const accountMember = asserted.account
       ? this.resolveAccountMember(asserted.account, role, nowMs)
       : null;
@@ -15592,19 +15294,14 @@ export class MusixquareProRoom {
       this.removeSessionRecord(created.tokenHash);
       return errorResponse('ROOM_FULL', 409);
     }
-    if (idempotencyRecords && scope && fingerprint && requestId !== null) {
-      idempotencyRecords[`${scope}:${requestId}`] = {
-        kind: 'session-create',
-        fingerprint,
-        status: 200,
-        tokenHash: created.tokenHash,
-        participantId: created.session.participantId,
-        expiresAtMs: Math.min(
-          created.session.expiresAtMs,
-          nowMs + SESSION_CREATE_IDEMPOTENCY_TTL_MS,
-        ),
-      };
-    }
+    idempotencyRecords[`${scope}:${requestId}`] = {
+      kind: 'session-create',
+      fingerprint,
+      status: 200,
+      tokenHash: created.tokenHash,
+      participantId: created.session.participantId,
+      expiresAtMs: Math.min(created.session.expiresAtMs, nowMs + SESSION_CREATE_IDEMPOTENCY_TTL_MS),
+    };
     await this.persist();
     // Count only a committed admission; a capacity or storage rollback above
     // must not consume the client's budget.
@@ -15761,8 +15458,8 @@ export class MusixquareProRoom {
     ) {
       auth.session.accountLeaseExpiresAtMs = this.accountIdentityLeaseExpiresAt(nowMs);
       // This endpoint cannot create an account-room relationship and changes no
-      // public revision. Keep the durable proof, but avoid rewriting the v1
-      // rollback shadow or moving an already-earlier alarm on every renewal.
+      // public revision. Keep the durable proof, but avoid moving an
+      // already-earlier alarm on every renewal.
       await this.persist({ retainEarlierAlarm: true });
     }
     return jsonResponse({
@@ -15845,18 +15542,6 @@ export class MusixquareProRoom {
     });
   }
 
-  async handleCloseSession(request: Request) {
-    const auth = await this.requireSession(request, { activePresence: true });
-    if (auth.response) return auth.response;
-    this.removePresence(auth.session.participantId, Date.now());
-    this.removeSessionRecord(auth.tokenHash);
-    await this.persist();
-    // The browser token is inert once its exact server record is removed. Do
-    // not return a same-name cookie tombstone: a delayed response could arrive
-    // after a replacement tab has installed a new room cookie and erase it.
-    return jsonResponse({ ok: true });
-  }
-
   async handleCloseSessionFenced(request: Request) {
     const auth = await this.requireSession(request);
     if (auth.response) return auth.response;
@@ -15925,30 +15610,26 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const requestedPin = body.pin;
-    const optionalEntryPolicy = this.supportsOptionalEntryPassword(request);
-    // `existingParticipants` is an optional-v1 choice for setting a PIN only.
-    // Without it, enabling or rotating keeps the original revoke-all contract
-    // and response shape byte for byte, so cached Apps and rolled-back Apps
-    // see no difference.
+    // `existingParticipants` is a choice for setting a PIN only. Without it,
+    // enabling or rotating revokes every other session.
     const membershipChoice = Object.prototype.hasOwnProperty.call(body, 'existingParticipants')
       ? body.existingParticipants
       : undefined;
     if (
       membershipChoice !== undefined &&
-      (!optionalEntryPolicy ||
-        requestedPin === null ||
+      (requestedPin === null ||
         (membershipChoice !== 'keep_present' && membershipChoice !== 'revoke_all'))
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
-    const disabling = requestedPin === null && optionalEntryPolicy;
+    const disabling = requestedPin === null;
     if (!disabling && !matchesPattern(requestedPin, PIN_RE)) {
       return errorResponse('INVALID_REQUEST', 400);
     }
     const result = () =>
       jsonResponse({
         ok: true,
-        ...(optionalEntryPolicy ? { passwordRequired: this.activeRoom.passwordRequired } : {}),
+        passwordRequired: this.activeRoom.passwordRequired,
         ...(membershipChoice === undefined ? {} : { existingParticipants: membershipChoice }),
       });
     if (disabling) {
@@ -16018,7 +15699,6 @@ export class MusixquareProRoom {
       [ownerSession.participantId]: ownerParticipant,
     };
     this.reconcileSystemAudio(nowMs);
-    this.activeRoom.presence.coordinatorParticipantId = null;
     this.activeRoom.presence.revision += 1;
     this.activeRoom.runtime = 'awake';
     this.bumpRoomEpoch(nowMs);
@@ -16242,15 +15922,16 @@ export class MusixquareProRoom {
     const parsed = await this.parseBody(request, UNLOAD_CLOSE_REQUEST_MAX_BYTES, true);
     if (parsed.response) return parsed.response;
     const body = parsed.value;
+    // `baseRevision`, `currentQueueItemId`, and `playback` are optional: the
+    // close never reads the browser's playback, and the App stops sending
+    // them in a later release. When present they are still checked below, and
+    // the replay fingerprint covers exactly the fields sent.
     if (
-      !hasExactKeys(body, [
-        'idempotencyKey',
-        'expectedParticipantId',
-        'expectedPresenceIncarnationId',
-        'baseRevision',
-        'currentQueueItemId',
-        'playback',
-      ]) ||
+      !hasExactKeys(
+        body,
+        ['idempotencyKey', 'expectedParticipantId', 'expectedPresenceIncarnationId'],
+        ['baseRevision', 'currentQueueItemId', 'playback'],
+      ) ||
       typeof body.idempotencyKey !== 'string' ||
       !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey) ||
       typeof body.expectedParticipantId !== 'string' ||
@@ -16289,22 +15970,27 @@ export class MusixquareProRoom {
       return errorResponse('PRESENCE_IDENTITY_MISMATCH', 409);
     }
     if (
-      !isSafeNonNegativeInteger(body.baseRevision) ||
-      body.baseRevision > this.activeRoom.revision
+      body.baseRevision !== undefined &&
+      (!isSafeNonNegativeInteger(body.baseRevision) || body.baseRevision > this.activeRoom.revision)
     ) {
       return errorResponse('INVALID_REVISION', 400);
     }
 
     // Playback is server-authoritative. Pagehide may carry the last locally
-    // observed checkpoint for request-shape continuity, but it is never
-    // allowed to overwrite the canonical server clock.
+    // observed checkpoint, but it is never allowed to overwrite the canonical
+    // server clock.
     if (
+      body.currentQueueItemId !== undefined &&
       body.currentQueueItemId !== null &&
       !matchesPattern(body.currentQueueItemId, QUEUE_ITEM_ID_RE)
     ) {
       return errorResponse('INVALID_PLAYBACK', 400);
     }
-    if (body.playback !== null && typeof body.playback !== 'object') {
+    if (
+      body.playback !== undefined &&
+      body.playback !== null &&
+      typeof body.playback !== 'object'
+    ) {
       return errorResponse('INVALID_PLAYBACK', 400);
     }
     const nowMs = Date.now();
@@ -16329,23 +16015,18 @@ export class MusixquareProRoom {
     if (auth.response) return auth.response;
     const parsed = await this.parseBody(request, 1024);
     if (parsed.response) return parsed.response;
-    let target: PresenceParticipant | undefined;
+    // The App names the member. The participant ID that Apps before
+    // 2026-07-20 sent is refused.
     if (
-      hasExactKeys(parsed.value, ['targetParticipantId']) &&
-      matchesPattern(parsed.value.targetParticipantId, OPAQUE_ID_RE)
+      !hasExactKeys(parsed.value, ['targetMemberId']) ||
+      !matchesPattern(parsed.value.targetMemberId, OPAQUE_ID_RE)
     ) {
-      target = this.activeRoom.presence.participants[parsed.value.targetParticipantId];
-    } else if (
-      hasExactKeys(parsed.value, ['targetMemberId']) &&
-      matchesPattern(parsed.value.targetMemberId, OPAQUE_ID_RE)
-    ) {
-      const targetMemberId = parsed.value.targetMemberId;
-      target = Object.values(this.activeRoom.presence.participants).find(
-        (participant) => participant.memberId === targetMemberId,
-      );
-    } else {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    const targetMemberId = parsed.value.targetMemberId;
+    const target = Object.values(this.activeRoom.presence.participants).find(
+      (participant) => participant.memberId === targetMemberId,
+    );
     if (!target) return errorResponse('PARTICIPANT_NOT_FOUND', 404);
     const targetParticipantId = target.participantId;
     const targetSession = this.activeRoom.sessions[target.sessionHash];
@@ -16457,18 +16138,12 @@ export class MusixquareProRoom {
     if (auth.response) return auth.response;
     const participant = auth.participant;
     if (!participant) return errorResponse('PRESENCE_SUPERSEDED', 409);
+    // The App asks with an empty body. The browser control version that Apps
+    // before 2026-07-20 sent here (the room now applies developer commands
+    // itself) is refused like any other body.
     const parsed = await this.parseBody(request, 1024, false, true);
     if (parsed.response) return parsed.response;
-    const developerControlVersion = parsed.empty
-      ? 0
-      : hasExactKeys(parsed.value, ['developerControlVersion']) &&
-          isSafeInteger(parsed.value.developerControlVersion) &&
-          parsed.value.developerControlVersion >= DEVELOPER_CONTROL_VERSION &&
-          parsed.value.developerControlVersion <= DEVELOPER_CONTROL_MAX_VERSION
-        ? parsed.value.developerControlVersion
-        : null;
-    if (developerControlVersion === null) return errorResponse('INVALID_REQUEST', 400);
-    participant.developerControlVersion = developerControlVersion;
+    if (!parsed.empty) return errorResponse('INVALID_REQUEST', 400);
     const secret = String(this.env.PRO_SIGNALING_SECRET || '');
     if (secret.length < 32) return errorResponse('SERVICE_NOT_CONFIGURED', 503);
     const nowMs = Date.now();
@@ -16698,11 +16373,6 @@ export class MusixquareProRoom {
 
   purgeSessionCreateReceipts() {
     this.activeRoom.sessionCreateIdempotency = {};
-    for (const storageKey of Object.keys(this.activeRoom.idempotency)) {
-      if (storageKey.startsWith(SESSION_CREATE_IDEMPOTENCY_SCOPE_PREFIX)) {
-        delete this.activeRoom.idempotency[storageKey];
-      }
-    }
   }
 
   /**
@@ -16740,46 +16410,23 @@ export class MusixquareProRoom {
     };
   }
 
-  idempotencyExpiresAt(storageKey: string, record: IdempotencyRecord) {
-    if (record.kind === 'asset-delete-pending') {
-      return ASSET_DELETE_PENDING_EXPIRES_AT_MS;
-    }
-    if (!storageKey.includes(PLAYBACK_IDEMPOTENCY_SCOPE_SEGMENT)) {
-      return record.expiresAtMs;
-    }
-    if (record.kind === 'playback-authority') return record.expiresAtMs;
-    // Legacy playback receipts have no kind marker and were written with the
-    // former 24-hour TTL. Derive their original creation time so this rollout
-    // immediately releases already-saturated rooms instead of waiting up to a
-    // day for the old absolute expiry.
-    return Math.min(
-      record.expiresAtMs,
-      record.expiresAtMs - IDEMPOTENCY_TTL_MS + PLAYBACK_IDEMPOTENCY_TTL_MS,
-    );
+  idempotencyExpiresAt(record: IdempotencyRecord) {
+    return record.kind === 'asset-delete-pending'
+      ? ASSET_DELETE_PENDING_EXPIRES_AT_MS
+      : record.expiresAtMs;
   }
 
-  idempotencyRecordIsExpired(storageKey: string, record: IdempotencyRecord, nowMs = Date.now()) {
-    return this.idempotencyExpiresAt(storageKey, record) <= nowMs;
+  idempotencyRecordIsExpired(record: IdempotencyRecord, nowMs = Date.now()) {
+    return this.idempotencyExpiresAt(record) <= nowMs;
   }
 
   idempotencyRecord(scope: string, key: string) {
     const storageKey = `${scope}:${key}`;
     const { records } = this.idempotencyLedger(scope);
-    // During the additive ledger migration, a receipt written by the previous
-    // Worker may still live in the shared map. Read it until its ordinary TTL
-    // expires so a retry spanning deployment cannot duplicate a mutation.
-    const primary = records[storageKey];
-    if (primary) {
-      if (!this.idempotencyRecordIsExpired(storageKey, primary)) return primary;
-      delete records[storageKey];
-    }
-    const legacyShared =
-      scope.startsWith('developer:') || scope.startsWith(SESSION_CREATE_IDEMPOTENCY_SCOPE_PREFIX)
-        ? this.activeRoom.idempotency[storageKey]
-        : undefined;
-    if (!legacyShared) return undefined;
-    if (!this.idempotencyRecordIsExpired(storageKey, legacyShared)) return legacyShared;
-    delete this.activeRoom.idempotency[storageKey];
+    const record = records[storageKey];
+    if (!record) return undefined;
+    if (!this.idempotencyRecordIsExpired(record)) return record;
+    delete records[storageKey];
     return undefined;
   }
 
@@ -16792,7 +16439,7 @@ export class MusixquareProRoom {
     const storageKey = `${scope}:${key}`;
     const { records, maxItems } = this.idempotencyLedger(scope);
     for (const [recordKey, record] of Object.entries(records)) {
-      if (this.idempotencyRecordIsExpired(recordKey, record, nowMs)) delete records[recordKey];
+      if (this.idempotencyRecordIsExpired(record, nowMs)) delete records[recordKey];
     }
     if (records[storageKey] !== undefined) return records;
     if (Object.keys(records).length >= Math.min(maxItems, capacity ?? maxItems)) {
@@ -17935,7 +17582,7 @@ export class MusixquareProRoom {
       }
     }
     for (const [key, record] of Object.entries(this.activeRoom.idempotency)) {
-      if (this.idempotencyRecordIsExpired(key, record, nowMs)) {
+      if (this.idempotencyRecordIsExpired(record, nowMs)) {
         delete this.activeRoom.idempotency[key];
         changed = true;
       }

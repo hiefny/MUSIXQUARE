@@ -257,11 +257,6 @@ export function normalizeStoredEffects(
     : null;
 }
 
-export function effectsContractVersion(request: Request): 2 | null {
-  const version = request.headers.get('x-mxqr-pro-effects-version');
-  return version === '2' ? 2 : null;
-}
-
 export function publicEffects(room: RoomWithEffects): PublicEffects {
   return {
     schemaVersion: 2,

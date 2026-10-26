@@ -1,7 +1,6 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   type CronEntry,
-  EARLIER_APP_TRANSFER_PIN,
   issueClaim,
   requestTransfer,
   sagaWrite,
@@ -24,13 +23,15 @@ import { nodeSqlite } from './helpers/worker-test-bindings.ts';
  *
  * A Worker deploy does not drain requests: a transfer request still running
  * on the old version can meet the minute cron on the new one, and the
- * reverse, on the same D1 rows. Each case runs one executor from an earlier
+ * reverse, on the same D1 rows. Each case runs the cron from an earlier
  * commit (helpers/legacy-app-worker.ts builds the App Worker exactly as
- * committed there) and the other from the current source, in both
- * directions, against the real PRO room Durable Object and node:sqlite D1
+ * committed there) against a request from the current source, on the real
+ * PRO room Durable Object and node:sqlite D1
  * (helpers/owner-transfer-saga-fixture.ts). A request through an earlier
- * build carries the PIN the App of its time sent, which those builds require
- * and the current PRO room ignores.
+ * build carries the PIN the App of its time sent, which those builds require;
+ * since 2026-10-26 the PRO room refuses that body before it changes
+ * anything, so an earlier build's request no longer reaches a commit and only
+ * this direction remains.
  *
  * The legacy builds are the App Worker in production before Phase 1 (Phase
  * 0d, `86ccefe6`) and the Phase 1 App Worker A tree (C7-8 and C7-11,
@@ -79,29 +80,6 @@ describe.each(LEGACY_BUILDS)(
       legacyCron = legacy.cron;
     }, 60_000);
 
-    run('an old request stalled after the commit, overtaken by the new cron', async () => {
-      const test = await transferFixture();
-      const claim = await issueClaim(test);
-      const stall = test.pauseOnce(sagaWrite('registry_active'));
-      const request = requestTransfer(test, claim, {
-        worker: legacy.worker,
-        newPin: EARLIER_APP_TRANSFER_PIN,
-      });
-      await stall.reached;
-
-      vi.setSystemTime(START + 60_000);
-      expect(await test.cron()).toBe(1);
-      expect(test.saga()).toBe('complete');
-      expect(test.commitAudits()).toEqual(['success']);
-
-      stall.release();
-      expect(await request).toEqual({ status: 200, error: null, cookies: COMMITTED_COOKIES });
-      await expectTransferred(test);
-      // The old version writes its success row without any check, so the
-      // duplicate stays possible while an old request finishes last.
-      expect(test.commitAudits()).toEqual(['success', 'success']);
-    });
-
     run('a new request stalled after the commit, overtaken by the old cron', async () => {
       const test = await transferFixture();
       const claim = await issueClaim(test);
@@ -118,29 +96,6 @@ describe.each(LEGACY_BUILDS)(
       await expectTransferred(test);
       // Owner decision D3 (C7-9): the new request's success insert finds the
       // old cron's row for this transfer and adds none.
-      expect(test.commitAudits()).toEqual(['success']);
-    });
-
-    run('an old request stalled after its success audit, finished by the new cron', async () => {
-      const test = await transferFixture();
-      const claim = await issueClaim(test);
-      const stall = test.pauseOnce(sagaWrite('complete'));
-      const request = requestTransfer(test, claim, {
-        worker: legacy.worker,
-        newPin: EARLIER_APP_TRANSFER_PIN,
-      });
-      await stall.reached;
-      expect(test.saga()).toBe('verified');
-      expect(test.commitAudits()).toEqual(['success']);
-
-      vi.setSystemTime(START + 60_000);
-      expect(await test.cron()).toBe(1);
-      expect(test.saga()).toBe('complete');
-
-      stall.release();
-      expect(await request).toEqual({ status: 200, error: null, cookies: COMMITTED_COOKIES });
-      await expectTransferred(test);
-      // D3 (C7-9): the new cron's success insert finds the old request's row.
       expect(test.commitAudits()).toEqual(['success']);
     });
 
@@ -196,38 +151,6 @@ describe.each(LEGACY_BUILDS)(
       expect(await test.cron(Date.now(), legacyCron)).toBe(1);
       await expectTransferred(test);
       expect(test.commitAudits()).toEqual(['success']);
-    });
-
-    run('an old request ending a deleted target meets the new cron', async () => {
-      const test = await transferFixture();
-      const claim = await issueClaim(test);
-      test.deleteTargetBefore(sagaWrite('committed'));
-      const stall = test.pauseOnce(sagaWrite('target_deleted'));
-      const request = requestTransfer(test, claim, {
-        worker: legacy.worker,
-        newPin: EARLIER_APP_TRANSFER_PIN,
-      });
-      await stall.reached;
-      // The old request purged and finalized; its audit comes after its advance.
-      expect(test.commitAudits()).toEqual([]);
-
-      vi.setSystemTime(START + 60_000);
-      expect(await test.cron()).toBe(1);
-      expect(test.saga()).toBe('target_deleted');
-      expect(test.commitAudits()).toEqual(['target_deleted_during_reconcile']);
-
-      stall.release();
-      expect(await request).toEqual({
-        status: 409,
-        error: 'OWNER_TRANSFER_TARGET_UNAVAILABLE',
-        cookies: [],
-      });
-      expect(test.saga()).toBe('target_deleted');
-      expect(test.commitAudits()).toEqual([
-        'target_deleted_during_reconcile',
-        'target_deleted_after_commit',
-      ]);
-      expect(test.fence()).toEqual({ status: 'active', reason: 'owner_account_deleted' });
     });
 
     run('a new request ending a deleted target meets the old cron', async () => {

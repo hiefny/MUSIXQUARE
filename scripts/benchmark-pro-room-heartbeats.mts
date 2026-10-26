@@ -691,7 +691,16 @@ async function loadBenchmarkModules(): Promise<{
   }
 }
 
-async function createSeed(module: BenchmarkModule): Promise<BenchmarkSeed> {
+/**
+ * `generation` names which Worker the module is. The baseline Worker
+ * (2026-07-19) knows only the temporary-PIN activation and keeps a browser
+ * control version per participant; the current Worker refuses both and
+ * activates with the App's body.
+ */
+async function createSeed(
+  module: BenchmarkModule,
+  generation: 'baseline' | 'current',
+): Promise<BenchmarkSeed> {
   const storage = new FakeStorage();
   const worker = new module.MusixquareProRoom(new FakeState(storage), environment());
   if (worker.ready) await worker.ready;
@@ -716,8 +725,7 @@ async function createSeed(module: BenchmarkModule): Promise<BenchmarkSeed> {
   if (!accountAssertion) throw new Error('Benchmark account assertion could not be created');
   const activationRequest = jsonRequest('/activation', {
     claimToken,
-    temporaryPin: '00000000',
-    newPin: '12345678',
+    ...(generation === 'baseline' ? { temporaryPin: '00000000', newPin: '12345678' } : {}),
     ownerName: 'Benchmark owner',
   });
   activationRequest.headers.set(ACCOUNT_ASSERTION_HEADER, accountAssertion);
@@ -774,7 +782,7 @@ async function createSeed(module: BenchmarkModule): Promise<BenchmarkSeed> {
       role: 'controller',
       joinedAtMs: nowMs,
       lastSeenAtMs: nowMs,
-      developerControlVersion: 0,
+      ...(generation === 'baseline' ? { developerControlVersion: 0 } : {}),
     };
     participants.push({
       cookie: `__Host-mxqr_pro_session_${ROOM_CODE}=${credential.token}`,
@@ -1079,8 +1087,8 @@ async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const modules = await loadBenchmarkModules();
   try {
-    const baselineSeed = await createSeed(modules.baseline);
-    const currentSeed = await createSeed(modules.current);
+    const baselineSeed = await createSeed(modules.baseline, 'baseline');
+    const currentSeed = await createSeed(modules.current, 'current');
     const baseline = await runImmediateBaseline(modules.baseline, baselineSeed);
     const currentHybrid = await runHybridCurrent(modules.current, currentSeed);
     if (baseline.durabilityFlushes !== HEARTBEAT_COUNT) {

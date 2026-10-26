@@ -95,7 +95,8 @@ runbooks. Neither belongs in a general setup document.
 
 - [Old-version removal train 2, release A: App compatibility code below the 787 build floor (2026-10-26)](design/old-version-removal-2a-app-2026-10-26.md):
   evidence for the App release of the second removal train (not yet released, no version bump
-  yet; target `app` after its Worker release W, which ships first and keeps its own report). It
+  yet; target `app`; its Worker release W shipped first on 2026-10-27 03:34 KST, keeps its own
+  report and is merged into this branch). It
   removes App code that only served clients below the App build floor 787 (9.0.14), on in
   production since 2026-10-26 16:15 KST. Increment A-1, C5-12 Inc 3: after ICE
   recovery a preload yields to the main lane for the same tuple without waiting for the host's

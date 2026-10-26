@@ -50,7 +50,8 @@ gh run list --workflow e2e.yml --branch main --limit 3
 
 - [ ] 범위와 상태(오너 정책 2026-10-25 약 16:40 KST, 바닥 결정 약 18:30 KST, 작은 통신 필드 2026-10-26 약 00:10 KST,
       5B와 병렬 약 14:10 KST): 최소 앱 빌드 787(2026-10-26 16:15 KST부터 켜짐) 뒤에야 지울 수 있는 앱 쪽 호환 코드.
-      브랜치 `agent/old-version-removal-2a`(origin/main `dd9c9d4d`에서 시작, `9e02d2df`(#499)는 아직 합치지 않음)의 앱 증분
+      브랜치 `agent/old-version-removal-2a`(origin/main `dd9c9d4d`에서 시작, 릴리스 W 배포 뒤의 origin/main `a3893f04`(#499, #500)를
+      합침 `bbc4d9bd`에서 받음)의 앱 증분
       여섯마다 테스트 먼저, 코드, 기록 커밋이 있고 마지막 런타임 커밋은 `789848bc`, 버전은 아직 9.0.14 / v787이다.
       A-1 C5-12 Inc 3(`23690c92`, 복구 뒤 미리받기가 방장의 경로 재판정 없이 같은 짝의 본 레인에 물러나고 경로 허락 기계를
       지움, 기기 근거 세 줄은 바이트가 같음), A-2(`e1d4a25a`, bulk 수신확인과 제어 격리가 상대 hello를 기다리고 1초 대체를
@@ -70,9 +71,11 @@ gh run list --workflow e2e.yml --branch main --limit 3
       유지 상한까지 25,796 B), 열차 끝 레인 검사(`d184518c`, 런타임 `789848bc`): 테스트 먼저 여섯 커밋 다시 확인(값 같음),
       critical E2E 61/61, 핵심 커버리지 87 files / 3,402, 가드 묶음, C5-0 랩 `--repeat-each=2` 19/20(보조 경로 행의 한
       반복이 회복 뒤 보조 채널 첫 데이터를 기다리다 일시정지 3초 창을 넘김, 앱 오류·유실 없음, 열차 1과 같은 랩 시간 여유
-      문제로 판독, 그 행만 다시 이 갈래 4/4와 main `dd9c9d4d` 4/4). 남은 것: 릴리스 W 배포·기록과 W 직후 같은 값 `set` 통과, 배포 직전 `status`로 바닥
-      787 이상 확인(요약 줄을 보고서에), 먼저 나간 열차와 origin/main 합침 뒤 다시 검사(room-authority 총합을 다시 재고,
-      5B가 먼저면 registry 기록 수를 다시 적음), bump(올리기 직전 fetch한 origin/main의 다음 패치와 epoch, W → A 순서면
+      문제로 판독, 그 행만 다시 이 갈래 4/4와 main `dd9c9d4d` 4/4). 릴리스 W는 2026-10-27 03:34 KST에 배포됐고(Release
+      [40378059253](https://github.com/hiefny/MUSIXQUARE/actions/runs/40378059253), target `all`, `a3893f04`) W 직후 같은 값 `set`
+      [40379025557](https://github.com/hiefny/MUSIXQUARE/actions/runs/40379025557)이 통과했다(stored 787, effective 787, live App
+      787, client read 787). 합친 트리(`bbc4d9bd`)의 다시 검사: typecheck(테스트 포함 전체)·`check:workers`, 단위 680 files / 16,052, Worker 67 files / 3,182, 가드 묶음(room-authority 직접 읽기 81·구독 22·쓰기 13 그대로, resource-ownership 48 records / 442 files로 출력이 `d184518c`와 바이트가 같음) PASS, 기준치 변화 없음. 남은 것: 릴리스 W 기록 PR(문서만)이 main에
+      들어오면 다시 합침, 배포 직전 `status`로 바닥 787 이상 확인(요약 줄을 보고서에), bump(올리기 직전 fetch한 origin/main의 다음 패치와 epoch, W → A 순서면
       9.0.15 / v788, 5B가 먼저면 9.0.16 / v789), bump 뒤 최종 검사, 열차 끝 세 렌즈 리뷰, PR CI, Codex, exact-main CI,
       Release(target `app`, Developer API D1 false, `raise_app_build_floor` false), 기록 PR. 기록 PR은 §1을 덮어쓰며
       '의존성·호환'에서 4B C5-12의 혼합 버전 남은 위험 문장(9.0.4~9.0.8 게스트, 이제 바닥 아래)을 빼고
@@ -1977,8 +1980,10 @@ action=lower -f min_app_build=<build> -f reason="<why>"`). Production Release가
   ([보고서](design/old-version-removal-2a-app-2026-10-26.md)). 그래서 forward fix를
   우선하고, 되돌려야 하면 App도 함께 되돌린다(8.9.x의 무작위 암호로 돌아간다).
   되돌린 동안 같은 방에서 암호를 X→Y→X로 바꾸면, 다시 앞으로 배포했을 때 X 때의
-  유지 목록이 되살아난다(그 기기도 자기 재연결 비밀이 있어야 한다). App만 되돌리면
-  무작위 암호로 돌아가고 새 Worker는 예전 프레임을 그대로 받는다. 되돌리기 전에 저장된 유지 목록은 방
+  유지 목록이 되살아난다(그 기기도 자기 재연결 비밀이 있어야 한다). App만 8.10.0
+  아래로 되돌리려면 먼저 최소 앱 빌드를 내려야 하고(위 '9.0.14 최소 앱 빌드'), 구버전
+  제거 열차 2 릴리스 W(2026-10-27) 뒤의 시그널링은 PIN 두 필드(`desiredRoomPassword`,
+  `pinMutationId`)가 없는 `host-auth`를 첫 프레임 무효로 거절한다. 되돌리기 전에 저장된 유지 목록은 방
   epoch와 verifier에 묶여 있어 그 경우 말고는 무시되고, 오답 기록은 10분 안에
   만료된다. 계약 marker는 없고 rollback floor도 바뀌지 않는다.
   [상세](design/standard-room-owner-pin-2026-10-11.md),

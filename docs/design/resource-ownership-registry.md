@@ -1177,7 +1177,15 @@ RO-51 duplicated
   outage's start, and its non-renewing 15 s grace before READY (in `link-liveness.ts` since
   C5-9, on the monotonic clock); the probe's short close (its 3 s
   challenge window and its 1 s look at a disconnected route, both in `link-liveness.ts` since
-  C5-7).
+  C5-7). No deadline covers a peer's bulk-credit or control-isolation hello (accepted limit,
+  old-version removal train 2, survey OV-F01, App build floor 787): bulk on the link waits for
+  both with no fallback timer, so without the isolation hello no bulk byte leaves and without the
+  credit hello only the first 128 KiB window does. Every end at the floor sends both once its
+  admission settles (`startBulkFlowControl`), on the ordered, reliable original control channel,
+  so a hello goes missing only when that channel fails, which closes the link through its close
+  event, or from a peer below the floor, reachable only while the effective floor reads 0. The
+  wait has no timer, line or close of its own; replacing the connection ends it
+  ([report](old-version-removal-2a-app-2026-10-26.md#남긴-것과-후속)).
 - **Timing-constant home:** `RTC_INTERRUPTION_GRACE_MS` in `src/core/constants.ts` (Phase 4,
   C5-1): the original PC's grace and the connection's background-resume threshold
   (`link-liveness.ts`), the provider's background-resume threshold and the restart answer wait
@@ -1269,8 +1277,9 @@ RO-51 duplicated
     original is down again, a restart in flight across a recovery, the grace before READY with
     its fall back and its take-over at READY, the restart budget and the offer bound, the three
     device lines by level and end, the close causes, the monotonic clock and, since the old-version
-    removal train, a peer whose advertisement or restart answer never arrives, which replaced the
-    frozen C9 peer)
+    removal train, "the restart-capable advertisement" (since train 2 none is sent and a 9.0.14
+    end's copy changes nothing) and "a peer whose restart answer never arrives", which replaced
+    the frozen C9 peer)
     and `link-liveness-side-outage.test.ts` (the owner's side outage on its own: every call on the
     side route and line in order, the original route's readings, the side PC's close and stop),
     both in the critical coverage profile. `control-isolation.test.ts` and

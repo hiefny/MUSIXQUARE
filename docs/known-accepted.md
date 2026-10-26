@@ -246,9 +246,6 @@ What remains accepted:
   then, the App
   treats the refusal as a permanent auth error and that device loses signaling
   recovery (ICE restarts) for the rest of its connection, as with a stale PIN.
-  During the 8.10.0 transition, cached 8.9.x hosts still generate random PINs;
-  if they refreshed the PIN, their present guests re-send the old PIN on the
-  deploy reconnect and those failures count against the shared bucket too.
 - **Older Worker.** Signaling is not rolled back below 9.0.14 while an App of
   9.0.14 or later is live, since an older Worker refuses every host that sends
   its build. A Worker older than 8.10.0 is reachable only in an emergency

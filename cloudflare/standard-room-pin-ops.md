@@ -181,9 +181,6 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
   no longer reads the advertisement and always sends the choice; it cannot
   authenticate as host to a Worker below 9.0.14, so it never meets one whose
   exact-key validator would drop that frame.
-- Older Apps treat every `room-password-*` error as a permanent auth error, so
-  `room-password-changed` and `room-password-rate-limited` cause no reconnect
-  storm; they show the generic join error.
 - A record survives a rollback untouched. Because it is tied to the room epoch
   and the verifier digest, a stale record is ignored, with one exception: if an
   older Worker changes the PIN X→Y→X within one epoch, the X digest matches

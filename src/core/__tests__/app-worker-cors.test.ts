@@ -945,10 +945,11 @@ describe('PRO activation account confirmation', () => {
       },
       PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch },
     };
+    // The activation body the App sends (the PRO room refuses the older
+    // temporary-PIN body since 2026-10-26); the facade forwards it unchanged.
     const activationBody = {
       claimToken: `v1.${'a'.repeat(32)}.${'B'.repeat(43)}`,
-      temporaryPin: '00000001',
-      newPin: '12345678',
+      ownerName: 'Owner',
     };
     return {
       env,

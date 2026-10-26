@@ -540,14 +540,14 @@ export interface TransportPeer {
   refreshStandardRoomIdentity?(): Promise<void>;
   deleteStandardRoomIdentity?(): void;
   /**
-   * Return null only when the admitted signaling deployment does not advertise
-   * this additive protocol. Once advertised, issuance failures reject rather
-   * than silently downgrading to the legacy upload path.
+   * Issue a Remote Share room upload assertion through the admitted Standard
+   * host signaling socket. Every failure rejects, including a Worker without
+   * the assertion secret: there is no assertion-free upload path.
    */
   requestRemoteShareUploadAssertion?(
     request: RemoteShareUploadAssertionRequest,
     signal?: AbortSignal,
-  ): Promise<string | null>;
+  ): Promise<string>;
   destroy(): void;
   on(event: 'open', callback: (id: string) => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;

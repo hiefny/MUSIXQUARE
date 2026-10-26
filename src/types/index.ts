@@ -778,8 +778,7 @@ export interface ProtocolMap {
   'youtube-playlist-info': { playlistId: string; ids: string[]; titles: string[] };
 
   // ── Shared Clock ────────────────────────────────────────────────
-  /** The host never reads guestTime; it stays optional for senders that still add it. */
-  'sync-ping': { pingId: number; guestTime?: number };
+  'sync-ping': { pingId: number };
   'sync-pong': {
     pingId: number;
     hostTime: number;

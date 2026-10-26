@@ -1217,7 +1217,16 @@ RO-51 duplicated
     8.11.23 peer) pins the unanswered restart. `side-route-outage-integration.test.ts` "the
     restart-capable advertisement" and "a peer whose restart answer never arrives" pin both
     through two real connections with the device lines. A Wi-Fi to LTE switch with both PCs is
-    device-only.
+    device-only. On the original route, since train 2 (survey OV-F04 stage 1, App build floor
+    787) every Standard connection takes its restartability binding from the initial negotiation
+    whether or not the first offer or answer carries `iceRestartVersion` (every end since 8.6.39
+    sends it, and still does until train 3; the restart offer keeps requiring it):
+    `cloudflare-signaling.test.ts` "restarts a guest whose first answer carried no
+    iceRestartVersion" and "answers an exact restart in place for a guest whose first offer
+    carried no iceRestartVersion", and `room-expiry-liveness.test.ts` "restarts a guest whose
+    host answered without the ICE restart marker". The resume challenge carries only its ping id
+    (survey OV-A12): `link-liveness-characterization.test.ts` "sends one control-lane challenge
+    and closes exactly 3 s later without its pong".
   - Characterization before the owner moves (tests only, #478):
     `src/network/transport/__tests__/link-liveness-characterization.test.ts` (grace, restart gate,
     effect order, background-resume probe outcomes) and `room-expiry-liveness.test.ts` (the #471

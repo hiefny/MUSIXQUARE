@@ -513,9 +513,9 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isKnownRoomCapabilityList(d.capabilities) &&
     (d.silent === undefined || typeof d.silent === 'boolean'),
   [MSG.OPERATOR_REVOKE]: (d) => d.silent === undefined || typeof d.silent === 'boolean',
-  [MSG.SYNC_PING]: (d) =>
-    isNonNegSafeInt(d.pingId) &&
-    (d.guestTime === undefined || isNonNegFiniteSafeNumber(d.guestTime)),
+  // The host reads only the id. A 9.0.14 guest's resume challenge still adds
+  // guestTime, ignored like any other unread key (old-version removal train 2).
+  [MSG.SYNC_PING]: (d) => isNonNegSafeInt(d.pingId),
   [MSG.REPEAT_MODE]: (d) => isRepeatMode(d.value) && hasValidBootstrapFlag(d),
   [MSG.SHUFFLE_MODE]: (d) => typeof d.value === 'boolean' && hasValidBootstrapFlag(d),
   [MSG.CHAT_MUTE]: isChatModerationTarget,

@@ -5,7 +5,9 @@
 - **Scope:** Standard-room signaling and established RTC recovery
 - **Recovery review:** 2026-09-20
 - **Amended:** 2026-10-25, the link-liveness owner of established RTC recovery (Phase 4),
-  including the isolated control side route's outage deadline (Phase 4 C5-9, train 4D)
+  including the isolated control side route's outage deadline (Phase 4 C5-9, train 4D);
+  2026-10-26, the host probe and the ICE restart binding no longer read Worker or peer
+  markers (old-version removal train 2)
 
 ## Problem
 
@@ -24,10 +26,13 @@ the exact socket generation is retired and the existing 1/2/4/8/15-second recove
 (`SIGNALING_RECOVERY_BACKOFF_MS` in `src/network/signaling-health.ts`) starts automatically.
 Existing WebRTC data channels, playback, and system-audio media stay intact.
 
-The Worker advertises protocol version 1 only from deployed Workers carrying version metadata.
-Durable Objects use `setWebSocketAutoResponse()` when available, with an explicit local/test
-fallback. Guests and PRO rooms do not run the periodic probe. Browser `offline` and `online`
-events are fast hints for the same Standard-host recovery path.
+The Worker advertises protocol version 1 only from deployed Workers carrying version metadata,
+but every Durable Object answers the fixed probe: it uses `setWebSocketAutoResponse()` when
+available, with an explicit local/test fallback. Since old-version removal train 2 (App build
+floor 787, 2026-10-26) the host no longer reads the advertisement and probes every admitted
+Standard host WebSocket. The HTTP bridge socket, guests and PRO rooms do not run the periodic
+probe. Browser `offline` and `online` events are fast hints for the same Standard-host recovery
+path.
 
 Returning to the foreground also restarts an exhausted Standard-host signaling
 budget, without replacing the room identity, RTC channels, or local playback.
@@ -102,13 +107,15 @@ The browser reports the signaling interruption with its role and surviving chann
 the provider separately records socket close and host liveness-probe failures. These records
 locate the failed layer without claiming a network or server root cause from a warning alone.
 
-Updated Standard clients advertise `iceRestartVersion: 1` in the initial SDP exchange.
-Both ends must support it. A guest can then restart ICE on the existing peer connection,
+Standard clients mark the initial SDP exchange with `iceRestartVersion: 1`. Since old-version
+removal train 2 (App build floor 787, 2026-10-26) neither end reads that mark on the first offer
+or answer: every Standard end since 8.6.39 can restart, and the floor admits none older. The
+restart offer still carries the mark with `restartOf`, which the host and the signaling Worker
+require. A guest can restart ICE on the existing peer connection,
 including after a host network change, using `restartOf` to bind the offer to that exact
 initial negotiation. The host's authenticated signaling route, member identity, departure
 sequence, and live connection ownership remain mandatory. Recovery does not rejoin the room,
-replace its data channels, or bypass access checks. PRO retains its existing recovery path;
-older clients retain their previous failure handling.
+replace its data channels, or bypass access checks. PRO retains its existing recovery path.
 
 TURN credentials retain their absolute expiry even when reused from the
 page-scoped cache. Before expiry, the transport requests fresh credentials with

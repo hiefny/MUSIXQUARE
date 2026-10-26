@@ -166,13 +166,21 @@ the PIN storage-boundary guard pins that neither ever holds PIN material.
 
 ### Rollback
 
-- No marker or floor changes. An older signaling Worker never reads either key
-  and does not advertise `standardRoomPinMembershipVersion`, so the App sends
-  the PIN alone: "그대로 두기" behaves as before 8.10.0 (present guests stay
-  but re-send their old PIN on a signaling reconnect), and "모두 재입장" is only
-  the host's `KICK_DEVICE`, which a modified client could ignore because its
-  signaling socket stays admitted. The wrong-PIN limit is off while rolled
-  back.
+- No marker or floor changes. Signaling is not rolled back below 9.0.14 while
+  an App of 9.0.14 or later is live: an older Worker refuses every `host-auth`
+  that carries `appBuild` ([hotfix procedure](../docs/hotfix-procedure.md#app-build-floor)).
+  A signaling Worker older than 8.10.0 is therefore reachable only in an
+  emergency recovery that also rolls the App back below 9.0.14 and lowers the
+  App build floor. That Worker never reads either key and does not advertise
+  `standardRoomPinMembershipVersion`, and that App (9.0.13 or older) reads the
+  advertisement and sends the PIN alone: "그대로 두기" behaves as before 8.10.0
+  (present guests stay but re-send their old PIN on a signaling reconnect), and
+  "모두 재입장" is only the host's `KICK_DEVICE`, which a modified client could
+  ignore because its signaling socket stays admitted. The wrong-PIN limit is
+  off while rolled back. Since old-version removal train 2 (2026-10-26) the App
+  no longer reads the advertisement and always sends the choice; it cannot
+  authenticate as host to a Worker below 9.0.14, so it never meets one whose
+  exact-key validator would drop that frame.
 - Older Apps treat every `room-password-*` error as a permanent auth error, so
   `room-password-changed` and `room-password-rate-limited` cause no reconnect
   storm; they show the generic join error.

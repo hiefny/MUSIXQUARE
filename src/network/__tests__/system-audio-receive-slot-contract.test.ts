@@ -26,14 +26,15 @@
  * media teardown (stopAllMedia spy), the Standard TURN loader (no TURN) and the
  * local capture module (sender side, inactive). i18n returns keys.
  *
- * Assertions read state, toasts, bus emissions and the native ledgers only,
+ * Assertions read state, toasts, bus emissions, the receive deadline's warn
+ * lines, the /debug guest snapshot's deadline keys and the native ledgers only,
  * never timer names. Each test pins today's behaviour on main d84f53f5 (9.0.3;
  * the fix lanes since c08b6c39 changed only PRO reception); a comment names
  * every known gap and the increment planned for it.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG } from '../../core/constants.ts';
-import { bus } from '../../core/events.ts';
+import { bus, createBusScope } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { claimPlaybackOwner, createFileTrackMeta } from '../../player/ownership.ts';
@@ -41,7 +42,10 @@ import type { DataConnection } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { markQueueAuthorityReady } from '../queue-authority.ts';
 import { getGuestSystemAudioShareRoute } from '../system-audio-delivery.ts';
-import { registerSystemAudioGuestListeners } from '../system-audio-guest.ts';
+import {
+  getSystemAudioGuestDebugSnapshot,
+  registerSystemAudioGuestListeners,
+} from '../system-audio-guest.ts';
 import { registerSystemAudioSfuListeners } from '../system-audio-sfu.ts';
 import {
   FakeMediaStream,
@@ -139,6 +143,16 @@ function streamOf(trackId: string): MediaStream {
 }
 
 const advance = (ms: number) => vi.advanceTimersByTimeAsync(ms);
+
+/**
+ * The slot's receive deadline as /debug sa reports it (the guest snapshot's
+ * watchdog keys). A delivery handoff keeps the placeholder and re-arms this
+ * deadline from the handoff.
+ */
+function receiveDeadline() {
+  const { watchdogActive, watchdogArmedAt } = getSystemAudioGuestDebugSnapshot();
+  return { armed: watchdogActive, armedAt: watchdogArmedAt };
+}
 
 beforeAll(() => {
   registerSystemAudioGuestListeners();
@@ -469,6 +483,7 @@ describe('Standard SFU guest receive', () => {
   it('S3: a failed subscribe with a pending READY hands off, keeping the placeholder with receiving false', async () => {
     await start();
     realtime.injectFault('renegotiate', 'fail');
+    const readyAt = Date.now();
     await ready('rt_host_session_a');
     await advance(50);
     await ready('rt_host_session_b');
@@ -476,9 +491,9 @@ describe('Standard SFU guest receive', () => {
     expect(slot()).toMatchObject({ receiving: true, sources: ['sfu-remote-audio-1'] });
 
     // Renegotiate fails at 300 ms: the attached source leaves, while the
-    // placeholder and restore point stay.
+    // placeholder and restore point stay and the slot deadline is re-armed.
     await advance(100);
-    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(receiveDeadline()).toEqual({ armed: true, armedAt: readyAt + 300 });
     expect(slot()).toMatchObject({
       receiving: false,
       activity: 'pending',
@@ -498,6 +513,7 @@ describe('Standard SFU guest receive', () => {
   it('S3: a handoff re-arms the 30 s slot deadline from the handoff, not from START', async () => {
     await start();
     realtime.injectFault('renegotiate', 'fail');
+    const readyAt = Date.now();
     await ready('rt_host_session_a');
     await advance(50);
     realtime.injectFault('new-session', 'hang');
@@ -509,7 +525,7 @@ describe('Standard SFU guest receive', () => {
     // no receiving state to end (the handoff cleared it), so only the re-armed
     // slot deadline ends reception.
     await advance(15_249);
-    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(receiveDeadline()).toEqual({ armed: true, armedAt: readyAt + 300 });
     expect(FakeRTCPeerConnection.instances[1].closed).toBe(false);
     await advance(1);
     expect(FakeRTCPeerConnection.instances[1].closed).toBe(true);
@@ -704,7 +720,7 @@ describe('Standard SFU guest receive', () => {
     await advance(1_000);
 
     const call = directCall();
-    expect(seen.counts.deliveryHandoffs).toBe(1);
+    expect(receiveDeadline()).toEqual({ armed: true, armedAt: Date.now() });
     expect(slot()).toMatchObject({ receiving: false, placeholder: true, sources: [] });
     expect(FakeRTCPeerConnection.instances[0].closed).toBe(true);
 
@@ -821,9 +837,9 @@ describe('Standard SFU guest receive', () => {
     await advance(20_000);
     // A READY 10 s before the deadline whose tracks-new is still in flight
     // when it fires (new-session answers at 26 s, tracks-new at 32 s), well
-    // inside each request's own 15 s deadline. Only the SFU adapter's
-    // 'system-audio:receive-timeout' reaction can close it at 30 s; C4-6 moves
-    // that reaction into the slot's deadline fan-out.
+    // inside each request's own 15 s deadline. Only the SFU adapter's reaction
+    // to the slot deadline can close it at 30 s (the 'system-audio:receive-
+    // timeout' bus listener until C4-6, the slot's deadline fan-out since).
     realtime.latencyMs = 6_000;
     await ready('rt_host_session_1');
     await advance(9_999);
@@ -843,5 +859,33 @@ describe('Standard SFU guest receive', () => {
     expect(getGuestSystemAudioShareRoute()).toBe('sfu-remote');
     await start();
     expect(getGuestSystemAudioShareRoute()).toBe('unselected');
+  });
+
+  it('the slot deadline lets the SFU adapter drop its subscription before the reception ends, and shows receive_failed after the title is back', async () => {
+    await start();
+    await advance(20_000);
+    realtime.latencyMs = 6_000;
+    await ready('rt_host_session_1');
+    await advance(9_999);
+    const subscriber = FakeRTCPeerConnection.instances[0];
+    const order: string[] = [];
+    const scope = createBusScope();
+    scope.on('state:player.currentTrackMeta', () => {
+      const title = getState('player.currentTrackMeta')?.title;
+      order.push(`title ${title}, subscriber closed ${subscriber.closed}`);
+    });
+    scope.on('ui:show-toast', (message) => {
+      order.push(`toast ${message}, title ${getState('player.currentTrackMeta')?.title}`);
+    });
+
+    await advance(1);
+    scope.dispose();
+    // The deadline's route reaction (the SFU adapter's) runs first, the end of
+    // reception then restores the title, and the notice comes last.
+    expect(order).toEqual([
+      `title ${previousTitle}, subscriber closed true`,
+      `toast system_audio.receive_failed, title ${previousTitle}`,
+    ]);
+    expect(seen.counts.receiveTimeouts).toBe(1);
   });
 });

@@ -36,6 +36,7 @@ supersede them explicitly when the product boundary changes.
 - [Realtime runtime ownership](design/realtime-runtime-ownership.md)
 - [Resource ownership registry](design/resource-ownership-registry.md)
 - [Page navigation ownership](design/page-navigation-ownership.md)
+- [System-audio receive ownership](design/system-audio-receive-ownership.md)
 - [Signaling liveness](design/signaling-liveness.md)
 - [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md)
 - [Initial bundle and lazy-loading policy](design/initial-bundle-loading-policy.md)
@@ -92,9 +93,26 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 5 train 5A: one system-audio receive slot, behaviour-neutral (2026-10-25)](design/phase5-5a-receive-slot-2026-10-25.md):
+  evidence for the structure program's first Phase 5 app train (9.0.12 / v785, not yet released;
+  target `app`; since the 2026-10-26 integration it ships before the forced-update train). One
+  deferred-only owner, `src/network/system-audio-receive-slot.ts` (RO-04), now holds the device's
+  system-audio reception: the start, the trust-boundary waits, the restore point, the receive deadline and its
+  expiry, every route's source and primer, the interrupts, the delivery handoff, the PRO
+  coordinator's adopt of the Standard SFU route and the end. The Standard direct call, the
+  Standard SFU guest and the PRO coordinator call it, the PRO service imports no Standard receive
+  adapter, the media values have one home (`system-audio-media.ts`) and the PRO publication
+  teardown composes three named operations (RO-40 retired). The report lists the owner's Phase 5
+  decisions, the preparation (T1 to T8, T8 negative), each increment with its commits and
+  tests-first evidence, the 14 gaps left as today's behaviour for train 5B, the neutrality
+  evidence (the final contract and evidence-line suites also green on the 9.0.11 runtime), the
+  P5-D4 A owner question on the chunk change after C4-7 and the owner's answer (2026-10-26,
+  about 09:10 KST: ship as is, so the new lazy chunk stays), the overlap with Phase 4, the eager
+  JS delta (+12 B on the final bump, no code), and the Phase 5 device steps not yet run.
+
 - [Phase 4 train 4D: the side route's outage deadline joins the link-liveness owner (2026-10-25)](design/phase4-4d-side-route-owner-2026-10-25.md):
-  evidence for the structure program's fourth Phase 4 app train (9.0.11 / v784, not yet released;
-  target `app`). After known-accepted #18 retired on the owner's Wi-Fi to LTE device check on 9.0.10,
+  release evidence for the structure program's fourth Phase 4 app train (9.0.11 / v784,
+  released 2026-10-25 21:30 KST in Release 40193266364, target `app`). After known-accepted #18 retired on the owner's Wi-Fi to LTE device check on 9.0.10,
   the owner chose (2026-10-25, about 16:30 KST) to ship C5-9 with a forward revert to the 9.0.10
   side-route behaviour if the later device check fails. `LinkLiveness` now also holds the side
   (isolated control) PC's outage deadline: 15 s per outage, deferred while the original route is
@@ -105,7 +123,8 @@ runbooks. Neither belongs in a general setup document.
   two-connection suite green on the 9.0.10 code), what stays byte-identical (the three device
   evidence lines, close causes, the peer restart windows, every frame), mixed versions with the
   frozen C9 fixture, the eager JS delta (+181 B at D1, +171 B after the bump), the local
-  verification after the bump (C5-0 lab included), the remaining release steps and the owner's device procedure for 4D.
+  verification after the bump (C5-0 lab included), the PR, exact-main CI and release round, and the
+  owner's device procedure for 4D.
 
 - [Phase 4 train 4C: one link-liveness owner per Cloudflare data connection (2026-10-25)](design/phase4-4c-link-liveness-2026-10-25.md):
   release evidence for the structure program's third Phase 4 app train (9.0.10 / v783,

@@ -18,18 +18,20 @@ import {
   withRequestDeadline,
 } from '../core/request-lifetime.ts';
 import { localFirstApiEndpoints } from './api-endpoints.ts';
+import {
+  BASE_SFU_ICE_SERVERS,
+  SFU_CONTROL_REQUEST_TIMEOUT_MS,
+  SFU_CONTROL_RESPONSE_MAX_BYTES,
+  applySystemAudioPlayoutDelay,
+  tuneSystemAudioMusicSender,
+} from './system-audio-media.ts';
 
-const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
-const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const MAX_SESSION_ID_LENGTH = 128;
 const MAX_TRACK_NAME_LENGTH = 160;
 const MAX_ROOM_ID_LENGTH = 64;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const PUBLISHER_EXPIRY_TIMER = 'pro-system-audio-sfu:publisher-expiry';
 const SUBSCRIBER_EXPIRY_TIMER = 'pro-system-audio-sfu:subscriber-expiry';
-const SFU_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
-const SFU_CONTROL_RESPONSE_MAX_BYTES = 1024 * 1024;
-const SYSTEM_AUDIO_STEREO_MAX_BITRATE = 256_000;
 
 interface ProSystemAudioSfuTrackDescriptor {
   trackName: string;
@@ -406,30 +408,6 @@ function buildTrackName(roomId?: string): string {
   );
 }
 
-function applyAudioSenderTuning(sender: RTCRtpSender): void {
-  const track = sender.track;
-  if (!track || track.kind !== 'audio') return;
-  try {
-    void track
-      .applyConstraints({
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      })
-      .catch(() => {});
-  } catch {
-    /* browser does not expose sender-track constraints */
-  }
-  try {
-    const parameters = sender.getParameters();
-    if (!parameters.encodings) parameters.encodings = [{}];
-    parameters.encodings[0].maxBitrate = SYSTEM_AUDIO_STEREO_MAX_BITRATE;
-    void sender.setParameters(parameters).catch(() => {});
-  } catch {
-    /* optional sender tuning */
-  }
-}
-
 function validateAudioTrack(track: MediaStreamTrack, label: string): void {
   if (!track || track.kind !== 'audio') throw new TypeError(`${label} must be an audio track`);
   if (track.readyState === 'ended') throw new TypeError(`${label} has already ended`);
@@ -671,7 +649,7 @@ async function performPublish(
       direction: 'sendonly',
       streams: [sourceStream],
     });
-    applyAudioSenderTuning(transceiver.sender);
+    tuneSystemAudioMusicSender(transceiver.sender);
     const rawOffer = sessionDescriptionFromInit(await pc.createOffer());
     const offer = { ...rawOffer, sdp: forceStereoSdp(rawOffer.sdp) };
     ensurePublisherCurrent(epoch, pc);
@@ -786,12 +764,6 @@ function ensureSubscriberCurrent(epoch: number, pc: RTCPeerConnection): void {
   }
 }
 
-function setReceiverDelay(receiver: RTCRtpReceiver): void {
-  if (receiver.track?.kind !== 'audio') return;
-  (receiver as RTCRtpReceiver & { playoutDelayHint?: number }).playoutDelayHint =
-    SYSTEM_AUDIO_PLAYOUT_DELAY_S;
-}
-
 async function performSubscribe(
   descriptor: ProSystemAudioSfuPublicationDescriptor,
   epoch: number,
@@ -842,7 +814,7 @@ async function performSubscribe(
     const key = track.id;
     if (emittedTracks.has(key)) return;
     emittedTracks.add(key);
-    setReceiverDelay(receiver);
+    applySystemAudioPlayoutDelay(receiver);
     emitEvent({
       type: 'subscriber-track',
       descriptor,

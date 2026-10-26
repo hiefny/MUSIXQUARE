@@ -1,15 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { log } from '../../core/log.ts';
 import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../../types/index.ts';
 import { handleData } from '../protocol.ts';
 import { markQueueAuthorityReady } from '../queue-authority.ts';
 import {
-  beginTrustedSystemAudioReception,
-  cleanupGuestSystemAudio,
+  getSystemAudioGuestDebugSnapshot,
   registerSystemAudioGuestListeners,
 } from '../system-audio-guest.ts';
+import { SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS } from '../system-audio-media.ts';
 import {
   claimPlaybackOwner,
   setPlaybackFilePlaying,
@@ -24,7 +25,18 @@ import {
   freezeGuestSystemAudioSfuRoute,
   resetGuestSystemAudioShareRoute,
 } from '../system-audio-delivery.ts';
-import { primeWebRtcAudioDecoder } from '../webrtc-audio-decoder-primer.ts';
+import {
+  awaitTrustedSystemAudioReceptionBoundary,
+  beginTrustedSystemAudioReception,
+  endTrustedSystemAudioReception,
+  handOffTrustedSystemAudioReception,
+  registerSystemAudioReceiveRoute,
+} from '../system-audio-receive-slot.ts';
+import {
+  cleanupWebRtcAudioDecoderPrimer,
+  primeWebRtcAudioDecoder,
+  type WebRtcAudioDecoderPrimer,
+} from '../webrtc-audio-decoder-primer.ts';
 
 const timerMocks = vi.hoisted(() => {
   const timers = new Map<string, () => void>();
@@ -209,13 +221,20 @@ async function flushAsyncStreamHandler(): Promise<void> {
   await Promise.resolve();
 }
 
+// The Standard SFU's reaction to a receive deadline, as it registers it with
+// the receive slot (the SFU module is not loaded in this suite). Each test
+// that reads it sets its own reaction.
+let sfuDeadlineReaction: () => void = () => undefined;
+registerSystemAudioReceiveRoute('standard-sfu', { onDeadline: () => sfuDeadlineReaction() });
+
 describe('system audio guest receive watchdog', () => {
   const hostConn = { open: true, peer: 'host' } as DataConnection;
   const watchdogName = 'sys-audio-guest-receive-watchdog';
   const stereoReplacementWatchdogName = 'sys-audio-guest-replacement-watchdog-STEREO';
 
   beforeEach(() => {
-    cleanupGuestSystemAudio();
+    sfuDeadlineReaction = () => undefined;
+    endTrustedSystemAudioReception();
     resetState();
     bus.clear();
     vi.clearAllMocks();
@@ -519,7 +538,7 @@ describe('system audio guest receive watchdog', () => {
     setState('player.currentTrackMeta', { type: 'file', name: 'successor-track' });
     expect(timerMocks.timers.has(watchdogName)).toBe(true);
 
-    expect(beginTrustedSystemAudioReception(undefined, { receiveWatchdog: false })).toBe(true);
+    expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
 
     expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
     expect(timerMocks.timers.has(watchdogName)).toBe(false);
@@ -532,7 +551,8 @@ describe('system audio guest receive watchdog', () => {
     setSystemAudioReceiving(true);
     expect(timerMocks.timers.has(watchdogName)).toBe(false);
 
-    bus.emit('system-audio:delivery-handoff');
+    // As the Standard SFU calls it when it hands delivery to another route.
+    handOffTrustedSystemAudioReception();
 
     expect(getState('systemAudio.isReceiving')).toBe(false);
     expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
@@ -548,7 +568,7 @@ describe('system audio guest receive watchdog', () => {
     setSystemAudioReceiving(true);
     claimPlaybackOwner('system-audio');
 
-    cleanupGuestSystemAudio();
+    endTrustedSystemAudioReception();
 
     expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
     expect(getState('systemAudio.isReceiving')).toBe(false);
@@ -795,5 +815,456 @@ describe('system audio guest receive watchdog', () => {
     staleWatchdog?.();
     expect(getState('systemAudio.isReceiving')).toBe(true);
     expect(replacement.mediaConn.close).not.toHaveBeenCalled();
+  });
+
+  // Phase 5 C4-1 moves the playout-delay hint into system-audio-media.ts. The
+  // receive-slot contract pins 0.5 on a call with one audio receiver; this
+  // pins which receivers of the direct call's connection get it.
+  it('sets the 0.5 s playout-delay hint only on the audio receivers of the direct call', async () => {
+    stubAudioSource();
+    const audio = { track: { kind: 'audio' } } as RTCRtpReceiver & { playoutDelayHint?: number };
+    const video = { track: { kind: 'video' } } as RTCRtpReceiver & { playoutDelayHint?: number };
+    const trackless = { track: null } as unknown as RTCRtpReceiver & {
+      playoutDelayHint?: number;
+    };
+    const pc = { getReceivers: vi.fn(() => [video, audio, trackless]) };
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+    const incoming = createMediaConnection('host', pc as unknown as RTCPeerConnection);
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    incoming.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(pc.getReceivers).toHaveBeenCalledTimes(1);
+    expect(audio.playoutDelayHint).toBe(0.5);
+    expect(video).not.toHaveProperty('playoutDelayHint');
+    expect(trackless).not.toHaveProperty('playoutDelayHint');
+  });
+
+  // Phase 5 C4-3 moves the direct call's attach (the source on widener.input,
+  // the receiving flag, the owner claim) and its primer into the receive
+  // slot. These pin what the direct call hands it and what its /debug
+  // channel keeps, before the move.
+  describe('direct call attach', () => {
+    it('connects the remote stream object itself to the widener input and stamps the graph time', async () => {
+      const source = { connect: vi.fn(), disconnect: vi.fn() };
+      const createMediaStreamSource = vi.fn(() => source);
+      vi.mocked(getAudioContext).mockReturnValue({
+        createMediaStreamSource,
+      } as unknown as AudioContext);
+      const widener = { input: { connect: vi.fn() } };
+      vi.mocked(getWidener).mockReturnValueOnce(
+        widener as unknown as ReturnType<typeof getWidener>,
+      );
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+      const incoming = createMediaConnection();
+      bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+      const stream = audioStreamWithTrack();
+      incoming.emit('stream', stream);
+      await flushAsyncStreamHandler();
+
+      expect(createMediaStreamSource).toHaveBeenCalledExactlyOnceWith(stream);
+      expect(source.connect).toHaveBeenCalledExactlyOnceWith(widener.input);
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+      expect(getState('playback.mode')).toBe('system-audio');
+      const snapshot = getSystemAudioGuestDebugSnapshot();
+      // The primer is mocked to hold nothing here: the source alone is reported.
+      expect(snapshot).toMatchObject({ gotStereo: true, sourceStereo: true, decoderPrimer: false });
+      expect(snapshot.channels).toEqual([
+        expect.objectContaining({
+          channel: 'STEREO',
+          graphAt: expect.any(Number),
+          graphError: undefined,
+        }),
+      ]);
+    });
+
+    it.each([
+      {
+        failure: 'a missing audio graph',
+        arrange: () => vi.mocked(getWidener).mockReturnValueOnce(null),
+        message: 'audio-graph-not-ready',
+        graphLog: true,
+      },
+      {
+        failure: 'an initAudio rejection',
+        arrange: () => vi.mocked(initAudio).mockRejectedValueOnce(new Error('audio init failed')),
+        message: 'audio init failed',
+        graphLog: false,
+      },
+    ])(
+      'keeps $failure on the call /debug channel and logs it as the stream graph failure',
+      async ({ arrange, message, graphLog }) => {
+        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        arrange();
+
+        const failed = createMediaConnection();
+        bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+        failed.emit('stream', audioStreamWithTrack());
+        await flushAsyncStreamHandler();
+
+        expect(failed.mediaConn.close).toHaveBeenCalledTimes(1);
+        // The listener registration in beforeEach warns about re-registered
+        // protocol handlers; only the receiver's own lines count here.
+        const receiverLines = (level: 'warn' | 'error') =>
+          vi
+            .mocked(log[level])
+            .mock.calls.filter(([first]) => String(first).startsWith('[SysAudioGuest]'));
+        expect(receiverLines('warn')).toEqual([
+          ['[SysAudioGuest] STEREO stream graph failed:', expect.objectContaining({ message })],
+        ]);
+        expect(receiverLines('error')).toEqual(
+          graphLog ? [['[SysAudioGuest] Audio graph not ready']] : [],
+        );
+        const snapshot = getSystemAudioGuestDebugSnapshot();
+        expect(snapshot).toMatchObject({
+          systemReceiving: false,
+          gotStereo: false,
+          sourceStereo: false,
+        });
+        expect(snapshot.channels).toEqual([
+          expect.objectContaining({ channel: 'STEREO', graphAt: undefined, graphError: message }),
+        ]);
+      },
+    );
+  });
+
+  // Phase 5 C4-2 moved the trusted reception (its generation, boundary
+  // waiters, restore point, receive watchdog, begin and cleanup) out of this
+  // module into the receive slot. These pin that machine, written before the
+  // move, through the names the Standard SFU and PRO routes call: the slot's
+  // own (this module's compatibility aliases of them until C4-8).
+  describe('trusted reception: generation, waiters, restore point and watchdog', () => {
+    function settledValue(wait: Promise<boolean>): { value: boolean | undefined } {
+      const result: { value: boolean | undefined } = { value: undefined };
+      wait.then(
+        (value) => {
+          result.value = value;
+        },
+        () => undefined,
+      );
+      return result;
+    }
+
+    it('fails a boundary wait no start answers within the receive deadline, under its own timer', async () => {
+      expect(SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS).toBe(30_000);
+      const wait = settledValue(awaitTrustedSystemAudioReceptionBoundary('sfu-stereo'));
+      const gates = timerNamesWithPrefix('sys-audio-guest-trust-gate-sfu-stereo-');
+      expect(gates).toHaveLength(1);
+      const gate = gates[0] ?? '';
+      expect(timerMocks.delays.get(gate)).toBe(SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS);
+
+      timerMocks.timers.get(gate)?.();
+      await flushAsyncStreamHandler();
+      expect(wait.value).toBe(false);
+
+      // A later start does not answer a wait that already timed out.
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await flushAsyncStreamHandler();
+      expect(wait.value).toBe(false);
+    });
+
+    it('answers a wait from before the start with that start, and one during the placeholder at once', async () => {
+      const early = settledValue(awaitTrustedSystemAudioReceptionBoundary('STEREO'));
+      expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-STEREO-')).toHaveLength(1);
+
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await flushAsyncStreamHandler();
+      expect(early.value).toBe(true);
+      expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
+
+      const late = settledValue(awaitTrustedSystemAudioReceptionBoundary('pro-stereo'));
+      await flushAsyncStreamHandler();
+      expect(late.value).toBe(true);
+      expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
+    });
+
+    it('cancels every open boundary wait on receive cleanup', async () => {
+      const first = settledValue(awaitTrustedSystemAudioReceptionBoundary('STEREO'));
+      const second = settledValue(awaitTrustedSystemAudioReceptionBoundary('sfu-stereo'));
+
+      endTrustedSystemAudioReception();
+      await flushAsyncStreamHandler();
+
+      expect(first.value).toBe(false);
+      expect(second.value).toBe(false);
+      expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
+    });
+
+    it('gives a wait opened while a start commits that start, and refuses a start nested in it', async () => {
+      let during!: { value: boolean | undefined };
+      let nested: boolean | undefined;
+      transportMocks.stopAllMedia.mockImplementationOnce(() => {
+        during = settledValue(awaitTrustedSystemAudioReceptionBoundary('sfu-stereo'));
+        nested = beginTrustedSystemAudioReception(undefined, { deadline: 'slot' });
+      });
+
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
+      await flushAsyncStreamHandler();
+
+      expect(nested).toBe(false);
+      expect(stopAllMedia).toHaveBeenCalledOnce();
+      expect(during.value).toBe(true);
+      expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
+    });
+
+    // Today's behaviour, the Standard START sibling of PRO gap 7 (a nested
+    // force-stop empties the restore point), pinned so the move keeps it.
+    it('lets a cleanup nested in the start empty the restore point while the start still commits', async () => {
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      const early = settledValue(awaitTrustedSystemAudioReceptionBoundary('STEREO'));
+      transportMocks.stopAllMedia.mockImplementationOnce(() => {
+        bus.emit('system-audio:force-stop');
+      });
+
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await flushAsyncStreamHandler();
+
+      expect(early.value).toBe(false);
+      expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+      expect(timerMocks.delays.get(watchdogName)).toBe(30_000);
+
+      await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
+      expect(getState('player.currentTrackMeta')).toBeNull();
+      expect(getState('playback.activity')).toBe('idle');
+    });
+
+    it('takes a fresh restore point when a start follows a successor that replaced the placeholder', async () => {
+      setState('player.currentTrackMeta', { type: 'file', name: 'first-track' });
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const successorMeta: TrackMeta = { type: 'file', name: 'successor-track' };
+      setState('player.currentTrackMeta', successorMeta);
+
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      expect(stopAllMedia).toHaveBeenCalledTimes(2);
+      await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
+
+      expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+    });
+
+    it("runs the other routes' deadline reactions before the cleanup and shows the notice after it", async () => {
+      setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const seen: string[] = [];
+      sfuDeadlineReaction = () => {
+        seen.push(`deadline ${getState('player.currentTrackMeta')?.name}`);
+      };
+      bus.on('ui:show-toast', (message: unknown) => {
+        seen.push(`toast ${String(message)} ${getState('player.currentTrackMeta')?.name}`);
+      });
+
+      timerMocks.timers.get(watchdogName)?.();
+
+      expect(seen).toEqual([
+        'deadline system-audio-receiving',
+        'toast system_audio.receive_failed previous-track',
+      ]);
+      expect(log.warn).toHaveBeenCalledWith(
+        '[SysAudioGuest] Timed out waiting for system audio stream',
+      );
+    });
+
+    // The bus contained a throwing receive-timeout listener before C4-6; the
+    // slot's deadline fan-out keeps that containment for a route's reaction.
+    it("contains a route's throwing deadline reaction and still ends the reception and shows the notice", async () => {
+      setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const failure = new Error('deadline reaction failed');
+      sfuDeadlineReaction = () => {
+        throw failure;
+      };
+      const toast = vi.fn();
+      bus.on('ui:show-toast', toast);
+
+      expect(() => timerMocks.timers.get(watchdogName)?.()).not.toThrow();
+
+      expect(log.error).toHaveBeenCalledWith(
+        '[SysAudioGuest] Receive deadline reaction of standard-sfu failed:',
+        failure,
+      );
+      expect(getState('player.currentTrackMeta')).toEqual({
+        type: 'file',
+        name: 'previous-track',
+      });
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(getState('playback.activity')).toBe('idle');
+      expect(toast).toHaveBeenCalledExactlyOnceWith('system_audio.receive_failed');
+    });
+
+    it("runs the same reactions when the direct call's replacement deadline expires the reception", async () => {
+      stubAudioSource();
+      setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const active = createMediaConnection();
+      bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+      active.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      const replacement = createMediaConnection();
+      bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+      const seen: string[] = [];
+      sfuDeadlineReaction = () => {
+        seen.push(`deadline ${getState('player.currentTrackMeta')?.name}`);
+      };
+      bus.on('ui:show-toast', (message: unknown) => {
+        seen.push(`toast ${String(message)} ${getState('player.currentTrackMeta')?.name}`);
+      });
+
+      timerMocks.timers.get(stereoReplacementWatchdogName)?.();
+
+      expect(seen).toEqual([
+        'deadline system-audio-receiving',
+        'toast system_audio.receive_failed previous-track',
+      ]);
+      expect(log.warn).toHaveBeenCalledWith(
+        '[SysAudioGuest] Timed out waiting for replacement STEREO stream',
+      );
+      expect(replacement.mediaConn.close).toHaveBeenCalledOnce();
+    });
+
+    it('lets the watchdog stand down once another owner replaced the placeholder', async () => {
+      const timeout = vi.fn();
+      const toast = vi.fn();
+      sfuDeadlineReaction = timeout;
+      bus.on('ui:show-toast', toast);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const successorMeta: TrackMeta = { type: 'file', name: 'successor-file' };
+      claimPlaybackOwner('file', { currentTrackMeta: successorMeta });
+      setPlaybackFilePlaying();
+
+      timerMocks.timers.get(watchdogName)?.();
+
+      expect(timeout).not.toHaveBeenCalled();
+      expect(toast).not.toHaveBeenCalled();
+      expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+      expect(getState('playback.activity')).toBe('playing');
+    });
+
+    // The guest-role half moved with the SFU's call in C4-6
+    // (system-audio-sfu.test.ts, "guest SFU receive slot inputs").
+    it('ignores a delivery handoff once the placeholder is gone', async () => {
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      setSystemAudioReceiving(true);
+      expect(timerMocks.timers.has(watchdogName)).toBe(false);
+
+      setState('player.currentTrackMeta', { type: 'file', name: 'successor-track' });
+      handOffTrustedSystemAudioReception();
+      expect(getState('systemAudio.isReceiving')).toBe(true);
+      expect(timerMocks.timers.has(watchdogName)).toBe(false);
+    });
+
+    it("closes the direct call, its source, primer and replacement watchdog on another route's cleanup", async () => {
+      const source = stubAudioSource();
+      const primer = {} as WebRtcAudioDecoderPrimer;
+      vi.mocked(primeWebRtcAudioDecoder).mockReturnValueOnce(primer);
+      const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
+      setState('player.currentTrackMeta', previousMeta);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      const active = createMediaConnection();
+      bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+      active.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      const replacement = createMediaConnection();
+      bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+      expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(true);
+      expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+        gotStereo: true,
+        sourceStereo: true,
+        decoderPrimer: true,
+      });
+
+      // As the Standard SFU and PRO routes call it.
+      endTrustedSystemAudioReception();
+
+      expect(replacement.mediaConn.close).toHaveBeenCalledOnce();
+      expect(source.disconnect).toHaveBeenCalledOnce();
+      expect(cleanupWebRtcAudioDecoderPrimer).toHaveBeenCalledWith(primer);
+      expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(false);
+      expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+        systemReceiving: false,
+        placeholder: false,
+        gotStereo: false,
+        sourceStereo: false,
+        decoderPrimer: false,
+      });
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+
+      // The closed call's late events belong to a stale connection.
+      replacement.emit('close');
+      replacement.emit('stream', audioStreamWithTrack());
+      await flushAsyncStreamHandler();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(getState('player.currentTrackMeta')).toEqual(previousMeta);
+    });
+
+    it('keeps the /debug trail of starts, ignored starts, the watchdog, cleanups and stops', async () => {
+      const now = vi.spyOn(Date, 'now');
+      try {
+        now.mockReturnValue(1_000);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+          placeholder: true,
+          lastStartAt: 1_000,
+          lastStartIgnoredReason: '',
+          watchdogActive: true,
+          watchdogArmedAt: 1_000,
+        });
+
+        now.mockReturnValue(2_000);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+          lastStartAt: 1_000,
+          lastStartIgnoredAt: 2_000,
+          lastStartIgnoredReason: 'duplicate-placeholder',
+        });
+
+        now.mockReturnValue(3_000);
+        timerMocks.timers.get(watchdogName)?.();
+        expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+          placeholder: false,
+          lastStartIgnoredReason: 'duplicate-placeholder',
+          lastCleanupAt: 3_000,
+          watchdogActive: false,
+          watchdogArmedAt: 1_000,
+          watchdogTimedOutAt: 3_000,
+        });
+
+        // The Standard SFU and PRO routes start through the same function,
+        // and that start clears the ignored reason too.
+        now.mockReturnValue(4_000);
+        expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+        expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+          lastStartAt: 4_000,
+          lastStartIgnoredAt: 2_000,
+          lastStartIgnoredReason: '',
+          watchdogActive: false,
+          watchdogArmedAt: 1_000,
+        });
+
+        now.mockReturnValue(5_000);
+        handOffTrustedSystemAudioReception();
+        expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+          watchdogActive: true,
+          watchdogArmedAt: 5_000,
+        });
+        setSystemAudioReceiving(true);
+        expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({ watchdogActive: false });
+
+        now.mockReturnValue(6_000);
+        await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
+        expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
+          systemReceiving: false,
+          placeholder: false,
+          lastStartAt: 4_000,
+          lastStopAt: 6_000,
+          lastCleanupAt: 6_000,
+          watchdogTimedOutAt: 3_000,
+        });
+      } finally {
+        now.mockRestore();
+      }
+    });
   });
 });

@@ -701,13 +701,11 @@ it('real paused late-join bootstrap retains checkpoint through subsequently sent
   expect.soft(getTrackPosition()).toBe(18);
 });
 
-import {
-  registerSystemAudioGuestListeners,
-  cleanupGuestSystemAudio,
-} from '../../network/system-audio-guest.ts';
+import { registerSystemAudioGuestListeners } from '../../network/system-audio-guest.ts';
+import { endTrustedSystemAudioReception } from '../../network/system-audio-receive-slot.ts';
 import * as r2 from '../../share/r2-client.ts';
 import { cancelRemoteShareWait } from '../../share/remote-share.ts';
-afterEach(() => cleanupGuestSystemAudio());
+afterEach(() => endTrustedSystemAudioReception());
 it.each(['small', 'large'] as const)(
   'remote safety fallback then late local direct preserves paused checkpoint (%s)',
   async (engine) => {

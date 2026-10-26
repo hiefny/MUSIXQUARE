@@ -1321,7 +1321,37 @@ describe('the same device as publisher (S11) and begin re-entrancy', () => {
     expect(seen.toasts).toEqual([]);
   });
 
-  it('S11, fixed in 5B-G4: a sharing claim made while still receiving ends the reception under the claim; receiving drops and no restore point is left to replay', async () => {
+  // Passes before and after 5B-G4: on its own publication the coordinator
+  // cleanup asks the slot before it ends it, so a sharer's heartbeats end
+  // nothing (no generation bump, no route ports, and the /debug sa
+  // 'cleanup:' age keeps counting from the last real end).
+  it("5B-G4 guard: a sharer's heartbeat reconciles end nothing in the slot (the /debug cleanup time stays)", async () => {
+    claimSharing();
+    await applyState(localLive(1));
+    const cleanupAt = getSystemAudioGuestDebugSnapshot().lastCleanupAt;
+
+    for (let beat = 0; beat < 3; beat += 1) {
+      await advance(15_000);
+      bindProSystemAudioSession(snapshot());
+      acceptProSystemAudioHeartbeatState(localLive(1), snapshot());
+    }
+    await advance(0);
+
+    expect(getSystemAudioGuestDebugSnapshot().lastCleanupAt).toBe(cleanupAt);
+    expect(slot()).toEqual({
+      receiving: false,
+      mode: 'system-audio',
+      activity: 'playing',
+      title: 'System Audio Sharing',
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    });
+    expect(media.stopAllMedia).not.toHaveBeenCalled();
+    expect(seen.toasts).toEqual([]);
+  });
+
+  it('S11, fixed in 5B-G4:a sharing claim made while still receiving ends the reception under the claim; receiving drops and no restore point is left to replay', async () => {
     await applyState(live(sfuPublication()));
     await advance(PRO_TRACK_AT_MS);
 

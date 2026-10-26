@@ -35,6 +35,7 @@ import {
   endTrustedSystemAudioReception,
   getSystemAudioReceiveRouteSnapshot,
   handOffTrustedSystemAudioReception,
+  hasTrustedSystemAudioReception,
   interruptTrustedSystemAudioReception,
   primeSystemAudioDecoder,
   registerSystemAudioReceiveRoute,
@@ -1051,6 +1052,47 @@ describe('system audio guest receive watchdog', () => {
       await handleData({ type: MSG.SYSTEM_AUDIO_STOP }, hostConn);
 
       expect(getState('player.currentTrackMeta')).toEqual(successorMeta);
+    });
+
+    // The read-only query the PRO coordinator asks before it ends the slot
+    // over this device's own publication (5B-G4). Each step holds one of its
+    // four conditions alone.
+    it('answers whether the slot holds a reception: while a start claims, its placeholder is up, its restore point is held or the slot receives; not after the end (5B-G4)', () => {
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+
+      // A start claiming (inside its stopAllMedia, before the placeholder).
+      let whileClaiming: boolean | undefined;
+      transportMocks.stopAllMedia.mockImplementationOnce(() => {
+        expect(getState('player.currentTrackMeta')).toBeNull();
+        whileClaiming = hasTrustedSystemAudioReception();
+      });
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      expect(whileClaiming).toBe(true);
+
+      // Its restore point held while a successor replaced the placeholder.
+      claimPlaybackOwner('file', { currentTrackMeta: { type: 'file', name: 'successor-file' } });
+      setPlaybackFilePlaying();
+      expect(getState('systemAudio.isReceiving')).toBe(false);
+      expect(hasTrustedSystemAudioReception()).toBe(true);
+      endTrustedSystemAudioReception();
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+
+      // The placeholder alone: a start that ran through a nested end leaves
+      // the slot idle over its own placeholder.
+      transportMocks.stopAllMedia.mockImplementationOnce(() => {
+        bus.emit('system-audio:force-stop');
+      });
+      expect(beginTrustedSystemAudioReception(undefined, { deadline: 'route' })).toBe(true);
+      expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+      expect(hasTrustedSystemAudioReception()).toBe(true);
+      endTrustedSystemAudioReception();
+      expect(hasTrustedSystemAudioReception()).toBe(false);
+
+      // The receiving flag alone.
+      setSystemAudioReceiving(true);
+      expect(hasTrustedSystemAudioReception()).toBe(true);
+      setSystemAudioReceiving(false);
+      expect(hasTrustedSystemAudioReception()).toBe(false);
     });
 
     // 5B-G4 (gap 6, P5-D5 A): the 'system-audio' owner is also this device's

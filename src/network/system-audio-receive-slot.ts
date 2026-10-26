@@ -28,8 +28,10 @@
  * aliases: every route imports the slot's own. The timer names keep their
  * `sys-audio-guest-` prefix. Since train 5B (5B-G1) a route attaches or
  * resumes only while the slot's placeholder is current; a refused attach or
- * resume writes nothing and drops what that route holds. The ownership
- * contract is docs/design/system-audio-receive-ownership.md.
+ * resume writes nothing and drops what that route holds. Since 5B-G4 the end
+ * leaves this device's own share (a 'system-audio' owner with sharing meta)
+ * alone and the start never takes that meta as its restore point. The
+ * ownership contract is docs/design/system-audio-receive-ownership.md.
  *
  * Deferred-only: it loads with the room session (vite.config.ts
  * DEFERRED_ENTRY_MODULES).
@@ -176,6 +178,28 @@ const debug = {
 function isSystemAudioPlaceholder(): boolean {
   const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
   return isSystemAudioPlaceholderMeta(currentMeta);
+}
+
+/**
+ * The sharer's own title: the meta src/audio/system-capture.ts claims (and
+ * its transition teardown leaves behind, idle) for this device's share. The
+ * 'system-audio' owner is that share's claim too, so the slot tells its own
+ * claim from the sharer's by this meta (5B-G4).
+ */
+function isSharerMeta(meta: TrackMeta | null): boolean {
+  return meta?.systemAudioMode === 'sharing';
+}
+
+/**
+ * Whether the slot still holds a reception: a start is claiming or holds its
+ * restore point, the receive placeholder is the current meta, or the
+ * receiving flag is set. Read-only. The PRO coordinator asks it before it
+ * ends the slot over this device's own publication (5B-G4): there an end
+ * runs only for a reception this device still held when it began to share,
+ * not on every reconcile of the share.
+ */
+export function hasTrustedSystemAudioReception(): boolean {
+  return slot.phase !== 'idle' || isSystemAudioPlaceholder() || getState('systemAudio.isReceiving');
 }
 
 // ─── Routes ───────────────────────────────────────────────────────
@@ -566,7 +590,10 @@ export function handOffTrustedSystemAudioReception(): void {
  * Ends the reception for every route (the Standard direct call and SFU, the
  * PRO coordinator, STOP and force-stop). A newer playback owner that already
  * replaced this slot keeps its title and lifecycle; only the slot's own
- * placeholder or 'system-audio' claim is restored.
+ * placeholder or 'system-audio' claim is restored. Since 5B-G4 a
+ * 'system-audio' owner with the sharer's meta is this device's own share,
+ * not the slot's claim: the end does all of its own work and leaves that
+ * claim to the capture module.
  */
 export function endTrustedSystemAudioReception(): void {
   // Consume the restore point before closing the routes. Synchronous close
@@ -577,14 +604,16 @@ export function endTrustedSystemAudioReception(): void {
   cancelAllTrustedReceptionWaiters();
   debug.lastCleanupAt = Date.now();
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
-  const wasSystemAudioOwner = isSystemAudioOwner();
+  const wasSlotClaim =
+    isSystemAudioOwner() && !isSharerMeta(getState('player.currentTrackMeta') as TrackMeta | null);
   clearSystemAudioReceiveWatchdog();
   for (const port of routes.values()) port.endReception?.();
 
   setSystemAudioReceiving(false);
-  if (!wasSystemAudioOwner && !wasSystemAudioPlaceholder) {
-    // A newer playback owner already replaced this receive slot. Tear down
-    // the stale graph, but never write its title or lifecycle over the winner.
+  if (!wasSystemAudioPlaceholder && !wasSlotClaim) {
+    // A newer playback owner already replaced this receive slot, or the
+    // 'system-audio' owner is the sharer's own claim. Tear down the stale
+    // graph, but never write its title or lifecycle over that owner.
     return;
   }
 
@@ -647,10 +676,15 @@ function commitTrustedSystemAudioReception(
   if (isSystemAudioPlaceholder()) return false;
   debug.lastStartAt = Date.now();
   debug.lastStartIgnoredReason = '';
+  // Never the sharer's title (5B-G4): whether the share is still claimed or
+  // its transition teardown left that title idle, the share is over by the
+  // time this reception ends, and restoring it would show 'System Audio
+  // Sharing' while idle.
+  const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
   slot = {
     phase: 'claiming',
     generation,
-    restoreMeta: getState('player.currentTrackMeta') as TrackMeta | null,
+    restoreMeta: isSharerMeta(currentMeta) ? null : currentMeta,
   };
   stopAllMedia({ silent: true, cancelInFlight: true });
   cancelIncomingFileTransfer('system-audio-start');

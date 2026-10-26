@@ -356,7 +356,8 @@ RO-49 accepted-exception
   (`beginTrustedSystemAudioReception`, which runs `stopAllMedia`, takes the restore meta and
   claims the `'system-audio'` placeholder), the 30 s receive watchdog, the delivery-handoff
   interrupt and the end of reception (`endTrustedSystemAudioReception`, which restores the title
-  only while the slot still holds the placeholder or the `'system-audio'` owner). A route joins
+  only while the slot still holds the placeholder or the `'system-audio'` owner; since 5B-G4 not
+  over the sharer's own claim, below). A route joins
   every end through one port (`registerSystemAudioReceiveRoute`), which the end calls after
   taking the restore point and clearing the watchdog and before it drops the receiving flag; the
   Standard direct call is the only route with an end port. Since C4-6 the same port also carries
@@ -479,9 +480,10 @@ RO-49 accepted-exception
   (`cleanupGuestSfu()`); the fan-out still reaches no other route. Both bus events are gone from the event map. The timer
   names (`sys-audio-guest-*`) are unchanged. Since C4-7 the PRO coordinator imports neither
   Standard adapter (`system-audio-guest.ts`, `system-audio-sfu.ts`): it starts, waits on and
-  ends a reception through the slot, its end still behind the `!latestView.isLocalOwner` guard
-  in `cleanupCoordinatorGraph` (the `'system-audio'` owner is also a local share's claim), which
-  `resetProSystemAudioService` still runs before it forgets the local owner; it reads the
+  ends a reception through the slot, its end behind the `!latestView.isLocalOwner` guard in
+  `cleanupCoordinatorGraph` (the `'system-audio'` owner is also a local share's claim; since
+  5B-G4 widened by the slot's query, below), which `resetProSystemAudioService` still runs
+  before it forgets the local owner; it reads the
   receive deadline from its home (`DIRECT_RECEIVE_DEADLINE_MS`); and it retires the Standard SFU
   route through the slot's adopt (`adoptSystemAudioReceiveRoute('pro-coordinator')`, where it
   called the SFU adapter's cleanup: the room turning PRO, the top of every live reconcile and a
@@ -491,7 +493,29 @@ RO-49 accepted-exception
   one. Since C4-8 no route reaches the slot through another: `src/network/system-audio-guest.ts`
   no longer re-exports the slot's start, trust-boundary wait and end (the last as
   `cleanupGuestSystemAudio`), the Standard SFU imports them from the slot, and the guest keeps
-  the host START/STOP trust gate. The maintained contract is
+  the host START/STOP trust gate. Since 5B-G4 (owner decision P5-D5 A, gap 6) the slot tells its
+  own claim from the sharer's: the `'system-audio'` owner is also this device's own share, which
+  `src/audio/system-capture.ts` claims with sharing meta (`systemAudioMode: 'sharing'`). The end
+  still consumes the restore point, answers the waiters, clears the deadline, runs the route
+  ports and drops the receiving flag, but writes the title, releases the owner and sets idle only
+  while the placeholder is current or the `'system-audio'` owner's meta is not the sharer's; the
+  sharer's claim is left to the capture module (the narrowest rule: any other state keeps its
+  handling). The start never takes the sharer's meta as its restore point, whether the share is
+  still claimed or its transition teardown left that title idle (`system-capture.ts` sets idle
+  and keeps the meta), because restoring it after the received share would show "System Audio
+  Sharing" while idle. A read-only query, `hasTrustedSystemAudioReception()` (a start claiming or
+  holding its restore point, the placeholder current, or the receiving flag set), lets the PRO
+  coordinator end the slot over this device's own publication only while the slot still holds a
+  reception: its cleanup's guard keeps `playback.mode === 'system-audio'` and now reads
+  `!latestView.isLocalOwner || hasTrustedSystemAudioReception()`, so a listener's cleanup is
+  unchanged. That is the S11 case, a sharing claim made while this device still received:
+  before, the local-owner guard skipped the whole end and left the receiving flag set with no
+  source and the restore point held for a later end to replay over the sharing meta. The guard
+  stays rather than going: every reconcile of the own publication (each 15 s heartbeat) runs
+  that cleanup, and an unguarded end would bump the generation, cancel every waiter, run the
+  route ports and stamp the `/debug sa` cleanup time on every heartbeat of a sharer. A stale held
+  restore point on a sharer (a reception interrupted, then the sharing claim) is consumed with no
+  title write at the next end, and a later start overwrites it. The maintained contract is
   [System-audio receive ownership](system-audio-receive-ownership.md).
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
@@ -504,7 +528,8 @@ RO-49 accepted-exception
   coordinator (`src/pro-room/system-audio-service.ts`), which the PRO SFU and LAN-direct
   transports feed; those transports never call the slot. `src/audio/system-capture.ts` claims the `'system-audio'` playback owner for
   this device's own share (the sharer's claim, not a reception; the guard's CHECK 9 counts it
-  apart) and otherwise only emits `system-audio:*` events, as the Standard host does.
+  apart, and since 5B-G4 the slot's end and start tell it apart by its sharing meta) and
+  otherwise only emits `system-audio:*` events, as the Standard host does.
 - **Lifecycle operations:** begin reception, attach, set receiving, claim the playback owner, arm
   or clear the receive deadline, interrupt, resume, detach, adopt, expire, cleanup with meta
   restore. Since 5B-G1 the attach and the resume pass the slot's fence first (the receive
@@ -512,6 +537,9 @@ RO-49 accepted-exception
   coordinator ends its route (and marks the publication ended) on a force-stop outside its own
   start and on a refused SFU track. Since 5B-G3 a failed Standard SFU re-subscription that
   attached nothing while the slot is receiving hands the reception off under the slot deadline.
+  Since 5B-G4 the end leaves the sharer's claim (a `'system-audio'` owner with sharing meta)
+  alone, the start takes no restore point over the sharer's title, and the PRO coordinator asks
+  `hasTrustedSystemAudioReception()` before it ends the slot over its own publication.
 - **Deadline owner:** per route today, named at each start and interrupt since C4-6
   (`ReceiveDeadline`). Standard P2P: the 30 s receive watchdog, the receive slot's since C4-2
   (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the guard's
@@ -612,8 +640,10 @@ RO-49 accepted-exception
     and the `system-audio-service.test.ts` rows "retires the Standard SFU guest route at the top
     of every live reconcile, whoever publishes, and never on idle" and "skips the receive end in
     the coordinator cleanup while this device publishes, the reset included" (the local-owner
-    guard and the reset order); after it by the `system-audio-sfu.test.ts` row "is retired by the
-    PRO coordinator's adopt" (the SFU's retire through the real slot adopt).
+    guard and the reset order; since 5B-G4 "ends the reception in the coordinator cleanup while
+    this device publishes only when the slot still holds one ..."); after it by the
+    `system-audio-sfu.test.ts` row "is retired by the PRO coordinator's adopt" (the SFU's retire
+    through the real slot adopt).
   - The removal of the guest's compatibility aliases (C4-8) is pinned, before it, by the suites
     that called the slot through them, which import the slot's own names since then with their
     assertions unchanged (`system-audio-guest.test.ts`,
@@ -675,6 +705,25 @@ RO-49 accepted-exception
     (an attached subscription ends silently, gap 8), the lifecycle "expected today: a failed
     first SFU subscription ..." (gap 13) and the Standard "S3: a handoff re-arms the 30 s slot
     deadline from the handoff, not from START" (each fails when its condition is dropped).
+  - The sharer's own claim (5B-G4) is pinned by rows that failed before it: the PRO suite's
+    "S11, fixed in 5B-G4: a sharing claim made while still receiving ends the reception under
+    the claim ..." (receiving drops with the claim intact, through the reset and a force-stop),
+    "begin re-entrancy: ..." (activities `['pending']`, no idle flash) and "5B-G4: a remote share
+    that begins over an idle stale sharing title ... leaves no title when it ends"; the
+    `system-audio-service.test.ts` pair "ends the reception in the coordinator cleanup while this
+    device publishes only when the slot still holds one ..." (the query mocked false: no end, as
+    before; true: one end on a heartbeat bind and one on the reset); and the
+    `system-audio-guest.test.ts` rows "leaves a 'system-audio' claim with sharing meta alone at
+    the end, and still ends the reception (5B-G4)" and "takes no restore point when a start begins
+    over $over (5B-G4)" (an active sharing claim, an idle stale sharing title). New with the
+    query: `system-audio-guest.test.ts` "answers whether the slot holds a reception ..." (each of
+    its four conditions alone). Guards that pass before and after: the PRO "5B-G4 guard: a remote
+    share that begins while this device's sharing claim is active ..." (fails if the start takes
+    the sharer's meta once the end leaves the claim alone), "5B-G4 guard: a sharer's heartbeat
+    reconciles end nothing in the slot ..." (the `/debug` cleanup time stays; fails without the
+    service guard), the S11 row "a listener that becomes the publisher keeps its sharing claim
+    ..." and the guest unit "5B-G4 guard: still restores a receiving 'system-audio' owner whose
+    meta a meta-null writer cleared" (fails if the rule narrows to the placeholder only).
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the
@@ -736,7 +785,8 @@ RO-49 accepted-exception
   point) are behaviour changes for train 5B (owner decision P5-D5 A), each with its failing test
   first. Train 5B (not yet released): 5B-G1 added the attach fence (gaps 2 and 3), 5B-G2
   the PRO coordinator's force-stop and successor teardown (gaps 4 and 5), and 5B-G3 the
-  Standard SFU re-publication handoff (gap 1); the record stays `duplicated`. Exception RO-39.
+  Standard SFU re-publication handoff (gap 1), and 5B-G4 the sharer's own claim (gap 6); the
+  record stays `duplicated`. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 

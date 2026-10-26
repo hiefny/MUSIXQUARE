@@ -42,6 +42,7 @@ import {
   detachSystemAudioRoute,
   endTrustedSystemAudioReception,
   getSystemAudioReceiveRouteSnapshot,
+  hasTrustedSystemAudioReception,
   interruptTrustedSystemAudioReception,
   primeSystemAudioDecoder,
   resumeSystemAudioRoute,
@@ -570,10 +571,17 @@ function cleanupCoordinatorGraph(): void {
   coordinatorSubscriptionFlight = null;
   coordinatorEndedKey = null;
   stopProSystemAudioSfuSubscriber();
-  // The 'system-audio' playback owner is also a local share's claim: never end
-  // the reception over this device's own publication. resetProSystemAudioService
-  // runs this cleanup before it forgets the local owner.
-  if (getState('playback.mode') === 'system-audio' && !latestView.isLocalOwner) {
+  // The 'system-audio' playback owner is also a local share's claim. On this
+  // device's own publication the reception ends only while the slot still
+  // holds one (5B-G4, gap 6: a sharing claim made while still receiving), and
+  // the slot's end then leaves the sharer's claim alone. Every reconcile of
+  // the own publication runs this cleanup (each heartbeat), so the end is not
+  // run there unasked. resetProSystemAudioService runs this cleanup before it
+  // forgets the local owner.
+  if (
+    getState('playback.mode') === 'system-audio' &&
+    (!latestView.isLocalOwner || hasTrustedSystemAudioReception())
+  ) {
     endTrustedSystemAudioReception();
   }
 }

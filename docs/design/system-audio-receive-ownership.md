@@ -5,7 +5,7 @@
 | Status             | Maintained contract                                                                                                                                                                                                   |
 | Applies to         | The device's one system-audio reception: the Standard direct call and SFU guest routes, and the PRO coordinator with its SFU and LAN-direct transports                                                                |
 | Owner              | `src/network/system-audio-receive-slot.ts` (registry RO-04)                                                                                                                                                           |
-| Last source review | 2026-10-26 (Phase 5 train 5B, increment 5B-G4)                                                                                                                                                                        |
+| Last source review | 2026-10-26 (Phase 5 train 5B, increment 5B-G5)                                                                                                                                                                        |
 | Executable sources | `scripts/check-resource-ownership.mts` (CHECK 4, 9 and 10, run in CI), `scripts/check-import-graph.mts` (RULE D), the four receive-slot contract suites and the tests named below                                     |
 | Related documents  | [Resource ownership registry](resource-ownership-registry.md) (RO-04, RO-20), [Realtime runtime ownership](realtime-runtime-ownership.md), [Initial bundle and lazy-loading policy](initial-bundle-loading-policy.md) |
 
@@ -40,11 +40,11 @@ placeholder meta is current) or receiving (the flag is set) is read from player
 state at each input, because the `leaveSession` reset and a successor playback
 owner change both.
 
-| Phase      | Meaning                                                                                                                         |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `idle`     | No restore point is held; the next start takes the next generation.                                                             |
-| `claiming` | A start is committing its generation: a trust-boundary wait opened now joins it, and another start is refused until it returns. |
-| `held`     | A committed start's restore point, kept until the reception ends.                                                               |
+| Phase      | Meaning                                                                                                                                                                                                                          |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `idle`     | No restore point is held; the next start takes the next generation.                                                                                                                                                              |
+| `claiming` | A start is committing its generation: a trust-boundary wait opened now joins it, and another start is refused until it returns. An end nested in it before its placeholder claim keeps it, restore point included (since 5B-G5). |
+| `held`     | A committed start's restore point, kept until the reception ends.                                                                                                                                                                |
 
 Beside the phase and its generation it keeps the trust-boundary waiters (each
 fenced by the generation it waits for), each route's source and primer, the
@@ -112,6 +112,8 @@ publication (see [End of reception](#end-of-reception)).
 
 1. It consumes the restore point and moves the slot to `idle` with the next
    generation, so a nested or repeated end never replays an earlier snapshot.
+   An end nested in a start before its placeholder claim consumes nothing
+   (since 5B-G5, below).
 2. It answers every trust-boundary waiter with false.
 3. It reads whether the slot still holds the placeholder or the
    `'system-audio'` owner whose meta is not the sharer's (since 5B-G4), and
@@ -123,6 +125,22 @@ publication (see [End of reception](#end-of-reception)).
    and sets playback idle. A newer playback owner keeps its title and
    lifecycle, and so does this device's own share (a `'system-audio'` owner
    with sharing meta, since 5B-G4).
+
+A start runs `stopAllMedia` before it claims the placeholder, and while local
+capture runs that emits `system-audio:force-stop`, whose guest listener ends
+the reception inside the start. Since 5B-G5 (gap 7) such an end, nested in a
+start (`claiming`) before its placeholder claim, ends what preceded that
+start, not the start: the slot stays `claiming` with the start's generation
+and restore point, so the start commits into `held`, its STOP or share end
+restores what it took, and a trust-boundary wait opened after the nested end
+joins the start. The nested end still does steps 2 to 5 (the waiters already
+open are answered false, as before) and writes no title, releases nothing and
+sets nothing idle, because the start claims the slot right after. An end that
+lands once the start's placeholder is up (from a listener of the claim; none
+is known) ends that start as any end does. Before 5B-G5 the nested end
+consumed the start's restore point, so the start's own end left no title. On
+LAN-direct the coordinator still arms its direct receive deadline after the
+start returns, so the nested force-stop cannot clear it (kept).
 
 The Standard SFU and the PRO coordinator register no `endReception`: an end
 leaves their transports, sources and primers to their own cleanups. A failed
@@ -211,12 +229,13 @@ route ends the reception, throws or shows a notice:
   "5B-G1: a 'subscribed' for the live publication after a successor replaced
   the placeholder …").
 
-The fence reads only the placeholder, not the slot's phase (a start that ran
-through a nested end leaves the phase `idle` over its own placeholder). Two
-writers set the meta to null while a listener receives (the PRO projection's
-`stopProjectedMedia` and the Standard guest's current-item removal); in that
-window an attach or a resume is refused too, and the sharer's own media stop
-ends the share within one round trip.
+The fence reads only the placeholder, not the slot's phase, which stays
+`held` when a successor or a meta-null writer replaces the placeholder (and
+before 5B-G5 a start that ran through a nested end left the phase `idle` over
+its own placeholder). Two writers set the meta to null while a listener
+receives (the PRO projection's `stopProjectedMedia` and the Standard guest's
+current-item removal); in that window an attach or a resume is refused too,
+and the sharer's own media stop ends the share within one round trip.
 
 ## Deadlines and timings
 
@@ -306,7 +325,7 @@ and transport is
 | 4   | Fixed in 5B-G2: a PRO force-stop ended only the placeholder: the coordinator's source, primer and subscription stayed until the room reset, and a retry in its backoff still subscribed. The coordinator's force-stop listener now ends its route and marks the publication ended (not a force-stop nested in its own start); the LAN-direct receiver route stays open.                                                                                                                                                                                                                                     | PRO "5B-G2 ($route): force-stop ends the PRO reception without a restore, …" (SFU and LAN-direct), "G6 and 5B-G2: a force-stop during a retry backoff …" and "5B-G2: a force-stop while a retry's subscribe is in flight …"; transport "S8b (SFU), fixed in 5B-G1: …" and "5B-G2 (SFU): a force-stop between the exposed track and the completed subscription …"                                                                                                                                                       |
 | 5   | Fixed in 5B-G2: when another owner replaced the placeholder, a PRO SFU track was dropped at the trust boundary in silence, and its subscription stayed open with nothing attached until the publication changed. A refused SFU track (the boundary or the fence) now closes its subscription and marks the publication ended, with no notice.                                                                                                                                                                                                                                                               | PRO "trusted boundary, 5B-G2: …" and "S9 (SFU), fixed in 5B-G1: …"; transport "5B-G2 (SFU): a successor owner between the exposed track and the completed subscription …"                                                                                                                                                                                                                                                                                                                                              |
 | 6   | Fixed in 5B-G4: when this device started sharing while it received, the receiving flag stayed set with no source and the restore point stayed held for a later end to replay over the sharing title. On its own publication the coordinator cleanup now ends the slot while the slot still holds a reception, and the end leaves the sharer's claim alone; a start never takes the sharer's title as its restore point. The same rule keeps a sharer's claim through its SFU publisher recovery (before, the release's idle view released it and left playback idle with no title while the share went on). | PRO "S11, fixed in 5B-G4: …", "begin re-entrancy: …", "5B-G4: a remote share that begins over an idle stale sharing title …", "5B-G4: a sharer whose view passes through idle while its capture still runs …" and the two "5B-G4 guard" rows; `system-audio-service.test.ts` "ends the reception in the coordinator cleanup while this device publishes only when the slot still holds one …" and "publisher recovery reaches the slot end through the release's idle view …"; `system-audio-guest.test.ts` 5B-G4 rows |
-| 7   | A start that runs through a nested force-stop empties its restore point; on LAN-direct the direct receive deadline, armed after that start, survives it (one notice at 30 s, a late track still attaches).                                                                                                                                                                                                                                                                                                                                                                                                  | `system-audio-guest.test.ts` "lets a cleanup nested in the start empty the restore point while the start still commits" (the restore point); PRO "begin re-entrancy: …" (the nested force-stop; since 5B-G4 its start takes no restore point over the sharer's title, so it no longer shows the emptied restore point); transport "begin re-entrancy (LAN-direct): …" (the deadline)                                                                                                                                   |
+| 7   | Fixed in 5B-G5: a start that ran through a nested force-stop had its restore point emptied, so its STOP or share end left no title, and a trust-boundary wait opened after that nested end joined a generation no start commits. The nested end now keeps the start's claim, generation and restore point. Kept: on LAN-direct the direct receive deadline, armed after that start, survives the nested force-stop (one notice at 30 s, a late track still attaches).                                                                                                                                       | `system-audio-guest.test.ts` "keeps the start's restore point through a cleanup nested in the start, …", "answers a wait opened after a cleanup nested in the start with that start (5B-G5)" and "5B-G5 guard: an end inside the start once its placeholder is up ends that start"; PRO "begin re-entrancy: …" (the nested force-stop; since 5B-G4 its start takes no restore point over the sharer's title, so its result is unchanged); transport "begin re-entrancy (LAN-direct): …" (the deadline, kept)           |
 | 8   | Notices differ per route: a Standard SFU live failure, a Standard direct call that closes while receiving and losing the host connection while receiving over the SFU all go idle with no notice; the Standard slot deadline shows `receive_failed`; PRO shows `connection_unstable`.                                                                                                                                                                                                                                                                                                                       | Standard "a live subscriber connection failure …"; lifecycle "expected today: the transport closing the direct call …" and "expected today: losing the host connection …"                                                                                                                                                                                                                                                                                                                                              |
 | 9   | A PRO direct-to-SFU promotion runs the start again (pending, idle, pending, with `stopAllMedia` twice); the audible gap is not measured.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | PRO "S7: a direct-to-SFU promotion moves the source without overlap and keeps the restore point"                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | 10  | Outside the slot (RO-21): a share that ends while the page is hidden, after a failed first restore, prepares the same revision twice when the page is shown.                                                                                                                                                                                                                                                                                                                                                                                                                                                | `src/pro-room/__tests__/runtime-system-audio-join.test.ts` "F3 baseline: …"                                                                                                                                                                                                                                                                                                                                                                                                                                            |

@@ -357,7 +357,8 @@ RO-49 accepted-exception
   claims the `'system-audio'` placeholder), the 30 s receive watchdog, the delivery-handoff
   interrupt and the end of reception (`endTrustedSystemAudioReception`, which restores the title
   only while the slot still holds the placeholder or the `'system-audio'` owner; since 5B-G4 not
-  over the sharer's own claim, below). A route joins
+  over the sharer's own claim, and since 5B-G5 an end nested in a start before its claim keeps
+  that start's restore point, below). A route joins
   every end through one port (`registerSystemAudioReceiveRoute`), which the end calls after
   taking the restore point and clearing the watchdog and before it drops the receiving flag; the
   Standard direct call is the only route with an end port. Since C4-6 the same port also carries
@@ -522,7 +523,24 @@ RO-49 accepted-exception
   that cleanup, and an unguarded end would bump the generation, cancel every waiter, run the
   route ports and stamp the `/debug sa` cleanup time on every heartbeat of a sharer. A stale held
   restore point on a sharer (a reception interrupted, then the sharing claim) is consumed with no
-  title write at the next end, and a later start overwrites it. The maintained contract is
+  title write at the next end, and a later start overwrites it. Since 5B-G5 (owner decision P5-D5
+  A, gap 7) an end nested in a start before its placeholder claim (the start's `stopAllMedia`
+  emits `system-audio:force-stop` while local capture runs, and the guest's listener ends the
+  reception) ends what preceded that start, not the start: the slot stays `'claiming'` with the
+  start's generation and restore point, so the start commits into `'held'`, its STOP or share end
+  restores what it took, and a boundary wait opened after that end joins the start. The nested
+  end still answers the open waiters (false, as before), clears the deadline, runs the route
+  ports and drops the receiving flag, and writes no title, releases nothing and sets nothing
+  idle, because the start claims the slot right after. Before, it consumed the start's restore
+  point and moved the generation on, so the start's own end left no title and a wait opened
+  after it joined a generation no start commits. Only an end before the claim is nested in this
+  sense: one that lands once the placeholder is up (from a listener of the claim; none is known)
+  ends that start as any end does. 5B-G4 comes first on purpose: a start over the sharer's title
+  takes no restore point, so on a PRO device that was sharing (the only production path, which
+  needs a second desktop sharer) the share end still leaves no title rather than "System Audio
+  Sharing". The LAN-direct order part of gap 7 is kept: the coordinator arms its direct receive
+  deadline after the start returns, so the nested force-stop cannot clear it, and the 5B-G2 depth
+  counter keeps that force-stop from ending the new subscription. The maintained contract is
   [System-audio receive ownership](system-audio-receive-ownership.md).
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
@@ -546,7 +564,9 @@ RO-49 accepted-exception
   attached nothing while the slot is receiving hands the reception off under the slot deadline.
   Since 5B-G4 the end leaves the sharer's claim (a `'system-audio'` owner with sharing meta)
   alone, the start takes no restore point over the sharer's title, and the PRO coordinator asks
-  `hasTrustedSystemAudioReception()` before it ends the slot over its own publication.
+  `hasTrustedSystemAudioReception()` before it ends the slot over its own publication. Since
+  5B-G5 an end nested in a start before its placeholder claim keeps that start's claim,
+  generation and restore point.
 - **Deadline owner:** per route today, named at each start and interrupt since C4-6
   (`ReceiveDeadline`). Standard P2P: the 30 s receive watchdog, the receive slot's since C4-2
   (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the guard's
@@ -738,6 +758,18 @@ RO-49 accepted-exception
     slot end through the release's idle view while this device's capture keeps sharing" (passes
     before and after: the real recovery runs the end between the release and the re-acquire,
     and capture is not told).
+  - The nested end's restore point (5B-G5) is pinned by rows that failed before it: the
+    `system-audio-guest.test.ts` rows "keeps the start's restore point through a cleanup nested
+    in the start, which still answers an earlier wait false (5B-G5)" (was "lets a cleanup nested
+    in the start empty the restore point while the start still commits": STOP now restores the
+    title from before the start) and "answers a wait opened after a cleanup nested in the start
+    with that start (5B-G5)". Guards that pass before and after: the guest unit "5B-G5 guard: an
+    end inside the start once its placeholder is up ends that start" (fails if every end inside
+    a claiming start counts as nested), the PRO "begin re-entrancy" row (its result is unchanged:
+    since 5B-G4 its start takes no restore point over the sharer's title) and the transport
+    "begin re-entrancy (LAN-direct)" row (the direct deadline armed after the start). Since
+    5B-G5 the guest unit query row "answers whether the slot holds a reception ..." sets its
+    placeholder-only step directly.
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the
@@ -798,9 +830,9 @@ RO-49 accepted-exception
   an end that covers every route, route closes the slot does not hear, the re-entrant restore
   point) are behaviour changes for train 5B (owner decision P5-D5 A), each with its failing test
   first. Train 5B (not yet released): 5B-G1 added the attach fence (gaps 2 and 3), 5B-G2
-  the PRO coordinator's force-stop and successor teardown (gaps 4 and 5), and 5B-G3 the
-  Standard SFU re-publication handoff (gap 1), and 5B-G4 the sharer's own claim (gap 6); the
-  record stays `duplicated`. Exception RO-39.
+  the PRO coordinator's force-stop and successor teardown (gaps 4 and 5), 5B-G3 the
+  Standard SFU re-publication handoff (gap 1), 5B-G4 the sharer's own claim (gap 6) and 5B-G5
+  the nested end's restore point (gap 7); the record stays `duplicated`. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 

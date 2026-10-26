@@ -30,8 +30,10 @@
  * resumes only while the slot's placeholder is current; a refused attach or
  * resume writes nothing and drops what that route holds. Since 5B-G4 the end
  * leaves this device's own share (a 'system-audio' owner with sharing meta)
- * alone and the start never takes that meta as its restore point. The
- * ownership contract is docs/design/system-audio-receive-ownership.md.
+ * alone and the start never takes that meta as its restore point. Since
+ * 5B-G5 an end nested in a start before its placeholder claim keeps that
+ * start's claim, generation and restore point. The ownership contract is
+ * docs/design/system-audio-receive-ownership.md.
  *
  * Deferred-only: it loads with the room session (vite.config.ts
  * DEFERRED_ENTRY_MODULES).
@@ -88,7 +90,8 @@ type ReceiveSlot =
   | { readonly phase: 'idle'; readonly generation: number }
   /**
    * A start is committing `generation`: a boundary wait opened now joins it,
-   * and another start is refused until it returns.
+   * and another start is refused until it returns. An end nested in it
+   * before its placeholder claim keeps it, restore point included (5B-G5).
    */
   | {
       readonly phase: 'claiming';
@@ -322,11 +325,12 @@ interface SourceAttachRequest {
  * while the slot's receive placeholder is the current meta. A STOP, a
  * force-stop, a deadline expiry and a share end restore the previous title,
  * and a successor owner sets its own meta, so in each of those cases the
- * placeholder is gone. Only the placeholder is read, not the slot's phase: a
- * start that ran through a nested end leaves the phase 'idle' over its own
- * placeholder. A refused attach or resume writes nothing and drops what the
- * route still holds, so nothing of the share stays on widener.input once the
- * slot ended or another owner plays.
+ * placeholder is gone. Only the placeholder is read, not the slot's phase,
+ * which a successor or a meta-null writer leaves 'held' when it replaces the
+ * placeholder (and before 5B-G5 a start that ran through a nested end left
+ * the phase 'idle' over its own placeholder). A refused attach or resume
+ * writes nothing and drops what the route still holds, so nothing of the
+ * share stays on widener.input once the slot ended or another owner plays.
  */
 function admitsRoute(route: ReceiveRoute, input: 'attach' | 'resume'): boolean {
   if (isSystemAudioPlaceholder()) return true;
@@ -594,25 +598,39 @@ export function handOffTrustedSystemAudioReception(): void {
  * 'system-audio' owner with the sharer's meta is this device's own share,
  * not the slot's claim: the end does all of its own work and leaves that
  * claim to the capture module.
+ *
+ * Since 5B-G5 an end nested in a start before its placeholder claim (the
+ * start's stopAllMedia emits force-stop while local capture runs) ends what
+ * preceded that start, not the start: the slot stays 'claiming' with the
+ * start's generation and restore point, so the start commits into 'held'
+ * and its own end restores what it took, and a boundary wait opened after
+ * this end joins the start. Such an end still answers the open waiters,
+ * clears the deadline, runs the route ports and drops the receiving flag,
+ * and writes no title (the start claims the slot right after). An end once
+ * the start's placeholder is up ends that start, as any end does.
  */
 export function endTrustedSystemAudioReception(): void {
+  const nestedInStart = slot.phase === 'claiming' && !isSystemAudioPlaceholder();
   // Consume the restore point before closing the routes. Synchronous close
   // callbacks and repeated room-leave cleanup must never replay an earlier
-  // snapshot.
-  const restoreMeta = slot.phase === 'idle' ? null : slot.restoreMeta;
-  slot = { phase: 'idle', generation: slot.generation + 1 };
+  // snapshot. A nested end leaves the start's restore point to the start.
+  const restoreMeta = slot.phase === 'idle' || nestedInStart ? null : slot.restoreMeta;
+  if (!nestedInStart) slot = { phase: 'idle', generation: slot.generation + 1 };
   cancelAllTrustedReceptionWaiters();
   debug.lastCleanupAt = Date.now();
   const wasSystemAudioPlaceholder = isSystemAudioPlaceholder();
   const wasSlotClaim =
-    isSystemAudioOwner() && !isSharerMeta(getState('player.currentTrackMeta') as TrackMeta | null);
+    !nestedInStart &&
+    isSystemAudioOwner() &&
+    !isSharerMeta(getState('player.currentTrackMeta') as TrackMeta | null);
   clearSystemAudioReceiveWatchdog();
   for (const port of routes.values()) port.endReception?.();
 
   setSystemAudioReceiving(false);
   if (!wasSystemAudioPlaceholder && !wasSlotClaim) {
-    // A newer playback owner already replaced this receive slot, or the
-    // 'system-audio' owner is the sharer's own claim. Tear down the stale
+    // A newer playback owner already replaced this receive slot, the
+    // 'system-audio' owner is the sharer's own claim, or the end is nested
+    // in a start that claims the slot right after. Tear down the stale
     // graph, but never write its title or lifecycle over that owner.
     return;
   }
@@ -656,8 +674,10 @@ export function beginTrustedSystemAudioReception(
     restoreMeta: previous.phase === 'idle' ? null : previous.restoreMeta,
   };
   const committed = commitTrustedSystemAudioReception(generation, surface, options.deadline);
-  // A reception end nested in the commit (a force-stop from stopAllMedia)
-  // has already moved the slot on, and emptied this start's restore point.
+  // A reception end nested in the commit before the placeholder claim (a
+  // force-stop from stopAllMedia) keeps this claim and its restore point
+  // (5B-G5). Only an end once the placeholder is up (from a listener of the
+  // claim) has ended this start and moved the slot on.
   if (slot.phase === 'claiming' && slot.generation === generation) {
     slot =
       committed || previous.phase === 'held'

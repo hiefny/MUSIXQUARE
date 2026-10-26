@@ -95,8 +95,9 @@ runbooks. Neither belongs in a general setup document.
 
 - [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
   evidence for the structure program's second Phase 5 app train (not yet released; it ships after
-  the forced-update train 9.0.14 / v787 and its client floor 787, target `app`, its version set at
-  the bump). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
+  the forced-update train 9.0.14 / v787 with its client floor 787 and after release W, in one line
+  with the removal train's App release A, target `app`, its version set at the bump; the branch
+  has merged main up to `cb159851`). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
   slot (RO-04) in six labelled groups, each with its failing test first: the attach fence (gaps 2
   and 3), the PRO coordinator's force-stop and successor teardown (4, 5), the Standard SFU
   re-publication handoff (1), the sharer's own claim (6), the nested end's restore point (7) and
@@ -108,8 +109,9 @@ runbooks. Neither belongs in a general setup document.
   with its commits, tests-first evidence and fixed device expectation, what stays as is (gaps 8,
   9, 13, 14, SA-2 and an owner observation on the direct call's boundary refusal), the
   compatibility lines for the release record (one changed sent frame, the failed-direct READY
-  audience), the QA rounds (per increment, a train-end replay of the system-audio suites at every
-  code commit, the final checks), the eager JS delta and what was not verified on devices.
+  audience) with who loses what for each old-version item, the QA rounds (per increment, a
+  train-end replay of the system-audio suites at every code commit, the final checks, the lane
+  checks again after merging main), the eager JS delta and what was not verified on devices.
 - [Old-version removal train 2, release W: Worker request shapes below the App build floor (2026-10-26)](design/old-version-removal-2w-workers-2026-10-26.md):
   release evidence for the Workers-only release of the second old-version removal train (released
   2026-10-27 03:34 KST in Release 40378059253 from main `a3893f04`, target `all`, no SemVer or

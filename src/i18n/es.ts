@@ -610,7 +610,6 @@ const es: Record<I18nKey, string> = {
     'No hay contenido multimedia para sincronizar\nPrimero selecciona algo para reproducir',
   'toast.host_ad': 'Parece que el anfitrión está viendo un anuncio',
   'toast.yt_sync_start': 'Sincronizando...',
-  'toast.yt_sync_done': 'Sincronización completa',
   'toast.yt_rendezvous_start': 'Alineando con el anfitrión...',
   'toast.yt_rendezvous_done': 'Sincronización completa',
   'toast.yt_rendezvous_host_paused': 'El anfitrión está en pausa; solo se igualó la posición',
@@ -635,10 +634,6 @@ const es: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'No se pudo preparar el motor de audio',
   'error.session_create_fail': 'No se pudo crear la sala',
   'error.network_generic': 'Ocurrió un error de red',
-  'error.peer_app_version_mismatch':
-    '{{name}} no puede unirse porque las versiones de la aplicación no coinciden. Recarga la página en ambos dispositivos.',
-  'error.app_version_mismatch':
-    'Las versiones de la aplicación no coinciden. Recarga la página en ambos dispositivos e inténtalo de nuevo.',
   'error.session_handshake_failed':
     'No se pudo completar la conexión a la sala. Recarga la página en ambos dispositivos e inténtalo de nuevo.',
   'error.host_unreachable': 'Parece que el anfitrión salió de la sala',
@@ -729,7 +724,6 @@ const es: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Reiniciar',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Activar sala PRO',
   'pro.activation_account_title': 'Elige una cuenta para esta sala PRO',
   'pro.activation_account_message': '¿Registrar esta sala en la cuenta “{{name}}”?',
   'pro.activation_account_login_message':
@@ -738,9 +732,6 @@ const es: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Otra cuenta',
   'pro.activation_account_unavailable':
     'No se pudo verificar tu cuenta. Inténtalo de nuevo en un momento.',
-  'pro.activation_complete': 'Completar registro',
-  'pro.activation_message': 'Define una nueva contraseña numérica de 8 dígitos para esta sala.',
-  'pro.activation_pin_same': 'Elige una contraseña distinta de la temporal.',
   'pro.claim_retry_title': '¿Reintentar el enlace PRO?',
   'pro.claim_retry_message':
     'La conexión se interrumpió. El enlace se conserva de forma segura solo en esta pantalla y puedes volver a intentarlo.',
@@ -788,8 +779,6 @@ const es: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Todos vuelven a entrar',
   'pro.pin_members_reenter_detail':
     'Todos tendrán que volver a entrar. Recomendado para sacar de una vez a las personas que no conoces.',
-  'pro.pin_keep_unavailable':
-    'No se cambió la contraseña. Ahora mismo no se puede mantener a las personas en la sala. Inténtalo más tarde o elige “Todos vuelven a entrar”.',
   'pro.pin_enabled_removed_title': 'Se definió una contraseña',
   'pro.pin_enabled_removed_message':
     'El propietario de la sala definió una contraseña para esta sala. Introdúcela para volver a entrar.',

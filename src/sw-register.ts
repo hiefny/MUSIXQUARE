@@ -214,8 +214,8 @@ function markActivationRequested(): void {
 
 /**
  * This tab saw the new controller. Both markers carry the same moment, so a
- * new document can tell this from the legacy v267 flow, which reloaded before
- * activation completed.
+ * new document can tell this from a request whose document reloaded before
+ * the activation landed (isUnconfirmedRecentUpdateReload).
  */
 function markControllerConfirmed(): void {
   const confirmedAt = String(Date.now());
@@ -283,6 +283,13 @@ function unconfirmedActivationRequest(): number {
   return Number(readSessionMarker(SW_CONTROLLER_CONFIRMED_KEY)) < updatedAt ? updatedAt : 0;
 }
 
+/**
+ * This document is a reload within the 30 s cooldown of an activation request
+ * that an earlier document of this tab made and did not see land: an Apply
+ * whose page the user reloaded before its controller change, or the forced
+ * Apply without a waiting worker, which reloads before any controller change.
+ * The logo's reset goes home by navigating, not reloading.
+ */
 function isUnconfirmedRecentUpdateReload(): boolean {
   try {
     const navigation = performance.getEntriesByType('navigation')[0] as
@@ -777,14 +784,21 @@ export function registerServiceWorker(): void {
     const handlePassiveControllerChange = (notifyActiveRoom = true): boolean => {
       if (isReloadScheduled()) return false;
 
-      // Transitional recovery for the version that introduced this fix:
-      // v267 could reload before skipWaiting/clients.claim completed. The new
-      // document then receives the SAME activation as a late controllerchange.
-      // Require a real reload navigation and the absence of a controller-
-      // confirmed marker, so normal future updates and cloned sessionStorage
-      // in newly opened tabs keep the cross-tab notification behavior.
+      // An update reload that left before its activation landed: an Apply
+      // whose page the user reloaded before its controller change, or the
+      // forced Apply without a waiting worker (train 9.0.14), which reloads in
+      // place for a Standard host. A late activation of the generation this
+      // page runs is absorbed before this point (P3-10 A). Any other
+      // generation that takes control within the cooldown, without this
+      // document having handled its waiting worker (another tab applied a
+      // newer release, say), finishes that update with the aligned reload
+      // instead of the activated-elsewhere dialog, which a host who took the
+      // room again would otherwise see once more. Require a real reload
+      // navigation and no controller-confirmed marker, so other tabs' updates
+      // and sessionStorage cloned into newly opened tabs keep the cross-tab
+      // notification behavior.
       if (!updateFoundInThisDocument && isUnconfirmedRecentUpdateReload()) {
-        log.info('[SW] Completing a pre-activation update reload without a duplicate notice');
+        log.info('[SW] Finishing an update reload that left before its activation landed');
         scheduleControllerAlignedReload();
         return true;
       }

@@ -6,7 +6,6 @@ const VERSION = 1;
 const WINDOW_BYTES = 128 * 1024;
 const RECEIPT_BYTES = 64 * 1024;
 const RECEIPT_DELAY_MS = 20;
-const LEGACY_GRACE_MS = 1000;
 const NONCE_RE = /^[a-f0-9]{32}$/u;
 
 // Delay-based receipt window. A chunk is credit only while it travels:
@@ -351,22 +350,24 @@ function createNonce(): string {
 
 /**
  * Network receipt credit for one exact ordered bulk/control channel pair.
- * Counters cover the entire connection, including legacy grace and cancelled
- * file attempts. A receipt proves transport delivery, never storage readiness.
- * No file/session state, payload queue or per-chunk timer is retained here.
+ * Counters cover the entire connection, including bytes sent before the peer's
+ * hello and cancelled file attempts. A receipt proves transport delivery, never
+ * storage readiness. Every peer since 8.11.23 sends its hello once admission
+ * settles; until it arrives the sender may fill one 128 KiB window and then
+ * waits (the 1 s no-credit fallback for older peers went with the old-version
+ * removal train 2, survey OV-F01). No file/session state, payload queue or
+ * per-chunk timer is retained here.
  */
 export class BulkFlowControl implements TransportBulkFlowControl {
   private readonly nonce = createNonce();
   private remoteNonce: string | null = null;
   private started = false;
   private disposed = false;
-  private legacy = false;
   private controlIsolationActive = false;
   private sentBytes = 0;
   private acknowledgedBytes = 0;
   private receivedBytes = 0;
   private reportedBytes = 0;
-  private graceTimer: ReturnType<typeof setTimeout> | null = null;
   private receiptTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly listeners = new Set<() => void>();
   private readonly adaptive: AdaptiveCreditController;
@@ -385,7 +386,7 @@ export class BulkFlowControl implements TransportBulkFlowControl {
       ...this.adaptive.diagnostics,
       controlIsolationActive: this.controlIsolationActive,
       adaptiveEnabled: this.canAdapt(),
-      phase: this.disposed ? 'disposed' : this.legacy ? 'legacy' : this.adaptive.phase,
+      phase: this.disposed ? 'disposed' : this.adaptive.phase,
       sentBytes: this.sentBytes,
       acknowledgedBytes: this.acknowledgedBytes,
       receivedBytes: this.receivedBytes,
@@ -413,15 +414,6 @@ export class BulkFlowControl implements TransportBulkFlowControl {
     if (this.started || this.disposed) return;
     this.started = true;
     if (this.canAdapt()) this.adaptive.activate();
-    if (this.remoteNonce === null) {
-      // eslint-disable-next-line no-restricted-globals -- owned by this exact transport; room timer cleanup must not strand a live capacity waiter
-      this.graceTimer = setTimeout(() => {
-        this.graceTimer = null;
-        if (this.disposed || this.remoteNonce !== null) return;
-        this.legacy = true;
-        this.notify();
-      }, LEGACY_GRACE_MS);
-    }
     this.send({ type: FRAME_TYPE, version: VERSION, kind: 'hello', nonce: this.nonce });
     if (this.remoteNonce !== null) this.flushReceipt(true);
   }
@@ -436,10 +428,7 @@ export class BulkFlowControl implements TransportBulkFlowControl {
     ) {
       return false;
     }
-    return (
-      this.legacy ||
-      this.sentBytes - this.acknowledgedBytes + nextPayloadBytes <= this.adaptive.windowBytes
-    );
+    return this.sentBytes - this.acknowledgedBytes + nextPayloadBytes <= this.adaptive.windowBytes;
   }
 
   subscribe(listener: () => void): () => void {
@@ -487,10 +476,7 @@ export class BulkFlowControl implements TransportBulkFlowControl {
     if (frame.kind === 'hello') {
       if (Object.keys(frame).length !== 4 || this.remoteNonce !== null) return true;
       this.remoteNonce = frame.nonce;
-      this.legacy = false;
       if (this.canAdapt()) this.adaptive.activate();
-      if (this.graceTimer !== null) clearTimeout(this.graceTimer);
-      this.graceTimer = null;
       // Remote admission may finish first. Local start() sends the pending reply.
       if (this.started) this.flushReceipt(true);
       this.notify();
@@ -518,9 +504,7 @@ export class BulkFlowControl implements TransportBulkFlowControl {
     if (this.disposed) return;
     this.disposed = true;
     this.adaptive.dispose();
-    if (this.graceTimer !== null) clearTimeout(this.graceTimer);
     if (this.receiptTimer !== null) clearTimeout(this.receiptTimer);
-    this.graceTimer = null;
     this.receiptTimer = null;
     this.notify();
     this.listeners.clear();

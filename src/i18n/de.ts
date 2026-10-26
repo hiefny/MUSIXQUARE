@@ -607,7 +607,6 @@ const de: Record<I18nKey, string> = {
     'Keine Medien zum Synchronisieren\nWähle zuerst ein Medium zur Wiedergabe aus',
   'toast.host_ad': 'Der Host scheint eine Werbung anzusehen',
   'toast.yt_sync_start': 'Synchronisierung...',
-  'toast.yt_sync_done': 'Synchronisierung abgeschlossen',
   'toast.yt_rendezvous_start': 'Abgleich mit dem Host...',
   'toast.yt_rendezvous_done': 'Synchronisierung abgeschlossen',
   'toast.yt_rendezvous_host_paused':
@@ -633,10 +632,6 @@ const de: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Audio-Engine konnte nicht vorbereitet werden',
   'error.session_create_fail': 'Raum konnte nicht erstellt werden',
   'error.network_generic': 'Ein Netzwerkfehler ist aufgetreten',
-  'error.peer_app_version_mismatch':
-    '{{name}} kann nicht beitreten, da die App-Versionen nicht übereinstimmen. Lade die Seite auf beiden Geräten neu.',
-  'error.app_version_mismatch':
-    'Die App-Versionen stimmen nicht überein. Lade die Seite auf beiden Geräten neu und versuche es erneut.',
   'error.session_handshake_failed':
     'Die Verbindung zum Raum konnte nicht hergestellt werden. Lade die Seite auf beiden Geräten neu und versuche es erneut.',
   'error.host_unreachable': 'Der Host scheint den Raum verlassen zu haben',
@@ -729,7 +724,6 @@ const de: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Neu starten',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'PRO-Raum aktivieren',
   'pro.activation_account_title': 'Konto für diesen PRO-Raum wählen',
   'pro.activation_account_message': 'Diesen Raum für das Konto „{{name}}“ registrieren?',
   'pro.activation_account_login_message':
@@ -738,9 +732,6 @@ const de: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Anderes Konto',
   'pro.activation_account_unavailable':
     'Dein Konto konnte nicht überprüft werden. Bitte versuche es gleich noch einmal.',
-  'pro.activation_complete': 'Registrierung abschließen',
-  'pro.activation_message': 'Lege ein neues 8-stelliges Passwort für diesen Raum fest.',
-  'pro.activation_pin_same': 'Wähle ein anderes Passwort als das vorläufige.',
   'pro.claim_retry_title': 'PRO-Link erneut versuchen?',
   'pro.claim_retry_message':
     'Die Verbindung wurde unterbrochen. Der Link bleibt auf diesem Bildschirm sicher gespeichert, sodass du es erneut versuchen kannst.',
@@ -788,8 +779,6 @@ const de: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Alle treten neu bei',
   'pro.pin_members_reenter_detail':
     'Alle müssen erneut beitreten. Empfohlen, um Unbekannte auf einmal zu entfernen.',
-  'pro.pin_keep_unavailable':
-    'Das Passwort wurde nicht geändert. Personen im Raum zu lassen ist gerade nicht möglich. Versuche es später erneut oder wähle „Alle treten neu bei“.',
   'pro.pin_enabled_removed_title': 'Raumpasswort festgelegt',
   'pro.pin_enabled_removed_message':
     'Der Raumbesitzer hat ein Passwort für diesen Raum festgelegt. Gib es ein, um erneut beizutreten.',

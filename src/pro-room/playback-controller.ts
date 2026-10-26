@@ -295,7 +295,6 @@ function createImplementation(
   let controlChannelRecovering = false;
   let commandPlayback: { roomId: string; playback: ProRoomPlaybackCheckpoint } | null = null;
   let durationReportGeneration = 0;
-  let durationEndpointUnavailable = false;
   let durationReportSequence = 0;
   const durationReports = new Map<
     string,
@@ -446,7 +445,6 @@ function createImplementation(
 
   function resetDurationReports(): void {
     durationReportGeneration += 1;
-    durationEndpointUnavailable = false;
     durationReports.clear();
     for (const controller of durationReportRequests) controller.abort();
     durationReportRequests.clear();
@@ -521,8 +519,7 @@ function createImplementation(
         !Number.isFinite(result.durationSeconds) ||
         result.durationSeconds <= 0 ||
         result.durationSeconds > 7 * 24 * 60 * 60 ||
-        !stillCurrent() ||
-        durationEndpointUnavailable
+        !stillCurrent()
       )
         return;
       const input = { ...captured, durationSeconds: result.durationSeconds };
@@ -560,16 +557,8 @@ function createImplementation(
               aborted,
             ]);
           }
-        } catch (error) {
-          // A refreshed App can run against an older Worker during rollback.
-          if (
-            generation === durationReportGeneration &&
-            error instanceof ProRoomApiError &&
-            error.status === 404 &&
-            error.code === 'NOT_FOUND'
-          ) {
-            durationEndpointUnavailable = true;
-          }
+        } catch {
+          // A failed report waits for the retry backoff like any other.
         } finally {
           clearManagedTimer(timer);
           signal.removeEventListener('abort', onAbort);

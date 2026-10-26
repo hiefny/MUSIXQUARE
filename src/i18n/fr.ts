@@ -602,7 +602,6 @@ const fr: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Aucun média à synchroniser\nSélectionnez d’abord un média à lire',
   'toast.host_ad': 'L’hôte semble regarder une publicité',
   'toast.yt_sync_start': 'Synchronisation…',
-  'toast.yt_sync_done': 'Synchronisation terminée',
   'toast.yt_rendezvous_start': 'Alignement sur l’hôte…',
   'toast.yt_rendezvous_done': 'Synchronisation terminée',
   'toast.yt_rendezvous_host_paused': 'L’hôte est en pause ; seule la position a été alignée',
@@ -627,10 +626,6 @@ const fr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Impossible de préparer le moteur audio',
   'error.session_create_fail': 'Impossible de créer le salon',
   'error.network_generic': 'Une erreur réseau est survenue',
-  'error.peer_app_version_mismatch':
-    '{{name}} ne peut pas rejoindre le salon, car les versions de l’application ne correspondent pas. Actualisez les deux appareils.',
-  'error.app_version_mismatch':
-    'Les versions de l’application ne correspondent pas. Actualisez les deux appareils et réessayez.',
   'error.session_handshake_failed':
     'La connexion au salon n’a pas pu être établie. Actualisez les deux appareils et réessayez.',
   'error.host_unreachable': 'L’hôte semble avoir quitté le salon',
@@ -722,7 +717,6 @@ const fr: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Redémarrer',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Activer le salon PRO',
   'pro.activation_account_title': 'Choisir un compte pour ce salon PRO',
   'pro.activation_account_message': 'Enregistrer ce salon sur le compte « {{name}} » ?',
   'pro.activation_account_login_message':
@@ -731,9 +725,6 @@ const fr: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Autre compte',
   'pro.activation_account_unavailable':
     'Impossible de vérifier votre compte. Réessayez dans un instant.',
-  'pro.activation_complete': 'Terminer l’enregistrement',
-  'pro.activation_message': 'Définissez un nouveau mot de passe à 8 chiffres pour ce salon.',
-  'pro.activation_pin_same': 'Choisissez un mot de passe différent du mot de passe temporaire.',
   'pro.claim_retry_title': 'Réessayer avec le lien PRO ?',
   'pro.claim_retry_message':
     'La connexion a été interrompue. Le lien reste stocké en toute sécurité sur cet écran, vous pouvez donc réessayer.',
@@ -781,8 +772,6 @@ const fr: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Tout le monde revient',
   'pro.pin_members_reenter_detail':
     'Tout le monde devra rejoindre de nouveau le salon. Recommandé pour retirer d’un coup les personnes que vous ne connaissez pas.',
-  'pro.pin_keep_unavailable':
-    'Le mot de passe n’a pas été modifié. Impossible pour l’instant de laisser les personnes dans le salon. Réessayez plus tard ou choisissez « Tout le monde revient ».',
   'pro.pin_enabled_removed_title': 'Mot de passe du salon défini',
   'pro.pin_enabled_removed_message':
     'Le propriétaire du salon a défini un mot de passe. Saisissez-le pour rejoindre de nouveau le salon.',

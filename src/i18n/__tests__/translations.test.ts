@@ -972,7 +972,6 @@ describe('PRO PIN membership and removal copy', () => {
     'pro.pin_members_keep_detail',
     'pro.pin_members_reenter',
     'pro.pin_members_reenter_detail',
-    'pro.pin_keep_unavailable',
     'pro.pin_enabled_removed_title',
     'pro.pin_enabled_removed_message',
     'pro.pin_changed_removed_title',
@@ -1024,7 +1023,6 @@ describe('PRO PIN membership and removal copy', () => {
       'Only devices that rejoin or join for the first time need to enter the password.',
       'Everyone rejoins',
       "Everyone has to join again. Recommended for removing people you don't know all at once.",
-      "The password wasn't changed. Keeping people in the room isn't available right now. Try again later, or choose “Everyone rejoins”.",
       'Room password set',
       'The room owner set a password for this room. Enter it to rejoin.',
       'Room password changed',
@@ -1042,7 +1040,6 @@ describe('PRO PIN membership and removal copy', () => {
       '다시 입장하거나, 새로 참여하는 기기만 암호를 입력하면 돼요.',
       '모두 재입장',
       '모두가 다시 들어와야 해요. 모르는 사람들을 한 번에 내보내려면 이 방식을 추천해요.',
-      '암호를 바꾸지 못했어요. 지금은 사람들을 그대로 둔 채 바꿀 수 없어요. 잠시 후 다시 시도하거나 “모두 재입장”을 선택해 주세요.',
       '방 암호가 설정됐어요',
       '방 소유자가 방 암호를 설정했어요. 암호를 입력하면 다시 들어올 수 있어요.',
       '방 암호가 바뀌었어요',
@@ -1054,13 +1051,6 @@ describe('PRO PIN membership and removal copy', () => {
     // PRO copy names the room owner and administrators, never the standard
     // room's host ("방장") or its forced-kick wording ("강제퇴장").
     for (const key of NEW_KEYS) expect(ko[key]).not.toMatch(/방장|강제퇴장/);
-  });
-
-  it('points the keep-unavailable recovery at the step-2 row by its own label', () => {
-    for (const [locale, dict] of Object.entries(dictionaries)) {
-      // The message sends the owner back to one row, so it quotes that row.
-      expect(dict['pro.pin_keep_unavailable'], locale).toContain(dict['pro.pin_members_reenter']);
-    }
   });
 
   it('no longer tells the owner that every PIN change makes everyone rejoin', () => {

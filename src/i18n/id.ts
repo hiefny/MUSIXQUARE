@@ -594,7 +594,6 @@ const id: Record<I18nKey, string> = {
     'Tidak ada media untuk disinkronkan\nPilih media untuk diputar terlebih dahulu',
   'toast.host_ad': 'Host sepertinya sedang menonton iklan',
   'toast.yt_sync_start': 'Menyinkronkan...',
-  'toast.yt_sync_done': 'Sinkronisasi selesai',
   'toast.yt_rendezvous_start': 'Menyelaraskan dengan host...',
   'toast.yt_rendezvous_done': 'Sinkronisasi selesai',
   'toast.yt_rendezvous_host_paused': 'Pemutaran host sedang dijeda; hanya posisi yang disamakan',
@@ -618,10 +617,6 @@ const id: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Tidak dapat menyiapkan mesin audio',
   'error.session_create_fail': 'Tidak dapat membuat ruang',
   'error.network_generic': 'Terjadi kesalahan jaringan',
-  'error.peer_app_version_mismatch':
-    '{{name}} tidak dapat bergabung karena versi aplikasi berbeda. Muat ulang halaman di kedua perangkat.',
-  'error.app_version_mismatch':
-    'Versi aplikasi tidak cocok. Muat ulang halaman di kedua perangkat lalu coba lagi.',
   'error.session_handshake_failed':
     'Koneksi sesi tidak dapat diselesaikan. Muat ulang halaman di kedua perangkat lalu coba lagi.',
   'error.host_unreachable': 'Host sepertinya telah meninggalkan ruang',
@@ -710,7 +705,6 @@ const id: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Mulai ulang',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Aktifkan ruang PRO',
   'pro.activation_account_title': 'Pilih akun untuk ruang PRO ini',
   'pro.activation_account_message': 'Daftarkan ruang ini ke akun “{{name}}”?',
   'pro.activation_account_login_message':
@@ -719,9 +713,6 @@ const id: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Akun lain',
   'pro.activation_account_unavailable':
     'Akun Anda tidak dapat diverifikasi. Coba lagi sebentar lagi.',
-  'pro.activation_complete': 'Selesaikan pendaftaran',
-  'pro.activation_message': 'Buat sandi baru 8 digit untuk ruang ini.',
-  'pro.activation_pin_same': 'Pilih sandi yang berbeda dari sandi sementara.',
   'pro.claim_retry_title': 'Coba lagi dengan tautan PRO?',
   'pro.claim_retry_message':
     'Koneksi terputus. Tautan disimpan dengan aman hanya di layar ini, jadi Anda dapat mencoba lagi.',
@@ -769,8 +760,6 @@ const id: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Semua bergabung kembali',
   'pro.pin_members_reenter_detail':
     'Semua orang harus bergabung kembali. Disarankan untuk mengeluarkan orang yang tidak Anda kenal sekaligus.',
-  'pro.pin_keep_unavailable':
-    'Sandi tidak diubah. Opsi mempertahankan peserta di ruang saat ini tidak tersedia. Coba lagi nanti, atau pilih “Semua bergabung kembali”.',
   'pro.pin_enabled_removed_title': 'Ruang kini memakai sandi',
   'pro.pin_enabled_removed_message':
     'Pemilik ruang telah mengatur sandi untuk ruang ini. Masukkan sandi untuk bergabung kembali.',

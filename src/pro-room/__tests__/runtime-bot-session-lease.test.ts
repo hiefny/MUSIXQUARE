@@ -2,7 +2,6 @@
  * @vitest-environment jsdom
  */
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { getState, resetState } from '../../core/state.ts';
 import { ProRoomApiClient, type ProRoomBotCommandResult } from '../api.ts';
 import {
@@ -122,14 +121,6 @@ describe('PRO BOT runtime session lease', { concurrent: false }, () => {
         presenceIncarnationId: snapshot.viewer!.presenceIncarnationId,
         ticketSequence: 1,
         pendingPlaybackTransition: null,
-      }),
-      vi.spyOn(ProRoomApiClient.prototype, 'getEffects').mockResolvedValue({
-        schemaVersion: 2,
-        view: 'effects',
-        roomCode: ROOM_CODE,
-        revision: 0,
-        updatedAtMs: 1,
-        effects: createDefaultRoomEffectsState(),
       }),
       vi.spyOn(ProRoomApiClient.prototype, 'getQueueMode').mockResolvedValue({
         schemaVersion: 1,

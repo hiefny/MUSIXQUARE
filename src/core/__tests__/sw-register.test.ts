@@ -1494,11 +1494,14 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
   });
 
-  it('finishes a legacy pre-activation reload without asking again', async () => {
+  it('finishes an update reload that left before its controller change without asking again', async () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController, 'reload');
     setAppState({ role: 'host' });
+    // An earlier document of this tab asked for an activation (an Apply, or
+    // the forced Apply without a waiting worker) and reloaded before it saw
+    // the controller change.
     sessionStorage.setItem('sw-updated-at', String(Date.now()));
     await registerWithHarness(harness);
 
@@ -1511,7 +1514,7 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(Number(sessionStorage.getItem('sw-controller-confirmed-at'))).toBeGreaterThan(0);
   });
 
-  it('does not treat a controller-confirmed reload as a legacy activation handoff', async () => {
+  it('does not treat a controller-confirmed reload as an unfinished update reload', async () => {
     const oldController: FakeWorker = { postMessage: vi.fn() };
     const newController: FakeWorker = { postMessage: vi.fn() };
     const harness = installServiceWorkerHarness(oldController, 'reload');

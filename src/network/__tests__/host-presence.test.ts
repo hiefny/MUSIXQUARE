@@ -146,7 +146,7 @@ describe('guest view of a Standard host', () => {
     joinAsGuest(host);
     vi.advanceTimersByTime(silenceMs);
 
-    expect(safeSend(host, { type: MSG.SYNC_PING, pingId: 1, guestTime: Date.now() })).toBe(true);
+    expect(safeSend(host, { type: MSG.SYNC_PING, pingId: 1 })).toBe(true);
     expect(host.send).toHaveBeenCalledTimes(1);
     expect(safeSend(host, { type: MSG.REQUEST_NEXT_TRACK, queueItemId: null })).toBe(false);
     expect(host.send).toHaveBeenCalledTimes(1);

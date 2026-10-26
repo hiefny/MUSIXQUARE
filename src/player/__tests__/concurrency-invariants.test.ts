@@ -2699,7 +2699,15 @@ describe('remote decode failure budget ownership', () => {
     expect(getState('transfer.meta')).toBeNull();
 
     await handleFilePrepare(
-      { type: MSG.FILE_PREPARE, queueItemId, name: file.name, sessionId: 8, delivery: 'r2' },
+      {
+        type: MSG.FILE_PREPARE,
+        queueItemId,
+        name: file.name,
+        sessionId: 8,
+        mime: file.type,
+        size: file.size,
+        delivery: 'r2',
+      },
       hostConn,
     );
     expect(getState('player.decodeFailureCount')).toBe(1);

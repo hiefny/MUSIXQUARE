@@ -31,7 +31,7 @@ The namespace identifies ownership; it does not make a value secret.
 
 | Variable                                 | Accepted value / default                                  | Effect                                                                                                                         |
 | ---------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `MUSIXQUARE_DEV_PROXY_PRODUCTION_API`    | Exact `true` after trim/case normalization; default false | Enables dev-server forwarding only for the six routes listed below. Preview never forwards them and returns `503`.             |
+| `MUSIXQUARE_DEV_PROXY_PRODUCTION_API`    | Exact `true` after trim/case normalization; default false | Enables dev-server forwarding only for the five routes listed below. Preview never forwards them and returns `503`.            |
 | `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` | Exact trusted hostname                                    | Lets Vite accept a one-off trusted tunnel hostname without disabling DNS-rebinding protection globally. Do not use a wildcard. |
 
 The opt-in proxy route set is:
@@ -40,7 +40,6 @@ The opt-in proxy route set is:
 - `/api/capability-challenge`
 - `/api/capability-token`
 - `/api/youtube-search`
-- `/api/youtube-playlist-entry`
 - `/api/youtube-playlist-manifest`
 
 With the flag disabled, other unconfigured relative `/api/*` requests receive
@@ -76,7 +75,7 @@ rule.
 | PRO facade                            | Missing or invalid override resolves to same-origin `/api/pro-room` | Set a validated loopback endpoint backed by the required local services, or mock the flow       |
 | E2E browser clients                   | E2E ignores the implicit fallback flag for PRO, TURN, and Realtime  | Keep E2E mocks/servers local; only a validated explicit PRO endpoint override takes precedence  |
 
-The Vite proxy flag controls only its six named routes. The browser fallback
+The Vite proxy flag controls only its five named routes. The browser fallback
 flag independently permits loopback PRO, TURN, and Realtime clients to retry
 the canonical production origin; it does not install a Vite proxy. A validated
 external `VITE_PRO_ROOM_ENDPOINT` is also explicit and bypasses the default

@@ -18,10 +18,7 @@ import {
   isStandardHttpSignalingSocket,
   StandardHttpSignalingSocket,
 } from './standard-http-signaling.ts';
-import {
-  SIGNALING_LIVENESS_VERSION,
-  SignalingSocketLivenessMonitor,
-} from './signaling-liveness.ts';
+import { SignalingSocketLivenessMonitor } from './signaling-liveness.ts';
 import type {
   DeveloperCommandFrame,
   DeveloperInvalidationFrame,
@@ -59,8 +56,13 @@ type SignalingMessage =
       peerId: string;
       roomId: string;
       workerVersionId?: string;
-      signalingLivenessVersion?: 1;
       memberIdentity?: StandardRoomMemberIdentity;
+      // The Worker still sends these feature markers (until survey OV-F08), but
+      // the client stopped reading them in old-version removal train 2. Every
+      // signaling Worker a 9.0.14 or newer App may meet answers the liveness
+      // ping and takes the PIN membership directive, and one without the upload
+      // assertion secret refuses each request with its own error.
+      signalingLivenessVersion?: 1;
       remoteShareUploadAssertionVersion?: 1;
       remoteShareUploadAssertionKeyringVersion?: 1;
       standardRoomPinMembershipVersion?: 1;
@@ -526,7 +528,7 @@ const REMOTE_SHARE_UPLOAD_QUEUE_ITEM_ID_RE =
 
 interface PendingRemoteShareUploadAssertion {
   readonly socket: StandardSignalingSocket;
-  readonly resolve: (assertion: string | null) => void;
+  readonly resolve: (assertion: string) => void;
   readonly reject: (error: Error) => void;
   readonly timeoutId: ReturnType<typeof globalThis.setTimeout>;
   readonly signal?: AbortSignal;
@@ -942,9 +944,9 @@ function isBulkPayload(data: unknown): boolean {
 
   // File chunks are carried by the ordered bulk channel. Keep their headers and
   // terminal fences there as well: ordering is guaranteed within one
-  // RTCDataChannel, but not between the bulk and control channels. Receivers
-  // continue accepting these messages from either channel, so old senders
-  // remain compatible while upgraded chunks cannot overtake their header/END.
+  // RTCDataChannel, but not between the bulk and control channels, so chunks
+  // cannot overtake their header/END. Receivers still accept these messages
+  // from either channel because the PeerJS fallback has a single channel.
   return (
     payload.type === MSG.FILE_START ||
     payload.type === MSG.FILE_RESUME ||
@@ -1006,7 +1008,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
           this.controlIsolation.channel?.readyState !== 'open',
         controlOpen: this.controlChannel?.readyState === 'open',
       }),
-      ping: (pingId) => this.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() }),
+      ping: (pingId) => this.send({ type: MSG.SYNC_PING, pingId }),
       // The close port: the only caller of terminate() (guard:transport-health).
       close: (cause, first) => this.terminate(cause, first),
       changed: () => this.onConnectionStateChange?.(),
@@ -1606,8 +1608,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private acknowledgedRoomPasswordSocket: StandardSignalingSocket | null = null;
   // One-shot membership directive of the current, unacknowledged mutation.
   private roomPasswordMembership: StandardRoomPinMembershipRequest | null = null;
-  // The admitted host socket whose peer-open advertised membership support.
-  private standardRoomPinMembershipSocket: StandardSignalingSocket | null = null;
   private readonly roomPasswordMembershipSent = new WeakMap<
     StandardSignalingSocket,
     { mutationId: string; mode: StandardRoomPinMembershipRequest['mode'] | 'legacy' }
@@ -1628,9 +1628,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     new WeakSet<StandardSignalingSocket>();
   private readonly standardRoomIdentityActiveRefreshGenerations = new Set<number>();
   private standardRoomIdentityRefreshGeneration = 0;
-  private remoteShareUploadAssertionStatus:
-    'unknown' | 'unsupported' | 'supported' | 'unavailable' = 'unknown';
-  private remoteShareUploadAssertionObserved = false;
   private readonly pendingRemoteShareUploadAssertions = new Map<
     string,
     PendingRemoteShareUploadAssertion
@@ -2213,9 +2210,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     this.clearHostSetupAdmissionTimeout();
     this.hostSocket = null;
-    this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
-      ? 'unavailable'
-      : 'unknown';
     this.open = false;
     const wasDisconnected = this.disconnected;
     this.disconnected = true;
@@ -2513,18 +2507,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   async requestRemoteShareUploadAssertion(
     request: RemoteShareUploadAssertionRequest,
     signal?: AbortSignal,
-  ): Promise<string | null> {
+  ): Promise<string> {
     if (signal?.aborted) throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_ABORTED');
     if (this.destroyed || this.proSignalingAccess || !this.hostRoomId) {
       throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
     }
-    // Marker absence is the sole mixed-version fallback. Once a Worker
-    // advertises support, every failure below is authoritative and must not be
-    // converted into an assertion-free legacy request.
-    if (this.remoteShareUploadAssertionStatus === 'unsupported') return null;
-    if (this.remoteShareUploadAssertionStatus !== 'supported') {
-      throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
-    }
+    // Every failure is authoritative: there is no assertion-free upload path.
+    // A Worker without the assertion secret answers with its own error.
     if (!isRemoteShareUploadAssertionRequest(request)) {
       throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_INVALID_REQUEST');
     }
@@ -2541,7 +2530,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     do correlationId = `rsaq_${randomBase64Url(24)}`;
     while (this.pendingRemoteShareUploadAssertions.has(correlationId));
 
-    return new Promise<string | null>((resolve, reject) => {
+    return new Promise<string>((resolve, reject) => {
       const timeoutId = globalThis.setTimeout(() => {
         const claimed = this.takePendingRemoteShareUploadAssertion(correlationId, socket);
         claimed?.reject(new Error('REMOTE_SHARE_UPLOAD_ASSERTION_TIMEOUT'));
@@ -2582,7 +2571,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   destroy(): void {
     this.destroyed = true;
     this.roomPasswordMembership = null;
-    this.standardRoomPinMembershipSocket = null;
     this.settleRoomPasswordCommit({ status: 'superseded' });
     this.rtcConfigurationController.abort(new Error('PEER_DESTROYED'));
     clearManagedTimer(this.rtcConfigurationTimerKey);
@@ -2607,8 +2595,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.peerIdentityProjections.clear();
     this.peerOfferSequences.clear();
     this.peerDepartureSequences.clear();
-    this.remoteShareUploadAssertionStatus = 'unknown';
-    this.remoteShareUploadAssertionObserved = false;
     this.rejectPendingRemoteShareUploadAssertions(null, 'REMOTE_SHARE_UPLOAD_ASSERTION_DESTROYED');
     for (const record of this.guestRooms.values()) {
       record.routeRetryController?.abort(new Error('PEER_DESTROYED'));
@@ -3229,11 +3215,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (!this.standardRoomIdentityAdmittedHostSockets.has(socket)) return;
-    // An older Worker's exact-key validator silently drops a frame with the
-    // membership fields, so send them only where this socket's peer-open
-    // advertised support. Elsewhere the same mutation applies the PIN alone.
-    const directive =
-      socket === this.standardRoomPinMembershipSocket ? this.roomPasswordMembership : null;
+    // Every signaling Worker since 8.10.0 takes the membership directive, and
+    // none older may serve a 9.0.14 or newer App (old-version removal train 2).
+    const directive = this.roomPasswordMembership;
     const mutationId = this.roomPasswordMutationId;
     try {
       this.send(socket, {
@@ -3301,9 +3285,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const openedRoute = this.signalingSocketLifecycles.get(socket)?.route;
     if (openedRoute) this.hostRoutePlan.triedRoutes.add(openedRoute);
 
-    this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
-      ? 'unavailable'
-      : 'unknown';
     this.hostSocket = socket;
     const socketGeneration = ++this.hostSocketGeneration;
     socket.addEventListener('open', () => {
@@ -3843,29 +3824,16 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       } else if (!this.proSignalingAccess && sourceSocket) {
         clearStandardHttpPreference();
       }
+      // Every signaling Worker answers the fixed liveness ping, with or without
+      // the marker in its peer-open (version metadata gates only the marker).
       if (
         !this.proSignalingAccess &&
         sourceSocket &&
-        !isStandardHttpSignalingSocket(sourceSocket) &&
-        message.signalingLivenessVersion === SIGNALING_LIVENESS_VERSION
+        !isStandardHttpSignalingSocket(sourceSocket)
       ) {
         this.signalingLiveness.start(sourceSocket);
       }
-      if (message.remoteShareUploadAssertionVersion === 1) {
-        this.remoteShareUploadAssertionObserved = true;
-        this.remoteShareUploadAssertionStatus = 'supported';
-      } else {
-        this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
-          ? 'unavailable'
-          : 'unsupported';
-      }
       if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
-      // Capability is per admitted socket: deploys, gradual versions and
-      // rollbacks can route the next reconnect to an older Worker.
-      this.standardRoomPinMembershipSocket =
-        !this.proSignalingAccess && sourceSocket && message.standardRoomPinMembershipVersion === 1
-          ? sourceSocket
-          : null;
       if (this.hostRoomId && this.hostSocket) {
         this.sendPendingStandardRoomDeletion(this.hostRoomId, 'host', this.hostSocket);
         // Room admission and code display must never wait on the account API.
@@ -3951,7 +3919,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           offerIdentity,
           sequence,
           sourceSocket,
-          message.iceRestartVersion === 1,
         );
       } finally {
         const remaining = (this.pendingHostPeerOperations.get(message.from) ?? 1) - 1;
@@ -4145,12 +4112,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'signal-answer') {
       const negotiationId = parseIceNegotiationId(message.negotiationId);
       if (negotiationId === null) return;
-      await this.handleGuestAnswer(
-        roomId,
-        message.sdp,
-        negotiationId,
-        message.iceRestartVersion === 1,
-      );
+      await this.handleGuestAnswer(roomId, message.sdp, negotiationId);
       return;
     }
     if (message.type === 'signal-candidate') {
@@ -4289,7 +4251,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     roomIdentity: StandardRoomMemberIdentity | null,
     offerSequence: number,
     sourceSocket: StandardSignalingSocket | null,
-    supportsIceRestart: boolean,
   ): Promise<void> {
     if (this.rtcConfigurationPending) await this.rtcConfigurationReady;
     if (this.options.rtcConfigurationProvider) await this.refreshRtcConfigurationIfDue();
@@ -4316,7 +4277,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       undefined,
       this.proSignalingAccess ? undefined : () => this.createIsolatedControlConnection(conn),
     );
-    if (!this.proSignalingAccess && supportsIceRestart) conn.iceRestartBinding = negotiationId;
+    // Every Standard end since 8.6.39 restarts ICE and marks its first offer;
+    // the App build floor (787) admits none older, so the mark is not read.
+    if (!this.proSignalingAccess) conn.iceRestartBinding = negotiationId;
     const pc = this.createPeerConnection(peerId);
     conn.peerConnection = pc;
     const negotiation = this.beginIceNegotiation(peerId, pc, sdp, negotiationId);
@@ -4459,7 +4422,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     roomId: string,
     sdp: RTCSessionDescriptionInit,
     negotiationId: string,
-    supportsIceRestart: boolean,
   ): Promise<void> {
     const conn = this.connections.get(roomId);
     const pc = conn?.peerConnection;
@@ -4479,7 +4441,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       await pc.setRemoteDescription(sdp);
       if (!(await this.flushRemoteCandidates(negotiation))) return;
       negotiation.settled = true;
-      if (!this.proSignalingAccess && supportsIceRestart && conn && !conn.iceRestartBinding) {
+      // As on the host: every Standard host answer since 8.6.39 is restartable.
+      if (!this.proSignalingAccess && conn && !conn.iceRestartBinding) {
         conn.iceRestartBinding = negotiationId;
       }
       queueMicrotask(() => this.maybeRestartGuestIce(roomId));

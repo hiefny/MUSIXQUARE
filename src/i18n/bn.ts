@@ -627,7 +627,6 @@ const bn: Record<I18nKey, string> = {
   'toast.sync_no_media': 'সিঙ্ক করার মতো কোনো মিডিয়া নেই\nআগে চালানোর জন্য কিছু বেছে নিন',
   'toast.host_ad': 'মনে হচ্ছে হোস্ট বিজ্ঞাপন দেখছেন',
   'toast.yt_sync_start': 'সিঙ্ক হচ্ছে...',
-  'toast.yt_sync_done': 'সিঙ্ক সম্পন্ন হয়েছে',
   'toast.yt_rendezvous_start': 'হোস্টের সঙ্গে মিলিয়ে নেওয়া হচ্ছে...',
   'toast.yt_rendezvous_done': 'সিঙ্ক সম্পন্ন হয়েছে',
   'toast.yt_rendezvous_host_paused': 'হোস্টের প্লেব্যাক বিরতিতে আছে, শুধু অবস্থান মেলানো হয়েছে',
@@ -689,10 +688,6 @@ const bn: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'অডিও ইঞ্জিন প্রস্তুত করা যায়নি',
   'error.session_create_fail': 'সেশন তৈরি করা যায়নি',
   'error.network_generic': 'নেটওয়ার্কে একটি সমস্যা হয়েছে',
-  'error.peer_app_version_mismatch':
-    'অ্যাপের সংস্করণ না মেলায় {{name}} যোগ দিতে পারছেন না। দুটি ডিভাইসই রিফ্রেশ করুন।',
-  'error.app_version_mismatch':
-    'অ্যাপের সংস্করণ মিলছে না। দুটি ডিভাইসই রিফ্রেশ করে আবার চেষ্টা করুন।',
   'error.session_handshake_failed':
     'সেশন সংযোগ সম্পন্ন করা যায়নি। দুটি ডিভাইসই রিফ্রেশ করে আবার চেষ্টা করুন।',
   'error.host_unreachable': 'মনে হচ্ছে হোস্ট সেশন ছেড়ে গেছেন',
@@ -775,7 +770,6 @@ const bn: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'আবার চালু করুন',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO রুম সক্রিয় করুন',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'এই PRO রুমের জন্য একটি অ্যাকাউন্ট বেছে নিন',
   'pro.activation_account_message': '“{{name}}” অ্যাকাউন্টে এই রুমটি নিবন্ধন করবেন?',
@@ -785,9 +779,6 @@ const bn: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'অন্য অ্যাকাউন্ট',
   'pro.activation_account_unavailable':
     'আপনার অ্যাকাউন্ট যাচাই করা যায়নি। একটু পর আবার চেষ্টা করুন।',
-  'pro.activation_complete': 'নিবন্ধন সম্পন্ন করুন',
-  'pro.activation_message': 'এই রুমের জন্য 8 সংখ্যার নতুন পাসওয়ার্ড ঠিক করুন।',
-  'pro.activation_pin_same': 'সাময়িক পাসওয়ার্ড থেকে আলাদা একটি পাসওয়ার্ড বেছে নিন।',
   'pro.claim_retry_title': 'PRO লিংক দিয়ে আবার চেষ্টা করবেন?',
   'pro.claim_retry_message':
     'সংযোগটি মাঝপথে বিচ্ছিন্ন হয়েছে। লিংকটি এই স্ক্রিনে নিরাপদে রাখা আছে, তাই আবার চেষ্টা করতে পারবেন।',
@@ -835,8 +826,6 @@ const bn: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'সবাই আবার যোগ দেবেন',
   'pro.pin_members_reenter_detail':
     'সবাইকে আবার যোগ দিতে হবে। অচেনা লোকদের একসঙ্গে সরাতে এই পদ্ধতিটি বেছে নেওয়ার পরামর্শ দিই।',
-  'pro.pin_keep_unavailable':
-    'পাসওয়ার্ড পরিবর্তন হয়নি। এখন লোকদের রুমে রেখে পাসওয়ার্ড বদলানো যাচ্ছে না। পরে আবার চেষ্টা করুন বা “সবাই আবার যোগ দেবেন” বেছে নিন।',
   'pro.pin_enabled_removed_title': 'রুমে পাসওয়ার্ড দেওয়া হয়েছে',
   'pro.pin_enabled_removed_message':
     'রুমের মালিক এই রুমের জন্য পাসওয়ার্ড সেট করেছেন। আবার যোগ দিতে সেটি লিখুন।',

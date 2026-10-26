@@ -2,16 +2,6 @@ import { parseRoomEffectsPatch, type RoomEffectsPatch } from '../../core/room-ef
 
 export type TransportProvider = 'peerjs' | 'cloudflare';
 
-export type DeveloperCommandResultCode =
-  | 'applied'
-  | 'already_applied'
-  | 'busy'
-  | 'no_media'
-  | 'stale_queue'
-  | 'unsupported_mode'
-  | 'expired'
-  | 'execution_failed';
-
 type DeveloperCommand =
   | { readonly type: 'play' }
   | { readonly type: 'pause' }
@@ -478,7 +468,9 @@ export interface StandardRoomPinMembershipRequest {
 /**
  * Outcome of one Standard-room PIN mutation. `applied` arrives only with the
  * Worker acknowledgement of that exact mutation; `membership` names what the
- * Worker committed ('legacy' = the PIN alone, e.g. an older Worker). A newer
+ * Worker committed ('legacy' = the PIN alone: turning the PIN off, which
+ * carries no choice, or an acknowledgement that does not echo the choice sent
+ * on its socket; a PeerJS host resolves it the same way). A newer
  * call, or destroying the transport, settles an older one as `superseded`.
  */
 export type StandardRoomPinCommit =
@@ -540,14 +532,14 @@ export interface TransportPeer {
   refreshStandardRoomIdentity?(): Promise<void>;
   deleteStandardRoomIdentity?(): void;
   /**
-   * Return null only when the admitted signaling deployment does not advertise
-   * this additive protocol. Once advertised, issuance failures reject rather
-   * than silently downgrading to the legacy upload path.
+   * Issue a Remote Share room upload assertion through the admitted Standard
+   * host signaling socket. Every failure rejects, including a Worker without
+   * the assertion secret: there is no assertion-free upload path.
    */
   requestRemoteShareUploadAssertion?(
     request: RemoteShareUploadAssertionRequest,
     signal?: AbortSignal,
-  ): Promise<string | null>;
+  ): Promise<string>;
   destroy(): void;
   on(event: 'open', callback: (id: string) => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;

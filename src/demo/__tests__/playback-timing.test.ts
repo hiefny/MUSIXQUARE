@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getPendingDemoHostStartAt, setDemoHostStartAt } from '../host-start-anchor.ts';
 import { LOCAL_FILE_START_LEAD_MS } from '../../player/file-play-timing.ts';
-import {
-  DEMO_PLAY_SCHEDULE_AHEAD_MS,
-  DEMO_PLAY_START_LEAD_MS,
-  projectDemoPlay,
-} from '../playback-timing.ts';
+import { DEMO_PLAY_START_LEAD_MS, projectDemoPlay } from '../playback-timing.ts';
 
 afterEach(() => {
   setDemoHostStartAt(null);
@@ -55,12 +51,9 @@ describe('demo shared-start timing', () => {
     },
   );
 
-  it('shares the 200 ms start lead with local files but keeps the demo wire lead', () => {
+  it('shares the 200 ms start lead with local files', () => {
     expect(DEMO_PLAY_START_LEAD_MS).toBe(200);
     expect(LOCAL_FILE_START_LEAD_MS).toBe(200);
-    // Demo guests before the old-version removal train (9.0.12 and older)
-    // require hostPlayAt = hostStartAt + 350 ms.
-    expect(DEMO_PLAY_SCHEDULE_AHEAD_MS).toBe(350);
   });
 
   it('exposes only a still-pending published host start and clears it on cancellation', () => {

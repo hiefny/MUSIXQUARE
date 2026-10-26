@@ -647,7 +647,6 @@ const it: Record<I18nKey, string> = {
     'Non ci sono contenuti da sincronizzare\nPrima seleziona un contenuto da riprodurre',
   'toast.host_ad': 'L’host sembra guardare una pubblicità',
   'toast.yt_sync_start': 'Sincronizzazione...',
-  'toast.yt_sync_done': 'Sincronizzazione completata',
   'toast.yt_rendezvous_start': 'Sincronizzazione con l’host...',
   'toast.yt_rendezvous_done': 'Sincronizzazione completata',
   'toast.yt_rendezvous_host_paused': 'L’host è in pausa, allineata solo la posizione',
@@ -710,10 +709,6 @@ const it: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Impossibile preparare il motore audio',
   'error.session_create_fail': 'Impossibile creare la stanza',
   'error.network_generic': 'Errore di rete rilevato',
-  'error.peer_app_version_mismatch':
-    '{{name}} non può entrare perché le versioni dell’app non corrispondono. Ricarica la pagina su entrambi i dispositivi.',
-  'error.app_version_mismatch':
-    'Le versioni dell’app non corrispondono. Ricarica la pagina su entrambi i dispositivi e riprova.',
   'error.session_handshake_failed':
     'Impossibile completare la connessione alla stanza. Ricarica la pagina su entrambi i dispositivi e riprova.',
   'error.host_unreachable': 'L’host sembra aver lasciato la stanza',
@@ -800,7 +795,6 @@ const it: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Riavvia',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Attiva stanza PRO',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'Scegli un account per questa stanza PRO',
   'pro.activation_account_message': 'Vuoi registrare questa stanza all’account “{{name}}”?',
@@ -810,9 +804,6 @@ const it: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Altro account',
   'pro.activation_account_unavailable':
     'Non siamo riusciti a verificare il tuo account. Riprova tra poco.',
-  'pro.activation_complete': 'Completa la registrazione',
-  'pro.activation_message': 'Imposta una nuova password numerica di 8 cifre per questa stanza.',
-  'pro.activation_pin_same': 'Scegli una password diversa da quella temporanea.',
   'pro.claim_retry_title': 'Vuoi riprovare con il link PRO?',
   'pro.claim_retry_message':
     'La connessione si è interrotta. Il link rimane al sicuro in questa schermata, quindi puoi riprovare.',
@@ -860,8 +851,6 @@ const it: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Tutti rientrano',
   'pro.pin_members_reenter_detail':
     'Tutti dovranno rientrare. Consigliato per rimuovere in una volta sola chi non conosci.',
-  'pro.pin_keep_unavailable':
-    'La password non è stata cambiata. Al momento non è possibile lasciare le persone nella stanza. Riprova più tardi o scegli “Tutti rientrano”.',
   'pro.pin_enabled_removed_title': 'La stanza ora ha una password',
   'pro.pin_enabled_removed_message':
     'Il proprietario della stanza ha impostato una password. Inseriscila per rientrare.',

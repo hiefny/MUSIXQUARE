@@ -33,13 +33,17 @@ afterEach(() => {
 });
 
 describe('connection-owned bulk receipt credit', () => {
-  it('allows only two full payload chunks while negotiating, then falls back for an old peer', () => {
+  // Old-version removal train 2 (survey OV-F01): every peer since 8.11.23
+  // sends its hello once admission settles, so a peer without one never gets
+  // the 1 s no-credit fallback that 8.11.22 and older peers needed.
+  it('allows only two full payload chunks before the peer hello, and no more without it', () => {
     const { flow, frames } = endpoint();
     expect(flow.hasCapacity(CHUNK_SIZE)).toBe(false);
     flow.start();
     flow.start();
     expect(frames).toHaveLength(1);
     expect(frames[0]).toMatchObject({ type: 'mxqr-bulk-flow', version: 1, kind: 'hello' });
+    expect(vi.getTimerCount()).toBe(0);
     const wake = vi.fn();
     flow.subscribe(wake);
     for (let index = 0; index < 2; index++) {
@@ -47,11 +51,14 @@ describe('connection-owned bulk receipt credit', () => {
       flow.noteSent(CHUNK_SIZE);
     }
     expect(flow.hasCapacity(1)).toBe(false);
-    vi.advanceTimersByTime(999);
+    vi.advanceTimersByTime(60_000);
     expect(flow.hasCapacity(1)).toBe(false);
-    vi.advanceTimersByTime(1);
-    expect(flow.hasCapacity(CHUNK_SIZE)).toBe(true);
-    expect(wake).toHaveBeenCalledOnce();
+    expect(wake).not.toHaveBeenCalled();
+    expect(flow.diagnosticSnapshot).toMatchObject({
+      phase: 'measure',
+      sentBytes: 2 * CHUNK_SIZE,
+      outstandingBytes: 2 * CHUNK_SIZE,
+    });
   });
 
   it('keeps a negotiated window bounded until cumulative receipts arrive, without timeout fallback', () => {
@@ -72,21 +79,27 @@ describe('connection-owned bulk receipt credit', () => {
     expect(sender.flow.hasCapacity(CHUNK_SIZE)).toBe(true);
   });
 
-  it('preserves lifetime counts when a late hello activates after legacy sends', () => {
+  it('preserves lifetime counts when late hellos arrive after the first window', () => {
     const sender = endpoint();
     const receiver = endpoint();
     sender.flow.start();
     receiver.flow.start();
-    vi.advanceTimersByTime(1000);
     for (let index = 0; index < 10; index++) {
-      expect(sender.flow.hasCapacity(CHUNK_SIZE)).toBe(true);
+      if (!sender.flow.hasCapacity(CHUNK_SIZE)) break;
       sender.flow.noteSent(CHUNK_SIZE);
       receiver.flow.noteReceived(CHUNK_SIZE);
     }
+    vi.advanceTimersByTime(5_000);
+    expect(sender.flow.hasCapacity(1)).toBe(false);
+    expect(sender.flow.diagnosticSnapshot.sentBytes).toBe(2 * CHUNK_SIZE);
+    expect(receiver.frames.map((frame) => frame.kind)).toEqual(['hello']);
+    const wake = vi.fn();
+    sender.flow.subscribe(wake);
     sender.flow.handleControl(receiver.frames[0], true);
-    expect(sender.flow.hasCapacity(CHUNK_SIZE)).toBe(false);
+    expect(wake).toHaveBeenCalledOnce();
+    expect(sender.flow.hasCapacity(1)).toBe(false);
     receiver.flow.handleControl(sender.frames[0], true);
-    expect(receipt(receiver).receivedBytes).toBe(10 * CHUNK_SIZE);
+    expect(receipt(receiver).receivedBytes).toBe(2 * CHUNK_SIZE);
     sender.flow.handleControl(receipt(receiver), true);
     expect(sender.flow.hasCapacity(CHUNK_SIZE)).toBe(true);
   });

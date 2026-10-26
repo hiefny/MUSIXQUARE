@@ -635,7 +635,6 @@ const te: Record<I18nKey, string> = {
   'toast.sync_no_media': 'సింక్ చేయడానికి మీడియా లేదు\nముందుగా ప్లే చేయడానికి ఏదైనా ఎంచుకోండి',
   'toast.host_ad': 'హోస్ట్ ప్రకటన చూస్తున్నట్లు అనిపిస్తోంది',
   'toast.yt_sync_start': 'సింక్ అవుతోంది...',
-  'toast.yt_sync_done': 'సింక్ పూర్తయింది',
   'toast.yt_rendezvous_start': 'హోస్ట్‌తో సరిపోలుతోంది...',
   'toast.yt_rendezvous_done': 'సింక్ పూర్తయింది',
   'toast.yt_rendezvous_host_paused': 'హోస్ట్ పాజ్ చేశారు, ప్లేబ్యాక్ స్థానం మాత్రమే సరిచేయబడింది',
@@ -695,10 +694,6 @@ const te: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ఆడియో ఇంజిన్‌ను సిద్ధం చేయలేకపోయాం',
   'error.session_create_fail': 'సెషన్‌ను సృష్టించలేకపోయాం',
   'error.network_generic': 'నెట్‌వర్క్ లోపం సంభవించింది',
-  'error.peer_app_version_mismatch':
-    'యాప్ వెర్షన్‌లు సరిపోలకపోవడంతో {{name}} చేరలేరు. రెండు పరికరాలను రిఫ్రెష్ చేయండి.',
-  'error.app_version_mismatch':
-    'యాప్ వెర్షన్‌లు సరిపోలలేదు. రెండు పరికరాలను రిఫ్రెష్ చేసి మళ్లీ ప్రయత్నించండి.',
   'error.session_handshake_failed':
     'సెషన్ కనెక్షన్‌ను పూర్తి చేయలేకపోయాం. రెండు పరికరాలను రిఫ్రెష్ చేసి మళ్లీ ప్రయత్నించండి.',
   'error.host_unreachable': 'హోస్ట్ సెషన్ నుండి వెళ్లిపోయినట్లు అనిపిస్తోంది',
@@ -784,7 +779,6 @@ const te: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'రీస్టార్ట్',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO గదిని యాక్టివేట్ చేయి',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'ఈ PRO గది కోసం ఖాతాను ఎంచుకోండి',
   'pro.activation_account_message': 'ఈ గదిని “{{name}}” ఖాతాకు నమోదు చేయాలా?',
@@ -793,9 +787,6 @@ const te: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'మరో ఖాతా',
   'pro.activation_account_unavailable':
     'మీ ఖాతాను ధృవీకరించలేకపోయాం. కాసేపట్లో మళ్లీ ప్రయత్నించండి.',
-  'pro.activation_complete': 'నమోదు పూర్తి చేయి',
-  'pro.activation_message': 'ఈ గదికి కొత్త 8 అంకెల పాస్‌వర్డ్‌ను సెట్ చేయండి.',
-  'pro.activation_pin_same': 'తాత్కాలిక పాస్‌వర్డ్‌కు భిన్నమైనదాన్ని ఎంచుకోండి.',
   'pro.claim_retry_title': 'PRO లింక్‌ను మళ్లీ ప్రయత్నించాలా?',
   'pro.claim_retry_message':
     'కనెక్షన్ మధ్యలో ఆగింది. లింక్ ఈ స్క్రీన్‌లో సురక్షితంగా ఉంది, కాబట్టి మళ్లీ ప్రయత్నించవచ్చు.',
@@ -843,8 +834,6 @@ const te: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'అందరూ మళ్లీ చేరాలి',
   'pro.pin_members_reenter_detail':
     'అందరూ మళ్లీ చేరాల్సి ఉంటుంది. తెలియని వ్యక్తులను ఒకేసారి తొలగించడానికి ఈ పద్ధతిని సిఫార్సు చేస్తున్నాం.',
-  'pro.pin_keep_unavailable':
-    'పాస్‌వర్డ్ మారలేదు. ఇప్పుడు వ్యక్తులను గదిలోనే ఉంచి మార్చడం కుదరదు. కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి లేదా “అందరూ మళ్లీ చేరాలి” ఎంచుకోండి.',
   'pro.pin_enabled_removed_title': 'గదికి పాస్‌వర్డ్ సెట్ చేయబడింది',
   'pro.pin_enabled_removed_message':
     'గది యజమాని ఈ గదికి పాస్‌వర్డ్ సెట్ చేశారు. మళ్లీ చేరడానికి దాన్ని నమోదు చేయండి.',

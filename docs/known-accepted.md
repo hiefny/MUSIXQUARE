@@ -246,18 +246,17 @@ What remains accepted:
   then, the App
   treats the refusal as a permanent auth error and that device loses signaling
   recovery (ICE restarts) for the rest of its connection, as with a stale PIN.
-  During the 8.10.0 transition, cached 8.9.x hosts still generate random PINs;
-  if they refreshed the PIN, their present guests re-send the old PIN on the
-  deploy reconnect and those failures count against the shared bucket too.
-- **Older Worker.** If signaling is rolled back, the App sends the PIN alone:
-  present guests are kept as before 8.10.0 (and lose ICE-restart recovery after
-  a later signaling reconnect), "모두 재입장" is only the host's kick, which a
-  modified client can ignore, and the wrong-PIN limit is off.
-- **Older App copy.** Guests on a cached App older than 8.10.0 removed by
-  "모두 재입장" show the generic "강제퇴장" kick dialog and reload instead of the
-  PIN notice, and show the generic join error for `room-password-changed` and
-  `room-password-rate-limited`. Both errors stay permanent auth errors there,
-  so there is no reconnect storm.
+- **Older Worker.** Signaling is not rolled back below 9.0.14 while an App of
+  9.0.14 or later is live, since an older Worker refuses every host that sends
+  its build. A Worker older than 8.10.0 is reachable only in an emergency
+  recovery that also rolls the App back below 9.0.14 and lowers the App build
+  floor. That App sends the PIN alone: present guests are kept as before 8.10.0
+  (and lose ICE-restart recovery after a later signaling reconnect), "모두 재입장"
+  is only the host's kick, which a modified client can ignore, and the wrong-PIN
+  limit is off. Since old-version removal train 2 (2026-10-26) the App always
+  sends the membership choice without reading the Worker's marker
+  ([ops](../cloudflare/standard-room-pin-ops.md#rollback),
+  [report](design/old-version-removal-2a-app-2026-10-26.md)).
 
 Reopen this item if Standard rooms become discoverable or listed, if kick
 evasion is observed in production, or before relying on a Standard-room PIN for
@@ -282,30 +281,6 @@ normally, and it is not a C11 learning-gate rejection or a stalled heartbeat. Th
 chose not to add an automatic retry so playback is never shaken at an unwanted moment; the
 notice-then-press-again policy stays. See
 [the browser experiment](design/standard-clock-browser-simulation-2026-10-12.md).
-
-### 15. Legacy-Client Transition Limits After The 8.9.0 And 8.10.0 Releases
-
-Accepted on 2026-10-14. These limits exist only while clients that predate the release are
-still running and disappear as they refresh. No forced reload is added; the version-based
-admission that former #13 declined arrived with the App build floor (App 9.0.14; first floor 787
-set on 2026-10-26, see former #13 under [Retired Risks](#retired-risks)), which refuses these old
-builds' new entries and reconnects; sessions they had already opened continue.
-
-- 8.9.0 kick reasons: an App older than 8.9.0 does not read the kick reason. It shows the
-  generic "refreshing the session" notice, and in a public room one Start press rejoins.
-  [PRO PIN member choice](design/pro-pin-member-choice-2026-10-11.md)
-- 8.9.0 PRO Worker-only rollback: if only the PRO Worker is rolled back, the default "keep
-  everyone" choice is rejected with 400 and the App shows "could not change the password",
-  while "everyone re-enters" keeps working. No new floor. Same report.
-- 8.10.0 Standard-room owner passwords: cached 8.9.x hosts keep generating random passwords;
-  after a new password is set, remaining participants may send the old one on reconnect and
-  fail into the same address bucket. Older-App participants ejected by "everyone re-enters"
-  see "kicked", and the two new errors render as ordinary join errors (permanent auth errors,
-  so there is no reconnect storm). Devices still running v657-or-older code saw the old update
-  dialog once during that first rollout. Password-lockout monitoring moved to the release
-  record §3 periodic checks. [Owner PIN](design/standard-room-owner-pin-2026-10-11.md),
-  [in-room update prompt](design/in-room-update-prompt-2026-10-11.md),
-  [operations](../cloudflare/standard-room-pin-ops.md), and #12.
 
 ### 16. Reverb Decay Values Saved Before The 10-Second Cap
 
@@ -365,6 +340,7 @@ carried forward as accepted risks:
 | Loopback browser API clients implicitly retried production                | Retired 2026-08-30. Local PRO, TURN, and Realtime calls now fail closed on the same origin unless the explicit local-production fallback flag or a validated PRO endpoint override is configured.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Former #18: isolated Standard-room control route ends on a network change | Retired 2026-10-25 (accepted 2026-10-19; numbers are not reused, so #19 keeps its number). After a direct file to a same-network guest, controls move to a side RTCPeerConnection that had no ICE restart, so a Wi-Fi to LTE change closed the session with the Reconnect dialog (owner, production 8.11.23). App 8.11.25 added a capability-gated side ICE restart. Owner check on production 9.0.10 / v783: a Safari guest that had just received a direct file on the host's home Wi-Fi switched to LTE with no dialog, audio continued, and host pause and play applied at once; its console showed `Restarting isolated control ICE (1/2)`, then `Isolated control ICE recovered` 3.2 s later. Not checked: an Android phone, the host console, and two regression steps outside the closing condition, an IP change to another SSID on the same router (closed with that scope under owner decision P4-D15 A) and a remote LTE guest moving to Wi-Fi (recorded as already recovering); they stay steps of the Phase 4 device round. [Evidence](release-record.md#최근-해결-근거), [independent verification](design/side-ice-restart-independent-verification-2026-10-20.md)                                                                                                                                                                                                                                                                                                                                         |
 | Former #13: maintenance cutover without client-version admission          | Retired 2026-10-26 (accepted 2026-10-12 for the App 8.10.2 synchronization release; numbers are not reused, so #14 to #19 keep theirs). Maintenance plus a reload notice was an operational cutover without version-based admission, so old settings or sleeping tabs could rejoin. The owner decisions of 2026-10-25 (16:40 and 18:30 KST) made older App versions no longer a design constraint and chose a runtime App build floor. App 9.0.14 / v787 shipped it on 2026-10-26 (Release 40283632968, target `all`): the App reports its build in Standard `host-auth` and `guest-auth` and in a PRO request header, and the Signaling and PRO Workers refuse new entries and reconnects below the effective floor while open sessions continue. The first floor, 787, was set the same day by App Build Floor run 40284593490 (`stored 787, effective 787, revision 1`, after the status run 40284433812 and the OIDC check run 40284513979). The public status, the page read and the PRO bootstrap of a synthetic room (build 786 and no header refused with 426, build 787 admitted) were checked independently, and the Operations Drift Audit floor row passed (run 40285137773). Not yet checked: Signaling admitting a 787 host while the floor is on, and real 9.0.13-or-older tabs being refused; both are open owner checks in the release record. [Evidence](release-record.md#최근-해결-근거), [train report](design/forced-update-9-0-14-2026-10-25.md), [operations](hotfix-procedure.md#app-build-floor) |
+| Former #15: legacy-client transition limits after 8.9.0 and 8.10.0        | Retired 2026-10-26 (accepted 2026-10-14; numbers are not reused, so #16 to #19 keep theirs). Every limit needed a client or Worker that can no longer meet a current one. Apps older than 8.9.0 (no kick reason) and older than 8.10.0 (random host PINs, the generic kick and join errors, the old update dialog) are far below the App build floor 787 (on since 2026-10-26), which refuses their new entries and reconnects. A PRO Worker without the keep-present PIN choice predates 8.9.0, below the PRO entry-policy marker `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1` (9.0.4) that neither automatic nor manual recovery crosses. From old-version removal train 2 release A the App also no longer singles out a refused keep: any refusal shows the generic failure, with no "keep unavailable" notice and no plain-change retry. Password-lockout monitoring stays in the release record §3 periodic checks, and a signaling rollback below 8.10.0 stays under #12. [Report](design/old-version-removal-2a-app-2026-10-26.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 ## Retired Observations
 

@@ -45,10 +45,10 @@ export interface RemoteUploadMeta {
   size: number;
   sessionId: number;
   queueItemId: QueueItemId;
-  requestRoomUploadAssertion?: (
+  requestRoomUploadAssertion: (
     request: RemoteShareUploadAssertionRequest,
     signal?: AbortSignal,
-  ) => Promise<string | null>;
+  ) => Promise<string>;
 }
 
 export type ProgressHandler = (progress: number) => void;
@@ -84,7 +84,7 @@ interface RemoteShareSecurityConfig {
   wholeObjectVersion: number;
   downloadAuthorizationVersion: number;
   roomUploadAssertionVersion: 1;
-  roomUploadAssertionMode: 'optional' | 'required';
+  roomUploadAssertionMode: 'required';
 }
 
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
@@ -566,10 +566,8 @@ async function getRemoteShareSecurityConfig(
     );
     const roomUploadAssertionVersion = payload.roomUploadAssertionVersion;
     const roomUploadAssertionMode = payload.roomUploadAssertionMode;
-    if (
-      roomUploadAssertionVersion !== 1 ||
-      (roomUploadAssertionMode !== 'optional' && roomUploadAssertionMode !== 'required')
-    ) {
+    // The Remote Worker has no optional mode since old-version removal train 2.
+    if (roomUploadAssertionVersion !== 1 || roomUploadAssertionMode !== 'required') {
       throw new Error('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
     }
     const value: RemoteShareSecurityConfig = {
@@ -726,11 +724,9 @@ async function requestUploadSession(
       bodySha256,
     };
     const requestAssertionHeaders = async (): Promise<Record<string, string>> => {
-      const assertion = meta.requestRoomUploadAssertion
-        ? await meta.requestRoomUploadAssertion(assertionRequest, signal)
-        : null;
-      // Every session carries the room assertion, whatever mode the Worker advertises.
-      if (!assertion) throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+      // Every session carries the room assertion: the hook rejects when the
+      // transport cannot issue one, and there is no assertion-free request.
+      const assertion = await meta.requestRoomUploadAssertion(assertionRequest, signal);
       if (
         assertion.length < 64 ||
         assertion.length > REMOTE_SHARE_UPLOAD_ASSERTION_MAX_LENGTH ||

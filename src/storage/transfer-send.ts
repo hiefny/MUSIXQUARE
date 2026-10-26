@@ -177,8 +177,9 @@ export function hasPendingCurrentFileTransfer(conn: DataConnection): boolean {
  * (connection, queueItemId, sessionId)? Preparing is a unicast still awaiting
  * its transport guard with a current source; a debounced or starting broadcast
  * has not chosen its peers yet. A completed owner is a fence, not a stream.
- * A preload lane restarted after ICE recovery may yield to it (C5-12, P4-D10 A;
- * RestartedPreloadLane in preload.ts).
+ * After ICE recovery a paused or restarted preload lane for the same tuple
+ * yields to it (C5-12, P4-D10 A; resumeSuspendedPreloadLane and unicastPreload
+ * in preload.ts).
  */
 export function isMainLanePreparingOrActive(
   conn: DataConnection,

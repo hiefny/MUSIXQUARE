@@ -606,7 +606,6 @@ const ptBr: Record<I18nKey, string> = {
     'Não há mídia para sincronizar\nPrimeiro, selecione uma mídia para reproduzir',
   'toast.host_ad': 'Parece que o anfitrião está assistindo a um anúncio',
   'toast.yt_sync_start': 'Sincronizando...',
-  'toast.yt_sync_done': 'Sincronização concluída',
   'toast.yt_rendezvous_start': 'Sincronizando com o anfitrião...',
   'toast.yt_rendezvous_done': 'Sincronização concluída',
   'toast.yt_rendezvous_host_paused':
@@ -632,10 +631,6 @@ const ptBr: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Não foi possível preparar o mecanismo de áudio',
   'error.session_create_fail': 'Não foi possível criar a sala',
   'error.network_generic': 'Ocorreu um erro de rede',
-  'error.peer_app_version_mismatch':
-    '{{name}} não pode entrar porque as versões do aplicativo são diferentes. Recarregue a página nos dois dispositivos.',
-  'error.app_version_mismatch':
-    'As versões do aplicativo não correspondem. Recarregue a página nos dois dispositivos e tente novamente.',
   'error.session_handshake_failed':
     'Não foi possível concluir a conexão com a sala. Recarregue a página nos dois dispositivos e tente novamente.',
   'error.host_unreachable': 'Parece que o anfitrião saiu da sala',
@@ -726,7 +721,6 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Reiniciar',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Ativar sala PRO',
   'pro.activation_account_title': 'Escolha uma conta para esta sala PRO',
   'pro.activation_account_message': 'Registrar esta sala na conta “{{name}}”?',
   'pro.activation_account_login_message': 'Entre com a conta em que você quer registrar esta sala.',
@@ -734,9 +728,6 @@ const ptBr: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Outra conta',
   'pro.activation_account_unavailable':
     'Não foi possível verificar sua conta. Tente novamente em instantes.',
-  'pro.activation_complete': 'Concluir registro',
-  'pro.activation_message': 'Defina uma nova senha numérica de 8 dígitos para esta sala.',
-  'pro.activation_pin_same': 'Escolha uma senha diferente da temporária.',
   'pro.claim_retry_title': 'Tentar o link PRO novamente?',
   'pro.claim_retry_message':
     'A conexão foi interrompida. O link continua armazenado com segurança nesta tela, então você pode tentar novamente.',
@@ -784,8 +775,6 @@ const ptBr: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Todos entram novamente',
   'pro.pin_members_reenter_detail':
     'Todos vão precisar entrar novamente. Recomendado para remover de uma vez as pessoas que você não conhece.',
-  'pro.pin_keep_unavailable':
-    'A senha não foi alterada. No momento, não é possível manter as pessoas na sala. Tente novamente mais tarde ou escolha “Todos entram novamente”.',
   'pro.pin_enabled_removed_title': 'A sala agora tem senha',
   'pro.pin_enabled_removed_message':
     'O proprietário da sala definiu uma senha para esta sala. Digite a senha para entrar novamente.',

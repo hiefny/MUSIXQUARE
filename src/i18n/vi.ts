@@ -583,7 +583,6 @@ const vi: Record<I18nKey, string> = {
   'toast.sync_no_media': 'Không có nội dung để đồng bộ\nHãy chọn nội dung để phát trước',
   'toast.host_ad': 'Có vẻ chủ phòng đang xem quảng cáo',
   'toast.yt_sync_start': 'Đang đồng bộ...',
-  'toast.yt_sync_done': 'Đồng bộ hoàn tất',
   'toast.yt_rendezvous_start': 'Đang căn theo chủ phòng...',
   'toast.yt_rendezvous_done': 'Đồng bộ hoàn tất',
   'toast.yt_rendezvous_host_paused': 'Chủ phòng đang tạm dừng; chỉ căn chỉnh vị trí',
@@ -607,10 +606,6 @@ const vi: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'Không thể chuẩn bị bộ xử lý âm thanh',
   'error.session_create_fail': 'Không thể tạo phòng',
   'error.network_generic': 'Đã xảy ra lỗi mạng',
-  'error.peer_app_version_mismatch':
-    '{{name}} không thể tham gia vì phiên bản ứng dụng không khớp. Hãy tải lại trang trên cả hai thiết bị.',
-  'error.app_version_mismatch':
-    'Phiên bản ứng dụng không khớp. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
   'error.session_handshake_failed':
     'Không thể hoàn tất kết nối với phòng. Hãy tải lại trang trên cả hai thiết bị rồi thử lại.',
   'error.host_unreachable': 'Có vẻ chủ phòng đã rời phòng',
@@ -698,7 +693,6 @@ const vi: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'Khởi động lại',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'Kích hoạt phòng PRO',
   'pro.activation_account_title': 'Chọn tài khoản cho phòng PRO này',
   'pro.activation_account_message': 'Đăng ký phòng này vào tài khoản “{{name}}”?',
   'pro.activation_account_login_message':
@@ -707,9 +701,6 @@ const vi: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'Tài khoản khác',
   'pro.activation_account_unavailable':
     'Không thể xác minh tài khoản của bạn. Vui lòng thử lại sau giây lát.',
-  'pro.activation_complete': 'Hoàn tất đăng ký',
-  'pro.activation_message': 'Đặt mật khẩu mới gồm 8 chữ số cho phòng này.',
-  'pro.activation_pin_same': 'Chọn mật khẩu khác với mật khẩu tạm thời.',
   'pro.claim_retry_title': 'Thử lại bằng liên kết PRO?',
   'pro.claim_retry_message':
     'Kết nối đã bị gián đoạn. Liên kết vẫn được giữ an toàn trên màn hình này nên bạn có thể thử lại.',
@@ -757,8 +748,6 @@ const vi: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'Mọi người vào lại',
   'pro.pin_members_reenter_detail':
     'Mọi người đều phải vào lại. Nên chọn cách này để mời tất cả người lạ ra khỏi phòng cùng lúc.',
-  'pro.pin_keep_unavailable':
-    'Mật khẩu chưa được đổi. Hiện không thể giữ mọi người ở lại phòng. Hãy thử lại sau hoặc chọn “Mọi người vào lại”.',
   'pro.pin_enabled_removed_title': 'Phòng đã được đặt mật khẩu',
   'pro.pin_enabled_removed_message':
     'Chủ phòng đã đặt mật khẩu cho phòng này. Nhập mật khẩu để vào lại phòng.',

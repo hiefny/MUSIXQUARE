@@ -60,12 +60,14 @@ const send = vi.fn();
 const conn = { open: true, peer: 'host-deadline', send } as unknown as DataConnection;
 const recoveryRequested = vi.fn();
 
+// The validator requires a positive size and a mime on every FILE_PREPARE.
 const prepareMsg = (sessionId: number) => ({
   type: MSG.FILE_PREPARE,
   queueItemId: Q0,
   sessionId,
   name: 'track.mp3',
   mime: 'audio/mpeg',
+  size: 4_096,
 });
 
 function enterRoute(connectionType: 'local' | 'remote', sessionId: number): void {

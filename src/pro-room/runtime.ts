@@ -2980,9 +2980,6 @@ function releaseTerminalRecovery(): void {
   terminalRecoveryDialogAbort = null;
 }
 
-/** Thrown when a Worker without the keep-present PIN choice refuses it. */
-const PRO_ROOM_PIN_KEEP_UNSUPPORTED = 'PRO_ROOM_PIN_KEEP_UNSUPPORTED';
-
 function isTerminalSessionError(error: unknown): error is ProRoomApiError {
   return (
     error instanceof ProRoomApiError &&
@@ -3862,21 +3859,9 @@ export async function changeActiveProRoomPin(
     // that read (and any transport rebuild it requires) has completed.
     const completed = await completeProRoomPinRotation({
       changePin: async () => {
-        try {
-          await api.changePin(code, pin, signal, existingParticipants);
-        } catch (error) {
-          // An older Worker refuses the unknown field. Never retry as
-          // "everyone rejoins": the owner chose to keep people in the room.
-          if (
-            existingParticipants === 'keep_present' &&
-            error instanceof ProRoomApiError &&
-            error.code === 'INVALID_REQUEST' &&
-            error.status === 400
-          ) {
-            throw new Error(PRO_ROOM_PIN_KEEP_UNSUPPORTED, { cause: error });
-          }
-          throw error;
-        }
+        // A refused choice is never retried as "everyone rejoins": the owner
+        // chose to keep people in the room.
+        await api.changePin(code, pin, signal, existingParticipants);
         pinMutationCompleted = true;
       },
       isSessionCurrent: () => controller.isSessionLeaseCurrent(lease, code),

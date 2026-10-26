@@ -204,7 +204,6 @@ function fixtures() {
     heartbeat: vi.fn<ProRoomSessionApi['heartbeat']>(async () => proHeartbeat(initial)),
     leavePresence: vi.fn(async () => initial),
     createSignalingTicket: vi.fn(async () => signaling()),
-    closeSession: vi.fn(async () => undefined),
     closeSessionFenced: vi.fn<ProRoomSessionApi['closeSessionFenced']>(async () => undefined),
   } satisfies ProRoomSessionApi;
   const transport = {
@@ -637,7 +636,6 @@ describe('PRO room session controller', () => {
     await expect(controller.resume(ROOM_CODE)).rejects.toThrow('SESSION_REQUIRED');
 
     expect(api.leavePresence).not.toHaveBeenCalled();
-    expect(api.closeSession).not.toHaveBeenCalled();
     expect(observer.cleared).not.toHaveBeenCalled();
   });
 
@@ -1192,7 +1190,6 @@ describe('PRO room session controller', () => {
 
     expect(controller.snapshot?.roomCode).toBe(ROOM_CODE);
     expect(api.leavePresence).not.toHaveBeenCalled();
-    expect(api.closeSession).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).toHaveBeenCalledWith(
       {
         code: ROOM_CODE,
@@ -1240,7 +1237,6 @@ describe('PRO room session controller', () => {
 
     expect(controller.snapshot?.roomCode).toBe(ROOM_CODE);
     expect(api.leavePresence).not.toHaveBeenCalled();
-    expect(api.closeSession).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).toHaveBeenCalledWith(
       expect.objectContaining({ code: ROOM_CODE }),
       undefined,
@@ -1265,7 +1261,6 @@ describe('PRO room session controller', () => {
     await expect(leaving).resolves.toBeUndefined();
 
     expect(api.leavePresence).not.toHaveBeenCalled();
-    expect(api.closeSession).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).toHaveBeenCalledWith(
       expect.objectContaining({ code: ROOM_CODE }),
       undefined,
@@ -1281,7 +1276,6 @@ describe('PRO room session controller', () => {
     await controller.terminate();
 
     expect(api.leavePresence).not.toHaveBeenCalled();
-    expect(api.closeSession).not.toHaveBeenCalled();
     expect(transport.disconnect).toHaveBeenCalledOnce();
     expect(observer.cleared).toHaveBeenCalledOnce();
     expect(controller.snapshot).toBeNull();
@@ -1294,7 +1288,6 @@ describe('PRO room session controller', () => {
     await controller.closeForUnload();
 
     expect(api.leavePresence).not.toHaveBeenCalled();
-    expect(api.closeSession).not.toHaveBeenCalled();
     expect(transport.disconnect).toHaveBeenCalledOnce();
     expect(observer.cleared).toHaveBeenCalledOnce();
     expect(controller.snapshot).toBeNull();
@@ -1328,7 +1321,6 @@ describe('PRO room session controller', () => {
     await expect(joining).rejects.toThrow('ABORTED');
     expect(authenticationAborted).toBe(true);
     expect(api.leavePresence).not.toHaveBeenCalled();
-    expect(api.closeSession).not.toHaveBeenCalled();
     expect(api.closeSessionFenced).not.toHaveBeenCalled();
     expect(transport.connect).not.toHaveBeenCalled();
     expect(controller.snapshot).toBeNull();

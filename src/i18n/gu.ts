@@ -619,7 +619,6 @@ const gu: Record<I18nKey, string> = {
   'toast.sync_no_media': 'સિંક કરવા કોઈ મીડિયા નથી\nપહેલા ચલાવવા માટે કંઈક પસંદ કરો',
   'toast.host_ad': 'લાગે છે કે હોસ્ટ જાહેરાત જોઈ રહ્યા છે',
   'toast.yt_sync_start': 'સિંક થઈ રહ્યું છે...',
-  'toast.yt_sync_done': 'સિંક પૂર્ણ',
   'toast.yt_rendezvous_start': 'હોસ્ટ સાથે ગોઠવી રહ્યા છીએ...',
   'toast.yt_rendezvous_done': 'સિંક પૂર્ણ',
   'toast.yt_rendezvous_host_paused': 'હોસ્ટે થોભાવ્યું છે; ફક્ત પ્લેબૅકનું સ્થાન ગોઠવ્યું',
@@ -679,10 +678,6 @@ const gu: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'ઑડિયો એન્જિન તૈયાર થઈ શક્યું નથી',
   'error.session_create_fail': 'સત્ર બનાવી શકાયું નથી',
   'error.network_generic': 'નેટવર્ક ભૂલ થઈ',
-  'error.peer_app_version_mismatch':
-    'ઍપની આવૃત્તિઓ મેળ ખાતી ન હોવાથી {{name}} જોડાઈ શકશે નહીં. બંને ડિવાઇસ રિફ્રેશ કરો.',
-  'error.app_version_mismatch':
-    'ઍપની આવૃત્તિઓ મેળ ખાતી નથી. બંને ડિવાઇસ રિફ્રેશ કરી ફરી પ્રયાસ કરો.',
   'error.session_handshake_failed':
     'સત્રનું જોડાણ પૂર્ણ થઈ શક્યું નથી. બંને ડિવાઇસ રિફ્રેશ કરી ફરી પ્રયાસ કરો.',
   'error.host_unreachable': 'લાગે છે કે હોસ્ટે સત્ર છોડી દીધું છે',
@@ -764,7 +759,6 @@ const gu: Record<I18nKey, string> = {
   'dialog.session_lost_btn': 'ફરી શરૂ કરો',
 
   // ─── PRO Rooms ───────────────────────────────────────────────────
-  'pro.activation_title': 'PRO રૂમ સક્રિય કરો',
   // English fallback for the new PRO account confirmation copy.
   'pro.activation_account_title': 'આ PRO રૂમ માટે ખાતું પસંદ કરો',
   'pro.activation_account_message': 'આ રૂમ “{{name}}” ખાતામાં નોંધાવવો છે?',
@@ -773,9 +767,6 @@ const gu: Record<I18nKey, string> = {
   'pro.activation_account_switch': 'બીજું ખાતું',
   'pro.activation_account_unavailable':
     'તમારું ખાતું ચકાસી શકાયું નથી. થોડી વારમાં ફરી પ્રયાસ કરો.',
-  'pro.activation_complete': 'નોંધણી પૂર્ણ કરો',
-  'pro.activation_message': 'આ રૂમ માટે નવો 8-અંકનો પાસવર્ડ નક્કી કરો.',
-  'pro.activation_pin_same': 'કામચલાઉ પાસવર્ડથી જુદો પાસવર્ડ પસંદ કરો.',
   'pro.claim_retry_title': 'PRO લિંક ફરી અજમાવવી છે?',
   'pro.claim_retry_message':
     'જોડાણમાં વિક્ષેપ આવ્યો. લિંક આ સ્ક્રીન પર સુરક્ષિત રાખી છે, તેથી ફરી પ્રયાસ કરી શકો છો.',
@@ -823,8 +814,6 @@ const gu: Record<I18nKey, string> = {
   'pro.pin_members_reenter': 'બધા ફરી જોડાશે',
   'pro.pin_members_reenter_detail':
     'બધાએ ફરી જોડાવું પડશે. અજાણ્યા લોકોને એકસાથે દૂર કરવા માટે આ રીતની ભલામણ કરીએ છીએ.',
-  'pro.pin_keep_unavailable':
-    'પાસવર્ડ બદલાયો નથી. અત્યારે લોકોને રૂમમાં રાખીને પાસવર્ડ બદલી શકાતો નથી. થોડી વાર પછી ફરી પ્રયાસ કરો અથવા “બધા ફરી જોડાશે” પસંદ કરો.',
   'pro.pin_enabled_removed_title': 'રૂમમાં પાસવર્ડ સેટ થયો',
   'pro.pin_enabled_removed_message':
     'રૂમના માલિકે આ રૂમ માટે પાસવર્ડ સેટ કર્યો છે. ફરી જોડાવા માટે તે દાખલ કરો.',

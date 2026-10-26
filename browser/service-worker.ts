@@ -113,7 +113,6 @@ const APP_SHELL = [
   './icons/icon-512.png',
   './favicon.ico',
   './favicon.svg',
-  './manifest.webmanifest',
   './manifests/en.webmanifest',
   './manifests/ko.webmanifest',
   './manifests/ja.webmanifest',
@@ -479,38 +478,6 @@ async function scrubOrphanedCachedNavigationStates(protectedClientId: string): P
   );
 }
 
-async function scrubSensitiveRetiredRuntimeEntries(): Promise<void> {
-  const keys = await caches.keys();
-  const currentEpoch = cacheVersionEpoch(CACHE_VERSION);
-  await Promise.all(
-    keys
-      .filter((key) => {
-        if (
-          !key.startsWith('musixquare-runtime-') || // brand-capitalization: allow-technical
-          key === RUNTIME_CACHE
-        ) {
-          return false;
-        }
-        const identity = ownedCacheIdentity(key);
-        return !identity || (currentEpoch !== null && identity.epoch < currentEpoch);
-      })
-      .map(async (key) => {
-        try {
-          const cache = await caches.open(key);
-          const requests = await cache.keys();
-          await Promise.all(
-            requests
-              .filter((request) => hasSensitiveNavigationQuery(request))
-              .map((request) => cache.delete(request)),
-          );
-        } catch (_) {
-          // Preserve the old cache for live tabs if it cannot be inspected;
-          // the ordinary ready handshake will retire it later.
-        }
-      }),
-  );
-}
-
 async function retireOldCachesIfSafe(): Promise<boolean> {
   const clients = await getWindowClients();
   const liveClientIds = new Set<string>();
@@ -560,10 +527,6 @@ serviceWorker.addEventListener('activate', (event) => {
       // Claim first so each existing tab can compare the active controller
       // with the controller under which its current JS was loaded.
       await serviceWorker.clients.claim();
-      // Old room tabs may deliberately retain their hashed-asset cache, but
-      // one-time auth callback URLs from a previous runtime cache have no
-      // legitimate offline use and must not survive the security update.
-      await scrubSensitiveRetiredRuntimeEntries();
       const clients = await getWindowClients();
       if (clients.length === 0) {
         await deleteRetiredCaches();

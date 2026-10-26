@@ -2587,6 +2587,37 @@ describe('forced update on the real navigation owner (train 9.0.14)', () => {
     expect(tab.skipWaiting).toEqual([]);
   });
 
+  it('F2d a host reloaded in place by a forced Apply without a worker: a generation other than its own taking control within the 30 s cooldown gets the aligned reload, not the activated-elsewhere dialog [added: old-version removal train 2, OV-B09, passes before and after]', async () => {
+    tab = createTab(PAGE_BUILD);
+    const page = await tab.open({ app: ROOM_HOST, build: PAGE_BUILD });
+    const port = await livePort();
+    expect(port.requestForcedAppUpdate(forcedRequest({ admitted: true }))).toBe(true);
+    await at(1_000);
+    dialog(0).answer('ok');
+    await at(1_000 + PAINT_MS);
+    // A Standard host reloads in place, with its request recorded unconfirmed.
+    expect(tab.navigations()).toEqual(['doc1 reload']);
+    expect(readMarkers()).toEqual({ ...NO_MARKERS, 'sw-updated-at': 't+1000' });
+
+    // The host takes its room again in the new document, which runs v786
+    // (so it would absorb v786). Another tab applies a newer release first.
+    page.pagehide();
+    await tab.open({ app: ROOM_HOST, navigation: 'reload', build: 'v786' });
+    await at(3_000);
+    tab.replaceController('v787');
+    await at(3_000 + PAINT_MS);
+
+    // Without the unfinished-update-reload branch of
+    // handlePassiveControllerChange, this host would be asked again with the
+    // room host's update dialog.
+    expect(observe(tab)).toEqual({
+      skipWaiting: [],
+      navigations: ['doc1 reload', 'doc2 reload'],
+      dialogs: [`doc1 ${MSG_HOST}`],
+      markers: { ...NO_MARKERS, 'sw-updated-at': 't+3000', 'sw-controller-confirmed-at': 't+3000' },
+    });
+  });
+
   it('F4 the ordinary prompt is open: the forced request withdraws it and offers the same worker without Later', async () => {
     tab = createTab(PAGE_BUILD);
     await tab.open({ app: OUTSIDE, build: PAGE_BUILD });

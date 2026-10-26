@@ -592,7 +592,6 @@ const ja: Record<I18nKey, string> = {
   'toast.sync_no_media': '同期するメディアがありません\n先に再生するメディアを選択してください',
   'toast.host_ad': 'ホストが広告を見ているようです',
   'toast.yt_sync_start': '同期中...',
-  'toast.yt_sync_done': '同期完了',
   'toast.yt_rendezvous_start': 'ホストに合わせています...',
   'toast.yt_rendezvous_done': '同期完了',
   'toast.yt_rendezvous_host_paused': 'ホストが一時停止中のため、位置だけ合わせました',
@@ -617,10 +616,6 @@ const ja: Record<I18nKey, string> = {
   'error.audio_engine_prepare': 'オーディオエンジンを準備できませんでした',
   'error.session_create_fail': 'ルームを作成できませんでした',
   'error.network_generic': 'ネットワークエラーが発生しました',
-  'error.peer_app_version_mismatch':
-    '{{name}}はアプリのバージョンが異なるため参加できません。両方のデバイスでページを再読み込みしてください。',
-  'error.app_version_mismatch':
-    'アプリのバージョンが一致しません。両方のデバイスでページを再読み込みして、もう一度お試しください。',
   'error.session_handshake_failed':
     'セッションへの接続を完了できませんでした。両方のデバイスでページを再読み込みして、もう一度お試しください。',
   'error.host_unreachable': 'ホストがルームを退出したようです',
@@ -712,7 +707,6 @@ const ja: Record<I18nKey, string> = {
   'dialog.session_lost_btn': '再読み込み',
 
   // ─── PRO Rooms ──────────────────────────────────────────────
-  'pro.activation_title': 'PROルームを有効化',
   'pro.activation_account_title': 'このPROルームを登録するアカウント',
   'pro.activation_account_message': 'アカウント「{{name}}」にこのルームを登録しますか？',
   'pro.activation_account_login_message': 'このルームを登録するアカウントでログインしてください。',
@@ -720,9 +714,6 @@ const ja: Record<I18nKey, string> = {
   'pro.activation_account_switch': '別のアカウント',
   'pro.activation_account_unavailable':
     'アカウント情報を確認できませんでした。しばらくしてからもう一度お試しください。',
-  'pro.activation_complete': '登録完了',
-  'pro.activation_message': 'このルームで使う新しい8桁のパスワードを設定してください。',
-  'pro.activation_pin_same': '仮パスワードとは異なるパスワードを設定してください。',
   'pro.claim_retry_title': 'PROリンクでもう一度試しますか？',
   'pro.claim_retry_message':
     '接続が中断されました。リンクはこの画面内だけで安全に保持されているため、再試行できます。',
@@ -770,8 +761,6 @@ const ja: Record<I18nKey, string> = {
   'pro.pin_members_reenter': '全員再入室',
   'pro.pin_members_reenter_detail':
     '全員が入り直す必要があります。知らない人をまとめて退出させたいときにおすすめです。',
-  'pro.pin_keep_unavailable':
-    'パスワードは変更されていません。今は参加者を残したまま変更できません。しばらくしてからもう一度お試しいただくか、「全員再入室」を選んでください。',
   'pro.pin_enabled_removed_title': 'ルームのパスワードが設定されました',
   'pro.pin_enabled_removed_message':
     'ルームのオーナーがこのルームにパスワードを設定しました。パスワードを入力すると再入室できます。',

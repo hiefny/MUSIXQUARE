@@ -72,8 +72,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
       자산), 가드 묶음(room-authority 직접 읽기 81·구독 22·쓰기 13, resource-ownership 48 records / 442 files, dead-exports 20/76,
       bus-pairing 202/202), critical E2E 61/61, 핵심 커버리지 87 files / 3,403, 후보 Playwright 19/19, PRO Playwright 26/26, C5-0
       랩 `--repeat-each=2` 20/20(보조 경로 행 2/2, 회복 뒤 보조 채널 첫 수신 0.5~2.5초), 초기 JS 465,767 B(운영 main `a3893f04` 466,874 B 대비
-      −1,107 B, 유지 상한까지 25,801 B). 운영 `a3893f04`와 견준 런타임 경로 변경은 App 79개, 다른 다섯 Worker 0개라 target `app`이다. 남은 것: 릴리스 W 기록
-      PR(문서만)이 main에 들어오면 다시 합침(bump는 그대로), 배포 직전 `status`로 바닥 787 이상 확인(요약 줄을 보고서에), 열차 끝 세 렌즈 리뷰, PR CI, Codex,
+      −1,107 B, 유지 상한까지 25,801 B). 운영 `a3893f04`와 견준 런타임 경로 변경은 App 79개, 다른 다섯 Worker 0개라 target `app`이다. 릴리스 W 기록 #501(`cb159851`, 문서만)은 bump 뒤 합침 `f5663ffe`에서 받았다. 남은 것: 배포 직전 `status`로 바닥 787 이상 확인(요약 줄을 보고서에), 열차 끝 세 렌즈 리뷰, PR CI, Codex,
       exact-main CI, Release(target `app`, Developer API D1 false, `raise_app_build_floor` false), 기록 PR. 기록 PR은 §1을 덮어쓰며
       '의존성·호환'에서 4B C5-12의 혼합 버전 남은 위험 문장(9.0.4~9.0.8 게스트, 이제 바닥 아래)을 빼고 `release-history.md`에 한 행을 더한다. 열차 3(보내는 쪽)의 바닥은
       max(릴리스 A 빌드 788, 5B 빌드)다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.

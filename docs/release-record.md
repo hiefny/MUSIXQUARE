@@ -46,7 +46,7 @@ gh run list --workflow e2e.yml --branch main --limit 3
 해결하면 근거(커밋, 실행 ID, 문서)를 PR 설명에 적고 이 목록에서 지운다. 근거
 없이 완료로 표시하지 않는다.
 
-### 구조 개선 Phase 5 5B(배포 전, 번호는 bump 때): 시스템 오디오 수신 슬롯의 틈 고치기와 시스템 오디오 옛 버전 항목
+### 구조 개선 Phase 5 5B(9.0.16/v789, 배포 전): 시스템 오디오 수신 슬롯의 틈 고치기와 시스템 오디오 옛 버전 항목
 
 - [ ] 5B 범위와 상태(오너 결정 2026-10-25 약 04:00 KST의 P5-D5 A와 P5-D11 B, 답이 없는 P5-D10은 기본값 A, P5-D12와
       P5-D13은 기본값 A. 옛 버전 정책 약 16:40 KST, 열차 2와 병렬 2026-10-26 약 14:10 KST): 앱 업데이트 두 번(P5-D3 A)
@@ -73,12 +73,21 @@ gh run list --workflow e2e.yml --branch main --limit 3
       61/61, `e2e/system-audio-controls.test.ts` 5/5(G1과 G3 커밋에서도 5/5), 초기 JS 465,651 B(main `5dd7cc1f` 465,767 B
       대비 -116 B) PASS. 첫 합침 `2fc81c70`에서도 같은 묶음이 PASS였다(보고서 QA 라운드 5). `guard:sw-cache-version`은
       합침 커밋을 bump로 읽어 PASS로 나오지만 bump는 여전히 필요하다(보고서 QA 라운드 5의 관찰). 릴리스 A의 배포
-      (2026-10-27 06:20 KST)와 기록 PR #504 뒤 main을 다시 합쳤다(QA 라운드 7). 남은 것: bump(9.0.15 다음 patch와 SW
-      캐시 epoch, 예상 9.0.16 / v789), PR CI, Codex,
-      exact-main CI, 릴리스 smoke, 배포(예상 target `app`, Developer API D1 `false`). 로컬 결과는 exact-main-SHA 후보를
-      대신하지 않는다. [5B 보고서](design/phase5-5b-receive-slot-behaviour-2026-10-26.md),
+      (2026-10-27 06:20 KST)와 기록 PR #504 뒤 main을 다시 합쳤다(QA 라운드 7). 마지막 런타임 커밋은 bump `198b8cf8`
+      (9.0.16 / v789, 앱 빌드 789, 올리기 직전 fetch한 origin/main `1ff7fdf2`는 9.0.15 / v788)이고 그 뒤는 문서뿐이다.
+      bump 뒤 최종 검사(`198b8cf8`, QA 라운드 8): `guard:release-identity` 9.0.16·v789, `guard:sw-cache-version` PASS(실제
+      bump를 읽음), typecheck(전체)·`typecheck:tests`·`check:workers`·lint·format, 단위 680 files / 16,108, Worker 67 files /
+      3,182, `build:checked` 전체(SW 앱 셸 96 자산), 가드(room-authority 직접 읽기 80·구독 22·쓰기 13, resource-ownership
+      47 records / 442 files와 슬롯 쓰기 3·3·3·1, dead-exports 20/76, bus-pairing 202/202, import-graph, lifecycle-writes,
+      navigation-sinks), critical E2E 61/61, 핵심 커버리지 87 files / 3,444, 후보 Playwright 19/19, `e2e/system-audio-controls.test.ts`
+      5/5, 초기 JS 465,652 B(운영 main `5dd7cc1f` 465,767 B 대비 −115 B, 유지 상한까지 25,916 B) PASS. 운영 `5dd7cc1f`와
+      견준 런타임 경로 변경은 App 17개, 다른 다섯 Worker 0개라 target `app`이다. 남은 것: PR CI, Codex, exact-main CI, 릴리스
+      smoke, 배포(target `app`, Developer API D1 `false`, `raise_app_build_floor` `false`, 업데이트 창이 뜸). 로컬 결과는
+      exact-main-SHA 후보를 대신하지 않는다. 되돌리기 경계(9.0.15 / v788로의 App 되돌리기는 바닥 787 위라 `lower` 없이 됨)는
+      [보고서의 배포·회복](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#배포회복)에 있고 배포 뒤 §4로 옮긴다. [5B 보고서](design/phase5-5b-receive-slot-behaviour-2026-10-26.md),
       [QA 라운드 6](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#6-릴리스-a-합침-뒤-다시-돌리기-0d59df41-2026-10-27),
-      [QA 라운드 7](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#7-릴리스-a-기록-합침-08509f84-2026-10-27).
+      [QA 라운드 7](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#7-릴리스-a-기록-합침-08509f84-2026-10-27),
+      [QA 라운드 8](design/phase5-5b-receive-slot-behaviour-2026-10-26.md#8-bump-뒤-최종-검사-198b8cf8-9016--v789-2026-10-27).
 - [ ] 5B 호환(AGENTS.md: 호환이 바뀜): 시스템 오디오 계약 표지 `single-stereo-v3+heartbeat-state-v1`, D1, 비밀,
       바인딩은 그대로다. 보내는 프레임 변화는 OV-B06 하나다. 이 빌드의 방장은 직접 경로가 실패한 원격 피어에 READY
       `{ audience: 'remote', handoffFromDirect: true }`를 보낸다(전에는 `'all'`). 9.0.12~9.0.15 게스트가 'direct'와

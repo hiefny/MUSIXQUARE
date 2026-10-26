@@ -175,11 +175,7 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
     const roomUploadAssertionKeyringVersion =
       config.roomUploadAssertionKeyringVersion === 1 ? 1 : 0;
     const roomUploadAssertionMode =
-      config.roomUploadAssertionMode === 'required'
-        ? 'required'
-        : config.roomUploadAssertionMode === 'optional'
-          ? 'optional'
-          : null;
+      config.roomUploadAssertionMode === 'required' ? 'required' : null;
     const roomUploadAssertionRequired = config.roomUploadAssertionRequired === true;
     const actualWorkerVersion =
       typeof config.workerVersionId === 'string' ? config.workerVersionId.trim() : '';

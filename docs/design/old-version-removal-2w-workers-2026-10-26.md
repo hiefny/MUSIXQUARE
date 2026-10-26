@@ -1,15 +1,15 @@
 # 구버전 호환 코드 제거 열차 2 릴리스 W: Worker 쪽 옛 앱 요청 모양 (2026-10-26)
 
-| 항목      | 범위                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 기준      | 브랜치 `agent/old-version-removal-2w`는 origin/main `dd9c9d4d`(운영 9.0.14 / v787의 배포 SHA, PR #498, [Release 40283632968](https://github.com/hiefny/MUSIXQUARE/actions/runs/40283632968), target `all`)에서 시작했다. 그 릴리스로 여섯 Worker 모두 이 SHA의 버전이 운영에 있으므로 Worker마다 배포된 기준은 `dd9c9d4d` 하나다. 그 뒤 origin/main은 `9e02d2df`(9.0.14와 첫 최소 앱 빌드의 기록 #499, 문서만)로 움직였고 이 갈래는 아직 합치지 않았다(아래 남은 것).                                                |
-| 열차 묶음 | Worker 증분 넷(W-1~W-4). 증분마다 테스트 먼저 커밋 뒤 코드 커밋이다. 리뷰 반영: W-2의 `074c0f70`(테스트 고정값), `4e86ab7d`(문서와 주석 한 줄), `f9c4f804`(테스트 고정값 둘), W-3의 `4b0a8e14`(테스트 고정값), `9754402a` → `7a683476`(floor 도구 문장과 주석). 마지막 런타임 커밋은 W-4 코드 `110ac9dd`이고, 그 뒤는 이 보고서와 기록 커밋(문서만)이다.                                                                                                                                                             |
-| 상태      | 배포 전. 열차 끝 레인 검사(`110ac9dd`, 2026-10-27 00:38~01:04 KST)와 테스트 먼저 다시 확인(2026-10-27)이 통과했다. 남은 것: 열차 끝 세 렌즈 리뷰, origin/main 합침과 다시 검사, PR CI, Codex, exact-main CI, 배포 직전 floor `status`, Release, 배포 직후 같은 값 floor `set`(W-verify), 기록 PR. 오너 결정(2026-10-25 약 01:50 KST)대로 자동 게이트가 통과하면 따로 묻지 않고 배포한다.                                                                                                                             |
-| 범위      | 구버전 제거 열차 2 계획(작업 노트, 2026-10-26)의 릴리스 W. OV-W04(Remote Share), OV-W01과 OV-F07의 PRO 쪽, PRO presence/close 세 필드 선택 받기, OV-W03(Signaling)과 release smoke·floor 도구의 옛 Signaling Worker 재시도 갈래, OV-W02(SK-11 빼고 SK-12·13·15·16), OV-F07의 App facade 쪽, W-1이 남긴 App Worker 지표 이름표. App 쪽 항목(릴리스 A)과 Phase 5 5B의 시스템 오디오 파일은 건드리지 않았다.                                                                                                            |
-| 제품 식별 | 바꾸지 않는다. `guard:release-identity` 9.0.14 / v787, `guard:sw-cache-version` PASS(`v787`(`dd9c9d4d`)이 커밋된 PWA 런타임 변경을 모두 덮음). Worker만 바뀐 변경은 SemVer와 SW 캐시 epoch를 올리지 않아도 된다([버전 규칙](../release-versioning.md), [hotfix 절차](../hotfix-procedure.md)의 SW 캐시 문단). 업데이트 창이 뜨지 않는 배포다. 배포 때 main이 다른 열차의 bump를 먼저 실었으면 그 식별 그대로 나간다.                                                                                                 |
-| 배포 대상 | target `all`, Developer API D1 `false`, `raise_app_build_floor` `false`. 운영 `dd9c9d4d`와 견준 `TARGET_RUNTIME_PATHS`의 바뀐 경로는 remote-share 1, signaling 3, PRO room 2, App 3, Developer API facade 0, Developer API 0이다. App의 셋은 `cloudflare/app-worker.ts`와 App 경로에도 든 `cloudflare/signaling-protocol.ts`, `cloudflare/standard-room-pin-membership.ts`라서 부분 릴리스는 compatibility gate에서 거절된다. 계약 표지 파일, D1 스키마, 비밀, 바인딩, Wrangler 설정, App 정적 자산은 바뀌지 않는다. |
-| 환경      | Windows 11 로컬, Node 24.20.0 / npm 12.0.2. 단위는 jsdom과 Node, Worker 프로필(`vitest.workers.config.ts`: 실제 Worker 모듈과 Durable Object 저장소 대역, PRO room은 `node:sqlite`). W-3은 로컬 `wrangler dev`(C5-0 랩 래퍼와 로컬 PIN pepper)로 smoke의 프레임과 도우미를 돌렸다. 브라우저는 헤드리스 Chromium Playwright다.                                                                                                                                                                                        |
-| 운영      | 배포 전이라 운영 Worker는 9.0.14 그대로다. 이 열차가 운영에 한 것은 W-2 구현 전에 고정 smoke 방 `000001`의 공개 bootstrap을 opt-in 머리글과 함께 한 번 읽은 것뿐이다(읽기만, `pin_required`와 `passwordRequired: true`).                                                                                                                                                                                                                                                                                             |
+| 항목      | 범위                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 기준      | 브랜치 `agent/old-version-removal-2w`는 origin/main `dd9c9d4d`(운영 9.0.14 / v787의 배포 SHA, PR #498, [Release 40283632968](https://github.com/hiefny/MUSIXQUARE/actions/runs/40283632968), target `all`)에서 시작했다. 그 릴리스로 여섯 Worker 모두 이 SHA의 버전이 운영에 있으므로 Worker마다 배포된 기준은 `dd9c9d4d` 하나다. 그 뒤 origin/main은 `9e02d2df`(9.0.14와 첫 최소 앱 빌드의 기록 #499, 문서만)로 움직였고 이 갈래는 아직 합치지 않았다(아래 남은 것).                                                                                         |
+| 열차 묶음 | Worker 증분 넷(W-1~W-4). 증분마다 테스트 먼저 커밋 뒤 코드 커밋이다. 리뷰 반영: W-2의 `074c0f70`(테스트 고정값), `4e86ab7d`(문서와 주석 한 줄), `f9c4f804`(테스트 고정값 둘), W-3의 `4b0a8e14`(테스트 고정값), `9754402a` → `7a683476`(floor 도구 문장과 주석). 열차 끝 리뷰 반영: 테스트 `d5385500` → PRO 코드 `a0b858fc`(PIN이 든 만료 대기 이전 레코드를 남기고 PIN만 버림), `b3f9c69d`(9.0.14 App Worker와의 혼합 버전 saga 행, 고정값 주석, RO-09). 마지막 런타임 커밋은 `a0b858fc`이고, 그 뒤는 테스트·registry 커밋과 이 보고서·기록 커밋(문서만)이다. |
+| 상태      | 배포 전. 열차 끝 레인 검사(`110ac9dd`, 2026-10-27 00:38~01:04 KST)와 테스트 먼저 다시 확인(2026-10-27)이 통과했고, 열차 끝 리뷰(`4f6be4c8`)의 safety·quality-docs 지적을 반영해 다시 검사했다(QA 라운드 4). 남은 것: origin/main 합침과 다시 검사, PR CI, Codex, exact-main CI, 배포 직전 floor `status`, Release, 배포 직후 같은 값 floor `set`(W-verify), 기록 PR. 오너 결정(2026-10-25 약 01:50 KST)대로 자동 게이트가 통과하면 따로 묻지 않고 배포한다.                                                                                                   |
+| 범위      | 구버전 제거 열차 2 계획(작업 노트, 2026-10-26)의 릴리스 W. OV-W04(Remote Share), OV-W01과 OV-F07의 PRO 쪽, PRO presence/close 세 필드 선택 받기, OV-W03(Signaling)과 release smoke·floor 도구의 옛 Signaling Worker 재시도 갈래, OV-W02(SK-11 빼고 SK-12·13·15·16), OV-F07의 App facade 쪽, W-1이 남긴 App Worker 지표 이름표. App 쪽 항목(릴리스 A)과 Phase 5 5B의 시스템 오디오 파일은 건드리지 않았다.                                                                                                                                                     |
+| 제품 식별 | 바꾸지 않는다. `guard:release-identity` 9.0.14 / v787, `guard:sw-cache-version` PASS(`v787`(`dd9c9d4d`)이 커밋된 PWA 런타임 변경을 모두 덮음). Worker만 바뀐 변경은 SemVer와 SW 캐시 epoch를 올리지 않아도 된다([버전 규칙](../release-versioning.md), [hotfix 절차](../hotfix-procedure.md)의 SW 캐시 문단). 업데이트 창이 뜨지 않는 배포다. 배포 때 main이 다른 열차의 bump를 먼저 실었으면 그 식별 그대로 나간다.                                                                                                                                          |
+| 배포 대상 | target `all`, Developer API D1 `false`, `raise_app_build_floor` `false`. 운영 `dd9c9d4d`와 견준 `TARGET_RUNTIME_PATHS`의 바뀐 경로는 remote-share 1, signaling 3, PRO room 2, App 3, Developer API facade 0, Developer API 0이다. App의 셋은 `cloudflare/app-worker.ts`와 App 경로에도 든 `cloudflare/signaling-protocol.ts`, `cloudflare/standard-room-pin-membership.ts`라서 부분 릴리스는 compatibility gate에서 거절된다. 계약 표지 파일, D1 스키마, 비밀, 바인딩, Wrangler 설정, App 정적 자산은 바뀌지 않는다.                                          |
+| 환경      | Windows 11 로컬, Node 24.20.0 / npm 12.0.2. 단위는 jsdom과 Node, Worker 프로필(`vitest.workers.config.ts`: 실제 Worker 모듈과 Durable Object 저장소 대역, PRO room은 `node:sqlite`). W-3은 로컬 `wrangler dev`(C5-0 랩 래퍼와 로컬 PIN pepper)로 smoke의 프레임과 도우미를 돌렸다. 브라우저는 헤드리스 Chromium Playwright다.                                                                                                                                                                                                                                 |
+| 운영      | 배포 전이라 운영 Worker는 9.0.14 그대로다. 이 열차가 운영에 한 것은 W-2 구현 전에 고정 smoke 방 `000001`의 공개 bootstrap을 opt-in 머리글과 함께 한 번 읽은 것뿐이다(읽기만, `pin_required`와 `passwordRequired: true`).                                                                                                                                                                                                                                                                                                                                      |
 
 이 문서는 옛 앱 버전을 위한 호환 코드를 지우는 두 번째 열차 가운데 Worker만 바꾸는 릴리스 W의 증분과 QA를 기록한다.
 근거는 공개하지 않는 작업 노트(`docs/private/`)의 옛 버전 호환 조사(2026-10-25)와 열차 2 계획(2026-10-26)이고, 이
@@ -79,7 +79,9 @@ Share `required`), 거절 자체가 그 옛 앱의 강제 업데이트다. OV-F0
 ### W-2 PRO Worker가 바닥 아래 앱의 요청 모양을 그만 받고 presence/close 세 필드를 선택으로 받음 (OV-W01, OV-F07 PRO 쪽)
 
 테스트 `6b03ed43`(고정값 정정 `074c0f70`), 코드 `6812c8b1`, 리뷰 반영 `4e86ab7d`(문서·주석), `f9c4f804`(테스트 고정값).
-검증한 SHA `6812c8b1`. 리뷰 반영 셋은 테스트 고정값과 문서·주석이고, W-3 이후 라운드의 전체 실행에 함께 들어 있다.
+검증한 SHA `6812c8b1`. 리뷰 반영 셋은 테스트 고정값과 문서·주석이고, W-3 이후 라운드의 전체 실행에 함께 들어 있다. 열차 끝
+리뷰 반영: 테스트 `d5385500`, 코드 `a0b858fc`(대기 이전 레코드의 PIN, 아래), `b3f9c69d`(혼합 버전 saga 행, 고정값 주석,
+RO-09). 검증한 SHA는 QA 라운드 4.
 
 - **opt-in 머리글을 읽지 않음:** bootstrap은 `open` 또는 `pin_required`와 함께 방의 `passwordRequired`를 늘 싣는다. 모든
   스냅샷 답(활성화, 세션, 이전 commit)이 `passwordRequired`와 `playlistSlots`를 싣고, `POST /pin`은 머리글과 관계없이
@@ -101,16 +103,26 @@ Share `required`), 거절 자체가 그 옛 앱의 강제 업데이트다. OV-F0
 - **저장 상태 이주를 지움(기록이 끝난 날짜와 함께):** 공유 원장의 presence-close·세션 생성 영수증(8.9.0 전 PRO Worker만 썼고
   8.9.0은 2026-10-11 10:33 KST 배포. TTL 24시간과 10분이라 2026-10-12까지 모두 만료), 공유 맵의 Developer 영수증과 BOT 계수
   (2026-07-27부터 전용 원장. TTL 24시간, 창은 길어야 하루), `kind` 없는 재생 영수증의 짧은 TTL(2026-08-02부터 `kind` 표지.
-  TTL 24시간), 대기 이전의 PIN 레코드(9.0.4 전에만 썼고 9.0.4는 2026-10-24 01:56 KST 배포. 대기 레코드는 claim보다 오래 살지
-  않아 길어야 15분, `PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS`). 만료된 공유 원장 기록은 보통의 prune이 풀고, PIN이 남은
-  대기 레코드는 다른 잘못된 레코드처럼 null로 정규화된다(던지지 않음). 재생 영수증의 `kind` 표지는 이 Worker가 읽지 않지만
-  남긴다. 되돌린 이전 PRO Worker가 10분 영수증을 곧바로 만료시키지 않게 하려는 것이다(`4e86ab7d` 주석).
+  TTL 24시간). 만료된 공유 원장 기록은 보통의 prune이 푼다. 재생 영수증의 `kind` 표지는 이 Worker가 읽지 않지만 남긴다.
+  되돌린 이전 PRO Worker가 10분 영수증을 곧바로 만료시키지 않게 하려는 것이다(`4e86ab7d` 주석).
+- **대기 이전 레코드의 PIN은 받고 읽지 않음(열차 끝 리뷰 반영 `a0b858fc`):** 9.0.4(2026-10-24 01:56 KST 배포) 전 PRO Worker만
+  대기 이전 레코드에 새 소유자가 고른 PIN을 적었다. `6812c8b1`은 대기 레코드가 claim보다 오래 살지 않아 길어야 15분이라고 보고
+  그 레코드를 null로 정규화했는데, 그 전제가 틀렸다. 만료된 대기 레코드를 지우는 곳은 없다. commit과 reconcile은 410을 답하고
+  레코드를 그대로 두며, 새 PREPARE가 바꾸거나 commit이 끝낼 때까지 방은 `ownership_transfer_pending`으로 멈춰 있고
+  `ownerAccountId`는 null이다. claim 발급은 그 레코드가 있을 때만 epoch를 올리고, 다음 PREPARE는 그 레코드의 이전 소유자 연결을
+  이어받는다. 레코드를 버리면 다음 이전의 `previousOwnerAccountId`가 null이 되어 App Worker saga가 옛 소유자의 계정·방 연결을
+  은퇴시키지 않고(그 계정의 방 수에 계속 셈), claim 때의 epoch 올리기를 건너뛰며, `/internal/admin/status`의
+  `ownerTransferReconciliation`이 null이 되어 멈춘 이전이 운영자와 saga cron에서 가려진다. 그래서 로드 정규화가 선택 저장 키
+  `pin`을 다시 받고 유효한 레코드에서 읽지 않고 지운다(PIN 모양이 잘못돼도 레코드는 남김). PREPARE는 그 키를 쓰지 않고, commit
+  증명은 그 키를 덮지 않으며, commit은 원래 무시했으므로 요청 표면은 돌아오지 않는다. 부모 PRO Worker는 키가 있든 없든 그
+  레코드를 읽는다. 운영에 그런 방이 있는지는 열어 보지 않았다(레코드를 남기므로 결과가 같다).
 - **smoke와 floor 도구(같은 증분):** live PRO smoke와 `app-build-floor.mts`의 PRO 증명이 `X-MXQR-Pro-Entry-Policy: optional-v1`을
   보낸다(그러면 부모와 이 Worker의 답이 같다). 방 `000001`은 `pin_required` + `passwordRequired: true` 또는 `open` + `false`의
   일관된 쌍이면 받는다. 운영 `000001`을 머리글과 함께 한 번 읽은 값은 `pin_required` + `true`였다. smoke 출력에
   `pinRoomPasswordRequired`를 더했다.
 - 하트비트 벤치마크는 지금 Worker를 App의 활성화 본문으로 채우고, 임시 PIN 본문은 2026-07-19 기준 Worker에만 쓴다. 혼합 버전
   saga 테스트는 옛 App Worker 빌드의 cron 행을 남기고 요청 행을 지웠다(그 빌드들의 요청은 PRO가 거절하는 `newPin`을 싣는다).
+  열차 끝 리뷰 반영 `b3f9c69d`가 이 릴리스와 실제로 겹치는 9.0.14 빌드(`dd9c9d4d`)를 양방향으로 더했다(아래 혼합 버전).
   registry RO-09 근거 줄이 그것을 적는다.
 - 문서: `pro-room-architecture-and-operations.md`(bootstrap, 이전 링크, 활성화 본문, PIN 답, 스냅샷 필드와 입장 본문, 공유
   원장 영수증, pagehide 본문, 효과 끝점, 출시 카나리아 표의 '파생 bootstrap 값' 열, Rollback 문단). registry RO-07(재시도 없는
@@ -121,7 +133,7 @@ Share `required`), 거절 자체가 그 옛 앱의 강제 업데이트다. OV-F0
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 테스트 먼저 | `6b03ed43`에 `074c0f70`의 고정값 정정(공유 `joinPublicRoom`에 입장 정책 머리글)을 얹어 `cc83cfa7` 코드에서 돌리면 35행 FAIL, 661행 PASS. Worker 묶음 26행(`pro-room-worker.test.ts` 21, `app-build-floor-script.test.ts` 3, `owner-transfer-entry-password-sqlite.test.ts` 2)과 `live-pro-room-smoke-readiness.test.ts` 9행이고 모두 새 기대다. 지금 클라이언트 모양의 presence/close 행과 Developer API 효과 읽기 schema 2 행은 양쪽 PASS. bisect 주의: `6b03ed43`만으로는 공유 입장 도우미가 부모에서 거절되어 parity 행까지 준비에서 FAIL했다(27행). `074c0f70`이 그것을 고치고 테스트 먼저 기록을 정정했다. |
 | 줄          | Worker +339 / −694(순 −355, `pro-room-worker.ts` +339 / −689), 도구 +52 / −16, 테스트 +886 / −1,067(지운 이주·옛 모양 행과 지금 모양으로 옮긴 고정값, 새 공유 도우미 `pro-room-entry-pin.ts`), 문서 +68 / −46.                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 잃는 것     | 운영의 787 이상 클라이언트 없음. 바닥 아래 탭: opt-in 머리글 없는 옛 앱이 보던 'legacy `pin_required`' 모양, 8.8.0 전 임시 PIN 활성화, 2026-08 전 `{pin}` 입장, 2026-07-20 전 참가자 id 내보내기와 제어 버전 ticket, 9.0.0~9.0.3 탭의 이전 링크(400, OV-F07, 바닥 787에 기댐). 9.0.0 전 탭은 이미 하트비트에서 끊긴다. 지운 저장 이주는 기록이 모두 만료된 뒤라 잃는 데이터가 없다(운영 저장소를 직접 열어 보지는 않음).                                                                                                                                                                                        |
+| 잃는 것     | 운영의 787 이상 클라이언트 없음. 바닥 아래 탭: opt-in 머리글 없는 옛 앱이 보던 'legacy `pin_required`' 모양, 8.8.0 전 임시 PIN 활성화, 2026-08 전 `{pin}` 입장, 2026-07-20 전 참가자 id 내보내기와 제어 버전 ticket, 9.0.0~9.0.3 탭의 이전 링크(400, OV-F07, 바닥 787에 기댐). 9.0.0 전 탭은 이미 하트비트에서 끊긴다. 지운 저장 이주 셋은 기록이 모두 만료된 뒤라 잃는 데이터가 없다(운영 저장소를 직접 열어 보지는 않음). PIN이 든 대기 이전 레코드는 PIN만 버리고 남긴다(`a0b858fc`).                                                                                                                        |
 | smoke·도구  | PRO smoke, floor 도구의 PRO 증명, Developer API live smoke(`000001`의 효과 읽기와 명령 생성·상태)가 이 코드를 지난다. 단위와 readiness 행으로 확인했다(아래 레인 검사의 smoke·floor 묶음).                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | 되돌리기    | 부모 PRO Worker로 되돌려도 새 바닥이 필요 없다. 9.0.14 이상 App은 opt-in 머리글과 close 세 필드를 보내므로 부모가 같은 답을 하고, 부모의 로드 정규화가 `developerControlVersion`을 다시 채우며, 저장 `coordinatorParticipantId`는 늘 쓰던 null이고, 재생 영수증의 `kind` 표지가 남아 있다. 이 경계는 App이 close 세 필드를 그만 보낼 때(열차 3) 움직이고, 그 열차가 적는다.                                                                                                                                                                                                                                     |
 
@@ -249,18 +261,44 @@ SKIP(모든 증분): 실제 기기, WebKit, 운영 Cloudflare, `build:checked`�
 W-2의 35행은 `074c0f70`이 정정한 기록(Worker 묶음 26 FAIL, `live-pro-room-smoke-readiness` 9 FAIL)과 같고, W-3의 19행은
 `430da8c6` 메시지(Worker 묶음 12, smoke 파일 7)와 같다.
 
+### 4. 열차 끝 리뷰 반영 (`a0b858fc` 런타임, 2026-10-27 01:55 ~ 02:15 KST)
+
+열차 끝 리뷰의 safety 렌즈와 quality-docs 렌즈가 `4f6be4c8`을 봤다. 반영한 것과 반영하지 않은 것:
+
+- **safety medium(반영):** W-2가 PIN이 든 대기 이전 레코드를 버린 근거('길어야 15분')가 틀렸다. 테스트 `d5385500`, 코드
+  `a0b858fc`(W-2 절의 대기 이전 레코드 항목). 이 보고서와 release-record §2의 '15분' 문장을 고쳤다.
+- **safety low·quality-docs low(반영):** 혼합 버전 saga가 옛 요청 방향을 잃은 것. `b3f9c69d`가 9.0.14 빌드 `dd9c9d4d`를
+  양방향으로 더했고(RO-09), 아래 표와 혼합 버전 절에 적었다.
+- **safety low(반영):** 기록 PR이 §1에 배포 전 SHA를 적을 수 있던 문장. release-record W 항목과 이 보고서의
+  기록·레지스트리가 §1은 이 릴리스의 머지된 main SHA, `dd9c9d4d`는 배포 전 checkpoint이자 되돌리기 대상이라고 적는다.
+- **quality-docs low(반영):** release-record §2 소유권 이전 항목의 '이 변경' 지시어(이제 '소유권 이전 입장 암호 끄기')와 W
+  문장의 시제(배포되면), 두 공유 PRO 고정값의 opt-in 머리글 주석(`b3f9c69d`, App이 계속 보내고 PRO가 읽지 않음), 기록의 테스트
+  먼저 문장(W-2는 `074c0f70`을 얹음).
+- 반영하지 않은 것은 없다. 운영 저장소 확인(safety medium의 다른 선택지)은 레코드를 남기는 쪽을 골라 하지 않았다.
+
+| 검사           | 결과와 범위                                                                                                                                                                                                                                                                                                       |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 테스트 먼저    | `d5385500`의 `pro-room-worker.test.ts`를 `4f6be4c8`의 PRO 코드에서 돌리면 2 FAIL / 478 PASS. FAIL은 새 두 행(올바른 모양의 PIN, 잘못된 모양의 PIN)이고 `ownerTransferReconciliation`이 null이다. `a0b858fc` 뒤 PASS.                                                                                              |
+| 혼합 버전 saga | `owner-transfer-saga-mixed-version-sqlite.test.ts` 14/14 PASS(Phase 0d·Phase 1 빌드 각 5행, 9.0.14 빌드 4행. 9.0.14 빌드는 `git show`로 그 SHA를 묶어 실제로 돌았고 skip 없음). 새 행은 런타임 변경이 없어 테스트 먼저 대상이 아니다.                                                                             |
+| 단위 전체      | `vitest run --maxWorkers=6` 680 files / 16,069 tests PASS(라운드 2의 16,065에서 새 혼합 버전 4행).                                                                                                                                                                                                                |
+| Worker 단위    | `vitest run --config vitest.workers.config.ts --maxWorkers=6` 67 files / 3,180 tests PASS(라운드 2의 3,176에서 같은 4행).                                                                                                                                                                                         |
+| 정적           | `tsc --noEmit`, `typecheck:tests`, `check:workers`(Worker 타입, declaration-ownership, D1 마이그레이션, ops-drift-contract), lint, `format:check` PASS.                                                                                                                                                           |
+| 가드           | dead-exports(테스트 전용 20/20, 자기만 76/76, 내보낸 binding 2,103), import-graph, bus-pairing 202/202, lifecycle-writes, room-authority-boundaries(직접 읽기 82·구독 22·쓰기 13), transport-health PASS. `check-resource-ownership` 출력은 `dd9c9d4d`와 바이트가 같다(48 records / 442 files). 기준치 변화 없음. |
+| SKIP           | `build:checked`와 브라우저 검사(App 런타임 입력이 바뀌지 않음. 라운드 2 결과 그대로), Worker 번들 크기 다시 재기(PRO 정규화 몇 줄), 실제 기기, 운영 Cloudflare.                                                                                                                                                   |
+
 ## 혼합 버전
 
 이 릴리스는 Worker만 바꾸고 App 정적 자산은 운영 9.0.14와 같다(진입 청크 `main-CaKT24Ie.js`가 9.0.14 릴리스 smoke의
 generation과 이름이 같다). 아래 '지금 클라이언트'는 바닥 787 이상이다.
 
-| 조합                                           | 결과                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 9.0.14 App, 릴리스 W Worker                    | 요청과 답이 그대로다. App은 이미 PRO opt-in 머리글 둘, presence/close의 세 필드, PIN 두 필드를 실은 `host-auth`와 `pinMutationId`를 실은 room-password-set, 확인서를 실은 v3 Remote Share 본문, `{claimToken, requestId}` 이전 본문을 보내고, 관리자 페이지는 다섯 필드 공지 본문을 보낸다. 지운 끝점(`/effects`, ACK, `DELETE /sessions/current`, `/api/youtube-playlist-entry`)을 부르는 곳이 없다. App 파서는 `passwordRequired`와 `playlistSlots`를 계속 선택으로 받는다(OV-A22는 열차 3 후보). |
-| 다음 App 릴리스(5B, 릴리스 A), 릴리스 W Worker | 같다. 릴리스 A가 r2-client의 `optional` 받기를 지우는데, 운영 Remote Share는 `required`이고 W-1 뒤로 `optional`은 무효 설정이다.                                                                                                                                                                                                                                                                                                                                                                    |
-| 787 아래 탭                                    | 새 입장과 재접속은 바닥이 먼저 거절한다. fail-open 창(위 바닥이 거르지 못하는 곳)에서는 각 증분의 '잃는 것'이 그 탭에 일어난다.                                                                                                                                                                                                                                                                                                                                                                     |
-| 9.0.14 App, W 앞으로 되돌린 Worker             | 그대로다(각 증분의 되돌리기). 예외는 PRO만 W-2 앞으로 되돌리고 App Worker를 W-4에 둔 조합의 이전 링크 답(W-4 표).                                                                                                                                                                                                                                                                                                                                                                                   |
-| 운영자의 smoke와 floor 도구                    | W 뒤 Worker와 W 앞 Worker(9.0.14) 모두에서 같은 답을 받는다. PRO 카나리아는 머리글을 보내 두 Worker가 같은 답을 하고, 9.0.14 Signaling은 PIN 두 필드를 선택 키로 받는다. Signaling을 9.0.14 아래로 되돌리면(절차 밖) 두 원인을 적고 즉시 실패한다.                                                                                                                                                                                                                                                  |
+| 조합                                           | 결과                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 9.0.14 App, 릴리스 W Worker                    | 요청과 답이 그대로다. App은 이미 PRO opt-in 머리글 둘, presence/close의 세 필드, PIN 두 필드를 실은 `host-auth`와 `pinMutationId`를 실은 room-password-set, 확인서를 실은 v3 Remote Share 본문, `{claimToken, requestId}` 이전 본문을 보내고, 관리자 페이지는 다섯 필드 공지 본문을 보낸다. 지운 끝점(`/effects`, ACK, `DELETE /sessions/current`, `/api/youtube-playlist-entry`)을 부르는 곳이 없다. App 파서는 `passwordRequired`와 `playlistSlots`를 계속 선택으로 받는다(OV-A22는 열차 3 후보).        |
+| 다음 App 릴리스(5B, 릴리스 A), 릴리스 W Worker | 같다. 릴리스 A가 r2-client의 `optional` 받기를 지우는데, 운영 Remote Share는 `required`이고 W-1 뒤로 `optional`은 무효 설정이다.                                                                                                                                                                                                                                                                                                                                                                           |
+| 787 아래 탭                                    | 새 입장과 재접속은 바닥이 먼저 거절한다. fail-open 창(위 바닥이 거르지 못하는 곳)에서는 각 증분의 '잃는 것'이 그 탭에 일어난다.                                                                                                                                                                                                                                                                                                                                                                            |
+| 9.0.14 App, W 앞으로 되돌린 Worker             | 그대로다(각 증분의 되돌리기). 예외는 PRO만 W-2 앞으로 되돌리고 App Worker를 W-4에 둔 조합의 이전 링크 답(W-4 표).                                                                                                                                                                                                                                                                                                                                                                                          |
+| 9.0.14 App Worker와 W-4 App Worker의 saga 행   | 배포와 자동 복구 동안 두 App Worker가 같은 이전 saga 행을 나눈다. W-4는 facade만 바꿨고(opt-in 머리글을 commit에 넘기지 않음, `newPin` 본문은 의도 전에 거절) saga 꼬리와 행 모양은 같다. `b3f9c69d`의 혼합 버전 행이 9.0.14(`dd9c9d4d`) 빌드의 요청과 지금 cron, 지금 요청과 9.0.14 cron을 한 행에서 돌린다: commit 뒤와 성공 감사 뒤의 겹침은 성공 행 하나(D3)이고, 대상 계정 삭제로 끝나는 요청도 한 버전과 같다. Phase 0d·Phase 1 빌드는 cron 쪽만 남는다(그 요청은 PRO가 거절하는 `newPin`을 싣는다). |
+| 운영자의 smoke와 floor 도구                    | W 뒤 Worker와 W 앞 Worker(9.0.14) 모두에서 같은 답을 받는다. PRO 카나리아는 머리글을 보내 두 Worker가 같은 답을 하고, 9.0.14 Signaling은 PIN 두 필드를 선택 키로 받는다. Signaling을 9.0.14 아래로 되돌리면(절차 밖) 두 원인을 적고 즉시 실패한다.                                                                                                                                                                                                                                                         |
 
 ## 건너뛴 것과 맡을 열차
 
@@ -285,9 +323,9 @@ generation과 이름이 같다). 아래 '지금 클라이언트'는 바닥 787 �
 - 브랜치 이름은 계획의 `agent/ovr-2-workers`가 아니라 `agent/old-version-removal-2w`다.
 - 계획은 W-4에 `docs/configuration-reference.md`와 `CONTRIBUTING.md`를 넣었지만 두 문서는 Vite 개발 프록시 목록을 적으므로
   그 줄을 지우는 릴리스 A로 옮겼다(`110ac9dd` 메시지).
-- 계획이 찾지 않았던 대기 이전 레코드의 만료 근거를 W-2에서 찾았다: 대기 레코드는 claim보다 오래 살지 않고 claim은 길어야
-  15분이다(`PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS`). PIN이 든 대기 레코드를 쓴 마지막 PRO Worker는 9.0.4 전이고 9.0.4는
-  2026-10-24 01:56 KST에 배포됐다.
+- 계획이 다루지 않았던 PIN이 든 대기 이전 레코드(9.0.4 전 PRO Worker만 씀)를 W-2는 처음에 claim 수명(길어야 15분)을 근거로
+  지웠다. 열차 끝 리뷰가 그 근거가 틀렸음을 찾았다(만료된 대기 레코드는 지우는 곳이 없고 이전 소유자 연결을 들고 있다).
+  `a0b858fc`가 레코드를 남기고 PIN만 읽지 않고 버린다(W-2 절).
 - 계획이 이름 대지 않은 registry 두 기록을 고쳤다: RO-07(재시도 없는 레인의 대기 자리 수, `/effects`와 함께 하나가 사라짐)과
   RO-09(혼합 버전 saga 근거 줄). RO-50은 계획대로 고칠 문장이 없었다.
 - 계획은 `benchmark-pro-room-heartbeats.mts`를 '고치거나 은퇴'로 두었고 고쳤다(2026-07-19 기준 Worker에만 옛 활성화 본문).
@@ -297,15 +335,17 @@ generation과 이름이 같다). 아래 '지금 클라이언트'는 바닥 787 �
 
 ## 기록·레지스트리
 
-- **registry:** RO-07과 RO-09를 W-2 커밋(`6812c8b1`, `4e86ab7d`)에서 고쳤다. 새 기록은 없다(이 릴리스는 새 복구·재시도·타이머
-  흐름을 넣지 않는다). `check-resource-ownership` 출력은 증분마다 부모와 바이트가 같다(48 records / 442 files).
+- **registry:** RO-07과 RO-09를 W-2 커밋(`6812c8b1`, `4e86ab7d`)에서 고쳤고, RO-09 혼합 버전 줄을 열차 끝 리뷰 반영
+  `b3f9c69d`에서 다시 고쳤다(9.0.14 빌드 양방향). 새 기록은 없다(이 릴리스는 새 복구·재시도·타이머 흐름을 넣지 않는다).
+  `check-resource-ownership` 출력은 증분마다, 그리고 리뷰 반영 뒤에도 부모와 바이트가 같다(48 records / 442 files).
 - **기준치:** room-authority-boundaries(직접 읽기 82, 구독 22, 쓰기 13), dead-exports(20/20·76/76), bus-pairing(202/202),
   `check-resource-ownership`, transport-health 모두 바뀌지 않았다. 올리거나 내린 것이 없다.
 - **known-accepted:** 바꾸지 않았다. 계획이 이 열차에서 고치는 #12('Older Worker' 다시 쓰기, 'Older App copy' 지움)와 #15(은퇴)는
   App 쪽 문장이라 릴리스 A(A-3, A-5)가 맡는다. 이 릴리스는 그 문장들이 말하는 App 동작이나 9.0.4 아래 PRO 롤백 경계를 바꾸지
   않는다. #5는 일반방 P2P 문장이라 해당이 없다.
 - **release-record:** §2에 이 릴리스의 배포 전 항목을 더했다(이 보고서 커밋). §2 PRO 소유권 이전 항목은 W-2·W-4 커밋이 고쳤고 이
-  보고서를 가리킨다. §1과 `Last source review`, `release-history.md` 행은 배포 기록 PR이 쓴다. 그 PR은 §4에 이 릴리스의 되돌리기
+  보고서를 가리킨다. §1과 `Last source review`, `release-history.md` 행은 배포 기록 PR이 쓴다. §1의 Worker마다 배포된 기준은 이
+  릴리스의 머지된 main SHA이고, `dd9c9d4d`는 배포 전 checkpoint이자 되돌리기 대상으로만 적는다. 그 PR은 §4에 이 릴리스의 되돌리기
   경계(PRO만 W-2 앞으로 되돌릴 때의 이전 링크 답, Signaling을 9.0.14 아래로 되돌리면 smoke와 floor 도구가 즉시 실패)를 더하고,
   §4 'PRO 공개방 입장 보호' 문단의 '다시 앞으로 배포하면 공유 원장의 presence-close 영수증은 로드할 때 해제' 문장을 W-2 뒤 동작(보통의
   prune이 푼다)으로 고친다.
@@ -381,14 +421,16 @@ D1, 비밀, 바인딩을 바꾸지 않는다. 지운 저장 이주의 대상 기
 - 실제 기기, iOS·WebKit, 브라우저의 PRO 방과 Standard 방을 이 Worker 코드로 돌리지 않았다. 운영 방장 암호 흐름(설정, 모두 재입장)과
   PRO 탭을 닫은 뒤 참가자 목록에서 바로 빠지는지(presence/close)는 배포 뒤 확인 후보다.
 - 실제 787 아래 탭이 지운 모양에서 받는 답(각 표의 '잃는 것'은 코드와 단위 테스트에서 끌어냄)과 바닥 fail-open 창.
-- 지운 PRO 저장 이주의 대상 기록이 운영 저장소에 남아 있지 않다는 것은 배포 날짜와 TTL에서 끌어냈고 저장소를 열어 보지 않았다.
+- 지운 PRO 저장 이주 셋의 대상 기록이 운영 저장소에 남아 있지 않다는 것은 배포 날짜와 TTL에서 끌어냈고 저장소를 열어 보지
+  않았다. PIN이 든 만료 대기 이전 레코드가 운영에 있는지도 보지 않았다(`a0b858fc`가 그 레코드를 남기므로 결과가 같다).
 - Signaling 배포가 Durable Object를 다시 시작해 Standard 신호 소켓이 다시 붙는지(Cloudflare 문서상 동작).
 - C5-0 랩과 강제 업데이트 랩을 이 Worker 코드로 돌리지 않았다. W-3의 신호 흐름은 로컬 `wrangler dev`에서 smoke 프레임으로만 봤다.
 - PRO Worker와 Remote Share Worker를 로컬 `wrangler dev`로 띄워 보지 않았다(Worker 단위와 `node:sqlite` 실제 PRO room 행뿐).
 - Developer API live smoke의 명령 상태 조회가 W-2 뒤에 받는 실제 상태는 운영에서 보지 않았다(smoke는 200만 요구하고, 단위와 PRO
   Worker 행이 서버 혼자 끝나는 명령을 고정한다).
 - 업데이트 창이 없는 target `all` 릴리스(App 식별 그대로)는 절차상 허용이고 dry run하지 않았다.
-- 열차 끝 세 렌즈 리뷰는 아직이다. W-1과 W-4에는 구현 중 리뷰 반영 커밋이 없다.
+- 열차 끝 리뷰는 `4f6be4c8`을 봤고, 그 지적은 QA 라운드 4에서 반영했다. 반영 커밋을 다시 리뷰하지는 않았다. W-1과 W-4에는
+  구현 중 리뷰 반영 커밋이 없다.
 
 운영 데이터나 서비스에 장애를 주입하는 검사는 하지 않았다.
 

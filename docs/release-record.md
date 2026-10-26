@@ -54,37 +54,45 @@ gh run list --workflow e2e.yml --branch main --limit 3
       W-2 PRO(OV-W01, OV-F07 PRO 쪽, presence/close 세 필드 선택 받기) `6b03ed43` → `6812c8b1`(리뷰 반영 `074c0f70`,
       `4e86ab7d`, `f9c4f804`), W-3 Signaling(OV-W03, smoke·floor 도구의 옛 Signaling Worker 재시도 갈래) `430da8c6` →
       `6f5b4aea`(리뷰 반영 `4b0a8e14`, `9754402a` → `7a683476`), W-4 App Worker(OV-W02의 SK-12·13·15·16, OV-F07 facade,
-      지표 이름표) `e2cb7dd9` → `110ac9dd`. 바뀌는 것: Remote Share는 v3 세션 본문만 받고 `optional` 확인서 모드는 무효
-      설정(503)이다. PRO는 opt-in 머리글 없이도 `passwordRequired`와 `playlistSlots`를 싣고, 임시 PIN 활성화, `{pin}`
-      입장, 이전 PREPARE의 `newPin`, 참가자 id 내보내기, 제어 버전 ticket 본문을 400으로, `/effects`, 명령 ACK,
-      `DELETE /sessions/current`를 404로 답하며, presence/close의 `baseRevision`, `currentQueueItemId`, `playback`을
-      선택으로 받는다(있으면 검사, fingerprint 바이트 그대로). 기록이 모두 만료된 저장 이주 넷을 지웠다. Signaling은
-      `host-auth`에 `desiredRoomPassword`와 `pinMutationId`, room-password-set에 `pinMutationId`를 요구하고 `legacy-<uuid>`
-      PIN 울타리를 지웠다. App Worker는 `/api/youtube-playlist-entry`를 내리고(404), 세 필드 관리자 공지 본문과 `newPin`
-      이전 본문을 400으로 거절하며, `{pin}` 입장에도 5초 기한을 두고, 이전 commit에 opt-in 머리글을 넘기지 않는다. 9.0.14
-      이상 App의 요청과 답은 그대로다. release smoke와 floor 도구는 같은 증분에서 고쳤다(PRO 카나리아와 floor PRO 증명이
-      opt-in 머리글을 보내고 `000001`의 일관된 쌍을 받음, 모든 `host-auth`가 PIN 두 필드를 실음, 첫 프레임 무효는 두 원인을
-      적고 재시도 없이 즉시 실패. 신호 smoke 출력에서 `appBuild.hostAuthShape`가 빠져 hotfix 절차의 첫 바닥 증명 문장을
-      고침). SemVer와 SW 캐시는 그대로라(`guard:release-identity` 9.0.14·v787, `guard:sw-cache-version` PASS) 업데이트
-      창이 없다. 운영 `dd9c9d4d`와 견준 런타임 경로 변경은 remote-share 1, signaling 3, PRO room 2, App 3(`app-worker.ts`와
-      App 경로에도 든 신호 파일 둘), Developer API facade·API 0이라 target `all`이다. 계약 표지, D1, 비밀, 바인딩 변경은
-      없다. 로컬 검증(`110ac9dd`, 2026-10-27): 테스트 먼저(테스트 커밋 다섯이 부모 코드에서 새 행만 FAIL, 고정값 커밋 둘은
-      부모에서도 PASS), `npm run typecheck`·`typecheck:tests`·`check:workers`·lint·format, 단위 680 files / 16,065,
-      Worker 67 files / 3,176, smoke·floor 묶음 22 files / 585, `build:checked` 전체(직접 읽기 82, SW 앱 셸 97 자산, 초기
-      JS 변화 0, 진입 청크 `main-CaKT24Ie.js`가 운영 9.0.14와 같음), 가드(dead-exports 20/20·76/76, bus-pairing 202/202,
-      import-graph, lifecycle-writes, navigation-sinks, transport-health, resource-ownership 48 records / 442 files 그대로),
+      지표 이름표) `e2cb7dd9` → `110ac9dd`, 열차 끝 리뷰 반영 `d5385500` → `a0b858fc`(PIN이 든 만료 대기 이전 레코드를
+      남기고 PIN만 버림), `b3f9c69d`(9.0.14 App Worker와의 혼합 버전 saga 행). 바뀌는 것: Remote Share는 v3 세션 본문만
+      받고 `optional` 확인서 모드는 무효 설정(503)이다. PRO는 opt-in 머리글 없이도 `passwordRequired`와 `playlistSlots`를
+      싣고, 임시 PIN 활성화, `{pin}` 입장, 이전 PREPARE의 `newPin`, 참가자 id 내보내기, 제어 버전 ticket 본문을 400으로,
+      `/effects`, 명령 ACK, `DELETE /sessions/current`를 404로 답하며, presence/close의 `baseRevision`,
+      `currentQueueItemId`, `playback`을 선택으로 받는다(있으면 검사, fingerprint 바이트 그대로). 기록이 모두 만료된 저장
+      이주 셋을 지웠고, 9.0.4 전 PRO가 쓴 PIN이 든 대기 이전 레코드는 남기며 그 PIN만 읽지 않고 지운다(만료된 대기
+      레코드는 지우는 곳이 없어 새 PREPARE나 commit 전까지 이전 소유자 연결을 들고 있다). Signaling은 `host-auth`에
+      `desiredRoomPassword`와 `pinMutationId`, room-password-set에 `pinMutationId`를 요구하고 `legacy-<uuid>` PIN 울타리를
+      지웠다. App Worker는 `/api/youtube-playlist-entry`를 내리고(404), 세 필드 관리자 공지 본문과 `newPin` 이전 본문을
+      400으로 거절하며, `{pin}` 입장에도 5초 기한을 두고, 이전 commit에 opt-in 머리글을 넘기지 않는다. 9.0.14 이상 App의
+      요청과 답은 그대로다. release smoke와 floor 도구는 같은 증분에서 고쳤다(PRO 카나리아와 floor PRO 증명이 opt-in
+      머리글을 보내고 `000001`의 일관된 쌍을 받음, 모든 `host-auth`가 PIN 두 필드를 실음, 첫 프레임 무효는 두 원인을 적고
+      재시도 없이 즉시 실패. 신호 smoke 출력에서 `appBuild.hostAuthShape`가 빠져 hotfix 절차의 첫 바닥 증명 문장을 고침).
+      SemVer와 SW 캐시는 그대로라(`guard:release-identity` 9.0.14·v787, `guard:sw-cache-version` PASS) 업데이트 창이 없다.
+      운영 `dd9c9d4d`와 견준 런타임 경로 변경은 remote-share 1, signaling 3, PRO room 2, App 3(`app-worker.ts`와 App
+      경로에도 든 신호 파일 둘), Developer API facade·API 0이라 target `all`이다. 계약 표지, D1, 비밀, 바인딩 변경은 없다.
+      로컬 검증(`110ac9dd`, 2026-10-27): 테스트 먼저(테스트 커밋 다섯이 부모 코드에서 새 행만 FAIL, W-2는 `074c0f70`
+      고정값 정정을 얹어. 고정값 커밋 둘은 부모에서도 PASS),
+      `npm run typecheck`·`typecheck:tests`·`check:workers`·lint·format, 단위 680 files / 16,065, Worker 67 files / 3,176,
+      smoke·floor 묶음 22 files / 585, `build:checked` 전체(직접 읽기 82, SW 앱 셸 97 자산, 초기 JS 변화 0, 진입 청크
+      `main-CaKT24Ie.js`가 운영 9.0.14와 같음), 가드(dead-exports 20/20·76/76, bus-pairing 202/202, import-graph,
+      lifecycle-writes, navigation-sinks, transport-health, resource-ownership 48 records / 442 files 그대로),
       커버리지(critical 87 files / 3,406, Worker 67 / 3,176, 도구 14 / 419), critical E2E 61/61, `e2e/youtube.test.ts`
       9/9, Worker 번들 dry-run(raw 기준 PRO −12.83 KiB, App −5.85 KiB, remote-share −1.63 KiB, signaling −0.91 KiB). 가드
-      기준치와 registry 기록 수는 바뀌지 않았다(RO-07·RO-09 문장만). 남은 것: 열차 끝 세 렌즈 리뷰, origin/main
-      `9e02d2df`(#499, 문서만) 합침과 검사 다시, PR CI, Codex, exact-main CI, 배포 직전 floor `status`(저장·유효 787 이상,
-      live App 보고 새것), Release(target `all`, Developer API D1 false, `raise_app_build_floor` false), 아래 같은 값 `set`,
-      기록 PR. 순서: 이 릴리스를 App 릴리스 A보다 먼저 낸다. PR은 배포 직전에만 머지하고, 그 머지부터 배포와 기록 PR
-      머지까지 5B와 릴리스 A는 머지·릴리스하지 않는다(이 PR이 main에 있고 배포 전이면 두 App 열차는 부분 릴리스 게이트에서
-      거절된다). 기록 PR은 §1을 덮어쓰며 Worker마다 배포된 기준(여섯 모두 `dd9c9d4d`)을 적고, §4에 이 릴리스의 되돌리기
-      경계(PRO만 W-2 앞으로 되돌리고 App Worker를 W-4에 두면 이전 링크 답에 `passwordRequired`와 `playlistSlots`가 빠짐,
-      9.0.14 아래 Signaling에서는 smoke와 floor 도구가 즉시 실패)를 더하고, §4 'PRO 공개방 입장 보호' 문단의 공유 원장
-      presence-close 영수증 문장(이제 로드가 아니라 보통의 prune이 푼다)을 고친다. 로컬 결과는 exact-main-SHA 후보를
-      대신하지 않는다. [릴리스 W 보고서](design/old-version-removal-2w-workers-2026-10-26.md).
+      기준치와 registry 기록 수는 바뀌지 않았다(RO-07·RO-09 문장만). 열차 끝 리뷰(`4f6be4c8`, safety·quality-docs 렌즈)
+      반영 뒤(`a0b858fc` 런타임, 2026-10-27): `d5385500`이 `4f6be4c8` 코드에서 새 두 행만 FAIL, 단위 680 files / 16,069,
+      Worker 67 files / 3,180, 혼합 버전 saga 14/14(9.0.14 빌드 양방향 포함), 정적·lint·format과 위 가드 PASS,
+      `check-resource-ownership` 출력이 `dd9c9d4d`와 바이트가 같음. 남은 것: origin/main `9e02d2df`(#499, 문서만) 합침과
+      검사 다시, PR CI, Codex, exact-main CI, 배포 직전 floor `status`(저장·유효 787 이상, live App 보고 새것),
+      Release(target `all`, Developer API D1 false, `raise_app_build_floor` false), 아래 같은 값 `set`, 기록 PR. 순서: 이
+      릴리스를 App 릴리스 A보다 먼저 낸다. PR은 배포 직전에만 머지하고, 그 머지부터 배포와 기록 PR 머지까지 5B와 릴리스
+      A는 머지·릴리스하지 않는다(이 PR이 main에 있고 배포 전이면 두 App 열차는 부분 릴리스 게이트에서 거절된다). 기록 PR은
+      §1을 덮어쓰며 Worker마다 배포된 기준으로 이 릴리스의 머지된 main SHA(여섯 모두)를 적고(`dd9c9d4d`는 배포 전
+      checkpoint이자 되돌리기 대상이다), §4에 이 릴리스의 되돌리기 경계(PRO만 W-2 앞으로 되돌리고 App Worker를 W-4에 두면
+      이전 링크 답에 `passwordRequired`와 `playlistSlots`가 빠짐, 9.0.14 아래 Signaling에서는 smoke와 floor 도구가 즉시
+      실패)를 더하고, §4 'PRO 공개방 입장 보호' 문단의 공유 원장 presence-close 영수증 문장(이제 로드가 아니라 보통의
+      prune이 푼다)을 고친다. 로컬 결과는 exact-main-SHA 후보를 대신하지 않는다.
+      [릴리스 W 보고서](design/old-version-removal-2w-workers-2026-10-26.md).
 - [ ] 배포 직후 floor 도구 운영 확인(W-verify, 기록 PR 전): Release run과 smoke가 끝나고 같은 동시성 그룹에 돌거나
       기다리는 실행이 없을 때 `app-build-floor.yml`을 `set`, `min_app_build=787`(같은 값)로 dispatch한다. 저장값이 같아
       'the stored floor is already 787; verifying it' 뒤 `verifyFloor`(opt-in 머리글을 보낸 PRO 카나리아 쌍, PIN 필드를 실은
@@ -637,12 +645,14 @@ gh run list --workflow e2e.yml --branch main --limit 3
       설정의 "암호 끄기"와 같은 상태로 입장 암호가 꺼지고, 이전 링크는 암호를 묻지 않는다.
       `OWNER_TRANSFER_PIN_REUSE`(이전 소유자 PIN 확인 수단, 소비되지 않은 링크에 "새 링크 요청"
       안내)와 재생 PIN 비교를 없앴다. 결정 전 앱(9.0.4 전)의 `newPin`과 PIN이 든 옛 대기 레코드는
-      받고 무시했다. 구버전 호환 코드 제거 열차 2의 Worker 릴리스부터 App facade가 그 `newPin` 본문을
-      이전 의도를 기록하기 전에 400으로 거절하고(PRO도 400), PRO는 PIN이 든 대기 레코드를 무효로 버린다
-      (그런 앱은 최소 앱 빌드 787 아래이고, 대기 레코드는 길어야 15분 산다). 이 변경은 9.0.4와 함께
-      target `all`(PRO room 먼저)로 배포됐고, PRO 입장 정책 계약 표지
+      받고 무시한다. 소유권 이전 입장 암호 끄기는 9.0.4와 함께 target `all`(PRO room 먼저)로
+      배포됐고, PRO 입장 정책 계약 표지
       `pro-room-optional-entry-password-v1+pro-owner-transfer-pinless-v1`이 운영에 올라가 이제 자동
-      복구가 PRO·App을 표지 아래로 되돌리지 않고 앞으로 고친다(§4). 남은 것은 테스트 방에서 이전
+      복구가 PRO·App을 표지 아래로 되돌리지 않고 앞으로 고친다(§4). 구버전 호환 코드 제거 열차 2의
+      릴리스 W(배포 전)가 배포되면 App facade가 그 `newPin` 본문을 이전 의도를 기록하기 전에 400으로
+      거절하고(PRO도 400, 그런 앱은 최소 앱 빌드 787 아래), PIN이 든 옛 대기 레코드는 계속 받되 그
+      PIN을 읽지 않고 지운다(만료된 대기 레코드는 새 PREPARE나 commit 전까지 남아 이전 소유자 연결을
+      들고 있다). 남은 것은 테스트 방에서 이전
       링크가 암호를 묻지 않는지, 새 소유자 설정에 암호 꺼짐이 보이고 켤 수 있는지, 이전 때 있던
       참여자가 코드만으로 들어오는지 확인하는 것이다. 오너 결정(2026-10-24): 운영자가 직접 하는 드문
       작업이라 이 확인은 다음 실제 이전 때 한다.

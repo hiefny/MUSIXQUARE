@@ -113,10 +113,15 @@ runbooks. Neither belongs in a general setup document.
   entry-policy marker (no READY or upload-completion retry without the duration, a 404 from the
   duration route no longer switches reporting off, a refused keep-present PIN choice is an
   ordinary error), unused PRO API calls and five locale keys are gone, and known-accepted #15 is
-  retired. The report lists each increment with its commits, tests-first evidence, who loses
-  what, the registry and record changes (RO-18, RO-15, RO-06, known-accepted #12 and #15, the PIN
+  retired. Increment A-6 (OV-A18, OV-B09, SK-05, OV-A23): service-worker activation no longer
+  scrubs runtime caches of v390 and older, the root English manifest and its app-shell entry are
+  gone, three orphan locale keys go, the dev proxy drops the retired playlist-entry route, and
+  the update reload fallback and the cooldown bound keep their behaviour under current wording.
+  The report lists each increment with its commits, tests-first evidence, who loses what, the
+  registry and record changes (RO-18, RO-15, RO-06, RO-22, known-accepted #12 and #15, the PIN
   and PRO recovery notes), the guard baselines, the local checks, the eager JS delta, the C5-0
-  lab results and the local PRO Playwright run.
+  lab results, the local PRO Playwright run, and A-6's production candidate browser suite and
+  forced-update lab.
 - [Forced update train 9.0.14: the App build floor and C5-12 Inc 1 (2026-10-25)](design/forced-update-9-0-14-2026-10-25.md):
   evidence for the train that adds the forced update (9.0.14 / v787 from bump `2077ef60`, not yet
   released; target `all`; the 9.0.12 receive-slot train and the 9.0.13 old-version removal train

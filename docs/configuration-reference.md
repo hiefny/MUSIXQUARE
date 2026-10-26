@@ -122,10 +122,14 @@ procedure is in the [hotfix procedure](hotfix-procedure.md#app-build-floor).
 The setter authenticates with the GitHub OIDC token that the job's
 `id-token: write` permission lets the runner request
 (`ACTIONS_ID_TOKEN_REQUEST_URL` and `ACTIONS_ID_TOKEN_REQUEST_TOKEN`, provided by
-GitHub and never printed). No repository secret, Worker secret or binding was
-added, so `cloudflare/ops-drift.contract.json` is unchanged. The App's build
-number is not configurable: it comes from `SERVICE_WORKER_CACHE_VERSION` at
-build time ([release versioning](release-versioning.md#app-build-number-and-floor)),
+GitHub and never printed). The App Worker identifies the calling workflow by the
+token's `workflow_ref` (`app-build-floor.yml` or `release.yml` on `main`); both
+jobs run their own steps, and a token whose `job_workflow_ref` names another
+workflow (a job that runs a reusable workflow) is refused. No repository
+secret, Worker secret or binding was added, so
+`cloudflare/ops-drift.contract.json` is unchanged. The App's build number is not
+configurable: it comes from `SERVICE_WORKER_CACHE_VERSION` at build time
+([release versioning](release-versioning.md#app-build-number-and-floor)),
 and the `X-MXQR-App-Build` request header that carries it is public.
 
 ## Safe `.env.example` policy

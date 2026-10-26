@@ -636,8 +636,10 @@ generic error and recover when reopened.
 
 Change it only through GitHub Actions. No secret or owner credential is involved: the App
 Worker's ops route accepts only a GitHub OIDC token of this workflow or the Production Release
-on `main`. Whoever may dispatch workflows on this repository (in the GitHub UI or with `gh`) can
-read, set and lower it; nobody enters a password or token.
+on `main`, named by the token's `workflow_ref`. Both jobs run their own steps; a token minted
+inside a reusable workflow (such as the release's recovery job) is refused. Whoever may dispatch
+workflows on this repository (in the GitHub UI or with `gh`) can read, set and lower it; nobody
+enters a password or token.
 
 ```bash
 gh workflow run app-build-floor.yml --ref main -f action=status

@@ -133,7 +133,7 @@ const ready = (sessionId: string, extra: Record<string, unknown> = {}) =>
 
 function directCall(): FakeMediaCall {
   const call = makeMediaCall(HOST_PEER);
-  bus.emit('system-audio:incoming-call', call.mediaConn, 'STEREO');
+  bus.emit('system-audio:incoming-call', call.mediaConn);
   return call;
 }
 

@@ -985,7 +985,7 @@ function setupPeerEvents(peer: PeerInstance): void {
         return;
       }
 
-      bus.emit('system-audio:incoming-call', mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', mediaConn);
       return;
     }
 

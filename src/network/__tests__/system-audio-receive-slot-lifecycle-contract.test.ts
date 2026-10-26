@@ -153,7 +153,7 @@ function directCall(): FakeMediaCall & { fail(error: unknown): void } {
     if (event === 'error') onError = handler;
     register(event, handler);
   };
-  bus.emit('system-audio:incoming-call', call.mediaConn, 'STEREO');
+  bus.emit('system-audio:incoming-call', call.mediaConn);
   return { ...call, fail: (error) => onError?.(error) };
 }
 

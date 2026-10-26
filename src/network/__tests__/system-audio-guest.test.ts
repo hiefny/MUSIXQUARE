@@ -271,7 +271,7 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const incoming = createMediaConnection('host', pc);
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
 
     expect(incoming.mediaConn.answer).toHaveBeenCalledWith(undefined, {
       sdpTransform: expect.any(Function),
@@ -290,7 +290,7 @@ describe('system audio guest receive watchdog', () => {
       throw new Error('answer setup failed');
     });
 
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
 
     expect(incoming.mediaConn.close).toHaveBeenCalledTimes(1);
   });
@@ -359,7 +359,7 @@ describe('system audio guest receive watchdog', () => {
     } as unknown as AudioContext);
 
     const incoming = createMediaConnection();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -379,7 +379,7 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
@@ -403,7 +403,7 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
@@ -421,7 +421,7 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', stale.mediaConn);
     stale.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
     expect(muted.listenerCount()).toBe(1);
@@ -436,7 +436,7 @@ describe('system audio guest receive watchdog', () => {
 
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const successor = createMediaConnection();
-    bus.emit('system-audio:incoming-call', successor.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', successor.mediaConn);
     successor.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(initAudio).toHaveBeenCalledOnce();
@@ -455,12 +455,12 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', stale.mediaConn);
     stale.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
     const successor = createMediaConnection();
-    bus.emit('system-audio:incoming-call', successor.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', successor.mediaConn);
     successor.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -481,7 +481,7 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
@@ -500,7 +500,7 @@ describe('system audio guest receive watchdog', () => {
     const mediaConn = { close: vi.fn() };
     freezeGuestSystemAudioSfuRoute('all');
 
-    bus.emit('system-audio:incoming-call', mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', mediaConn);
 
     expect(mediaConn.close).toHaveBeenCalledTimes(1);
   });
@@ -594,7 +594,7 @@ describe('system audio guest receive watchdog', () => {
 
     vi.mocked(initAudio).mockRejectedValueOnce(new Error('audio init failed'));
     const failed = createMediaConnection();
-    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', failed.mediaConn);
     expect(failed.emit('stream', audioStreamWithTrack())).toBeUndefined();
     await flushAsyncStreamHandler();
 
@@ -610,7 +610,7 @@ describe('system audio guest receive watchdog', () => {
     } as unknown as AudioContext);
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const retry = createMediaConnection();
-    bus.emit('system-audio:incoming-call', retry.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', retry.mediaConn);
     retry.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -626,7 +626,7 @@ describe('system audio guest receive watchdog', () => {
     vi.mocked(getWidener).mockReturnValueOnce(null);
 
     const failed = createMediaConnection();
-    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', failed.mediaConn);
     failed.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -639,7 +639,7 @@ describe('system audio guest receive watchdog', () => {
   it('rejects an empty stream before publishing receive state', async () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const failed = createMediaConnection();
-    bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', failed.mediaConn);
     failed.emit('stream', emptyAudioStream());
     await flushAsyncStreamHandler();
 
@@ -667,13 +667,13 @@ describe('system audio guest receive watchdog', () => {
     setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
-    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', stale.mediaConn);
     stale.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(initAudio).toHaveBeenCalledTimes(1);
 
     const replacement = createMediaConnection();
-    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', replacement.mediaConn);
     replacement.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(getState('systemAudio.isReceiving')).toBe(true);
@@ -698,7 +698,7 @@ describe('system audio guest receive watchdog', () => {
       setState('player.currentTrackMeta', previousMeta);
       await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const incoming = createMediaConnection();
-      bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', incoming.mediaConn);
       incoming.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       expect(initAudio).toHaveBeenCalledOnce();
@@ -725,7 +725,7 @@ describe('system audio guest receive watchdog', () => {
     const source = stubAudioSource();
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(initAudio).toHaveBeenCalledOnce();
@@ -753,13 +753,13 @@ describe('system audio guest receive watchdog', () => {
 
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
-    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', stale.mediaConn);
     vi.mocked(stale.mediaConn.close).mockImplementation(() => {
       stale.emit('close');
     });
 
     const replacement = createMediaConnection();
-    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', replacement.mediaConn);
     replacement.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -780,13 +780,13 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const active = createMediaConnection();
-    bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', active.mediaConn);
     active.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
     expect(getState('systemAudio.isReceiving')).toBe(true);
 
     const silentReplacement = createMediaConnection();
-    bus.emit('system-audio:incoming-call', silentReplacement.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', silentReplacement.mediaConn);
 
     expect(active.mediaConn.close).toHaveBeenCalledTimes(1);
     expect(getState('systemAudio.isReceiving')).toBe(true);
@@ -808,12 +808,12 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const active = createMediaConnection();
-    bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', active.mediaConn);
     active.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
     const replacement = createMediaConnection();
-    bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', replacement.mediaConn);
     const staleWatchdog = timerMocks.timers.get(stereoReplacementWatchdogName);
     expect(staleWatchdog).toBeTypeOf('function');
 
@@ -840,7 +840,7 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const incoming = createMediaConnection('host', pc as unknown as RTCPeerConnection);
-    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    bus.emit('system-audio:incoming-call', incoming.mediaConn);
     incoming.emit('stream', audioStreamWithTrack());
     await flushAsyncStreamHandler();
 
@@ -869,7 +869,7 @@ describe('system audio guest receive watchdog', () => {
       await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
       const incoming = createMediaConnection();
-      bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', incoming.mediaConn);
       const stream = audioStreamWithTrack();
       incoming.emit('stream', stream);
       await flushAsyncStreamHandler();
@@ -910,7 +910,7 @@ describe('system audio guest receive watchdog', () => {
         arrange();
 
         const failed = createMediaConnection();
-        bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
+        bus.emit('system-audio:incoming-call', failed.mediaConn);
         failed.emit('stream', audioStreamWithTrack());
         await flushAsyncStreamHandler();
 
@@ -1163,7 +1163,7 @@ describe('system audio guest receive watchdog', () => {
       // inbound rate-limit bucket for the host connection).
       expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
       const call = createMediaConnection();
-      bus.emit('system-audio:incoming-call', call.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', call.mediaConn);
       call.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       expect(getState('systemAudio.isReceiving')).toBe(true);
@@ -1205,7 +1205,7 @@ describe('system audio guest receive watchdog', () => {
       setState('player.currentTrackMeta', previousMeta);
       expect(beginTrustedSystemAudioReception(undefined, { deadline: 'slot' })).toBe(true);
       const call = createMediaConnection();
-      bus.emit('system-audio:incoming-call', call.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', call.mediaConn);
       call.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       // The Standard guest's current-item removal (player/playlist.ts).
@@ -1307,11 +1307,11 @@ describe('system audio guest receive watchdog', () => {
       setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
       await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const active = createMediaConnection();
-      bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', active.mediaConn);
       active.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       const replacement = createMediaConnection();
-      bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', replacement.mediaConn);
       const seen: string[] = [];
       sfuDeadlineReaction = () => {
         seen.push(`deadline ${getState('player.currentTrackMeta')?.name}`);
@@ -1371,11 +1371,11 @@ describe('system audio guest receive watchdog', () => {
       setState('player.currentTrackMeta', previousMeta);
       await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const active = createMediaConnection();
-      bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', active.mediaConn);
       active.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       const replacement = createMediaConnection();
-      bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', replacement.mediaConn);
       expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(true);
       expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
         gotStereo: true,
@@ -1638,7 +1638,7 @@ describe('system audio guest receive watchdog', () => {
       bus.on('ui:show-toast', toast);
       await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const active = createMediaConnection();
-      bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', active.mediaConn);
       active.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();
       expect(getState('systemAudio.isReceiving')).toBe(true);
@@ -1656,7 +1656,7 @@ describe('system audio guest receive watchdog', () => {
         () => new Promise<void>((resolve) => (resolveInit = resolve)),
       );
       const replacement = createMediaConnection();
-      bus.emit('system-audio:incoming-call', replacement.mediaConn, 'STEREO');
+      bus.emit('system-audio:incoming-call', replacement.mediaConn);
       expect(timerMocks.timers.has(stereoReplacementWatchdogName)).toBe(true);
       replacement.emit('stream', audioStreamWithTrack());
       await flushAsyncStreamHandler();

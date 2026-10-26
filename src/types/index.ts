@@ -1697,7 +1697,7 @@ interface BaseEventMap {
   'system-audio:stop': [options?: { reason?: SystemAudioStopReason }];
   'system-audio:force-stop': [];
   'system-audio:streams-ready': [];
-  'system-audio:incoming-call': [mediaConn: unknown, channel: string];
+  'system-audio:incoming-call': [mediaConn: unknown];
   'system-audio:sfu-fallback': [reason: string];
   'system-audio:sfu-peer-needed': [peerId: string, reason: string];
   'system-audio:host-started': [];

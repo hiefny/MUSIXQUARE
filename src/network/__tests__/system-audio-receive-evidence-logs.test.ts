@@ -150,7 +150,7 @@ const ready = (sessionId: string) =>
 
 function directCall() {
   const call = makeMediaCall(HOST_PEER);
-  bus.emit('system-audio:incoming-call', call.mediaConn, 'STEREO');
+  bus.emit('system-audio:incoming-call', call.mediaConn);
   return call;
 }
 

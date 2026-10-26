@@ -1266,7 +1266,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     // The direct fallback wins while the first subscribe is in flight. This
     // must cancel that attempt and discard its queued successor.
-    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    bus.emit('system-audio:incoming-call', {} as never);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(true);
     expect(receiveSlotMocks.handOff).toHaveBeenCalledTimes(1);
     await resolveRealtime('new-session', {
@@ -1333,7 +1333,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       ((data: unknown, conn?: unknown) => void) | undefined;
     expect(handler).toBeDefined();
 
-    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    bus.emit('system-audio:incoming-call', {} as never);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(true);
 
     handler!(
@@ -1353,7 +1353,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
     await waitForNewSessionCalls(1);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
-    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    bus.emit('system-audio:incoming-call', {} as never);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
     expect(countNewSessionCalls()).toBe(1);
 
@@ -1457,7 +1457,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     );
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.shareRoute).toBe('sfu-all');
 
-    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    bus.emit('system-audio:incoming-call', {} as never);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.shareRoute).toBe('sfu-all');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
     expect(standardRoomPrerequisiteMocks.getTurnCredentials).toHaveBeenCalledTimes(1);

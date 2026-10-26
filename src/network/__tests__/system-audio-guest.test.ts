@@ -268,7 +268,7 @@ describe('system audio guest receive watchdog', () => {
     const pc = { setLocalDescription, setRemoteDescription } as unknown as RTCPeerConnection;
     const originalSetLocalDescription = pc.setLocalDescription;
     const originalSetRemoteDescription = pc.setRemoteDescription;
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const incoming = createMediaConnection('host', pc);
     bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
@@ -284,7 +284,7 @@ describe('system audio guest receive watchdog', () => {
   });
 
   it('closes the exact incoming call when the transport answer throws synchronously', async () => {
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     vi.mocked(incoming.mediaConn.answer).mockImplementation(() => {
       throw new Error('answer setup failed');
@@ -300,7 +300,7 @@ describe('system audio guest receive watchdog', () => {
     setPlaybackFilePlaying();
     setState('player.currentTrackMeta', previousMeta);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     expect(stopAllMedia).toHaveBeenCalledWith({ silent: true, cancelInFlight: true });
     expect(getState('player.currentTrackMeta')?.name).toBe('system-audio-receiving');
@@ -320,8 +320,8 @@ describe('system audio guest receive watchdog', () => {
     const hostStarted = vi.fn();
     bus.on('system-audio:host-started', hostStarted);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     expect(hostStarted).toHaveBeenCalledTimes(1);
   });
@@ -366,7 +366,7 @@ describe('system audio guest receive watchdog', () => {
     expect(initAudio).not.toHaveBeenCalled();
     expect(getState('systemAudio.isReceiving')).toBe(false);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     await flushAsyncStreamHandler();
 
     expect(initAudio).toHaveBeenCalledTimes(1);
@@ -376,7 +376,7 @@ describe('system audio guest receive watchdog', () => {
 
   it('settles a muted stream after its normal unmute stabilization window', async () => {
     stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
     bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
@@ -400,7 +400,7 @@ describe('system audio guest receive watchdog', () => {
 
   it('keeps the existing bounded fallback when a muted track never unmutes', async () => {
     stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
     bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
@@ -418,7 +418,7 @@ describe('system audio guest receive watchdog', () => {
 
   it('cancels a muted-track wait on force-stop and fences its late unmute from a successor', async () => {
     stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
     const muted = mutableMutedAudioStream();
     bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
@@ -434,7 +434,7 @@ describe('system audio guest receive watchdog', () => {
     expect(stale.mediaConn.close).toHaveBeenCalledOnce();
     expect(initAudio).not.toHaveBeenCalled();
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const successor = createMediaConnection();
     bus.emit('system-audio:incoming-call', successor.mediaConn, 'STEREO');
     successor.emit('stream', audioStreamWithTrack());
@@ -452,7 +452,7 @@ describe('system audio guest receive watchdog', () => {
 
   it('cancels the prior muted-track wait when the channel connection is replaced', async () => {
     stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
     const muted = mutableMutedAudioStream();
     bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
@@ -478,7 +478,7 @@ describe('system audio guest receive watchdog', () => {
   });
 
   it('cancels a muted-track wait when its current connection closes', async () => {
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     const muted = mutableMutedAudioStream();
     bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
@@ -512,7 +512,7 @@ describe('system audio guest receive watchdog', () => {
     setPlaybackTransferState(TRANSFER_STATE.READY);
     setPlaybackFilePlaying();
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     timerMocks.timers.get(watchdogName)?.();
 
@@ -527,7 +527,7 @@ describe('system audio guest receive watchdog', () => {
   it('clears the watchdog once a stream is marked as receiving', async () => {
     setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const watchdog = timerMocks.timers.get(watchdogName);
     expect(watchdog).toBeTypeOf('function');
 
@@ -542,7 +542,7 @@ describe('system audio guest receive watchdog', () => {
   });
 
   it('leaves the receive deadline to a caller that retries its own subscription', async () => {
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     // Another owner replaced the placeholder without receive cleanup.
     setState('player.currentTrackMeta', { type: 'file', name: 'successor-track' });
     expect(timerMocks.timers.has(watchdogName)).toBe(true);
@@ -556,7 +556,7 @@ describe('system audio guest receive watchdog', () => {
   it('re-arms the watchdog while preserving the placeholder during adapter handoff', async () => {
     const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
     setState('player.currentTrackMeta', previousMeta);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     setSystemAudioReceiving(true);
     expect(timerMocks.timers.has(watchdogName)).toBe(false);
 
@@ -573,7 +573,7 @@ describe('system audio guest receive watchdog', () => {
     setPlaybackFilePlaying();
     setState('player.currentTrackMeta', previousMeta);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     setSystemAudioReceiving(true);
     claimPlaybackOwner('system-audio');
 
@@ -590,7 +590,7 @@ describe('system audio guest receive watchdog', () => {
     const toast = vi.fn();
     bus.on('ui:show-toast', toast);
     setState('player.currentTrackMeta', previousMeta);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     vi.mocked(initAudio).mockRejectedValueOnce(new Error('audio init failed'));
     const failed = createMediaConnection();
@@ -608,7 +608,7 @@ describe('system audio guest receive watchdog', () => {
     vi.mocked(getAudioContext).mockReturnValue({
       createMediaStreamSource: vi.fn(() => source),
     } as unknown as AudioContext);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const retry = createMediaConnection();
     bus.emit('system-audio:incoming-call', retry.mediaConn, 'STEREO');
     retry.emit('stream', audioStreamWithTrack());
@@ -622,7 +622,7 @@ describe('system audio guest receive watchdog', () => {
   it('treats a missing audio graph as an immediate receive failure', async () => {
     const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
     setState('player.currentTrackMeta', previousMeta);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     vi.mocked(getWidener).mockReturnValueOnce(null);
 
     const failed = createMediaConnection();
@@ -637,7 +637,7 @@ describe('system audio guest receive watchdog', () => {
   });
 
   it('rejects an empty stream before publishing receive state', async () => {
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const failed = createMediaConnection();
     bus.emit('system-audio:incoming-call', failed.mediaConn, 'STEREO');
     failed.emit('stream', emptyAudioStream());
@@ -665,7 +665,7 @@ describe('system audio guest receive watchdog', () => {
     bus.on('ui:show-toast', toast);
 
     setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
     bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
     stale.emit('stream', audioStreamWithTrack());
@@ -696,7 +696,7 @@ describe('system audio guest receive watchdog', () => {
       const source = stubAudioSource();
       const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
       setState('player.currentTrackMeta', previousMeta);
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const incoming = createMediaConnection();
       bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
       incoming.emit('stream', audioStreamWithTrack());
@@ -723,7 +723,7 @@ describe('system audio guest receive watchdog', () => {
       () => new Promise<void>((resolve) => (resolveInit = resolve)),
     );
     const source = stubAudioSource();
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const incoming = createMediaConnection();
     bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
     incoming.emit('stream', audioStreamWithTrack());
@@ -751,7 +751,7 @@ describe('system audio guest receive watchdog', () => {
       createMediaStreamSource: vi.fn(() => source),
     } as unknown as AudioContext);
 
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
     const stale = createMediaConnection();
     bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
     vi.mocked(stale.mediaConn.close).mockImplementation(() => {
@@ -777,7 +777,7 @@ describe('system audio guest receive watchdog', () => {
     const toast = vi.fn();
     bus.on('ui:show-toast', toast);
     setState('player.currentTrackMeta', previousMeta);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const active = createMediaConnection();
     bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
@@ -805,7 +805,7 @@ describe('system audio guest receive watchdog', () => {
     vi.mocked(getAudioContext).mockReturnValue({
       createMediaStreamSource: vi.fn(() => source),
     } as unknown as AudioContext);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const active = createMediaConnection();
     bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
@@ -837,7 +837,7 @@ describe('system audio guest receive watchdog', () => {
       playoutDelayHint?: number;
     };
     const pc = { getReceivers: vi.fn(() => [video, audio, trackless]) };
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
     const incoming = createMediaConnection('host', pc as unknown as RTCPeerConnection);
     bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
@@ -866,7 +866,7 @@ describe('system audio guest receive watchdog', () => {
       vi.mocked(getWidener).mockReturnValueOnce(
         widener as unknown as ReturnType<typeof getWidener>,
       );
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
 
       const incoming = createMediaConnection();
       bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
@@ -906,7 +906,7 @@ describe('system audio guest receive watchdog', () => {
     ])(
       'keeps $failure on the call /debug channel and logs it as the stream graph failure',
       async ({ arrange, message, graphLog }) => {
-        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
         arrange();
 
         const failed = createMediaConnection();
@@ -970,7 +970,7 @@ describe('system audio guest receive watchdog', () => {
       expect(wait.value).toBe(false);
 
       // A later start does not answer a wait that already timed out.
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       await flushAsyncStreamHandler();
       expect(wait.value).toBe(false);
     });
@@ -979,7 +979,7 @@ describe('system audio guest receive watchdog', () => {
       const early = settledValue(awaitTrustedSystemAudioReceptionBoundary('STEREO'));
       expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-STEREO-')).toHaveLength(1);
 
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       await flushAsyncStreamHandler();
       expect(early.value).toBe(true);
       expect(timerNamesWithPrefix('sys-audio-guest-trust-gate-')).toEqual([]);
@@ -1033,7 +1033,7 @@ describe('system audio guest receive watchdog', () => {
         bus.emit('system-audio:force-stop');
       });
 
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       await flushAsyncStreamHandler();
 
       expect(early.value).toBe(false);
@@ -1101,7 +1101,7 @@ describe('system audio guest receive watchdog', () => {
 
     it('takes a fresh restore point when a start follows a successor that replaced the placeholder', async () => {
       setState('player.currentTrackMeta', { type: 'file', name: 'first-track' });
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const successorMeta: TrackMeta = { type: 'file', name: 'successor-track' };
       setState('player.currentTrackMeta', successorMeta);
 
@@ -1255,7 +1255,7 @@ describe('system audio guest receive watchdog', () => {
 
     it("runs the other routes' deadline reactions before the cleanup and shows the notice after it", async () => {
       setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const seen: string[] = [];
       sfuDeadlineReaction = () => {
         seen.push(`deadline ${getState('player.currentTrackMeta')?.name}`);
@@ -1279,7 +1279,7 @@ describe('system audio guest receive watchdog', () => {
     // slot's deadline fan-out keeps that containment for a route's reaction.
     it("contains a route's throwing deadline reaction and still ends the reception and shows the notice", async () => {
       setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const failure = new Error('deadline reaction failed');
       sfuDeadlineReaction = () => {
         throw failure;
@@ -1305,7 +1305,7 @@ describe('system audio guest receive watchdog', () => {
     it("runs the same reactions when the direct call's replacement deadline expires the reception", async () => {
       stubAudioSource();
       setState('player.currentTrackMeta', { type: 'file', name: 'previous-track' });
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const active = createMediaConnection();
       bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
       active.emit('stream', audioStreamWithTrack());
@@ -1337,7 +1337,7 @@ describe('system audio guest receive watchdog', () => {
       const toast = vi.fn();
       sfuDeadlineReaction = timeout;
       bus.on('ui:show-toast', toast);
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const successorMeta: TrackMeta = { type: 'file', name: 'successor-file' };
       claimPlaybackOwner('file', { currentTrackMeta: successorMeta });
       setPlaybackFilePlaying();
@@ -1353,7 +1353,7 @@ describe('system audio guest receive watchdog', () => {
     // The guest-role half moved with the SFU's call in C4-6
     // (system-audio-sfu.test.ts, "guest SFU receive slot inputs").
     it('ignores a delivery handoff once the placeholder is gone', async () => {
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       setSystemAudioReceiving(true);
       expect(timerMocks.timers.has(watchdogName)).toBe(false);
 
@@ -1369,7 +1369,7 @@ describe('system audio guest receive watchdog', () => {
       vi.mocked(primeWebRtcAudioDecoder).mockReturnValueOnce(primer);
       const previousMeta: TrackMeta = { type: 'file', name: 'previous-track' };
       setState('player.currentTrackMeta', previousMeta);
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const active = createMediaConnection();
       bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
       active.emit('stream', audioStreamWithTrack());
@@ -1411,7 +1411,7 @@ describe('system audio guest receive watchdog', () => {
       const now = vi.spyOn(Date, 'now');
       try {
         now.mockReturnValue(1_000);
-        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
         expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
           placeholder: true,
           lastStartAt: 1_000,
@@ -1421,7 +1421,7 @@ describe('system audio guest receive watchdog', () => {
         });
 
         now.mockReturnValue(2_000);
-        await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
         expect(getSystemAudioGuestDebugSnapshot()).toMatchObject({
           lastStartAt: 1_000,
           lastStartIgnoredAt: 2_000,
@@ -1636,7 +1636,7 @@ describe('system audio guest receive watchdog', () => {
     it('keeps a refused replacement call open and current with no replacement deadline: no expiry, no notice, no close', async () => {
       const toast = vi.fn();
       bus.on('ui:show-toast', toast);
-      await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, hostConn);
       const active = createMediaConnection();
       bus.emit('system-audio:incoming-call', active.mediaConn, 'STEREO');
       active.emit('stream', audioStreamWithTrack());

@@ -137,7 +137,7 @@ async function hostFrame(frame: Record<string, unknown>): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
-const start = () => hostFrame({ type: MSG.SYSTEM_AUDIO_START });
+const start = () => hostFrame({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' });
 const stop = () => hostFrame({ type: MSG.SYSTEM_AUDIO_STOP });
 const ready = (sessionId: string) =>
   hostFrame({

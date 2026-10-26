@@ -345,7 +345,7 @@ describe.each(['small', 'large'] as const)(
         );
       }
       if (scenario === 'system-audio')
-        await handleData({ type: MSG.SYSTEM_AUDIO_START }, wire.receiver.conn);
+        await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, wire.receiver.conn);
       if (scenario === 'unauthorized-pause')
         await handleData({ type: MSG.PAUSE, queueItemId: NEXT, time: 1, reason: 'pause' }, {
           peer: 'evil',

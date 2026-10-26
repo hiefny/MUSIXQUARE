@@ -1586,6 +1586,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       sfuReadyHandler!(
         {
           version: 2,
+          audience: 'remote',
           sessionId: 'host-sess',
           track: { trackName: 'audio-stereo', mid: '0' },
         },
@@ -1686,6 +1687,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       ((data: unknown, conn?: unknown) => void) | undefined;
     const ready = {
       version: 2,
+      audience: 'remote',
       sessionId: 'host-sess',
       track: { trackName: 'audio-stereo', mid: '0' },
     };
@@ -1738,7 +1740,12 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     receiveSlotMocks.end.mockClear();
     try {
       handler!(
-        { version: 2, sessionId: 'host-sess', track: { trackName: 'audio-stereo', mid: '0' } },
+        {
+          version: 2,
+          audience: 'remote',
+          sessionId: 'host-sess',
+          track: { trackName: 'audio-stereo', mid: '0' },
+        },
         hostConn,
       );
       await resolveRealtime('new-session', {
@@ -1791,6 +1798,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     sfuReadyHandler!(
       {
         version: 2,
+        audience: 'remote',
         sessionId: 'trusted-boundary-host-session',
         track: { trackName: 'audio-stereo', mid: '0' },
       },

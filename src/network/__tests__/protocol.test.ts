@@ -15,6 +15,7 @@ import {
   initProtocol,
   registerInboundRateLimitExemptionGuard,
 } from '../protocol.ts';
+import { readSystemAudioStartSurface } from '../system-audio-start.ts';
 import type { MsgType } from '../../core/constants.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
@@ -874,7 +875,7 @@ describe('system-audio SFU frame validation', () => {
       track: { trackName: 'audio-stereo', mid: '0' },
     };
 
-    for (const audience of [undefined, 'remote', 'all']) {
+    for (const audience of ['remote', 'all']) {
       await handleData({ ...valid, audience }, conn);
     }
     await handleData({ ...valid, audience: 'remote', handoffFromDirect: true }, conn);
@@ -883,7 +884,29 @@ describe('system-audio SFU frame validation', () => {
     }
     await handleData({ ...valid, audience: 'remote', handoffFromDirect: false }, conn);
 
-    expect(handler).toHaveBeenCalledTimes(4);
+    expect(handler).toHaveBeenCalledTimes(3);
+  });
+
+  // Every sender (makeReadyMessage, unchanged in 9.0.12 and 9.0.13) carries
+  // the audience, so a READY without one is refused (old-version survey
+  // OV-A08).
+  it('rejects a READY without an audience (5B-OV3)', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-system-audio-ready-audience');
+    registerHandler(MSG.SYSTEM_AUDIO_SFU_READY, handler);
+    const withoutAudience = {
+      type: MSG.SYSTEM_AUDIO_SFU_READY,
+      version: 2,
+      sessionId: 'publication-session',
+      track: { trackName: 'audio-stereo', mid: '0' },
+    };
+
+    await handleData(withoutAudience, conn);
+    await handleData({ ...withoutAudience, handoffFromDirect: true }, conn);
+    expect(handler).not.toHaveBeenCalled();
+
+    await handleData({ ...withoutAudience, audience: 'remote' }, conn);
+    expect(handler).toHaveBeenCalledOnce();
   });
 
   it('requires exactly one original stereo publication track', async () => {
@@ -895,8 +918,22 @@ describe('system-audio SFU frame validation', () => {
       {
         type: MSG.SYSTEM_AUDIO_SFU_READY,
         version: 2,
+        audience: 'remote',
         sessionId: 'publication-session',
         track: { trackName: 'audio-stereo', mid: '0' },
+      },
+      conn,
+    );
+    // The old per-channel list stays refused even beside a valid audience and
+    // track (5B-OV3 keeps the fence).
+    await handleData(
+      {
+        type: MSG.SYSTEM_AUDIO_SFU_READY,
+        version: 2,
+        audience: 'remote',
+        sessionId: 'publication-session',
+        track: { trackName: 'audio-stereo', mid: '0' },
+        tracks: [{ trackName: 'audio-stereo', mid: '0' }],
       },
       conn,
     );
@@ -923,6 +960,40 @@ describe('system-audio SFU frame validation', () => {
     );
 
     expect(handler).toHaveBeenCalledOnce();
+  });
+});
+
+// Every START sender builds the frame with createSystemAudioStartFrame, which
+// always carries the surface (unchanged in 9.0.12 and 9.0.13), so a START
+// without one is refused (old-version survey OV-A08). An unknown bounded
+// value still passes and reads as DISPLAY.
+describe('system-audio START frame validation', () => {
+  it('rejects a START without a surface (5B-OV3)', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-system-audio-start-surface');
+    registerHandler(MSG.SYSTEM_AUDIO_START, handler);
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, conn);
+    expect(handler).not.toHaveBeenCalled();
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'display' }, conn);
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
+  it('accepts an unknown short surface and reads it as display; refuses an unbounded or non-string one', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-system-audio-start-unknown-surface');
+    registerHandler(MSG.SYSTEM_AUDIO_START, handler);
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'future-surface' }, conn);
+    for (const surface of ['x'.repeat(17), 42, null, { kind: 'window' }]) {
+      await handleData({ type: MSG.SYSTEM_AUDIO_START, surface }, conn);
+    }
+
+    expect(handler).toHaveBeenCalledOnce();
+    const [frame] = handler.mock.calls[0] as [Record<string, unknown>];
+    expect(frame.surface).toBe('future-surface');
+    expect(readSystemAudioStartSurface(frame)).toBe('display');
   });
 });
 

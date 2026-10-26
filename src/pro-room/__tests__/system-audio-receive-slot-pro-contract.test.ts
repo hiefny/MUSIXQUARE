@@ -1029,7 +1029,10 @@ describe('room switch, share end, leave and force-stop', () => {
     setState('network.hostConn', hostConn as DataConnection);
     setState('network.connectionType', 'remote');
     markQueueAuthorityReady(hostConn as DataConnection);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn as DataConnection);
+    await handleData(
+      { type: MSG.SYSTEM_AUDIO_START, surface: 'display' },
+      hostConn as DataConnection,
+    );
     await handleData(
       {
         type: MSG.SYSTEM_AUDIO_SFU_READY,
@@ -1092,7 +1095,10 @@ describe('room switch, share end, leave and force-stop', () => {
     setState('network.hostConn', hostConn as DataConnection);
     setState('network.connectionType', 'remote');
     markQueueAuthorityReady(hostConn as DataConnection);
-    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn as DataConnection);
+    await handleData(
+      { type: MSG.SYSTEM_AUDIO_START, surface: 'display' },
+      hostConn as DataConnection,
+    );
     // The Standard subscription's track request never answers.
     realtime.injectFault('tracks-new', 'hang');
     await handleData(

@@ -831,11 +831,13 @@ describe('live signaling smoke deployment readiness', () => {
 describe('live signaling smoke App build', () => {
   const CANDIDATE = { build: 785, signalingMode: 'candidate' } as const;
   const UNKNOWN = { build: 785, signalingMode: 'unknown' } as const;
-  const LEGACY_REFUSAL = {
+  const INVALID_FIRST_FRAME = {
     type: 'error',
     errorType: 'invalid-id',
     message: 'HOST_AUTH_FIRST_FRAME_INVALID',
   };
+  const invalidFrameLine = (label: string) =>
+    `${label}: host-auth refused as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID)`;
   const FLOOR_REFUSAL = {
     type: 'error',
     // The exact refusal frame the Signaling Worker sends below the floor.
@@ -861,49 +863,53 @@ describe('live signaling smoke App build', () => {
     ).toThrow(StaleSignalingVersionError);
   });
 
-  it('treats a pre-floor refusal of the first candidate host as a stale edge', async () => {
+  // The Signaling Worker requires the PIN fields on host-auth (old-version
+  // removal W-3) and refuses any frame without them with this same reason. It
+  // means the smoke's frame is wrong, so it is never a stale edge to wait out.
+  it('fails an invalid first frame of the first candidate host at once, never as a stale edge', async () => {
     const refusal = (): unknown =>
-      requireAdmittedSignalingHost(LEGACY_REFUSAL, 'host', 785, CANDIDATE, EXPECTED_VERSION, true);
-    expect(refusal).toThrow(StaleSignalingVersionError);
-    expect(refusal).toThrow('without appBuild support');
+      requireAdmittedSignalingHost(
+        INVALID_FIRST_FRAME,
+        'host',
+        785,
+        CANDIDATE,
+        EXPECTED_VERSION,
+        true,
+      );
+    expect(refusal).toThrow(invalidFrameLine('host'));
+    expect(refusal).not.toThrow(StaleSignalingVersionError);
 
     let attempts = 0;
     await expect(
       withSignalingReadinessRetry(
         async () => {
           attempts += 1;
-          if (attempts === 1) refusal();
+          refusal();
           return 'admitted';
         },
-        { retryDelaysMs: [0], wait: async () => {}, onRetry: () => {} },
+        { retryDelaysMs: [0, 0, 0], wait: async () => {}, onRetry: () => {} },
       ),
-    ).resolves.toBe('admitted');
-    expect(attempts).toBe(2);
+    ).rejects.toThrow(invalidFrameLine('host'));
+    expect(attempts).toBe(1);
   });
 
-  it('fails a pre-floor refusal of a later candidate host outright', () => {
-    const refusal = (): unknown =>
+  it('fails an invalid first frame of a later host and of an unknown Worker version at once', () => {
+    const later = (): unknown =>
       requireAdmittedSignalingHost(
-        LEGACY_REFUSAL,
+        INVALID_FIRST_FRAME,
         'reconnected host',
         785,
         CANDIDATE,
         EXPECTED_VERSION,
         false,
       );
-    expect(refusal).toThrow('reconnected host reached a signaling Worker without appBuild support');
-    expect(refusal).not.toThrow(StaleSignalingVersionError);
-  });
+    expect(later).toThrow(invalidFrameLine('reconnected host'));
+    expect(later).not.toThrow(StaleSignalingVersionError);
 
-  it('hands a pre-floor refusal to the one legacy retry when the Worker version is unknown', () => {
-    expect(() =>
-      requireAdmittedSignalingHost(LEGACY_REFUSAL, 'host', 785, UNKNOWN, '', true),
-    ).toThrow(LegacySignalingHostAuthError);
-    // A legacy-shape frame refused as invalid is a real protocol failure.
-    const legacyShape = (): unknown =>
-      requireAdmittedSignalingHost(LEGACY_REFUSAL, 'host', null, UNKNOWN, '', true);
-    expect(legacyShape).toThrow('HOST_AUTH_FIRST_FRAME_INVALID');
-    expect(legacyShape).not.toThrow(LegacySignalingHostAuthError);
+    const unknownVersion = (): unknown =>
+      requireAdmittedSignalingHost(INVALID_FIRST_FRAME, 'host', 785, UNKNOWN, '', true);
+    expect(unknownVersion).toThrow(invalidFrameLine('host'));
+    expect(unknownVersion).not.toThrow(StaleSignalingVersionError);
   });
 
   it('never retries a floor refusal of the candidate build', () => {

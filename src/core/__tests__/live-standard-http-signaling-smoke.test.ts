@@ -21,6 +21,14 @@ function jsonResponse(value: unknown, status = 200): Response {
 // For tests of the final failure line: the run's one retry is already used.
 const SPENT_RATE_LIMIT_RETRY: RateLimitUnavailableRetry = { claim: async () => false };
 
+// The host-auth every App sends: the PIN fields are required (old-version removal W-3).
+const NEVER_IN_URL_HOST_AUTH = {
+  type: 'host-auth',
+  secret: 'never-in-url',
+  desiredRoomPassword: '',
+  pinMutationId: 'http-client-mutation-000000001',
+};
+
 describe('live Standard HTTPS signaling smoke', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -51,7 +59,7 @@ describe('live Standard HTTPS signaling smoke', () => {
       role: 'host',
       peerId: 'http-host-abcdef12',
     });
-    await client.send({ type: 'host-auth', secret: 'never-in-url' });
+    await client.send(NEVER_IN_URL_HOST_AUTH);
     await expect(client.poll(250)).resolves.toEqual([{ type: 'peer-open', roomId: '123456' }]);
     await client.close();
 
@@ -68,7 +76,7 @@ describe('live Standard HTTPS signaling smoke', () => {
     expect(sendBody).toEqual({
       v: 1,
       cseq: 1,
-      frame: JSON.stringify({ type: 'host-auth', secret: 'never-in-url' }),
+      frame: JSON.stringify(NEVER_IN_URL_HOST_AUTH),
     });
     const pollBody = JSON.parse(String(requests[2]?.init.body)) as Record<string, unknown>;
     expect(pollBody).toEqual({ v: 1, requestEpoch: 1, ack: 0, waitMs: 250 });
@@ -409,8 +417,17 @@ describe('live Standard HTTPS signaling smoke', () => {
       const { retry, log } = trackedRetry();
       const client = await open('host', retry);
 
-      await client.send({ type: 'host-auth', secret: 'private-secret' });
-      await client.send({ type: 'room-password-set', password: '' });
+      await client.send({
+        type: 'host-auth',
+        secret: 'private-secret',
+        desiredRoomPassword: '',
+        pinMutationId: 'http-retry-mutation-0000000001',
+      });
+      await client.send({
+        type: 'room-password-set',
+        password: '',
+        pinMutationId: 'http-retry-mutation-0000000001',
+      });
 
       const sequences = sentBodies(fetchMock)
         .slice(1)
@@ -749,12 +766,12 @@ describe('live Standard HTTPS signaling smoke App build', () => {
     terminal: { code: number; reason: string } | null;
   }
 
-  /** A bridge whose room either accepts appBuild or is a pre-floor Worker. */
+  /** A bridge whose room admits the host, or refuses its host-auth as an invalid first frame. */
   function fakeBridge({
-    preFloorWorker = false,
+    refuseHostAuth = false,
     workerVersionId,
   }: {
-    preFloorWorker?: boolean;
+    refuseHostAuth?: boolean;
     workerVersionId?: string;
   }) {
     const sessions = new Map<string, BridgeSession>();
@@ -804,7 +821,7 @@ describe('live Standard HTTPS signaling smoke App build', () => {
         const body = JSON.parse(String(init?.body)) as { cseq: number; frame: string };
         const frame = JSON.parse(body.frame) as Record<string, unknown>;
         frames.push({ role: state.role, frame });
-        if (frame.type === 'host-auth' && preFloorWorker && 'appBuild' in frame) {
+        if (frame.type === 'host-auth' && refuseHostAuth) {
           enqueue(state, {
             type: 'error',
             errorType: 'invalid-id',
@@ -874,39 +891,36 @@ describe('live Standard HTTPS signaling smoke App build', () => {
       ['host', 'host-auth', RELEASE_BUILD],
       ['guest', 'guest-auth', RELEASE_BUILD],
     ]);
+    // The Signaling Worker requires both PIN fields on host-auth.
+    expect(auth[0]?.frame).toMatchObject({
+      desiredRoomPassword: '',
+      pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
+    });
   });
 
-  it('retries the host once in the legacy shape on a pre-floor Worker of unknown version', async () => {
-    const bridge = fakeBridge({ preFloorWorker: true });
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  // A Worker that cannot parse the host-auth answers HOST_AUTH_FIRST_FRAME_INVALID.
+  // The smoke's frame is then wrong: it fails at once with that reason and never
+  // retries in another shape, whatever the Worker version.
+  it.each([
+    ['unknown', undefined],
+    ['candidate', 'version-1'],
+  ])(
+    'fails at once on an invalid first frame for a %s Worker version',
+    async (_mode, workerVersionId) => {
+      if (workerVersionId) vi.stubEnv('MXQR_EXPECTED_SIGNALING_VERSION', workerVersionId);
+      const bridge = fakeBridge({ refuseHostAuth: true, workerVersionId });
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
-    await main();
-
-    const hostAuth = bridge.frames.filter(({ frame }) => frame.type === 'host-auth');
-    expect(hostAuth.map(({ frame }) => frame.appBuild)).toEqual([RELEASE_BUILD, undefined]);
-    expect([...bridge.sessions.values()].filter((session) => session.role === 'host')).toHaveLength(
-      2,
-    );
-    // The guest frame always carries the build: a pre-floor guest validator
-    // ignores the extra key.
-    expect(bridge.frames.find(({ frame }) => frame.type === 'guest-auth')?.frame.appBuild).toBe(
-      RELEASE_BUILD,
-    );
-    expect(warn.mock.calls.map(([line]) => String(line)).join('\n')).toContain(
-      'legacy signaling Worker (no floor)',
-    );
-    expect(JSON.parse(String(output.mock.calls[0]?.[0]))).toMatchObject({ ok: true });
-  });
-
-  it('fails when the candidate signaling Worker refuses the build as an unknown key', async () => {
-    vi.stubEnv('MXQR_EXPECTED_SIGNALING_VERSION', 'version-1');
-    const bridge = fakeBridge({ preFloorWorker: true, workerVersionId: 'version-1' });
-    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-
-    await expect(main()).rejects.toThrow('without appBuild support');
-    expect(bridge.frames.filter(({ frame }) => frame.type === 'host-auth')).toHaveLength(1);
-  });
+      await expect(main()).rejects.toThrow(
+        'HTTP signaling host: host-auth refused as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID)',
+      );
+      expect(bridge.frames.filter(({ frame }) => frame.type === 'host-auth')).toHaveLength(1);
+      expect([...bridge.sessions.values()].map((session) => session.role)).toEqual(['host']);
+      expect(warn.mock.calls.map(([line]) => String(line)).join('\n')).not.toContain(
+        'legacy signaling Worker',
+      );
+    },
+  );
 
   it('still fails a session that closes before the awaited frame', async () => {
     vi.stubGlobal(

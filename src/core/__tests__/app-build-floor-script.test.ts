@@ -696,13 +696,26 @@ describe('App build floor script', () => {
     expect(probes).toBe(1);
   });
 
-  it('fails when the Signaling Worker does not know appBuild', async () => {
+  it('fails at once when the Signaling Worker refuses the probe as an invalid first frame', async () => {
+    // The probe's host-auth no longer matches the shape the Worker requires:
+    // repeating it cannot help, and 'deploy signaling first' would be wrong.
     const world = new FloorWorld();
     const deps = world.deps();
-    deps.probeSignaling = async () => ({ outcome: 'legacy-refused' });
-    await expect(
-      runAppBuildFloorCommand({ action: 'set', minAppBuild: 785, reason: 'Turn it on' }, deps),
-    ).rejects.toThrow('does not accept appBuild');
+    let probes = 0;
+    deps.probeSignaling = async () => {
+      probes += 1;
+      return { outcome: 'invalid-frame' };
+    };
+    const failure = await runAppBuildFloorCommand(
+      { action: 'set', minAppBuild: 785, reason: 'Turn it on' },
+      deps,
+    ).then(
+      () => null,
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    );
+    expect(failure).toContain('HOST_AUTH_FIRST_FRAME_INVALID');
+    expect(failure).not.toContain('deploy signaling first');
+    expect(probes).toBe(1);
   });
 
   it('keeps a set at the stored floor as a re-verification without posting', async () => {
@@ -1000,8 +1013,21 @@ describe('App build floor Signaling probe', () => {
   it('sends one host-auth with the build and reports the exact refusal and close', async () => {
     const { socket, outcome } = startProbe(784);
     expect(socket.sent).toHaveLength(1);
-    expect(socket.sent[0]).toMatchObject({ type: 'host-auth', appBuild: 784 });
-    expect(Object.keys(socket.sent[0] ?? {}).sort()).toEqual(['appBuild', 'secret', 'type']);
+    // The Signaling Worker requires the desired PIN ('' for none) and its
+    // mutation ID before it reads the build (old-version removal W-3).
+    expect(socket.sent[0]).toMatchObject({
+      type: 'host-auth',
+      appBuild: 784,
+      desiredRoomPassword: '',
+      pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/),
+    });
+    expect(Object.keys(socket.sent[0] ?? {}).sort()).toEqual([
+      'appBuild',
+      'desiredRoomPassword',
+      'pinMutationId',
+      'secret',
+      'type',
+    ]);
     socket.emit(
       'message',
       frame({
@@ -1028,14 +1054,14 @@ describe('App build floor Signaling probe', () => {
     expect(socket.terminated).toBe(1);
   });
 
-  it('tells a pre-floor Worker apart from any other refusal', async () => {
-    const legacy = startProbe();
-    legacy.socket.emit(
+  it('tells an invalid first frame apart from any other refusal', async () => {
+    const invalid = startProbe();
+    invalid.socket.emit(
       'message',
       frame({ type: 'error', errorType: 'invalid-id', message: 'HOST_AUTH_FIRST_FRAME_INVALID' }),
     );
-    legacy.socket.emit('close', 1008, Buffer.from('HOST_AUTH_FIRST_FRAME_INVALID'));
-    await expect(legacy.outcome).resolves.toEqual({ outcome: 'legacy-refused' });
+    invalid.socket.emit('close', 1008, Buffer.from('HOST_AUTH_FIRST_FRAME_INVALID'));
+    await expect(invalid.outcome).resolves.toEqual({ outcome: 'invalid-frame' });
 
     const silent = startProbe();
     silent.socket.emit('message', Buffer.from('not json'));

@@ -35,9 +35,12 @@ function key(index: number): string {
 describe('Standard-room PIN membership wire validation', () => {
   const pinFrame = { type: 'room-password-set', password: '12345678', pinMutationId: MUTATION_ID };
 
-  it('keeps every legacy frame valid', () => {
-    expect(validFrame({ type: 'room-password-set', password: '' })).toBe(true);
-    expect(validFrame({ type: 'room-password-set', password: '12345678' })).toBe(true);
+  it('requires the mutation ID on every frame', () => {
+    // Apps before 8.4.17 could send the PIN without its mutation ID; no App at
+    // or above the build floor does.
+    expect(validFrame({ type: 'room-password-set', password: '' })).toBe(false);
+    expect(validFrame({ type: 'room-password-set', password: '12345678' })).toBe(false);
+    expect(validFrame({ ...pinFrame, pinMutationId: null })).toBe(false);
     expect(validFrame(pinFrame)).toBe(true);
     expect(validFrame({ ...pinFrame, password: '' })).toBe(true);
     expect(validFrame({ ...pinFrame, password: '1234567' })).toBe(false);
@@ -106,6 +109,9 @@ describe('Standard-room PIN membership wire validation', () => {
     expect(
       validateIncomingMessage({ ...pinFrame, existingParticipants: 'keep_present' }, 'host'),
     ).toBe('ignore');
+    expect(validateIncomingMessage({ type: 'room-password-set', password: '' }, 'host')).toBe(
+      'ignore',
+    );
     // host-auth stays exact: a membership key there is an invalid first frame.
     expect(
       validateIncomingMessage(

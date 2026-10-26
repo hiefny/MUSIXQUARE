@@ -8,7 +8,6 @@ import {
   APP_UPDATE_REQUIRED_ERROR_TYPE,
 } from '../../../cloudflare/app-build-floor-contract.ts';
 import {
-  LEGACY_HOST_AUTH_REFUSAL_REASON,
   LegacySignalingHostAuthError,
   appBuildRequestHeaders,
   classifyHostAdmission,
@@ -29,10 +28,10 @@ const REFUSAL = Object.freeze({
   message: APP_UPDATE_REQUIRED_CODE,
   minAppBuild: 786,
 });
-const LEGACY_REFUSAL = Object.freeze({
+const INVALID_FIRST_FRAME = Object.freeze({
   type: 'error',
   errorType: 'invalid-id',
-  message: LEGACY_HOST_AUTH_REFUSAL_REASON,
+  message: 'HOST_AUTH_FIRST_FRAME_INVALID',
 });
 
 describe('live smoke App build', () => {
@@ -64,7 +63,7 @@ describe('live smoke App build', () => {
     expect(frame).not.toHaveProperty('appBuild');
   });
 
-  it('classifies admission, the exact floor refusal and the pre-floor Worker refusal', () => {
+  it('classifies admission, the exact floor refusal and an invalid first frame', () => {
     expect(classifyHostAdmission({ type: 'peer-open', roomId: '123456' })).toEqual({
       outcome: 'admitted',
       frame: { type: 'peer-open', roomId: '123456' },
@@ -73,7 +72,9 @@ describe('live smoke App build', () => {
       outcome: 'below-floor',
       minAppBuild: 786,
     });
-    expect(classifyHostAdmission({ ...LEGACY_REFUSAL })).toEqual({ outcome: 'legacy-refused' });
+    // The Signaling Worker refuses a host-auth it cannot parse; the smoke's
+    // frame is then wrong, never a sign of an older Worker.
+    expect(classifyHostAdmission({ ...INVALID_FIRST_FRAME })).toEqual({ outcome: 'invalid-frame' });
     for (const frame of [
       { ...REFUSAL, minAppBuild: 0 },
       { ...REFUSAL, minAppBuild: '786' },
@@ -93,8 +94,8 @@ describe('live smoke App build', () => {
     expect(requireLegacyShapeHostOutcome({ ...REFUSAL }, 'legacy host')).toEqual({
       minAppBuild: 786,
     });
-    expect(() => requireLegacyShapeHostOutcome({ ...LEGACY_REFUSAL }, 'legacy host')).toThrow(
-      'HOST_AUTH_FIRST_FRAME_INVALID',
+    expect(() => requireLegacyShapeHostOutcome({ ...INVALID_FIRST_FRAME }, 'legacy host')).toThrow(
+      'legacy host: host-auth refused as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID)',
     );
     expect(() =>
       requireLegacyShapeHostOutcome({ ...REFUSAL, minAppBuild: -1 }, 'legacy host'),
@@ -215,7 +216,13 @@ describe('live smoke auth frames', () => {
   function authFrameLiterals(path: string) {
     const source = readFileSync(path, 'utf8');
     const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
-    const found: Array<{ type: string; wrapped: boolean; legacyShape: boolean; text: string }> = [];
+    const found: Array<{
+      type: string;
+      wrapped: boolean;
+      legacyShape: boolean;
+      keys: string[];
+      text: string;
+    }> = [];
     const visit = (node: ts.Node): void => {
       if (ts.isObjectLiteralExpression(node)) {
         const typeProperty = node.properties.find(
@@ -241,7 +248,13 @@ describe('live smoke auth frames', () => {
               legacyShape = true;
             }
           }
-          found.push({ type, wrapped, legacyShape, text: node.getText(file) });
+          const keys = node.properties.flatMap((property) =>
+            (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) &&
+            property.name
+              ? [property.name.getText(file)]
+              : [],
+          );
+          found.push({ type, wrapped, legacyShape, keys, text: node.getText(file) });
         }
       }
       ts.forEachChild(node, visit);
@@ -268,4 +281,22 @@ describe('live smoke auth frames', () => {
     );
     expect(legacy.filter((frame) => frame.type === 'host-auth')).toHaveLength(1);
   });
+
+  // The Signaling Worker requires the desired PIN and its mutation ID on every
+  // host-auth (old-version removal W-3). A smoke or the floor probe without
+  // them would be refused as an invalid first frame and roll the release back
+  // or fail the floor proof. The legacy-shape host carries them too: it stands
+  // for an App without appBuild, and every App since 8.4.17 sends both.
+  it.each([...SMOKES, 'scripts/app-build-floor.mts'])(
+    '%s sends the PIN fields on every host-auth',
+    (path) => {
+      const hostAuth = authFrameLiterals(path).filter((frame) => frame.type === 'host-auth');
+      expect(hostAuth.length).toBeGreaterThan(0);
+      for (const frame of hostAuth) {
+        expect(frame.keys, frame.text).toEqual(
+          expect.arrayContaining(['desiredRoomPassword', 'pinMutationId']),
+        );
+      }
+    },
+  );
 });

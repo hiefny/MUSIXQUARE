@@ -323,7 +323,14 @@ describe('Standard HTTPS signaling bridge failure diagnostics', () => {
     });
     const client = await openHost();
 
-    const message = await failureOf(client.send({ type: 'host-auth', secret: 'private-secret' }));
+    const message = await failureOf(
+      client.send({
+        type: 'host-auth',
+        secret: 'private-secret',
+        desiredRoomPassword: '',
+        pinMutationId: 'bridge-diagnostic-mutation-0001',
+      }),
+    );
     await client.close();
 
     expect(message).toBe(

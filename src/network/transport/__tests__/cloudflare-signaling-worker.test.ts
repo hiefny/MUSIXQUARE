@@ -9743,8 +9743,17 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     }
     await room.webSocketMessage(
       host,
-      JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '12345678',
+        pinMutationId: 'pending-capacity-pin-0001',
+      }),
     );
+    expect(sent(host).at(-1)).toEqual({
+      type: 'room-password-result',
+      mutationId: 'pending-capacity-pin-0001',
+      applied: true,
+    });
     for (let index = 49; index < 99; index++) {
       await room.fetch(wsRequest('123456', 'guest', `guest-${index}`));
       expect(lastServer().closed).toBe(false);
@@ -9765,8 +9774,17 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     }
     await room.webSocketMessage(
       host,
-      JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '12345678',
+        pinMutationId: 'serialized-ceiling-pin-0001',
+      }),
     );
+    expect(sent(host).at(-1)).toEqual({
+      type: 'room-password-result',
+      mutationId: 'serialized-ceiling-pin-0001',
+      applied: true,
+    });
     await room.fetch(wsRequest('123456', 'guest', 'candidate-a'));
     const first = lastServer();
     await room.fetch(wsRequest('123456', 'guest', 'candidate-b'));
@@ -11016,9 +11034,17 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         !socket.closed,
     );
     expect(rehydratedHost).toBeDefined();
+    const sentBeforeClear = sent(rehydratedHost!).length;
     await rehydratedRoom.webSocketMessage(
       rehydratedHost!,
-      JSON.stringify({ type: 'room-password-set', password: '' }),
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '',
+        pinMutationId: 'missing-meta-pin-clear-0001',
+      }),
+    );
+    expect(sent(rehydratedHost!).slice(sentBeforeClear)).not.toContainEqual(
+      expect.objectContaining({ type: 'room-password-result', applied: true }),
     );
     const guest = await joinGuest(rehydratedRoom, 'missing-live-room-meta', {
       password: '12345678',

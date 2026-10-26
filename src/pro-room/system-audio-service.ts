@@ -27,6 +27,7 @@ import {
   type ProSystemAudioDirectFallbackEvent,
   type ProSystemAudioDirectInboundOfferContext,
   type ProSystemAudioDirectInboundSignalContext,
+  type ProSystemAudioDirectRouteStoppedEvent,
   type ProSystemAudioDirectTarget,
   type ProSystemAudioDirectTrackReadyEvent,
 } from '../network/pro-system-audio-direct.ts';
@@ -1153,6 +1154,36 @@ function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): vo
   }
 }
 
+/**
+ * The remote LAN-direct publisher closed this listener's route with
+ * 'stopped' (5B-G6, owner decision P5-D5 A, gap 11). It sends that only from
+ * its explicit stop, before it releases the share, and no later delivery
+ * exists for the publication, so end the reception now rather than at the
+ * server's idle state: clear the direct receive deadline (the stop is no
+ * failure to report), drop the source and primer, and end the slot while it
+ * still holds a reception (its end leaves a successor alone). No notice. The
+ * publication key stays, so a heartbeat of the unchanged live state begins
+ * nothing again, and the post-share restore still follows the idle state.
+ */
+function handleDirectRouteStopped(event: ProSystemAudioDirectRouteStoppedEvent): void {
+  const state = controller?.getCurrentState();
+  if (
+    state?.status !== 'live' ||
+    !isProRoomSystemAudioDirectPublication(state.publication) ||
+    state.generation !== event.generation ||
+    state.publication.publicationId !== event.publicationId ||
+    state.ownerParticipantId !== event.participantId ||
+    state.ownerParticipantId === localParticipantId()
+  ) {
+    return;
+  }
+  const identity = captureCoordinatorPublicationIdentity(state);
+  if (!identity || coordinatorSubscriptionKey !== coordinatorPublicationKey(identity)) return;
+  clearManagedTimer(DIRECT_RECEIVE_DEADLINE_TIMER);
+  detachSystemAudioRoute(COORDINATOR_ROUTE);
+  if (hasTrustedSystemAudioReception()) endTrustedSystemAudioReception();
+}
+
 function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
   if (directPromotionFlight) return directPromotionFlight;
   if (ambiguousDirectPromotionPublicationId) return Promise.resolve();
@@ -1506,6 +1537,7 @@ export function configureProSystemAudioService(
     authorizeInboundSignal: authorizeInboundDirectSignal,
     onReceiverTrackReady: attachDirectCoordinatorTrack,
     onLiveRouteFallback: handleDirectRouteFallback,
+    onLiveRouteStopped: handleDirectRouteStopped,
   });
 }
 
@@ -2260,6 +2292,36 @@ export function registerProSystemAudioServiceListeners(): void {
       const identity = captureCoordinatorPublicationIdentity(state);
       if (!identity || !coordinatorPublicationMatches(identity, state)) return;
       retryCoordinatorSubscription(identity);
+      return;
+    }
+    if (event.type === 'subscriber-state' && event.state === 'stopped') {
+      // The subscriber stopped itself at its descriptor's live budget (after a
+      // direct-to-SFU promotion, the promotion's budget can pass while the
+      // share stays live). Since 5B-G6 (gap 12) the slot hears it: drop the
+      // source and interrupt under the coordinator's own deadlines, with no
+      // notice, keeping the placeholder and the publication key; the next
+      // heartbeat's refused subscribe or the idle state follows. The
+      // coordinator's own stops carry an unexpired descriptor or another
+      // publication, or come after its cleanup cleared the key or its 5B-G2
+      // route end marked the publication ended; a retry's cleanup of an
+      // expired subscription detaches and interrupts the same way itself.
+      const state = controller?.getCurrentState();
+      if (
+        state?.status !== 'live' ||
+        !event.descriptor ||
+        event.descriptor.expiresAt > Date.now() ||
+        !descriptorMatchesPublication(event.descriptor, state) ||
+        state.ownerParticipantId === localParticipantId()
+      ) {
+        return;
+      }
+      const identity = captureCoordinatorPublicationIdentity(state);
+      if (!identity || !coordinatorPublicationMatches(identity, state)) return;
+      const key = coordinatorPublicationKey(identity);
+      if (coordinatorSubscriptionKey !== key || coordinatorEndedKey === key) return;
+      clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
+      detachSystemAudioRoute(COORDINATOR_ROUTE);
+      interruptTrustedSystemAudioReception({ deadline: 'route' });
       return;
     }
     if (event.type === 'publisher-state' && event.state === 'published') {

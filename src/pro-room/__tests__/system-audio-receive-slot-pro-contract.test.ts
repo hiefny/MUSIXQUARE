@@ -724,6 +724,49 @@ describe('PRO LAN-direct reception', () => {
     expect(seen.counts.receiveTimeouts).toBe(0);
   });
 
+  it("5B-G6: a publisher's 'stopped' close ends the reception with the previous title and no notice; after a successor replaced the pending placeholder it leaves the successor alone", async () => {
+    await applyState(live(directPublication()));
+    proDirect.deliverTrack(makeAudioTrack('direct-audio-1'));
+    await advance(0);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['direct-audio-1'] });
+
+    proDirect.publisherStopped();
+    expect(slot()).toEqual({
+      receiving: false,
+      mode: null,
+      activity: 'idle',
+      title: previousTitle,
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    });
+    await advance(60_000);
+    expect(seen.toasts).toEqual([]);
+    await applyState(idle(2));
+    expect(slot().title).toBe(previousTitle);
+    expect(restorePlayback).toHaveBeenCalledTimes(1);
+
+    // A new share whose pending placeholder a successor replaced: the slot
+    // refuses the track the publisher then delivers (5B-G1) and the route
+    // stays open, and the 'stopped' close's slot end leaves the successor's
+    // title and lifecycle alone.
+    await applyState(live(directPublication(), 3));
+    claimPlaybackOwner('file', { currentTrackMeta: createFileTrackMeta('successor.mp3') });
+    proDirect.deliverTrack(makeAudioTrack('direct-audio-2'));
+    await advance(0);
+    proDirect.publisherStopped();
+    expect(slot()).toEqual({
+      receiving: false,
+      mode: 'file',
+      activity: 'playing',
+      title: 'successor',
+      placeholder: false,
+      sources: [],
+      primers: 0,
+    });
+    expect(seen.toasts).toEqual([]);
+  });
+
   it('G5, fixed in 9.0.2: with no track for 30 s the direct deadline says connection_unstable once, keeps the placeholder, and a late track attaches', async () => {
     await applyState(live(directPublication()));
     await advance(29_999);

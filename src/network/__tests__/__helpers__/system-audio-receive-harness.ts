@@ -18,6 +18,7 @@ import type { MediaConnection } from '../../../types/index.ts';
 import type { ProSystemAudioSfuPublicationDescriptor } from '../../pro-system-audio-sfu.ts';
 import type {
   ProSystemAudioDirectFallbackEvent,
+  ProSystemAudioDirectRouteStoppedEvent,
   ProSystemAudioDirectTrackReadyEvent,
 } from '../../pro-system-audio-direct.ts';
 
@@ -550,13 +551,15 @@ export const proSfu = new ProSfuFake();
 // once per route through a microtask with isCurrent() bound to the route and the
 // active publication, and a rejected handoff fails the route into a receiver
 // fallback (maybeDeliverReceiverTrack); a receiver fallback closes the route and
-// calls onLiveRouteFallback. Does not model SDP/ICE signaling, offer
-// authorization, the publisher side or the transport's own 5 s receiver
-// track-ready timeout.
+// calls onLiveRouteFallback; a publisher's 'stopped' close (publisherStopped)
+// closes the route and calls onLiveRouteStopped (5B-G6). Does not model SDP/ICE
+// signaling, offer authorization, the publisher side or the transport's own 5 s
+// receiver track-ready timeout.
 
 interface DirectCallbacks {
   onReceiverTrackReady: (event: ProSystemAudioDirectTrackReadyEvent) => void | Promise<void>;
   onLiveRouteFallback: (event: ProSystemAudioDirectFallbackEvent) => void;
+  onLiveRouteStopped: (event: ProSystemAudioDirectRouteStoppedEvent) => void;
 }
 
 interface DirectPublication {
@@ -624,6 +627,18 @@ class ProDirectFake {
     this.callbacks?.onLiveRouteFallback({
       role: 'receiver',
       reason,
+      participantId: route.publication.ownerParticipantId,
+      generation: route.publication.generation,
+      publicationId: route.publication.publicationId,
+    });
+  }
+
+  /** The publisher closed the current route with 'stopped' (its explicit stop). */
+  publisherStopped(): void {
+    const route = this.route;
+    if (!route) return;
+    this.closeRoute();
+    this.callbacks?.onLiveRouteStopped({
       participantId: route.publication.ownerParticipantId,
       generation: route.publication.generation,
       publicationId: route.publication.publicationId,

@@ -424,11 +424,13 @@ RO-49 accepted-exception
   closes its subscription as for the trust boundary's refusal (the share route stays frozen),
   and the PRO coordinator closes a refused SFU track's subscription for that publication
   (since 5B-G2, below) and keeps a LAN-direct route open. `'graph-unavailable'` keeps
-  each route's throw and policy. The disconnect grace, a retry and a receiver fallback
-  interrupt the slot with `deadline: 'route'` (`interruptTrustedSystemAudioReception`: the
+  each route's throw and policy. The disconnect grace, a retry and a receiver fallback (and
+  since 5B-G6 the SFU subscriber's budget expiry, below) interrupt the slot with
+  `deadline: 'route'` (`interruptTrustedSystemAudioReception`: the
   receiving flag drops
-  and no watchdog is armed, because the coordinator owns its deadlines); the retry and the
-  fallback detach the route first, the disconnect grace keeps the source. The coordinator's
+  and no watchdog is armed, because the coordinator owns its deadlines); the retry, the
+  fallback and the budget expiry detach the route first, the disconnect grace keeps the source.
+  The coordinator's
   cleanups detach the route, and its direct receive deadline asks the slot whether the route
   attached a source. It keeps the subscription key, the same-publication retry that skips the
   start (G6), the direct receive deadline with its five releases (since 5B-G2 the route end
@@ -465,7 +467,7 @@ RO-49 accepted-exception
   kind (`ReceiveDeadline`, replacing
   the `receiveWatchdog` boolean): `'slot'` arms the slot's 30 s deadline (the host START and the
   Standard SFU after a direct-route failure), `'route'` arms none (the PRO coordinator's two
-  starts and three interrupts). A Standard SFU delivery handoff (a failed subscription handing
+  starts and three interrupts; four since 5B-G6, which added the SFU budget expiry). A Standard SFU delivery handoff (a failed subscription handing
   over to a pending READY, since 5B-G3 a failed re-subscription that attached nothing while the
   slot is receiving, or a direct call replacing the SFU) calls
   `handOffTrustedSystemAudioReception`, which interrupts under the slot deadline while the
@@ -540,7 +542,34 @@ RO-49 accepted-exception
   needs a second desktop sharer) the share end still leaves no title rather than "System Audio
   Sharing". The LAN-direct order part of gap 7 is kept: the coordinator arms its direct receive
   deadline after the start returns, so the nested force-stop cannot clear it, and the 5B-G2 depth
-  counter keeps that force-stop from ending the new subscription. The maintained contract is
+  counter keeps that force-stop from ending the new subscription. Since 5B-G6 (owner decision
+  P5-D5 A, gaps 11 and 12) the coordinator hears two route closures. A LAN-direct publisher's
+  `'stopped'` close (sent only from its explicit stop, before it releases the share) closes the
+  current receiver route, live or not, and the transport now calls a new callback,
+  `onLiveRouteStopped` (`ProSystemAudioDirectTransportCallbacks`, after `acceptClose` closed the
+  route); the coordinator checks the live direct publication (generation, publication id, remote
+  owner and its own key), clears the direct receive deadline, detaches its route and ends the
+  reception while the slot still holds one (`hasTrustedSystemAudioReception()`; the end leaves a
+  successor alone), with no notice. It keeps the publication key, so a heartbeat of the
+  unchanged live state begins nothing again (the direct branch begins only on a key change, and
+  no ended mark is needed), and the post-share restore still follows the server's idle state,
+  because the view drives it; PRO room playback stays blocked while the view is live, so the
+  early end starts nothing early. An end rather than an interrupt: an interrupt keeps the placeholder with receiving off, which shows the play button's loading
+  spinner and reports the Media Session as paused on every LAN-direct listener until the idle
+  state, a new visible state on the most common stop path; the end shows what the idle state
+  shows, only earlier. `'superseded'` and a non-live `'fallback'` close the route only, as before.
+  The PRO SFU subscriber's own budget expiry (its `'stopped'` event with an expired descriptor of
+  the live remote publication, reachable only after a direct-to-SFU promotion whose two-hour
+  budget passes) clears the disconnect grace, detaches the route and interrupts with
+  `deadline: 'route'`, with no notice, keeping the placeholder and the key; the next heartbeat's
+  refused subscribe (one `connection_unstable` and the no-network backoff,
+  `system-audio-subscriber-watchdog.test.ts` "PRO SFU subscription that rejects synchronously",
+  unchanged) or the idle state follows. An interrupt rather than an end there: an end would need
+  the 5B-G2 ended mark for an unchanged expired live state and would change that pinned retry
+  path. The coordinator's own subscriber stops carry an unexpired descriptor or another
+  publication, or come after its cleanup cleared the key or its route end marked the publication
+  ended, so the handler ignores them; a retry's cleanup of an expired subscription detaches and
+  interrupts the same way itself. The maintained contract is
   [System-audio receive ownership](system-audio-receive-ownership.md).
 - **Target single owner:** the receive-slot module `src/network/system-audio-receive-slot.ts`
   (owner decision P5-D4 A, 2026-10-25; created in Phase 5 C4-2, deferred-only). Route adapters
@@ -566,7 +595,9 @@ RO-49 accepted-exception
   alone, the start takes no restore point over the sharer's title, and the PRO coordinator asks
   `hasTrustedSystemAudioReception()` before it ends the slot over its own publication. Since
   5B-G5 an end nested in a start before its placeholder claim keeps that start's claim,
-  generation and restore point.
+  generation and restore point. Since 5B-G6 the PRO coordinator ends the reception on a
+  LAN-direct publisher's `'stopped'` close and interrupts it on its SFU subscriber's budget
+  expiry.
 - **Deadline owner:** per route today, named at each start and interrupt since C4-6
   (`ReceiveDeadline`). Standard P2P: the 30 s receive watchdog, the receive slot's since C4-2
   (timer `sys-audio-guest-receive-watchdog`, the guest receive watchdog in the guard's
@@ -581,23 +612,23 @@ RO-49 accepted-exception
   `system-audio:receive-timeout` bus listener until C4-6).
   Target: one receive deadline per attempt in the slot.
 - **Route parity (owner decision P5-D10 A, recorded in 5B-G1):** Phase 5 changes no parity
-  between the routes; the differences below are kept on purpose. The last row describes the
-  build it is written for: 5B-G6 completes it in its own change (5B-G2 completed the row
-  before it).
+  between the routes; the differences below are kept on purpose. 5B-G2 and 5B-G6 completed the
+  last two rows in their own changes. Since 5B-G6 the PRO SFU subscriber's own budget expiry
+  interrupts the reception with no notice (gap 12).
 
-  | Aspect                                              | Standard direct                       | Standard SFU                            | PRO SFU                                                                                | PRO LAN-direct                                                                            |
-  | --------------------------------------------------- | ------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-  | Playout hint 0.5 s                                  | yes                                   | yes                                     | yes                                                                                    | none                                                                                      |
-  | Initial unmute wait (2 s)                           | yes                                   | no                                      | no                                                                                     | no                                                                                        |
-  | Decoder primer                                      | on arrival, before the trust boundary | once the slot confirms the graph        | once the slot confirms the graph                                                       | once the slot confirms the graph                                                          |
-  | Which attach starts the reception                   | `first-for-slot`                      | `first-for-route`                       | `every-attach`                                                                         | `every-attach`                                                                            |
-  | Deadline                                            | slot 30 s                             | slot 30 s                               | route: backoff 2.5 to 30 s                                                             | route: direct deadline 30 s                                                               |
-  | Deadline notice                                     | `receive_failed`, end                 | `receive_failed`, end                   | `connection_unstable` once per generation, placeholder kept                            | `connection_unstable` once per generation, placeholder kept                               |
-  | Live route failure                                  | silent end (gap 8)                    | silent end (gap 8)                      | `connection_unstable`, retry                                                           | `connection_unstable`, fallback                                                           |
-  | Failed first subscription                           | n/a                                   | silent until the slot deadline (gap 13) | `connection_unstable`, retry                                                           | fallback, `connection_unstable`                                                           |
-  | Error while pending                                 | silent end (gap 14)                   | n/a                                     | n/a                                                                                    | n/a                                                                                       |
-  | Refused attach (slot ended or another owner, 5B-G1) | call kept open, route media dropped   | subscription closed, route frozen       | subscription stopped, publication marked ended (5B-G2); a refused resume keeps it open | route media dropped, route kept open                                                      |
-  | Publisher's explicit stop                           | STOP frame: end                       | STOP frame: end                         | server idle state: end                                                                 | `'stopped'` close closes the route only, the server idle state ends (gap 11, until 5B-G6) |
+  | Aspect                                              | Standard direct                       | Standard SFU                            | PRO SFU                                                                                | PRO LAN-direct                                              |
+  | --------------------------------------------------- | ------------------------------------- | --------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+  | Playout hint 0.5 s                                  | yes                                   | yes                                     | yes                                                                                    | none                                                        |
+  | Initial unmute wait (2 s)                           | yes                                   | no                                      | no                                                                                     | no                                                          |
+  | Decoder primer                                      | on arrival, before the trust boundary | once the slot confirms the graph        | once the slot confirms the graph                                                       | once the slot confirms the graph                            |
+  | Which attach starts the reception                   | `first-for-slot`                      | `first-for-route`                       | `every-attach`                                                                         | `every-attach`                                              |
+  | Deadline                                            | slot 30 s                             | slot 30 s                               | route: backoff 2.5 to 30 s                                                             | route: direct deadline 30 s                                 |
+  | Deadline notice                                     | `receive_failed`, end                 | `receive_failed`, end                   | `connection_unstable` once per generation, placeholder kept                            | `connection_unstable` once per generation, placeholder kept |
+  | Live route failure                                  | silent end (gap 8)                    | silent end (gap 8)                      | `connection_unstable`, retry                                                           | `connection_unstable`, fallback                             |
+  | Failed first subscription                           | n/a                                   | silent until the slot deadline (gap 13) | `connection_unstable`, retry                                                           | fallback, `connection_unstable`                             |
+  | Error while pending                                 | silent end (gap 14)                   | n/a                                     | n/a                                                                                    | n/a                                                         |
+  | Refused attach (slot ended or another owner, 5B-G1) | call kept open, route media dropped   | subscription closed, route frozen       | subscription stopped, publication marked ended (5B-G2); a refused resume keeps it open | route media dropped, route kept open                        |
+  | Publisher's explicit stop                           | STOP frame: end                       | STOP frame: end                         | server idle state: end                                                                 | `'stopped'` close: end (5B-G6), then the server idle state  |
 
   Gaps are those of [Today's gaps](system-audio-receive-ownership.md#todays-gaps).
 
@@ -770,6 +801,25 @@ RO-49 accepted-exception
     "begin re-entrancy (LAN-direct)" row (the direct deadline armed after the start). Since
     5B-G5 the guest unit query row "answers whether the slot holds a reception ..." sets its
     placeholder-only step directly.
+  - The route closures the slot hears (5B-G6) are pinned by rows that failed before it: the
+    transport suite's "gap 11, fixed in 5B-G6: a publisher close 'stopped' ends the LAN-direct
+    reception at once with the previous title ..." (was "expected today: a publisher close
+    'stopped' closes the LAN route without telling the slot ...": idle with the previous title at
+    the close, no notice or close back in 60 s, two heartbeats begin nothing, the share end asks
+    for the post-share restore once), "5B-G6: a publisher close 'stopped' before any track ends
+    the pending reception at once and clears the direct receive deadline ..." (no notice at 30 s)
+    and the first half of "two-hour budget re-publication case, gap 12 fixed in 5B-G6 ..." (at
+    the promotion budget: one `tracks-close`, receiving off, pending, no source or primer, no
+    notice; the heartbeat half unchanged). Guards that pass before and after: the transport rows
+    "5B-G6 guard: a publisher close 'superseded' closes the LAN route without telling the slot
+    ..." (fails if the transport reports every close) and "5B-G6 guard: the subscriber stop the
+    coordinator's own cleanups run emits 'stopped' with the live, unexpired descriptor, which
+    changes nothing in the slot" (fails without the expiry condition). New with the callback:
+    `src/network/__tests__/pro-system-audio-direct.test.ts` "reports only a publisher's 'stopped'
+    close of the current receiver route, once and with no close back (5B-G6)" and the PRO suite's
+    "5B-G6: a publisher's 'stopped' close ends the reception with the previous title and no
+    notice; after a successor replaced the pending placeholder it leaves the successor alone"
+    (through the fake transport's `publisherStopped`).
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the
@@ -831,8 +881,9 @@ RO-49 accepted-exception
   point) are behaviour changes for train 5B (owner decision P5-D5 A), each with its failing test
   first. Train 5B (not yet released): 5B-G1 added the attach fence (gaps 2 and 3), 5B-G2
   the PRO coordinator's force-stop and successor teardown (gaps 4 and 5), 5B-G3 the
-  Standard SFU re-publication handoff (gap 1), 5B-G4 the sharer's own claim (gap 6) and 5B-G5
-  the nested end's restore point (gap 7); the record stays `duplicated`. Exception RO-39.
+  Standard SFU re-publication handoff (gap 1), 5B-G4 the sharer's own claim (gap 6), 5B-G5
+  the nested end's restore point (gap 7) and 5B-G6 the route closures the slot hears (gaps 11
+  and 12); the record stays `duplicated`. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 

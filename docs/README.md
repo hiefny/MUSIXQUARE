@@ -93,6 +93,24 @@ runbooks. Neither belongs in a general setup document.
 
 ## Maintained evidence and completed records
 
+- [Phase 5 train 5B: receive-slot behaviour fixes and the system-audio old-version items (2026-10-26)](design/phase5-5b-receive-slot-behaviour-2026-10-26.md):
+  evidence for the structure program's second Phase 5 app train (not yet released; it ships after
+  the forced-update train 9.0.14 / v787 and its client floor 787, target `app`, its version set at
+  the bump). It fixes the gaps that C4-0 pinned as today's behaviour in the system-audio receive
+  slot (RO-04) in six labelled groups, each with its failing test first: the attach fence (gaps 2
+  and 3), the PRO coordinator's force-stop and successor teardown (4, 5), the Standard SFU
+  re-publication handoff (1), the sharer's own claim (6), the nested end's restore point (7) and
+  the route closures the slot hears (11, 12). C4-13 makes the post-share restore and the
+  foreground repair arm a hidden share end's return once (gap 10; RO-21 owner-in-place, RO-41
+  deleted). It also removes the system-audio old-version items (OV-A04, the coordinator-era
+  adopt, OV-B05, OV-B06, OV-A08) and the dead channel argument of the direct call event (SA-9).
+  The report lists the owner decisions, the plan critique and its dispositions, each increment
+  with its commits, tests-first evidence and fixed device expectation, what stays as is (gaps 8,
+  9, 13, 14, SA-2 and an owner observation on the direct call's boundary refusal), the
+  compatibility lines for the release record (one changed sent frame, the failed-direct READY
+  audience), the QA rounds (per increment, a train-end replay of the system-audio suites at every
+  code commit, the final checks), the eager JS delta and what was not verified on devices.
+
 - [Old-version removal train 1: compatibility code below the existing client floors (2026-10-25)](design/old-version-removal-1-2026-10-25.md):
   evidence for the first train under the owner's policy of 2026-10-25 that older app versions are no
   longer a design constraint (9.0.13 / v786, not yet released; target `app`; it ships right after

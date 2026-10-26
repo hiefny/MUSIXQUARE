@@ -1,0 +1,366 @@
+# Phase 5 5B 배포 묶음: 수신 슬롯 동작 변경과 시스템 오디오 옛 버전 항목 (2026-10-26)
+
+| 항목      | 범위                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 기준      | origin/main `4d7650c0`(옛 버전 제거 1차 #496, 런타임은 운영 9.0.13 / v786). 브랜치는 `agent/phase5-5b`. 그 뒤 main에는 강제 업데이트 열차 `dd9c9d4d`(#498, 9.0.14 / v787, App build floor 787), 그 기록 `9e02d2df`(#499), 옛 버전 제거 2차의 Workers 배포 `a3893f04`(#500, target all, 앱 업데이트 없음)가 들어왔다. 이 브랜치는 아직 main을 합치지 않았다(아래 [출시 전에 남은 것](#출시-전에-남은-것)).                                                                                                                |
+| 5B 묶음   | 증분마다 테스트 먼저 커밋과 코드 커밋 한 쌍이고, 리뷰 반영 커밋이 셋 있다. 5B-G1 `1f8c7a66` → `e74e10da`, 5B-G2 `09a5743f` → `bf80584d`(리뷰 `b0234155`), 5B-G3 `0e451e80` → `a2894382`, 5B-G4 `c29dc8ec` → `8a2c7164`(리뷰 `98c4b040`), 5B-G5 `fefac7a7` → `b4b724b9`, 5B-G6 `9336aeb2` → `95b04ea3`(리뷰 `99b335b6`), 5B-C4-13 `29e5fb72` → `c852c465`, 5B-OV1 `3fd45d5b` → `7293697f`, 5B-OV2 `43b21ea1` → `04f07124`, 5B-OV3 `1ab5f0b8` → `fddbda0a`, 중립 `c0b86b62`. 그 위에 이 보고서와 기록 커밋(문서만)이 있다. |
+| 상태      | 배포 전. 이 브랜치는 push, PR, 머지를 하지 않았다. 출시 순서는 강제 업데이트 열차(9.0.14 / v787, floor 787 켬, 2026-10-26 16:15 KST) 다음이고, bump(9.0.14 다음 patch와 SW 캐시 epoch)와 `docs/release-record.md` 갱신은 5B PR(출시 준비)에서 한다. 강제 업데이트 브랜치가 같은 기록 파일을 고쳤기 때문이다(계획 §6). 오너 결정(2026-10-25 약 01:50 KST)대로 자동 게이트가 통과하면 바로 내고, 기기 근거는 게이트가 아니다.                                                                                              |
+| 현재 증분 | 5A가 만든 수신 슬롯(`src/network/system-audio-receive-slot.ts`, RO-04)에서 C4-0이 오늘 동작으로 고정한 틈 1~7, 10~12를 라벨 붙인 묶음 여섯과 C4-13으로 고친다(P5-D5 A, P5-D11 B). 같은 파일들에 있는 시스템 오디오 옛 버전 항목 OV-A04, OV-B05, OV-B06, OV-A08(시스템 오디오 부분), 코디네이터 시대 잔재(OV-A03 메모)와 죽은 채널 배관 SA-9를 지운다.                                                                                                                                                                    |
+| 제품 식별 | 브랜치의 `package.json`은 9.0.13 그대로다(bump 없음). 출시 번호는 bump 때 9.0.14 / v787 다음 번호가 된다.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| 배포 대상 | 예상: target `app`, Developer API D1 `false`. 런타임 입력은 `src/`뿐이고 `cloudflare/`, D1, 비밀, 바인딩은 바뀌지 않는다. 시스템 오디오 계약 표지 `single-stereo-v3+heartbeat-state-v1`도 그대로다. 보내는 프레임 변화는 OV-B06의 READY 하나다(아래 [호환과 혼합 버전](#호환과-혼합-버전)).                                                                                                                                                                                                                              |
+| 환경      | Windows 11 로컬, Node 24.20.0 / npm 12.0.2. 단위는 jsdom과 가짜 WebRTC, Web Audio, Cloudflare Realtime이다. 로컬 Playwright(헤드리스 Chromium, PeerJS 일반방)의 `e2e/system-audio-controls.test.ts`는 5B-OV2(`04f07124`)와 5B-OV3(`c0b86b62`) 뒤에 5/5 PASS다. 계획 §6은 5B-G1과 5B-G3 뒤에도 돌리기로 했지만 그 실행은 커밋 기록에 없다.                                                                                                                                                                                |
+| 운영      | 실제 기기, iOS·WebKit, 실제 Cloudflare Realtime, 운영 시스템 오디오 수신은 5B 코드로 돌리지 않았다(아래 [실기기로 확인하지 않은 것](#실기기로-확인하지-않은-것)).                                                                                                                                                                                                                                                                                                                                                        |
+
+이 문서는 구조 개선 Phase 5의 두 번째 앱 배포(5B)에 실리는 증분과 QA를 기록한다. 5A는 동작을 바꾸지 않는
+이동만 실었고([Phase 5 5A 보고서](phase5-5a-receive-slot-2026-10-25.md)), C4-0이 오늘 동작으로 고정한 틈을 고치는 일은
+5B로 왔다. 증분마다 그 틈을 고정한 행을 뒤집거나 새 행을 더한 테스트 먼저 커밋을 두었고, 그 행은 바꾸기 전 코드에서
+실패한다. 중립 증분은 바꾸기 전과 뒤에 모두 통과하는 테스트만 둔다. 증분마다 커밋, 검증한 코드 SHA, 환경, PASS/FAIL/SKIP과
+한계를 적는다. 유지 계약은 [시스템 오디오 수신 소유](system-audio-receive-ownership.md)와 registry RO-04다.
+
+## 오너 결정
+
+- **2026-10-25 약 04:00 KST, Phase 5 추천안 전부:** 5B에 관한 것은 P5-D3 A(앱 업데이트 두 번, 5B는 동작 변경을
+  증분마다 실패 테스트와 라벨로), P5-D5 A(C4-0 틈을 라벨 붙인 묶음으로 고치고 단위 근거를 받아들임), P5-D11 B(C4-13을
+  5B에 넣고 F3 단위 재현을 실패 테스트로 씀), P5-D8 A(attachEpoch 울타리 없음)다. P5-D10(수신 패리티)은 답이 없어 기본값
+  A(패리티를 바꾸지 않고 RO-04에 표로 적음), P5-D12와 P5-D13은 기본값 A(Phase 5에 넣지 않음)로 갔다.
+- **약 01:50 KST, 배포 시점과 기기 게이트:** 자동 게이트가 통과하면 바로 내고, 기기 근거는 코드 게이트가 아니다. 그래서
+  증분마다 기기 기대값을 결과보다 먼저 고정해 두고(아래 [기기 기대값](#기기-기대값-결과보다-먼저-고정)), 오너가 나중에
+  기기 세션에서 쓴다.
+- **약 16:40 KST, 옛 버전 정책:** 옛 앱 버전과의 혼합 호환은 더 이상 설계 제약이 아니다. 5B는 그래서 시스템 오디오
+  파일에 있는 옛 버전 항목도 맡는다. 강제 업데이트 열차가 floor 787을 켠 뒤에 나가지만, 이 빌드가 보내는 모든 프레임은
+  9.0.12/9.0.13의 정확한 키 수신기도 받아야 한다는 규칙은 그대로 지켰다.
+- **2026-10-26 약 14:10 KST, '1 and 2, go':** 5B와 옛 버전 제거 2차를 병렬로 진행한다. 제거 2차는 OV-A04, OV-B05,
+  OV-B06, SA-9, OV-A08(시스템 오디오 부분), 코디네이터 잔재를 맡지 않는다(5B 몫). 게스트의
+  `SYSTEM_AUDIO_SFU_CAPABILITY` 보내기(OV-F06)는 5B 이상의 floor 뒤 열차로 남는다.
+
+## 계획과 비평
+
+계획은 2판까지 갔다. 계획 비평 2(2026-10-26, 판정 '바꿀 것')의 일곱 지적을 `4d7650c0`에서 하나씩 확인했고, 모두
+받아들이되 둘은 좁혔다.
+
+| #   | 무게 | 지적                                                                                                                     | 처리                                                                                                                                                                                                             |
+| --- | ---- | ------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 중간 | G1에서 일반방 직접 통화를 닫으면 방장이 게스트를 SFU로 넘기며 STOP, START, READY를 보내고, 그 START가 후속 주인을 멈춘다 | 확인. 거절된 직접 통화는 닫지 않고 열린 채 두며, STOP이나 수신 끝이 닫는다. 짝 하네스는 만들지 않고 두 행을 합쳐 보인다(Standard S9 행의 `closeCount()` 0, 방장 쪽 '열린 통화는 60초 동안 handoff 없음' 가드 행) |
+| 2   | 중간 | G2에서 구독 진행 중에 PRO SFU 구독자를 멈추면 `connection_unstable`과 재시도가 나온다                                    | 확인. 끝낸 발행 표시로 reconcile catch와 재시도 catch를 막고, 실제 전송 행(트랙 노출과 구독 완료 사이의 force-stop과 후속 주인)을 더함                                                                           |
+| 3   | 중간 | G6의 기기 문구가 LAN-direct 중지마다 생기는 대기 창(스피너, 재생 아이콘 꺼짐, 잠금 화면 '일시정지')을 숨겼다             | 확인. 틈 11은 interrupt가 아니라 end로 바꿨고, 틈 12는 interrupt로 둠(이유는 G6 절)                                                                                                                              |
+| 4   | 낮음 | G2 '보이면' 문구: force-stop된 코디네이터 source는 조용하지 않고 계속 들린다                                             | 확인. 틈 4(유휴 화면 아래 계속 들림)와 틈 5(조용, 열린 구독)로 나눠 적음                                                                                                                                         |
+| 5   | 낮음 | G1은 수신 중 자리표시가 늘 현재라고 보지만, 메타를 null로 쓰는 두 곳이 있다                                              | 확인. 거절된 resume과 attach도 그 경로의 source와 프라이머를 떼고, 남는 창은 G1 위험에 적음                                                                                                                      |
+| 6   | 낮음 | G4의 가드 없는 코디네이터 end는 공유자 heartbeat마다 돈다. 가드 행은 공유 claim이 살아 있을 때만 앞뒤로 통과한다         | 확인. 슬롯 질의로 자기 발행의 end만 가두고(청취자 경로는 그대로), 유휴 상태의 낡은 공유 제목 행을 새로 더함                                                                                                      |
+| 7   | 낮음 | 낡은 수치, 미뤄 둔 기록 줄, OV-B06 수신 행이 'direct' 경로만 봄                                                          | 확인. room-authority 82 → 81, 호환 줄을 계획 §8에 모아 기록 갱신으로 넘김, STOP→START→READY('unselected') 변형 행 추가                                                                                           |
+
+## 제품·런타임 증분
+
+### 5B-G1 붙이기 울타리 (틈 2, 3)
+
+테스트 `1f8c7a66`, 코드 `e74e10da`. 슬롯은 자기 수신 자리표시가 현재 메타일 때만 붙이고 다시 이어 붙인다.
+`attachSystemAudioSource`는 `'attached' | 'not-receiving' | 'graph-unavailable'`을 돌려주고(전에는 boolean), 울타리를
+그래프보다 먼저 본다. 거절된 붙이기와 resume은 아무것도 쓰지 않고 그 경로의 이전 source와 프라이머를 뗀다. 울타리는
+자리표시만 보고 `slot.phase`는 보지 않는다(P5-D8 A, attachEpoch 없음).
+
+- 경로의 반응: 일반방 직접 통화는 통화를 열어 둔 채 현재로 두고 교체 기한만 지운다(비평 1). 일반방 SFU는 신뢰 경계
+  거절 때처럼 구독을 닫는다. PRO 코디네이터는 조용히 돌아간다(SFU 정리는 G2).
+- 테스트 먼저: Standard S9(직접, SFU), PRO S8b(LAN-direct), PRO S9 두 경로, transport S8b 두 경로를 뒤집고 슬롯 울타리
+  행을 더했다. 바꾸기 전 코드에서 13행 실패, 방장 가드 행('열린 직접 통화는 닫힘이나 오류 없이 60초 동안 SFU handoff 없음')은
+  앞뒤로 통과.
+- 기기 기대값: 기기에서 재현할 수 없다(후속 주인이나 force-stop이 최대 500 ms의 `initAudio()` 창 안에 와야 함).
+
+### 5B-G2 PRO force-stop과 후속 주인 정리 (틈 4, 5)
+
+테스트 `09a5743f`, 코드 `bf80584d`, 리뷰 `b0234155`. 바뀌지 않은 발행의 수신이 끝나면 PRO 코디네이터도 자기 경로를
+끝낸다.
+
+- force-stop(틈 4): 서비스의 `system-audio:force-stop` 리스너가, 코디네이터가 원격 발행의 키를 쥐고 있으면 대기 재시도,
+  끊김 유예, 직접 수신 마감을 지우고 경로를 떼며 진행 중인 구독을 버리고 SFU 구독자를 멈추고 그 발행을 끝냄으로 표시한다
+  (`coordinatorEndedKey`). 코디네이터 자기 시작 안의 force-stop은 두 `beginTrustedSystemAudioReception` 호출을 감싼 깊이
+  카운터로 가린다(CHECK 4 기준점은 그대로).
+- 거절된 SFU 트랙(틈 5): 신뢰 경계나 울타리가 살아 있는 발행의 SFU 트랙을 거절하면 같은 식으로 끝낸다(재시도, 알림 없음).
+  LAN-direct 수신 경로는 열어 둔다(조용히 닫으면 발행자가 공유 전체를 SFU로 올리고, 'stopped'로 닫으면 다시 제안을 부르며,
+  열린 경로는 Cloudflare 트래픽이 없다. RO-04에 기록).
+- 끝낸 키에서는 heartbeat, 방 문맥 재발행, 재시도가 구독도 시작도 다시 하지 않는다. 키가 바뀌면 `cleanupCoordinatorGraph`가
+  표시를 지운다. 구독 진행 중의 멈춤은 실패가 아니다(비평 2).
+- 테스트 먼저: 바꾸기 전 코드에서 8행 실패(PRO 5, transport 3), 가드 두 행 통과. 리뷰 반영(`b0234155`): 틈 4의 LAN-direct
+  절반에 행이 없었다. force-stop 행을 SFU와 LAN-direct의 it.each로 바꿨고, 열린 LAN-direct 경로에서 나중의 수신 fallback이
+  `connection_unstable`을 한 번 보이는 것과 거절된 resume 뒤 SFU 구독이 공유 끝까지 열려 있는 것을 받아들인 경우로 고정했다.
+- 기기 기대값: 재현할 수 없다(PRO 청취자의 force-stop은 거의 나가기에서만 오고, 그때는 서비스 초기화가 먼저 돈다). 보이면
+  전에는 유휴 화면 아래에서 공유가 방 초기화까지 들렸고, 뒤에는 force-stop에서 소리와 구독이 멈춘다.
+
+### 5B-G3 일반방 SFU 재발행 (틈 1)
+
+테스트 `0e451e80`, 코드 `a2894382`. 방장이 다시 발행하는 동안 게스트가 SFU로 받다가 새 구독이 붙기 전에 실패하면(대기 READY
+없는 구독 실패, 구독자 PC의 'failed') 전에는 STOP까지 무음 '재생'이 남았다. 이제 그 구독이 아무것도 붙이지 않았고 슬롯이
+수신 중이면 `failGuestSfuSubscription`이 수신을 슬롯 마감으로 넘긴다(자리표시와 복원점 유지, receiving false, 실패
+시각부터 30초).
+
+- 선택: 바로 `receive_failed`로 끝내지 않고 마감으로 넘긴다. 실패한 구독이 수신을 잇는 기존 SFU 의미(S3 handoff)이고,
+  그대로 두는 틈 13과 맞으며, 30초 안의 READY가 아직 붙일 수 있고, 새 타이머, 알림, 프레임이 없다.
+- 테스트 먼저: 바꾸기 전 코드에서 3행 실패, 가드 한 행 통과.
+- 기기 기대값: 재현할 수 없다. 보이면 전에는 방장이 멈출 때까지 무음 재생, 뒤에는 대기 자리표시, 30초 뒤
+  `system_audio.receive_failed`와 이전 제목(그 30초 안에 READY가 오면 알림 없이 소리가 돌아옴).
+
+### 5B-G4 공유자 자신의 claim (틈 6)
+
+테스트 `c29dc8ec`, 코드 `8a2c7164`, 리뷰 `98c4b040`. `'system-audio'` 재생 주인은 슬롯의 claim이기도 하고 이 기기 자신의
+공유이기도 하다.
+
+- `endTrustedSystemAudioReception`은 복원점 소비, 대기 응답, 마감 해제, 경로 포트, receiving 내림은 그대로 하되, 제목 쓰기,
+  주인 놓기, idle은 자리표시가 현재이거나 주인 메타가 공유자의 것(`systemAudioMode === 'sharing'`)이 아닐 때만 한다.
+- `commitTrustedSystemAudioReception`은 공유자의 메타를 복원점으로 잡지 않는다.
+- 새 읽기 전용 질의 `hasTrustedSystemAudioReception()`. `cleanupCoordinatorGraph`는 자기 발행에서 슬롯이 아직 수신을
+  쥘 때만 end를 부른다(비평 6. 가드 없이 두면 공유자 heartbeat마다 세대가 오르고 `/debug sa` 'cleanup:'이 찍힌다).
+- 테스트 먼저: 바꾸기 전 코드에서 7행 실패(guest 3, PRO 3, service 1), 가드 두 행 통과. 리뷰 반영(`98c4b040`): PRO
+  공유자의 SFU 발행자 복구(리스 해제와 재획득) 길도 이 규칙이 바꾼다는 것을 찾았다. 전에는 해제의 idle 뷰가 공유자 claim을
+  놓아 공유가 계속되는 동안 플레이어가 제목 없는 idle로 남았고, 이제 'System Audio Sharing'과 재생 상태를 유지한다. 그
+  길을 고정하는 PRO 행과 service 행을 더했다(부모 소스에서 PRO 행 실패 확인).
+- 기기 기대값: 재현할 수 없다(둘째 데스크톱 공유자가 필요). 리뷰가 찾은 길은 선택 확인이다(아래 기기 기대값).
+
+### 5B-G5 중첩된 end가 시작의 복원점을 지킴 (틈 7)
+
+테스트 `fefac7a7`, 코드 `b4b724b9`. 시작의 `stopAllMedia`가 로컬 캡처 중 force-stop을 내면 그 guest 리스너의 end가 시작
+안에서 돈다. 전에는 그 end가 시작의 복원점을 소비하고 세대를 넘겨, STOP이나 공유 끝에 제목이 없었고 그 뒤 열린 경계 대기가
+아무도 커밋하지 않는 세대에 붙었다. 이제 슬롯이 `'claiming'`이고 자리표시가 아직 없을 때의 end는 그 시작 앞의 것만
+끝낸다(대기 응답, 마감 해제, 경로 포트, receiving 내림은 그대로, 제목 쓰기 없음).
+
+- 그대로 둔 것: LAN-direct에서 직접 수신 마감은 시작이 돌아온 뒤 켜지므로 중첩 force-stop이 지우지 못한다(30초에 알림 한
+  번, 늦은 트랙은 붙음).
+- 테스트 먼저: 바꾸기 전 코드에서 2행 실패, 가드 행과 질의 행 통과.
+- 기기 기대값: 보이는 변화 없음(운영에서 중첩 end는 공유 중이던 PRO 기기에서만 생기고, G4 뒤 그 시작은 복원점을 잡지 않음).
+
+### 5B-G6 슬롯이 경로 닫힘을 들음 (틈 11, 12)
+
+테스트 `9336aeb2`, 코드 `95b04ea3`, 리뷰 `99b335b6`.
+
+- 틈 11, end: 직접 전송이 로컬 콜백 `onLiveRouteStopped({ participantId, generation, publicationId })`를 얻었다. 발행자의
+  `'stopped'` 닫힘이 현재 수신 경로를 닫으면 서비스가 살아 있는 직접 발행을 확인하고 직접 수신 마감을 지우고 경로를 떼며
+  슬롯이 수신을 쥐고 있으면 끝낸다(알림 없음, 발행 키 유지). interrupt가 아니라 end인 이유: interrupt는 자리표시를 남긴 채
+  receiving을 내려 모든 LAN-direct 청취자에게 대기 상태(재생 버튼 스피너, Media Session 'paused')를 보인다(비평 3).
+- 틈 12, interrupt: SFU 이벤트 처리기가 살아 있는 원격 발행의 만료된 descriptor(`expiresAt <= now`)에 대한
+  `subscriber-state: 'stopped'`만 받아 source를 떼고 `'route'`로 interrupt한다(알림 없음). 코디네이터 자기 멈춤은 만료 전
+  descriptor라 무시한다.
+- 리뷰 반영(`99b335b6`): 틈 12 기록의 전제가 틀렸다. 구독자 예산 만료는 승격 뒤에만 오는 것이 아니라, 두 시간 제한에 닿는
+  모든 PRO SFU 공유 끝에서 보통 서버 idle 상태보다 먼저 온다. interrupt는 유지하고 이유를 고쳐 적었으며, 승격 없는 두 시간
+  끝 행과 service 행을 더했다.
+- 테스트 먼저: 바꾸기 전 코드에서 3행 실패(transport 37/40 통과), 가드 두 행 통과.
+- 기기 기대값: 아래 [기기 기대값](#기기-기대값-결과보다-먼저-고정)의 LAN-direct 중지와 두 시간 끝.
+
+### 5B-C4-13 숨김 중 공유 끝 뒤 복귀 수리 한 번 (틈 10, F3)
+
+테스트 `29e5fb72`, 코드 `c852c465`. `src/pro-room/runtime.ts`만 바꾼다(RO-21, 복귀 수리 권한). 첫 복원이 실패한 채 페이지가
+숨겨진 동안 공유가 끝나면, 보일 때 같은 revision이 두 번 arm됐다(공유 뒤 복원, 그 뒤에 줄 선 전경 수리).
+
+- 복원 콜백은 자기 reconcile이 적용됐고 liveness가 현재이며 페이지가 보이고 시작 뒤 숨김이 없을 때 그 복귀를 reconcile된
+  것으로 표시한다. `recoverVisibleProRoomPlayback`은 자기 owner로 reconcile하고, 표시된 복귀면 재시도 대신 정리한다. 재시도
+  사다리는 그대로다.
+- 테스트 먼저: F3 행 뒤집기, 바꾸기 전 코드에서 F3 행 실패(나머지 통과). 코드 커밋에서 새 행 하나를 더해 2/10 실패 →
+  10/10 통과. 고치지 않고 오늘 동작으로 고정한 것: 보인 뒤 복원이 다시 실패하고 전경 수리가 먼저 적용되면 복원 재시도가 한
+  번 더 arm한다.
+- 기록: RO-21은 owner-in-place, RO-41 삭제(46 → 45 기록).
+- 기기 기대값: 5P-5(아래).
+
+### 5B-OV1 인증 없는 PRO 상태 경로와 코디네이터 잔재 (중립, OV-A04, OV-A03 메모)
+
+테스트 `3fd45d5b`, 코드 `7293697f`.
+
+- OV-A04: `pro-room/system-audio-controller.ts`의 `acceptProSystemAudioState`(8.3.72부터 운영 호출자 없음)와
+  `#acceptParsedState`의 `authenticated` 인자를 지웠다. 직접→SFU, 낡은 SFU→직접 규칙은 그대로다.
+- 코디네이터 잔재: `ensureCoordinatorSubscription` 맨 위의 `adoptSystemAudioReceiveRoute('pro-coordinator')`를 지웠다. PRO
+  방은 Standard SFU 구독을 시작하지 않으므로(`network.hostConn`이 null) 빈 경로를 은퇴시키던 것이다. 방 문맥 adopt와 재시도
+  정리 adopt는 남는다.
+- 테스트 먼저(앞뒤로 통과): controller 행을 인증 heartbeat 경로로 옮기고, PRO 가드 행 'PRO 방에 온 Standard READY는 Standard
+  구독을 시작하지 않는다'. 코드 커밋에서 service 행 하나가 남은 adopt 위치를 세도록 바뀌었다(부모에서 실패).
+- 기기 기대값: 없음(닿는 호출자 없음).
+
+### 5B-OV2 LAN 게스트 SFU 능력 협상의 방장 쪽과 'all' 울타리 (옛 버전, OV-B05, OV-B06)
+
+테스트 `43b21ea1`, 코드 `04f07124`.
+
+- OV-B05: 방장은 모든 LAN 게스트를 SFU 가능으로 본다. `system-audio-delivery.ts`의 능력 집합과 그 export 셋, 능력 순서,
+  `'unsupported'` 결과, 승격의 능력 게이트, 스냅샷 키를 지웠다. `handleSfuCapability`와 등록을 지웠다(프레임은 검사기를
+  지나 처리기 없이 버려진다. MSG 형식과 검사기는 게스트가 아직 보내므로 남는다). `peer.ts`의 import와 초기화 셋도 지웠다.
+  room-authority 직접 읽기는 82 → 81.
+- OV-B06: `makeReadyMessage`는 늘 그 피어의 고정 audience를 보낸다. 직접 경로가 실패한 원격 피어는 `'all'` 대신
+  `{ audience: 'remote', handoffFromDirect: true }`를 받는다.
+- SA-2(STOP→START 뒤 handoff READY)는 그대로 둔다. 9.0.12/9.0.13 게스트도 그 쌍이 필요하다(READY 처리기는 'direct'
+  경로에서만 다시 시작하고 현재 메타의 surface를 씀). 지우려면 게스트 변경, 그 빌드의 floor, 방장 변경이 차례로 필요하다.
+  `system-audio-host.ts`의 오해를 부르던 주석만 고쳤다. SA-8(오류 이름과 문구)은 범위 밖이다.
+- 테스트 먼저: 바꾸기 전 코드에서 18행 실패(delivery 8, host 3, sfu 5, start 2). Standard 묶음의 OV-B06 수신 행 둘(경로
+  'direct'와, 방장의 STOP과 START 뒤 'unselected')은 앞뒤로 통과한다. 이것이 새 READY를 받는 9.0.12/9.0.13 게스트 코드다.
+- 기기 기대값: 없음(LAN 게스트 여덟 넘게, 표지 없는 LAN 게스트, 강제 직접 실패가 필요하고 오늘 방은 4대).
+
+### 5B-OV3 START surface와 READY audience 필수, 채널 인자 정리 (옛 버전 OV-A08, 중립 SA-9)
+
+테스트 `1ab5f0b8`, 코드 `fddbda0a`(옛 버전), `c0b86b62`(중립).
+
+- OV-A08: `protocol.ts`의 START 검사기는 `surface`를 16자 이하 문자열로 요구하고(전에는 선택), SFU_READY 검사기는
+  `audience`('remote' 또는 'all')를 요구한다. `types/index.ts`의 두 payload 형식도 필수가 됐다. `normalizeSfuReadyPayload`는
+  빠진 audience를 'remote'로 채우지 않고 복사한다(다른 모양 검사처럼 없으면 거절). `tracks` 울타리와
+  `normalizeSystemAudioSurface`의 모르는 값 처리('display')는 그대로다.
+- 보내는 쪽 확인: 두 프레임을 만드는 곳은 `createSystemAudioStartFrame`과 `makeReadyMessage`뿐이고, 9.0.12(`78e9ee98`)와
+  9.0.13(`4d7650c0`)에서 `2038b51f` 이전부터 바뀌지 않았다(`git log -L`, 두 빌드의 `git grep`). 9.0.14(`dd9c9d4d`)는 그
+  파일들을 건드리지 않는다. START 보내는 자리는 다섯이다(`system-capture.ts`, 방장 셋, `player/playback.ts`. SFU 모듈의 것은
+  5B-OV2에서 없어짐).
+- 테스트 먼저: `protocol.test.ts`의 'START without surface 거절'과 'READY without audience 거절'이 바꾸기 전 코드에서 실패
+  (network, pro-room, player, audio 258 files 중 이 2행만 실패). 앞뒤로 통과: 모르는 짧은 surface는 지나가 'display'로
+  읽히고 17자, 숫자, null, 객체는 거절, audience와 track 옆에 `tracks`가 있는 READY는 계속 거절. 고정물 정리(앞뒤로 통과):
+  `handleData`에 넣는 원시 START 52곳에 `surface: 'display'`(guest 43, queue-authority 2, PRO 2, evidence-logs, peer,
+  file-prepare-pause, Standard와 lifecycle의 `start()` 도우미), SFU 단위 묶음이 처리기에 바로 넣던 READY 넷에
+  `audience: 'remote'`.
+- SA-9(중립): `system-audio:incoming-call`의 채널 인자를 지웠다(형식, `peer.ts`의 emit, guest 리스너의 옛 형식 갈래, 채널별
+  getter/setter와 'Ignored unsupported channel call' 갈래, 채널 키 교체 감시 맵과 디버그 맵). 'STEREO' 상수는 로그 줄,
+  타이머 이름(`sys-audio-guest-replacement-watchdog-STEREO`, `sys-audio-guest-trust-gate-STEREO-<n>`), `/debug sa` 채널
+  기록에 남는다. SFU 모듈 리스너는 이미 인자가 없었다. 테스트 emit 43곳이 둘째 인자를 버렸다(guest 36, sfu 4, Standard,
+  lifecycle, evidence-logs). 중립 근거: 수신 판독 줄 묶음과 `/debug sa` 고정이 그대로 통과하고, `setManagedTimer`를 잠시
+  계측해(커밋 안 함) 실제 타이머 모듈을 쓰는 시스템 오디오 여덟 묶음이 부모(`fddbda0a`)와 이 커밋에서 같은 타이머 이름 424개
+  다중집합을 쓰는 것을 확인했다.
+- 기기 기대값: 없음. 지금 보내는 쪽은 모두 두 필드를 넣으므로 어느 기기도 차이를 보지 않고, 엄격해진 검사는 floor 787 아래
+  클라이언트의 프레임에만 닿는다. SA-9는 로그, 타이머, `/debug sa`가 같다.
+
+## 그대로 둔 것
+
+- 틈 8, 13, 14(알림 차이)와 틈 9(승격 때 시작 다시)는 P5-D5 A의 묶음 밖이다. 그 틈을 고정한 행(Standard 'a live
+  subscriber connection failure …', lifecycle의 'expected today: …' 행들, PRO 'S7: a direct-to-SFU promotion …')은
+  `4d7650c0`과 `c0b86b62` 사이에 제목과 단언이 그대로다(5B-OV3의 START 고정물과 emit 인자만 바뀜). 라운드 2에서 모든 코드
+  커밋에서 통과한다.
+- P5-D10 A: 수신 패리티는 바꾸지 않고 RO-04에 표로 적었다(5B-G1 코드 커밋, 5B-G2와 5B-G6이 마지막 두 줄을 채움).
+- SA-2는 유지(5B-OV2 절), SA-8은 범위 밖, P5-D12와 P5-D13은 Phase 5에 넣지 않는다.
+- 오너께 드리는 관찰(고치지 않음, C4-0 틈과 P5-D5 묶음 밖): 일반방 직접 통화의 기존 신뢰 경계 거절
+  (`system-audio-guest.ts`, START가 30초 안에 커밋하지 않은 스트림)은 통화를 닫고, 그러면 방장이 STOP, START, READY로 게스트를
+  SFU로 넘긴다. 공유가 계속되는 동안 대기 자리표시 중에 후속 주인이 재생을 잡았다면 그 START가 다시 시작해 후속 주인을
+  멈춘다. 비평 1과 같은 구조지만 오늘 동작이고 G1은 건드리지 않는다.
+
+## 호환과 혼합 버전
+
+릴리스 기록의 5B 항목(AGENTS.md: 호환이 바뀜)에 넣을 줄이다. 기록 갱신은 5B PR(출시 준비)에서 한다.
+
+- OV-B06: 이 빌드의 방장은 직접 경로가 실패한 원격 피어에 READY `{ audience: 'remote', handoffFromDirect: true }`를
+  보낸다(전에는 `'all'`). 9.0.12/9.0.13 게스트는 이를 받아 'direct'와 'unselected' 두 경로에서 처리한다. `'all'` 울타리에
+  기대던 것은 floor 아래의 8.4.38~8.4.39 게스트뿐이다.
+- OV-B05: 방장은 `SYSTEM_AUDIO_SFU_CAPABILITY`를 무시하고(처리기 없음, 프레임은 검사 뒤 버려짐) 모든 LAN 피어를 SFU 가능으로
+  본다. 이 빌드의 게스트는 나중 floor까지 표지를 계속 보낸다(OV-F06). 지금 모든 게스트가 보내므로 오늘 결과는 같다.
+- OV-A08: 이 빌드의 수신기는 `surface` 없는 START와 `audience` 없는 SFU_READY를 거절한다. 9.0.12/9.0.13의 모든 보내는
+  쪽이 둘 다 넣는다. 모르는 짧은 surface는 계속 받아 'display'로 읽는다.
+- OV-A04: PRO 시스템 오디오 컨트롤러의 인증 없는 피어 fan-out 수신 경로가 없어졌다(8.3.72부터 운영 호출자 없음).
+- G1~G6, C4-13, SA-9, 코디네이터 잔재는 프레임을 바꾸지 않는다. G6은 로컬 전송 콜백 하나를 더한다. 이 빌드가 보내는 모든
+  프레임은 9.0.12/9.0.13 정확한 키 수신기가 받는다.
+- 부분 릴리스: 9.0.12/9.0.13 방장과 5B 게스트에서는 방장이 START에 `surface`, READY에 `audience`를 늘 넣는다(받음). 5B 방장과
+  9.0.12/9.0.13 게스트에서는 위의 READY(받음). floor 787이 두 조합을 짧게 만든다.
+
+## QA 라운드
+
+### 1. 증분별 (2026-10-26 15:33 ~ 2026-10-27 03:24 KST)
+
+| 검사            | 결과와 범위                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 테스트 먼저     | 위 증분 절. 동작 증분마다 뒤집은 행과 새 행은 부모 코드에서 실패했고(G1 13, G2 8, G3 3, G4 7, G5 2, G6 3, C4-13 1, OV2 18, OV3 2), 코드 커밋 뒤 수정 없이 통과했다. 가드 행은 앞뒤로 통과했다. OV1은 중립이라 테스트 먼저 행이 앞뒤로 통과하고, 코드 커밋이 adopt 수를 세던 service 단위 행 하나를 남은 두 자리로 고쳤다(부모에서 실패). SA-9는 단언을 바꾸지 않고 emit 인자만 바꿨다. |
+| 변이 검사       | G2, G3, G4, G5, G6, C4-13 커밋 메시지에 적은 변이(조건 하나씩 빼기)가 각각 예상한 행을 실패시켰다.                                                                                                                                                                                                                                                                                     |
+| 단위 전체       | 커밋 메시지에 남은 실행: G5 15,667, G6 15,672, G6 리뷰 15,674, C4-13 15,680, OV2 15,690, OV3 코드와 SA-9 15,693(모두 672 files, `--maxWorkers=6`, PASS). G1~G4와 OV1의 전체 수는 메시지에 없다. 이 빈칸은 아래 라운드 2로 메운다.                                                                                                                                                      |
+| 핵심 커버리지   | G5, G6(87 files / 3,306), C4-13(3,313), OV2와 SA-9(3,317). 하한은 내리지 않았다.                                                                                                                                                                                                                                                                                                       |
+| 정적과 가드     | 런타임 증분마다 `tsc --noEmit`, `typecheck:tests`, `check:workers`, `lint`, `format:check`, resource-ownership, dead-exports(20/20, 76/76, fully dead 0), import-graph, bus-pairing(202/202), lifecycle-writes, room-authority(82, OV2부터 81), transport-health. `guard:sw-cache-version`은 bump 전이라 설계대로 돌리지 않았다.                                                       |
+| 빌드와 예산     | G6, C4-13, OV2, OV3에서 `build`와 `guard:initial-transfer-budget` PASS(아래 [초기 JS 예산](#초기-js-예산)).                                                                                                                                                                                                                                                                            |
+| 로컬 Playwright | OV2(`04f07124`)와 SA-9(`c0b86b62`) 뒤 `e2e/system-audio-controls.test.ts` 5/5.                                                                                                                                                                                                                                                                                                         |
+
+### 2. 열차 끝 다시 돌리기 (2026-10-27)
+
+G1~G4와 OV1의 전체 실행 수가 커밋에 남지 않았으므로, 열차 끝에 기준과 모든 코드 커밋을 차례로 꺼내(`git checkout
+--detach`) 시스템 오디오 묶음 26 files를 같은 기계에서 다시 돌렸다(`--maxWorkers=6`). 묶음은
+`src/network/__tests__/*system-audio*.test.ts`, `src/pro-room/__tests__/*system-audio*.test.ts`, `protocol.test.ts`,
+`peer.test.ts`, `src/pro-room/__tests__/runtime-server-playback.test.ts`이고, 네 수신 슬롯 계약 묶음, guest, sfu, host,
+service, subscriber-watchdog, runtime-system-audio-join, 두 판독 줄 묶음이 모두 들어 있다. 실패와 건너뜀은 없다.
+
+| 코드 SHA   | 증분                 | 결과                      |
+| ---------- | -------------------- | ------------------------- |
+| `4d7650c0` | 기준(9.0.13 런타임)  | 26 files / 744 tests PASS |
+| `e74e10da` | 5B-G1                | 26 / 752 PASS             |
+| `b0234155` | 5B-G2(리뷰 반영까지) | 26 / 758 PASS             |
+| `a2894382` | 5B-G3                | 26 / 761 PASS             |
+| `98c4b040` | 5B-G4(리뷰 반영까지) | 26 / 772 PASS             |
+| `b4b724b9` | 5B-G5                | 26 / 774 PASS             |
+| `99b335b6` | 5B-G6(리뷰 반영까지) | 26 / 781 PASS             |
+| `c852c465` | 5B-C4-13             | 26 / 787 PASS             |
+| `7293697f` | 5B-OV1               | 26 / 791 PASS             |
+| `04f07124` | 5B-OV2               | 26 / 797 PASS             |
+| `fddbda0a` | 5B-OV3 옛 버전       | 26 / 800 PASS             |
+| `c0b86b62` | 5B-OV3 중립(SA-9)    | 26 / 800 PASS             |
+
+한계: 이 라운드는 시스템 오디오 묶음만 다시 돌렸다. 단위 전체는 라운드 1에 적은 커밋과 라운드 3에서만 돌았다. 중간 커밋
+(`bf80584d`, `8a2c7164`, `95b04ea3`)은 다음 리뷰 반영 커밋이 테스트만 더하거나 주석만 바꾸므로 따로 돌리지 않았다.
+
+### 3. 5B-OV3 마지막 검사 (`c0b86b62`, 2026-10-27)
+
+| 검사            | 결과                                                                                                                                                                                                                                           |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 단위 전체       | 672 files / 15,693 tests PASS(`--maxWorkers=6`).                                                                                                                                                                                               |
+| 핵심 커버리지   | `test:coverage:critical` 87 files / 3,317 tests PASS, 하한 그대로.                                                                                                                                                                             |
+| 정적            | `tsc --noEmit`, `typecheck:tests`, `check:workers`, `lint`, `format:check` PASS.                                                                                                                                                               |
+| 가드            | resource-ownership(45 기록, CHECK 9 쓰기 3·3·3·1), dead-exports(테스트 전용 20/20, 자기만 76/76, fully dead 0), import-graph(397 files, 순환 0), bus-pairing(202/202), lifecycle-writes, room-authority-boundaries(81), transport-health PASS. |
+| 빌드와 예산     | `build`와 `guard:initial-transfer-budget` PASS.                                                                                                                                                                                                |
+| 로컬 Playwright | `e2e/system-audio-controls.test.ts` 5/5(`build:e2e` 뒤 Chromium).                                                                                                                                                                              |
+| 하지 않은 것    | `guard:sw-cache-version`(bump 전 설계대로 실패), main 합침 뒤 다시 돌리기(출시 준비), PR CI, exact-main CI, 릴리스 smoke.                                                                                                                      |
+
+## 초기 JS 예산
+
+같은 기계에서 기준 `4d7650c0`과 `c0b86b62`를 `npm run build`로 빌드하고 `measureInitialTransfer()`로 바이트를 쟀다.
+첫 로딩 파일 수는 26으로 같다.
+
+| 값               | `4d7650c0`(9.0.13) | `c0b86b62`  | 차이   |
+| ---------------- | ------------------ | ----------- | ------ |
+| entry raw        | 856,831 B          | 856,837 B   | +6 B   |
+| entry gzip       | 251,948 B          | 251,960 B   | +12 B  |
+| eager JS gzip    | 464,588 B          | 464,456 B   | -132 B |
+| eager total raw  | 2,043,788 B        | 2,043,295 B | -493 B |
+| eager total gzip | 543,049 B          | 542,918 B   | -131 B |
+
+줄어든 것은 첫 로딩에 드는 `system-audio-delivery.ts`(OV-B05의 능력 집합과 순서), `peer.ts`(capability 초기화 셋, SA-9
+emit 인자), `protocol.ts`(OV-A08 검사기)로 본다[추론]. entry의 +6 B는 따로 가르지 않았다. G1~G6과 C4-13이 바꾼
+슬롯, guest, SFU, 서비스, 직접 전송, 런타임은 지연 모듈이라 첫 로딩에 들지 않는다. `guard:initial-transfer-budget`은 PASS다(5% 예비선 유지). 지연 청크는 따로 재지 않았다.
+
+## 기록·레지스트리
+
+- RO-04: 증분마다 같은 커밋에서 갱신했다(울타리, 코디네이터 경로 끝, 재발행 handoff, 공유자 claim, 중첩 end, 경로 닫힘,
+  P5-D10 A 패리티 표, 기준 테스트, 상태). 5B-OV3은 기준 테스트 줄 하나와 상태 문장을 더한다. 기록은 `duplicated`로 남는다
+  (PRO 코디네이터가 자기 마감과 정리를 가진다).
+- RO-21은 owner-in-place(`runtime.ts`가 복귀 수리 권한), RO-41은 삭제(46 → 45 기록, 색인과 ID 목록 포함).
+- [시스템 오디오 수신 소유](system-audio-receive-ownership.md): 틈 1~7, 10~12를 고친 증분과 함께 표시했고 8, 9, 13, 14는
+  그대로다. 검증 목록에 5B-OV3의 프레임 검사 행을 더했다.
+- `check-room-authority-boundaries.mts`: `system-audio-sfu.ts` appRole 읽기 11 → 10, 합계 82 → 81(OV2). 다른 가드 기준값은
+  바뀌지 않았다. 올린 기준값은 없다.
+
+## 출시 전에 남은 것
+
+- main(`a3893f04`까지)을 이 브랜치에 합치거나 이 브랜치를 그 위로 옮긴 뒤 가드를 다시 돌린다. 글자 충돌은 registry(기록
+  수, 색인), `docs/README.md`, `docs/design/pro-room-architecture-and-operations.md`(#500과 5B-OV1이 함께 고침)에서만
+  예상한다. 소스 파일은 겹치지 않는다. 기록 수와 room-authority 합계는 그때 다시 잰다.
+- 제거 2차 목록(RESUME 메모)에서 OV-B05를 지우고 OV-F06은 나중 열차로 둔다.
+- bump(9.0.14 다음 patch와 SW epoch)와 `docs/release-record.md`의 5B 항목(위 호환 줄과 아래 기기 기대값)은 5B PR에서 한다.
+
+## 기기 기대값 (결과보다 먼저 고정)
+
+오너가 나중에 쓸 기기 세션용이다(기기 근거는 게이트가 아님, 2026-10-25 01:50). 5A 뒤 첫 세션이 '5A 뒤' 기준선을 주고, 5B
+비교는 결정 문서 §3.8을 그대로 쓰되 다음만 다르다.
+
+- 5P-5(C4-13): 바뀜 예상. iPhone Safari PRO 청취자, YouTube 항목, 공유 30초 뒤 잠금, 10초 뒤 공유 중지, 그 10초 뒤 잠금
+  해제. 통과: iPhone 두 번 모두 소리가 처음 돌아온 뒤 30초 안에 '두 번째 멈춤'(1초 넘는 무음 뒤 멈춘 자리에서 다시 재생)이
+  없고 YouTube 1이 시작 한 번으로 돌아온다. 귀로만 판정한다(T8: flight recorder에 표시 줄 없음). 5B 전 세션 값이 있으면
+  비교하고, 첫 세션이 5B 뒤면 고친 뒤 근거로만 적는다. Android 5P-5b는 참고만 한다. 나머지 5P-5 값은 '5A 뒤' 기준선과 같아야
+  한다.
+- PRO LAN-direct 청취자의 공유 중지(5B-G6 틈 11; 5P-1, 5P-2, 5P-3, 5P-4의 청취자 G1, 5P-7): 작은 변화 예상. 소리는
+  전처럼 멈추고, 청취자의 제목과 재생 버튼이 서버 idle 상태가 아니라 중지 신호에서(보통 1초 안 일찍) 공유 전으로 돌아온다. 중지 때 재생
+  버튼 스피너와 잠금 화면 '일시정지'가 없다. YouTube 1은 전과 같은 때 돌아온다. 기록 값(D 멈춘 초, YouTube 1까지 초, 30초 안
+  재동기 점프, YouTube 1 뒤 제목, 토스트)은 '5A 뒤' 기준선과 같아야 한다. 중지와 YouTube 1 사이에 본 제목이 공유 전 제목이어도
+  퇴행이 아니다. 중지 때 스피너나 잠금 화면 '일시정지'가 보이면 5B 퇴행 후보다. 5P-5(잠김)는 이것을 볼 수 없다.
+- PRO SFU 공유가 두 시간 제한에 닿을 때(5B-G6 틈 12, 리뷰 `99b335b6`가 계획 §7의 '재현 불가'를 고침): 각 SFU 청취자가 구독자
+  예산 만료와 서버 idle 상태 사이에 대기 상태(재생 버튼 스피너, 재생 아이콘 꺼짐, 잠금 화면 '일시정지')를 잠깐(보통 약 1초)
+  보이고, 그 뒤 공유 전 제목, idle, YouTube 1이 전처럼 온다. 알림 없음. 예상된 것이고 5B 퇴행이 아니다. 전에는 그 창 동안
+  무음 재생을 보였다. 시계가 서버보다 늦은 청취자는 대기 상태를 못 볼 수 있다. 기기 시트의 단계가 아니고 선택 확인이다.
+- PRO 데스크톱 공유자의 SFU 발행자 복구(5B-G4 리뷰 `98c4b040`): 공유자가 `connection_unstable`을 본 뒤 발행자가 복구되면,
+  전에는 공유가 계속되는 동안 공유자 플레이어가 제목 없는 idle로 남았고(`/debug sa` `[Playback]` mode:none/idle), 뒤에는
+  'System Audio Sharing'과 재생 상태를 계속 보인다(mode:system-audio/playing receiving:no). 청취자는 영향 없음. 선택 확인이다.
+- 그 밖의 Set 5S, Set 5P 단계: 바뀜 예상 없음(5B 틈 고침은 시트가 만들 수 없는 타이밍이나 둘째 데스크톱 경우이고, OV 항목은
+  floor 아래 클라이언트용). 이 단계들의 §3.8 퇴행은 5B 퇴행 후보다.
+- 기기에서 재현할 수 없어 단위 근거만 있는 것: 틈 1, 2, 3, 4, 5, 6(공유자 복구 길 제외), 7, idle 상태가 늦을 때의 틈 11, 모든
+  OV 항목과 SA-9.
+
+## 실기기로 확인하지 않은 것
+
+- 5B 코드는 실제 기기, iOS·WebKit, 실제 Cloudflare Realtime에서 돌리지 않았다. 위 기기 기대값은 모두 오너의 나중 세션 몫이다.
+- 5A 뒤 기준선 세션도 아직 없으므로 5P 비교 값은 '5A 뒤' 기준선이 생긴 뒤에 읽는다.
+- 로컬 Playwright는 PeerJS 일반방 직접 통화만 본다. PRO 경로와 일반방 SFU는 단위와 가짜 전송 묶음만 본다.

@@ -877,6 +877,19 @@ RO-49 accepted-exception
     `system-audio-sfu.test.ts` (the READY audience, the late LAN retry from the peer event alone,
     no capability handler) and `system-audio-start.test.ts` (the SFU module's late-LAN START
     sender went with the capability handler; five START senders remain).
+  - The START `surface` and SFU_READY `audience` requirement (5B-OV3, old-version; survey
+    OV-A08) changes only which frames reach the slot's Standard inputs: a START needs a bounded
+    `surface` string (an unknown one still reads as DISPLAY) and a READY an `audience`, as every
+    9.0.12 and 9.0.13 sender includes; a READY with the old `tracks` list stays refused, and the
+    SFU adapter copies the audience instead of defaulting it. Pinned by
+    `src/network/__tests__/protocol.test.ts` "rejects a START without a surface (5B-OV3)" and
+    "rejects a READY without an audience (5B-OV3)" (both fail on the parent) and "accepts an
+    unknown short surface and reads it as display; refuses an unbounded or non-string one"
+    (passes before and after). The removal of the dead channel argument of
+    `system-audio:incoming-call` (5B-OV3, neutral; SA-9) keeps the direct call's log lines, timer
+    names (`sys-audio-guest-replacement-watchdog-STEREO`, `sys-audio-guest-trust-gate-STEREO-<n>`)
+    and `/debug sa` channel record, pinned by the receive evidence-log suites and
+    `system-audio-guest.test.ts`.
   - Cross-owner: `src/pro-room/__tests__/system-audio-subscriber-watchdog.test.ts` runs the real
     guest module and slot with the service (G1), with a spy retire registered for the Standard
     SFU route since C4-7. `system-audio-service.test.ts` hand-mocks state, so it cannot see the
@@ -940,7 +953,10 @@ RO-49 accepted-exception
   the PRO coordinator's force-stop and successor teardown (gaps 4 and 5), 5B-G3 the
   Standard SFU re-publication handoff (gap 1), 5B-G4 the sharer's own claim (gap 6), 5B-G5
   the nested end's restore point (gap 7) and 5B-G6 the route closures the slot hears (gaps 11
-  and 12); the record stays `duplicated`. Exception RO-39.
+  and 12), and 5B-OV1 to 5B-OV3 removed old-version and dead paths around the slot (OV-A04, the
+  coordinator's adopt on every live reconcile, OV-B05, OV-B06, OV-A08 and SA-9) with no owner
+  change ([Phase 5 train 5B report](phase5-5b-receive-slot-behaviour-2026-10-26.md)); the record
+  stays `duplicated`. Exception RO-39.
 
 ### RO-05 Guest YouTube re-align retry chains
 

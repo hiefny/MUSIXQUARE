@@ -415,6 +415,11 @@ The repository guards this contract through:
   from the `'direct'` route and, after the host's STOP and START, from
   `'unselected'`; the guest freezes `'sfu-remote'`, subscribes and refuses a
   late direct call;
+- `src/network/__tests__/protocol.test.ts` "system-audio START frame
+  validation" and "rejects a READY without an audience (5B-OV3)": since
+  5B-OV3 the slot's Standard inputs come only from a START with a bounded
+  `surface` string (an unknown one reads as DISPLAY) and a READY with an
+  `audience`;
 - `src/network/__tests__/pro-system-audio-direct.test.ts` "reports only a
   publisher's 'stopped' close of the current receiver route …" (5B-G6): the
   transport's `onLiveRouteStopped` fires once for the current route, never for

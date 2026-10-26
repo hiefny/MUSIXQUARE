@@ -6,7 +6,6 @@
  * frames from the replaced DataConnection are still draining.
  */
 
-import { MSG } from '../core/constants.ts';
 import type { DataConnection, FileRequestId, ProtocolMsg, QueueItemId } from '../types/index.ts';
 
 interface FileRequestOwner {
@@ -22,8 +21,6 @@ type FileRequestMessage =
 
 let nextRequestId = 0;
 let currentOwner: FileRequestOwner | null = null;
-/** The owner whose REQUEST_DATA_RECOVERY reached its connection's send(). */
-let sentRecoveryOwner: FileRequestOwner | null = null;
 
 export function isFileRequestId(value: unknown): value is FileRequestId {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
@@ -79,13 +76,11 @@ export function isCurrentFileRequestOwner(owner: FileRequestOwner): boolean {
 function clearFileRequestOwner(expected?: FileRequestOwner): boolean {
   if (!currentOwner || (expected && currentOwner !== expected)) return false;
   currentOwner = null;
-  sentRecoveryOwner = null;
   return true;
 }
 
 export function resetFileRequestAuthority(): void {
   currentOwner = null;
-  sentRecoveryOwner = null;
 }
 
 /**
@@ -106,33 +101,11 @@ export function sendFileRequest(owner: FileRequestOwner, message: FileRequestMes
       queueItemId: owner.queueItemId,
       ...(owner.sessionId === undefined ? {} : { sessionId: owner.sessionId }),
     });
-    if (message.type === MSG.REQUEST_DATA_RECOVERY) sentRecoveryOwner = owner;
     return true;
   } catch {
     clearFileRequestOwner(owner);
     return false;
   }
-}
-
-/**
- * The current owner asked `conn` for exactly this transfer attempt with
- * REQUEST_DATA_RECOVERY, and no response has settled it yet. A recovery
- * request without a session, or any other request, does not qualify.
- */
-export function isPendingRecoveryRequestFor(
-  conn: DataConnection | undefined,
-  queueItemId: QueueItemId,
-  sessionId: number,
-): boolean {
-  const owner = currentOwner;
-  return (
-    !!owner &&
-    owner === sentRecoveryOwner &&
-    conn === owner.hostConn &&
-    owner.queueItemId === queueItemId &&
-    owner.sessionId !== undefined &&
-    owner.sessionId === sessionId
-  );
 }
 
 /** FILE_WAIT must echo the complete optional correlation tuple exactly. */

@@ -410,12 +410,13 @@ function abortSuspendedPreloadLane(lane: SuspendedPreloadLane): void {
  * guest is known to take the main lane.
  *
  * A guest awaiting this preload takes the main FILE_START while its own route
- * is 'local' (transfer-receive.ts shouldAcceptLocalDirectFileStart); it drops
- * that header and its chunks otherwise, and nothing asks again. From 9.0.9 a
- * guest whose route is still 'unknown' also takes the exact tuple its own
- * recovery request asked for, because this publication travels on the control
- * route and the header on the bulk channel; a 9.0.4 to 9.0.8 guest does not,
- * and nothing on the wire tells the host which one it serves (RO-18). The host
+ * is 'local' (transfer-receive.ts shouldAcceptLocalDirectFileStart), and from
+ * 9.0.12 on any route when the header names the preload's own admitted direct
+ * session, which the main lane this lane yields to always carries. A 9.0.9 to
+ * 9.0.11 guest also takes it while 'unknown' only for the exact tuple its own
+ * recovery request asked for, a 9.0.8 or older guest only while 'local'; an
+ * older guest drops that header and its chunks otherwise, nothing asks again,
+ * and nothing on the wire tells the host which guest it serves (RO-18). The host
  * learns the recovered route only by re-detecting it (host.ts resets the
  * peer's type when it announces the recovery) and then publishes it to the
  * guest, which adopts the host's type. So the lane always restarts at

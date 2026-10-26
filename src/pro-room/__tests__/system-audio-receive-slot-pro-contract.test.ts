@@ -1148,6 +1148,60 @@ describe('room switch, share end, leave and force-stop', () => {
     expect(slot().title).toBe(previousTitle);
   });
 
+  // 5B-OV1 guard (old-version survey, OV-A03 note). Since 7.0.0 a PRO room
+  // has no browser data connection and network.hostConn stays null, so the
+  // Standard SFU guest adapter refuses a READY there before it freezes a share
+  // route or subscribes: the coordinator has no Standard subscription to
+  // retire on its live reconciles. The connection below is listed as a live
+  // peer of the 'host' media engine, so the frame passes the dispatcher and
+  // reaches the adapter's handler.
+  it('5B-OV1 guard: a Standard READY delivered in a PRO room starts no Standard subscription', async () => {
+    await applyState(live(sfuPublication()));
+    await advance(PRO_TRACK_AT_MS);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['pro-sfu-audio-1'] });
+    const activitiesBefore = [...seen.activities];
+
+    const conn = { open: true, peer: 'peer-00003', send: vi.fn() } as unknown as DataConnection;
+    setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+    const debug = vi.spyOn(log, 'debug');
+    for (const audience of ['remote', 'all'] as const) {
+      await handleData(
+        {
+          type: MSG.SYSTEM_AUDIO_SFU_READY,
+          version: 2,
+          audience,
+          sessionId: 'rt_host_session_1',
+          track: { trackName: 'stereo-standard', mid: '0' },
+        },
+        conn,
+      );
+    }
+    expect(debug.mock.calls.some(([line]) => String(line).startsWith('[Protocol] Ignored'))).toBe(
+      false,
+    );
+
+    // The heartbeat reconciles that follow leave the PRO reception as it was.
+    bindProSystemAudioSession(snapshot());
+    acceptProSystemAudioHeartbeatState(live(sfuPublication()), snapshot());
+    await advance(60_000);
+
+    expect(getGuestSystemAudioShareRoute()).toBe('unselected');
+    expect(getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+      pcState: null,
+      sessionId: null,
+      subscriptionKey: null,
+    });
+    expect(FakeRTCPeerConnection.instances).toHaveLength(0);
+    expect(realtime.count('new-session')).toBe(0);
+    expect(realtime.count('tracks-new')).toBe(0);
+    expect(slot()).toMatchObject({ receiving: true, sources: ['pro-sfu-audio-1'] });
+    expect(webAudio.maxConnected).toBe(1);
+    expect(seen.activities).toEqual(activitiesBefore);
+    expect(seen.toasts).toEqual([]);
+    expect(seen.counts.receiveTimeouts).toBe(0);
+    expect(seen.counts.forceStops).toBe(0);
+  });
+
   it('the share ending restores the previous title and asks for the post-share restore once', async () => {
     await applyState(live(sfuPublication()));
     await advance(PRO_TRACK_AT_MS);

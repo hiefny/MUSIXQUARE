@@ -199,7 +199,7 @@ function harness() {
   } satisfies ProRoomSystemAudioApiForTests;
   const controller = new ProRoomSystemAudioController(api, observer);
   controller.bindSession(sessionSnapshot());
-  controller.acceptProSystemAudioState(idle());
+  controller.acceptHeartbeatProSystemAudioState(idle());
   return { api, controller, views, lost, authorityConfirmations };
 }
 
@@ -400,15 +400,15 @@ describe('ProRoomSystemAudioController', () => {
     await controller.acquireProSystemAudioLease();
     await controller.commitProSystemAudioPublication(publication());
 
-    expect(controller.acceptProSystemAudioState(idle(1))).toEqual(idle(1));
+    expect(controller.acceptHeartbeatProSystemAudioState(idle(1))).toEqual(idle(1));
     expect(lost).toEqual(['authoritative-revocation']);
-    expect(controller.acceptProSystemAudioState(live())).toEqual(idle(1));
+    expect(controller.acceptHeartbeatProSystemAudioState(live())).toEqual(idle(1));
     expect(controller.getViewState()).toMatchObject({ phase: 'idle', canStart: true });
   });
 
   it('blocks a remote owner but lets a newer generation replace local state', () => {
     const { controller, lost } = harness();
-    controller.acceptProSystemAudioState(preparing(REMOTE_ID, 2));
+    controller.acceptHeartbeatProSystemAudioState(preparing(REMOTE_ID, 2));
     expect(() => controller.acquireProSystemAudioLease()).toThrow(
       'PRO_ROOM_SYSTEM_AUDIO_OWNED_BY_ANOTHER_PARTICIPANT',
     );
@@ -446,7 +446,11 @@ describe('ProRoomSystemAudioController', () => {
     });
   });
 
-  it('accepts a remote direct-to-SFU promotion only from the authenticated state resource', async () => {
+  // Every state this controller accepts comes from the authenticated state
+  // resource: its GET (refreshProSystemAudioState) or a presence heartbeat that
+  // carries the same read (acceptHeartbeatProSystemAudioState). PRO rooms have
+  // no peer fan-out of this state since 7.0.0.
+  it('accepts a remote direct-to-SFU promotion at the same generation from the authenticated state resource', async () => {
     const { api, controller } = harness();
     const directState: ProRoomSystemAudioState = {
       ...live(REMOTE_ID, 4),
@@ -460,14 +464,43 @@ describe('ProRoomSystemAudioController', () => {
       ...live(REMOTE_ID, 4),
       publication: publication(),
     };
-    controller.acceptProSystemAudioState(directState);
+    controller.acceptHeartbeatProSystemAudioState(directState);
 
-    expect(() => controller.acceptProSystemAudioState(promotedState)).toThrow(
-      'PRO_ROOM_SYSTEM_AUDIO_STATE_CONFLICT',
-    );
     api.getSystemAudioState.mockResolvedValue(promotedState);
     await expect(controller.refreshProSystemAudioState()).resolves.toEqual(promotedState);
     expect(controller.getCurrentState()).toEqual(promotedState);
+  });
+
+  // The direct-to-SFU promotion of the same publication is the only
+  // equal-rank change the authenticated resource may make; any other change
+  // at the same generation and status is a conflict that keeps the state.
+  it.each([
+    {
+      change: 'another publication at the same generation',
+      incoming: (): ProRoomSystemAudioState => ({
+        ...live(REMOTE_ID, 4),
+        publication: { ...publication(), publicationId: 'publication_00002' },
+      }),
+    },
+    {
+      change: 'another SFU session for the same publication',
+      incoming: (): ProRoomSystemAudioState => ({
+        ...live(REMOTE_ID, 4),
+        publication: { ...publication(), sessionId: 'realtime_session_02' },
+      }),
+    },
+    {
+      change: 'another owner at the same generation',
+      incoming: (): ProRoomSystemAudioState => live(LOCAL_ID, 4),
+    },
+  ])('rejects $change from the authenticated state resource as a conflict', ({ incoming }) => {
+    const { controller } = harness();
+    controller.acceptHeartbeatProSystemAudioState(live(REMOTE_ID, 4));
+
+    expect(() => controller.acceptHeartbeatProSystemAudioState(incoming())).toThrow(
+      'PRO_ROOM_SYSTEM_AUDIO_STATE_CONFLICT',
+    );
+    expect(controller.getCurrentState()).toEqual(live(REMOTE_ID, 4));
   });
 
   it('never resurrects direct media from a delayed authenticated read after SFU promotion', async () => {
@@ -485,7 +518,7 @@ describe('ProRoomSystemAudioController', () => {
       publication: publication(),
     };
     const staleDirectRead = deferred<ProRoomSystemAudioState>();
-    controller.acceptProSystemAudioState(directState);
+    controller.acceptHeartbeatProSystemAudioState(directState);
     api.getSystemAudioState
       .mockReturnValueOnce(staleDirectRead.promise)
       .mockResolvedValueOnce(promotedState);

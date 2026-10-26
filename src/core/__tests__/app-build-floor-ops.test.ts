@@ -43,7 +43,7 @@ const TEST_POLICY: GitHubActionsOidcPolicy = {
   environment: 'production',
   eventName: 'workflow_dispatch',
   runnerEnvironment: 'github-hosted',
-  jobWorkflowRefs: ['owner/repo/.github/workflows/ops.yml@refs/heads/main'],
+  workflowRefs: ['owner/repo/.github/workflows/ops.yml@refs/heads/main'],
 };
 
 interface SigningKey {
@@ -126,7 +126,7 @@ function claimsFor(
     event_name: policy.eventName,
     ref_type: 'branch',
     ref_protected: 'true',
-    workflow_ref: policy.jobWorkflowRefs[0],
+    workflow_ref: policy.workflowRefs[0],
     workflow_sha: 'a'.repeat(40),
     runner_environment: policy.runnerEnvironment,
     environment: policy.environment,
@@ -182,7 +182,7 @@ describe('GitHub Actions OIDC verifier', () => {
     const token = await signToken(primary, claimsFor(TEST_POLICY, T0));
     await expect(verifyGitHubActionsOidcToken(token, TEST_POLICY, T0)).resolves.toEqual({
       ok: true,
-      jobWorkflowRef: TEST_POLICY.jobWorkflowRefs[0],
+      workflowRef: TEST_POLICY.workflowRefs[0],
       runId: '9000000001',
     });
     // The key set is cached.
@@ -369,7 +369,7 @@ describe('GitHub Actions OIDC verifier workflow claims', () => {
   const REUSABLE = 'owner/repo/.github/workflows/reusable.yml@refs/heads/main';
   const TWO_WORKFLOWS: GitHubActionsOidcPolicy = {
     ...TEST_POLICY,
-    jobWorkflowRefs: [OPS, OTHER_OPS],
+    workflowRefs: [OPS, OTHER_OPS],
   };
 
   it.each([
@@ -400,7 +400,7 @@ describe('GitHub Actions OIDC verifier workflow claims', () => {
       const token = await signToken(primary, claimsFor(policy, T0, overrides));
       await expect(verifyGitHubActionsOidcToken(token, policy, T0)).resolves.toEqual({
         ok: true,
-        jobWorkflowRef: workflow,
+        workflowRef: workflow,
         runId: '9000000001',
       });
     },
@@ -522,7 +522,7 @@ const PRODUCTION_POLICY: GitHubActionsOidcPolicy = {
   environment: 'production',
   eventName: 'workflow_dispatch',
   runnerEnvironment: 'github-hosted',
-  jobWorkflowRefs: [FLOOR_WORKFLOW, RELEASE_WORKFLOW],
+  workflowRefs: [FLOOR_WORKFLOW, RELEASE_WORKFLOW],
 };
 
 async function opsToken(overrides: Record<string, unknown> = {}, key = primary) {

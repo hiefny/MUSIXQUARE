@@ -576,7 +576,10 @@ const APP_BUILD_FLOOR_OPS_POLICY: GitHubActionsOidcPolicy = Object.freeze({
   environment: 'production',
   eventName: 'workflow_dispatch',
   runnerEnvironment: 'github-hosted',
-  jobWorkflowRefs: Object.freeze([
+  // The release deploy job and the floor job run their own steps, so their
+  // tokens name these in workflow_ref; a token minted inside a reusable
+  // workflow is refused.
+  workflowRefs: Object.freeze([
     'hiefny/MUSIXQUARE/.github/workflows/release.yml@refs/heads/main',
     'hiefny/MUSIXQUARE/.github/workflows/app-build-floor.yml@refs/heads/main',
   ]),
@@ -12399,7 +12402,7 @@ async function handleAppBuildFloorOps(
   if (parsedBody.error) return jsonBodyError(parsedBody);
   const command = parseAppBuildFloorOpsCommand(parsedBody.value);
   if (!command) return json({ error: 'INVALID_REQUEST' }, 400);
-  const workflow = verified.jobWorkflowRef;
+  const workflow = verified.workflowRef;
 
   if (command.action === 'check') {
     const [floor, liveAppBuild] = await Promise.all([

@@ -4,8 +4,9 @@
  * A workflow job with `id-token: write` mints a short-lived RS256 JWT from
  * GitHub's issuer. The App Worker accepts it instead of a stored secret, so no
  * owner credential is involved. Every identity claim the caller relies on is
- * pinned by the policy; the signature is checked against GitHub's published
- * key set.
+ * pinned by the policy, the workflow through `workflow_ref` (the callers run
+ * their own steps, not a reusable workflow); the signature is checked against
+ * GitHub's published key set.
  *
  * Abuse bound: an unknown `kid` refreshes the key set at most once per
  * GITHUB_OIDC_JWKS_REFRESH_MIN_INTERVAL_MS per isolate (any fetch attempt,
@@ -42,11 +43,17 @@ export interface GitHubActionsOidcPolicy {
   readonly environment: string;
   readonly eventName: string;
   readonly runnerEnvironment: string;
-  readonly jobWorkflowRefs: readonly string[];
+  /**
+   * Workflows (`owner/repo/.github/workflows/file.yml@ref`) whose jobs may
+   * call, each running its own steps. The token's `workflow_ref` must be one
+   * of them, and the job must not run a reusable workflow (see
+   * `allowedWorkflowRef`).
+   */
+  readonly workflowRefs: readonly string[];
 }
 
 export type GitHubActionsOidcVerification =
-  | { ok: true; jobWorkflowRef: string; runId: string | null }
+  | { ok: true; workflowRef: string; runId: string | null }
   | { ok: false; status: 401; error: 'OIDC_TOKEN_INVALID' }
   | { ok: false; status: 403; error: 'OIDC_TOKEN_FORBIDDEN' }
   | { ok: false; status: 503; error: 'OIDC_JWKS_UNAVAILABLE' };
@@ -243,17 +250,39 @@ function identityMatches(claims: JsonObject, policy: GitHubActionsOidcPolicy): b
     claims.ref === policy.ref &&
     claims.environment === policy.environment &&
     claims.event_name === policy.eventName &&
-    claims.runner_environment === policy.runnerEnvironment &&
-    typeof claims.job_workflow_ref === 'string' &&
-    policy.jobWorkflowRefs.includes(claims.job_workflow_ref)
+    claims.runner_environment === policy.runnerEnvironment
   );
+}
+
+/**
+ * The allowed workflow whose own steps minted the token, or null.
+ *
+ * `workflow_ref` names the workflow the event ran; GitHub documents it for
+ * every job. GitHub documents `job_workflow_ref` only for a job that runs a
+ * reusable workflow, where it names the called workflow whose steps run.
+ * Tokens may also repeat `workflow_ref` there for a job that runs its own
+ * steps, so an absent, empty or identical value means no reusable workflow
+ * and the verifier works either way. Any other value is refused, even one on
+ * the allowlist: the allowed callers run their own steps, and a token minted
+ * inside a reusable workflow (such as the release's recovery job) carries the
+ * caller's `workflow_ref` while running code the allowlist did not name.
+ */
+function allowedWorkflowRef(claims: JsonObject, allowed: readonly string[]): string | null {
+  const workflowRef = claims.workflow_ref;
+  if (typeof workflowRef !== 'string' || !allowed.includes(workflowRef)) return null;
+  const jobWorkflowRef = claims.job_workflow_ref;
+  if (jobWorkflowRef !== undefined && jobWorkflowRef !== '' && jobWorkflowRef !== workflowRef) {
+    return null;
+  }
+  return workflowRef;
 }
 
 /**
  * Verifies a GitHub Actions OIDC token against the policy. 401 for anything
  * that is not a valid, current token for the policy's audience; 403 for a
  * valid token of another repository, ref, environment, event, runner or
- * workflow; 503 when no key set is available to check the signature.
+ * workflow (a `workflow_ref` off the allowlist, or a job that runs a reusable
+ * workflow); 503 when no key set is available to check the signature.
  */
 export async function verifyGitHubActionsOidcToken(
   token: unknown,
@@ -309,9 +338,11 @@ export async function verifyGitHubActionsOidcToken(
     return INVALID;
   }
   if (!identityMatches(claims, policy)) return FORBIDDEN;
+  const workflowRef = allowedWorkflowRef(claims, policy.workflowRefs);
+  if (workflowRef === null) return FORBIDDEN;
   return {
     ok: true,
-    jobWorkflowRef: String(claims.job_workflow_ref),
+    workflowRef,
     runId: typeof claims.run_id === 'string' ? claims.run_id : null,
   };
 }

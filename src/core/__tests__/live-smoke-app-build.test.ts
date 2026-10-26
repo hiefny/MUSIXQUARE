@@ -8,10 +8,8 @@ import {
   APP_UPDATE_REQUIRED_ERROR_TYPE,
 } from '../../../cloudflare/app-build-floor-contract.ts';
 import {
-  LegacySignalingHostAuthError,
   appBuildRequestHeaders,
   classifyHostAdmission,
-  createHostAuthBuildSelector,
   readServiceWorkerAppBuild,
   requireLegacyShapeHostOutcome,
   resolveLiveSmokeAppBuild,
@@ -35,31 +33,20 @@ const INVALID_FIRST_FRAME = Object.freeze({
 });
 
 describe('live smoke App build', () => {
-  it('reports the checked-out release build and follows the signaling Worker under test', () => {
+  it('reports the checked-out release build', () => {
     const { serviceWorkerCacheEpoch } = readReleaseIdentity();
-    expect(resolveLiveSmokeAppBuild({ env: {} })).toEqual({
-      build: serviceWorkerCacheEpoch,
-      signalingMode: 'unknown',
-    });
-    expect(
-      resolveLiveSmokeAppBuild({ env: { MXQR_EXPECTED_SIGNALING_VERSION: '  version-1 ' } }),
-    ).toEqual({ build: serviceWorkerCacheEpoch, signalingMode: 'candidate' });
-    expect(
-      resolveLiveSmokeAppBuild({ env: { MXQR_EXPECTED_SIGNALING_VERSION: '   ' } }).signalingMode,
-    ).toBe('unknown');
-    expect(() => resolveLiveSmokeAppBuild({ env: {}, readBuild: () => 0 })).toThrow(
-      'positive App build',
-    );
+    expect(resolveLiveSmokeAppBuild()).toEqual({ build: serviceWorkerCacheEpoch });
+    expect(resolveLiveSmokeAppBuild({ readBuild: () => 785 })).toEqual({ build: 785 });
+    expect(() => resolveLiveSmokeAppBuild({ readBuild: () => 0 })).toThrow('positive App build');
   });
 
   it('puts the build on PRO requests through the shared header name', () => {
     expect(appBuildRequestHeaders(785)).toEqual({ [APP_BUILD_HEADER]: '785' });
   });
 
-  it('adds appBuild to an auth frame unless the legacy shape is selected', () => {
+  it('adds appBuild to an auth frame', () => {
     const frame = { type: 'guest-auth', password: '', reconnectSecret: 'secret' };
     expect(withAppBuild(frame, 785)).toEqual({ ...frame, appBuild: 785 });
-    expect(withAppBuild(frame, null)).toBe(frame);
     expect(frame).not.toHaveProperty('appBuild');
   });
 
@@ -100,63 +87,6 @@ describe('live smoke App build', () => {
     expect(() =>
       requireLegacyShapeHostOutcome({ ...REFUSAL, minAppBuild: -1 }, 'legacy host'),
     ).toThrow('legacy host');
-  });
-
-  describe('host-auth shape selection', () => {
-    it('retries once in the legacy shape against a Worker of unknown version', async () => {
-      const log = vi.fn();
-      const selector = createHostAuthBuildSelector(
-        { build: 785, signalingMode: 'unknown' },
-        { label: 'smoke', log },
-      );
-      const sent: Array<number | null> = [];
-      const result = await selector.run(async (frameBuild) => {
-        sent.push(frameBuild);
-        if (frameBuild !== null) throw new LegacySignalingHostAuthError('smoke host');
-        return 'admitted';
-      });
-      expect(result).toBe('admitted');
-      expect(sent).toEqual([785, null]);
-      expect(selector.frameBuild()).toBeNull();
-      expect(log).toHaveBeenCalledOnce();
-      expect(String(log.mock.calls[0]?.[0])).toContain('legacy signaling Worker (no floor)');
-
-      // The legacy shape stays selected and is never retried again.
-      const later = vi.fn(async (frameBuild: number | null) => {
-        expect(frameBuild).toBeNull();
-        throw new LegacySignalingHostAuthError('again');
-      });
-      await expect(selector.run(later)).rejects.toBeInstanceOf(LegacySignalingHostAuthError);
-      expect(later).toHaveBeenCalledOnce();
-    });
-
-    it('never retries in the legacy shape for the candidate signaling Worker', async () => {
-      const selector = createHostAuthBuildSelector(
-        { build: 785, signalingMode: 'candidate' },
-        { label: 'smoke', log: vi.fn() },
-      );
-      const attempt = vi.fn(async () => {
-        throw new LegacySignalingHostAuthError('candidate host');
-      });
-      await expect(selector.run(attempt)).rejects.toBeInstanceOf(LegacySignalingHostAuthError);
-      expect(attempt).toHaveBeenCalledOnce();
-      expect(attempt).toHaveBeenCalledWith(785);
-      expect(selector.frameBuild()).toBe(785);
-    });
-
-    it('does not retry any other failure', async () => {
-      const selector = createHostAuthBuildSelector(
-        { build: 785, signalingMode: 'unknown' },
-        { label: 'smoke', log: vi.fn() },
-      );
-      const failure = new Error('host closed 1008: APP_UPDATE_REQUIRED');
-      const attempt = vi.fn(async () => {
-        throw failure;
-      });
-      await expect(selector.run(attempt)).rejects.toBe(failure);
-      expect(attempt).toHaveBeenCalledOnce();
-      expect(selector.frameBuild()).toBe(785);
-    });
   });
 
   it('reads the live App build from the one canonical service-worker line', async () => {

@@ -8,7 +8,6 @@ import {
   RateLimitUnavailableError,
   createRateLimitUnavailableRetry,
 } from '../../../scripts/live-smoke-rate-limit-retry.mts';
-import { LegacySignalingHostAuthError } from '../../../scripts/live-smoke-app-build.mts';
 import {
   ALTERNATE_SIGNALING_ORIGIN,
   ALTERNATE_SIGNALING_HTTP_ORIGIN,
@@ -829,8 +828,6 @@ describe('live signaling smoke deployment readiness', () => {
 });
 
 describe('live signaling smoke App build', () => {
-  const CANDIDATE = { build: 785, signalingMode: 'candidate' } as const;
-  const UNKNOWN = { build: 785, signalingMode: 'unknown' } as const;
   const INVALID_FIRST_FRAME = {
     type: 'error',
     errorType: 'invalid-id',
@@ -848,15 +845,12 @@ describe('live signaling smoke App build', () => {
 
   it('admits the candidate build and keeps the exact version check', () => {
     const open = { type: 'peer-open', workerVersionId: EXPECTED_VERSION };
-    expect(requireAdmittedSignalingHost(open, 'host', 785, CANDIDATE, EXPECTED_VERSION, true)).toBe(
-      open,
-    );
+    expect(requireAdmittedSignalingHost(open, 'host', 785, EXPECTED_VERSION, true)).toBe(open);
     expect(() =>
       requireAdmittedSignalingHost(
         { type: 'peer-open', workerVersionId: STALE_VERSION },
         'host',
         785,
-        CANDIDATE,
         EXPECTED_VERSION,
         true,
       ),
@@ -868,14 +862,7 @@ describe('live signaling smoke App build', () => {
   // means the smoke's frame is wrong, so it is never a stale edge to wait out.
   it('fails an invalid first frame of the first candidate host at once, never as a stale edge', async () => {
     const refusal = (): unknown =>
-      requireAdmittedSignalingHost(
-        INVALID_FIRST_FRAME,
-        'host',
-        785,
-        CANDIDATE,
-        EXPECTED_VERSION,
-        true,
-      );
+      requireAdmittedSignalingHost(INVALID_FIRST_FRAME, 'host', 785, EXPECTED_VERSION, true);
     expect(refusal).toThrow(invalidFrameLine('host'));
     expect(refusal).not.toThrow(StaleSignalingVersionError);
 
@@ -899,7 +886,6 @@ describe('live signaling smoke App build', () => {
         INVALID_FIRST_FRAME,
         'reconnected host',
         785,
-        CANDIDATE,
         EXPECTED_VERSION,
         false,
       );
@@ -907,18 +893,17 @@ describe('live signaling smoke App build', () => {
     expect(later).not.toThrow(StaleSignalingVersionError);
 
     const unknownVersion = (): unknown =>
-      requireAdmittedSignalingHost(INVALID_FIRST_FRAME, 'host', 785, UNKNOWN, '', true);
+      requireAdmittedSignalingHost(INVALID_FIRST_FRAME, 'host', 785, '', true);
     expect(unknownVersion).toThrow(invalidFrameLine('host'));
     expect(unknownVersion).not.toThrow(StaleSignalingVersionError);
   });
 
   it('never retries a floor refusal of the candidate build', () => {
-    for (const appBuild of [CANDIDATE, UNKNOWN]) {
+    for (const expectedVersion of [EXPECTED_VERSION, '']) {
       const refusal = (): unknown =>
-        requireAdmittedSignalingHost(FLOOR_REFUSAL, 'host', 785, appBuild, EXPECTED_VERSION, true);
+        requireAdmittedSignalingHost(FLOOR_REFUSAL, 'host', 785, expectedVersion, true);
       expect(refusal).toThrow('host was refused below the App build floor 786 with build 785');
       expect(refusal).not.toThrow(StaleSignalingVersionError);
-      expect(refusal).not.toThrow(LegacySignalingHostAuthError);
     }
   });
 });

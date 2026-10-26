@@ -8,7 +8,6 @@ import {
   RateLimitUnavailableError,
   createRateLimitUnavailableRetry,
 } from '../../../scripts/live-smoke-rate-limit-retry.mts';
-import { LegacySignalingHostAuthError } from '../../../scripts/live-smoke-app-build.mts';
 import { importTranspiledLiveSmoke } from './live-smoke-module-fixture.ts';
 
 class SmokeSocket extends EventEmitter {
@@ -59,7 +58,7 @@ delete fixtureGlobal.__mxqrSmokeSocket;
 delete fixtureGlobal.__mxqrOpenSmokeAuthority;
 delete fixtureGlobal.__mxqrSmokeConvergence;
 
-function open(expectedVersion = 'version', hostAppBuild: number | null = 785) {
+function open(expectedVersion = 'version', hostAppBuild = 785) {
   return openAuthority(
     '123456',
     { roomUploadAssertionVersion: 1 },
@@ -244,19 +243,6 @@ describe('live remote-share smoke App build', () => {
     (await outcome).close();
   });
 
-  it('sends the legacy shape once the selector chose it', async () => {
-    vi.useFakeTimers();
-    const outcome = open('', null).catch((error: unknown) => error);
-    SmokeSocket.current.emit('open');
-    await vi.advanceTimersByTimeAsync(0);
-    expect(sentFrames()).toEqual([{ type: 'host-auth', secret: 'secret' }]);
-    SmokeSocket.current.emit('message', Buffer.from(INVALID_FIRST_FRAME));
-    const error = await outcome;
-    // A legacy-shape frame refused as invalid is a real failure, not a retry.
-    expect(error).not.toBeInstanceOf(LegacySignalingHostAuthError);
-    expect((error as Error).message).toContain('HOST_AUTH_FIRST_FRAME_INVALID');
-  });
-
   it('fails an invalid first frame at once when the Worker version is unknown', async () => {
     vi.useFakeTimers();
     const outcome = open('', 785).catch((error: unknown) => error);
@@ -286,7 +272,7 @@ describe('live remote-share smoke App build', () => {
     expect(attempts).toBe(1);
   });
 
-  it('never retries a floor refusal of the selected build', async () => {
+  it('never retries a floor refusal of the release build', async () => {
     vi.useFakeTimers();
     const outcome = open('', 785).catch((error: unknown) => error);
     SmokeSocket.current.emit('open');
@@ -303,7 +289,6 @@ describe('live remote-share smoke App build', () => {
       ),
     );
     const error = await outcome;
-    expect(error).not.toBeInstanceOf(LegacySignalingHostAuthError);
     expect((error as Error).message).toContain('below the App build floor 786');
   });
 });

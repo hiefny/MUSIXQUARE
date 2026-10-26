@@ -25,7 +25,7 @@
  */
 
 import { appendFileSync } from 'node:fs';
-import { randomInt, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -109,7 +109,7 @@ export interface AppBuildFloorStatus {
 }
 
 export interface SignalingFloorProbe {
-  readonly outcome: 'below-floor' | 'admitted' | 'legacy-refused' | 'refused';
+  readonly outcome: 'below-floor' | 'admitted' | 'invalid-frame' | 'refused';
   readonly minAppBuild?: number;
   readonly closeCode?: number;
   readonly closeReason?: string;
@@ -547,8 +547,9 @@ async function verifyProGate(deps: AppBuildFloorDependencies, floor: number): Pr
  * A host-auth with floor - 1 is refused before admission, so no room is
  * created. An admission or a refusal at another floor (an isolate that still
  * holds the floor from before the change), another refusal, or a probe that
- * could not connect is repeated within the same small attempt budget; a
- * pre-floor Worker and a wrong close fail at once.
+ * could not connect is repeated within the same small attempt budget; an
+ * invalid first frame (the probe's host-auth no longer matches the shape the
+ * Worker requires) and a wrong close fail at once.
  */
 async function verifySignalingGate(deps: AppBuildFloorDependencies, floor: number): Promise<void> {
   if (floor <= 0) return;
@@ -563,8 +564,10 @@ async function verifySignalingGate(deps: AppBuildFloorDependencies, floor: numbe
       deps.log(`[app-build-floor] Signaling probe attempt ${attempt} ${last}`);
       continue;
     }
-    if (probe.outcome === 'legacy-refused') {
-      throw new Error('The Signaling Worker does not accept appBuild; deploy signaling first.');
+    if (probe.outcome === 'invalid-frame') {
+      throw new Error(
+        'The Signaling Worker refused the probe host-auth as an invalid first frame (HOST_AUTH_FIRST_FRAME_INVALID); the probe must send the host-auth shape the Worker requires.',
+      );
     }
     if (probe.outcome === 'below-floor' && probe.minAppBuild === floor) {
       if (probe.closeCode !== 1008 || probe.closeReason !== APP_UPDATE_REQUIRED_CODE) {
@@ -811,10 +814,10 @@ export interface SignalingProbeSocket {
 }
 
 /**
- * Sends one pending host-auth carrying `appBuild` and reads the answer: the
- * refusal frame and its close, an admission (the probe room is closed at
- * once), a pre-floor Worker's refusal, or any other refusal. The socket is
- * always terminated.
+ * Sends one pending host-auth carrying `appBuild` and the PIN fields the
+ * Worker requires (a passwordless room) and reads the answer: the refusal
+ * frame and its close, an admission (the probe room is closed at once), an
+ * invalid first frame, or any other refusal. The socket is always terminated.
  */
 export async function runSignalingProbe(
   socket: SignalingProbeSocket,
@@ -831,7 +834,15 @@ export async function runSignalingProbe(
       socket.once('open', () => {
         socket.send(
           JSON.stringify(
-            withAppBuild({ type: 'host-auth', secret: `floor-probe-${randomUUID()}` }, appBuild),
+            withAppBuild(
+              {
+                type: 'host-auth',
+                secret: `floor-probe-${randomUUID()}`,
+                desiredRoomPassword: '',
+                pinMutationId: randomBytes(24).toString('base64url'),
+              },
+              appBuild,
+            ),
           ),
         );
       });
@@ -863,7 +874,7 @@ export async function runSignalingProbe(
           return;
         }
         resolveProbe({
-          outcome: admission?.outcome === 'legacy-refused' ? 'legacy-refused' : 'refused',
+          outcome: admission?.outcome === 'invalid-frame' ? 'invalid-frame' : 'refused',
         });
       });
       socket.once('unexpected-response', (_request, response) => {
